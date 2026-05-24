@@ -1,0 +1,66 @@
+[package]
+name = "foundry-app"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Foundry HTTP application (axum binary + composition root)"
+
+[[bin]]
+name = "foundry"
+path = "src/main.rs"
+
+[lib]
+name = "foundry_app"
+path = "src/lib.rs"
+
+[features]
+default = []
+test-support = []
+
+[dependencies]
+foundry-core = { path = "../foundry-core" }
+foundry-store = { path = "../foundry-store" }
+foundry-auth = { path = "../foundry-auth" }
+foundry-realtime = { path = "../foundry-realtime" }
+
+axum = { workspace = true }
+secrecy = { workspace = true }
+time = { workspace = true }
+tokio = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+
+tower-sessions = { workspace = true }
+tower-sessions-sqlx-store = { workspace = true }
+
+sqlx = { workspace = true }
+sha2 = { workspace = true }
+async-trait = { workspace = true }
+urlencoding = { workspace = true }
+rand = { workspace = true }
+base64 = { workspace = true }
+subtle = { workspace = true }
+
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_urlencoded = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tracing-log = { workspace = true }
+
+dotenvy = { workspace = true }
+uuid = { workspace = true }
+lettre = { workspace = true }
+
+bytes = "1"
+futures = { workspace = true }
+tokio-stream = { version = "0.1", features = ["sync"] }
+
+[dev-dependencies]
+foundry-realtime = { path = "../foundry-realtime" }

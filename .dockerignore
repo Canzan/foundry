@@ -1,0 +1,11 @@
+target/
+.git/
+.github/
+docs/
+.dual-graph/
+.claude/
+.nwave/
+*.md
+!README.md
+.env
+.env.local

@@ -1,0 +1,981 @@
+//! foundry-store — Postgres adapter for slice 1.
+//!
+//! Public surface kept minimal: [`Store`] owns the [`sqlx::PgPool`] and
+//! exposes [`Store::connect`], [`Store::migrate`], [`Store::probe`].
+//! Per-aggregate repository modules land as US-05..US-08 require them.
+
+#![forbid(unsafe_code)]
+#![deny(clippy::all)]
+
+use sqlx::postgres::PgPoolOptions;
+use sqlx::PgPool;
+use std::time::Duration;
+use thiserror::Error;
+
+/// Advisory-lock key used to serialize migrations across replicas.
+/// (`data-access.md` §"Migration runner".)
+const MIGRATION_LOCK_ID: i64 = 0x_F0_0D_BA_BE_F0_0D_BA_BE_u64 as i64;
+
+#[derive(Debug, Error)]
+pub enum StoreError {
+    #[error("database error: {0}")]
+    Sqlx(#[from] sqlx::Error),
+    #[error("migration failed: {0}")]
+    MigrationFailed(#[from] sqlx::migrate::MigrateError),
+}
+
+#[derive(Debug, Error)]
+pub enum ProbeError {
+    #[error("probe failed: {0}")]
+    Failed(String),
+    #[error(transparent)]
+    Sqlx(#[from] sqlx::Error),
+}
+
+#[derive(Debug, Clone)]
+pub struct ProbeReport {
+    pub select_one_ok: bool,
+    pub round_trip_ms: u128,
+}
+
+/// Postgres-backed store. Wraps a [`sqlx::PgPool`].
+#[derive(Debug, Clone)]
+pub struct Store {
+    pool: PgPool,
+}
+
+impl Store {
+    /// Open a connection pool against `database_url`.
+    ///
+    /// Pool sized to 10 by default (NFR-PERF-04). Callers may rebuild
+    /// the pool with bespoke options for tests.
+    pub async fn connect(database_url: &str) -> Result<Self, StoreError> {
+        let pool = PgPoolOptions::new()
+            .min_connections(1)
+            .max_connections(10)
+            .acquire_timeout(Duration::from_secs(5))
+            .idle_timeout(Duration::from_secs(600))
+            .max_lifetime(Duration::from_secs(1800))
+            .connect(database_url)
+            .await?;
+        Ok(Self { pool })
+    }
+
+    /// Construct a store from an externally-built pool (used by tests
+    /// that drive a [`testcontainers`] Postgres with bespoke search_path).
+    pub fn from_pool(pool: PgPool) -> Self {
+        Self { pool }
+    }
+
+    /// Run sqlx migrations under an advisory lock so concurrent replicas
+    /// serialize on application startup.
+    pub async fn migrate(&self) -> Result<(), StoreError> {
+        let mut conn = self.pool.acquire().await?;
+        sqlx::query("SELECT pg_advisory_lock($1)")
+            .bind(MIGRATION_LOCK_ID)
+            .execute(&mut *conn)
+            .await?;
+        let result = sqlx::migrate!("./migrations").run(&mut *conn).await;
+        // Always try to release the lock — even on migration failure.
+        let _ = sqlx::query("SELECT pg_advisory_unlock($1)")
+            .bind(MIGRATION_LOCK_ID)
+            .execute(&mut *conn)
+            .await;
+        result.map_err(StoreError::from)
+    }
+
+    /// Liveness probe: `SELECT 1` round-trip.
+    pub async fn probe(&self) -> Result<ProbeReport, ProbeError> {
+        let started = std::time::Instant::now();
+        let one: (i32,) = sqlx::query_as("SELECT 1").fetch_one(&self.pool).await?;
+        if one.0 != 1 {
+            return Err(ProbeError::Failed("SELECT 1 returned non-1".to_string()));
+        }
+        Ok(ProbeReport {
+            select_one_ok: true,
+            round_trip_ms: started.elapsed().as_millis(),
+        })
+    }
+
+    /// Has any workspace been provisioned? Used by the bootstrap flow
+    /// (US-01 / US-05) to decide whether to mint a bootstrap token.
+    pub async fn any_workspace_exists(&self) -> Result<bool, StoreError> {
+        let row: (bool,) = sqlx::query_as("SELECT EXISTS (SELECT 1 FROM workspaces)")
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(row.0)
+    }
+
+    /// Insert a bootstrap-token row. Caller passes the SHA-256 of the raw token.
+    pub async fn insert_bootstrap_token(
+        &self,
+        id: uuid::Uuid,
+        token_hash: &[u8],
+        expires_at: time::OffsetDateTime,
+    ) -> Result<(), StoreError> {
+        sqlx::query(
+            "INSERT INTO bootstrap_tokens (id, token_hash, expires_at) VALUES ($1, $2, $3)",
+        )
+        .bind(id)
+        .bind(token_hash)
+        .bind(expires_at)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub fn pool(&self) -> &PgPool {
+        &self.pool
+    }
+
+    /// Atomically claim a bootstrap token: mark it consumed if-and-only-if
+    /// it has not been consumed and has not expired. Returns the row's
+    /// `id` on success; `None` if the token is unknown, already used, or
+    /// expired. This is the single-use enforcement point — concurrent
+    /// claim attempts race on this UPDATE; one wins, the others see
+    /// `None` and surface 410 Gone.
+    pub async fn claim_bootstrap_token(
+        &self,
+        token_hash: &[u8],
+        now: time::OffsetDateTime,
+    ) -> Result<Option<uuid::Uuid>, StoreError> {
+        let row: Option<(uuid::Uuid,)> = sqlx::query_as(
+            "UPDATE bootstrap_tokens
+                SET used_at = $2
+              WHERE token_hash = $1
+                AND used_at IS NULL
+                AND expires_at > $2
+              RETURNING id",
+        )
+        .bind(token_hash)
+        .bind(now)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|r| r.0))
+    }
+
+    /// Why a bootstrap token lookup might fail. Drives the explanatory
+    /// page rendered for invalid `/bootstrap?token=...` GETs.
+    pub async fn bootstrap_token_status(
+        &self,
+        token_hash: &[u8],
+        now: time::OffsetDateTime,
+    ) -> Result<BootstrapTokenStatus, StoreError> {
+        let row: Option<(Option<time::OffsetDateTime>, time::OffsetDateTime)> = sqlx::query_as(
+            "SELECT used_at, expires_at FROM bootstrap_tokens WHERE token_hash = $1",
+        )
+        .bind(token_hash)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(match row {
+            None => BootstrapTokenStatus::Unknown,
+            Some((Some(_), _)) => BootstrapTokenStatus::AlreadyUsed,
+            Some((None, expires_at)) if expires_at <= now => BootstrapTokenStatus::Expired,
+            Some(_) => BootstrapTokenStatus::Valid,
+        })
+    }
+
+    /// Create the initial workspace + admin user + default team + default
+    /// project + admin membership in a single transaction. Returns the
+    /// newly-minted `(workspace_id, user_id)` so the handler can attach
+    /// the user_id to the session cookie.
+    ///
+    /// Caller is responsible for ensuring the bootstrap token was claimed
+    /// (single-use guard) before invoking this.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn create_initial_workspace(
+        &self,
+        workspace_id: uuid::Uuid,
+        workspace_name: &str,
+        user_id: uuid::Uuid,
+        email_lower: &str,
+        email_display: &str,
+        display_name: &str,
+        password_hash: &str,
+        team_id: uuid::Uuid,
+        team_name: &str,
+        team_slug: &str,
+        project_id: uuid::Uuid,
+        project_name: &str,
+        project_slug: &str,
+        project_key_prefix: &str,
+    ) -> Result<(), StoreError> {
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("INSERT INTO workspaces (id, name) VALUES ($1, $2)")
+            .bind(workspace_id)
+            .bind(workspace_name)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query(
+            "INSERT INTO users (id, email_lower, email_display, display_name, password_hash)
+                  VALUES ($1, $2, $3, $4, $5)",
+        )
+        .bind(user_id)
+        .bind(email_lower)
+        .bind(email_display)
+        .bind(display_name)
+        .bind(password_hash)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            "INSERT INTO workspace_memberships (workspace_id, user_id, role)
+                  VALUES ($1, $2, 'admin')",
+        )
+        .bind(workspace_id)
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query("INSERT INTO teams (id, workspace_id, name, slug) VALUES ($1, $2, $3, $4)")
+            .bind(team_id)
+            .bind(workspace_id)
+            .bind(team_name)
+            .bind(team_slug)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query(
+            "INSERT INTO team_memberships (team_id, user_id, role) VALUES ($1, $2, 'lead')",
+        )
+        .bind(team_id)
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            "INSERT INTO projects (id, team_id, workspace_id, name, slug, key_prefix)
+                  VALUES ($1, $2, $3, $4, $5, $6)",
+        )
+        .bind(project_id)
+        .bind(team_id)
+        .bind(workspace_id)
+        .bind(project_name)
+        .bind(project_slug)
+        .bind(project_key_prefix)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// Count workspaces. Used by the second-workspace-create handler to
+    /// short-circuit with 409 Conflict before hitting the unique index.
+    pub async fn workspace_count(&self) -> Result<i64, StoreError> {
+        let row: (i64,) = sqlx::query_as("SELECT count(*) FROM workspaces")
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(row.0)
+    }
+
+    /// Find the workspace's id + name (slice-1 has at most one).
+    pub async fn first_workspace(&self) -> Result<Option<(uuid::Uuid, String)>, StoreError> {
+        let row: Option<(uuid::Uuid, String)> =
+            sqlx::query_as("SELECT id, name FROM workspaces LIMIT 1")
+                .fetch_optional(&self.pool)
+                .await?;
+        Ok(row)
+    }
+
+    /// Record an invite row. Returns the row id (which the caller signs
+    /// into the URL).
+    pub async fn insert_invite(
+        &self,
+        id: uuid::Uuid,
+        workspace_id: uuid::Uuid,
+        invitee_email: Option<&str>,
+        created_by: uuid::Uuid,
+        expires_at: time::OffsetDateTime,
+    ) -> Result<(), StoreError> {
+        sqlx::query(
+            "INSERT INTO invites (id, workspace_id, invitee_email, created_by, expires_at)
+                  VALUES ($1, $2, $3, $4, $5)",
+        )
+        .bind(id)
+        .bind(workspace_id)
+        .bind(invitee_email)
+        .bind(created_by)
+        .bind(expires_at)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Look up an invite by id; used by tests to assert expiry windows.
+    pub async fn invite_expires_at(
+        &self,
+        id: uuid::Uuid,
+    ) -> Result<Option<time::OffsetDateTime>, StoreError> {
+        let row: Option<(time::OffsetDateTime,)> =
+            sqlx::query_as("SELECT expires_at FROM invites WHERE id = $1")
+                .bind(id)
+                .fetch_optional(&self.pool)
+                .await?;
+        Ok(row.map(|r| r.0))
+    }
+
+    // ----- US-06 sign-in -------------------------------------------------
+
+    /// Look up a user row by lower-cased email. Returns the bits the
+    /// sign-in handler needs (id + PHC-encoded password hash).
+    pub async fn find_user_by_email(
+        &self,
+        email_lower: &str,
+    ) -> Result<Option<UserRow>, StoreError> {
+        let row: Option<(uuid::Uuid, String)> =
+            sqlx::query_as("SELECT id, password_hash FROM users WHERE email_lower = $1")
+                .bind(email_lower)
+                .fetch_optional(&self.pool)
+                .await?;
+        Ok(row.map(|(id, password_hash)| UserRow { id, password_hash }))
+    }
+
+    /// Count failed sign-in attempts for `email_lower` since
+    /// `window_start`. Drives the NFR-SEC-02 brute-force delay.
+    pub async fn count_recent_failed_signin_attempts(
+        &self,
+        email_lower: &str,
+        window_start: time::OffsetDateTime,
+    ) -> Result<i64, StoreError> {
+        let row: (i64,) = sqlx::query_as(
+            "SELECT count(*) FROM signin_attempts
+              WHERE email_lower = $1 AND success = FALSE AND attempt_at >= $2",
+        )
+        .bind(email_lower)
+        .bind(window_start)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(row.0)
+    }
+
+    /// Record one sign-in attempt outcome.
+    pub async fn record_signin_attempt(
+        &self,
+        email_lower: &str,
+        success: bool,
+        attempt_at: time::OffsetDateTime,
+    ) -> Result<(), StoreError> {
+        sqlx::query(
+            "INSERT INTO signin_attempts (email_lower, attempt_at, success) VALUES ($1, $2, $3)",
+        )
+        .bind(email_lower)
+        .bind(attempt_at)
+        .bind(success)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Insert a password-reset token row. The caller passes the
+    /// SHA-256 hash; the raw token is never persisted.
+    pub async fn insert_reset_token(
+        &self,
+        id: uuid::Uuid,
+        user_id: uuid::Uuid,
+        token_hash: &[u8],
+        expires_at: time::OffsetDateTime,
+    ) -> Result<(), StoreError> {
+        sqlx::query(
+            "INSERT INTO reset_tokens (id, user_id, token_hash, expires_at)
+                  VALUES ($1, $2, $3, $4)",
+        )
+        .bind(id)
+        .bind(user_id)
+        .bind(token_hash)
+        .bind(expires_at)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Does a tower-sessions `session` row exist? Used by US-06's
+    /// sign-out scenario to assert server-side invalidation, not just
+    /// cookie clearing.
+    pub async fn session_row_exists(&self, session_id: &str) -> Result<bool, StoreError> {
+        let row: (bool,) = sqlx::query_as("SELECT EXISTS (SELECT 1 FROM session WHERE id = $1)")
+            .bind(session_id)
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(row.0)
+    }
+
+    // ----- US-07 project create ------------------------------------------
+
+    /// Look up a team by `(workspace_id, slug)`. Returns the team id +
+    /// human-readable name; the latter is rendered back into the empty
+    /// board view's heading.
+    pub async fn find_team_by_slug(
+        &self,
+        workspace_id: uuid::Uuid,
+        slug: &str,
+    ) -> Result<Option<TeamRow>, StoreError> {
+        let row: Option<(uuid::Uuid, String)> =
+            sqlx::query_as("SELECT id, name FROM teams WHERE workspace_id = $1 AND slug = $2")
+                .bind(workspace_id)
+                .bind(slug)
+                .fetch_optional(&self.pool)
+                .await?;
+        Ok(row.map(|(id, name)| TeamRow { id, name }))
+    }
+
+    /// Is `user_id` a member of `team_id`? Drives the 403 path when a
+    /// workspace member tries to create a project in a team they don't
+    /// belong to (US-07 scenario 4).
+    pub async fn is_team_member(
+        &self,
+        team_id: uuid::Uuid,
+        user_id: uuid::Uuid,
+    ) -> Result<bool, StoreError> {
+        let row: (bool,) = sqlx::query_as(
+            "SELECT EXISTS (SELECT 1 FROM team_memberships WHERE team_id = $1 AND user_id = $2)",
+        )
+        .bind(team_id)
+        .bind(user_id)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(row.0)
+    }
+
+    /// Insert a project row. Caller is responsible for: (a) validating
+    /// the key prefix through [`foundry_core::ProjectKey`], (b) computing
+    /// the slug, (c) verifying authorisation.
+    ///
+    /// Surfaces the distinct uniqueness errors (project name within
+    /// team vs key prefix within workspace) so the handler can render
+    /// the correct inline error.
+    pub async fn insert_project(
+        &self,
+        project_id: uuid::Uuid,
+        workspace_id: uuid::Uuid,
+        team_id: uuid::Uuid,
+        name: &str,
+        slug: &str,
+        key_prefix: &str,
+    ) -> Result<(), ProjectInsertError> {
+        let result = sqlx::query(
+            "INSERT INTO projects (id, team_id, workspace_id, name, slug, key_prefix)
+                  VALUES ($1, $2, $3, $4, $5, $6)",
+        )
+        .bind(project_id)
+        .bind(team_id)
+        .bind(workspace_id)
+        .bind(name)
+        .bind(slug)
+        .bind(key_prefix)
+        .execute(&self.pool)
+        .await;
+        match result {
+            Ok(_) => Ok(()),
+            Err(sqlx::Error::Database(db_err)) => {
+                // PostgreSQL "23505" = unique_violation. Constraint name
+                // tells us *which* uniqueness was violated; we mapped
+                // both constraints in migration 0001_init.sql.
+                if db_err.code().as_deref() == Some("23505") {
+                    let constraint = db_err.constraint().unwrap_or("");
+                    if constraint.contains("key_prefix") {
+                        return Err(ProjectInsertError::DuplicateKey);
+                    }
+                    if constraint.contains("slug") {
+                        return Err(ProjectInsertError::DuplicateName);
+                    }
+                    // Fallback when the constraint name is generic (older
+                    // Postgres versions strip the index name): look at
+                    // the message body.
+                    let msg = db_err.message().to_ascii_lowercase();
+                    if msg.contains("key_prefix") {
+                        return Err(ProjectInsertError::DuplicateKey);
+                    }
+                    if msg.contains("slug") {
+                        return Err(ProjectInsertError::DuplicateName);
+                    }
+                    return Err(ProjectInsertError::Other(StoreError::Sqlx(
+                        sqlx::Error::Database(db_err),
+                    )));
+                }
+                Err(ProjectInsertError::Other(StoreError::Sqlx(
+                    sqlx::Error::Database(db_err),
+                )))
+            }
+            Err(err) => Err(ProjectInsertError::Other(StoreError::Sqlx(err))),
+        }
+    }
+
+    /// Lookup project by `(team_id, slug)`. Used by the board view
+    /// handler `GET /team/{team}/project/{slug}` so the page heading
+    /// reflects the freshly-created project.
+    pub async fn find_project_by_slug(
+        &self,
+        team_id: uuid::Uuid,
+        slug: &str,
+    ) -> Result<Option<ProjectRow>, StoreError> {
+        let row: Option<(uuid::Uuid, String, String)> = sqlx::query_as(
+            "SELECT id, name, key_prefix FROM projects WHERE team_id = $1 AND slug = $2",
+        )
+        .bind(team_id)
+        .bind(slug)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|(id, name, key_prefix)| ProjectRow {
+            id,
+            name,
+            key_prefix,
+        }))
+    }
+
+    // ----- US-08 file issue ----------------------------------------------
+
+    /// Insert one issue, allocating its per-project sequential number in
+    /// the same transaction as the outbox `IssueCreated` event.
+    ///
+    /// Sequential numbering uses
+    /// `UPDATE projects SET next_issue_number = next_issue_number + 1
+    ///  RETURNING next_issue_number` which takes a row-level lock on the
+    /// project row, serialising concurrent allocations on the same project
+    /// without bottlenecking other projects. The returned value is the
+    /// number assigned to the NEW issue (we allocate "the next number to
+    /// give out" as the issue number, then bump it for the following insert).
+    ///
+    /// The outbox row is inserted in the same transaction so an
+    /// `IssueCreated` event is visible to LISTEN/NOTIFY consumers only
+    /// once the issue itself is committed. The realtime crate's
+    /// publisher hook (slice 2) consumes the row.
+    ///
+    /// Returns `(issue_id, number)` so the caller can render the
+    /// freshly-minted issue key in the response without a re-fetch.
+    pub async fn insert_issue_with_outbox(
+        &self,
+        issue_id: uuid::Uuid,
+        workspace_id: uuid::Uuid,
+        project_id: uuid::Uuid,
+        project_key_prefix: &str,
+        author_id: uuid::Uuid,
+        title: &str,
+    ) -> Result<i32, IssueInsertError> {
+        let mut tx = self.pool.begin().await?;
+
+        // Allocate the next per-project number. Row-level lock prevents
+        // duplicate numbers under concurrent inserts on the same project.
+        // The returned value is the number we hand to the NEW issue —
+        // the column's invariant is "the next number to give out", so
+        // before the update we have N (and assign N to this issue), and
+        // after the update the column holds N+1. We model that by
+        // capturing `next_issue_number` BEFORE incrementing:
+        let row: Option<(i32,)> = sqlx::query_as(
+            "UPDATE projects
+                SET next_issue_number = next_issue_number + 1
+              WHERE id = $1
+              RETURNING next_issue_number - 1",
+        )
+        .bind(project_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let number = match row {
+            Some((n,)) => n,
+            None => return Err(IssueInsertError::ProjectNotFound),
+        };
+
+        sqlx::query(
+            "INSERT INTO issues
+                  (id, project_id, workspace_id, number, title, author_id)
+              VALUES ($1, $2, $3, $4, $5, $6)",
+        )
+        .bind(issue_id)
+        .bind(project_id)
+        .bind(workspace_id)
+        .bind(number)
+        .bind(title)
+        .bind(author_id)
+        .execute(&mut *tx)
+        .await?;
+
+        // Outbox event. Payload is JSON the LISTEN/NOTIFY consumer
+        // (foundry-realtime, slice 2) will decode. Keep keys terse and
+        // stable — adding fields is fine, renaming would be a breaking
+        // change for any subscribed consumer.
+        let payload = serde_json::json!({
+            "issue_id": issue_id,
+            "project_id": project_id,
+            "workspace_id": workspace_id,
+            "number": number,
+            "key": format!("{project_key_prefix}-{number}"),
+            "author_id": author_id,
+        });
+        sqlx::query("INSERT INTO outbox (event_type, payload) VALUES ('IssueCreated', $1)")
+            .bind(payload)
+            .execute(&mut *tx)
+            .await?;
+
+        tx.commit().await?;
+        Ok(number)
+    }
+
+    /// List issues in a project ordered by `number DESC` (most recent
+    /// first — matches the Linear-style "newest at the top" UX).
+    pub async fn list_issues_by_project(
+        &self,
+        project_id: uuid::Uuid,
+    ) -> Result<Vec<IssueRow>, StoreError> {
+        let rows: Vec<(uuid::Uuid, i32, String, String, String)> = sqlx::query_as(
+            "SELECT id, number, title, state, priority
+               FROM issues
+              WHERE project_id = $1
+              ORDER BY number DESC",
+        )
+        .bind(project_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|(id, number, title, state, priority)| IssueRow {
+                id,
+                number,
+                title,
+                state,
+                priority,
+            })
+            .collect())
+    }
+
+    /// Update an issue's `state` and write a matching `IssueUpdated`
+    /// outbox row in the same transaction. The trigger
+    /// `notify_outbox_event` then fans the event out to all replicas
+    /// LISTENing on `issue_events` (slice 2; see
+    /// `migrations/0003_outbox_notify.sql`).
+    ///
+    /// `actor_id` is the user driving the change — surfaces in the
+    /// event payload as `author_id` so the realtime layer can decide
+    /// whether to suppress echo back to the originator (out of scope
+    /// for slice 2).
+    pub async fn update_issue_state_with_outbox(
+        &self,
+        project_key_prefix: &str,
+        issue_number: i32,
+        new_state: &str,
+        actor_id: uuid::Uuid,
+    ) -> Result<Option<()>, IssueInsertError> {
+        let mut tx = self.pool.begin().await?;
+
+        // Lookup the issue row + project context. Single round trip so
+        // the trigger payload contains the project_id without a second
+        // query.
+        let row: Option<(uuid::Uuid, uuid::Uuid, uuid::Uuid)> = sqlx::query_as(
+            "SELECT i.id, i.project_id, i.workspace_id
+               FROM issues i
+               JOIN projects p ON p.id = i.project_id
+              WHERE p.key_prefix = $1 AND i.number = $2",
+        )
+        .bind(project_key_prefix)
+        .bind(issue_number)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some((issue_id, project_id, workspace_id)) = row else {
+            return Ok(None);
+        };
+
+        sqlx::query("UPDATE issues SET state = $1, updated_at = now() WHERE id = $2")
+            .bind(new_state)
+            .bind(issue_id)
+            .execute(&mut *tx)
+            .await?;
+
+        let payload = serde_json::json!({
+            "issue_id": issue_id,
+            "project_id": project_id,
+            "workspace_id": workspace_id,
+            "number": issue_number,
+            "key": format!("{project_key_prefix}-{issue_number}"),
+            "state": new_state,
+            "author_id": actor_id,
+        });
+        sqlx::query("INSERT INTO outbox (event_type, payload) VALUES ('IssueUpdated', $1)")
+            .bind(payload)
+            .execute(&mut *tx)
+            .await?;
+
+        tx.commit().await?;
+        Ok(Some(()))
+    }
+
+    /// Count issues in a project. Acceptance assertion helper for the
+    /// "no issue is created" path.
+    pub async fn count_issues_in_project(&self, project_id: uuid::Uuid) -> Result<i64, StoreError> {
+        let row: (i64,) = sqlx::query_as("SELECT count(*) FROM issues WHERE project_id = $1")
+            .bind(project_id)
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(row.0)
+    }
+
+    /// Count projects in this workspace with the given name across all
+    /// teams. Used only by the acceptance suite (assertions about
+    /// "no second project is created"); the create handler relies on
+    /// the unique INSERT for uniqueness, not a pre-check.
+    pub async fn count_projects_by_name(
+        &self,
+        workspace_id: uuid::Uuid,
+        name: &str,
+    ) -> Result<i64, StoreError> {
+        let row: (i64,) =
+            sqlx::query_as("SELECT count(*) FROM projects WHERE workspace_id = $1 AND name = $2")
+                .bind(workspace_id)
+                .bind(name)
+                .fetch_one(&self.pool)
+                .await?;
+        Ok(row.0)
+    }
+
+    // ----- US-10 comments ------------------------------------------------
+
+    /// Resolve `(project, issue)` from a `(team_id, project_slug,
+    /// issue_number)` triple. Returns the project + issue ids and the
+    /// project's key_prefix so the comment handler can render the issue
+    /// key without a second round trip.
+    pub async fn find_issue_by_team_project_number(
+        &self,
+        team_id: uuid::Uuid,
+        project_slug: &str,
+        issue_number: i32,
+    ) -> Result<Option<IssueLookupRow>, StoreError> {
+        let row: Option<(uuid::Uuid, String, uuid::Uuid, uuid::Uuid)> = sqlx::query_as(
+            "SELECT p.id, p.key_prefix, i.id, i.workspace_id
+               FROM projects p
+               JOIN issues   i ON i.project_id = p.id
+              WHERE p.team_id = $1 AND p.slug = $2 AND i.number = $3",
+        )
+        .bind(team_id)
+        .bind(project_slug)
+        .bind(issue_number)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(
+            |(project_id, key_prefix, issue_id, workspace_id)| IssueLookupRow {
+                project_id,
+                project_key_prefix: key_prefix,
+                issue_id,
+                workspace_id,
+            },
+        ))
+    }
+
+    /// Insert a comment row and a `CommentAdded` outbox row in the same
+    /// transaction. The Postgres trigger `notify_outbox_event` then
+    /// fans the event out to every replica `LISTEN`ing on
+    /// `issue_events` — no separate publisher hook needed.
+    ///
+    /// `author_email` rides in the outbox payload so subscribers can
+    /// render the comment author without a JOIN against `users`.
+    /// `body_html` is the pre-rendered (sanitized) HTML; `body_markdown`
+    /// is the original input, persisted alongside so we can re-render
+    /// the table if the sanitizer ever changes its allowlist.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn insert_comment_with_outbox(
+        &self,
+        comment_id: uuid::Uuid,
+        workspace_id: uuid::Uuid,
+        project_id: uuid::Uuid,
+        project_key_prefix: &str,
+        issue_id: uuid::Uuid,
+        issue_number: i32,
+        author_id: uuid::Uuid,
+        author_email: &str,
+        body_markdown: &str,
+        body_html: &str,
+    ) -> Result<(), CommentInsertError> {
+        let mut tx = self.pool.begin().await?;
+
+        sqlx::query(
+            "INSERT INTO comments
+                  (id, workspace_id, issue_id, author_id, body_markdown, body_html)
+              VALUES ($1, $2, $3, $4, $5, $6)",
+        )
+        .bind(comment_id)
+        .bind(workspace_id)
+        .bind(issue_id)
+        .bind(author_id)
+        .bind(body_markdown)
+        .bind(body_html)
+        .execute(&mut *tx)
+        .await?;
+
+        // Outbox payload. Keys mirror IssueCreated/IssueUpdated where
+        // possible (issue_id, project_id, workspace_id, number, key,
+        // author_id) and add the comment-specific fields. Adding fields
+        // is forward-compatible — the LISTEN consumer's EventPayload
+        // declares them `#[serde(default)]`.
+        let payload = serde_json::json!({
+            "issue_id": issue_id,
+            "project_id": project_id,
+            "workspace_id": workspace_id,
+            "number": issue_number,
+            "key": format!("{project_key_prefix}-{issue_number}"),
+            "author_id": author_id,
+            "comment_id": comment_id,
+            "author_email": author_email,
+        });
+        sqlx::query("INSERT INTO outbox (event_type, payload) VALUES ('CommentAdded', $1)")
+            .bind(payload)
+            .execute(&mut *tx)
+            .await?;
+
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// List comments on an issue ordered by `created_at ASC` (oldest
+    /// first — matches the conventional thread reading order).
+    /// `author_email` is joined from the `users` table; if the author
+    /// has been deleted (cascade does NOT cascade on users), we surface
+    /// `<deleted>` as a sentinel.
+    pub async fn list_comments_for_issue(
+        &self,
+        issue_id: uuid::Uuid,
+    ) -> Result<Vec<CommentRow>, StoreError> {
+        let rows: Vec<(uuid::Uuid, String, String, time::OffsetDateTime)> = sqlx::query_as(
+            "SELECT c.id, COALESCE(u.email_display, '<deleted>'), c.body_html, c.created_at
+               FROM comments c
+               LEFT JOIN users u ON u.id = c.author_id
+              WHERE c.issue_id = $1
+              ORDER BY c.created_at ASC, c.id ASC",
+        )
+        .bind(issue_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|(id, author_email, body_html, created_at)| CommentRow {
+                id,
+                author_email,
+                body_html,
+                created_at,
+            })
+            .collect())
+    }
+
+    /// Count comments on an issue. Acceptance assertion helper for the
+    /// "no comment is recorded" path used by the @error scenarios.
+    pub async fn count_comments_for_issue(&self, issue_id: uuid::Uuid) -> Result<i64, StoreError> {
+        let row: (i64,) = sqlx::query_as("SELECT count(*) FROM comments WHERE issue_id = $1")
+            .bind(issue_id)
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(row.0)
+    }
+
+    /// Look up a user's display email by id. Used by the comment-create
+    /// handler so the actor's email rides through the outbox payload
+    /// (wave-decisions.md — no JOIN at fan-out time).
+    pub async fn find_user_email_by_id(
+        &self,
+        user_id: uuid::Uuid,
+    ) -> Result<Option<String>, StoreError> {
+        let row: Option<(String,)> =
+            sqlx::query_as("SELECT email_display FROM users WHERE id = $1")
+                .bind(user_id)
+                .fetch_optional(&self.pool)
+                .await?;
+        Ok(row.map(|r| r.0))
+    }
+}
+
+/// Minimal team projection.
+#[derive(Debug, Clone)]
+pub struct TeamRow {
+    pub id: uuid::Uuid,
+    pub name: String,
+}
+
+/// Minimal project projection used by the board view handler.
+#[derive(Debug, Clone)]
+pub struct ProjectRow {
+    pub id: uuid::Uuid,
+    pub name: String,
+    pub key_prefix: String,
+}
+
+/// Minimal issue projection used by the board view + acceptance
+/// assertions. `state` and `priority` are kept as `String` for slice 1
+/// (they are CHECK-constrained at the schema level); a typed enum is a
+/// slice-2 hardening item.
+#[derive(Debug, Clone)]
+pub struct IssueRow {
+    pub id: uuid::Uuid,
+    pub number: i32,
+    pub title: String,
+    pub state: String,
+    pub priority: String,
+}
+
+/// Errors specific to issue insert.
+#[derive(Debug, Error)]
+pub enum IssueInsertError {
+    #[error("project not found")]
+    ProjectNotFound,
+    #[error(transparent)]
+    Store(#[from] sqlx::Error),
+}
+
+/// Errors specific to project insert. Splits the uniqueness violations
+/// so the handler can render the correct user-facing inline error.
+#[derive(Debug, Error)]
+pub enum ProjectInsertError {
+    #[error("project key already exists in workspace")]
+    DuplicateKey,
+    #[error("project name already exists in team")]
+    DuplicateName,
+    #[error(transparent)]
+    Other(#[from] StoreError),
+}
+
+/// Minimal user projection used by the sign-in handler.
+#[derive(Debug, Clone)]
+pub struct UserRow {
+    pub id: uuid::Uuid,
+    pub password_hash: String,
+}
+
+/// What state a bootstrap-token lookup found. Drives the explanatory
+/// 410 page distinguishing "already used" from "expired".
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BootstrapTokenStatus {
+    Valid,
+    AlreadyUsed,
+    Expired,
+    Unknown,
+}
+
+/// Run sqlx migrations against an externally-built pool. Used by the
+/// acceptance harness which builds a pool with a per-scenario search_path.
+pub async fn run_migrations(pool: &PgPool) -> Result<(), StoreError> {
+    sqlx::migrate!("./migrations").run(pool).await?;
+    Ok(())
+}
+
+/// Joined lookup of an issue by `(team_id, project_slug, issue_number)`.
+/// Carries the project key prefix so the comment handler can build the
+/// issue key in the outbox payload without a second query.
+#[derive(Debug, Clone)]
+pub struct IssueLookupRow {
+    pub project_id: uuid::Uuid,
+    pub project_key_prefix: String,
+    pub issue_id: uuid::Uuid,
+    pub workspace_id: uuid::Uuid,
+}
+
+/// Minimal comment projection used by the issue-detail page renderer
+/// and by the acceptance suite's HTML structural assertions.
+///
+/// `author_email` is the display form (`email_display`) — the renderer
+/// uses it as the `data-author=` attribute on each comment card so the
+/// acceptance scraper can target individual comments by author.
+#[derive(Debug, Clone)]
+pub struct CommentRow {
+    pub id: uuid::Uuid,
+    pub author_email: String,
+    pub body_html: String,
+    pub created_at: time::OffsetDateTime,
+}
+
+/// Errors specific to comment insert.
+#[derive(Debug, Error)]
+pub enum CommentInsertError {
+    #[error("issue not found")]
+    IssueNotFound,
+    #[error(transparent)]
+    Store(#[from] sqlx::Error),
+}

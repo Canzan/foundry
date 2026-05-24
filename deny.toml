@@ -1,0 +1,44 @@
+# cargo-deny configuration for Foundry.
+# Run with: `cargo deny check`
+# Docs: https://embarkstudios.github.io/cargo-deny/
+
+[graph]
+all-features = false
+no-default-features = false
+
+[advisories]
+db-path = "~/.cargo/advisory-db"
+db-urls = ["https://github.com/rustsec/advisory-db"]
+yanked = "warn"
+ignore = []
+
+[licenses]
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "MPL-2.0",
+    "ISC",
+    "Unicode-DFS-2016",
+    "Unicode-3.0",
+    "Zlib",
+    "AGPL-3.0",
+]
+confidence-threshold = 0.8
+# OpenSSL is allowed only via its non-default exception path. Most
+# transitive deps will pick rustls instead by feature flag.
+exceptions = []
+
+[bans]
+multiple-versions = "warn"
+wildcards         = "deny"
+# Architecture rule (architecture.md "Layered Architecture"):
+# the three middle crates do not depend on each other.
+deny = []
+
+[sources]
+unknown-registry = "deny"
+unknown-git      = "deny"
+allow-registry   = ["https://github.com/rust-lang/crates.io-index"]

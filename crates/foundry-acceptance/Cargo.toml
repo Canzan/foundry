@@ -1,0 +1,52 @@
+[package]
+name = "foundry-acceptance"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Foundry cross-crate acceptance suite (cucumber-rs)"
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[[test]]
+name = "acceptance"
+path = "tests/acceptance.rs"
+harness = false
+
+[dependencies]
+foundry-core = { path = "../foundry-core" }
+foundry-store = { path = "../foundry-store" }
+foundry-auth = { path = "../foundry-auth" }
+foundry-app   = { path = "../foundry-app", features = ["test-support"] }
+foundry-realtime = { path = "../foundry-realtime" }
+
+cucumber = { workspace = true }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
+reqwest = { workspace = true }
+scraper = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+uuid = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+testcontainers = { workspace = true }
+testcontainers-modules = { workspace = true }
+assert_cmd = { workspace = true }
+serde_yaml_ng = { workspace = true }
+
+secrecy = { workspace = true }
+time = { workspace = true }
+rand = { workspace = true }
+once_cell = { workspace = true }
+sha2 = { workspace = true }
+urlencoding = { workspace = true }
+
+[dev-dependencies]

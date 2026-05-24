@@ -1,0 +1,111 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/foundry-core",
+    "crates/foundry-store",
+    "crates/foundry-auth",
+    "crates/foundry-realtime",
+    "crates/foundry-app",
+    "crates/foundry-acceptance",
+    "xtask",
+]
+
+[workspace.package]
+edition = "2021"
+rust-version = "1.85"
+license = "AGPL-3.0-only"
+authors = ["Foundry Contributors"]
+repository = "https://github.com/foundry-project/foundry"
+
+[workspace.dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+async-trait = "0.1"
+futures = "0.3"
+
+# Web stack
+axum = { version = "0.8", features = ["macros", "tokio"] }
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.6", features = ["trace", "compression-gzip", "fs", "limit", "request-id", "util"] }
+
+# Templating
+askama = { version = "0.12" }
+
+# Data
+sqlx = { version = "0.8", default-features = false, features = [
+    "runtime-tokio",
+    "tls-rustls",
+    "postgres",
+    "macros",
+    "migrate",
+    "uuid",
+    "time",
+    "json",
+    "chrono",
+] }
+uuid = { version = "1", features = ["v4", "v7", "serde"] }
+time = { version = "0.3", features = ["serde", "macros", "formatting", "parsing"] }
+chrono = { version = "0.4", features = ["serde"] }
+
+# Auth
+tower-sessions = { version = "0.14" }
+tower-sessions-sqlx-store = { version = "0.15", features = ["postgres"] }
+argon2 = { version = "0.5" }
+password-hash = { version = "0.5" }
+hmac = "0.12"
+sha2 = "0.10"
+subtle = "2"
+secrecy = { version = "0.10", features = ["serde"] }
+rand = "0.8"
+base64 = "0.22"
+hex = "0.4"
+
+# Markdown / sanitization
+pulldown-cmark = "0.12"
+ammonia = "4"
+
+# Errors / serialization
+thiserror = "1"
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+urlencoding = "2"
+
+# Email
+lettre = { version = "0.11", default-features = false, features = [
+    "tokio1",
+    "tokio1-rustls-tls",
+    "smtp-transport",
+    "builder",
+] }
+
+# Observability
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "fmt"] }
+tracing-log = "0.2"
+metrics = "0.23"
+metrics-exporter-prometheus = { version = "0.15", default-features = false, features = ["http-listener"] }
+
+# Config
+dotenvy = "0.15"
+
+# Acceptance test stack
+cucumber = "0.21"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "cookies", "json", "blocking", "stream"] }
+scraper = "0.20"
+testcontainers = "0.23"
+testcontainers-modules = { version = "0.11", features = ["postgres"] }
+assert_cmd = "2"
+serde_yaml_ng = "0.10"
+
+# Form decoding
+serde_urlencoded = "0.7"
+
+# One-shot init for the test harness
+once_cell = "1"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = "symbols"

@@ -1,0 +1,96 @@
+# JTBD Outcomes — Foundry Backend MVP
+#
+# Single source of truth for job_id references used by user stories in stories.md.
+# Sourced from diverge/jtbd.md "ODI Outcome Statements" table. Each entry below
+# corresponds to an outcome that defines a design direction for the MVP.
+#
+# Usage:
+#   In stories.md, each story's frontmatter (or `Job` line) names a job_id.
+#   Multiple stories may map to the same job (N:1). A story whose value is
+#   pure plumbing with no user-job link must use `job_id: infrastructure-only`
+#   AND carry an `infrastructure_rationale` field.
+
+schema_version: 1
+feature: foundry-backend-mvp
+source: docs/feature/foundry-backend-mvp/diverge/jtbd.md
+
+jobs:
+  jtbd-outcome-1:
+    name: "Minimize time to stand up a working issue tracker"
+    statement: "Minimize the time it takes to stand up a working issue tracker for a new team."
+    importance: 9
+    satisfaction_today: 3
+    opportunity_score: 15
+    status: under-served
+    primary_persona: operator
+
+  jtbd-outcome-2:
+    name: "Maximize data sovereignty (no extraction tax)"
+    statement: "Minimize the likelihood that team planning data is held by a third party the team cannot extract from on demand."
+    importance: 9
+    satisfaction_today: 4
+    opportunity_score: 14
+    status: under-served
+    primary_persona: operator
+
+  jtbd-outcome-3:
+    name: "Minimize contributor time-to-meaningful-change"
+    statement: "Minimize the time it takes for a developer-contributor to make a meaningful change to the tracker itself."
+    importance: 8
+    satisfaction_today: 2
+    opportunity_score: 14
+    status: under-served
+    primary_persona: contributor
+
+  jtbd-outcome-4:
+    name: "Maximize Linear-feel interaction speed"
+    statement: "Minimize the likelihood that issue-list interactions feel slower than Linear's."
+    importance: 9
+    satisfaction_today: 5
+    opportunity_score: 13
+    status: under-served
+    primary_persona: member
+
+  jtbd-outcome-5:
+    name: "Minimize effort to expose tracker state to agentic workflows"
+    statement: "Minimize the effort required to expose tracker state to an agentic workflow runner."
+    importance: 8
+    satisfaction_today: 3
+    opportunity_score: 13
+    status: under-served
+    primary_persona: operator
+    note: "Not directly targeted by an MVP story; reserved for v0.3+. Listed here for completeness."
+
+  jtbd-outcome-6:
+    name: "Minimize operability tax for multi-replica deployments"
+    statement: "Minimize the likelihood that running multiple replicas of the tracker requires a from-scratch ops investment."
+    importance: 7
+    satisfaction_today: 4
+    opportunity_score: 10
+    status: guardrail
+    primary_persona: operator
+
+  jtbd-outcome-7:
+    name: "Minimize upgrade-without-breakage friction"
+    statement: "Minimize the time it takes to upgrade between minor versions without breaking customizations."
+    importance: 7
+    satisfaction_today: 4
+    opportunity_score: 10
+    status: guardrail
+    primary_persona: operator
+
+# Story-to-job mapping (mirror of frontmatter on each story; canonical source).
+story_job_map:
+  US-01: jtbd-outcome-1   # install under an hour
+  US-02: jtbd-outcome-6   # multi-replica operability
+  US-03: jtbd-outcome-2   # data sovereignty (pg_dump completeness)
+  US-04: jtbd-outcome-7   # upgrade in place without breakage
+  US-05: jtbd-outcome-1   # admin bootstrap + invite (extends "stand up" to "team using it")
+  US-06: jtbd-outcome-4   # daily-usable login (re-engagement is part of the Linear-feel promise)
+  US-07: jtbd-outcome-4   # team→project→issue hierarchy that matches Linear's mental model
+  US-08: jtbd-outcome-4   # file an issue fast (the hot path)
+  US-09: jtbd-outcome-4   # realtime updates (Linear-feel realtime)
+  US-10: jtbd-outcome-4   # in-issue discussion (Linear-feel discussion)
+  US-11: jtbd-outcome-2   # attachments in pg_dump preserve data sovereignty
+  US-12: jtbd-outcome-4   # keyboard shortcuts (Linear-feel speed)
+  US-13: jtbd-outcome-3   # contributor onboarding in a day

@@ -1,0 +1,53 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: foundry
+      POSTGRES_PASSWORD: foundry
+      POSTGRES_DB: foundry
+    volumes:
+      - foundry-pg-data:/var/lib/postgresql/data
+    # Postgres is reachable to other services via the docker network only.
+    # Operators who want host access (psql from the laptop, GUI tools)
+    # can override with `FOUNDRY_PG_HOST_PORT=5433 docker compose up`
+    # plus a `ports: ["${FOUNDRY_PG_HOST_PORT}:5432"]` override in
+    # docker-compose.override.yml. This default avoids colliding with
+    # any Postgres already running on the host.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U foundry -d foundry"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
+      start_period: 5s
+    restart: unless-stopped
+
+  foundry:
+    build:
+      context: .
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgres://foundry:foundry@postgres:5432/foundry
+      FOUNDRY_HOST: 0.0.0.0
+      FOUNDRY_PORT: 3000
+      FOUNDRY_PUBLIC_URL: http://localhost:3000
+      RUST_LOG: info
+      SESSION_SECRET: dev-only-secret-change-me-at-least-32-bytes-long-please
+      SESSION_COOKIE_SECURE: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      # Default 3000:3000 for operator quickstart. Set FOUNDRY_HOST_PORT=0
+      # to let docker assign an ephemeral host port (used by the acceptance
+      # suite so concurrent test stacks don't collide), or to e.g. 3001
+      # if 3000 is already taken on the host.
+      - "${FOUNDRY_HOST_PORT:-3000}:3000"
+    # No healthcheck declared: the distroless/cc-debian12 base lacks
+    # curl/wget and the binary has no `--healthcheck` subcommand in
+    # slice 1. Operators verify readiness by hitting GET /healthz
+    # directly (the acceptance suite does exactly this).
+    restart: unless-stopped
+
+volumes:
+  foundry-pg-data:

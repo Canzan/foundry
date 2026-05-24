@@ -1,0 +1,24 @@
+[package]
+name = "foundry-realtime"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Foundry realtime (SSE + Postgres LISTEN/NOTIFY) — slice 2+"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+foundry-core = { path = "../foundry-core" }
+
+tokio = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+sqlx = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+time = { workspace = true }

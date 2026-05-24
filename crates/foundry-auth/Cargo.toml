@@ -1,0 +1,28 @@
+[package]
+name = "foundry-auth"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Foundry authentication primitives (HMAC tokens, sessions)"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+foundry-core = { path = "../foundry-core" }
+
+argon2 = { workspace = true }
+password-hash = { workspace = true }
+hmac = { workspace = true }
+sha2 = { workspace = true }
+subtle = { workspace = true }
+rand = { workspace = true }
+base64 = { workspace = true }
+hex = { workspace = true }
+secrecy = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+time = { workspace = true }

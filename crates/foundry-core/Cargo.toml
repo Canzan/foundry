@@ -1,0 +1,24 @@
+[package]
+name = "foundry-core"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Foundry domain types (no I/O)"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+serde = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+time = { workspace = true }
+secrecy = { workspace = true }
+
+# Markdown rendering (US-10). Both crates are pure CPU + allocator —
+# no I/O. foundry-core stays I/O-free.
+pulldown-cmark = { workspace = true }
+ammonia = { workspace = true }
