@@ -1,0 +1,89 @@
+# Foundry observability overlay (opt-in).
+#
+# Layered on top of the main compose file via:
+#
+#     docker compose -f docker-compose.yml -f docker-compose.observability.yml up -d
+#
+# Spawns Prometheus + Loki + Promtail + Grafana that scrape the
+# Foundry metrics endpoint (foundry:9090/metrics) and tail container
+# logs. Nothing in this overlay is required by the default Foundry
+# install — operators with an existing observability stack should
+# scrape `foundry:9090` from their own Prometheus instead.
+#
+# See docs/feature/foundry-backend-mvp/design/system/observability-infra.md.
+
+services:
+  prometheus:
+    image: prom/prometheus:v2.55.0
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=30d"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+      - "--web.console.templates=/usr/share/prometheus/consoles"
+    restart: unless-stopped
+    # Not exposed publicly; reachable from grafana on the compose net.
+
+  loki:
+    image: grafana/loki:3.0.0
+    volumes:
+      - ./observability/loki-config.yml:/etc/loki/local-config.yaml:ro
+      - loki-data:/loki
+    command: ["-config.file=/etc/loki/local-config.yaml"]
+    restart: unless-stopped
+
+  promtail:
+    image: grafana/promtail:3.0.0
+    volumes:
+      # Read-only access to docker's per-container log JSON files.
+      # Path is correct for native Linux docker AND Docker Desktop on
+      # macOS. On Colima or Rancher Desktop the container logs live
+      # elsewhere — override in `docker-compose.override.yml`:
+      #   services:
+      #     promtail:
+      #       volumes:
+      #         - /var/lib/colima/_lima/colima/copied-from-guest/var/lib/docker/containers:/var/lib/docker/containers:ro
+      # (Lima writes the docker root inside the VM; the exact host
+      # path depends on Colima version. `colima ssh -- ls /var/lib/docker/containers`
+      # confirms.) Without the override, promtail starts but ships no
+      # logs and Grafana's Loki panel stays empty.
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      # Promtail uses the docker socket to enrich log lines with
+      # compose labels (service name, project name).
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./observability/promtail-config.yml:/etc/promtail/config.yml:ro
+    command: ["-config.file=/etc/promtail/config.yml"]
+    depends_on:
+      - loki
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    ports:
+      # 3001 on the host to avoid clashing with foundry's default 3000.
+      - "${FOUNDRY_GRAFANA_HOST_PORT:-3001}:3000"
+    environment:
+      # Anonymous viewer access so the operator does not have to
+      # configure SSO / passwords on day one. Operators putting Grafana
+      # behind a real auth proxy disable these.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Viewer"
+      GF_SECURITY_ADMIN_PASSWORD: "${FOUNDRY_GRAFANA_ADMIN_PASSWORD:-admin}"
+      GF_LOG_LEVEL: "warn"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./observability/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+      - ./observability/grafana-dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml:ro
+      - ./observability/grafana-dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+      - loki
+    restart: unless-stopped
+
+volumes:
+  prometheus-data:
+  loki-data:
+  grafana-data:

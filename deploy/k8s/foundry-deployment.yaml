@@ -1,0 +1,117 @@
+# Foundry app Deployment.
+#
+# Variant 2 (multi-replica) translated to K8s primitives per the
+# topology.md translation table. Replicas: 3 by default; bump via
+# `kubectl scale deployment/foundry-app -n foundry --replicas=N`.
+#
+# Probes:
+#   - liveness  -> /healthz  (process responsive; restart pod on fail)
+#   - readiness -> /readyz   (process + Postgres reachable; pull from LB)
+#
+# Migrations run at app startup under an advisory lock (migrations.md);
+# no init container, no separate Job. The advisory lock serializes
+# concurrent replica startups during a rolling upgrade.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: foundry-app
+  namespace: foundry
+  labels:
+    app.kubernetes.io/name: foundry-app
+    app.kubernetes.io/component: web
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # Keep capacity full during a rolling upgrade: one new pod up
+      # before any old pod terminates.
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: foundry-app
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: foundry-app
+        app.kubernetes.io/component: web
+      annotations:
+        # Lets Prometheus operator (or kube-prometheus-stack) pick up
+        # the metrics endpoint without us shipping a ServiceMonitor.
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "9090"
+    spec:
+      # >= SHUTDOWN_GRACE_SECONDS (15) + buffer. realtime-roadmap.md
+      # asks for >= 20s so SSE clients have time to receive the
+      # graceful-close marker before SIGKILL.
+      terminationGracePeriodSeconds: 25
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532          # distroless `nonroot` uid
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: foundry
+          image: ghcr.io/foundry-project/foundry:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 3000
+            - name: metrics
+              containerPort: 9090
+          envFrom:
+            - configMapRef:
+                name: foundry-config
+            - secretRef:
+                name: foundry-app-secrets
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            # Migrations under advisory lock can take a while on a
+            # large existing database; the readiness probe gates LB
+            # routing so we give liveness plenty of slack to avoid
+            # restart-loops during long migrations.
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 4
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            # scaling.md: per-replica RAM 80-150 MB steady, +50 MB
+            # headroom for a streaming attachment upload. CPU steady
+            # state is 1-15% of one core; the 500m limit is comfortably
+            # above the 200-person peak.
+            requests:
+              cpu: "50m"
+              memory: "192Mi"
+            limits:
+              cpu: "500m"
+              memory: "384Mi"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            # The distroless base has no writable /tmp. The
+            # probe.fs.tmp_writable check in topology.md expects /tmp
+            # to be writable; back it with a small emptyDir.
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi

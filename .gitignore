@@ -10,3 +10,10 @@ Cargo.lock.bak
 # Local tooling state (machine-specific; should not be shared)
 /.dual-graph/
 /.nwave/des/logs/
+
+# Operator-local K8s secret (copied from foundry-secret.example.yaml
+# and filled with real values; must never be committed).
+/deploy/k8s/foundry-secret.yaml
+
+# SBOM dropped by the release workflow when run locally with act.
+/sbom.spdx.json

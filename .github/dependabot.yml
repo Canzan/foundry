@@ -1,0 +1,63 @@
+# Dependabot configuration for Foundry.
+#
+# Two ecosystems: cargo (the workspace) and github-actions (the CI
+# pipelines). Minor + patch bumps are grouped weekly into one PR per
+# ecosystem to reduce review noise. Major bumps land as individual PRs
+# so they get individual review.
+#
+# Auto-merge: NOT enabled here (Dependabot lacks the schema). Operators
+# enable it via the repo's "Allow auto-merge" setting + branch
+# protection + the dependabot auto-merge action (see CONTRIBUTING.md
+# "Auto-merge for dependabot PRs").
+
+version: 2
+
+updates:
+  # Rust workspace -----------------------------------------------------
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule:
+      interval: daily
+      time: "06:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 5
+    versioning-strategy: increase
+    commit-message:
+      prefix: "deps(cargo)"
+      include: scope
+    groups:
+      cargo-minor-and-patch:
+        update-types: ["minor", "patch"]
+    ignore:
+      # Rust edition / toolchain bumps are tracked manually via
+      # rust-toolchain.toml; dependabot should not propose them.
+      - dependency-name: "rust"
+
+  # GitHub Actions -----------------------------------------------------
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps(actions)"
+      include: scope
+    groups:
+      actions-minor-and-patch:
+        update-types: ["minor", "patch"]
+
+  # Dockerfile (for base-image security patches) -----------------------
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "deps(docker)"
+      include: scope

@@ -9,7 +9,7 @@
 
 use anyhow::Context;
 use foundry_app::{
-    build_router, mint_bootstrap_if_needed, AppState, NoopEmailSender, SystemClock,
+    build_router, metrics_server, mint_bootstrap_if_needed, AppState, NoopEmailSender, SystemClock,
     DEFAULT_SSE_HEARTBEAT_MS,
 };
 use foundry_store::Store;
@@ -28,6 +28,20 @@ async fn main() -> anyhow::Result<()> {
         .ok()
         .and_then(|p| p.parse().ok())
         .unwrap_or(3000);
+    let metrics_port: u16 = std::env::var("METRICS_PORT")
+        .ok()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(9090);
+    let metrics_host: String = std::env::var("METRICS_HOST").unwrap_or_else(|_| "0.0.0.0".into());
+
+    // Install the metrics recorder before anything else so any module
+    // can emit `metrics::counter!` / `metrics::histogram!` from the
+    // first line of work. The matching sidecar listener is spawned
+    // a few lines down once we know we have a valid config (we don't
+    // bind the metrics port until we've confirmed we'll actually
+    // serve).
+    let metrics_handle =
+        metrics_server::install_recorder().context("install Prometheus recorder")?;
     let public_url: String =
         std::env::var("FOUNDRY_PUBLIC_URL").unwrap_or_else(|_| format!("http://localhost:{port}"));
     let database_url: String = std::env::var("DATABASE_URL").context("DATABASE_URL is required")?;
@@ -80,6 +94,15 @@ async fn main() -> anyhow::Result<()> {
     };
     let router = build_router(state);
 
+    // Spawn the metrics sidecar listener before the main HTTP listener
+    // binds — `probe.metrics.endpoint_reachable` (observability-infra.md)
+    // wants the metrics port up by the time the app is ready.
+    let metrics_addr = metrics_server::serve(&metrics_host, metrics_port, metrics_handle)
+        .await
+        .context("bind metrics listener")?;
+    tracing::info!(%metrics_addr, "foundry metrics listening");
+    metrics::counter!("foundry_app_startup_total").increment(1);
+
     let addr: SocketAddr = format!("{host}:{port}").parse()?;
     let listener = tokio::net::TcpListener::bind(addr).await?;
     tracing::info!(%addr, "foundry listening");
@@ -93,10 +116,18 @@ async fn main() -> anyhow::Result<()> {
 
 fn init_tracing() {
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
-    tracing_subscriber::fmt()
+    // NFR-OBS-01: structured JSON to stdout in production. Operators
+    // running `cargo run` locally can flip `RUST_LOG_FORMAT=pretty`
+    // for human-readable output.
+    let format = std::env::var("RUST_LOG_FORMAT").unwrap_or_else(|_| "json".into());
+    let builder = tracing_subscriber::fmt()
         .with_env_filter(filter)
-        .with_target(true)
-        .init();
+        .with_target(true);
+    if format == "pretty" {
+        builder.init();
+    } else {
+        builder.json().init();
+    }
 }
 
 async fn shutdown_signal() {

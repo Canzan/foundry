@@ -1,0 +1,9 @@
+# Cargo workspace config.
+#
+# The `xtask` alias maps `cargo xtask <subcommand>` to running the
+# xtask binary in the workspace. This is the canonical way to expose a
+# developer task runner without adding a build dependency on a wrapper
+# script (matches the upstream cargo-xtask pattern).
+
+[alias]
+xtask = "run --quiet --release -p xtask --"

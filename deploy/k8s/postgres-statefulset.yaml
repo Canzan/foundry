@@ -1,0 +1,97 @@
+# Postgres 16 — the single stateful workload. Backed by a per-replica
+# PersistentVolumeClaim via volumeClaimTemplates. ADR-105 records the
+# accepted single-Postgres SPOF for the MVP; HA Postgres (Patroni /
+# pg_auto_failover) is deferred to v0.4+ and would replace this file.
+
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: foundry-db
+  namespace: foundry
+  labels:
+    app.kubernetes.io/name: foundry-db
+    app.kubernetes.io/component: database
+spec:
+  serviceName: foundry-db
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: foundry-db
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: foundry-db
+        app.kubernetes.io/component: database
+    spec:
+      securityContext:
+        # Postgres official image runs as uid 70 (postgres user); we
+        # don't override but we DO enforce non-root at the pod level so
+        # any sidecar an operator adds inherits the policy.
+        runAsNonRoot: true
+        fsGroup: 70
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: foundry-db-credentials
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: foundry-db-credentials
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: foundry-db-credentials
+                  key: POSTGRES_DB
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 5
+          resources:
+            # scaling.md sizing for the 200-person workload. Operators
+            # sizing for smaller deployments can drop both halves by
+            # roughly 4x.
+            requests:
+              cpu: "200m"
+              memory: "1Gi"
+            limits:
+              cpu: "2"
+              memory: "4Gi"
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        # Operators on a non-default storage class set
+        # `storageClassName:` here before applying. Leaving it unset
+        # picks the cluster default.
+        resources:
+          requests:
+            storage: 50Gi

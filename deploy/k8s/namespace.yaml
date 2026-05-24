@@ -1,0 +1,14 @@
+# Foundry namespace.
+#
+# Everything Foundry-related lives here. Operators wanting to run
+# multiple Foundry instances per cluster duplicate this directory with
+# a renamed namespace and tweak the .metadata.namespace field across
+# the other manifests.
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: foundry
+  labels:
+    app.kubernetes.io/name: foundry
+    app.kubernetes.io/part-of: foundry

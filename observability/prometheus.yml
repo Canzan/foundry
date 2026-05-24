@@ -1,0 +1,26 @@
+# Prometheus scrape config for the observability overlay.
+#
+# Scrapes the Foundry sidecar metrics listener on port 9090
+# (METRICS_PORT). The hostname `foundry` matches the service name in
+# docker-compose.yml. For the multi-replica Variant 2 deploy, list the
+# replica DNS names explicitly here (foundry-app-1, foundry-app-2, ...)
+# or switch to dns_sd_configs.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    deploy: foundry-compose
+
+scrape_configs:
+  - job_name: foundry
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - "foundry:9090"
+        labels:
+          service: foundry-app
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

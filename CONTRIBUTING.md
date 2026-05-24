@@ -87,3 +87,62 @@ PRs that turn one scenario green each.
   `foundry-app` through the `test-support` feature.
 
 `cargo deny`'s `bans` section enforces this in CI.
+
+## Continuous Integration
+
+Every push to `main` and every PR runs four parallel jobs in
+`.github/workflows/ci.yml`:
+
+| Job              | What it runs                                                    |
+|------------------|-----------------------------------------------------------------|
+| `lint + format`  | `cargo fmt --all -- --check` + `cargo clippy ... -D warnings`   |
+| `build + test`   | `cargo build --all --release` + `cargo test --workspace ...` against a Postgres service |
+| `acceptance`     | `cargo test -p foundry-acceptance` with `FOUNDRY_ACCEPTANCE_TAGS=all` (default + `@docker-compose`) |
+| `cargo deny`     | License + advisory + bans + sources                             |
+
+A typical PR completes in well under 15 minutes thanks to
+`Swatinem/rust-cache` keyed on `Cargo.lock`. Re-runs without code
+changes are usually under 5 minutes.
+
+Workflow logs live under the repo's **Actions** tab. Forgejo mirrors
+get a near-identical pipeline in `.forgejo/workflows/ci.yml` —
+documented compatibility deltas (no OIDC by default, slightly
+different runner labels) are inline in that file.
+
+### Local CI replication
+
+`cargo xtask ci` runs the same gates as remote CI in the same order
+and exits non-zero on the first failure:
+
+```sh
+cargo xtask ci
+# include the slow @docker-compose acceptance group:
+FOUNDRY_XTASK_INCLUDE_DOCKER=1 cargo xtask ci
+```
+
+You'll need `cargo-deny` installed once: `cargo install --locked cargo-deny`.
+
+### Releases
+
+See [`RELEASING.md`](./RELEASING.md). Cutting a release is a
+`git tag vX.Y.Z && git push origin vX.Y.Z`; the release workflow
+(`.github/workflows/release.yml`) handles multi-arch image builds,
+cosign keyless signing, and SBOM generation.
+
+### Dependabot
+
+`.github/dependabot.yml` opens daily Cargo PRs and weekly Actions /
+Docker PRs. Minor + patch bumps are grouped into one PR per ecosystem
+per week; major bumps land individually for individual review.
+
+To enable auto-merge for patch-level dependabot PRs when CI is green:
+
+1. Repo Settings -> General -> "Allow auto-merge".
+2. Repo Settings -> Branches -> protect `main`, require the four CI
+   jobs above as required status checks.
+3. Add a workflow that runs `gh pr merge --auto --squash` on
+   dependabot PRs labeled `patch` (one-line script; not currently
+   bundled).
+
+Without those three pieces, dependabot PRs sit waiting for a human
+merge button — which is the correct default for an early project.

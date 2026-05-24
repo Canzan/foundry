@@ -10,7 +10,26 @@ no-default-features = false
 db-path = "~/.cargo/advisory-db"
 db-urls = ["https://github.com/rustsec/advisory-db"]
 yanked = "warn"
-ignore = []
+# Each ignore MUST have a comment justifying why we accept the risk and
+# pointing at the upstream tracking issue. Revisit on every dep bump.
+ignore = [
+    # tokio-tar: pulled in transitively by testcontainers (dev/test
+    # only, never reaches the production foundry binary). The CVE is
+    # about a malicious tar smuggling content past the reader, which
+    # would require us to extract attacker-controlled tarballs in
+    # tests — we don't. No safe upgrade is published yet; tracked
+    # upstream at testcontainers-rs.
+    { id = "RUSTSEC-2025-0111", reason = "transitive dev-only via testcontainers; no safe upgrade upstream" },
+    # fxhash: unmaintained; pulled in via scraper -> selectors. Test
+    # crate only (foundry-acceptance scrapes rendered HTML). Migration
+    # path is the scraper crate switching to rustc-hash; tracked
+    # upstream at scraper.
+    { id = "RUSTSEC-2025-0057", reason = "transitive dev-only via scraper; awaiting upstream migration to rustc-hash" },
+    # rustls-pemfile: archived; pulled in via bollard -> testcontainers.
+    # Dev/test only. Migration path is bollard depending directly on
+    # rustls-pki-types::PemObject; tracked upstream at bollard-rs.
+    { id = "RUSTSEC-2025-0134", reason = "transitive dev-only via bollard/testcontainers; awaiting upstream migration to rustls-pki-types" },
+]
 
 [licenses]
 allow = [
@@ -24,16 +43,27 @@ allow = [
     "Unicode-DFS-2016",
     "Unicode-3.0",
     "Zlib",
-    "AGPL-3.0",
+    # Our own crates declare the SPDX-correct form.
+    "AGPL-3.0-only",
+    # CDLA-Permissive-2.0: webpki-roots. Permissive, AGPL-compatible.
+    "CDLA-Permissive-2.0",
+    # 0BSD: quoted_printable (transitive via lettre). Zero-clause BSD;
+    # universally permissive.
+    "0BSD",
+    # BlueOak-1.0.0: synthez (transitive via cucumber). FSF-approved
+    # permissive license, AGPL-compatible.
+    "BlueOak-1.0.0",
 ]
 confidence-threshold = 0.8
-# OpenSSL is allowed only via its non-default exception path. Most
-# transitive deps will pick rustls instead by feature flag.
 exceptions = []
 
 [bans]
 multiple-versions = "warn"
 wildcards         = "deny"
+# Workspace path dependencies use `version = "*"` by convention; that
+# is not a real wildcard, it's a path dep. Let cargo-deny see them as
+# such.
+allow-wildcard-paths = true
 # Architecture rule (architecture.md "Layered Architecture"):
 # the three middle crates do not depend on each other.
 deny = []

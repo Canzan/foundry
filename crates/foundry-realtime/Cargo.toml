@@ -7,6 +7,7 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 description = "Foundry realtime (SSE + Postgres LISTEN/NOTIFY) — slice 2+"
+publish = false
 
 [lib]
 path = "src/lib.rs"

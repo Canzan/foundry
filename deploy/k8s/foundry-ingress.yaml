@@ -1,0 +1,45 @@
+# Ingress with cert-manager TLS.
+#
+# Prerequisites the operator must install separately (NOT bundled
+# here per ADR-102 deferral discipline):
+#
+#   1. An ingress controller. nginx-ingress and Caddy-ingress are
+#      both fine; we leave the IngressClass blank by default to mean
+#      "cluster default".
+#   2. cert-manager + a ClusterIssuer named `letsencrypt-prod`. The
+#      cert-manager-installation docs cover this.
+#
+# Replace foundry.example.com with the real hostname before applying.
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: foundry
+  namespace: foundry
+  labels:
+    app.kubernetes.io/name: foundry-app
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    # SSE-friendly defaults for nginx-ingress. Other controllers
+    # ignore unknown annotations; Caddy-ingress reads its own set.
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+spec:
+  # Leave unset to use the cluster's default IngressClass. Set
+  # explicitly (e.g. `ingressClassName: nginx`) if there are multiple.
+  tls:
+    - hosts:
+        - foundry.example.com
+      secretName: foundry-tls
+  rules:
+    - host: foundry.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: foundry-app
+                port:
+                  number: 80

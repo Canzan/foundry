@@ -1,0 +1,166 @@
+# Foundry CI — runs on every push to main and every PR.
+#
+# Four parallel jobs:
+#   lint-format     — cargo fmt + clippy
+#   build-and-test  — cargo build/test against a Postgres service
+#   acceptance      — cucumber suite (default + @docker-compose tags)
+#   deny            — cargo-deny (licenses, advisories, bans, sources)
+#
+# Rust toolchain is pinned via rust-toolchain.toml (stable 1.85). All
+# jobs share a Swatinem/rust-cache layer keyed on Cargo.lock so the
+# typical PR completes in well under 15 minutes.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel in-progress runs of this workflow for the same ref when a new
+# commit lands. Reduces queue time on PRs that get pushed to in quick
+# succession.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUST_BACKTRACE: 1
+  # sqlx will refuse to talk to a missing DB at compile time when this
+  # is unset; we only use it in the test job that boots a Postgres.
+  SQLX_OFFLINE: "true"
+
+jobs:
+  # --------------------------------------------------------------------
+  # Job 1 — formatting + clippy. Cheap; runs without a DB.
+  # --------------------------------------------------------------------
+  lint-format:
+    name: lint + format
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (from rust-toolchain.toml)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci
+
+      - name: cargo fmt --all -- --check
+        run: cargo fmt --all -- --check
+
+      - name: cargo clippy --all-targets --release -- -D warnings
+        run: cargo clippy --all-targets --release -- -D warnings
+
+  # --------------------------------------------------------------------
+  # Job 2 — build the workspace + run unit/integration tests against a
+  # Postgres service container. Excludes the @docker-compose acceptance
+  # group; that runs in the dedicated acceptance job below.
+  # --------------------------------------------------------------------
+  build-and-test:
+    name: build + test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: foundry
+          POSTGRES_PASSWORD: foundry
+          POSTGRES_DB: foundry
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U foundry -d foundry"
+          --health-interval=2s
+          --health-timeout=2s
+          --health-retries=20
+    env:
+      DATABASE_URL: postgres://foundry:foundry@localhost:5432/foundry
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci
+
+      - name: cargo build --all --release
+        run: cargo build --all --release
+
+      - name: cargo test --workspace --release (default tag set)
+        run: cargo test --workspace --release
+
+      # Verify the sqlx offline cache is up-to-date IF it exists. We do
+      # not fail the build when there is no .sqlx/ directory yet — the
+      # slice-1 binary uses lazy queries, not compile-time `query!`.
+      - name: cargo sqlx prepare --check (only if .sqlx/ exists)
+        run: |
+          if [ -d .sqlx ]; then
+            cargo install --locked sqlx-cli --no-default-features --features rustls,postgres
+            cargo sqlx prepare --workspace --check
+          else
+            echo "no .sqlx/ cache yet; skipping prepare --check"
+          fi
+
+  # --------------------------------------------------------------------
+  # Job 3 — full acceptance suite, including the @docker-compose group
+  # that drives a real docker build. The GHA ubuntu-latest runner ships
+  # with dockerd already running, so testcontainers + the compose tag
+  # group work without extra setup.
+  # --------------------------------------------------------------------
+  acceptance:
+    name: acceptance (all tags)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci
+
+      # Pre-build the foundry image so the @docker-compose tag group
+      # does not eat its 10-min budget on an image build the harness
+      # would otherwise do inline.
+      - name: docker build foundry image (used by @docker-compose group)
+        run: docker build -t foundry:ci .
+
+      - name: cargo test -p foundry-acceptance (all tags)
+        env:
+          FOUNDRY_ACCEPTANCE_TAGS: all
+        run: cargo test -p foundry-acceptance --release
+
+  # --------------------------------------------------------------------
+  # Job 4 — cargo-deny enforces the license allow-list, advisory DB,
+  # bans, and crate sources. Independent of the test DB.
+  # --------------------------------------------------------------------
+  deny:
+    name: cargo deny
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci
+
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check

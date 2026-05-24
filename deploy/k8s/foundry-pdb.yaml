@@ -1,0 +1,18 @@
+# PodDisruptionBudget — guarantees at least 2 of 3 foundry replicas
+# remain available during voluntary disruptions (node drains, cluster
+# upgrades). The Deployment's replicas: 3 + maxUnavailable: 0 already
+# protects against rolling-deploy outages; this PDB protects against
+# operator-initiated drains.
+
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: foundry-app
+  namespace: foundry
+  labels:
+    app.kubernetes.io/name: foundry-app
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: foundry-app

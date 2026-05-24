@@ -1,6 +1,8 @@
 # Foundry
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
+[![Container image](https://img.shields.io/badge/ghcr.io-foundry--project%2Ffoundry-blue?logo=docker)](https://github.com/foundry-project/foundry/pkgs/container/foundry)
+[![CI](https://img.shields.io/badge/ci-github_actions-blue?logo=github)](.github/workflows/ci.yml)
 
 **Foundry** is a self-hostable issue tracker for small product teams who
 want Linear-style ergonomics without surrendering their data to a SaaS.
@@ -66,6 +68,28 @@ cargo fmt --all                            # format
 
 See `CONTRIBUTING.md` for the inner-loop discipline and links to the
 nWave methodology docs in `docs/`.
+
+## Observability (opt-in)
+
+For an out-of-the-box Prometheus + Loki + Grafana stack alongside
+Foundry, layer the observability overlay:
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.observability.yml up -d
+# Grafana on http://localhost:3001 (anonymous viewer; admin/admin to log in).
+```
+
+The bundled "Foundry Overview" dashboard shows request rate, p95
+latency by route, error rate, active SSE subscribers, Postgres pool
+depth, and recent error-level logs. Operators with an existing
+observability stack can instead scrape `foundry:9090/metrics` directly.
+
+## Kubernetes
+
+The MVP ships docker-compose as the primary deploy artifact
+(ADR-102). Plain-YAML Kubernetes manifests are available under
+[`deploy/k8s/`](deploy/k8s/) for operators already on K8s; first-class
+Helm support is the v0.4 target.
 
 ## License
 

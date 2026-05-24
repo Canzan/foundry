@@ -1,0 +1,33 @@
+# Non-secret env for the Foundry app. Secrets live in
+# foundry-secret.example.yaml (DATABASE_URL, SESSION_SECRET, SMTP_*).
+#
+# All values are operator-tunable; the defaults here mirror the
+# settings the compose deploy uses.
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: foundry-config
+  namespace: foundry
+  labels:
+    app.kubernetes.io/name: foundry-app
+data:
+  FOUNDRY_HOST: "0.0.0.0"
+  FOUNDRY_PORT: "3000"
+  METRICS_HOST: "0.0.0.0"
+  METRICS_PORT: "9090"
+  # Operator MUST set FOUNDRY_PUBLIC_URL to the externally reachable
+  # URL (the one the ingress serves). The bootstrap-claim link in the
+  # app logs is built from this; getting it wrong sends operators to
+  # `http://localhost:3000/bootstrap?token=...` from a remote machine.
+  FOUNDRY_PUBLIC_URL: "https://foundry.example.com"
+  RUST_LOG: "info"
+  RUST_LOG_FORMAT: "json"
+  SSE_HEARTBEAT_MS: "25000"
+  # Per-replica connection pool. Cluster-wide ceiling on Postgres is
+  # max_connections >= replicas * (DATABASE_MAX_CONNECTIONS + 1) + 5.
+  DATABASE_MAX_CONNECTIONS: "10"
+  # Graceful-shutdown window (NFR-AVAIL-02 / realtime-roadmap.md). The
+  # Deployment's terminationGracePeriodSeconds should be >= this value
+  # + a small buffer.
+  SHUTDOWN_GRACE_SECONDS: "15"

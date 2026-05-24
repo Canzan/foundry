@@ -21,6 +21,7 @@ pub mod email;
 pub mod events;
 pub mod issues;
 pub mod keyboard;
+pub mod metrics_server;
 pub mod projects;
 pub mod session;
 pub mod signin;

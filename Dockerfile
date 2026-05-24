@@ -43,5 +43,7 @@ COPY --from=builder /usr/local/bin/foundry /app/foundry
 # to ship the migrations directory separately.
 
 USER nonroot:nonroot
-EXPOSE 3000
+# 3000 = main HTTP listener (FOUNDRY_PORT); 9090 = sidecar Prometheus
+# metrics listener (METRICS_PORT). The LB should ONLY expose 3000.
+EXPOSE 3000 9090
 ENTRYPOINT ["/app/foundry"]

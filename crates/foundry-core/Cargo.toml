@@ -7,6 +7,7 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 description = "Foundry domain types (no I/O)"
+publish = false
 
 [lib]
 path = "src/lib.rs"

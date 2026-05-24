@@ -1,0 +1,109 @@
+# Forgejo Actions CI — mirror of .github/workflows/ci.yml.
+#
+# Forgejo Actions is largely GitHub-Actions-compatible (it runs
+# act-style on the Forgejo Runner), so the same job graph works with a
+# small set of deltas documented inline.
+#
+# Compatibility deltas vs the GitHub workflow:
+#   1. `services:` is supported but uses the Forgejo Runner's docker
+#      backend; we rely on it the same way as GitHub does.
+#   2. The Swatinem/rust-cache action requires the cache server
+#      provided by the Forgejo Runner; on runners without one, the
+#      cache step is a no-op and runs still complete (just slower).
+#   3. `permissions:` is honored by Forgejo's auth model but is
+#      narrower in scope (no `id-token` / OIDC by default). The
+#      release workflow consequently lives in .github/ only; Forgejo
+#      operators who want signed container publishing fork the
+#      release workflow with their own registry credentials.
+#   4. Forgejo's default token name is `${{ secrets.GITHUB_TOKEN }}`
+#      for compatibility, but `${{ secrets.FORGEJO_TOKEN }}` also
+#      works on runner versions >= 6.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUST_BACKTRACE: 1
+  SQLX_OFFLINE: "true"
+
+jobs:
+  lint-format:
+    name: lint + format
+    runs-on: docker
+    container:
+      image: rust:1.85-slim
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install components
+        run: rustup component add rustfmt clippy
+      - name: cargo fmt --all -- --check
+        run: cargo fmt --all -- --check
+      - name: cargo clippy --all-targets --release -- -D warnings
+        run: cargo clippy --all-targets --release -- -D warnings
+
+  build-and-test:
+    name: build + test
+    runs-on: docker
+    container:
+      image: rust:1.85-slim
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: foundry
+          POSTGRES_PASSWORD: foundry
+          POSTGRES_DB: foundry
+    env:
+      DATABASE_URL: postgres://foundry:foundry@postgres:5432/foundry
+    steps:
+      - uses: actions/checkout@v4
+      - name: cargo build --all --release
+        run: cargo build --all --release
+      - name: cargo test --workspace --release (default tag set)
+        run: cargo test --workspace --release
+
+  # Acceptance: the @docker-compose group needs docker-in-docker. On
+  # Forgejo Runner with the docker backend, the runner exposes the
+  # host's docker socket via /var/run/docker.sock — same model as the
+  # GHA runner.
+  #
+  # If your Forgejo runner uses the `host` or `lxc` backend (the
+  # defaults on some self-hosted setups) this job fails with cryptic
+  # "Cannot connect to the Docker daemon" errors. Switch the runner to
+  # the docker backend:
+  #   forgejo-runner register --type docker ...
+  # See https://forgejo.org/docs/latest/admin/runner-installation/ for
+  # backend choice. Without a docker backend, drop the acceptance job
+  # entirely and rely on the GitHub mirror for full-suite coverage.
+  acceptance:
+    name: acceptance (all tags)
+    runs-on: docker
+    container:
+      image: rust:1.85-slim
+      volumes:
+        - /var/run/docker.sock:/var/run/docker.sock
+    steps:
+      - uses: actions/checkout@v4
+      - name: cargo test -p foundry-acceptance (all tags)
+        env:
+          FOUNDRY_ACCEPTANCE_TAGS: all
+        run: cargo test -p foundry-acceptance --release
+
+  deny:
+    name: cargo deny
+    runs-on: docker
+    container:
+      image: rust:1.85-slim
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install cargo-deny
+        run: cargo install --locked cargo-deny
+      - name: cargo deny check
+        run: cargo deny check

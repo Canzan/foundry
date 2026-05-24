@@ -1,0 +1,21 @@
+# Headless Service for the Postgres StatefulSet. Headless gives every
+# pod a stable DNS record (foundry-db-0.foundry-db.foundry.svc) which
+# is what the app uses via `foundry-db:5432` (the service-name short
+# form resolves to the first endpoint).
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: foundry-db
+  namespace: foundry
+  labels:
+    app.kubernetes.io/name: foundry-db
+    app.kubernetes.io/component: database
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: foundry-db
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432

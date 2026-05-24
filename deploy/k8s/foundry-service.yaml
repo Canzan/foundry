@@ -1,0 +1,21 @@
+# In-cluster Service for the Foundry app. Targets the deployment's
+# port 3000 (user HTTP). The metrics port (9090) is intentionally not
+# in this Service — Prometheus scrapes pods directly via the
+# prometheus.io/* annotations on the Deployment template.
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: foundry-app
+  namespace: foundry
+  labels:
+    app.kubernetes.io/name: foundry-app
+    app.kubernetes.io/component: web
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: foundry-app
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

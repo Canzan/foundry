@@ -1,0 +1,15 @@
+# Provisioning manifest: points Grafana at the bundled dashboards
+# directory so the "Foundry Overview" dashboard appears on first boot.
+
+apiVersion: 1
+
+providers:
+  - name: foundry
+    folder: Foundry
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false
