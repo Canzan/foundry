@@ -45,6 +45,8 @@ use foundry_acceptance::steps::us_10_comments as _us_10;
 use foundry_acceptance::steps::us_11_attachments as _us_11;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::us_12_keyboard_nav as _us_12;
+#[allow(unused_imports)]
+use foundry_acceptance::steps::us_13_contributor_onboarding as _us_13;
 
 #[tokio::main]
 async fn main() {

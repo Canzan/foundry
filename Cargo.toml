@@ -12,7 +12,7 @@ members = [
 
 [workspace.package]
 edition = "2021"
-rust-version = "1.85"
+rust-version = "1.88"
 license = "AGPL-3.0-only"
 authors = ["Foundry Contributors"]
 repository = "https://github.com/foundry-project/foundry"

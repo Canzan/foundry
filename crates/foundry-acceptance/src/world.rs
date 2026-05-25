@@ -272,4 +272,16 @@ pub struct FoundryWorld {
     /// `spawn_concurrent_sharing_schema_with_delay`. Per-AppState
     /// rather than process-global keeps parallel scenarios isolated.
     pub us_04_slow_migration_delay_ms: Option<u64>,
+
+    // ---- US-13 contributor onboarding ----
+    /// Lazy-loaded README contents for the current scenario. Loaded by
+    /// the "contributor is reading the project README" step; reused by
+    /// all downstream Then assertions in the same scenario.
+    pub us_13_readme_text: Option<String>,
+    /// Lazy-loaded `rust-toolchain.toml` contents for the current
+    /// scenario. Read on demand by the MSRV-pin assertion.
+    pub us_13_rust_toolchain_text: Option<String>,
+    /// Outcome of the walking-skeleton subprocess invocation:
+    /// (exit_status, captured_stdout, captured_stderr).
+    pub us_13_self_test_outcome: Option<(std::process::ExitStatus, String, String)>,
 }

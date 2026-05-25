@@ -4,6 +4,41 @@ Foundry is built outside-in. The contributor experience matches that
 shape: open a Gherkin scenario, watch the acceptance test go red,
 then make it green crate by crate.
 
+## Quickstart on a fresh machine
+
+The README's [Quickstart](./README.md#quickstart) walks from `git clone`
+to a green test run in five commands. Once those work, this section
+covers the contributor-only follow-ups:
+
+```sh
+# Run the full local CI gate set (fmt + clippy + build + test + cargo deny +
+# acceptance). Auto-detects Docker; FOUNDRY_XTASK_INCLUDE_DOCKER=1 forces it.
+cargo xtask ci
+
+# Inner-loop edit/save/reload for the running app.
+cargo install cargo-watch
+cargo watch -x 'run --bin foundry'
+```
+
+Notes for first-time contributors:
+
+- **`cargo test` works without `DATABASE_URL`.** The acceptance harness
+  boots its own ephemeral Postgres via testcontainers; do not export
+  `DATABASE_URL` in your shell unless you are running the app outside
+  the test suite.
+- **Rust toolchain auto-installs.** `rust-toolchain.toml` pins the MSRV;
+  `rustup` will fetch the exact channel on first `cargo` invocation, so
+  there is no `rustup install` step.
+- **`cargo watch -x 'run --bin foundry'`** plus a refresh in the browser
+  at `http://localhost:3000` is the documented one-line-edit-to-visible
+  loop. See manual Drill B in
+  [`docs/feature/foundry-contributor-onboarding/distill/manual-drills.md`](./docs/feature/foundry-contributor-onboarding/distill/manual-drills.md).
+
+The `quickstart-verify` CI job runs the README's exact 5-command
+sequence on a fresh `ubuntu-latest` runner every PR — keep it in the
+required-status-checks list so the contributor README never silently
+drifts from reality.
+
 ## Inner loop
 
 ```sh
@@ -112,6 +147,15 @@ docker ps -aq --filter "ancestor=postgres:11-alpine" | xargs -r docker rm -f
 
 A `cargo xtask docker-prune-leaked` subcommand is a planned future
 polish — until then, the one-liner above is the supported cleanup.
+
+### Manual onboarding drills (release-candidate cuts)
+
+Two human-run drills measure the contributor experience the JTBD
+outcome-3 promise relies on (≤10-min time-to-green-tests, one-line-edit
+visible within 30s). Drill scripts live at
+[`docs/feature/foundry-contributor-onboarding/distill/manual-drills.md`](./docs/feature/foundry-contributor-onboarding/distill/manual-drills.md).
+Run them at release-candidate cuts, before any 1.0 announcement, and
+whenever you want a fresh data point for the onboarding survey baseline.
 
 ### Docker on macOS (Colima / OrbStack / Lima)
 

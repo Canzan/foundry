@@ -1,3 +1,7 @@
 [toolchain]
-channel = "stable"
+# Pinned to the workspace MSRV (Cargo.toml `[workspace.package].rust-version`).
+# A specific version (NOT "stable") is required so rustup auto-installs the
+# exact toolchain a contributor needs on first `cargo` invocation — pinned by
+# acceptance scenario US-13 "@readme-contract @us-13" and CONTRIBUTING.md.
+channel = "1.91"
 components = ["rustfmt", "clippy"]

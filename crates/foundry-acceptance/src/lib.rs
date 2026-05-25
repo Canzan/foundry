@@ -22,4 +22,5 @@ pub mod steps {
     pub mod us_10_comments;
     pub mod us_11_attachments;
     pub mod us_12_keyboard_nav;
+    pub mod us_13_contributor_onboarding;
 }

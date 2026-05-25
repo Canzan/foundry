@@ -22,17 +22,80 @@ implementation across a small set of strongly-isolated crates
 (`foundry-core`, `foundry-store`, `foundry-auth`, `foundry-realtime`,
 `foundry-app`). The acceptance harness lives in `foundry-acceptance`.
 
-## Quick start
+## Quickstart
+
+### Prerequisites
+
+A new contributor needs exactly two things on the host before the first
+command runs:
+
+- **Rust 1.91** or newer, managed by [`rustup`](https://rustup.rs).
+  The workspace pins the toolchain in `rust-toolchain.toml`, so `rustup`
+  auto-installs the exact version on your first `cargo` invocation — no
+  manual step required.
+- **A reachable Docker daemon** — Docker Desktop, OrbStack, Colima, or
+  system Docker on Linux. On macOS with Colima or OrbStack, see
+  [CONTRIBUTING.md](./CONTRIBUTING.md#docker-on-macos-colima--orbstack--lima)
+  for the one-line `DOCKER_HOST` export the acceptance harness needs.
+
+The full acceptance suite additionally exercises the system `pg_dump` /
+`pg_restore` binaries (slice-3 backup/restore lane). Install them with
+`brew install libpq && brew link --force libpq` (macOS) or
+`apt-get install postgresql-client-16` (Debian/Ubuntu). The default fast
+`cargo test` does **not** need them.
+
+### Five commands from clone to green tests
 
 ```sh
+git clone https://github.com/foundry-project/foundry.git
+cd foundry
 cp .env.example .env
-docker compose up -d
-# Tail the foundry log for the admin claim URL:
-docker compose logs foundry | grep '\[BOOTSTRAP\]'
-# Open the URL in a browser and complete admin claim.
+docker compose up -d postgres
+cargo test -p foundry-acceptance --release
 ```
 
-That URL is one-shot, 30-minute TTL, never logged after first use.
+The last command boots an ephemeral Postgres via testcontainers for the
+test suite (separate from the `docker compose` postgres above, which is
+for running the app), compiles the workspace, and runs the cucumber
+acceptance suite. Expect a final line like:
+
+```
+[Summary]
+82 scenarios (82 passed)
+```
+
+No `DATABASE_URL` or other Foundry environment variable needs to be set
+on the host — the test harness provisions its own database.
+
+### Run the app locally
+
+Once the tests are green, bring the full stack up and grab the one-shot
+admin-claim URL from the logs:
+
+```sh
+docker compose up -d --wait
+docker compose logs foundry | grep '\[BOOTSTRAP\]'
+```
+
+Open the printed URL in a browser to complete the initial admin claim.
+The URL is one-shot, has a 30-minute TTL, and is never logged again
+after first use. The app listens on `http://localhost:3000` by default.
+
+### Hot-reload for development
+
+For the inner edit → save → reload loop, install `cargo-watch` once and
+run the app under it:
+
+```sh
+cargo install cargo-watch
+cargo watch -x 'run --bin foundry'
+```
+
+`cargo watch` rebuilds and restarts the binary on every save. The app
+remains at `http://localhost:3000`; refresh the browser to see template
+or handler changes. For a fuller account of the development inner loop
+(test gates, crate boundaries, CI replication), see
+[CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## Architecture at a glance
 
@@ -51,23 +114,6 @@ C4Container
 ```
 
 Full design lives under `docs/feature/foundry-backend-mvp/design/`.
-
-## Development
-
-Prerequisites: Rust 1.85 (via `rust-toolchain.toml`), Docker.
-
-```sh
-cargo build --all                          # build the workspace
-cargo test --workspace                     # unit + integration tests
-cargo test -p foundry-acceptance           # cucumber suite (fast subset)
-cargo test -p foundry-acceptance -- --tags "@docker-compose and not @manual"
-                                           # the slow US-01 install set
-cargo clippy --all-targets -- -D warnings  # lint
-cargo fmt --all                            # format
-```
-
-See `CONTRIBUTING.md` for the inner-loop discipline and links to the
-nWave methodology docs in `docs/`.
 
 ## Observability (opt-in)
 
