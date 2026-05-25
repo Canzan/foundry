@@ -359,7 +359,7 @@ The CLI / URL / UI vocabulary must be consistent between the operator and user j
 | Workspace | `foundry admin workspace` (deferred) | `/` | Workspace name in header |
 | Team | `foundry admin team` (deferred) | `/team/:slug` | "Teams" sidebar section |
 | Project | `foundry admin project` (deferred) | `/team/:t/project/:p` | "Projects" sidebar section |
-| Issue | (none; UI-only in MVP) | `/issue/:key` | Issue card |
+| Issue | (none; UI-only in MVP) | `/issues/:key` | Issue card |
 | Bootstrap | `[BOOTSTRAP]` log marker | `/bootstrap?token=...` | "Claim admin account" |
 | Invite | (none) | `/join?token=...` | "Invite teammates" |
 | Health | (LB probe) | `/healthz`, `/readyz` | — |

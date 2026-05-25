@@ -756,7 +756,7 @@ async fn fetch_issue_page(world: &mut FoundryWorld, prefix: &str, number: i32) -
     let (cookie, _csrf) = sign_in_capture_cookies(world, "mei@acme.com", MEMBER_PASSWORD).await;
     let base = world.harness.as_ref().expect("harness").base_url();
     let http = world.http.as_ref().expect("http");
-    let url = format!("{base}/team/{team_slug}/project/{project_slug}/issue/{number}");
+    let url = format!("{base}/team/{team_slug}/project/{project_slug}/issues/{number}");
     let resp = http
         .get(&url)
         .header(reqwest::header::COOKIE, cookie)

@@ -205,11 +205,11 @@ pub fn build_router(state: AppState) -> Router {
             get(events::sse_stream),
         )
         .route(
-            "/team/{team_slug}/project/{project_slug}/issue/{issue_number}",
+            "/team/{team_slug}/project/{project_slug}/issues/{issue_number}",
             get(comments::show_issue),
         )
         .route(
-            "/team/{team_slug}/project/{project_slug}/issue/{issue_number}/comments",
+            "/team/{team_slug}/project/{project_slug}/issues/{issue_number}/comments",
             post(comments::submit_comment),
         )
         .route("/keyboard-help", get(keyboard::show_keyboard_help))

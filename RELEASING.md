@@ -106,6 +106,103 @@ We follow [keep-a-changelog](https://keepachangelog.com/en/1.1.0/).
 Initial public release. Slices 1 + 2.
 ```
 
+## Operator CLI: `foundry doctor backup-verify`
+
+The release binary ships a `doctor` subcommand for running operational
+checks against a Foundry deployment. The first available is
+`backup-verify`, which validates a `pg_dump -Fc` custom-format backup
+file and reports per-table row counts.
+
+### Why you can't run it directly inside the production container
+
+The runtime image (`gcr.io/distroless/cc-debian12`) is intentionally
+minimal — no shell, no `pg_restore`, no `psql`. Running
+`foundry doctor backup-verify` inside the container will exit with a
+clear error pointing at the missing tooling.
+
+Operators have three supported patterns.
+
+### Pattern 1 — From the host (or any machine with the Postgres client tools)
+
+Easiest if Foundry isn't yet K8s-resident. Install the Postgres client
+tools (matching the major version Foundry runs on — currently 16):
+
+```sh
+# macOS
+brew install postgresql@16
+
+# Debian/Ubuntu
+sudo apt-get install postgresql-client-16
+```
+
+Capture a backup from the running stack and validate:
+
+```sh
+docker compose exec -T postgres pg_dump -U foundry -Fc -d foundry > foundry.dump
+foundry doctor backup-verify foundry.dump
+```
+
+Exit code 0 + `status: OK` line on stdout = the backup is sound and
+the row counts are what you expect. Pipe `stdout` through
+`grep -q 'status: OK'` from cron to fail loudly on corruption.
+
+### Pattern 2 — Via a transient container that bundles the client tools
+
+For environments where installing client tools on the host isn't
+desirable, run an ephemeral container that has both the foundry
+binary AND `pg_restore`:
+
+```sh
+# Mount your backup file read-only into a postgres:16-alpine container
+# (which ships pg_restore matching the production major version),
+# then exec the foundry binary against it.
+
+docker run --rm \
+  -v $PWD/foundry.dump:/backup/foundry.dump:ro \
+  -v /usr/local/bin/foundry:/usr/local/bin/foundry:ro \
+  postgres:16-alpine \
+  /usr/local/bin/foundry doctor backup-verify /backup/foundry.dump
+```
+
+(Replace `/usr/local/bin/foundry` with the path to a copy of the
+binary on your host — `docker cp foundry-foundry-1:/app/foundry .`
+extracts it from the deployed container.)
+
+### Pattern 3 — As a Kubernetes Job alongside the StatefulSet
+
+For K8s deploys, ship a small Job manifest that pairs the foundry
+image with `postgres:16-alpine` in a single Pod and exec'es the CLI:
+
+```yaml
+# Not bundled in deploy/k8s/ — operator-specific recipe.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: foundry-backup-verify
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      initContainers:
+        - name: dump
+          image: postgres:16-alpine
+          command: ["sh", "-c", "pg_dump -Fc -h $PG_HOST -U $PG_USER -d $PG_DB > /shared/foundry.dump"]
+          envFrom: [{ secretRef: { name: foundry-secret } }]
+          volumeMounts: [{ name: shared, mountPath: /shared }]
+      containers:
+        - name: verify
+          image: ghcr.io/foundry-project/foundry:vX.Y.Z
+          command: ["/app/foundry", "doctor", "backup-verify", "/shared/foundry.dump"]
+          volumeMounts: [{ name: shared, mountPath: /shared }]
+      volumes:
+        - name: shared
+          emptyDir: {}
+```
+
+A future release may ship a separate `foundry-doctor:vX.Y.Z` image
+variant with the client tools baked in. Until then, one of the three
+patterns above is the supported path.
+
 ## Backing out a release
 
 For pre-1.0, the simplest correct path:

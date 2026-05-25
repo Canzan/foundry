@@ -175,7 +175,7 @@ async fn member_comments_on_issue(
     let project_slug = lookup_project_slug_by_prefix(world, &prefix).await;
     // Slice-2 fixture: all comment scenarios target the "Backend" team.
     let team_slug = "backend";
-    let url = format!("{base}/team/{team_slug}/project/{project_slug}/issue/{number}/comments");
+    let url = format!("{base}/team/{team_slug}/project/{project_slug}/issues/{number}/comments");
 
     let mut form: HashMap<&str, String> = HashMap::new();
     form.insert("body", unescaped);
@@ -226,7 +226,7 @@ async fn ensure_issue_page_body(world: &mut FoundryWorld, prefix: &str, n: i32) 
     // primary author).
     let cookie = sign_in_and_capture_cookie(world, "mei@acme.com", MEMBER_PASSWORD).await;
     let http = world.http.as_ref().expect("http");
-    let url = format!("{base}/team/{team_slug}/project/{project_slug}/issue/{n}");
+    let url = format!("{base}/team/{team_slug}/project/{project_slug}/issues/{n}");
     let resp = http
         .get(&url)
         .header(reqwest::header::COOKIE, cookie)

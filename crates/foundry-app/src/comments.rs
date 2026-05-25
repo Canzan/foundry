@@ -2,11 +2,11 @@
 //!
 //! Routes (mounted in `lib::build_router`):
 //!
-//! - `GET  /team/{team}/project/{project}/issue/{issue_number}`
+//! - `GET  /team/{team}/project/{project}/issues/{issue_number}`
 //!   → issue-detail page with the rendered comment thread.
 //!   Authorisation: signed-in team-member only; non-members get 403.
 //!
-//! - `POST /team/{team}/project/{project}/issue/{issue_number}/comments`
+//! - `POST /team/{team}/project/{project}/issues/{issue_number}/comments`
 //!   → render the markdown through [`foundry_core::render_comment_markdown`],
 //!   insert the comment + outbox `CommentAdded` event in one transaction
 //!   (the Postgres trigger fans out via pg_notify), then either return a
@@ -41,7 +41,7 @@ pub struct CreateCommentForm {
     pub _csrf: Option<String>,
 }
 
-// ------------------------------------- GET /team/:team/project/:project/issue/:n
+// ------------------------------------- GET /team/:team/project/:project/issues/:n
 
 pub async fn show_issue(
     State(state): State<AppState>,
@@ -98,7 +98,7 @@ pub async fn show_issue(
     .into_response()
 }
 
-// ----------------------- POST /team/:team/project/:project/issue/:n/comments
+// ----------------------- POST /team/:team/project/:project/issues/:n/comments
 
 pub async fn submit_comment(
     State(state): State<AppState>,
@@ -203,7 +203,7 @@ pub async fn submit_comment(
 
     // Plain redirect back to the issue page.
     redirect_to(&format!(
-        "/team/{team_slug}/project/{project_slug}/issue/{issue_number}"
+        "/team/{team_slug}/project/{project_slug}/issues/{issue_number}"
     ))
 }
 
@@ -289,7 +289,7 @@ fn render_issue_page(
         comments.iter().map(render_comment_card).collect::<String>()
     };
     let number = extract_number(issue_key);
-    let post_url = format!("/team/{team_slug}/project/{project_slug}/issue/{number}/comments");
+    let post_url = format!("/team/{team_slug}/project/{project_slug}/issues/{number}/comments");
     let attachments_section =
         render_attachments_section(team_slug, project_slug, &number, attachments);
     let upload_url =

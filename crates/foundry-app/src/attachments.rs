@@ -166,7 +166,7 @@ pub async fn submit_upload(
             // Plain redirect back to the issue page (same shape as
             // comments.rs full-page submit).
             redirect_to(&format!(
-                "/team/{team_slug}/project/{project_slug}/issue/{issue_number}"
+                "/team/{team_slug}/project/{project_slug}/issues/{issue_number}"
             ))
         }
         Err(AttachmentInsertError::IssueNotFound) => {
