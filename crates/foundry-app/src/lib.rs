@@ -212,6 +212,17 @@ pub fn build_router(state: AppState) -> Router {
             "/team/{team_slug}/project/{project_slug}/issues/{issue_number}/comments",
             post(comments::submit_comment),
         )
+        // Slice-5 (US-10 deferred ACs): edit + delete + edit-form + cancel.
+        .route(
+            "/team/{team_slug}/project/{project_slug}/issues/{issue_number}/comments/{comment_id}/edit",
+            get(comments::show_edit_form),
+        )
+        .route(
+            "/team/{team_slug}/project/{project_slug}/issues/{issue_number}/comments/{comment_id}",
+            get(comments::show_single_comment)
+                .patch(comments::submit_edit_comment)
+                .delete(comments::submit_delete_comment),
+        )
         .route("/keyboard-help", get(keyboard::show_keyboard_help))
         .route("/", get(signin::dashboard_root))
         .layer(middleware::from_fn_with_state(

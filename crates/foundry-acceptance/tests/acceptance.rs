@@ -40,6 +40,8 @@ use foundry_acceptance::steps::us_08_file_issue as _us_08;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::us_09_realtime_sse as _us_09;
 #[allow(unused_imports)]
+use foundry_acceptance::steps::us_10_comment_edit_delete as _us_10_edit;
+#[allow(unused_imports)]
 use foundry_acceptance::steps::us_10_comments as _us_10;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::us_11_attachments as _us_11;

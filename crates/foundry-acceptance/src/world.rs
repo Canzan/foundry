@@ -284,4 +284,27 @@ pub struct FoundryWorld {
     /// Outcome of the walking-skeleton subprocess invocation:
     /// (exit_status, captured_stdout, captured_stderr).
     pub us_13_self_test_outcome: Option<(std::process::ExitStatus, String, String)>,
+
+    // ---- US-10 edit/delete (slice 5) ----
+    /// Map (issue_key_prefix, issue_number, author_email) -> comment_id
+    /// captured by the "previously posted a comment" Given. The
+    /// matching When step looks up the id to address PATCH/DELETE.
+    /// Keyed by author so a single scenario can hold both Mei's and
+    /// Hiroshi's comments at once (non-author-403 scenario).
+    pub us_10_5_last_comment_id_by_author: HashMap<(String, i32, String), uuid::Uuid>,
+    /// Map (issue_key_prefix, issue_number, body_substring) -> comment_id
+    /// captured by the "previously posted a comment" Given. Lets the
+    /// soft-delete-invariant scenario address a specific one of Mei's
+    /// two comments by body fragment (since both are by the same
+    /// author, the author-keyed map collapses them).
+    pub us_10_5_last_comment_id_by_body: HashMap<(String, i32, String), uuid::Uuid>,
+    /// Body of the most recent GET /comments/{id}/edit response. Cached
+    /// by the When step that requests it so multiple Then assertions
+    /// on the form fragment can share the same response body.
+    pub us_10_5_last_edit_form_body: Option<String>,
+    /// Raw markdown source of the most recently posted comment per
+    /// (issue_key_prefix, issue_number, author_email). Used by the
+    /// "textarea value is the raw markdown source" assertion in the
+    /// PATCH walking-skeleton scenario.
+    pub us_10_5_last_posted_body: HashMap<(String, i32, String), String>,
 }

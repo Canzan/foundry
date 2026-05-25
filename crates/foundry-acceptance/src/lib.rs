@@ -19,6 +19,7 @@ pub mod steps {
     pub mod us_07_project_create;
     pub mod us_08_file_issue;
     pub mod us_09_realtime_sse;
+    pub mod us_10_comment_edit_delete;
     pub mod us_10_comments;
     pub mod us_11_attachments;
     pub mod us_12_keyboard_nav;

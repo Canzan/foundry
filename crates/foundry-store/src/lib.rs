@@ -88,12 +88,33 @@ impl Store {
         result.map_err(StoreError::from)
     }
 
-    /// Liveness probe: `SELECT 1` round-trip.
+    /// Liveness probe: `SELECT 1` round-trip + slice-5 migration-0006
+    /// column-existence assertion (Earned Trust per architecture.md).
+    /// The "comments.updated_at + comments.deleted_at exist" check
+    /// catches the substrate-lie where the binary boots against a
+    /// pre-0006 database (would otherwise crash only on first PATCH).
     pub async fn probe(&self) -> Result<ProbeReport, ProbeError> {
         let started = std::time::Instant::now();
         let one: (i32,) = sqlx::query_as("SELECT 1").fetch_one(&self.pool).await?;
         if one.0 != 1 {
             return Err(ProbeError::Failed("SELECT 1 returned non-1".to_string()));
+        }
+        // Slice-5 substrate check: assert migration 0006 columns exist.
+        // information_schema is per-search_path so this works under the
+        // per-scenario schema rotation used by the acceptance harness.
+        let cols: (i64,) = sqlx::query_as(
+            "SELECT count(*)::bigint
+               FROM information_schema.columns
+              WHERE table_name = 'comments'
+                AND column_name IN ('updated_at', 'deleted_at', 'deleted_by')",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        if cols.0 < 3 {
+            return Err(ProbeError::Failed(format!(
+                "comments table missing migration-0006 columns (found {} of 3)",
+                cols.0
+            )));
         }
         Ok(ProbeReport {
             select_one_ok: true,
@@ -826,15 +847,29 @@ impl Store {
     /// `author_email` is joined from the `users` table; if the author
     /// has been deleted (cascade does NOT cascade on users), we surface
     /// `<deleted>` as a sentinel.
+    ///
+    /// Slice-5 (ADR-007 soft-delete invariant): tombstoned rows
+    /// (`deleted_at IS NOT NULL`) are filtered out of the public list
+    /// view. The `idx_comments_issue_live` partial index covers this
+    /// query shape. The `edited` flag on `CommentRow` is derived from
+    /// `updated_at IS NOT NULL` so the renderer can paint the "edited"
+    /// indicator (Q4 = A) without a second query.
     pub async fn list_comments_for_issue(
         &self,
         issue_id: uuid::Uuid,
     ) -> Result<Vec<CommentRow>, StoreError> {
-        let rows: Vec<(uuid::Uuid, String, String, time::OffsetDateTime)> = sqlx::query_as(
-            "SELECT c.id, COALESCE(u.email_display, '<deleted>'), c.body_html, c.created_at
+        let rows: Vec<(
+            uuid::Uuid,
+            uuid::Uuid,
+            String,
+            String,
+            time::OffsetDateTime,
+            Option<time::OffsetDateTime>,
+        )> = sqlx::query_as(
+            "SELECT c.id, c.author_id, COALESCE(u.email_display, '<deleted>'), c.body_html, c.created_at, c.updated_at
                FROM comments c
                LEFT JOIN users u ON u.id = c.author_id
-              WHERE c.issue_id = $1
+              WHERE c.issue_id = $1 AND c.deleted_at IS NULL
               ORDER BY c.created_at ASC, c.id ASC",
         )
         .bind(issue_id)
@@ -842,13 +877,208 @@ impl Store {
         .await?;
         Ok(rows
             .into_iter()
-            .map(|(id, author_email, body_html, created_at)| CommentRow {
-                id,
-                author_email,
-                body_html,
-                created_at,
-            })
+            .map(
+                |(id, author_id, author_email, body_html, created_at, updated_at)| CommentRow {
+                    id,
+                    author_id,
+                    author_email,
+                    body_html,
+                    created_at,
+                    edited: updated_at.is_some(),
+                },
+            )
             .collect())
+    }
+
+    // ----- US-10 (slice 5) edit + soft-delete -----------------------------
+
+    /// Look up a comment by id within a workspace, including soft-deleted
+    /// rows. Returns `None` when no row exists (the handler maps this to
+    /// 404), or `Some(CommentLookupRow)` carrying `deleted: bool` so the
+    /// caller can distinguish tombstoned (`deleted == true` → 410 Gone)
+    /// from live (`deleted == false` → proceed with authz check).
+    ///
+    /// Per ADR-008 the 404-vs-410 dispatch lives in the handler; this
+    /// method just surfaces the bits required for the decision. Scoped
+    /// by `workspace_id` so a comment id from another workspace presents
+    /// as 404, not as a cross-workspace leak.
+    pub async fn find_comment_by_id(
+        &self,
+        workspace_id: uuid::Uuid,
+        comment_id: uuid::Uuid,
+    ) -> Result<Option<CommentLookupRow>, StoreError> {
+        let row: Option<(
+            uuid::Uuid,
+            uuid::Uuid,
+            uuid::Uuid,
+            String,
+            Option<time::OffsetDateTime>,
+        )> = sqlx::query_as(
+            "SELECT c.id, c.issue_id, c.author_id, c.body_markdown, c.deleted_at
+               FROM comments c
+              WHERE c.id = $1 AND c.workspace_id = $2",
+        )
+        .bind(comment_id)
+        .bind(workspace_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(
+            |(id, issue_id, author_id, body_markdown, deleted_at)| CommentLookupRow {
+                id,
+                issue_id,
+                author_id,
+                body_markdown,
+                deleted: deleted_at.is_some(),
+            },
+        ))
+    }
+
+    /// Is `user_id` a workspace admin in `workspace_id`? Used by the
+    /// DELETE-comment handler to authorize the admin-moderation path
+    /// (author OR admin can delete; only author can edit). Per ADR-006
+    /// edit is author-only; per ADR-007 delete extends to admin.
+    pub async fn is_workspace_admin(
+        &self,
+        workspace_id: uuid::Uuid,
+        user_id: uuid::Uuid,
+    ) -> Result<bool, StoreError> {
+        let row: (bool,) = sqlx::query_as(
+            "SELECT EXISTS (SELECT 1 FROM workspace_memberships
+                             WHERE workspace_id = $1 AND user_id = $2 AND role = 'admin')",
+        )
+        .bind(workspace_id)
+        .bind(user_id)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(row.0)
+    }
+
+    /// Update a comment's body + write a `CommentEdited` outbox row in
+    /// one transaction. `now` lands in `updated_at` (drives the "edited"
+    /// indicator per Q4 = A). The Postgres trigger `notify_outbox_event`
+    /// fans the event out to every LISTEN-ing replica — no per-handler
+    /// publisher hook needed.
+    ///
+    /// Returns `Ok(false)` when no live row matches (the handler should
+    /// re-fetch via `find_comment_by_id` to distinguish 404 vs 410). The
+    /// edit path never touches tombstoned rows; the handler's pre-check
+    /// short-circuits to 410 before this method is called.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn update_comment_with_outbox(
+        &self,
+        workspace_id: uuid::Uuid,
+        comment_id: uuid::Uuid,
+        new_markdown: &str,
+        new_html: &str,
+        actor_user_id: uuid::Uuid,
+        author_email: &str,
+    ) -> Result<bool, StoreError> {
+        let mut tx = self.pool.begin().await?;
+
+        // Update only LIVE rows. The handler is responsible for the
+        // 404-vs-410 distinction before getting here; this WHERE clause
+        // is a defense-in-depth guard against a concurrent delete racing
+        // an edit in flight (would surface as "no rows updated" → false).
+        let updated: Option<(uuid::Uuid, uuid::Uuid, i32, String)> = sqlx::query_as(
+            "UPDATE comments
+                SET body_markdown = $3, body_html = $4, updated_at = now()
+              WHERE id = $1 AND workspace_id = $2 AND deleted_at IS NULL
+              RETURNING issue_id,
+                        (SELECT project_id FROM issues WHERE id = comments.issue_id),
+                        (SELECT number FROM issues WHERE id = comments.issue_id),
+                        (SELECT key_prefix FROM projects
+                          WHERE id = (SELECT project_id FROM issues
+                                       WHERE id = comments.issue_id))",
+        )
+        .bind(comment_id)
+        .bind(workspace_id)
+        .bind(new_markdown)
+        .bind(new_html)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        let Some((issue_id, project_id, number, key_prefix)) = updated else {
+            tx.rollback().await?;
+            return Ok(false);
+        };
+
+        let payload = serde_json::json!({
+            "issue_id": issue_id,
+            "project_id": project_id,
+            "workspace_id": workspace_id,
+            "number": number,
+            "key": format!("{key_prefix}-{number}"),
+            "author_id": actor_user_id,
+            "comment_id": comment_id,
+            "author_email": author_email,
+        });
+        sqlx::query("INSERT INTO outbox (event_type, payload) VALUES ('CommentEdited', $1)")
+            .bind(payload)
+            .execute(&mut *tx)
+            .await?;
+
+        tx.commit().await?;
+        Ok(true)
+    }
+
+    /// Soft-delete a comment + write a `CommentDeleted` outbox row in
+    /// one transaction. Sets `deleted_at = now()` and `deleted_by =
+    /// actor`. The outbox payload sets `deleted: true` per ADR-008 so
+    /// receivers can detect tombstones without parsing `event_type`.
+    ///
+    /// Returns `Ok(false)` when no live row matches — the handler should
+    /// re-fetch to disambiguate (a re-DELETE on an already-tombstoned
+    /// row is a 410, not a 200). The handler's pre-check short-circuits
+    /// to 410 before calling this method on tombstoned rows, so the
+    /// returned `false` mostly catches the race-condition / cross-
+    /// workspace cases.
+    pub async fn soft_delete_comment_with_outbox(
+        &self,
+        workspace_id: uuid::Uuid,
+        comment_id: uuid::Uuid,
+        actor_user_id: uuid::Uuid,
+    ) -> Result<bool, StoreError> {
+        let mut tx = self.pool.begin().await?;
+
+        let updated: Option<(uuid::Uuid, uuid::Uuid, i32, String)> = sqlx::query_as(
+            "UPDATE comments
+                SET deleted_at = now(), deleted_by = $3
+              WHERE id = $1 AND workspace_id = $2 AND deleted_at IS NULL
+              RETURNING issue_id,
+                        (SELECT project_id FROM issues WHERE id = comments.issue_id),
+                        (SELECT number FROM issues WHERE id = comments.issue_id),
+                        (SELECT key_prefix FROM projects
+                          WHERE id = (SELECT project_id FROM issues
+                                       WHERE id = comments.issue_id))",
+        )
+        .bind(comment_id)
+        .bind(workspace_id)
+        .bind(actor_user_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        let Some((issue_id, project_id, number, key_prefix)) = updated else {
+            tx.rollback().await?;
+            return Ok(false);
+        };
+
+        let payload = serde_json::json!({
+            "issue_id": issue_id,
+            "project_id": project_id,
+            "workspace_id": workspace_id,
+            "number": number,
+            "key": format!("{key_prefix}-{number}"),
+            "author_id": actor_user_id,
+            "comment_id": comment_id,
+            "deleted": true,
+        });
+        sqlx::query("INSERT INTO outbox (event_type, payload) VALUES ('CommentDeleted', $1)")
+            .bind(payload)
+            .execute(&mut *tx)
+            .await?;
+
+        tx.commit().await?;
+        Ok(true)
     }
 
     /// Count comments on an issue. Acceptance assertion helper for the
@@ -1171,12 +1401,33 @@ pub struct IssueLookupRow {
 /// `author_email` is the display form (`email_display`) — the renderer
 /// uses it as the `data-author=` attribute on each comment card so the
 /// acceptance scraper can target individual comments by author.
+/// `author_id` lets the renderer conditionally emit the Edit/Delete
+/// affordances when `author_id == actor.user_id` (server-side gating per
+/// ADR-006). `edited` derives from `updated_at IS NOT NULL` and drives
+/// the "edited" indicator (Q4 = A).
 #[derive(Debug, Clone)]
 pub struct CommentRow {
     pub id: uuid::Uuid,
+    pub author_id: uuid::Uuid,
     pub author_email: String,
     pub body_html: String,
     pub created_at: time::OffsetDateTime,
+    pub edited: bool,
+}
+
+/// Slice-5 lookup projection for `find_comment_by_id`. Carries the
+/// `deleted` flag (derived from `deleted_at IS NOT NULL`) so the handler
+/// can dispatch 404-vs-410-vs-403 per ADR-008. `body_markdown` is the
+/// raw source the edit-form GET handler returns in the textarea (Q5 = A
+/// inline-replace requires the original characters the author typed,
+/// not the rendered HTML).
+#[derive(Debug, Clone)]
+pub struct CommentLookupRow {
+    pub id: uuid::Uuid,
+    pub issue_id: uuid::Uuid,
+    pub author_id: uuid::Uuid,
+    pub body_markdown: String,
+    pub deleted: bool,
 }
 
 /// Errors specific to comment insert.

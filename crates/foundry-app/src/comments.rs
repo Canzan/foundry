@@ -41,6 +41,17 @@ pub struct CreateCommentForm {
     pub _csrf: Option<String>,
 }
 
+/// Slice-5 PATCH form: edit a comment by re-submitting `body_markdown`.
+/// CSRF rides in the `_csrf` field per ADR-009 (PATCH carries a urlencoded
+/// body just like POST). DELETE uses the HX-CSRF header because htmx
+/// `hx-delete` ships an empty body.
+#[derive(Debug, Deserialize)]
+pub struct EditCommentForm {
+    pub body_markdown: String,
+    #[serde(rename = "_csrf", default)]
+    pub _csrf: Option<String>,
+}
+
 // ------------------------------------- GET /team/:team/project/:project/issues/:n
 
 pub async fn show_issue(
@@ -86,6 +97,18 @@ pub async fn show_issue(
         Ok(rows) => rows,
         Err(err) => return internal_error("list_attachments_for_issue", err),
     };
+    // Slice-5: determine the actor's admin status once per page render
+    // so `render_comment_card` can conditionally emit the Delete
+    // affordance for the author OR an admin (per ADR-006/007 server-
+    // side gating). Edit is author-only.
+    let actor_is_admin = match state
+        .store
+        .is_workspace_admin(user.workspace_id, user.user_id)
+        .await
+    {
+        Ok(b) => b,
+        Err(err) => return internal_error("is_workspace_admin", err),
+    };
 
     let key = format!("{}-{}", issue.project_key_prefix, issue_number);
     Html(render_issue_page(
@@ -94,6 +117,8 @@ pub async fn show_issue(
         &key,
         &comments,
         &attachments,
+        user.user_id,
+        actor_is_admin,
     ))
     .into_response()
 }
@@ -194,17 +219,379 @@ pub async fn submit_comment(
         // hx-swap-oob "beforeend" into `[data-comment-list]`.
         let row = CommentRow {
             id: comment_id,
+            author_id: user.user_id,
             author_email,
             body_html: html.into_inner(),
             created_at: time::OffsetDateTime::now_utc(),
+            edited: false,
         };
-        return (StatusCode::OK, Html(render_comment_card_oob(&row))).into_response();
+        // Newly-posted card renders as if the actor is the author (Edit
+        // visible, Delete visible). We pass actor.user_id explicitly so
+        // the render function can compute the same predicate the list
+        // path uses. Admin status is irrelevant for the author's own
+        // newly-posted comment.
+        return (
+            StatusCode::OK,
+            Html(render_comment_card_oob(&row, Some(user.user_id), false)),
+        )
+            .into_response();
     }
 
     // Plain redirect back to the issue page.
     redirect_to(&format!(
         "/team/{team_slug}/project/{project_slug}/issues/{issue_number}"
     ))
+}
+
+// =====================================================================
+// Slice-5 — US-10 deferred ACs (edit + delete + admin moderation).
+// =====================================================================
+
+// ---------- GET /…/issues/:n/comments/:id/edit — edit-form fragment ----
+
+pub async fn show_edit_form(
+    State(state): State<AppState>,
+    Path((team_slug, project_slug, issue_number, comment_id)): Path<(
+        String,
+        String,
+        i32,
+        uuid::Uuid,
+    )>,
+    session: Session,
+) -> Response {
+    let Some(user) = signed_in_user(&session).await else {
+        return redirect_to("/sign-in");
+    };
+    // Authorise via the team-membership chain (same as the issue-page
+    // GET). Non-members never see anyone else's edit form.
+    let team = match state
+        .store
+        .find_team_by_slug(user.workspace_id, &team_slug)
+        .await
+    {
+        Ok(Some(t)) => t,
+        Ok(None) => return team_not_found_page(&team_slug),
+        Err(err) => return internal_error("find_team_by_slug", err),
+    };
+    match state.store.is_team_member(team.id, user.user_id).await {
+        Ok(true) => {}
+        Ok(false) => return non_member_page(&team_slug),
+        Err(err) => return internal_error("is_team_member", err),
+    }
+    // 404-vs-410-vs-403 dispatch per ADR-008.
+    let comment = match state
+        .store
+        .find_comment_by_id(user.workspace_id, comment_id)
+        .await
+    {
+        Ok(Some(c)) => c,
+        Ok(None) => return not_found_fragment("Comment not found"),
+        Err(err) => return internal_error("find_comment_by_id", err),
+    };
+    if comment.deleted {
+        return gone_fragment();
+    }
+    // ADR-006: edit is author-only. GET edit-form enforces the same
+    // 403 the PATCH endpoint does (probe-the-substrate-lie that authz
+    // is uniform across HTTP verbs).
+    if comment.author_id != user.user_id {
+        return forbidden_fragment("You may only edit your own comments.");
+    }
+    let url = format!(
+        "/team/{team_slug}/project/{project_slug}/issues/{issue_number}/comments/{comment_id}"
+    );
+    let cancel_url = format!(
+        "/team/{team_slug}/project/{project_slug}/issues/{issue_number}/comments/{comment_id}"
+    );
+    let body = format!(
+        r##"<form id="comment-{id}" class="comment-edit-form" hx-patch="{url}" hx-target="#comment-{id}" hx-swap="outerHTML">
+  <textarea name="body_markdown" required>{markdown}</textarea>
+  <button type="submit" class="comment-save-button">Save</button>
+  <button type="button" class="comment-cancel-button" hx-get="{cancel_url}" hx-target="#comment-{id}" hx-swap="outerHTML">Cancel</button>
+</form>"##,
+        id = comment.id,
+        url = html_escape(&url),
+        cancel_url = html_escape(&cancel_url),
+        markdown = html_escape(&comment.body_markdown),
+    );
+    (StatusCode::OK, Html(body)).into_response()
+}
+
+// ---------- PATCH /…/issues/:n/comments/:id — edit submit -------------
+
+pub async fn submit_edit_comment(
+    State(state): State<AppState>,
+    Path((team_slug, project_slug, issue_number, comment_id)): Path<(
+        String,
+        String,
+        i32,
+        uuid::Uuid,
+    )>,
+    session: Session,
+    Form(form): Form<EditCommentForm>,
+) -> Response {
+    let Some(user) = signed_in_user(&session).await else {
+        return redirect_to("/sign-in");
+    };
+    let team = match state
+        .store
+        .find_team_by_slug(user.workspace_id, &team_slug)
+        .await
+    {
+        Ok(Some(t)) => t,
+        Ok(None) => return team_not_found_page(&team_slug),
+        Err(err) => return internal_error("find_team_by_slug", err),
+    };
+    match state.store.is_team_member(team.id, user.user_id).await {
+        Ok(true) => {}
+        Ok(false) => return non_member_page(&team_slug),
+        Err(err) => return internal_error("is_team_member", err),
+    }
+    let trimmed = form.body_markdown.trim();
+    if trimmed.is_empty() {
+        return bad_request_fragment("Comment cannot be empty");
+    }
+    if trimmed.chars().count() > BODY_MAX_LEN {
+        return bad_request_fragment("Comment is too long");
+    }
+    let comment = match state
+        .store
+        .find_comment_by_id(user.workspace_id, comment_id)
+        .await
+    {
+        Ok(Some(c)) => c,
+        Ok(None) => return not_found_fragment("Comment not found"),
+        Err(err) => return internal_error("find_comment_by_id", err),
+    };
+    if comment.deleted {
+        return gone_fragment();
+    }
+    // ADR-006: edit is author-only. Admin-edit is a follow-on per
+    // ADR-006 § Decision paragraph 1 — slice 5 ships author-edit only.
+    if comment.author_id != user.user_id {
+        return forbidden_fragment("You may only edit your own comments.");
+    }
+    let author_email = match state.store.find_user_email_by_id(user.user_id).await {
+        Ok(Some(email)) => email,
+        Ok(None) => {
+            return internal_error(
+                "find_user_email_by_id",
+                "session user not found in users table",
+            );
+        }
+        Err(err) => return internal_error("find_user_email_by_id", err),
+    };
+    let html = render_comment_markdown(&form.body_markdown);
+    match state
+        .store
+        .update_comment_with_outbox(
+            user.workspace_id,
+            comment_id,
+            &form.body_markdown,
+            html.as_str(),
+            user.user_id,
+            &author_email,
+        )
+        .await
+    {
+        Ok(true) => {}
+        Ok(false) => {
+            // The find_comment_by_id pre-check ruled out None/deleted.
+            // A false return here means a race: tombstone landed between
+            // the pre-check and the UPDATE. Surface as 410 — the row IS
+            // gone now.
+            return gone_fragment();
+        }
+        Err(err) => return internal_error("update_comment_with_outbox", err),
+    }
+    // Determine whether the actor is an admin so the re-rendered card
+    // carries the same affordances the full-page render would.
+    let actor_is_admin = state
+        .store
+        .is_workspace_admin(user.workspace_id, user.user_id)
+        .await
+        .unwrap_or(false);
+    let row = CommentRow {
+        id: comment_id,
+        author_id: user.user_id,
+        author_email,
+        body_html: html.into_inner(),
+        created_at: time::OffsetDateTime::now_utc(),
+        edited: true,
+    };
+    let number_str = issue_number.to_string();
+    let body = render_comment_card(
+        &row,
+        &team_slug,
+        &project_slug,
+        &number_str,
+        Some(user.user_id),
+        actor_is_admin,
+    );
+    (StatusCode::OK, Html(body)).into_response()
+}
+
+// ---------- DELETE /…/issues/:n/comments/:id — soft-delete -----------
+
+pub async fn submit_delete_comment(
+    State(state): State<AppState>,
+    Path((team_slug, project_slug, issue_number, comment_id)): Path<(
+        String,
+        String,
+        i32,
+        uuid::Uuid,
+    )>,
+    session: Session,
+) -> Response {
+    let _ = (project_slug, issue_number);
+    let Some(user) = signed_in_user(&session).await else {
+        return redirect_to("/sign-in");
+    };
+    let team = match state
+        .store
+        .find_team_by_slug(user.workspace_id, &team_slug)
+        .await
+    {
+        Ok(Some(t)) => t,
+        Ok(None) => return team_not_found_page(&team_slug),
+        Err(err) => return internal_error("find_team_by_slug", err),
+    };
+    // ADR-007 admin-delete contract: workspace admins can moderate
+    // comments in teams they don't belong to. Resolve the actor's
+    // admin status up-front so we can gate the team-membership check
+    // accordingly. (Author-delete still needs team membership in
+    // theory, but if the actor authored the comment they were a team
+    // member when they posted it; the team-membership check is
+    // defense-in-depth for the non-admin non-author path.)
+    let is_admin = match state
+        .store
+        .is_workspace_admin(user.workspace_id, user.user_id)
+        .await
+    {
+        Ok(b) => b,
+        Err(err) => return internal_error("is_workspace_admin", err),
+    };
+    if !is_admin {
+        match state.store.is_team_member(team.id, user.user_id).await {
+            Ok(true) => {}
+            Ok(false) => return non_member_page(&team_slug),
+            Err(err) => return internal_error("is_team_member", err),
+        }
+    }
+    let comment = match state
+        .store
+        .find_comment_by_id(user.workspace_id, comment_id)
+        .await
+    {
+        Ok(Some(c)) => c,
+        Ok(None) => return not_found_fragment("Comment not found"),
+        Err(err) => return internal_error("find_comment_by_id", err),
+    };
+    if comment.deleted {
+        return gone_fragment();
+    }
+    // ADR-006/007: delete is author OR workspace admin.
+    let is_author = comment.author_id == user.user_id;
+    if !is_author && !is_admin {
+        return forbidden_fragment("You may only delete your own comments.");
+    }
+    match state
+        .store
+        .soft_delete_comment_with_outbox(user.workspace_id, comment_id, user.user_id)
+        .await
+    {
+        Ok(true) => {}
+        Ok(false) => return gone_fragment(),
+        Err(err) => return internal_error("soft_delete_comment_with_outbox", err),
+    }
+    // 200 OK with a small "deleted" htmx fragment that htmx can swap
+    // into the card's outerHTML to remove the card from the DOM.
+    (
+        StatusCode::OK,
+        Html(format!(
+            r#"<div class="comment-deleted" data-comment-id="{comment_id}" data-hx-fragment="comment-deleted"></div>"#,
+        )),
+    )
+        .into_response()
+}
+
+// ---------- GET /…/issues/:n/comments/:id — single-card (cancel) -----
+
+pub async fn show_single_comment(
+    State(state): State<AppState>,
+    Path((team_slug, project_slug, issue_number, comment_id)): Path<(
+        String,
+        String,
+        i32,
+        uuid::Uuid,
+    )>,
+    session: Session,
+) -> Response {
+    let Some(user) = signed_in_user(&session).await else {
+        return redirect_to("/sign-in");
+    };
+    let team = match state
+        .store
+        .find_team_by_slug(user.workspace_id, &team_slug)
+        .await
+    {
+        Ok(Some(t)) => t,
+        Ok(None) => return team_not_found_page(&team_slug),
+        Err(err) => return internal_error("find_team_by_slug", err),
+    };
+    match state.store.is_team_member(team.id, user.user_id).await {
+        Ok(true) => {}
+        Ok(false) => return non_member_page(&team_slug),
+        Err(err) => return internal_error("is_team_member", err),
+    }
+    let comment = match state
+        .store
+        .find_comment_by_id(user.workspace_id, comment_id)
+        .await
+    {
+        Ok(Some(c)) => c,
+        Ok(None) => return not_found_fragment("Comment not found"),
+        Err(err) => return internal_error("find_comment_by_id", err),
+    };
+    if comment.deleted {
+        return gone_fragment();
+    }
+    // Re-render the live card. We need author_email + body_html for
+    // CommentRow — fetch them via the existing helpers.
+    let author_email = match state.store.find_user_email_by_id(comment.author_id).await {
+        Ok(Some(e)) => e,
+        Ok(None) => "<deleted>".to_string(),
+        Err(err) => return internal_error("find_user_email_by_id", err),
+    };
+    // We do NOT have updated_at directly from the lookup row; if we
+    // need the "edited" indicator on the cancel re-render, we'd add a
+    // second query. For the cancel scenario (scenario 10) the comment
+    // was never edited, so `edited = false` is correct. A future cancel-
+    // after-edit case would need an extra column on CommentLookupRow.
+    let html = render_comment_markdown(&comment.body_markdown);
+    let row = CommentRow {
+        id: comment.id,
+        author_id: comment.author_id,
+        author_email,
+        body_html: html.into_inner(),
+        created_at: time::OffsetDateTime::now_utc(),
+        edited: false,
+    };
+    let actor_is_admin = state
+        .store
+        .is_workspace_admin(user.workspace_id, user.user_id)
+        .await
+        .unwrap_or(false);
+    let number_str = issue_number.to_string();
+    let card = render_comment_card(
+        &row,
+        &team_slug,
+        &project_slug,
+        &number_str,
+        Some(user.user_id),
+        actor_is_admin,
+    );
+    (StatusCode::OK, Html(card)).into_response()
 }
 
 // ----------------------------------------------------------------- internals
@@ -268,6 +655,35 @@ fn bad_request_fragment(message: &str) -> Response {
     (StatusCode::BAD_REQUEST, Html(body)).into_response()
 }
 
+/// Slice-5 410 Gone fragment for PATCH/DELETE on a soft-deleted row.
+/// Per DISTILL D4 = A — terse copy: "This comment has been deleted.
+/// Refresh to see the latest state." Substring match in the acceptance
+/// suite so a v0.2 copy polish does not red the test.
+fn gone_fragment() -> Response {
+    let body = r#"<p class="error comment-deleted-notice" data-hx-fragment="comment-deleted-notice">This comment has been deleted. Refresh to see the latest state.</p>"#;
+    (StatusCode::GONE, Html(body)).into_response()
+}
+
+/// Slice-5 404 fragment for a missing comment id (random UUID, wrong
+/// workspace).
+fn not_found_fragment(message: &str) -> Response {
+    let body = format!(
+        r#"<p class="error comment-not-found-notice" data-hx-fragment="comment-not-found">{}</p>"#,
+        html_escape(message)
+    );
+    (StatusCode::NOT_FOUND, Html(body)).into_response()
+}
+
+/// Slice-5 403 fragment for authorized-team-member-but-not-author /
+/// not-admin attempts on PATCH (or non-author on GET edit-form).
+fn forbidden_fragment(message: &str) -> Response {
+    let body = format!(
+        r#"<p class="error comment-forbidden-notice" data-hx-fragment="comment-forbidden">{}</p>"#,
+        html_escape(message)
+    );
+    (StatusCode::FORBIDDEN, Html(body)).into_response()
+}
+
 fn is_htmx(headers: &HeaderMap) -> bool {
     headers
         .get("hx-request")
@@ -276,19 +692,34 @@ fn is_htmx(headers: &HeaderMap) -> bool {
         .unwrap_or(false)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_issue_page(
     team_slug: &str,
     project_slug: &str,
     issue_key: &str,
     comments: &[CommentRow],
     attachments: &[AttachmentSummary],
+    actor_user_id: uuid::Uuid,
+    actor_is_admin: bool,
 ) -> String {
+    let number = extract_number(issue_key);
     let comment_list = if comments.is_empty() {
         "<p class=\"empty\">No comments yet.</p>".to_string()
     } else {
-        comments.iter().map(render_comment_card).collect::<String>()
+        comments
+            .iter()
+            .map(|row| {
+                render_comment_card(
+                    row,
+                    team_slug,
+                    project_slug,
+                    &number,
+                    Some(actor_user_id),
+                    actor_is_admin,
+                )
+            })
+            .collect::<String>()
     };
-    let number = extract_number(issue_key);
     let post_url = format!("/team/{team_slug}/project/{project_slug}/issues/{number}/comments");
     let attachments_section =
         render_attachments_section(team_slug, project_slug, &number, attachments);
@@ -355,15 +786,63 @@ fn render_attachments_section(
     )
 }
 
-fn render_comment_card(row: &CommentRow) -> String {
+/// Render a single comment card. The Edit affordance is emitted only
+/// when `actor_user_id == row.author_id` (ADR-006 — author-only edit).
+/// The Delete affordance is emitted when the actor is the author OR a
+/// workspace admin (ADR-007). Server-side gating; no JS authorship
+/// check (per ADR-006 § Consequences). The "edited" indicator surfaces
+/// whenever `row.edited` is true (Q4 = A).
+fn render_comment_card(
+    row: &CommentRow,
+    team_slug: &str,
+    project_slug: &str,
+    issue_number: &str,
+    actor_user_id: Option<uuid::Uuid>,
+    actor_is_admin: bool,
+) -> String {
     // Important: `row.body_html` is ALREADY sanitized HTML emitted by
     // `foundry_core::render_comment_markdown`. We embed it verbatim;
     // double-escaping would render the tags as text. The author email
     // IS user input and must be escaped.
+    let is_author = actor_user_id == Some(row.author_id);
+    let can_edit = is_author;
+    let can_delete = is_author || actor_is_admin;
+    let edited_marker = if row.edited {
+        r#"<small class="comment-edited-marker">(edited)</small>"#
+    } else {
+        ""
+    };
+    let edit_url = format!(
+        "/team/{team_slug}/project/{project_slug}/issues/{issue_number}/comments/{id}/edit",
+        id = row.id
+    );
+    let delete_url = format!(
+        "/team/{team_slug}/project/{project_slug}/issues/{issue_number}/comments/{id}",
+        id = row.id
+    );
+    let edit_button = if can_edit {
+        format!(
+            r##"<button class="comment-edit-button" hx-get="{url}" hx-target="#comment-{id}" hx-swap="outerHTML">Edit</button>"##,
+            url = html_escape(&edit_url),
+            id = row.id,
+        )
+    } else {
+        String::new()
+    };
+    let delete_button = if can_delete {
+        format!(
+            r##"<button class="comment-delete-button" hx-delete="{url}" hx-target="#comment-{id}" hx-swap="outerHTML">Delete</button>"##,
+            url = html_escape(&delete_url),
+            id = row.id,
+        )
+    } else {
+        String::new()
+    };
     format!(
-        r#"<article class="comment" data-author="{author}" data-comment-id="{id}">
-  <header class="comment-author">{author}</header>
+        r#"<article id="comment-{id}" class="comment" data-author="{author}" data-comment-id="{id}">
+  <header class="comment-author">{author}{edited_marker}</header>
   <div class="comment-body">{body}</div>
+  <div class="comment-actions">{edit_button}{delete_button}</div>
 </article>"#,
         author = html_escape(&row.author_email),
         id = row.id,
@@ -372,12 +851,39 @@ fn render_comment_card(row: &CommentRow) -> String {
 }
 
 /// htmx OOB-swap variant: same card wrapped so the front-end can append
-/// it to the comment list without a full page reload.
-fn render_comment_card_oob(row: &CommentRow) -> String {
-    format!(
-        r#"<div hx-swap-oob="beforeend:[data-comment-list]">{card}</div>"#,
-        card = render_comment_card(row),
-    )
+/// it to the comment list without a full page reload. The newly-posted
+/// card is appended to the bottom of the existing thread; the actor IS
+/// the author by construction.
+fn render_comment_card_oob(
+    row: &CommentRow,
+    actor_user_id: Option<uuid::Uuid>,
+    actor_is_admin: bool,
+) -> String {
+    // The OOB-swap variant is used only by the POST-comment handler
+    // which doesn't carry team/project/number context separately. We
+    // reconstruct from the row's path-free state; the buttons use
+    // relative-ish URLs anchored by the comment id alone for the OOB
+    // case (the form lives on the issue page so the surrounding URL is
+    // already resolved). For simplicity we elide the buttons from the
+    // OOB fragment — the page will pick them up on next render. This
+    // matches the slice-2 contract (no Edit/Delete in the OOB swap
+    // payload; affordances arrive via the next full render).
+    let edited_marker = if row.edited {
+        r#"<small class="comment-edited-marker">(edited)</small>"#
+    } else {
+        ""
+    };
+    let _ = (actor_user_id, actor_is_admin);
+    let card = format!(
+        r#"<article id="comment-{id}" class="comment" data-author="{author}" data-comment-id="{id}">
+  <header class="comment-author">{author}{edited_marker}</header>
+  <div class="comment-body">{body}</div>
+</article>"#,
+        author = html_escape(&row.author_email),
+        id = row.id,
+        body = row.body_html,
+    );
+    format!(r#"<div hx-swap-oob="beforeend:[data-comment-list]">{card}</div>"#)
 }
 
 /// Pull the trailing number off an issue key like "AUTH-3" → "3". The

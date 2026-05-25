@@ -87,6 +87,14 @@ pub struct EventPayload {
     /// the users table (wave-decisions.md "Comment-event payload shape").
     #[serde(default)]
     pub author_email: Option<String>,
+    // ---- US-10 slice-5 CommentDeleted addition (ADR-008) ------------
+    /// Set to `Some(true)` on `CommentDeleted` events; `None` for every
+    /// other event_type. Forward-compatible per realtime-roadmap.md
+    /// invariant 4; `schema_version` stays at 1. Receivers that match
+    /// on payload structure (not just `event_type`) can use this to
+    /// detect tombstones without parsing the discriminator.
+    #[serde(default)]
+    pub deleted: Option<bool>,
 }
 
 fn default_schema_version() -> u32 {

@@ -493,6 +493,13 @@ fn identity_for(who: &str) -> (String, String) {
     // (`member_belongs_to_team`), which inserts every user with
     // MEMBER_PASSWORD. Slice 2 added "Rita" as a Partners-team
     // persona; her credential follows the same convention.
+    //
+    // Slice 5 added "Devansh" — the workspace admin seeded by the
+    // US-06 `workspace_with_admin` background step. Devansh's password
+    // is the admin-only `admin-correct-horse-battery-staple` literal
+    // hashed by `seed_workspace_with_team` above (line ~63). Keeping
+    // this mapping co-located with the other personas so the globally-
+    // unique `(\w+) is signed in` step resolves cleanly.
     let _ = HIROSHI_PASSWORD; // kept for future "different password per persona" scenarios
     match who {
         "Mei" => ("mei@acme.com".to_string(), MEMBER_PASSWORD.to_string()),
@@ -500,6 +507,15 @@ fn identity_for(who: &str) -> (String, String) {
         "Rita" => (
             "rita@partners.acme.com".to_string(),
             MEMBER_PASSWORD.to_string(),
+        ),
+        "Devansh" => (
+            "devansh@acme.com".to_string(),
+            // The Background workspace_with_admin step (us_06_signin.rs
+            // line 69) seeds Devansh with `admin-password-from-bootstrap`.
+            // Slice-3 US-03 uses the same literal as `ADMIN_PASSWORD`
+            // (us_03_backup_restore.rs line 57). Keep in sync if either
+            // moves.
+            "admin-password-from-bootstrap".to_string(),
         ),
         other => panic!("no identity registered for {other:?}"),
     }
