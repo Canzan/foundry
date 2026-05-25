@@ -13,6 +13,8 @@
 #![forbid(unsafe_code)]
 #![deny(clippy::all)]
 
+pub mod admin_cli;
+pub mod attachments;
 pub mod bootstrap;
 pub mod clock;
 pub mod comments;
@@ -35,7 +37,13 @@ use axum::Router;
 use foundry_realtime::EventPayload;
 use foundry_store::Store;
 use secrecy::{ExposeSecret, SecretString};
+#[cfg(any(test, feature = "test-support"))]
+use std::path::PathBuf;
+#[cfg(any(test, feature = "test-support"))]
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+#[cfg(any(test, feature = "test-support"))]
+use std::sync::Mutex;
 use tokio::sync::broadcast;
 
 /// Default SSE heartbeat interval (`:keepalive\n\n` comment lines)
@@ -68,7 +76,54 @@ pub struct AppState {
     /// `DEFAULT_SSE_HEARTBEAT_MS`; tests override via the harness
     /// helper `support::heartbeat_env::override_heartbeat_ms`.
     pub sse_heartbeat_ms: u64,
+    /// US-11 — maximum upload size for issue attachments in MEGABYTES
+    /// (NFR-PERF-02). Sourced from the `FILE_UPLOAD_MAX_MB` env var
+    /// (default 10). Acceptance uses 10; production deployments may
+    /// raise to 50.
+    pub file_upload_max_mb: u64,
+    /// US-02 (NFR-OBS-02) — test-only health-injection flag. When set,
+    /// `/readyz` short-circuits to 503 without touching the real DB
+    /// probe. Lets the multi-replica acceptance scenarios simulate
+    /// "database unreachable" without poisoning the shared
+    /// testcontainers Postgres for sibling scenarios.
+    ///
+    /// Compiled only under the `test-support` feature (or tests), so
+    /// release builds never carry the seam. The production `/readyz`
+    /// path remains the real DB round-trip.
+    #[cfg(any(test, feature = "test-support"))]
+    pub db_unreachable: Arc<AtomicBool>,
+    /// US-04 — optional path to a runtime migrations directory the test
+    /// harness has staged (typically a `tempfile::TempDir`). When `Some`,
+    /// the boot helper runs migrations via
+    /// `foundry_store::run_migrations_from_dir` instead of the compile-
+    /// time `migrate!` macro. Production never sets this; the field is
+    /// gated behind `test-support` so release builds without the feature
+    /// do not carry it.
+    #[cfg(any(test, feature = "test-support"))]
+    pub test_migrations_dir: Option<PathBuf>,
+    /// US-04 — per-replica record of which migration versions THIS
+    /// replica observed as newly applied during boot. The "exactly one
+    /// replica reports having applied schema update '0099'" assertion
+    /// reads this from each replica's AppState. Shared
+    /// `Arc<Mutex<MigrationReport>>` so the boot path can populate it
+    /// from outside `AppState::clone()`. Released only via
+    /// `applied_migration_versions()`.
+    #[cfg(any(test, feature = "test-support"))]
+    pub applied_migrations: Arc<Mutex<foundry_store::MigrationReport>>,
+    /// US-04 — per-replica slow-migration delay in milliseconds. The
+    /// boot path forwards this to
+    /// `foundry_store::run_migrations_from_dir_with_delay`. Non-zero
+    /// values are honoured ONLY when this replica has migration work
+    /// to do (i.e. won the advisory-lock race); the loser observes
+    /// no-op work and skips the sleep. This models the "winner is
+    /// slow / loser blocks on the lock then proceeds" semantic the
+    /// US-04 lock-race scenario asserts against.
+    #[cfg(any(test, feature = "test-support"))]
+    pub test_migration_delay_ms: u64,
 }
+
+/// Default upload cap per NFR-PERF-02. The env var overrides this.
+pub const DEFAULT_FILE_UPLOAD_MAX_MB: u64 = 10;
 
 impl std::fmt::Debug for AppState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -86,9 +141,24 @@ pub fn build_router(state: AppState) -> Router {
         &state.db_schema,
         state.session_cookie_secure,
     );
-    Router::new()
+    // US-11 attachments: separate sub-router so the per-route
+    // DefaultBodyLimit cap rides only on the upload POST and doesn't
+    // affect the rest of the surface.
+    let attachment_routes = attachments::build_routes(state.clone());
+    let router = Router::new()
+        .merge(attachment_routes)
         .route("/healthz", get(healthz))
-        .route("/readyz", get(readyz))
+        .route("/readyz", get(readyz));
+    // US-02 test-only long-running endpoint. Compiled only under the
+    // `test-support` feature so production builds never expose it.
+    // The acceptance crate enables `test-support` (see
+    // foundry-acceptance/Cargo.toml); the binary build of `foundry`
+    // does not. SIGTERM-drain + in-flight-completes scenarios POST to
+    // this endpoint to occupy a request slot for ~3 seconds while
+    // other steps run against /readyz / GET /dashboard concurrently.
+    #[cfg(any(test, feature = "test-support"))]
+    let router = router.route("/__test/slow", get(test_slow));
+    router
         .route("/dashboard", get(bootstrap::dashboard))
         .route(
             "/bootstrap",
@@ -157,6 +227,24 @@ async fn healthz() -> impl IntoResponse {
 }
 
 async fn readyz(State(state): State<AppState>) -> impl IntoResponse {
+    // US-02 NFR-OBS-02: the acceptance harness can flip a test-only
+    // flag to short-circuit /readyz without touching the real DB. This
+    // simulates the "Postgres unreachable" condition for every replica
+    // sharing the same flag, WITHOUT killing the shared testcontainers
+    // Postgres (which would poison sibling scenarios). The seam is
+    // compiled only under cfg(any(test, feature = "test-support")); the
+    // release-feature path falls straight through to the probe below.
+    #[cfg(any(test, feature = "test-support"))]
+    {
+        use std::sync::atomic::Ordering;
+        if state.db_unreachable.load(Ordering::SeqCst) {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                r#"{"status":"not_ready","reason":"db_unreachable","detail":"injected"}"#,
+            )
+                .into_response();
+        }
+    }
     match state.store.probe().await {
         Ok(_) => (StatusCode::OK, r#"{"status":"ready"}"#).into_response(),
         Err(err) => (
@@ -193,6 +281,23 @@ pub async fn mint_bootstrap_if_needed(
 /// Format the single canonical bootstrap log line.
 pub fn bootstrap_log_line(url: &str) -> String {
     format!("[BOOTSTRAP] Visit {url} to claim admin")
+}
+
+/// US-02 test-only long-running endpoint. Holds the handler open for
+/// ~3 seconds so the "long-running request that is being served by a
+/// specific replica" + "SIGTERM-drain" scenarios can model a request
+/// that overlaps replica shutdown.
+///
+/// Returns `200 OK` with the body `slow-done` once the sleep elapses.
+/// The acceptance harness POSTs to this endpoint, then sends shutdown
+/// to the same replica, then awaits the response.
+///
+/// Compiled only under `cfg(any(test, feature = "test-support"))`;
+/// production binaries never carry this route.
+#[cfg(any(test, feature = "test-support"))]
+async fn test_slow() -> impl IntoResponse {
+    tokio::time::sleep(std::time::Duration::from_millis(3000)).await;
+    (StatusCode::OK, "slow-done")
 }
 
 #[cfg(any(test, feature = "test-support"))]
@@ -256,5 +361,36 @@ pub mod test_support {
         let task = foundry_realtime::spawn_pg_listener(database_url, state.realtime_tx.clone());
         app.listener_task = Some(task);
         Ok(app)
+    }
+
+    /// US-04 boot helper: if `state.test_migrations_dir` is Some, run
+    /// `foundry_store::run_migrations_from_dir(pool, dir)` against the
+    /// shared pool under the advisory lock. Mirrors the slice-1
+    /// production boot semantics (which uses the compile-time
+    /// `migrate!`) but lets the US-04 acceptance suite stage runtime
+    /// migrations into a `tempfile::TempDir` per scenario.
+    ///
+    /// On success, records the per-invocation [`MigrationReport`] into
+    /// `state.applied_migrations` so per-replica assertions can read
+    /// what THIS replica applied vs observed as already-applied. On
+    /// failure (e.g. the deliberately-broken 0099), returns the
+    /// underlying error and leaves `applied_migrations` untouched.
+    ///
+    /// Callers that do NOT set `test_migrations_dir` get a no-op
+    /// (the caller-built pool's migrations are assumed pre-applied,
+    /// which matches the slice-1 harness contract).
+    pub async fn boot_test_migrations(state: &AppState) -> Result<(), foundry_store::StoreError> {
+        if let Some(dir) = &state.test_migrations_dir {
+            let report = foundry_store::run_migrations_from_dir_with_delay(
+                state.store.pool(),
+                dir.as_path(),
+                state.test_migration_delay_ms,
+            )
+            .await?;
+            if let Ok(mut slot) = state.applied_migrations.lock() {
+                *slot = report;
+            }
+        }
+        Ok(())
     }
 }

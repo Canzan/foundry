@@ -4,10 +4,17 @@
 
 use crate::support::compose_harness::ComposeStack;
 use crate::support::harness::InProcHarness;
+use crate::support::multi_replica_harness::MultiReplicaHarness;
+use crate::support::pg_backup::RestoreTarget;
 use crate::support::sse_client::{SseEvent, SseOpenAttempt, SseSubscription};
+use crate::support::test_migration::TestMigrationsDir;
+use foundry_store::MigrationReport;
 use reqwest::header::HeaderMap;
 use reqwest::StatusCode;
 use std::collections::HashMap;
+use std::net::SocketAddr;
+use std::path::PathBuf;
+use std::time::Duration;
 use std::time::Instant;
 
 #[derive(cucumber::World, Default, Debug)]
@@ -114,4 +121,155 @@ pub struct FoundryWorld {
     /// US-12 scenarios make exactly one GET and then run multiple Then
     /// assertions against the cached body.
     pub us_12_last_get_body: Option<String>,
+
+    // ---- US-11 attachments ----
+    /// Bytes the most recent upload sent, keyed by (issue_key, filename).
+    /// The download assertion looks up the originally-uploaded bytes
+    /// here to verify round-trip equality.
+    pub us_11_uploaded_bytes: HashMap<(String, String), Vec<u8>>,
+    /// SHA-256 of the most recently uploaded file, keyed by
+    /// (issue_key, filename) — independent capture so a corrupted
+    /// `us_11_uploaded_bytes` cannot accidentally pass the byte-
+    /// identical assertion.
+    pub us_11_uploaded_sha: HashMap<(String, String), String>,
+    /// Status of the last upload (POST .../attachments) — captured so
+    /// "the upload is accepted" / "is refused as forbidden (HTTP 403)"
+    /// / "is refused with an over-limit (HTTP 413) response" Thens can
+    /// share the same captured value.
+    pub us_11_last_upload_status: Option<StatusCode>,
+    /// Body of the last upload's response. Used by "the response body
+    /// mentions the configured limit of N megabytes".
+    pub us_11_last_upload_body: Option<String>,
+    /// Bytes of the most recent download response.
+    pub us_11_last_download_bytes: Option<Vec<u8>>,
+    /// Headers of the most recent download response.
+    pub us_11_last_download_headers: Option<HeaderMap>,
+    /// Status of the most recent download response.
+    pub us_11_last_download_status: Option<StatusCode>,
+
+    // ---- US-03 backup-restore ----
+    /// Path to the dump file produced by the most recent backup step.
+    pub us_03_backup_file: Option<PathBuf>,
+    /// Handle to the process-wide US-03 restore-target Postgres
+    /// container. Cloning is cheap (Arc inside); the underlying
+    /// container is leaked + reused across scenarios per the
+    /// Mac+Colima memory-pressure mitigation in `support::pg_backup`.
+    pub us_03_restore_target: Option<RestoreTarget>,
+    /// Mutex guard held from the first `pg_restore` call until
+    /// scenario teardown — serialises US-03 scenarios so they do not
+    /// observe each other's restored state under cucumber's
+    /// per-scenario concurrency.
+    pub us_03_restore_guard: Option<tokio::sync::OwnedMutexGuard<()>>,
+    /// Connection URL for an InProcHarness pointed at the RESTORED
+    /// database. Captured after the "operator points a foundry-app
+    /// replica at the restored database" step.
+    pub us_03_restored_harness: Option<InProcHarness>,
+    /// Captured (filename → sha256-hex) for every attachment that was
+    /// uploaded BEFORE the backup. Post-restore Then steps recompute
+    /// the sha256 from the restored bytes and compare.
+    pub us_03_uploaded_sha: HashMap<String, String>,
+    /// Captured (filename → recorded Content-Type) for every attachment
+    /// uploaded before the backup. The "Content-Type preserved
+    /// through the restore" assertion compares this against what the
+    /// restored DB reports.
+    pub us_03_uploaded_content_type: HashMap<String, String>,
+    /// Captured (filename → bytes) for attachments uploaded before the
+    /// backup. The byte-identical assertion compares the post-restore
+    /// bytes against these.
+    pub us_03_uploaded_bytes: HashMap<String, Vec<u8>>,
+    /// Captured stdout from the most recent `foundry doctor
+    /// backup-verify` CLI subprocess invocation.
+    pub us_03_cli_stdout: Option<String>,
+    /// Captured stderr from the most recent `foundry doctor
+    /// backup-verify` CLI subprocess invocation.
+    pub us_03_cli_stderr: Option<String>,
+    /// Exit code reported by the most recent CLI subprocess.
+    pub us_03_cli_exit_code: Option<i32>,
+    /// Mei's session cookie captured BEFORE the backup. The
+    /// "session-still-recognised" assertion presents this cookie
+    /// against the restored instance.
+    pub us_03_pre_backup_session_cookie: Option<String>,
+
+    // ---- US-02 multi-replica ----
+    /// The N-replica harness for this scenario. None until the
+    /// background step `the operator runs N foundry replicas ...` runs.
+    pub us_02_multi: Option<MultiReplicaHarness>,
+    /// Per-actor session cookie captured at sign-in time. Multi-replica
+    /// scenarios sign Mei (and sometimes Hiroshi) in once and then
+    /// re-present the cookie across every subsequent request that
+    /// rotates through replicas.
+    pub us_02_cookies: HashMap<String, String>,
+    /// Per-replica observation counts captured by the proxy. Filled by
+    /// the "Mei makes N requests" When step; read by the "every replica
+    /// served at least once" Then step.
+    pub us_02_replica_observations: HashMap<SocketAddr, u64>,
+    /// The replica addr the most-recent SSE subscription landed on.
+    /// Set by `member_subscription_landed_on_replica`; read by the
+    /// "event was produced by a different replica" and "subscription
+    /// landing replica is stopped" steps.
+    pub us_02_sse_landing_replica: Option<SocketAddr>,
+    /// The SocketAddr that served the most-recent issue-creation POST
+    /// in the fan-out scenario. The Then step compares this against
+    /// `us_02_sse_landing_replica` to assert cross-replica fan-out.
+    pub us_02_last_writer_replica: Option<SocketAddr>,
+    /// The SSE subscription open across replicas. Captured separately
+    /// from `us_09_subscriptions` so the multi-replica step modules
+    /// don't collide on the keying scheme.
+    pub us_02_subscription: Option<SseSubscription>,
+    /// The actor whose subscription is currently held in
+    /// `us_02_subscription` — needed for the auto-reconnect scenarios
+    /// that re-open through the proxy.
+    pub us_02_subscriber: Option<String>,
+    /// The project_name the active subscription points at.
+    pub us_02_subscriber_project: Option<String>,
+    /// Outcomes the Then step needs: did every observed request return
+    /// 200? Captured during the "Mei makes 30 back-to-back" step so
+    /// the assertion is per-scenario, not per-suite.
+    pub us_02_all_requests_succeeded: Option<bool>,
+    /// Max observed pool size across the "30 requests over 3 seconds"
+    /// scenario. Sampled from each replica's `Store::pool().size()`
+    /// during the When step; asserted ≤ 10 by the Then step.
+    pub us_02_max_pool_size_observed: Option<u32>,
+    /// The replica index that's been marked for SIGTERM/stop. Used by
+    /// the "in-flight request completes successfully" assertion and
+    /// the "/readyz returns 503 before completion" assertion which
+    /// both need to know which replica is draining.
+    pub us_02_draining_replica_idx: Option<usize>,
+    /// The wall-clock at which the long-running request was issued so
+    /// the "exits within 15 seconds of SIGTERM" assertion can timestamp
+    /// the deadline. Stored alongside the in-flight join handle.
+    #[allow(dead_code)]
+    pub us_02_in_flight_started_at: Option<Instant>,
+    /// JoinHandle for the in-flight long-running request. The "Mei's
+    /// in-flight request completes successfully" assertion `.await`s
+    /// this handle and asserts the response status is 2xx.
+    pub us_02_in_flight_handle:
+        Option<tokio::task::JoinHandle<Result<(StatusCode, SocketAddr), String>>>,
+
+    // ---- US-04 rolling-upgrade ----
+    /// The staged per-scenario migrations dir (production base copy +
+    /// 0099_*.sql). Kept alive on the world so the temp dir doesn't
+    /// drop mid-scenario. Set by the "ships a schema update labeled
+    /// '0099' ..." Given steps.
+    pub us_04_migrations_dir: Option<TestMigrationsDir>,
+    /// Per-replica migration reports captured at boot by the
+    /// concurrent harness. Indexed by replica slot.
+    pub us_04_migration_reports: Vec<MigrationReport>,
+    /// Per-replica boot durations captured at boot by the concurrent
+    /// harness. Indexed by replica slot. Used by the slow-lock-race
+    /// "second replica blocked between N and M ms" assertion.
+    pub us_04_boot_durations: Vec<Duration>,
+    /// The concurrent multi-replica harness instance for this scenario
+    /// (US-04 spawn_concurrent path). Held separately from
+    /// `us_02_multi` so US-04 scenarios that also touch /readyz can
+    /// drive the proxy without colliding on world keys.
+    pub us_04_concurrent: Option<MultiReplicaHarness>,
+    /// The SpawnConcurrentError raised by a failed boot, if any. The
+    /// broken-migration scenario asserts this is Some(MigrationFailed).
+    pub us_04_spawn_error: Option<String>,
+    /// Slow-migration delay (ms) recorded by the slow-update Given so
+    /// the When step can pass it into
+    /// `spawn_concurrent_sharing_schema_with_delay`. Per-AppState
+    /// rather than process-global keeps parallel scenarios isolated.
+    pub us_04_slow_migration_delay_ms: Option<u64>,
 }

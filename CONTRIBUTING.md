@@ -34,6 +34,85 @@ To run the `@docker-compose` group locally:
 FOUNDRY_ACCEPTANCE_TAGS=docker-compose cargo test -p foundry-acceptance
 ```
 
+### System prereqs for the acceptance suite
+
+Some slice-3 acceptance lanes drive system tooling other than the Rust
+toolchain. Install these once:
+
+| Tool | Lane | Install (macOS) | Install (Debian/Ubuntu) |
+|------|------|------------------|--------------------------|
+| `docker` (or `colima`, `orbstack`, `lima`) | every acceptance run | Docker Desktop, OrbStack, or `brew install colima` | `apt-get install docker.io` or follow docker.com docs |
+| `pg_dump` + `pg_restore` | `@us-03 @backup-restore` | `brew install libpq && brew link --force libpq` | `apt-get install postgresql-client-16` |
+| `psql` | `foundry doctor backup-verify` row counts | same as above (ships with libpq) | same as above |
+
+The US-03 lane probes for `pg_dump` and `pg_restore` at suite startup
+and `panic!`s with a clear message if either is missing — silent skips
+would let backup regressions ship undetected (F-004 anti-flake).
+
+Use the **same major version of the Postgres client tooling as the
+running `foundry-db` container** when planning a restore drill. The
+test harness uses `postgres:11-alpine` (testcontainers default); the
+production runbook targets PG 16. `pg_dump` from a newer client
+against an older server works (pg_dump 14 happily dumps PG 11); the
+reverse does not.
+
+### `foundry doctor backup-verify` (operator CLI)
+
+The `foundry` binary doubles as an operator CLI. Today the only
+subcommand is `doctor backup-verify`, which validates a `pg_dump -Fc`
+custom-format archive and reports row counts:
+
+```sh
+# Boot a throwaway Postgres the verifier can restore into.
+docker run --rm -d --name verify-db -p 5544:5432 \
+    -e POSTGRES_PASSWORD=postgres postgres:11-alpine
+export FOUNDRY_DOCTOR_PROBE_URL=postgres://postgres:postgres@127.0.0.1:5544/postgres
+
+# Run the verification.
+foundry doctor backup-verify /backups/foundry-2026-05-22.dump
+# backup-file: /backups/foundry-2026-05-22.dump
+# backup-format: pg_dump custom
+# backup-size-bytes: 5421366784
+# schema: public
+# row-counts:
+#   workspaces: 1
+#   users: 12
+#   teams: 3
+#   projects: 8
+#   issues: 4823
+#   comments: 19311
+#   issue_attachments: 1142
+# status: OK
+```
+
+Exit code 0 on a healthy backup; non-zero (`2`–`7`) on missing args,
+unreadable / truncated archive, or restore-probe failure. Pipe the
+output into `grep -q 'status: OK'` from cron to fail loudly on
+corruption.
+
+### Cleaning up leaked testcontainers
+
+The acceptance harness uses testcontainers-rs's shared-container pattern
+(one Postgres container per `cargo test` invocation, kept alive via a
+`OnceCell` static so per-scenario schemas can reuse it). Rust does not
+guarantee that statics run their `Drop` impl at process exit, so each
+`cargo test` invocation leaks ~3-4 Postgres containers on the docker
+daemon. They accumulate across runs.
+
+Symptoms: tests start flaking, Postgres testcontainers OOM-kill, or
+`docker ps -a` shows many anonymously-named `postgres:11-alpine`
+containers older than a few minutes.
+
+Quick cleanup (safe IF you don't have another project using
+`postgres:11-alpine` on the same daemon):
+
+```sh
+docker ps -aq --filter "ancestor=postgres:11-alpine" | xargs -r docker rm -f
+```
+
+A `cargo xtask docker-prune-leaked` subcommand is a planned future
+polish — until then, the one-liner above is the supported cleanup.
+
 ### Docker on macOS (Colima / OrbStack / Lima)
 
 The acceptance harness (testcontainers-rs + the `@docker-compose`

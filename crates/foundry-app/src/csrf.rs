@@ -114,6 +114,39 @@ pub async fn csrf_middleware(State(_state): State<AppState>, req: Request, next:
         .and_then(|v| v.to_str().ok())
         .map(str::to_string);
 
+    // Multipart bodies skip the urlencoded form-extraction path. The
+    // existing 64 KB cap would otherwise truncate a 9 MB file upload
+    // and the downstream multipart handler would see an empty body.
+    // For multipart, the CSRF token MUST arrive in the `x-csrf-token`
+    // (or `hx-csrf`) header — US-11's upload client sets this; a
+    // browser multipart form post can rely on a small alpine.js/htmx
+    // hook that mirrors the cookie value into the header.
+    let is_multipart = req
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_ascii_lowercase().starts_with("multipart/form-data"))
+        .unwrap_or(false);
+
+    if is_multipart {
+        let valid = match (cookie_value.as_deref(), header_token.as_deref()) {
+            (Some(c), Some(s)) if !c.is_empty() && !s.is_empty() => constant_time_eq(c, s),
+            _ => false,
+        };
+        if !valid {
+            return (
+                StatusCode::FORBIDDEN,
+                [(
+                    header::CONTENT_TYPE,
+                    HeaderValue::from_static("text/plain; charset=utf-8"),
+                )],
+                "CSRF token missing or mismatched",
+            )
+                .into_response();
+        }
+        return next.run(req).await;
+    }
+
     let (parts, body) = req.into_parts();
     let (form_token, body) = extract_form_token(body).await;
     let req = Request::from_parts(parts, body);

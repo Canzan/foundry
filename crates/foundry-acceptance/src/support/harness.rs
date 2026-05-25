@@ -5,15 +5,21 @@
 //! - Per-scenario PG schema, search_path rotated on the pool.
 //! - Per-scenario AppState with `FakeEmailSender` + `MockClock`.
 //!
-//! Containers and pools are deliberately leaked (`Box::leak`) so they
-//! outlive every scenario — `cargo test` exits and the docker daemon
-//! reaps the container.
+//! Container lifetime: stored in a process-wide `OnceCell` (no `Box::leak`),
+//! so testcontainers' `Drop` fires when the static drops at process exit
+//! and stops + removes the container. A previous version used `Box::leak`
+//! which prevented `Drop` from running; that pattern accumulated dozens of
+//! containers across `cargo test` invocations and saturated developer
+//! Docker daemons. Testcontainers' bundled reaper sidecar is a belt-and-
+//! braces backup — it tags every container with the test session ID and
+//! reaps any that outlive the process by more than 90 s.
 
+use crate::support::file_upload_env;
 use crate::support::heartbeat_env;
 use foundry_app::clock::MockClock;
 use foundry_app::email::FakeEmailSender;
 use foundry_app::test_support::{spawn_app_with_listener, TestApp};
-use foundry_app::{AppState, DEFAULT_SSE_HEARTBEAT_MS};
+use foundry_app::{AppState, DEFAULT_FILE_UPLOAD_MAX_MB, DEFAULT_SSE_HEARTBEAT_MS};
 use foundry_store::Store;
 use once_cell::sync::OnceCell;
 use secrecy::SecretString;
@@ -26,7 +32,7 @@ use testcontainers_modules::testcontainers::runners::AsyncRunner;
 use testcontainers_modules::testcontainers::ContainerAsync;
 use tokio::sync::OnceCell as AsyncOnceCell;
 
-static PG_CONTAINER: OnceCell<&'static ContainerAsync<Postgres>> = OnceCell::new();
+static PG_CONTAINER: OnceCell<ContainerAsync<Postgres>> = OnceCell::new();
 static PG_CONTAINER_INIT: AsyncOnceCell<()> = AsyncOnceCell::const_new();
 static PG_BASE_URL: OnceCell<String> = OnceCell::new();
 static SCHEMA_COUNTER: Mutex<u64> = Mutex::new(0);
@@ -49,8 +55,14 @@ pub async fn ensure_postgres() -> &'static str {
             // Default testcontainers postgres user/password/db.
             let url = format!("postgres://postgres:postgres@{host}:{port}/postgres");
             PG_BASE_URL.set(url).ok();
+            // `set` returns `Err(container)` on collision; we are
+            // inside `get_or_init` so collision is impossible, but
+            // `ContainerAsync` isn't `Debug`, so we can't `.expect()`
+            // directly. Map the error to a static string for the panic
+            // path that cannot trigger.
             PG_CONTAINER
-                .set(Box::leak(Box::new(container)))
+                .set(container)
+                .map_err(|_| "PG_CONTAINER already set — impossible inside get_or_init")
                 .expect("set PG_CONTAINER once");
         })
         .await;
@@ -116,6 +128,48 @@ pub async fn fresh_schema_pool_with_url() -> (String, PgPool, String) {
     (schema, pool, listen_url)
 }
 
+/// As [`fresh_schema_pool_with_url`] but DOES NOT run migrations. Used
+/// by the US-04 multi-replica advisory-lock-race harness — each
+/// replica's boot path applies migrations from a per-scenario
+/// `tempfile::TempDir` instead, racing on the advisory lock.
+pub async fn fresh_schema_pool_no_migrations() -> (String, PgPool, String) {
+    let base = ensure_postgres().await;
+    let counter = {
+        let mut g = SCHEMA_COUNTER.lock().expect("schema counter mutex");
+        *g += 1;
+        *g
+    };
+    let schema = format!("test_s{}_{}", counter, hex_suffix());
+
+    let mut admin = sqlx::PgConnection::connect(base)
+        .await
+        .expect("connect to base postgres");
+    sqlx::query(&format!("CREATE SCHEMA {schema}"))
+        .execute(&mut admin)
+        .await
+        .expect("create schema");
+    drop(admin);
+
+    let options = PgConnectOptions::from_str(base)
+        .expect("parse postgres URL")
+        .options([("search_path", schema.as_str())]);
+    let pool = PgPoolOptions::new()
+        .min_connections(1)
+        .max_connections(4)
+        .acquire_timeout(std::time::Duration::from_secs(5))
+        .connect_with(options)
+        .await
+        .expect("build per-scenario pool");
+
+    let listen_url = format!(
+        "{base}?options=-csearch_path%3D{schema}",
+        base = base,
+        schema = schema
+    );
+
+    (schema, pool, listen_url)
+}
+
 fn hex_suffix() -> String {
     let mut bytes = [0u8; 4];
     use rand::RngCore;
@@ -162,6 +216,13 @@ impl InProcHarness {
         let realtime_tx = foundry_realtime::build_broadcast();
         let heartbeat_ms =
             heartbeat_env::current_heartbeat_ms().unwrap_or(DEFAULT_SSE_HEARTBEAT_MS);
+        // US-11: the Background step pins the override via
+        // `file_upload_env::override_file_upload_max_mb`. We read it
+        // here so the per-scenario cap rides into AppState. `unsafe`
+        // env mutation is forbidden in this crate; an AtomicU64 stands
+        // in for the env var. See `support::file_upload_env`.
+        let file_upload_max_mb =
+            file_upload_env::current_file_upload_max_mb().unwrap_or(DEFAULT_FILE_UPLOAD_MAX_MB);
         let state = AppState {
             store,
             session_secret: Arc::new(SecretString::new(
@@ -179,6 +240,13 @@ impl InProcHarness {
             email: fake_email.clone(),
             realtime_tx,
             sse_heartbeat_ms: heartbeat_ms,
+            file_upload_max_mb,
+            db_unreachable: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            test_migrations_dir: None,
+            applied_migrations: Arc::new(std::sync::Mutex::new(
+                foundry_store::MigrationReport::default(),
+            )),
+            test_migration_delay_ms: 0,
         };
         let app = spawn_app_with_listener(state, listen_url)
             .await

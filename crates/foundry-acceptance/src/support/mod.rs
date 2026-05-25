@@ -1,7 +1,12 @@
 //! Cross-cutting test helpers.
 
 pub mod compose_harness;
+pub mod file_upload_env;
 pub mod harness;
 pub mod heartbeat_env;
 pub mod html_assertions;
+pub mod multi_replica_harness;
+pub mod pg_backup;
+pub mod round_robin_proxy;
 pub mod sse_client;
+pub mod test_migration;

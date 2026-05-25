@@ -12,6 +12,13 @@ publish = false
 [lib]
 path = "src/lib.rs"
 
+[features]
+default = []
+# Exposes test-only seams (e.g. `run_migrations_from_dir` migration
+# delay knob used by the US-04 advisory-lock-race acceptance scenario).
+# foundry-acceptance enables this through its `foundry-store` dep.
+test-support = []
+
 [dependencies]
 foundry-core = { path = "../foundry-core" }
 

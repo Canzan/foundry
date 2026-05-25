@@ -50,6 +50,13 @@ async fn build_test_router() -> Router {
         email: Arc::new(NoopEmailSender),
         realtime_tx: foundry_realtime::build_broadcast(),
         sse_heartbeat_ms: foundry_app::DEFAULT_SSE_HEARTBEAT_MS,
+        file_upload_max_mb: foundry_app::DEFAULT_FILE_UPLOAD_MAX_MB,
+        db_unreachable: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        test_migrations_dir: None,
+        applied_migrations: Arc::new(std::sync::Mutex::new(
+            foundry_store::MigrationReport::default(),
+        )),
+        test_migration_delay_ms: 0,
     };
     Router::new()
         .route("/csrf-probe", post(|| async { "OK" }))

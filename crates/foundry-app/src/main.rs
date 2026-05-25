@@ -10,7 +10,7 @@
 use anyhow::Context;
 use foundry_app::{
     build_router, metrics_server, mint_bootstrap_if_needed, AppState, NoopEmailSender, SystemClock,
-    DEFAULT_SSE_HEARTBEAT_MS,
+    DEFAULT_FILE_UPLOAD_MAX_MB, DEFAULT_SSE_HEARTBEAT_MS,
 };
 use foundry_store::Store;
 use secrecy::SecretString;
@@ -20,6 +20,19 @@ use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // Subcommand dispatch happens BEFORE we initialise tracing /
+    // load `.env` / connect to Postgres — operator CLI subcommands
+    // (`doctor backup-verify`) must be invocable on a host that does
+    // not have DATABASE_URL or SESSION_SECRET set.
+    //
+    // The default invocation (no args, or `serve`) boots the HTTP
+    // listener exactly as before. The only recognised subcommand is
+    // `doctor backup-verify <file>`; unknown subcommands print a usage
+    // hint and exit non-zero.
+    if let Some(code) = dispatch_subcommand() {
+        std::process::exit(code);
+    }
+
     let _ = dotenvy::dotenv();
     init_tracing();
 
@@ -80,6 +93,10 @@ async fn main() -> anyhow::Result<()> {
         .ok()
         .and_then(|v| v.parse::<u64>().ok())
         .unwrap_or(DEFAULT_SSE_HEARTBEAT_MS);
+    let file_upload_max_mb = std::env::var("FILE_UPLOAD_MAX_MB")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(DEFAULT_FILE_UPLOAD_MAX_MB);
 
     let state = AppState {
         store: Arc::new(store),
@@ -91,6 +108,28 @@ async fn main() -> anyhow::Result<()> {
         email: Arc::new(NoopEmailSender),
         realtime_tx,
         sse_heartbeat_ms,
+        file_upload_max_mb,
+        // US-02 test-only seam: only the binary built with the
+        // `test-support` feature carries this field. The production
+        // release build excludes it via `cfg(any(test, feature = ...))`.
+        // The acceptance crate pulls foundry-app with `test-support` on
+        // (see foundry-acceptance/Cargo.toml), so this code path is
+        // exercised by every cargo build that includes the harness.
+        #[cfg(any(test, feature = "test-support"))]
+        db_unreachable: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        // US-04 test-only seams: only the binary built with
+        // `test-support` carries these. Production replicas use the
+        // compile-time `migrate!` path (foundry_store::run_migrations)
+        // already invoked from `Store::migrate`; the runtime variant
+        // is purely a test affordance.
+        #[cfg(any(test, feature = "test-support"))]
+        test_migrations_dir: None,
+        #[cfg(any(test, feature = "test-support"))]
+        applied_migrations: std::sync::Arc::new(std::sync::Mutex::new(
+            foundry_store::MigrationReport::default(),
+        )),
+        #[cfg(any(test, feature = "test-support"))]
+        test_migration_delay_ms: 0,
     };
     let router = build_router(state);
 
@@ -127,6 +166,59 @@ fn init_tracing() {
         builder.init();
     } else {
         builder.json().init();
+    }
+}
+
+/// Inspect `std::env::args()` for a recognised subcommand. Returns
+/// `Some(exit_code)` when a subcommand handled the invocation and the
+/// process should exit; returns `None` when the binary should fall
+/// through to the default HTTP-server boot path.
+fn dispatch_subcommand() -> Option<i32> {
+    let args: Vec<String> = std::env::args().collect();
+    // args[0] is the binary path; user args start at args[1].
+    let first = args.get(1).map(|s| s.as_str()).unwrap_or("");
+    match first {
+        // Default boot path — explicit `serve` is the same as no
+        // subcommand so docker-compose CMDs can name the action.
+        "" | "serve" => None,
+        "doctor" => {
+            let action = args.get(2).map(|s| s.as_str()).unwrap_or("");
+            match action {
+                "backup-verify" => {
+                    let Some(file) = args.get(3) else {
+                        eprintln!(
+                            "foundry doctor backup-verify: missing <file> argument. \
+                             Usage: foundry doctor backup-verify <backup-file>"
+                        );
+                        return Some(2);
+                    };
+                    let code =
+                        foundry_app::admin_cli::run_backup_verify(std::path::Path::new(file));
+                    Some(code)
+                }
+                "" => {
+                    eprintln!(
+                        "foundry doctor: subcommand required. \
+                         Available: backup-verify <file>"
+                    );
+                    Some(2)
+                }
+                other => {
+                    eprintln!(
+                        "foundry doctor: unknown subcommand {other:?}. \
+                         Available: backup-verify <file>"
+                    );
+                    Some(2)
+                }
+            }
+        }
+        other => {
+            eprintln!(
+                "foundry: unknown subcommand {other:?}. \
+                 Available: serve (default), doctor backup-verify <file>"
+            );
+            Some(2)
+        }
     }
 }
 

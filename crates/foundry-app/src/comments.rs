@@ -19,6 +19,7 @@
 //! time and ridden through the outbox payload so SSE subscribers can
 //! render the author without a JOIN at fan-out time (wave-decisions.md).
 
+use crate::attachments::humanize_size;
 use crate::bootstrap::{html_escape, invalid_page, SessionUser};
 use crate::session::SESSION_KEY_USER_ID;
 use crate::AppState;
@@ -27,7 +28,7 @@ use axum::http::header::{HeaderMap, HeaderValue, LOCATION};
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
 use foundry_core::render_comment_markdown;
-use foundry_store::{CommentInsertError, CommentRow};
+use foundry_store::{AttachmentSummary, CommentInsertError, CommentRow};
 use serde::Deserialize;
 use tower_sessions::Session;
 
@@ -77,6 +78,14 @@ pub async fn show_issue(
         Ok(rows) => rows,
         Err(err) => return internal_error("list_comments_for_issue", err),
     };
+    // US-11 — list attachments on the issue page. Empty for issues
+    // with no uploads; the renderer emits a `.attachments-empty` block
+    // in that case so scrapers can distinguish "no attachments" from
+    // "render failed".
+    let attachments = match state.store.list_attachments_for_issue(issue.issue_id).await {
+        Ok(rows) => rows,
+        Err(err) => return internal_error("list_attachments_for_issue", err),
+    };
 
     let key = format!("{}-{}", issue.project_key_prefix, issue_number);
     Html(render_issue_page(
@@ -84,6 +93,7 @@ pub async fn show_issue(
         &project_slug,
         &key,
         &comments,
+        &attachments,
     ))
     .into_response()
 }
@@ -271,21 +281,29 @@ fn render_issue_page(
     project_slug: &str,
     issue_key: &str,
     comments: &[CommentRow],
+    attachments: &[AttachmentSummary],
 ) -> String {
     let comment_list = if comments.is_empty() {
         "<p class=\"empty\">No comments yet.</p>".to_string()
     } else {
         comments.iter().map(render_comment_card).collect::<String>()
     };
-    let post_url = format!(
-        "/team/{team_slug}/project/{project_slug}/issue/{key}/comments",
-        key = extract_number(issue_key)
-    );
+    let number = extract_number(issue_key);
+    let post_url = format!("/team/{team_slug}/project/{project_slug}/issue/{number}/comments");
+    let attachments_section =
+        render_attachments_section(team_slug, project_slug, &number, attachments);
+    let upload_url =
+        format!("/team/{team_slug}/project/{project_slug}/issues/{number}/attachments");
     format!(
         r#"<!doctype html>
 <html><head><title>{key} - {project_slug}</title></head>
 <body>
 <header><h1>{key}</h1></header>
+{attachments_section}
+<form method="post" action="{upload_url}" enctype="multipart/form-data">
+  <label>Attach a file <input type="file" name="file" required></label>
+  <button type="submit">Upload</button>
+</form>
 <section class="comments" data-comment-list>{comment_list}</section>
 <form method="post" action="{post_url}">
   <label>Add a comment <textarea name="body" required></textarea></label>
@@ -295,6 +313,45 @@ fn render_issue_page(
         key = html_escape(issue_key),
         project_slug = html_escape(project_slug),
         post_url = html_escape(&post_url),
+        upload_url = html_escape(&upload_url),
+    )
+}
+
+fn render_attachments_section(
+    team_slug: &str,
+    project_slug: &str,
+    issue_number: &str,
+    attachments: &[AttachmentSummary],
+) -> String {
+    if attachments.is_empty() {
+        return String::from(
+            r#"<section class="attachments" data-attachment-list>
+  <p class="attachments-empty">No attachments yet.</p>
+</section>"#,
+        );
+    }
+    let items = attachments
+        .iter()
+        .map(|a| {
+            let href = format!(
+                "/team/{team_slug}/project/{project_slug}/issues/{issue_number}/attachments/{id}",
+                id = a.id
+            );
+            format!(
+                r#"<li class="attachment" data-filename="{filename}">
+  <a class="attachment-link" href="{href}">{filename}</a>
+  <span class="size">{size}</span>
+</li>"#,
+                filename = html_escape(&a.filename),
+                href = html_escape(&href),
+                size = html_escape(&humanize_size(a.size_bytes)),
+            )
+        })
+        .collect::<String>();
+    format!(
+        r#"<section class="attachments">
+<ul data-attachment-list>{items}</ul>
+</section>"#
     )
 }
 

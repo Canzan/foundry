@@ -7,6 +7,10 @@
 #![forbid(unsafe_code)]
 #![deny(clippy::all)]
 
+pub mod attachments;
+
+pub use attachments::{AttachmentInsertError, AttachmentRow, AttachmentSummary};
+
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 use std::time::Duration;
@@ -944,6 +948,210 @@ pub enum BootstrapTokenStatus {
 pub async fn run_migrations(pool: &PgPool) -> Result<(), StoreError> {
     sqlx::migrate!("./migrations").run(pool).await?;
     Ok(())
+}
+
+/// Derive the advisory-lock id from the active `search_path` so the
+/// US-04 acceptance scenarios — which use per-scenario Postgres schemas
+/// inside ONE shared testcontainers container — do not serialise on
+/// each other. The production binary uses `public` (or no override),
+/// for which this returns the canonical [`MIGRATION_LOCK_ID`] so the
+/// runbook-documented value is preserved.
+///
+/// Failure modes (cannot read search_path, etc.) fall back to the
+/// canonical id at the caller — preserving strict serialisation if the
+/// scope query fails.
+async fn scoped_migration_lock_id(pool: &PgPool) -> Result<i64, sqlx::Error> {
+    let row: (String,) = sqlx::query_as("SHOW search_path").fetch_one(pool).await?;
+    let raw = row.0;
+    // Postgres returns search_path like `"$user", public` or
+    // `test_s17_ab12` depending on `search_path` overrides on the
+    // connection. For the production binary, this is `"$user", public`
+    // — we return the canonical id to preserve runbook semantics.
+    // For the acceptance harness, the pool's connect_options pins
+    // `search_path=<schema>` so this is the schema name.
+    let normalised = raw.trim();
+    if normalised.is_empty()
+        || normalised == "\"$user\", public"
+        || normalised == "public"
+        || normalised == "\"$user\""
+    {
+        return Ok(MIGRATION_LOCK_ID);
+    }
+    // FNV-1a hash, truncated to i64. Identical inputs map to identical
+    // outputs across replicas — that's the production-meaningful
+    // invariant for the advisory-lock pattern.
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in normalised.as_bytes() {
+        hash ^= *b as u64;
+        hash = hash.wrapping_mul(0x100_0000_01b3);
+    }
+    Ok(hash as i64)
+}
+
+/// Report returned by [`run_migrations_from_dir`] so US-04 acceptance
+/// scenarios can observe per-replica migration outcomes.
+///
+/// `applied` holds the version numbers this invocation actually executed
+/// (took the advisory lock, applied SQL, recorded a row in
+/// `_sqlx_migrations`). `already_applied` holds the version numbers this
+/// invocation observed as already applied (no SQL run; row already
+/// present). Together they let the test "exactly one replica reports
+/// having applied schema update '0099' and the other reports
+/// already-applied" be expressed against an observable.
+///
+/// Production replicas use [`run_migrations`] (compile-time `migrate!`)
+/// and never see this type. The runtime variant is the test path.
+#[derive(Debug, Clone, Default)]
+pub struct MigrationReport {
+    pub applied: Vec<i64>,
+    pub already_applied: Vec<i64>,
+}
+
+/// Runtime sibling of [`run_migrations`]: load migrations from a
+/// directory at runtime (instead of compile-time `migrate!` macro) and
+/// run them under the SAME `pg_advisory_lock(MIGRATION_LOCK_ID)` guard
+/// that the production path uses. Used by the US-04 acceptance suite
+/// to stage per-scenario test migrations into a `tempfile::TempDir`
+/// without touching production `crates/foundry-store/migrations/`.
+///
+/// Returns a [`MigrationReport`] enumerating which migrations were
+/// newly applied vs already-applied by this invocation.
+///
+/// Convenience wrapper that delegates to
+/// [`run_migrations_from_dir_with_delay`] with `delay_ms = 0`.
+pub async fn run_migrations_from_dir(
+    pool: &PgPool,
+    dir: &std::path::Path,
+) -> Result<MigrationReport, StoreError> {
+    run_migrations_from_dir_with_delay(pool, dir, 0).await
+}
+
+/// As [`run_migrations_from_dir`] but with an explicit per-call
+/// `delay_ms` slept AFTER acquiring the advisory lock and BEFORE
+/// snapshotting `_sqlx_migrations`. This is the slow-migration seam
+/// the US-04 lock-race scenario uses to keep the winner holding the
+/// lock long enough that the loser's blocking time is observable.
+///
+/// Passing this per-call (instead of a process-global atomic) keeps
+/// parallel scenarios isolated — each AppState carries its own value.
+pub async fn run_migrations_from_dir_with_delay(
+    pool: &PgPool,
+    dir: &std::path::Path,
+    delay_ms: u64,
+) -> Result<MigrationReport, StoreError> {
+    use sqlx::migrate::Migrator;
+
+    // The advisory lock id is derived from the current Postgres
+    // `search_path` so per-scenario schemas inside the shared
+    // testcontainers container do NOT serialise on each other (the
+    // production-meaningful invariant is "concurrent replicas against
+    // the SAME database serialise", which means SAME schema in the
+    // test setup). The base prod lock id is preserved when search_path
+    // is `public` (or unset) so the production binary keeps using
+    // the canonical id.
+    let lock_id = scoped_migration_lock_id(pool)
+        .await
+        .unwrap_or(MIGRATION_LOCK_ID);
+
+    let mut conn = pool.acquire().await?;
+    sqlx::query("SELECT pg_advisory_lock($1)")
+        .bind(lock_id)
+        .execute(&mut *conn)
+        .await?;
+
+    // Pre-snapshot of `_sqlx_migrations` AFTER acquiring the advisory
+    // lock. This is the linchpin of per-invocation accounting: the
+    // loser replica sees the winner's applied rows here and correctly
+    // classifies them as already-applied. Snapshotting BEFORE the
+    // lock would race — both replicas would see empty pre-state and
+    // both would falsely claim to have applied the migration.
+    //
+    // The table may not yet exist on a virgin pool — the very first
+    // `Migrator::run` call creates it. We tolerate that by treating a
+    // missing table as "no versions applied yet".
+    let pre_versions: Vec<i64> =
+        match sqlx::query_as::<_, (i64,)>("SELECT version FROM _sqlx_migrations ORDER BY version")
+            .fetch_all(&mut *conn)
+            .await
+        {
+            Ok(rows) => rows.into_iter().map(|(v,)| v).collect(),
+            // Table not yet present (virgin DB) → no priors.
+            Err(sqlx::Error::Database(db_err)) if db_err.code().as_deref() == Some("42P01") => {
+                Vec::new()
+            }
+            Err(e) => {
+                // Release the lock before propagating.
+                let _ = sqlx::query("SELECT pg_advisory_unlock($1)")
+                    .bind(lock_id)
+                    .execute(&mut *conn)
+                    .await;
+                return Err(StoreError::Sqlx(e));
+            }
+        };
+
+    // Slow-migration seam: if delay_ms > 0 AND there is work to do
+    // (i.e., the migrations dir contains versions not yet in
+    // `_sqlx_migrations`), sleep before running the migrator. The
+    // race-winner has work; the loser has none (the winner already
+    // applied 0099). This way only ONE caller pays the delay even
+    // though both share the same per-call delay_ms value — exactly
+    // the production semantic the slow-lock-race scenario models.
+    let pre_set_for_delay: std::collections::HashSet<i64> = pre_versions.iter().copied().collect();
+    // `set_locking(false)` disables sqlx's internal advisory lock
+    // (which uses a GLOBAL key across the whole Postgres instance and
+    // would re-serialise every parallel test scenario). We already
+    // hold our scoped advisory lock above; sqlx's lock would be a
+    // double-hold against a shared key, which is what was hammering
+    // the slice-1+2 timing-sensitive scenarios under load.
+    let mut migrator_raw = Migrator::new(dir).await?;
+    let migrator = migrator_raw.set_locking(false);
+    let has_work = migrator
+        .iter()
+        .any(|m| !pre_set_for_delay.contains(&m.version));
+    if delay_ms > 0 && has_work {
+        tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+    }
+
+    let migrator_result = migrator.run(&mut *conn).await;
+
+    // Post-snapshot taken WHILE we still hold the lock (so another
+    // concurrent boot can't race a new row in between).
+    let post_versions: Vec<i64> = match migrator_result.as_ref() {
+        Ok(_) => {
+            sqlx::query_as::<_, (i64,)>("SELECT version FROM _sqlx_migrations ORDER BY version")
+                .fetch_all(&mut *conn)
+                .await?
+                .into_iter()
+                .map(|(v,)| v)
+                .collect()
+        }
+        // On failure we don't trust the snapshot; return empty.
+        Err(_) => Vec::new(),
+    };
+
+    // Always release the advisory lock, even on migration failure.
+    let _ = sqlx::query("SELECT pg_advisory_unlock($1)")
+        .bind(lock_id)
+        .execute(&mut *conn)
+        .await;
+
+    migrator_result?;
+
+    let pre_set: std::collections::HashSet<i64> = pre_versions.iter().copied().collect();
+    let mut applied: Vec<i64> = Vec::new();
+    let mut already_applied: Vec<i64> = Vec::new();
+    for v in &post_versions {
+        if pre_set.contains(v) {
+            already_applied.push(*v);
+        } else {
+            applied.push(*v);
+        }
+    }
+
+    Ok(MigrationReport {
+        applied,
+        already_applied,
+    })
 }
 
 /// Joined lookup of an issue by `(team_id, project_slug, issue_number)`.

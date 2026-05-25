@@ -11,11 +11,15 @@ pub mod world;
 
 pub mod steps {
     pub mod us_01_install;
+    pub mod us_02_multi_replica;
+    pub mod us_03_backup_restore;
+    pub mod us_04_rolling_upgrade;
     pub mod us_05_bootstrap;
     pub mod us_06_signin;
     pub mod us_07_project_create;
     pub mod us_08_file_issue;
     pub mod us_09_realtime_sse;
     pub mod us_10_comments;
+    pub mod us_11_attachments;
     pub mod us_12_keyboard_nav;
 }

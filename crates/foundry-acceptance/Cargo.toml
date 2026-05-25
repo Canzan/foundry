@@ -19,7 +19,7 @@ harness = false
 
 [dependencies]
 foundry-core = { path = "../foundry-core" }
-foundry-store = { path = "../foundry-store" }
+foundry-store = { path = "../foundry-store", features = ["test-support"] }
 foundry-auth = { path = "../foundry-auth" }
 foundry-app   = { path = "../foundry-app", features = ["test-support"] }
 foundry-realtime = { path = "../foundry-realtime" }
@@ -28,7 +28,12 @@ cucumber = { workspace = true }
 tokio = { workspace = true }
 async-trait = { workspace = true }
 futures = { workspace = true }
-reqwest = { workspace = true }
+# US-02 round-robin proxy is an axum binary embedded in the acceptance
+# crate so we can route reqwest traffic across N foundry-app replicas
+# without taking a dep on `caddy` or `hyper-reverse-proxy`. ~250 LoC,
+# zero new transitive deps beyond what foundry-app already pulls in.
+axum = { workspace = true }
+reqwest = { workspace = true, features = ["multipart"] }
 scraper = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -48,5 +53,7 @@ rand = { workspace = true }
 once_cell = { workspace = true }
 sha2 = { workspace = true }
 urlencoding = { workspace = true }
+# US-04 — per-scenario temp dirs for staging runtime migrations.
+tempfile = { workspace = true }
 
 [dev-dependencies]
