@@ -46,6 +46,7 @@
 
 use std::path::Path;
 use std::process::{Command, Stdio};
+use std::str::FromStr;
 
 /// Entry point invoked from `main.rs` when the CLI sees
 /// `foundry doctor backup-verify <file>`.
@@ -210,6 +211,163 @@ fn parse_schema_name(toc: &str) -> Option<String> {
         }
     }
     None
+}
+
+/// Slice 7 (ADR-016 / D5 = C) — entry point invoked from `main.rs`
+/// when the CLI sees `foundry doctor restore-comment <uuid>`.
+///
+/// Restores a soft-deleted comment by clearing `deleted_at` +
+/// `deleted_by`. Operates against the LIVE production database via
+/// `DATABASE_URL` (NOT `FOUNDRY_DOCTOR_PROBE_URL` — `backup-verify`
+/// restores into a sandbox, this command modifies production).
+///
+/// Exit codes (per D6 = A consolidated):
+///   0 = restored        — UPDATE matched 1 row; `deleted_at` now NULL.
+///   2 = invalid UUID    — argument did not parse as a UUID.
+///   3 = DB connect fail — DATABASE_URL unreachable or auth failure.
+///   4 = not restorable  — UPDATE matched 0 rows (comment not found OR
+///                          comment exists but `deleted_at IS NULL`).
+///
+/// Stdout / stderr distinguish "not found" vs "not tombstoned"
+/// diagnostically (so the operator log shows WHICH branch happened),
+/// but the EXIT CODE collapses both into 4 — operationally identical
+/// ("the UPDATE matched zero rows").
+pub fn run_restore_comment(comment_id: &str) -> i32 {
+    // (1) Parse the UUID. Exit 2 on malformed input.
+    let uuid = match uuid::Uuid::from_str(comment_id) {
+        Ok(u) => u,
+        Err(err) => {
+            eprintln!("foundry doctor restore-comment: invalid UUID {comment_id:?}: {err}");
+            return 2;
+        }
+    };
+
+    // (2) Acquire DATABASE_URL from env. Required for the live DB
+    // connection; no default (production operators set it via .env
+    // or pod env).
+    let database_url = match std::env::var("DATABASE_URL") {
+        Ok(v) if !v.is_empty() => v,
+        _ => {
+            eprintln!(
+                "foundry doctor restore-comment: DATABASE_URL is required \
+                 to reach the live database. Set it to the same value the \
+                 foundry server uses (e.g. postgres://foundry:...@host:5432/foundry)."
+            );
+            return 3;
+        }
+    };
+
+    // (3) Build a fresh tokio runtime in a SEPARATE thread so we are
+    // not nested inside the outer `#[tokio::main]` runtime that
+    // `dispatch_subcommand` runs under. (Nesting `block_on` inside a
+    // running runtime panics with "Cannot start a runtime from within
+    // a runtime".) The thread-isolated runtime exits when the closure
+    // returns.
+    //
+    // backup-verify avoids this by using std::process::Command and
+    // never touching sqlx; restore-comment uses sqlx so we need a
+    // tokio context. The std::thread + new_current_thread runtime
+    // pair keeps the operator-facing semantics synchronous (the
+    // dispatch site still gets back an i32 exit code).
+    std::thread::spawn(move || {
+        let runtime = match tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        {
+            Ok(rt) => rt,
+            Err(err) => {
+                eprintln!("foundry doctor restore-comment: could not build tokio runtime: {err}");
+                return 3;
+            }
+        };
+
+        runtime.block_on(async move {
+            // (4) Connect to the live DB. Failures here (auth, network,
+            // wrong port) map to exit 3.
+            let store = match foundry_store::Store::connect(&database_url).await {
+                Ok(s) => s,
+                Err(err) => {
+                    eprintln!(
+                        "foundry doctor restore-comment: could not connect to \
+                     DATABASE_URL: {err}"
+                    );
+                    return 3;
+                }
+            };
+
+            // (5) Run the UPDATE. Returns rows_affected (0 or 1). On a
+            // sqlx error mid-UPDATE we surface it as exit 3 (the live DB
+            // was reachable to connect but the query itself failed —
+            // grouping with "DB-side failure").
+            match store.undelete_comment(uuid).await {
+                Ok(1) => {
+                    println!("comment-id: {uuid}");
+                    println!("status: restored");
+                    0
+                }
+                Ok(0) => {
+                    // Diagnostic distinguishes "not found" vs "not
+                    // tombstoned" via a SELECT round-trip; exit code is
+                    // still 4 in both cases per D6 = A. The SELECT is
+                    // best-effort — if it fails we still report exit 4
+                    // (the primary UPDATE result is the contract).
+                    let pool = store.pool();
+                    let exists: Result<(bool,), _> =
+                        sqlx::query_as("SELECT EXISTS (SELECT 1 FROM comments WHERE id = $1)")
+                            .bind(uuid)
+                            .fetch_one(pool)
+                            .await;
+                    eprintln!("comment-id: {uuid}");
+                    match exists {
+                        Ok((true,)) => {
+                            eprintln!(
+                                "foundry doctor restore-comment: comment {uuid} is \
+                             not currently tombstoned — status: not restorable"
+                            );
+                        }
+                        Ok((false,)) => {
+                            eprintln!(
+                                "foundry doctor restore-comment: comment {uuid} not \
+                             in database — status: not restorable"
+                            );
+                        }
+                        Err(_) => {
+                            eprintln!(
+                                "foundry doctor restore-comment: UPDATE matched 0 \
+                             rows — status: not restorable"
+                            );
+                        }
+                    }
+                    4
+                }
+                Ok(other) => {
+                    // Should be unreachable (UPDATE ... WHERE id = $1 can
+                    // only affect 0 or 1 rows because `id` is the PK), but
+                    // we degrade safely rather than panic on a corrupted DB.
+                    eprintln!(
+                        "foundry doctor restore-comment: unexpected rows_affected = \
+                     {other} for comment {uuid}; status: not restorable"
+                    );
+                    4
+                }
+                Err(err) => {
+                    eprintln!(
+                        "foundry doctor restore-comment: UPDATE against live DB \
+                     failed: {err}"
+                    );
+                    3
+                }
+            }
+        })
+    })
+    .join()
+    .unwrap_or_else(|_| {
+        eprintln!(
+            "foundry doctor restore-comment: worker thread panicked; \
+             see stderr above"
+        );
+        3
+    })
 }
 
 /// Run `psql ... -t -A -c "SELECT count(*) FROM <schema>.<table>"`

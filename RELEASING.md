@@ -203,6 +203,95 @@ A future release may ship a separate `foundry-doctor:vX.Y.Z` image
 variant with the client tools baked in. Until then, one of the three
 patterns above is the supported path.
 
+## Recovering an accidentally-deleted comment
+
+When a workspace admin deletes a comment that they later realize
+should not have been deleted (a moderation reversal), the comment
+can be restored as long as it has been less than 90 days since
+deletion. After 90 days the background tombstone GC task
+(see ADR-015 in `docs/feature/comment-tombstone-gc/design/adrs/`)
+hard-deletes the row and recovery is no longer possible without
+restoring from backup (see "Operator CLI: `foundry doctor
+backup-verify`" above for the backup-restore path).
+
+Two recovery paths are supported. **Prefer the CLI path.**
+
+### Path 1 — `foundry doctor restore-comment` (recommended)
+
+Run on any host with the `foundry` binary and `DATABASE_URL` set:
+
+```sh
+export DATABASE_URL=postgres://foundry:...@your-pg-host:5432/foundry
+foundry doctor restore-comment <comment_uuid>
+```
+
+Exit codes:
+
+- `0` — restored; stdout shows `status: restored`.
+- `2` — `<comment_uuid>` is not a valid UUID; stderr says `invalid UUID`.
+- `3` — `DATABASE_URL` is unreachable or `DATABASE_URL` is unset;
+  stderr describes the connection failure.
+- `4` — not restorable; stderr describes whether the comment was not
+  found at all, or exists but is not currently tombstoned. Both
+  outcomes map to the same exit code because operationally they
+  are identical ("the UPDATE matched zero rows"); the stderr
+  message lets the operator log distinguish them.
+
+The restore is idempotent — re-running on an already-restored
+comment exits 4 (`not restorable`), not an error.
+
+### Path 2 — psql (fallback)
+
+If the foundry binary is unavailable on the recovery host (e.g.
+the operator is SSH'd into a database bastion that does not carry
+the foundry image), the same UPDATE can be run manually:
+
+```sql
+UPDATE comments
+   SET deleted_at = NULL, deleted_by = NULL
+ WHERE id = '<comment_uuid>'
+   AND deleted_at IS NOT NULL
+RETURNING id, body_markdown;
+```
+
+Before running:
+
+- Confirm the UUID matches the comment that was actually deleted —
+  joining to `issues` for context helps:
+  ```sql
+  SELECT c.id, c.body_markdown, c.deleted_at, c.deleted_by,
+         p.key_prefix || '-' || i.number AS issue_key
+    FROM comments c
+    JOIN issues   i ON i.id = c.issue_id
+    JOIN projects p ON p.id = i.project_id
+   WHERE c.id = '<comment_uuid>';
+  ```
+- Verify `deleted_at` is within the 90-day window. If the row no
+  longer exists, the tombstone GC already hard-deleted it; the
+  only recovery path is restoring from a backup (the slice-3
+  backup runbook above).
+- Inform the affected users that the comment is back. The restore
+  does not emit an SSE event — viewers will see the comment on
+  their next page refresh, not as a realtime update.
+
+Both paths use identical SQL semantics (the CLI calls the same
+UPDATE under the hood). Both are safe to run while the foundry
+app is serving live traffic — the UPDATE takes a row-level lock
+held only for the duration of the single-row UPDATE.
+
+### Quarterly drill recommendation
+
+Operators are encouraged to run the restore-comment path against
+a known-tombstoned comment in a non-production environment at
+least once per quarter, to confirm the runbook still works against
+the deployed version of Foundry and that `DATABASE_URL` is reachable
+from the operator host. Set up a sandbox workspace, post a comment,
+delete it via the admin UI, then run `foundry doctor restore-comment
+<uuid>` and confirm exit 0. The drill takes 2 minutes; it catches
+config drift (wrong DATABASE_URL host, expired DB credentials,
+missing CLI binary on the bastion) before a real moderation
+reversal needs it.
+
 ## Backing out a release
 
 For pre-1.0, the simplest correct path:

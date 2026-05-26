@@ -2,19 +2,26 @@
 //!
 //! Default invocation excludes `@manual` (cannot be automated),
 //! `@manual-trigger` (slice-3 opt-in lane — docker-compose multi-replica),
-//! and `@docker-compose` (slow; requires Docker daemon + ports).
+//! `@docker-compose` (slow; requires Docker daemon + ports), and
+//! `@slow` (slice-7 — single ~10-15s wall-clock cap scenario).
 //!
 //! To run the docker-compose set explicitly:
 //!   FOUNDRY_ACCEPTANCE_TAGS=docker-compose \
 //!     cargo test -p foundry-acceptance --test acceptance
 //!
-//! To run everything except @manual / @manual-trigger:
+//! To run everything except @manual / @manual-trigger (includes @slow):
 //!   FOUNDRY_ACCEPTANCE_TAGS=all \
 //!     cargo test -p foundry-acceptance --test acceptance
 //!
 //! `@manual-trigger` (slice-3 US-02 docker-compose Caddy stack) is always
 //! excluded by default — it requires the production-shaped Caddy +
 //! 3-replica compose fixture and runs only on explicit selection.
+//!
+//! `@slow` (slice-7 introduction per D3 = A) gates scenarios whose
+//! wall-clock cost (~10-15s) would dominate the fast-loop budget. The
+//! single slice-7 `@slow` scenario is the 11k-row GC cap probe; it is
+//! included in `FOUNDRY_ACCEPTANCE_TAGS=all` and any explicit `@slice7`
+//! selection, but excluded from the default fast-loop.
 
 use cucumber::World;
 use foundry_acceptance::world::FoundryWorld;
@@ -45,6 +52,8 @@ use foundry_acceptance::steps::us_09_realtime_sse as _us_09;
 use foundry_acceptance::steps::us_10_comment_edit_delete as _us_10_edit;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::us_10_comments as _us_10;
+#[allow(unused_imports)]
+use foundry_acceptance::steps::us_10_tombstone_gc as _us_10_gc;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::us_11_attachments as _us_11;
 #[allow(unused_imports)]
@@ -80,7 +89,8 @@ async fn main() {
                 .await;
         }
         _ => {
-            // Default: exclude @manual, @manual-trigger, and @docker-compose.
+            // Default: exclude @manual, @manual-trigger, @docker-compose,
+            // and @slow (slice-7 11k-row cap scenario; ~10-15s).
             // Cap scenario concurrency to 6 so the per-scenario
             // `LISTEN issue_events` listener tasks don't all pile up
             // on the shared Postgres container, AND the US-04
@@ -95,7 +105,10 @@ async fn main() {
                     let has = |t: &str| {
                         scenario.tags.iter().any(|x| x == t) || feat.tags.iter().any(|x| x == t)
                     };
-                    !has("manual") && !has("manual-trigger") && !has("docker-compose")
+                    !has("manual")
+                        && !has("manual-trigger")
+                        && !has("docker-compose")
+                        && !has("slow")
                 })
                 .await;
         }

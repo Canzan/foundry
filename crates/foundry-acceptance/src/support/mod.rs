@@ -12,3 +12,4 @@ pub mod readme_inspect;
 pub mod round_robin_proxy;
 pub mod sse_client;
 pub mod test_migration;
+pub mod tombstone_factory;

@@ -20,6 +20,14 @@ use thiserror::Error;
 /// (`data-access.md` §"Migration runner".)
 const MIGRATION_LOCK_ID: i64 = 0x_F0_0D_BA_BE_F0_0D_BA_BE_u64 as i64;
 
+/// Slice 7 (ADR-015) — advisory-lock key for the daily tombstone GC
+/// sweep. Distinct literal from [`MIGRATION_LOCK_ID`] so `pg_locks`
+/// output distinguishes the GC lock from the migration lock during
+/// operational triage. Non-blocking acquisition via
+/// `pg_try_advisory_lock` ensures sibling replicas exit gracefully
+/// with `Ok(0)` when another replica is mid-sweep.
+pub const TOMBSTONE_GC_LOCK_ID: i64 = 0x_60_C0_DE_60_C0_DE_60_60_u64 as i64;
+
 #[derive(Debug, Error)]
 pub enum StoreError {
     #[error("database error: {0}")]
@@ -1141,6 +1149,133 @@ impl Store {
                 .await?;
         Ok(row.map(|r| r.0))
     }
+
+    // ----- US-10 (slice 7) tombstone GC + admin-undelete -----------------
+
+    /// Hard-delete comment tombstones older than `older_than`, in
+    /// batches of `batch` rows per DELETE, up to `cap` rows per
+    /// invocation. Returns the total rows removed.
+    ///
+    /// Per ADR-015 (slice 7):
+    ///   - Acquires [`TOMBSTONE_GC_LOCK_ID`] via `pg_try_advisory_lock`
+    ///     (non-blocking). When contended, returns `Ok(0)` without
+    ///     touching any rows — sibling replicas exit gracefully.
+    ///   - Loops `DELETE ... WHERE id IN (SELECT id ... LIMIT batch)`
+    ///     until rows_affected < batch OR cumulative >= cap.
+    ///   - Releases the advisory lock in ALL paths (including error)
+    ///     so a transient sqlx failure mid-sweep doesn't pin the lock.
+    ///
+    /// `older_than` becomes a `now() - $1::interval` SQL fragment so
+    /// the cutoff is computed inside Postgres against the same clock
+    /// the soft-delete handler used (no client-side now() skew).
+    pub async fn gc_tombstoned_comments(
+        &self,
+        older_than: Duration,
+        batch: usize,
+        cap: usize,
+    ) -> Result<u64, StoreError> {
+        // Derive the lock id from search_path so per-scenario PG
+        // schemas inside the shared testcontainers Postgres do NOT
+        // serialise on each other. Same pattern as slice-1's
+        // `scoped_migration_lock_id`: production binaries (search_path
+        // = "public") return the canonical TOMBSTONE_GC_LOCK_ID so
+        // operational triage on `pg_locks` still works; acceptance
+        // scenarios with per-schema search_path get a derived literal.
+        let lock_id = scoped_tombstone_gc_lock_id(&self.pool)
+            .await
+            .unwrap_or(TOMBSTONE_GC_LOCK_ID);
+        let mut conn = self.pool.acquire().await?;
+        let lock: (bool,) = sqlx::query_as("SELECT pg_try_advisory_lock($1)")
+            .bind(lock_id)
+            .fetch_one(&mut *conn)
+            .await?;
+        if !lock.0 {
+            // Contended — another replica is mid-sweep. Graceful no-op.
+            return Ok(0);
+        }
+        let older_than_seconds = older_than.as_secs() as i64;
+        let result: Result<u64, sqlx::Error> = async {
+            let mut total: u64 = 0;
+            loop {
+                if total >= cap as u64 {
+                    break;
+                }
+                // Remaining capacity for this iteration; never exceed
+                // `batch` per round-trip. Saturating-sub keeps the
+                // arithmetic safe at the boundary.
+                let remaining = (cap as u64).saturating_sub(total);
+                let this_batch = remaining.min(batch as u64) as i64;
+                let outcome = sqlx::query(
+                    "DELETE FROM comments
+                      WHERE id IN (
+                          SELECT id FROM comments
+                           WHERE deleted_at IS NOT NULL
+                             AND deleted_at < now() - ($1 || ' seconds')::interval
+                           LIMIT $2
+                      )",
+                )
+                .bind(older_than_seconds.to_string())
+                .bind(this_batch)
+                .execute(&mut *conn)
+                .await?;
+                let affected = outcome.rows_affected();
+                total += affected;
+                if affected < this_batch as u64 {
+                    // Drained — fewer rows matched than we asked for.
+                    break;
+                }
+            }
+            Ok(total)
+        }
+        .await;
+        // ALWAYS release the lock, even on error.
+        let _ = sqlx::query("SELECT pg_advisory_unlock($1)")
+            .bind(lock_id)
+            .execute(&mut *conn)
+            .await;
+        Ok(result?)
+    }
+
+    /// Count comment tombstones older than `older_than`. Feeds the
+    /// `comments_tombstones_pending` gauge (slice 7 / ADR-016). Pure
+    /// read — no lock, no mutation.
+    pub async fn count_pending_tombstones(&self, older_than: Duration) -> Result<u64, StoreError> {
+        let older_than_seconds = older_than.as_secs() as i64;
+        let row: (i64,) = sqlx::query_as(
+            "SELECT count(*)::bigint
+               FROM comments
+              WHERE deleted_at IS NOT NULL
+                AND deleted_at < now() - ($1 || ' seconds')::interval",
+        )
+        .bind(older_than_seconds.to_string())
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(row.0.max(0) as u64)
+    }
+
+    /// Restore a soft-deleted comment by clearing `deleted_at` +
+    /// `deleted_by`. Returns the number of rows affected:
+    ///   - `1` — the comment existed AND was tombstoned (now restored).
+    ///   - `0` — the comment doesn't exist OR is already live.
+    ///
+    /// Idempotent: re-invoking on an already-restored row is a no-op
+    /// zero-return, not an error. Per ADR-016 / D6 = A the CLI dispatch
+    /// maps `0` to exit code 4 ("not restorable") and `1` to exit code
+    /// 0 ("restored"). NO outbox event is emitted — operator-driven
+    /// restoration is an out-of-band moderation reversal, not a
+    /// user-visible state change worth fanning out (the issue page's
+    /// next render reflects the restored row naturally).
+    pub async fn undelete_comment(&self, comment_id: uuid::Uuid) -> Result<u64, StoreError> {
+        let outcome = sqlx::query(
+            "UPDATE comments
+                SET deleted_at = NULL, deleted_by = NULL
+              WHERE id = $1 AND deleted_at IS NOT NULL",
+        )
+        .bind(comment_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(outcome.rows_affected())
+    }
 }
 
 /// Minimal team projection.
@@ -1214,6 +1349,46 @@ pub enum BootstrapTokenStatus {
 pub async fn run_migrations(pool: &PgPool) -> Result<(), StoreError> {
     sqlx::migrate!("./migrations").run(pool).await?;
     Ok(())
+}
+
+/// Slice 7 — derive the tombstone-GC advisory-lock id from the active
+/// `search_path`, in the same shape as [`scoped_migration_lock_id`].
+/// The acceptance suite shares ONE Postgres container across per-
+/// scenario schemas; without scoping, two concurrent slice-7 scenarios
+/// would serialise on the global lock and observe each other's "lock
+/// contended" no-ops, breaking the scenario-isolation invariant the
+/// slice-1 harness establishes. Production binaries use `public` and
+/// return the canonical [`TOMBSTONE_GC_LOCK_ID`].
+///
+/// Returns the canonical id on any error (cannot read search_path,
+/// transient sqlx failure) — preserves strict-serialisation semantics
+/// when the scope can't be determined honestly.
+pub async fn scoped_tombstone_gc_lock_id(pool: &PgPool) -> Result<i64, sqlx::Error> {
+    let row: (String,) = sqlx::query_as("SHOW search_path").fetch_one(pool).await?;
+    let normalised = row.0.trim();
+    if normalised.is_empty()
+        || normalised == "\"$user\", public"
+        || normalised == "public"
+        || normalised == "\"$user\""
+    {
+        return Ok(TOMBSTONE_GC_LOCK_ID);
+    }
+    // FNV-1a hash, truncated to i64. Same construction as
+    // `scoped_migration_lock_id` (different seed makes the resulting
+    // lock id space disjoint per-schema between the two
+    // production-meaningful locks). Identical inputs map to identical
+    // outputs across replicas — that's the production-meaningful
+    // invariant for the advisory-lock pattern.
+    let mut hash: u64 = 0x0123_4567_89AB_CDEF; // distinct seed from migration variant
+    for b in normalised.as_bytes() {
+        hash ^= *b as u64;
+        hash = hash.wrapping_mul(0x100_0000_01b3);
+    }
+    // XOR with TOMBSTONE_GC_LOCK_ID so the canonical literal is
+    // preserved as a "salt" — distinguishes slice-7 lock space from
+    // slice-1 migration lock space even at the unlikely event of
+    // FNV-1a hash collisions across the two families.
+    Ok((hash as i64) ^ TOMBSTONE_GC_LOCK_ID)
 }
 
 /// Derive the advisory-lock id from the active `search_path` so the

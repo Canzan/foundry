@@ -24,6 +24,42 @@ use tracing_subscriber::EnvFilter;
 /// shorten the wait window for the connection-in-use acceptance scenario).
 const DEFAULT_METRICS_POOL_POLL_SECONDS: u64 = 5;
 
+/// Slice 7 (ADR-015) — default cadence for the daily tombstone GC
+/// sweep. 86400 seconds = 24 hours. Operators tune via
+/// `FOUNDRY_TOMBSTONE_GC_INTERVAL_SECONDS`; the acceptance suite
+/// overrides to 1 to exercise the first-tick-soon invariant within a
+/// per-scenario wall-clock budget.
+const DEFAULT_TOMBSTONE_GC_INTERVAL_SECONDS: u64 = 86_400;
+
+/// Slice 7 (ADR-015) — default retention threshold for tombstoned
+/// comments. 90 days. Operators tune via
+/// `FOUNDRY_TOMBSTONE_GC_OLDER_THAN_DAYS`; tests use the default
+/// (the scenarios seed `deleted_at` at 91d / 89d on either side).
+const DEFAULT_TOMBSTONE_GC_OLDER_THAN_DAYS: u64 = 90;
+
+/// Slice 7 (ADR-015) — default per-invocation cap on the number of
+/// tombstones the GC sweep will hard-delete in a single tick.
+/// 10,000 rows. Insurance against misconfigured `deleted_at`
+/// (the textbook "GC hit the wrong threshold" disaster).
+const DEFAULT_TOMBSTONE_GC_MAX_PER_RUN: u64 = 10_000;
+
+/// Slice 7 (ADR-015) — batch size for the inner DELETE loop. Fixed at
+/// 1000; the cap controls the total per invocation, the batch controls
+/// the per-round-trip work. Not env-tunable — operators with extreme
+/// needs can raise the cap instead.
+const TOMBSTONE_GC_BATCH_SIZE: u64 = 1_000;
+
+/// Slice 7 (ADR-015) — production first-tick offset. At production
+/// cadence (86400s) the GC task waits this long after process boot
+/// before its first tick — gives the startup self-scrape probe a beat
+/// to settle and provides operators a "GC is alive" signal within
+/// ~30s of boot (instead of waiting the full 24h cadence). At test
+/// cadence (1-2s), the first-tick offset equals the cadence — exactly
+/// one tick per cadence interval after the first, with the first
+/// tick aligned to the cadence boundary so the test wait windows
+/// see deterministic tick counts.
+const TOMBSTONE_GC_PROD_FIRST_TICK_OFFSET: Duration = Duration::from_secs(30);
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // Subcommand dispatch happens BEFORE we initialise tracing /
@@ -182,6 +218,136 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
+    // Slice 7 (ADR-016 / D4 = A) — register the two new GC metrics at
+    // value 0 BEFORE the GC task spawns. Same precedent as slice-6's
+    // `db_connections_in_use` register-at-0: Grafana sees the metric
+    // lines immediately; the first GC tick (within ~30s of boot or
+    // FOUNDRY_TOMBSTONE_GC_INTERVAL_SECONDS, whichever is shorter)
+    // overwrites with live state. Without this, dashboards would show
+    // "no data" for the first cadence window. Both metrics UNLABELLED
+    // — bounded at exactly 1 series each (slice-6 D2 cardinality
+    // invariant; slice-6 unit test in metrics_server.rs covers them).
+    metrics::counter!("comments_tombstones_purged_total").absolute(0);
+    metrics::gauge!("comments_tombstones_pending").set(0.0);
+
+    // Slice 7 (ADR-015) — background tombstone GC task. Runs every
+    // FOUNDRY_TOMBSTONE_GC_INTERVAL_SECONDS (default 86400 = daily)
+    // with a ~30s offset before the first tick. Advisory lock
+    // (TOMBSTONE_GC_LOCK_ID) ensures only one replica actually
+    // deletes; sibling replicas exit gracefully with Ok(0). Per
+    // ADR-015 / D7 = A, errors are logged and the task continues —
+    // the daily cadence IS the backoff.
+    let gc_interval_seconds = std::env::var("FOUNDRY_TOMBSTONE_GC_INTERVAL_SECONDS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or(DEFAULT_TOMBSTONE_GC_INTERVAL_SECONDS);
+    let gc_older_than_days = std::env::var("FOUNDRY_TOMBSTONE_GC_OLDER_THAN_DAYS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or(DEFAULT_TOMBSTONE_GC_OLDER_THAN_DAYS);
+    let gc_max_per_run = std::env::var("FOUNDRY_TOMBSTONE_GC_MAX_PER_RUN")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or(DEFAULT_TOMBSTONE_GC_MAX_PER_RUN);
+    let gc_older_than = Duration::from_secs(gc_older_than_days * 86_400);
+    let store_for_gc = state.store.clone();
+    // First-tick-soon offset:
+    //   - Production cadence (86400s = 24h): offset is bounded by
+    //     TOMBSTONE_GC_PROD_FIRST_TICK_OFFSET (30s) so operators see
+    //     "the GC is alive" within ~30s of boot rather than waiting
+    //     the full 24h.
+    //   - Test cadence (1-2s): offset equals the cadence. The first
+    //     tick fires at +cadence, then ticks every +cadence after
+    //     that. The acceptance scenarios assume this aligned-cadence
+    //     timing to make the per-scenario "wait N seconds" → "expect
+    //     exactly M ticks fired" assertions deterministic.
+    let cadence = Duration::from_secs(gc_interval_seconds);
+    let first_tick_offset = if cadence < TOMBSTONE_GC_PROD_FIRST_TICK_OFFSET {
+        // Test mode (short cadence) — offset == cadence so the first
+        // tick is aligned to the cadence boundary, NOT to subprocess
+        // boot. With cadence=2s + wait=2s after spawn+seed (~0.1s
+        // overhead), each scrape lands at subprocess_t ≈ N*cadence +
+        // 0.1s — just past the Nth tick boundary, comfortably before
+        // the (N+1)th. The acceptance scenarios assume this aligned-
+        // cadence timing.
+        cadence
+    } else {
+        // Production cadence — bounded offset; ~30s before the first
+        // tick, then full cadence thereafter.
+        TOMBSTONE_GC_PROD_FIRST_TICK_OFFSET
+    };
+    tokio::spawn(async move {
+        // Use interval_at so the FIRST tick fires at +offset (not
+        // immediately). Without this, tokio::time::interval's
+        // default first-tick-immediate behavior would race the
+        // startup probe AND make scenario #6's "wait N seconds,
+        // expect exactly M ticks to have fired" assertion
+        // non-deterministic.
+        let start = tokio::time::Instant::now() + first_tick_offset;
+        let mut interval = tokio::time::interval_at(start, cadence);
+        // Skip — under a slow tick we don't want to fire the next
+        // tick "immediately" the moment the slow one completes.
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            interval.tick().await;
+            // Slice 7 — the DISTILL D5 clarification originally proposed
+            // an env-var test hook here (FOUNDRY_TEST_HOOK_GC_FAIL_NEXT).
+            // DELIVER's chosen mechanism is different: the acceptance
+            // test scenario for failure-survives takes the
+            // TOMBSTONE_GC_LOCK_ID advisory lock from a separate test
+            // pool, causing the next tick to observe contention and
+            // return Ok(0) — observable as "no rows deleted" without
+            // synthesising a fake error. The task survives identically
+            // either way (per ADR-015 / D7 = A: log + continue), so the
+            // observable contract is the same. NO test-only seam in
+            // production code.
+            match store_for_gc
+                .gc_tombstoned_comments(
+                    gc_older_than,
+                    TOMBSTONE_GC_BATCH_SIZE as usize,
+                    gc_max_per_run as usize,
+                )
+                .await
+            {
+                Ok(deleted) => {
+                    if deleted > 0 {
+                        tracing::info!(deleted_count = deleted, "tombstone GC tick completed");
+                    }
+                    metrics::counter!("comments_tombstones_purged_total").increment(deleted);
+                }
+                Err(err) => {
+                    // Per ADR-015 / D7 = A — log + continue. The
+                    // task survives transient errors; next tick fires
+                    // at normal cadence; the daily cadence IS the
+                    // backoff. No retry-with-backoff state.
+                    tracing::warn!(
+                        error = %err,
+                        "tombstone GC tick failed; will retry next interval"
+                    );
+                }
+            }
+            // Always refresh the pending gauge after a tick, even on
+            // GC error — operators want the pending count to reflect
+            // current state regardless of whether the latest sweep
+            // succeeded. count_pending_tombstones is a pure read with
+            // no lock; safe to call after a lock-contention no-op.
+            match store_for_gc.count_pending_tombstones(gc_older_than).await {
+                Ok(pending) => {
+                    metrics::gauge!("comments_tombstones_pending").set(pending as f64);
+                }
+                Err(err) => {
+                    tracing::warn!(
+                        error = %err,
+                        "tombstone GC pending-count query failed; gauge stale"
+                    );
+                }
+            }
+        }
+    });
+
     let router = build_router(state);
 
     // Spawn the metrics sidecar listener before the main HTTP listener
@@ -263,17 +429,32 @@ fn dispatch_subcommand() -> Option<i32> {
                         foundry_app::admin_cli::run_backup_verify(std::path::Path::new(file));
                     Some(code)
                 }
+                // Slice 7 (ADR-016 / D5 = C) — restore a soft-deleted
+                // comment by clearing `deleted_at` + `deleted_by`. Reads
+                // DATABASE_URL to reach the LIVE production DB (unlike
+                // backup-verify which uses FOUNDRY_DOCTOR_PROBE_URL).
+                "restore-comment" => {
+                    let Some(uuid) = args.get(3) else {
+                        eprintln!(
+                            "foundry doctor restore-comment: missing <comment-uuid> argument. \
+                             Usage: foundry doctor restore-comment <comment-uuid>"
+                        );
+                        return Some(2);
+                    };
+                    let code = foundry_app::admin_cli::run_restore_comment(uuid);
+                    Some(code)
+                }
                 "" => {
                     eprintln!(
                         "foundry doctor: subcommand required. \
-                         Available: backup-verify <file>"
+                         Available: backup-verify <file>, restore-comment <comment-uuid>"
                     );
                     Some(2)
                 }
                 other => {
                     eprintln!(
                         "foundry doctor: unknown subcommand {other:?}. \
-                         Available: backup-verify <file>"
+                         Available: backup-verify <file>, restore-comment <comment-uuid>"
                     );
                     Some(2)
                 }
@@ -282,7 +463,8 @@ fn dispatch_subcommand() -> Option<i32> {
         other => {
             eprintln!(
                 "foundry: unknown subcommand {other:?}. \
-                 Available: serve (default), doctor backup-verify <file>"
+                 Available: serve (default), doctor backup-verify <file>, \
+                 doctor restore-comment <comment-uuid>"
             );
             Some(2)
         }

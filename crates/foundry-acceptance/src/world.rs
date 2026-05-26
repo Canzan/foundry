@@ -344,4 +344,34 @@ pub struct FoundryWorld {
     /// teardown can drop it. The subprocess connected via
     /// DATABASE_URL with this schema pinned via search_path.
     pub slice6_schema: Option<String>,
+
+    // ---- US-10 tombstone GC (slice 7) ----
+    /// UUIDs of tombstoned comments inserted via tombstone_factory for
+    /// the current scenario. Indexed by (issue_key_prefix, issue_number)
+    /// so scenarios that seed multiple ages can address each cohort.
+    pub slice7_tombstones_by_issue: HashMap<(String, i32), Vec<uuid::Uuid>>,
+    /// The single tombstoned UUID created by the admin-undelete WS
+    /// scenario #7. Captured separately so the When step ("the operator
+    /// runs `foundry doctor restore-comment <comment-id>` ...") can
+    /// substitute it into the argv argument without a HashMap lookup
+    /// dance.
+    pub slice7_admin_undelete_target: Option<uuid::Uuid>,
+    /// Captured stdout from the most recent `foundry doctor
+    /// restore-comment` subprocess invocation (mirrors slice-3
+    /// `us_03_cli_stdout`).
+    pub slice7_cli_stdout: Option<String>,
+    /// Captured stderr from the most recent `foundry doctor
+    /// restore-comment` subprocess invocation (mirrors slice-3
+    /// `us_03_cli_stderr`).
+    pub slice7_cli_stderr: Option<String>,
+    /// Exit code reported by the most recent `restore-comment`
+    /// subprocess (mirrors slice-3 `us_03_cli_exit_code`).
+    pub slice7_cli_exit_code: Option<i32>,
+    /// Holder PgPool acquired by the "another replica is holding the
+    /// tombstone-sweep advisory lock" Given step for scenario #4. The
+    /// holder calls `pg_advisory_lock` so the foundry subprocess's GC
+    /// tick sees a contended lock and returns Ok(0). Dropped when the
+    /// "the other replica releases ..." When step fires (or at scenario
+    /// teardown).
+    pub slice7_lock_holder_pool: Option<sqlx::PgPool>,
 }

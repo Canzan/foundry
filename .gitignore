@@ -17,3 +17,4 @@ Cargo.lock.bak
 
 # SBOM dropped by the release workflow when run locally with act.
 /sbom.spdx.json
+.dual-graph/

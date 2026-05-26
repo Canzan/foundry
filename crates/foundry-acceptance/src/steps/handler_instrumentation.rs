@@ -113,6 +113,22 @@ impl FoundrySubprocess {
         db_schema: String,
         pool_poll_seconds: u64,
     ) -> anyhow::Result<Self> {
+        Self::spawn_with_env_overrides(database_url_with_schema, db_schema, pool_poll_seconds, &[])
+            .await
+    }
+
+    /// Slice 7 variant — same as [`spawn`] but accepts a slice of
+    /// additional `(key, value)` env-var overrides applied after the
+    /// baseline slice-6 env. The slice-7 GC scenarios use this to
+    /// inject `FOUNDRY_TOMBSTONE_GC_INTERVAL_SECONDS=1` and the
+    /// per-run cap override so the GC tick fires within a per-scenario
+    /// wall-clock budget. Production paths never set these vars.
+    pub async fn spawn_with_env_overrides(
+        database_url_with_schema: &str,
+        db_schema: String,
+        pool_poll_seconds: u64,
+        env_overrides: &[(&str, String)],
+    ) -> anyhow::Result<Self> {
         // `assert_cmd::cargo::cargo_bin` returns a PathBuf to the
         // workspace-built binary (the same path the slice-3 doctor
         // step uses).
@@ -166,6 +182,16 @@ impl FoundrySubprocess {
             // handle drops without explicit shutdown. Belt-and-braces
             // on top of the explicit Drop impl below.
             .kill_on_drop(true);
+
+        // Slice 7 — additional env overrides applied AFTER the
+        // baseline slice-6 env so callers can shorten the GC cadence
+        // (FOUNDRY_TOMBSTONE_GC_INTERVAL_SECONDS=1) or tune the
+        // per-run cap (FOUNDRY_TOMBSTONE_GC_MAX_PER_RUN=2). Production
+        // paths pass an empty slice — the slice-6 baseline is
+        // unchanged.
+        for (k, v) in env_overrides {
+            cmd.env(k, v);
+        }
 
         let mut child = cmd
             .spawn()
