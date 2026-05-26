@@ -10,6 +10,7 @@ pub mod support;
 pub mod world;
 
 pub mod steps {
+    pub mod handler_instrumentation;
     pub mod us_01_install;
     pub mod us_02_multi_replica;
     pub mod us_03_backup_restore;

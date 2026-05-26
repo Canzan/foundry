@@ -224,3 +224,132 @@ pub async fn validate_listen_connectivity(database_url: &str) -> Result<(), sqlx
         .await?;
     Ok(())
 }
+
+// ---------------------------------------------------------------------
+// Slice 6 (ADR-013) — RAII gauge for live SSE subscribers
+// ---------------------------------------------------------------------
+
+/// Name of the Prometheus gauge counting currently-connected SSE
+/// subscribers per project. Exported so unit tests can assert against
+/// the same identifier the production code emits.
+pub const SSE_SUBSCRIBERS_GAUGE: &str = "sse_subscribers_total";
+
+/// RAII guard that increments the `sse_subscribers_total` gauge on
+/// `new` and decrements it on `Drop`.
+///
+/// Construct one in the SSE handler immediately after subscribing to
+/// the broadcast — the binding holds the guard for the lifetime of
+/// the streaming future:
+///
+/// ```ignore
+/// let _gauge = foundry_realtime::SubscriberGauge::new(project_id);
+/// ```
+///
+/// Drop fires uniformly on:
+///   - Clean client disconnect (browser tab close / EventSource.close())
+///   - Server graceful shutdown (the streaming future is cancelled)
+///   - Panic unwind (Rust's default panic strategy is `unwind`; if a
+///     deployment ever switches to `panic = "abort"` this guarantee
+///     no longer holds — see ADR-013 § Negative consequences)
+///
+/// `project_id` is kept as a label per ADR-013 / ADR-011 — bounded
+/// by the count of projects with active SSE subscriptions (low
+/// hundreds at the long tail; cardinality-safe).
+#[derive(Debug)]
+pub struct SubscriberGauge {
+    project_id: uuid::Uuid,
+}
+
+impl SubscriberGauge {
+    /// Increment the gauge by 1 and return the RAII handle. The
+    /// matching decrement runs automatically via [`Drop`].
+    pub fn new(project_id: uuid::Uuid) -> Self {
+        metrics::gauge!(
+            SSE_SUBSCRIBERS_GAUGE,
+            "project_id" => project_id.to_string(),
+        )
+        .increment(1.0);
+        Self { project_id }
+    }
+}
+
+impl Drop for SubscriberGauge {
+    fn drop(&mut self) {
+        metrics::gauge!(
+            SSE_SUBSCRIBERS_GAUGE,
+            "project_id" => self.project_id.to_string(),
+        )
+        .decrement(1.0);
+    }
+}
+
+#[cfg(test)]
+mod gauge_tests {
+    //! Slice 6 (ADR-013 § Verification) — panic-unwind correctness
+    //! and inc/dec balance for [`SubscriberGauge`].
+
+    use super::*;
+    use metrics_exporter_prometheus::PrometheusBuilder;
+
+    /// The gauge MUST balance to its pre-construction value after the
+    /// guard is dropped on a normal scope exit.
+    #[test]
+    fn gauge_balances_after_normal_drop() {
+        let recorder = PrometheusBuilder::new().build_recorder();
+        let handle = recorder.handle();
+        let project_id = uuid::Uuid::now_v7();
+        metrics::with_local_recorder(&recorder, || {
+            {
+                let _g = SubscriberGauge::new(project_id);
+                let body = handle.render();
+                assert!(
+                    body.contains(SSE_SUBSCRIBERS_GAUGE),
+                    "expected gauge line present after `new`; body:\n{body}"
+                );
+                assert!(
+                    body.lines().any(|l| {
+                        l.starts_with(SSE_SUBSCRIBERS_GAUGE) && l.trim_end().ends_with(" 1")
+                    }),
+                    "expected gauge value 1 after `new`; body:\n{body}"
+                );
+            }
+            // Guard dropped; gauge should be back to 0.
+            let after = handle.render();
+            assert!(
+                after.lines().any(|l| {
+                    l.starts_with(SSE_SUBSCRIBERS_GAUGE) && l.trim_end().ends_with(" 0")
+                }),
+                "expected gauge value 0 after Drop; body:\n{after}"
+            );
+        });
+    }
+
+    /// The gauge MUST balance even on panic unwind. This is the
+    /// principle-12 substrate-lie probe for Rust's default
+    /// `panic = "unwind"` strategy. If a future deployment ever
+    /// switches to `panic = "abort"` this test would not run to its
+    /// post-catch assertion (the process would abort), which is the
+    /// invariant ADR-013 documents.
+    #[test]
+    fn gauge_balances_after_panic_unwind() {
+        let recorder = PrometheusBuilder::new().build_recorder();
+        let handle = recorder.handle();
+        let project_id = uuid::Uuid::now_v7();
+        let result = metrics::with_local_recorder(&recorder, || {
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let _g = SubscriberGauge::new(project_id);
+                panic!("simulated panic mid-stream");
+            }))
+        });
+        assert!(
+            result.is_err(),
+            "scoped panic should propagate to catch_unwind"
+        );
+        let body = handle.render();
+        assert!(
+            body.lines()
+                .any(|l| { l.starts_with(SSE_SUBSCRIBERS_GAUGE) && l.trim_end().ends_with(" 0") }),
+            "expected gauge value 0 after unwind-triggered Drop; body:\n{body}"
+        );
+    }
+}

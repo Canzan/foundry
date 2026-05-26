@@ -16,7 +16,13 @@ use foundry_store::Store;
 use secrecy::SecretString;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 use tracing_subscriber::EnvFilter;
+
+/// Slice 6 ADR-012 — default cadence for the pool-stats poll task.
+/// Operators may tune via `METRICS_POOL_POLL_SECONDS` (used in tests to
+/// shorten the wait window for the connection-in-use acceptance scenario).
+const DEFAULT_METRICS_POOL_POLL_SECONDS: u64 = 5;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -62,7 +68,19 @@ async fn main() -> anyhow::Result<()> {
     let store = Store::connect(&database_url)
         .await
         .context("connect to Postgres")?;
-    store.migrate().await.context("run migrations")?;
+    // Allow the acceptance harness to skip migrations when it has
+    // already provisioned the per-scenario schema. Production paths
+    // never set FOUNDRY_SKIP_MIGRATIONS; the slice-6 acceptance
+    // suite sets it to avoid an advisory-lock pile-up between the
+    // in-process harness's migrate (slice-1 pattern) and the per-
+    // scenario subprocess's migrate (slice-6 pattern, both running
+    // against the same Postgres container).
+    let skip_migrations = std::env::var("FOUNDRY_SKIP_MIGRATIONS")
+        .map(|v| v == "1" || v == "true")
+        .unwrap_or(false);
+    if !skip_migrations {
+        store.migrate().await.context("run migrations")?;
+    }
 
     if let Some(url) = mint_bootstrap_if_needed(&store, &public_url).await? {
         // Stdout — the acceptance suite greps `docker compose logs` for
@@ -131,6 +149,39 @@ async fn main() -> anyhow::Result<()> {
         #[cfg(any(test, feature = "test-support"))]
         test_migration_delay_ms: 0,
     };
+
+    // Slice 6 (ADR-012, D4 = A) — register `db_connections_in_use` at
+    // value 0 BEFORE the poll task spawns. Grafana sees the metric line
+    // immediately; the first poll tick (within METRICS_POOL_POLL_SECONDS)
+    // overwrites with live pool state. Without this, the dashboard panel
+    // would show "no data" for the first ~5s of every replica boot.
+    metrics::gauge!("db_connections_in_use").set(0.0);
+
+    // Slice 6 (ADR-012) — background pool-stats poll task. Reads
+    // `Store::pool_stats()` every METRICS_POOL_POLL_SECONDS and updates
+    // the `db_connections_in_use` gauge. Aborts on graceful shutdown
+    // (D5 = A: tokio drops the task when `axum::serve` returns; no
+    // special wiring needed). Tests may shorten the cadence via the
+    // env var to keep the connection-hold scenario fast.
+    let pool_poll_seconds = std::env::var("METRICS_POOL_POLL_SECONDS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or(DEFAULT_METRICS_POOL_POLL_SECONDS);
+    let store_for_poll = state.store.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(pool_poll_seconds));
+        // First tick fires immediately; subsequent ticks at the cadence.
+        // The immediate first tick refreshes the registered-at-0 gauge
+        // with the actual pool snapshot as soon as the runtime is awake.
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            interval.tick().await;
+            let stats = store_for_poll.pool_stats();
+            metrics::gauge!("db_connections_in_use").set(stats.in_use as f64);
+        }
+    });
+
     let router = build_router(state);
 
     // Spawn the metrics sidecar listener before the main HTTP listener
@@ -142,9 +193,25 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!(%metrics_addr, "foundry metrics listening");
     metrics::counter!("foundry_app_startup_total").increment(1);
 
+    // Slice 6 (ADR-014) — self-scrape `/metrics` startup probe.
+    // Refuses to start if the sidecar listener is unreachable, returns
+    // a non-200, returns an empty body, or omits the
+    // `foundry_app_startup_total` line. On failure the process exits
+    // non-zero — container orchestrator restarts the pod; the restart
+    // loop surfaces the misconfig loudly instead of silently serving
+    // traffic with broken metrics.
+    metrics_server::probe(metrics_addr)
+        .await
+        .context("startup metrics probe failed")?;
+
     let addr: SocketAddr = format!("{host}:{port}").parse()?;
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    tracing::info!(%addr, "foundry listening");
+    // Slice 6: log the BOUND addr (with the actually-allocated port
+    // when FOUNDRY_PORT=0 is requested) so the acceptance subprocess
+    // helper can parse it. Production deployments with non-zero
+    // FOUNDRY_PORT see the same value either way.
+    let bound = listener.local_addr().unwrap_or(addr);
+    tracing::info!(addr = %bound, "foundry listening");
 
     axum::serve(listener, router)
         .with_graceful_shutdown(shutdown_signal())

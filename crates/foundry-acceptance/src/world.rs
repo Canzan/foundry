@@ -307,4 +307,41 @@ pub struct FoundryWorld {
     /// "textarea value is the raw markdown source" assertion in the
     /// PATCH walking-skeleton scenario.
     pub us_10_5_last_posted_body: HashMap<(String, i32, String), String>,
+
+    // ---- Slice 6: handler-instrumentation ----
+    /// The foundry subprocess for the current scenario. Spawned by
+    /// the "the operator's foundry instance is running" Given.
+    /// Dropped at scenario teardown (its Drop impl kills + reaps
+    /// the child process).
+    pub slice6_foundry: Option<crate::steps::handler_instrumentation::FoundrySubprocess>,
+    /// Most-recent `ScrapeSnapshot` captured by a When step. Then
+    /// steps read it for assertions (label-key set, sample sum, line
+    /// presence).
+    pub slice6_last_scrape: Option<crate::support::metrics_scrape::ScrapeSnapshot>,
+    /// Status code returned by the most-recent raw scrape (used by
+    /// the startup-probe success scenario #9 which asserts 200
+    /// explicitly).
+    pub slice6_last_scrape_status: Option<StatusCode>,
+    /// Count of HTTP requests the When step has issued against the
+    /// subprocess's main listener. Used by scenario #4 (counter sum
+    /// == N).
+    pub slice6_request_count: u64,
+    /// Map (route_template, method) -> count of requests issued.
+    /// Used by scenario #2 (per-route + per-method breakdown).
+    pub slice6_request_count_by_route: HashMap<(String, String), u64>,
+    /// The SSE subscription opened in scenarios #7 + #8. Distinct
+    /// from `us_09_subscriptions` because this one rides through a
+    /// foundry SUBPROCESS, not the in-process harness. Drop =
+    /// client-side abrupt close (used by scenario #8 to trigger
+    /// SubscriberGauge::Drop on the server side).
+    pub slice6_sse_subscription: Option<reqwest::Response>,
+    /// The connection acquired-and-held in scenario #5 (forces
+    /// `db_connections_in_use` to be > 0 for at least one poll
+    /// tick). Held as a long-lived sqlx connection from the
+    /// per-scenario schema pool. Dropped to release.
+    pub slice6_held_connection: Option<sqlx::pool::PoolConnection<sqlx::Postgres>>,
+    /// Per-scenario PG schema name (slice-1 pattern). Captured so
+    /// teardown can drop it. The subprocess connected via
+    /// DATABASE_URL with this schema pinned via search_path.
+    pub slice6_schema: Option<String>,
 }

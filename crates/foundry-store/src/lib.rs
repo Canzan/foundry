@@ -42,6 +42,24 @@ pub struct ProbeReport {
     pub round_trip_ms: u128,
 }
 
+/// Read-only snapshot of the underlying sqlx connection pool's state.
+///
+/// Slice 6 (handler-instrumentation, ADR-012): the background poll task
+/// in `foundry-app::main` reads this every 5 seconds and updates the
+/// `db_connections_in_use` Prometheus gauge. The snapshot is cheap —
+/// `Pool::size()` and `Pool::num_idle()` are non-blocking atomic loads.
+///
+/// Invariant: `in_use + idle == size` at the instant the snapshot is
+/// taken (the values may individually shift between the two reads, but
+/// the relationship holds when interpreted as "what sqlx thinks the
+/// pool looks like right now"). The gauge consumes `in_use` only.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PoolStats {
+    pub in_use: i32,
+    pub idle: i32,
+    pub size: i32,
+}
+
 /// Postgres-backed store. Wraps a [`sqlx::PgPool`].
 #[derive(Debug, Clone)]
 pub struct Store {
@@ -151,6 +169,24 @@ impl Store {
 
     pub fn pool(&self) -> &PgPool {
         &self.pool
+    }
+
+    /// Read-only snapshot of the underlying pool's size + idle/in-use
+    /// breakdown. Used by the slice-6 background poll task in
+    /// `foundry-app::main` to refresh the `db_connections_in_use`
+    /// Prometheus gauge every 5 seconds (ADR-012).
+    ///
+    /// Cheap — sqlx exposes both `size()` and `num_idle()` as
+    /// non-blocking atomic loads. Saturating cast to `i32` is safe at
+    /// our pool sizes (NFR-PERF-04 caps at 10 connections per replica).
+    pub fn pool_stats(&self) -> PoolStats {
+        let size = self.pool.size() as i32;
+        let idle = self.pool.num_idle() as i32;
+        // Guard against the (very rare) race window where num_idle is
+        // observed marginally after size — saturate at 0 to keep the
+        // gauge a non-negative integer.
+        let in_use = (size - idle).max(0);
+        PoolStats { in_use, idle, size }
     }
 
     /// Atomically claim a bootstrap token: mark it consumed if-and-only-if

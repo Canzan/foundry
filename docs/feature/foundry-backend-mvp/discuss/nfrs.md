@@ -35,6 +35,8 @@ Cross-cutting requirements. Each NFR is testable, measurable, and traceable to a
 - **Requirement**: Each replica defaults to 10 Postgres connections. With 5 replicas, total = 50, well below Postgres's default 100. Override via `DATABASE_MAX_CONNECTIONS`.
 - **Test**: Postgres `pg_stat_activity` shows ≤10 connections per replica at idle and ≤10 at sustained 50-RPS load.
 
+- **NFR-PERF-05** (handler-instrumentation overhead): The metrics-recording middleware adds ≤10µs P95 per request to the existing slice-1 NFR-PERF-01 200ms budget. Established 2026-05-25 (slice 6).
+
 ---
 
 ## NFR-OBS — Observability

@@ -107,8 +107,15 @@ pub async fn sse_stream(
         }
     };
 
+    // Slice 6 (ADR-013) — RAII gauge for the live-subscriber metric.
+    // Construction increments `sse_subscribers_total{project_id=...}`
+    // by 1; Drop on the streaming future decrements it back. Drop
+    // fires uniformly on clean disconnect, panic unwind, and server
+    // graceful shutdown — no cleanup arm to forget.
+    let gauge = foundry_realtime::SubscriberGauge::new(project.id);
+
     let heartbeat_ms = state.sse_heartbeat_ms.max(50);
-    let stream = SseStream::new(rx, project.id, Duration::from_millis(heartbeat_ms));
+    let stream = SseStream::new(rx, project.id, Duration::from_millis(heartbeat_ms), gauge);
 
     let body = Body::from_stream(stream);
     Response::builder()
@@ -176,16 +183,30 @@ struct SseStream {
     heartbeat: Duration,
     next_heartbeat: Pin<Box<Sleep>>,
     sent_ready: bool,
+    /// Slice 6 (ADR-013) — RAII guard that holds the
+    /// `sse_subscribers_total` gauge incremented for the lifetime of
+    /// the stream future. When the stream is dropped (client
+    /// disconnect, server shutdown, panic unwind) `_gauge` drops with
+    /// it and the gauge decrements automatically. The leading `_` is
+    /// intentional — this field is held purely for its Drop side
+    /// effect.
+    _gauge: foundry_realtime::SubscriberGauge,
 }
 
 impl SseStream {
-    fn new(rx: Receiver<EventPayload>, project_filter: uuid::Uuid, heartbeat: Duration) -> Self {
+    fn new(
+        rx: Receiver<EventPayload>,
+        project_filter: uuid::Uuid,
+        heartbeat: Duration,
+        gauge: foundry_realtime::SubscriberGauge,
+    ) -> Self {
         Self {
             inner: BroadcastStream::new(rx),
             project_filter,
             heartbeat,
             next_heartbeat: Box::pin(tokio::time::sleep(heartbeat)),
             sent_ready: false,
+            _gauge: gauge,
         }
     }
 

@@ -70,3 +70,12 @@ tokio-stream = { version = "0.1", features = ["sync"] }
 
 [dev-dependencies]
 foundry-realtime = { path = "../foundry-realtime" }
+
+# Slice 6 (ADR-010 / NFR-PERF-05) — middleware overhead microbench.
+# `harness = false` because the bench is hand-rolled (no criterion
+# dep per task brief: "NO new crate dependencies"). Run via
+# `cargo bench -p foundry-app --bench middleware_overhead`.
+[[bench]]
+name = "middleware_overhead"
+path = "benches/middleware_overhead.rs"
+harness = false

@@ -230,6 +230,13 @@ pub fn build_router(state: AppState) -> Router {
             csrf::csrf_middleware,
         ))
         .layer(session_layer)
+        // Slice 6 (ADR-010) — one tower layer per request emits
+        // `http_requests_total{path,method,status}` + the matching
+        // duration histogram. Sits at the same tower-stack position as
+        // CSRF / session — composes naturally with all existing layers.
+        // The layer applies to every routed request uniformly; zero
+        // handler-signature changes.
+        .layer(metrics_server::request_tracking_layer())
         .with_state(state)
 }
 
