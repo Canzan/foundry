@@ -559,10 +559,11 @@ async fn member_issues_n_requests_over_n_seconds(
         }
         // Sample every replica's pool size after each request. sqlx's
         // PgPool::size() returns the current connections held; the
-        // ceiling is 4 (set by fresh_schema_pool_with_url's max_connections),
-        // well under the NFR-PERF-04 budget of 10. The assertion
-        // pins ≤ 10 against PRODUCTION expectations; the test pool's
-        // 4-cap is comfortably under.
+        // ceiling is 10 (set by fresh_schema_pool_with_url's
+        // max_connections, mirroring foundry-store production). The
+        // assertion pins ≤ 10 against the NFR-PERF-04 budget; 10 ≤ 10
+        // still satisfies the property — the test would catch any
+        // regression that raised the harness pool past the budget.
         for replica in &multi.replicas {
             let size = replica.state.store.pool().size();
             if size > max_observed {

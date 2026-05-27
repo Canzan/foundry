@@ -106,7 +106,14 @@ pub async fn fresh_schema_pool_with_url() -> (String, PgPool, String) {
         .options([("search_path", schema.as_str())]);
     let pool = PgPoolOptions::new()
         .min_connections(1)
-        .max_connections(4)
+        // Mirror production pool size (foundry-store/src/lib.rs:85).
+        // The earlier 4-conn cap caused `PoolTimedOut` on workspace-
+        // seed inserts once the argon2-spawn_blocking migration
+        // (commit d9db0b3) let scenarios make concurrent progress
+        // fast enough to overrun a 4-slot pool. US-02's pool-ceiling
+        // assertion pins ≤ 10 against the production NFR-PERF-04
+        // budget; 10 ≤ 10 still satisfies the property.
+        .max_connections(10)
         .acquire_timeout(std::time::Duration::from_secs(5))
         .connect_with(options)
         .await
@@ -155,7 +162,8 @@ pub async fn fresh_schema_pool_no_migrations() -> (String, PgPool, String) {
         .options([("search_path", schema.as_str())]);
     let pool = PgPoolOptions::new()
         .min_connections(1)
-        .max_connections(4)
+        // See `fresh_schema_pool_with_url` above for rationale.
+        .max_connections(10)
         .acquire_timeout(std::time::Duration::from_secs(5))
         .connect_with(options)
         .await
