@@ -18,7 +18,7 @@ use axum::response::{Html, IntoResponse, Response};
 use secrecy::SecretString;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
-use std::sync::OnceLock;
+use tokio::sync::OnceCell;
 use std::time::Duration;
 use tower_sessions::Session;
 
@@ -102,14 +102,16 @@ pub async fn submit_signin(
 
     let (verified, user) = match user_row {
         Some(u) => {
-            let ok = foundry_auth::verify_password(&pwd, &u.password_hash).unwrap_or(false);
+            let ok = foundry_auth::verify_password(&pwd, &u.password_hash)
+                .await
+                .unwrap_or(false);
             (ok, Some(u))
         }
         None => {
             // Run verify against a known-bad hash to keep wall-clock
             // similar to the real-user path (constant-time email
             // check per design/auth.md).
-            let _ = foundry_auth::verify_password(&pwd, known_bad_hash());
+            let _ = foundry_auth::verify_password(&pwd, known_bad_hash().await).await;
             (false, None)
         }
     };
@@ -332,16 +334,24 @@ fn render_forgot_form(csrf_token: &str, _error: Option<&str>) -> String {
 /// email check per design/auth.md). The hash matches the same OWASP
 /// parameters production uses, because [`foundry_auth::hash_password`]
 /// hardcodes them.
-fn known_bad_hash() -> &'static str {
-    static CACHE: OnceLock<String> = OnceLock::new();
-    CACHE.get_or_init(|| {
-        let throwaway = SecretString::new(
-            "this-password-never-matches-a-real-user-account"
-                .to_string()
-                .into(),
-        );
-        foundry_auth::hash_password(&throwaway).expect("hash_password for known-bad cache")
-    })
+///
+/// `tokio::sync::OnceCell` (not `std::sync::OnceLock`) because
+/// `hash_password` is `async` — the initializer needs to `.await`. The
+/// cache still pays the ~80–300ms argon2 cost exactly once per process.
+async fn known_bad_hash() -> &'static str {
+    static CACHE: OnceCell<String> = OnceCell::const_new();
+    CACHE
+        .get_or_init(|| async {
+            let throwaway = SecretString::new(
+                "this-password-never-matches-a-real-user-account"
+                    .to_string()
+                    .into(),
+            );
+            foundry_auth::hash_password(&throwaway)
+                .await
+                .expect("hash_password for known-bad cache")
+        })
+        .await
 }
 
 // Suppress unused-import lint when CSRF cookie name not referenced elsewhere.

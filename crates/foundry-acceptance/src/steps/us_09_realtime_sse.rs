@@ -207,6 +207,7 @@ async fn reseed_backend_workspace_with_mei_and_auth_v2(world: &mut FoundryWorld)
     let admin_hash = foundry_auth::hash_password(&SecretString::new(
         "admin-correct-horse-battery-staple".to_string().into(),
     ))
+    .await
     .expect("hash admin pw");
     sqlx::query(
         "INSERT INTO users (id, email_lower, email_display, display_name, password_hash)
@@ -239,6 +240,7 @@ async fn reseed_backend_workspace_with_mei_and_auth_v2(world: &mut FoundryWorld)
     let mei_id = uuid::Uuid::now_v7();
     let mei_hash =
         foundry_auth::hash_password(&SecretString::new(MEMBER_PASSWORD.to_string().into()))
+            .await
             .expect("hash mei pw");
     sqlx::query(
         "INSERT INTO users (id, email_lower, email_display, display_name, password_hash)

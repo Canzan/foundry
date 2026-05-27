@@ -68,6 +68,7 @@ async fn workspace_with_admin(world: &mut FoundryWorld, ws_name: String, admin_e
     let admin_hash = foundry_auth::hash_password(&SecretString::new(
         "admin-password-from-bootstrap".to_string().into(),
     ))
+    .await
     .expect("hash admin pw");
     sqlx::query("INSERT INTO workspaces (id, name) VALUES ($1, $2)")
         .bind(workspace_id)
@@ -104,8 +105,9 @@ async fn member_registered(world: &mut FoundryWorld, email: String, password: St
     let pool = harness.app.state.store.pool();
 
     let email_lower = email.to_ascii_lowercase();
-    let pw_hash =
-        foundry_auth::hash_password(&SecretString::new(password.into())).expect("hash member pw");
+    let pw_hash = foundry_auth::hash_password(&SecretString::new(password.into()))
+        .await
+        .expect("hash member pw");
     let user_id = uuid::Uuid::now_v7();
     sqlx::query(
         "INSERT INTO users (id, email_lower, email_display, display_name, password_hash)

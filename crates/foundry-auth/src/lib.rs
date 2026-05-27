@@ -93,22 +93,41 @@ fn argon2_params() -> Params {
 
 /// Hash a password with argon2id at OWASP-recommended parameters.
 /// Returns the PHC-encoded hash string ready to persist in `users.password_hash`.
-pub fn hash_password(password: &SecretString) -> Result<String, AuthError> {
-    let salt = SaltString::generate(&mut OsRng);
-    let hasher = Argon2::new(Algorithm::Argon2id, Version::V0x13, argon2_params());
-    let hash = hasher
-        .hash_password(password.expose_secret().as_bytes(), &salt)
-        .map_err(|e| AuthError::PasswordHash(e.to_string()))?;
-    Ok(hash.to_string())
+///
+/// Runs the CPU work on a blocking thread because OWASP-grade argon2id
+/// (64 MiB × 3 iterations) pins a CPU for 80–300ms; executing it on a
+/// tokio worker would stall every other future scheduled on that
+/// worker for the duration. The async lifecycle (allocate salt, build
+/// hasher, encode result) is moved entirely inside `spawn_blocking`
+/// so the caller never observes the cost on its own runtime thread.
+pub async fn hash_password(password: &SecretString) -> Result<String, AuthError> {
+    let bytes = password.expose_secret().as_bytes().to_vec();
+    tokio::task::spawn_blocking(move || -> Result<String, AuthError> {
+        let salt = SaltString::generate(&mut OsRng);
+        let hasher = Argon2::new(Algorithm::Argon2id, Version::V0x13, argon2_params());
+        let hash = hasher
+            .hash_password(&bytes, &salt)
+            .map_err(|e| AuthError::PasswordHash(e.to_string()))?;
+        Ok(hash.to_string())
+    })
+    .await
+    .map_err(|e| AuthError::PasswordHash(format!("spawn_blocking join: {e}")))?
 }
 
 /// Verify a password against a PHC-encoded hash. Constant-time.
-pub fn verify_password(password: &SecretString, encoded: &str) -> Result<bool, AuthError> {
-    let parsed = PasswordHash::new(encoded).map_err(|e| AuthError::PasswordHash(e.to_string()))?;
-    let hasher = Argon2::default();
-    Ok(hasher
-        .verify_password(password.expose_secret().as_bytes(), &parsed)
-        .is_ok())
+///
+/// Same blocking-thread discipline as [`hash_password`].
+pub async fn verify_password(password: &SecretString, encoded: &str) -> Result<bool, AuthError> {
+    let bytes = password.expose_secret().as_bytes().to_vec();
+    let encoded = encoded.to_string();
+    tokio::task::spawn_blocking(move || -> Result<bool, AuthError> {
+        let parsed =
+            PasswordHash::new(&encoded).map_err(|e| AuthError::PasswordHash(e.to_string()))?;
+        let hasher = Argon2::default();
+        Ok(hasher.verify_password(&bytes, &parsed).is_ok())
+    })
+    .await
+    .map_err(|e| AuthError::PasswordHash(format!("spawn_blocking join: {e}")))?
 }
 
 /// A freshly-minted invite token. The shareable URL embeds both
@@ -175,13 +194,13 @@ mod tests {
         assert!(verify(&secret, b"tampered", &sig).is_err());
     }
 
-    #[test]
-    fn password_hash_round_trip() {
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn password_hash_round_trip() {
         let pwd = SecretString::new("correct horse battery staple".to_string().into());
-        let encoded = hash_password(&pwd).unwrap();
-        assert!(verify_password(&pwd, &encoded).unwrap());
+        let encoded = hash_password(&pwd).await.unwrap();
+        assert!(verify_password(&pwd, &encoded).await.unwrap());
         let wrong = SecretString::new("wrong password".to_string().into());
-        assert!(!verify_password(&wrong, &encoded).unwrap());
+        assert!(!verify_password(&wrong, &encoded).await.unwrap());
     }
 
     #[test]

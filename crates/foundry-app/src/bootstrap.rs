@@ -140,7 +140,7 @@ pub async fn submit(
 
     // Hash the password.
     let pwd = SecretString::new(form.password.into());
-    let password_hash = match foundry_auth::hash_password(&pwd) {
+    let password_hash = match foundry_auth::hash_password(&pwd).await {
         Ok(h) => h,
         Err(err) => {
             tracing::error!(%err, "hash_password failed");

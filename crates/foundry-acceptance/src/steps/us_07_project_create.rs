@@ -62,6 +62,7 @@ async fn seed_workspace_with_team(
     let admin_hash = foundry_auth::hash_password(&SecretString::new(
         "admin-correct-horse-battery-staple".to_string().into(),
     ))
+    .await
     .expect("hash admin pw");
     sqlx::query("INSERT INTO workspaces (id, name) VALUES ($1, $2)")
         .bind(workspace_id)
@@ -118,6 +119,7 @@ async fn insert_user_with_team_membership(
     let user_id = uuid::Uuid::now_v7();
     let lower = email.to_ascii_lowercase();
     let hash = foundry_auth::hash_password(&SecretString::new(password.to_string().into()))
+        .await
         .expect("hash user pw");
     sqlx::query(
         "INSERT INTO users (id, email_lower, email_display, display_name, password_hash)
