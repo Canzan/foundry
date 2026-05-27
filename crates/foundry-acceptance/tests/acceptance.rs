@@ -79,7 +79,19 @@ async fn main() {
         }
         "all" => {
             // Exclude @manual + @manual-trigger (slice-3 opt-in lane).
+            // Cap scenario concurrency to 6 to mirror the default lane:
+            // the slice-6 `db_connections_in_use` scenario relies on a
+            // single subprocess saturating its own 10-conn sqlx pool with
+            // 32 in-flight /readyz pounders. Under unbounded cucumber
+            // concurrency, N×10 pool demand can exceed the shared
+            // Postgres container's 100-connection ceiling — remote
+            // acquires block, /readyz pounders hit their 2s timeout
+            // before owning a connection, and the local `in_use` gauge
+            // never rises above 0 across the scrape window. Matching the
+            // default-lane cap restores the invariant that `@all` =
+            // "default lane + the @slow + @docker-compose scenarios".
             FoundryWorld::cucumber()
+                .max_concurrent_scenarios(6)
                 .filter_run_and_exit(features_path, |feat, _rule, scenario| {
                     let has = |t: &str| {
                         scenario.tags.iter().any(|x| x == t) || feat.tags.iter().any(|x| x == t)
