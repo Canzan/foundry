@@ -30,6 +30,7 @@ use std::sync::{Arc, Mutex};
 use testcontainers_modules::postgres::Postgres;
 use testcontainers_modules::testcontainers::runners::AsyncRunner;
 use testcontainers_modules::testcontainers::ContainerAsync;
+use testcontainers_modules::testcontainers::ImageExt;
 use tokio::sync::OnceCell as AsyncOnceCell;
 
 static PG_CONTAINER: OnceCell<ContainerAsync<Postgres>> = OnceCell::new();
@@ -43,7 +44,20 @@ static SCHEMA_COUNTER: Mutex<u64> = Mutex::new(0);
 pub async fn ensure_postgres() -> &'static str {
     PG_CONTAINER_INIT
         .get_or_init(|| async {
+            // Raise max_connections well above the Postgres default (100).
+            // ONE container is shared across all scenarios; under @all
+            // (max_concurrent_scenarios=6) each scenario opens a 10-conn
+            // harness pool plus, for subprocess scenarios, the subprocess's
+            // own 10-conn pool — and US-02 (dual replica) / gc-lock (extra
+            // lock holder) open more. Aggregate demand can exceed the ~97
+            // usable default connections, which blocks new backends: the
+            // slice-6 db_connections_in_use scenario's /readyz pounders then
+            // cannot acquire, the gauge never rises above 0, and seed steps
+            // hit PoolTimedOut. The container is ephemeral (one per `cargo
+            // test`), so the headroom is free. 300 covers 6 concurrent
+            // scenarios at ~30 connections each with margin.
             let container: ContainerAsync<Postgres> = Postgres::default()
+                .with_cmd(["postgres", "-c", "max_connections=300"])
                 .start()
                 .await
                 .expect("start postgres container");

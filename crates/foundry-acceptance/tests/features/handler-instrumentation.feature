@@ -133,7 +133,7 @@ Feature: The Grafana "Foundry Overview" dashboard panels light up because the ap
     And the operator scrapes the metrics endpoint
     Then the scrape body's "http_requests_total" sample sums to 7
 
-  @real-io @nfr-obs-03
+  @real-io @nfr-obs-03 @serial
   Scenario: The Postgres connection pool gauge reflects the in-use connection count within one polling interval
     # The gauge is updated by a 1-second poll task in main.rs (slice-6
     # ADR-012). A single-instant scrape can sample a transient idle
@@ -145,6 +145,17 @@ Feature: The Grafana "Foundry Overview" dashboard panels light up because the ap
     # single slow scrape under @all-load contention can't monopolise
     # the deadline. See
     # docs/feature/slice-6-scenario-hardening/distill/wave-decisions.md.
+    #
+    # @serial: the step generates load with 32 tokio::spawn'd /readyz
+    # hammer tasks to keep the subprocess pool's in_use > 0. Under @all
+    # those load-generator tasks share the test runtime with 5 sibling
+    # scenarios and get starved — they don't sustain enough requests to
+    # saturate the pool, so the gauge never rises and the bounded-poll
+    # times out (flaked ~1/3 at max_connections=100, ~1/5 at 300).
+    # De-contended, the hammer tasks get the CPU they need. (The raised
+    # max_connections=300 ceiling — see harness.rs — is what makes adding
+    # this 3rd @serial scenario safe from the PoolTimedOut that 3 serial
+    # scenarios hit at the old 100 ceiling.)
     Given the operator's foundry instance is running
     When Mei holds an open database connection for 6 seconds
     Then the scrape body's "db_connections_in_use" sample is eventually greater than 0 within 10 seconds
