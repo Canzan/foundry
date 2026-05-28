@@ -517,6 +517,50 @@ async fn then_counter_eventually_reaches(
     .await;
 }
 
+/// Bounded-poll "passes through" assertion for transient / non-monotonic
+/// metric trajectories. The pending-tombstones gauge drains 3 -> 1 -> 0 and
+/// the capped purged-total counter steps 10000 -> 11000; both are values the
+/// system only visits between ticks, so a fixed-wait single scrape flakes
+/// when tick timing drifts (release-mode @all surfaced this). Watch the
+/// whole trajectory and assert the metric passes through the values in order
+/// — immune to *when* each tick fires. See
+/// `support::metrics_scrape::poll_until_metric_sequence`.
+#[then(
+    regex = r#"^the "([^"]+)" (?:counter|gauge) passes through ([0-9, ]+) within (\d+) seconds$"#
+)]
+async fn then_metric_passes_through(
+    world: &mut FoundryWorld,
+    metric_name: String,
+    sequence_csv: String,
+    timeout_seconds: u64,
+) {
+    let expected: Vec<f64> = sequence_csv
+        .split(',')
+        .map(|t| t.trim())
+        .filter(|t| !t.is_empty())
+        .map(|t| {
+            t.parse::<f64>()
+                .unwrap_or_else(|_| panic!("non-numeric sequence element {t:?}"))
+        })
+        .collect();
+    assert!(
+        !expected.is_empty(),
+        "passes-through sequence must have at least one value"
+    );
+    let metrics_addr = world
+        .slice6_foundry
+        .as_ref()
+        .expect("foundry subprocess running")
+        .metrics_addr;
+    let _trajectory = crate::support::metrics_scrape::poll_until_metric_sequence(
+        metrics_addr,
+        &metric_name,
+        &expected,
+        Duration::from_secs(timeout_seconds),
+    )
+    .await;
+}
+
 #[then(
     regex = r#"^the issue page for "(\w+)-(\d+)" shows (\d+) tombstoned comments older than (\d+) days$"#
 )]

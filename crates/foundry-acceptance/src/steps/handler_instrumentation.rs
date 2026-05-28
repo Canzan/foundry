@@ -932,6 +932,34 @@ async fn then_scrape_body_sample_is_eventually_greater_than(
     });
 }
 
+/// Bounded-poll "settles to" assertion for a gauge whose idle steady state
+/// is `target` but which may transiently differ at the scrape instant. The
+/// `db_connections_in_use` register-at-0 scenario flaked (value 1, expected
+/// 0) under release-mode contention because a startup/readyz query held a
+/// pool connection when the 1s poll sampled — and the test's "scrape
+/// immediately" lands after that poll. The register-at-0 *contract* (the
+/// metric line is present without waiting for the first poll) is asserted by
+/// the preceding `contains the line` step; this step verifies the idle pool
+/// reaches `target` (0) within the window rather than asserting it at one
+/// racy instant.
+#[then(regex = r#"^the scrape body's "([^"]+)" sample settles to (\d+) within (\d+) seconds$"#)]
+async fn then_scrape_body_sample_settles_to(
+    world: &mut FoundryWorld,
+    metric_name: String,
+    target: u64,
+    timeout_seconds: u64,
+) {
+    let addr = current_metrics_addr(world);
+    let target_f = target as f64;
+    let _ = poll_until_sample(
+        addr,
+        &metric_name,
+        |s: &MetricSample| s.value == target_f,
+        Duration::from_secs(timeout_seconds),
+    )
+    .await;
+}
+
 #[then(regex = r#"^the scrape body's "([^"]+)" sample returns to (\d+)$"#)]
 async fn then_scrape_body_sample_returns_to(
     world: &mut FoundryWorld,

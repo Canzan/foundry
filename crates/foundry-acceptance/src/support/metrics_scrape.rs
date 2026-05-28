@@ -273,6 +273,78 @@ where
     }
 }
 
+/// Poll `metric_name` until its observed value trajectory contains
+/// `expected` as an ordered subsequence (the values need not be
+/// contiguous), or `timeout` elapses. Returns the observed trajectory of
+/// distinct consecutive values. Panics with the full trajectory + how far
+/// it matched on timeout.
+///
+/// This is the robust shape for asserting that a metric *passes through* a
+/// sequence of transient values that a single scrape cannot reliably catch:
+/// a non-monotonic gauge draining (`comments_tombstones_pending`: 3 → 1 → 0)
+/// or a capped counter stepping (`comments_tombstones_purged_total`:
+/// 10000 → 11000). A fixed-wait single scrape of such a value flakes when
+/// the background tick timing drifts — the scrape lands on the wrong side
+/// of a tick boundary. Watching the whole trajectory and matching an
+/// ordered subsequence is immune to *when* each value occurs, only *that*
+/// they occur in order.
+///
+/// Safe because each value plateaus for a full tick cadence (seconds) while
+/// the poll runs every [`POLL_INTERVAL`] (250ms), so no plateau is skipped
+/// between consecutive polls. Leading values not in `expected` (e.g. the
+/// register-at-0 startup sample, or an initial steady-state) are ignored —
+/// matching only begins at `expected[0]`.
+pub async fn poll_until_metric_sequence(
+    addr: SocketAddr,
+    metric_name: &str,
+    expected: &[f64],
+    timeout: Duration,
+) -> Vec<f64> {
+    let client = reqwest::Client::builder()
+        .timeout(POLL_SCRAPE_TIMEOUT)
+        .build()
+        .expect("build poll_until_metric_sequence http client");
+    let url = format!("http://127.0.0.1:{}/metrics", addr.port());
+
+    let started_at = Instant::now();
+    let deadline = started_at + timeout;
+    let mut trajectory: Vec<f64> = Vec::new();
+    let mut matched = 0usize;
+    loop {
+        if let Ok(resp) = client.get(&url).send().await {
+            if resp.status() == reqwest::StatusCode::OK {
+                if let Ok(body) = resp.text().await {
+                    if let Some(sample) = parse_exposition(&body)
+                        .into_iter()
+                        .find(|s| s.name == metric_name)
+                    {
+                        // Record only on change to keep the trajectory readable.
+                        if trajectory.last() != Some(&sample.value) {
+                            trajectory.push(sample.value);
+                        }
+                        if matched < expected.len() && sample.value == expected[matched] {
+                            matched += 1;
+                            if matched == expected.len() {
+                                return trajectory;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if Instant::now() >= deadline {
+            panic!(
+                "poll_until_metric_sequence for `{metric_name}` timed out after {:?}: \
+                 matched {matched}/{} of expected {expected:?}. \
+                 Observed trajectory: {trajectory:?}",
+                timeout,
+                expected.len(),
+            );
+        }
+        tokio::time::sleep(POLL_INTERVAL).await;
+    }
+}
+
 /// Parse a Prometheus text-exposition body into `MetricSample`s.
 ///
 /// Returns an empty Vec on empty input (no panic). Comment + blank

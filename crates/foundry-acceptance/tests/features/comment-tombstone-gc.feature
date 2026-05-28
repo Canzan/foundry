@@ -147,25 +147,31 @@ Feature: Storage stays bounded and operators can recover an accidentally-deleted
 
   @real-io @gc-threshold
   Scenario: The sweep keeps tombstones still inside the 90-day audit window
+    # Poll the purged-total counter to 3 (the 3 ancient tombstones deleted) rather
+    # than asserting the row counts at a fixed wait — the counter is monotonic, so
+    # this is robust to @all-lane tick delay/starvation. Once it reaches 3 the
+    # DELETE has committed, so the row-count assertions below are deterministic:
+    # the 3 recent (89-day) tombstones are kept, nothing older-than-90 remains.
     Given the operator's foundry instance is running with the tombstone sweep cadence set to 2 second
     And 3 ancient tombstoned comments exist on "AUTH-3" with deletion age 91 days
     And 3 recent tombstoned comments exist on "AUTH-3" with deletion age 89 days
-    When the operator's foundry instance has been running for at least 2 seconds
-    Then the database holds 3 tombstoned comments on "AUTH-3"
+    Then the "comments_tombstones_purged_total" counter eventually reaches 3 within 15 seconds
+    And the database holds 3 tombstoned comments on "AUTH-3"
     And the database holds 0 tombstoned comments older than 90 days on "AUTH-3"
 
-  @real-io @gc-cap @slow
+  @real-io @gc-cap @slow @serial
   Scenario: A single sweep tick deletes at most the per-run cap of tombstones; the remainder drain on the next tick
+    # Cap proof via the counter trajectory: the first tick stops at exactly the
+    # 10000 cap (the counter steps to 10000, not straight to 11000), and the
+    # next tick drains the remaining 1000 (the counter reaches 11000). Asserting
+    # the ordered pass-through is robust to release-mode tick-timing drift that
+    # a fixed-wait scrape of the between-ticks "1000 remaining" state cannot
+    # survive. Once the counter reaches 11000 the DELETEs have committed, so the
+    # terminal row-count assertion below is deterministic.
     Given the operator's foundry instance is running with the tombstone sweep cadence set to 6 second and per-run cap set to 10000
     And 11000 ancient tombstoned comments exist on "AUTH-3" with deletion age 91 days
-    When the operator's foundry instance has been running for at least 7 seconds
-    And the operator scrapes the metrics endpoint
-    Then the database holds 1000 tombstoned comments older than 90 days on "AUTH-3"
-    And the scrape body's "comments_tombstones_purged_total" sample has value 10000
-    When the operator's foundry instance has been running for at least 6 seconds
-    And the operator scrapes the metrics endpoint
-    Then the database holds 0 tombstoned comments older than 90 days on "AUTH-3"
-    And the scrape body's "comments_tombstones_purged_total" sample has value 11000
+    Then the "comments_tombstones_purged_total" counter passes through 10000, 11000 within 30 seconds
+    And the database holds 0 tombstoned comments older than 90 days on "AUTH-3"
 
   @real-io @gc-lock
   Scenario: When two replicas attempt the sweep concurrently exactly one performs the work
@@ -192,20 +198,16 @@ Feature: Storage stays bounded and operators can recover an accidentally-deleted
     Then the "comments_tombstones_purged_total" counter eventually reaches 3 within 15 seconds
     And the database holds 0 tombstoned comments older than 90 days on "AUTH-3"
 
-  @real-io @gc-metrics @nfr-obs-03
+  @real-io @gc-metrics @nfr-obs-03 @serial
   Scenario: The pending-tombstones gauge reflects the count of comments awaiting deletion at each tick
+    # The pending gauge is non-monotonic across the drain (3 -> 1 -> 0 as the
+    # capped ticks delete 2, then 2, then the last 1). Asserting each exact
+    # value at a fixed wait flaked under release-mode @all when an extra tick
+    # fired before the scrape; instead assert the gauge passes through the drain
+    # sequence in order, watching the whole trajectory rather than one instant.
     Given the operator's foundry instance is running with the tombstone sweep cadence set to 4 second and per-run cap set to 2
     And 5 ancient tombstoned comments exist on "AUTH-3" with deletion age 91 days
-    When the operator's foundry instance has been running for at least 5 seconds
-    And the operator scrapes the metrics endpoint
-    Then the scrape body contains the line "comments_tombstones_pending"
-    And the scrape body's "comments_tombstones_pending" sample has value 3
-    When the operator's foundry instance has been running for at least 4 seconds
-    And the operator scrapes the metrics endpoint
-    Then the scrape body's "comments_tombstones_pending" sample has value 1
-    When the operator's foundry instance has been running for at least 4 seconds
-    And the operator scrapes the metrics endpoint
-    Then the scrape body's "comments_tombstones_pending" sample has value 0
+    Then the "comments_tombstones_pending" gauge passes through 3, 1, 0 within 30 seconds
 
   @walking_skeleton @real-io @driving_adapter @admin-cli
   Scenario: An operator restores an accidentally-deleted comment by running the doctor subcommand
