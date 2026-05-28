@@ -44,7 +44,16 @@ Feature: A returning member signs in and keeps a stable session
     When a visitor submits the sign-in form with email "ghost@acme.com" and password "anything"
     Then the response body contains "Invalid email or password"
     And no session cookie is set
-    And the response time is within 50ms of the wrong-password response time
+
+  @nfr-sec-03 @real-io
+  Scenario: Sign-in timing does not reveal whether an email is registered
+    # Username-enumeration side-channel guard. Production runs one argon2id
+    # verify on both the real-user and unknown-email paths (the latter against
+    # a known-bad hash), so the symmetry is genuine. The test samples the two
+    # arms interleaved and compares medians — robust to the spawn_blocking-pool
+    # contention that made a single-sample comparison flake under @all.
+    When sign-in latency is sampled over 7 interleaved unknown-email and wrong-password attempts
+    Then the median unknown-email latency is within 150ms of the median wrong-password latency
 
   @nfr-sec-02 @error @real-io
   Scenario: The sixth failed attempt within 15 minutes is delayed by at least 5 seconds

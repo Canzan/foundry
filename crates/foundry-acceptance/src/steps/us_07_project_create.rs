@@ -173,8 +173,8 @@ async fn member_belongs_to_team(world: &mut FoundryWorld, email: String, team_na
         // Some scenarios (the property outline) don't include the
         // "workspace exists with admin" Background line — bootstrap a
         // minimal workspace ourselves.
-        world.us_06_last_response_ms = None;
-        world.us_06_wrong_pw_response_ms = None;
+        world.us_06_unknown_latencies_ms.clear();
+        world.us_06_wrong_pw_latencies_ms.clear();
         world.session_cookie_header = None;
         world.last_status = None;
         world.last_body = None;

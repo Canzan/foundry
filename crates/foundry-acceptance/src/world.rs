@@ -49,13 +49,15 @@ pub struct FoundryWorld {
     pub session_cookie_header: Option<String>,
 
     // ---- US-06 timing scratch (sign-in response latency) ----
-    /// Wall-clock for the most recent /sign-in response. Used to
-    /// compare unknown-email vs wrong-password timing.
-    pub us_06_last_response_ms: Option<u64>,
-    /// Baseline captured for the wrong-password scenario; the
-    /// unknown-email scenario asserts its own time is within 50ms of
-    /// this baseline.
-    pub us_06_wrong_pw_response_ms: Option<u64>,
+    /// Per-sample /sign-in POST latencies for the unknown-email arm of
+    /// the timing-symmetry scenario. Compared by median against the
+    /// wrong-password arm to resist `spawn_blocking`-pool contention
+    /// under @all (single-sample comparison was flaky).
+    pub us_06_unknown_latencies_ms: Vec<u64>,
+    /// Per-sample /sign-in POST latencies for the wrong-password arm,
+    /// interleaved with the unknown-email arm so both see the same
+    /// contention distribution.
+    pub us_06_wrong_pw_latencies_ms: Vec<u64>,
 
     // ---- US-07 project-create scratch ----
     /// Email of the signed-in user for the current scenario (drives

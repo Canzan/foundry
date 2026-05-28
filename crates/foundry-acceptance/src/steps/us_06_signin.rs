@@ -49,8 +49,8 @@ async fn workspace_with_admin(world: &mut FoundryWorld, ws_name: String, admin_e
     // Reset state: fresh harness, fresh tables.
     world.harness = None;
     world.http = None;
-    world.us_06_last_response_ms = None;
-    world.us_06_wrong_pw_response_ms = None;
+    world.us_06_unknown_latencies_ms.clear();
+    world.us_06_wrong_pw_latencies_ms.clear();
     world.session_cookie_header = None;
     world.last_status = None;
     world.last_body = None;
@@ -169,7 +169,6 @@ async fn submit_signin_inner(world: &mut FoundryWorld, url: &str, email: &str, p
     form.insert("email", email.to_string());
     form.insert("password", password.to_string());
     form.insert("_csrf", csrf.token.clone());
-    let started = std::time::Instant::now();
     let resp = http
         .post(format!("{}{}", harness.base_url(), url))
         .header(reqwest::header::COOKIE, csrf.cookie_header.clone())
@@ -177,8 +176,6 @@ async fn submit_signin_inner(world: &mut FoundryWorld, url: &str, email: &str, p
         .send()
         .await
         .expect("submit sign-in");
-    let elapsed = started.elapsed();
-    world.us_06_last_response_ms = Some(elapsed.as_millis() as u64);
     capture_response(world, resp).await;
 }
 
@@ -196,14 +193,6 @@ async fn submit_signin_no_url(
     regex = r#"^a visitor submits the sign-in form with email "([^"]+)" and password "([^"]+)"$"#
 )]
 async fn visitor_submit_signin(world: &mut FoundryWorld, email: String, password: String) {
-    // Capture a baseline wrong-password timing if not already done so
-    // the "within 50ms" assertion has something to compare against.
-    if world.us_06_wrong_pw_response_ms.is_none() {
-        // run a baseline wrong-password sign-in against the known
-        // existing member account.
-        submit_signin_inner(world, "/sign-in", "mei@acme.com", "wrong-baseline").await;
-        world.us_06_wrong_pw_response_ms = world.us_06_last_response_ms;
-    }
     submit_signin_inner(world, "/sign-in", &email, &password).await;
 }
 
@@ -309,17 +298,79 @@ async fn no_session_cookie_step(world: &mut FoundryWorld) {
     );
 }
 
-#[then(regex = r"^the response time is within 50ms of the wrong-password response time$")]
-async fn response_time_within_50ms(world: &mut FoundryWorld) {
-    let unknown = world.us_06_last_response_ms.unwrap_or(0) as i64;
-    let baseline = world.us_06_wrong_pw_response_ms.unwrap_or(0) as i64;
-    let delta = (unknown - baseline).abs();
-    // Generous bound — under load / cold caches both calls go through
-    // argon2id verify so the dominant cost is identical.
+/// Time a single /sign-in POST (CSRF GET is fetched untimed first, so the
+/// measurement isolates the argon2-dominated POST). Returns elapsed ms.
+async fn timed_signin_post_ms(world: &mut FoundryWorld, email: &str, password: &str) -> u64 {
+    let url = "/sign-in";
+    let csrf = fetch_csrf_for(world, url).await;
+    let harness = world.harness.as_ref().expect("harness");
+    let http = world.http.as_ref().expect("http");
+    let mut form = HashMap::new();
+    form.insert("email", email.to_string());
+    form.insert("password", password.to_string());
+    form.insert("_csrf", csrf.token.clone());
+    let started = std::time::Instant::now();
+    let _resp = http
+        .post(format!("{}{}", harness.base_url(), url))
+        .header(reqwest::header::COOKIE, csrf.cookie_header.clone())
+        .form(&form)
+        .send()
+        .await
+        .expect("submit sign-in");
+    started.elapsed().as_millis() as u64
+}
+
+fn median(mut samples: Vec<u64>) -> u64 {
+    samples.sort_unstable();
+    samples[samples.len() / 2]
+}
+
+/// Interleaved sampling of the timing-symmetry property. Both arms run
+/// exactly one argon2id verify in production (real hash vs known-bad hash),
+/// so the symmetry is real; strict alternation makes both arms sample the
+/// same `spawn_blocking`-pool contention distribution, and the per-arm
+/// median cancels transient spikes that made the old single-sample
+/// comparison flaky under @all. One warm-up pair is discarded to absorb the
+/// once-per-process `known_bad_hash()` argon2 lazy-init cost.
+#[when(
+    regex = r"^sign-in latency is sampled over (\d+) interleaved unknown-email and wrong-password attempts$"
+)]
+async fn sample_signin_timing(world: &mut FoundryWorld, pairs: usize) {
+    ensure_harness(world).await;
+    world.us_06_unknown_latencies_ms.clear();
+    world.us_06_wrong_pw_latencies_ms.clear();
+
+    // Warm-up pair (discarded): pays the known_bad_hash() lazy-init.
+    let _ = timed_signin_post_ms(world, "ghost@acme.com", "anything").await;
+    let _ = timed_signin_post_ms(world, "mei@acme.com", "wrong-password").await;
+
+    for _ in 0..pairs {
+        let unknown = timed_signin_post_ms(world, "ghost@acme.com", "anything").await;
+        world.us_06_unknown_latencies_ms.push(unknown);
+        let wrong = timed_signin_post_ms(world, "mei@acme.com", "wrong-password").await;
+        world.us_06_wrong_pw_latencies_ms.push(wrong);
+    }
+}
+
+#[then(
+    regex = r"^the median unknown-email latency is within (\d+)ms of the median wrong-password latency$"
+)]
+async fn median_timing_within(world: &mut FoundryWorld, budget_ms: u64) {
+    let unknown = world.us_06_unknown_latencies_ms.clone();
+    let wrong = world.us_06_wrong_pw_latencies_ms.clone();
     assert!(
-        delta < 500,
-        "expected unknown-email and wrong-password timings within 500ms, got delta={delta}ms \
-         (unknown={unknown}ms baseline={baseline}ms)"
+        !unknown.is_empty() && unknown.len() == wrong.len(),
+        "expected equal non-empty sample arms, got unknown={unknown:?} wrong={wrong:?}"
+    );
+    let m_unknown = median(unknown.clone()) as i64;
+    let m_wrong = median(wrong.clone()) as i64;
+    let delta = (m_unknown - m_wrong).abs();
+    assert!(
+        delta <= budget_ms as i64,
+        "timing side-channel: median unknown-email and wrong-password latencies \
+         differ by {delta}ms (budget {budget_ms}ms). \
+         median(unknown)={m_unknown}ms median(wrong)={m_wrong}ms; \
+         unknown_samples={unknown:?} wrong_samples={wrong:?}"
     );
 }
 
