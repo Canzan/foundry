@@ -134,11 +134,15 @@ Feature: Storage stays bounded and operators can recover an accidentally-deleted
 
   @walking_skeleton @real-io @gc-tick @nfr-obs-03
   Scenario: A daily tombstone sweep removes comment tombstones older than 90 days and increments the purged-total counter
+    # The purged-total counter is incremented by a background sweep tick on a
+    # cadence; a one-shot scrape can sample it before the tick fires (or before
+    # the seed rows land), producing an "expected 3, got 0" flake under @all.
+    # Poll until the counter reaches 3 — production increments it only after the
+    # DELETE commits (main.rs), so the row-state assertion that follows is then
+    # deterministic.
     Given the operator's foundry instance is running with the tombstone sweep cadence set to 2 second
     And 3 ancient tombstoned comments exist on "AUTH-3" with deletion age 91 days
-    When the operator's foundry instance has been running for at least 2 seconds
-    And the operator scrapes the metrics endpoint
-    Then the scrape body's "comments_tombstones_purged_total" sample has value 3
+    Then the "comments_tombstones_purged_total" counter eventually reaches 3 within 15 seconds
     And the issue page for "AUTH-3" shows 0 tombstoned comments older than 90 days
 
   @real-io @gc-threshold
@@ -173,10 +177,8 @@ Feature: Storage stays bounded and operators can recover an accidentally-deleted
     Then the database holds 3 tombstoned comments older than 90 days on "AUTH-3"
     And the scrape body's "comments_tombstones_purged_total" sample has value 0
     When the other replica releases the tombstone-sweep advisory lock
-    And the operator's foundry instance has been running for at least 2 seconds
-    And the operator scrapes the metrics endpoint
-    Then the database holds 0 tombstoned comments older than 90 days on "AUTH-3"
-    And the scrape body's "comments_tombstones_purged_total" sample has value 3
+    Then the "comments_tombstones_purged_total" counter eventually reaches 3 within 15 seconds
+    And the database holds 0 tombstoned comments older than 90 days on "AUTH-3"
 
   @real-io @gc-failure
   Scenario: A transient sweep failure does not kill the background task and the next tick succeeds
@@ -187,10 +189,8 @@ Feature: Storage stays bounded and operators can recover an accidentally-deleted
     Then the database holds 3 tombstoned comments older than 90 days on "AUTH-3"
     And the foundry subprocess is alive
     When the synthetic database error is cleared
-    And the operator's foundry instance has been running for at least 2 seconds
-    And the operator scrapes the metrics endpoint
-    Then the database holds 0 tombstoned comments older than 90 days on "AUTH-3"
-    And the scrape body's "comments_tombstones_purged_total" sample has value 3
+    Then the "comments_tombstones_purged_total" counter eventually reaches 3 within 15 seconds
+    And the database holds 0 tombstoned comments older than 90 days on "AUTH-3"
 
   @real-io @gc-metrics @nfr-obs-03
   Scenario: The pending-tombstones gauge reflects the count of comments awaiting deletion at each tick

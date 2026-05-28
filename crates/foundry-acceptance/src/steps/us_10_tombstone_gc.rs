@@ -485,6 +485,38 @@ async fn when_operator_runs_restore_comment_with_literal_arg(
 // Thens
 // =====================================================================
 
+/// Bounded-poll counter assertion. The tombstone-GC `purged_total`
+/// counter is incremented by a background sweep tick on a cadence; a
+/// one-shot scrape can sample it *before* the tick has fired, producing
+/// the "expected 3, got 0" flake under @all contention. Poll the
+/// `/metrics` endpoint until the counter reaches the expected value or
+/// the deadline elapses (same temporal-assertion shape as slice-6's
+/// gauge fix; reuses the `poll_until_sample` helper promoted to
+/// `support::metrics_scrape`). `>=` semantics: the counter is monotonic
+/// and the seeded tombstone count is exact, so "reaches N" is robust
+/// against an extra tick without masking a missing one.
+#[then(regex = r#"^the "([^"]+)" counter eventually reaches (\d+) within (\d+) seconds$"#)]
+async fn then_counter_eventually_reaches(
+    world: &mut FoundryWorld,
+    metric_name: String,
+    expected: u64,
+    timeout_seconds: u64,
+) {
+    let metrics_addr = world
+        .slice6_foundry
+        .as_ref()
+        .expect("foundry subprocess running")
+        .metrics_addr;
+    let expected_f = expected as f64;
+    let _sample = crate::support::metrics_scrape::poll_until_sample(
+        metrics_addr,
+        &metric_name,
+        |s: &crate::support::metrics_scrape::MetricSample| s.value >= expected_f,
+        Duration::from_secs(timeout_seconds),
+    )
+    .await;
+}
+
 #[then(
     regex = r#"^the issue page for "(\w+)-(\d+)" shows (\d+) tombstoned comments older than (\d+) days$"#
 )]

@@ -29,7 +29,8 @@
 
 use crate::support::harness::ensure_postgres;
 use crate::support::metrics_scrape::{
-    parse_exposition, scrape_metrics, scrape_metrics_raw, MetricSample, ScrapeSnapshot,
+    parse_exposition, poll_until_sample, scrape_metrics, scrape_metrics_raw, MetricSample,
+    ScrapeSnapshot,
 };
 use crate::world::FoundryWorld;
 use cucumber::{given, then, when};
@@ -974,114 +975,6 @@ async fn then_bench_reports_p95_below_10us(_world: &mut FoundryWorld) {
          microbench at `crates/foundry-app/benches/middleware_overhead.rs`. \
          Run `cargo bench -p foundry-app --bench middleware_overhead` and inspect P95 there."
     );
-}
-
-// =====================================================================
-// Bounded-poll helper for sampled-gauge contracts.
-// =====================================================================
-
-/// Inner-loop poll cadence used by [`poll_until_sample`].
-const POLL_INTERVAL: Duration = Duration::from_millis(250);
-
-/// Per-scrape HTTP timeout used by [`poll_until_sample`]. Deliberately
-/// short — the local sidecar listener returns in sub-millisecond under
-/// idle load, so a 750ms ceiling fails-fast under contention rather
-/// than absorbing the entire poll deadline in a single hung scrape.
-/// (The shared `scrape_metrics_raw` uses a 10s timeout suitable for
-/// one-shot startup-probe scenarios but pathological for a poll loop.)
-const POLL_SCRAPE_TIMEOUT: Duration = Duration::from_millis(750);
-
-/// Poll the `/metrics` endpoint up to `timeout`, returning the first
-/// `MetricSample` for `metric_name` that satisfies `predicate`. Panics
-/// with the full sample history on timeout — flake-debuggable.
-///
-/// Used by step contracts that need "eventually" semantics on a
-/// sampled gauge (the gauge is updated by a background poll task; a
-/// single-instant scrape can sample a transient idle window even while
-/// traffic is in-flight). See
-/// `docs/feature/slice-6-scenario-hardening/distill/wave-decisions.md`
-/// § D2 for the helper's design.
-async fn poll_until_sample<P>(
-    addr: SocketAddr,
-    metric_name: &str,
-    predicate: P,
-    timeout: Duration,
-) -> MetricSample
-where
-    P: Fn(&MetricSample) -> bool,
-{
-    // Build a single client and reuse it for every scrape — connection
-    // pooling avoids a fresh TCP handshake per poll iteration. The
-    // 750ms per-scrape timeout caps each request so a slow scrape can't
-    // monopolise the outer deadline.
-    let client = reqwest::Client::builder()
-        .timeout(POLL_SCRAPE_TIMEOUT)
-        .build()
-        .expect("build poll_until_sample http client");
-    let url = format!("http://127.0.0.1:{}/metrics", addr.port());
-
-    let started_at = Instant::now();
-    let deadline = started_at + timeout;
-    // Full sample history across the deadline window — the timeout
-    // panic dumps this so a flake-investigator sees the temporal shape
-    // of what the subprocess actually emitted, including scrape errors
-    // (which often ARE the signal when the subprocess is unhealthy).
-    let mut history: Vec<(Duration, Result<Vec<MetricSample>, String>)> = Vec::new();
-    loop {
-        let now = Instant::now();
-        let result = match client.get(&url).send().await {
-            Ok(resp) => {
-                let status = resp.status();
-                if status == reqwest::StatusCode::OK {
-                    match resp.text().await {
-                        Ok(body) => {
-                            let parsed = parse_exposition(&body);
-                            let matching: Vec<MetricSample> = parsed
-                                .iter()
-                                .filter(|s| s.name == metric_name)
-                                .cloned()
-                                .collect();
-                            if let Some(hit) = matching.iter().find(|s| predicate(s)) {
-                                return hit.clone();
-                            }
-                            Ok(matching)
-                        }
-                        Err(err) => Err(format!("body read: {err}")),
-                    }
-                } else {
-                    Err(format!("status {status}"))
-                }
-            }
-            Err(err) => Err(format!("send: {err}")),
-        };
-        history.push((now.duration_since(started_at), result));
-        if Instant::now() >= deadline {
-            let mut lines = String::new();
-            for (t, outcome) in &history {
-                match outcome {
-                    Ok(samples) if samples.is_empty() => lines.push_str(&format!(
-                        "  [t+{:.2}s] no `{metric_name}` samples\n",
-                        t.as_secs_f64()
-                    )),
-                    Ok(samples) => lines.push_str(&format!(
-                        "  [t+{:.2}s] samples={samples:?}\n",
-                        t.as_secs_f64()
-                    )),
-                    Err(err) => lines.push_str(&format!(
-                        "  [t+{:.2}s] scrape error: {err}\n",
-                        t.as_secs_f64()
-                    )),
-                }
-            }
-            panic!(
-                "poll_until_sample for `{metric_name}` timed out after {:?} \
-                 ({} scrapes observed).\n{lines}",
-                timeout,
-                history.len(),
-            );
-        }
-        tokio::time::sleep(POLL_INTERVAL).await;
-    }
 }
 
 // =====================================================================
