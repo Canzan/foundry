@@ -1,0 +1,69 @@
+# Changelog
+
+All notable changes to Foundry are documented here. The format follows
+[keep-a-changelog](https://keepachangelog.com/en/1.1.0/) and the project
+follows [Semantic Versioning](https://semver.org). Pre-1.0 releases permit
+minor-version breaking changes, flagged with a `BREAKING` heading.
+
+## [Unreleased]
+
+## [v0.2.0] - 2026-05-28
+
+Initial public release of the Foundry MVP — a self-hostable, single-binary
+issue tracker that `docker compose up`'s on a fresh machine. Bundles slices
+1–7 plus the platform/DevOps slice and the observability hardening that
+followed it.
+
+### Added
+
+- **Slice 1 — Backend MVP.** Operator install, admin bootstrap (signed
+  token), user sign-in (argon2id, server-validated sessions, brute-force
+  delay), project create, and issue file. Walking skeleton: fresh machine to
+  filed issue in under an hour.
+- **Slice 2 — Realtime collaboration.** US-09 realtime issue updates over
+  SSE, US-10 markdown comments with sanitization, US-12 keyboard-driven
+  navigation contracts.
+- **DevOps / platform readiness.** GitHub Actions CI (4 parallel gates),
+  tag-driven multi-arch (amd64 + arm64) container release with cosign keyless
+  signing + SPDX SBOM, plain-YAML Kubernetes manifests, and an opt-in
+  Prometheus/Loki/Promtail/Grafana observability overlay with a starter
+  "Foundry Overview" dashboard.
+- **Slice 3 — Operator-grade hardening.** US-02 multi-replica fan-out with
+  shared sessions, US-03 backup/restore (`foundry doctor backup-verify`),
+  US-04 rolling upgrade, US-11 attachments.
+- **Slice 4 — Contributor onboarding (US-13).** README Quickstart pins a
+  five-command `git clone` → green `cargo test` path with no Redis, no S3, no
+  Node toolchain, and a clear too-old-Rust error.
+- **Slice 5 — Comment edit/delete (US-10).** Authors edit/delete their own
+  comments; workspace admins delete any; "edited" indicators and realtime
+  disappearance; soft-delete tombstone preserves the moderation audit trail.
+- **Slice 6 — Handler instrumentation.** A tower-middleware layer emits the
+  5 metric series the Grafana dashboard references: `http_requests_total`,
+  `http_request_duration_seconds`, `db_connections_in_use`, and the realtime
+  subscriber gauge — register-at-0 so panels light up immediately.
+- **Slice 7 — Comment tombstone GC + admin-undelete.** A daily background
+  sweep hard-deletes comments tombstoned >90 days (advisory-lock-coordinated,
+  per-run capped), emitting `comments_tombstones_purged_total` +
+  `comments_tombstones_pending`. Operators recover in-window deletions with
+  `foundry doctor restore-comment <UUID>`.
+
+### Performance
+
+- **argon2id password hashing runs off the async runtime.** `hash_password` /
+  `verify_password` run their OWASP-grade CPU work on a blocking thread
+  (`tokio::task::spawn_blocking`) so hashing never pins an async worker;
+  sign-in stays responsive under concurrent load.
+
+### Known issues / deferred
+
+- Five metric series (`outbox_pending_jobs`, `bootstrap_tokens_unclaimed`,
+  `migration_apply_duration_seconds`, `realtime_listen_disconnects_total`,
+  `probe_failures_total`) are defined but not yet emitted; each needs a
+  dashboard consumer first.
+- Helm packaging is deferred to v0.4 (ADR-102); plain-YAML manifests ship
+  today.
+- A `comments_visible` SQL VIEW for defense-in-depth against missed
+  soft-delete filters is deferred to v0.3 (ADR-017).
+
+[Unreleased]: https://github.com/Canzan/foundry/compare/v0.2.0...HEAD
+[v0.2.0]: https://github.com/Canzan/foundry/releases/tag/v0.2.0
