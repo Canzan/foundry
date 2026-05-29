@@ -394,13 +394,15 @@ async fn given_metrics_port_prebound(world: &mut FoundryWorld) {
     expr = "the operator's foundry instance is missing the latest migration's database columns"
 )]
 async fn given_foundry_missing_latest_migration_columns(world: &mut FoundryWorld) {
-    // Use a DEDICATED container, not the shared one: the `store` probe's
-    // migration-0006 column check counts `comments` columns across ALL
-    // schemas in the database (the information_schema query is not
-    // search_path-scoped), so sibling per-scenario schemas in the shared
-    // container would keep the count >= 3 and the probe would pass. A
-    // dedicated container has exactly one `comments` table, so dropping
-    // its 0006 columns makes the count fall below 3 and the probe fails.
+    // Use a DEDICATED single-schema container so the test is deterministic and
+    // independent of the shared harness's per-scenario search_path. The
+    // dedicated DB has only `public`, so the subprocess's current_schema()
+    // resolves to it; dropping `public.comments`' migration-0006 columns there
+    // makes `Store::probe()`'s (now current_schema()-scoped) count fall below
+    // 3. The `comments` table itself remains, so the pre-probe bootstrap
+    // `workspaces` check still passes and the `store` probe is the sole
+    // refuse-to-start cause (exercising `record_probe_result`). Booting with
+    // migrations skipped keeps the columns dropped.
     let db = DedicatedDb::spawn().await;
     let pool = PgPoolOptions::new()
         .max_connections(2)
@@ -408,11 +410,6 @@ async fn given_foundry_missing_latest_migration_columns(world: &mut FoundryWorld
         .connect(&db.url)
         .await
         .expect("connect to dedicated pg to degrade its schema");
-    // The container is freshly migrated (public schema). Drop the
-    // migration-0006 columns the `store` probe checks for; the subprocess
-    // boots with migrations skipped, so they stay dropped (count 0-of-3).
-    // The `comments` table itself remains so the pre-probe boot steps are
-    // unaffected — only the probe's column check fails.
     sqlx::query(
         "ALTER TABLE comments \
            DROP COLUMN updated_at, \

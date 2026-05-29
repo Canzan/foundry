@@ -1,0 +1,1 @@
+crates/foundry-store/src/lib.rs:140:9: replace Store::probe -> Result<ProbeReport, ProbeError> with Ok(Default::default())

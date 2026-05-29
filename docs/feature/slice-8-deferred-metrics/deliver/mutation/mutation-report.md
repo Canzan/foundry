@@ -12,17 +12,21 @@
 
 | Metric | Value |
 |---|---|
-| Mutants tested | 13 |
+| Mutants tested | 14 |
 | Caught | 13 |
 | Missed (survived) | 0 |
-| Timeouts / unviable | 0 / 0 |
-| **Kill rate** | **100%** |
+| Unviable (won't compile) | 1 |
+| Timeouts | 0 |
+| **Kill rate** | **100%** (13/13 viable) |
 | Gate verdict | **PASS** (≥ 80%) |
 
 The first valid run scored 76.9% (10/13) with 3 surviving mutants. All three
-were genuine test gaps; the test additions below closed them and a re-run
-confirmed **13/13 caught**. slice-8 was already shipped + finalized (`73aee8f`);
-these are test-quality hardening commits on top.
+were genuine test gaps; the test additions below closed them and re-runs
+confirmed **13/13 caught**. The 14th mutant
+(`Store::probe -> Ok(Default::default())`) appeared after the production probe
+fix below and is **unviable** — `ProbeReport` has no `Default`, so it doesn't
+compile — correctly excluded from the kill rate. slice-8 was already shipped +
+finalized (`73aee8f`); these are test-quality + probe-correctness commits on top.
 
 ## Gap fixes applied
 
@@ -40,13 +44,16 @@ Test changes (production code untouched):
   and `spawn_subprocess_expecting_store_probe_failure`.
 - `crates/foundry-acceptance/src/world.rs` — `slice8_store_probe_db` field.
 
-Note uncovered while writing the store-probe scenario: `Store::probe()`'s
-migration-0006 column check (`crates/foundry-store/src/lib.rs:148`) queries
+Production fix made in the same change: `Store::probe()`'s migration-0006
+column check (`crates/foundry-store/src/lib.rs`) queried
 `information_schema.columns WHERE table_name = 'comments'` **without a
-`table_schema` filter**, so it counts columns across *all* schemas, not just the
-active search_path (contrary to its code comment). Harmless in production
-(single schema) but worth tightening; the test works around it with a dedicated
-single-schema container.
+`table_schema` filter**, so it counted columns across *all* schemas — a probe
+against a half-migrated active schema would pass whenever any sibling schema
+still carried the columns. Now scoped with `table_schema = current_schema()`
+(the active schema the instance reads/writes). Behaviour is unchanged in
+single-schema production; the probe is now correct under multi-schema rollouts.
+The store-probe-failure scenario uses a dedicated single-schema container so its
+failing-probe assertion is deterministic regardless of harness search_path.
 
 ## Original surviving mutants (3) — pre-fix, all genuine test gaps
 

@@ -142,13 +142,19 @@ impl Store {
         if one.0 != 1 {
             return Err(ProbeError::Failed("SELECT 1 returned non-1".to_string()));
         }
-        // Slice-5 substrate check: assert migration 0006 columns exist.
-        // information_schema is per-search_path so this works under the
-        // per-scenario schema rotation used by the acceptance harness.
+        // Slice-5 substrate check: assert migration 0006 columns exist in
+        // the ACTIVE schema. `information_schema.columns` spans every schema
+        // the role can see, so the count MUST be scoped to `current_schema()`
+        // (the first existing entry on the connection's search_path) — the
+        // schema this app instance actually reads/writes. Without the scope
+        // the probe would pass whenever ANY sibling schema (e.g. another
+        // tenant, or a per-scenario test schema) still carries the columns,
+        // masking a half-migrated active schema.
         let cols: (i64,) = sqlx::query_as(
             "SELECT count(*)::bigint
                FROM information_schema.columns
-              WHERE table_name = 'comments'
+              WHERE table_schema = current_schema()
+                AND table_name = 'comments'
                 AND column_name IN ('updated_at', 'deleted_at', 'deleted_by')",
         )
         .fetch_one(&self.pool)
