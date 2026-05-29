@@ -724,6 +724,22 @@ async fn then_scrape_returns_200(world: &mut FoundryWorld) {
 
 #[then(regex = r#"^the scrape body contains the line "([^"]+)"$"#)]
 async fn then_scrape_body_contains_line(world: &mut FoundryWorld, metric_name: String) {
+    // Slice 8: some scenarios assert line-presence without a preceding
+    // explicit `When ... scrapes` step (the gauge scenarios #3/#4 chain
+    // a token-seed Given straight into this Then). When no scrape was
+    // captured, do a live scrape now and cache it so the following
+    // assertions in the same scenario can reuse it. Existing slice-6/7
+    // scenarios always scrape first, so this fallback never fires for
+    // them — no behaviour change.
+    if world.slice6_last_scrape.is_none() {
+        let addr = current_metrics_addr(world);
+        let (status, body) = scrape_metrics_raw(addr).await;
+        world.slice6_last_scrape_status = Some(status);
+        world.slice6_last_scrape = Some(ScrapeSnapshot {
+            samples: parse_exposition(&body),
+            raw_body: body,
+        });
+    }
     let snap = world.slice6_last_scrape.as_ref().expect("scrape captured");
     assert!(
         snap.contains_metric_line(&metric_name),
@@ -795,7 +811,11 @@ async fn then_scrape_body_sample_has_value(
     );
 }
 
-#[then(regex = r#"^the scrape body's "([^"]+)" samples carry only the label keys "([^"]+)"$"#)]
+// Slice 8: the second capture is `([^"]*)` (zero-or-more) so the
+// empty-CSV form `... label keys ""` matches — it asserts the metric
+// carries NO labels (the 3 unlabelled slice-8 metrics). The slice-6
+// `[^"]+` form would not match an empty `""`.
+#[then(regex = r#"^the scrape body's "([^"]+)" samples carry only the label keys "([^"]*)"$"#)]
 async fn then_scrape_body_samples_carry_only_label_keys(
     world: &mut FoundryWorld,
     metric_name: String,
@@ -803,10 +823,20 @@ async fn then_scrape_body_samples_carry_only_label_keys(
 ) {
     let snap = world.slice6_last_scrape.as_ref().expect("scrape captured");
     let observed = snap.label_keys_for(&metric_name);
-    let permitted: BTreeSet<String> = permitted_keys_csv
-        .split(',')
-        .map(|s| s.trim().to_string())
-        .collect();
+    // Slice 8 (DISTILL disambiguation #1): the empty-CSV case asserts the
+    // metric carries NO labels (used for the 3 unlabelled slice-8
+    // metrics). A naive `split(',')` on `""` yields `{""}` — a set with
+    // one empty string — which would never equal an empty observed set.
+    // Branch on empty so ONE registration serves both the labelled and
+    // unlabelled assertions.
+    let permitted: BTreeSet<String> = if permitted_keys_csv.trim().is_empty() {
+        BTreeSet::new()
+    } else {
+        permitted_keys_csv
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .collect()
+    };
     assert_eq!(
         observed, permitted,
         "label keys for `{metric_name}` were {observed:?}, expected exactly {permitted:?}",
@@ -942,6 +972,14 @@ async fn then_scrape_body_sample_is_eventually_greater_than(
 /// the preceding `contains the line` step; this step verifies the idle pool
 /// reaches `target` (0) within the window rather than asserting it at one
 /// racy instant.
+// Slice 8: also registered for the Given keyword — scenario #4 chains
+// `And the scrape body's "..." sample settles to 1 ...` inside its Given
+// block (a precondition: "the gauge already reads 1") before the
+// claim-admin When. An `And` under `Given` inherits the Given keyword,
+// so the step needs a Given registration in addition to the slice-6
+// Then. The poll body is identical; no existing slice-6 scenario uses it
+// as a Given, so this is purely additive.
+#[given(regex = r#"^the scrape body's "([^"]+)" sample settles to (\d+) within (\d+) seconds$"#)]
 #[then(regex = r#"^the scrape body's "([^"]+)" sample settles to (\d+) within (\d+) seconds$"#)]
 async fn then_scrape_body_sample_settles_to(
     world: &mut FoundryWorld,

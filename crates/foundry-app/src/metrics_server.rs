@@ -427,6 +427,97 @@ mod tests {
         );
     }
 
+    /// Slice 8 — ADR-011 extension (D6) cardinality enforcement for the
+    /// five deferred metrics.
+    ///
+    /// The structural half of D6 (the acceptance scenario #11 is the
+    /// behavioral half — a real scrape). Emits each of the five metrics
+    /// through the SAME `metrics::{gauge,counter,histogram}!` macros +
+    /// the SAME label keys the production code uses, into a scoped
+    /// recorder, then asserts the rendered label-key set per metric:
+    ///   - `outbox_pending_jobs`              → no labels
+    ///   - `bootstrap_tokens_unclaimed`       → no labels
+    ///   - `realtime_listen_disconnects_total`→ no labels
+    ///   - `migration_apply_duration_seconds` → exactly {migration_id}
+    ///   - `probe_failures_total`             → exactly {probe_name}
+    ///
+    /// Fails closed: a contributor adding a label to an unlabelled metric
+    /// (or a second label key to a labelled one) turns this red before it
+    /// lands. Single-layer-bypass safe — the cardinality unit test + the
+    /// acceptance scrape each catch what the other might miss
+    /// (architecture.md §10 self-application note).
+    #[test]
+    fn slice8_deferred_metrics_carry_only_their_bounded_labels() {
+        let recorder = PrometheusBuilder::new().build_recorder();
+        let handle = recorder.handle();
+        metrics::with_local_recorder(&recorder, || {
+            // Unlabelled — exactly 1 series each, no label keys.
+            metrics::gauge!("outbox_pending_jobs").set(0.0);
+            metrics::gauge!("bootstrap_tokens_unclaimed").set(0.0);
+            metrics::counter!(foundry_realtime::REALTIME_LISTEN_DISCONNECTS_TOTAL).absolute(0);
+            // Labelled — exactly the one declared key each.
+            metrics::histogram!(
+                foundry_store::MIGRATION_APPLY_DURATION_SECONDS,
+                "migration_id" => "0001_init",
+            )
+            .record(0.012);
+            metrics::counter!("probe_failures_total", "probe_name" => "metrics").increment(1);
+        });
+        let body = handle.render();
+
+        // Unlabelled metrics: the rendered sample line for `name` must
+        // NOT carry a `{...}` label block. (The exporter renders an
+        // unlabelled counter/gauge as `name value`.)
+        for unlabelled in [
+            "outbox_pending_jobs",
+            "bootstrap_tokens_unclaimed",
+            "realtime_listen_disconnects_total",
+        ] {
+            assert!(
+                body.lines()
+                    .any(|l| l.starts_with(&format!("{unlabelled} "))),
+                "expected an UNLABELLED `{unlabelled}` line (`name value`, no `{{...}}`) \
+                 in scrape body:\n{body}"
+            );
+            assert!(
+                !body
+                    .lines()
+                    .any(|l| l.starts_with(&format!("{unlabelled}{{"))),
+                "cardinality regression: `{unlabelled}` emitted a label block; \
+                 it must carry NO labels. Body:\n{body}"
+            );
+        }
+
+        // Histogram carries exactly {migration_id}. Assert on the
+        // `_count` derived line: the exporter renders the summary as
+        // `_count` / `_sum` (carrying only the USER labels) plus
+        // `quantile=...` lines (the `quantile` key is exporter-injected,
+        // not a user label — the slice-6 cardinality test checks the
+        // `_count` line for the same reason).
+        let hist_count_line = body
+            .lines()
+            .find(|l| l.starts_with("migration_apply_duration_seconds_count{"))
+            .unwrap_or_else(|| {
+                panic!("no `migration_apply_duration_seconds_count{{...}}` line in body:\n{body}")
+            });
+        assert_eq!(
+            extract_label_keys(hist_count_line),
+            ["migration_id"].iter().map(|s| s.to_string()).collect(),
+            "cardinality regression: migration histogram label keys (line: {hist_count_line})",
+        );
+
+        // Counter carries exactly {probe_name}.
+        let probe_line = body
+            .lines()
+            .find(|l| l.starts_with("probe_failures_total{"))
+            .unwrap_or_else(|| panic!("no `probe_failures_total{{...}}` line in body:\n{body}"));
+        assert_eq!(
+            extract_label_keys(probe_line),
+            ["probe_name"].iter().map(|s| s.to_string()).collect(),
+            "cardinality regression: probe_failures_total label keys (line: {probe_line})",
+        );
+    }
+
     /// Slice 6 — ADR-014 startup-probe failure injection.
     ///
     /// When the recorder is installed but renders an empty body (the

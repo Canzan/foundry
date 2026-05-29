@@ -376,4 +376,39 @@ pub struct FoundryWorld {
     /// "the other replica releases ..." When step fires (or at scenario
     /// teardown).
     pub slice7_lock_holder_pool: Option<sqlx::PgPool>,
+
+    // ---- Slice 8: deferred-metrics ----
+    /// Dedicated, restartable Postgres container the listen-disconnect
+    /// scenario (#7b) owns. Restarting it forces a REAL LISTEN drop on
+    /// the subprocess's `run_pg_listener` task (no production seam,
+    /// DD-5). Kept on the world so its Drop (container removal) fires at
+    /// scenario teardown.
+    pub slice8_dedicated_db: Option<crate::steps::slice_8_deferred_metrics::DedicatedDb>,
+    /// Staged per-scenario migrations dir for the migration-timing
+    /// scenarios (#5). Reuses the slice-4 `support::test_migration`
+    /// staging seam (production base copy + one extra). Held so the
+    /// tempdir lives for the scenario.
+    pub slice8_staged_migrations: Option<crate::support::test_migration::TestMigrationsDir>,
+    /// The PG schema (already migrated) that the migration-no-op
+    /// scenario (#6) and the cardinality scenario (#11) point a fresh
+    /// subprocess at, so the boot applies ZERO new migrations.
+    pub slice8_migrated_schema: Option<String>,
+    /// The migration-timing observation count captured by the
+    /// "the migration-timing observation count has been recorded" Given
+    /// (#6 baseline). The follow-up "has not grown" Then re-scrapes and
+    /// asserts the count did not increase.
+    pub slice8_recorded_observation_count: Option<u64>,
+    /// Pre-bound TCP listener squatting on the metrics port for the
+    /// probe-failure scenario (#8). Holds the port so the subprocess's
+    /// `metrics_server::serve` bind fails (slice-6 ADR-014 precedent).
+    /// Dropped at scenario teardown.
+    pub slice8_prebound_metrics_listener: Option<std::net::TcpListener>,
+    /// The metrics port the prebound listener (#8) is squatting on, so
+    /// the spawn step can hand `METRICS_PORT=<this>` to the subprocess.
+    pub slice8_prebound_metrics_port: Option<u16>,
+    /// Captured (exit_code, stdout, stderr) of the probe-failure
+    /// subprocess (#8) that refused to start. The Then steps assert the
+    /// non-zero exit + the `health.startup.refused` log line + the
+    /// probe-name in the captured stdout/stderr.
+    pub slice8_refused_start_outcome: Option<(Option<i32>, String, String)>,
 }

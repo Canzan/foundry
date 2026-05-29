@@ -11,6 +11,7 @@ pub mod world;
 
 pub mod steps {
     pub mod handler_instrumentation;
+    pub mod slice_8_deferred_metrics;
     pub mod us_01_install;
     pub mod us_02_multi_replica;
     pub mod us_03_backup_restore;

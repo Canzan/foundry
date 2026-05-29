@@ -31,6 +31,8 @@ use foundry_acceptance::world::FoundryWorld;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::handler_instrumentation as _slice6;
 #[allow(unused_imports)]
+use foundry_acceptance::steps::slice_8_deferred_metrics as _slice8;
+#[allow(unused_imports)]
 use foundry_acceptance::steps::us_01_install as _us_01;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::us_02_multi_replica as _us_02;

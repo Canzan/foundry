@@ -44,6 +44,13 @@ pub const ISSUE_EVENTS_CHANNEL: &str = "issue_events";
 const RECONNECT_BACKOFF_MAX: Duration = Duration::from_secs(30);
 const RECONNECT_BACKOFF_INITIAL: Duration = Duration::from_millis(100);
 
+/// Slice 8 (ADR-019 / D2) — counter incremented once per LISTEN
+/// connection drop at the [`run_pg_listener`] reconnect chokepoint.
+/// Unlabelled (bounded at 1 series). Exported so the cardinality unit
+/// test + the acceptance scrape assert against the same identifier the
+/// production code emits. Register-at-0 happens in `foundry-app::main`.
+pub const REALTIME_LISTEN_DISCONNECTS_TOTAL: &str = "realtime_listen_disconnects_total";
+
 #[derive(Debug, Error)]
 pub enum RealtimeError {
     #[error("notify failed: {0}")]
@@ -137,6 +144,12 @@ pub async fn run_pg_listener(database_url: String, broadcast_tx: broadcast::Send
                 return;
             }
             Err(err) => {
+                // Slice 8 (ADR-019 / D2) — the single decision chokepoint
+                // where "we observed a LISTEN drop and will reconnect"
+                // happens. Increment before the backoff sleep. Unlabelled
+                // (bounded at exactly 1 series); register-at-0 lives in
+                // `foundry-app::main` so Grafana shows a flat-zero baseline.
+                metrics::counter!(REALTIME_LISTEN_DISCONNECTS_TOTAL).increment(1);
                 tracing::warn!(
                     error = %err,
                     backoff_ms = backoff.as_millis() as u64,

@@ -95,13 +95,25 @@ impl ScrapeSnapshot {
             .any(|s| s.name == name || s.name.starts_with(&format!("{name}_")))
     }
 
-    /// Collect the set of label KEYS used across all samples whose
+    /// Collect the set of USER label KEYS used across all samples whose
     /// metric NAME matches `name`. Used by the cardinality safety
-    /// scenario to assert no forbidden keys appear.
+    /// scenarios to assert no forbidden keys appear.
+    ///
+    /// Slice 8: the exporter-injected reserved keys `quantile` (summary
+    /// rendering) and `le` (native histogram buckets) are EXCLUDED — they
+    /// are not user labels and would otherwise leak into a "carries only
+    /// the label keys X" assertion for a histogram metric
+    /// (`migration_apply_duration_seconds` renders as a summary with
+    /// `quantile=...` lines that share the base name). A cardinality
+    /// assertion is about the user-controlled label set; the reserved
+    /// aggregation keys are part of the exposition format, not the
+    /// metric's cardinality surface.
     pub fn label_keys_for(&self, name: &str) -> BTreeSet<String> {
+        const RESERVED_EXPOSITION_KEYS: [&str; 2] = ["quantile", "le"];
         self.samples_for(name)
             .into_iter()
             .flat_map(|s| s.labels.keys().cloned())
+            .filter(|k| !RESERVED_EXPOSITION_KEYS.contains(&k.as_str()))
             .collect()
     }
 

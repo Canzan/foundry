@@ -20,6 +20,12 @@ use thiserror::Error;
 /// (`data-access.md` §"Migration runner".)
 const MIGRATION_LOCK_ID: i64 = 0x_F0_0D_BA_BE_F0_0D_BA_BE_u64 as i64;
 
+/// Slice 8 (ADR-020) — histogram name for per-migration apply latency.
+/// Carries the bounded `migration_id` label (one value per migration
+/// file). One observation is recorded per migration that ACTUALLY runs;
+/// already-applied migrations emit nothing (the honest no-op semantic).
+pub const MIGRATION_APPLY_DURATION_SECONDS: &str = "migration_apply_duration_seconds";
+
 /// Slice 7 (ADR-015) — advisory-lock key for the daily tombstone GC
 /// sweep. Distinct literal from [`MIGRATION_LOCK_ID`] so `pg_locks`
 /// output distinguishes the GC lock from the migration lock during
@@ -99,19 +105,30 @@ impl Store {
 
     /// Run sqlx migrations under an advisory lock so concurrent replicas
     /// serialize on application startup.
+    ///
+    /// Slice 8 (ADR-020): each migration that ACTUALLY applies records a
+    /// `migration_apply_duration_seconds{migration_id}` observation. The
+    /// compile-time `migrate!` migrator is iterated and each pending
+    /// migration is applied individually (instead of the opaque
+    /// `.run()`) so the per-`migration_id` boundary is observable. The
+    /// `MIGRATION_LOCK_ID` advisory-lock guard is preserved exactly as
+    /// before — the whole set still applies under the lock.
     pub async fn migrate(&self) -> Result<(), StoreError> {
         let mut conn = self.pool.acquire().await?;
         sqlx::query("SELECT pg_advisory_lock($1)")
             .bind(MIGRATION_LOCK_ID)
             .execute(&mut *conn)
             .await?;
-        let result = sqlx::migrate!("./migrations").run(&mut *conn).await;
+        let migrator = sqlx::migrate!("./migrations");
+        // `conn` is a PoolConnection; `&mut *conn` derefs to PgConnection,
+        // which is what the `Migrate` trait is implemented for.
+        let result = run_migrator_timed(&migrator, &mut conn).await;
         // Always try to release the lock — even on migration failure.
         let _ = sqlx::query("SELECT pg_advisory_unlock($1)")
             .bind(MIGRATION_LOCK_ID)
             .execute(&mut *conn)
             .await;
-        result.map_err(StoreError::from)
+        result.map(|_report| ())
     }
 
     /// Liveness probe: `SELECT 1` round-trip + slice-5 migration-0006
@@ -1253,6 +1270,52 @@ impl Store {
         Ok(row.0.max(0) as u64)
     }
 
+    /// Slice 8 (ADR-018) — count of unprocessed outbox rows
+    /// (`WHERE notified_at IS NULL`, served by the `idx_outbox_pending`
+    /// partial index). Feeds the `outbox_pending_jobs` gauge from the
+    /// 5s pool-poll loop in `foundry-app::main`. Pure read, no lock —
+    /// mirrors [`Store::count_pending_tombstones`].
+    ///
+    /// Forward-compatible semantic (DESIGN Constraint 5): today nothing
+    /// writes `notified_at` (the outbox is fire-and-forget via the
+    /// COMMIT-time NOTIFY trigger), so this equals the total outbox row
+    /// count — itself a meaningful unbounded-growth signal. The day a
+    /// consumer marks rows, the gauge becomes a true backlog measure
+    /// with no metric rename.
+    pub async fn count_pending_outbox(&self) -> Result<u64, StoreError> {
+        let row: (i64,) =
+            sqlx::query_as("SELECT count(*)::bigint FROM outbox WHERE notified_at IS NULL")
+                .fetch_one(&self.pool)
+                .await?;
+        Ok(row.0.max(0) as u64)
+    }
+
+    /// Slice 8 (ADR-018) — count of active, unclaimed admin bootstrap
+    /// tokens (`WHERE used_at IS NULL AND expires_at > $1`). Feeds the
+    /// `bootstrap_tokens_unclaimed` gauge from the same 5s pool-poll
+    /// loop. `now` is injected for testability (mirrors
+    /// [`Store::claim_bootstrap_token`]'s injected `now`). Pure read,
+    /// no lock.
+    ///
+    /// A non-zero value is a deploy-time prompt ("operator hasn't
+    /// claimed admin yet"); a token that ages past `expires_at`
+    /// self-clears via the `expires_at > now()` filter.
+    pub async fn count_unclaimed_bootstrap_tokens(
+        &self,
+        now: time::OffsetDateTime,
+    ) -> Result<u64, StoreError> {
+        let row: (i64,) = sqlx::query_as(
+            "SELECT count(*)::bigint
+               FROM bootstrap_tokens
+              WHERE used_at IS NULL
+                AND expires_at > $1",
+        )
+        .bind(now)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(row.0.max(0) as u64)
+    }
+
     /// Restore a soft-deleted comment by clearing `deleted_at` +
     /// `deleted_by`. Returns the number of rows affected:
     ///   - `1` — the comment existed AND was tombstoned (now restored).
@@ -1346,9 +1409,107 @@ pub enum BootstrapTokenStatus {
 
 /// Run sqlx migrations against an externally-built pool. Used by the
 /// acceptance harness which builds a pool with a per-scenario search_path.
+///
+/// Slice 8 (ADR-020): routes through [`run_migrator_timed`] so each
+/// migration that actually applies records a
+/// `migration_apply_duration_seconds{migration_id}` observation. The
+/// in-process acceptance harness installs no global recorder, so these
+/// calls are silent no-ops there; the subprocess boot path (which DOES
+/// install a recorder) is where the observations land.
 pub async fn run_migrations(pool: &PgPool) -> Result<(), StoreError> {
-    sqlx::migrate!("./migrations").run(pool).await?;
-    Ok(())
+    let migrator = sqlx::migrate!("./migrations");
+    let mut conn = pool.acquire().await?;
+    run_migrator_timed(&migrator, &mut conn).await.map(|_| ())
+}
+
+/// Slice 8 (ADR-020) — iterate a `Migrator` and apply each PENDING
+/// migration individually, recording one
+/// `migration_apply_duration_seconds{migration_id}` histogram
+/// observation per migration that actually runs.
+///
+/// This mirrors `sqlx::migrate::Migrator::run_direct`'s apply loop
+/// verbatim (ensure table → dirty check → list applied → apply each
+/// pending) with two deltas:
+///   1. sqlx's internal global advisory lock is never engaged — we
+///      drive the `Migrate` trait methods directly rather than calling
+///      `Migrator::run`. sqlx's lock uses a single global key that
+///      would re-serialise every parallel acceptance scenario; the
+///      production `migrate()` caller already holds the project's
+///      `MIGRATION_LOCK_ID`, and the per-scenario `run_migrations`
+///      caller operates on a freshly-created isolated schema. (Same
+///      rationale as [`run_migrations_from_dir_with_delay`]'s
+///      `set_locking(false)`.)
+///   2. each `conn.apply(migration)` is timed via the `Duration` sqlx
+///      returns, and that elapsed time is recorded against the bounded
+///      `migration_id` label.
+///
+/// `migration_id` is `"{version:04}_{description}"` (e.g. `0001_init`),
+/// bounded by the migration-file count — never request-derived (D6 /
+/// ADR-011). Already-applied migrations emit no observation: the
+/// histogram measures real apply latency, not no-ops.
+///
+/// Returns the [`MigrationReport`] of newly-applied vs already-applied
+/// versions so callers that need it (the runtime test path) can read
+/// the breakdown; the production `migrate()` path discards it.
+async fn run_migrator_timed(
+    migrator: &sqlx::migrate::Migrator,
+    conn: &mut sqlx::PgConnection,
+) -> Result<MigrationReport, StoreError> {
+    use sqlx::migrate::Migrate;
+    use std::collections::HashMap;
+
+    conn.ensure_migrations_table().await?;
+    if let Some(version) = conn.dirty_version().await? {
+        return Err(StoreError::MigrationFailed(
+            sqlx::migrate::MigrateError::Dirty(version),
+        ));
+    }
+    // version -> applied checksum, so we can both skip already-applied
+    // migrations AND validate their checksums (mirrors sqlx's
+    // `validate_applied_migrations` — catches a migration file edited
+    // after it was applied, which the opaque `.run()` would also reject).
+    let applied: HashMap<i64, Vec<u8>> = conn
+        .list_applied_migrations()
+        .await?
+        .into_iter()
+        .map(|m| (m.version, m.checksum.to_vec()))
+        .collect();
+
+    let mut newly_applied: Vec<i64> = Vec::new();
+    let mut already_applied: Vec<i64> = Vec::new();
+    for migration in migrator.iter() {
+        if migration.migration_type.is_down_migration() {
+            continue;
+        }
+        if let Some(applied_checksum) = applied.get(&migration.version) {
+            if applied_checksum.as_slice() != migration.checksum.as_ref() {
+                return Err(StoreError::MigrationFailed(
+                    sqlx::migrate::MigrateError::VersionMismatch(migration.version),
+                ));
+            }
+            already_applied.push(migration.version);
+            continue;
+        }
+        let elapsed = conn.apply(migration).await?;
+        metrics::histogram!(
+            MIGRATION_APPLY_DURATION_SECONDS,
+            "migration_id" => migration_id_label(migration),
+        )
+        .record(elapsed.as_secs_f64());
+        newly_applied.push(migration.version);
+    }
+
+    Ok(MigrationReport {
+        applied: newly_applied,
+        already_applied,
+    })
+}
+
+/// Bounded `migration_id` label for a migration: `"{version:04}_{desc}"`
+/// (e.g. `0001_init`). Mirrors the on-disk filename stem so operators
+/// can map a dashboard series straight to a migration file.
+fn migration_id_label(migration: &sqlx::migrate::Migration) -> String {
+    format!("{:04}_{}", migration.version, migration.description)
 }
 
 /// Slice 7 — derive the tombstone-GC advisory-lock id from the active

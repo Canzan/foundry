@@ -157,11 +157,11 @@ The metric names live in solution-architect's territory but the *contract* — w
 | `db_connections_in_use` | gauge | (none) | Postgres pool saturation |
 | `db_connection_wait_seconds` | histogram | (none) | Time waiting for a pool connection (catches pool exhaustion) |
 | `sse_subscribers_total` | gauge | `project_id` | Active SSE clients per project |
-| `outbox_pending_jobs` | gauge | (none) | Outbox depth (catches background-processing backlog) |
-| `bootstrap_tokens_unclaimed` | gauge | (none) | Catches "operator hasn't claimed admin yet" |
-| `migration_apply_duration_seconds` | histogram | `migration_id` | How long migrations take (feeds NFR-MIG-03 release-notes prediction) |
-| `realtime_listen_disconnects_total` | counter | (none) | LISTEN connection drops; should be near-zero |
-| `probe_failures_total` | counter | `probe_name` | Probe verifications that have failed (Principle 9 self-monitoring) |
+| `outbox_pending_jobs` | gauge | (none) | Outbox depth (catches background-processing backlog) — shipped slice 8 |
+| `bootstrap_tokens_unclaimed` | gauge | (none) | Catches "operator hasn't claimed admin yet" — shipped slice 8 |
+| `migration_apply_duration_seconds` | histogram | `migration_id` | How long migrations take (feeds NFR-MIG-03 release-notes prediction) — shipped slice 8 |
+| `realtime_listen_disconnects_total` | counter | (none) | LISTEN connection drops; should be near-zero — shipped slice 8 |
+| `probe_failures_total` | counter | `probe_name` | Probe verifications that have failed (Principle 9 self-monitoring) — shipped slice 8 |
 
 These names are stable across Foundry minor versions; renaming requires an ADR.
 

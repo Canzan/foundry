@@ -24,6 +24,27 @@ use tracing_subscriber::EnvFilter;
 /// shorten the wait window for the connection-in-use acceptance scenario).
 const DEFAULT_METRICS_POOL_POLL_SECONDS: u64 = 5;
 
+/// Slice 8 (ADR-018) — gauge: count of unprocessed outbox rows. Folded
+/// into the 5s pool-poll loop (D1 = A). Unlabelled (1 series).
+const OUTBOX_PENDING_JOBS: &str = "outbox_pending_jobs";
+
+/// Slice 8 (ADR-018) — gauge: count of active unclaimed admin bootstrap
+/// tokens. Same poll loop. Unlabelled (1 series).
+const BOOTSTRAP_TOKENS_UNCLAIMED: &str = "bootstrap_tokens_unclaimed";
+
+/// Slice 8 (ADR-019 / D5) — counter: startup-probe failures, labelled
+/// with the bounded code-defined `probe_name`. The Principle-9 recursive
+/// self-monitoring metric.
+const PROBE_FAILURES_TOTAL: &str = "probe_failures_total";
+
+/// Slice 8 (ADR-019 / D5 / D6) — the closed, code-defined `probe_name`
+/// set. Every probe in the startup sequence has its name here so it
+/// register-at-0's (Grafana shows the full "all probes passing"
+/// baseline) AND increments the counter on failure. Adding a probe MUST
+/// add its name here. Bounded + code-defined; never request-derived
+/// (the slice-6 ADR-011 cardinality invariant, extended by D6).
+const PROBE_NAMES: &[&str] = &["store", "metrics"];
+
 /// Slice 7 (ADR-015) — default cadence for the daily tombstone GC
 /// sweep. 86400 seconds = 24 hours. Operators tune via
 /// `FOUNDRY_TOMBSTONE_GC_INTERVAL_SECONDS`; the acceptance suite
@@ -193,6 +214,26 @@ async fn main() -> anyhow::Result<()> {
     // would show "no data" for the first ~5s of every replica boot.
     metrics::gauge!("db_connections_in_use").set(0.0);
 
+    // Slice 8 (ADR-018 / D3, ADR-019) — register the new gauges +
+    // counters at 0 BEFORE their emitters run, same precedent as
+    // slice-6's `db_connections_in_use` and slice-7's GC metrics. The
+    // two DB-state gauges are refreshed by the existing 5s pool-poll
+    // loop below (D1 = A — piggyback, no new task); the disconnect
+    // counter is incremented in `foundry-realtime::run_pg_listener`; the
+    // probe-failure counter is incremented by the wrapped startup probes.
+    // All UNLABELLED except `probe_failures_total`, which carries the
+    // bounded code-defined `probe_name` set {store, metrics} (D5 / D6).
+    // The migration histogram has NO register-at-0 (ADR-020 — histograms
+    // have no current value; its panel stays empty until the first
+    // apply). Both probe_name series register at 0 so Grafana shows the
+    // full probe set as flat-zero "all probes passing" lines.
+    metrics::gauge!(OUTBOX_PENDING_JOBS).set(0.0);
+    metrics::gauge!(BOOTSTRAP_TOKENS_UNCLAIMED).set(0.0);
+    metrics::counter!(foundry_realtime::REALTIME_LISTEN_DISCONNECTS_TOTAL).absolute(0);
+    for probe_name in PROBE_NAMES {
+        metrics::counter!(PROBE_FAILURES_TOTAL, "probe_name" => *probe_name).absolute(0);
+    }
+
     // Slice 6 (ADR-012) — background pool-stats poll task. Reads
     // `Store::pool_stats()` every METRICS_POOL_POLL_SECONDS and updates
     // the `db_connections_in_use` gauge. Aborts on graceful shutdown
@@ -215,6 +256,28 @@ async fn main() -> anyhow::Result<()> {
             interval.tick().await;
             let stats = store_for_poll.pool_stats();
             metrics::gauge!("db_connections_in_use").set(stats.in_use as f64);
+
+            // Slice 8 (ADR-018 / D1 = A) — fold the two DB-state gauges
+            // into the SAME tick. Two index-served `count(*)` reads —
+            // negligible at the 5s cadence. Failure semantics match the
+            // slice-7 pending-gauge pattern: on a query error the gauge
+            // is simply not updated this tick (stale value ages flat;
+            // operators alert on flatness, not on a missing series).
+            match store_for_poll.count_pending_outbox().await {
+                Ok(pending) => metrics::gauge!(OUTBOX_PENDING_JOBS).set(pending as f64),
+                Err(err) => tracing::warn!(
+                    error = %err,
+                    "outbox_pending_jobs poll query failed; gauge stale this tick"
+                ),
+            }
+            let now = time::OffsetDateTime::now_utc();
+            match store_for_poll.count_unclaimed_bootstrap_tokens(now).await {
+                Ok(unclaimed) => metrics::gauge!(BOOTSTRAP_TOKENS_UNCLAIMED).set(unclaimed as f64),
+                Err(err) => tracing::warn!(
+                    error = %err,
+                    "bootstrap_tokens_unclaimed poll query failed; gauge stale this tick"
+                ),
+            }
         }
     });
 
@@ -348,16 +411,57 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
+    // Slice 8 (ADR-019 / D5) — hold a Store handle for the `store`
+    // startup probe before `state` moves into the router.
+    let store_for_probe = state.store.clone();
+
     let router = build_router(state);
 
     // Spawn the metrics sidecar listener before the main HTTP listener
     // binds — `probe.metrics.endpoint_reachable` (observability-infra.md)
     // wants the metrics port up by the time the app is ready.
-    let metrics_addr = metrics_server::serve(&metrics_host, metrics_port, metrics_handle)
-        .await
-        .context("bind metrics listener")?;
+    //
+    // Slice 8 (ADR-019 / D5): binding the metrics port is itself part of
+    // the `metrics` self-check. If the port is already held (the
+    // slice-6 ADR-014 "METRICS_PORT pre-bound" failure mode), the bind
+    // fails BEFORE the self-scrape probe can run — so treat a serve-bind
+    // failure as a `metrics` probe failure: emit the `health.startup.refused`
+    // line + increment `probe_failures_total{probe_name="metrics"}`, then
+    // refuse to start (ADR-014 posture). Without this the operator would
+    // see a bare `bind` error with no probe-failure signal on the
+    // dashboard or in the structured refuse-to-start log.
+    let metrics_addr =
+        match metrics_server::serve(&metrics_host, metrics_port, metrics_handle).await {
+            Ok(addr) => addr,
+            Err(err) => {
+                tracing::error!(
+                    event = "health.startup.refused",
+                    probe = "metrics",
+                    reason = "metrics_listener_bind_failed",
+                    error = %err,
+                    "metrics sidecar listener failed to bind — refusing to start"
+                );
+                metrics::counter!(PROBE_FAILURES_TOTAL, "probe_name" => "metrics").increment(1);
+                return Err(err.context("bind metrics listener"));
+            }
+        };
     tracing::info!(%metrics_addr, "foundry metrics listening");
     metrics::counter!("foundry_app_startup_total").increment(1);
+
+    // Slice 8 (ADR-019 / D5) — the `store` startup probe. Validates
+    // Postgres reachability + the slice-5 migration-0006 columns
+    // (Earned Trust). Wrapped so a failure increments
+    // `probe_failures_total{probe_name="store"}` BEFORE the error
+    // propagates and the process refuses to start (ADR-014 posture).
+    record_probe_result(
+        "store",
+        store_for_probe
+            .probe()
+            .await
+            .map(|_report| ())
+            .map_err(anyhow::Error::from),
+        "startup store probe failed",
+    )?;
 
     // Slice 6 (ADR-014) — self-scrape `/metrics` startup probe.
     // Refuses to start if the sidecar listener is unreachable, returns
@@ -366,9 +470,14 @@ async fn main() -> anyhow::Result<()> {
     // non-zero — container orchestrator restarts the pod; the restart
     // loop surfaces the misconfig loudly instead of silently serving
     // traffic with broken metrics.
-    metrics_server::probe(metrics_addr)
-        .await
-        .context("startup metrics probe failed")?;
+    //
+    // Slice 8 (ADR-019 / D5) — wrapped so a failure increments
+    // `probe_failures_total{probe_name="metrics"}` before propagating.
+    record_probe_result(
+        "metrics",
+        metrics_server::probe(metrics_addr).await,
+        "startup metrics probe failed",
+    )?;
 
     let addr: SocketAddr = format!("{host}:{port}").parse()?;
     let listener = tokio::net::TcpListener::bind(addr).await?;
@@ -384,6 +493,24 @@ async fn main() -> anyhow::Result<()> {
         .await?;
 
     Ok(())
+}
+
+/// Slice 8 (ADR-019 / D5) — wrap a startup probe's result so a failure
+/// increments `probe_failures_total{probe_name}` BEFORE the error
+/// propagates (the process still refuses to start — ADR-014 posture
+/// preserved). On success, the register-at-0 baseline is left untouched
+/// (the counter stays flat at 0, the "probe passing" signal). `context`
+/// is attached so the refuse-to-start error carries the probe name.
+fn record_probe_result(
+    probe_name: &str,
+    result: anyhow::Result<()>,
+    context: &'static str,
+) -> anyhow::Result<()> {
+    if result.is_err() {
+        metrics::counter!(PROBE_FAILURES_TOTAL, "probe_name" => probe_name.to_string())
+            .increment(1);
+    }
+    result.context(context)
 }
 
 fn init_tracing() {
