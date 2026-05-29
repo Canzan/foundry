@@ -134,10 +134,42 @@ contention. Fixes, respectively: bounded-poll/ordered-subsequence assertions;
 `@serial` for scenarios that must produce/observe a runtime condition; and a raised
 ephemeral-container `max_connections`.
 
+## D-late — `cargo xtask ci` exposed a SECOND axis: the `--workspace` step
+
+Running the full `cargo xtask ci` (not just the dedicated `@all` step) revealed a
+distinct failure: the `cargo test --workspace --release` gate intermittently
+OOM-killed (SIGKILL) spawned foundry subprocesses (17 failures one run, 1 the next
+— "did not bind both ports within 30s"). Different contention axis from `@all`
+(within the acceptance binary): `--workspace` runs the acceptance integration suite
+**concurrently with foundry-app's own container tests**, and the combined memory
+footprint — aggravated by the new `max_connections=300` — exceeded the machine.
+The acceptance run there is also **redundant** (the dedicated `@all` step is a
+superset).
+
+### Fix (commit `fe3ba9a`)
+
+1. **xtask: `cargo test --workspace --exclude foundry-acceptance --release`** — the
+   heavy suite runs alone in its dedicated step; full coverage retained.
+2. **foundry-app dev-dependency self-reference** (`foundry-app = { path = ".",
+   features = ["test-support"] }`) — required because excluding foundry-acceptance
+   removed the feature-unification that transitively enabled foundry-app's
+   `test-support`. This also fixed a **pre-existing latent bug**: `cargo test -p
+   foundry-app` did not compile standalone (its tests construct `AppState` with
+   `test-support`-gated fields). The self-reference is the documented cargo idiom;
+   no effect on the release build.
+
+### Final verification — full `cargo xtask ci` GREEN end-to-end
+
+fmt + clippy + build --release + `--workspace` (excl. acceptance) unit tests +
+cargo-deny + the dedicated `@all` acceptance step at **111/111**. Plus the separate
+5×5 `@all` sweeps and `cargo test -p foundry-app` now passing standalone. The
+documented release gate (`cargo xtask ci`) and the @all stress lane are now both
+green — for the first time in the project (prior sessions never ran the full gate
+clean).
+
 ## Follow-up note (not blocking)
 
-`cargo xtask ci`'s acceptance step is now expected to pass (its `@all` run is
-green). If the project wants belt-and-suspenders, a future change could add a short
-retry/quarantine policy, but no flake remains across 5 sweeps. The DEFAULT lane
-remains the v0.2.0 gate; the @all lane being green now means the documented
-`cargo xtask ci` gate and the release gate agree.
+No flake remains across 5 `@all` sweeps + a full green `cargo xtask ci`. The DEFAULT
+lane remains the v0.2.0 gate (D8); the @all lane and `cargo xtask ci` now agree with
+it. A future belt-and-suspenders option is a short retry/quarantine policy, but it
+is not needed today.
