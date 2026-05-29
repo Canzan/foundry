@@ -2,16 +2,15 @@
 
 ## Current Task
 
-Slice-8 deferred-metrics mutation testing: closed 3 surviving-mutant gaps (kill rate 76.9% → **100%, 13/13**); committed (`6889099`) and **pushed `main` + the `v0.2.0` tag to origin**. Repo in sync; v0.2.0 release is now public.
+Slice-8 mutation hardening **complete + pushed**. Closed 3 surviving-mutant gaps (76.9% → **100%, 13/13 viable**) and fixed the `Store::probe()` schema-scoping bug found along the way. Latest on `origin/main`: `fb001ba`. Repo in sync; `v0.2.0` tag public.
 
 ## Key Decisions
 
-- **Mutation fix is test-only** (production untouched): pinned the `migration_id` label *value* + added a store-probe-failure scenario that exercises `record_probe_result`. Report at `docs/feature/slice-8-deferred-metrics/deliver/mutation/`.
-- **The `@all` "malformed UUID" failure is pre-existing**, not from these changes — proven by a stash baseline that failed identically (`comment-tombstone-gc` Background `PoolTimedOut`, the documented ~1/5 contention flake). Also cleaned 94 leaked testcontainers from the session.
-- **cargo-mutants gotcha**: `@real-io` scenarios spawn the `foundry` binary, so runs need `--test-package foundry-app` to rebuild the bin — else mutants falsely survive (15% → true 100%).
+- **Mutation gaps fixed (test-only)**: pinned the `migration_id` label *value* + added a store-probe-failure scenario exercising `record_probe_result`. Report at `docs/feature/slice-8-deferred-metrics/deliver/mutation/`.
+- **`Store::probe()` fixed** (`fb001ba`): migration-0006 column check now scoped with `table_schema = current_schema()` (was counting across all schemas; would mask a half-migrated active schema). No prod behaviour change in single-schema deploys.
+- **The `@all` Background flake is pre-existing**, not from these changes — proven by a stash baseline that failed identically (`PoolTimedOut` / `SSLRequest` transient on Background inserts, rotating victim; documented ~1/5 contention). Also: cargo-mutants `@real-io` runs need `--test-package foundry-app` to rebuild the bin (else false survivals); cleaned 94 leaked testcontainers.
 
 ## Next Steps
 
-- **Optional prod fix**: `Store::probe()` (`foundry-store/src/lib.rs:148`) omits a `table_schema` filter — counts the 0006 columns across all schemas.
-- **Optional**: drive the pre-existing `@all` `PoolTimedOut` flake to zero (separate from this work).
+- **Optional**: drive the pre-existing `@all` `PoolTimedOut`/`SSLRequest` Background flake to zero (separate infra concern).
 - **v0.3.0** whenever ready — slice-8 already on `main` past the `v0.2.0` tag.
