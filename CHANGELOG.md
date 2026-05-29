@@ -7,6 +7,42 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 
 ## [Unreleased]
 
+## [v0.3.0] - 2026-05-29
+
+Slice 8 — the deferred observability metrics — plus a startup-probe
+correctness fix and mutation-test hardening of the slice-8 coverage. All six
+crates `0.2.0` -> `0.3.0`.
+
+### Added
+
+- **Slice 8 — deferred observability metrics.** Emits and dashboards the five
+  catalog metrics that slice 6 reserved but left unproduced, so every
+  "Foundry Overview" panel resolves to real data instead of "no data":
+  - `outbox_pending_jobs` and `bootstrap_tokens_unclaimed` gauges, folded into
+    the existing 5s pool-poll loop (no new task). (ADR-018)
+  - `migration_apply_duration_seconds{migration_id}` histogram — one timing
+    observation per migration that actually applies. (ADR-020)
+  - `realtime_listen_disconnects_total` and `probe_failures_total{probe_name}`
+    counters, incremented at their event call-sites (LISTEN reconnect; the
+    `store`/`metrics` startup probes). (ADR-019)
+  - Five new Grafana "Foundry Overview" panels; both labelled metrics carry
+    bounded label sets.
+
+### Fixed
+
+- **`Store::probe()` scopes its migration-0006 column check to
+  `current_schema()`.** It previously counted `comments` columns across every
+  visible schema, so a half-migrated active schema could pass the startup
+  probe whenever a sibling schema still carried the columns. No behaviour
+  change in single-schema production deployments.
+
+### Tests
+
+- Feature-scoped mutation testing (cargo-mutants) of the slice-8 store/emit
+  code closed three assertion gaps — the `migration_id` label *value*, and the
+  `probe_failures_total` increment path — reaching a 100% kill rate on viable
+  mutants. See `docs/feature/slice-8-deferred-metrics/deliver/mutation/`.
+
 ## [v0.2.0] - 2026-05-28
 
 Initial public release of the Foundry MVP — a self-hostable, single-binary
