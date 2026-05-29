@@ -381,6 +381,53 @@ async fn given_metrics_port_prebound(world: &mut FoundryWorld) {
     world.slice8_prebound_metrics_port = Some(port);
 }
 
+/// Store-probe-failure setup — provision a schema that is fully migrated
+/// EXCEPT for the migration-0006 `comments` columns, which we drop. The
+/// pre-probe boot steps (notably the `workspaces` bootstrap check at
+/// main.rs:142) still succeed, so when the subprocess boots with
+/// migrations skipped the `store` startup probe — which counts the
+/// `updated_at/deleted_at/deleted_by` columns — is the SOLE refuse-to-start
+/// cause. That failure flows through `record_probe_result`, so the
+/// `record_probe_result -> Ok(())` mutant (which would swallow it and let
+/// the process boot) is caught by the refuse-to-start assertions.
+#[given(
+    expr = "the operator's foundry instance is missing the latest migration's database columns"
+)]
+async fn given_foundry_missing_latest_migration_columns(world: &mut FoundryWorld) {
+    // Use a DEDICATED container, not the shared one: the `store` probe's
+    // migration-0006 column check counts `comments` columns across ALL
+    // schemas in the database (the information_schema query is not
+    // search_path-scoped), so sibling per-scenario schemas in the shared
+    // container would keep the count >= 3 and the probe would pass. A
+    // dedicated container has exactly one `comments` table, so dropping
+    // its 0006 columns makes the count fall below 3 and the probe fails.
+    let db = DedicatedDb::spawn().await;
+    let pool = PgPoolOptions::new()
+        .max_connections(2)
+        .acquire_timeout(Duration::from_secs(10))
+        .connect(&db.url)
+        .await
+        .expect("connect to dedicated pg to degrade its schema");
+    // The container is freshly migrated (public schema). Drop the
+    // migration-0006 columns the `store` probe checks for; the subprocess
+    // boots with migrations skipped, so they stay dropped (count 0-of-3).
+    // The `comments` table itself remains so the pre-probe boot steps are
+    // unaffected — only the probe's column check fails.
+    sqlx::query(
+        "ALTER TABLE comments \
+           DROP COLUMN updated_at, \
+           DROP COLUMN deleted_at, \
+           DROP COLUMN deleted_by",
+    )
+    .execute(&pool)
+    .await
+    .expect("drop migration-0006 comments columns to fail the store probe");
+    pool.close().await;
+    world.slice8_store_probe_db = Some((db.url.clone(), "public".to_string()));
+    // Hold the container alive for the duration of the scenario.
+    world.slice8_dedicated_db = Some(db);
+}
+
 // =====================================================================
 // Whens
 // =====================================================================
@@ -525,6 +572,20 @@ async fn when_foundry_attempts_to_start(world: &mut FoundryWorld) {
     world.slice8_refused_start_outcome = Some(outcome);
 }
 
+/// Store-probe-failure boot — spawn against the migration-0006-degraded
+/// schema with migrations skipped and an ephemeral metrics port (so the
+/// metrics sidecar binds fine and the `store` probe is the sole failure).
+/// Capture the refuse-to-start outcome into the shared slot.
+#[when(expr = "the operator's foundry instance attempts to start without applying migrations")]
+async fn when_foundry_attempts_to_start_without_migrations(world: &mut FoundryWorld) {
+    let (url, schema) = world
+        .slice8_store_probe_db
+        .clone()
+        .expect("store-probe-failing schema provisioned by the prior Given");
+    let outcome = spawn_subprocess_expecting_store_probe_failure(&url, &schema).await;
+    world.slice8_refused_start_outcome = Some(outcome);
+}
+
 // =====================================================================
 // Thens
 // =====================================================================
@@ -626,6 +687,35 @@ async fn then_histogram_observation_count_unchanged(world: &mut FoundryWorld, me
          actually run are timed). Baseline from the first boot was {baseline}. \
          Samples:\n{:#?}",
         snap.samples_for(&format!("{metric}_count")),
+    );
+}
+
+/// Migration-id label VALUE assertion (#5) — the histogram samples must
+/// carry a `migration_id` whose value is the real `{version:04}_{desc}`
+/// filename stem (e.g. `0001_init`), not an empty or constant placeholder.
+/// The label-KEY assertion alone passes even when the value is bogus, so
+/// this pins `migration_id_label`'s output (the gap surfaced by mutation
+/// testing: `migration_id_label -> ""` and `-> "xyzzy"` both survived a
+/// key-only check).
+#[then(expr = "the scrape body's {string} samples include the migration_id value {string}")]
+async fn then_samples_include_migration_id_value(
+    world: &mut FoundryWorld,
+    metric: String,
+    expected: String,
+) {
+    let addr = current_metrics_addr(world);
+    let snap = scrape_metrics(addr).await;
+    let observed: std::collections::BTreeSet<String> = snap
+        .samples_with_prefix(&metric)
+        .into_iter()
+        .filter_map(|s| s.labels.get("migration_id").cloned())
+        .collect();
+    assert!(
+        observed.contains(&expected),
+        "`{metric}` carried migration_id values {observed:?}, expected to include {expected:?} \
+         (the real `{{version:04}}_{{desc}}` stem). Catches `migration_id_label` emitting an \
+         empty or constant placeholder. Samples:\n{:#?}",
+        snap.samples_with_prefix(&metric),
     );
 }
 
@@ -755,6 +845,55 @@ async fn spawn_subprocess_expecting_refuse_to_start(
         .await
         .expect("refuse-to-start subprocess did not exit within 30s")
         .expect("collect refuse-to-start subprocess output");
+    let code = output.status.code();
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    (code, stdout, stderr)
+}
+
+/// Spawn a subprocess against a schema missing the migration-0006 columns
+/// with `FOUNDRY_SKIP_MIGRATIONS=1` and an ephemeral metrics port
+/// (`METRICS_PORT=0`). The metrics sidecar binds fine; the `store` startup
+/// probe then fails its migration-0006 column check and the process
+/// refuses to start via `record_probe_result`. Waits for exit, capturing
+/// (exit_code, stdout, stderr). Under the `record_probe_result -> Ok(())`
+/// mutant the probe failure is swallowed and the process keeps running, so
+/// the 30s wait elapses without an exit — surfacing as a caught mutant.
+async fn spawn_subprocess_expecting_store_probe_failure(
+    database_url_with_schema: &str,
+    db_schema: &str,
+) -> (Option<i32>, String, String) {
+    use std::process::Stdio;
+    use tokio::process::Command;
+
+    let binary_path = assert_cmd::cargo::cargo_bin("foundry");
+    let mut cmd = Command::new(&binary_path);
+    cmd.env("DATABASE_URL", database_url_with_schema)
+        // Ephemeral metrics port — the bind SUCCEEDS, isolating the store
+        // probe (not a metrics-bind failure) as the refuse-to-start cause.
+        .env("METRICS_PORT", "0")
+        .env("FOUNDRY_PORT", "0")
+        .env("METRICS_HOST", "127.0.0.1")
+        .env("FOUNDRY_HOST", "127.0.0.1")
+        .env("SESSION_SECRET", TEST_SESSION_SECRET)
+        .env("SESSION_COOKIE_SECURE", "false")
+        .env("FOUNDRY_DB_SCHEMA", db_schema)
+        // Skip migrations so the dropped 0006 columns stay dropped — the
+        // `store` probe's column check is the intended failure.
+        .env("FOUNDRY_SKIP_MIGRATIONS", "1")
+        .env("RUST_LOG", "info,foundry=info,sqlx=warn")
+        .env("RUST_LOG_FORMAT", "pretty")
+        .env("NO_COLOR", "1")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+
+    let child = cmd.spawn().expect("spawn store-probe-failure subprocess");
+    let output = tokio::time::timeout(Duration::from_secs(30), child.wait_with_output())
+        .await
+        .expect("store-probe-failure subprocess did not exit within 30s")
+        .expect("collect store-probe-failure subprocess output");
     let code = output.status.code();
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();

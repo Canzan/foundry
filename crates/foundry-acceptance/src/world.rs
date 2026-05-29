@@ -411,4 +411,12 @@ pub struct FoundryWorld {
     /// non-zero exit + the `health.startup.refused` log line + the
     /// probe-name in the captured stdout/stderr.
     pub slice8_refused_start_outcome: Option<(Option<i32>, String, String)>,
+    /// The (database_url, schema) of a schema migrated EXCEPT for the
+    /// migration-0006 comments columns (dropped after migrating), for the
+    /// store-probe-failure scenario. The schema is migrated enough that the
+    /// pre-probe boot steps (e.g. the `workspaces` bootstrap check) succeed,
+    /// so the `store` startup probe's 0006-column check is the sole
+    /// refuse-to-start cause — exercising `record_probe_result`. Held
+    /// between the Given (provision) and the When (spawn, migrations skipped).
+    pub slice8_store_probe_db: Option<(String, String)>,
 }

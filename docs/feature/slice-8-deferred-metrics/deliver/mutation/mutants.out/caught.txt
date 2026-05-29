@@ -1,0 +1,13 @@
+crates/foundry-store/src/lib.rs:1307:9: replace Store::count_unclaimed_bootstrap_tokens -> Result<u64, StoreError> with Ok(0)
+crates/foundry-app/src/main.rs:509:5: replace record_probe_result -> anyhow::Result<()> with Ok(())
+crates/foundry-store/src/lib.rs:1512:5: replace migration_id_label -> String with "xyzzy".into()
+crates/foundry-store/src/lib.rs:1512:5: replace migration_id_label -> String with String::new()
+crates/foundry-store/src/lib.rs:1458:5: replace run_migrator_timed -> Result<MigrationReport, StoreError> with Ok(Default::default())
+crates/foundry-store/src/lib.rs:117:9: replace Store::migrate -> Result<(), StoreError> with Ok(())
+crates/foundry-store/src/lib.rs:1420:5: replace run_migrations -> Result<(), StoreError> with Ok(())
+crates/foundry-app/src/main.rs:95:5: replace main -> anyhow::Result<()> with Ok(())
+crates/foundry-store/src/lib.rs:1286:9: replace Store::count_pending_outbox -> Result<u64, StoreError> with Ok(1)
+crates/foundry-store/src/lib.rs:1307:9: replace Store::count_unclaimed_bootstrap_tokens -> Result<u64, StoreError> with Ok(1)
+crates/foundry-store/src/lib.rs:1485:44: replace != with == in run_migrator_timed
+crates/foundry-realtime/src/lib.rs:137:5: replace run_pg_listener with ()
+crates/foundry-store/src/lib.rs:1286:9: replace Store::count_pending_outbox -> Result<u64, StoreError> with Ok(0)

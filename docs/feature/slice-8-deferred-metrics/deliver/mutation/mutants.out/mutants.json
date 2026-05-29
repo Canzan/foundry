@@ -1,0 +1,392 @@
+[
+  {
+    "package": "foundry-store",
+    "file": "crates/foundry-store/src/lib.rs",
+    "function": {
+      "function_name": "Store::count_unclaimed_bootstrap_tokens",
+      "return_type": "-> Result<u64, StoreError>",
+      "span": {
+        "start": {
+          "line": 1293,
+          "column": 5
+        },
+        "end": {
+          "line": 1317,
+          "column": 6
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 1307,
+        "column": 9
+      },
+      "end": {
+        "line": 1316,
+        "column": 32
+      }
+    },
+    "replacement": "Ok(0)",
+    "genre": "FnValue"
+  },
+  {
+    "package": "foundry-app",
+    "file": "crates/foundry-app/src/main.rs",
+    "function": {
+      "function_name": "record_probe_result",
+      "return_type": "-> anyhow::Result<()>",
+      "span": {
+        "start": {
+          "line": 498,
+          "column": 1
+        },
+        "end": {
+          "line": 514,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 509,
+        "column": 5
+      },
+      "end": {
+        "line": 513,
+        "column": 28
+      }
+    },
+    "replacement": "Ok(())",
+    "genre": "FnValue"
+  },
+  {
+    "package": "foundry-store",
+    "file": "crates/foundry-store/src/lib.rs",
+    "function": {
+      "function_name": "migration_id_label",
+      "return_type": "-> String",
+      "span": {
+        "start": {
+          "line": 1508,
+          "column": 1
+        },
+        "end": {
+          "line": 1513,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 1512,
+        "column": 5
+      },
+      "end": {
+        "line": 1512,
+        "column": 66
+      }
+    },
+    "replacement": "\"xyzzy\".into()",
+    "genre": "FnValue"
+  },
+  {
+    "package": "foundry-store",
+    "file": "crates/foundry-store/src/lib.rs",
+    "function": {
+      "function_name": "migration_id_label",
+      "return_type": "-> String",
+      "span": {
+        "start": {
+          "line": 1508,
+          "column": 1
+        },
+        "end": {
+          "line": 1513,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 1512,
+        "column": 5
+      },
+      "end": {
+        "line": 1512,
+        "column": 66
+      }
+    },
+    "replacement": "String::new()",
+    "genre": "FnValue"
+  },
+  {
+    "package": "foundry-store",
+    "file": "crates/foundry-store/src/lib.rs",
+    "function": {
+      "function_name": "run_migrator_timed",
+      "return_type": "-> Result<MigrationReport, StoreError>",
+      "span": {
+        "start": {
+          "line": 1425,
+          "column": 1
+        },
+        "end": {
+          "line": 1506,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 1458,
+        "column": 5
+      },
+      "end": {
+        "line": 1505,
+        "column": 7
+      }
+    },
+    "replacement": "Ok(Default::default())",
+    "genre": "FnValue"
+  },
+  {
+    "package": "foundry-store",
+    "file": "crates/foundry-store/src/lib.rs",
+    "function": {
+      "function_name": "Store::migrate",
+      "return_type": "-> Result<(), StoreError>",
+      "span": {
+        "start": {
+          "line": 106,
+          "column": 5
+        },
+        "end": {
+          "line": 132,
+          "column": 6
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 117,
+        "column": 9
+      },
+      "end": {
+        "line": 131,
+        "column": 33
+      }
+    },
+    "replacement": "Ok(())",
+    "genre": "FnValue"
+  },
+  {
+    "package": "foundry-store",
+    "file": "crates/foundry-store/src/lib.rs",
+    "function": {
+      "function_name": "run_migrations",
+      "return_type": "-> Result<(), StoreError>",
+      "span": {
+        "start": {
+          "line": 1410,
+          "column": 1
+        },
+        "end": {
+          "line": 1423,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 1420,
+        "column": 5
+      },
+      "end": {
+        "line": 1422,
+        "column": 63
+      }
+    },
+    "replacement": "Ok(())",
+    "genre": "FnValue"
+  },
+  {
+    "package": "foundry-app",
+    "file": "crates/foundry-app/src/main.rs",
+    "function": {
+      "function_name": "main",
+      "return_type": "-> anyhow::Result<()>",
+      "span": {
+        "start": {
+          "line": 84,
+          "column": 1
+        },
+        "end": {
+          "line": 496,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 95,
+        "column": 5
+      },
+      "end": {
+        "line": 495,
+        "column": 11
+      }
+    },
+    "replacement": "Ok(())",
+    "genre": "FnValue"
+  },
+  {
+    "package": "foundry-store",
+    "file": "crates/foundry-store/src/lib.rs",
+    "function": {
+      "function_name": "Store::count_pending_outbox",
+      "return_type": "-> Result<u64, StoreError>",
+      "span": {
+        "start": {
+          "line": 1273,
+          "column": 5
+        },
+        "end": {
+          "line": 1291,
+          "column": 6
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 1286,
+        "column": 9
+      },
+      "end": {
+        "line": 1290,
+        "column": 32
+      }
+    },
+    "replacement": "Ok(1)",
+    "genre": "FnValue"
+  },
+  {
+    "package": "foundry-store",
+    "file": "crates/foundry-store/src/lib.rs",
+    "function": {
+      "function_name": "Store::count_unclaimed_bootstrap_tokens",
+      "return_type": "-> Result<u64, StoreError>",
+      "span": {
+        "start": {
+          "line": 1293,
+          "column": 5
+        },
+        "end": {
+          "line": 1317,
+          "column": 6
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 1307,
+        "column": 9
+      },
+      "end": {
+        "line": 1316,
+        "column": 32
+      }
+    },
+    "replacement": "Ok(1)",
+    "genre": "FnValue"
+  },
+  {
+    "package": "foundry-store",
+    "file": "crates/foundry-store/src/lib.rs",
+    "function": {
+      "function_name": "run_migrator_timed",
+      "return_type": "-> Result<MigrationReport, StoreError>",
+      "span": {
+        "start": {
+          "line": 1425,
+          "column": 1
+        },
+        "end": {
+          "line": 1506,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 1485,
+        "column": 44
+      },
+      "end": {
+        "line": 1485,
+        "column": 46
+      }
+    },
+    "replacement": "==",
+    "genre": "BinaryOperator"
+  },
+  {
+    "package": "foundry-realtime",
+    "file": "crates/foundry-realtime/src/lib.rs",
+    "function": {
+      "function_name": "run_pg_listener",
+      "return_type": "",
+      "span": {
+        "start": {
+          "line": 128,
+          "column": 1
+        },
+        "end": {
+          "line": 163,
+          "column": 2
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 137,
+        "column": 5
+      },
+      "end": {
+        "line": 162,
+        "column": 6
+      }
+    },
+    "replacement": "()",
+    "genre": "FnValue"
+  },
+  {
+    "package": "foundry-store",
+    "file": "crates/foundry-store/src/lib.rs",
+    "function": {
+      "function_name": "Store::count_pending_outbox",
+      "return_type": "-> Result<u64, StoreError>",
+      "span": {
+        "start": {
+          "line": 1273,
+          "column": 5
+        },
+        "end": {
+          "line": 1291,
+          "column": 6
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 1286,
+        "column": 9
+      },
+      "end": {
+        "line": 1290,
+        "column": 32
+      }
+    },
+    "replacement": "Ok(0)",
+    "genre": "FnValue"
+  }
+]

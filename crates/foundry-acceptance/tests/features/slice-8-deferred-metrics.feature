@@ -221,6 +221,11 @@ Feature: The five deferred observability metrics emit so the operator dashboard 
     When the operator's foundry instance boots and applies its migrations
     Then the scrape body eventually contains a "migration_apply_duration_seconds" observation count of at least 1 within 15 seconds
     And the scrape body's "migration_apply_duration_seconds" samples carry only the label keys "migration_id"
+    # Pin the label VALUE, not just the key: the first production migration
+    # always applies on a fresh schema, so its `0001_init` stem must appear.
+    # A key-only check passes even if `migration_id_label` emits "" or a
+    # constant — this line closes that gap (mutation-testing follow-up).
+    And the scrape body's "migration_apply_duration_seconds" samples include the migration_id value "0001_init"
 
   @real-io @migration-histogram @nfr-obs-03 @slow
   Scenario: An already-migrated schema records no new migration-timing observations
@@ -302,6 +307,26 @@ Feature: The five deferred observability metrics emit so the operator dashboard 
     And the scrape body's "probe_failures_total" sample settles to 0 within 5 seconds
     And the scrape body's "probe_failures_total" samples carry only the label keys "probe_name"
     And the scrape body's "probe_failures_total" samples carry only the probe names "store,metrics"
+
+  @real-io @probe-failure @error @nfr-obs-03 @serial
+  Scenario: A failing startup store probe refuses to start so a half-migrated deploy never serves
+    # Companion to the metrics-probe scenario above — exercises the OTHER
+    # wrapped startup probe (ADR-019 / D5) through `record_probe_result`. A
+    # schema migrated EXCEPT for the migration-0006 comments columns boots
+    # with migrations skipped: the pre-probe bootstrap `workspaces` check
+    # still passes, but the `store` probe's column check fails, so
+    # `record_probe_result` increments probe_failures_total{probe_name="store"}
+    # and the process refuses to start (ADR-014 posture). A dead process
+    # cannot serve a final scrape (DISTILL Q4), so the observable contract
+    # is the refuse-to-start itself: non-zero exit + the "startup store
+    # probe failed" cause in the boot log. Without the wrapper swallowing
+    # the failure, the process would instead boot and serve a broken
+    # schema. @serial: a bespoke refuse-to-start subprocess + non-zero-exit
+    # assertion perturbs sibling timing; de-contend it.
+    Given the operator's foundry instance is missing the latest migration's database columns
+    When the operator's foundry instance attempts to start without applying migrations
+    Then the foundry subprocess exits non-zero
+    And the foundry startup log mentions "startup store probe failed"
 
   # --- cardinality safety (extends slice-6 ADR-011 / D6) -----------
 

@@ -1,0 +1,903 @@
+{
+  "outcomes": [
+    {
+      "scenario": "Baseline",
+      "summary": "Success",
+      "log_path": "log/baseline.log",
+      "diff_path": null,
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 21.93721325,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/1.91-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=foundry-app@0.2.0",
+            "--package=foundry-realtime@0.2.0",
+            "--package=foundry-store@0.2.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.103077291,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/1.91-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=foundry-app@0.2.0",
+            "--package=foundry-realtime@0.2.0",
+            "--package=foundry-store@0.2.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "package": "foundry-store",
+          "file": "crates/foundry-store/src/lib.rs",
+          "function": {
+            "function_name": "Store::count_unclaimed_bootstrap_tokens",
+            "return_type": "-> Result<u64, StoreError>",
+            "span": {
+              "start": {
+                "line": 1293,
+                "column": 5
+              },
+              "end": {
+                "line": 1317,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 1307,
+              "column": 9
+            },
+            "end": {
+              "line": 1316,
+              "column": 32
+            }
+          },
+          "replacement": "Ok(0)",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__foundry-store__src__lib.rs_line_1307_col_9.log",
+      "diff_path": "diff/crates__foundry-store__src__lib.rs_line_1307_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 24.76129375,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/1.91-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=foundry-acceptance@0.2.0",
+            "--package=foundry-app@0.2.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 28.775372667,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/1.91-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=foundry-acceptance@0.2.0",
+            "--package=foundry-app@0.2.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "package": "foundry-app",
+          "file": "crates/foundry-app/src/main.rs",
+          "function": {
+            "function_name": "record_probe_result",
+            "return_type": "-> anyhow::Result<()>",
+            "span": {
+              "start": {
+                "line": 498,
+                "column": 1
+              },
+              "end": {
+                "line": 514,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 509,
+              "column": 5
+            },
+            "end": {
+              "line": 513,
+              "column": 28
+            }
+          },
+          "replacement": "Ok(())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__foundry-app__src__main.rs_line_509_col_5.log",
+      "diff_path": "diff/crates__foundry-app__src__main.rs_line_509_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 6.497595875,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/1.91-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=foundry-acceptance@0.2.0",
+            "--package=foundry-app@0.2.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 52.248840625,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/1.91-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=foundry-acceptance@0.2.0",
+            "--package=foundry-app@0.2.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "package": "foundry-store",
+          "file": "crates/foundry-store/src/lib.rs",
+          "function": {
+            "function_name": "migration_id_label",
+            "return_type": "-> String",
+            "span": {
+              "start": {
+                "line": 1508,
+                "column": 1
+              },
+              "end": {
+                "line": 1513,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 1512,
+              "column": 5
+            },
+            "end": {
+              "line": 1512,
+              "column": 66
+            }
+          },
+          "replacement": "\"xyzzy\".into()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__foundry-store__src__lib.rs_line_1512_col_5.log",
+      "diff_path": "diff/crates__foundry-store__src__lib.rs_line_1512_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 3.495342459,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/1.91-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=foundry-acceptance@0.2.0",
+            "--package=foundry-app@0.2.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 22.450032209,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/1.91-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=foundry-acceptance@0.2.0",
+            "--package=foundry-app@0.2.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "package": "foundry-store",
+          "file": "crates/foundry-store/src/lib.rs",
+          "function": {
+            "function_name": "migration_id_label",
+            "return_type": "-> String",
+            "span": {
+              "start": {
+                "line": 1508,
+                "column": 1
+              },
+              "end": {
+                "line": 1513,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 1512,
+              "column": 5
+            },
+            "end": {
+              "line": 1512,
+              "column": 66
+            }
+          },
+          "replacement": "String::new()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__foundry-store__src__lib.rs_line_1512_col_5_001.log",
+      "diff_path": "diff/crates__foundry-store__src__lib.rs_line_1512_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 3.553197667,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/1.91-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=foundry-acceptance@0.2.0",
+            "--package=foundry-app@0.2.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 22.625910459,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/1.91-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=foundry-acceptance@0.2.0",
+            "--package=foundry-app@0.2.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "package": "foundry-store",
+          "file": "crates/foundry-store/src/lib.rs",
+          "function": {
+            "function_name": "run_migrator_timed",
+            "return_type": "-> Result<MigrationReport, StoreError>",
+            "span": {
+              "start": {
+                "line": 1425,
+                "column": 1
+              },
+              "end": {
+                "line": 1506,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 1458,
+              "column": 5
+            },
+            "end": {
+              "line": 1505,
+              "column": 7
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__foundry-store__src__lib.rs_line_1458_col_5.log",
+      "diff_path": "diff/crates__foundry-store__src__lib.rs_line_1458_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 13.873602833,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/1.91-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=foundry-acceptance@0.2.0",
+            "--package=foundry-app@0.2.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 10.1225455,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/1.91-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=foundry-acceptance@0.2.0",
+            "--package=foundry-app@0.2.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "package": "foundry-store",
+          "file": "crates/foundry-store/src/lib.rs",
+          "function": {
+            "function_name": "Store::migrate",
+            "return_type": "-> Result<(), StoreError>",
+            "span": {
+              "start": {
+                "line": 106,
+                "column": 5
+              },
+              "end": {
+                "line": 132,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 117,
+              "column": 9
+            },
+            "end": {
+              "line": 131,
+              "column": 33
+            }
+          },
+          "replacement": "Ok(())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__foundry-store__src__lib.rs_line_117_col_9.log",
+      "diff_path": "diff/crates__foundry-store__src__lib.rs_line_117_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 13.405066875,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/1.91-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=foundry-acceptance@0.2.0",
+            "--package=foundry-app@0.2.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 22.395250583,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/1.91-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=foundry-acceptance@0.2.0",
+            "--package=foundry-app@0.2.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "package": "foundry-store",
+          "file": "crates/foundry-store/src/lib.rs",
+          "function": {
+            "function_name": "run_migrations",
+            "return_type": "-> Result<(), StoreError>",
+            "span": {
+              "start": {
+                "line": 1410,
+                "column": 1
+              },
+              "end": {
+                "line": 1423,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 1420,
+              "column": 5
+            },
+            "end": {
+              "line": 1422,
+              "column": 63
+            }
+          },
+          "replacement": "Ok(())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__foundry-store__src__lib.rs_line_1420_col_5.log",
+      "diff_path": "diff/crates__foundry-store__src__lib.rs_line_1420_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 9.047056291,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/1.91-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=foundry-acceptance@0.2.0",
+            "--package=foundry-app@0.2.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 9.575493875,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/1.91-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=foundry-acceptance@0.2.0",
+            "--package=foundry-app@0.2.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "package": "foundry-app",
+          "file": "crates/foundry-app/src/main.rs",
+          "function": {
+            "function_name": "main",
+            "return_type": "-> anyhow::Result<()>",
+            "span": {
+              "start": {
+                "line": 84,
+                "column": 1
+              },
+              "end": {
+                "line": 496,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 95,
+              "column": 5
+            },
+            "end": {
+              "line": 495,
+              "column": 11
+            }
+          },
+          "replacement": "Ok(())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__foundry-app__src__main.rs_line_95_col_5.log",
+      "diff_path": "diff/crates__foundry-app__src__main.rs_line_95_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 8.735452166,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/1.91-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=foundry-acceptance@0.2.0",
+            "--package=foundry-app@0.2.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 19.716568958,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/1.91-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=foundry-acceptance@0.2.0",
+            "--package=foundry-app@0.2.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "package": "foundry-store",
+          "file": "crates/foundry-store/src/lib.rs",
+          "function": {
+            "function_name": "Store::count_pending_outbox",
+            "return_type": "-> Result<u64, StoreError>",
+            "span": {
+              "start": {
+                "line": 1273,
+                "column": 5
+              },
+              "end": {
+                "line": 1291,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 1286,
+              "column": 9
+            },
+            "end": {
+              "line": 1290,
+              "column": 32
+            }
+          },
+          "replacement": "Ok(1)",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__foundry-store__src__lib.rs_line_1286_col_9.log",
+      "diff_path": "diff/crates__foundry-store__src__lib.rs_line_1286_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 6.172816958,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/1.91-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=foundry-acceptance@0.2.0",
+            "--package=foundry-app@0.2.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 31.222176208,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/1.91-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=foundry-acceptance@0.2.0",
+            "--package=foundry-app@0.2.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "package": "foundry-store",
+          "file": "crates/foundry-store/src/lib.rs",
+          "function": {
+            "function_name": "Store::count_unclaimed_bootstrap_tokens",
+            "return_type": "-> Result<u64, StoreError>",
+            "span": {
+              "start": {
+                "line": 1293,
+                "column": 5
+              },
+              "end": {
+                "line": 1317,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 1307,
+              "column": 9
+            },
+            "end": {
+              "line": 1316,
+              "column": 32
+            }
+          },
+          "replacement": "Ok(1)",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__foundry-store__src__lib.rs_line_1307_col_9_001.log",
+      "diff_path": "diff/crates__foundry-store__src__lib.rs_line_1307_col_9_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 6.675583875,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/1.91-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=foundry-acceptance@0.2.0",
+            "--package=foundry-app@0.2.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 29.880487458,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/1.91-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=foundry-acceptance@0.2.0",
+            "--package=foundry-app@0.2.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "package": "foundry-store",
+          "file": "crates/foundry-store/src/lib.rs",
+          "function": {
+            "function_name": "run_migrator_timed",
+            "return_type": "-> Result<MigrationReport, StoreError>",
+            "span": {
+              "start": {
+                "line": 1425,
+                "column": 1
+              },
+              "end": {
+                "line": 1506,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 1485,
+              "column": 44
+            },
+            "end": {
+              "line": 1485,
+              "column": 46
+            }
+          },
+          "replacement": "==",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__foundry-store__src__lib.rs_line_1485_col_44.log",
+      "diff_path": "diff/crates__foundry-store__src__lib.rs_line_1485_col_44.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 5.906908666,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/1.91-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=foundry-acceptance@0.2.0",
+            "--package=foundry-app@0.2.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 22.301127125,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/1.91-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=foundry-acceptance@0.2.0",
+            "--package=foundry-app@0.2.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "package": "foundry-realtime",
+          "file": "crates/foundry-realtime/src/lib.rs",
+          "function": {
+            "function_name": "run_pg_listener",
+            "return_type": "",
+            "span": {
+              "start": {
+                "line": 128,
+                "column": 1
+              },
+              "end": {
+                "line": 163,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 137,
+              "column": 5
+            },
+            "end": {
+              "line": 162,
+              "column": 6
+            }
+          },
+          "replacement": "()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__foundry-realtime__src__lib.rs_line_137_col_5.log",
+      "diff_path": "diff/crates__foundry-realtime__src__lib.rs_line_137_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 8.324407708,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/1.91-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=foundry-acceptance@0.2.0",
+            "--package=foundry-app@0.2.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 52.431308666,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/1.91-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=foundry-acceptance@0.2.0",
+            "--package=foundry-app@0.2.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "package": "foundry-store",
+          "file": "crates/foundry-store/src/lib.rs",
+          "function": {
+            "function_name": "Store::count_pending_outbox",
+            "return_type": "-> Result<u64, StoreError>",
+            "span": {
+              "start": {
+                "line": 1273,
+                "column": 5
+              },
+              "end": {
+                "line": 1291,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 1286,
+              "column": 9
+            },
+            "end": {
+              "line": 1290,
+              "column": 32
+            }
+          },
+          "replacement": "Ok(0)",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__foundry-store__src__lib.rs_line_1286_col_9_001.log",
+      "diff_path": "diff/crates__foundry-store__src__lib.rs_line_1286_col_9_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 8.383401958,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/1.91-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=foundry-acceptance@0.2.0",
+            "--package=foundry-app@0.2.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 29.929690583,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/1.91-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=foundry-acceptance@0.2.0",
+            "--package=foundry-app@0.2.0"
+          ]
+        }
+      ]
+    }
+  ],
+  "total_mutants": 13,
+  "missed": 0,
+  "caught": 13,
+  "timeout": 0,
+  "unviable": 0,
+  "success": 0
+}
