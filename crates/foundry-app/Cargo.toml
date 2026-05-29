@@ -69,6 +69,14 @@ futures = { workspace = true }
 tokio-stream = { version = "0.1", features = ["sync"] }
 
 [dev-dependencies]
+# Self-reference to activate `test-support` for THIS crate's own tests
+# and benches. foundry-app's integration tests (e.g. tests/csrf_middleware.rs)
+# and the test build of src/main.rs construct AppState with fields gated
+# behind `test-support`; without this, `cargo test -p foundry-app` fails to
+# compile and the crate only built under `cargo test --workspace` because
+# foundry-acceptance transitively enabled the feature via unification. This
+# is the documented cargo idiom for "feature needed only in tests".
+foundry-app = { path = ".", features = ["test-support"] }
 foundry-realtime = { path = "../foundry-realtime" }
 
 # Slice 6 (ADR-010 / NFR-PERF-05) — middleware overhead microbench.

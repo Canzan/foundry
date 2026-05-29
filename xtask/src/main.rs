@@ -98,8 +98,27 @@ fn run_ci() -> ExitCode {
         ),
         ("cargo build --release", vec!["build", "--all", "--release"]),
         (
-            "cargo test --workspace --release",
-            vec!["test", "--workspace", "--release"],
+            // Exclude foundry-acceptance here: it is a heavy integration
+            // suite (Postgres testcontainer + many spawned foundry
+            // subprocesses) covered by its OWN dedicated step below with
+            // FOUNDRY_ACCEPTANCE_TAGS=all (a superset of the default lane),
+            // so running it inside `--workspace` is redundant. Worse, the
+            // `--workspace` run executed it CONCURRENTLY with foundry-app's
+            // own container tests; the combined memory footprint OOM-killed
+            // (SIGKILL) spawned foundry subprocesses ("did not bind both
+            // ports within 30s"). Excluding it keeps full coverage (the @all
+            // step) while letting the acceptance suite run alone. Safe now
+            // that foundry-app self-enables `test-support` in its
+            // dev-dependencies (previously it relied on foundry-acceptance
+            // to enable it transitively via feature unification).
+            "cargo test --workspace (excl. foundry-acceptance) --release",
+            vec![
+                "test",
+                "--workspace",
+                "--exclude",
+                "foundry-acceptance",
+                "--release",
+            ],
         ),
         ("cargo deny check", vec!["deny", "check"]),
     ];

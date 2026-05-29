@@ -1073,6 +1073,7 @@ dependencies = [
  "base64",
  "bytes",
  "dotenvy",
+ "foundry-app",
  "foundry-auth",
  "foundry-core",
  "foundry-realtime",
