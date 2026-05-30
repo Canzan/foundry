@@ -32,3 +32,9 @@ time = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 metrics = { workspace = true }
+
+[dev-dependencies]
+# Integration tests spin a real Postgres (the probe's column check uses
+# information_schema + current_schema(), which can't be faked). `tokio` is
+# already a runtime dep with the `full` feature set (incl. the test macros).
+testcontainers-modules = { workspace = true }
