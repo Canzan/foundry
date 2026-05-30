@@ -249,7 +249,9 @@ jobs:
       - name: Generate Cargo dependency SBOM (CycloneDX)
         uses: anchore/sbom-action@v0
         with:
-          path: Cargo.lock
+          # `file:` (not `path:`) — `path` is scanned as a directory
+          # (syft `dir:`), which fails on a single Cargo.lock.
+          file: Cargo.lock
           format: cyclonedx-json
           output-file: sbom.crates.cdx.json
 
