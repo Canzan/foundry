@@ -2,7 +2,7 @@
 
 ## Current Task
 
-**v0.3.0 released — multi-arch + dual-SBOM, fully verified.** Slice 8 (deferred observability metrics) + the `Store::probe()` schema-scoping fix, 100% mutation coverage on the slice-8 code. Images on `ghcr.io/Canzan/foundry` (`:0.3.0`/`:0.3`/`:latest`, amd64+arm64). cosign-verified: image signature ✓, image SBOM (SPDX, 11 OS pkgs) ✓, Cargo SBOM (CycloneDX, 513 crates) ✓. `main` + `v0.3.0` tag at `e31f865`.
+**v0.3.1 released** (test/CI hardening only — binary identical to v0.3.0). Tag at `f853640`; `main` in sync. Images on `ghcr.io/Canzan/foundry` (`:0.3.1`/`:0.3`/`:latest`, amd64+arm64). cosign-verified: signature ✓, image SBOM (SPDX, 11 OS pkgs) ✓, Cargo SBOM (CycloneDX, 513 crates) ✓. `cargo xtask ci` green end-to-end (123/123 @all). The whole release pipeline (rebuilt this cycle) + the `@all` flake fix + dual SBOMs are now proven through a normal tag release.
 
 ## Key Decisions
 
