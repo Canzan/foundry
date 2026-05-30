@@ -1,7 +1,7 @@
 # Foundry
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
-[![Container image](https://img.shields.io/badge/ghcr.io-foundry--project%2Ffoundry-blue?logo=docker)](https://github.com/foundry-project/foundry/pkgs/container/foundry)
+[![Container image](https://img.shields.io/badge/ghcr.io-Canzan%2Ffoundry-blue?logo=docker)](https://github.com/Canzan/foundry/pkgs/container/foundry)
 [![CI](https://img.shields.io/badge/ci-github_actions-blue?logo=github)](.github/workflows/ci.yml)
 
 **Foundry** is a self-hostable issue tracker for small product teams who
@@ -47,7 +47,7 @@ The full acceptance suite additionally exercises the system `pg_dump` /
 ### Five commands from clone to green tests
 
 ```sh
-git clone https://github.com/foundry-project/foundry.git
+git clone https://github.com/Canzan/foundry.git
 cd foundry
 cp .env.example .env
 docker compose up -d postgres
@@ -57,11 +57,12 @@ cargo test -p foundry-acceptance --release
 The last command boots an ephemeral Postgres via testcontainers for the
 test suite (separate from the `docker compose` postgres above, which is
 for running the app), compiles the workspace, and runs the cucumber
-acceptance suite. Expect a final line like:
+acceptance suite. Expect a final `[Summary]` line with every scenario
+passing — the count grows as new feature slices land:
 
 ```
 [Summary]
-82 scenarios (82 passed)
+NNN scenarios (NNN passed)
 ```
 
 No `DATABASE_URL` or other Foundry environment variable needs to be set
@@ -127,8 +128,11 @@ docker compose -f docker-compose.yml -f docker-compose.observability.yml up -d
 
 The bundled "Foundry Overview" dashboard shows request rate, p95
 latency by route, error rate, active SSE subscribers, Postgres pool
-depth, and recent error-level logs. Operators with an existing
-observability stack can instead scrape `foundry:9090/metrics` directly.
+depth, and recent error-level logs — plus outbox backlog depth,
+unclaimed admin bootstrap tokens, per-migration apply latency, realtime
+LISTEN disconnects, and startup-probe failures. Operators with an
+existing observability stack can instead scrape `foundry:9090/metrics`
+directly.
 
 ## Kubernetes
 
