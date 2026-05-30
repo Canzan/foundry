@@ -8,6 +8,14 @@
 # keyless via Cosign + GitHub OIDC, and accompanied by a CycloneDX SBOM
 # from Syft. All attestations attach to the image in the registry.
 #
+# BUILD TOPOLOGY: each architecture builds on its own runner in parallel
+# and is pushed BY DIGEST (no tags). A final `merge` job assembles the
+# multi-arch manifest list, applies the tag set, then signs + SBOMs the
+# manifest digest. This replaces the previous single emulated build that
+# built both arches sequentially and blew past the 30-minute job limit
+# (the slow part was linux/arm64 under QEMU). See the Docker docs:
+# https://docs.docker.com/build/ci/github-actions/multi-platform/
+#
 # Registry: ghcr.io/<owner>/foundry. Cross-pushing to the Forgejo
 # registry is handled by .forgejo/workflows/ci.yml on Forgejo mirrors.
 
@@ -30,12 +38,30 @@ env:
   IMAGE_NAME: ${{ github.repository_owner }}/foundry
 
 jobs:
-  build-publish:
-    name: build + publish + sign
+  # --------------------------------------------------------------------
+  # One job per architecture, in parallel. Each pushes a single-arch
+  # image BY DIGEST (no tags) and exports that digest as an artifact for
+  # the merge job. Splitting the arches keeps each well under the 30m
+  # limit — amd64 is native (~minutes); arm64 under QEMU gets its own
+  # budget instead of stacking on top of amd64 in one job.
+  # --------------------------------------------------------------------
+  build:
+    name: build ${{ matrix.platform }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - linux/amd64
+          - linux/arm64
 
     steps:
+      - name: Normalize platform pair (for cache scope + artifact name)
+        run: |
+          platform="${{ matrix.platform }}"
+          echo "PLATFORM_PAIR=${platform//\//-}" >> "$GITHUB_ENV"
+
       - uses: actions/checkout@v4
 
       - uses: docker/setup-qemu-action@v3
@@ -49,9 +75,68 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # docker/metadata-action computes the full tag set from the
-      # current ref. On main: `:main` + `:sha-abc1234`. On a `vX.Y.Z`
-      # tag: `:vX.Y.Z`, `:vX.Y`, `:latest`.
+      # Labels only here; the tag set is applied once on the merged
+      # manifest in the `merge` job below.
+      - name: Compute image labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Per-arch gha cache scope so the two matrix legs don't clobber
+          # each other's cache.
+          cache-from: type=gha,scope=${{ env.PLATFORM_PAIR }}
+          cache-to: type=gha,mode=max,scope=${{ env.PLATFORM_PAIR }}
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
+          # Provenance off on the per-arch push: it adds an extra manifest
+          # that complicates push-by-digest. The merged manifest carries
+          # the cosign SBOM/signature attestations instead.
+          provenance: false
+
+      - name: Export digest
+        run: |
+          mkdir -p "${{ runner.temp }}/digests"
+          digest="${{ steps.build.outputs.digest }}"
+          touch "${{ runner.temp }}/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ env.PLATFORM_PAIR }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # --------------------------------------------------------------------
+  # Assemble the multi-arch manifest from the per-arch digests, apply the
+  # tag set (computed from the ref), then sign + SBOM the manifest digest.
+  # --------------------------------------------------------------------
+  merge:
+    name: merge manifest + publish + sign
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: build
+
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-*
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@v3
+
+      # docker/metadata-action computes the full tag set from the current
+      # ref. On main: `:main` + `:sha-abc1234`. On a `vX.Y.Z` tag:
+      # `:vX.Y.Z`, `:vX.Y`, `:latest`.
       - name: Compute image metadata
         id: meta
         uses: docker/metadata-action@v5
@@ -64,57 +149,60 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
 
-      - name: Build and push (multi-arch)
-        id: build
-        uses: docker/build-push-action@v6
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
         with:
-          context: .
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          # gha cache cuts incremental rebuilds from ~6 min to <2 min
-          # for unchanged Cargo.lock.
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          provenance: true
-          sbom: false   # we generate our own SBOM below with Syft
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create + push manifest list
+        working-directory: ${{ runner.temp }}/digests
+        run: |
+          set -euo pipefail
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf '${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@sha256:%s ' *)
+
+      - name: Capture manifest digest
+        id: manifest
+        run: |
+          set -euo pipefail
+          digest="$(docker buildx imagetools inspect \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }} \
+            --format '{{json .Manifest}}' | jq -r '.digest')"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
 
       # ----------------------------------------------------------------
-      # Sign every published tag with keyless cosign (sigstore + OIDC).
-      # No long-lived keys; the attestation is bound to the workflow
-      # identity. Verifiers run:
+      # Sign the manifest digest once with keyless cosign (sigstore +
+      # OIDC). cosign stores signatures by digest, so every tag pointing
+      # at this manifest is covered. Verifiers run:
       #   cosign verify ghcr.io/<owner>/foundry:vX.Y.Z \
       #     --certificate-identity-regexp "https://github.com/<owner>/foundry" \
       #     --certificate-oidc-issuer https://token.actions.githubusercontent.com
       # ----------------------------------------------------------------
       - uses: sigstore/cosign-installer@v3
 
-      - name: Sign image (cosign keyless)
+      - name: Sign manifest (cosign keyless)
         env:
-          DIGEST: ${{ steps.build.outputs.digest }}
-          TAGS: ${{ steps.meta.outputs.tags }}
+          DIGEST: ${{ steps.manifest.outputs.digest }}
         run: |
           set -euo pipefail
-          for tag in $TAGS; do
-            cosign sign --yes "${tag}@${DIGEST}"
-          done
+          cosign sign --yes "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${DIGEST}"
 
       # ----------------------------------------------------------------
-      # Generate an SPDX SBOM with syft and attach it as a cosign
-      # attestation. One SBOM per push (the digest is identical across
-      # tags pointing at the same manifest).
+      # Generate an SPDX SBOM with syft against the merged manifest and
+      # attach it as a cosign attestation.
       # ----------------------------------------------------------------
       - uses: anchore/sbom-action@v0
-        id: sbom
         with:
-          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.manifest.outputs.digest }}
           format: spdx-json
           output-file: sbom.spdx.json
 
       - name: Attach SBOM attestation (cosign keyless)
         env:
-          DIGEST: ${{ steps.build.outputs.digest }}
+          DIGEST: ${{ steps.manifest.outputs.digest }}
         run: |
           set -euo pipefail
           cosign attest --yes --predicate sbom.spdx.json --type spdxjson \
