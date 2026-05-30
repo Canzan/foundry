@@ -7,6 +7,32 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 
 ## [Unreleased]
 
+## [v0.3.1] - 2026-05-30
+
+Test-suite and release-pipeline hardening. **No functional/runtime changes** —
+the binary is behaviorally identical to v0.3.0; all six crates bump `0.3.0` ->
+`0.3.1` for the release marker.
+
+### Changed (internal)
+
+- **Acceptance `@all` lane flake eliminated.** The shared Postgres testcontainer
+  serves no TLS, but the connection URLs set no `sslmode`, so sqlx's default
+  `prefer` SSL probe intermittently failed under the concurrent connect-storm
+  (`SSLRequest: 0x00`) and starved the harness pool → `PoolTimedOut` on Background
+  seed inserts. Disabled the probe (`ssl_mode=Disable`) and raised the pool
+  `acquire_timeout` 5s -> 30s. Validated 5/5 green and a controlled A/B (reverted
+  3/5 flaked vs fixed 0/5). Test-infrastructure only.
+- **Cargo dependency-graph SBOM** (CycloneDX, 513 crates) now checked in at
+  `sbom/crates.cdx.json` (deterministic via `sbom/generate.sh`) and attached to
+  release images as a second cosign attestation alongside the image SBOM.
+
+### Tests
+
+- Added `foundry-store`'s first integration test: a cross-schema regression guard
+  for `Store::probe()`'s `current_schema()` scoping (a sibling schema's columns
+  must not mask a half-migrated active schema). Closes the gap that the
+  string-literal fix couldn't be mutation-tested.
+
 ## [v0.3.0] - 2026-05-29
 
 Slice 8 — the deferred observability metrics — plus a startup-probe
