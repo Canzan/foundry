@@ -7,9 +7,9 @@
 # The image is built per-arch and published by digest, then merged into a
 # manifest, signed keyless via Cosign + GitHub OIDC, and accompanied by a
 # CycloneDX SBOM from Syft. All attestations attach to the image in the
-# registry. NOTE: currently amd64-only — arm64 is deferred (see the build
-# matrix note); re-add it via a cross-compile Dockerfile so it doesn't
-# emulate under QEMU.
+# registry. Multi-arch (linux/amd64 + linux/arm64): arm64 is CROSS-COMPILED
+# on the amd64 host (see the Dockerfile), so neither arch emulates the Rust
+# build under QEMU — each per-arch job stays well under the job timeout.
 #
 # BUILD TOPOLOGY: each architecture builds on its own runner in parallel
 # and is pushed BY DIGEST (no tags). A final `merge` job assembles the
@@ -57,12 +57,11 @@ jobs:
       matrix:
         platform:
           - linux/amd64
-          # linux/arm64 deferred: the full Rust workspace compiled under
-          # QEMU emulation exceeds the job timeout (~45m+), and this private
-          # repo has no free native arm64 runner. Re-add it via a
-          # cross-compile Dockerfile (build on the amd64 host targeting
-          # aarch64 with --platform=$BUILDPLATFORM) so it builds at native
-          # speed. Tracked as a follow-up.
+          # arm64 is built by CROSS-COMPILING on the amd64 host (the
+          # Dockerfile pins the builder to $BUILDPLATFORM and targets
+          # aarch64), so it compiles at native speed — no QEMU emulation of
+          # the Rust build. Only the tiny runtime layer is the target arch.
+          - linux/arm64
 
     steps:
       - name: Normalize platform pair (for cache scope + artifact name)

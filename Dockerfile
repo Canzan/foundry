@@ -1,42 +1,66 @@
 # syntax=docker/dockerfile:1.7
 #
-# Foundry multi-stage build.
-#   builder: rust:1.85-slim — compiles the release binary.
-#   runtime: distroless/cc-debian12 — minimal, glibc-only, non-root.
+# Foundry multi-stage build — CROSS-COMPILING.
+#   builder: rust:1.85-slim pinned to the NATIVE build host ($BUILDPLATFORM).
+#            It cross-compiles the release binary to the requested target
+#            arch, so an arm64 image is built at native amd64 speed instead
+#            of emulating the whole Rust compile under QEMU. The actual
+#            toolchain (1.91) is pinned by rust-toolchain.toml; rustup
+#            auto-installs it and the cross std target.
+#   runtime: distroless/cc-debian12 for $TARGETPLATFORM — minimal, glibc,
+#            non-root. buildx selects the matching-arch base automatically;
+#            the stage only copies the pre-cross-compiled binary (no compile),
+#            so it's a fast file-copy even when emulated.
 
-FROM rust:1.85-slim AS builder
+FROM --platform=$BUILDPLATFORM rust:1.85-slim AS builder
 WORKDIR /work
 
-# System dependencies needed for crates that link C (sqlx-rustls is
-# pure-Rust so this is intentionally minimal: pkg-config + ca-certs
-# cover the rustls cert verification at build time).
+# buildx provides TARGETARCH (amd64 | arm64). Pick the Rust target triple
+# and install the matching cross C toolchain — `ring` (via rustls) compiles
+# C/asm, so a cross `cc` + linker is required when target != build host.
+ARG TARGETARCH
+# The cross toolchain needs BOTH the cross gcc AND the target's libc dev
+# headers/libs (libc6-dev-<arch>-cross) — without the latter, ring's C
+# sources fail with "bits/libc-header-start.h: No such file or directory".
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-       pkg-config \
-       ca-certificates \
+    && apt-get install -y --no-install-recommends pkg-config ca-certificates \
+    && case "$TARGETARCH" in \
+         amd64) triple=x86_64-unknown-linux-gnu;  pkg="gcc-x86-64-linux-gnu libc6-dev-amd64-cross" ;; \
+         arm64) triple=aarch64-unknown-linux-gnu; pkg="gcc-aarch64-linux-gnu libc6-dev-arm64-cross" ;; \
+         *) echo "unsupported TARGETARCH: $TARGETARCH" >&2; exit 1 ;; \
+       esac \
+    && apt-get install -y --no-install-recommends $pkg \
+    && echo "$triple" > /rust-target \
     && rm -rf /var/lib/apt/lists/*
+
+# Per-target linker + C compiler for the cross build (ring/asm). Only the
+# vars for the ACTIVE target are consulted, so defining both is harmless.
+ENV CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=x86_64-linux-gnu-gcc \
+    CC_x86_64_unknown_linux_gnu=x86_64-linux-gnu-gcc \
+    CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc \
+    CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc \
+    SQLX_OFFLINE=true
 
 # Copy the workspace and build only the release binary.
 COPY Cargo.toml rust-toolchain.toml rustfmt.toml ./
 COPY crates ./crates
 COPY xtask  ./xtask
 
-# Bake offline mode — sqlx queries are evaluated lazily at runtime
-# in slice 1 (no compile-time `query!` macros yet); when those land,
-# `SQLX_OFFLINE=true` + a committed `.sqlx/` cache will keep this
-# build airgap-friendly.
-ENV SQLX_OFFLINE=true
-
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/work/target \
-    cargo build --release -p foundry-app --bin foundry \
-    && cp /work/target/release/foundry /usr/local/bin/foundry
+# Cross-compile for the target triple. rustup installs the pinned toolchain
+# (1.91) + the cross std. Caches are scoped per-arch so concurrent amd64 /
+# arm64 builds don't contend on the same cache mount.
+RUN --mount=type=cache,target=/usr/local/cargo/registry,id=cargo-registry-${TARGETARCH} \
+    --mount=type=cache,target=/work/target,id=cargo-target-${TARGETARCH} \
+    triple="$(cat /rust-target)" \
+    && rustup target add "$triple" \
+    && cargo build --release --target "$triple" -p foundry-app --bin foundry \
+    && cp "/work/target/$triple/release/foundry" /usr/local/bin/foundry
 
 FROM gcr.io/distroless/cc-debian12 AS runtime
 WORKDIR /app
 
-# Distroless ships /etc/ssl/certs by default. The binary is statically
-# linked against musl-free rustls + glibc from the base image.
+# Distroless ships /etc/ssl/certs by default. The binary links rustls +
+# glibc from the base image.
 COPY --from=builder /usr/local/bin/foundry /app/foundry
 
 # Migrations are baked into the binary by `sqlx::migrate!`. No need
