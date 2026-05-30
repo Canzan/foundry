@@ -2,15 +2,15 @@
 
 ## Current Task
 
-**v0.3.0 cut + published.** Slice 8 (deferred observability metrics) + the `Store::probe()` schema-scoping fix, with 100% mutation coverage (13/13 viable) on the slice-8 code. Release commit `05e8b10`, annotated tag `v0.3.0` pushed → `release.yml` building/signing multi-arch images to `ghcr.io/Canzan/foundry` (`:v0.3.0`/`:v0.3`/`:latest`). Repo in sync.
+**v0.3.0 released** — Slice 8 (deferred observability metrics) + the `Store::probe()` schema-scoping fix, 100% mutation coverage on the slice-8 code. Container images (`:v0.3.0`/`:v0.3`/`:latest`, **amd64**, cosign-signed + SBOM) are live on `ghcr.io/Canzan/foundry`. `main` and the `v0.3.0` tag both at `87854f2`; repo in sync.
 
 ## Key Decisions
 
-- **Mutation gaps fixed (test-only)**: pinned the `migration_id` label *value* + added a store-probe-failure scenario exercising `record_probe_result`. Report at `docs/feature/slice-8-deferred-metrics/deliver/mutation/`.
-- **`Store::probe()` fixed** (`fb001ba`): migration-0006 column check scoped with `table_schema = current_schema()` (was counting across all schemas; would mask a half-migrated active schema). No prod behaviour change in single-schema deploys.
-- **The `@all` Background flake is pre-existing**, not from these changes — proven by a stash baseline that failed identically (`PoolTimedOut` / `SSLRequest` transient on Background inserts, rotating victim; documented ~1/5 contention). Also: cargo-mutants `@real-io` runs need `--test-package foundry-app` to rebuild the bin (else false survivals); cleaned 94 leaked testcontainers.
+- **Release pipeline was broken, now fixed** (`release.yml`): the single build job compiled both arches sequentially and arm64-under-QEMU blew past the 30m job limit — every release run was cancelled and *nothing* had ever published. Rewrote to parallel per-arch build-by-digest + a merge/sign/SBOM job. Also fixed a lowercase-GHCR-ref bug (`Canzan` → must be lowercase).
+- **arm64 deferred**: the full Rust workspace under QEMU exceeds even 45m, and this PRIVATE repo has no free native arm64 runner. Shipped amd64-only; `v0.3.0` tag force-moved onto the working workflow (its first release published nothing, so the rewrite was safe).
+- **Slice-8 quality**: mutation gaps fixed (test-only) + `Store::probe()` scoped to `current_schema()`. The `@all` Background flake (`PoolTimedOut`/`SSLRequest`) is pre-existing, proven change-independent via a stash baseline.
 
 ## Next Steps
 
-- **Confirm the v0.3.0 release run went green** (multi-arch build + cosign + SBOM); verify the `ghcr.io` tags published.
-- **Optional**: drive the pre-existing `@all` `PoolTimedOut`/`SSLRequest` Background flake to zero (separate infra concern).
+- **Add arm64 back** via a cross-compile Dockerfile (build on the amd64 host targeting `aarch64` with `--platform=$BUILDPLATFORM` + `cargo --target`), then re-add `linux/arm64` to the release matrix — avoids QEMU, builds at native speed.
+- **Optional**: drive the pre-existing `@all` Postgres-contention flake to zero (separate infra concern).
