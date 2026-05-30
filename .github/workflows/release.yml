@@ -148,6 +148,10 @@ jobs:
           OWNER: ${{ github.repository_owner }}
         run: echo "IMAGE_REF=${{ env.REGISTRY }}/${OWNER,,}/foundry" >> "$GITHUB_ENV"
 
+      # Source is needed for the Cargo-dependency SBOM (Cargo.lock) attached
+      # alongside the image SBOM further down.
+      - uses: actions/checkout@v4
+
       - name: Download digests
         uses: actions/download-artifact@v4
         with:
@@ -215,26 +219,53 @@ jobs:
           cosign sign --yes "${{ env.IMAGE_REF }}@${DIGEST}"
 
       # ----------------------------------------------------------------
-      # Generate an SPDX SBOM with syft against the merged manifest and
-      # attach it as a cosign attestation.
+      # SBOM #1 — the RUNTIME IMAGE (syft scans the merged manifest;
+      # catalogs the distroless/cc base OS packages). Attached as an SPDX
+      # attestation. Verify: cosign verify-attestation --type spdxjson ...
       # ----------------------------------------------------------------
-      - uses: anchore/sbom-action@v0
+      - name: Generate image SBOM (SPDX)
+        uses: anchore/sbom-action@v0
         with:
           image: ${{ env.IMAGE_REF }}@${{ steps.manifest.outputs.digest }}
           format: spdx-json
-          output-file: sbom.spdx.json
+          output-file: sbom.image.spdx.json
 
-      - name: Attach SBOM attestation (cosign keyless)
+      - name: Attach image SBOM attestation (cosign keyless)
         env:
           DIGEST: ${{ steps.manifest.outputs.digest }}
         run: |
           set -euo pipefail
-          cosign attest --yes --predicate sbom.spdx.json --type spdxjson \
+          cosign attest --yes --predicate sbom.image.spdx.json --type spdxjson \
             "${{ env.IMAGE_REF }}@${DIGEST}"
 
-      - name: Upload SBOM artifact
+      # ----------------------------------------------------------------
+      # SBOM #2 — the CARGO DEPENDENCY GRAPH (syft scans Cargo.lock;
+      # catalogs every crate as pkg:cargo/<name>@<version>). The single
+      # compiled binary hides these from the image scan, so this gives
+      # crate-level supply-chain provenance. Emitted as CycloneDX so it is
+      # distinguishable from the SPDX image SBOM by attestation type.
+      # Verify: cosign verify-attestation --type cyclonedx ...
+      # ----------------------------------------------------------------
+      - name: Generate Cargo dependency SBOM (CycloneDX)
+        uses: anchore/sbom-action@v0
+        with:
+          path: Cargo.lock
+          format: cyclonedx-json
+          output-file: sbom.crates.cdx.json
+
+      - name: Attach Cargo SBOM attestation (cosign keyless)
+        env:
+          DIGEST: ${{ steps.manifest.outputs.digest }}
+        run: |
+          set -euo pipefail
+          cosign attest --yes --predicate sbom.crates.cdx.json --type cyclonedx \
+            "${{ env.IMAGE_REF }}@${DIGEST}"
+
+      - name: Upload SBOM artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: sbom-spdx
-          path: sbom.spdx.json
+          name: sbom
+          path: |
+            sbom.image.spdx.json
+            sbom.crates.cdx.json
           retention-days: 90
