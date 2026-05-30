@@ -16,11 +16,15 @@ signed attestation on the container image.
 Regenerate whenever `Cargo.lock` changes:
 
 ```bash
-syft scan file:Cargo.lock -o cyclonedx-json=sbom/crates.cdx.json
+./sbom/generate.sh        # requires syft + jq
 ```
 
-Note: `metadata.timestamp` and `serialNumber` change on every run, so the diff
-will show those even when the dependency set is unchanged.
+The script strips the two non-deterministic syft fields (`metadata.timestamp`
+and a random `serialNumber`); everything else is byte-stable for a given
+`Cargo.lock`. So the checked-in file changes **only when the dependency set
+changes**, keeping diffs meaningful. Don't run bare
+`syft scan … -o cyclonedx-json=sbom/crates.cdx.json` — it reintroduces the
+volatile fields and the file will churn on every run.
 
 ### The signed attestation
 
