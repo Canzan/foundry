@@ -23,7 +23,7 @@ use foundry_app::{AppState, DEFAULT_FILE_UPLOAD_MAX_MB, DEFAULT_SSE_HEARTBEAT_MS
 use foundry_store::Store;
 use once_cell::sync::OnceCell;
 use secrecy::SecretString;
-use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
+use sqlx::postgres::{PgConnectOptions, PgPoolOptions, PgSslMode};
 use sqlx::{Connection, PgPool};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
@@ -91,6 +91,21 @@ pub async fn fresh_schema_pool() -> (String, PgPool) {
     (schema, pool)
 }
 
+/// Base connect options for the shared test container, with TLS disabled.
+/// The testcontainer serves no TLS, so sqlx's default `sslmode=prefer` does a
+/// wasted SSL probe on every connect — and under the `@all` connect-storm
+/// (6 concurrent scenarios each establishing pool connections at Background
+/// start) that probe intermittently reads a garbage byte ("unexpected response
+/// from SSLRequest: 0x00"), failing connection establishment. Starved pools
+/// then surface that downstream as `PoolTimedOut` on the Background seed
+/// inserts (e.g. "insert admin user"). Disabling SSL removes both the probe
+/// latency and that failure mode.
+fn pg_options(base: &str) -> PgConnectOptions {
+    PgConnectOptions::from_str(base)
+        .expect("parse postgres URL")
+        .ssl_mode(PgSslMode::Disable)
+}
+
 /// As [`fresh_schema_pool`] but also returns a `postgres://...` URL
 /// whose connect options pin `search_path=<schema>`. The realtime
 /// listener (US-09) needs a URL — `PgListener::connect` does not
@@ -106,7 +121,7 @@ pub async fn fresh_schema_pool_with_url() -> (String, PgPool, String) {
     let schema = format!("test_s{}_{}", counter, hex_suffix());
 
     // Open a one-shot connection to create the schema.
-    let mut admin = sqlx::PgConnection::connect(base)
+    let mut admin = sqlx::PgConnection::connect_with(&pg_options(base))
         .await
         .expect("connect to base postgres");
     sqlx::query(&format!("CREATE SCHEMA {schema}"))
@@ -115,9 +130,7 @@ pub async fn fresh_schema_pool_with_url() -> (String, PgPool, String) {
         .expect("create schema");
     drop(admin);
 
-    let options = PgConnectOptions::from_str(base)
-        .expect("parse postgres URL")
-        .options([("search_path", schema.as_str())]);
+    let options = pg_options(base).options([("search_path", schema.as_str())]);
     let pool = PgPoolOptions::new()
         .min_connections(1)
         // Mirror production pool size (foundry-store/src/lib.rs:85).
@@ -128,7 +141,9 @@ pub async fn fresh_schema_pool_with_url() -> (String, PgPool, String) {
         // assertion pins ≤ 10 against the production NFR-PERF-04
         // budget; 10 ≤ 10 still satisfies the property.
         .max_connections(10)
-        .acquire_timeout(std::time::Duration::from_secs(5))
+        // 30s (not 5s): absorbs the @all connect-storm at Background start so a
+        // momentarily-saturated shared container doesn't fail the seed inserts.
+        .acquire_timeout(std::time::Duration::from_secs(30))
         .connect_with(options)
         .await
         .expect("build per-scenario pool");
@@ -162,7 +177,7 @@ pub async fn fresh_schema_pool_no_migrations() -> (String, PgPool, String) {
     };
     let schema = format!("test_s{}_{}", counter, hex_suffix());
 
-    let mut admin = sqlx::PgConnection::connect(base)
+    let mut admin = sqlx::PgConnection::connect_with(&pg_options(base))
         .await
         .expect("connect to base postgres");
     sqlx::query(&format!("CREATE SCHEMA {schema}"))
@@ -171,14 +186,14 @@ pub async fn fresh_schema_pool_no_migrations() -> (String, PgPool, String) {
         .expect("create schema");
     drop(admin);
 
-    let options = PgConnectOptions::from_str(base)
-        .expect("parse postgres URL")
-        .options([("search_path", schema.as_str())]);
+    let options = pg_options(base).options([("search_path", schema.as_str())]);
     let pool = PgPoolOptions::new()
         .min_connections(1)
         // See `fresh_schema_pool_with_url` above for rationale.
         .max_connections(10)
-        .acquire_timeout(std::time::Duration::from_secs(5))
+        // 30s (not 5s): absorbs the @all connect-storm at Background start so a
+        // momentarily-saturated shared container doesn't fail the seed inserts.
+        .acquire_timeout(std::time::Duration::from_secs(30))
         .connect_with(options)
         .await
         .expect("build per-scenario pool");
@@ -205,7 +220,7 @@ pub async fn drop_schema(schema: &str) {
     let Some(base) = PG_BASE_URL.get() else {
         return;
     };
-    if let Ok(mut conn) = sqlx::PgConnection::connect(base).await {
+    if let Ok(mut conn) = sqlx::PgConnection::connect_with(&pg_options(base)).await {
         let _ = sqlx::query(&format!("DROP SCHEMA {schema} CASCADE"))
             .execute(&mut conn)
             .await;
