@@ -2,17 +2,17 @@
 
 ## Current Task
 
-**v0.3.1 released** (test/CI hardening only — binary identical to v0.3.0). Tag at `f853640`; `main` in sync. Images on `ghcr.io/Canzan/foundry` (`:0.3.1`/`:0.3`/`:latest`, amd64+arm64). cosign-verified: signature ✓, image SBOM (SPDX, 11 OS pkgs) ✓, Cargo SBOM (CycloneDX, 513 crates) ✓. `cargo xtask ci` green end-to-end (123/123 @all). The whole release pipeline (rebuilt this cycle) + the `@all` flake fix + dual SBOMs are now proven through a normal tag release.
+**GitHub `ci.yml` green end-to-end (first time)** — `main` at `f4cebe3`, in sync. Pinning the test containers to `postgres:16-alpine` (match prod) surfaced + fixed 4 pre-existing CI failures (CI had been red on every push; only `release.yml` was green). Also did a README/AGENTS review. Latest release remains **v0.3.1** (multi-arch, signed, dual SBOMs — all cosign-verified).
 
 ## Key Decisions
 
-- **Release pipeline rebuilt** (`release.yml`, had never succeeded): parallel per-arch build-by-digest + merge/sign/SBOM job. Fixed: lowercase GHCR ref; `metadata-action` drops the leading `v` (image tags are `0.3.0`, not `v0.3.0`).
-- **arm64 via cross-compile** (`Dockerfile`): builder on `$BUILDPLATFORM`, `cargo --target $TARGETARCH`; needs cross gcc **+** `libc6-dev-<arch>-cross` (else `ring`'s C fails). ~native speed, no QEMU.
-- **Two SBOM attestations**: image SPDX (syft scans the manifest → OS pkgs) and Cargo CycloneDX (syft `file:Cargo.lock` → 513 crates). Distinguished by cosign `--type` (`spdxjson` vs `cyclonedx`). sbom-action: use `file:` not `path:` for a single file.
-- **Slice-8 quality**: mutation gaps fixed (test-only) + probe scoped to `current_schema()`.
-- **`@all` flake fixed** (`7ff7591`, test-only): the shared testcontainer has no TLS but the URLs set no `sslmode`, so sqlx's default `prefer` SSL probe intermittently failed under the connect-storm (`SSLRequest: 0x00`), starving the harness pool → `PoolTimedOut` on Background seed inserts. Fix: `ssl_mode(Disable)` on all shared-container connects + `acquire_timeout` 5s→30s in `harness.rs`. Validated 5/5 consecutive `@all` sweeps green (123/123).
+- **PG16 pin** (4 test containers + admin_cli help): tests now match the production major version (docker-compose/k8s ship `16-alpine`). 117/117 product scenarios validated on PG16.
+- **CI binary build**: `acceptance`/`quickstart` jobs (and the README quickstart, cold) failed with `CARGO_BIN_EXE_foundry unset` — `cargo test -p foundry-acceptance` doesn't build the bin the `@real-io` scenarios spawn. Fix: `cargo build --release --bin foundry` before the test (local `cargo xtask ci` masked it via a shared target dir).
+- **Backup lane** (US-03, needs `pg_dump`) was wrongly in the default lane → tagged `@needs-pgclient`, excluded from default; `@all` job installs `postgresql-client-16`. Quickstart stays lightweight (Rust + Docker only).
+- **`@docker-compose` job** needed `.env` (`cp .env.example .env`) for `docker compose up`.
+- **`@all` flake** (`7ff7591`): `ssl_mode(Disable)` + `acquire_timeout` 30s in `harness.rs` (no-TLS testcontainer; SSL-probe failure starved the pool). A/B-proven (reverted 3/5 vs fixed 0/5).
+- Renamed `CLAUDE.md` → `AGENTS.md`; fixed README org/URLs (`foundry-project` → `Canzan`) + stale counts.
 
 ## Next Steps
 
-- None outstanding. v0.3.0 shipped (multi-arch + dual-SBOM, verified); `@all` lane stable.
-- Future versions ship multi-arch + both SBOMs automatically; no release-pipeline work needed.
+- None outstanding — GitHub CI green (5/5 jobs), `cargo xtask ci` green, v0.3.1 shipped + verified.
