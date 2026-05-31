@@ -32,15 +32,13 @@ use std::sync::Arc;
 
 use axum::extract::{FromRef, FromRequestParts, Path, State};
 use axum::http::request::Parts;
-use axum::http::StatusCode;
+use axum::http::{header, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Json, Response};
-use axum::routing::get;
+use axum::routing::{get, patch, post};
 use axum::Router;
 use foundry_auth::MachineTokenVerifier;
 use foundry_services::{Principal, ServiceError};
 use foundry_store::Store;
-
-const NOT_IMPLEMENTED: &str = "Not yet implemented -- RED scaffold (foundry-api, Feature A)";
 
 /// The stable JSON error envelope (api-contract.md §"Error envelope").
 /// Every non-2xx response carries exactly this shape; the `code` is a stable
@@ -65,6 +63,51 @@ pub struct IssueJson {
     pub number: i32,
     pub title: String,
     pub state: String,
+}
+
+/// `POST .../issues` request body (api-contract.md §"Create-issue request").
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct CreateIssueRequest {
+    pub title: String,
+}
+
+/// `PATCH .../issues/{number}` request body — a partial state mutation
+/// (api-contract.md §"PATCH vs PUT").
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct PatchIssueRequest {
+    pub state: String,
+}
+
+/// `POST .../issues/{number}/comments` request body
+/// (api-contract.md §"Create-comment request").
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct CommentBodyRequest {
+    pub body: String,
+}
+
+/// The wire shape of a comment (api-contract.md §"Comment"). `body_html` is the
+/// core-sanitized markup (`render_comment_markdown`) — the SAME bytes the UI
+/// stores; serializing it inside this JSON *string field* does NOT violate
+/// api≠HTML (the boundary guard forbids an HTML *response body*, not a JSON
+/// string that happens to contain markup — boundary-guard.md). Serialized from
+/// the neutral `foundry_services::comments::CommentView`.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CommentJson {
+    pub id: String,
+    pub author_email: String,
+    pub body_html: String,
+    pub edited: bool,
+}
+
+impl From<foundry_services::comments::CommentView> for CommentJson {
+    fn from(view: foundry_services::comments::CommentView) -> Self {
+        CommentJson {
+            id: view.id.to_string(),
+            author_email: view.author_email,
+            body_html: view.body_html,
+            edited: view.edited,
+        }
+    }
 }
 
 /// Map a `ServiceError` to its `(status, envelope)` per
@@ -129,10 +172,23 @@ where
     Arc<MachineTokenVerifier>: FromRef<S>,
     S: Clone + Send + Sync + 'static,
 {
-    Router::new().route(
-        "/api/v1/teams/{team_slug}/projects/{project_slug}/issues",
-        get(list_issues_handler),
-    )
+    Router::new()
+        .route(
+            "/api/v1/teams/{team_slug}/projects/{project_slug}/issues",
+            get(list_issues_handler).post(create_issue_handler),
+        )
+        .route(
+            "/api/v1/teams/{team_slug}/projects/{project_slug}/issues/{number}",
+            patch(change_issue_state_handler),
+        )
+        .route(
+            "/api/v1/teams/{team_slug}/projects/{project_slug}/issues/{number}/comments",
+            post(create_comment_handler),
+        )
+        .route(
+            "/api/v1/teams/{team_slug}/projects/{project_slug}/issues/{number}/comments/{comment_id}",
+            patch(edit_comment_handler),
+        )
 }
 
 /// `GET /api/v1/teams/{team}/projects/{project}/issues` (US-W05a/b). The
@@ -159,6 +215,117 @@ async fn list_issues_handler(
         })
         .collect();
     Ok(Json(body))
+}
+
+/// `POST /api/v1/teams/{team}/projects/{project}/issues` (US-W05c). Calls the
+/// shared `foundry_services::issues::create_issue` write use-case (the SAME
+/// path the browser handler uses — identical validation/authz/outbox), then
+/// returns `201 Created` with the freshly-allocated issue and a
+/// `Location: /api/v1/…/issues/{number}` header (api-contract.md §Create-issue).
+/// An empty/over-long title is rejected by the service as `Validation` → 422
+/// with the SAME "Title is required" copy the UI shows (rule-parity).
+async fn create_issue_handler(
+    State(store): State<Arc<Store>>,
+    MachinePrincipal(principal): MachinePrincipal,
+    Path((team_slug, project_slug)): Path<(String, String)>,
+    Json(request): Json<CreateIssueRequest>,
+) -> Result<Response, ApiError> {
+    let created = foundry_services::issues::create_issue(
+        &store,
+        &principal,
+        &team_slug,
+        &project_slug,
+        &request.title,
+    )
+    .await?;
+    let body = IssueJson {
+        key: created.key,
+        number: created.number,
+        title: request.title,
+        state: created.state,
+    };
+    let location = format!(
+        "/api/v1/teams/{team_slug}/projects/{project_slug}/issues/{}",
+        body.number
+    );
+    let mut response = (StatusCode::CREATED, Json(body)).into_response();
+    if let Ok(value) = HeaderValue::from_str(&location) {
+        response.headers_mut().insert(header::LOCATION, value);
+    }
+    Ok(response)
+}
+
+/// `PATCH /api/v1/teams/{team}/projects/{project}/issues/{number}` (US-W05c).
+/// Calls `foundry_services::issues::change_issue_state` (which normalizes the
+/// state through the SAME `normalize_state` the UI uses) and returns `200` with
+/// the updated issue.
+async fn change_issue_state_handler(
+    State(store): State<Arc<Store>>,
+    MachinePrincipal(principal): MachinePrincipal,
+    Path((team_slug, project_slug, number)): Path<(String, String, i32)>,
+    Json(request): Json<PatchIssueRequest>,
+) -> Result<Json<IssueJson>, ApiError> {
+    let updated = foundry_services::issues::change_issue_state(
+        &store,
+        &principal,
+        &team_slug,
+        &project_slug,
+        number,
+        &request.state,
+    )
+    .await?;
+    Ok(Json(IssueJson {
+        key: updated.key,
+        number: updated.number,
+        title: updated.title,
+        state: updated.state,
+    }))
+}
+
+/// `POST .../issues/{number}/comments` (US-W05c). Calls
+/// `foundry_services::comments::create_comment`, which sanitizes the body in
+/// core (`render_comment_markdown`) — the SAME bytes a browser comment stores
+/// (NFR-WEB-API-CON-02) — and returns `201` with the sanitized comment. The
+/// `body_html` rides inside a JSON string field (allowed, not an HTML body).
+async fn create_comment_handler(
+    State(store): State<Arc<Store>>,
+    MachinePrincipal(principal): MachinePrincipal,
+    Path((team_slug, project_slug, number)): Path<(String, String, i32)>,
+    Json(request): Json<CommentBodyRequest>,
+) -> Result<(StatusCode, Json<CommentJson>), ApiError> {
+    let view = foundry_services::comments::create_comment(
+        &store,
+        &principal,
+        &team_slug,
+        &project_slug,
+        number,
+        &request.body,
+    )
+    .await?;
+    Ok((StatusCode::CREATED, Json(view.into())))
+}
+
+/// `PATCH .../issues/{number}/comments/{comment_id}` (US-W05c). Calls
+/// `foundry_services::comments::edit_comment`, where author-only authz is
+/// decided (a non-author edit is `Forbidden` → 403); returns `200` with the
+/// updated comment.
+async fn edit_comment_handler(
+    State(store): State<Arc<Store>>,
+    MachinePrincipal(principal): MachinePrincipal,
+    Path((team_slug, project_slug, number, comment_id)): Path<(String, String, i32, uuid::Uuid)>,
+    Json(request): Json<CommentBodyRequest>,
+) -> Result<Json<CommentJson>, ApiError> {
+    let view = foundry_services::comments::edit_comment(
+        &store,
+        &principal,
+        &team_slug,
+        &project_slug,
+        number,
+        comment_id,
+        &request.body,
+    )
+    .await?;
+    Ok(Json(view.into()))
 }
 
 /// The authenticated machine principal, recovered by the bearer-token
@@ -265,63 +432,6 @@ pub mod token_auth {
             jti: claims.jti,
             scope_team_id: active.scope_team_id,
         })
-    }
-}
-
-/// The route handlers. In the real crate each is an `axum` handler wired into
-/// `routes(state)`; the scaffold pins the entry points and their service calls.
-pub mod routes {
-    use super::*;
-
-    /// `GET /api/v1/teams/{team}/projects/{project}/issues` — US-W05a.
-    /// Calls `foundry_services::board::list_board_issues` and serializes the
-    /// result as a JSON array (empty project -> `[]`, status 200).
-    pub fn list_issues(
-        _team_slug: &str,
-        _project_slug: &str,
-    ) -> Result<Vec<IssueJson>, ServiceError> {
-        panic!("{}", NOT_IMPLEMENTED)
-    }
-
-    /// `POST /api/v1/teams/{team}/projects/{project}/issues` — US-W05c.
-    /// 201 + created issue + `Location` header on success.
-    pub fn create_issue(
-        _team_slug: &str,
-        _project_slug: &str,
-        _body_json: &str,
-    ) -> Result<IssueJson, ServiceError> {
-        panic!("{}", NOT_IMPLEMENTED)
-    }
-
-    /// `PATCH /api/v1/teams/{team}/projects/{project}/issues/{number}` — US-W05c.
-    pub fn change_issue_state(
-        _team_slug: &str,
-        _project_slug: &str,
-        _number: i32,
-        _body_json: &str,
-    ) -> Result<IssueJson, ServiceError> {
-        panic!("{}", NOT_IMPLEMENTED)
-    }
-
-    /// `POST .../issues/{number}/comments` — US-W05c.
-    pub fn create_comment(
-        _team_slug: &str,
-        _project_slug: &str,
-        _number: i32,
-        _body_json: &str,
-    ) -> Result<String, ServiceError> {
-        panic!("{}", NOT_IMPLEMENTED)
-    }
-
-    /// `PATCH .../issues/{number}/comments/{comment_id}` — US-W05c.
-    pub fn edit_comment(
-        _team_slug: &str,
-        _project_slug: &str,
-        _number: i32,
-        _comment_id: uuid::Uuid,
-        _body_json: &str,
-    ) -> Result<String, ServiceError> {
-        panic!("{}", NOT_IMPLEMENTED)
     }
 }
 

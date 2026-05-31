@@ -106,14 +106,12 @@ async fn other_team_owns_project(
 async fn project_has_comment(
     world: &mut FoundryWorld,
     project_name: String,
-    _author: String,
+    author: String,
     prefix: String,
     number: i32,
 ) {
     ensure_harness(world).await;
-    // The issue must exist for a comment to hang off it. DELIVER seeds the
-    // comment row; for the RED scaffold the assertion target is the API edit
-    // refusal, so recording the issue suffices.
+    // The issue must exist for a comment to hang off it.
     seed_issue(
         world,
         &project_name,
@@ -123,6 +121,12 @@ async fn project_has_comment(
         "backlog",
     )
     .await;
+    // Seed a REAL comment row authored by the named persona so the non-author
+    // edit reaches the service's author-only authz check (→ 403), not a 404
+    // for a missing comment. A precondition row (not the behaviour under test):
+    // a plain INSERT mirroring the existing seeding shape.
+    let author_email = email_for_persona(&author);
+    seed_comment_by(world, &project_name, number, &author_email).await;
     world.fa_last_project_name = Some(project_name);
 }
 
@@ -228,10 +232,14 @@ async fn admin_grants_expired_credential(world: &mut FoundryWorld, bound_to: Str
 )]
 async fn admin_grants_non_author_credential(world: &mut FoundryWorld) {
     ensure_harness(world).await;
-    // A second valid credential bound to Mei (a member, not the comment's
-    // author and not an admin) — authenticates, but the edit-comment authz
-    // refuses 403 (Phase 03 behaviour; the credential itself is real).
-    let (user_id, workspace_id) = user_and_workspace(world, "mei@acme.com").await;
+    // The credential must bind to a Backend MEMBER who is NEITHER the comment's
+    // author (Mei) NOR the admin — so it passes team-membership authz and then
+    // hits the author-only edit refusal (403), proving rule-parity with the
+    // browser's "edit is author-only" rule (ADR-006). Seed a distinct member
+    // (carol@acme.com) on the Backend team and bind the credential to her.
+    let carol = "carol@acme.com";
+    seed_backend_member(world, carol).await;
+    let (user_id, workspace_id) = user_and_workspace(world, carol).await;
     let jwt = mint_credential(world, user_id, workspace_id, None, "non-author", 3600, true).await;
     world.fa_credential = Some(jwt);
     world.fa_credential_revoked = false;
@@ -458,11 +466,18 @@ async fn machine_moves_issue(world: &mut FoundryWorld, prefix: String, number: i
         .clone()
         .unwrap_or_else(|| "Auth v2".into());
     let _ = prefix;
+    // The Gherkin uses the human phrase ("in progress"); a real machine client
+    // sends a contract-valid state token (api-contract.md §Issue: the API
+    // normalizes "in-progress"/"in_progress" through the SAME normalize_state
+    // the UI uses). Translate the prose to the wire form here in the driver —
+    // this is test-wiring of the scenario phrase to a request value, not a
+    // change to any assertion.
+    let wire_state = state.trim().replace(' ', "_");
     patch_issue_state(
         world,
         &project,
         number,
-        &serde_json::json!({ "state": state }).to_string(),
+        &serde_json::json!({ "state": wire_state }).to_string(),
     )
     .await;
 }
@@ -491,14 +506,15 @@ async fn machine_edits_comment(world: &mut FoundryWorld) {
         .fa_last_project_name
         .clone()
         .unwrap_or_else(|| "Auth v2".into());
-    // The comment id is allocated by DELIVER's seed; for the RED scaffold the
-    // edit targets a synthetic id and the route 404s, failing RED on the
-    // not-allowed assertion.
+    // Target Mei's REAL seeded comment id (looked up fresh) so the edit reaches
+    // the service's author-only authz and is refused 403 — not a 404 for a
+    // missing comment.
+    let comment_id = mei_comment_id_on_issue(world, "mei@acme.com", 8).await;
     patch_comment(
         world,
         &project,
         8,
-        uuid::Uuid::nil(),
+        comment_id,
         &serde_json::json!({ "body": "edited by non-author" }).to_string(),
     )
     .await;
@@ -1525,6 +1541,135 @@ async fn seed_issue(
     .execute(pool)
     .await
     .expect("seed issue row");
+}
+
+/// Seed a real `comments` row authored by `author_email` on the given issue
+/// number in `project_name`. A precondition row (not the behaviour under test):
+/// a plain INSERT mirroring `seed_issue`'s shape.
+async fn seed_comment_by(
+    world: &mut FoundryWorld,
+    project_name: &str,
+    issue_number: i32,
+    author_email: &str,
+) {
+    let harness = world.harness.as_ref().expect("harness");
+    let pool = harness.app.state.store.pool();
+    let row: (uuid::Uuid, uuid::Uuid) = sqlx::query_as(
+        "SELECT i.id, i.workspace_id
+           FROM issues i JOIN projects p ON p.id = i.project_id
+          WHERE p.name = $1 AND i.number = $2",
+    )
+    .bind(project_name)
+    .bind(issue_number)
+    .fetch_one(pool)
+    .await
+    .unwrap_or_else(|e| panic!("seed_comment_by: issue {project_name} #{issue_number}: {e}"));
+    let (issue_id, workspace_id) = row;
+    let author: (uuid::Uuid,) = sqlx::query_as("SELECT id FROM users WHERE email_lower = $1")
+        .bind(author_email.to_ascii_lowercase())
+        .fetch_one(pool)
+        .await
+        .unwrap_or_else(|e| panic!("seed_comment_by: author {author_email}: {e}"));
+    let comment_id = uuid::Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO comments (id, workspace_id, issue_id, author_id, body_markdown, body_html)
+              VALUES ($1, $2, $3, $4, $5, $6)",
+    )
+    .bind(comment_id)
+    .bind(workspace_id)
+    .bind(issue_id)
+    .bind(author.0)
+    .bind("seeded comment body")
+    .bind("<p>seeded comment body</p>")
+    .execute(pool)
+    .await
+    .expect("seed comment row");
+}
+
+/// Resolve the id of `author_email`'s comment on the given issue number — the
+/// real row seeded by `seed_comment_by`, so the non-author edit targets it.
+async fn mei_comment_id_on_issue(
+    world: &FoundryWorld,
+    author_email: &str,
+    issue_number: i32,
+) -> uuid::Uuid {
+    let harness = world.harness.as_ref().expect("harness");
+    let pool = harness.app.state.store.pool();
+    let row: (uuid::Uuid,) = sqlx::query_as(
+        "SELECT c.id
+           FROM comments c
+           JOIN issues i ON i.id = c.issue_id
+           JOIN users u ON u.id = c.author_id
+          WHERE i.number = $1 AND u.email_lower = $2
+          ORDER BY c.created_at DESC
+          LIMIT 1",
+    )
+    .bind(issue_number)
+    .bind(author_email.to_ascii_lowercase())
+    .fetch_one(pool)
+    .await
+    .unwrap_or_else(|e| panic!("mei_comment_id_on_issue {author_email} #{issue_number}: {e}"));
+    row.0
+}
+
+/// Seed a workspace+team member on the Backend team (the team the us-w05c
+/// Background creates). Used to bind the non-author credential to a member who
+/// is neither the comment's author nor the admin.
+async fn seed_backend_member(world: &mut FoundryWorld, email: &str) {
+    let harness = world.harness.as_ref().expect("harness");
+    let pool = harness.app.state.store.pool();
+    let ws: (uuid::Uuid,) = sqlx::query_as("SELECT id FROM workspaces LIMIT 1")
+        .fetch_one(pool)
+        .await
+        .expect("fetch workspace");
+    let team: (uuid::Uuid,) =
+        sqlx::query_as("SELECT id FROM teams WHERE workspace_id = $1 AND name = 'Backend'")
+            .bind(ws.0)
+            .fetch_one(pool)
+            .await
+            .expect("fetch Backend team");
+    let user_id = uuid::Uuid::now_v7();
+    let lower = email.to_ascii_lowercase();
+    let hash = foundry_auth::hash_password(&secrecy::SecretString::new(
+        "carol-correct-horse-battery-staple".to_string().into(),
+    ))
+    .await
+    .expect("hash member pw");
+    sqlx::query(
+        "INSERT INTO users (id, email_lower, email_display, display_name, password_hash)
+              VALUES ($1, $2, $3, $4, $5) ON CONFLICT (email_lower) DO NOTHING",
+    )
+    .bind(user_id)
+    .bind(&lower)
+    .bind(email)
+    .bind("Carol")
+    .bind(&hash)
+    .execute(pool)
+    .await
+    .expect("insert member user");
+    let resolved: (uuid::Uuid,) = sqlx::query_as("SELECT id FROM users WHERE email_lower = $1")
+        .bind(&lower)
+        .fetch_one(pool)
+        .await
+        .expect("resolve member id");
+    sqlx::query(
+        "INSERT INTO workspace_memberships (workspace_id, user_id, role)
+              VALUES ($1, $2, 'member') ON CONFLICT DO NOTHING",
+    )
+    .bind(ws.0)
+    .bind(resolved.0)
+    .execute(pool)
+    .await
+    .expect("insert workspace membership");
+    sqlx::query(
+        "INSERT INTO team_memberships (team_id, user_id, role)
+              VALUES ($1, $2, 'member') ON CONFLICT DO NOTHING",
+    )
+    .bind(team.0)
+    .bind(resolved.0)
+    .execute(pool)
+    .await
+    .expect("insert team membership");
 }
 
 async fn seed_team_with_project(
