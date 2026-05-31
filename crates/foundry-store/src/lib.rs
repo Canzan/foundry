@@ -165,6 +165,30 @@ impl Store {
                 cols.0
             )));
         }
+        // Slice-W05b substrate check: assert migration 0007's machine_tokens
+        // table + its denylist columns exist in the ACTIVE schema. This is the
+        // substrate every authenticated API request reads (find_by_jti ->
+        // revoked_at IS NULL); booting against a pre-0007 database would
+        // otherwise surface only on the first bearer-token request. Scoped to
+        // `current_schema()` for the same reason as the 0006 check above (a
+        // sibling schema carrying the table must not mask a half-migrated
+        // active schema).
+        let mt_cols: (i64,) = sqlx::query_as(
+            "SELECT count(*)::bigint
+               FROM information_schema.columns
+              WHERE table_schema = current_schema()
+                AND table_name = 'machine_tokens'
+                AND column_name IN ('jti', 'revoked_at', 'scope_team_id',
+                                    'workspace_id', 'user_id', 'expires_at')",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        if mt_cols.0 < 6 {
+            return Err(ProbeError::Failed(format!(
+                "machine_tokens table missing migration-0007 columns (found {} of 6)",
+                mt_cols.0
+            )));
+        }
         Ok(ProbeReport {
             select_one_ok: true,
             round_trip_ms: started.elapsed().as_millis(),
@@ -1345,6 +1369,102 @@ impl Store {
         .await?;
         Ok(outcome.rows_affected())
     }
+
+    // ----- US-W05b machine-token registry / denylist ---------------------
+
+    /// Register a freshly-issued machine token. The JWT itself is the
+    /// secret (Ed25519, design/auth.md) — this row carries only issuance
+    /// metadata. `scope_team_id == None` means workspace-wide scope.
+    /// `revoked_at` / `last_used_at` start NULL: the credential is active
+    /// and never-used.
+    pub async fn insert_machine_token(
+        &self,
+        jti: uuid::Uuid,
+        user_id: uuid::Uuid,
+        workspace_id: uuid::Uuid,
+        scope_team_id: Option<uuid::Uuid>,
+        expires_at: time::OffsetDateTime,
+        label: &str,
+    ) -> Result<(), StoreError> {
+        sqlx::query(
+            "INSERT INTO machine_tokens
+                  (jti, user_id, workspace_id, scope_team_id, expires_at, label)
+              VALUES ($1, $2, $3, $4, $5, $6)",
+        )
+        .bind(jti)
+        .bind(user_id)
+        .bind(workspace_id)
+        .bind(scope_team_id)
+        .bind(expires_at)
+        .bind(label)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Look up a machine token by its `jti`. This is the per-request
+    /// denylist check: the caller treats `revoked_at IS NULL` (and an
+    /// unexpired `expires_at`) as "active". Returns `None` only when the
+    /// `jti` was never issued — a REVOKED token still returns its row so
+    /// the caller can refuse it (revocation is a flag, not a delete).
+    pub async fn find_machine_token_by_jti(
+        &self,
+        jti: uuid::Uuid,
+    ) -> Result<Option<MachineTokenRow>, StoreError> {
+        let row = sqlx::query(
+            "SELECT jti, user_id, workspace_id, scope_team_id,
+                    expires_at, revoked_at, last_used_at, label
+               FROM machine_tokens
+              WHERE jti = $1",
+        )
+        .bind(jti)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(machine_token_row_from))
+    }
+
+    /// Revoke a machine token by stamping `revoked_at = now()`. Idempotent
+    /// in effect — re-revoking only refreshes the timestamp. The row is
+    /// retained (denylist semantics): the per-request check keeps refusing
+    /// the credential until it expires and is swept.
+    pub async fn revoke_machine_token(&self, jti: uuid::Uuid) -> Result<(), StoreError> {
+        sqlx::query("UPDATE machine_tokens SET revoked_at = now() WHERE jti = $1")
+            .bind(jti)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// List the machine tokens issued within a workspace, newest first
+    /// (served by `idx_machine_tokens_workspace`). Used by the admin
+    /// "list credentials" view.
+    pub async fn list_machine_tokens(
+        &self,
+        workspace_id: uuid::Uuid,
+    ) -> Result<Vec<MachineTokenRow>, StoreError> {
+        let rows = sqlx::query(
+            "SELECT jti, user_id, workspace_id, scope_team_id,
+                    expires_at, revoked_at, last_used_at, label
+               FROM machine_tokens
+              WHERE workspace_id = $1
+              ORDER BY created_at DESC, jti DESC",
+        )
+        .bind(workspace_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.into_iter().map(machine_token_row_from).collect())
+    }
+
+    /// Stamp `last_used_at = now()` on a machine token. Called after a
+    /// successful authenticated request for operational visibility ("when
+    /// was this credential last seen"). A no-op if the `jti` is unknown.
+    pub async fn touch_machine_token_last_used(&self, jti: uuid::Uuid) -> Result<(), StoreError> {
+        sqlx::query("UPDATE machine_tokens SET last_used_at = now() WHERE jti = $1")
+            .bind(jti)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
 }
 
 /// Minimal team projection.
@@ -1806,6 +1926,39 @@ pub struct CommentLookupRow {
     pub author_id: uuid::Uuid,
     pub body_markdown: String,
     pub deleted: bool,
+}
+
+/// US-W05b machine-token registry row. Carries issuance metadata plus the
+/// revocation flag — there is no token/secret column (the JWT itself is the
+/// secret; design/auth.md). The per-request denylist check reads `revoked_at`
+/// (NULL == active) and `expires_at`; `scope_team_id == None` means workspace-
+/// wide scope. `user_id` is the principal the credential acts as.
+#[derive(Debug, Clone)]
+pub struct MachineTokenRow {
+    pub jti: uuid::Uuid,
+    pub user_id: uuid::Uuid,
+    pub workspace_id: uuid::Uuid,
+    pub scope_team_id: Option<uuid::Uuid>,
+    pub expires_at: time::OffsetDateTime,
+    pub revoked_at: Option<time::OffsetDateTime>,
+    pub last_used_at: Option<time::OffsetDateTime>,
+    pub label: String,
+}
+
+/// Map a `machine_tokens` result row into a [`MachineTokenRow`]. Column order
+/// matches the `SELECT` in `find_machine_token_by_jti` / `list_machine_tokens`.
+fn machine_token_row_from(r: sqlx::postgres::PgRow) -> MachineTokenRow {
+    use sqlx::Row;
+    MachineTokenRow {
+        jti: r.get(0),
+        user_id: r.get(1),
+        workspace_id: r.get(2),
+        scope_team_id: r.get(3),
+        expires_at: r.get(4),
+        revoked_at: r.get(5),
+        last_used_at: r.get(6),
+        label: r.get(7),
+    }
 }
 
 /// Errors specific to comment insert.

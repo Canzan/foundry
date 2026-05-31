@@ -66,6 +66,14 @@ async fn probe_column_check_is_scoped_to_current_schema() {
         "CREATE TABLE sibling.comments (id uuid PRIMARY KEY, updated_at timestamptz, \
          deleted_at timestamptz, deleted_by uuid)",
         "CREATE TABLE active.comments (id uuid PRIMARY KEY)",
+        // The probe also asserts migration 0007's machine_tokens columns
+        // (scoped to current_schema()). Give the HEALTHY `sibling` schema the
+        // table so its 0006-scoping assertion still reaches the PASS branch;
+        // the `active` schema deliberately omits it (it's already failing the
+        // 0006 check, which fires first).
+        "CREATE TABLE sibling.machine_tokens (jti uuid PRIMARY KEY, user_id uuid, \
+         workspace_id uuid, scope_team_id uuid, expires_at timestamptz, \
+         revoked_at timestamptz, last_used_at timestamptz, label text)",
     ] {
         sqlx::query(stmt)
             .execute(&mut admin)
