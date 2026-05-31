@@ -200,7 +200,11 @@ async fn resolve_not_found_page(
         Ok(None) => return team_not_found_page(team_slug),
         Err(err) => return internal_error("find_team_by_slug", err),
     };
-    match state.store.find_project_by_slug(team.id, project_slug).await {
+    match state
+        .store
+        .find_project_by_slug(team.id, project_slug)
+        .await
+    {
         Ok(Some(_)) => project_not_found_page(team_slug, project_slug),
         Ok(None) => project_not_found_page(team_slug, project_slug),
         Err(err) => internal_error("find_project_by_slug", err),

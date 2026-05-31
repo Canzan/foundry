@@ -96,7 +96,12 @@ pub async fn change_issue_state(
     })?;
 
     match store
-        .update_issue_state_with_outbox(key_prefix.as_str(), number, normalized, principal.user_id())
+        .update_issue_state_with_outbox(
+            key_prefix.as_str(),
+            number,
+            normalized,
+            principal.user_id(),
+        )
         .await
     {
         Ok(Some(())) => {
@@ -163,8 +168,8 @@ async fn resolve_member_project(
         .map_err(|_| ServiceError::Internal)?
         .ok_or(ServiceError::NotFound)?;
 
-    let key_prefix =
-        foundry_core::ProjectKey::try_new(&project.key_prefix).map_err(|_| ServiceError::Internal)?;
+    let key_prefix = foundry_core::ProjectKey::try_new(&project.key_prefix)
+        .map_err(|_| ServiceError::Internal)?;
 
     Ok((team, project, key_prefix))
 }

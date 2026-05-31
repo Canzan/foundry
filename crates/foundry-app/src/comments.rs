@@ -564,7 +564,11 @@ async fn forbidden_edit_page(state: &AppState, principal: &Principal, team_slug:
         Ok(None) => return team_not_found_page(team_slug),
         Err(err) => return internal_error("find_team_by_slug", err),
     };
-    match state.store.is_team_member(team.id, principal.user_id()).await {
+    match state
+        .store
+        .is_team_member(team.id, principal.user_id())
+        .await
+    {
         Ok(false) => non_member_page(team_slug),
         Ok(true) => forbidden_fragment("You may only edit your own comments."),
         Err(err) => internal_error("is_team_member", err),
