@@ -132,6 +132,12 @@ jobs:
         with:
           shared-key: ci
 
+      # The @docker-compose scenarios run `docker compose up`, which reads
+      # `.env` (compose env-file). Without it, compose fails with
+      # "env file .env not found". The quickstart job does this too.
+      - name: cp .env.example .env
+        run: cp .env.example .env
+
       # Pre-build the foundry image so the @docker-compose tag group
       # does not eat its 10-min budget on an image build the harness
       # would otherwise do inline.
