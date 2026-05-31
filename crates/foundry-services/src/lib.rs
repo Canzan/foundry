@@ -114,6 +114,60 @@ pub struct CreatedIssue {
     pub state: String,
 }
 
+/// US-W05b machine-token authentication helper. Lives in `foundry-services`
+/// (NOT `foundry-api`) so the `/api/v1` adapter never depends on
+/// `foundry-store` directly — staying ahead of the Phase-04 boundary guard
+/// (`foundry-api ⊀ foundry-store`, architecture.md / step-skeletons option B).
+/// The bearer extractor authenticates the JWT crypto itself (verifier in
+/// foundry-api), then routes the `jti` denylist read through here.
+pub mod auth {
+    use super::*;
+    use foundry_store::Store;
+
+    /// The principal binding recovered from an ACTIVE machine-token registry
+    /// row. The extractor turns this into `Principal::Machine`.
+    #[derive(Debug, Clone)]
+    pub struct ActiveMachineToken {
+        pub user_id: uuid::Uuid,
+        pub workspace_id: uuid::Uuid,
+        pub scope_team_id: Option<uuid::Uuid>,
+    }
+
+    /// The single allowed `foundry-store` touch for the JSON adapter: the
+    /// per-request `jti` denylist read. A credential is ACTIVE iff a registry
+    /// row exists, is not revoked (`revoked_at IS NULL`), and has not expired
+    /// (`expires_at > now`). Every refusal collapses to
+    /// `ServiceError::Unauthorized` — the caller is NEVER told which condition
+    /// failed (non-enumerable refusal, error-and-observability.md). A store
+    /// error also fails closed as `Unauthorized` (no credential is honored when
+    /// the denylist cannot be consulted).
+    pub async fn resolve_active_token(
+        store: &Store,
+        jti: uuid::Uuid,
+        now: time::OffsetDateTime,
+    ) -> Result<ActiveMachineToken, ServiceError> {
+        let row = store
+            .find_machine_token_by_jti(jti)
+            .await
+            .map_err(|_| ServiceError::Unauthorized)?
+            .ok_or(ServiceError::Unauthorized)?;
+        if row.revoked_at.is_some() {
+            return Err(ServiceError::Unauthorized);
+        }
+        if row.expires_at <= now {
+            return Err(ServiceError::Unauthorized);
+        }
+        // Best-effort operational visibility ("when was this credential last
+        // seen"). Fire-and-forget — a touch failure NEVER fails the request.
+        let _ = store.touch_machine_token_last_used(jti).await;
+        Ok(ActiveMachineToken {
+            user_id: row.user_id,
+            workspace_id: row.workspace_id,
+            scope_team_id: row.scope_team_id,
+        })
+    }
+}
+
 pub mod board {
     use super::*;
     use foundry_store::Store;
@@ -137,6 +191,21 @@ pub mod board {
             .await
             .map_err(|_| ServiceError::Internal)?
             .ok_or(ServiceError::NotFound)?;
+
+        // Scope narrowing (NFR-WEB-API-SEC-02): a machine credential scoped to
+        // a specific team can NEVER reach beyond it, even where the bound
+        // principal is a member of other teams. The scope lives in the SIGNED
+        // claim, so it cannot be tampered with in transit. A scoped token
+        // requesting a different team is refused as not-allowed (403).
+        if let Principal::Machine {
+            scope_team_id: Some(scoped_team),
+            ..
+        } = principal
+        {
+            if *scoped_team != team.id {
+                return Err(ServiceError::Forbidden);
+            }
+        }
 
         // Membership authz BEFORE any fetch — a non-member never sees the
         // board's issues (NFR: refuse without leaking data).

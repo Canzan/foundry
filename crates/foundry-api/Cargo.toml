@@ -32,9 +32,20 @@ path = "src/lib.rs"
 [dependencies]
 foundry-services = { path = "../foundry-services" }
 foundry-store = { path = "../foundry-store" }
+foundry-auth = { path = "../foundry-auth" }
 axum = { workspace = true }
-tower-sessions = { workspace = true }
+time = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 uuid = { workspace = true }
 thiserror = { workspace = true }
+
+[dev-dependencies]
+# The token_auth unit tests mint real EdDSA JWTs against the fixed test
+# keypair to exercise each 401 crypto branch (missing/malformed/bad-sig/
+# wrong-alg/alg:none/expired) port-to-port through `verify_bearer`.
+foundry-auth = { path = "../foundry-auth", features = ["test-support"] }
+jsonwebtoken = { workspace = true }
+time = { workspace = true }
+secrecy = { workspace = true }
+base64 = { workspace = true }

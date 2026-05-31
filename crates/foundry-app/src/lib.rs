@@ -250,22 +250,21 @@ pub fn build_router(state: AppState) -> Router {
         )
         .route("/keyboard-help", get(keyboard::show_keyboard_help))
         .route("/", get(signin::dashboard_root))
-        // Feature A (US-W05a) — the JSON read surface contributed by the
-        // foundry-api driving adapter, merged in as a path-prefixed
-        // `/api/v1` sub-router (api-contract.md §"Route surface"). It is a
-        // PEER of the HTML routes over the shared `foundry-services` seam.
-        // Slice 1 mounts it INSIDE the session layer so the transitional
-        // browser-session auth resolves a principal (api-contract.md
-        // §slice-1 note); Slice 2 moves it OUTSIDE the session+CSRF layers
-        // and adds the bearer machine-token extractor (auth.md §Coexistence).
-        // GET requests pass the CSRF layer unchanged (it early-returns on
-        // safe methods), so the browser path stays byte-identical.
-        .merge(foundry_api::routes::<AppState>())
         .layer(middleware::from_fn_with_state(
             state.clone(),
             csrf::csrf_middleware,
         ))
         .layer(session_layer)
+        // Feature A (US-W05b) — the JSON `/api/v1` surface contributed by the
+        // foundry-api driving adapter (api-contract.md §"Route surface"). It is
+        // a PEER of the HTML routes over the shared `foundry-services` seam.
+        // Slice 2 mounts it OUTSIDE the session + CSRF layers (auth.md
+        // §Coexistence): a machine request carries a bearer JWT and NO cookie,
+        // so CSRF-exemption is correct by construction and the foundry-api
+        // `MachinePrincipal` extractor authenticates instead. The browser
+        // cookie path's session/CSRF behaviour is byte-for-byte unchanged
+        // (NFR-WEB-API-SEC-01) — those layers simply do not run on `/api/v1`.
+        .merge(foundry_api::routes::<AppState>())
         // Slice 6 (ADR-010) — one tower layer per request emits
         // `http_requests_total{path,method,status}` + the matching
         // duration histogram. Sits at the same tower-stack position as

@@ -49,6 +49,8 @@ serde_yaml_ng = { workspace = true }
 
 secrecy = { workspace = true }
 time = { workspace = true }
+# US-W05b — mint the alg-confusion (HS256) attack token in the wrong-alg Given.
+jsonwebtoken = { workspace = true }
 rand = { workspace = true }
 once_cell = { workspace = true }
 sha2 = { workspace = true }

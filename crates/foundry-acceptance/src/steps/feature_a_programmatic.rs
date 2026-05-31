@@ -33,6 +33,7 @@ use crate::support::harness::InProcHarness;
 use crate::world::FoundryWorld;
 use cucumber::{given, then, when};
 use reqwest::redirect::Policy;
+use secrecy::ExposeSecret;
 
 const TEST_NOW: &str = "2026-01-15T12:00:00Z";
 
@@ -137,10 +138,22 @@ async fn project_has_comment(
 // --------------------------------------------------------------------------
 
 #[given(regex = r#"^the admin has granted a machine credential for "([^"]+)" bound to (\w+)$"#)]
-async fn admin_grants_credential(world: &mut FoundryWorld, label: String, _bound_to: String) {
+async fn admin_grants_credential(world: &mut FoundryWorld, label: String, bound_to: String) {
     ensure_harness(world).await;
-    world.fa_credential = Some(format!("placeholder-credential-for::{label}"));
+    let email = email_for_persona(&bound_to);
+    let (user_id, workspace_id) = user_and_workspace(world, &email).await;
+    let jwt = mint_credential(world, user_id, workspace_id, None, &label, 3600, true).await;
+    world.fa_credential = Some(jwt);
     world.fa_credential_revoked = false;
+}
+
+/// Map a Background persona first-name to its seeded email. Mei is the only
+/// member seeded by the us-w05b Background; the admin is Devansh.
+fn email_for_persona(persona: &str) -> String {
+    match persona.to_ascii_lowercase().as_str() {
+        "devansh" => "devansh@acme.com".to_string(),
+        _ => "mei@acme.com".to_string(),
+    }
 }
 
 #[given(
@@ -149,11 +162,14 @@ async fn admin_grants_credential(world: &mut FoundryWorld, label: String, _bound
 async fn admin_grants_write_credential(
     world: &mut FoundryWorld,
     label: String,
-    _bound_to: String,
+    bound_to: String,
     project: String,
 ) {
     ensure_harness(world).await;
-    world.fa_credential = Some(format!("placeholder-write-credential-for::{label}"));
+    let email = email_for_persona(&bound_to);
+    let (user_id, workspace_id) = user_and_workspace(world, &email).await;
+    let jwt = mint_credential(world, user_id, workspace_id, None, &label, 3600, true).await;
+    world.fa_credential = Some(jwt);
     world.fa_credential_revoked = false;
     world.fa_last_project_name = Some(project);
 }
@@ -161,18 +177,49 @@ async fn admin_grants_write_credential(
 #[given(
     regex = r#"^the admin has granted a machine credential bound to (\w+) scoped to the "([^"]+)" team$"#
 )]
-async fn admin_grants_scoped_credential(world: &mut FoundryWorld, _bound_to: String, team: String) {
+async fn admin_grants_scoped_credential(world: &mut FoundryWorld, bound_to: String, team: String) {
     ensure_harness(world).await;
-    world.fa_credential = Some(format!("placeholder-scoped-credential::{team}"));
+    let email = email_for_persona(&bound_to);
+    let (user_id, workspace_id) = user_and_workspace(world, &email).await;
+    // The credential is SCOPE-NARROWED to the named team: it can never reach
+    // beyond it even though the bound principal may be a member of others.
+    let scope_team_id = team_id_by_name(world, &team).await;
+    let jwt = mint_credential(
+        world,
+        user_id,
+        workspace_id,
+        Some(scope_team_id),
+        "scoped credential",
+        3600,
+        true,
+    )
+    .await;
+    world.fa_credential = Some(jwt);
     world.fa_credential_revoked = false;
 }
 
 #[given(
     regex = r#"^the admin granted a machine credential bound to (\w+) that has since expired$"#
 )]
-async fn admin_grants_expired_credential(world: &mut FoundryWorld, _bound_to: String) {
+async fn admin_grants_expired_credential(world: &mut FoundryWorld, bound_to: String) {
     ensure_harness(world).await;
-    world.fa_credential = Some("placeholder-expired-credential".to_string());
+    let email = email_for_persona(&bound_to);
+    let (user_id, workspace_id) = user_and_workspace(world, &email).await;
+    // A validly-SIGNED credential whose `exp` is already in the past — the
+    // verifier's EdDSA-pinned `Validation` rejects it on `exp` before any
+    // registry lookup. Register the row anyway (its registry `expires_at` is
+    // also past) so neither the crypto nor the denylist would admit it.
+    let jwt = mint_credential(
+        world,
+        user_id,
+        workspace_id,
+        None,
+        "expired credential",
+        -3600,
+        true,
+    )
+    .await;
+    world.fa_credential = Some(jwt);
     world.fa_credential_revoked = false;
 }
 
@@ -181,19 +228,43 @@ async fn admin_grants_expired_credential(world: &mut FoundryWorld, _bound_to: St
 )]
 async fn admin_grants_non_author_credential(world: &mut FoundryWorld) {
     ensure_harness(world).await;
-    world.fa_credential = Some("placeholder-non-author-credential".to_string());
+    // A second valid credential bound to Mei (a member, not the comment's
+    // author and not an admin) — authenticates, but the edit-comment authz
+    // refuses 403 (Phase 03 behaviour; the credential itself is real).
+    let (user_id, workspace_id) = user_and_workspace(world, "mei@acme.com").await;
+    let jwt = mint_credential(world, user_id, workspace_id, None, "non-author", 3600, true).await;
+    world.fa_credential = Some(jwt);
     world.fa_credential_revoked = false;
 }
 
 #[given(regex = r#"^the admin revokes that credential$"#)]
 async fn admin_revokes_credential(world: &mut FoundryWorld) {
+    // Stamp `revoked_at = now()` on the exact registry row minted by the
+    // preceding grant Given (auth.md §Revoke). Next use → 401 via the denylist.
+    let jti = world
+        .fa_credential_jti
+        .expect("a credential was minted before revoke");
+    let harness = world.harness.as_ref().expect("harness");
+    harness
+        .app
+        .state
+        .store
+        .revoke_machine_token(jti)
+        .await
+        .expect("revoke machine token");
     world.fa_credential_revoked = true;
 }
 
 #[given(regex = r#"^a caller holds a credential the workspace never issued$"#)]
 async fn caller_holds_forged_credential(world: &mut FoundryWorld) {
     ensure_harness(world).await;
-    world.fa_credential = Some("forged-credential-never-issued".to_string());
+    // A credential the registry NEVER issued: validly EdDSA-signed by the test
+    // key (so it passes the crypto), but its `jti` is NOT inserted, so the
+    // denylist returns no row → 401. `register=false` mints without inserting.
+    let (user_id, workspace_id) = user_and_workspace(world, "mei@acme.com").await;
+    let jwt = mint_credential(world, user_id, workspace_id, None, "forged", 3600, false).await;
+    world.fa_credential = Some(jwt);
+    world.fa_credential_revoked = false;
 }
 
 #[given(
@@ -201,7 +272,23 @@ async fn caller_holds_forged_credential(world: &mut FoundryWorld) {
 )]
 async fn caller_holds_wrong_alg_credential(world: &mut FoundryWorld) {
     ensure_harness(world).await;
-    world.fa_credential = Some("wrong-alg-credential".to_string());
+    // The classic alg-confusion attack: an HS256 token using the server's
+    // PUBLIC key bytes as the HMAC secret. The verifier pins exactly `[EdDSA]`,
+    // so it is refused before any key is consulted → 401.
+    let claims = foundry_auth::MachineTokenClaims {
+        sub: uuid::Uuid::now_v7(),
+        scope: None,
+        iat: time::OffsetDateTime::now_utc().unix_timestamp(),
+        exp: (time::OffsetDateTime::now_utc() + time::Duration::seconds(3600)).unix_timestamp(),
+        jti: uuid::Uuid::now_v7(),
+    };
+    let header = jsonwebtoken::Header::new(jsonwebtoken::Algorithm::HS256);
+    let key = jsonwebtoken::EncodingKey::from_secret(
+        foundry_auth::test_keys::TEST_PUBLIC_KEY_PEM.as_bytes(),
+    );
+    let jwt = jsonwebtoken::encode(&header, &claims, &key).expect("hs256 encode");
+    world.fa_credential = Some(jwt);
+    world.fa_credential_revoked = false;
 }
 
 #[given(regex = r#"^a caller presents no valid credential$"#)]
@@ -328,11 +415,6 @@ async fn machine_requests_board_after_revoke(world: &mut FoundryWorld) {
         .fa_last_project_name
         .clone()
         .unwrap_or_else(|| "Auth v2".into());
-    request_board_json(world, &project).await;
-}
-
-#[when(regex = r#"^the machine requests the "([^"]+)" board's issues with that credential$"#)]
-async fn machine_requests_named_board(world: &mut FoundryWorld, project: String) {
     request_board_json(world, &project).await;
 }
 
@@ -1035,18 +1117,18 @@ fn auth_header(world: &FoundryWorld) -> Option<String> {
 
 async fn request_board_json(world: &mut FoundryWorld, project_name: &str) {
     ensure_harness(world).await;
+    // Slice 2 (us-w05b): the read endpoint REQUIRES a machine token going
+    // forward — the 01-02 transitional browser-session path is REPLACED. So:
+    //   - a scenario that set an explicit credential (the us-w05b grant/forged/
+    //     expired/revoked/wrong-alg Givens) presents exactly that bearer;
+    //   - a us-w05a read scenario uses `Mei is signed in` to NAME the integrator
+    //     persona — we mint a real machine credential bound to that persona so
+    //     the read authenticates over the now-required token path;
+    //   - a caller with neither carries no Authorization header and is refused
+    //     401 (the fail-closed no-credential path).
+    ensure_bearer_for_signed_in_persona(world).await;
     let team = team_slug_for_project(world, project_name).await;
     let project_slug = slugify(project_name);
-    // Slice-1 transitional auth (api-contract.md §slice-1 note): the read
-    // endpoint accepts the EXISTING browser session. The "(\w+) is signed in"
-    // step records the persona's email/password in the world but mints no
-    // cookie (the harness keeps no cookie jar). So when a session-backed
-    // persona is the caller, sign them in over the unchanged browser path and
-    // carry the resulting `foundry_session` cookie on the API GET. A caller
-    // with no credential (no signed-in persona) carries nothing and is
-    // refused 401 — proving the fail-closed path. Slice 2 replaces this with
-    // the bearer machine-token credential.
-    let session_cookie = session_cookie_for_caller(world).await;
     let harness = world.harness.as_ref().expect("harness");
     let http = world.http.as_ref().expect("http");
     let url = format!(
@@ -1056,14 +1138,37 @@ async fn request_board_json(world: &mut FoundryWorld, project_name: &str) {
     let mut req = http
         .get(&url)
         .header(reqwest::header::ACCEPT, "application/json");
-    if let Some(cookie) = session_cookie {
-        req = req.header(reqwest::header::COOKIE, cookie);
-    }
     if let Some(bearer) = auth_header(world) {
         req = req.header(reqwest::header::AUTHORIZATION, bearer);
     }
     let resp = req.send().await.expect("send api board request");
     capture(world, resp).await;
+}
+
+/// If a us-w05a scenario named a signed-in persona (`Mei is signed in`) but no
+/// explicit machine credential was granted, mint a real machine credential
+/// bound to that persona so the now-token-required read authenticates. A
+/// no-credential caller (no signed-in persona, no grant) is left with nothing
+/// and is refused 401.
+async fn ensure_bearer_for_signed_in_persona(world: &mut FoundryWorld) {
+    if world.fa_credential.is_some() {
+        return;
+    }
+    let Some(email) = world.us_07_signed_in_email.clone() else {
+        return;
+    };
+    let (user_id, workspace_id) = user_and_workspace(world, &email).await;
+    let jwt = mint_credential(
+        world,
+        user_id,
+        workspace_id,
+        None,
+        "us-w05a reader",
+        3600,
+        true,
+    )
+    .await;
+    world.fa_credential = Some(jwt);
 }
 
 /// Sign the recorded signed-in persona in over the real browser path and
@@ -1279,6 +1384,90 @@ async fn run_boundary_check(world: &mut FoundryWorld) {
     combined.push_str(&String::from_utf8_lossy(&output.stdout));
     combined.push_str(&String::from_utf8_lossy(&output.stderr));
     world.fa_guard_stderr = Some(combined);
+}
+
+// --------------------------------------------------------------------------
+// Machine-credential minting (US-W05b). Real EdDSA JWTs signed by the FIXED
+// test signing key (foundry_auth::test_keys), registered in the machine_tokens
+// denylist via the real Store repo (02-01). These are PRECONDITIONS — a real
+// admin-issued credential — not the behaviour under test. The JWT `exp` is set
+// against the REAL wall clock (jsonwebtoken's `Validation` validates `exp`
+// against `SystemTime::now()`, not the harness MockClock anchor).
+// --------------------------------------------------------------------------
+
+/// Resolve a user's id + workspace by email (lower-cased).
+async fn user_and_workspace(world: &FoundryWorld, email: &str) -> (uuid::Uuid, uuid::Uuid) {
+    let harness = world.harness.as_ref().expect("harness");
+    let pool = harness.app.state.store.pool();
+    let row: (uuid::Uuid, uuid::Uuid) = sqlx::query_as(
+        "SELECT u.id, wm.workspace_id
+           FROM users u
+           JOIN workspace_memberships wm ON wm.user_id = u.id
+          WHERE u.email_lower = $1
+          LIMIT 1",
+    )
+    .bind(email.to_ascii_lowercase())
+    .fetch_one(pool)
+    .await
+    .unwrap_or_else(|e| panic!("resolve user {email:?}: {e}"));
+    row
+}
+
+/// Resolve a team's id by name within the (single) workspace.
+async fn team_id_by_name(world: &FoundryWorld, team_name: &str) -> uuid::Uuid {
+    let harness = world.harness.as_ref().expect("harness");
+    let pool = harness.app.state.store.pool();
+    let row: (uuid::Uuid,) = sqlx::query_as("SELECT id FROM teams WHERE name = $1 LIMIT 1")
+        .bind(team_name)
+        .fetch_one(pool)
+        .await
+        .unwrap_or_else(|e| panic!("resolve team {team_name:?}: {e}"));
+    row.0
+}
+
+/// Mint a REAL machine credential bound to `user_id` and register it in the
+/// denylist, returning the compact JWT to present as the bearer. `exp_offset`
+/// (real seconds from now) lets a Given mint an already-expired token.
+/// `register` lets the forged-credential Given mint a validly-signed JWT whose
+/// `jti` was NEVER inserted (so the denylist refuses it).
+async fn mint_credential(
+    world: &mut FoundryWorld,
+    user_id: uuid::Uuid,
+    workspace_id: uuid::Uuid,
+    scope_team_id: Option<uuid::Uuid>,
+    label: &str,
+    exp_offset_secs: i64,
+    register: bool,
+) -> String {
+    let jti = uuid::Uuid::now_v7();
+    let now = time::OffsetDateTime::now_utc();
+    let exp = now + time::Duration::seconds(exp_offset_secs);
+    if register {
+        let harness = world.harness.as_ref().expect("harness");
+        harness
+            .app
+            .state
+            .store
+            .insert_machine_token(jti, user_id, workspace_id, scope_team_id, exp, label)
+            .await
+            .expect("register machine token");
+        world.fa_credential_jti = Some(jti);
+    } else {
+        world.fa_credential_jti = None;
+    }
+    let claims = foundry_auth::MachineTokenClaims {
+        sub: user_id,
+        scope: scope_team_id,
+        iat: now.unix_timestamp(),
+        exp: exp.unix_timestamp(),
+        jti,
+    };
+    let signer = foundry_auth::test_keys::signer();
+    signer
+        .mint(&claims)
+        .expect("mint machine jwt")
+        .expose_secret()
+        .to_string()
 }
 
 // --------------------------------------------------------------------------

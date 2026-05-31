@@ -433,6 +433,9 @@ pub struct FoundryWorld {
     /// Whether the admin has revoked the active credential (the revoked-token
     /// refusal scenario). The client still presents it; the server denies.
     pub fa_credential_revoked: bool,
+    /// The `jti` of the most-recently minted machine credential, so the
+    /// revoke Given can stamp `revoked_at` on that exact registry row.
+    pub fa_credential_jti: Option<uuid::Uuid>,
     /// Whether Mei is watching the board in real time (the API-write-visible-
     /// to-UI scenario).
     pub fa_watching: bool,

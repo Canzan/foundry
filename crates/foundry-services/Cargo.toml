@@ -28,6 +28,7 @@ foundry-store = { path = "../foundry-store" }
 foundry-auth = { path = "../foundry-auth" }
 uuid = { workspace = true }
 thiserror = { workspace = true }
+time = { workspace = true }
 
 [dev-dependencies]
 # The board read use-case orchestrates the real Postgres store (authz +

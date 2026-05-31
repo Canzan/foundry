@@ -1058,6 +1058,7 @@ dependencies = [
  "foundry-realtime",
  "foundry-store",
  "futures",
+ "jsonwebtoken",
  "once_cell",
  "rand 0.8.6",
  "reqwest",
@@ -1083,12 +1084,16 @@ name = "foundry-api"
 version = "0.3.1"
 dependencies = [
  "axum",
+ "base64",
+ "foundry-auth",
  "foundry-services",
  "foundry-store",
+ "jsonwebtoken",
+ "secrecy",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
- "tower-sessions",
+ "time",
  "uuid",
 ]
 
@@ -1199,6 +1204,7 @@ dependencies = [
  "sqlx",
  "testcontainers-modules",
  "thiserror 1.0.69",
+ "time",
  "tokio",
  "uuid",
 ]
