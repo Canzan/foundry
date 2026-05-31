@@ -79,3 +79,13 @@ When the user signals they are done (e.g. "bye", "done", "wrap up", "end session
 - **Next Steps**: bullet list, max 3 items
 
 Keep `CONTEXT.md` under 20 lines total. Do NOT summarize the full conversation — only what's needed to resume next session.
+
+# Development Workflow
+
+This project uses **trunk-based development**.
+
+- **Commit directly to `main` (trunk).** Do NOT create feature branches by default, and do NOT switch off `main` to do work unless the user explicitly asks.
+- **No pull requests.** Never open a PR. Land work by committing to `main` and pushing.
+- **CI is not a commit gate.** Do NOT wait for, require, or block on CI for commits — commits go straight to trunk. The GitHub Actions workflow is not a per-commit gate.
+- **Validate locally instead.** Before committing, run the local gate `cargo xtask ci` (build + fmt + clippy + tests) — that is the quality bar, not remote CI.
+- Commit when the user asks; keep commits small and frequent in the trunk-based style.
