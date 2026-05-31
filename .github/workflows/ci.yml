@@ -138,6 +138,17 @@ jobs:
       - name: docker build foundry image (used by @docker-compose group)
         run: docker build -t foundry:ci .
 
+      # The US-03 backup/restore lane shells out to pg_dump/pg_restore, and
+      # the test container is pinned to postgres:16-alpine — so the client
+      # must be >= 16 (pg_dump refuses a newer server than itself). Install
+      # it explicitly rather than relying on the runner image's default
+      # client version, which the harness's server pin would otherwise couple to.
+      - name: Install PostgreSQL 16 client (pg_dump/pg_restore for the backup lane)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-16
+          pg_dump --version
+
       - name: cargo test -p foundry-acceptance (all tags)
         env:
           FOUNDRY_ACCEPTANCE_TAGS: all

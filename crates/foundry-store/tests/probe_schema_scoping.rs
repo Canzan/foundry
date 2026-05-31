@@ -23,6 +23,7 @@ use std::str::FromStr;
 use std::time::Duration;
 use testcontainers_modules::postgres::Postgres;
 use testcontainers_modules::testcontainers::runners::AsyncRunner;
+use testcontainers_modules::testcontainers::ImageExt;
 
 /// A pool whose connections pin `search_path` to `schema`, so `current_schema()`
 /// resolves to it — mirroring how the app pins the per-deployment schema.
@@ -41,6 +42,7 @@ async fn pool_on_schema(base: &str, schema: &str) -> PgPool {
 #[tokio::test]
 async fn probe_column_check_is_scoped_to_current_schema() {
     let container = Postgres::default()
+        .with_tag("16-alpine") // match production Postgres (docker-compose / k8s)
         .start()
         .await
         .expect("start postgres container");

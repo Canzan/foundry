@@ -39,10 +39,12 @@ command runs:
   for the one-line `DOCKER_HOST` export the acceptance harness needs.
 
 The full acceptance suite additionally exercises the system `pg_dump` /
-`pg_restore` binaries (slice-3 backup/restore lane). Install them with
-`brew install libpq && brew link --force libpq` (macOS) or
-`apt-get install postgresql-client-16` (Debian/Ubuntu). The default fast
-`cargo test` does **not** need them.
+`pg_restore` binaries (slice-3 backup/restore lane). These must be
+**version 16 or newer** — the test database is Postgres 16, and `pg_dump`
+refuses to dump a server newer than itself. Install with
+`brew install libpq && brew link --force libpq` (macOS — `brew upgrade libpq`
+if you have an older one) or `apt-get install postgresql-client-16`
+(Debian/Ubuntu). The default fast `cargo test` does **not** need them.
 
 ### Five commands from clone to green tests
 

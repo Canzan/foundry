@@ -54,6 +54,7 @@ use std::time::Duration;
 use testcontainers_modules::postgres::Postgres;
 use testcontainers_modules::testcontainers::runners::AsyncRunner;
 use testcontainers_modules::testcontainers::ContainerAsync;
+use testcontainers_modules::testcontainers::ImageExt;
 
 /// 32+-byte test session secret (production rejects shorter). Mirrors
 /// the slice-6 fixture so the subprocess boots identically.
@@ -89,6 +90,7 @@ impl DedicatedDb {
     /// Boot a fresh dedicated Postgres + migrate its `public` schema.
     async fn spawn() -> Self {
         let container: ContainerAsync<Postgres> = Postgres::default()
+            .with_tag("16-alpine") // match production (see harness::ensure_postgres)
             .start()
             .await
             .expect("start dedicated postgres container");

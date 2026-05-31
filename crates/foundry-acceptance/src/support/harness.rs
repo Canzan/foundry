@@ -56,7 +56,11 @@ pub async fn ensure_postgres() -> &'static str {
             // hit PoolTimedOut. The container is ephemeral (one per `cargo
             // test`), so the headroom is free. 300 covers 6 concurrent
             // scenarios at ~30 connections each with margin.
+            // Pin to `16-alpine` to match production (docker-compose.yml +
+            // deploy/k8s); testcontainers' `Postgres::default()` would otherwise
+            // pull 11-alpine, testing against a different major version than ships.
             let container: ContainerAsync<Postgres> = Postgres::default()
+                .with_tag("16-alpine")
                 .with_cmd(["postgres", "-c", "max_connections=300"])
                 .start()
                 .await

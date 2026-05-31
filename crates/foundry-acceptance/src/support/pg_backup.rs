@@ -28,6 +28,7 @@ use std::sync::Arc;
 use testcontainers_modules::postgres::Postgres;
 use testcontainers_modules::testcontainers::runners::AsyncRunner;
 use testcontainers_modules::testcontainers::ContainerAsync;
+use testcontainers_modules::testcontainers::ImageExt;
 use tokio::sync::{Mutex, OnceCell as AsyncOnceCell};
 
 static PG_TOOLS_PROBE: OnceCell<()> = OnceCell::new();
@@ -129,6 +130,7 @@ pub async fn spawn_restore_target() -> RestoreTarget {
     SHARED_RESTORE_TARGET
         .get_or_init(|| async {
             let container: ContainerAsync<Postgres> = Postgres::default()
+                .with_tag("16-alpine") // match production (see harness::ensure_postgres)
                 .start()
                 .await
                 .expect("spawn US-03 shared restore-target postgres");

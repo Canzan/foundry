@@ -102,7 +102,7 @@ pub fn run_backup_verify(dump_path: &Path) -> i32 {
                 "foundry doctor backup-verify: FOUNDRY_DOCTOR_PROBE_URL is required \
                  to count rows. Point it at a writable Postgres instance the \
                  verifier can restore into (e.g. `docker run --rm -d -p 5544:5432 \
-                 -e POSTGRES_PASSWORD=postgres postgres:11-alpine` then export \
+                 -e POSTGRES_PASSWORD=postgres postgres:16-alpine` then export \
                  FOUNDRY_DOCTOR_PROBE_URL=postgres://postgres:postgres@127.0.0.1:5544/postgres).",
             );
             return 5;
