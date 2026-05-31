@@ -606,6 +606,41 @@ mod machine_token_tests {
         );
     }
 
+    // FIX 1 corollary (serde defaults): a genuinely-signed token whose JSON body
+    // OMITS the `iss`/`aud` claims must still verify, because `#[serde(default)]`
+    // supplies the pinned single-issuer constants on decode. If the defaulting
+    // functions returned `""` or some other string, the issuer/audience check
+    // would reject the token — so this exercises the default_iss/default_aud path
+    // through the `verify` driving port (observable: Ok vs Err).
+    #[test]
+    fn token_omitting_iss_aud_verifies_via_serde_defaults() {
+        #[derive(serde::Serialize)]
+        struct ClaimsWithoutIssAud {
+            sub: uuid::Uuid,
+            scope: Option<uuid::Uuid>,
+            iat: i64,
+            exp: i64,
+            jti: uuid::Uuid,
+        }
+        let now = now_unix();
+        let forged = ClaimsWithoutIssAud {
+            sub: uuid::Uuid::now_v7(),
+            scope: None,
+            iat: now,
+            exp: now + 3600,
+            jti: uuid::Uuid::now_v7(),
+        };
+        let key = EncodingKey::from_ed_pem(TEST_PRIV_PEM.as_bytes()).expect("ed key");
+        let jwt =
+            encode(&Header::new(JwtAlgorithm::EdDSA), &forged, &key).expect("encode no-iss/aud");
+        let recovered = verifier()
+            .verify(&jwt)
+            .expect("token without iss/aud must verify via serde defaults");
+        // The recovered claims must carry the pinned defaults, not empty strings.
+        assert_eq!(recovered.iss, MACHINE_TOKEN_ISS);
+        assert_eq!(recovered.aud, MACHINE_TOKEN_AUD);
+    }
+
     // FIX 2 (defense-in-depth): a not-yet-valid token (`nbf` in the future) must
     // be refused even though it is genuinely signed and unexpired.
     #[test]
@@ -679,5 +714,32 @@ mod tests {
         let tok = InviteToken::new(id, exp, &secret).unwrap();
         assert!(InviteToken::verify(id, exp, &tok.signature, &secret).is_ok());
         assert!(InviteToken::verify(id, exp, "AAAA", &secret).is_err());
+    }
+
+    // The invite signature must BIND to the (invite_id, expires_at) pair. If the
+    // signed payload ignored its inputs (a constant), a signature minted for one
+    // invite would validate a DIFFERENT invite — letting an attacker swap the id
+    // or extend the expiry under a genuine signature. Verify the signature does
+    // NOT cross-validate across a different id or a different expiry.
+    #[test]
+    fn invite_signature_binds_to_id_and_expiry() {
+        let secret = SecretString::new("0123456789abcdef0123456789abcdef".to_string().into());
+        let id_a = uuid::Uuid::now_v7();
+        let id_b = uuid::Uuid::now_v7();
+        let exp_a = time::OffsetDateTime::now_utc() + time::Duration::days(7);
+        let exp_b = exp_a + time::Duration::days(1);
+
+        let tok = InviteToken::new(id_a, exp_a, &secret).unwrap();
+
+        // Same signature must NOT verify against a different invite id.
+        assert!(
+            InviteToken::verify(id_b, exp_a, &tok.signature, &secret).is_err(),
+            "signature must not validate a different invite id"
+        );
+        // Same signature must NOT verify against a different expiry.
+        assert!(
+            InviteToken::verify(id_a, exp_b, &tok.signature, &secret).is_err(),
+            "signature must not validate a different expiry"
+        );
     }
 }
