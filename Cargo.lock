@@ -1088,6 +1088,7 @@ dependencies = [
  "foundry-auth",
  "foundry-core",
  "foundry-realtime",
+ "foundry-services",
  "foundry-store",
  "futures",
  "lettre",
@@ -1170,8 +1171,13 @@ dependencies = [
 name = "foundry-services"
 version = "0.3.1"
 dependencies = [
+ "foundry-auth",
  "foundry-core",
+ "foundry-store",
+ "sqlx",
+ "testcontainers-modules",
  "thiserror 1.0.69",
+ "tokio",
  "uuid",
 ]
 

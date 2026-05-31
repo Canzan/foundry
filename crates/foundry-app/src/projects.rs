@@ -213,6 +213,9 @@ pub async fn show_board(
     let Some(user) = signed_in_user(&session).await else {
         return redirect_to("/sign-in");
     };
+    // Resolve the team first so an unknown team renders the 404 page (which
+    // deliberately leaks the team_slug — its existence is not secret) and so
+    // the board heading can show `team.name`.
     let team = match state
         .store
         .find_team_by_slug(user.workspace_id, &team_slug)
@@ -222,11 +225,11 @@ pub async fn show_board(
         Ok(None) => return team_not_found_page(&team_slug),
         Err(err) => return internal_error("find_team_by_slug", err),
     };
-    match state.store.is_team_member(team.id, user.user_id).await {
-        Ok(true) => {}
-        Ok(false) => return non_member_page(&team_slug),
-        Err(err) => return internal_error("is_team_member", err),
-    }
+    // The project lookup supplies the page chrome (name + key prefix) and the
+    // distinct project-not-found page. Membership authz + the issue rows come
+    // from the shared core path (`foundry_services::board::list_board_issues`)
+    // so the browser board and the JSON API read the SAME data the SAME way
+    // (NFR-WEB-BND-05); the use-case re-validates membership before fetching.
     let project = match state
         .store
         .find_project_by_slug(team.id, &project_slug)
@@ -242,9 +245,22 @@ pub async fn show_board(
         }
         Err(err) => return internal_error("find_project_by_slug", err),
     };
-    let issues = match state.store.list_issues_by_project(project.id).await {
+
+    let principal = foundry_services::Principal::Human {
+        user_id: user.user_id,
+        workspace_id: user.workspace_id,
+    };
+    let issues = match foundry_services::board::list_board_issues(
+        &state.store,
+        &principal,
+        &team_slug,
+        &project_slug,
+    )
+    .await
+    {
         Ok(rows) => rows,
-        Err(err) => return internal_error("list_issues_by_project", err),
+        Err(foundry_services::ServiceError::Forbidden) => return non_member_page(&team_slug),
+        Err(err) => return internal_error("list_board_issues", err),
     };
     let key_prefix = match ProjectKey::try_new(&project.key_prefix) {
         Ok(k) => k,
@@ -477,7 +493,7 @@ fn render_error_fragment(message: &str) -> String {
 fn render_board(
     team_name: &str,
     project: &foundry_store::ProjectRow,
-    issues: &[foundry_store::IssueRow],
+    issues: &[foundry_services::BoardIssue],
     key_prefix: &ProjectKey,
 ) -> String {
     // Group issues by state. Slice 1: all newly filed issues land in
@@ -487,7 +503,7 @@ fn render_board(
         .iter()
         .map(|col| {
             let state_key = column_label_to_state(col);
-            let column_issues: Vec<&foundry_store::IssueRow> =
+            let column_issues: Vec<&foundry_services::BoardIssue> =
                 issues.iter().filter(|i| i.state == state_key).collect();
             let body = if column_issues.is_empty() {
                 "<p class=\"empty\">No issues yet</p>".to_string()
@@ -516,7 +532,7 @@ fn render_board(
     // pressing `j` moves "to the next-older issue" consistently no
     // matter which column the user is in. `hidden` + `aria-hidden` keeps
     // it out of the rendered layout AND the AT tree.
-    let mut sorted_issues: Vec<&foundry_store::IssueRow> = issues.iter().collect();
+    let mut sorted_issues: Vec<&foundry_services::BoardIssue> = issues.iter().collect();
     sorted_issues.sort_by_key(|i| i.number);
     let kb_items: String = sorted_issues
         .iter()

@@ -52,6 +52,26 @@ pub enum Principal {
     },
 }
 
+impl Principal {
+    /// The acting user's id — the same value whether the caller is a browser
+    /// session (Human) or a bearer credential (Machine). Authorization is
+    /// computed from this exactly as the HTML handler does today.
+    pub fn user_id(&self) -> uuid::Uuid {
+        match self {
+            Principal::Human { user_id, .. } | Principal::Machine { user_id, .. } => *user_id,
+        }
+    }
+
+    /// The workspace the actor is bound to.
+    pub fn workspace_id(&self) -> uuid::Uuid {
+        match self {
+            Principal::Human { workspace_id, .. } | Principal::Machine { workspace_id, .. } => {
+                *workspace_id
+            }
+        }
+    }
+}
+
 /// The single source of truth for use-case failures (DESIGN
 /// `error-and-observability.md`). foundry-api maps each variant to one HTTP
 /// status + JSON envelope code; foundry-app (Feature B) maps the SAME variant
@@ -96,20 +116,75 @@ pub struct CreatedIssue {
 
 pub mod board {
     use super::*;
+    use foundry_store::Store;
 
     /// US-W05a / Feature B board read. The SAME function the JSON board
     /// endpoint and (Feature B) the HTML board call — the literal proof of
     /// core neutrality (NFR-WEB-BND-05).
     ///
-    /// DELIVER signature (per architecture.md) takes `&Store`, the `Principal`,
-    /// and the team/project slugs; performs the membership authz; calls
-    /// `store.list_issues_by_project`; returns the neutral list.
-    pub fn list_board_issues(
-        _principal: &Principal,
-        _team_slug: &str,
-        _project_slug: &str,
+    /// Takes `&Store`, the `Principal`, and the team/project slugs; performs
+    /// the membership authz (`Store::is_team_member`) THEN
+    /// `Store::list_issues_by_project`; returns the neutral list (no HTML,
+    /// no JSON).
+    pub async fn list_board_issues(
+        store: &Store,
+        principal: &Principal,
+        team_slug: &str,
+        project_slug: &str,
     ) -> Result<Vec<BoardIssue>, ServiceError> {
-        panic!("{}", NOT_IMPLEMENTED)
+        let team = store
+            .find_team_by_slug(principal.workspace_id(), team_slug)
+            .await
+            .map_err(|_| ServiceError::Internal)?
+            .ok_or(ServiceError::NotFound)?;
+
+        // Membership authz BEFORE any fetch — a non-member never sees the
+        // board's issues (NFR: refuse without leaking data).
+        let is_member = store
+            .is_team_member(team.id, principal.user_id())
+            .await
+            .map_err(|_| ServiceError::Internal)?;
+        if !is_member {
+            return Err(ServiceError::Forbidden);
+        }
+
+        let project = store
+            .find_project_by_slug(team.id, project_slug)
+            .await
+            .map_err(|_| ServiceError::Internal)?
+            .ok_or(ServiceError::NotFound)?;
+
+        let key_prefix = foundry_core::ProjectKey::try_new(&project.key_prefix)
+            .map_err(|_| ServiceError::Internal)?;
+
+        let rows = store
+            .list_issues_by_project(project.id)
+            .await
+            .map_err(|_| ServiceError::Internal)?;
+
+        Ok(rows
+            .into_iter()
+            .map(|row| BoardIssue {
+                key: issue_key(&key_prefix, row.number),
+                number: row.number,
+                title: row.title,
+                state: row.state,
+            })
+            .collect())
+    }
+
+    /// Render the canonical `{PREFIX}-{N}` issue key, matching the format the
+    /// HTML board produces via `foundry_core::IssueKey`. Falls back to a manual
+    /// format only if the (allocator-guaranteed `>= 1`) number is ever invalid,
+    /// so a bad row can never panic the read path.
+    fn issue_key(key_prefix: &foundry_core::ProjectKey, number: i32) -> String {
+        match u32::try_from(number)
+            .ok()
+            .and_then(|n| foundry_core::IssueKey::try_new(key_prefix, n).ok())
+        {
+            Some(key) => key.to_string(),
+            None => format!("{}-{}", key_prefix.as_str(), number),
+        }
     }
 }
 

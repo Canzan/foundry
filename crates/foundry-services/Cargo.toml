@@ -24,5 +24,15 @@ path = "src/lib.rs"
 
 [dependencies]
 foundry-core = { path = "../foundry-core" }
+foundry-store = { path = "../foundry-store" }
+foundry-auth = { path = "../foundry-auth" }
 uuid = { workspace = true }
 thiserror = { workspace = true }
+
+[dev-dependencies]
+# The board read use-case orchestrates the real Postgres store (authz +
+# fetch), so its tests spin a real Postgres (@real-io, single-example —
+# no domain invariant warrants proptest here).
+tokio = { workspace = true }
+sqlx = { workspace = true }
+testcontainers-modules = { workspace = true }
