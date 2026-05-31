@@ -15,3 +15,7 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow = { workspace = true }
+
+[dev-dependencies]
+# check-arch's AST detectors are unit-tested against staged fixture trees.
+tempfile = { workspace = true }

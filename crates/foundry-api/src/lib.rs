@@ -1,7 +1,5 @@
 //! foundry-api — the JSON API driving adapter (`/api/v1`).
 //!
-//! SCAFFOLD: true  (RED scaffold created by DISTILL, Mandate 7)
-//!
 //! Per DESIGN (`docs/feature/web-tier-extraction/design/api-contract.md`,
 //! `auth.md`, `architecture.md`, ADR-W01) this crate serves the first-class
 //! JSON API: read + write of issues/comments under `/api/v1`, authenticated by
@@ -37,8 +35,7 @@ use axum::response::{IntoResponse, Json, Response};
 use axum::routing::{get, patch, post};
 use axum::Router;
 use foundry_auth::MachineTokenVerifier;
-use foundry_services::{Principal, ServiceError};
-use foundry_store::Store;
+use foundry_services::{Principal, ServiceError, Services};
 
 /// The stable JSON error envelope (api-contract.md §"Error envelope").
 /// Every non-2xx response carries exactly this shape; the `code` is a stable
@@ -156,11 +153,14 @@ impl IntoResponse for ApiError {
 
 /// The `/api/v1` sub-router. Merged into `foundry_app::build_router` via
 /// `.merge(foundry_api::routes())`. Generic over the composition root's state
-/// `S`: the handler extracts `State<Arc<Store>>` (board read seam) and the
+/// `S`: the handler extracts `State<Services>` (the shared seam) and the
 /// `MachinePrincipal` bearer extractor reads `Arc<MachineTokenVerifier>` +
-/// `Arc<Store>`, both derived from `S` through `FromRef` (foundry-app
-/// implements `FromRef<AppState>` for each), so the sub-router composes into
-/// the parent `Router<AppState>` without foundry-api depending on foundry-app.
+/// `Services`, both derived from `S` through `FromRef` (foundry-app implements
+/// `FromRef<AppState>` for each), so the sub-router composes into the parent
+/// `Router<AppState>` without foundry-api depending on foundry-app — and
+/// WITHOUT foundry-api naming `foundry_store::Store` (the `Services` handle
+/// owns the only `Store`, satisfying the `foundry-api ⊀ foundry-store`
+/// boundary-guard ban, LAYER 2).
 ///
 /// Slice 2 (US-W05b): this group is mounted OUTSIDE the session + CSRF tower
 /// layers (auth.md §Coexistence). A machine request carries a bearer JWT and
@@ -168,7 +168,7 @@ impl IntoResponse for ApiError {
 /// the `MachinePrincipal` `FromRequestParts` extractor. Emits JSON only.
 pub fn routes<S>() -> Router<S>
 where
-    Arc<Store>: FromRef<S>,
+    Services: FromRef<S>,
     Arc<MachineTokenVerifier>: FromRef<S>,
     S: Clone + Send + Sync + 'static,
 {
@@ -198,13 +198,13 @@ where
 /// 403 on scope/membership) and serializes the neutral result as a JSON array
 /// (empty project -> `[]`, 200).
 async fn list_issues_handler(
-    State(store): State<Arc<Store>>,
+    State(services): State<Services>,
     MachinePrincipal(principal): MachinePrincipal,
     Path((team_slug, project_slug)): Path<(String, String)>,
 ) -> Result<Json<Vec<IssueJson>>, ApiError> {
-    let rows =
-        foundry_services::board::list_board_issues(&store, &principal, &team_slug, &project_slug)
-            .await?;
+    let rows = services
+        .list_board_issues(&principal, &team_slug, &project_slug)
+        .await?;
     let body = rows
         .into_iter()
         .map(|r| IssueJson {
@@ -225,19 +225,14 @@ async fn list_issues_handler(
 /// An empty/over-long title is rejected by the service as `Validation` → 422
 /// with the SAME "Title is required" copy the UI shows (rule-parity).
 async fn create_issue_handler(
-    State(store): State<Arc<Store>>,
+    State(services): State<Services>,
     MachinePrincipal(principal): MachinePrincipal,
     Path((team_slug, project_slug)): Path<(String, String)>,
     Json(request): Json<CreateIssueRequest>,
 ) -> Result<Response, ApiError> {
-    let created = foundry_services::issues::create_issue(
-        &store,
-        &principal,
-        &team_slug,
-        &project_slug,
-        &request.title,
-    )
-    .await?;
+    let created = services
+        .create_issue(&principal, &team_slug, &project_slug, &request.title)
+        .await?;
     let body = IssueJson {
         key: created.key,
         number: created.number,
@@ -260,20 +255,20 @@ async fn create_issue_handler(
 /// state through the SAME `normalize_state` the UI uses) and returns `200` with
 /// the updated issue.
 async fn change_issue_state_handler(
-    State(store): State<Arc<Store>>,
+    State(services): State<Services>,
     MachinePrincipal(principal): MachinePrincipal,
     Path((team_slug, project_slug, number)): Path<(String, String, i32)>,
     Json(request): Json<PatchIssueRequest>,
 ) -> Result<Json<IssueJson>, ApiError> {
-    let updated = foundry_services::issues::change_issue_state(
-        &store,
-        &principal,
-        &team_slug,
-        &project_slug,
-        number,
-        &request.state,
-    )
-    .await?;
+    let updated = services
+        .change_issue_state(
+            &principal,
+            &team_slug,
+            &project_slug,
+            number,
+            &request.state,
+        )
+        .await?;
     Ok(Json(IssueJson {
         key: updated.key,
         number: updated.number,
@@ -288,20 +283,14 @@ async fn change_issue_state_handler(
 /// (NFR-WEB-API-CON-02) — and returns `201` with the sanitized comment. The
 /// `body_html` rides inside a JSON string field (allowed, not an HTML body).
 async fn create_comment_handler(
-    State(store): State<Arc<Store>>,
+    State(services): State<Services>,
     MachinePrincipal(principal): MachinePrincipal,
     Path((team_slug, project_slug, number)): Path<(String, String, i32)>,
     Json(request): Json<CommentBodyRequest>,
 ) -> Result<(StatusCode, Json<CommentJson>), ApiError> {
-    let view = foundry_services::comments::create_comment(
-        &store,
-        &principal,
-        &team_slug,
-        &project_slug,
-        number,
-        &request.body,
-    )
-    .await?;
+    let view = services
+        .create_comment(&principal, &team_slug, &project_slug, number, &request.body)
+        .await?;
     Ok((StatusCode::CREATED, Json(view.into())))
 }
 
@@ -310,21 +299,21 @@ async fn create_comment_handler(
 /// decided (a non-author edit is `Forbidden` → 403); returns `200` with the
 /// updated comment.
 async fn edit_comment_handler(
-    State(store): State<Arc<Store>>,
+    State(services): State<Services>,
     MachinePrincipal(principal): MachinePrincipal,
     Path((team_slug, project_slug, number, comment_id)): Path<(String, String, i32, uuid::Uuid)>,
     Json(request): Json<CommentBodyRequest>,
 ) -> Result<Json<CommentJson>, ApiError> {
-    let view = foundry_services::comments::edit_comment(
-        &store,
-        &principal,
-        &team_slug,
-        &project_slug,
-        number,
-        comment_id,
-        &request.body,
-    )
-    .await?;
+    let view = services
+        .edit_comment(
+            &principal,
+            &team_slug,
+            &project_slug,
+            number,
+            comment_id,
+            &request.body,
+        )
+        .await?;
     Ok(Json(view.into()))
 }
 
@@ -344,19 +333,19 @@ pub struct MachinePrincipal(pub Principal);
 impl<S> FromRequestParts<S> for MachinePrincipal
 where
     Arc<MachineTokenVerifier>: FromRef<S>,
-    Arc<Store>: FromRef<S>,
+    Services: FromRef<S>,
     S: Send + Sync,
 {
     type Rejection = ApiError;
 
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
         let verifier = Arc::<MachineTokenVerifier>::from_ref(state);
-        let store = Arc::<Store>::from_ref(state);
+        let services = Services::from_ref(state);
         let header = parts
             .headers
             .get(axum::http::header::AUTHORIZATION)
             .and_then(|value| value.to_str().ok());
-        let principal = token_auth::authenticate(header, &verifier, &store).await?;
+        let principal = token_auth::authenticate(header, &verifier, &services).await?;
         Ok(MachinePrincipal(principal))
     }
 }
@@ -409,10 +398,10 @@ pub mod token_auth {
     /// Authenticate a bearer credential end-to-end and resolve it to a
     /// `Principal::Machine` (auth.md §"Per-request verification" steps 1-5):
     /// verify the crypto via [`verify_bearer`], then check the `jti` denylist
-    /// through the `foundry_services::auth` helper (the SINGLE allowed
-    /// foundry-store touch for this adapter — routed through services so the
-    /// adapter never depends on foundry-store for the denylist, staying ahead
-    /// of the Phase-04 boundary guard). A best-effort `last_used` touch is
+    /// through `Services::resolve_active_token` (the SINGLE store touch for this
+    /// adapter — routed through the `Services` handle so foundry-api never names
+    /// `foundry_store::Store`, satisfying the Phase-04 boundary guard's
+    /// `foundry-api ⊀ foundry-store` ban). A best-effort `last_used` touch is
     /// fire-and-forget and never blocks or fails the request.
     ///
     /// Every failure (missing / malformed / bad-signature / wrong-alg /
@@ -421,11 +410,11 @@ pub mod token_auth {
     pub async fn authenticate(
         authorization_header: Option<&str>,
         verifier: &MachineTokenVerifier,
-        store: &Store,
+        services: &Services,
     ) -> Result<Principal, ServiceError> {
         let claims = verify_bearer(authorization_header, verifier)?;
         let now = time::OffsetDateTime::now_utc();
-        let active = foundry_services::auth::resolve_active_token(store, claims.jti, now).await?;
+        let active = services.resolve_active_token(claims.jti, now).await?;
         Ok(Principal::Machine {
             user_id: active.user_id,
             workspace_id: active.workspace_id,

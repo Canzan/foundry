@@ -59,6 +59,18 @@ jobs:
       - name: cargo clippy --all-targets --release -- -D warnings
         run: cargo clippy --all-targets --release -- -D warnings
 
+      # US-W06 boundary guard (boundary-guard.md): the AST source-walk layer
+      # (api≠HTML, api≠ad-hoc-authz, JWT alg pinned to [EdDSA]) PLUS the
+      # cargo-deny crate-graph dependency-direction layer. Cheap (no DB, pure
+      # source + crate-graph analysis), so it lives on this lint lane — a PR
+      # that violates the boundary goes red before merge. The check shells out
+      # to `cargo deny`, so install it first.
+      - name: install cargo-deny (for check-arch's dependency-direction layer)
+        run: cargo install --locked cargo-deny || true
+
+      - name: cargo xtask check-arch (web/api boundary guard)
+        run: cargo run -q -p xtask -- check-arch
+
   # --------------------------------------------------------------------
   # Job 2 — build the workspace + run unit/integration tests against a
   # Postgres service container. Excludes the @docker-compose acceptance

@@ -1,7 +1,5 @@
 //! foundry-services — the shared application-service seam.
 //!
-//! SCAFFOLD: true  (RED scaffold created by DISTILL, Mandate 7)
-//!
 //! Per DESIGN (`docs/feature/web-tier-extraction/design/architecture.md`
 //! §"The shared application-service seam", ADR-W04 + ADR-W07) this crate is
 //! the single, acyclic home for the use-case orchestration that BOTH the HTML
@@ -12,23 +10,135 @@
 //!   - the use-cases: `board::list_board_issues`, `issues::{create, change_state}`,
 //!     `comments::{create, edit}`.
 //!
-//! DELIVER lifts the orchestration out of the foundry-app handlers (a pure
-//! move-and-call, keeping the HTML responses byte-identical — NFR-WEB-COMPAT-02)
-//! and points both adapters at these functions. The `panic!`s below classify
-//! as RED (MISSING_FUNCTIONALITY), never BROKEN.
-//!
-//! Signatures here are intentionally store-agnostic placeholders: the real
-//! functions take the `foundry-store` `Store` + repositories, which this
-//! scaffold does NOT yet depend on (keeping the workspace build green). DELIVER
-//! adds the `foundry-store` / `foundry-auth` dependencies and the real
-//! parameter lists per architecture.md.
+//! Both adapters hold a [`Services`] handle (which owns the single
+//! `Arc<Store>`) and call the use-cases as methods — they never name
+//! `foundry_store::Store` themselves, which is what makes the
+//! `foundry-api ⊀ foundry-store` `cargo-deny` ban (boundary-guard.md LAYER 2)
+//! satisfiable on the real tree.
 
 #![forbid(unsafe_code)]
 
-/// Marker so DELIVER can `grep -rn "SCAFFOLD: true" crates/` to find every
-/// stub that still needs replacing before the boundary guard's
-/// "no scaffolds remain" check passes.
-pub const __SCAFFOLD__: bool = true;
+use std::sync::Arc;
+
+use foundry_store::Store;
+
+/// The shared application-service handle both adapter crates hold.
+///
+/// This is the boundary seam (ADR-W04 / boundary-guard.md LAYER 2): the
+/// adapter crates (`foundry-api`, and Feature B's `foundry-web`) hold a
+/// `Services` — they NEVER name `foundry_store::Store` themselves, so the
+/// `cargo-deny` `foundry-api ⊀ foundry-store` ban is satisfiable on the real
+/// tree. `Services` owns the single `Arc<Store>` and exposes the use-cases as
+/// methods that delegate to the free functions below; the only `Store`-typed
+/// surface lives INSIDE this crate.
+#[derive(Clone)]
+pub struct Services {
+    store: Arc<Store>,
+}
+
+impl Services {
+    /// Wrap the composition root's shared `Arc<Store>`. Built once at boot in
+    /// `foundry-app`'s composition and handed to both adapters via `FromRef`.
+    pub fn new(store: Arc<Store>) -> Self {
+        Services { store }
+    }
+
+    /// US-W05a board read — delegates to [`board::list_board_issues`].
+    pub async fn list_board_issues(
+        &self,
+        principal: &Principal,
+        team_slug: &str,
+        project_slug: &str,
+    ) -> Result<Vec<BoardIssue>, ServiceError> {
+        board::list_board_issues(&self.store, principal, team_slug, project_slug).await
+    }
+
+    /// US-W05c create-issue — delegates to [`issues::create_issue`].
+    pub async fn create_issue(
+        &self,
+        principal: &Principal,
+        team_slug: &str,
+        project_slug: &str,
+        title: &str,
+    ) -> Result<CreatedIssue, ServiceError> {
+        issues::create_issue(&self.store, principal, team_slug, project_slug, title).await
+    }
+
+    /// US-W05c change-state — delegates to [`issues::change_issue_state`].
+    pub async fn change_issue_state(
+        &self,
+        principal: &Principal,
+        team_slug: &str,
+        project_slug: &str,
+        number: i32,
+        new_state: &str,
+    ) -> Result<BoardIssue, ServiceError> {
+        issues::change_issue_state(
+            &self.store,
+            principal,
+            team_slug,
+            project_slug,
+            number,
+            new_state,
+        )
+        .await
+    }
+
+    /// US-W05c create-comment — delegates to [`comments::create_comment`].
+    pub async fn create_comment(
+        &self,
+        principal: &Principal,
+        team_slug: &str,
+        project_slug: &str,
+        issue_number: i32,
+        body: &str,
+    ) -> Result<comments::CommentView, ServiceError> {
+        comments::create_comment(
+            &self.store,
+            principal,
+            team_slug,
+            project_slug,
+            issue_number,
+            body,
+        )
+        .await
+    }
+
+    /// US-W05c edit-comment — delegates to [`comments::edit_comment`].
+    #[allow(clippy::too_many_arguments)]
+    pub async fn edit_comment(
+        &self,
+        principal: &Principal,
+        team_slug: &str,
+        project_slug: &str,
+        issue_number: i32,
+        comment_id: uuid::Uuid,
+        new_body: &str,
+    ) -> Result<comments::CommentView, ServiceError> {
+        comments::edit_comment(
+            &self.store,
+            principal,
+            team_slug,
+            project_slug,
+            issue_number,
+            comment_id,
+            new_body,
+        )
+        .await
+    }
+
+    /// US-W05b per-request `jti` denylist read — delegates to
+    /// [`auth::resolve_active_token`]. The ONLY store touch the token-auth
+    /// extractor needs, routed through `Services` so `foundry-api` never names
+    /// `foundry_store::Store` for it.
+    pub async fn resolve_active_token(
+        &self,
+        jti: uuid::Uuid,
+        now: time::OffsetDateTime,
+    ) -> Result<auth::ActiveMachineToken, ServiceError> {
+        auth::resolve_active_token(&self.store, jti, now).await
+    }
+}
 
 /// The authenticated actor a use-case acts on behalf of. Per architecture.md
 /// the service cannot tell whether the caller is a human (browser session) or

@@ -6,32 +6,22 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "Foundry JSON API driving adapter (/api/v1) — RED scaffold (DISTILL)"
+description = "Foundry JSON API driving adapter (/api/v1)"
 publish = false
 
-# SCAFFOLD: true
-# RED-ready scaffold created by DISTILL (Mandate 7) for Feature A
-# "Programmatic Foundry" (US-W05a/b/c, US-W06). Per DESIGN ADR-W01 this is the
-# JSON driving-adapter crate compiled INTO the one foundry binary, a peer of
-# foundry-app. It depends on foundry-services (the shared seam) and
-# foundry-auth (the MachineToken verify primitive) — NEVER on foundry-store
-# directly (the cargo-deny boundary rule, US-W06). DELIVER fills in the
-# handlers, the token_auth extractor, the IntoResponse error mapping, and the
-# `routes(state)` sub-router that foundry-app's build_router merges in.
-#
-# This crate is NOT yet a dependency of foundry-app or the foundry binary, so
-# adding it as a workspace member compiles independently and does not perturb
-# the existing green acceptance suite. DELIVER adds the foundry-app ->
-# foundry-api composition dependency and the AppState machine_token_verifier
-# field when it wires the /api/v1 routes in (see distill/step-skeletons.md
-# "What DELIVER must wire").
+# Per DESIGN ADR-W01 this is the JSON driving-adapter crate compiled INTO the
+# one foundry binary, a peer of foundry-app. It depends on foundry-services (the
+# shared seam, via the `Services` handle) and foundry-auth (the MachineToken
+# verify primitive) — and NEVER on foundry-store directly. The `Services` handle
+# owns the only `Arc<Store>`; this crate never names `foundry_store::Store`,
+# which is the structural fact the `cargo-deny` `foundry-api ⊀ foundry-store`
+# ban enforces (US-W06 boundary guard, LAYER 2).
 
 [lib]
 path = "src/lib.rs"
 
 [dependencies]
 foundry-services = { path = "../foundry-services" }
-foundry-store = { path = "../foundry-store" }
 foundry-auth = { path = "../foundry-auth" }
 axum = { workspace = true }
 time = { workspace = true }

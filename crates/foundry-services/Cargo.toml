@@ -6,18 +6,14 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "Foundry shared application-service seam (use-cases shared by the HTML and JSON adapters) — RED scaffold (DISTILL)"
+description = "Foundry shared application-service seam (use-cases shared by the HTML and JSON adapters)"
 publish = false
 
-# SCAFFOLD: true
-# This crate is a RED-ready scaffold created by DISTILL (Mandate 7) for
-# Feature A "Programmatic Foundry" (US-W05a/b/c). Per DESIGN ADR-W04/W07 it is
-# the single home for the use-case orchestration both foundry-app (HTML) and
-# foundry-api (JSON) call. DELIVER replaces the panic! bodies with the
-# extracted orchestration (authz -> validate -> sanitize -> store-write ->
-# outbox) lifted out of the foundry-app handlers, returning neutral domain
-# results. The crate is NOT yet a dependency of any other crate, so adding it
-# as a workspace member does not perturb the existing green acceptance suite.
+# Per DESIGN ADR-W04/W07 this crate is the single home for the use-case
+# orchestration both foundry-app (HTML) and foundry-api (JSON) call. It owns the
+# `Services` handle wrapping the shared `Arc<Store>`; the adapters hold
+# `Services` and never name `foundry_store::Store` directly (boundary-guard.md
+# LAYER 2 / the `foundry-api ⊀ foundry-store` cargo-deny ban).
 
 [lib]
 path = "src/lib.rs"

@@ -1372,13 +1372,25 @@ async fn capture(world: &mut FoundryWorld, resp: reqwest::Response) {
     world.last_body = Some(body);
 }
 
-/// Run the boundary check as a subprocess: `cargo xtask check-arch`. Today the
-/// subcommand does not exist, so `xtask` exits non-zero with an "unknown
-/// subcommand" usage — which makes the clean-tree "check passes" scenario fail
-/// RED (the right reason: the guard is unimplemented). DELIVER implements the
-/// subcommand; the planted-violation copies are produced by DELIVER's harness
-/// extension (see step-skeletons.md "Boundary guard wiring").
+/// Run the boundary check as a real subprocess: `cargo xtask check-arch`.
+///
+/// LAYER 3 (the injected-violation gold test, boundary-guard.md / Principle
+/// 12c): when the scenario planted a violation (`world.fa_guard_violation`),
+/// we materialize a throwaway COPY of the workspace tree, plant the violation
+/// into that copy, and run `check-arch --root <copy>` against IT — asserting the
+/// guard goes RED, proving it bites. A clean scenario runs check-arch against
+/// the real tree, asserting it passes. (Mirrors `support::test_migration`'s
+/// per-scenario tree-staging discipline.)
+/// Serializes the four @boundary-guard scenarios. The guard subprocess + its
+/// nested `cargo deny` + the per-scenario full-tree copy are heavy; running
+/// them concurrently with each other (and racing the debug build lock) caused
+/// "never executed" exec failures under cucumber's 6-way concurrency. One at a
+/// time keeps the guard lane deterministic without serialising the DB lane.
+static GUARD_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 async fn run_boundary_check(world: &mut FoundryWorld) {
+    let _guard = GUARD_LOCK.lock().await;
+
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
     // crates/foundry-acceptance -> workspace root is two levels up.
     let workspace_root = std::path::Path::new(manifest_dir)
@@ -1386,20 +1398,175 @@ async fn run_boundary_check(world: &mut FoundryWorld) {
         .and_then(|p| p.parent())
         .map(|p| p.to_path_buf())
         .unwrap_or_else(|| std::path::PathBuf::from("."));
+    let violation = world.fa_guard_violation.clone();
+
+    let (root, _staged): (std::path::PathBuf, Option<tempfile::TempDir>) = match &violation {
+        None => (workspace_root.clone(), None),
+        Some(kind) => {
+            let staged = tokio::task::spawn_blocking({
+                let src = workspace_root.clone();
+                let kind = kind.clone();
+                move || stage_violation_tree(&src, &kind)
+            })
+            .await
+            .expect("join staging")
+            .expect("stage planted-violation tree copy");
+            (staged.path().to_path_buf(), Some(staged))
+        }
+    };
+
+    // Build the xtask binary ONCE against the live target dir, then exec the
+    // binary path directly. Using `cargo run` per-scenario raced the debug
+    // build lock under concurrency ("could not execute process … never
+    // executed"); building first (serialised by GUARD_LOCK) then exec'ing the
+    // resolved binary is deterministic. `cargo deny` inside check-arch is a
+    // standalone binary (no build), so it does not re-contend.
+    let xtask_bin = ensure_xtask_built(&workspace_root).await;
+
+    let run_root = root.clone();
+    let cwd = workspace_root.clone();
     let output = tokio::task::spawn_blocking(move || {
-        std::process::Command::new(env!("CARGO"))
-            .current_dir(&workspace_root)
-            .args(["run", "-q", "-p", "xtask", "--", "check-arch"])
+        std::process::Command::new(&xtask_bin)
+            .current_dir(&cwd)
+            .args(["check-arch", "--root"])
+            .arg(&run_root)
             .output()
     })
     .await
     .expect("join spawn_blocking")
-    .expect("spawn cargo xtask check-arch");
+    .expect("spawn xtask check-arch");
     world.fa_guard_exit_code = output.status.code();
     let mut combined = String::new();
     combined.push_str(&String::from_utf8_lossy(&output.stdout));
     combined.push_str(&String::from_utf8_lossy(&output.stderr));
     world.fa_guard_stderr = Some(combined);
+}
+
+/// Build `xtask` once (debug) and return the resolved binary path. Subsequent
+/// calls re-run `cargo build -p xtask` (a fast no-op once built) and reuse the
+/// path, so the exec target always exists.
+async fn ensure_xtask_built(workspace_root: &std::path::Path) -> std::path::PathBuf {
+    let cwd = workspace_root.to_path_buf();
+    let status = tokio::task::spawn_blocking(move || {
+        std::process::Command::new(env!("CARGO"))
+            .current_dir(&cwd)
+            .args(["build", "-q", "-p", "xtask"])
+            .status()
+    })
+    .await
+    .expect("join build")
+    .expect("build xtask");
+    assert!(
+        status.success(),
+        "failed to build xtask for the boundary guard"
+    );
+    workspace_root.join("target").join("debug").join("xtask")
+}
+
+/// Materialize a throwaway COPY of the workspace tree and plant a single
+/// boundary violation into it, so `check-arch --root <copy>` goes RED. The copy
+/// excludes `target/` and `.git/` (huge + irrelevant). Returns the owning
+/// `TempDir` (kept alive for the subprocess's lifetime).
+fn stage_violation_tree(src: &std::path::Path, kind: &str) -> std::io::Result<tempfile::TempDir> {
+    let dir = tempfile::Builder::new()
+        .prefix("foundry-usw06-guard-")
+        .tempdir()?;
+    copy_tree_excluding(src, dir.path(), &["target", ".git"])?;
+
+    match kind {
+        // (a) an `Html(..)` return inside a foundry-api handler.
+        "api-builds-page" => {
+            let path = dir
+                .path()
+                .join("crates/foundry-api/src/planted_violation.rs");
+            std::fs::write(
+                &path,
+                "// planted by the us-w06 gold test\npub fn page() -> axum::response::Html<String> { axum::response::Html(\"<html><body>nope</body></html>\".to_string()) }\n",
+            )?;
+        }
+        // (b) a `foundry-api -> foundry-store` dependency edge in Cargo.toml.
+        "api-depends-on-store" => {
+            let manifest = dir.path().join("crates/foundry-api/Cargo.toml");
+            // The dependency must sit under [dependencies] so cargo resolves a
+            // real foundry-api -> foundry-store edge that cargo-deny then bans.
+            let patched = inject_under_dependencies(
+                &std::fs::read_to_string(&manifest)?,
+                "foundry-store = { path = \"../foundry-store\" }",
+            );
+            std::fs::write(&manifest, patched)?;
+        }
+        // (c) a `Validation` that accepts any algorithm.
+        "verifier-accepts-any-alg" => {
+            let path = dir.path().join("crates/foundry-auth/src/lib.rs");
+            let contents = std::fs::read_to_string(&path)?;
+            // Widen the EdDSA-only pin to also admit HS256 (the alg-confusion
+            // footgun) — the AST layer must report the lost single-alg pin.
+            let patched = contents.replace(
+                "validation.algorithms = vec![JwtAlgorithm::EdDSA];",
+                "validation.algorithms = vec![JwtAlgorithm::EdDSA, JwtAlgorithm::HS256];",
+            );
+            std::fs::write(&path, patched)?;
+        }
+        other => {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("unknown planted violation kind: {other}"),
+            ));
+        }
+    }
+    Ok(dir)
+}
+
+/// Append `dep_line` to the `[dependencies]` table of a Cargo.toml string,
+/// right after the `[dependencies]` header so it lands inside the table.
+fn inject_under_dependencies(manifest: &str, dep_line: &str) -> String {
+    let mut out = String::with_capacity(manifest.len() + dep_line.len() + 1);
+    let mut injected = false;
+    for line in manifest.lines() {
+        out.push_str(line);
+        out.push('\n');
+        if !injected && line.trim() == "[dependencies]" {
+            out.push_str(dep_line);
+            out.push('\n');
+            injected = true;
+        }
+    }
+    if !injected {
+        // No [dependencies] header found — append a fresh table.
+        out.push_str("\n[dependencies]\n");
+        out.push_str(dep_line);
+        out.push('\n');
+    }
+    out
+}
+
+/// Recursively copy `src` into `dst`, skipping any top-level-or-nested
+/// directory whose file name is in `exclude`.
+fn copy_tree_excluding(
+    src: &std::path::Path,
+    dst: &std::path::Path,
+    exclude: &[&str],
+) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
+        if exclude.iter().any(|e| *e == name_str) {
+            continue;
+        }
+        let from = entry.path();
+        let to = dst.join(&name);
+        let file_type = entry.file_type()?;
+        if file_type.is_dir() {
+            copy_tree_excluding(&from, &to, exclude)?;
+        } else if file_type.is_file() {
+            std::fs::copy(&from, &to)?;
+        }
+        // Symlinks (rare in the tree) are skipped — none are load-bearing for
+        // the source/crate-graph analysis.
+    }
+    Ok(())
 }
 
 // --------------------------------------------------------------------------

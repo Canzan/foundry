@@ -64,9 +64,41 @@ wildcards         = "deny"
 # is not a real wildcard, it's a path dep. Let cargo-deny see them as
 # such.
 allow-wildcard-paths = true
-# Architecture rule (architecture.md "Layered Architecture"):
-# the three middle crates do not depend on each other.
-deny = []
+
+# US-W06 boundary guard — LAYER 2 (dependency direction as a Cargo-graph
+# fact; boundary-guard.md / architecture.md "Dependency direction after
+# Feature A"). The crate split (ADR-W01) upgraded these invariants from an
+# AST convention to a `cargo-deny` ban. On a violation cargo-deny NAMES the
+# forbidden crate + the wrapper that pulled it in.
+#
+# The mechanism: deny a crate outright, then `wrappers` lists the ONLY crates
+# permitted to depend on it. A dependency edge from any crate NOT in the
+# wrapper list is a hard error.
+#
+# Rule 1 — the JSON adapter must reach persistence ONLY through the shared
+# `foundry-services` seam, NEVER `foundry-store` directly. `foundry-api` is
+# deliberately ABSENT from the wrapper list, so a `foundry-api -> foundry-store`
+# edge (e.g. re-adding `foundry-store` to crates/foundry-api/Cargo.toml) fails
+# the build, naming `foundry-store` as forbidden. The wrappers are the crates
+# that legitimately depend on `foundry-store` today: the shared seam, the
+# composition root + binary (foundry-app, which still hosts the HTML handlers
+# until Feature B extracts foundry-web), and the acceptance harness.
+# (foundry-web's extraction in Feature B will REMOVE foundry-app from this list,
+# tightening the rule to adapters-go-through-services everywhere.)
+[[bans.deny]]
+name = "foundry-store"
+wrappers = ["foundry-services", "foundry-app", "foundry-acceptance"]
+
+# Rule 2 — no reversed edge: the shared seam must not depend on the JSON
+# driving adapter (the acyclic shape that ruled out folding services into the
+# adapters, ADR-W07). `foundry-services` is ABSENT from the wrapper list, so a
+# `foundry-services -> foundry-api` edge fails the build, naming `foundry-api`
+# as forbidden. (`foundry-services -> foundry-app` is already impossible:
+# foundry-app depends on foundry-services, so cargo itself rejects the cycle —
+# no ban needed. foundry-app is the binary root crate and cannot be banned.)
+[[bans.deny]]
+name = "foundry-api"
+wrappers = ["foundry-app"]
 
 [sources]
 unknown-registry = "deny"

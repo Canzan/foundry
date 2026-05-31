@@ -1,11 +1,16 @@
 //! xtask — developer-only task runner.
 //!
 //! Subcommands:
-//!   `ci`   — runs every gate that CI runs, in the same order, against
-//!            the local checkout. Exits non-zero on the first failure.
-//!   `help` — list subcommands.
-//!
-//! Future subcommands (per architecture.md): `check-arch`, `check-probes`.
+//!   `ci`         — runs every gate that CI runs, in the same order, against
+//!                  the local checkout. Exits non-zero on the first failure.
+//!   `check-arch` — the US-W06 boundary guard (boundary-guard.md): the AST
+//!                  source-walk layer (api≠HTML, api≠ad-hoc-authz, JWT alg pin)
+//!                  PLUS the `cargo-deny` crate-graph dependency-direction
+//!                  layer. Passes on a clean tree with zero manual steps; on a
+//!                  violation it NAMES the offender and exits non-zero.
+//!   `help`       — list subcommands.
+
+mod check_arch;
 
 use std::process::{Command, ExitCode};
 
@@ -17,6 +22,7 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         "ci" => run_ci(),
+        "check-arch" => check_arch::run(std::env::args().skip(2).collect()),
         other => {
             eprintln!("unknown subcommand: {other}");
             usage();
@@ -29,8 +35,9 @@ fn usage() {
     println!("foundry xtask");
     println!();
     println!("Subcommands:");
-    println!("  ci     Run the full local CI replication");
-    println!("  help   Show this message");
+    println!("  ci          Run the full local CI replication");
+    println!("  check-arch  Run the web/api boundary guard (US-W06)");
+    println!("  help        Show this message");
 }
 
 /// Run every gate the remote CI runs, in roughly the same order, and
@@ -95,6 +102,14 @@ fn run_ci() -> ExitCode {
                 "-D",
                 "warnings",
             ],
+        ),
+        // US-W06 boundary guard — the AST source-walk layer + the cargo-deny
+        // crate-graph dep-direction layer. Cheap (no DB, pure source +
+        // crate-graph analysis); runs alongside fmt/clippy so a local
+        // `cargo xtask ci` catches a boundary violation before push.
+        (
+            "xtask check-arch (boundary guard)",
+            vec!["run", "-q", "-p", "xtask", "--", "check-arch"],
         ),
         ("cargo build --release", vec!["build", "--all", "--release"]),
         (

@@ -132,12 +132,15 @@ pub struct AppState {
 /// Default upload cap per NFR-PERF-02. The env var overrides this.
 pub const DEFAULT_FILE_UPLOAD_MAX_MB: u64 = 10;
 
-/// Expose the shared `Store` handle to sub-routers (foundry-api's `/api/v1`
-/// group) via axum's `FromRef`, so `foundry_api::routes::<AppState>()` can
-/// extract `State<Arc<Store>>` without foundry-api depending on foundry-app.
-impl axum::extract::FromRef<AppState> for Arc<Store> {
+/// Expose the shared application-service handle to sub-routers (foundry-api's
+/// `/api/v1` group) via axum's `FromRef`, so `foundry_api::routes::<AppState>()`
+/// can extract `State<Services>` without foundry-api depending on foundry-app —
+/// and WITHOUT foundry-api naming `foundry_store::Store` (the `Services` handle
+/// owns the only `Arc<Store>`, the structural fact the `foundry-api ⊀
+/// foundry-store` boundary-guard ban enforces). Cloning is an `Arc` clone.
+impl axum::extract::FromRef<AppState> for foundry_services::Services {
     fn from_ref(state: &AppState) -> Self {
-        state.store.clone()
+        foundry_services::Services::new(state.store.clone())
     }
 }
 
