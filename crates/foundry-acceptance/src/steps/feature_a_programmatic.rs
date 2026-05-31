@@ -1037,6 +1037,16 @@ async fn request_board_json(world: &mut FoundryWorld, project_name: &str) {
     ensure_harness(world).await;
     let team = team_slug_for_project(world, project_name).await;
     let project_slug = slugify(project_name);
+    // Slice-1 transitional auth (api-contract.md §slice-1 note): the read
+    // endpoint accepts the EXISTING browser session. The "(\w+) is signed in"
+    // step records the persona's email/password in the world but mints no
+    // cookie (the harness keeps no cookie jar). So when a session-backed
+    // persona is the caller, sign them in over the unchanged browser path and
+    // carry the resulting `foundry_session` cookie on the API GET. A caller
+    // with no credential (no signed-in persona) carries nothing and is
+    // refused 401 — proving the fail-closed path. Slice 2 replaces this with
+    // the bearer machine-token credential.
+    let session_cookie = session_cookie_for_caller(world).await;
     let harness = world.harness.as_ref().expect("harness");
     let http = world.http.as_ref().expect("http");
     let url = format!(
@@ -1046,6 +1056,9 @@ async fn request_board_json(world: &mut FoundryWorld, project_name: &str) {
     let mut req = http
         .get(&url)
         .header(reqwest::header::ACCEPT, "application/json");
+    if let Some(cookie) = session_cookie {
+        req = req.header(reqwest::header::COOKIE, cookie);
+    }
     if let Some(bearer) = auth_header(world) {
         req = req.header(reqwest::header::AUTHORIZATION, bearer);
     }
@@ -1053,24 +1066,76 @@ async fn request_board_json(world: &mut FoundryWorld, project_name: &str) {
     capture(world, resp).await;
 }
 
+/// Sign the recorded signed-in persona in over the real browser path and
+/// return their `foundry_session` cookie pair (`foundry_session=...`), or
+/// `None` if no persona is signed in for this scenario. Used to carry the
+/// slice-1 transitional browser-session credential onto the JSON API GET.
+async fn session_cookie_for_caller(world: &FoundryWorld) -> Option<String> {
+    let email = world.us_07_signed_in_email.clone()?;
+    let password = world.us_07_signed_in_password.clone()?;
+    let harness = world.harness.as_ref().expect("harness");
+    let http = world.http.as_ref().expect("http");
+    let base = harness.base_url();
+
+    let csrf_get = http
+        .get(format!("{base}/sign-in"))
+        .send()
+        .await
+        .expect("get /sign-in for csrf");
+    let csrf_token = csrf_get
+        .headers()
+        .get_all(reqwest::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .find(|s| s.starts_with("foundry_csrf="))
+        .and_then(|s| s.strip_prefix("foundry_csrf="))
+        .and_then(|rest| rest.split(';').next())
+        .unwrap_or("")
+        .to_string();
+
+    let mut form: std::collections::HashMap<&str, String> = std::collections::HashMap::new();
+    form.insert("email", email);
+    form.insert("password", password);
+    form.insert("_csrf", csrf_token.clone());
+    let resp = http
+        .post(format!("{base}/sign-in"))
+        .header(
+            reqwest::header::COOKIE,
+            format!("foundry_csrf={csrf_token}"),
+        )
+        .form(&form)
+        .send()
+        .await
+        .expect("post /sign-in for session cookie");
+    resp.headers()
+        .get_all(reqwest::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .find(|s| s.starts_with("foundry_session="))
+        .and_then(|s| s.split(';').next())
+        .map(|pair| pair.to_string())
+}
+
 async fn request_board_html(world: &mut FoundryWorld, project_name: &str) {
     ensure_harness(world).await;
     let team = team_slug_for_project(world, project_name).await;
     let project_slug = slugify(project_name);
+    // The HTML board requires a signed-in session (else it 302s to /sign-in).
+    // Carry the same persona's browser-session cookie the JSON read uses, so
+    // the cross-path parity scenario compares two AUTHENTICATED reads of the
+    // SAME board through the SAME core seam (NFR-WEB-BND-05).
+    let session_cookie = session_cookie_for_caller(world).await;
     let harness = world.harness.as_ref().expect("harness");
     let http = world.http.as_ref().expect("http");
     let url = format!(
         "{base}/team/{team}/project/{project_slug}",
         base = harness.base_url()
     );
-    // No session cookie here keeps the helper simple; the HTML board may 302 to
-    // sign-in. The parity assertion gates on the JSON side being populated, so
-    // this captures whatever the board returns for substring comparison.
-    let resp = http
-        .get(&url)
-        .send()
-        .await
-        .expect("send html board request");
+    let mut req = http.get(&url);
+    if let Some(cookie) = session_cookie {
+        req = req.header(reqwest::header::COOKIE, cookie);
+    }
+    let resp = req.send().await.expect("send html board request");
     let status = resp.status();
     let body = resp.text().await.unwrap_or_default();
     world.fa_last_html_body = Some(body);

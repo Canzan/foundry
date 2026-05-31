@@ -125,6 +125,15 @@ pub struct AppState {
 /// Default upload cap per NFR-PERF-02. The env var overrides this.
 pub const DEFAULT_FILE_UPLOAD_MAX_MB: u64 = 10;
 
+/// Expose the shared `Store` handle to sub-routers (foundry-api's `/api/v1`
+/// group) via axum's `FromRef`, so `foundry_api::routes::<AppState>()` can
+/// extract `State<Arc<Store>>` without foundry-api depending on foundry-app.
+impl axum::extract::FromRef<AppState> for Arc<Store> {
+    fn from_ref(state: &AppState) -> Self {
+        state.store.clone()
+    }
+}
+
 impl std::fmt::Debug for AppState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AppState")
@@ -225,6 +234,17 @@ pub fn build_router(state: AppState) -> Router {
         )
         .route("/keyboard-help", get(keyboard::show_keyboard_help))
         .route("/", get(signin::dashboard_root))
+        // Feature A (US-W05a) — the JSON read surface contributed by the
+        // foundry-api driving adapter, merged in as a path-prefixed
+        // `/api/v1` sub-router (api-contract.md §"Route surface"). It is a
+        // PEER of the HTML routes over the shared `foundry-services` seam.
+        // Slice 1 mounts it INSIDE the session layer so the transitional
+        // browser-session auth resolves a principal (api-contract.md
+        // §slice-1 note); Slice 2 moves it OUTSIDE the session+CSRF layers
+        // and adds the bearer machine-token extractor (auth.md §Coexistence).
+        // GET requests pass the CSRF layer unchanged (it early-returns on
+        // safe methods), so the browser path stays byte-identical.
+        .merge(foundry_api::routes::<AppState>())
         .layer(middleware::from_fn_with_state(
             state.clone(),
             csrf::csrf_middleware,

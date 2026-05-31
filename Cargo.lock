@@ -1067,10 +1067,13 @@ dependencies = [
 name = "foundry-api"
 version = "0.3.1"
 dependencies = [
+ "axum",
  "foundry-services",
+ "foundry-store",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
+ "tower-sessions",
  "uuid",
 ]
 
@@ -1084,6 +1087,7 @@ dependencies = [
  "base64",
  "bytes",
  "dotenvy",
+ "foundry-api",
  "foundry-app",
  "foundry-auth",
  "foundry-core",

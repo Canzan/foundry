@@ -29,6 +29,7 @@ foundry-core = { path = "../foundry-core" }
 foundry-store = { path = "../foundry-store" }
 foundry-auth = { path = "../foundry-auth" }
 foundry-services = { path = "../foundry-services" }
+foundry-api = { path = "../foundry-api" }
 foundry-realtime = { path = "../foundry-realtime" }
 
 axum = { workspace = true, features = ["multipart"] }
