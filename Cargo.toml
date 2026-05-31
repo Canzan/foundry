@@ -5,6 +5,12 @@ members = [
     "crates/foundry-store",
     "crates/foundry-auth",
     "crates/foundry-realtime",
+    # Feature A "Programmatic Foundry" (web-tier-extraction) — RED scaffold
+    # crates created by DISTILL (Mandate 7). Standalone (not yet depended on by
+    # foundry-app or the binary), so they compile independently and leave the
+    # existing acceptance suite green. DELIVER fleshes them out and wires them in.
+    "crates/foundry-services",
+    "crates/foundry-api",
     "crates/foundry-app",
     "crates/foundry-acceptance",
     "xtask",

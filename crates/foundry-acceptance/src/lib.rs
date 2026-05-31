@@ -10,6 +10,7 @@ pub mod support;
 pub mod world;
 
 pub mod steps {
+    pub mod feature_a_programmatic;
     pub mod handler_instrumentation;
     pub mod slice_8_deferred_metrics;
     pub mod us_01_install;

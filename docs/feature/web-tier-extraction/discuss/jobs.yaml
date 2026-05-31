@@ -1,0 +1,221 @@
+# JTBD Outcomes — Web-Tier Extraction
+#
+# Single source of truth for job_id references used by user stories in stories.md.
+#
+# DRIVER CORRECTION (2026-05-30 — user-confirmed; see wave-decisions.md Decision D7):
+# The original strawman assumed the PRIMARY job was "restyle a screen without touching
+# Rust" (jtbd-web-1) plus "guarantee the web tier never bypasses core" (jtbd-web-2).
+# That was WRONG. The REAL primary driver is the JSON API: expose a first-class JSON API
+# (reads AND writes) so external agents / integrations can drive Foundry programmatically.
+# The htmx web tier and the JSON API tier are PEER consumers of the same presentation-
+# neutral core — but the JSON API is the HEADLINE outcome, not a read-only afterthought.
+# Accordingly: jtbd-web-4 (NEW) is now the PRIMARY job; jtbd-web-2 (boundary honesty) is
+# re-framed as the enabling structural property of the peer-consumer architecture;
+# jtbd-web-1 (restyle) and jtbd-web-3 (first-screen trust) become the web-tier peer track.
+#
+# This feature still has NO diverge/ directory (no validated DIVERGE job-analysis.md).
+# Jobs remain Luna-derived from (a) backend-MVP JTBD outcomes and (b) a code-surface
+# reading — BUT the primary driver (jtbd-web-4) is now USER-CONFIRMED, which resolves
+# the dominant strawman risk. Remaining job statements/importances are still subject to
+# refinement. See wave-decisions.md "Driver correction" + "Missing DIVERGE" entries.
+#
+# Usage:
+#   In stories.md, each story names a job_id under its title. Multiple stories may
+#   map to the same job (N:1). A story whose value is pure plumbing with no user-job
+#   link must use `job_id: infrastructure-only` AND carry an `infrastructure_rationale`
+#   field. Per the slice-level rule, no slice may consist solely of infrastructure-only
+#   stories.
+
+schema_version: 1
+feature: web-tier-extraction
+source: DERIVED (no diverge/ dir) — backend-mvp jobs.yaml + code-surface reading
+parent_jobs: docs/feature/foundry-backend-mvp/discuss/jobs.yaml
+
+# ---------------------------------------------------------------------------
+# Inherited backend-MVP outcomes that this feature continues to serve.
+# (Referenced verbatim so stories can trace to the original JTBD frame.)
+# ---------------------------------------------------------------------------
+inherited_jobs:
+  jtbd-outcome-3:
+    name: "Minimize contributor time-to-meaningful-change"
+    statement: "Minimize the time it takes for a developer-contributor to make a meaningful change to the tracker itself."
+    primary_persona: contributor
+    relevance: "The whole point of the web/api separation: a contributor changing a
+      visual surface should touch ONE template, not hunt through format! literals
+      scattered across handler modules."
+  jtbd-outcome-4:
+    name: "Maximize Linear-feel interaction speed"
+    statement: "Minimize the likelihood that issue-list interactions feel slower than Linear's."
+    primary_persona: member
+    relevance: "The board/issue/comment surfaces being extracted are exactly the
+      Linear-feel hot paths. The separation must not add a network hop or slow render."
+  jtbd-outcome-7:
+    name: "Minimize upgrade-without-breakage friction"
+    statement: "Minimize the time it takes to upgrade between minor versions without breaking customizations."
+    primary_persona: operator
+    relevance: "An htmx-2-ready, template-driven web tier reduces the churn of the
+      eventual htmx 2 normalization (the hx-/data-hx- prefix split lives in the code today)."
+
+# ---------------------------------------------------------------------------
+# New jobs specific to the web-tier-extraction feature.
+# RANKING (post-correction, primary → secondary):
+#   1. jtbd-web-4  (PRIMARY)  — drive Foundry programmatically via a first-class JSON API
+#   2. jtbd-web-2  (enabler)  — boundary honesty: web & api are peer consumers of one core
+#   3. jtbd-web-1  (web track) — restyle a screen without touching Rust
+#   4. jtbd-web-3  (web track) — first screen looks like a product
+# ---------------------------------------------------------------------------
+jobs:
+  jtbd-web-4:
+    name: "Drive Foundry programmatically through a first-class JSON API"
+    statement: >
+      When I am an integrator, automation author, or agent builder who wants to make
+      Foundry part of a larger workflow, I want to read AND write Foundry's data (issues,
+      comments, projects, state changes) over a stable JSON API authenticated by a machine
+      token — not a browser cookie — so I can create and update work programmatically and
+      build integrations and agents against Foundry without scraping HTML or driving a
+      headless browser.
+    primary_persona: integrator
+    importance: 9
+    satisfaction_today: 1
+    opportunity_score: 17
+    status: under-served
+    dimensions:
+      functional: "Authenticate as a machine principal with a token, then GET/POST/PATCH
+        Foundry resources (issues, comments, projects, state) and receive/parse JSON —
+        the full create+update surface, not just reads."
+      emotional: "Confidence that the API is a real, first-class door — a supported contract
+        I can build a product or an agent on — not a fragile read-only side-effect of the UI."
+      social: "I can publish an integration or an agent that 'works with Foundry' and trust
+        the contract enough to put my name on it; my team treats Foundry as automatable."
+    forces:
+      push: "Today there is NO JSON API. To automate Foundry an integrator must scrape HTML,
+        forge CSRF double-submit tokens, and carry a browser session cookie — brittle, and
+        it breaks the moment the markup changes. Agents cannot drive Foundry at all."
+      pull: "A stable, versioned JSON API with machine-token auth: issue a token once, then
+        create/read/update issues, comments, and projects programmatically with predictable
+        JSON in and JSON out."
+      anxiety: "Will the API stay stable as the UI evolves? Is machine-token auth as safe as
+        the session/CSRF model it bypasses? Will writes through the API honor the same
+        authorization and validation rules the UI enforces?"
+      habit: "Integrators are used to either (a) an official REST/JSON API with bearer tokens
+        (the expectation), or (b) ugly HTML scraping (the current fallback). The API must
+        meet expectation (a) to displace habit (b)."
+
+  jtbd-web-1:
+    name: "Minimize effort to restyle a screen without touching Rust logic"
+    statement: >
+      When I want to change how a Foundry screen looks or reads, I want to edit one
+      template (and CSS) without reading or recompiling handler logic, so I can ship a
+      visual change confidently in minutes instead of spelunking through format! string
+      literals embedded in request handlers.
+    primary_persona: contributor
+    importance: 7
+    satisfaction_today: 2
+    opportunity_score: 12
+    status: under-served
+    rank_note: >
+      SECONDARY (web-tier peer track). Real and still in scope, but no longer the headline.
+      Importance trimmed 8→7 relative to the now-primary jtbd-web-4. Delivered by the web-tier
+      template-extraction slices that follow the JSON-API proof.
+    dimensions:
+      functional: "Locate, edit, and verify a visual change in a single template file."
+      emotional: "Confidence that I changed only presentation, not behavior — no fear of
+        breaking auth or persistence by editing markup."
+      social: "I can review someone else's UI PR and actually see the markup as markup,
+        not as escaped Rust string fragments."
+    forces:
+      push: "HTML lives as format!() literals interleaved with auth checks and SQL calls
+        across issues.rs, comments.rs, signin.rs, projects.rs — editing markup means
+        editing Rust and recompiling, and a typo in a string is a behavior risk."
+      pull: "A real template engine + a static/ asset pipeline: change a .html template,
+        refresh the browser, done. Markup is reviewable as markup."
+      anxiety: "Will a template engine slow renders below the Linear-feel budget? Will it
+        break the existing acceptance scenarios that assert on HTML substrings?"
+      habit: "Contributors are used to grepping handler files for the text they see on
+        screen; templates move that text to a predictable templates/ location."
+
+  jtbd-web-2:
+    name: "Maximize confidence that web and API are peer consumers of one presentation-neutral core"
+    statement: >
+      When I review or extend a request handler, I want a structural guarantee that the
+      HTML-rendering tier and the JSON API tier are PEER consumers of the same core — the
+      web tier cannot reach the database directly, the JSON tier cannot emit HTML, and the
+      shared core knows nothing about HTML vs JSON — so the JSON API is a genuine first-class
+      consumer (not a read-only shadow of the UI) and the boundary holds without hand-auditing
+      every handler.
+    primary_persona: contributor
+    importance: 8
+    satisfaction_today: 3
+    opportunity_score: 13
+    status: under-served
+    rank_note: >
+      ENABLER for the now-primary jtbd-web-4. The JSON API can only be first-class if core is
+      genuinely presentation-neutral; this job is what makes "web and api are peers over one
+      core" a structural fact rather than an aspiration. Re-ranked up (7→8) post-correction
+      because it directly underwrites the headline JSON-API outcome.
+    dimensions:
+      functional: "Tell, from the crate graph alone, which code renders HTML, which code
+        emits JSON, and which code talks to Postgres — and know they are different code, with
+        web and api both calling the same presentation-neutral core."
+      emotional: "Relief that the architecture enforces the peer-consumer rule, so building on
+        the JSON API does not mean building on a fragile UI side-effect."
+      social: "New contributors inherit the boundary as a compile-time fact; integrators trust
+        the API and the UI render the same core truth."
+    forces:
+      push: "Today a single handler does session extraction, is_team_member, find_*_by_slug,
+        insert_*_with_outbox, and format! HTML — four concerns, one function, no boundary, and
+        no way for a JSON consumer to reach the data without going through HTML-shaped code."
+      pull: "foundry-web renders HTML and foundry-api emits JSON; BOTH call foundry-core/store
+        in-process as equal peers. Neither owns SQL; neither crosses the other; core is HTML-
+        and JSON-agnostic."
+      anxiety: "Does the separation force a network hop or a service split? (No — it must stay
+        one binary, in-process calls, per the brand promise.) Does core leak HTML assumptions
+        that would make the JSON tier second-class?"
+      habit: "Handlers-call-store-directly is the current muscle memory; the peer-consumer
+        boundary introduces a presentation-neutral core seam both tiers must go through."
+
+  jtbd-web-3:
+    name: "Minimize the chance a self-hoster's first screen feels unstyled or broken"
+    statement: >
+      When a self-hosting team opens Foundry in the browser for the first time, I want the
+      board, issue, and sign-in screens to look intentional and load fast from assets the
+      binary already ships, so the team trusts Foundry enough to keep evaluating instead of
+      bouncing on a screen that looks like raw HTML.
+    primary_persona: member
+    importance: 7
+    satisfaction_today: 4
+    opportunity_score: 10
+    status: under-served
+    rank_note: >
+      SECONDARY (web-tier peer track). First-screen trust still matters, but it is part of
+      the web-tier track that follows the JSON-API proof, not the headline. Importance
+      trimmed 8→7 relative to jtbd-web-4.
+    dimensions:
+      functional: "See a styled, navigable board / issue / sign-in rendered from vendored
+        assets (htmx + Alpine + CSS) with no external CDN."
+      emotional: "First-impression trust: 'this is a real product', not a prototype."
+      social: "The screenshot a teammate shares in Slack looks credible next to Linear."
+    forces:
+      push: "templates/ and static/ are empty; htmx usage is inline string literals with
+        no CSS, no vendored JS, mixed hx-/data-hx- prefixes."
+      pull: "A coherent rendered UI served from the one binary — no CDN, no Node build,
+        consistent with the one-binary/one-Postgres ethos."
+      anxiety: "Will adding a frontend pipeline require Node, a bundler, or break the
+        'no new runtime services' promise?"
+      habit: "Operators expect 'docker compose up' to just work with no extra build step."
+
+# Story-to-job mapping (mirror of the job_id line on each story; canonical source).
+# Re-sequenced post-correction: the JSON-API track (US-W05a/b/c) now leads, the web-tier
+# template track (US-W01..W04) follows, and the boundary guard (US-W06) folds into the
+# JSON-API write slice (the slice that completes the read+write boundary).
+story_job_map:
+  # --- JSON-API track (PRIMARY: jtbd-web-4, enabled by jtbd-web-2) ---
+  US-W05a: jtbd-web-4     # Slice 1: read the board's issues as JSON over a presentation-neutral core seam
+  US-W05b: jtbd-web-4     # Slice 2: machine-token issuance + authenticated API access (new auth surface)
+  US-W05c: jtbd-web-4     # Slice 2: write issues/comments via JSON (create + update), same authz/validation
+  US-W06:  infrastructure-only  # boundary guard (web≠DB, api≠HTML); folds into Slice 2 (the write slice)
+  # --- web-tier peer track (SECONDARY: jtbd-web-1 / jtbd-web-3, enabled by jtbd-web-2) ---
+  US-W01:  jtbd-web-2     # Slice 3: extract the board surface into foundry-web over the same core seam
+  US-W02:  jtbd-web-3     # Slice 3: board renders from a real template + vendored assets
+  US-W03:  jtbd-web-1     # Slice 4: issue-detail + comments move to templates
+  US-W04:  jtbd-web-3     # Slice 5: sign-in / forgot-password move to templates

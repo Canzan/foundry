@@ -1064,6 +1064,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "foundry-api"
+version = "0.3.1"
+dependencies = [
+ "foundry-services",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "uuid",
+]
+
+[[package]]
 name = "foundry-app"
 version = "0.3.1"
 dependencies = [
@@ -1152,6 +1163,15 @@ dependencies = [
  "time",
  "tokio",
  "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "foundry-services"
+version = "0.3.1"
+dependencies = [
+ "foundry-core",
+ "thiserror 1.0.69",
  "uuid",
 ]
 

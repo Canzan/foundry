@@ -419,4 +419,39 @@ pub struct FoundryWorld {
     /// refuse-to-start cause — exercising `record_probe_result`. Held
     /// between the Given (provision) and the When (spawn, migrations skipped).
     pub slice8_store_probe_db: Option<(String, String)>,
+
+    // ---- Feature A "Programmatic Foundry" (web-tier-extraction) ----
+    /// Name of the project the most recent Feature-A When step targeted,
+    /// used to reconstruct the `/api/v1/...` URL and resolve the team slug.
+    pub fa_last_project_name: Option<String>,
+    /// Title of the last issue a Feature-A write step attempted to file.
+    pub fa_last_title: Option<String>,
+    /// The bearer credential string the client presents on the next API
+    /// request. `None` = no credential (the missing-credential 401 path).
+    /// DISTILL stores a placeholder; DELIVER mints a real JWT.
+    pub fa_credential: Option<String>,
+    /// Whether the admin has revoked the active credential (the revoked-token
+    /// refusal scenario). The client still presents it; the server denies.
+    pub fa_credential_revoked: bool,
+    /// Whether Mei is watching the board in real time (the API-write-visible-
+    /// to-UI scenario).
+    pub fa_watching: bool,
+    /// Email of the browser member for the "browser path unchanged" regression
+    /// scenario (NFR-WEB-API-SEC-01).
+    pub fa_browser_email: Option<String>,
+    /// Password the browser-path regression scenario signs in with (reset onto
+    /// the seeded member by the `a member account ... with password` Given).
+    pub fa_browser_password: Option<String>,
+    /// Whether the browser sign-in completed in the unchanged-path scenario.
+    pub fa_browser_signed_in: bool,
+    /// Body of the most recent HTML board GET, for the JSON-vs-HTML parity
+    /// assertion (US-W05a "same set of issues").
+    pub fa_last_html_body: Option<String>,
+    /// The planted boundary violation kind for a US-W06 copy-of-tree scenario
+    /// (`None` = the clean tree).
+    pub fa_guard_violation: Option<String>,
+    /// Exit code captured from the `cargo xtask check-arch` subprocess.
+    pub fa_guard_exit_code: Option<i32>,
+    /// Combined stdout+stderr from the boundary-check subprocess.
+    pub fa_guard_stderr: Option<String>,
 }

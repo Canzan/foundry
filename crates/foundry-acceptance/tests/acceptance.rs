@@ -29,6 +29,8 @@ use foundry_acceptance::world::FoundryWorld;
 // Force-link the step modules so `inventory::submit!` items are not
 // stripped from the static archive when the test binary is linked.
 #[allow(unused_imports)]
+use foundry_acceptance::steps::feature_a_programmatic as _feature_a;
+#[allow(unused_imports)]
 use foundry_acceptance::steps::handler_instrumentation as _slice6;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::slice_8_deferred_metrics as _slice8;
