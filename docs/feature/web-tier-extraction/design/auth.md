@@ -38,7 +38,12 @@ IS the secret; the server stores no token secret or hash. Revocation — a HARD 
 }
 ```
 
-`iss`/`aud` are fixed constants for the single-issuer Feature-A case and validated. The `workspace_id`
+`iss`/`aud` are fixed constants for the single-issuer Feature-A case and **validated**. They are pinned
+to `iss = "foundry"` (`foundry_auth::MACHINE_TOKEN_ISS`) and `aud = "foundry-api"`
+(`foundry_auth::MACHINE_TOKEN_AUD`): `MachineTokenSigner::mint` always stamps these exact values, and
+`MachineTokenVerifier` enforces them via `Validation::set_issuer`/`set_audience` — a validly-signed
+token carrying any other `iss` or `aud` is refused (401) before any registry lookup. `nbf` (not-before)
+is likewise validated (`validate_nbf = true`), so a not-yet-valid token is refused. The `workspace_id`
 is resolved from `sub` at the store (the user's workspace), so it is not a trusted claim.
 
 ### Per-request verification (fail-closed, in `foundry-api::token_auth`)
@@ -148,6 +153,17 @@ CREATE INDEX idx_machine_tokens_workspace ON machine_tokens (workspace_id);
 issue), `find_machine_token_by_jti` (returns workspace_id + user_id + scope + revoked/expiry, used by
 the extractor), `revoke_machine_token`, `list_machine_tokens(workspace_id)`,
 `touch_machine_token_last_used` (best-effort, async, non-blocking).
+
+> **`created_by` audit column — deferred to the issuance feature.** The illustrative DDL above shows a
+> `created_by UUID NOT NULL REFERENCES users(id)` audit column. Feature A intentionally does **not**
+> build the admin token-issuance UX (`POST /admin/machine-tokens`); in Feature A tokens are minted in
+> tests and by the operator via env/config, so there is **no issuer call-site** that could populate a
+> `NOT NULL created_by`. Per ADR-003 (forward-only migrations — never edit an applied file), the
+> shipped `0007_machine_tokens.sql` therefore **omits** the `created_by` column rather than adding an
+> unpopulated `NOT NULL` one. The column is **deferred until the token-issuance surface lands** (§Issuance
+> & revocation UX), which will introduce a forward-only follow-up migration that adds `created_by`
+> populated from the issuing admin. This keeps the design and the schema honest: a column exists only
+> once a writer for it exists.
 
 Earned-Trust: the existing `Store::probe()` is extended to assert this table + its `jti`,
 `revoked_at`, `scope_team_id`, `expires_at`, `workspace_id`, `user_id` columns exist in

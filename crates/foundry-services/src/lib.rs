@@ -219,6 +219,10 @@ pub struct BoardIssue {
 pub struct CreatedIssue {
     pub key: String,
     pub number: i32,
+    /// The TRIMMED title actually persisted (NFR-WEB-API-CON-02). The create
+    /// response must echo this — not the raw request title — so the returned
+    /// representation equals what a subsequent read returns.
+    pub title: String,
     pub state: String,
 }
 

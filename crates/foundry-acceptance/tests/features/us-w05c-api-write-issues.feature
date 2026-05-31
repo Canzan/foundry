@@ -70,6 +70,12 @@ Feature: A machine creates and updates issues and comments through the API
     And the rejection reason matches the browser's "Title is required" rule
     And the rejection is returned as data with no markup
 
+  @real-io @nfr-web-api-con-02
+  Scenario: The created issue is returned with the same trimmed title the store persists
+    When the machine files an issue titled "  Refresh token rotation  " through the API
+    Then a new issue is created with the next sequential key
+    And the created issue is returned with the trimmed title "Refresh token rotation"
+
   @error @real-io
   Scenario: A write beyond the credential's authorization is refused
     Given the "Auth v2" project has a comment by Mei on issue AUTH-8

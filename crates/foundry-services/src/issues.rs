@@ -73,6 +73,9 @@ pub async fn create_issue(
     Ok(CreatedIssue {
         key,
         number,
+        // The TRIMMED title is what `insert_issue_with_outbox` persisted, so the
+        // returned representation matches a subsequent read (NFR-WEB-API-CON-02).
+        title: raw_title.to_string(),
         state: "backlog".to_string(),
     })
 }

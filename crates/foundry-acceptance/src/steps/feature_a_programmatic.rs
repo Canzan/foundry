@@ -289,6 +289,8 @@ async fn caller_holds_wrong_alg_credential(world: &mut FoundryWorld) {
         iat: time::OffsetDateTime::now_utc().unix_timestamp(),
         exp: (time::OffsetDateTime::now_utc() + time::Duration::seconds(3600)).unix_timestamp(),
         jti: uuid::Uuid::now_v7(),
+        iss: foundry_auth::MACHINE_TOKEN_ISS.to_string(),
+        aud: foundry_auth::MACHINE_TOKEN_AUD.to_string(),
     };
     let header = jsonwebtoken::Header::new(jsonwebtoken::Algorithm::HS256);
     let key = jsonwebtoken::EncodingKey::from_secret(
@@ -820,6 +822,20 @@ async fn created_issue_returned(world: &mut FoundryWorld) {
     let issue = parse_single_issue(world);
     assert!(!issue.key.is_empty(), "created issue missing key");
     assert!(!issue.state.is_empty(), "created issue missing state");
+}
+
+#[then(regex = r#"^the created issue is returned with the trimmed title "([^"]+)"$"#)]
+async fn created_issue_trimmed_title(world: &mut FoundryWorld, expected_title: String) {
+    // FIX 3 (NFR-WEB-API-CON-02): the 201 representation must equal what the
+    // store persisted. The store trims the title; the returned `title` must
+    // therefore be the TRIMMED value, not the raw request title. A subsequent
+    // read of this issue returns the trimmed title, so the create response must
+    // agree with it (returned representation == persisted representation).
+    let issue = parse_single_issue(world);
+    assert_eq!(
+        issue.title, expected_title,
+        "the 201 body must carry the trimmed title the store persisted"
+    );
 }
 
 #[then(regex = r#"^the new issue starts in the backlog$"#)]
@@ -1644,6 +1660,8 @@ async fn mint_credential(
         iat: now.unix_timestamp(),
         exp: exp.unix_timestamp(),
         jti,
+        iss: foundry_auth::MACHINE_TOKEN_ISS.to_string(),
+        aud: foundry_auth::MACHINE_TOKEN_AUD.to_string(),
     };
     let signer = foundry_auth::test_keys::signer();
     signer

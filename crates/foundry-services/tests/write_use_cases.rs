@@ -179,6 +179,13 @@ async fn create_issue_files_with_next_key_and_backlog_state() {
         (0, 1),
         "create_issue must persist exactly one issue via the core write+outbox path"
     );
+    // FIX 3 (NFR-WEB-API-CON-02): the returned representation must equal what
+    // was persisted. The store trims the title, so the returned `title` must be
+    // the TRIMMED value — not the raw whitespace-padded request title.
+    assert_eq!(
+        created.title, "Refresh token rotation broken",
+        "create_issue must return the TRIMMED title it persisted, not the raw request title"
+    );
 }
 
 /// Behaviour 2 — create_issue empty-title rejected by the SAME rule the

@@ -236,7 +236,10 @@ async fn create_issue_handler(
     let body = IssueJson {
         key: created.key,
         number: created.number,
-        title: request.title,
+        // Echo the TRIMMED title the service persisted, NOT the raw request
+        // title — the returned representation must equal a subsequent read
+        // (NFR-WEB-API-CON-02).
+        title: created.title,
         state: created.state,
     };
     let location = format!(
@@ -458,6 +461,8 @@ mod token_auth_tests {
             iat,
             exp: iat + exp_offset_secs,
             jti: uuid::Uuid::now_v7(),
+            iss: foundry_auth::MACHINE_TOKEN_ISS.to_string(),
+            aud: foundry_auth::MACHINE_TOKEN_AUD.to_string(),
         }
     }
 

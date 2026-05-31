@@ -27,6 +27,14 @@ use thiserror::Error;
 
 type HmacSha256 = Hmac<Sha256>;
 
+/// The fixed `iss` (issuer) claim for the single-issuer Feature-A case
+/// (auth.md §Claims). Pinned at mint time and enforced at verify time.
+pub const MACHINE_TOKEN_ISS: &str = "foundry";
+
+/// The fixed `aud` (audience) claim for the single-issuer Feature-A case
+/// (auth.md §Claims). Pinned at mint time and enforced at verify time.
+pub const MACHINE_TOKEN_AUD: &str = "foundry-api";
+
 #[derive(Debug, Error)]
 pub enum AuthError {
     #[error("hmac key invalid")]
@@ -69,6 +77,24 @@ pub struct MachineTokenClaims {
     pub exp: i64,
     /// Unique token id — the per-request `jti` denylist lookup key.
     pub jti: uuid::Uuid,
+    /// Issuer — pinned to [`MACHINE_TOKEN_ISS`] for the single-issuer Feature-A
+    /// case (auth.md §Claims). Defaults to the constant so callers that build
+    /// claims need not repeat it; [`MachineTokenSigner::mint`] always stamps it
+    /// and [`MachineTokenVerifier`] enforces it.
+    #[serde(default = "default_iss")]
+    pub iss: String,
+    /// Audience — pinned to [`MACHINE_TOKEN_AUD`] (auth.md §Claims). Same
+    /// defaulting/enforcement posture as [`MachineTokenClaims::iss`].
+    #[serde(default = "default_aud")]
+    pub aud: String,
+}
+
+fn default_iss() -> String {
+    MACHINE_TOKEN_ISS.to_string()
+}
+
+fn default_aud() -> String {
+    MACHINE_TOKEN_AUD.to_string()
 }
 
 /// Holds the Ed25519 signing (private) key, ready to mint compact JWTs.
@@ -91,10 +117,19 @@ impl MachineTokenSigner {
     }
 
     /// EdDSA-sign the claims into a compact JWT, wrapped in `SecretString`.
+    /// The `iss`/`aud` registered claims are always stamped to the pinned
+    /// single-issuer constants ([`MACHINE_TOKEN_ISS`]/[`MACHINE_TOKEN_AUD`]),
+    /// regardless of what the caller passed, so the minting path can never
+    /// produce a token the verifier will reject on iss/aud.
     pub fn mint(&self, claims: &MachineTokenClaims) -> Result<SecretString, AuthError> {
         let header = Header::new(JwtAlgorithm::EdDSA);
-        let jwt =
-            encode(&header, claims, &self.encoding_key).map_err(|_| AuthError::MachineTokenMint)?;
+        let claims = MachineTokenClaims {
+            iss: MACHINE_TOKEN_ISS.to_string(),
+            aud: MACHINE_TOKEN_AUD.to_string(),
+            ..claims.clone()
+        };
+        let jwt = encode(&header, &claims, &self.encoding_key)
+            .map_err(|_| AuthError::MachineTokenMint)?;
         Ok(SecretString::new(jwt.into()))
     }
 }
@@ -131,9 +166,15 @@ impl MachineTokenVerifier {
         // rejects `alg: none` and any non-listed alg during decode.
         let mut validation = Validation::new(JwtAlgorithm::EdDSA);
         validation.algorithms = vec![JwtAlgorithm::EdDSA];
-        // `exp` is validated by default; we do not require iss/aud here
-        // (the single-issuer Feature-A case validates them downstream).
+        // `exp` is validated by default. `nbf` defaults to OFF in jsonwebtoken
+        // 9.x — turn it on so a not-yet-valid token is refused (defense-in-
+        // depth, FIX 2). Pin the single-issuer `iss`/`aud` to the Feature-A
+        // constants (auth.md §Claims, FIX 1) so a validly-signed token with the
+        // wrong issuer or audience is rejected before any registry lookup.
         validation.validate_exp = true;
+        validation.validate_nbf = true;
+        validation.set_issuer(&[MACHINE_TOKEN_ISS]);
+        validation.set_audience(&[MACHINE_TOKEN_AUD]);
         Ok(Self {
             decoding_keys,
             validation,
@@ -165,6 +206,8 @@ impl MachineTokenVerifier {
             iat: now,
             exp: now + 60,
             jti: uuid::Uuid::now_v7(),
+            iss: MACHINE_TOKEN_ISS.to_string(),
+            aud: MACHINE_TOKEN_AUD.to_string(),
         };
         let jwt = signer.mint(&probe_claims)?;
         let recovered = self
@@ -387,6 +430,8 @@ mod machine_token_tests {
                     scope: has_scope.then(|| uuid::Uuid::from_u128(scope_bits)),
                     iat,
                     exp: iat + 3600,
+                    iss: MACHINE_TOKEN_ISS.to_string(),
+                    aud: MACHINE_TOKEN_AUD.to_string(),
                 }
             },
         )
@@ -431,6 +476,8 @@ mod machine_token_tests {
             scope: None,
             iat,
             exp: iat + 3600, // expired one hour ago
+            iss: MACHINE_TOKEN_ISS.to_string(),
+            aud: MACHINE_TOKEN_AUD.to_string(),
         };
         let jwt = signer().mint(&claims).expect("mint expired");
         assert!(verifier().verify(jwt.expose_secret()).is_err());
@@ -447,6 +494,8 @@ mod machine_token_tests {
             scope: None,
             iat: now_unix(),
             exp: now_unix() + 3600,
+            iss: MACHINE_TOKEN_ISS.to_string(),
+            aud: MACHINE_TOKEN_AUD.to_string(),
         };
         let header = Header::new(jsonwebtoken::Algorithm::HS256);
         let forged = encode(&header, &claims, &EncodingKey::from_secret(b"sekrit"))
@@ -495,6 +544,100 @@ mod machine_token_tests {
     #[test]
     fn malformed_public_key_is_refused() {
         assert!(MachineTokenVerifier::from_public_keys(&["not a pem".to_string()]).is_err());
+    }
+
+    // FIX 1 (auth.md §Claims): the single-issuer Feature-A contract pins
+    // `iss = MACHINE_TOKEN_ISS` and `aud = MACHINE_TOKEN_AUD`. A validly-signed,
+    // unexpired token whose `iss` OR `aud` does not match the pinned constants
+    // MUST be refused. We forge such tokens with the MATCHING signing key (so the
+    // signature is genuine) but a wrong registered claim, proving rejection is on
+    // the claim, not the signature/alg/exp.
+    fn signed_with_claims(raw_iss: &str, raw_aud: &str) -> String {
+        // Serialize a claim set carrying an arbitrary iss/aud, sign it with the
+        // genuine test key so only the iss/aud check can reject it.
+        #[derive(serde::Serialize)]
+        struct ForgedClaims {
+            sub: uuid::Uuid,
+            scope: Option<uuid::Uuid>,
+            iat: i64,
+            exp: i64,
+            jti: uuid::Uuid,
+            iss: String,
+            aud: String,
+        }
+        let now = now_unix();
+        let forged = ForgedClaims {
+            sub: uuid::Uuid::now_v7(),
+            scope: None,
+            iat: now,
+            exp: now + 3600,
+            jti: uuid::Uuid::now_v7(),
+            iss: raw_iss.to_string(),
+            aud: raw_aud.to_string(),
+        };
+        let key = EncodingKey::from_ed_pem(TEST_PRIV_PEM.as_bytes()).expect("ed key");
+        encode(&Header::new(JwtAlgorithm::EdDSA), &forged, &key).expect("encode forged")
+    }
+
+    #[test]
+    fn wrong_issuer_is_rejected() {
+        let jwt = signed_with_claims("evil-issuer", MACHINE_TOKEN_AUD);
+        assert!(
+            verifier().verify(&jwt).is_err(),
+            "a token with the wrong iss must be refused"
+        );
+    }
+
+    #[test]
+    fn wrong_audience_is_rejected() {
+        let jwt = signed_with_claims(MACHINE_TOKEN_ISS, "some-other-api");
+        assert!(
+            verifier().verify(&jwt).is_err(),
+            "a token with the wrong aud must be refused"
+        );
+    }
+
+    #[test]
+    fn correct_issuer_and_audience_verifies() {
+        let jwt = signed_with_claims(MACHINE_TOKEN_ISS, MACHINE_TOKEN_AUD);
+        assert!(
+            verifier().verify(&jwt).is_ok(),
+            "a token with the pinned iss+aud and a genuine signature must verify"
+        );
+    }
+
+    // FIX 2 (defense-in-depth): a not-yet-valid token (`nbf` in the future) must
+    // be refused even though it is genuinely signed and unexpired.
+    #[test]
+    fn not_yet_valid_token_is_rejected() {
+        #[derive(serde::Serialize)]
+        struct NbfClaims {
+            sub: uuid::Uuid,
+            scope: Option<uuid::Uuid>,
+            iat: i64,
+            exp: i64,
+            jti: uuid::Uuid,
+            iss: String,
+            aud: String,
+            nbf: i64,
+        }
+        let now = now_unix();
+        let forged = NbfClaims {
+            sub: uuid::Uuid::now_v7(),
+            scope: None,
+            iat: now,
+            exp: now + 7200,
+            jti: uuid::Uuid::now_v7(),
+            iss: MACHINE_TOKEN_ISS.to_string(),
+            aud: MACHINE_TOKEN_AUD.to_string(),
+            nbf: now + 3600, // valid only an hour from now
+        };
+        let key = EncodingKey::from_ed_pem(TEST_PRIV_PEM.as_bytes()).expect("ed key");
+        let jwt = encode(&Header::new(JwtAlgorithm::EdDSA), &forged, &key).expect("encode nbf");
+        assert!(
+            verifier().verify(&jwt).is_err(),
+            "a token whose nbf is in the future must be refused"
+        );
     }
 }
 
