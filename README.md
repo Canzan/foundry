@@ -46,21 +46,24 @@ refuses to dump a server newer than itself. Install with
 if you have an older one) or `apt-get install postgresql-client-16`
 (Debian/Ubuntu). The default fast `cargo test` does **not** need them.
 
-### Five commands from clone to green tests
+### From clone to green tests
 
 ```sh
 git clone https://github.com/Canzan/foundry.git
 cd foundry
 cp .env.example .env
 docker compose up -d postgres
+cargo build --release --bin foundry   # @real-io scenarios spawn this binary
 cargo test -p foundry-acceptance --release
 ```
 
-The last command boots an ephemeral Postgres via testcontainers for the
-test suite (separate from the `docker compose` postgres above, which is
-for running the app), compiles the workspace, and runs the cucumber
-acceptance suite. Expect a final `[Summary]` line with every scenario
-passing — the count grows as new feature slices land:
+The `cargo build` step compiles the `foundry` binary that the realtime /
+subprocess (`@real-io`) acceptance scenarios spawn — `cargo test
+-p foundry-acceptance` alone won't build it. The final command boots an
+ephemeral Postgres via testcontainers for the test suite (separate from
+the `docker compose` postgres above, which is for running the app) and
+runs the cucumber acceptance suite. Expect a final `[Summary]` line with
+every scenario passing — the count grows as new feature slices land:
 
 ```
 [Summary]

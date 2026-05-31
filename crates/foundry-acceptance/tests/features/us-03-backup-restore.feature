@@ -34,7 +34,7 @@
 # backup-verify` subcommand name + its CLI output contract, because the
 # subcommand IS the operator-facing contract under test.
 
-@slice3 @us-03 @backup-restore
+@slice3 @us-03 @backup-restore @needs-pgclient
 Feature: An operator captures a complete Foundry backup with a single command and restores it on a fresh database with every file intact
   All Foundry state — issues, comments, attachments, sessions, the outbox
   — lives in the Foundry database (NFR-DATA-01). A single backup

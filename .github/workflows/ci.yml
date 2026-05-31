@@ -149,6 +149,14 @@ jobs:
           sudo apt-get install -y postgresql-client-16
           pg_dump --version
 
+      # The @real-io scenarios spawn the `foundry` binary via
+      # assert_cmd::cargo_bin. `cargo test -p foundry-acceptance` does NOT
+      # build it (foundry-acceptance depends on the foundry-app LIB, not its
+      # bin), so build it explicitly first — otherwise those scenarios fail
+      # with "CARGO_BIN_EXE_foundry is unset".
+      - name: Build the foundry binary (spawned by @real-io scenarios)
+        run: cargo build --release -p foundry-app --bin foundry
+
       - name: cargo test -p foundry-acceptance (all tags)
         env:
           FOUNDRY_ACCEPTANCE_TAGS: all
@@ -189,6 +197,11 @@ jobs:
 
       - name: docker compose up -d postgres
         run: docker compose up -d postgres
+
+      # Mirrors README §Quickstart: the acceptance suite spawns the `foundry`
+      # binary, which `cargo test -p foundry-acceptance` does not build.
+      - name: cargo build --release --bin foundry
+        run: cargo build --release --bin foundry
 
       - name: cargo test -p foundry-acceptance --release
         run: cargo test -p foundry-acceptance --release

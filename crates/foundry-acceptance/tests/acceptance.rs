@@ -104,7 +104,10 @@ async fn main() {
         }
         _ => {
             // Default: exclude @manual, @manual-trigger, @docker-compose,
-            // and @slow (slice-7 11k-row cap scenario; ~10-15s).
+            // @slow (slice-7 11k-row cap scenario; ~10-15s), and
+            // @needs-pgclient (US-03 backup/restore — shells out to
+            // pg_dump/pg_restore, which the lightweight quickstart should not
+            // require; those run in the @all lane, which installs the client).
             // Cap scenario concurrency to 6 so the per-scenario
             // `LISTEN issue_events` listener tasks don't all pile up
             // on the shared Postgres container, AND the US-04
@@ -123,6 +126,7 @@ async fn main() {
                         && !has("manual-trigger")
                         && !has("docker-compose")
                         && !has("slow")
+                        && !has("needs-pgclient")
                 })
                 .await;
         }
