@@ -43,7 +43,7 @@ const PROBE_FAILURES_TOTAL: &str = "probe_failures_total";
 /// baseline) AND increments the counter on failure. Adding a probe MUST
 /// add its name here. Bounded + code-defined; never request-derived
 /// (the slice-6 ADR-011 cardinality invariant, extended by D6).
-const PROBE_NAMES: &[&str] = &["store", "metrics"];
+const PROBE_NAMES: &[&str] = &["store", "metrics", "machine_token"];
 
 /// Slice 7 (ADR-015) — default cadence for the daily tombstone GC
 /// sweep. 86400 seconds = 24 hours. Operators tune via
@@ -156,6 +156,65 @@ async fn main() -> anyhow::Result<()> {
         .map(|v| v == "true" || v == "1")
         .unwrap_or(true);
 
+    // Feature A (US-W05b, ADR-W02) — build the Ed25519 machine-token
+    // verifier from MACHINE_TOKEN_PUBLIC_KEYS, EXACTLY as session_secret
+    // is built from SESSION_SECRET. Comma-separated, newest first; the
+    // verifier holds the SET and tries each (overlapping-key rotation).
+    // A malformed key fails here and refuses startup below.
+    // PEM keys carry newlines; env transport (.env / compose / subprocess)
+    // commonly encodes them as literal `\n`, so we normalize those back to
+    // real newlines before parsing. Comma separates keys (PEM bodies are
+    // base64 + dashes, never commas), so this split is unambiguous.
+    let machine_token_public_keys: Vec<String> = std::env::var("MACHINE_TOKEN_PUBLIC_KEYS")
+        .context("MACHINE_TOKEN_PUBLIC_KEYS is required")?
+        .split(',')
+        .map(|k| k.trim().replace("\\n", "\n"))
+        .filter(|k| !k.is_empty())
+        .collect();
+    let machine_token_verifier =
+        match foundry_auth::MachineTokenVerifier::from_public_keys(&machine_token_public_keys) {
+            Ok(verifier) => verifier,
+            Err(err) => {
+                // Earned Trust — refuse startup on malformed key material,
+                // mirroring the session_secret/store/metrics probes. The
+                // metrics recorder is already installed, so increment the
+                // probe-failure counter before propagating.
+                tracing::error!(
+                    event = "health.startup.refused",
+                    probe = "machine_token",
+                    reason = "machine_token_key",
+                    detail = %err,
+                    "machine-token public key material invalid — refusing to start"
+                );
+                metrics::counter!(PROBE_FAILURES_TOTAL, "probe_name" => "machine_token")
+                    .increment(1);
+                return Err(anyhow::Error::from(err).context("build machine-token verifier"));
+            }
+        };
+
+    // Earned-Trust key probe: if a signing key is configured (issuing
+    // binary), sign+verify a throwaway claim set to prove the keypair
+    // round-trips in THIS environment. A mismatched signing/public key
+    // refuses startup rather than silently 401-ing every token in prod.
+    if let Ok(signing_key) = std::env::var("MACHINE_TOKEN_SIGNING_KEY") {
+        let signing_key = signing_key.replace("\\n", "\n");
+        let probe_result = foundry_auth::MachineTokenSigner::from_pkcs8_pem(&SecretString::new(
+            signing_key.into(),
+        ))
+        .and_then(|signer| machine_token_verifier.self_test(&signer));
+        if let Err(err) = probe_result {
+            tracing::error!(
+                event = "health.startup.refused",
+                probe = "machine_token",
+                reason = "machine_token_key",
+                detail = %err,
+                "machine-token keypair self-test failed — refusing to start"
+            );
+            metrics::counter!(PROBE_FAILURES_TOTAL, "probe_name" => "machine_token").increment(1);
+            return Err(anyhow::Error::from(err).context("machine-token keypair self-test"));
+        }
+    }
+
     let realtime_tx = foundry_realtime::build_broadcast();
     // Spawn the dedicated LISTEN connection task. It owns its own
     // Postgres connection (NOT borrowed from the request pool); the
@@ -176,6 +235,7 @@ async fn main() -> anyhow::Result<()> {
     let state = AppState {
         store: Arc::new(store),
         session_secret: Arc::new(SecretString::new(session_secret.into())),
+        machine_token_verifier: Arc::new(machine_token_verifier),
         session_cookie_secure,
         db_schema: std::env::var("FOUNDRY_DB_SCHEMA").unwrap_or_else(|_| "public".to_string()),
         public_url: public_url.clone(),

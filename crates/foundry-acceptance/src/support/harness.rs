@@ -269,6 +269,9 @@ impl InProcHarness {
             session_secret: Arc::new(SecretString::new(
                 "test-only-secret-must-be-at-least-32-bytes-long-please-yes".into(),
             )),
+            // Feature A (US-W05b) — fixed test Ed25519 verifier, mirrors
+            // the fixed test session_secret so 02-03/W05c can mint+verify.
+            machine_token_verifier: Arc::new(foundry_auth::test_keys::verifier()),
             // The US-05 happy-path scenario asserts the cookie carries
             // Secure. The harness binds to 127.0.0.1 (plain HTTP) but
             // we still emit Secure in the Set-Cookie header — the test

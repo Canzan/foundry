@@ -60,6 +60,11 @@ use testcontainers_modules::testcontainers::ImageExt;
 /// the slice-6 fixture so the subprocess boots identically.
 const TEST_SESSION_SECRET: &str = "slice-8-test-secret-must-be-at-least-32-bytes-long-please-yes";
 
+/// Feature A (US-W05b) — fixed test Ed25519 public key (literal-\n encoded)
+/// so the subprocess boot satisfies the now-required MACHINE_TOKEN_PUBLIC_KEYS
+/// verifier exactly as it satisfies SESSION_SECRET. Matches the harness fixture.
+const TEST_MACHINE_TOKEN_PUBLIC_KEY: &str = "-----BEGIN PUBLIC KEY-----\\nMCowBQYDK2VwAyEAwtFPs8Jcuncc+E7dXqG/oolI3P6Hamrpd8zVKPvRmg0=\\n-----END PUBLIC KEY-----";
+
 // =====================================================================
 // DedicatedDb — a restartable per-scenario Postgres for the real
 // LISTEN-disconnect scenario (#7b). Owning its OWN container (NOT the
@@ -823,6 +828,7 @@ async fn spawn_subprocess_expecting_refuse_to_start(
         .env("METRICS_HOST", "127.0.0.1")
         .env("FOUNDRY_HOST", "127.0.0.1")
         .env("SESSION_SECRET", TEST_SESSION_SECRET)
+        .env("MACHINE_TOKEN_PUBLIC_KEYS", TEST_MACHINE_TOKEN_PUBLIC_KEY)
         .env("SESSION_COOKIE_SECURE", "false")
         .env("FOUNDRY_DB_SCHEMA", db_schema)
         // The schema is already migrated by fresh_schema_pool_with_url,
@@ -875,6 +881,7 @@ async fn spawn_subprocess_expecting_store_probe_failure(
         .env("METRICS_HOST", "127.0.0.1")
         .env("FOUNDRY_HOST", "127.0.0.1")
         .env("SESSION_SECRET", TEST_SESSION_SECRET)
+        .env("MACHINE_TOKEN_PUBLIC_KEYS", TEST_MACHINE_TOKEN_PUBLIC_KEY)
         .env("SESSION_COOKIE_SECURE", "false")
         .env("FOUNDRY_DB_SCHEMA", db_schema)
         // Skip migrations so the dropped 0006 columns stay dropped — the

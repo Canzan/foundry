@@ -37,6 +37,12 @@ services:
       RUST_LOG_FORMAT: json
       SESSION_SECRET: dev-only-secret-change-me-at-least-32-bytes-long-please
       SESSION_COOKIE_SECURE: "false"
+      # Feature A (US-W05b) — Ed25519 machine-token keypair. DEV-ONLY fixed
+      # keypair (matches the acceptance harness fixture). PEM newlines are
+      # encoded as literal \n and normalized at boot. Rotate before any real
+      # deployment. MACHINE_TOKEN_PUBLIC_KEYS is comma-separated (newest first).
+      MACHINE_TOKEN_PUBLIC_KEYS: "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAwtFPs8Jcuncc+E7dXqG/oolI3P6Hamrpd8zVKPvRmg0=\n-----END PUBLIC KEY-----"
+      MACHINE_TOKEN_SIGNING_KEY: "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIK82aJdks5jZYdUK6HN6tiWmq7nU4yrILbQSibZdvMYK\n-----END PRIVATE KEY-----"
     depends_on:
       postgres:
         condition: service_healthy

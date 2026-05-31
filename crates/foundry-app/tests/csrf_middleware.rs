@@ -43,6 +43,13 @@ async fn build_test_router() -> Router {
         session_secret: Arc::new(SecretString::new(
             "csrf-test-secret-please-thirty-two-bytes-yes-yes-yes-yes".into(),
         )),
+        machine_token_verifier: Arc::new(
+            foundry_auth::MachineTokenVerifier::from_public_keys(&[
+                "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAwtFPs8Jcuncc+E7dXqG/oolI3P6Hamrpd8zVKPvRmg0=\n-----END PUBLIC KEY-----\n"
+                    .to_string(),
+            ])
+            .expect("fixed test public key is valid"),
+        ),
         session_cookie_secure: false,
         db_schema: "public".into(),
         public_url: "http://localhost".into(),

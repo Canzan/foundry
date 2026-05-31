@@ -20,7 +20,7 @@ harness = false
 [dependencies]
 foundry-core = { path = "../foundry-core" }
 foundry-store = { path = "../foundry-store", features = ["test-support"] }
-foundry-auth = { path = "../foundry-auth" }
+foundry-auth = { path = "../foundry-auth", features = ["test-support"] }
 foundry-app   = { path = "../foundry-app", features = ["test-support"] }
 foundry-realtime = { path = "../foundry-realtime" }
 

@@ -299,14 +299,15 @@ Feature: The five deferred observability metrics emit so the operator dashboard 
     # shows the full probe set as flat-zero lines ("all probes
     # passing"). Bounded-poll settles-to-0; asserts the line is present
     # immediately and the bounded label set is exactly {probe_name} with
-    # values drawn from the closed {store, metrics} set.
+    # values drawn from the closed {store, metrics, machine_token} set
+    # (Feature A US-W05b added the machine-token key-material probe).
     Given the operator's foundry instance is running
     When the operator scrapes the metrics endpoint immediately
     Then the scrape returns HTTP 200
     And the scrape body contains the line "probe_failures_total"
     And the scrape body's "probe_failures_total" sample settles to 0 within 5 seconds
     And the scrape body's "probe_failures_total" samples carry only the label keys "probe_name"
-    And the scrape body's "probe_failures_total" samples carry only the probe names "store,metrics"
+    And the scrape body's "probe_failures_total" samples carry only the probe names "store,metrics,machine_token"
 
   @real-io @probe-failure @error @nfr-obs-03 @serial
   Scenario: A failing startup store probe refuses to start so a half-migrated deploy never serves

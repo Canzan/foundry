@@ -45,6 +45,10 @@ use tokio::process::{Child, Command};
 /// Test fixture session secret (32+ bytes — production rejects shorter).
 const TEST_SESSION_SECRET: &str = "slice-6-test-secret-must-be-at-least-32-bytes-long-please-yes";
 
+/// Feature A (US-W05b) — fixed test Ed25519 public key (literal-\n encoded)
+/// so the subprocess boot satisfies the now-required MACHINE_TOKEN_PUBLIC_KEYS.
+const TEST_MACHINE_TOKEN_PUBLIC_KEY: &str = "-----BEGIN PUBLIC KEY-----\\nMCowBQYDK2VwAyEAwtFPs8Jcuncc+E7dXqG/oolI3P6Hamrpd8zVKPvRmg0=\\n-----END PUBLIC KEY-----";
+
 /// Total wall-clock we wait for both ports to bind before declaring
 /// the subprocess broken. Slice-3 precedent uses `.output()` (no
 /// explicit timeout — relies on the subprocess running to completion).
@@ -158,6 +162,7 @@ impl FoundrySubprocess {
             .env("METRICS_HOST", "127.0.0.1")
             .env("FOUNDRY_HOST", "127.0.0.1")
             .env("SESSION_SECRET", TEST_SESSION_SECRET)
+            .env("MACHINE_TOKEN_PUBLIC_KEYS", TEST_MACHINE_TOKEN_PUBLIC_KEY)
             .env("SESSION_COOKIE_SECURE", "false")
             // Tell foundry-app to look up its `session` table on
             // the per-scenario schema (slice-1 InProcHarness pattern).

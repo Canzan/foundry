@@ -60,6 +60,13 @@ pub use email::{EmailSender, NoopEmailSender, SentEmail};
 pub struct AppState {
     pub store: Arc<Store>,
     pub session_secret: Arc<SecretString>,
+    /// Feature A (US-W05b, ADR-W02) — the Ed25519 machine-token verifier,
+    /// built at boot from `MACHINE_TOKEN_PUBLIC_KEYS` exactly as
+    /// `session_secret` is built from `SESSION_SECRET`. Holds a SET of
+    /// public keys to support overlapping-key rotation; tries each. The
+    /// per-request bearer extractor (02-03, foundry-api) reads it via
+    /// `FromRef`. Always present (every binary verifies).
+    pub machine_token_verifier: Arc<foundry_auth::MachineTokenVerifier>,
     pub session_cookie_secure: bool,
     /// Postgres schema where the `session` table lives. `"public"` in
     /// production, a per-scenario name like `"test_s17_ab12"` in the
@@ -131,6 +138,15 @@ pub const DEFAULT_FILE_UPLOAD_MAX_MB: u64 = 10;
 impl axum::extract::FromRef<AppState> for Arc<Store> {
     fn from_ref(state: &AppState) -> Self {
         state.store.clone()
+    }
+}
+
+/// Feature A (US-W05b) — expose the machine-token verifier to the
+/// `foundry-api` bearer extractor (02-03) via `FromRef`, the same way
+/// `Arc<Store>` is exposed, so foundry-api need not depend on foundry-app.
+impl axum::extract::FromRef<AppState> for Arc<foundry_auth::MachineTokenVerifier> {
+    fn from_ref(state: &AppState) -> Self {
+        state.machine_token_verifier.clone()
     }
 }
 

@@ -60,6 +60,10 @@ argon2 = { version = "0.5" }
 password-hash = { version = "0.5" }
 hmac = "0.12"
 sha2 = "0.10"
+# Feature A (US-W05b, ADR-W02) — machine-token JWTs signed with Ed25519
+# (EdDSA). MIT-licensed; EdDSA supported on the default `ring` backend
+# (already in the tree via rustls). This is the ONLY net-new runtime dep.
+jsonwebtoken = "9"
 subtle = "2"
 secrecy = { version = "0.10", features = ["serde"] }
 rand = "0.8"
