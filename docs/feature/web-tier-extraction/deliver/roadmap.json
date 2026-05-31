@@ -1,0 +1,174 @@
+{
+  "roadmap": {
+    "project_id": "web-tier-extraction",
+    "created_at": "2026-05-31T16:05:38Z",
+    "total_steps": 8
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "Read API walking skeleton — foundry-services read seam + GET /api/v1 issues",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "Extract board read use-case into foundry-services and rewire the HTML board handler",
+          "criteria": [
+            "Driving port: foundry_services::board::list_board_issues(&Store, &Principal, team_slug, project_slug) -> Result<Vec<BoardIssue>, ServiceError>, replacing the panic! scaffold.",
+            "Adds foundry-store + foundry-core + foundry-auth deps to crates/foundry-services/Cargo.toml; the use-case performs membership authz (Store::is_team_member) then Store::list_issues_by_project, returning neutral BoardIssue rows (no HTML, no JSON).",
+            "foundry-app board handler (crates/foundry-app/src/projects.rs::show_board, ~:208) is rewired to obtain its rows from foundry_services::board::list_board_issues and still render byte-identical HTML (NFR-WEB-COMPAT-02); foundry-app gains a foundry-services dependency.",
+            "Files: crates/foundry-services/src/board.rs, crates/foundry-services/src/lib.rs (Principal/ServiceError already present), crates/foundry-services/Cargo.toml, crates/foundry-app/src/projects.rs, crates/foundry-app/Cargo.toml.",
+            "Behavioral check (no new acceptance scenario yet — this is the pure move-and-call seam): the entire pre-existing cucumber-rs suite stays GREEN (NFR-WEB-COMPAT-01), proving the extraction changed no observable browser behavior.",
+            "Rust tests: standard #[test] example-based unit tests in foundry-services for list_board_issues happy path + non-member -> Forbidden, exercised against the real Postgres harness (single-example, @real-io). proptest NOT warranted here (no domain invariant).",
+            "Depends on: nothing (first step). Atomic: modifies foundry-services + the one HTML board handler only."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-w05a-api-read-issues.feature",
+          "scenario_name": "The data answer and the browser board come from the same core path"
+        },
+        {
+          "id": "01-02",
+          "name": "Add foundry-api GET board-issues route, serialize to JSON, and mount /api/v1 in build_router",
+          "criteria": [
+            "Driving port: GET /api/v1/teams/{team_slug}/projects/{project_slug}/issues returns a JSON array of {key, number, title, state} with 200; an empty project returns [] with 200 (never HTML, never 204).",
+            "Implements foundry-api routes::list_issues by calling foundry_services::board::list_board_issues and mapping BoardIssue -> IssueJson; adds axum to crates/foundry-api/Cargo.toml; exports pub fn routes(state) -> axum::Router for the /api/v1 sub-router; implements impl IntoResponse for the JSON error envelope (ServiceError -> 401/403/404 per api-contract.md status table).",
+            "build_router (crates/foundry-app/src/lib.rs, ~:138) .merge(foundry_api::routes(state.clone()))s the /api/v1 group; foundry-app gains a foundry-api composition dependency; harness spawn_app/build_router signatures unchanged. Slice-1 transitional auth: the read endpoint accepts the existing browser session (api-contract.md slice-1 note); machine-token requirement lands in Phase 02.",
+            "A request with no valid credential is refused (401) and leaks no issue data; serialized answer contains no markup (NFR-WEB-BND-02).",
+            "Files: crates/foundry-api/src/lib.rs (routes, IntoResponse, IssueJson mapping), crates/foundry-api/Cargo.toml, crates/foundry-app/src/lib.rs, crates/foundry-app/Cargo.toml.",
+            "Rust tests: unskip/flip the @walking_skeleton scenario plus the empty-list and no-credential scenarios of us-w05a (one cucumber-rs scenario per RED->GREEN cycle, real HTTP against the spawned foundry binary + Postgres testcontainer). Optional foundry-api unit #[test] asserting empty BoardIssue vec serializes to `[]`.",
+            "Depends on: 01-01 (the read seam). Atomic: adds the read route + mount only; no auth/writes."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-w05a-api-read-issues.feature",
+          "scenario_name": "An integrator reads the board's issues as data"
+        }
+      ]
+    },
+    {
+      "id": "02",
+      "name": "Machine-token auth — migration, MachineToken primitive, verifier, CSRF-exempt extractor",
+      "steps": [
+        {
+          "id": "02-01",
+          "name": "Add 0007_machine_tokens migration, Store jti-registry/denylist repo, and extend startup probe",
+          "criteria": [
+            "Driven port: a jti-keyed machine_tokens registry/denylist in Postgres; NO secret/hash column (the JWT is the secret) — columns jti (PK), user_id, workspace_id, scope_team_id, expires_at, revoked_at, last_used_at, label.",
+            "New forward-only, advisory-locked migration crates/foundry-store/migrations/0007_machine_tokens.sql (style matching 0001-0006); Store repo methods insert / find_by_jti / revoke / list / touch_last_used added to crates/foundry-store/src/lib.rs following the existing repo pattern.",
+            "Store::probe (crates/foundry-store/src/lib.rs, ~:139) extended to assert the machine_tokens table + its jti/revoked_at/scope_team_id/workspace_id/user_id/expires_at columns exist (mirrors the 0006 column check); a pre-0007 schema yields health.startup.refused {reason:'store_probe_failed'} and non-zero exit (Earned Trust, Principle 12).",
+            "Files: crates/foundry-store/migrations/0007_machine_tokens.sql, crates/foundry-store/src/lib.rs.",
+            "Rust tests: standard #[test] example-based repo tests against the real Postgres harness (@real-io) — insert then find_by_jti round-trip, revoke flips revoked_at, find_by_jti after revoke still returns the row (denylist semantics), probe fails on a pre-0007 schema. No proptest (CRUD, not invariant-shaped).",
+            "Depends on: nothing in Phase 02 (foundational); independent of 01 but ordered first within auth. Atomic: store layer only."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-w05b-machine-token-auth.feature",
+          "scenario_name": "A revoked credential is refused on its next use"
+        },
+        {
+          "id": "02-02",
+          "name": "Add foundry-auth MachineToken EdDSA mint/verify (jsonwebtoken dep) + AppState verifier across harness sites",
+          "criteria": [
+            "Driven port: foundry_auth::MachineToken EdDSA mint/verify primitive — sign(claims, signing_key) and verify(jwt, public_keys) with the jsonwebtoken Validation pinned to algorithms = [EdDSA] (rejects every other alg and alg:none); claims carry sub=user_id, jti, scope, exp, iat.",
+            "Adds the ONE net-new runtime dependency jsonwebtoken = \"9\" (MIT, in the allowed cargo-deny set) to the workspace Cargo.toml + crates/foundry-auth/Cargo.toml; primitive is additive to the existing argon2/HMAC/BootstrapToken module.",
+            "AppState gains required field machine_token_verifier: Arc<MachineTokenVerifier>, built at boot from MACHINE_TOKEN_PUBLIC_KEYS exactly as session_secret is built from SESSION_SECRET (overlapping-key rotation supported); a NEW key-material startup probe signs+verifies a throwaway claim set and refuses startup with health.startup.refused {reason:'machine_token_key'} on a malformed/mismatched key (Earned Trust).",
+            "The ~4 acceptance AppState construction sites (crates/foundry-acceptance/src/support/harness.rs ~:267, multi_replica_harness.rs ~:236 and ~:387, steps/us_03_backup_restore.rs ~:980) + main.rs set a FIXED test Ed25519 keypair (mirrors the fixed test session_secret) so W05b/W05c can mint+verify real tokens.",
+            "Files: Cargo.toml (workspace), crates/foundry-auth/src/lib.rs, crates/foundry-auth/Cargo.toml, crates/foundry-app/src/lib.rs (AppState + boot wiring), crates/foundry-app/src/main.rs, crates/foundry-acceptance/src/support/harness.rs, crates/foundry-acceptance/src/support/multi_replica_harness.rs, crates/foundry-acceptance/src/steps/us_03_backup_restore.rs.",
+            "Rust tests: proptest IS warranted here — a sign->verify round-trip property (any well-formed claim set verifies under the matching public key) and a negative property (a token signed by a non-matching key never verifies); plus example #[test]s for exp-expired -> reject and non-EdDSA alg -> reject. The browser-regression cucumber scenario must stay GREEN (NFR-WEB-API-SEC-01).",
+            "Depends on: nothing in 02 strictly, but pairs with 02-01; the harness keypair change is what unblocks 02-03. Atomic: the credential primitive + key config + AppState field (the harness blast radius)."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-w05b-machine-token-auth.feature",
+          "scenario_name": "The browser sign-in path is unchanged by the machine credential surface"
+        },
+        {
+          "id": "02-03",
+          "name": "Implement foundry-api token_auth extractor (verify + denylist + scope) and require it on /api/v1",
+          "criteria": [
+            "Driving port: every /api/v1 request now requires Authorization: Bearer <JWT>; a valid credential is authenticated as Principal::Machine and reads what its bound principal may read; the mount remains CSRF-exempt and session-exempt (outside the CSRF + tower-sessions layers).",
+            "Implements foundry_api::token_auth::verify_bearer per auth.md: parse Bearer, verify EdDSA (alg pinned via the AppState verifier), validate exp, check the jti denylist (Store::find_by_jti -> revoked_at IS NULL), build Principal::Machine; ALL of missing/malformed/bad-signature/wrong-alg/expired/forged/revoked -> 401 Unauthorized (non-enumerable, no data leak); valid-but-out-of-scope team -> 403 Forbidden. Wrapped as an axum FromRequestParts extractor applied to the /api/v1 routes.",
+            "The denylist read in token_auth is the single allowed foundry-store touch for the adapter; if the cargo-deny rule (Phase 04) would forbid it, it is routed through a foundry-services auth helper instead (architecture.md / step-skeletons B). The harness credential-granting Givens are replaced to mint real JWTs via the fixed test signing key.",
+            "Files: crates/foundry-api/src/lib.rs (token_auth + extractor + 401/403 mapping), crates/foundry-acceptance/src/steps/feature_a_programmatic.rs (mint real tokens in the granting/expired/forged/wrong-alg Givens).",
+            "Rust tests: flip the us-w05b scenarios GREEN one at a time via real HTTP (@real-io) — the @slice2-entry happy read, no-session/no-CSRF success, and the refusal catalogue (no credential, malformed, forged, expired, revoked, disallowed-algorithm, out-of-scope). Optional proptest for the scope-narrowing check (a Backend-scoped token never authorizes a non-Backend team). Example #[test]s in foundry-api for each 401/403 branch.",
+            "Depends on: 02-01 (denylist repo) + 02-02 (verifier + AppState keypair) + 01-02 (the /api/v1 mount it now guards). Atomic: the extractor + its enforcement on the existing routes."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-w05b-machine-token-auth.feature",
+          "scenario_name": "A machine reads with its granted credential"
+        }
+      ]
+    },
+    {
+      "id": "03",
+      "name": "JSON writes — foundry-services write use-cases + foundry-api POST/PATCH routes",
+      "steps": [
+        {
+          "id": "03-01",
+          "name": "Extract create/change-state/comment write use-cases into foundry-services and rewire HTML handlers",
+          "criteria": [
+            "Driving port (service seam): foundry_services::issues::{create_issue, change_issue_state} and foundry_services::comments::{create_comment, edit_comment}, replacing the panic! scaffolds — each reusing the existing core write+outbox path so an API write and a browser write produce identical acceptance/rejection and identical stored bytes (NFR-WEB-API-CON-02).",
+            "create_issue reuses Store::insert_issue_with_outbox + the same trimmed/non-empty/<=256 title validation; change_issue_state reuses Store::update_issue_state_with_outbox + the lifted normalize_state (DD10); create_comment calls foundry_core::render_comment_markdown then Store::insert_comment_with_outbox; edit_comment performs author-or-admin authz then Store::update_comment_with_outbox.",
+            "The foundry-app HTML handlers (crates/foundry-app/src/issues.rs::submit_create ~:46, the state-change handler, crates/foundry-app/src/comments.rs handlers) are rewired to call these services and keep byte-identical HTML responses (NFR-WEB-COMPAT-02); normalize_state moves from issues.rs:~214 into foundry-services.",
+            "Files: crates/foundry-services/src/issues.rs, crates/foundry-services/src/comments.rs, crates/foundry-services/src/lib.rs, crates/foundry-app/src/issues.rs, crates/foundry-app/src/comments.rs.",
+            "Rust tests: the entire pre-existing browser write suite stays GREEN (the regression net for the move-and-call). Standard #[test] service-level unit tests against the real harness for create happy/empty-title-rejected and non-author-edit -> Forbidden. proptest OPTIONAL for normalize_state round-trip / title-length boundaries (a genuine invariant) — flagged, not mandatory.",
+            "Depends on: 01-01 (establishes the foundry-services <-> foundry-store wiring this extends). Atomic: the write seam + the matching HTML handler rewire; no API routes yet."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-w05c-api-write-issues.feature",
+          "scenario_name": "An issue with an empty title is rejected by the same rule the browser enforces"
+        },
+        {
+          "id": "03-02",
+          "name": "Add foundry-api POST/PATCH issue + comment routes with the JSON error envelope",
+          "criteria": [
+            "Driving ports: POST /api/v1/teams/{team}/projects/{project}/issues (201 + created issue + Location header), PATCH .../issues/{number} (200 + updated issue), POST .../issues/{number}/comments (201 + sanitized comment), PATCH .../issues/{number}/comments/{comment_id} (200 + updated comment) — all JSON in/out, never HTML.",
+            "Implements foundry-api routes::{create_issue, change_issue_state, create_comment, edit_comment} as axum handlers calling the foundry_services write use-cases with the request's Principal::Machine; the error envelope maps Validation->422 (title_required, same copy as the UI's \"Title is required\"), 403 forbidden (non-author edit), 404/410 per api-contract.md; rejection bodies are JSON with no markup (NFR-WEB-API-CON-03).",
+            "An API-created change rides the SAME outbox so it reaches SSE/realtime consumers identically to a browser-created change (NFR-WEB-API-CON-02); body_html in the comment response is the core-sanitized markup inside a JSON string field (allowed by the boundary rule, not an HTML response body).",
+            "Files: crates/foundry-api/src/lib.rs (the four write handlers + routes() registration + status mapping), crates/foundry-api/Cargo.toml (no direct foundry-store write dep — writes go through foundry-services).",
+            "Rust tests: flip the us-w05c scenarios GREEN one at a time via real HTTP (@real-io) — files an issue (next sequential key, starts in backlog, no markup), appears on a watcher's board (same outbox), moves state, comment sanitized exactly as a browser comment, empty-title 422 parity, non-author edit 403. Optional foundry-api contract-snapshot #[test] for the v1 issue shape (NFR-WEB-API-CON-01).",
+            "Depends on: 03-01 (write seam) + 02-03 (token_auth Principal these handlers consume) + 01-02 (the /api/v1 mount). Atomic: the write routes only."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-w05c-api-write-issues.feature",
+          "scenario_name": "A machine files an issue through the API"
+        }
+      ]
+    },
+    {
+      "id": "04",
+      "name": "Boundary guard — xtask check-arch AST + cargo-deny crate-graph rule + injected-violation gold test",
+      "steps": [
+        {
+          "id": "04-01",
+          "name": "Implement cargo xtask check-arch, add cargo-deny dep-direction bans, and stage the injected-violation gold test",
+          "criteria": [
+            "Driving port: cargo xtask check-arch passes on a clean tree (zero manual steps) and fails with a named offender when a boundary is violated — the three orthogonal layers of boundary-guard.md.",
+            "Layer 1 (AST source walk in xtask): no crates/foundry-api/src/** symbol constructs axum Html / returns Html<..> / sets text/html (api!=HTML); no is_team_member/is_workspace_admin call site in foundry-api (authz belongs in foundry-services); the token_auth Validation pins algorithms = [EdDSA] (fails if a non-EdDSA alg or disabled signature validation appears). On failure it names the handler that builds a page / reports the verifier no longer pins the single allowed algorithm.",
+            "Layer 2 (cargo-deny crate graph): deny.toml bans extended so foundry-api -> foundry-store and foundry-app -> foundry-store are forbidden edges, and foundry-services -> foundry-api / foundry-services -> foundry-app reversed edges are forbidden; on violation it names the forbidden dependency. Wired into xtask ci (run_ci) and the CI lint-format job (no DB, no new infrastructure).",
+            "Layer 3 (injected-violation gold test): the acceptance harness materializes a throwaway tree copy with a planted violation (an Html(..) return in foundry-api; a foundry-api -> foundry-store dep edge in Cargo.toml; a Validation accepting any alg) and runs check-arch against THAT copy, asserting it goes red — proving the guard bites (Principle 12c self-application), mirroring support::test_migration's per-scenario staging.",
+            "Files: xtask/src/main.rs (check-arch subcommand + run_ci wiring), deny.toml (bans), crates/foundry-acceptance/src/steps/feature_a_programmatic.rs (stage the copy-with-violation + run check-arch on the copy), .github/workflows/ci.yml (lint-format step).",
+            "Rust tests: flip the us-w06 scenarios GREEN via real subprocess (@real-io, @boundary-guard) — clean tree passes; page-in-api-tier fails and names the handler; adapter-direct-DB-dependency fails and names the forbidden dep; verifier-accepts-any-alg fails and reports the lost alg pin. Example-based only (layer-4 guard, no generated input).",
+            "Depends on: 03-02 (runs after the full api/services surface exists so the clean-tree check is meaningful); independent of the read/write runtime path otherwise. Atomic: the guard tooling + its CI wiring."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-w06-boundary-guard.feature",
+          "scenario_name": "A clean tree passes the boundary check"
+        }
+      ]
+    }
+  ],
+  "implementation_scope": {
+    "source_directories": [
+      "crates/foundry-api/src/",
+      "crates/foundry-services/src/",
+      "crates/foundry-store/src/",
+      "crates/foundry-store/migrations/",
+      "crates/foundry-auth/src/",
+      "crates/foundry-app/src/",
+      "xtask/src/"
+    ],
+    "test_directories": [
+      "crates/foundry-acceptance/tests/features/",
+      "crates/foundry-acceptance/src/steps/",
+      "crates/foundry-acceptance/src/support/"
+    ],
+    "excluded_patterns": [
+      "target/**",
+      "**/Cargo.lock"
+    ]
+  },
+  "validation": {
+    "status": "pending",
+    "reviewer": "TODO",
+    "approved_at": "TODO"
+  }
+}

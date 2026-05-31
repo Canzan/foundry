@@ -30,8 +30,6 @@
 /// "no scaffolds remain" check passes.
 pub const __SCAFFOLD__: bool = true;
 
-const NOT_IMPLEMENTED: &str = "Not yet implemented -- RED scaffold (foundry-services, Feature A)";
-
 /// The authenticated actor a use-case acts on behalf of. Per architecture.md
 /// the service cannot tell whether the caller is a human (browser session) or
 /// a machine (bearer credential): both carry a `user_id` + `workspace_id`, and
@@ -257,70 +255,5 @@ pub mod board {
     }
 }
 
-pub mod issues {
-    use super::*;
-
-    /// US-W05c create-issue use-case. Reuses `insert_issue_with_outbox` and
-    /// the same title validation the browser handler enforces.
-    pub fn create_issue(
-        _principal: &Principal,
-        _team_slug: &str,
-        _project_slug: &str,
-        _title: &str,
-    ) -> Result<CreatedIssue, ServiceError> {
-        panic!("{}", NOT_IMPLEMENTED)
-    }
-
-    /// US-W05c change-state use-case. Reuses `update_issue_state_with_outbox`
-    /// and the SAME `normalize_state` logic the UI uses (DD10).
-    pub fn change_issue_state(
-        _principal: &Principal,
-        _team_slug: &str,
-        _project_slug: &str,
-        _number: i32,
-        _new_state: &str,
-    ) -> Result<BoardIssue, ServiceError> {
-        panic!("{}", NOT_IMPLEMENTED)
-    }
-}
-
-pub mod comments {
-    use super::*;
-
-    /// A comment as the neutral core returns it — `body_html` is the
-    /// core-sanitized markup (`render_comment_markdown`), the SAME bytes the UI
-    /// stores. foundry-api serializes it inside a JSON string field (which is
-    /// NOT an HTML response body — the boundary guard explicitly allows it).
-    #[derive(Debug, Clone)]
-    pub struct CommentView {
-        pub id: uuid::Uuid,
-        pub author_email: String,
-        pub body_html: String,
-        pub edited: bool,
-    }
-
-    /// US-W05c create-comment use-case. Calls `render_comment_markdown` in core
-    /// (NFR-WEB-BND-03) then `insert_comment_with_outbox`.
-    pub fn create_comment(
-        _principal: &Principal,
-        _team_slug: &str,
-        _project_slug: &str,
-        _issue_number: i32,
-        _body: &str,
-    ) -> Result<CommentView, ServiceError> {
-        panic!("{}", NOT_IMPLEMENTED)
-    }
-
-    /// US-W05c edit-comment use-case. Authorship authz (author or admin) is
-    /// decided here, never in the adapter.
-    pub fn edit_comment(
-        _principal: &Principal,
-        _team_slug: &str,
-        _project_slug: &str,
-        _issue_number: i32,
-        _comment_id: uuid::Uuid,
-        _new_body: &str,
-    ) -> Result<CommentView, ServiceError> {
-        panic!("{}", NOT_IMPLEMENTED)
-    }
-}
+pub mod comments;
+pub mod issues;

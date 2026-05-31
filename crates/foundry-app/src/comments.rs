@@ -28,11 +28,10 @@ use axum::http::header::{HeaderMap, HeaderValue, LOCATION};
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
 use foundry_core::render_comment_markdown;
-use foundry_store::{AttachmentSummary, CommentInsertError, CommentRow};
+use foundry_services::{comments as comment_service, Principal, ServiceError};
+use foundry_store::{AttachmentSummary, CommentRow};
 use serde::Deserialize;
 use tower_sessions::Session;
-
-const BODY_MAX_LEN: usize = 65_536;
 
 #[derive(Debug, Deserialize)]
 pub struct CreateCommentForm {
@@ -135,95 +134,51 @@ pub async fn submit_comment(
     let Some(user) = signed_in_user(&session).await else {
         return redirect_to("/sign-in");
     };
-    let team = match state
-        .store
-        .find_team_by_slug(user.workspace_id, &team_slug)
-        .await
-    {
-        Ok(Some(t)) => t,
-        Ok(None) => return team_not_found_page(&team_slug),
-        Err(err) => return internal_error("find_team_by_slug", err),
+
+    // Delegate to the shared seam: membership authz -> validate -> render
+    // markdown in core -> insert+outbox. The SAME path the API uses, so an
+    // API comment and a browser comment accept/reject identically and store
+    // identical bytes (NFR-WEB-API-CON-02).
+    let principal = Principal::Human {
+        user_id: user.user_id,
+        workspace_id: user.workspace_id,
     };
-    match state.store.is_team_member(team.id, user.user_id).await {
-        Ok(true) => {}
-        Ok(false) => return non_member_page(&team_slug),
-        Err(err) => return internal_error("is_team_member", err),
-    }
-
-    // Validate the body BEFORE touching the issue row — empty body is a
-    // 400, not a 404, regardless of whether the issue exists.
-    let trimmed = form.body.trim();
-    if trimmed.is_empty() {
-        return bad_request_fragment("Comment cannot be empty");
-    }
-    if trimmed.chars().count() > BODY_MAX_LEN {
-        return bad_request_fragment("Comment is too long");
-    }
-
-    let issue = match state
-        .store
-        .find_issue_by_team_project_number(team.id, &project_slug, issue_number)
-        .await
+    let view = match comment_service::create_comment(
+        &state.store,
+        &principal,
+        &team_slug,
+        &project_slug,
+        issue_number,
+        &form.body,
+    )
+    .await
     {
-        Ok(Some(i)) => i,
-        Ok(None) => return issue_not_found_page(&team_slug, &project_slug, issue_number),
-        Err(err) => return internal_error("find_issue_by_team_project_number", err),
-    };
-
-    // Sanitized render. The raw markdown is also persisted so a future
-    // sanitizer revision can re-render the table without lossy data.
-    let html = render_comment_markdown(&form.body);
-
-    // Look up the actor's display email for the outbox payload (per
-    // wave-decisions.md, fan-out carries `author_email` so subscribers
-    // don't JOIN at delivery time).
-    let author_email = match state.store.find_user_email_by_id(user.user_id).await {
-        Ok(Some(email)) => email,
-        Ok(None) => {
-            // Shouldn't happen — the session is anchored to a user row.
-            return internal_error(
-                "find_user_email_by_id",
-                "session user not found in users table",
-            );
+        Ok(v) => v,
+        Err(ServiceError::Validation { message, .. }) => return bad_request_fragment(&message),
+        Err(ServiceError::Forbidden) => return non_member_page(&team_slug),
+        Err(ServiceError::NotFound) => {
+            return resolve_comment_not_found_page(
+                &state,
+                &principal,
+                &team_slug,
+                &project_slug,
+                issue_number,
+            )
+            .await
         }
-        Err(err) => return internal_error("find_user_email_by_id", err),
+        Err(_) => return internal_error("create_comment", "service error"),
     };
-
-    let comment_id = uuid::Uuid::now_v7();
-    if let Err(err) = state
-        .store
-        .insert_comment_with_outbox(
-            comment_id,
-            issue.workspace_id,
-            issue.project_id,
-            &issue.project_key_prefix,
-            issue.issue_id,
-            issue_number,
-            user.user_id,
-            &author_email,
-            &form.body,
-            html.as_str(),
-        )
-        .await
-    {
-        return match err {
-            CommentInsertError::IssueNotFound => {
-                issue_not_found_page(&team_slug, &project_slug, issue_number)
-            }
-            CommentInsertError::Store(e) => internal_error("insert_comment_with_outbox", e),
-        };
-    }
 
     if is_htmx(&headers) {
         // htmx fragment: just the new comment card. The list page can
         // hx-swap-oob "beforeend" into `[data-comment-list]`.
         let row = CommentRow {
-            id: comment_id,
+            id: view.id,
             author_id: user.user_id,
-            author_email,
-            body_html: html.into_inner(),
+            author_email: view.author_email,
+            body_html: view.body_html,
             created_at: time::OffsetDateTime::now_utc(),
-            edited: false,
+            edited: view.edited,
         };
         // Newly-posted card renders as if the actor is the author (Edit
         // visible, Delete visible). We pass actor.user_id explicitly so
@@ -333,77 +288,38 @@ pub async fn submit_edit_comment(
     let Some(user) = signed_in_user(&session).await else {
         return redirect_to("/sign-in");
     };
-    let team = match state
-        .store
-        .find_team_by_slug(user.workspace_id, &team_slug)
-        .await
-    {
-        Ok(Some(t)) => t,
-        Ok(None) => return team_not_found_page(&team_slug),
-        Err(err) => return internal_error("find_team_by_slug", err),
+
+    // Delegate to the shared seam: membership authz -> validate -> author-only
+    // authz -> render markdown in core -> update+outbox. The SAME path the API
+    // uses (NFR-WEB-API-CON-02).
+    let principal = Principal::Human {
+        user_id: user.user_id,
+        workspace_id: user.workspace_id,
     };
-    match state.store.is_team_member(team.id, user.user_id).await {
-        Ok(true) => {}
-        Ok(false) => return non_member_page(&team_slug),
-        Err(err) => return internal_error("is_team_member", err),
-    }
-    let trimmed = form.body_markdown.trim();
-    if trimmed.is_empty() {
-        return bad_request_fragment("Comment cannot be empty");
-    }
-    if trimmed.chars().count() > BODY_MAX_LEN {
-        return bad_request_fragment("Comment is too long");
-    }
-    let comment = match state
-        .store
-        .find_comment_by_id(user.workspace_id, comment_id)
-        .await
+    let view = match comment_service::edit_comment(
+        &state.store,
+        &principal,
+        &team_slug,
+        &project_slug,
+        issue_number,
+        comment_id,
+        &form.body_markdown,
+    )
+    .await
     {
-        Ok(Some(c)) => c,
-        Ok(None) => return not_found_fragment("Comment not found"),
-        Err(err) => return internal_error("find_comment_by_id", err),
-    };
-    if comment.deleted {
-        return gone_fragment();
-    }
-    // ADR-006: edit is author-only. Admin-edit is a follow-on per
-    // ADR-006 § Decision paragraph 1 — slice 5 ships author-edit only.
-    if comment.author_id != user.user_id {
-        return forbidden_fragment("You may only edit your own comments.");
-    }
-    let author_email = match state.store.find_user_email_by_id(user.user_id).await {
-        Ok(Some(email)) => email,
-        Ok(None) => {
-            return internal_error(
-                "find_user_email_by_id",
-                "session user not found in users table",
-            );
+        Ok(v) => v,
+        Err(ServiceError::Validation { message, .. }) => return bad_request_fragment(&message),
+        Err(ServiceError::NotFound) => return not_found_fragment("Comment not found"),
+        Err(ServiceError::Gone) => return gone_fragment(),
+        Err(ServiceError::Forbidden) => {
+            // The service collapses "not a team member" and "not the author"
+            // into Forbidden; the browser renders DISTINCT fragments. Re-check
+            // membership to pick the byte-identical one.
+            return forbidden_edit_page(&state, &principal, &team_slug).await;
         }
-        Err(err) => return internal_error("find_user_email_by_id", err),
+        Err(_) => return internal_error("edit_comment", "service error"),
     };
-    let html = render_comment_markdown(&form.body_markdown);
-    match state
-        .store
-        .update_comment_with_outbox(
-            user.workspace_id,
-            comment_id,
-            &form.body_markdown,
-            html.as_str(),
-            user.user_id,
-            &author_email,
-        )
-        .await
-    {
-        Ok(true) => {}
-        Ok(false) => {
-            // The find_comment_by_id pre-check ruled out None/deleted.
-            // A false return here means a race: tombstone landed between
-            // the pre-check and the UPDATE. Surface as 410 — the row IS
-            // gone now.
-            return gone_fragment();
-        }
-        Err(err) => return internal_error("update_comment_with_outbox", err),
-    }
+
     // Determine whether the actor is an admin so the re-rendered card
     // carries the same affordances the full-page render would.
     let actor_is_admin = state
@@ -412,12 +328,12 @@ pub async fn submit_edit_comment(
         .await
         .unwrap_or(false);
     let row = CommentRow {
-        id: comment_id,
+        id: view.id,
         author_id: user.user_id,
-        author_email,
-        body_html: html.into_inner(),
+        author_email: view.author_email,
+        body_html: view.body_html,
         created_at: time::OffsetDateTime::now_utc(),
-        edited: true,
+        edited: view.edited,
     };
     let number_str = issue_number.to_string();
     let body = render_comment_card(
@@ -602,6 +518,57 @@ async fn signed_in_user(session: &Session) -> Option<SessionUser> {
         .await
         .ok()
         .flatten()
+}
+
+/// The shared `create_comment` service collapses team-not-found and
+/// issue-not-found into one `ServiceError::NotFound`. The browser renders
+/// DISTINCT 404 pages, so on NotFound we re-run the cheap lookups purely to
+/// pick the correct page wording (byte-identical to the pre-extraction handler).
+async fn resolve_comment_not_found_page(
+    state: &AppState,
+    principal: &Principal,
+    team_slug: &str,
+    project_slug: &str,
+    issue_number: i32,
+) -> Response {
+    let team = match state
+        .store
+        .find_team_by_slug(principal.workspace_id(), team_slug)
+        .await
+    {
+        Ok(Some(t)) => t,
+        Ok(None) => return team_not_found_page(team_slug),
+        Err(err) => return internal_error("find_team_by_slug", err),
+    };
+    match state
+        .store
+        .find_issue_by_team_project_number(team.id, project_slug, issue_number)
+        .await
+    {
+        Ok(Some(_)) | Ok(None) => issue_not_found_page(team_slug, project_slug, issue_number),
+        Err(err) => internal_error("find_issue_by_team_project_number", err),
+    }
+}
+
+/// The shared `edit_comment` service collapses "not a team member" and "not the
+/// author" into `ServiceError::Forbidden`. The browser renders a full-page 403
+/// for non-members but a small fragment for non-authors. Re-check membership to
+/// pick the byte-identical response.
+async fn forbidden_edit_page(state: &AppState, principal: &Principal, team_slug: &str) -> Response {
+    let team = match state
+        .store
+        .find_team_by_slug(principal.workspace_id(), team_slug)
+        .await
+    {
+        Ok(Some(t)) => t,
+        Ok(None) => return team_not_found_page(team_slug),
+        Err(err) => return internal_error("find_team_by_slug", err),
+    };
+    match state.store.is_team_member(team.id, principal.user_id()).await {
+        Ok(false) => non_member_page(team_slug),
+        Ok(true) => forbidden_fragment("You may only edit your own comments."),
+        Err(err) => internal_error("is_team_member", err),
+    }
 }
 
 fn redirect_to(location: &str) -> Response {
