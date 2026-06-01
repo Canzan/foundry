@@ -2,17 +2,16 @@
 
 ## Current Task
 
-**GitHub `ci.yml` green end-to-end (first time)** — `main` at `f4cebe3`, in sync. Pinning the test containers to `postgres:16-alpine` (match prod) surfaced + fixed 4 pre-existing CI failures (CI had been red on every push; only `release.yml` was green). Also did a README/AGENTS review. Latest release remains **v0.3.1** (multi-arch, signed, dual SBOMs — all cosign-verified).
+**Feature A "Programmatic Foundry" shipped to trunk** (`main` at `ba791ee`). Full nWave pipeline (DISCUSS→DESIGN→DISTILL→DELIVER): JSON `/api/v1` read+write API + JWT/Ed25519 machine-token auth, in new `foundry-api` + `foundry-services` crates over a presentation-neutral core, with a `cargo xtask check-arch` boundary guard. One binary, one new dep (`jsonwebtoken`). 135/135 default-lane scenarios green; foundry-auth mutation 81.8%.
 
 ## Key Decisions
 
-- **PG16 pin** (4 test containers + admin_cli help): tests now match the production major version (docker-compose/k8s ship `16-alpine`). 117/117 product scenarios validated on PG16.
-- **CI binary build**: `acceptance`/`quickstart` jobs (and the README quickstart, cold) failed with `CARGO_BIN_EXE_foundry unset` — `cargo test -p foundry-acceptance` doesn't build the bin the `@real-io` scenarios spawn. Fix: `cargo build --release --bin foundry` before the test (local `cargo xtask ci` masked it via a shared target dir).
-- **Backup lane** (US-03, needs `pg_dump`) was wrongly in the default lane → tagged `@needs-pgclient`, excluded from default; `@all` job installs `postgresql-client-16`. Quickstart stays lightweight (Rust + Docker only).
-- **`@docker-compose` job** needed `.env` (`cp .env.example .env`) for `docker compose up`.
-- **`@all` flake** (`7ff7591`): `ssl_mode(Disable)` + `acquire_timeout` 30s in `harness.rs` (no-TLS testcontainer; SSL-probe failure starved the pool). A/B-proven (reverted 3/5 vs fixed 0/5).
-- Renamed `CLAUDE.md` → `AGENTS.md`; fixed README org/URLs (`foundry-project` → `Canzan`) + stale counts.
+- **Ratified split**: shipped Feature A (the JSON API); **Feature B** (htmx web-tier templating + htmx 2) deferred to its own `/nw:new`, reusing the `foundry-services` seam.
+- **Auth**: JWT/Ed25519 (user override of opaque-token), `jti` denylist revocation, env keys, `alg=[EdDSA]` pinned, `iss/aud/exp/nbf` validated. Boundary guard enforces `foundry-api ⊀ foundry-store`.
+- **Trunk-based workflow** recorded in `AGENTS.md` + memory: commit to `main`, no PRs, CI is not a commit gate, validate with `cargo xtask ci`.
 
 ## Next Steps
 
-- None outstanding — GitHub CI green (5/5 jobs), `cargo xtask ci` green, v0.3.1 shipped + verified.
+- Confirm the in-flight `@all` acceptance re-run is fully green — `cargo xtask ci` passed every stage except 6 `@needs-pgclient` backup scenarios that failed on local `pg_dump` v14-vs-server-v16; fixed via `brew link --overwrite --force libpq` (pg_dump now 18.4).
+- Optionally delete the `feature/web-tier-extraction` branch (work is on trunk).
+- Start Feature B via `/nw:new` when ready.
