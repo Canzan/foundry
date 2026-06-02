@@ -12,6 +12,6 @@
 
 ## Next Steps
 
-- Confirm the in-flight `@all` acceptance re-run is fully green — `cargo xtask ci` passed every stage except 6 `@needs-pgclient` backup scenarios that failed on local `pg_dump` v14-vs-server-v16; fixed via `brew link --overwrite --force libpq` (pg_dump now 18.4).
+- **Open**: `cargo xtask ci` is green on every stage EXCEPT US-03 `@needs-pgclient` backup. `brew link --force libpq` (pg_dump→18.4) fixed the *capture* version-mismatch, but the `@all` re-run then HUNG on the *restore* round-trip (~26h, killed; 10 leaked containers cleaned). Investigate: install a matching **postgresql@16** client (not 18) and/or check Docker resource exhaustion before re-running `@all`. Feature A itself is green (default lane 135/135).
 - Optionally delete the `feature/web-tier-extraction` branch (work is on trunk).
 - Start Feature B via `/nw:new` when ready.
