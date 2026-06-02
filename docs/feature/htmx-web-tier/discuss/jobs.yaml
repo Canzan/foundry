@@ -1,0 +1,272 @@
+# JTBD Outcomes — htmx Web Tier (Feature B of the web-tier-extraction split)
+#
+# Single source of truth for job_id references used by user stories in stories.md.
+#
+# ============================================================================
+# WHAT THIS FILE IS
+# ============================================================================
+# This is Feature B — "Foundry looks like a product" — the deferred web-tier
+# track from the web-tier-extraction split (see that feature's wave-decisions.md
+# D8/D9). Feature A ("Programmatic Foundry": the JSON API + machine-token auth +
+# the presentation-neutral core seam + the boundary guard) has ALREADY SHIPPED.
+#
+# These jobs were sketched as a STRAWMAN inside web-tier-extraction/discuss/ and
+# explicitly flagged "secondary track, NOT DIVERGE-validated — confirm before
+# DESIGN of Feature B." This file is that validation pass. For each inherited job
+# it states: KEEP / REVISE / RETIRE, with the evidence Luna read from the actual
+# 2026-06 codebase (not the strawman's assumptions).
+#
+# ============================================================================
+# STRAWMAN VALIDATION SUMMARY (read this first)
+# ============================================================================
+# Inherited (web-tier-extraction):
+#   jtbd-web-1  restyle a screen without touching Rust          -> KEEP (now PRIMARY), re-id htmx-web-1
+#   jtbd-web-2  web & api are peer consumers of one neutral core -> RETIRE for Feature B (satisfied by Feature A)
+#   jtbd-web-3  self-hoster's first screen looks like a product  -> KEEP (PRIMARY), re-id htmx-web-2
+#   (jtbd-web-4 was Feature A's primary job — out of scope here.)
+# New for Feature B:
+#   htmx-web-3  normalize htmx attributes ahead of an htmx-2 upgrade -> NEW (carries the deferred 1->2 migration)
+#
+# The single most important correction: the strawman ranked jtbd-web-2
+# (boundary honesty) as an active enabler. Reading the code, the browser
+# handlers ALREADY delegate to `foundry_services` (projects::show_board ->
+# foundry_services::board::list_board_issues; issues::submit_create ->
+# issue_service::create_issue; comments -> comment_service). Feature A made the
+# core presentation-neutral and the web handlers already consume that seam. So
+# for Feature B the boundary is largely ESTABLISHED, not a job to be done. We
+# RETIRE jtbd-web-2 as a Feature-B driver and instead carry its residue as a
+# CONSTRAINT (NFR): "do not regress the seam Feature A established." This is the
+# top assumption the user should confirm.
+#
+# This feature still has NO diverge/ directory (no validated DIVERGE
+# job-analysis.md). Jobs remain Luna-derived from (a) backend-mvp JTBD outcomes,
+# (b) the web-tier-extraction strawman, and (c) a fresh 2026-06 code-surface
+# reading. Importances/satisfactions are Luna estimates pending user/field
+# validation. See wave-decisions.md "Strawman validation" + "Missing DIVERGE".
+
+schema_version: 1
+feature: htmx-web-tier
+feature_label: "Feature B — Foundry looks like a product"
+source: DERIVED (no diverge/ dir) — backend-mvp jobs.yaml + web-tier-extraction strawman + 2026-06 code-surface reading
+parent_jobs: docs/feature/foundry-backend-mvp/discuss/jobs.yaml
+predecessor_feature: web-tier-extraction   # Feature A (JSON API) — shipped
+
+# ---------------------------------------------------------------------------
+# Personas (validated against the code + the backend-mvp personas)
+# ---------------------------------------------------------------------------
+personas:
+  contributor:
+    name_example: "Jamal Okafor"
+    description: >
+      Rust developer drawn to Foundry's AGPLv3 + one-binary ethos. Wants to make
+      visual/UX changes to Foundry itself. TODAY, changing on-screen text means
+      editing format!() string literals embedded in request handlers
+      (issues.rs, comments.rs, signin.rs, projects.rs) and recompiling. The
+      PRIMARY persona for Feature B.
+    grounding: "backend-mvp US-13 contributor + verified against the inline format!() render sites read in 2026-06."
+  self_hoster_member:
+    name_example: "Mei Chen / her teammates"
+    description: >
+      A member of a self-hosting team opening Foundry's browser UI — board, issue
+      page, sign-in — for the first time. Forms a first impression from how
+      finished the screen looks. Must perceive NO behavioral change from the
+      extraction except 'it now looks styled'.
+    grounding: "backend-mvp member persona (Mei); the 'first screen' framing inherited from jtbd-web-3."
+  operator:
+    name_example: "Devansh Rao"
+    description: >
+      Self-hoster who runs Foundry (docker compose up) and evaluates/screenshots
+      it for a team. Cares that it stays one binary / one Postgres / no Node
+      runtime / no CDN, and air-gap friendly.
+    grounding: "backend-mvp operator persona; README 'one binary, one Postgres' brand promise."
+
+# ---------------------------------------------------------------------------
+# Inherited backend-MVP outcomes this feature continues to serve.
+# ---------------------------------------------------------------------------
+inherited_jobs:
+  jtbd-outcome-3:
+    name: "Minimize contributor time-to-meaningful-change"
+    statement: "Minimize the time it takes for a developer-contributor to make a meaningful change to the tracker itself."
+    primary_persona: contributor
+    relevance: "The whole point of Feature B: a contributor changing a visual surface should edit ONE template, not hunt through format!() literals scattered across handler modules."
+  jtbd-outcome-4:
+    name: "Maximize Linear-feel interaction speed"
+    statement: "Minimize the likelihood that issue-list interactions feel slower than Linear's."
+    primary_persona: self_hoster_member
+    relevance: "The board/issue/comment surfaces being templated are exactly the Linear-feel hot paths. Templating must not add a measurable render regression."
+  jtbd-outcome-7:
+    name: "Minimize upgrade-without-breakage friction"
+    statement: "Minimize the time it takes to upgrade between minor versions without breaking customizations."
+    primary_persona: operator
+    relevance: "A template-driven web tier + normalized htmx attributes reduce the churn of the eventual htmx-1->2 normalization (the hx-/data-hx- usage lives in the code today)."
+
+# ---------------------------------------------------------------------------
+# Feature-B jobs (post-validation). RANKING (primary -> supporting):
+#   1. htmx-web-1  (PRIMARY)    — restyle/edit a screen without touching Rust
+#   2. htmx-web-2  (PRIMARY)    — first screen looks like a product, offline
+#   3. htmx-web-3  (SUPPORTING) — normalize htmx attributes ahead of an htmx-2 upgrade
+# ---------------------------------------------------------------------------
+jobs:
+  htmx-web-1:
+    name: "Minimize effort to restyle or re-word a screen without touching Rust logic"
+    inherited_from: jtbd-web-1
+    validation: KEEP — PROMOTED to primary
+    statement: >
+      When I want to change how a Foundry screen looks or reads, I want to edit one
+      template (and a stylesheet) without reading or recompiling handler logic, so I
+      can ship a visual change confidently in minutes instead of spelunking through
+      format!() string literals embedded in request handlers.
+    primary_persona: contributor
+    importance: 8
+    satisfaction_today: 2
+    opportunity_score: 14
+    status: under-served
+    rank_note: >
+      PROMOTED from secondary (importance 7) to PRIMARY (8) for Feature B. With
+      Feature A shipped, the boundary-honesty job (old jtbd-web-2) is no longer a
+      Feature-B driver, so the contributor's restyle pain becomes the headline.
+      VALIDATED against code: confirmed every on-screen string in
+      projects.rs/render_board, comments.rs/render_issue_page+render_comment_card,
+      issues.rs/render_issue_card, signin.rs/render_signin_form lives in inline
+      format!() — so the pain is real and present, exactly as the strawman claimed.
+    dimensions:
+      functional: "Locate, edit, and verify a visual/wording change in a single template file; refresh and see it."
+      emotional: "Confidence that I changed only presentation, not behavior — no fear of breaking auth or persistence by editing markup that currently sits next to it."
+      social: "I can review someone else's UI PR and see the markup as markup, not as escaped Rust string fragments in a handler diff."
+    forces:
+      push: >
+        HTML lives as format!() literals INSIDE handler modules: render_board in
+        projects.rs, render_issue_page/render_comment_card in comments.rs,
+        render_issue_card in issues.rs, render_signin_form in signin.rs. Editing
+        markup means editing Rust and recompiling, and a typo in a raw string is a
+        silent behavior/markup risk. There is no stylesheet at all (static/ empty).
+      pull: >
+        A real template engine + a static/ asset pipeline: change a .html template
+        (and CSS), refresh the browser, done. Markup is reviewable as markup, in a
+        predictable templates/ location.
+      anxiety: >
+        Will a template engine slow renders below the Linear-feel budget
+        (jtbd-outcome-4)? Will it break the acceptance scenarios that assert on
+        HTML substrings ('Backlog', issue keys, data-* markers, error copy)?
+      habit: >
+        Contributors grep handler files for the text they see on screen; templates
+        move that text to a predictable templates/ location they must learn to look in.
+
+  htmx-web-2:
+    name: "Minimize the chance a self-hoster's first screen feels unstyled or broken"
+    inherited_from: jtbd-web-3
+    validation: KEEP — PRIMARY (peer of htmx-web-1)
+    statement: >
+      When a self-hosting team opens Foundry in the browser for the first time, I
+      want the board, issue, and sign-in screens to look intentional and load fast
+      from assets the binary already ships (no CDN), so the team trusts Foundry
+      enough to keep evaluating instead of bouncing on a screen that looks like raw
+      HTML.
+    primary_persona: self_hoster_member
+    importance: 7
+    satisfaction_today: 3
+    opportunity_score: 11
+    status: under-served
+    rank_note: >
+      KEPT as a primary Feature-B job (was jtbd-web-3, importance 7). VALIDATED
+      against code: static/ is genuinely EMPTY (no CSS, no vendored htmx/Alpine);
+      render_board/render_signin_form emit bare <html><head><title> with no <link>
+      or <script> — so a first-time self-hoster literally sees unstyled HTML today.
+      Satisfaction nudged 4->3: there is not just 'thin' styling, there is NONE.
+    dimensions:
+      functional: "See a styled, navigable board / issue / sign-in rendered from vendored assets (htmx + Alpine + CSS) with no external CDN."
+      emotional: "First-impression trust: 'this is a real product', not a prototype."
+      social: "The screenshot a teammate shares in Slack looks credible next to Linear."
+    forces:
+      push: >
+        templates/ and static/ are EMPTY; htmx behavior is wired through inline
+        string attributes with no stylesheet and no vendored JS. The board, issue
+        page, and sign-in render as unstyled HTML — a 'prototype' first impression
+        that undercuts the README's 'Linear-style ergonomics' promise.
+      pull: >
+        A coherent rendered UI served from the one binary — vendored htmx + Alpine
+        + CSS, no CDN, no Node runtime — consistent with the one-binary/one-Postgres
+        ethos and air-gap friendly.
+      anxiety: >
+        Will adding a frontend asset pipeline require Node, a bundler, or break the
+        'no new runtime services' promise? (A build-time step is an OPEN question
+        for DESIGN; a runtime service is a hard non-goal.)
+      habit: "Operators expect 'docker compose up' to just work with no extra build step or external fetch."
+
+  htmx-web-3:
+    name: "Normalize htmx attributes so an htmx-1->2 upgrade is low-risk"
+    inherited_from: null   # NEW for Feature B (carries the deferred htmx-1->2 migration)
+    validation: NEW
+    statement: >
+      When Foundry eventually upgrades htmx from 1 to 2, I want the htmx attribute
+      usage to already be consistent and vendored at a pinned version, so the
+      upgrade is a controlled, regression-tested change rather than a hunt through
+      mixed hx-/data-hx- usage scattered across handlers.
+    primary_persona: contributor
+    importance: 5
+    satisfaction_today: 3
+    opportunity_score: 7
+    status: appropriately-served-but-fragile
+    rank_note: >
+      NEW, SUPPORTING. Carries the htmx-1->2 migration the web-tier-extraction
+      deferred (its D3). VALIDATED + REFRAMED against code: the strawman said the
+      code 'mixes hx-/data-hx- prefixes'. Reading it, that is only PARTLY true and
+      the distinction matters:
+        * ACTIVE htmx directives use bare hx-* (comments.rs edit-form: hx-patch,
+          hx-get, hx-target, hx-swap, hx-delete; hx-swap-oob in issues.rs and the
+          comment OOB card).
+        * The 'data-hx-fragment' / 'data-*' attributes are NOT htmx directives at
+          all — they are passive SCRAPER/TEST markers the acceptance suite asserts
+          on (data-hx-fragment, data-comment-list, data-column, data-issue-key).
+      So the real htmx-2 migration surface is SMALL (the bare hx-* directives) and
+      must NOT touch the data-* render-contract markers. This reframing lowers the
+      job's importance vs the strawman's implied 'big prefix-split cleanup'.
+      The htmx VERSION choice/pin and whether to bundle the migration per-surface
+      or as one normalization slice are sequencing decisions (see story-map.md);
+      the requirement here is 'normalize the directives + pin a vendored version
+      without regressing any hx-driven interaction'.
+    dimensions:
+      functional: "Use one consistent htmx attribute convention across all templates; vendor a single pinned htmx version; upgrade by swapping that one vendored file."
+      emotional: "Calm during the eventual htmx-2 bump — no archaeology, no 'which prefix did this handler use?'"
+      social: "A reviewer can see at a glance that htmx usage is consistent and version-pinned."
+    forces:
+      push: >
+        Active htmx directives are bare hx-* today and the htmx version is not
+        vendored/pinned at all (static/ empty). An htmx-2 upgrade today would mean
+        hunting directives across handlers AND choosing a version with no pin.
+      pull: >
+        Templated, consistent htmx directives + a single vendored, pinned htmx file.
+        The htmx-2 upgrade becomes 'swap the vendored file, run the suite'.
+      anxiety: "Will normalizing/upgrading htmx silently break an existing hx-driven swap (create-card OOB, comment edit/delete/cancel, SSE fragment)?"
+      habit: "Each handler today emits its own attribute string; a shared template convention replaces ad-hoc per-handler strings."
+
+# ---------------------------------------------------------------------------
+# RETIRED for Feature B (kept here for traceability — do NOT use as a job_id).
+# ---------------------------------------------------------------------------
+retired_jobs:
+  jtbd-web-2:
+    name: "Web and API are peer consumers of one presentation-neutral core"
+    validation: RETIRE (as a Feature-B driver)
+    reason: >
+      SATISFIED BY FEATURE A. Reading the 2026-06 code: projects::show_board calls
+      foundry_services::board::list_board_issues; issues::submit_create calls
+      issue_service::create_issue; comments call comment_service::create_comment /
+      edit_comment. The browser handlers already go through the presentation-neutral
+      core seam Feature A established, and Feature A shipped the foundry-api peer +
+      the CI boundary guard (US-W06). So 'make web and api peer consumers of one
+      neutral core' is no longer a JOB Feature B does — it is DONE.
+    residue_as_constraint: >
+      Feature B must NOT REGRESS the seam: the new templates render data already
+      fetched via foundry_services, sanitization/authz decisions stay in core, and
+      the web tier gains no new DB-pool dependency. Captured as NFR-WEB-BND-*
+      (carried forward as constraints, enforced by Feature A's existing boundary
+      guard), NOT as a Feature-B job. USER MUST CONFIRM this retirement.
+
+# Story-to-job mapping (mirror of the job_id line on each story; canonical source).
+story_job_map:
+  US-B01: htmx-web-1          # Slice 1: board -> template over the existing services seam
+  US-B02: htmx-web-2          # Slice 1: board renders from vendored htmx/Alpine/CSS, no CDN
+  US-B03: htmx-web-1          # Slice 2: issue detail + comment thread -> one templated card partial
+  US-B04: htmx-web-2          # Slice 3: sign-in / forgot-password -> shared base layout
+  US-B05: htmx-web-3          # Slice 4: normalize htmx directives + pin a vendored htmx version
+  US-B06: infrastructure-only # static-asset pipeline scaffolding; folds into Slice 1 (never standalone)
