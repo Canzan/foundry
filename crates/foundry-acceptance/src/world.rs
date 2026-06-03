@@ -457,4 +457,40 @@ pub struct FoundryWorld {
     pub fa_guard_exit_code: Option<i32>,
     /// Combined stdout+stderr from the boundary-check subprocess.
     pub fa_guard_stderr: Option<String>,
+
+    // ---- Feature B "htmx Web Tier" (htmx-web-tier) ----
+    /// Email of the persona signed in for the current Feature-B scenario,
+    /// set by the `<persona> is signed in as a Backend member` /
+    /// `... as the workspace admin` Givens. Drives the authenticated GETs.
+    pub b_signed_in_email: Option<String>,
+    /// Password matching `b_signed_in_email` (the harness re-authenticates
+    /// per request — no cookie jar).
+    pub b_signed_in_password: Option<String>,
+    /// Body of the most recent board / issue / sign-in / forgot GET captured
+    /// by a Feature-B When step, reused by the Then assertions on the same
+    /// surface so they don't re-fetch.
+    pub b_last_body: Option<String>,
+    /// Status of the most recent Feature-B GET/POST.
+    pub b_last_status: Option<StatusCode>,
+    /// Headers of the most recent Feature-B GET/POST (for the session-cookie /
+    /// anti-forgery-cookie assertions on US-B04).
+    pub b_last_headers: Option<HeaderMap>,
+    /// Body of the most recent htmx OOB fragment returned by a live comment
+    /// post / issue file (the live card, for the US-B03 live-vs-reloaded
+    /// parity assertion).
+    pub b_live_fragment: Option<String>,
+    /// Body of the reloaded issue page captured AFTER a live post (the
+    /// reloaded card, compared against `b_live_fragment`).
+    pub b_reloaded_page: Option<String>,
+    /// Whether the current US-B01 scenario asked the board template to fail
+    /// rendering (the clean-500 error path).
+    pub b_force_template_failure: bool,
+    /// Raw bytes / text of the most recent `/static/...` asset GET.
+    pub b_asset_body: Option<String>,
+    /// Content-Type header of the most recent `/static/...` asset GET.
+    pub b_asset_content_type: Option<String>,
+    /// Cache-Control header of the most recent `/static/...` asset GET.
+    pub b_asset_cache_control: Option<String>,
+    /// Status of the most recent `/static/...` asset GET.
+    pub b_asset_status: Option<StatusCode>,
 }
