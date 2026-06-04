@@ -1,0 +1,231 @@
+{
+  "roadmap": {
+    "project_id": "htmx-web-tier",
+    "created_at": "2026-06-04T12:07:53Z",
+    "total_steps": 7
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "Styled board walking skeleton (Slice 1) — Askama wired, vendored assets served, board renders from a template",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "Wire Askama + vendor static blobs + mount /static ServeDir",
+          "criteria": [
+            "GET /static/vendor/htmx.min.js returns 200 with a JavaScript content type and a long-lived (max-age=31536000, immutable) Cache-Control header",
+            "GET /static/vendor/alpine.min.js returns 200 with a JavaScript content type",
+            "GET /static/css/foundry.css returns 200 with a stylesheet content type",
+            "GET /static/vendor/htmx.min.js returns a non-empty script body (the real pinned htmx 1.x blob, not a stub)",
+            "askama + askama_axum are wired into foundry-app with askama.toml dirs = [\"templates\"]; the workspace still compiles and the existing acceptance suite stays green (regression net)"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-b02-vendored-assets.feature",
+          "scenario_name": "The vendored htmx, Alpine, and stylesheet are served by the binary",
+          "estimated_minutes": 90,
+          "depends_on": [],
+          "implementation_scope": {
+            "files": [
+              "crates/foundry-app/Cargo.toml",
+              "crates/foundry-app/askama.toml",
+              "crates/foundry-app/src/lib.rs",
+              "crates/foundry-app/static/vendor/htmx.min.js",
+              "crates/foundry-app/static/vendor/alpine.min.js",
+              "crates/foundry-app/static/css/foundry.css",
+              "crates/foundry-app/static/VENDOR.md"
+            ]
+          },
+          "implementation_notes": "Crafter = @nw-software-crafter (Standard Rust, OOP, EXAMPLE-BASED). Acceptance driver: the cucumber-rs walking-skeleton scenario in us-b02-vendored-assets.feature exercising the @real-io @adapter-integration ServeDir over the real filesystem; unskip exactly this one scenario for the cycle. Wiring (step-skeletons.md steps 1, 5, 6): activate askama 0.12 (already declared in workspace Cargo.toml:38, absent from Cargo.lock) + askama_axum on foundry-app and add askama.toml; re-run cargo deny check (MIT/Apache-2.0). Commit pinned minified htmx 1.x, Alpine, and foundry.css blobs under static/ with VENDOR.md provenance (upstream URL + version + sha256). In build_router (lib.rs:~175) add .nest_service(\"/static\", ServeDir::new(\"static\")) alongside the existing attachment sub-router + a SetResponseHeader layer for Cache-Control: public, max-age=31536000, immutable; tower-http fs feature is already vendored (Cargo.toml:35) so zero new dep for serving. ServeDir refuses path traversal by construction (covers the @error traversal scenario without extra code). Asset path contract: the served paths MUST agree with what feature_b_web_tier.rs probes (/static/vendor/htmx.min.js, /static/vendor/alpine.min.js, /static/css/foundry.css) — if content-hashed names are used, update the four step constants to agree. Unit: std #[test] in foundry-app may assert ServeDir content-type/cache-header mapping; no proptest (no real invariant). Invariant: ONE binary, NO JS toolchain / package.json / CDN; existing suite stays green.",
+          "driving_port": "GET /static/vendor/htmx.min.js | /static/vendor/alpine.min.js | /static/css/foundry.css (tower-http ServeDir static-asset route)"
+        },
+        {
+          "id": "01-02",
+          "name": "Base layout + board template + views.rs view-model; switch show_board to render via template",
+          "criteria": [
+            "Opening the Auth v2 board shows the same columns Backlog, Todo, In-Progress, Done and the same cards (AUTH-2, AUTH-3) in their columns as the current format! board (selector-and-substring-identical)",
+            "The board markup links the vendored stylesheet and loads the vendored htmx and Alpine scripts from the application's own /static path",
+            "The board references no external origin (no http(s):// or // asset references)",
+            "The hidden #kb-items keyboard-navigation carrier is preserved with AUTH-2 before AUTH-3 (ASC), and data-column / data-issue-key markers are byte-stable",
+            "An empty board renders the grown, inviting empty state with call-to-action guidance on how to file the first issue"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-b01-styled-board.feature",
+          "scenario_name": "A member opens a styled board that still shows the same issues",
+          "estimated_minutes": 120,
+          "depends_on": ["01-01"],
+          "implementation_scope": {
+            "files": [
+              "crates/foundry-app/src/views.rs",
+              "crates/foundry-app/templates/base.html",
+              "crates/foundry-app/templates/board.html",
+              "crates/foundry-app/templates/partials/issue_card.html",
+              "crates/foundry-app/src/projects.rs",
+              "crates/foundry-app/src/issues.rs"
+            ]
+          },
+          "implementation_notes": "Crafter = @nw-software-crafter (Standard Rust, OOP, EXAMPLE-BASED). Acceptance driver: the us-b01 @walking_skeleton @real-io scenario over the real in-process axum router + real Postgres; unskip this one scenario. Also greens the us-b01 empty-state scenario and the keyboard-carrier scenario as they ride the same render switch (acceptable: one render switch, multiple observable assertions on the same surface). Wiring (step-skeletons.md steps 2, 3, 4): create src/views.rs with #[derive(Template)] structs BaseLayout + BoardPage and the IssueCard partial view-model (the ONE issue-card definition). templates/base.html = the single base layout: <head> with vendored <link rel=stylesheet href=/static/css/foundry.css> + <script src=/static/vendor/htmx.min.js> + alpine, header chrome, {% block content %}. templates/board.html extends base, renders columns and {% include partials/issue_card.html %}, keeps the #kb-items hidden carrier ASC-sorted with data-column/data-issue-key, grows the empty-state copy to invite filing the first issue. Rewire projects::show_board to fetch via foundry_services::board::list_board_issues (UNCHANGED seam), build views::BoardPage, render; DELETE render_board's format!. The OOB-create path in issues.rs renders the SAME issue_card partial. Handlers own data/policy, templates own markup: NO DB call, NO authz, NO sanitization in templates (NFR-WEBB-BND-01). Askama auto-escapes by default. Render contract is selector-and-substring-identical (scraper CSS selectors + visible text + data-* markers), NOT byte-for-byte — the existing us-08 board suite is the regression net and MUST stay green. Unit: std #[test] that views::BoardPage renders expected selectors/markers from a fixed view-model (pure, no I/O). No proptest. Recommend ArchUnit-style enforcement is out of scope; the web!=DB AST guard from Feature A stays green (no sqlx in render path).",
+          "driving_port": "GET /team/{team}/project/{project} (board route → projects::show_board → views::BoardPage)"
+        },
+        {
+          "id": "01-03",
+          "name": "Render-failure → clean 500 seam (no half-page)",
+          "criteria": [
+            "When the board template is configured to fail rendering, opening the board responds with a clean server error (500), not a 200",
+            "The error response is not a partially rendered page (no half-emitted markup)",
+            "A test-only AppState flag (parallel to db_unreachable, behind cfg(any(test, feature=\"test-support\"))) drives the board view render to return Err; the handler maps render errors to a clean 500 centrally",
+            "The previously-green board scenarios (walking skeleton, empty state, keyboard carrier) stay green"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-b01-styled-board.feature",
+          "scenario_name": "A board template that fails to render returns a clean error, not a half-page",
+          "estimated_minutes": 60,
+          "depends_on": ["01-02"],
+          "implementation_scope": {
+            "files": [
+              "crates/foundry-app/src/lib.rs",
+              "crates/foundry-app/src/projects.rs"
+            ]
+          },
+          "implementation_notes": "Crafter = @nw-software-crafter (Standard Rust, OOP, EXAMPLE-BASED). Acceptance driver: the us-b01 @error @real-io render-failure scenario; unskip it. Wiring (step-skeletons.md step 7): add a cfg(any(test, feature=\"test-support\")) AppState flag (mirror the existing db_unreachable flag) that forces the board view render to return Err; the board handler maps any render error to a clean 500 (never a half-page), and an htmx-fragment request maps to a 500 fragment. DELIVER replaces the b_force_template_failure placeholder Given in feature_b_web_tier.rs with the real flag setter (board_template_fails). This is the Earned-Trust render-failure probe: fail-safe, fail-fast, fail-loud. Unit: std #[test] asserting the error-mapping function turns a render Err into a 500 with no body bleed-through. No proptest. Invariant: production render path unchanged; the seam is test-only.",
+          "driving_port": "GET /team/{team}/project/{project} under forced render failure (board handler error-mapping)"
+        }
+      ]
+    },
+    {
+      "id": "02",
+      "name": "Issue page + comment partial (Slice 2) — one comment-card definition, OOB-affordance bug fix",
+      "steps": [
+        {
+          "id": "02-01",
+          "name": "Issue page template + issue-card render switch",
+          "criteria": [
+            "The Auth v2 issue page (AUTH-3) renders from a template extending the base layout and shows the comment card by Mei with her as the author and the rendered comment body",
+            "An edited comment shows the rendered revised body and the (edited) marker",
+            "Markdown sanitization stays in foundry_core: a dangerous comment renders with no <script> element and no javascript: link (sanitized in core, template embeds the already-sanitized body_html verbatim)",
+            "The existing us-10 comment scenarios stay green (regression net); 400/403/410 error copy preserved byte-identically"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-b03-comment-partial.feature",
+          "scenario_name": "The issue page and its comment cards render with author and body",
+          "estimated_minutes": 120,
+          "depends_on": ["01-02"],
+          "implementation_scope": {
+            "files": [
+              "crates/foundry-app/src/views.rs",
+              "crates/foundry-app/templates/issue.html",
+              "crates/foundry-app/templates/partials/comment_card.html",
+              "crates/foundry-app/templates/partials/comment_edit_form.html",
+              "crates/foundry-app/templates/partials/errors/issue_400.html",
+              "crates/foundry-app/src/comments.rs"
+            ]
+          },
+          "implementation_notes": "Crafter = @nw-software-crafter (Standard Rust, OOP, EXAMPLE-BASED). Acceptance driver: the us-b03 author-and-body @real-io scenario; unskip it. The edited-marker, reader-sees-nothing, admin-sees-delete, and sanitized-in-core scenarios are GREEN-staying regression guards proving the affordance rule and sanitization are unchanged (they ride this render switch). Wiring (step-skeletons.md steps 9, 11): add views::IssuePage + CommentCard partial view-model; templates/issue.html extends base (issue header + attachments + comment thread, {% include partials/comment_card.html %}); partials/comment_card.html = the ONE comment-card definition (<article id=comment-{id} data-author data-comment-id>, .comment-author + (edited) marker, .comment-body {{ body_html|safe }} — already sanitized in core, .comment-actions rendering Edit/Delete buttons gated by can_edit/can_delete flags with their hx-*); comment_edit_form.html inline edit fragment; errors/* fragments with EXACT 400/403/410 copy preserved. Rewire comments::show_issue / submit_edit_comment / show_edit_form / show_single_comment to build view-models and render the partial; DELETE those format! sites. Affordance flags (can_edit/can_delete via is_workspace_admin + author check) + sanitization (foundry_core::render_comment_markdown) STAY in the handler/core (NFR-WEBB-BND-03); template renders flags + verbatim body_html only. Unit: std #[test] that views::CommentCard renders .comment-actions iff flags set and embeds body_html verbatim. No proptest. NOTE: the OOB-create path is intentionally NOT switched here — that is step 02-02 (the bug fix).",
+          "driving_port": "GET /team/{team}/project/{project}/issues/{n} (issue page → comments::show_issue → views::IssuePage)"
+        },
+        {
+          "id": "02-02",
+          "name": "OOB comment-card wrapper through the shared partial — fix comments.rs:841 affordance omission",
+          "criteria": [
+            "A live htmx-posted comment card is structurally identical to the same card after a full page reload (selector parity)",
+            "The live-appended comment card offers the author the edit affordance",
+            "The live-appended comment card offers the author the delete affordance",
+            "The OOB handler computes can_edit/can_delete for the OOB path (author by construction on a fresh post → can_edit=true) and the OOB wrapper {% include %}s the SAME comment_card partial with the SAME flags",
+            "The existing comment OOB/edit/delete scenarios stay green (regression net)"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-b03-comment-partial.feature",
+          "scenario_name": "A live-posted comment card carries the same affordances as a reloaded one",
+          "estimated_minutes": 75,
+          "depends_on": ["02-01"],
+          "implementation_scope": {
+            "files": [
+              "crates/foundry-app/templates/partials/oob/comment_card_oob.html",
+              "crates/foundry-app/src/comments.rs"
+            ]
+          },
+          "implementation_notes": "Crafter = @nw-software-crafter (Standard Rust, OOP, EXAMPLE-BASED). Acceptance driver: the us-b03 @walking_skeleton @real-io live-vs-reloaded scenario; unskip it. THIS IS THE BUG FIX (step-skeletons.md step 10, DD10). Today render_comment_card_oob (comments.rs:~828-858, the deliberate omission at :841) elides Edit/Delete 'for simplicity', so a live htmx-appended card structurally DIFFERS from the reloaded one. Create templates/partials/oob/comment_card_oob.html that wraps the SAME comment_card partial in <div hx-swap-oob=\"beforeend:[data-comment-list]\">, passing the SAME can_edit/can_delete flags. Rewire comments::submit_comment to compute can_edit/can_delete for the OOB path (the actor is the author by construction on a fresh post → can_edit=true) and render the OOB wrapper; DELETE render_comment_card_oob's format! and its affordance omission. One-partial rule (NFR-WEBB-MAINT-02): full-page, htmx-append, edit-rerender, cancel all render the one comment_card.html — they can no longer drift. Unit: std #[test] asserting the OOB wrapper output, for an author actor, contains .comment-actions with both buttons (the parity the bug broke). No proptest. Invariant: authz decision stays in handler; existing us-10 comment scenarios stay green.",
+          "driving_port": "POST comment (htmx) → comments::submit_comment → OOB fragment via comment_card_oob.html"
+        }
+      ]
+    },
+    {
+      "id": "03",
+      "name": "Sign-in base layout (Slice 3) — sign-in / forgot render from the shared base layout, security contracts unchanged",
+      "steps": [
+        {
+          "id": "03-01",
+          "name": "Sign-in + forgot templates via the shared base layout; preserve CSRF, cookie, non-enumerable error",
+          "criteria": [
+            "The sign-in page links the vendored stylesheet from /static and renders from the shared base layout; submitting valid credentials signs the member in and sets a session cookie that is HttpOnly + Secure + SameSite=Lax + valid 30 days (UNCHANGED)",
+            "The forgot-password page (GET /forgot-password) links the vendored stylesheet and renders from the shared base layout",
+            "Invalid credentials and an unregistered email both show the unchanged non-enumerable 'Invalid email or password' in the styled form",
+            "The anti-forgery contract is preserved: GET sets the foundry_csrf cookie, the form carries a matching hidden _csrf field, and a submission without a valid token is refused (403)",
+            "The existing us-06 sign-in scenarios stay green (regression net)"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-b04-signin-layout.feature",
+          "scenario_name": "The sign-in page renders from the shared layout and still signs the member in",
+          "estimated_minutes": 90,
+          "depends_on": ["01-02"],
+          "implementation_scope": {
+            "files": [
+              "crates/foundry-app/src/views.rs",
+              "crates/foundry-app/templates/signin.html",
+              "crates/foundry-app/templates/forgot.html",
+              "crates/foundry-app/src/signin.rs"
+            ]
+          },
+          "implementation_notes": "Crafter = @nw-software-crafter (Standard Rust, OOP, EXAMPLE-BASED). Acceptance driver: the us-b04 @walking_skeleton @real-io scenario; unskip it. The non-enumerable-error, anti-forgery, and forgot-page scenarios are GREEN-staying regression guards beside the delta (they ride the same render switch). Wiring (step-skeletons.md step 12): add views::SigninPage + ForgotPage; templates/signin.html + forgot.html extend base.html, emit the hidden <input type=hidden name=\"_csrf\" value=\"{{ csrf }}\"> with the handler-supplied token, and the error slot shows GENERIC_SIGNIN_ERROR. Rewire signin::show_form (render_signin_form) and show_forgot_form (render_forgot_form); DELETE those format! sites. The CSRF middleware (csrf.rs double-submit cookie + header), session cookie attrs, brute-force delay (FakeClock), and non-enumerable error are INVARIANTS (DB7, NFR-WEBB-COMPAT-03/04/05) — do NOT touch them; the guard scenarios pass by leaving them alone. Confirm the forgot route path is GET /forgot-password (the step GETs that path) — adjust the step or the route to agree. Unit: std #[test] that views::SigninPage emits exactly one hidden _csrf field carrying the supplied token and the stylesheet <link>. No proptest. Invariant: browser auth/CSRF/sessions byte-for-byte unchanged (markup only).",
+          "driving_port": "GET /sign-in and GET /forgot-password (signin::show_form / show_forgot_form → views::SigninPage / ForgotPage)"
+        }
+      ]
+    },
+    {
+      "id": "04",
+      "name": "htmx 1→2 upgrade (Slice 4) — normalize hx-* directives, bump vendored htmx to 2.x, regression net stays green",
+      "steps": [
+        {
+          "id": "04-01",
+          "name": "Normalize hx-/data-hx- prefixes + bump vendored htmx blob to pinned 2.0.x",
+          "criteria": [
+            "The served htmx asset reports a version in the 2 series (2.0. / @2. / \"2.) and exactly one htmx file is vendored under /static",
+            "Filing an issue still appends its card to the backlog column and the new card carries the issue key (hx OOB swap works under htmx 2)",
+            "Posting then editing a comment still swaps correctly (the card shows the edited body) under htmx 2",
+            "The render-contract data markers are byte-unchanged by the normalization: [data-column='backlog'], [data-issue-key] on cards, and [data-comment-list] on the issue page",
+            "The full existing acceptance suite stays green after the bump (NFR-WEBB-COMPAT-01 regression net)"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-b05-htmx2.feature",
+          "scenario_name": "The served htmx asset is a single pinned version 2",
+          "estimated_minutes": 90,
+          "depends_on": ["02-02", "03-01"],
+          "implementation_scope": {
+            "files": [
+              "crates/foundry-app/static/vendor/htmx.min.js",
+              "crates/foundry-app/static/VENDOR.md",
+              "crates/foundry-app/templates/base.html",
+              "crates/foundry-app/templates/partials/comment_card.html",
+              "crates/foundry-app/templates/partials/comment_edit_form.html",
+              "crates/foundry-app/templates/partials/issue_card.html"
+            ]
+          },
+          "implementation_notes": "Crafter = @nw-software-crafter (Standard Rust, OOP, EXAMPLE-BASED). Acceptance driver: the us-b05 @walking_skeleton @real-io 'served htmx is v2' scenario; unskip it. The file-issue, post-and-edit-comment, and data-markers-byte-stable scenarios are the DB4 regression net that goes green once the bump lands AND the existing hx-driven scenarios stay green. Wiring (step-skeletons.md steps 13, 14, htmx2-migration.md DD6/DD7): swap the vendored htmx blob to the pinned latest-stable htmx 2.0.x .min.js (replace static/vendor/htmx.min.js, update VENDOR.md provenance + sha256 + the base-layout reference if hashed-named); exactly one htmx file under /static. Normalize the active hx-* directives across base.html and the partials to ONE consistent convention (bare hx-* per the verified reality; centralized after Slices 1-3). Leave every passive data-* scraper marker BYTE-STABLE (the us-b05 marker scenario guards this). This is the Earned-Trust htmx-2 behavioral probe: the suite EXERCISES the new blob against the real OOB/edit/delete/cancel swaps rather than trusting the changelog. Unit: a std #[test] (or xtask check-assets) asserting exactly one vendored htmx file and that its bytes report a 2.x version string. No proptest. Invariant: ONE binary, NO JS toolchain/CDN; data-* markers unchanged; full suite green.",
+          "driving_port": "GET /static/vendor/htmx.min.js (vendored htmx 2.x blob via ServeDir) + the hx-driven board/comment interactions"
+        }
+      ]
+    }
+  ],
+  "implementation_scope": {
+    "source_directories": [
+      "crates/foundry-app/src/",
+      "crates/foundry-app/templates/",
+      "crates/foundry-app/static/"
+    ],
+    "test_directories": [
+      "crates/foundry-acceptance/tests/features/",
+      "crates/foundry-acceptance/src/steps/"
+    ],
+    "excluded_patterns": [
+      "target/**",
+      "Cargo.lock"
+    ]
+  },
+  "validation": {
+    "status": "pending",
+    "reviewer": "TODO",
+    "approved_at": "TODO"
+  }
+}
