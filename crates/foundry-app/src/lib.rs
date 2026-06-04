@@ -162,6 +162,24 @@ impl std::fmt::Debug for AppState {
     }
 }
 
+/// Resolve the directory `ServeDir` serves `/static` from.
+///
+/// The deployed binary runs with the vendored `static/` directory `COPY`'d
+/// alongside it (cwd-relative — `docs/feature/htmx-web-tier/design/assets.md`
+/// §Dockerfile note), so a plain cwd-relative `static` is preferred when it
+/// exists. The in-process acceptance harness, benches, and `cargo test` run
+/// with a different cwd (the test package, not `crates/foundry-app/`), so we
+/// fall back to the crate-local `static/` resolved at compile time via
+/// `CARGO_MANIFEST_DIR`. This keeps ONE serving path correct in both
+/// production and test without a runtime env var.
+fn static_dir() -> std::path::PathBuf {
+    let cwd_relative = std::path::PathBuf::from("static");
+    if cwd_relative.is_dir() {
+        return cwd_relative;
+    }
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("static")
+}
+
 /// Build the axum router for slice 1.
 pub fn build_router(state: AppState) -> Router {
     let session_layer = session::build_session_layer(
@@ -173,7 +191,23 @@ pub fn build_router(state: AppState) -> Router {
     // DefaultBodyLimit cap rides only on the upload POST and doesn't
     // affect the rest of the surface.
     let attachment_routes = attachments::build_routes(state.clone());
+    // Feature B (US-B02 / design/assets.md) — vendored static assets served by
+    // the binary itself: pure pre-vendored blobs under
+    // `crates/foundry-app/static/` (htmx/Alpine `.min.js` + `foundry.css`),
+    // served via `tower_http::services::ServeDir` (already a dep). Mounted on
+    // the base router OUTSIDE the session + CSRF layers — `/static` is GET-only
+    // public, non-secret, vendored content that needs no auth. ServeDir refuses
+    // `..` traversal by construction (US-B02 traversal @error). The long-lived
+    // immutable cache header is correct because a blob's content is pinned by
+    // its committed name (version in the filename = cache key).
+    let static_service = tower::ServiceBuilder::new()
+        .layer(tower_http::set_header::SetResponseHeaderLayer::overriding(
+            axum::http::header::CACHE_CONTROL,
+            axum::http::HeaderValue::from_static("public, max-age=31536000, immutable"),
+        ))
+        .service(tower_http::services::ServeDir::new(static_dir()));
     let router = Router::new()
+        .nest_service("/static", static_service)
         .merge(attachment_routes)
         .route("/healthz", get(healthz))
         .route("/readyz", get(readyz));

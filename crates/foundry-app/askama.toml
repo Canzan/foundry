@@ -1,0 +1,8 @@
+# Askama 0.12 configuration (ADR-B01 / design/template-engine.md).
+#
+# Templates are compiled into the binary at `cargo build` (compile-time, typed,
+# no runtime template file I/O — best fit for the air-gap / one-binary ethos).
+# This step (01-01) only WIRES the engine so step 01-02 can add templates; no
+# handler is switched to a template here. `templates/` may be empty until 01-02.
+[general]
+dirs = ["templates"]

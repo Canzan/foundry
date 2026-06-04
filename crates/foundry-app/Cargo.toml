@@ -33,11 +33,22 @@ foundry-api = { path = "../foundry-api" }
 foundry-realtime = { path = "../foundry-realtime" }
 
 axum = { workspace = true, features = ["multipart"] }
+# Template engine (ADR-B01 / design/template-engine.md). `askama` is the
+# workspace-blessed pin (Cargo.toml:38); `askama_axum` provides the
+# `IntoResponse` integration so a handler can return a `#[derive(Template)]`
+# struct directly. Both MIT/Apache-2.0. Wired here (step 01-01) so step 01-02
+# can move the `format!` handlers onto templates; no handler uses it yet.
+askama = { workspace = true }
+askama_axum = { version = "0.4" }
 secrecy = { workspace = true }
 time = { workspace = true }
 tokio = { workspace = true }
 tower = { workspace = true }
-tower-http = { workspace = true }
+# `set-header` is enabled here (additively, via cargo feature unification) so
+# the `/static` ServeDir route can attach the long-lived immutable
+# Cache-Control header (US-B02). The workspace base feature set
+# (trace/compression-gzip/fs/limit/request-id/util) is unchanged.
+tower-http = { workspace = true, features = ["set-header"] }
 
 tower-sessions = { workspace = true }
 tower-sessions-sqlx-store = { workspace = true }
