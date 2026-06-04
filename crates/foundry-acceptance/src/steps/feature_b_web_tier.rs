@@ -112,11 +112,7 @@ fn slugify(input: &str) -> String {
 /// `foundry_session=...` cookie pair. Mirrors the per-module helper in
 /// us_10_comments (the modules link independently, so the small helper is
 /// duplicated rather than re-exported).
-async fn sign_in_and_capture_cookie(
-    world: &FoundryWorld,
-    email: &str,
-    password: &str,
-) -> String {
+async fn sign_in_and_capture_cookie(world: &FoundryWorld, email: &str, password: &str) -> String {
     let harness = world.harness.as_ref().expect("harness");
     let http = world.http.as_ref().expect("http");
     let base = harness.base_url();
@@ -143,7 +139,10 @@ async fn sign_in_and_capture_cookie(
     form.insert("_csrf", csrf_token.clone());
     let resp = http
         .post(format!("{base}/sign-in"))
-        .header(reqwest::header::COOKIE, format!("foundry_csrf={csrf_token}"))
+        .header(
+            reqwest::header::COOKIE,
+            format!("foundry_csrf={csrf_token}"),
+        )
         .form(&form)
         .send()
         .await
@@ -191,10 +190,7 @@ async fn signed_in_get(world: &FoundryWorld, path: &str) -> (StatusCode, String)
 
 fn board_path(project_name: &str) -> String {
     // Slice-1/2 fixtures all live under the Backend team.
-    format!(
-        "/team/backend/project/{slug}",
-        slug = slugify(project_name)
-    )
+    format!("/team/backend/project/{slug}", slug = slugify(project_name))
 }
 
 // ==========================================================================
@@ -236,12 +232,11 @@ async fn admin_joins_backend(world: &mut FoundryWorld, persona: String) {
     let email = email_for(&persona);
     let harness = world.harness.as_ref().expect("harness");
     let pool = harness.app.state.store.pool();
-    let user_id: (uuid::Uuid,) =
-        sqlx::query_as("SELECT id FROM users WHERE email_lower = $1")
-            .bind(email.to_ascii_lowercase())
-            .fetch_one(pool)
-            .await
-            .expect("admin user exists");
+    let user_id: (uuid::Uuid,) = sqlx::query_as("SELECT id FROM users WHERE email_lower = $1")
+        .bind(email.to_ascii_lowercase())
+        .fetch_one(pool)
+        .await
+        .expect("admin user exists");
     let team_id: (uuid::Uuid,) =
         sqlx::query_as("SELECT id FROM teams WHERE slug = 'backend' LIMIT 1")
             .fetch_one(pool)
@@ -261,12 +256,19 @@ async fn admin_joins_backend(world: &mut FoundryWorld, persona: String) {
 #[given(regex = r#"^the board template is configured to fail rendering$"#)]
 async fn board_template_fails(world: &mut FoundryWorld) {
     ensure_harness(world).await;
-    // DISTILL records the INTENT to force a render failure. DELIVER wires a
-    // test-only seam (cfg(test) AppState flag, parallel to db_unreachable)
-    // that makes the board view render return Err so the handler maps it to a
-    // clean 500. RED scaffold: the flag does not exist yet; the assertion
-    // fails because the board renders normally (no clean-500 path).
+    // DELIVER (step 01-03): flip the real test-only AppState seam
+    // (`force_board_render_failure`, parallel to `db_unreachable`). The flag
+    // is an `Arc<AtomicBool>` shared with the live router's AppState clone, so
+    // flipping it here forces the board view's `render_board` to return `Err`,
+    // which the handler maps to a CLEAN 500 (never a half-page). The
+    // `b_force_template_failure` World bool stays as a record of intent.
     world.b_force_template_failure = true;
+    let harness = world.harness.as_ref().expect("harness");
+    harness
+        .app
+        .state
+        .force_board_render_failure
+        .store(true, std::sync::atomic::Ordering::SeqCst);
 }
 
 #[given(regex = r#"^(\w+) has posted the comment "([^"]+)" on (\w+)-(\d+)$"#)]
@@ -295,12 +297,7 @@ async fn open_board(world: &mut FoundryWorld, _persona: String, project_name: St
 }
 
 #[when(regex = r#"^(\w+) opens the (\w+)-(\d+) issue page$"#)]
-async fn open_issue_page(
-    world: &mut FoundryWorld,
-    _persona: String,
-    _prefix: String,
-    number: i32,
-) {
+async fn open_issue_page(world: &mut FoundryWorld, _persona: String, _prefix: String, number: i32) {
     let path = format!("/team/backend/project/auth-v2/issues/{number}");
     let (status, body) = signed_in_get(world, &path).await;
     world.b_last_status = Some(status);
@@ -462,13 +459,7 @@ async fn request_traversal(world: &mut FoundryWorld) {
 // ==========================================================================
 
 #[then(regex = r#"^the board still shows the columns "([^"]+)", "([^"]+)", "([^"]+)", "([^"]+)"$"#)]
-async fn board_shows_columns(
-    world: &mut FoundryWorld,
-    a: String,
-    b: String,
-    c: String,
-    d: String,
-) {
+async fn board_shows_columns(world: &mut FoundryWorld, a: String, b: String, c: String, d: String) {
     let body = board_body(world);
     for label in [&a, &b, &c, &d] {
         assert!(
@@ -478,14 +469,10 @@ async fn board_shows_columns(
     }
 }
 
-#[then(regex = r#"^the board still shows the cards for (\w+)-(\d+) and (\w+)-(\d+) in their columns$"#)]
-async fn board_shows_cards(
-    world: &mut FoundryWorld,
-    p1: String,
-    n1: i32,
-    p2: String,
-    n2: i32,
-) {
+#[then(
+    regex = r#"^the board still shows the cards for (\w+)-(\d+) and (\w+)-(\d+) in their columns$"#
+)]
+async fn board_shows_cards(world: &mut FoundryWorld, p1: String, n1: i32, p2: String, n2: i32) {
     let body = board_body(world);
     for key in [format!("{p1}-{n1}"), format!("{p2}-{n2}")] {
         html_assertions::assert_has(&body, &format!(r#"[data-issue-key="{key}"]"#));
@@ -530,13 +517,7 @@ async fn board_empty_guidance(world: &mut FoundryWorld) {
 #[then(
     regex = r#"^the board carries the keyboard-navigation list with (\w+)-(\d+) before (\w+)-(\d+)$"#
 )]
-async fn board_kb_order(
-    world: &mut FoundryWorld,
-    p1: String,
-    n1: i32,
-    p2: String,
-    n2: i32,
-) {
+async fn board_kb_order(world: &mut FoundryWorld, p1: String, n1: i32, p2: String, n2: i32) {
     let body = board_body(world);
     // The hidden #kb-items carrier is ASC-sorted by issue number
     // (render-contract.md §Board); the US-12 ordering check reads
@@ -623,8 +604,7 @@ async fn live_matches_reloaded(world: &mut FoundryWorld) {
          the live OOB card must carry the SAME .comment-actions as the reloaded card. \
          live fragment:\n{live}\nreloaded page:\n{reloaded}"
     );
-    let live_has_edit =
-        !html_assertions::select_all(&live_doc, ".comment-edit-button").is_empty();
+    let live_has_edit = !html_assertions::select_all(&live_doc, ".comment-edit-button").is_empty();
     let reloaded_has_edit =
         !html_assertions::select_all(&reloaded_doc, ".comment-edit-button").is_empty();
     assert_eq!(
@@ -635,13 +615,19 @@ async fn live_matches_reloaded(world: &mut FoundryWorld) {
 
 #[then(regex = r#"^the live-appended comment card offers (\w+) the edit affordance$"#)]
 async fn live_offers_edit(world: &mut FoundryWorld, _persona: String) {
-    let live = world.b_live_fragment.clone().expect("live fragment captured");
+    let live = world
+        .b_live_fragment
+        .clone()
+        .expect("live fragment captured");
     html_assertions::assert_has(&live, ".comment-edit-button");
 }
 
 #[then(regex = r#"^the live-appended comment card offers (\w+) the delete affordance$"#)]
 async fn live_offers_delete(world: &mut FoundryWorld, _persona: String) {
-    let live = world.b_live_fragment.clone().expect("live fragment captured");
+    let live = world
+        .b_live_fragment
+        .clone()
+        .expect("live fragment captured");
     html_assertions::assert_has(&live, ".comment-delete-button");
 }
 
@@ -655,9 +641,7 @@ async fn comment_shows_author(world: &mut FoundryWorld, persona: String) {
     );
 }
 
-#[then(
-    regex = r#"^the comment card by (\w+) shows the rendered comment body "([^"]+)"$"#
-)]
+#[then(regex = r#"^the comment card by (\w+) shows the rendered comment body "([^"]+)"$"#)]
 async fn comment_shows_body(world: &mut FoundryWorld, persona: String, expected: String) {
     let body = world.b_last_body.clone().expect("issue page fetched");
     let email = email_for(&persona);
@@ -726,7 +710,10 @@ async fn comment_no_js_link(world: &mut FoundryWorld, persona: String) {
     for el in html_assertions::select_all(&section, "a") {
         let href = el.value().attr("href").unwrap_or("");
         assert!(
-            !href.trim_start().to_ascii_lowercase().starts_with("javascript:"),
+            !href
+                .trim_start()
+                .to_ascii_lowercase()
+                .starts_with("javascript:"),
             "comment by {email} carries a javascript: link ({href:?}); sanitization failed"
         );
     }
@@ -738,7 +725,10 @@ async fn comment_no_js_link(world: &mut FoundryWorld, persona: String) {
 
 #[then(regex = r#"^the returned fragment appends the new card to the backlog column$"#)]
 async fn fragment_appends_backlog(world: &mut FoundryWorld) {
-    let body = world.b_live_fragment.clone().expect("issue-file fragment captured");
+    let body = world
+        .b_live_fragment
+        .clone()
+        .expect("issue-file fragment captured");
     assert!(
         body.contains("hx-swap-oob") && body.to_lowercase().contains("backlog"),
         "issue-file fragment does not OOB-append to the Backlog column; fragment:\n{body}"
@@ -747,7 +737,10 @@ async fn fragment_appends_backlog(world: &mut FoundryWorld) {
 
 #[then(regex = r#"^the new card carries the issue key$"#)]
 async fn fragment_carries_key(world: &mut FoundryWorld) {
-    let body = world.b_live_fragment.clone().expect("issue-file fragment captured");
+    let body = world
+        .b_live_fragment
+        .clone()
+        .expect("issue-file fragment captured");
     html_assertions::assert_has(&body, "[data-issue-key]");
 }
 
@@ -805,9 +798,18 @@ async fn signin_session_cookie(world: &mut FoundryWorld) {
         .map(|s| s.to_string())
         .expect("sign-in sets foundry_session");
     let lower = cookie.to_ascii_lowercase();
-    assert!(lower.contains("httponly"), "session cookie missing HttpOnly: {cookie}");
-    assert!(lower.contains("secure"), "session cookie missing Secure: {cookie}");
-    assert!(lower.contains("samesite=lax"), "session cookie missing SameSite=Lax: {cookie}");
+    assert!(
+        lower.contains("httponly"),
+        "session cookie missing HttpOnly: {cookie}"
+    );
+    assert!(
+        lower.contains("secure"),
+        "session cookie missing Secure: {cookie}"
+    );
+    assert!(
+        lower.contains("samesite=lax"),
+        "session cookie missing SameSite=Lax: {cookie}"
+    );
     assert!(
         cookie.contains("Max-Age=2592000") || lower.contains("max-age=2592000"),
         "session cookie not 30 days: {cookie}"
@@ -816,7 +818,10 @@ async fn signin_session_cookie(world: &mut FoundryWorld) {
 
 #[then(regex = r#"^the styled sign-in form shows "([^"]+)"$"#)]
 async fn signin_shows_error(world: &mut FoundryWorld, expected: String) {
-    let body = world.b_last_body.clone().expect("sign-in response captured");
+    let body = world
+        .b_last_body
+        .clone()
+        .expect("sign-in response captured");
     assert!(
         body.contains(&expected),
         "sign-in form does not show {expected:?}; body:\n{body}"
@@ -897,9 +902,7 @@ async fn asset_not_found(world: &mut FoundryWorld) {
     );
 }
 
-#[then(
-    regex = r#"^the request is refused and no file outside the static directory is served$"#
-)]
+#[then(regex = r#"^the request is refused and no file outside the static directory is served$"#)]
 async fn asset_traversal_refused(world: &mut FoundryWorld) {
     let status = world.b_asset_status.expect("asset status captured");
     let body = world.b_asset_body.clone().unwrap_or_default();
@@ -1031,11 +1034,16 @@ fn assert_no_external_origin(body: &str, surface: &str) {
     let doc = html_assertions::parse(body);
     for css in ["script[src]", r#"link[rel="stylesheet"]"#] {
         for el in html_assertions::select_all(&doc, css) {
-            let attr = if css.starts_with("script") { "src" } else { "href" };
+            let attr = if css.starts_with("script") {
+                "src"
+            } else {
+                "href"
+            };
             if let Some(v) = el.value().attr(attr) {
                 let lower = v.to_ascii_lowercase();
                 assert!(
-                    !lower.starts_with("http://") && !lower.starts_with("https://")
+                    !lower.starts_with("http://")
+                        && !lower.starts_with("https://")
                         && !lower.starts_with("//"),
                     "{surface} references an external origin asset {v:?} (must be /static-local)"
                 );
@@ -1083,7 +1091,10 @@ async fn submit_signin(world: &mut FoundryWorld, email: &str, password: &str) {
     form.insert("_csrf", csrf_token.clone());
     let resp = http
         .post(format!("{base}/sign-in"))
-        .header(reqwest::header::COOKIE, format!("foundry_csrf={csrf_token}"))
+        .header(
+            reqwest::header::COOKIE,
+            format!("foundry_csrf={csrf_token}"),
+        )
         .form(&form)
         .send()
         .await

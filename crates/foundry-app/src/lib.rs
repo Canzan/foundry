@@ -100,6 +100,17 @@ pub struct AppState {
     /// path remains the real DB round-trip.
     #[cfg(any(test, feature = "test-support"))]
     pub db_unreachable: Arc<AtomicBool>,
+    /// US-B01 (error-and-observability.md §"Render-error handling") —
+    /// test-only render-injection flag. When set, `GET` of the board view
+    /// forces the board template render to return `Err` so the handler can
+    /// be observed mapping a render failure to a CLEAN 500 (never a
+    /// half-emitted page; an htmx-fragment request gets a 500 fragment).
+    /// Mirrors [`Self::db_unreachable`] exactly: an `Arc<AtomicBool>` the
+    /// acceptance harness flips per-scenario, compiled only under
+    /// `cfg(any(test, feature = "test-support"))` so release builds never
+    /// carry the seam.
+    #[cfg(any(test, feature = "test-support"))]
+    pub force_board_render_failure: Arc<AtomicBool>,
     /// US-04 — optional path to a runtime migrations directory the test
     /// harness has staged (typically a `tempfile::TempDir`). When `Some`,
     /// the boot helper runs migrations via

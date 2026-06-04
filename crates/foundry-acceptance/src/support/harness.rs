@@ -286,6 +286,7 @@ impl InProcHarness {
             sse_heartbeat_ms: heartbeat_ms,
             file_upload_max_mb,
             db_unreachable: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            force_board_render_failure: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             test_migrations_dir: None,
             applied_migrations: Arc::new(std::sync::Mutex::new(
                 foundry_store::MigrationReport::default(),

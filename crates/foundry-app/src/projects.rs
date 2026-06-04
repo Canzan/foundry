@@ -210,6 +210,7 @@ pub async fn show_board(
     State(state): State<AppState>,
     Path((team_slug, project_slug)): Path<(String, String)>,
     session: Session,
+    headers: HeaderMap,
 ) -> Response {
     let Some(user) = signed_in_user(&session).await else {
         return redirect_to("/sign-in");
@@ -267,7 +268,18 @@ pub async fn show_board(
         Ok(k) => k,
         Err(err) => return internal_error("project_key_prefix invalid", err),
     };
-    Html(render_board(&team.name, &project, &issues, &key_prefix)).into_response()
+    // Render-failure → clean 500 seam (US-B01 @error,
+    // error-and-observability.md §"Render-error handling"). The board view
+    // renders to a complete String BEFORE any bytes hit the response, so a
+    // render `Err` can never emit a half-page. We map it centrally here: a
+    // clean 500 full page, or — for an htmx request — a 500 error fragment so
+    // the swap target shows a clean message instead of a torn DOM. The
+    // test-only `force_board_render_failure` flag forces the `Err` arm so the
+    // mapping is observable without a genuinely-broken template.
+    match render_board(&state, &team.name, &project, &issues, &key_prefix) {
+        Ok(html) => Html(html).into_response(),
+        Err(err) => render_500(&headers, "board", err),
+    }
 }
 
 // ----------------------------------------------------------------- internals
@@ -501,14 +513,50 @@ fn render_error_fragment(message: &str) -> String {
 /// layout. Data ordering (column state-filtering + the ASC keyboard carrier)
 /// stays HERE in the handler-side builder; the template only loops.
 fn render_board(
+    state: &AppState,
     team_name: &str,
     project: &foundry_store::ProjectRow,
     issues: &[foundry_services::BoardIssue],
     key_prefix: &ProjectKey,
-) -> String {
-    build_board_page(team_name, project, issues, key_prefix)
-        .render()
-        .expect("board template renders (compiled into the binary)")
+) -> Result<String, askama::Error> {
+    // Test-only render-injection: when the harness has flipped the
+    // `force_board_render_failure` flag, short-circuit to the same `Err`
+    // shape `Template::render()` returns, so the central
+    // render-`Err` → clean-500 mapping is exercised without a genuinely-
+    // broken (uncompilable) template. Compiled only under
+    // cfg(any(test, feature = "test-support")); release builds skip it.
+    #[cfg(any(test, feature = "test-support"))]
+    {
+        use std::sync::atomic::Ordering;
+        if state.force_board_render_failure.load(Ordering::SeqCst) {
+            return Err(askama::Error::Custom(
+                "forced board render failure (test injection)".into(),
+            ));
+        }
+    }
+    let _ = state;
+    build_board_page(team_name, project, issues, key_prefix).render()
+}
+
+/// Map a template render failure to a CLEAN server error (US-B01 @error,
+/// error-and-observability.md §"Render-error handling"). Because the engine
+/// returns a complete `String` before the handler builds the response, the
+/// client never sees a half-emitted page — only a complete 500 (full-page
+/// request) or a small 500 error fragment (htmx request). Logs at `error`
+/// with the template name + the formatting error (no user data), mirroring
+/// the [`internal_error`] helper.
+fn render_500(headers: &HeaderMap, template_name: &str, err: askama::Error) -> Response {
+    tracing::error!(error = %err, template = template_name, "template render failed");
+    let is_htmx = headers
+        .get(HX_REQUEST_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+    if is_htmx {
+        let fragment = r#"<div class="error" data-hx-fragment="render-error">Something went wrong rendering this view. Please retry.</div>"#;
+        return (StatusCode::INTERNAL_SERVER_ERROR, Html(fragment)).into_response();
+    }
+    (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response()
 }
 
 /// Materialize the [`crate::views::BoardPage`] view-model from the neutral
@@ -635,8 +683,24 @@ mod slug_tests {
 
 #[cfg(test)]
 mod board_render_tests {
-    use super::render_board;
+    use super::build_board_page;
+    use askama::Template;
     use foundry_core::ProjectKey;
+
+    /// Render the board page through the same builder + `Template::render`
+    /// path the handler uses on the success arm (the test-only flag-injection
+    /// `Err` arm is covered by the US-B01 @error acceptance scenario, not
+    /// here — it needs a live `AppState`).
+    fn render_board(
+        team_name: &str,
+        project: &foundry_store::ProjectRow,
+        issues: &[foundry_services::BoardIssue],
+        key_prefix: &ProjectKey,
+    ) -> String {
+        build_board_page(team_name, project, issues, key_prefix)
+            .render()
+            .expect("board template renders")
+    }
 
     fn project() -> foundry_store::ProjectRow {
         foundry_store::ProjectRow {

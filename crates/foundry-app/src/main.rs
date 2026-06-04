@@ -252,6 +252,11 @@ async fn main() -> anyhow::Result<()> {
         // exercised by every cargo build that includes the harness.
         #[cfg(any(test, feature = "test-support"))]
         db_unreachable: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        // US-B01 test-only render-injection seam (parallel to
+        // `db_unreachable`). Only the `test-support` build carries it; the
+        // production binary never forces a render failure.
+        #[cfg(any(test, feature = "test-support"))]
+        force_board_render_failure: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
         // US-04 test-only seams: only the binary built with
         // `test-support` carries these. Production replicas use the
         // compile-time `migrate!` path (foundry_store::run_migrations)

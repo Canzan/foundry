@@ -248,6 +248,7 @@ impl MultiReplicaHarness {
                     sse_heartbeat_ms: heartbeat_ms,
                     file_upload_max_mb,
                     db_unreachable: db_unreachable.clone(),
+                    force_board_render_failure: Arc::new(AtomicBool::new(false)),
                     test_migrations_dir: Some(migrations_path.clone()),
                     applied_migrations: Arc::new(Mutex::new(MigrationReport::default())),
                     test_migration_delay_ms: delay_ms,
@@ -400,6 +401,7 @@ impl MultiReplicaHarness {
                 sse_heartbeat_ms: heartbeat_ms,
                 file_upload_max_mb,
                 db_unreachable: db_unreachable.clone(),
+                force_board_render_failure: Arc::new(AtomicBool::new(false)),
                 test_migrations_dir: None,
                 applied_migrations: Arc::new(std::sync::Mutex::new(
                     foundry_store::MigrationReport::default(),
