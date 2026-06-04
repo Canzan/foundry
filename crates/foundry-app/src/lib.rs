@@ -27,6 +27,7 @@ pub mod metrics_server;
 pub mod projects;
 pub mod session;
 pub mod signin;
+pub mod views;
 
 use axum::extract::State;
 use axum::http::StatusCode;

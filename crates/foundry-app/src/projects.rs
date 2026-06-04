@@ -27,6 +27,7 @@ use crate::bootstrap::{html_escape, invalid_page, SessionUser};
 use crate::csrf::{build_csrf_cookie, generate_token, CSRF_FORM_FIELD};
 use crate::session::SESSION_KEY_USER_ID;
 use crate::AppState;
+use askama::Template;
 use axum::extract::{Form, Path, State};
 use axum::http::header::{HeaderMap, HeaderValue, COOKIE, LOCATION, SET_COOKIE};
 use axum::http::StatusCode;
@@ -490,75 +491,90 @@ fn render_error_fragment(message: &str) -> String {
     )
 }
 
+/// Build the typed board view-model and render it via Askama.
+///
+/// The render contract is selector-and-substring-identical to the previous
+/// `format!` markup (design/render-contract.md): the template (`board.html`
+/// extending `base.html`) reproduces the same columns, `data-column` slugs,
+/// `issue-card` partials, and the hidden `#kb-items` ASC carrier — and now
+/// links the vendored `/static` stylesheet + htmx/Alpine scripts via the base
+/// layout. Data ordering (column state-filtering + the ASC keyboard carrier)
+/// stays HERE in the handler-side builder; the template only loops.
 fn render_board(
     team_name: &str,
     project: &foundry_store::ProjectRow,
     issues: &[foundry_services::BoardIssue],
     key_prefix: &ProjectKey,
 ) -> String {
+    build_board_page(team_name, project, issues, key_prefix)
+        .render()
+        .expect("board template renders (compiled into the binary)")
+}
+
+/// Materialize the [`crate::views::BoardPage`] view-model from the neutral
+/// service rows. Kept separate from rendering so it is unit-testable without a
+/// running server.
+fn build_board_page(
+    team_name: &str,
+    project: &foundry_store::ProjectRow,
+    issues: &[foundry_services::BoardIssue],
+    key_prefix: &ProjectKey,
+) -> crate::views::BoardPage {
     // Group issues by state. Slice 1: all newly filed issues land in
     // 'backlog'; the other columns stay empty placeholders until drag-
     // and-drop ships in slice 2.
-    let columns_html = DEFAULT_COLUMNS
+    let columns = DEFAULT_COLUMNS
         .iter()
         .map(|col| {
             let state_key = column_label_to_state(col);
-            let column_issues: Vec<&foundry_services::BoardIssue> =
-                issues.iter().filter(|i| i.state == state_key).collect();
-            let body = if column_issues.is_empty() {
-                "<p class=\"empty\">No issues yet</p>".to_string()
-            } else {
-                column_issues
-                    .iter()
-                    .map(|row| {
-                        let key = foundry_core::IssueKey::try_new(key_prefix, row.number as u32)
-                            .expect("number >= 1 - allocator guarantees");
-                        crate::issues::render_issue_card(&key, &row.title)
-                    })
-                    .collect::<String>()
-            };
-            format!(
-                "<section class=\"column\" data-column=\"{slug}\"><h3>{name}</h3>{body}</section>",
-                slug = html_escape(&col.to_ascii_lowercase().replace('-', "_")),
-                name = html_escape(col),
-                body = body,
-            )
+            let cards = issues
+                .iter()
+                .filter(|i| i.state == state_key)
+                .map(|row| issue_card(key_prefix, row))
+                .collect();
+            crate::views::BoardColumn {
+                slug: col.to_ascii_lowercase().replace('-', "_"),
+                label: col.to_string(),
+                cards,
+            }
         })
-        .collect::<String>();
+        .collect();
 
     // Hidden keyboard-navigation carrier (US-12). The visible board
     // renders most-recent-first (DESC); the alpine.js j/k handler walks
     // this hidden list which is sorted ASCENDING by issue number so
     // pressing `j` moves "to the next-older issue" consistently no
-    // matter which column the user is in. `hidden` + `aria-hidden` keeps
-    // it out of the rendered layout AND the AT tree.
+    // matter which column the user is in.
     let mut sorted_issues: Vec<&foundry_services::BoardIssue> = issues.iter().collect();
     sorted_issues.sort_by_key(|i| i.number);
-    let kb_items: String = sorted_issues
+    let kb_items = sorted_issues
         .iter()
-        .map(|row| {
-            let key = foundry_core::IssueKey::try_new(key_prefix, row.number as u32)
-                .expect("number >= 1 - allocator guarantees");
-            format!(
-                r#"<li data-issue-key="{key}"></li>"#,
-                key = html_escape(&key.to_string()),
-            )
-        })
+        .map(|row| issue_key_string(key_prefix, row))
         .collect();
 
-    format!(
-        r#"<!doctype html>
-<html><head><title>{name} - {team}</title></head>
-<body>
-<header><h1>{name}</h1><p class="key">Key prefix: {key}</p></header>
-<button type="button" data-action="new-issue">New issue</button>
-<div class="board">{columns_html}</div>
-<ul id="kb-items" hidden aria-hidden="true">{kb_items}</ul>
-</body></html>"#,
-        name = html_escape(&project.name),
-        team = html_escape(team_name),
-        key = html_escape(&project.key_prefix),
-    )
+    crate::views::BoardPage {
+        team_name: team_name.to_string(),
+        project_name: project.name.clone(),
+        key_prefix: project.key_prefix.clone(),
+        columns,
+        kb_items,
+    }
+}
+
+fn issue_card(
+    key_prefix: &ProjectKey,
+    row: &foundry_services::BoardIssue,
+) -> crate::views::IssueCard {
+    crate::views::IssueCard {
+        key: issue_key_string(key_prefix, row),
+        title: row.title.clone(),
+    }
+}
+
+fn issue_key_string(key_prefix: &ProjectKey, row: &foundry_services::BoardIssue) -> String {
+    foundry_core::IssueKey::try_new(key_prefix, row.number as u32)
+        .expect("number >= 1 - allocator guarantees")
+        .to_string()
 }
 
 /// Map a column label ("Backlog", "Todo", "In-Progress", "Done") to the
@@ -614,5 +630,79 @@ mod slug_tests {
         assert_eq!(slugify("  Hello, World!  "), "hello-world");
         assert_eq!(slugify("Sandbox"), "sandbox");
         assert_eq!(slugify(""), "");
+    }
+}
+
+#[cfg(test)]
+mod board_render_tests {
+    use super::render_board;
+    use foundry_core::ProjectKey;
+
+    fn project() -> foundry_store::ProjectRow {
+        foundry_store::ProjectRow {
+            id: uuid::Uuid::now_v7(),
+            name: "Auth v2".to_string(),
+            key_prefix: "AUTH".to_string(),
+        }
+    }
+
+    fn issue(number: i32, title: &str, state: &str) -> foundry_services::BoardIssue {
+        foundry_services::BoardIssue {
+            key: format!("AUTH-{number}"),
+            number,
+            title: title.to_string(),
+            state: state.to_string(),
+        }
+    }
+
+    /// A populated board renders, via the base layout, the vendored `/static`
+    /// asset references AND every card under its column's `data-column` slug,
+    /// with the `#kb-items` carrier sorted ASCENDING by issue number — the
+    /// selector-and-substring contract the acceptance suite reads.
+    #[test]
+    fn populated_board_renders_assets_cards_and_ascending_keyboard_carrier() {
+        let issues = vec![
+            issue(3, "Revoke on password change", "backlog"),
+            issue(2, "Refresh token rotation", "in_progress"),
+        ];
+        let key_prefix = ProjectKey::try_new("AUTH").unwrap();
+
+        let html = render_board("Backend", &project(), &issues, &key_prefix);
+
+        // Base-layout vendored asset references, all /static-local.
+        assert!(html.contains(r#"<link rel="stylesheet" href="/static/css/foundry.css">"#));
+        assert!(html.contains(r#"src="/static/vendor/htmx.min.js"#));
+        assert!(html.contains(r#"src="/static/vendor/alpine.min.js"#));
+        assert!(!html.contains("http://") && !html.contains("https://"));
+
+        // Each card sits under its column's data-column section.
+        let backlog = html.split(r#"data-column="backlog""#).nth(1).unwrap();
+        assert!(backlog.contains(r#"data-issue-key="AUTH-3""#));
+        let in_progress = html.split(r#"data-column="in_progress""#).nth(1).unwrap();
+        assert!(in_progress.contains(r#"data-issue-key="AUTH-2""#));
+
+        // Hidden carrier: AUTH-2 before AUTH-3 (ASC by number).
+        let carrier = html.split(r#"id="kb-items""#).nth(1).unwrap();
+        let pos2 = carrier.find("AUTH-2").unwrap();
+        let pos3 = carrier.find("AUTH-3").unwrap();
+        assert!(pos2 < pos3, "kb-items must list AUTH-2 before AUTH-3");
+    }
+
+    /// An empty board renders the grown, inviting empty-state guidance in each
+    /// column (US-B01 scenario 2) while still showing all four column labels.
+    #[test]
+    fn empty_board_renders_inviting_empty_state_guidance() {
+        let key_prefix = ProjectKey::try_new("AUTH").unwrap();
+
+        let html = render_board("Backend", &project(), &[], &key_prefix);
+
+        for label in ["Backlog", "Todo", "In-Progress", "Done"] {
+            assert!(html.contains(label), "missing column label {label}");
+        }
+        let lower = html.to_ascii_lowercase();
+        assert!(
+            lower.contains("press") && lower.contains("file the first"),
+            "empty board lacks file-the-first-issue guidance"
+        );
     }
 }
