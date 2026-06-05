@@ -22,7 +22,9 @@
 use crate::attachments::humanize_size;
 use crate::bootstrap::{html_escape, invalid_page, SessionUser};
 use crate::session::SESSION_KEY_USER_ID;
+use crate::views;
 use crate::AppState;
+use askama::Template;
 use axum::extract::{Form, Path, State};
 use axum::http::header::{HeaderMap, HeaderValue, LOCATION};
 use axum::http::StatusCode;
@@ -258,17 +260,14 @@ pub async fn show_edit_form(
     let cancel_url = format!(
         "/team/{team_slug}/project/{project_slug}/issues/{issue_number}/comments/{comment_id}"
     );
-    let body = format!(
-        r##"<form id="comment-{id}" class="comment-edit-form" hx-patch="{url}" hx-target="#comment-{id}" hx-swap="outerHTML">
-  <textarea name="body_markdown" required>{markdown}</textarea>
-  <button type="submit" class="comment-save-button">Save</button>
-  <button type="button" class="comment-cancel-button" hx-get="{cancel_url}" hx-target="#comment-{id}" hx-swap="outerHTML">Cancel</button>
-</form>"##,
-        id = comment.id,
-        url = html_escape(&url),
-        cancel_url = html_escape(&cancel_url),
-        markdown = html_escape(&comment.body_markdown),
-    );
+    let body = views::CommentEditForm {
+        id: comment.id.to_string(),
+        patch_url: url,
+        cancel_url,
+        body_markdown: comment.body_markdown.clone(),
+    }
+    .render()
+    .expect("comment edit form render (infallible String buffer)");
     (StatusCode::OK, Html(body)).into_response()
 }
 
@@ -615,14 +614,16 @@ fn internal_error<E: std::fmt::Display>(label: &str, err: E) -> Response {
 }
 
 fn bad_request_fragment(message: &str) -> Response {
-    // Inline htmx-aware error fragment. Mirrors issues.rs: small element,
-    // marked as a fragment so the front-end can hx-swap into the same
-    // error slot. Empty + whitespace-only + over-length all flow through
-    // here with distinct messages.
-    let body = format!(
-        r#"<div class="error" data-hx-fragment="comment-create-error">{}</div>"#,
-        html_escape(message)
-    );
+    // htmx-aware error fragment via `errors/issue_400.html`: small element,
+    // marked as a fragment so the front-end can hx-swap into the same error
+    // slot. Empty + whitespace-only + over-length all flow through here with
+    // distinct messages. Copy preserved byte-identically; `message` is
+    // auto-escaped by Askama (matches the previous `html_escape`).
+    let body = views::CommentCreateError {
+        message: message.to_string(),
+    }
+    .render()
+    .expect("comment-create-error render (infallible String buffer)");
     (StatusCode::BAD_REQUEST, Html(body)).into_response()
 }
 
@@ -663,6 +664,13 @@ fn is_htmx(headers: &HeaderMap) -> bool {
         .unwrap_or(false)
 }
 
+/// Materialize the [`views::IssuePage`] view-model and render it through
+/// `issue.html` (extends `base.html`). Selector-and-substring-identical to
+/// the previous `format!` markup (render-contract.md §"Issue page +
+/// comments"): same `<h1>` key, the `data-comment-list` / `data-attachment-
+/// list` markers, one `comment_card.html` per comment, and the empty-state
+/// copy. Data ordering + affordance flags stay here in the handler; the
+/// template only loops and renders.
 #[allow(clippy::too_many_arguments)]
 fn render_issue_page(
     team_slug: &str,
@@ -674,95 +682,81 @@ fn render_issue_page(
     actor_is_admin: bool,
 ) -> String {
     let number = extract_number(issue_key);
-    let comment_list = if comments.is_empty() {
-        "<p class=\"empty\">No comments yet.</p>".to_string()
-    } else {
-        comments
-            .iter()
-            .map(|row| {
-                render_comment_card(
-                    row,
-                    team_slug,
-                    project_slug,
-                    &number,
-                    Some(actor_user_id),
-                    actor_is_admin,
-                )
-            })
-            .collect::<String>()
-    };
-    let post_url = format!("/team/{team_slug}/project/{project_slug}/issues/{number}/comments");
-    let attachments_section =
-        render_attachments_section(team_slug, project_slug, &number, attachments);
-    let upload_url =
-        format!("/team/{team_slug}/project/{project_slug}/issues/{number}/attachments");
-    format!(
-        r#"<!doctype html>
-<html><head><title>{key} - {project_slug}</title></head>
-<body>
-<header><h1>{key}</h1></header>
-{attachments_section}
-<form method="post" action="{upload_url}" enctype="multipart/form-data">
-  <label>Attach a file <input type="file" name="file" required></label>
-  <button type="submit">Upload</button>
-</form>
-<section class="comments" data-comment-list>{comment_list}</section>
-<form method="post" action="{post_url}">
-  <label>Add a comment <textarea name="body" required></textarea></label>
-  <button type="submit">Post</button>
-</form>
-</body></html>"#,
-        key = html_escape(issue_key),
-        project_slug = html_escape(project_slug),
-        post_url = html_escape(&post_url),
-        upload_url = html_escape(&upload_url),
-    )
+    let cards = comments
+        .iter()
+        .map(|row| {
+            build_comment_card(
+                row,
+                team_slug,
+                project_slug,
+                &number,
+                Some(actor_user_id),
+                actor_is_admin,
+            )
+        })
+        .collect();
+    let attachment_items = attachments
+        .iter()
+        .map(|a| views::AttachmentItem {
+            filename: a.filename.clone(),
+            href: format!(
+                "/team/{team_slug}/project/{project_slug}/issues/{number}/attachments/{id}",
+                id = a.id
+            ),
+            size: humanize_size(a.size_bytes),
+        })
+        .collect();
+    views::IssuePage {
+        issue_key: issue_key.to_string(),
+        project_slug: project_slug.to_string(),
+        post_url: format!("/team/{team_slug}/project/{project_slug}/issues/{number}/comments"),
+        upload_url: format!("/team/{team_slug}/project/{project_slug}/issues/{number}/attachments"),
+        attachments: attachment_items,
+        comments: cards,
+    }
+    .render()
+    .expect("issue page render (infallible String buffer)")
 }
 
-fn render_attachments_section(
+/// Build the [`views::CommentCard`] view-model from a store row + the
+/// handler-computed affordance flags. The Edit affordance is offered only
+/// when `actor_user_id == row.author_id` (ADR-006 — author-only edit). The
+/// Delete affordance is offered when the actor is the author OR a workspace
+/// admin (ADR-007). Server-side gating; no JS authorship check (ADR-006 §
+/// Consequences). The `(edited)` indicator surfaces whenever `row.edited`
+/// (Q4 = A). `body_html` is the ALREADY-core-sanitized HTML — the template
+/// embeds it via `|safe`; every other field is auto-escaped (NFR-WEBB-BND-03).
+fn build_comment_card(
+    row: &CommentRow,
     team_slug: &str,
     project_slug: &str,
     issue_number: &str,
-    attachments: &[AttachmentSummary],
-) -> String {
-    if attachments.is_empty() {
-        return String::from(
-            r#"<section class="attachments" data-attachment-list>
-  <p class="attachments-empty">No attachments yet.</p>
-</section>"#,
-        );
+    actor_user_id: Option<uuid::Uuid>,
+    actor_is_admin: bool,
+) -> views::CommentCard {
+    let is_author = actor_user_id == Some(row.author_id);
+    views::CommentCard {
+        id: row.id.to_string(),
+        author: row.author_email.clone(),
+        body_html: row.body_html.clone(),
+        edited: row.edited,
+        can_edit: is_author,
+        can_delete: is_author || actor_is_admin,
+        edit_url: format!(
+            "/team/{team_slug}/project/{project_slug}/issues/{issue_number}/comments/{id}/edit",
+            id = row.id
+        ),
+        delete_url: format!(
+            "/team/{team_slug}/project/{project_slug}/issues/{issue_number}/comments/{id}",
+            id = row.id
+        ),
     }
-    let items = attachments
-        .iter()
-        .map(|a| {
-            let href = format!(
-                "/team/{team_slug}/project/{project_slug}/issues/{issue_number}/attachments/{id}",
-                id = a.id
-            );
-            format!(
-                r#"<li class="attachment" data-filename="{filename}">
-  <a class="attachment-link" href="{href}">{filename}</a>
-  <span class="size">{size}</span>
-</li>"#,
-                filename = html_escape(&a.filename),
-                href = html_escape(&href),
-                size = html_escape(&humanize_size(a.size_bytes)),
-            )
-        })
-        .collect::<String>();
-    format!(
-        r#"<section class="attachments">
-<ul data-attachment-list>{items}</ul>
-</section>"#
-    )
 }
 
-/// Render a single comment card. The Edit affordance is emitted only
-/// when `actor_user_id == row.author_id` (ADR-006 — author-only edit).
-/// The Delete affordance is emitted when the actor is the author OR a
-/// workspace admin (ADR-007). Server-side gating; no JS authorship
-/// check (per ADR-006 § Consequences). The "edited" indicator surfaces
-/// whenever `row.edited` is true (Q4 = A).
+/// Render a single comment card to HTML through the shared
+/// `comment_card.html` partial (the one-partial rule, NFR-WEBB-MAINT-02).
+/// Used by the PATCH-edit re-render and the GET single-comment / cancel
+/// paths; the issue-page loop includes the SAME partial.
 fn render_comment_card(
     row: &CommentRow,
     team_slug: &str,
@@ -771,54 +765,17 @@ fn render_comment_card(
     actor_user_id: Option<uuid::Uuid>,
     actor_is_admin: bool,
 ) -> String {
-    // Important: `row.body_html` is ALREADY sanitized HTML emitted by
-    // `foundry_core::render_comment_markdown`. We embed it verbatim;
-    // double-escaping would render the tags as text. The author email
-    // IS user input and must be escaped.
-    let is_author = actor_user_id == Some(row.author_id);
-    let can_edit = is_author;
-    let can_delete = is_author || actor_is_admin;
-    let edited_marker = if row.edited {
-        r#"<small class="comment-edited-marker">(edited)</small>"#
-    } else {
-        ""
-    };
-    let edit_url = format!(
-        "/team/{team_slug}/project/{project_slug}/issues/{issue_number}/comments/{id}/edit",
-        id = row.id
+    let card = build_comment_card(
+        row,
+        team_slug,
+        project_slug,
+        issue_number,
+        actor_user_id,
+        actor_is_admin,
     );
-    let delete_url = format!(
-        "/team/{team_slug}/project/{project_slug}/issues/{issue_number}/comments/{id}",
-        id = row.id
-    );
-    let edit_button = if can_edit {
-        format!(
-            r##"<button class="comment-edit-button" hx-get="{url}" hx-target="#comment-{id}" hx-swap="outerHTML">Edit</button>"##,
-            url = html_escape(&edit_url),
-            id = row.id,
-        )
-    } else {
-        String::new()
-    };
-    let delete_button = if can_delete {
-        format!(
-            r##"<button class="comment-delete-button" hx-delete="{url}" hx-target="#comment-{id}" hx-swap="outerHTML">Delete</button>"##,
-            url = html_escape(&delete_url),
-            id = row.id,
-        )
-    } else {
-        String::new()
-    };
-    format!(
-        r#"<article id="comment-{id}" class="comment" data-author="{author}" data-comment-id="{id}">
-  <header class="comment-author">{author}{edited_marker}</header>
-  <div class="comment-body">{body}</div>
-  <div class="comment-actions">{edit_button}{delete_button}</div>
-</article>"#,
-        author = html_escape(&row.author_email),
-        id = row.id,
-        body = row.body_html,
-    )
+    views::CommentCardFragment { card }
+        .render()
+        .expect("comment card render (infallible String buffer)")
 }
 
 /// htmx OOB-swap variant: same card wrapped so the front-end can append

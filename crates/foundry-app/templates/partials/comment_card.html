@@ -1,0 +1,5 @@
+<article id="comment-{{ card.id }}" class="comment" data-author="{{ card.author }}" data-comment-id="{{ card.id }}">
+  <header class="comment-author">{{ card.author }}{% if card.edited %}<small class="comment-edited-marker">(edited)</small>{% endif %}</header>
+  <div class="comment-body">{{ card.body_html|safe }}</div>
+  <div class="comment-actions">{% if card.can_edit %}<button class="comment-edit-button" hx-get="{{ card.edit_url }}" hx-target="#comment-{{ card.id }}" hx-swap="outerHTML">Edit</button>{% endif %}{% if card.can_delete %}<button class="comment-delete-button" hx-delete="{{ card.delete_url }}" hx-target="#comment-{{ card.id }}" hx-swap="outerHTML">Delete</button>{% endif %}</div>
+</article>

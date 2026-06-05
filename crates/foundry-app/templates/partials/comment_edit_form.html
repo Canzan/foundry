@@ -1,0 +1,5 @@
+<form id="comment-{{ id }}" class="comment-edit-form" hx-patch="{{ patch_url }}" hx-target="#comment-{{ id }}" hx-swap="outerHTML">
+  <textarea name="body_markdown" required>{{ body_markdown }}</textarea>
+  <button type="submit" class="comment-save-button">Save</button>
+  <button type="button" class="comment-cancel-button" hx-get="{{ cancel_url }}" hx-target="#comment-{{ id }}" hx-swap="outerHTML">Cancel</button>
+</form>
