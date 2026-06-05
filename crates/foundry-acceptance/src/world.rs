@@ -157,15 +157,33 @@ pub struct FoundryWorld {
     /// container is leaked + reused across scenarios per the
     /// Mac+Colima memory-pressure mitigation in `support::pg_backup`.
     pub us_03_restore_target: Option<RestoreTarget>,
+    /// Connection URL for an InProcHarness pointed at the RESTORED
+    /// database. Captured after the "operator points a foundry-app
+    /// replica at the restored database" step.
+    ///
+    /// DROP-ORDER MATTERS (see `us_03_restore_guard` below): this
+    /// harness owns a sqlx pool with `min_connections(1)` open against
+    /// the SHARED restore target. It MUST drop (tearing down those
+    /// connections) BEFORE `us_03_restore_guard` releases — otherwise a
+    /// waiting sibling scenario acquires the guard and runs
+    /// `pg_restore --clean` (DROP TABLE), which blocks forever on the
+    /// relation lock held by this still-open connection. Struct fields
+    /// drop in declaration order, so this field is declared BEFORE the
+    /// guard. The `After` hook (`close_us03_restored_pool`) also closes
+    /// the pool explicitly while the guard is still held, because
+    /// `PgPool::Drop` is non-blocking and cannot await connection
+    /// teardown on its own.
+    pub us_03_restored_harness: Option<InProcHarness>,
     /// Mutex guard held from the first `pg_restore` call until
     /// scenario teardown — serialises US-03 scenarios so they do not
     /// observe each other's restored state under cucumber's
     /// per-scenario concurrency.
+    ///
+    /// Declared AFTER `us_03_restored_harness` so it drops (releasing
+    /// the serialisation lock) only after the restored harness pool has
+    /// torn down its connections to the shared restore target. See the
+    /// drop-order note on `us_03_restored_harness`.
     pub us_03_restore_guard: Option<tokio::sync::OwnedMutexGuard<()>>,
-    /// Connection URL for an InProcHarness pointed at the RESTORED
-    /// database. Captured after the "operator points a foundry-app
-    /// replica at the restored database" step.
-    pub us_03_restored_harness: Option<InProcHarness>,
     /// Captured (filename → sha256-hex) for every attachment that was
     /// uploaded BEFORE the backup. Post-restore Then steps recompute
     /// the sha256 from the restored bytes and compare.
@@ -493,4 +511,23 @@ pub struct FoundryWorld {
     pub b_asset_cache_control: Option<String>,
     /// Status of the most recent `/static/...` asset GET.
     pub b_asset_status: Option<StatusCode>,
+}
+
+impl FoundryWorld {
+    /// Close the US-03 restored harness's sqlx pool, awaiting connection
+    /// teardown, while the `us_03_restore_guard` is still held.
+    ///
+    /// Wired as a cucumber `After` hook (see `tests/acceptance.rs`) so it
+    /// runs BEFORE the World drops. `PgPool::Drop` is non-blocking and
+    /// cannot await, so relying on field-drop order alone could let a
+    /// sibling scenario acquire the guard and run `pg_restore --clean`
+    /// (DROP TABLE) before this pool's `min_connections(1)` connection is
+    /// actually closed — blocking the DROP forever on the relation lock.
+    /// Closing here, while the guard is held, guarantees the connections
+    /// are gone before the lock is released.
+    pub async fn close_us03_restored_pool(&mut self) {
+        if let Some(harness) = self.us_03_restored_harness.as_ref() {
+            harness.app.state.store.pool().close().await;
+        }
+    }
 }

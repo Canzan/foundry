@@ -75,6 +75,13 @@ async fn main() {
         "docker-compose" => {
             // Run only @docker-compose, exclude @manual / @manual-trigger.
             FoundryWorld::cucumber()
+                .after(|_f, _r, _s, _ev, world| {
+                    Box::pin(async move {
+                        if let Some(w) = world {
+                            w.close_us03_restored_pool().await;
+                        }
+                    })
+                })
                 .filter_run_and_exit(features_path, |feat, _rule, scenario| {
                     let has = |t: &str| {
                         scenario.tags.iter().any(|x| x == t) || feat.tags.iter().any(|x| x == t)
@@ -98,6 +105,13 @@ async fn main() {
             // "default lane + the @slow + @docker-compose scenarios".
             FoundryWorld::cucumber()
                 .max_concurrent_scenarios(6)
+                .after(|_f, _r, _s, _ev, world| {
+                    Box::pin(async move {
+                        if let Some(w) = world {
+                            w.close_us03_restored_pool().await;
+                        }
+                    })
+                })
                 .filter_run_and_exit(features_path, |feat, _rule, scenario| {
                     let has = |t: &str| {
                         scenario.tags.iter().any(|x| x == t) || feat.tags.iter().any(|x| x == t)
@@ -122,6 +136,13 @@ async fn main() {
             // contention.
             FoundryWorld::cucumber()
                 .max_concurrent_scenarios(6)
+                .after(|_f, _r, _s, _ev, world| {
+                    Box::pin(async move {
+                        if let Some(w) = world {
+                            w.close_us03_restored_pool().await;
+                        }
+                    })
+                })
                 .filter_run_and_exit(features_path, |feat, _rule, scenario| {
                     let has = |t: &str| {
                         scenario.tags.iter().any(|x| x == t) || feat.tags.iter().any(|x| x == t)

@@ -181,6 +181,10 @@ pub async fn dump_schema_to_file(
             .arg("-f")
             .arg(&owned_out)
             .arg(&owned_source)
+            // Defensive: a future password/tty prompt must not block on
+            // an inherited stdin. The password is in the URL today, so
+            // this is permanent hardening, not the current fix.
+            .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .output()
@@ -222,6 +226,19 @@ pub async fn restore_file_to_schema(target_url: &str, dump_file: &Path) -> anyho
             .arg("-d")
             .arg(&owned_target)
             .arg(&owned_file)
+            // Fail-fast lock guard: if a sibling scenario still holds a
+            // connection (relation lock) against the shared restore
+            // target, the `--clean` DROP TABLE would otherwise block
+            // forever. `lock_timeout=30000` makes the blocked statement
+            // error ("canceling statement due to lock timeout") after
+            // 30s, so the `.expect("pg_restore into target")` in the
+            // calling step panics fast and the lane FAILS VISIBLY in
+            // ≤30s instead of hanging at 0% CPU. `PGCONNECT_TIMEOUT`
+            // bounds a stuck TCP connect for the same fail-fast reason.
+            .env("PGOPTIONS", "-c lock_timeout=30000")
+            .env("PGCONNECT_TIMEOUT", "30")
+            // Defensive: never block on an inherited stdin (see pg_dump).
+            .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .output()
