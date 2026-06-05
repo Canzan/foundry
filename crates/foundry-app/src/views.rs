@@ -81,6 +81,17 @@ pub struct ForgotPage {
     pub csrf_token: String,
 }
 
+/// The POST /forgot-password success page. Extends `base.html` (Phase-4 FIX 3)
+/// so the confirmation links the same vendored `/static` stylesheet as every
+/// other surface, replacing the prior inline `format!` bare-`<head>` HTML.
+/// The confirmation copy ("If that email is on file, a reset link has been
+/// sent.") is preserved byte-identically (NFR-WEBB-COMPAT-02) — it is a static
+/// constant in the template, so there is no field. The response stays uniform
+/// regardless of whether the email was on file (no enumeration leak).
+#[derive(Debug, Clone, Template)]
+#[template(path = "forgot_sent.html")]
+pub struct ForgotSentPage;
+
 /// A single comment card. One definition, included by every render path
 /// (full issue page, single-comment re-render, edit-cancel) — the
 /// one-partial rule (NFR-WEBB-MAINT-02 / DD10). The OOB live-append wrapper

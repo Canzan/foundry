@@ -221,10 +221,12 @@ pub async fn submit_forgot(
     }
 
     // Always respond the same so we don't leak which emails are on file.
-    let body = "<!doctype html><html><body>\
-                <h1>Check your email</h1>\
-                <p>If that email is on file, a reset link has been sent.</p>\
-                </body></html>";
+    // Templated via the shared base layout (Phase-4 FIX 3) so it links the
+    // vendored /static stylesheet like every other surface; the confirmation
+    // copy is preserved byte-identically (NFR-WEBB-COMPAT-02).
+    let body = crate::views::ForgotSentPage
+        .render()
+        .expect("forgot_sent.html renders");
     Html(body).into_response()
 }
 

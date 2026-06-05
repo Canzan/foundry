@@ -98,6 +98,28 @@ service split, NOT a frontend rewrite, and NOT an auth change.**
   the same pattern and can be extracted incrementally once it is proven green.
 - **Target**: follow-on slices after this feature lands; same approach, lower risk.
 
+#### Deferred: remaining inline-`format!` surfaces (Phase-4 review FINDING 4)
+
+The Phase-4 adversarial review (2026-06-04) confirmed that, after Feature B landed,
+the following surfaces STILL emit inline `format!` HTML with a bare `<head>` (no
+`base.html`, no vendored `/static` stylesheet, no htmx/Alpine `<script>`). They are
+**knowingly OUT of Feature B's ratified US-B01..B05 story scope** (board, issue +
+comments, sign-in/forgot) and are recorded here as a known follow-up so the audit
+trail is explicit — templating them now would be scope-creep:
+
+| Surface | Location | Why out of Feature-B scope |
+|---------|----------|----------------------------|
+| Project-create form | `projects.rs::render_create_form` | project-create is not a US-B01..B05 story surface |
+| Project-create error fragment | `projects.rs::render_error_fragment` | same — error fragment of the same out-of-scope surface |
+| Keyboard new-issue modal | `keyboard.rs` (the `c`-to-create modal markup) | US-12 keyboard-nav surface, not a Feature-B story |
+| Issue-create error fragment | `issues.rs` (the issue-create 400 error fragment) | issue-CREATE markup; Feature B templated issue *display* + comments, not the create-error fragment |
+
+- **Rationale**: Feature B is a bounded MOVE-ONLY refactor of three named high-value
+  surfaces. These four remaining surfaces share the same `format!`→template pattern and
+  carry the same low risk, but extending the cut to them was never in the ratified
+  stories. They are a clean follow-up feature, not hidden work for this one.
+- **Target**: a future "remaining-surfaces templating" feature; same approach, lower risk.
+
 ### Mobile-responsive polish
 - **Why deferred**: inherits backend-mvp's desktop-first scope. The template/CSS pipeline makes
   responsive work easier later, but explicit mobile polish is out of scope here.

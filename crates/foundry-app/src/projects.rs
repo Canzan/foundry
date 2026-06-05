@@ -733,8 +733,15 @@ mod board_render_tests {
 
         let html = render_board("Backend", &project(), &issues, &key_prefix);
 
-        // Base-layout vendored asset references, all /static-local.
-        assert!(html.contains(r#"<link rel="stylesheet" href="/static/css/foundry.css">"#));
+        // Base-layout vendored asset references, all /static-local. The CSS is
+        // cache-busted by a content hash in its committed filename
+        // (`/static/css/foundry.<hash>.css`, ADR-B03 / FIX 1) so the blanket
+        // `immutable` cache on /static is safe on the hand-authored stylesheet.
+        let css_link = r#"link rel="stylesheet" href="/static/css/foundry."#;
+        assert!(
+            html.contains(css_link) && html.contains(r#".css">"#),
+            "board must link the content-hashed /static CSS; html was:\n{html}"
+        );
         assert!(html.contains(r#"src="/static/vendor/htmx.min.js"#));
         assert!(html.contains(r#"src="/static/vendor/alpine.min.js"#));
         assert!(!html.contains("http://") && !html.contains("https://"));

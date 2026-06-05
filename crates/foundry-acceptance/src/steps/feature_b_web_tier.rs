@@ -33,6 +33,7 @@
 //!   - `a project "..." with key prefix "..." exists in the "..." team` (us_08_file_issue)
 //!   - `the "..." project has issue ... titled "..." (in progress|in the backlog)` (feature_a)
 //!   - `the "..." project has no issues`                         (feature_a)
+//!
 //! Only Feature-B-specific phrases are declared below.
 //!
 //! What DELIVER must wire to flip these GREEN is enumerated in
@@ -262,6 +263,17 @@ async fn board_template_fails(world: &mut FoundryWorld) {
     // flipping it here forces the board view's `render_board` to return `Err`,
     // which the handler maps to a CLEAN 500 (never a half-page). The
     // `b_force_template_failure` World bool stays as a record of intent.
+    //
+    // Phase-4 FIX 2 — isolation: each cucumber scenario gets a FRESH
+    // `FoundryWorld` (`#[world(init = Self::default)]`), so `ensure_harness`
+    // spawns a brand-new `InProcHarness` with a fresh `AppState` whose
+    // `force_board_render_failure`/`db_unreachable` flags start `false`; the
+    // flag therefore cannot leak across scenarios. To be robust to any
+    // WITHIN-scenario reuse (a board-failure step followed by a board-success
+    // step on the same harness), we first reset both test seams to a known
+    // baseline, then arm only the render-failure seam. `reset_test_seams`
+    // makes the arming idempotent and self-documenting.
+    reset_test_seams(world);
     world.b_force_template_failure = true;
     let harness = world.harness.as_ref().expect("harness");
     harness
@@ -269,6 +281,22 @@ async fn board_template_fails(world: &mut FoundryWorld) {
         .state
         .force_board_render_failure
         .store(true, std::sync::atomic::Ordering::SeqCst);
+}
+
+/// Reset the test-only `AppState` seams (`force_board_render_failure` and
+/// `db_unreachable`) on the live harness back to `false`. Per-scenario fresh
+/// Worlds already isolate these, but resetting before arming the render-failure
+/// seam guards against any within-scenario harness reuse leaving a stale flag
+/// that would spuriously 500 a later board GET (Phase-4 FIX 2).
+fn reset_test_seams(world: &FoundryWorld) {
+    use std::sync::atomic::Ordering::SeqCst;
+    let harness = world.harness.as_ref().expect("harness");
+    harness
+        .app
+        .state
+        .force_board_render_failure
+        .store(false, SeqCst);
+    harness.app.state.db_unreachable.store(false, SeqCst);
 }
 
 #[given(regex = r#"^(\w+) has posted the comment "([^"]+)" on (\w+)-(\d+)$"#)]
@@ -437,7 +465,25 @@ async fn request_alpine_asset(world: &mut FoundryWorld) {
 
 #[when(regex = r#"^a browser requests the vendored Foundry stylesheet from the static path$"#)]
 async fn request_css_asset(world: &mut FoundryWorld) {
-    request_static(world, "/static/css/foundry.css").await;
+    // ADR-B03: the CSS is served under a content-hashed name. We discover the
+    // exact name from the on-disk vendored file rather than pinning a literal,
+    // so a future CSS edit (new hash) does not break this step.
+    request_static(world, &content_hashed_css_path()).await;
+}
+
+/// Resolve the served path of the content-hashed CSS by inspecting the
+/// committed `static/css/` directory (`foundry.<hash>.css`). Mirrors what
+/// `base.html` references; keeps the WS asset GET name-agnostic.
+fn content_hashed_css_path() -> String {
+    let css_dir =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../foundry-app/static/css");
+    let name = std::fs::read_dir(&css_dir)
+        .expect("read static/css dir")
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .find(|n| n.starts_with("foundry.") && n.ends_with(".css") && n != "foundry.css")
+        .expect("a content-hashed foundry.<hash>.css exists (ADR-B03)");
+    format!("/static/css/{name}")
 }
 
 #[when(regex = r#"^a browser requests a stylesheet that was never vendored$"#)]
@@ -550,7 +596,7 @@ async fn board_not_half_page(world: &mut FoundryWorld) {
     // A clean error is not a half-emitted board: it must not contain a
     // dangling open board structure with no closing document.
     assert!(
-        !(body.contains("<section class=\"column\"") && !body.contains("</html>")),
+        !body.contains("<section class=\"column\"") || body.contains("</html>"),
         "render error emitted a partial board page; body was:\n{body}"
     );
 }
@@ -929,16 +975,40 @@ async fn htmx_is_v2(world: &mut FoundryWorld) {
 
 #[then(regex = r#"^exactly one htmx file is vendored under the static path$"#)]
 async fn one_htmx_file(world: &mut FoundryWorld) {
-    // The asset GET succeeding plus the version check is the served-side proof;
-    // the on-disk "exactly one" is a code-inspection AC (DELIVER asserts via
-    // xtask check-assets). Here we assert the served blob is the v2 one and was
-    // delivered (not a 404).
+    // Two halves of the contract, both verified here:
+    // (1) the served-side proof — the htmx GET succeeded (not a 404), and
     let status = world.b_asset_status.expect("asset status captured");
     assert!(
         status.is_success(),
-        "the single vendored htmx file must be served (got {status}); \
-         the 'exactly one file' on-disk count is verified by the asset-resolution probe"
+        "the single vendored htmx file must be served (got {status})"
     );
+    // (2) the on-disk count — enumerate `static/vendor/htmx*.js` and assert
+    //     EXACTLY ONE exists. A second htmx blob (e.g. a leftover htmx-1
+    //     `htmx.min.js` alongside a `htmx2.min.js`) would make `base.html`'s
+    //     single `<script src=".../htmx.min.js">` ambiguous and risk shipping
+    //     two htmx runtimes. (The previously-cited "asset-resolution probe"
+    //     xtask does not exist; this filesystem check is the real contract.)
+    let htmx_files = vendored_htmx_files();
+    assert_eq!(
+        htmx_files.len(),
+        1,
+        "expected exactly one vendored htmx file under static/vendor/, found {}: {:?}",
+        htmx_files.len(),
+        htmx_files
+    );
+}
+
+/// Enumerate vendored htmx JS blobs under `crates/foundry-app/static/vendor/`
+/// (`htmx*.js`). Used to enforce the "exactly one htmx file" on-disk contract.
+fn vendored_htmx_files() -> Vec<String> {
+    let vendor_dir =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../foundry-app/static/vendor");
+    std::fs::read_dir(&vendor_dir)
+        .expect("read static/vendor dir")
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n.starts_with("htmx") && n.ends_with(".js"))
+        .collect()
 }
 
 // ==========================================================================
@@ -1000,17 +1070,41 @@ fn assert_asset_ok(world: &FoundryWorld, type_fragments: &[&str]) {
 fn assert_links_local_stylesheet(body: &str, surface: &str) {
     let doc = html_assertions::parse(body);
     let links = html_assertions::select_all(&doc, r#"link[rel="stylesheet"]"#);
-    let local = links.iter().any(|el| {
+    // ADR-B03 (assets.md §Decision #4, option 4a): the hand-authored CSS is
+    // cache-busted by a content-hash in its COMMITTED filename
+    // (`/static/css/foundry.<8-hex>.css`), so the blanket `immutable` long-cache
+    // on `/static` is safe — a CSS edit changes the hash, changes the URL, and
+    // misses the cache correctly. A mutable name (`foundry.css`) served
+    // `immutable` would pin stale CSS for a year. We assert the linked href is
+    // a content-hashed name, NOT just any `/static/` href.
+    let hashed = links.iter().any(|el| {
         el.value()
             .attr("href")
-            .map(|h| h.starts_with("/static/"))
+            .map(is_content_hashed_css_href)
             .unwrap_or(false)
     });
     assert!(
-        local,
-        "{surface} page links no vendored /static stylesheet (today it emits a bare <head> \
-         with no <link> — RED until DELIVER moves it onto base.html); body:\n{body}"
+        hashed,
+        "{surface} page must link a CONTENT-HASHED vendored stylesheet \
+         (/static/css/foundry.<hash>.css per ADR-B03) so the immutable cache is \
+         safe on a mutable name; links were {:?}; body:\n{body}",
+        links
+            .iter()
+            .filter_map(|el| el.value().attr("href"))
+            .collect::<Vec<_>>()
     );
+}
+
+/// True iff `href` is the content-hashed vendored CSS path
+/// (`/static/css/foundry.<hex>.css`, hash segment non-empty, lowercase hex).
+fn is_content_hashed_css_href(href: &str) -> bool {
+    let Some(stem) = href.strip_prefix("/static/css/foundry.") else {
+        return false;
+    };
+    let Some(hash) = stem.strip_suffix(".css") else {
+        return false;
+    };
+    !hash.is_empty() && hash.chars().all(|c| c.is_ascii_hexdigit())
 }
 
 fn assert_loads_local_scripts(body: &str, surface: &str) {

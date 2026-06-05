@@ -205,13 +205,18 @@ pub fn build_router(state: AppState) -> Router {
     let attachment_routes = attachments::build_routes(state.clone());
     // Feature B (US-B02 / design/assets.md) — vendored static assets served by
     // the binary itself: pure pre-vendored blobs under
-    // `crates/foundry-app/static/` (htmx/Alpine `.min.js` + `foundry.css`),
-    // served via `tower_http::services::ServeDir` (already a dep). Mounted on
-    // the base router OUTSIDE the session + CSRF layers — `/static` is GET-only
-    // public, non-secret, vendored content that needs no auth. ServeDir refuses
-    // `..` traversal by construction (US-B02 traversal @error). The long-lived
-    // immutable cache header is correct because a blob's content is pinned by
-    // its committed name (version in the filename = cache key).
+    // `crates/foundry-app/static/` (htmx/Alpine `.min.js` + the content-hashed
+    // `foundry.<hash>.css`), served via `tower_http::services::ServeDir` (already
+    // a dep). Mounted on the base router OUTSIDE the session + CSRF layers —
+    // `/static` is GET-only public, non-secret, vendored content that needs no
+    // auth. ServeDir refuses `..` traversal by construction (US-B02 traversal
+    // @error). The long-lived immutable cache header is correct because EVERY
+    // served blob's content is pinned by its committed name: the vendored libs
+    // carry the upstream version, and the hand-authored CSS carries a content
+    // hash in its filename (`foundry.<sha256-prefix>.css`, ADR-B03 / assets.md
+    // Decision #4 option 4a). A CSS edit changes the hash → the filename → the
+    // URL `base.html` references, so `immutable` never pins stale CSS. See
+    // VENDOR.md.
     let static_service = tower::ServiceBuilder::new()
         .layer(tower_http::set_header::SetResponseHeaderLayer::overriding(
             axum::http::header::CACHE_CONTROL,
