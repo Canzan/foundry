@@ -189,7 +189,14 @@ pub async fn submit_comment(
         // newly-posted comment.
         return (
             StatusCode::OK,
-            Html(render_comment_card_oob(&row, Some(user.user_id), false)),
+            Html(render_comment_card_oob(
+                &row,
+                &team_slug,
+                &project_slug,
+                &issue_number.to_string(),
+                Some(user.user_id),
+                false,
+            )),
         )
             .into_response();
     }
@@ -778,40 +785,38 @@ fn render_comment_card(
         .expect("comment card render (infallible String buffer)")
 }
 
-/// htmx OOB-swap variant: same card wrapped so the front-end can append
-/// it to the comment list without a full page reload. The newly-posted
-/// card is appended to the bottom of the existing thread; the actor IS
-/// the author by construction.
+/// htmx OOB-swap variant: the SAME card wrapped so the front-end can append
+/// it to the comment list without a full page reload. The newly-posted card
+/// is appended to the bottom of the existing thread; the actor IS the author
+/// by construction (a fresh post → `can_edit=true`, `can_delete` per the
+/// author/admin rule — ADR-006/ADR-007).
+///
+/// The OOB wrapper (`partials/oob/comment_card_oob.html`) `{% include %}`s the
+/// SAME `comment_card.html` partial the full-page loop and single-card paths
+/// use (the one-partial rule, NFR-WEBB-MAINT-02 / DD10). Consequently the live
+/// card is SELECTOR-IDENTICAL to the reloaded card, affordances and all — the
+/// deliberate Edit/Delete omission at the old comments.rs:841 is gone. The
+/// handler computes the affordance flags via [`build_comment_card`] (same seam
+/// the list path uses), so the live and reloaded cards can no longer drift.
 fn render_comment_card_oob(
     row: &CommentRow,
+    team_slug: &str,
+    project_slug: &str,
+    issue_number: &str,
     actor_user_id: Option<uuid::Uuid>,
     actor_is_admin: bool,
 ) -> String {
-    // The OOB-swap variant is used only by the POST-comment handler
-    // which doesn't carry team/project/number context separately. We
-    // reconstruct from the row's path-free state; the buttons use
-    // relative-ish URLs anchored by the comment id alone for the OOB
-    // case (the form lives on the issue page so the surrounding URL is
-    // already resolved). For simplicity we elide the buttons from the
-    // OOB fragment — the page will pick them up on next render. This
-    // matches the slice-2 contract (no Edit/Delete in the OOB swap
-    // payload; affordances arrive via the next full render).
-    let edited_marker = if row.edited {
-        r#"<small class="comment-edited-marker">(edited)</small>"#
-    } else {
-        ""
-    };
-    let _ = (actor_user_id, actor_is_admin);
-    let card = format!(
-        r#"<article id="comment-{id}" class="comment" data-author="{author}" data-comment-id="{id}">
-  <header class="comment-author">{author}{edited_marker}</header>
-  <div class="comment-body">{body}</div>
-</article>"#,
-        author = html_escape(&row.author_email),
-        id = row.id,
-        body = row.body_html,
+    let card = build_comment_card(
+        row,
+        team_slug,
+        project_slug,
+        issue_number,
+        actor_user_id,
+        actor_is_admin,
     );
-    format!(r#"<div hx-swap-oob="beforeend:[data-comment-list]">{card}</div>"#)
+    views::CommentCardOob { card }
+        .render()
+        .expect("comment card OOB render (infallible String buffer)")
 }
 
 /// Pull the trailing number off an issue key like "AUTH-3" → "3". The

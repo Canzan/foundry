@@ -95,6 +95,20 @@ pub struct CommentCardFragment {
     pub card: CommentCard,
 }
 
+/// htmx OOB live-append wrapper (step 02-02 / DD10). Wraps the SAME
+/// `comment_card.html` partial in the `hx-swap-oob="beforeend:[data-comment-list]"`
+/// envelope the POST-comment handler returns. Because it `{% include %}`s the
+/// shared partial — instead of re-emitting a divergent, affordance-less card —
+/// the live-appended card is SELECTOR-IDENTICAL to the same card after a full
+/// page reload, including the Edit/Delete affordances (the omission at
+/// comments.rs:841 is gone). The `card` field binds identically to the
+/// issue-page loop and the single-card fragment paths.
+#[derive(Debug, Clone, Template)]
+#[template(path = "partials/oob/comment_card_oob.html")]
+pub struct CommentCardOob {
+    pub card: CommentCard,
+}
+
 /// The comment-create error fragment (400) — literal copy preserved
 /// byte-identically (`data-hx-fragment="comment-create-error"`).
 #[derive(Debug, Clone, Template)]
