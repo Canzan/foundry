@@ -828,3 +828,67 @@ fn extract_number(issue_key: &str) -> String {
         .map(|(_, n)| n.to_string())
         .unwrap_or_default()
 }
+
+#[cfg(test)]
+mod affordance_tests {
+    //! Unit coverage for the [`build_comment_card`] affordance predicate
+    //! (ADR-006 author-only edit; ADR-007 author-or-admin delete). This is
+    //! the security-adjacent seam: a mutation flipping `can_delete` to
+    //! always-true, or `can_edit` away from author-only, is a real
+    //! authorisation bug. `build_comment_card` is a pure view-model builder —
+    //! its signature IS the driving port for the affordance decision, so
+    //! calling it directly is port-to-port at domain scope.
+    use super::build_comment_card;
+    use foundry_store::CommentRow;
+    use uuid::Uuid;
+
+    fn comment_row(author_id: Uuid) -> CommentRow {
+        CommentRow {
+            id: Uuid::now_v7(),
+            author_id,
+            author_email: "author@example.com".to_string(),
+            body_html: "<p>hi</p>".to_string(),
+            created_at: time::OffsetDateTime::now_utc(),
+            edited: false,
+        }
+    }
+
+    /// The full author × admin affordance matrix.
+    ///
+    /// Invariant 1 (ADR-006): `can_edit` is TRUE iff the actor authored the
+    /// comment — admin status is irrelevant to edit.
+    /// Invariant 2 (ADR-007): `can_delete` is TRUE iff the actor authored the
+    /// comment OR is a workspace admin.
+    ///
+    /// The non-author non-admin row (edit=F, delete=F) pins the `==` author
+    /// check; the non-author admin row (edit=F, delete=T) pins the `||` in the
+    /// delete predicate — flipping it to `&&` would deny an admin moderator.
+    #[test]
+    fn affordances_follow_author_and_admin_rules() {
+        let author = Uuid::now_v7();
+        let other = Uuid::now_v7();
+        let row = comment_row(author);
+
+        // (actor, is_admin) -> (expected_can_edit, expected_can_delete)
+        let cases = [
+            (Some(author), false, true, true),  // author, non-admin
+            (Some(author), true, true, true),   // author, admin
+            (Some(other), false, false, false), // stranger, non-admin
+            (Some(other), true, false, true),   // admin moderator (not author)
+            (None, false, false, false),        // anonymous
+            (None, true, false, true),          // admin, no actor id
+        ];
+
+        for (actor, is_admin, want_edit, want_delete) in cases {
+            let card = build_comment_card(&row, "backend", "auth", "3", actor, is_admin);
+            assert_eq!(
+                card.can_edit, want_edit,
+                "can_edit for actor={actor:?} admin={is_admin}"
+            );
+            assert_eq!(
+                card.can_delete, want_delete,
+                "can_delete for actor={actor:?} admin={is_admin}"
+            );
+        }
+    }
+}

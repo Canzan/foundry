@@ -759,6 +759,65 @@ mod board_render_tests {
         assert!(pos2 < pos3, "kb-items must list AUTH-2 before AUTH-3");
     }
 
+    /// Each issue lands in EXACTLY its own state column and nowhere else.
+    ///
+    /// This pins the state→column mapping (`column_label_to_state`) and the
+    /// `i.state == state_key` filter in `build_board_page`. With one issue per
+    /// state we can assert both directions: every column contains its own key
+    /// (kills arm-deletions / constant-replacements that would route an issue
+    /// to the wrong — or no — column) AND contains none of the other three
+    /// keys (kills the `==` → `!=` filter flip that would fan every issue into
+    /// every other column).
+    #[test]
+    fn each_issue_lands_in_exactly_its_state_column() {
+        let issues = vec![
+            issue(1, "Triage", "backlog"),
+            issue(2, "Planned", "todo"),
+            issue(3, "Doing", "in_progress"),
+            issue(4, "Shipped", "done"),
+        ];
+        let key_prefix = ProjectKey::try_new("AUTH").unwrap();
+
+        let html = render_board("Backend", &project(), &issues, &key_prefix);
+
+        // (column slug, the key that BELONGS in it)
+        let placement = [
+            ("backlog", "AUTH-1"),
+            ("todo", "AUTH-2"),
+            ("in_progress", "AUTH-3"),
+            ("done", "AUTH-4"),
+        ];
+        // Slice the HTML into per-column regions at each `data-column` marker so
+        // a key found in one region is genuinely under that column, not merely
+        // somewhere on the page. The visible columns precede the hidden
+        // `#kb-items` carrier (which lists EVERY key, ASC), so we truncate each
+        // region at the carrier before bounding it at the next column.
+        let visible = html.split(r#"id="kb-items""#).next().unwrap();
+        for (slug, expected_key) in placement {
+            let marker = format!(r#"data-column="{slug}""#);
+            let region = visible
+                .split(&marker)
+                .nth(1)
+                .unwrap_or_else(|| panic!("missing column section {slug}"));
+            // The next column section (or end of the visible board) bounds this.
+            let region = region.split(r#"data-column=""#).next().unwrap();
+            for (_, key) in placement {
+                let card = format!(r#"data-issue-key="{key}""#);
+                if key == expected_key {
+                    assert!(
+                        region.contains(&card),
+                        "{expected_key} must appear under column {slug}"
+                    );
+                } else {
+                    assert!(
+                        !region.contains(&card),
+                        "{key} must NOT appear under column {slug}"
+                    );
+                }
+            }
+        }
+    }
+
     /// An empty board renders the grown, inviting empty-state guidance in each
     /// column (US-B01 scenario 2) while still showing all four column labels.
     #[test]
