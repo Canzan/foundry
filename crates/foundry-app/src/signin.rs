@@ -7,10 +7,11 @@
 //! POST /forgot-password   → if SMTP configured + user exists, send reset email
 //! GET  /                  → minimal protected landing page
 
-use crate::bootstrap::{html_escape, SessionUser};
-use crate::csrf::{build_csrf_cookie, generate_token, CSRF_COOKIE_NAME, CSRF_FORM_FIELD};
+use crate::bootstrap::SessionUser;
+use crate::csrf::{build_csrf_cookie, generate_token, CSRF_COOKIE_NAME};
 use crate::session::SESSION_KEY_USER_ID;
 use crate::AppState;
+use askama::Template;
 use axum::extract::{Form, State};
 use axum::http::header::{HeaderMap, HeaderValue, COOKIE, LOCATION, SET_COOKIE};
 use axum::http::StatusCode;
@@ -290,42 +291,30 @@ fn response_with_optional_cookie(
     Response::from_parts(parts, body)
 }
 
+/// Render the sign-in page from the shared base layout (US-B04). Selector-and-
+/// substring-identical to the previous bare-`<head>` `format!`: same hidden
+/// `_csrf` field, `method="post"` `action="/sign-in"`, and the non-enumerable
+/// `GENERIC_SIGNIN_ERROR` copy in the `.error` slot — now wrapped by `base.html`
+/// so it links the vendored `/static` stylesheet. Auth logic UNCHANGED.
 fn render_signin_form(csrf_token: &str, error: Option<&str>) -> String {
-    let err_html = error
-        .map(|e| format!("<p class=\"error\">{}</p>", html_escape(e)))
-        .unwrap_or_default();
-    let token_html = html_escape(csrf_token);
-    format!(
-        r#"<!doctype html>
-<html><head><title>Sign in to Foundry</title></head>
-<body>
-<h1>Sign in</h1>
-{err_html}
-<form method="post" action="/sign-in">
-  <input type="hidden" name="{CSRF_FORM_FIELD}" value="{token_html}">
-  <label>Email <input type="email" name="email" required></label>
-  <label>Password <input type="password" name="password" required></label>
-  <button type="submit">Sign in</button>
-</form>
-<p><a href="/forgot-password">Forgot password?</a></p>
-</body></html>"#,
-    )
+    crate::views::SigninPage {
+        csrf_token: csrf_token.to_string(),
+        error: error.map(str::to_string),
+    }
+    .render()
+    .expect("signin.html renders")
 }
 
+/// Render the forgot-password page from the shared base layout (US-B04).
+/// Selector-and-substring-identical to the previous form (hidden `_csrf`,
+/// `method="post"` `action="/forgot-password"`); now linked to the vendored
+/// `/static` stylesheet via `base.html`.
 fn render_forgot_form(csrf_token: &str, _error: Option<&str>) -> String {
-    let token_html = html_escape(csrf_token);
-    format!(
-        r#"<!doctype html>
-<html><head><title>Forgot password</title></head>
-<body>
-<h1>Forgot password</h1>
-<form method="post" action="/forgot-password">
-  <input type="hidden" name="{CSRF_FORM_FIELD}" value="{token_html}">
-  <label>Email <input type="email" name="email" required></label>
-  <button type="submit">Send reset link</button>
-</form>
-</body></html>"#,
-    )
+    crate::views::ForgotPage {
+        csrf_token: csrf_token.to_string(),
+    }
+    .render()
+    .expect("forgot.html renders")
 }
 
 /// A PHC-encoded argon2id hash of a process-unique throwaway password.

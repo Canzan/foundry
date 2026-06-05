@@ -51,6 +51,36 @@ pub struct BoardPage {
     pub kb_items: Vec<String>,
 }
 
+/// The sign-in page. Extends `base.html`, which links the vendored `/static`
+/// stylesheet + htmx/Alpine scripts (US-B01/B02) — replacing the previous bare
+/// `<head>` `format!` markup (US-B04). The render contract is
+/// selector-and-substring-identical to the prior form: same `method="post"`
+/// `action="/sign-in"`, the hidden `_csrf` field (DD12 — the template emits ONLY
+/// this; the cookie/header/middleware are csrf.rs invariants), and the
+/// non-enumerable `GENERIC_SIGNIN_ERROR` copy in the `.error` slot. The auth
+/// logic in `signin.rs` is UNCHANGED (markup only, DB7).
+#[derive(Debug, Clone, Template)]
+#[template(path = "signin.html")]
+pub struct SigninPage {
+    /// The double-submit CSRF token, rendered into the hidden `_csrf` field
+    /// (auto-escaped — matches the previous `html_escape`).
+    pub csrf_token: String,
+    /// The non-enumerable error copy (`GENERIC_SIGNIN_ERROR`), shown in the
+    /// `.error` slot on a failed sign-in; `None` on the initial GET.
+    pub error: Option<String>,
+}
+
+/// The forgot-password page. Extends `base.html` (US-B04) — same vendored
+/// `/static` stylesheet link as the board, replacing the prior bare `<head>`.
+/// Render contract is selector-and-substring-identical to the prior form:
+/// `method="post"` `action="/forgot-password"` with the hidden `_csrf` field.
+#[derive(Debug, Clone, Template)]
+#[template(path = "forgot.html")]
+pub struct ForgotPage {
+    /// The double-submit CSRF token, rendered into the hidden `_csrf` field.
+    pub csrf_token: String,
+}
+
 /// A single comment card. One definition, included by every render path
 /// (full issue page, single-comment re-render, edit-cancel) — the
 /// one-partial rule (NFR-WEBB-MAINT-02 / DD10). The OOB live-append wrapper
