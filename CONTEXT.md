@@ -13,5 +13,5 @@
 ## Next Steps
 
 - **Deferred (documented in `htmx-web-tier/discuss/out-of-scope.md`)**: remaining inline-`format!` surfaces — `projects.rs` create-form + error fragment, `keyboard.rs` new-issue modal, `issues.rs` create-error fragment — a clean follow-up "remaining-surfaces templating" feature.
-- **Local gate caveat**: `pg_dump`/`pg_restore` now 18.4 (via `brew link --force libpq`); fixed the capture mismatch, but the `@all` backup/restore lane previously HUNG on restore (18↔pg16 or Docker exhaustion). A matching **postgresql@16** client is the version-correct fix before re-running `@all`. Default lane is green; CI uses pg16.
+- **`@all` US-03 DEADLOCK FIXED** (commit `6407946`): root cause was a `FoundryWorld` field-drop-order race (serialization guard released before the restored sqlx pool closed → sibling `pg_restore --clean` blocked on a relation lock). Fix: reorder fields + `After`-hook `pool.close().await` + `lock_timeout=30000` fail-fast + `stdin(null)`. No more hang. **Residual** (local-only, fast, not a hang): US-03 restore fails because local `pg_dump` 18.4 writes a PG17+ GUC the pg16 server rejects — fix by installing a matching **postgresql@16** client (`brew install postgresql@16` + link). CI uses pg16 → green there.
 - Optionally delete the stale `feature/web-tier-extraction` branch (Feature A work is on trunk).
