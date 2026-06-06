@@ -1,0 +1,54 @@
+{
+  "roadmap": {
+    "project_id": "keyboard-fragments-templating",
+    "created_at": "2026-06-06T17:35:28Z",
+    "total_steps": 1
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "Templatize keyboard.rs fragments",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "Move search-results + keyboard-help fragments to Askama partials; flip the fragment guard green",
+          "criteria": [
+            "render_search_fragment renders from partials/search_results.html (SearchResults view-model): ul.search-results with li.search-result[data-issue-key=\"{prefix}-{n}\"] + .key + .title items, and the empty ul.search-results[data-empty=\"true\"] case; key/title auto-escaped; BARE fragment (no base.html); selector-and-substring-identical to the current format!",
+            "show_keyboard_help renders from partials/keyboard_help.html (KeyboardHelp view-model): section.keyboard-help[role=\"dialog\"][aria-label=\"Keyboard shortcuts\"] > header>h2 + dl>(dt[data-shortcut]+dd) entries; key/label auto-escaped; BARE overlay fragment; selector-identical",
+            "the inline_html_fragment_sites() guard (feature_remaining_surfaces) reports ZERO keyboard.rs sites (was 3: :232/:245/:265) -> us-k01 completion-guard scenario GREEN",
+            "no inline format!() HTML remains in keyboard.rs; the existing us-12-keyboard-nav suite + the 3 DISTILL marker scenarios stay green (regression net); the manual html_escape calls are replaced by Askama auto-escape",
+            "Files: crates/foundry-app/templates/partials/search_results.html, crates/foundry-app/templates/partials/keyboard_help.html, crates/foundry-app/src/views.rs, crates/foundry-app/src/keyboard.rs"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-k01-keyboard-templating.feature",
+          "scenario_name": "No inline format!() HTML remains in the keyboard surfaces",
+          "files": [
+            "crates/foundry-app/templates/partials/search_results.html",
+            "crates/foundry-app/templates/partials/keyboard_help.html",
+            "crates/foundry-app/src/views.rs",
+            "crates/foundry-app/src/keyboard.rs"
+          ],
+          "depends_on": []
+        }
+      ]
+    }
+  ],
+  "implementation_scope": {
+    "source_directories": [
+      "crates/foundry-app/src/",
+      "crates/foundry-app/templates/"
+    ],
+    "test_directories": [
+      "crates/foundry-acceptance/tests/features/",
+      "crates/foundry-acceptance/src/steps/"
+    ],
+    "excluded_patterns": [
+      "__init__.py",
+      "__pycache__/**"
+    ]
+  },
+  "validation": {
+    "status": "approved",
+    "reviewer": "orchestrator (trivial 1-step move-only)",
+    "approved_at": "2026-06-06"
+  }
+}
