@@ -2,16 +2,15 @@
 
 ## Current Task
 
-**Feature "remaining-surfaces-templating" shipped to trunk** (`main` at `71c9c72`). Fast-forwarded nWave pipeline (DISCUSS→DESIGN→DISTILL→DELIVER): templatized the last inline-`format!()` HTML surfaces into Askama templates extending `base.html`, reusing Feature B's contract. **Inline full-page `format!` sites 9 → 0**, enforced by a source-tree completion guard. `@all` suite 183/183 green; move-only, selector-identical; zero new deps. This completes the web-tier templating arc: Feature A (JSON API, `ba791ee`) + Feature B (htmx tier, `36c0fd3`) + remaining surfaces (`71c9c72`).
+**Web-tier templating arc COMPLETE** (`main` at `7f63c8b`). `keyboard-fragments-templating` shipped the last two inline-`format!()` fragments (`keyboard.rs` search-results + help overlay) into Askama partials. **Zero inline HTML `format!` remains anywhere in `foundry-app/src`** — every web surface now renders from a template. 174/174 acceptance green; move-only, selector-identical; a new `inline_html_fragment_sites()` guard enforces it.
 
 ## Key Decisions
 
-- **Three shared templates** carry the reuse: `error_fragment.html` (parameterized marker), `invalid_page.html` (rewired ~17 `bootstrap.rs::invalid_page` callers app-wide), one-partial OOB (attachment row). DESIGN was inherit-only (Askama/base.html/render-contract/assets from Feature B).
-- **Move-only**: control-flow/status contracts preserved exactly (signed-out `/` 303, events 401, payload 413, bootstrap CSRF-exempt, signed invite URL byte-stable). Selector-identical; existing suite is the regression net.
-- **Trunk-based** (AGENTS.md + memory): all 9 commits direct to `main`, no branch, no PRs. Mutation N/A for move-only (no new logic); review proportionate (XSS surface verified clean — one `|safe` on a server-constructed invite URL).
+- Four-feature arc, all on trunk: `web-tier-extraction` (JSON API + JWT, `ba791ee`) → `htmx-web-tier` (Askama + vendored htmx2, `36c0fd3`) → `remaining-surfaces-templating` (full pages 9→0, `71c9c72`) → `keyboard-fragments-templating` (last 2 fragments, 0 inline HTML, `7f63c8b`).
+- Established pattern (reused throughout): Askama 0.12 typed view-models, `base.html` for pages / bare partials for fragments, pure-vendored `/static` assets (no JS toolchain), selector-and-substring-identical render contract (existing suite = regression net), browser auth/CSRF/sessions untouched.
+- Trunk-based (AGENTS.md + memory): commit to `main`, no PRs, no CI commit-gate, `cargo xtask ci` is the local gate (now green end-to-end after the US-03 deadlock fix + postgresql@16 client).
 
 ## Next Steps
 
-- **Local gate is green**: `cargo xtask ci` `@all` lane passes end-to-end (US-03 deadlock fixed `6407946` + postgresql@16 client installed). pg client on PATH is now 16.14.
-- **Optional tail**: `keyboard.rs` search-fragment + keyboard-help overlay (lowest-risk, was out of US-R01..R06 scope) — fold into a future small pass if wanted.
-- Optionally delete the stale `feature/web-tier-extraction` branch (Feature A work is on trunk).
+- None outstanding — the web-tier templating arc is fully delivered and green. `foundry-app` has zero inline HTML; two CI-enforced guards (`inline_full_page_sites` + `inline_html_fragment_sites`) prevent regression.
+- Optionally delete the stale `feature/web-tier-extraction` branch (its work is on trunk).
