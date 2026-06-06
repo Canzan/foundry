@@ -7,7 +7,9 @@
 //! GET  /dashboard            → minimal "workspace dashboard" landing
 
 use crate::session::SESSION_KEY_USER_ID;
+use crate::views::{BootstrapClaim, BootstrapDashboard, BootstrapInvite, InvalidPage};
 use crate::AppState;
+use askama::Template;
 use axum::extract::{Form, Query, State};
 use axum::http::header::{HeaderMap, HeaderValue, LOCATION};
 use axum::http::StatusCode;
@@ -209,14 +211,9 @@ pub async fn dashboard(State(_state): State<AppState>, session: Session) -> Resp
         .ok()
         .flatten()
         .is_some();
-    let body = format!(
-        "<!doctype html><html><body>\
-         <h1>Workspace dashboard</h1>\
-         <p>Signed in: {}</p>\
-         <p>Invite teammates from the invite-teammates panel.</p>\
-         </body></html>",
-        signed_in
-    );
+    let body = BootstrapDashboard { signed_in }
+        .render()
+        .expect("bootstrap_dashboard.html renders");
     Html(body).into_response()
 }
 
@@ -281,13 +278,9 @@ pub async fn create_invite(
         }
     }
 
-    let body = format!(
-        "<!doctype html><html><body>\
-         <h1>Invite link</h1>\
-         <p>Share this URL to invite a teammate (valid for 7 days):</p>\
-         <p><a href=\"{invite_url}\">{invite_url}</a></p>\
-         </body></html>",
-    );
+    let body = BootstrapInvite { invite_url }
+        .render()
+        .expect("bootstrap_invite.html renders");
     Html(body).into_response()
 }
 
@@ -336,29 +329,25 @@ fn sha256(input: &str) -> [u8; 32] {
 }
 
 fn render_claim_form(token: &str) -> String {
-    let escaped = html_escape(token);
-    format!(
-        r#"<!doctype html>
-<html><head><title>Claim Foundry workspace</title></head>
-<body>
-<h1>Claim your workspace</h1>
-<form method="post" action="/bootstrap?token={escaped}">
-  <label>Email <input type="email" name="email" required></label>
-  <label>Password <input type="password" name="password" required></label>
-  <label>Display name <input type="text" name="display_name" required></label>
-  <label>Workspace name <input type="text" name="workspace_name" required></label>
-  <button type="submit">Claim</button>
-</form>
-</body></html>"#,
-    )
+    BootstrapClaim {
+        token: token.to_string(),
+    }
+    .render()
+    .expect("bootstrap_claim.html renders")
 }
 
 pub(crate) fn invalid_page(status: StatusCode, heading: &str, message: &str) -> Response {
-    let body = format!(
-        "<!doctype html><html><body><h1>{}</h1><p>{}</p></body></html>",
-        html_escape(heading),
-        html_escape(message),
-    );
+    // US-R06: the ~17 callers across 7 modules stay UNCHANGED — only this helper
+    // body switches to the SHARED `invalid_page.html` (extends `base.html`, links
+    // the vendored `/static` stylesheet). Restyles every not-found/error path at
+    // once. The `<h1>{heading}</h1><p>{message}</p>` shape is byte-stable; both
+    // fields are auto-escaped (matching the previous `html_escape`).
+    let body = InvalidPage {
+        heading: heading.to_string(),
+        message: message.to_string(),
+    }
+    .render()
+    .expect("invalid_page.html renders");
     (status, Html(body)).into_response()
 }
 

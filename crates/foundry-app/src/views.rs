@@ -364,6 +364,50 @@ pub struct DashboardRoot;
 #[template(path = "events_signin_required.html")]
 pub struct EventsSigninRequired;
 
+/// The bootstrap workspace dashboard served at `GET /dashboard` (US-R06). Extends
+/// `base.html`, which links the vendored `/static` stylesheet — replacing the prior
+/// bare-`<head>` `format!` markup (`bootstrap.rs::dashboard`). The render contract is
+/// selector-and-substring-identical to the prior page: the `<h1>Workspace dashboard</h1>`
+/// heading, the `Signed in: {signed_in}` line, and the "Invite teammates from the
+/// invite-teammates panel." copy are preserved byte-identically.
+#[derive(Debug, Clone, Template)]
+#[template(path = "bootstrap_dashboard.html")]
+pub struct BootstrapDashboard {
+    /// Whether a session is present — rendered into the `Signed in: {…}` line.
+    pub signed_in: bool,
+}
+
+/// The bootstrap claim form served by `GET /bootstrap?token=…` (US-R06). Extends
+/// `base.html`, which links the vendored `/static` stylesheet — replacing the prior
+/// bare-`<head>` `format!` markup (`bootstrap.rs::render_claim_form`). The render
+/// contract is selector-and-substring-identical to the prior form: the
+/// `method="post"` `action="/bootstrap?token={token}"`, the email/password/
+/// display_name/workspace_name required inputs, and the Claim button. The
+/// `/bootstrap` POST is **CSRF-EXEMPT** — the form carries NO `_csrf` field; this is
+/// preserved exactly (do NOT add CSRF). The `token` is auto-escaped (matching the
+/// previous `html_escape`).
+#[derive(Debug, Clone, Template)]
+#[template(path = "bootstrap_claim.html")]
+pub struct BootstrapClaim {
+    /// The bootstrap token, rendered into the form `action` (auto-escaped).
+    pub token: String,
+}
+
+/// The invite-link page returned by `POST /invites` (US-R06). Extends `base.html`,
+/// which links the vendored `/static` stylesheet — replacing the prior bare-`<head>`
+/// `format!` markup (`bootstrap.rs::create_invite`). The render contract is
+/// selector-and-substring-identical to the prior page: the "Invite link" `<h1>`, the
+/// "Share this URL…" copy, and the `<a href="{invite_url}">{invite_url}</a>`. The
+/// signed `invite_url` is already URL-encoded and was embedded RAW (unescaped) by the
+/// prior `format!`; it is rendered through `|safe` to keep the signed URL
+/// byte-stable.
+#[derive(Debug, Clone, Template)]
+#[template(path = "bootstrap_invite.html")]
+pub struct BootstrapInvite {
+    /// The signed, already-URL-encoded invite URL; embedded verbatim via `|safe`.
+    pub invite_url: String,
+}
+
 /// A SHARED full-page invalid/error page (US-R05 not-found + US-R06 ~17 call
 /// sites). Extends `base.html` so it links the vendored `/static` stylesheet,
 /// replacing the prior bare-`<head>` `format!` markup (`bootstrap.rs::invalid_page`).

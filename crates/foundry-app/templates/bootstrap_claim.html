@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Claim Foundry workspace{% endblock %}
+{% block content %}
+<h1>Claim your workspace</h1>
+<form method="post" action="/bootstrap?token={{ token }}">
+  <label>Email <input type="email" name="email" required></label>
+  <label>Password <input type="password" name="password" required></label>
+  <label>Display name <input type="text" name="display_name" required></label>
+  <label>Workspace name <input type="text" name="workspace_name" required></label>
+  <button type="submit">Claim</button>
+</form>
+{% endblock %}

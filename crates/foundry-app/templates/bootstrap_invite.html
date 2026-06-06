@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block title %}Invite link{% endblock %}
+{% block content %}
+<h1>Invite link</h1>
+<p>Share this URL to invite a teammate (valid for 7 days):</p>
+<p><a href="{{ invite_url|safe }}">{{ invite_url|safe }}</a></p>
+{% endblock %}
