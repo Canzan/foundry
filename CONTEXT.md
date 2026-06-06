@@ -2,16 +2,16 @@
 
 ## Current Task
 
-**Feature B "htmx-web-tier" shipped to trunk** (`main` at `36c0fd3`). Full nWave pipeline (DISCUSS→DESIGN→DISTILL→DELIVER): inline `format!` HTML replaced with **Askama 0.12 templates** + pure-vendored **htmx 2.0.4 / Alpine 3.14.9 / CSS** in `static/` (no JS toolchain), reusing the `foundry-services` seam. 157/157 acceptance scenarios green; scoped mutation 100%. Fixed the `comments.rs:841` OOB-affordance bug. Both halves of the web-tier-extraction split are now done (Feature A = JSON API, shipped `ba791ee`; Feature B = htmx tier, shipped `36c0fd3`).
+**Feature "remaining-surfaces-templating" shipped to trunk** (`main` at `71c9c72`). Fast-forwarded nWave pipeline (DISCUSS→DESIGN→DISTILL→DELIVER): templatized the last inline-`format!()` HTML surfaces into Askama templates extending `base.html`, reusing Feature B's contract. **Inline full-page `format!` sites 9 → 0**, enforced by a source-tree completion guard. `@all` suite 183/183 green; move-only, selector-identical; zero new deps. This completes the web-tier templating arc: Feature A (JSON API, `ba791ee`) + Feature B (htmx tier, `36c0fd3`) + remaining surfaces (`71c9c72`).
 
 ## Key Decisions
 
-- **Askama 0.12** templating (compile-time typed); **pure vendored assets** (no Node/bundler/CDN); **content-hashed CSS** filename for safe `immutable` caching; **htmx 1→2** as one atomic final slice.
-- **Selector-and-substring-identical render contract** — the existing suite (parses DOM via `scraper`) staying green is the move's correctness proof. Browser auth/CSRF/sessions untouched (markup-only).
-- **Trunk-based workflow** (AGENTS.md + memory): commit to `main`, no PRs, no CI commit-gate, validate with `cargo xtask ci`. Feature B committed directly to `main` (no branch).
+- **Three shared templates** carry the reuse: `error_fragment.html` (parameterized marker), `invalid_page.html` (rewired ~17 `bootstrap.rs::invalid_page` callers app-wide), one-partial OOB (attachment row). DESIGN was inherit-only (Askama/base.html/render-contract/assets from Feature B).
+- **Move-only**: control-flow/status contracts preserved exactly (signed-out `/` 303, events 401, payload 413, bootstrap CSRF-exempt, signed invite URL byte-stable). Selector-identical; existing suite is the regression net.
+- **Trunk-based** (AGENTS.md + memory): all 9 commits direct to `main`, no branch, no PRs. Mutation N/A for move-only (no new logic); review proportionate (XSS surface verified clean — one `|safe` on a server-constructed invite URL).
 
 ## Next Steps
 
-- **Deferred (documented in `htmx-web-tier/discuss/out-of-scope.md`)**: remaining inline-`format!` surfaces — `projects.rs` create-form + error fragment, `keyboard.rs` new-issue modal, `issues.rs` create-error fragment — a clean follow-up "remaining-surfaces templating" feature.
-- **`@all` lane now FULLY GREEN locally** (170 scenarios / 1454 steps, 0 failures). Two fixes: (1) US-03 restore DEADLOCK fixed (commit `6407946`) — `FoundryWorld` field-drop-order race (guard released before the restored sqlx pool closed → sibling `pg_restore --clean` blocked on a relation lock); fix = reorder fields + `After`-hook `pool.close().await` + `lock_timeout=30000` fail-fast + `stdin(null)`. (2) Installed a matching **postgresql@16 (16.14)** client + linked it (unlinked libpq-18 / pg14) so the local client matches the pg16 server. `cargo xtask ci` should now pass end-to-end.
+- **Local gate is green**: `cargo xtask ci` `@all` lane passes end-to-end (US-03 deadlock fixed `6407946` + postgresql@16 client installed). pg client on PATH is now 16.14.
+- **Optional tail**: `keyboard.rs` search-fragment + keyboard-help overlay (lowest-risk, was out of US-R01..R06 scope) — fold into a future small pass if wanted.
 - Optionally delete the stale `feature/web-tier-extraction` branch (Feature A work is on trunk).
