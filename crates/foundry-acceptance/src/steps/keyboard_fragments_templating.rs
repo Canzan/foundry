@@ -208,8 +208,8 @@ async fn no_inline_fragment(world: &mut FoundryWorld) {
 /// `partials/search_results.html` + `partials/keyboard_help.html` (the Rust
 /// then renders the template, so the literal no longer appears in the source).
 fn inline_html_fragment_sites() -> Vec<String> {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../foundry-app/src/keyboard.rs");
+    let path =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../foundry-app/src/keyboard.rs");
     let text = std::fs::read_to_string(&path).expect("read foundry-app/src/keyboard.rs");
 
     // The byte-stable bare-fragment opening tells. We match the literal class
