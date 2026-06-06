@@ -103,6 +103,23 @@ pub struct NewIssueModalPage {
     pub team_slug: String,
 }
 
+/// The state-change chip FRAGMENT (US-R03). A BARE htmx fragment — it MUST NOT
+/// extend `base.html` (htmx swaps it into the live board DOM; extending base
+/// double-wraps the swap, NFR-WEBB-COMPAT-02). Renders the `partials/state_chip.html`
+/// partial directly. The render contract is selector-and-substring-identical to
+/// the previous `issues.rs::submit_state_change` `format!`:
+/// `<span class="state" data-state="{normalized}">{normalized}</span>`, where
+/// `normalized` is the underscore-normalized state value (e.g. `in_progress`).
+/// The field is auto-escaped (matching the previous output — the normalized
+/// value is byte-stable and carries no markup-significant characters).
+#[derive(Debug, Clone, Template)]
+#[template(path = "partials/state_chip.html")]
+pub struct StateChip {
+    /// The underscore-normalized state value (`in_progress`, `done`, …) — the
+    /// `data-state` marker AND the visible chip text (auto-escaped).
+    pub normalized: String,
+}
+
 /// A single issue card. One definition, included by every board column that
 /// has cards (the one-partial rule, NFR-WEBB-MAINT-02).
 #[derive(Debug, Clone)]

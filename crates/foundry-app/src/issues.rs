@@ -16,13 +16,16 @@
 //! team exists, which a workspace member could discover otherwise.
 //!
 //! Empty / whitespace-only title returns 400 Bad Request with an htmx
-//! error fragment. The fragment is rendered inline (no shared helper)
-//! — we only have one current error message; abstracting before a
-//! second use would be premature.
+//! error fragment rendered from the SHARED `error_fragment.html` template
+//! (US-R03 — reuses the `views::ErrorFragment` view-model introduced in
+//! US-R01, parameterized with the `issue-create-error` marker). The
+//! state-change chip renders from `partials/state_chip.html`. Both are
+//! BARE fragments (no `base.html` wrapper).
 
 use crate::bootstrap::{html_escape, invalid_page, SessionUser};
 use crate::session::SESSION_KEY_USER_ID;
 use crate::AppState;
+use askama::Template;
 use axum::extract::{Form, Path, State};
 use axum::http::header::{HeaderMap, HeaderValue, LOCATION};
 use axum::http::StatusCode;
@@ -140,14 +143,11 @@ pub async fn submit_state_change(
     .await
     {
         Ok(updated) => {
-            let normalized = updated.state;
-            (
-                StatusCode::OK,
-                Html(format!(
-                    r#"<span class="state" data-state="{normalized}">{normalized}</span>"#,
-                )),
-            )
-                .into_response()
+            // BARE state chip from `partials/state_chip.html` — htmx swaps it
+            // into the live board DOM (does NOT extend base.html). Render
+            // contract is byte-stable to the prior inline `format!`:
+            // `<span class="state" data-state="{normalized}">{normalized}</span>`.
+            (StatusCode::OK, Html(render_state_chip(&updated.state))).into_response()
         }
         Err(ServiceError::Validation { .. }) => bad_request_fragment("Invalid issue state"),
         Err(ServiceError::Forbidden) => non_member_page(&team_slug),
@@ -250,12 +250,34 @@ fn internal_error<E: std::fmt::Display>(label: &str, err: E) -> Response {
     (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response()
 }
 
+/// Render the issue-create error from the SHARED `error_fragment.html` template
+/// (reused across US-R01 / US-R03 / US-R05), parameterized with the byte-stable
+/// `issue-create-error` marker. Bare fragment — does NOT extend `base.html`
+/// (extending it double-wraps the htmx swap, NFR-WEBB-COMPAT-02). Byte-identical
+/// to the prior inline `format!`: `<div class="error"
+/// data-hx-fragment="issue-create-error">{escaped message}</div>` (Askama
+/// auto-escapes `{{ message }}`, matching the previous `html_escape`).
 fn bad_request_fragment(message: &str) -> Response {
-    let body = format!(
-        r#"<div class="error" data-hx-fragment="issue-create-error">{}</div>"#,
-        html_escape(message)
-    );
+    let body = crate::views::ErrorFragment {
+        fragment_marker: "issue-create-error".to_string(),
+        message: message.to_string(),
+    }
+    .render()
+    .expect("error_fragment.html renders from a fully-resolved, infallible view-model");
     (StatusCode::BAD_REQUEST, Html(body)).into_response()
+}
+
+/// Render the state-change chip from `partials/state_chip.html`. Byte-identical
+/// to the prior inline `format!`: `<span class="state"
+/// data-state="{normalized}">{normalized}</span>` (Askama auto-escapes
+/// `{{ normalized }}`; the underscore-normalized value carries no
+/// markup-significant characters, so the bytes are unchanged).
+fn render_state_chip(normalized: &str) -> String {
+    crate::views::StateChip {
+        normalized: normalized.to_string(),
+    }
+    .render()
+    .expect("state_chip.html renders from a fully-resolved, infallible view-model")
 }
 
 fn is_htmx(headers: &HeaderMap) -> bool {
