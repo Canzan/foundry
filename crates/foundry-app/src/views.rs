@@ -57,6 +57,52 @@ pub struct ErrorFragment {
     pub message: String,
 }
 
+/// The new-issue modal FRAGMENT (US-R02 / US-12). A BARE htmx fragment — it
+/// MUST NOT extend `base.html` (htmx swaps it into the live page DOM; extending
+/// base double-wraps the swap, NFR-WEBB-COMPAT-02). Renders the ONE shared
+/// `partials/new_issue_modal.html` partial directly (the one-partial rule,
+/// NFR-WEBB-MAINT-02) — the SAME partial the full-page fallback includes. The
+/// render contract is selector-and-substring-identical to the previous
+/// `keyboard.rs::render_modal_fragment` `format!`: `data-modal="new-issue"`,
+/// `role="dialog"`, `aria-modal`, `method="post"` with the identical `action`,
+/// the hidden `_csrf` field, and `input[name=title][autofocus]`. Fields are
+/// auto-escaped (matching the previous `html_escape`).
+#[derive(Debug, Clone, Template)]
+#[template(
+    source = r#"{% include "partials/new_issue_modal.html" %}"#,
+    ext = "html"
+)]
+pub struct NewIssueModal {
+    /// Project name shown in the modal header (auto-escaped).
+    pub project_name: String,
+    /// `/team/{slug}/project/{slug}/issues` — the form POST action.
+    pub action: String,
+    /// The double-submit CSRF token, rendered into the hidden `_csrf` field.
+    pub csrf: String,
+}
+
+/// The no-JS new-issue FULL-PAGE fallback (US-R02). Extends `base.html`, which
+/// links the vendored content-hashed `/static` stylesheet (ADR-B03) + the
+/// htmx/Alpine scripts (US-B01/B02) — replacing the previous bare-`<head>`
+/// `format!` markup (`keyboard.rs::render_modal_full_page`). It `{% include %}`s
+/// the SAME `partials/new_issue_modal.html` partial the htmx fragment renders
+/// (the one-partial rule, NFR-WEBB-MAINT-02), so a no-script submit posts to the
+/// identical `action`, carries the identical `data-modal`/`role=dialog`/
+/// `aria-modal`/`_csrf`/`input[name=title][autofocus]`. The included partial
+/// resolves its `project_name`/`action`/`csrf` from these same-named fields.
+#[derive(Debug, Clone, Template)]
+#[template(path = "new_issue_modal_page.html")]
+pub struct NewIssueModalPage {
+    /// Project name shown in the modal header + page title (auto-escaped).
+    pub project_name: String,
+    /// `/team/{slug}/project/{slug}/issues` — the form POST action.
+    pub action: String,
+    /// The double-submit CSRF token, rendered into the hidden `_csrf` field.
+    pub csrf: String,
+    /// Team slug shown in the full-page `<h1>` header (auto-escaped).
+    pub team_slug: String,
+}
+
 /// A single issue card. One definition, included by every board column that
 /// has cards (the one-partial rule, NFR-WEBB-MAINT-02).
 #[derive(Debug, Clone)]

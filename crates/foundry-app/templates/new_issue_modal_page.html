@@ -1,0 +1,6 @@
+{% extends "base.html" %}
+{% block title %}New issue - {{ project_name }}{% endblock %}
+{% block content %}
+<header><h1>New issue in {{ team_slug }}/{{ project_name }}</h1></header>
+{% include "partials/new_issue_modal.html" %}
+{% endblock %}

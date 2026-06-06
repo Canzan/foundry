@@ -29,9 +29,10 @@
 //! 403; unknown teams/projects get 404.
 
 use crate::bootstrap::{html_escape, invalid_page, SessionUser};
-use crate::csrf::{build_csrf_cookie, generate_token, CSRF_FORM_FIELD};
+use crate::csrf::{build_csrf_cookie, generate_token};
 use crate::session::SESSION_KEY_USER_ID;
 use crate::AppState;
+use askama::Template;
 use axum::extract::{Path, Query, State};
 use axum::http::header::{HeaderMap, HeaderValue, COOKIE, LOCATION, SET_COOKIE};
 use axum::http::StatusCode;
@@ -105,39 +106,42 @@ pub async fn show_new_issue_modal(
     response_with_optional_cookie(StatusCode::OK, Html(body).into_response(), set_cookie)
 }
 
+/// Render the BARE htmx modal fragment (US-12 / US-R02). Renders the ONE shared
+/// `partials/new_issue_modal.html` partial via the `NewIssueModal` view-model —
+/// the SAME partial the full-page fallback includes (the one-partial rule,
+/// NFR-WEBB-MAINT-02). Selector-and-substring-identical to the previous `format!`:
+/// `data-modal="new-issue"`, `role="dialog"`, `aria-modal`, the identical
+/// `action`, the hidden `_csrf` field, `input[name=title][autofocus]`. Stays BARE
+/// (no `base.html`) so the htmx swap is not double-wrapped.
 fn render_modal_fragment(action: &str, csrf_token: &str, project_name: &str) -> String {
-    format!(
-        r#"<div class="modal" role="dialog" aria-modal="true" data-modal="new-issue">
-  <header class="modal-header"><h2>New issue in {name}</h2></header>
-  <form method="post" action="{action}">
-    <input type="hidden" name="{CSRF_FORM_FIELD}" value="{csrf}">
-    <label>Title <input type="text" name="title" required autofocus></label>
-    <button type="submit">Create</button>
-  </form>
-</div>"#,
-        name = html_escape(project_name),
-        action = html_escape(action),
-        csrf = html_escape(csrf_token),
-    )
+    crate::views::NewIssueModal {
+        project_name: project_name.to_string(),
+        action: action.to_string(),
+        csrf: csrf_token.to_string(),
+    }
+    .render()
+    .expect("new_issue_modal partial renders from a fully-resolved, infallible view-model")
 }
 
+/// Render the no-JS new-issue FULL-PAGE fallback (US-R02). Extends `base.html`
+/// (which links the vendored `/static` stylesheet + scripts, replacing the prior
+/// bare `<head>`) and `{% include %}`s the SAME shared partial as the htmx
+/// fragment — the form `action` is identical so a no-script submit posts to the
+/// same endpoint.
 fn render_modal_full_page(
     action: &str,
     csrf_token: &str,
     project_name: &str,
     team_slug: &str,
 ) -> String {
-    let body = render_modal_fragment(action, csrf_token, project_name);
-    format!(
-        r#"<!doctype html>
-<html><head><title>New issue - {name}</title></head>
-<body>
-<header><h1>New issue in {team}/{name}</h1></header>
-{body}
-</body></html>"#,
-        name = html_escape(project_name),
-        team = html_escape(team_slug),
-    )
+    crate::views::NewIssueModalPage {
+        project_name: project_name.to_string(),
+        action: action.to_string(),
+        csrf: csrf_token.to_string(),
+        team_slug: team_slug.to_string(),
+    }
+    .render()
+    .expect("new_issue_modal_page.html renders from a fully-resolved, infallible view-model")
 }
 
 // =========================================================================
