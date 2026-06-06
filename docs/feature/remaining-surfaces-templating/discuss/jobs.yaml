@@ -1,0 +1,191 @@
+# JTBD Outcomes — Remaining-Surfaces Templating
+#
+# Single source of truth for job_id references used by user stories in stories.md.
+#
+# ============================================================================
+# WHAT THIS FILE IS
+# ============================================================================
+# This is the DEFERRED FOLLOW-UP to Feature B (htmx-web-tier). Feature B
+# templatized the three highest-value surfaces (board, issue+comments,
+# sign-in) and shipped the Askama engine, the vendored htmx2/Alpine/CSS in
+# static/, base.html, the views.rs view-model layer, and a
+# selector-and-substring-identical render contract. This feature templatizes
+# the REMAINING inline-`format!()` HTML surfaces that Feature B's out-of-scope.md
+# explicitly DEFERRED ("Deferred: remaining inline-`format!` surfaces").
+#
+# It is a MOVE-ONLY refactor: markup → Askama templates extending the EXISTING
+# base.html, linking the EXISTING /static assets, reusing the EXISTING render
+# contract. NOT new behavior, NOT new infrastructure, NOT new auth.
+#
+# ============================================================================
+# JOBS ARE INHERITED, NOT REINVENTED
+# ============================================================================
+# These surfaces serve the SAME jobs Feature B validated. We do NOT invent new
+# jobs — every surface is an instance of "the contributor edits markup in a
+# template, not Rust" (htmx-web-1) and/or "the self-hoster's screen looks like
+# a product, served offline from vendored assets" (htmx-web-2). The jobs below
+# are CITED from htmx-web-tier/discuss/jobs.yaml, marked inherited. No new job
+# was needed: every remaining surface fits cleanly under htmx-web-1/2.
+#
+# htmx-web-3 (normalize htmx directives ahead of an htmx-2 bump) is NOT carried
+# into this feature: the htmx-2 normalization was its own dedicated Feature-B
+# slice (US-B05) and is done/owned there. The remaining surfaces here carry
+# almost no active hx-* directives (only the attachment OOB swap and the
+# issue state-change fragment), and those move AS-IS — no new normalization job.
+
+schema_version: 1
+feature: remaining-surfaces-templating
+feature_label: "Remaining-Surfaces Templating — finish the format!()→template move"
+source: DERIVED (no diverge/ dir) — INHERITED wholesale from htmx-web-tier/discuss/jobs.yaml + a fresh 2026-06 code-surface reading of the deferred surfaces
+predecessor_feature: htmx-web-tier   # Feature B — shipped the engine + base.html + render contract
+parent_jobs: docs/feature/htmx-web-tier/discuss/jobs.yaml
+
+# ---------------------------------------------------------------------------
+# Personas (inherited verbatim from htmx-web-tier — same people, same surfaces)
+# ---------------------------------------------------------------------------
+personas:
+  contributor:
+    name_example: "Jamal Okafor"
+    description: >
+      Rust developer who wants to change Foundry's on-screen markup/wording.
+      For the REMAINING surfaces (project-create form, new-issue modal,
+      attachment/upload pages, bootstrap/claim/invite pages, the events
+      sign-in-required page, the dashboard landing, and the various error
+      fragments), changing text STILL means editing `format!()` string literals
+      in handler modules and recompiling — the exact pain Feature B removed for
+      board/issue/sign-in but left in place for these.
+    grounding: "htmx-web-tier contributor persona; verified against the inline format!() sites read 2026-06 (projects.rs:466/499, keyboard.rs:108/124/226/260, issues.rs:146/254, attachments.rs:354/370/385, bootstrap.rs:205/266/338/356, events.rs:138, signin.rs:235)."
+  self_hoster_member:
+    name_example: "Mei Chen / her teammates"
+    description: >
+      A member of a self-hosting team who lands on one of the un-templated
+      surfaces — the dashboard landing (`/`), a project-create form, a 'sign-in
+      required to subscribe to events' page, a bootstrap/claim screen, or an
+      'upload too large' page. These STILL render as a bare `<!doctype html>`
+      with no <head> assets, no stylesheet, no vendored htmx/Alpine — a jarring
+      'unstyled' moment right next to Feature B's now-styled board/issue/sign-in.
+    grounding: "htmx-web-tier self_hoster_member persona; the 'unstyled first screen' framing inherited from htmx-web-2, now applied to the surfaces Feature B deferred."
+  operator:
+    name_example: "Devansh Rao"
+    description: >
+      Self-hoster running Foundry (docker compose up). Cares it stays one
+      binary / one Postgres / no Node / no CDN, air-gap friendly. The remaining
+      surfaces must keep that promise (they already do; this feature must not
+      regress it).
+    grounding: "htmx-web-tier operator persona; README one-binary brand promise."
+
+# ---------------------------------------------------------------------------
+# Inherited backend-MVP outcomes this feature continues to serve (cited).
+# ---------------------------------------------------------------------------
+inherited_jobs:
+  jtbd-outcome-3:
+    name: "Minimize contributor time-to-meaningful-change"
+    statement: "Minimize the time it takes for a developer-contributor to make a meaningful change to the tracker itself."
+    primary_persona: contributor
+    relevance: "Finishing the move means a contributor editing ANY visible surface edits a template, not handler format!() — the board/issue/sign-in win generalized to every screen."
+  jtbd-outcome-4:
+    name: "Maximize Linear-feel interaction speed"
+    statement: "Minimize the likelihood that issue-list interactions feel slower than Linear's."
+    primary_persona: self_hoster_member
+    relevance: "These surfaces (new-issue modal, attachment OOB, state-change fragment) sit on interaction hot paths; Askama renders at parity with format!(), so no regression."
+  jtbd-outcome-7:
+    name: "Minimize upgrade-without-breakage friction"
+    statement: "Minimize the time it takes to upgrade between minor versions without breaking customizations."
+    primary_persona: operator
+    relevance: "Consolidating the LAST inline-HTML surfaces into the one base.html + one render contract removes the residual two-render-path (format!() vs template) inconsistency."
+
+# ---------------------------------------------------------------------------
+# Jobs (INHERITED from htmx-web-tier — cited, not re-derived). RANKING:
+#   1. htmx-web-1 (PRIMARY)   — restyle/edit a screen without touching Rust
+#   2. htmx-web-2 (PRIMARY)   — a screen looks like a product, offline, styled
+# ---------------------------------------------------------------------------
+jobs:
+  htmx-web-1:
+    name: "Minimize effort to restyle or re-word a screen without touching Rust logic"
+    inherited_from: htmx-web-tier/jobs.yaml::htmx-web-1   # not a new job
+    validation: INHERITED — applies unchanged to the remaining surfaces
+    statement: >
+      When I want to change how a Foundry screen looks or reads, I want to edit one
+      template (and the shared stylesheet) without reading or recompiling handler
+      logic, so I can ship a visual change confidently in minutes instead of
+      spelunking through format!() string literals embedded in request handlers.
+    primary_persona: contributor
+    importance: 8
+    satisfaction_today: 2
+    opportunity_score: 14
+    status: under-served
+    rank_note: >
+      PRIMARY (unchanged from Feature B). VALIDATED against the deferred surfaces:
+      project-create markup is in projects.rs::render_create_form/render_error_fragment;
+      the new-issue modal is in keyboard.rs::render_modal_fragment/render_modal_full_page;
+      the issue-create + state-change + attachment-upload error/OOB fragments are inline
+      format!() in issues.rs/attachments.rs; the bootstrap/claim/invite/dashboard pages
+      are inline format!() in bootstrap.rs/signin.rs; the events sign-in-required page is
+      an inline string in events.rs. So the contributor's restyle pain is real and present
+      on every one of these — the exact pain Feature B removed for board/issue/sign-in.
+    forces:
+      push: >
+        On-screen text for these surfaces lives as format!() literals INSIDE handler
+        modules. Editing markup = editing Rust + recompiling; a typo in a raw string is a
+        silent markup/behavior risk. Several pages still emit a bare <head> with NO link
+        to the vendored stylesheet Feature B shipped.
+      pull: >
+        The SAME pattern Feature B proved: a .html template extending base.html, rendered
+        via a views.rs view-model. Markup reviewable as markup in templates/, styled by the
+        same /static stylesheet. No new engine, no new infra — just finish the move.
+      anxiety: >
+        Will moving these change behavior, break the acceptance suite, or alter an error
+        fragment's data-hx-fragment marker that the suite or Alpine reads?
+      habit: >
+        Contributors grep handler files for on-screen text; the remaining surfaces still
+        reward that habit, which is exactly why finishing the move (so ALL text lives in
+        templates/) matters.
+
+  htmx-web-2:
+    name: "Minimize the chance a self-hoster's screen feels unstyled or broken"
+    inherited_from: htmx-web-tier/jobs.yaml::htmx-web-2   # not a new job
+    validation: INHERITED — applies unchanged to the remaining surfaces
+    statement: >
+      When a self-hosting team lands on any Foundry screen, I want it to look
+      intentional and load fast from assets the binary already ships (no CDN), so
+      the team trusts Foundry instead of bouncing on a screen that looks like raw
+      HTML — including the landing page, the project-create form, and the
+      bootstrap/error pages, not just the board.
+    primary_persona: self_hoster_member
+    importance: 7
+    satisfaction_today: 3
+    opportunity_score: 11
+    status: under-served
+    rank_note: >
+      PRIMARY (unchanged from Feature B). VALIDATED against code: the dashboard landing
+      (signin.rs::dashboard_root, '<h1>Foundry</h1> ... signed in'), the project-create
+      form (projects.rs::render_create_form), the bootstrap dashboard/claim pages
+      (bootstrap.rs), the 'sign-in required to subscribe to events' page (events.rs), and
+      the 'upload too large' page (attachments.rs::payload_too_large) all still emit a bare
+      <!doctype html> with NO <head> assets — literally unstyled HTML, right next to
+      Feature B's now-styled surfaces. The inconsistency is the pain.
+    forces:
+      push: >
+        These pages render with no <link rel=stylesheet>, no vendored htmx/Alpine — a
+        'prototype' first impression that clashes with the now-styled board/issue/sign-in.
+      pull: >
+        Extend the SAME base.html so they link the SAME vendored /static assets and look
+        coherent with the rest of Foundry — no CDN, no Node, served by the one binary.
+      anxiety: >
+        Will wrapping a fragment surface (modal, error div, OOB swap) in base.html
+        accidentally double-wrap it and break the htmx swap? (Mitigation: fragments keep
+        emitting bare fragments; only FULL pages extend base.html — same split Feature B used.)
+      habit: "Operators expect 'docker compose up' to just work, no extra build/fetch step."
+
+# ---------------------------------------------------------------------------
+# Story-to-job mapping (mirror of the job_id line on each story; canonical source).
+# US ids use the `US-R0x` namespace (Remaining surfaces) to avoid collision with
+# Feature A's US-W0x and Feature B's US-B0x.
+# ---------------------------------------------------------------------------
+story_job_map:
+  US-R01: htmx-web-1   # Slice 1: project-create form + project-create-error fragment → template
+  US-R02: htmx-web-1   # Slice 2: new-issue modal (fragment + full page) → template/partial
+  US-R03: htmx-web-1   # Slice 3: issue-create-error + state-change fragments → template
+  US-R04: htmx-web-2   # Slice 4: dashboard landing + events sign-in-required page → base.html
+  US-R05: htmx-web-1   # Slice 5: attachment surfaces (upload-error, OOB row, too-large, not-found) → template
+  US-R06: htmx-web-2   # Slice 6: bootstrap dashboard + claim form + invite-link page + invalid_page → base.html
