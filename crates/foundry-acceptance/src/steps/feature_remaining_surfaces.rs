@@ -141,7 +141,10 @@ async fn sign_in_and_capture_cookie(world: &FoundryWorld, email: &str, password:
     form.insert("_csrf", csrf_token.clone());
     let resp = http
         .post(format!("{base}/sign-in"))
-        .header(reqwest::header::COOKIE, format!("foundry_csrf={csrf_token}"))
+        .header(
+            reqwest::header::COOKIE,
+            format!("foundry_csrf={csrf_token}"),
+        )
         .form(&form)
         .send()
         .await
@@ -287,7 +290,11 @@ async fn submit_project_create_empty_key(
 // ==========================================================================
 
 #[when(regex = r#"^(\w+) opens the new-issue page for "([^"]+)" without scripting$"#)]
-async fn open_new_issue_full_page(world: &mut FoundryWorld, _persona: String, project_name: String) {
+async fn open_new_issue_full_page(
+    world: &mut FoundryWorld,
+    _persona: String,
+    project_name: String,
+) {
     ensure_harness(world).await;
     // No `hx-request` header ⇒ the handler returns the FULL-PAGE fallback.
     let path = format!(
@@ -500,7 +507,9 @@ async fn open_nonexistent_team(world: &mut FoundryWorld, _persona: String) {
 // When — US-R07 completion-check (source-tree scan)
 // ==========================================================================
 
-#[when(regex = r#"^the foundry-app handler sources are scanned for inline full-page HTML documents$"#)]
+#[when(
+    regex = r#"^the foundry-app handler sources are scanned for inline full-page HTML documents$"#
+)]
 async fn scan_handler_sources(world: &mut FoundryWorld) {
     // No HTTP — this is a source-tree contract (mirrors feature_b's on-disk
     // `vendored_htmx_files` count). The result is stashed as a pseudo-body so
@@ -626,7 +635,10 @@ async fn landing_redirects(world: &mut FoundryWorld) {
         .get(reqwest::header::LOCATION)
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
-    assert_eq!(location, "/sign-in", "expected redirect to /sign-in, got {location:?}");
+    assert_eq!(
+        location, "/sign-in",
+        "expected redirect to /sign-in, got {location:?}"
+    );
     let body = world.r_last_body.clone().unwrap_or_default();
     assert!(
         body.trim().is_empty(),
@@ -670,9 +682,7 @@ async fn upload_over_limit(world: &mut FoundryWorld) {
     );
 }
 
-#[then(
-    regex = r#"^the (too-large page|bootstrap dashboard) shows the literal copy "([^"]+)"$"#
-)]
+#[then(regex = r#"^the (too-large page|bootstrap dashboard) shows the literal copy "([^"]+)"$"#)]
 async fn full_page_copy(world: &mut FoundryWorld, _surface: String, copy: String) {
     let body = last_body(world);
     assert!(
@@ -759,7 +769,11 @@ fn assert_no_external_origin(body: &str, surface: &str) {
     let doc = html_assertions::parse(body);
     for css in ["script[src]", r#"link[rel="stylesheet"]"#] {
         for el in html_assertions::select_all(&doc, css) {
-            let attr = if css.starts_with("script") { "src" } else { "href" };
+            let attr = if css.starts_with("script") {
+                "src"
+            } else {
+                "href"
+            };
             if let Some(v) = el.value().attr(attr) {
                 let lower = v.to_ascii_lowercase();
                 assert!(
