@@ -2,15 +2,15 @@
 
 ## Current Task
 
-**Web-tier templating arc COMPLETE** (`main` at `7f63c8b`). `keyboard-fragments-templating` shipped the last two inline-`format!()` fragments (`keyboard.rs` search-results + help overlay) into Askama partials. **Zero inline HTML `format!` remains anywhere in `foundry-app/src`** — every web surface now renders from a template. 174/174 acceptance green; move-only, selector-identical; a new `inline_html_fragment_sites()` guard enforces it.
+**Web-tier templating arc COMPLETE and the full local gate is green** (`main` at `0f9d307`). `cargo xtask ci` passes ALL stages end-to-end — fmt, clippy, `xtask check-arch`, build --release, workspace tests, `cargo deny`, and the `@all` acceptance lane (**187 scenarios / 1572 steps, 0 failures**). Foundry now has zero inline `format!()` HTML anywhere in `foundry-app/src`; every web surface renders from an Askama template.
 
 ## Key Decisions
 
-- Four-feature arc, all on trunk: `web-tier-extraction` (JSON API + JWT, `ba791ee`) → `htmx-web-tier` (Askama + vendored htmx2, `36c0fd3`) → `remaining-surfaces-templating` (full pages 9→0, `71c9c72`) → `keyboard-fragments-templating` (last 2 fragments, 0 inline HTML, `7f63c8b`).
-- Established pattern (reused throughout): Askama 0.12 typed view-models, `base.html` for pages / bare partials for fragments, pure-vendored `/static` assets (no JS toolchain), selector-and-substring-identical render contract (existing suite = regression net), browser auth/CSRF/sessions untouched.
-- Trunk-based (AGENTS.md + memory): commit to `main`, no PRs, no CI commit-gate, `cargo xtask ci` is the local gate (now green end-to-end after the US-03 deadlock fix + postgresql@16 client).
+- Four features delivered through the full nWave pipeline, all on trunk: `web-tier-extraction` (JSON `/api/v1` + JWT, `ba791ee`) → `htmx-web-tier` (Askama + vendored htmx2, `36c0fd3`) → `remaining-surfaces-templating` (full pages 9→0, `71c9c72`) → `keyboard-fragments-templating` (last 2 fragments, `7f63c8b`). Two CI-enforced guards prevent inline-HTML regression.
+- Infra fixes that made the gate green: US-03 restore **deadlock** fixed (`FoundryWorld` field-drop-order race, `6407946`) + matching **postgresql@16** client installed (replacing libpq-18) so `pg_dump`/`pg_restore` match the pg16 testcontainer.
+- Trunk-based (AGENTS.md + memory): commit to `main`, no PRs, no CI commit-gate; `cargo xtask ci` is the local gate.
 
 ## Next Steps
 
-- None outstanding — the web-tier templating arc is fully delivered and green. `foundry-app` has zero inline HTML; two CI-enforced guards (`inline_full_page_sites` + `inline_html_fragment_sites`) prevent regression.
-- Optionally delete the stale `feature/web-tier-extraction` branch (its work is on trunk).
+- None outstanding — arc delivered, gate green, one branch (`main`), tree clean.
+- Lesson logged: run FULL-workspace `cargo fmt --all --check` + `cargo clippy --all-targets --release -- -D warnings` per step (per-crate checks missed nits in the acceptance crate).
