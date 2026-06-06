@@ -511,6 +511,22 @@ pub struct FoundryWorld {
     pub b_asset_cache_control: Option<String>,
     /// Status of the most recent `/static/...` asset GET.
     pub b_asset_status: Option<StatusCode>,
+
+    // ---- Feature "Remaining-Surfaces Templating" (remaining-surfaces-templating) ----
+    /// Email of the persona signed in for the current remaining-surfaces
+    /// scenario, set by the reused `<persona> is signed in as a Backend member`
+    /// / `... has no current browser session` Feature-B Givens. Drives the
+    /// authenticated GETs. (Distinct slot from `b_signed_in_email` so the two
+    /// feature step modules cannot collide within a scenario.)
+    pub r_signed_in_email: Option<String>,
+    /// Body of the most recent remaining-surfaces GET/POST captured by a When
+    /// step, reused by the Then assertions on the same surface.
+    pub r_last_body: Option<String>,
+    /// Status of the most recent remaining-surfaces GET/POST.
+    pub r_last_status: Option<StatusCode>,
+    /// Headers of the most recent remaining-surfaces GET/POST (for the
+    /// signed-out 303 Location assertion on US-R04).
+    pub r_last_headers: Option<HeaderMap>,
 }
 
 impl FoundryWorld {
