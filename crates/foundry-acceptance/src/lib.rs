@@ -14,6 +14,7 @@ pub mod steps {
     pub mod feature_b_web_tier;
     pub mod feature_remaining_surfaces;
     pub mod handler_instrumentation;
+    pub mod keyboard_fragments_templating;
     pub mod slice_8_deferred_metrics;
     pub mod us_01_install;
     pub mod us_02_multi_replica;

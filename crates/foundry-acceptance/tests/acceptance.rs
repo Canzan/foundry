@@ -37,6 +37,8 @@ use foundry_acceptance::steps::feature_remaining_surfaces as _feature_remaining;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::handler_instrumentation as _slice6;
 #[allow(unused_imports)]
+use foundry_acceptance::steps::keyboard_fragments_templating as _keyboard_fragments;
+#[allow(unused_imports)]
 use foundry_acceptance::steps::slice_8_deferred_metrics as _slice8;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::us_01_install as _us_01;
