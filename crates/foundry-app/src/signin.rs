@@ -240,10 +240,13 @@ pub async fn dashboard_root(State(_state): State<AppState>, session: Session) ->
         .flatten();
     match user {
         Some(_) => {
-            let body = "<!doctype html><html><body>\
-                        <h1>Foundry</h1>\
-                        <p>You are signed in. Welcome back.</p>\
-                        </body></html>";
+            // US-R04: the signed-in landing now renders through the shared base
+            // layout (links the vendored /static stylesheet). Selector-and-
+            // substring-identical to the prior bare-<head> format! — same
+            // `<h1>Foundry</h1>` + "You are signed in. Welcome back." copy.
+            let body = crate::views::DashboardRoot
+                .render()
+                .expect("dashboard_root.html renders");
             Html(body).into_response()
         }
         None => {

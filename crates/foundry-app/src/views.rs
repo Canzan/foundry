@@ -304,3 +304,43 @@ pub struct IssuePage {
     pub attachments: Vec<AttachmentItem>,
     pub comments: Vec<CommentCard>,
 }
+
+/// The signed-in dashboard landing page served at `GET /` (US-R04). Extends
+/// `base.html`, which links the vendored content-hashed `/static` stylesheet
+/// (ADR-B03) — replacing the previous bare-`<head>` `format!` markup
+/// (`signin.rs::dashboard_root`). The render contract is selector-and-
+/// substring-identical to the prior page: the `<h1>Foundry</h1>` heading and the
+/// "You are signed in. Welcome back." copy are preserved byte-identically. The
+/// signed-out `/` branch keeps its `303 SEE_OTHER → /sign-in` control flow
+/// (UNCHANGED, DB7) — only the signed-in body is templated.
+#[derive(Debug, Clone, Template)]
+#[template(path = "dashboard_root.html")]
+pub struct DashboardRoot;
+
+/// The events sign-in-required page served when an unauthenticated request hits
+/// the SSE stream (US-R04). Extends `base.html` so it links the vendored
+/// `/static` stylesheet, replacing the previous bare-`<head>` `format!` markup
+/// (`events.rs::unauthorized_response`). The render contract is selector-and-
+/// substring-identical to the prior page: the "Sign-in required to subscribe to
+/// events." copy and the `<a href="/sign-in">Sign in</a>` link are preserved.
+/// The handler keeps its `401 UNAUTHORIZED` status (UNCHANGED, DB7) — only the
+/// rendered body is templated.
+#[derive(Debug, Clone, Template)]
+#[template(path = "events_signin_required.html")]
+pub struct EventsSigninRequired;
+
+/// A SHARED full-page invalid/error page (US-R05 not-found + US-R06 ~17 call
+/// sites). Extends `base.html` so it links the vendored `/static` stylesheet,
+/// replacing the prior bare-`<head>` `format!` markup (`bootstrap.rs::invalid_page`).
+/// The render contract is the byte-stable `<h1>{heading}</h1><p>{message}</p>`
+/// shape; both fields are auto-escaped (matching the previous `html_escape`).
+/// Created here so US-R05 (05-01) + US-R06 (06-01) reuse this ONE template
+/// instead of per-surface copies; the ~17 callers are rewired in 06-01.
+#[derive(Debug, Clone, Template)]
+#[template(path = "invalid_page.html")]
+pub struct InvalidPage {
+    /// The `<h1>` heading text (auto-escaped).
+    pub heading: String,
+    /// The `<p>` body copy (auto-escaped).
+    pub message: String,
+}

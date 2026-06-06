@@ -20,6 +20,7 @@
 use crate::bootstrap::SessionUser;
 use crate::session::SESSION_KEY_USER_ID;
 use crate::AppState;
+use askama::Template;
 use axum::body::Body;
 use axum::extract::{Path, State};
 use axum::http::header::{CACHE_CONTROL, CONTENT_TYPE};
@@ -136,11 +137,18 @@ async fn signed_in_user(session: &Session) -> Option<SessionUser> {
 }
 
 fn unauthorized_response() -> Response {
+    // US-R04: the sign-in-required body now renders through the shared base
+    // layout (links the vendored /static stylesheet). Selector-and-substring-
+    // identical to the prior bare-<head> string — same "Sign-in required…" copy
+    // and `<a href="/sign-in">` link. The 401 status + content type are the
+    // byte-stable control-flow contract and are UNCHANGED.
+    let body = crate::views::EventsSigninRequired
+        .render()
+        .expect("events_signin_required.html renders");
     (
         StatusCode::UNAUTHORIZED,
         [(CONTENT_TYPE, "text/html; charset=utf-8")],
-        "<!doctype html><html><body><p>Sign-in required to subscribe to events.</p>\
-         <p><a href=\"/sign-in\">Sign in</a> to continue.</p></body></html>",
+        body,
     )
         .into_response()
 }
