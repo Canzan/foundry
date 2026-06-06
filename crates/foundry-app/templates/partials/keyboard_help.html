@@ -1,0 +1,4 @@
+<section class="keyboard-help" role="dialog" aria-label="Keyboard shortcuts">
+  <header><h2>Keyboard shortcuts</h2></header>
+  <dl>{% for entry in entries %}<dt data-shortcut="{{ entry.key }}">{{ entry.key }}</dt><dd>{{ entry.label }}</dd>{% endfor %}</dl>
+</section>

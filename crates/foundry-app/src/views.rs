@@ -103,6 +103,57 @@ pub struct NewIssueModalPage {
     pub team_slug: String,
 }
 
+/// A single keyboard search result row. The `key` is the canonical
+/// `{PREFIX}-{N}` issue key (e.g. `AUTH-4`) — both the `data-issue-key`
+/// attribute and the visible `.key` span; `title` is the issue title shown in
+/// the `.title` span. Both auto-escaped (matching the previous `html_escape`).
+#[derive(Debug, Clone)]
+pub struct SearchResultRow {
+    pub key: String,
+    pub title: String,
+}
+
+/// The keyboard `/`-search results FRAGMENT (US-K01 / US-12). A BARE htmx
+/// fragment — it MUST NOT extend `base.html` (the alpine.js handler swaps it
+/// into the live page DOM; extending base double-wraps the swap,
+/// NFR-WEBB-COMPAT-02). Renders `partials/search_results.html`. The render
+/// contract is selector-and-substring-identical to the previous
+/// `keyboard.rs::render_search_fragment` `format!`: the `ul.search-results`
+/// wrapper with one `li.search-result[data-issue-key="{PREFIX}-{N}"]` per match
+/// (each with its `.key` + `.title` spans), AND the empty
+/// `ul.search-results[data-empty="true"]` no-match state. Fields are
+/// auto-escaped (matching the previous `html_escape`).
+#[derive(Debug, Clone, Template)]
+#[template(path = "partials/search_results.html")]
+pub struct SearchResults {
+    pub items: Vec<SearchResultRow>,
+}
+
+/// A single keyboard-help shortcut entry. `key` is the shortcut key (the
+/// `dt[data-shortcut]` attribute + the visible `<dt>` text); `label` is the
+/// human description in the `<dd>`. Both auto-escaped.
+#[derive(Debug, Clone)]
+pub struct ShortcutEntry {
+    pub key: String,
+    pub label: String,
+}
+
+/// The keyboard-help overlay FRAGMENT (US-K02 / US-12). A BARE htmx fragment —
+/// it MUST NOT extend `base.html` (the alpine.js bootstrap GETs it once and
+/// caches it into the live DOM; extending base double-wraps the swap,
+/// NFR-WEBB-COMPAT-02). Renders `partials/keyboard_help.html`. The render
+/// contract is selector-and-substring-identical to the previous
+/// `keyboard.rs::show_keyboard_help` `format!`:
+/// `section.keyboard-help[role="dialog"][aria-label="Keyboard shortcuts"]` with
+/// a `header>h2` "Keyboard shortcuts" heading and one
+/// `dt[data-shortcut="{key}"]` then `dd` pair per shortcut. Fields are
+/// auto-escaped (matching the previous `html_escape`).
+#[derive(Debug, Clone, Template)]
+#[template(path = "partials/keyboard_help.html")]
+pub struct KeyboardHelp {
+    pub entries: Vec<ShortcutEntry>,
+}
+
 /// The state-change chip FRAGMENT (US-R03). A BARE htmx fragment — it MUST NOT
 /// extend `base.html` (htmx swaps it into the live board DOM; extending base
 /// double-wraps the swap, NFR-WEBB-COMPAT-02). Renders the `partials/state_chip.html`

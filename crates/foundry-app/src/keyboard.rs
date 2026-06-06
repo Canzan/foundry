@@ -28,7 +28,7 @@
 //! signed-in user must belong to the project's team. Non-members get
 //! 403; unknown teams/projects get 404.
 
-use crate::bootstrap::{html_escape, invalid_page, SessionUser};
+use crate::bootstrap::{invalid_page, SessionUser};
 use crate::csrf::{build_csrf_cookie, generate_token};
 use crate::session::SESSION_KEY_USER_ID;
 use crate::AppState;
@@ -227,22 +227,26 @@ fn filter_matches<'a>(
         .collect()
 }
 
+/// Render the BARE htmx search-results fragment (US-K01 / US-12) from the
+/// `partials/search_results.html` Askama partial via the `SearchResults`
+/// view-model. Selector-and-substring-identical to the previous `format!`:
+/// the `ul.search-results` wrapper with one `li.search-result[data-issue-key]`
+/// (each carrying its `.key` + `.title` spans) per match, AND the empty
+/// `ul.search-results[data-empty="true"]` no-match state. Stays BARE (no
+/// `base.html`) so the alpine.js swap is not double-wrapped. Askama
+/// auto-escapes the key/title (replacing the manual `html_escape`).
 fn render_search_fragment(matches: &[&foundry_store::IssueRow], key_prefix: &str) -> String {
-    if matches.is_empty() {
-        return r#"<ul class="search-results" data-empty="true"></ul>"#.to_string();
+    crate::views::SearchResults {
+        items: matches
+            .iter()
+            .map(|i| crate::views::SearchResultRow {
+                key: format!("{key_prefix}-{n}", n = i.number),
+                title: i.title.clone(),
+            })
+            .collect(),
     }
-    let items: String = matches
-        .iter()
-        .map(|i| {
-            format!(
-                r#"<li class="search-result" data-issue-key="{prefix}-{n}"><span class="key">{prefix}-{n}</span> <span class="title">{title}</span></li>"#,
-                prefix = html_escape(key_prefix),
-                n = i.number,
-                title = html_escape(&i.title),
-            )
-        })
-        .collect();
-    format!(r#"<ul class="search-results">{items}</ul>"#)
+    .render()
+    .expect("search_results partial renders from a fully-resolved, infallible view-model")
 }
 
 // =========================================================================
@@ -250,23 +254,24 @@ fn render_search_fragment(matches: &[&foundry_store::IssueRow], key_prefix: &str
 // =========================================================================
 
 pub async fn show_keyboard_help() -> Response {
-    let entries: String = SHORTCUTS
-        .iter()
-        .map(|(key, label)| {
-            format!(
-                r#"<dt data-shortcut="{key}">{key_text}</dt><dd>{label}</dd>"#,
-                key = html_escape(key),
-                key_text = html_escape(key),
-                label = html_escape(label),
-            )
-        })
-        .collect();
-    let body = format!(
-        r#"<section class="keyboard-help" role="dialog" aria-label="Keyboard shortcuts">
-  <header><h2>Keyboard shortcuts</h2></header>
-  <dl>{entries}</dl>
-</section>"#,
-    );
+    // Render the BARE htmx help overlay (US-K02 / US-12) from the
+    // `partials/keyboard_help.html` Askama partial via the `KeyboardHelp`
+    // view-model. Selector-and-substring-identical to the previous `format!`:
+    // `section.keyboard-help[role="dialog"][aria-label="Keyboard shortcuts"]`
+    // with the `header>h2` heading and one `dt[data-shortcut]`+`dd` pair per
+    // shortcut. Stays BARE (no `base.html`). Askama auto-escapes key/label
+    // (replacing the manual `html_escape`).
+    let body = crate::views::KeyboardHelp {
+        entries: SHORTCUTS
+            .iter()
+            .map(|(key, label)| crate::views::ShortcutEntry {
+                key: (*key).to_string(),
+                label: (*label).to_string(),
+            })
+            .collect(),
+    }
+    .render()
+    .expect("keyboard_help partial renders from a fully-resolved, infallible view-model");
     Html(body).into_response()
 }
 

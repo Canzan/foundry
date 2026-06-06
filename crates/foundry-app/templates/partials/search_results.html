@@ -1,0 +1,5 @@
+{%- if items.is_empty() -%}
+<ul class="search-results" data-empty="true"></ul>
+{%- else -%}
+<ul class="search-results">{% for item in items %}<li class="search-result" data-issue-key="{{ item.key }}"><span class="key">{{ item.key }}</span> <span class="title">{{ item.title }}</span></li>{% endfor %}</ul>
+{%- endif -%}
