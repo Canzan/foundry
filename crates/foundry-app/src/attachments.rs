@@ -26,9 +26,11 @@
 //! contract is "round-trip preserves what the user uploaded", not
 //! "we re-derive a canonical type".
 
-use crate::bootstrap::{html_escape, invalid_page, SessionUser};
+use crate::bootstrap::{invalid_page, SessionUser};
 use crate::session::SESSION_KEY_USER_ID;
+use crate::views::{AttachmentRow, ErrorFragment, InvalidPage, PayloadTooLarge};
 use crate::AppState;
+use askama::Template;
 use axum::extract::{DefaultBodyLimit, Multipart, Path, State};
 use axum::http::header::{
     HeaderMap, HeaderValue, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_TYPE, LOCATION,
@@ -347,17 +349,27 @@ fn issue_not_found_page(team_slug: &str, project_slug: &str, n: i32) -> Response
 }
 
 fn not_found_page(message: &str) -> Response {
-    invalid_page(StatusCode::NOT_FOUND, "Not found", message)
+    // US-R05: the attachment not-found path now renders through the SHARED
+    // `invalid_page.html` (the same template US-R06 rewires its ~17 callers to).
+    // Selector-and-substring-identical to `bootstrap::invalid_page`: the
+    // `<h1>{heading}</h1><p>{message}</p>` shape, both fields auto-escaped. The
+    // 404 status is UNCHANGED.
+    let body = InvalidPage {
+        heading: "Not found".to_string(),
+        message: message.to_string(),
+    }
+    .render()
+    .expect("invalid_page.html renders");
+    (StatusCode::NOT_FOUND, Html(body)).into_response()
 }
 
 fn payload_too_large(limit_mb: u64) -> Response {
-    let body = format!(
-        "<!doctype html><html><body>\
-         <h1>Upload too large</h1>\
-         <p>The attached file exceeds the configured limit of {limit_mb} megabytes. \
-         Reduce the file size and try again.</p>\
-         </body></html>",
-    );
+    // US-R05: the too-large body now renders through the shared base layout
+    // (links the vendored /static stylesheet). The 413 status is the byte-stable
+    // control-flow contract and is UNCHANGED — body only.
+    let body = PayloadTooLarge { limit_mb }
+        .render()
+        .expect("payload_too_large.html renders");
     (StatusCode::PAYLOAD_TOO_LARGE, Html(body)).into_response()
 }
 
@@ -367,10 +379,16 @@ fn internal_error<E: std::fmt::Display>(label: &str, err: E) -> Response {
 }
 
 fn bad_request_fragment(message: &str) -> Response {
-    let body = format!(
-        r#"<div class="error" data-hx-fragment="attachment-upload-error">{}</div>"#,
-        html_escape(message)
-    );
+    // US-R05: reuse the SHARED bare error fragment (the same template US-R01 /
+    // US-R03 render). The `attachment-upload-error` marker is byte-stable; the
+    // message is auto-escaped (matching the previous `html_escape`). A BARE
+    // fragment — it MUST NOT extend base.html (NFR-WEBB-COMPAT-02).
+    let body = ErrorFragment {
+        fragment_marker: "attachment-upload-error".to_string(),
+        message: message.to_string(),
+    }
+    .render()
+    .expect("error_fragment.html renders");
     (StatusCode::BAD_REQUEST, Html(body)).into_response()
 }
 
@@ -383,12 +401,17 @@ fn is_htmx(headers: &HeaderMap) -> bool {
 }
 
 fn render_attachment_row_oob(filename: &str, size_bytes: i64) -> String {
-    let card = format!(
-        r#"<li class="attachment" data-filename="{filename}"><span class="filename">{filename}</span> <span class="size">{label}</span></li>"#,
-        filename = html_escape(filename),
-        label = html_escape(&humanize_size(size_bytes)),
-    );
-    format!(r#"<div hx-swap-oob="beforeend:[data-attachment-list]">{card}</div>"#)
+    // US-R05: the live-append row now renders the ONE shared
+    // `partials/attachment_row.html` wrapped by the OOB envelope (one-partial
+    // rule). Selector-and-substring-identical to the previous `format!`:
+    // `hx-swap-oob="beforeend:[data-attachment-list]"`, `<li class="attachment"
+    // data-filename>`, the `.filename` + `.size` spans. Fields auto-escaped.
+    AttachmentRow {
+        filename: filename.to_string(),
+        size_label: humanize_size(size_bytes),
+    }
+    .render()
+    .expect("attachment_row_oob.html renders")
 }
 
 /// Format `size_bytes` for the issue page. Uses MB once the value would

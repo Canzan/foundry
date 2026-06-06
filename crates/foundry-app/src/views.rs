@@ -287,6 +287,41 @@ pub struct AttachmentItem {
     pub size: String,
 }
 
+/// htmx OOB live-append wrapper for a newly-uploaded attachment (US-R05 / US-11).
+/// A BARE htmx fragment — it MUST NOT extend `base.html` (htmx swaps it into the
+/// live issue-page DOM; extending base double-wraps the swap, NFR-WEBB-COMPAT-02).
+/// Renders the ONE `partials/attachment_row.html` partial wrapped in the
+/// `hx-swap-oob="beforeend:[data-attachment-list]"` envelope the POST-upload
+/// handler returns (the one-partial rule, NFR-WEBB-MAINT-02 — mirrors Feature B's
+/// `CommentCardOob`). The render contract is selector-and-substring-identical to
+/// the previous `attachments.rs::render_attachment_row_oob` `format!`:
+/// `hx-swap-oob="beforeend:[data-attachment-list]"`, `<li class="attachment"
+/// data-filename="…">`, the `.filename` + `.size` spans. Both fields are
+/// auto-escaped (matching the previous `html_escape`).
+#[derive(Debug, Clone, Template)]
+#[template(path = "partials/oob/attachment_row_oob.html")]
+pub struct AttachmentRow {
+    /// The uploaded filename — the `data-filename` marker + visible `.filename`.
+    pub filename: String,
+    /// The humanized size string (e.g. `9 MB`), shown in the `.size` span.
+    pub size_label: String,
+}
+
+/// The over-limit (413) too-large FULL PAGE (US-R05). Extends `base.html`, which
+/// links the vendored content-hashed `/static` stylesheet (ADR-B03) — replacing
+/// the previous bare-`<head>` `format!` markup (`attachments.rs::payload_too_large`).
+/// The render contract is selector-and-substring-identical to the prior page: the
+/// literal "Upload too large" `<h1>` copy and the "exceeds the configured limit of
+/// {limit_mb} megabytes. Reduce the file size and try again." `<p>` are preserved
+/// byte-identically. The handler keeps its `413 PAYLOAD_TOO_LARGE` status
+/// (UNCHANGED, DB7) — only the rendered body is templated.
+#[derive(Debug, Clone, Template)]
+#[template(path = "payload_too_large.html")]
+pub struct PayloadTooLarge {
+    /// The configured megabyte cap, rendered into the limit copy.
+    pub limit_mb: u64,
+}
+
 /// The issue-detail page. Extends `base.html`; shows the attachments
 /// section, the comment thread (one `comment_card.html` per comment), and
 /// the add-comment + upload forms. Render contract is selector-and-

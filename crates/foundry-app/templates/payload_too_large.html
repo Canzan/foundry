@@ -1,0 +1,6 @@
+{% extends "base.html" %}
+{% block title %}Upload too large{% endblock %}
+{% block content %}
+<h1>Upload too large</h1>
+<p>The attached file exceeds the configured limit of {{ limit_mb }} megabytes. Reduce the file size and try again.</p>
+{% endblock %}
