@@ -11,13 +11,11 @@
 //! new "renders styled" scenarios. This module therefore adds only:
 //!
 //!   - TWO regression-net-tightening Then steps that pin the render-contract
-//!     markers us-12 leaves thin:
-//!       * search: the `ul.search-results` wrapper, the `.key` span, and the
-//!         empty `ul.search-results[data-empty="true"]` state (us-12 only pins
-//!         `li.search-result[data-issue-key]` + `.title`).
-//!       * help: the `section.keyboard-help[role="dialog"][aria-label]`
-//!         container and the `header>h2` heading (us-12 only pins the
-//!         `dt[data-shortcut]`+`dd` pairs).
+//!     markers us-12 leaves thin. Search: the `ul.search-results` wrapper, the
+//!     `.key` span, and the empty `ul.search-results[data-empty="true"]` state
+//!     (us-12 only pins `li.search-result[data-issue-key]` + `.title`). Help:
+//!     the `section.keyboard-help[role="dialog"][aria-label]` container and the
+//!     `header>h2` heading (us-12 only pins the `dt[data-shortcut]`+`dd` pairs).
 //!     These PASS today and STAY green after the move — they tighten the net,
 //!     they are NOT RED.
 //!
