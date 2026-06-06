@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}New project - {{ team_name }}{% endblock %}
+{% block content %}
+<h1>New project in {{ team_name }}</h1>
+{% match error %}{% when Some with (message) %}<p class="error">{{ message }}</p>{% when None %}{% endmatch %}
+<form method="post" action="{{ action }}">
+  <input type="hidden" name="_csrf" value="{{ csrf }}">
+  <label>Project name <input type="text" name="name" required value="{{ raw_name }}"></label>
+  <label>Key prefix <input type="text" name="key_prefix" required value="{{ raw_key }}"></label>
+  <button type="submit">Create project</button>
+</form>
+{% endblock %}

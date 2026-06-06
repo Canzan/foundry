@@ -23,8 +23,8 @@
 //! keys are rejected with 422 Unprocessable Entity (the request is
 //! syntactically well-formed but fails business validation).
 
-use crate::bootstrap::{html_escape, invalid_page, SessionUser};
-use crate::csrf::{build_csrf_cookie, generate_token, CSRF_FORM_FIELD};
+use crate::bootstrap::{invalid_page, SessionUser};
+use crate::csrf::{build_csrf_cookie, generate_token};
 use crate::session::SESSION_KEY_USER_ID;
 use crate::AppState;
 use askama::Template;
@@ -463,6 +463,16 @@ fn duplicate_key_response(
     response_with_optional_cookie(StatusCode::CONFLICT, Html(body).into_response(), set_cookie)
 }
 
+/// Build the typed project-create view-model and render it via Askama.
+///
+/// The render contract is selector-and-substring-identical to the previous
+/// `format!` markup (design/render-contract.md §US-R01): `method="post"`,
+/// `action="/team/{slug}/projects"`, the hidden `_csrf` field, the `name` +
+/// `key_prefix` required inputs with their repopulated values, and the optional
+/// `.error` paragraph. The page now extends `base.html` (`project_create.html`),
+/// which links the vendored content-hashed `/static` stylesheet + htmx/Alpine
+/// the bare `<head>` `format!` lacked. Askama auto-escapes `{{ … }}` exactly as
+/// the previous `html_escape` calls did.
 fn render_create_form(
     team_slug: &str,
     team_name: &str,
@@ -471,36 +481,32 @@ fn render_create_form(
     raw_name: &str,
     raw_key: &str,
 ) -> String {
-    let action = format!("/team/{team_slug}/projects");
-    let err_html = error
-        .map(|m| format!("<p class=\"error\">{}</p>", html_escape(m)))
-        .unwrap_or_default();
-    format!(
-        r#"<!doctype html>
-<html><head><title>New project - {team}</title></head>
-<body>
-<h1>New project in {team}</h1>
-{err_html}
-<form method="post" action="{action}">
-  <input type="hidden" name="{CSRF_FORM_FIELD}" value="{csrf}">
-  <label>Project name <input type="text" name="name" required value="{name}"></label>
-  <label>Key prefix <input type="text" name="key_prefix" required value="{key}"></label>
-  <button type="submit">Create project</button>
-</form>
-</body></html>"#,
-        team = html_escape(team_name),
-        action = html_escape(&action),
-        csrf = html_escape(csrf_token),
-        name = html_escape(raw_name),
-        key = html_escape(raw_key),
-    )
+    crate::views::ProjectCreatePage {
+        team_name: team_name.to_string(),
+        action: format!("/team/{team_slug}/projects"),
+        csrf: csrf_token.to_string(),
+        error: error.map(str::to_string),
+        raw_name: raw_name.to_string(),
+        raw_key: raw_key.to_string(),
+    }
+    .render()
+    .expect("project_create.html renders from a fully-resolved, infallible view-model")
 }
 
+/// Build the SHARED bare error fragment for the project-create surface.
+///
+/// Reproduces the byte-stable `<div class="error"
+/// data-hx-fragment="project-create-error">{message}</div>` marker
+/// (design/render-contract.md §US-R01) from the shared `error_fragment.html`
+/// template, parameterized by the `fragment_marker`. Bare fragment — does NOT
+/// extend `base.html` (extending it double-wraps the htmx swap).
 fn render_error_fragment(message: &str) -> String {
-    format!(
-        r#"<div class="error" data-hx-fragment="project-create-error">{}</div>"#,
-        html_escape(message)
-    )
+    crate::views::ErrorFragment {
+        fragment_marker: "project-create-error".to_string(),
+        message: message.to_string(),
+    }
+    .render()
+    .expect("error_fragment.html renders from a fully-resolved, infallible view-model")
 }
 
 /// Build the typed board view-model and render it via Askama.

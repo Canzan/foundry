@@ -15,6 +15,48 @@
 
 use askama::Template;
 
+/// The project-create full page (US-R01). Extends `base.html`, which links the
+/// vendored `/static` stylesheet + htmx/Alpine scripts (US-B01/B02) — replacing
+/// the previous bare-`<head>` `format!` markup (`projects.rs::render_create_form`).
+/// The render contract is selector-and-substring-identical to the prior form:
+/// `method="post"`, `action="/team/{slug}/projects"`, the hidden `_csrf` field,
+/// the `name` + `key_prefix` required text inputs with their repopulated values,
+/// and the optional `.error` paragraph. CSRF/sessions are csrf.rs invariants —
+/// the template emits ONLY the hidden field (auto-escaped, matching the previous
+/// `html_escape`).
+#[derive(Debug, Clone, Template)]
+#[template(path = "project_create.html")]
+pub struct ProjectCreatePage {
+    pub team_name: String,
+    /// `/team/{slug}/projects` — the form POST action.
+    pub action: String,
+    /// The double-submit CSRF token, rendered into the hidden `_csrf` field.
+    pub csrf: String,
+    /// Conflict/validation copy shown in the `.error` slot; `None` on initial GET.
+    pub error: Option<String>,
+    /// Repopulated project-name input value (empty on initial GET).
+    pub raw_name: String,
+    /// Repopulated key-prefix input value (empty on initial GET).
+    pub raw_key: String,
+}
+
+/// A SHARED bare error fragment (US-R01 / US-R03 / US-R05). Emits
+/// `<div class="error" data-hx-fragment="{marker}">{message}</div>` — a BARE
+/// fragment that MUST NOT extend `base.html` (extending it double-wraps the
+/// htmx swap, NFR-WEBB-COMPAT-02 fragment-vs-full-page rule). The
+/// `fragment_marker` is the byte-stable `data-hx-fragment` scraper marker
+/// (`project-create-error`, `issue-create-error`, `attachment-upload-error`);
+/// `message` is auto-escaped (matching the previous `html_escape`). Parameterized
+/// so later steps reuse this ONE template instead of three per-surface copies.
+#[derive(Debug, Clone, Template)]
+#[template(path = "error_fragment.html")]
+pub struct ErrorFragment {
+    /// The byte-stable `data-hx-fragment` marker for this surface.
+    pub fragment_marker: String,
+    /// The user-facing error copy (auto-escaped).
+    pub message: String,
+}
+
 /// A single issue card. One definition, included by every board column that
 /// has cards (the one-partial rule, NFR-WEBB-MAINT-02).
 #[derive(Debug, Clone)]
