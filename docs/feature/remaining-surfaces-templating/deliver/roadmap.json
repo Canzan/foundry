@@ -1,0 +1,217 @@
+{
+  "roadmap": {
+    "project_id": "remaining-surfaces-templating",
+    "created_at": "2026-06-06T03:30:20Z",
+    "total_steps": 7
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "Project-create form + error fragment (walking skeleton)",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "Move project-create form + error fragment into templates",
+          "criteria": [
+            "GET /team/{team}/projects/new renders project_create.html extending base.html, linking the vendored /static stylesheet (no external origin), with input[name=name], input[name=key_prefix] and the hidden _csrf field selector-identical",
+            "POST /team/{team}/projects on an invalid submit returns the error fragment from a template carrying data-hx-fragment=\"project-create-error\" byte-stable, as a BARE fragment not wrapped in base.html",
+            "the existing us-07-project-create suite stays green (regression net); no inline format!() page remains at projects.rs::render_create_form"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-r01-project-create.feature",
+          "scenario_name": "A member opens a styled, templated project-create form",
+          "implementation_scope": {
+            "files": [
+              "crates/foundry-app/templates/project_create.html",
+              "crates/foundry-app/templates/error_fragment.html",
+              "crates/foundry-app/src/views.rs",
+              "crates/foundry-app/src/projects.rs"
+            ]
+          },
+          "implementation_notes": "WALKING SKELETON for the whole feature — establishes the move pattern every later slice repeats (full page extends base.html + links /static; bare error fragment keeps its marker). NO new architecture: Askama, base.html, views.rs and /static all exist (Feature B). Move projects.rs::render_create_form (:466) into project_create.html driven by views::ProjectCreatePage { team_name, action, csrf, error, raw_name, raw_key }; full page {% extends \"base.html\" %} which supplies the /static <link> the current bare-<head> format!() lacks. Move render_error_fragment (:499) into the SHARED error_fragment.html (`<div class=\"error\" data-hx-fragment=\"{{ fragment_marker }}\">{{ message }}</div>`) driven by views::ErrorFragment { fragment_marker=\"project-create-error\", message } — this shared template is CREATED HERE and reused by US-R03 and US-R05. Keep method=post, action=\"/team/{slug}/projects\", and all field selectors byte-stable. ACCEPTANCE = the two us-r01 cucumber scenarios (the @walking_skeleton one is RED today for MISSING_FUNCTIONALITY: bare <head>, no <link>; the @error one is GREEN today and the move must keep it). Regression net = us-07-project-create suite MUST stay green. Use std #[test] for any ProjectCreatePage view-model logic. Browser auth/CSRF/sessions UNCHANGED — markup only, selector-and-substring-identical, ONE binary, NO JS toolchain.",
+          "estimate_hours": 4,
+          "depends_on": []
+        }
+      ]
+    },
+    {
+      "id": "02",
+      "name": "New-issue modal (fragment + full-page fallback)",
+      "steps": [
+        {
+          "id": "02-01",
+          "name": "Move new-issue modal into ONE shared partial + full-page fallback",
+          "criteria": [
+            "GET /team/{team}/project/{project}/issues/new WITHOUT hx-request returns the no-JS full page new_issue_modal_page.html extending base.html, linking the vendored /static stylesheet (no external origin)",
+            "the full page carries data-modal=\"new-issue\", role=\"dialog\", aria-modal, the hidden _csrf field, the identical action, and input[name=title][autofocus] — sharing ONE partial with the htmx fragment (one-partial rule)",
+            "the htmx modal fragment path (us-12-keyboard-nav regression net) stays green and bare"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-r02-new-issue-modal.feature",
+          "scenario_name": "The no-script new-issue page is a styled full page sharing the modal form",
+          "implementation_scope": {
+            "files": [
+              "crates/foundry-app/templates/partials/new_issue_modal.html",
+              "crates/foundry-app/templates/new_issue_modal_page.html",
+              "crates/foundry-app/src/views.rs",
+              "crates/foundry-app/src/keyboard.rs"
+            ]
+          },
+          "implementation_notes": "Move keyboard.rs::render_modal_fragment (:108) into the ONE partial partials/new_issue_modal.html driven by views::NewIssueModal { action, csrf, project_name } (bare fragment — MUST NOT extend base.html, double-wrap hazard). Move render_modal_full_page (:124) into new_issue_modal_page.html which {% extends \"base.html\" %} AND {% include %}s the same partial, driven by views::NewIssueModalPage { action, csrf, project_name, team_slug }. The full page is RED today (keyboard.rs:124 bare <head>, no <link>); extending base.html supplies the /static link. One-partial rule (NFR-WEBB-MAINT-02): both the htmx fragment and the no-JS page render the modal from ONE definition. ACCEPTANCE = the single us-r02 @real-io scenario. Regression net = us-12-keyboard-nav (the fragment path, asserts input[name=title][autofocus]) MUST stay green and is NOT re-asserted. Keep dialog/aria/csrf/autofocus selectors byte-stable. std #[test] for NewIssueModal(+Page) view-model logic. Markup only; auth/CSRF/sessions UNCHANGED; ONE binary; NO JS toolchain.",
+          "estimate_hours": 4,
+          "depends_on": ["01-01"]
+        }
+      ]
+    },
+    {
+      "id": "03",
+      "name": "Issue-create error fragment + state-change chip",
+      "steps": [
+        {
+          "id": "03-01",
+          "name": "Move issue-create error + state chip into templates (reuse shared error fragment)",
+          "criteria": [
+            "POST /team/{team}/project/{project}/issues with an empty title returns the error fragment from a template carrying data-hx-fragment=\"issue-create-error\" and the literal copy \"Title is required\", as a BARE fragment not wrapped in base.html",
+            "POST .../issues/{n}/state returns the state chip from a template as <span class=\"state\" data-state=\"in_progress\"> (underscore-normalized value byte-stable), as a BARE fragment",
+            "the existing us-08-file-issue suite stays green (regression net)"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-r03-issue-fragments.feature",
+          "scenario_name": "A missing-title submission returns the byte-stable issue-create error fragment",
+          "implementation_scope": {
+            "files": [
+              "crates/foundry-app/templates/partials/state_chip.html",
+              "crates/foundry-app/src/views.rs",
+              "crates/foundry-app/src/issues.rs"
+            ]
+          },
+          "implementation_notes": "Both surfaces are GREEN today (markers/copy already correct); the move must PRESERVE them byte-stable — RED appears ONLY if the move drops/renames a marker. Move issues.rs::bad_request_fragment (:253) to REUSE the shared error_fragment.html created in 01-01, driven by views::ErrorFragment { fragment_marker=\"issue-create-error\", message } (no new template — reuse). Move the state-change <span> (issues.rs:147) into partials/state_chip.html driven by views::StateChip { normalized } — bare fragment, keep `<span class=\"state\" data-state=\"{normalized}\">` with the underscore form (e.g. in_progress). ACCEPTANCE = the two us-r03 scenarios (error fragment + state chip), both @real-io. Regression net = us-08-file-issue MUST stay green. std #[test] for StateChip normalization mapping. Both stay BARE fragments (MUST NOT extend base.html). Markup only; ONE binary; NO JS toolchain.",
+          "estimate_hours": 3,
+          "depends_on": ["01-01"]
+        }
+      ]
+    },
+    {
+      "id": "04",
+      "name": "Dashboard landing + events 401 page + shared invalid_page",
+      "steps": [
+        {
+          "id": "04-01",
+          "name": "Move dashboard landing + events sign-in page into templates; create shared invalid_page",
+          "criteria": [
+            "GET / for a signed-in member renders dashboard_root.html extending base.html, linking the vendored /static stylesheet (no external origin); a signed-out GET / still 303-redirects to /sign-in with no body change (handler control flow UNCHANGED)",
+            "GET .../events without a session renders events_signin_required.html extending base.html, linking /static, offering a /sign-in link, with the 401 status preserved",
+            "the shared invalid_page.html template is created (extends base.html, <h1>{heading}</h1><p>{message}</p>) for reuse by US-R05 not-found and US-R06; existing us-06-signin / us-09-realtime-sse suites stay green"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-r04-landing-events.feature",
+          "scenario_name": "A signed-in member lands on a styled dashboard landing",
+          "implementation_scope": {
+            "files": [
+              "crates/foundry-app/templates/dashboard_root.html",
+              "crates/foundry-app/templates/events_signin_required.html",
+              "crates/foundry-app/templates/invalid_page.html",
+              "crates/foundry-app/src/views.rs",
+              "crates/foundry-app/src/signin.rs",
+              "crates/foundry-app/src/events.rs"
+            ]
+          },
+          "implementation_notes": "Move signin.rs::dashboard_root signed-in body (:243) into dashboard_root.html (extends base.html) driven by views::DashboardRoot {}; the signed-out branch keeps its 303 SEE_OTHER -> /sign-in with empty body (control flow UNCHANGED — the us-r04 redirect scenario is a GREEN regression guard). Move events.rs::unauthorized_response (:138) into events_signin_required.html (extends base.html) driven by views::EventsSigninRequired {}, preserving the 401 status, the sign-in-required copy and the /sign-in link. Also CREATE the high-leverage shared invalid_page.html here (extends base.html, views::InvalidPage { heading, message }) so it is available for US-R05 not-found and the US-R06 shared-helper move; this single template restyles every not-found/error path (~17 call sites across 7 modules) when the bootstrap.rs::invalid_page helper is rewired in 06-01. ACCEPTANCE = the three us-r04 scenarios (styled landing RED today; signed-out redirect GREEN regression; styled events page — body-styling RED, 401+link GREEN). Regression net = us-06-signin / us-09-realtime-sse MUST stay green. std #[test] for view-model logic. Markup only; auth/sessions/401/303 UNCHANGED; ONE binary; NO JS toolchain.",
+          "estimate_hours": 5,
+          "depends_on": ["01-01"]
+        }
+      ]
+    },
+    {
+      "id": "05",
+      "name": "Attachment surfaces (OOB row, upload error, 413, not-found)",
+      "steps": [
+        {
+          "id": "05-01",
+          "name": "Move attachment row, upload-error, 413 page, and not-found into templates",
+          "criteria": [
+            "POST .../issues/{n}/attachments with no file part returns the upload-error fragment from a template carrying data-hx-fragment=\"attachment-upload-error\" byte-stable, as a BARE fragment not wrapped in base.html",
+            "an over-limit upload renders payload_too_large.html extending base.html, linking the vendored /static stylesheet, keeping the literal copy \"Upload too large\" and the over-limit (413) status preserved",
+            "the OOB attachment row renders from ONE partial keeping hx-swap-oob=\"beforeend:[data-attachment-list]\" and <li class=\"attachment\" data-filename>; the not-found path renders via the shared invalid_page.html; existing us-11-attachments suite stays green"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-r05-attachments.feature",
+          "scenario_name": "An over-limit upload returns a styled too-large page with the unchanged status",
+          "implementation_scope": {
+            "files": [
+              "crates/foundry-app/templates/partials/attachment_row.html",
+              "crates/foundry-app/templates/partials/oob/attachment_row_oob.html",
+              "crates/foundry-app/templates/payload_too_large.html",
+              "crates/foundry-app/src/views.rs",
+              "crates/foundry-app/src/attachments.rs"
+            ]
+          },
+          "implementation_notes": "Move attachments.rs::render_attachment_row_oob (:385) into the ONE partial partials/attachment_row.html plus the OOB wrapper partials/oob/attachment_row_oob.html (which {% include %}s the partial), driven by views::AttachmentRow { filename, size_label } — bare fragment, keep hx-swap-oob=\"beforeend:[data-attachment-list]\" and <li class=\"attachment\" data-filename> (regression-net-only via us_11). Move attachments.rs::bad_request_fragment (:369) to REUSE the shared error_fragment.html (from 01-01), views::ErrorFragment { fragment_marker=\"attachment-upload-error\", message } — the UploadError::Missing -> \"Upload is missing a file part\" path. Move attachments.rs::payload_too_large (:353) into payload_too_large.html (extends base.html) driven by views::PayloadTooLarge { limit_mb } — the UploadError::TooLarge path; RED today (bare <head>); preserve the 413 status + \"Upload too large\" copy. Rewire attachments.rs::not_found_page (:349) through the shared invalid_page.html (views::InvalidPage, created in 04-01) — REUSE, no new template. ACCEPTANCE = the two us-r05 @error scenarios (upload-error marker GREEN; styled 413 page RED for styling). Regression net = us-11-attachments (listing + 413 status) MUST stay green. std #[test] for AttachmentRow size_label / PayloadTooLarge limit_mb view-model logic. Bare fragments MUST NOT extend base.html; ONE binary; NO JS toolchain; markup only.",
+          "estimate_hours": 5,
+          "depends_on": ["01-01", "04-01"]
+        }
+      ]
+    },
+    {
+      "id": "06",
+      "name": "Bootstrap pages + shared invalid_page rewire + completion guard",
+      "steps": [
+        {
+          "id": "06-01",
+          "name": "Move bootstrap dashboard/claim/invite + rewire shared invalid_page",
+          "criteria": [
+            "GET /dashboard renders bootstrap_dashboard.html extending base.html, linking the vendored /static stylesheet, keeping the literal copy \"Workspace dashboard\"",
+            "the claim form (bootstrap_claim.html) and invite-link page (bootstrap_invite.html) extend base.html, preserving the /bootstrap?token=… action with NO _csrf field (CSRF-exempt) and the signed invite URL byte-stable",
+            "the bootstrap.rs::invalid_page helper (~17 callers across 7 modules) is rewired to the shared invalid_page.html (<h1>heading</h1><p>message</p> extending base.html), restyling every not-found/error path; existing us-05-bootstrap suite stays green"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-r06-bootstrap.feature",
+          "scenario_name": "The bootstrap dashboard is a styled page with its heading preserved",
+          "implementation_scope": {
+            "files": [
+              "crates/foundry-app/templates/bootstrap_dashboard.html",
+              "crates/foundry-app/templates/bootstrap_claim.html",
+              "crates/foundry-app/templates/bootstrap_invite.html",
+              "crates/foundry-app/src/views.rs",
+              "crates/foundry-app/src/bootstrap.rs"
+            ]
+          },
+          "implementation_notes": "Finishes the cut. Move bootstrap.rs::dashboard (:205) into bootstrap_dashboard.html (extends base.html) driven by views::BootstrapDashboard { signed_in }; RED today (bare <head>), preserve \"Workspace dashboard\" copy. Move bootstrap.rs::render_claim_form (:338) into bootstrap_claim.html (extends base.html) driven by views::BootstrapClaim { token } — keep action /bootstrap?token={token} and reproduce the NO _csrf field (the /bootstrap CSRF exemption is UNCHANGED). Move bootstrap.rs::create_invite invite-link body (:286) into bootstrap_invite.html (extends base.html) driven by views::BootstrapInvite { invite_url } — keep the signed invite URL byte-stable. HIGH-LEVERAGE: rewire bootstrap.rs::invalid_page (:356, imported by attachments/projects/keyboard/issues/comments/bootstrap) to render the shared invalid_page.html (created in 04-01, reused by 05-01) driven by views::InvalidPage { heading, message } — ONE template restyles ~17 call sites at once; keep the <h1>{heading}</h1><p>{message}</p> shape. ACCEPTANCE = the two us-r06 scenarios (styled bootstrap dashboard RED; shared styled not-found page — styling RED, shape GREEN, one assert covers ~17 callers). Regression net = us-05-bootstrap (claim flow + signed invite URL) MUST stay green. std #[test] for the Bootstrap view-models. Markup only; CSRF exemption/sessions UNCHANGED; ONE binary; NO JS toolchain.",
+          "estimate_hours": 6,
+          "depends_on": ["01-01", "04-01"]
+        },
+        {
+          "id": "06-02",
+          "name": "Completion guard — zero inline full-page format!() sites remain",
+          "criteria": [
+            "the source-tree guard feature_remaining_surfaces::inline_full_page_sites() scans foundry-app/src/*.rs and reports ZERO bare-<head> inline full-page HTML documents (down from the 9 sites: events.rs:142, signin.rs:243, bootstrap.rs:213/285/341/358, keyboard.rs:132, projects.rs:479, attachments.rs:355)",
+            "no handler emits a bare-head inline HTML document (the north-star KPI: 0 inline format!() full pages)",
+            "the whole us-r0* suite and the entire existing acceptance suite are green"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-r07-completion-check.feature",
+          "scenario_name": "Every full-page web surface renders from a template, not an inline document",
+          "implementation_scope": {
+            "files": [
+              "crates/foundry-acceptance/tests/acceptance.rs"
+            ]
+          },
+          "implementation_notes": "VALIDATION/GUARD step (no markup move of its own) — it asserts the cut is complete. The source-tree guard (mirrors Feature B's vendored_htmx_files() on-disk check) scans foundry-app/src/*.rs for <!doctype / <head> string literals (the unambiguous tell of an inline FULL PAGE; bare fragments have no <head> so are excluded by construction). RED until every full-page surface (covered by 01-01, 02-01, 04-01, 05-01, 06-01) is moved into a template extending base.html — the 9 enumerated sites must drop to 0. It is deliberately the LAST guard to go green. ACCEPTANCE = the single us-r07 @source-tree @completion-check scenario (NO HTTP). DEPENDS ON ALL PRIOR move steps (it cannot pass until they all land). NO new architecture, no new deps. ONE binary; NO JS toolchain.",
+          "estimate_hours": 2,
+          "depends_on": ["01-01", "02-01", "03-01", "04-01", "05-01", "06-01"]
+        }
+      ]
+    }
+  ],
+  "implementation_scope": {
+    "source_directories": [
+      "crates/foundry-app/src/",
+      "crates/foundry-app/templates/"
+    ],
+    "test_directories": [
+      "crates/foundry-acceptance/tests/"
+    ],
+    "excluded_patterns": [
+      "target/**",
+      "**/*.lock"
+    ]
+  },
+  "validation": {
+    "status": "pending",
+    "reviewer": "TODO",
+    "approved_at": "TODO"
+  }
+}
