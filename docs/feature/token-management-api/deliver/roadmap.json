@@ -1,0 +1,196 @@
+{
+  "roadmap": {
+    "project_id": "token-management-api",
+    "feature_id": "token-management-api",
+    "created_at": "2026-06-07T00:00:00Z",
+    "total_steps": 7
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "Slice 1 — Walking skeleton: prove the authz model on the safest op (GET list)",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "Merge GET .../tokens route + TokenJson serde shape (list end-to-end, value-free)",
+          "criteria": [
+            "GET /api/v1/teams/{team_slug}/projects/{project_slug}/tokens is merged into foundry-api's routes<S>() router behind the SHIPPED MachinePrincipal bearer extractor and calls Services::list_tokens(&principal) over the existing State<Services> seam (foundry-api never names foundry_store::Store)",
+            "a management-capable (admin-bound) bearer receives 200 with a JSON array, newest-first, of TokenJson objects each carrying jti, label, scope_team_id, scope_team_name, expires_at, revoked, last_used_at, minted_by — the verbatim TokenView snake_case fields",
+            "an empty registry returns 200 with [] (an empty array, never a 404 or error)",
+            "no listed object carries any token / secret / hash / value key — TokenJson has no such field by construction and the response keys are asserted value-free",
+            "the minted-admin bearer authenticates end-to-end against the real /api/v1 router via the in-process harness (real HTTP, real EdDSA bearer, real Postgres registry) — the walking-skeleton answers 'an audit pipeline can see what tokens exist without a browser or DB access'"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-tma-token-management-api.feature",
+          "scenario_name": "An audit pipeline lists the workspace's tokens as data | An empty registry answers with an empty list, not an error | The list never exposes a token value",
+          "estimate_hours": 5,
+          "deps": [],
+          "implementation_scope": {
+            "files": [
+              "crates/foundry-api/src/lib.rs"
+            ]
+          },
+          "implementation_notes": "WALKING SKELETON (@walking_skeleton). Greens scenarios #1 (WS list), #2 (empty []), #5 (no value). Driving port: real HTTP GET over the in-process router. Reuse-only below the handler: list_tokens/revoke_token use-cases (foundry-services/src/tokens.rs), MachinePrincipal extractor + token_auth::authenticate, status_for/ErrorBody envelope, the State<Services> seam, the jti denylist are ALL SHIPPED — this step adds a THIN handler mirroring list_issues_handler + the CREATE-NEW TokenJson serde struct (api-contract.md §2). Field names = verbatim TokenView snake_case (zero-translation, one obvious mapping). Empty registry -> [] 200, never 404 (US-TMA01 AC). TEST PARADIGM: this is a LAYER-3 real-adapter acceptance scenario (real HTTP + real Postgres + real EdDSA), so example-based per Mandates 9+11 — NO @given/state-machine PBT machinery; sad paths are enumerated as separate scenarios. EXEMPT FROM PARADIGM: real-I/O acceptance verifies wiring/contract end-to-end, not quantified invariants; the contract is a fixed JSON shape + status, not a property over a domain-rich input space (DISTILL Tier-A-only decision). Compensate with a std #[test] / serde round-trip on TokenJson asserting the value-free key set. Earned-Trust: the GET handler depends on the SHIPPED extractor + use-case (already probed by their own mutation-hardened suites); the route merge adds no new external dependency to probe. Suite stays green — routes are purely additive (REL-03)."
+        },
+        {
+          "id": "01-02",
+          "name": "Bearer-auth refusals on the list route (non-management 403, no-credential 401, non-enumerable)",
+          "criteria": [
+            "a non-management bearer (bound user not workspace-admin) listing tokens is refused 403 forbidden via the SHIPPED ServiceError::Forbidden -> status_for, and no token data is returned in the body (the registry is not leaked)",
+            "a request with no bearer credential is refused 401 unauthorized by the MachinePrincipal extractor BEFORE any token logic runs, and no token data is returned",
+            "a credential the workspace never issued, a revoked credential, and a credential signed with a server-disallowed algorithm are each refused with the byte-identical 401 unauthorized (non-enumerable authn class), and no token data is returned",
+            "all refusals ride the SHIPPED status_for / ErrorBody envelope only — no HTML, SQL, stack trace, or credential material in any body; no adapter-side authz is added (the gate stays in the use-case's is_workspace_admin)"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-tma-token-management-api.feature",
+          "scenario_name": "A non-management caller is refused without leaking the registry | A request with no credential is refused before any token logic runs | An invalid or revoked credential is refused identically | A credential signed with a disallowed algorithm is refused",
+          "estimate_hours": 4,
+          "deps": ["01-01"],
+          "implementation_scope": {
+            "files": [
+              "crates/foundry-api/src/lib.rs"
+            ]
+          },
+          "implementation_notes": "Greens scenarios #3 (non-mgmt 403), #4 (no-credential 401), #15 (invalid/revoked 401), #16 (disallowed-alg 401). All four refusals are INHERITED from SHIPPED components once the GET route from 01-01 exists: the MachinePrincipal extractor fail-closes to an identical 401 (missing/forged/revoked/wrong-alg/alg:none), and ServiceError::Forbidden -> 403. The handler wiring from 01-01 must propagate the extractor refusal and the use-case Forbidden through status_for unchanged — this step's work is asserting the non-enumerable refusal identities hold over the route, not adding new authz. NO adapter-side authz (boundary guard forbids it; check_arch's api-no-adhoc-authz rule stays green). TEST PARADIGM: LAYER-3 real-adapter, example-based (Mandates 9+11); EXEMPT FROM PARADIGM — the contract is a fixed (status, code) per adversarial example, not a property; sad paths enumerated as distinct scenarios is the correct instrument for a security boundary (DISTILL: no PBT machinery at layer 3). Compensate: the extractor's own mutation-hardened unit suite already covers the 401 identity property. Earned-Trust: these scenarios ARE the empirical probe that the refusal boundary honors its contract over the real transport (asking 'what happens if the caller lies?' — forged/revoked/wrong-alg bearers)."
+        }
+      ]
+    },
+    {
+      "id": "02",
+      "name": "Slice 2 — Revoke + rotate: hands-free credential lifecycle (kill-switch via SHIPPED denylist)",
+      "steps": [
+        {
+          "id": "02-01",
+          "name": "Merge DELETE .../tokens/{jti} route -> revoke (204, idempotent, kill-switch on next call)",
+          "criteria": [
+            "DELETE /api/v1/teams/{team_slug}/projects/{project_slug}/tokens/{jti} is merged into routes<S>() behind the MachinePrincipal extractor and calls Services::revoke_token(&principal, jti); {jti} is extracted as uuid::Uuid (a malformed id fails axum extraction before the handler, leaking no existence)",
+            "a successful revoke returns 204 No Content with no body; a re-revoke of an already-revoked credential also returns 204 (idempotent, NFR-TMA-REL-01)",
+            "after a successful revoke, the credential's very next /api/v1 call is refused 401 unauthorized by the SHIPPED per-request jti denylist (no new refusal mechanism)",
+            "a non-management bearer attempting to revoke is refused 403 and the targeted credential remains active",
+            "the DELETE route is additive — the existing /api/v1 routes and the GET list route are unaffected (REL-03)"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-tma-token-management-api.feature",
+          "scenario_name": "A rotation job revokes a credential and it is dead on its next call | Revoking an already-revoked credential is a harmless success | A non-management caller cannot revoke",
+          "estimate_hours": 5,
+          "deps": ["01-01"],
+          "implementation_scope": {
+            "files": [
+              "crates/foundry-api/src/lib.rs"
+            ]
+          },
+          "implementation_notes": "Greens scenarios #6 (revoke -> 401-next), #7 (idempotent re-revoke), #9 (non-mgmt 403 cannot revoke). Driving port: real HTTP DELETE over the in-process router. The CREATE-NEW work is a thin DELETE handler returning 204 (api-contract.md §3): revoke_token returns () so there is no representation to return; 204 keeps the contract minimal and the read-after-write (Slice 3) honest. Idempotency, non-enumerable NotFound, and is_workspace_admin authz are INHERITED from the SHIPPED revoke_token use-case — no change to foundry-services. Kill-switch effectiveness REUSES the SHIPPED per-request jti denylist (resolve_active_token / us-w05b): the cross-check re-mints the revoked jti and presents it to a SHIPPED /api/v1 route, asserting 401. TEST PARADIGM: LAYER-3 real-adapter, example-based (Mandates 9+11); EXEMPT FROM PARADIGM — the revoke contract is a fixed (204 / 401-next-call) outcome, not a quantified invariant; the only state machine is the SHIPPED, already-hardened denylist (DISTILL Tier-B-skipped). Compensate: revoke_token's own mutation-hardened unit suite covers the idempotency + authz invariants. Earned-Trust: the kill-switch cross-check IS the empirical probe that revoke actually disables the credential on the real transport (not merely flips a DB flag)."
+        },
+        {
+          "id": "02-02",
+          "name": "Revoke-self (rotation) + cross-workspace non-enumerable 404 over the DELETE route",
+          "criteria": [
+            "a rotation job revoking its OWN management-capable credential gets 204 (auth already passed in-flight, so the request succeeds) and that credential's next /api/v1 call is then refused 401 by the denylist — the rotation flow",
+            "re-running rotation against an already-retired (revoked) credential is a harmless 204 (idempotent self-revoke)",
+            "revoking a credential that belongs to ANOTHER workspace is refused 404 not_found, and that refusal is byte-identical to revoking an id that exists nowhere (non-enumerable, NFR-TMA-SEC-03) — an attacker cannot distinguish cross-workspace from unknown",
+            "the cross-workspace target credential is left untouched (not revoked)"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-tma-token-management-api.feature",
+          "scenario_name": "A rotation job retires its own credential after promoting a new one | Re-running rotation against an already-retired credential is harmless | Revoking a credential from another workspace reveals nothing | Cross-workspace and unknown ids are indistinguishable",
+          "estimate_hours": 4,
+          "deps": ["02-01"],
+          "implementation_scope": {
+            "files": [
+              "crates/foundry-api/src/lib.rs"
+            ]
+          },
+          "implementation_notes": "Greens scenarios #10 (revoke-self -> 401-next), #11 (idempotent self), #8 (cross-workspace 404 reveals nothing), #14 (cross-workspace and unknown ids indistinguishable). All behaviour is INHERITED from the SHIPPED revoke_token use-case via the DELETE route from 02-01 — revoke-self is a subset of revoke (the caller's own jti is in its own workspace; auth already passed so the in-flight request succeeds, the denylist bites the NEXT call), and the non-enumerable NotFound for unknown OR cross-workspace jti is the use-case's existing guarantee. This step's work is asserting those identities hold over the real DELETE transport, not adding logic. TEST PARADIGM: LAYER-3 real-adapter, example-based (Mandates 9+11); EXEMPT FROM PARADIGM — non-enumerability is a byte-identical-refusal contract proven by adversarial example pairs (cross-workspace vs nowhere), the right instrument for a security boundary, not a domain-rich property space. Compensate: revoke_token's mutation suite covers the workspace-isolation invariant. Earned-Trust: scenarios #8/#14 ARE the empirical probe that the boundary does not leak existence under a hostile cross-workspace caller."
+        }
+      ]
+    },
+    {
+      "id": "03",
+      "name": "Slice 3 — Trust the contract: stable codes, read-after-write, and the no-mint boundary guard",
+      "steps": [
+        {
+          "id": "03-01",
+          "name": "Read-after-write list consistency + stable machine-readable refusal codes",
+          "criteria": [
+            "a LIST issued after a successful revoke shows the same row now with revoked: true, and every other field of that token is byte-identical to the prior read (modulo last_used_at advancing) — the 204 carries no representation, so the LIST is the single canonical read-after-write source (NFR-TMA-CON-02)",
+            "every token-route refusal carries a stable error.code and the conventional HTTP status (unauthorized/forbidden/not_found via the SHIPPED status_for envelope), branchable by an integrator without parsing prose",
+            "the error envelope is the SHIPPED ErrorBody { error: { code, message } } shape on every refusal — no new error shape is introduced for the token routes"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-tma-token-management-api.feature",
+          "scenario_name": "A listed token reflects its revocation on the next read | Every token-route refusal carries a stable machine-readable code",
+          "estimate_hours": 3,
+          "deps": ["01-01", "02-01"],
+          "implementation_scope": {
+            "files": [
+              "crates/foundry-api/src/lib.rs"
+            ]
+          },
+          "implementation_notes": "Greens scenarios #12 (read-after-write: revoked shows on next list, other fields unchanged) and #13 (stable refusal code branchable without prose). Both are PROPERTIES OF the GET + DELETE handlers wired in Slices 1-2 plus the SHIPPED status_for envelope — no new production surface. The read-after-write equality is the chained narrative (revoke via the 02-01 DELETE, then re-list via the 01-01 GET) and confirms the 204+canonical-LIST design choice (api-contract.md §6: one success shape, nothing to keep in sync). The stable-code contract is INHERITED from status_for (reused unchanged). If any handler-local refusal exists (none expected in this step), it must use the SHIPPED ErrorBody shape. TEST PARADIGM: LAYER-3 real-adapter, example-based (Mandates 9+11); EXEMPT FROM PARADIGM — the contract is a fixed JSON shape + (code, status) per refusal class and a field-equality assertion, not a quantified property. Compensate: the field-unchanged assertion is itself a tight equality check across the read pair. Earned-Trust: #12 is the empirical probe that a revoke is observable through the canonical read path (no hidden write-only state); #13 proves the published contract is machine-stable for downstream SDKs."
+        },
+        {
+          "id": "03-02",
+          "name": "No-mint boundary: keep #17 green + add the check-arch LAYER-1d guard rule with a planted-violation gold test",
+          "criteria": [
+            "a POST to /api/v1/teams/{team_slug}/projects/{project_slug}/tokens returns 404/405 by structural absence (no mint route, no shared mintable handler) and no token value is ever returned — scenario #17 stays GREEN after the GET/DELETE routes are merged (adding the two routes must NOT add a POST .../tokens route)",
+            "a new check_api_no_mint_route detector is added to xtask/src/check_arch.rs as a fourth orthogonal LAYER-1d rule in the existing foundry-api source-walk, flagging any foundry-api source line that names mint_token (with strip_comment handling so doc prose is not flagged), and optionally a post( registration on a .../tokens route literal",
+            "cargo xtask check-arch exits non-zero and NAMES the offending file/line when run against a tree where a foundry-api line calls Services::mint_token or registers post(.../tokens)",
+            "a planted-violation gold test (mirroring the existing boundary-guard gold harness that drives the guard binary against a copied violation tree) proves the rule actually bites, not merely claims to (Principle 12c self-application)",
+            "Services::mint_token stays callable from the /admin/tokens human-session path only — the guard keeps mint OFF the bearer surface without removing it from the system"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-tma-token-management-api.feature",
+          "scenario_name": "There is no programmatic mint surface to escalate through",
+          "estimate_hours": 4,
+          "deps": ["01-01", "02-01"],
+          "implementation_scope": {
+            "files": [
+              "xtask/src/check_arch.rs"
+            ]
+          },
+          "implementation_notes": "Behaviour-GREEN-today, guard is NEW work. Scenario #17 is already green by structural absence (a POST to .../tokens 404s because there is no route, red-classification.md). DELIVER must KEEP it green AND lock the invariant: this step adds the no-mint check-arch rule (DD-TMA-04 / no-mint-boundary.md Layer B) so a FUTURE edit that wires a bearer mint path cannot merge green. The rule mirrors the existing is_workspace_admin/is_team_member substring detector in check_api_no_adhoc_authz — same source-walk, same robustness, same strip_comment. EARNED-TRUST (Principle 12, load-bearing here): the planted-violation gold test is the probe that the guard bites — plant a foundry-api line calling Services::mint_token (or post(.../tokens)), assert the guard exits non-zero and names file:line; this is the self-application probe (verify the guard actually enforces, not just claims to). The mint_token substring rule is load-bearing; the post(.../tokens) check is belt-and-braces. Re-run #17 after Slices 1-2 merge to confirm POST still 404/405s. TEST PARADIGM: EXEMPT FROM PARADIGM — this is a golden/structural build-time assertion (guard exit code + named file:line on a planted tree), not a runtime property; the gold test is single-example by nature. Compensate: the substring detector is exercised against both a clean tree (exit 0) and a planted tree (exit non-zero) — the two-sided check is the structural-layer probe. Rejected alternative (no-mint-boundary.md): a 403 shared POST handler — adds a code path toward mint a future edit could complete, is an existence oracle, and is more code than no route."
+        }
+      ]
+    },
+    {
+      "id": "04",
+      "name": "Slice 3 (deferred) — Rate guardrail: BLOCKED pending OD-TMA-1/1b/5 ratification",
+      "steps": [
+        {
+          "id": "04-01",
+          "name": "[DEFERRED — BLOCKED] Per-principal revoke-storm rate guardrail (429) + mutation metric",
+          "criteria": [
+            "BLOCKED: do NOT implement until the rate-bucket mechanism (OD-TMA-1 token-bucket capacity C / refill R, OD-TMA-1b key = bound user_id, OD-TMA-5 adapter-local 429 vs new ServiceError variant, and the test-only clock-advance affordance) is RATIFIED at the post-roadmap checkpoint",
+            "once ratified: unskip the @pending scenario #18 and implement an in-process per-principal token bucket in AppState (keyed by bound user_id), checked on the DELETE route AFTER auth and BEFORE Services::revoke_token; revokes within the guardrail succeed, the burst beyond it is refused 429 rate_limited via the SHIPPED ErrorBody envelope",
+            "once ratified: the bucket reads the SHIPPED state.clock / MockClock so the burst test is deterministic (advance the mock clock to prove refill, NO wall-clock sleep), and a per-principal mutation counter (foundry_token_mutations_total{principal,outcome}) makes the rate observable as a guardrail metric (NFR-TMA-SEC-07)",
+            "the guardrail must NOT regress the LIST (read path, unguarded) or the existing /api/v1 routes, and must NOT live in foundry-services (it is an adapter transport-rate policy, not a domain rule) — preferred 429 rides adapter-local, leaving the cross-adapter ServiceError contract unchanged"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-tma-token-management-api.feature",
+          "scenario_name": "A burst of revocations beyond the guardrail is throttled",
+          "estimate_hours": 6,
+          "deps": ["02-01"],
+          "implementation_scope": {
+            "files": [
+              "crates/foundry-api/src/lib.rs",
+              "crates/foundry-app/src/lib.rs"
+            ]
+          },
+          "implementation_notes": "DEFERRED / BLOCKED — this is the SEPARATE final step for the @pending @rate-guardrail scenario #18. It is NOT a dependency of any earlier step and earlier steps do NOT depend on it; the 16 active-RED scenarios all flip green WITHOUT this. Unskip + implement ONLY once OD-TMA-1 (bucket capacity C / refill R; design-suggested C=20, R=1/sec, NOT load-bearing), OD-TMA-1b (key = bound user_id, the accountable blast-radius unit, vs jti), and OD-TMA-5 (adapter-local 429 preferred over a new ServiceError::TooManyRequests) are ratified at the checkpoint and the test-only clock-advance affordance is wired (rate-guardrail.md). Mechanism: Mutex<HashMap<Uuid, BucketState>> in AppState (prefer std Mutex<HashMap> over a new dashmap dep), derived into foundry-api via FromRef exactly like Services / MachineTokenVerifier (foundry-api gains no new crate dep — files_to_modify: foundry-api/src/lib.rs for the DELETE-route check; foundry-app/src/lib.rs for the AppState bucket + FromRef wiring). Metric sink: emit foundry_token_mutations_total now (tracing counter minimum); wiring a Prometheus exporter is a DEVOPS/platform-architect decision. TEST PARADIGM: LAYER-3 real-adapter, example-based (Mandates 9+11) but deterministic-by-design via the mock clock; EXEMPT FROM PARADIGM — burst-then-refill is a fixed sequence over the mock clock, not a quantified property. Compensate: a std #[test] on the bucket's consume/refill arithmetic over the clock seam (a real invariant: tokens_available is monotone-bounded by C and refills at R). Earned-Trust: the deterministic burst (clock-advanced, never sleep) IS the probe that the guardrail honors its cap under a revoke storm without flaking on wall-clock timing."
+        }
+      ]
+    }
+  ],
+  "implementation_scope": {
+    "source_directories": [
+      "crates/foundry-api/src/",
+      "crates/foundry-app/src/",
+      "xtask/src/"
+    ],
+    "test_directories": [
+      "crates/foundry-acceptance/tests/"
+    ],
+    "excluded_patterns": [
+      "target/**",
+      "**/*.lock"
+    ]
+  },
+  "validation": {
+    "status": "pending",
+    "reviewer": "TODO",
+    "approved_at": "TODO"
+  }
+}
