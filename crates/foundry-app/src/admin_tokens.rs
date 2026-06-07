@@ -63,9 +63,9 @@ pub async fn show_index(
         return not_found();
     };
     let (csrf, set_cookie) = ensure_csrf_cookie(&state, &headers);
-    let tokens = match load_token_rows(&state, admin.workspace_id).await {
+    let tokens = match load_token_rows(&state, &admin).await {
         Ok(rows) => rows,
-        Err(err) => return internal_error("list_machine_tokens", err),
+        Err(err) => return internal_error("list_tokens", err),
     };
     let page = TokenListPage {
         mint_enabled: state.machine_token_signer.is_some(),
@@ -93,9 +93,7 @@ pub async fn submit_mint(
     // claims are built — never a 500, never a partial token (OD1/DD2).
     let Some(signer) = state.machine_token_signer.clone() else {
         let (csrf, set_cookie) = ensure_csrf_cookie(&state, &headers);
-        let tokens = load_token_rows(&state, admin.workspace_id)
-            .await
-            .unwrap_or_default();
+        let tokens = load_token_rows(&state, &admin).await.unwrap_or_default();
         let page = TokenListPage {
             mint_enabled: false,
             csrf,
@@ -116,7 +114,7 @@ pub async fn submit_mint(
         return mint_error_response(
             &state,
             &headers,
-            admin.workspace_id,
+            &admin,
             ServiceError::Validation {
                 code: "label_required".to_string(),
                 message: "A label is required".to_string(),
@@ -153,7 +151,7 @@ pub async fn submit_mint(
                 Err(err) => internal_error("render token_minted", err),
             }
         }
-        Err(err) => mint_error_response(&state, &headers, admin.workspace_id, err).await,
+        Err(err) => mint_error_response(&state, &headers, &admin, err).await,
     }
 }
 
@@ -203,43 +201,56 @@ async fn resolve_admin(state: &AppState, session: &Session) -> Option<SessionUse
     }
 }
 
-/// Build the metadata-only list rows for the workspace (newest first). The
-/// minting admin's email is resolved per row from the token's bound user
-/// (slice-1: `created_by == user_id` for every minted/seeded row); a missing
-/// user renders as "—" (US-MT06 unattributed edge). NO value is ever read or
-/// rendered (NFR-MT-SEC-02).
+/// Build the metadata-only list rows for the acting admin (newest first) by
+/// going THROUGH the `list_tokens` use-case (the driving port — it re-checks the
+/// admin gate and scopes the read to the principal's workspace, NFR-MT-REL-03),
+/// never the store directly. Each `TokenView` is mapped to a render `TokenRow`
+/// with its display status derived (revoked → expired → active) and the minting
+/// admin's name resolved ("—" when unattributed, US-MT06). NO value is ever read
+/// or rendered (NFR-MT-SEC-02 — `TokenView` has no value field).
 async fn load_token_rows(
     state: &AppState,
-    workspace_id: uuid::Uuid,
-) -> Result<Vec<TokenRow>, foundry_store::StoreError> {
-    let rows = state.store.list_machine_tokens(workspace_id).await?;
-    let mut out = Vec::with_capacity(rows.len());
-    for row in rows {
-        let minted_by = state
-            .store
-            .find_user_email_by_id(row.user_id)
-            .await
-            .ok()
-            .flatten()
-            .unwrap_or_else(|| "—".to_string());
-        out.push(TokenRow {
-            jti: row.jti.to_string(),
-            label: row.label,
-            scope_label: scope_label(row.scope_team_id),
-            expires_at: format_ts(row.expires_at),
-            status: if row.revoked_at.is_some() {
-                "revoked".to_string()
-            } else {
-                "active".to_string()
-            },
-            minted_by,
-            last_used: match row.last_used_at {
-                Some(ts) => format_ts(ts),
-                None => "never".to_string(),
-            },
-        });
+    admin: &SessionUser,
+) -> Result<Vec<TokenRow>, ServiceError> {
+    let principal = Principal::Human {
+        user_id: admin.user_id,
+        workspace_id: admin.workspace_id,
+    };
+    let services = foundry_services::Services::new(state.store.clone());
+    let views = services.list_tokens(&principal).await?;
+    let now = time::OffsetDateTime::now_utc();
+    Ok(views.into_iter().map(|view| token_row(view, now)).collect())
+}
+
+/// Map a value-free [`TokenView`] to a render [`TokenRow`]. Status is derived in
+/// priority order: a `revoked` token reads "revoked"; an un-revoked token whose
+/// `expires_at` is in the past reads "expired"; otherwise "active". A missing
+/// `minted_by` renders "—"; a never-used token renders "never".
+fn token_row(view: foundry_services::tokens::TokenView, now: time::OffsetDateTime) -> TokenRow {
+    let status = token_status(&view, now);
+    TokenRow {
+        jti: view.jti.to_string(),
+        label: view.label,
+        scope_label: scope_label(view.scope_team_id),
+        expires_at: format_ts(view.expires_at),
+        status,
+        minted_by: view.minted_by.unwrap_or_else(|| "—".to_string()),
+        last_used: match view.last_used_at {
+            Some(ts) => format_ts(ts),
+            None => "never".to_string(),
+        },
     }
-    Ok(out)
+}
+
+/// Derive the display status: revoked wins over expired wins over active.
+fn token_status(view: &foundry_services::tokens::TokenView, now: time::OffsetDateTime) -> String {
+    if view.revoked {
+        return "revoked".to_string();
+    }
+    if view.expires_at < now {
+        return "expired".to_string();
+    }
+    "active".to_string()
 }
 
 /// Map a mint `ServiceError` to its HTML response. A `Validation` (e.g. a
@@ -249,15 +260,13 @@ async fn load_token_rows(
 async fn mint_error_response(
     state: &AppState,
     headers: &HeaderMap,
-    workspace_id: uuid::Uuid,
+    admin: &SessionUser,
     err: ServiceError,
 ) -> Response {
     match err {
         ServiceError::Validation { message, .. } => {
             let (csrf, set_cookie) = ensure_csrf_cookie(state, headers);
-            let tokens = load_token_rows(state, workspace_id)
-                .await
-                .unwrap_or_default();
+            let tokens = load_token_rows(state, admin).await.unwrap_or_default();
             let page = TokenListPage {
                 mint_enabled: state.machine_token_signer.is_some(),
                 csrf,

@@ -189,10 +189,44 @@ pub async fn mint_token(
 /// 2. read `list_machine_tokens(workspace_id)` (workspace-scoped, newest-first),
 ///    resolve `created_by` → `minted_by`, map each row to `TokenView` (NO value).
 pub async fn list_tokens(
-    _store: &Store,
-    _principal: &Principal,
+    store: &Store,
+    principal: &Principal,
 ) -> Result<Vec<TokenView>, ServiceError> {
-    panic!("foundry_services::tokens::list_tokens not yet implemented — RED scaffold (US-MT02/06)")
+    // 1. Authz — the admin-only gate (US-MT05). A store error fails closed.
+    let is_admin = store
+        .is_workspace_admin(principal.workspace_id(), principal.user_id())
+        .await
+        .map_err(|_| ServiceError::Internal)?;
+    if !is_admin {
+        return Err(ServiceError::Forbidden);
+    }
+
+    // 2. Read — workspace-scoped, newest-first (the store ORDERs by created_at
+    //    DESC). Map each metadata row to a value-free `TokenView`, resolving the
+    //    minting admin's display name (`created_by` is recorded as the bound
+    //    user in slice 1, so the per-row `user_id` resolves the issuer); a
+    //    deleted/legacy author resolves to `None`, rendered as "—" (US-MT06).
+    let rows = store
+        .list_machine_tokens(principal.workspace_id())
+        .await
+        .map_err(|_| ServiceError::Internal)?;
+    let mut views = Vec::with_capacity(rows.len());
+    for row in rows {
+        let minted_by = store
+            .find_user_email_by_id(row.user_id)
+            .await
+            .map_err(|_| ServiceError::Internal)?;
+        views.push(TokenView {
+            jti: row.jti,
+            label: row.label,
+            scope_team_id: row.scope_team_id,
+            expires_at: row.expires_at,
+            revoked: row.revoked_at.is_some(),
+            last_used_at: row.last_used_at,
+            minted_by,
+        });
+    }
+    Ok(views)
 }
 
 /// Revoke a machine token (US-MT03).

@@ -1,0 +1,24 @@
+{# The workspace's issued machine tokens (US-MT02/US-MT06) — metadata ONLY. #}
+{# Included by token_mint_form.html so the index renders ONE surface; there is #}
+{# deliberately NO token value field anywhere (NFR-MT-SEC-02). An empty list #}
+{# renders an inviting empty state, not a blank table (US-MT02 scenario 3). #}
+{# `status` is the derived active/revoked/expired marker (admin_tokens.rs). #}
+<section data-token-list>
+  {% if tokens.is_empty() %}
+  <p data-token-empty>No tokens yet — issue one above.</p>
+  {% else %}
+  <ul>
+    {% for token in tokens %}
+    <li data-token-row data-token-label="{{ token.label }}" data-token-status="{{ token.status }}">
+      <span data-token-jti>{{ token.jti }}</span>
+      <span data-token-label>{{ token.label }}</span>
+      <span data-token-scope>{{ token.scope_label }}</span>
+      <span data-token-expiry>{{ token.expires_at }}</span>
+      <span data-token-status>{{ token.status }}</span>
+      <span data-token-minted-by>{{ token.minted_by }}</span>
+      <span data-token-last-used>{{ token.last_used }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</section>

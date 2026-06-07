@@ -93,6 +93,24 @@ async fn rebuild_harness(world: &mut FoundryWorld, issuer: bool) {
     seed_workspace_admin_member(world).await;
 }
 
+/// Establish the signed-in harness in the requested issuer mode WITHOUT
+/// destroying state a prior Given already seeded. When the existing harness is
+/// already in the requested mode, reuse it (re-seeding the workspace+admin+member
+/// is idempotent) so pre-seeded token rows survive — a Background/Given that
+/// seeds tokens BEFORE the "admin is signed in" Given (us-mt02) must not have its
+/// fixtures torn down. Only spawn a fresh harness when none exists yet (us-mt01's
+/// signed-in-first ordering) or the mode differs (issuer ⇄ verifier-only).
+async fn ensure_signed_in(world: &mut FoundryWorld, issuer: bool) {
+    if world.harness.is_some() && world.mt_issuer == issuer {
+        if world.http.is_none() {
+            world.http = Some(client());
+        }
+        seed_workspace_admin_member(world).await;
+    } else {
+        rebuild_harness(world, issuer).await;
+    }
+}
+
 /// Seed workspace "Acme" + admin (devansh, role=admin) + member (mei, Backend,
 /// role=member) directly via SQL — preconditions, not the behaviour under test.
 /// Idempotent on re-seed (ON CONFLICT DO NOTHING).
@@ -317,7 +335,7 @@ async fn seed_token_row(
 
 #[given(regex = r#"^the admin is signed in to the token surface on an issuer-configured server$"#)]
 async fn admin_signed_in_issuer(world: &mut FoundryWorld) {
-    rebuild_harness(world, true).await;
+    ensure_signed_in(world, true).await;
     world.mt_actor_email = Some(ADMIN_EMAIL.to_string());
 }
 
@@ -329,7 +347,7 @@ async fn admin_signed_in_verifier_only(world: &mut FoundryWorld) {
 
 #[given(regex = r#"^the member is signed in to the token surface on an issuer-configured server$"#)]
 async fn member_signed_in_issuer(world: &mut FoundryWorld) {
-    rebuild_harness(world, true).await;
+    ensure_signed_in(world, true).await;
     world.mt_actor_email = Some(MEMBER_EMAIL.to_string());
 }
 
@@ -502,8 +520,18 @@ async fn one_used_one_fresh(world: &mut FoundryWorld, used_label: String) {
 async fn ensure_seeded(world: &mut FoundryWorld) {
     if world.harness.is_none() {
         rebuild_harness(world, true).await;
-    } else if world.mt_actor_email.is_none() {
-        seed_workspace_admin_member(world).await;
+    } else {
+        // The Background's `a workspace "Acme" exists` spawned an ISSUER harness
+        // (InProcHarness::spawn); record that mode so the later "admin is signed
+        // in on an issuer-configured server" Given reuses it (preserving the
+        // tokens this step seeds) instead of tearing it down.
+        world.mt_issuer = true;
+        if world.http.is_none() {
+            world.http = Some(client());
+        }
+        if world.mt_actor_email.is_none() {
+            seed_workspace_admin_member(world).await;
+        }
     }
 }
 
