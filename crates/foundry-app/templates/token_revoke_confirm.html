@@ -1,0 +1,17 @@
+{# Per-row revoke affordance (US-MT03). The Revoke control carries an #}
+{# unmistakable warning that the action is IMMEDIATE and CANNOT BE UNDONE #}
+{# (US-MT03 scenario "Revoking warns it is immediate and irreversible") — the #}
+{# admin sees the consequence BEFORE the POST fires. The form posts to #}
+{# `/admin/tokens/{jti}/revoke` UNDER the double-submit CSRF middleware (the #}
+{# hidden `_csrf` field is required; a POST without it is refused 403, #}
+{# NFR-MT-SEC-07). An already-revoked row offers no control (idempotent, but #}
+{# nothing left to kill). The kill-switch effectiveness is the SHIPPED #}
+{# per-request denylist — this form only flips `revoked_at`. #}
+{% if token.status != "revoked" %}
+<form method="post" action="/admin/tokens/{{ token.jti }}/revoke" data-token-revoke>
+  <input type="hidden" name="_csrf" value="{{ csrf }}">
+  <span class="revoke-warning" data-revoke-warning>Revoking is immediate and cannot be undone — the
+    token is refused on its very next use.</span>
+  <button type="submit" data-revoke-button>Revoke</button>
+</form>
+{% endif %}

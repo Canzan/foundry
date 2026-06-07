@@ -17,6 +17,7 @@
       <span data-token-status>{{ token.status }}</span>
       <span data-token-minted-by>{{ token.minted_by }}</span>
       <span data-token-last-used>{{ token.last_used }}</span>
+      {% include "token_revoke_confirm.html" %}
     </li>
     {% endfor %}
   </ul>

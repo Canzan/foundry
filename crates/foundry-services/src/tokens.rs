@@ -237,9 +237,40 @@ pub async fn list_tokens(
 /// 3. `revoke_machine_token(jti)` (idempotent re-stamp); `Ok(())`.
 /// 4. effectiveness is the SHIPPED per-request denylist (no new refusal code).
 pub async fn revoke_token(
-    _store: &Store,
-    _principal: &Principal,
-    _jti: uuid::Uuid,
+    store: &Store,
+    principal: &Principal,
+    jti: uuid::Uuid,
 ) -> Result<(), ServiceError> {
-    panic!("foundry_services::tokens::revoke_token not yet implemented — RED scaffold (US-MT03)")
+    // 1. Authz — the admin-only gate (US-MT05). A store error fails closed.
+    let is_admin = store
+        .is_workspace_admin(principal.workspace_id(), principal.user_id())
+        .await
+        .map_err(|_| ServiceError::Internal)?;
+    if !is_admin {
+        return Err(ServiceError::Forbidden);
+    }
+
+    // 2. Workspace isolation, NON-ENUMERABLE (NFR-MT-REL-03 / NFR-MT-SEC-03): a
+    //    jti that does not exist AND a jti that belongs to ANOTHER workspace
+    //    yield the SAME `NotFound` — the response never confirms whether the
+    //    credential exists. No oracle leaks across the workspace boundary.
+    let row = store
+        .find_machine_token_by_jti(jti)
+        .await
+        .map_err(|_| ServiceError::Internal)?;
+    let belongs = matches!(row, Some(ref r) if r.workspace_id == principal.workspace_id());
+    if !belongs {
+        return Err(ServiceError::NotFound);
+    }
+
+    // 3. Flip `revoked_at` (idempotent re-stamp — re-revoking an already-revoked
+    //    token only refreshes the timestamp). Effectiveness is the SHIPPED
+    //    per-request denylist: the `/api/v1` `token_auth` extractor already
+    //    refuses any token whose `revoked_at` is set, so the kill-switch takes
+    //    effect on the credential's very next call with no new refusal code.
+    store
+        .revoke_machine_token(jti)
+        .await
+        .map_err(|_| ServiceError::Internal)?;
+    Ok(())
 }

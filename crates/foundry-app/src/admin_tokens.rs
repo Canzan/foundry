@@ -32,18 +32,11 @@ use askama::Template;
 use axum::extract::{Path, State};
 use axum::http::header::{COOKIE, SET_COOKIE};
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
-use axum::response::{Html, IntoResponse, Response};
+use axum::response::{Html, IntoResponse, Redirect, Response};
 use foundry_services::tokens::{MintInput, ScopeChoice};
 use foundry_services::{Principal, ServiceError};
 use secrecy::ExposeSecret;
 use tower_sessions::Session;
-
-const RED_SCAFFOLD_BODY: &str =
-    "machine-token-admin-ux: /admin/tokens not yet implemented — RED scaffold";
-
-fn not_implemented() -> Response {
-    (StatusCode::NOT_IMPLEMENTED, RED_SCAFFOLD_BODY).into_response()
-}
 
 /// A non-enumerable refusal: a non-admin (or a non-member) gets the SAME generic
 /// 404 whether the surface exists or not (NFR-MT-SEC-03). Nothing in status/body
@@ -155,15 +148,42 @@ pub async fn submit_mint(
     }
 }
 
-/// `POST /admin/tokens/{jti}/revoke` — revoke (US-MT03). Step 03-01.
+/// `POST /admin/tokens/{jti}/revoke` — revoke (US-MT03). The kill-switch.
+///
+/// CSRF is enforced by the surrounding `csrf::csrf_middleware` (a POST with no
+/// valid `_csrf` is refused 403 BEFORE this handler runs — NFR-MT-SEC-07). The
+/// handler resolves the signed-in admin (non-admin → non-enumerable 404,
+/// NFR-MT-SEC-03), then drives the `revoke_token` use-case which gates on the
+/// admin role again (defense in depth, DD3), enforces workspace isolation with a
+/// NON-ENUMERABLE `NotFound` (a missing OR foreign jti reads identically), and
+/// flips `revoked_at` (idempotent). Effectiveness is the SHIPPED per-request
+/// denylist: the credential's very next `/api/v1` call is refused 401 by the
+/// `token_auth` extractor — this handler stamps no new refusal state. On success
+/// it redirects back to the list (303) so the row reads "revoked" on reload.
 pub async fn submit_revoke(
-    State(_state): State<AppState>,
-    _session: Session,
+    State(state): State<AppState>,
+    session: Session,
     _headers: HeaderMap,
-    Path(_jti): Path<uuid::Uuid>,
+    Path(jti): Path<uuid::Uuid>,
     _form: axum::extract::RawForm,
 ) -> Response {
-    not_implemented()
+    let Some(admin) = resolve_admin(&state, &session).await else {
+        return not_found();
+    };
+    let principal = Principal::Human {
+        user_id: admin.user_id,
+        workspace_id: admin.workspace_id,
+    };
+    let services = foundry_services::Services::new(state.store.clone());
+    match services.revoke_token(&principal, jti).await {
+        // Idempotent: a fresh revoke and a re-revoke of an already-revoked token
+        // both succeed and land back on the list (the row now reads "revoked").
+        Ok(()) => Redirect::to("/admin/tokens").into_response(),
+        // A missing OR foreign-workspace jti is a non-enumerable 404 — never a
+        // 403/200 that would confirm the credential exists.
+        Err(ServiceError::NotFound) | Err(ServiceError::Forbidden) => not_found(),
+        Err(other) => internal_error("revoke_token", other),
+    }
 }
 
 // ----------------------------------------------------------------- internals
