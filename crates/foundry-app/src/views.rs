@@ -474,3 +474,66 @@ pub struct InvalidPage {
     /// The `<p>` body copy (auto-escaped).
     pub message: String,
 }
+
+/// A single issued-token row on the `/admin/tokens` list (US-MT01/US-MT06).
+/// There is deliberately NO value field (NFR-MT-SEC-02) — no surface ever
+/// re-displays a token value. The `data-token-*` markers are the scraper
+/// contract the acceptance suite asserts against (`feature_machine_token_admin`).
+#[derive(Debug, Clone)]
+pub struct TokenRow {
+    /// The credential id — `data-token-jti` marker + the visible id.
+    pub jti: String,
+    /// Human label the admin gave the token (auto-escaped) — `data-token-label`.
+    pub label: String,
+    /// Scope label: "Whole workspace" or a team name — `data-token-scope`.
+    pub scope_label: String,
+    /// Human expiry timestamp — `data-token-expiry`.
+    pub expires_at: String,
+    /// `active` or `revoked` — the lowercase `data-token-status` marker.
+    pub status: String,
+    /// The minting admin's email (US-MT06); "—" when unattributed.
+    pub minted_by: String,
+    /// Human last-used timestamp, or "never" — `data-token-last-used`.
+    pub last_used: String,
+}
+
+/// The `/admin/tokens` index (US-MT01 mint form + US-MT02/US-MT06 list).
+/// Extends `base.html` (vendored `/static`). On an issuer-configured server
+/// `mint_enabled` is true and the mint form (`form[data-mint-form]`) renders;
+/// on a verifier-only server it is false and an "issuing not enabled" notice
+/// renders instead (OD1/DD2 graceful degradation, signer.md). The token list
+/// shows METADATA ONLY — there is no value field anywhere (NFR-MT-SEC-02), so
+/// a minted token's value is never re-retrievable (us-mt-display-once).
+#[derive(Debug, Clone, Template)]
+#[template(path = "token_mint_form.html")]
+pub struct TokenListPage {
+    /// True on an issuer binary (signer present) — gates the mint form.
+    pub mint_enabled: bool,
+    /// The double-submit CSRF token, rendered into the hidden `_csrf` field.
+    pub csrf: String,
+    /// Validation copy shown in the `.error` slot; `None` on a clean GET.
+    pub error: Option<String>,
+    /// The workspace's issued tokens, newest first (metadata only).
+    pub tokens: Vec<TokenRow>,
+}
+
+/// The one-time token-display page (US-MT01, DD7 / NFR-MT-SEC-01). This is the
+/// ONLY view-model that ever carries a token value: `value_once` is exposed
+/// EXACTLY ONCE here (via `expose_secret()` in the handler) and dropped with
+/// the response — never stored, never logged, never re-displayed. Renders the
+/// `[data-token-value]` + `[data-copy-token]` markers and the unmistakable
+/// "only time you'll see this" warning + revoke-and-reissue guidance.
+#[derive(Debug, Clone, Template)]
+#[template(path = "token_minted.html")]
+pub struct TokenMintedPage {
+    /// The one-time token value, exposed once into `[data-token-value]`.
+    pub value_once: String,
+    /// The credential id — `data-token-jti` marker.
+    pub jti: String,
+    /// The label the admin gave — `data-token-label`.
+    pub label: String,
+    /// Scope label ("Whole workspace" / team name) — `data-token-scope`.
+    pub scope_label: String,
+    /// Human expiry timestamp — `data-token-expiry`.
+    pub expires_at: String,
+}

@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Machine tokens{% endblock %}
+{% block content %}
+<main data-token-surface>
+  <h1>Machine tokens</h1>
+  {% match error %}{% when Some with (message) %}<p class="error">{{ message }}</p>{% when None %}{% endmatch %}
+  {% if mint_enabled %}
+  <form method="post" action="/admin/tokens" data-mint-form>
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <label>Label <input type="text" name="label" required></label>
+    <label>Expiry (days) <input type="number" name="ttl_days" value="90" min="1" max="365"></label>
+    <button type="submit">Issue token</button>
+  </form>
+  {% else %}
+  <p data-issuing-disabled>Issuing tokens is not enabled on this server.</p>
+  {% endif %}
+
+  <p class="guidance" data-token-guidance>A token value is shown only once at issue time and can
+    never be retrieved again. If you lose one, revoke that token and issue a new one.</p>
+
+  <section data-token-list>
+    {% if tokens.is_empty() %}
+    <p data-token-empty>No tokens yet — issue one above.</p>
+    {% else %}
+    <ul>
+      {% for token in tokens %}
+      <li data-token-row data-token-label="{{ token.label }}" data-token-status="{{ token.status }}">
+        <span data-token-jti>{{ token.jti }}</span>
+        <span data-token-label>{{ token.label }}</span>
+        <span data-token-scope>{{ token.scope_label }}</span>
+        <span data-token-expiry>{{ token.expires_at }}</span>
+        <span data-token-status>{{ token.status }}</span>
+        <span data-token-minted-by>{{ token.minted_by }}</span>
+        <span data-token-last-used>{{ token.last_used }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </section>
+</main>
+{% endblock %}

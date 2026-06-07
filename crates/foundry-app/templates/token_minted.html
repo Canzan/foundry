@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Token issued{% endblock %}
+{% block content %}
+<main data-token-surface data-token-minted>
+  <h1>Token issued</h1>
+  <p class="warning">This is the only time you'll see this token value. Copy it now —
+    it is shown exactly once and can never be retrieved again.</p>
+  <pre data-token-value>{{ value_once }}</pre>
+  <button type="button" data-copy-token data-clipboard-target="[data-token-value]">Copy</button>
+  <p class="guidance">If you lose it, revoke that token and issue a new one.</p>
+  <dl>
+    <dt>Id</dt><dd data-token-jti>{{ jti }}</dd>
+    <dt>Label</dt><dd data-token-label>{{ label }}</dd>
+    <dt>Scope</dt><dd data-token-scope>{{ scope_label }}</dd>
+    <dt>Expiry</dt><dd data-token-expiry>{{ expires_at }}</dd>
+  </dl>
+  <p><a href="/admin/tokens">Back to tokens</a></p>
+</main>
+{% endblock %}
