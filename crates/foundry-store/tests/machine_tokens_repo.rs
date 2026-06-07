@@ -112,6 +112,7 @@ async fn insert_then_find_by_jti_round_trips_an_active_token() {
             Some(team_id),
             expires_at,
             "Devansh's dashboard",
+            user_id,
         )
         .await
         .expect("insert machine token");
@@ -153,6 +154,7 @@ async fn revoke_flips_revoked_at_but_find_still_returns_the_row() {
             Some(team_id),
             expires_at,
             "Devansh's dashboard",
+            user_id,
         )
         .await
         .expect("insert machine token");
@@ -183,7 +185,15 @@ async fn list_returns_issued_credentials_for_the_workspace() {
     let jti_b = uuid::Uuid::now_v7();
     for (jti, label) in [(jti_a, "dashboard"), (jti_b, "ci-runner")] {
         store
-            .insert_machine_token(jti, user_id, workspace_id, Some(team_id), expires_at, label)
+            .insert_machine_token(
+                jti,
+                user_id,
+                workspace_id,
+                Some(team_id),
+                expires_at,
+                label,
+                user_id,
+            )
             .await
             .expect("insert machine token");
     }
@@ -219,6 +229,7 @@ async fn touch_last_used_records_use_on_an_active_token() {
             Some(team_id),
             expires_at,
             "dash",
+            user_id,
         )
         .await
         .expect("insert machine token");

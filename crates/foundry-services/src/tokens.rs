@@ -85,12 +85,102 @@ pub struct TokenView {
 ///    token VALUE is never passed to the store.
 /// 7. return `MintedToken` (the value travels to the handler, renders once, drops).
 pub async fn mint_token(
-    _store: &Store,
-    _signer: &foundry_auth::MachineTokenSigner,
-    _principal: &Principal,
-    _input: MintInput,
+    store: &Store,
+    signer: &foundry_auth::MachineTokenSigner,
+    principal: &Principal,
+    input: MintInput,
 ) -> Result<MintedToken, ServiceError> {
-    panic!("foundry_services::tokens::mint_token not yet implemented — RED scaffold (US-MT01/04)")
+    // 1. Authz — the load-bearing admin-only gate (US-MT05). A store error
+    //    fails closed as Forbidden (no token is minted when authz can't be
+    //    confirmed).
+    let is_admin = store
+        .is_workspace_admin(principal.workspace_id(), principal.user_id())
+        .await
+        .map_err(|_| ServiceError::Internal)?;
+    if !is_admin {
+        return Err(ServiceError::Forbidden);
+    }
+
+    // 2. TTL validation (DD8 / OD4) — required and bounded by the server cap.
+    if input.ttl_days <= 0 {
+        return Err(ServiceError::Validation {
+            code: "ttl_required".to_string(),
+            message: "An expiry is required".to_string(),
+        });
+    }
+    if input.ttl_days > MAX_TTL_DAYS {
+        return Err(ServiceError::Validation {
+            code: "ttl_over_cap".to_string(),
+            message: format!("Maximum expiry is {MAX_TTL_DAYS} days"),
+        });
+    }
+
+    // 3. Scope mapping (DD9) — Workspace ⇒ None; Team(t) is valid only when t
+    //    belongs to the acting workspace, else a non-leaking Validation refusal.
+    let scope_team_id = match input.scope {
+        ScopeChoice::Workspace => None,
+        ScopeChoice::Team(team_id) => {
+            let belongs = store
+                .team_belongs_to_workspace(team_id, principal.workspace_id())
+                .await
+                .map_err(|_| ServiceError::Internal)?;
+            if !belongs {
+                return Err(ServiceError::Validation {
+                    code: "scope_team_not_in_workspace".to_string(),
+                    message: "The chosen team is not in this workspace".to_string(),
+                });
+            }
+            Some(team_id)
+        }
+    };
+
+    // 4. Claims — fresh jti, bound to the acting principal, expiring after the
+    //    validated TTL. iss/aud are re-stamped to the pinned constants by
+    //    `mint`, but default them here for completeness.
+    let now = time::OffsetDateTime::now_utc();
+    let expires_at = now + time::Duration::days(input.ttl_days);
+    let jti = uuid::Uuid::now_v7();
+    let claims = foundry_auth::MachineTokenClaims {
+        sub: principal.user_id(),
+        scope: scope_team_id,
+        iat: now.unix_timestamp(),
+        exp: expires_at.unix_timestamp(),
+        jti,
+        iss: foundry_auth::MACHINE_TOKEN_ISS.to_string(),
+        aud: foundry_auth::MACHINE_TOKEN_AUD.to_string(),
+    };
+
+    // 5. Sign BEFORE persist — a sign failure leaves no orphan registry row. A
+    //    mint failure is mapped to Internal; the key/value are never logged.
+    let value = signer.mint(&claims).map_err(|_| ServiceError::Internal)?;
+
+    // 6. Persist METADATA ONLY — the token VALUE is never passed to the store
+    //    (the registry has no value/secret column, NFR-MT-SEC-02). `created_by`
+    //    records the acting admin (NFR-MT-SEC-06). A persist failure after a
+    //    successful sign returns Internal and does NOT hand back the value (an
+    //    unpersisted token is unusable — the denylist never knew it).
+    store
+        .insert_machine_token(
+            jti,
+            principal.user_id(),
+            principal.workspace_id(),
+            scope_team_id,
+            expires_at,
+            &input.label,
+            principal.user_id(),
+        )
+        .await
+        .map_err(|_| ServiceError::Internal)?;
+
+    // 7. Return the one-time value — it travels to the handler, renders once,
+    //    and drops (DD7).
+    Ok(MintedToken {
+        value,
+        jti,
+        label: input.label,
+        scope_team_id,
+        expires_at,
+    })
 }
 
 /// List the workspace's issued tokens (US-MT02, US-MT06).

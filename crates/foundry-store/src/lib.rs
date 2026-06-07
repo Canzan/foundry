@@ -179,13 +179,18 @@ impl Store {
               WHERE table_schema = current_schema()
                 AND table_name = 'machine_tokens'
                 AND column_name IN ('jti', 'revoked_at', 'scope_team_id',
-                                    'workspace_id', 'user_id', 'expires_at')",
+                                    'workspace_id', 'user_id', 'expires_at',
+                                    'created_by')",
         )
         .fetch_one(&self.pool)
         .await?;
-        if mt_cols.0 < 6 {
+        // 7 columns: the six migration-0007 substrate columns + the 0008
+        // `created_by` audit column (machine-token-admin-ux). A binary booting
+        // against a pre-0008 database refuses at /readyz rather than failing on
+        // the first mint (Earned-Trust substrate-lie guard).
+        if mt_cols.0 < 7 {
             return Err(ProbeError::Failed(format!(
-                "machine_tokens table missing migration-0007 columns (found {} of 6)",
+                "machine_tokens table missing migration-0007/0008 columns (found {} of 7)",
                 mt_cols.0
             )));
         }
@@ -1377,6 +1382,7 @@ impl Store {
     /// metadata. `scope_team_id == None` means workspace-wide scope.
     /// `revoked_at` / `last_used_at` start NULL: the credential is active
     /// and never-used.
+    #[allow(clippy::too_many_arguments)]
     pub async fn insert_machine_token(
         &self,
         jti: uuid::Uuid,
@@ -1385,11 +1391,12 @@ impl Store {
         scope_team_id: Option<uuid::Uuid>,
         expires_at: time::OffsetDateTime,
         label: &str,
+        created_by: uuid::Uuid,
     ) -> Result<(), StoreError> {
         sqlx::query(
             "INSERT INTO machine_tokens
-                  (jti, user_id, workspace_id, scope_team_id, expires_at, label)
-              VALUES ($1, $2, $3, $4, $5, $6)",
+                  (jti, user_id, workspace_id, scope_team_id, expires_at, label, created_by)
+              VALUES ($1, $2, $3, $4, $5, $6, $7)",
         )
         .bind(jti)
         .bind(user_id)
@@ -1397,9 +1404,30 @@ impl Store {
         .bind(scope_team_id)
         .bind(expires_at)
         .bind(label)
+        .bind(created_by)
         .execute(&self.pool)
         .await?;
         Ok(())
+    }
+
+    /// Does `team_id` belong to `workspace_id`? Drives the mint scope check
+    /// (DD9): a `ScopeChoice::Team(t)` is only valid when `t` is a team of the
+    /// acting workspace; a foreign team id is refused before any token is
+    /// minted (US-MT04 scenario 3 evil-user path). EXISTS, not a row fetch —
+    /// the answer is the only thing the use-case needs.
+    pub async fn team_belongs_to_workspace(
+        &self,
+        team_id: uuid::Uuid,
+        workspace_id: uuid::Uuid,
+    ) -> Result<bool, StoreError> {
+        let row: (bool,) = sqlx::query_as(
+            "SELECT EXISTS (SELECT 1 FROM teams WHERE id = $1 AND workspace_id = $2)",
+        )
+        .bind(team_id)
+        .bind(workspace_id)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(row.0)
     }
 
     /// Look up a machine token by its `jti`. This is the per-request

@@ -29,6 +29,7 @@
 //! Reused Background Givens (cucumber-rs requires globally-unique step text):
 //!   - `a workspace "..." exists with admin "..."`        (us_06_signin)
 //!   - `a member "..." belongs to the team "..."`          (us_07_project_create)
+//!
 //! Only machine-token-admin-specific phrases are declared here.
 //!
 //! What DELIVER must wire to flip these GREEN is enumerated in
@@ -293,7 +294,7 @@ async fn seed_token_row(
         .app
         .state
         .store
-        .insert_machine_token(jti, user.0, workspace_id, None, exp, label)
+        .insert_machine_token(jti, user.0, workspace_id, None, exp, label, user.0)
         .await
         .expect("seed machine token row");
     if revoked {
@@ -378,10 +379,18 @@ async fn credential_in_other_workspace(world: &mut FoundryWorld) {
 #[given(regex = r#"^the workspace "([^"]+)" has a token with no recorded issuer$"#)]
 async fn ws_has_unattributed_token(world: &mut FoundryWorld, ws: String) {
     ensure_seeded(world).await;
-    // `insert_machine_token` does not set created_by today (it is NULL after the
-    // 0008 migration adds the nullable column) — so a plain seed already models
-    // a "no recorded issuer" row. The list must surface it as "minted by —".
-    seed_token_row(world, &ws, "Legacy bot", false, false).await;
+    // Since step 01-01 `insert_machine_token` always records `created_by`, a
+    // plain seed is now attributed. To model a "no recorded issuer" row (a
+    // pre-feature / deleted-admin row, the US-MT06 "minted by —" edge), seed
+    // then NULL `created_by` directly — exactly the legacy/`ON DELETE SET NULL`
+    // state the nullable 0008 column represents.
+    let jti = seed_token_row(world, &ws, "Legacy bot", false, false).await;
+    let harness = world.harness.as_ref().expect("harness");
+    sqlx::query("UPDATE machine_tokens SET created_by = NULL WHERE jti = $1")
+        .bind(jti)
+        .execute(harness.app.state.store.pool())
+        .await
+        .expect("clear created_by to model a no-recorded-issuer row");
 }
 
 // NOTE (single-workspace constraint): the schema enforces exactly ONE workspace

@@ -1647,7 +1647,15 @@ async fn mint_credential(
             .app
             .state
             .store
-            .insert_machine_token(jti, user_id, workspace_id, scope_team_id, exp, label)
+            .insert_machine_token(
+                jti,
+                user_id,
+                workspace_id,
+                scope_team_id,
+                exp,
+                label,
+                user_id,
+            )
             .await
             .expect("register machine token");
         world.fa_credential_jti = Some(jti);

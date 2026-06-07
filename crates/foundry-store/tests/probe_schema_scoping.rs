@@ -73,7 +73,8 @@ async fn probe_column_check_is_scoped_to_current_schema() {
         // 0006 check, which fires first).
         "CREATE TABLE sibling.machine_tokens (jti uuid PRIMARY KEY, user_id uuid, \
          workspace_id uuid, scope_team_id uuid, expires_at timestamptz, \
-         revoked_at timestamptz, last_used_at timestamptz, label text)",
+         revoked_at timestamptz, last_used_at timestamptz, label text, \
+         created_by uuid)",
     ] {
         sqlx::query(stmt)
             .execute(&mut admin)

@@ -192,28 +192,44 @@ async fn main() -> anyhow::Result<()> {
             }
         };
 
-    // Earned-Trust key probe: if a signing key is configured (issuing
-    // binary), sign+verify a throwaway claim set to prove the keypair
-    // round-trips in THIS environment. A mismatched signing/public key
-    // refuses startup rather than silently 401-ing every token in prod.
-    if let Ok(signing_key) = std::env::var("MACHINE_TOKEN_SIGNING_KEY") {
-        let signing_key = signing_key.replace("\\n", "\n");
-        let probe_result = foundry_auth::MachineTokenSigner::from_pkcs8_pem(&SecretString::new(
-            signing_key.into(),
-        ))
-        .and_then(|signer| machine_token_verifier.self_test(&signer));
-        if let Err(err) = probe_result {
-            tracing::error!(
-                event = "health.startup.refused",
-                probe = "machine_token",
-                reason = "machine_token_key",
-                detail = %err,
-                "machine-token keypair self-test failed — refusing to start"
-            );
-            metrics::counter!(PROBE_FAILURES_TOTAL, "probe_name" => "machine_token").increment(1);
-            return Err(anyhow::Error::from(err).context("machine-token keypair self-test"));
-        }
-    }
+    // Earned-Trust key probe + signer retention (ADR-MT01 / DD1, signer.md):
+    // if a signing key is configured (issuing binary), parse it into a
+    // SecretString, sign+verify a throwaway claim set to prove the keypair
+    // round-trips in THIS environment, and RETAIN the parsed signer ONLY after
+    // the probe passes (the type "we have a usable signer" is constructible
+    // post-probe). A mismatched signing/public key refuses startup rather than
+    // silently 401-ing every token in prod. The key value is wrapped in
+    // SecretString immediately and is NEVER logged on any path (success,
+    // failure, or absent).
+    let machine_token_signer: Option<Arc<foundry_auth::MachineTokenSigner>> =
+        match std::env::var("MACHINE_TOKEN_SIGNING_KEY") {
+            Ok(raw) => {
+                // SHIPPED \n-normalization, identical to the public-key path.
+                let pem = SecretString::new(raw.replace("\\n", "\n").into());
+                let probe = foundry_auth::MachineTokenSigner::from_pkcs8_pem(&pem)
+                    .and_then(|signer| machine_token_verifier.self_test(&signer).map(|()| signer));
+                match probe {
+                    Ok(signer) => Some(Arc::new(signer)),
+                    Err(err) => {
+                        tracing::error!(
+                            event = "health.startup.refused",
+                            probe = "machine_token",
+                            reason = "machine_token_key",
+                            detail = %err,
+                            "machine-token keypair self-test failed — refusing to start"
+                        );
+                        metrics::counter!(PROBE_FAILURES_TOTAL, "probe_name" => "machine_token")
+                            .increment(1);
+                        return Err(
+                            anyhow::Error::from(err).context("machine-token keypair self-test")
+                        );
+                    }
+                }
+            }
+            // Verifier-only binary — graceful (OD1/DD2). No key, no signer,
+            // nothing logged about the absent key.
+            Err(_) => None,
+        };
 
     let realtime_tx = foundry_realtime::build_broadcast();
     // Spawn the dedicated LISTEN connection task. It owns its own
@@ -236,14 +252,12 @@ async fn main() -> anyhow::Result<()> {
         store: Arc::new(store),
         session_secret: Arc::new(SecretString::new(session_secret.into())),
         machine_token_verifier: Arc::new(machine_token_verifier),
-        // machine-token-admin-ux (US-MT00/ADR-MT01/DD1) — RED scaffold: `None`
-        // keeps every binary verifier-only for now (graceful, OD1/DD2; nothing
-        // regresses). DELIVER EXTENDS the self-test block above (main.rs:199-216,
-        // signer.md §"How it is loaded") so that on a successful probe the parsed
-        // signer is RETAINED here as `Some(Arc::new(signer))` instead of dropped
-        // — making the binary an issuer. See distill/step-skeletons.md §"Signer
-        // in AppState".
-        machine_token_signer: None,
+        // machine-token-admin-ux (US-MT00/ADR-MT01/DD1): the signer parsed and
+        // probed above is retained here ONLY after its self_test passed —
+        // `Some(..)` makes this binary an issuer, `None` keeps it verifier-only
+        // (graceful, OD1/DD2). The signing key value is never logged on any
+        // path; the signer holds only the parsed EncodingKey (no Debug leak).
+        machine_token_signer,
         session_cookie_secure,
         db_schema: std::env::var("FOUNDRY_DB_SCHEMA").unwrap_or_else(|_| "public".to_string()),
         public_url: public_url.clone(),

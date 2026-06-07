@@ -37,3 +37,10 @@ secrecy = { workspace = true }
 tokio = { workspace = true }
 sqlx = { workspace = true }
 testcontainers-modules = { workspace = true }
+# machine-token-admin-ux (US-MT01): the mint use-case tests sign with the
+# fixed Ed25519 test keypair (foundry_auth::test_keys, behind `test-support`)
+# and expose the one-time SecretString value to assert it verifies.
+foundry-auth = { path = "../foundry-auth", features = ["test-support"] }
+secrecy = { workspace = true }
+uuid = { workspace = true }
+time = { workspace = true }
