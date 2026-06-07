@@ -37,6 +37,8 @@ use foundry_acceptance::steps::feature_machine_token_admin as _feature_mt;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_remaining_surfaces as _feature_remaining;
 #[allow(unused_imports)]
+use foundry_acceptance::steps::feature_token_management_api as _feature_tma;
+#[allow(unused_imports)]
 use foundry_acceptance::steps::handler_instrumentation as _slice6;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::keyboard_fragments_templating as _keyboard_fragments;
@@ -122,7 +124,11 @@ async fn main() {
                     let has = |t: &str| {
                         scenario.tags.iter().any(|x| x == t) || feat.tags.iter().any(|x| x == t)
                     };
-                    !has("manual") && !has("manual-trigger")
+                    // @pending excluded everywhere: it marks a scenario whose
+                    // production mechanism is an OPEN upstream decision (e.g. the
+                    // token-management rate guardrail, OD-TMA-1). DELIVER removes
+                    // the tag once the mechanism is ratified + wired.
+                    !has("manual") && !has("manual-trigger") && !has("pending")
                 })
                 .await;
         }
@@ -158,6 +164,9 @@ async fn main() {
                         && !has("docker-compose")
                         && !has("slow")
                         && !has("needs-pgclient")
+                        // @pending: production mechanism is an OPEN upstream
+                        // decision (rate-guardrail OD-TMA-1). DELIVER unskips.
+                        && !has("pending")
                 })
                 .await;
         }

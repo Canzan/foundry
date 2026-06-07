@@ -545,6 +545,20 @@ pub struct FoundryWorld {
     /// path), so the revoke step can attempt a foreign target.
     pub mt_foreign_jti: Option<uuid::Uuid>,
 
+    // ---- Feature "token-management-api" (JSON /api/v1/.../tokens adapter) ----
+    /// Body of the FIRST refusal in the cross-workspace-vs-unknown-id
+    /// non-enumerability comparison (US-TMA05), captured so the second
+    /// unknown-id revoke can be asserted byte-identical.
+    pub tma_first_refusal: Option<String>,
+    /// Status of that first refusal (must be the identical 404).
+    pub tma_first_refusal_status: Option<StatusCode>,
+    /// Status of the revoke that precedes a read-after-write re-list
+    /// (US-TMA04), so the re-list Then can confirm the revoke returned 204.
+    pub tma_revoke_status: Option<StatusCode>,
+    /// Per-request HTTP statuses of the rate-guardrail burst (US-TMA05,
+    /// @pending), so the within-/beyond-guardrail Thens can classify them.
+    pub tma_burst_statuses: Vec<u16>,
+
     // ---- Feature "Remaining-Surfaces Templating" (remaining-surfaces-templating) ----
     /// Email of the persona signed in for the current remaining-surfaces
     /// scenario, set by the reused `<persona> is signed in as a Backend member`
