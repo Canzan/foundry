@@ -270,11 +270,22 @@ fn slugify(input: &str) -> String {
 /// member, or the user is not a workspace admin (NFR-MT-SEC-03). The service
 /// re-checks `is_workspace_admin` too (defense in depth, DD3).
 async fn resolve_admin(state: &AppState, session: &Session) -> Option<SessionUser> {
-    let user = session
-        .get::<SessionUser>(SESSION_KEY_USER_ID)
-        .await
-        .ok()
-        .flatten()?;
+    // A session-store ERROR (broken/misconfigured backing store) is distinct from
+    // a legitimately ABSENT session (an unauthenticated visitor). Both fail closed
+    // to the same non-enumerable `None` (→ 404, NFR-MT-SEC-03 — we never enumerate
+    // the surface), but only the store ERROR is logged so an operator can tell a
+    // broken store apart from ordinary non-admin traffic (LOW-1). The warning
+    // carries no session contents and no secret — only that a lookup errored.
+    let user = match session.get::<SessionUser>(SESSION_KEY_USER_ID).await {
+        Ok(maybe_user) => maybe_user?,
+        Err(err) => {
+            tracing::warn!(
+                error = %err,
+                "session store error resolving admin for /admin/tokens; failing closed (404)"
+            );
+            return None;
+        }
+    };
     match state
         .store
         .is_workspace_admin(user.workspace_id, user.user_id)

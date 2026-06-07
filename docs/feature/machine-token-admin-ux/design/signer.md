@@ -55,8 +55,14 @@ Key points:
   as literal `\n`.
 - **Reuses the existing self-test** (`MachineTokenVerifier::self_test`, `foundry-auth:201`) as the
   wire-then-probe-then-use gate. No new probe is invented.
-- The signing key string is moved into a `SecretString` immediately; the plain `String` from
-  `env::var` is the only transient exposure and is consumed in the same expression.
+- The signing key string is wrapped in a `SecretString` as early as practical. Two transient,
+  non-zeroizing heap allocations of the key bytes precede that wrap and persist until the allocator
+  reclaims them: (1) the plain `String` returned by `env::var`, bound to `raw`, which lives for the
+  whole match arm; and (2) the intermediate `String` produced by `raw.replace("\\n", "\n")` for the
+  `\n`-normalization. Neither is a `SecretString`, so neither zeroizes on drop. This is an ACCEPTED
+  residual (alongside the parsed-key residual below): the key bytes already arrive in plaintext via
+  the process environment, so these short-lived copies do not widen the exposure beyond what the
+  environment already grants. We describe it honestly rather than claim a single-expression consume.
 
 ## Hardening (NFR-MT-SEC-01/04, the risk register)
 

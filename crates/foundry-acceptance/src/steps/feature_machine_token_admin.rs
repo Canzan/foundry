@@ -302,6 +302,11 @@ async fn seed_token_row(
 /// binds to any workspace member (FK validity only); `Some(email)` resolves that
 /// user and records them as the credential's author — so the list can attribute
 /// "CI bot" to devansh and "Old triage agent" to dana.
+///
+/// The credential's SUBJECT (`user_id`) is bound to the same user as the issuer
+/// (the common case: an admin mints a token that acts as themselves). To exercise
+/// the audit-attribution semantics — where the ISSUER (`created_by`) differs from
+/// the SUBJECT (`user_id`) — use [`seed_token_row_by_subject_and_issuer`].
 async fn seed_token_row_by_issuer(
     world: &mut FoundryWorld,
     workspace_name: &str,
@@ -310,22 +315,68 @@ async fn seed_token_row_by_issuer(
     revoked: bool,
     expired: bool,
 ) -> uuid::Uuid {
+    seed_token_row_by_subject_and_issuer(
+        world,
+        workspace_name,
+        label,
+        None,
+        issuer_email,
+        revoked,
+        expired,
+    )
+    .await
+}
+
+/// Seed a registry row with an explicitly DISTINCT subject (`user_id`) and issuer
+/// (`created_by`). This is the audit-attribution discriminator (US-MT06): the list
+/// must attribute the token to the ISSUER who minted it (`created_by`), NOT to the
+/// SUBJECT the credential acts as (`user_id`). Seeding `subject_email != issuer_email`
+/// is what catches a `minted_by`-resolved-from-`user_id` regression.
+///
+/// `subject_email = None` defaults the subject to the issuer (same user). Both
+/// emails resolve to a real user row (FK validity).
+async fn seed_token_row_by_subject_and_issuer(
+    world: &mut FoundryWorld,
+    workspace_name: &str,
+    label: &str,
+    subject_email: Option<&str>,
+    issuer_email: Option<&str>,
+    revoked: bool,
+    expired: bool,
+) -> uuid::Uuid {
     let workspace_id = workspace_id_by_name(world, workspace_name).await;
     let harness = world.harness.as_ref().expect("harness");
     let pool = harness.app.state.store.pool();
-    let user: (uuid::Uuid,) = match issuer_email {
-        Some(email) => sqlx::query_as("SELECT id FROM users WHERE email_lower = $1")
-            .bind(email.to_ascii_lowercase())
+    let resolve_user = |email: &str| {
+        let email = email.to_ascii_lowercase();
+        async move {
+            let row: (uuid::Uuid,) = sqlx::query_as("SELECT id FROM users WHERE email_lower = $1")
+                .bind(email.clone())
+                .fetch_one(pool)
+                .await
+                .unwrap_or_else(|e| panic!("resolve user {email:?}: {e}"));
+            row.0
+        }
+    };
+    let issuer: uuid::Uuid = match issuer_email {
+        Some(email) => resolve_user(email).await,
+        None => {
+            let row: (uuid::Uuid,) = sqlx::query_as(
+                "SELECT user_id FROM workspace_memberships WHERE workspace_id = $1 LIMIT 1",
+            )
+            .bind(workspace_id)
             .fetch_one(pool)
             .await
-            .unwrap_or_else(|e| panic!("resolve issuer {email:?}: {e}")),
-        None => sqlx::query_as(
-            "SELECT user_id FROM workspace_memberships WHERE workspace_id = $1 LIMIT 1",
-        )
-        .bind(workspace_id)
-        .fetch_one(pool)
-        .await
-        .expect("a member exists in the workspace"),
+            .expect("a member exists in the workspace");
+            row.0
+        }
+    };
+    // Subject defaults to the issuer (the common case). When a distinct subject is
+    // requested, the credential acts as someone OTHER than its issuer — the
+    // attribution must still name the issuer.
+    let subject: uuid::Uuid = match subject_email {
+        Some(email) => resolve_user(email).await,
+        None => issuer,
     };
     let jti = uuid::Uuid::now_v7();
     let now = time::OffsetDateTime::now_utc();
@@ -338,7 +389,7 @@ async fn seed_token_row_by_issuer(
         .app
         .state
         .store
-        .insert_machine_token(jti, user.0, workspace_id, None, exp, label, user.0)
+        .insert_machine_token(jti, subject, workspace_id, None, exp, label, issuer)
         .await
         .expect("seed machine token row");
     if revoked {
@@ -521,7 +572,24 @@ async fn two_admins_issued(
     .await;
     // Attribute each token to its NAMED issuer so the list can show distinct
     // admins (US-MT06): label_a is the acting admin's, label_b is dana's.
-    seed_token_row_by_issuer(world, "Acme", &label_a, Some(ADMIN_EMAIL), false, false).await;
+    //
+    // CRUCIAL audit-attribution discriminator: label_a's SUBJECT (`user_id`) is
+    // bound to the member mei, while its ISSUER (`created_by`) is the acting admin
+    // (devansh). The list MUST attribute label_a to the ISSUER (devansh), NOT the
+    // subject (mei) — this is exactly what distinguishes a `created_by`-resolved
+    // "minted by" from a (wrong) `user_id`-resolved one. With the divergence in
+    // place, a `user_id`-based resolution would attribute label_a to mei and the
+    // `... shows it was minted by "devansh@acme.com"` Then would FAIL.
+    seed_token_row_by_subject_and_issuer(
+        world,
+        "Acme",
+        &label_a,
+        Some(MEMBER_EMAIL),
+        Some(ADMIN_EMAIL),
+        false,
+        false,
+    )
+    .await;
     seed_token_row_by_issuer(world, "Acme", &label_b, Some(&other_admin), false, false).await;
 }
 
@@ -1194,9 +1262,30 @@ async fn issued_limited_to_team(world: &mut FoundryWorld, team: String) {
 }
 
 #[then(regex = r#"^the issued token expires in (\d+) days$"#)]
-async fn issued_expires_in(world: &mut FoundryWorld, _days: u32) {
+async fn issued_expires_in(world: &mut FoundryWorld, days: u32) {
     let body = mint_body(world);
-    html_assertions::assert_has(body, "[data-token-expiry]");
+    // The one-time page renders the resolved expiry as RFC3339 text inside
+    // `[data-token-expiry]`. Parse it and assert it lands within ±1 day of
+    // `now + days` — proving the server applied the chosen TTL, not merely that
+    // an expiry element exists (LOW-2: the old assertion was satisfied by the
+    // element's mere presence, regardless of the actual expiry value).
+    let doc = html_assertions::parse(body);
+    let els = html_assertions::select_all(&doc, "[data-token-expiry]");
+    let raw = els
+        .first()
+        .map(|el| html_assertions::text_of(el).trim().to_string())
+        .unwrap_or_else(|| {
+            panic!("expected [data-token-expiry] in the mint display; body {body:?}")
+        });
+    let expiry = time::OffsetDateTime::parse(&raw, &time::format_description::well_known::Rfc3339)
+        .unwrap_or_else(|e| panic!("[data-token-expiry] {raw:?} is not RFC3339: {e}"));
+    let expected = time::OffsetDateTime::now_utc() + time::Duration::days(i64::from(days));
+    let drift = (expiry - expected).abs();
+    assert!(
+        drift <= time::Duration::days(1),
+        "the issued token must expire in ~{days} days (expected {expected}, got {expiry}, \
+         drift {drift}); body {body:?}"
+    );
 }
 
 #[then(regex = r#"^the token list shows the "([^"]+)" scope for "([^"]+)"$"#)]

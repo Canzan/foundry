@@ -1456,7 +1456,7 @@ impl Store {
     ) -> Result<Option<MachineTokenRow>, StoreError> {
         let row = sqlx::query(
             "SELECT jti, user_id, workspace_id, scope_team_id,
-                    expires_at, revoked_at, last_used_at, label
+                    expires_at, revoked_at, last_used_at, label, created_by
                FROM machine_tokens
               WHERE jti = $1",
         )
@@ -1487,7 +1487,7 @@ impl Store {
     ) -> Result<Vec<MachineTokenRow>, StoreError> {
         let rows = sqlx::query(
             "SELECT jti, user_id, workspace_id, scope_team_id,
-                    expires_at, revoked_at, last_used_at, label
+                    expires_at, revoked_at, last_used_at, label, created_by
                FROM machine_tokens
               WHERE workspace_id = $1
               ORDER BY created_at DESC, jti DESC",
@@ -1986,6 +1986,12 @@ pub struct MachineTokenRow {
     pub revoked_at: Option<time::OffsetDateTime>,
     pub last_used_at: Option<time::OffsetDateTime>,
     pub label: String,
+    /// The admin who ISSUED the credential (`created_by` audit column,
+    /// machine-token-admin-ux NFR-MT-SEC-06). Distinct from `user_id`, which is
+    /// the SUBJECT the credential acts AS. `None` for a legacy/`ON DELETE SET NULL`
+    /// row with no recorded issuer. The list view resolves "minted by" from THIS
+    /// column, never `user_id`.
+    pub created_by: Option<uuid::Uuid>,
 }
 
 /// Map a `machine_tokens` result row into a [`MachineTokenRow`]. Column order
@@ -2001,6 +2007,7 @@ fn machine_token_row_from(r: sqlx::postgres::PgRow) -> MachineTokenRow {
         revoked_at: r.get(5),
         last_used_at: r.get(6),
         label: r.get(7),
+        created_by: r.get(8),
     }
 }
 

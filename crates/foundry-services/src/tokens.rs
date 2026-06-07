@@ -227,19 +227,24 @@ pub async fn list_tokens(
 
     // 2. Read — workspace-scoped, newest-first (the store ORDERs by created_at
     //    DESC). Map each metadata row to a value-free `TokenView`, resolving the
-    //    minting admin's display name (`created_by` is recorded as the bound
-    //    user in slice 1, so the per-row `user_id` resolves the issuer); a
-    //    deleted/legacy author resolves to `None`, rendered as "—" (US-MT06).
+    //    minting admin's display name from `created_by` — the ISSUER who minted
+    //    the credential (NFR-MT-SEC-06), NOT `user_id` (the SUBJECT the credential
+    //    acts AS; they coincide only when an admin mints a token for themselves).
+    //    A NULL `created_by` (legacy / `ON DELETE SET NULL`) or a deleted author
+    //    resolves to `None`, rendered as "—" (US-MT06 unknown-issuer edge path).
     let rows = store
         .list_machine_tokens(principal.workspace_id())
         .await
         .map_err(|_| ServiceError::Internal)?;
     let mut views = Vec::with_capacity(rows.len());
     for row in rows {
-        let minted_by = store
-            .find_user_email_by_id(row.user_id)
-            .await
-            .map_err(|_| ServiceError::Internal)?;
+        let minted_by = match row.created_by {
+            Some(issuer_id) => store
+                .find_user_email_by_id(issuer_id)
+                .await
+                .map_err(|_| ServiceError::Internal)?,
+            None => None,
+        };
         let scope_team_name = resolve_team_name(store, row.scope_team_id).await?;
         views.push(TokenView {
             jti: row.jti,
