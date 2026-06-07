@@ -512,6 +512,39 @@ pub struct FoundryWorld {
     /// Status of the most recent `/static/...` asset GET.
     pub b_asset_status: Option<StatusCode>,
 
+    // ---- Feature "machine-token-admin-ux" (admin machine-token surface) ----
+    /// Email of the persona signed in to the token surface for the current
+    /// scenario (the admin "devansh@acme.com" or the non-admin member
+    /// "mei@acme.com"). Drives the authenticated GET/POST /admin/tokens.
+    pub mt_actor_email: Option<String>,
+    /// Whether the harness for this scenario is issuer-configured (signer
+    /// present). `false` ⇒ verifier-only (US-MT00 scenario 2 / US-MT01 sc 3).
+    pub mt_issuer: bool,
+    /// Status of the most recent /admin/tokens GET/POST.
+    pub mt_last_status: Option<StatusCode>,
+    /// Body of the most recent /admin/tokens GET/POST (the rendered page or
+    /// fragment), reused across the Then assertions on the same surface.
+    pub mt_last_body: Option<String>,
+    /// Headers of the most recent /admin/tokens response.
+    pub mt_last_headers: Option<HeaderMap>,
+    /// Body of the one-time mint response (the only surface that ever carries a
+    /// token value), captured separately so the "shown once" assertion can
+    /// compare it against the later list body.
+    pub mt_mint_response_body: Option<String>,
+    /// The token VALUE the most recent mint exposed once (parsed out of the
+    /// one-time display), so later scenarios can assert it never reappears and
+    /// can present it to the API to prove it authenticates.
+    pub mt_minted_value: Option<String>,
+    /// The `jti` of the most-recently minted/seeded token, so a revoke step can
+    /// target that exact row and a denylist cross-check can look it up.
+    pub mt_last_jti: Option<uuid::Uuid>,
+    /// Label → jti for tokens seeded/minted this scenario (list + revoke steps
+    /// address a token by its human label).
+    pub mt_jti_by_label: HashMap<String, uuid::Uuid>,
+    /// A jti that belongs to ANOTHER workspace (the cross-workspace evil-user
+    /// path), so the revoke step can attempt a foreign target.
+    pub mt_foreign_jti: Option<uuid::Uuid>,
+
     // ---- Feature "Remaining-Surfaces Templating" (remaining-surfaces-templating) ----
     /// Email of the persona signed in for the current remaining-surfaces
     /// scenario, set by the reused `<persona> is signed in as a Backend member`

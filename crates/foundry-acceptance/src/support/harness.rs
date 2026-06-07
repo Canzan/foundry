@@ -249,7 +249,26 @@ impl std::fmt::Debug for InProcHarness {
 }
 
 impl InProcHarness {
+    /// Spawn an ISSUER-configured harness: `AppState.machine_token_signer` is
+    /// `Some(test signer)` so the machine-token-admin-ux mint surface is offered
+    /// (the common case for the US-MT0x scenarios). The signer is the FIXED test
+    /// keypair (`foundry_auth::test_keys`), matched to the verifier — so a token
+    /// minted through the product verifies on the `/api/v1` path (US-MT01 AC:
+    /// "a token issued this way authenticates against the API").
     pub async fn spawn(now: time::OffsetDateTime) -> Self {
+        Self::spawn_inner(now, true).await
+    }
+
+    /// Spawn a VERIFIER-ONLY harness: `AppState.machine_token_signer` is `None`,
+    /// modelling a read-only replica with no `MACHINE_TOKEN_SIGNING_KEY`
+    /// (US-MT00 scenario 2 / US-MT01 scenario 3 — "issuing not enabled on this
+    /// server", graceful, OD1/DD2). The verifier is still present (every binary
+    /// verifies).
+    pub async fn spawn_verifier_only(now: time::OffsetDateTime) -> Self {
+        Self::spawn_inner(now, false).await
+    }
+
+    async fn spawn_inner(now: time::OffsetDateTime, issuer: bool) -> Self {
         let (schema, pool, listen_url) = fresh_schema_pool_with_url().await;
         let store = Arc::new(Store::from_pool(pool));
         let fake_clock = MockClock::new(now);
@@ -272,6 +291,10 @@ impl InProcHarness {
             // Feature A (US-W05b) — fixed test Ed25519 verifier, mirrors
             // the fixed test session_secret so 02-03/W05c can mint+verify.
             machine_token_verifier: Arc::new(foundry_auth::test_keys::verifier()),
+            // machine-token-admin-ux (US-MT00/DD1): an issuer harness carries the
+            // FIXED test signer (matched to the verifier above); a verifier-only
+            // harness carries None (the mint surface degrades gracefully).
+            machine_token_signer: issuer.then(|| Arc::new(foundry_auth::test_keys::signer())),
             // The US-05 happy-path scenario asserts the cookie carries
             // Secure. The harness binds to 127.0.0.1 (plain HTTP) but
             // we still emit Secure in the Set-Cookie header — the test

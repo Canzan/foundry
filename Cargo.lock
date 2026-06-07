@@ -1286,6 +1286,7 @@ dependencies = [
  "foundry-auth",
  "foundry-core",
  "foundry-store",
+ "secrecy",
  "sqlx",
  "testcontainers-modules",
  "thiserror 1.0.69",

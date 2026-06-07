@@ -14,6 +14,7 @@
 #![deny(clippy::all)]
 
 pub mod admin_cli;
+pub mod admin_tokens;
 pub mod attachments;
 pub mod bootstrap;
 pub mod clock;
@@ -68,6 +69,15 @@ pub struct AppState {
     /// per-request bearer extractor (02-03, foundry-api) reads it via
     /// `FromRef`. Always present (every binary verifies).
     pub machine_token_verifier: Arc<foundry_auth::MachineTokenVerifier>,
+    /// machine-token-admin-ux (US-MT00, ADR-MT01/DD1) — the OPTIONAL Ed25519
+    /// SIGNER. `Some` ⇒ this binary is an ISSUER (the mint surface is offered);
+    /// `None` ⇒ verifier-only (mint disabled + UI hidden / 403, graceful per
+    /// OD1/DD2). Loaded in `main.rs` from `MACHINE_TOKEN_SIGNING_KEY` in the SAME
+    /// block that already runs the boot self-test, retained ONLY after the probe
+    /// passes (signer.md). NOT exposed via `FromRef`; the `admin_tokens` handler
+    /// reads it directly from `State<AppState>` and passes it to
+    /// `services.mint_token(signer, …)` (DD4 — confined to the mint call path).
+    pub machine_token_signer: Option<Arc<foundry_auth::MachineTokenSigner>>,
     pub session_cookie_secure: bool,
     /// Postgres schema where the `session` table lives. `"public"` in
     /// production, a per-scenario name like `"test_s17_ab12"` in the
@@ -303,6 +313,20 @@ pub fn build_router(state: AppState) -> Router {
                 .delete(comments::submit_delete_comment),
         )
         .route("/keyboard-help", get(keyboard::show_keyboard_help))
+        // machine-token-admin-ux (ADR-MT03/DD5) — the browser admin surface for
+        // machine-token issuance + lifecycle. Mounted HERE, ALONGSIDE the HTML
+        // routes, so it sits UNDER `csrf::csrf_middleware` + `session_layer`
+        // below (double-submit `_csrf` + tower-sessions apply unchanged,
+        // NFR-MT-SEC-07) — NOT the CSRF-exempt `/api/v1` mount. Workspace is
+        // implicit from the session (OD3). RED scaffold handlers (admin_tokens.rs).
+        .route(
+            "/admin/tokens",
+            get(admin_tokens::show_index).post(admin_tokens::submit_mint),
+        )
+        .route(
+            "/admin/tokens/{jti}/revoke",
+            post(admin_tokens::submit_revoke),
+        )
         .route("/", get(signin::dashboard_root))
         .layer(middleware::from_fn_with_state(
             state.clone(),

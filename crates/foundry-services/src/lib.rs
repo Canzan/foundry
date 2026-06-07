@@ -138,6 +138,37 @@ impl Services {
     ) -> Result<auth::ActiveMachineToken, ServiceError> {
         auth::resolve_active_token(&self.store, jti, now).await
     }
+
+    /// US-MT01/US-MT04 mint a machine token — delegates to
+    /// [`tokens::mint_token`]. The signer is PASSED IN (DD4), never stored in
+    /// `Services`; it is confined to the mint call path.
+    pub async fn mint_token(
+        &self,
+        signer: &foundry_auth::MachineTokenSigner,
+        principal: &Principal,
+        input: tokens::MintInput,
+    ) -> Result<tokens::MintedToken, ServiceError> {
+        tokens::mint_token(&self.store, signer, principal, input).await
+    }
+
+    /// US-MT02/US-MT06 list the workspace's issued tokens — delegates to
+    /// [`tokens::list_tokens`]. No value field on the returned views.
+    pub async fn list_tokens(
+        &self,
+        principal: &Principal,
+    ) -> Result<Vec<tokens::TokenView>, ServiceError> {
+        tokens::list_tokens(&self.store, principal).await
+    }
+
+    /// US-MT03 revoke a machine token — delegates to [`tokens::revoke_token`].
+    /// Workspace-isolated, idempotent; effectiveness is the SHIPPED denylist.
+    pub async fn revoke_token(
+        &self,
+        principal: &Principal,
+        jti: uuid::Uuid,
+    ) -> Result<(), ServiceError> {
+        tokens::revoke_token(&self.store, principal, jti).await
+    }
 }
 
 /// The authenticated actor a use-case acts on behalf of. Per architecture.md
@@ -371,3 +402,4 @@ pub mod board {
 
 pub mod comments;
 pub mod issues;
+pub mod tokens;

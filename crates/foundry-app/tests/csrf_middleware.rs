@@ -50,6 +50,8 @@ async fn build_test_router() -> Router {
             ])
             .expect("fixed test public key is valid"),
         ),
+        // machine-token-admin-ux: this CSRF middleware test does not mint.
+        machine_token_signer: None,
         session_cookie_secure: false,
         db_schema: "public".into(),
         public_url: "http://localhost".into(),

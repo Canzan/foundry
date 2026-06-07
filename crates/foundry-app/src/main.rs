@@ -236,6 +236,14 @@ async fn main() -> anyhow::Result<()> {
         store: Arc::new(store),
         session_secret: Arc::new(SecretString::new(session_secret.into())),
         machine_token_verifier: Arc::new(machine_token_verifier),
+        // machine-token-admin-ux (US-MT00/ADR-MT01/DD1) — RED scaffold: `None`
+        // keeps every binary verifier-only for now (graceful, OD1/DD2; nothing
+        // regresses). DELIVER EXTENDS the self-test block above (main.rs:199-216,
+        // signer.md §"How it is loaded") so that on a successful probe the parsed
+        // signer is RETAINED here as `Some(Arc::new(signer))` instead of dropped
+        // — making the binary an issuer. See distill/step-skeletons.md §"Signer
+        // in AppState".
+        machine_token_signer: None,
         session_cookie_secure,
         db_schema: std::env::var("FOUNDRY_DB_SCHEMA").unwrap_or_else(|_| "public".to_string()),
         public_url: public_url.clone(),

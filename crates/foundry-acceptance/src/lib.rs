@@ -12,6 +12,7 @@ pub mod world;
 pub mod steps {
     pub mod feature_a_programmatic;
     pub mod feature_b_web_tier;
+    pub mod feature_machine_token_admin;
     pub mod feature_remaining_surfaces;
     pub mod handler_instrumentation;
     pub mod keyboard_fragments_templating;

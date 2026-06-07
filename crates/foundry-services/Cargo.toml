@@ -25,6 +25,10 @@ foundry-auth = { path = "../foundry-auth" }
 uuid = { workspace = true }
 thiserror = { workspace = true }
 time = { workspace = true }
+# machine-token-admin-ux (US-MT01): the minted token value is a SecretString
+# (no Debug/Display) carried by tokens::MintedToken until it is rendered once
+# and dropped (DD7 / NFR-MT-SEC-01).
+secrecy = { workspace = true }
 
 [dev-dependencies]
 # The board read use-case orchestrates the real Postgres store (authz +

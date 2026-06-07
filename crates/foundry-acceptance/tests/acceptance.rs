@@ -33,6 +33,8 @@ use foundry_acceptance::steps::feature_a_programmatic as _feature_a;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_b_web_tier as _feature_b;
 #[allow(unused_imports)]
+use foundry_acceptance::steps::feature_machine_token_admin as _feature_mt;
+#[allow(unused_imports)]
 use foundry_acceptance::steps::feature_remaining_surfaces as _feature_remaining;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::handler_instrumentation as _slice6;

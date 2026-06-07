@@ -239,6 +239,8 @@ impl MultiReplicaHarness {
                         "test-only-secret-must-be-at-least-32-bytes-long-please-yes".into(),
                     )),
                     machine_token_verifier: Arc::new(foundry_auth::test_keys::verifier()),
+                    // machine-token-admin-ux: multi-replica scenarios verify-only.
+                    machine_token_signer: None,
                     session_cookie_secure: true,
                     db_schema: schema.clone(),
                     public_url: "http://localhost".into(),
@@ -392,6 +394,8 @@ impl MultiReplicaHarness {
                     "test-only-secret-must-be-at-least-32-bytes-long-please-yes".into(),
                 )),
                 machine_token_verifier: Arc::new(foundry_auth::test_keys::verifier()),
+                // machine-token-admin-ux: multi-replica scenarios verify-only.
+                machine_token_signer: None,
                 session_cookie_secure: true,
                 db_schema: schema.clone(),
                 public_url: "http://localhost".into(),
