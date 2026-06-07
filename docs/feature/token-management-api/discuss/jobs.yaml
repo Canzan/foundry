@@ -1,0 +1,262 @@
+# JTBD Outcomes — Token-Management API
+#
+# Single source of truth for job_id references used by user stories in stories.md.
+#
+# ============================================================================
+# WHAT THIS FILE IS
+# ============================================================================
+# These are NEW jobs: an INTEGRATOR / CI pipeline / autonomous agent (and a
+# security reviewer's automation) managing machine-token credentials
+# PROGRAMMATICALLY through a JSON API, rather than a human admin clicking the
+# machine-token-admin-ux web UI. They are NOT the human-admin UI jobs verbatim
+# (mt-job-1..4 in machine-token-admin-ux/discuss/jobs.yaml) — those are about a
+# person clicking screens. These are machine/automation jobs: a CI job listing
+# and rotating its own credential, a rotation script revoking-self, an audit
+# pipeline pulling the registry as JSON.
+#
+# The mint/list/revoke USE-CASES already SHIPPED and are mutation-hardened
+# (100%) in foundry-services::tokens (machine-token-admin-ux). The /api/v1 JSON
+# adapter, the MachinePrincipal bearer extractor, and the JSON error envelope
+# also SHIPPED in foundry-api. This feature adds the JSON TOKEN routes + the
+# authz/escalation gate on top.
+#
+# ============================================================================
+# SOURCE / VALIDATION STATUS
+# ============================================================================
+# This feature has NO diverge/ directory. Jobs are NEW and Luna-derived from
+# (a) the brief, (b) a fresh reading of the shipped foundry-services::tokens
+# use-cases + the foundry-api adapter + the machine-token-admin-ux ratified
+# decisions, and (c) JTBD method. Importances/satisfactions are Luna estimates
+# pending user/field validation. See wave-decisions.md "No DIVERGE directory
+# (RISK)" + the Open Questions table (esp. Q-AUTHZ, the crux).
+
+schema_version: 1
+feature: token-management-api
+feature_label: "Token-Management API — programmatic list / revoke (and, deferred, mint) of machine tokens via /api/v1"
+source: DERIVED (no diverge/ dir) — brief + reading of shipped foundry-services::tokens + foundry-api adapter + machine-token-admin-ux decisions + JTBD method
+predecessor_feature: machine-token-admin-ux   # shipped the web UI + the mint/list/revoke use-cases; deferred this JSON API as a fast-follow
+
+# ---------------------------------------------------------------------------
+# Personas (grounded in the shipped /api/v1 bearer path + the brief's actors)
+# ---------------------------------------------------------------------------
+personas:
+  integrator:
+    name_example: "Sven Aarø"
+    description: >
+      A platform/DevOps engineer who wires integrations and CI pipelines to
+      Foundry's /api/v1 with a bearer machine token. He provisions credentials
+      in infrastructure-as-code and automation, not by clicking a UI. He wants
+      his pipeline to LIST the credentials it owns and ROTATE them on a schedule
+      (revoke the old after the new is live) without a human in the loop. He is
+      the PRIMARY persona — the machine/automation caller.
+    grounding: "the /api/v1 + MachineTokenVerifier bearer path (foundry-api, shipped); the brief's 'integrators/automation (CI provisioning, rotation scripts, agents)'."
+  automation_agent:
+    name_example: "the Acme nightly-rotation job"
+    description: >
+      A non-human caller — a scheduled rotation script or an autonomous agent —
+      that holds a bearer token and acts on its own credential lifecycle:
+      enumerate-then-rotate, or revoke-self on decommission. It cannot read a
+      one-time secret off a screen; everything it does is JSON in / JSON out with
+      stable machine-readable error codes.
+    grounding: "Principal::Machine acts AS its bound user; revoke_token accepts any jti in the caller's workspace, so revoke-self is a subset; the brief's 'rotation scripts, agents'."
+  security_automation:
+    name_example: "Dana Whitfield's audit pipeline"
+    description: >
+      A security reviewer's AUTOMATION (not the human clicking the UI — that is
+      machine-token-admin-ux's Dana). A scheduled job that pulls the workspace's
+      token registry as JSON to feed an inventory/SIEM, flags stale or
+      broadly-scoped credentials, and revokes the risky ones via the API without
+      operator DB access. Cares about a stable JSON contract, who issued each
+      token (created_by), last-used, and that revoke is immediate + verifiable.
+    grounding: "list_tokens returns workspace-scoped TokenView (jti/label/scope/expiry/revoked/last_used_at/minted_by, NO value); revoke_token's non-enumerable NotFound; the brief's 'security reviewer revoking via automation'."
+
+# ---------------------------------------------------------------------------
+# Jobs. RANKING (primary -> supporting). Note the recommendation in
+# wave-decisions.md (Q-AUTHZ → option c) makes LIST + REVOKE the v1 jobs and
+# DEFERS programmatic MINT; mt-api-job-4 (mint) is therefore ranked last and
+# tagged deferred.
+#   1. mt-api-job-1 (PRIMARY)    — audit/inventory programmatic credentials as JSON
+#   2. mt-api-job-2 (PRIMARY)    — rotate / revoke a credential programmatically (incl. self)
+#   3. mt-api-job-3 (SUPPORTING) — get stable, machine-readable refusals + non-enumerable authz
+#   4. mt-api-job-4 (DEFERRED)   — provision (mint) a NEW credential programmatically
+# ---------------------------------------------------------------------------
+jobs:
+  mt-api-job-1:
+    name: "See which programmatic credentials exist, as JSON, without a browser or DB access"
+    statement: >
+      When my automation or audit pipeline needs to know what machine tokens can
+      reach my workspace's API, I want to pull the token registry as JSON over the
+      same /api/v1 my integrations already use, so I can inventory credentials,
+      flag stale or over-scoped ones, and feed a SIEM — without screen-scraping
+      the admin UI or asking ops for DB access.
+    primary_persona: security_automation
+    importance: 8
+    satisfaction_today: 1
+    opportunity_score: 15
+    status: critically-under-served
+    rank_note: >
+      PRIMARY. list_tokens is SHIPPED + mutation-hardened and returns a
+      workspace-scoped, value-free TokenView; the /api/v1 bearer path + JSON
+      envelope are SHIPPED. The gap is purely the GET route + the authz gate on
+      top. Satisfaction 1: the data exists but is only reachable via the human web
+      UI (HTML) or direct DB access — no machine-readable surface. This is the
+      SAFEST op (read-only, no escalation), so it is the walking skeleton.
+    dimensions:
+      functional: "GET /api/v1/.../tokens with a bearer token; receive a JSON array of {jti, label, scope, expiry, revoked, last_used, minted_by} — never a value."
+      emotional: "Confidence that my inventory is complete and current, and that pulling it did not require a human or a DB login."
+      social: "I can hand an auditor a machine-generated credential inventory and a diff over time."
+    forces:
+      push: >
+        Today a reviewer can only SEE tokens via the human /admin/tokens HTML page
+        or by querying Postgres directly. Neither is automatable into a pipeline;
+        screen-scraping HTML is brittle and DB access is over-privileged.
+      pull: >
+        A stable JSON list over the bearer-authenticated /api/v1 the integrations
+        already use — same auth, same envelope, machine-parseable, value-free.
+      anxiety: >
+        Does the JSON ever leak a token value? (Answered: TokenView has NO value
+        field by construction; NFR-TMA-SEC-02 forbids any value/secret field in
+        the list response.)
+      habit: >
+        Reviewers grep a DB or scrape a page; a JSON endpoint replaces both with a
+        first-class machine contract.
+
+  mt-api-job-2:
+    name: "Rotate or kill a credential programmatically — including the calling token itself"
+    statement: >
+      When a credential is being rotated on a schedule, or an integration is being
+      decommissioned, or I have spotted a leaked token, I want my automation to
+      revoke it over the API and trust it is dead on its very next call, so I can
+      rotate credentials hands-free and shut down a compromised integration in
+      seconds without waiting for a human to click a UI.
+    primary_persona: automation_agent
+    importance: 8
+    satisfaction_today: 1
+    opportunity_score: 15
+    status: critically-under-served
+    rank_note: >
+      PRIMARY. revoke_token is SHIPPED + mutation-hardened: authz → non-enumerable
+      cross-workspace NotFound → idempotent revoked_at flip; the SHIPPED
+      per-request denylist refuses the jti on its next call. The gap is the
+      DELETE/POST route + the authz gate. Revoke-SELF (a token disabling its own
+      future use) is the safest possible mutation and the core of hands-free
+      rotation. Satisfaction 1: the mechanism exists but is only reachable via the
+      human UI.
+    dimensions:
+      functional: "DELETE /api/v1/.../tokens/{jti} (or POST .../revoke) with a bearer token; the targeted token — possibly the caller itself — is refused on its next /api/v1 call."
+      emotional: "Relief that revoke is final and immediate, and that my rotation script can prove the old credential is dead before it relies on the new one."
+      social: "I can demonstrate to an auditor that a revoked credential is dead by showing the next call is refused — programmatically, in the rotation log."
+    forces:
+      push: >
+        Rotation and incident response today require a human to open /admin/tokens
+        and click revoke — not automatable, slow during an incident, and a
+        bottleneck for scheduled rotation.
+      pull: >
+        A one-call revoke over /api/v1, idempotent, effective on the target's next
+        request via the SHIPPED denylist — and the ability to revoke-self so a
+        rotation script can clean up after promoting a new credential.
+      anxiety: >
+        After I revoke, is it really dead or is there a cache? Can I accidentally
+        revoke the wrong workspace's token? (Answered: per-request denylist, no
+        cache, refused next call; cross-workspace jti returns non-enumerable
+        NotFound — you cannot even tell it exists.)
+      habit: >
+        Operators click a UI to revoke; automation expects a single idempotent
+        API call it can put in a cron job or an incident runbook.
+
+  mt-api-job-3:
+    name: "Get predictable, machine-readable answers — stable error codes and non-enumerable refusals"
+    statement: >
+      When my automation calls the token API, I want every outcome — success,
+      not-authorized, not-found, bad-input — to come back as a stable JSON shape
+      with a machine-readable code and the right HTTP status, so I can branch on
+      it reliably in a script and never have to parse prose or guess whether a
+      403 means 'no such token' or 'not allowed'.
+    primary_persona: integrator
+    importance: 7
+    satisfaction_today: 3
+    opportunity_score: 11
+    status: under-served
+    rank_note: >
+      SUPPORTING (a property of the surface, not a standalone slice). The JSON
+      envelope (ErrorBody {code, message}) + status_for mapping + the fail-closed,
+      non-enumerable 401 are SHIPPED in foundry-api; the use-cases already return
+      Forbidden/NotFound/Validation with the right semantics. Satisfaction 3:
+      strong for issues/comments today; this job ensures the NEW token routes
+      inherit the SAME contract (non-enumerable cross-workspace, identical
+      Unauthorized, stable codes) rather than inventing new shapes.
+    dimensions:
+      functional: "Every response is the stable envelope: 2xx with the resource, or {error:{code,message}} with the conventional status; refusals never reveal existence."
+      emotional: "Trust that I can write the integration once against a stable contract and it will not surprise me."
+      social: "A published, predictable contract an integrator can build an SDK against."
+    forces:
+      push: >
+        Inconsistent or prose-only errors force brittle string-matching and leak
+        information (a 404-vs-403 oracle tells an attacker a token exists).
+      pull: >
+        The SHIPPED stable envelope + status conventions + non-enumerable refusals,
+        applied uniformly to the new token routes.
+      anxiety: >
+        Will a refusal tell an attacker whether a jti exists in another workspace?
+        (Answered: non-enumerable NotFound; identical Unauthorized for every auth
+        failure class — inherited from the shipped adapter.)
+      habit: >
+        Integrators expect REST-conventional statuses + a stable error code field
+        they can switch on.
+
+  mt-api-job-4:
+    name: "Provision a NEW credential programmatically (mint via API)"
+    statement: >
+      When an automated provisioning pipeline spins up a new integration or an
+      ephemeral environment, I want it to mint a fresh machine token via the API
+      and receive the one-time secret in the response, so I can bootstrap
+      credentials without a human clicking the admin UI for every new environment.
+    primary_persona: integrator
+    importance: 6
+    satisfaction_today: 0
+    opportunity_score: 12
+    status: under-served
+    deferred: true
+    rank_note: >
+      DEFERRED (NOT in v1 under the recommended authz model). mint_token is
+      SHIPPED + mutation-hardened, BUT a bearer token that can MINT is a
+      self-replication surface (the mint loop — see wave-decisions.md escalation
+      analysis). The Q-AUTHZ recommendation (option c) keeps MINT human-session-
+      only in v1 and defers programmatic mint to its own slice WITH an explicit
+      `tokens:manage` capability (option b) + a mint-rate guardrail +
+      "management tokens cannot mint management tokens". Opportunity is real
+      (importance 6, satisfaction 0) but the escalation risk gates it behind a
+      separate ratification — this job is documented here so DESIGN/PO can plan
+      the follow-on slice, NOT built in v1.
+    dimensions:
+      functional: "POST /api/v1/.../tokens with a bearer carrying an explicit tokens:manage capability; receive the one-time value once, never re-fetchable."
+      emotional: "Confidence the provisioning pipeline can self-serve credentials — tempered by knowing it cannot runaway-mint (rate guardrail) and cannot mint other management tokens."
+      social: "IaC/provisioning can declare the credentials an environment needs."
+    forces:
+      push: >
+        Bootstrapping ephemeral environments by hand-clicking the admin UI does
+        not scale; provisioning wants self-serve credentials.
+      pull: >
+        A POST that returns a working bearer token once — but ONLY to a caller that
+        deliberately holds the tokens:manage capability, rate-limited, never able
+        to mint another management token.
+      anxiety: >
+        A leaked mint-capable token becomes an unlimited credential press; the
+        one-time value could leak via response logging. (THIS is why mint is
+        deferred and gated behind option b + guardrails, not shipped in v1.)
+      habit: >
+        IaC users expect to declare and provision credentials; this must be made
+        safe before it is convenient.
+
+# ---------------------------------------------------------------------------
+# Story-to-job mapping (mirror of the job_id line on each story; canonical source).
+# Reflects the RECOMMENDED authz model (option c): v1 = LIST + REVOKE; MINT deferred.
+# ---------------------------------------------------------------------------
+story_job_map:
+  US-TMA00: infrastructure-only  # the /api/v1 token route group scaffold + authz-gate seam; folds into Slice 1 (never standalone)
+  US-TMA01: mt-api-job-1         # Slice 1 (walking skeleton): GET list via bearer; authorized vs non-enumerably refused — proves the ratified authz model
+  US-TMA02: mt-api-job-2         # Slice 2: revoke a token via bearer; refused on its next call
+  US-TMA03: mt-api-job-2         # Slice 2: revoke-SELF (rotation) — a token disables its own future use
+  US-TMA04: mt-api-job-3         # Slice 3: stable error contract + non-enumerable refusals across the token routes
+  US-TMA05: mt-api-job-1         # Slice 3: cross-workspace + non-management refusal boundary (the evil-caller scenarios)
+  # US-TMA06 (programmatic MINT, mt-api-job-4) is DEFERRED — see wave-decisions.md Q-AUTHZ; not in v1.
