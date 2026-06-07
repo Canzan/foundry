@@ -1,0 +1,194 @@
+{
+  "roadmap": {
+    "project_id": "machine-token-admin-ux",
+    "created_at": "2026-06-07T16:04:44Z",
+    "total_steps": 6
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "Walking skeleton: mint one token end-to-end, value shown once",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "Signer-in-AppState wiring + created_by persistence + mint_token use-case",
+          "criteria": [
+            "main.rs RETAINS the parsed MachineTokenSigner after a SUCCESSFUL boot self-test (Some(Arc::new(signer))) and threads it into AppState.machine_token_signer; an absent MACHINE_TOKEN_SIGNING_KEY leaves it None (verifier-only, graceful)",
+            "the signing key value is never logged on any path (success, failure, or absent)",
+            "Store::insert_machine_token accepts a created_by: uuid::Uuid parameter wired through to the 0008 column; the 5 existing call sites are updated and stay green",
+            "foundry_services::tokens::mint_token gates on is_workspace_admin (non-admin => Forbidden), validates TTL (<=0 => ttl_required; >365 => ttl_over_cap stating 365; ==365 accepted) and scope (Workspace => None; Team not in workspace => scope_team_not_in_workspace), builds claims, signs via signer.mint BEFORE persist, persists jti+metadata+created_by=principal.user_id() (NEVER the value), then returns the one-time SecretString",
+            "the minted token value is never written to the registry or logs (machine_tokens has no token/secret/hash/value column)"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-mt01-mint.feature",
+          "scenario_name": "Issuing records who minted the token",
+          "estimate_hours": 6,
+          "deps": [],
+          "implementation_scope": {
+            "files": [
+              "crates/foundry-app/src/main.rs",
+              "crates/foundry-store/src/lib.rs",
+              "crates/foundry-services/src/tokens.rs",
+              "crates/foundry-acceptance/tests/feature_a_programmatic.rs",
+              "crates/foundry-store/tests/machine_tokens_repo.rs"
+            ]
+          },
+          "implementation_notes": "Earned-Trust: the boot self-test (foundry-auth self_test, main.rs ~199-216) is the wire-then-probe-then-use gate; DD1 only RETAINS the signer after the probe passes (health.startup.refused otherwise). Acceptance driver: us-mt01 'Issuing records who minted the token' (service-level mint + created_by observable; @walking_skeleton title is greened in 01-02). std #[test] for mint_token authz/scope/claims/persist ordering and for insert_machine_token created_by round-trip; proptest for TTL validation (ttl_required/ttl_over_cap/==cap boundary) and scope mapping where a real invariant holds. Sign BEFORE persist, persist BEFORE returning the value (token-admin-services.md ordering). Reuse from_pkcs8_pem + the shipped \\n-normalization (main.rs:171). Do not expose the signer via FromRef; handler reads State<AppState> and passes it to mint_token (DD4). Existing suite stays green."
+        },
+        {
+          "id": "01-02",
+          "name": "/admin/tokens mint route + Askama mint form + one-time-display screen",
+          "criteria": [
+            "POST /admin/tokens (inside session + CSRF) reads state.machine_token_signer, parses the mint form (label, scope, ttl_days) and calls services.mint_token(signer, principal, ...)",
+            "on success the handler renders TokenMintedPage exposing value.expose_secret() EXACTLY ONCE ([data-token-value] + [data-copy-token] + only-time warning copy) and shows the token id, label, scope, and expiry; the value is then dropped and never re-shown",
+            "the minted token authenticates against the shipped /api/v1 verify path (real EdDSA signing, not a stub)",
+            "a missing label is refused as invalid (422) with no token value shown; a failed render is all-or-nothing (reuse force_board_render_failure seam, never a partial token)"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-mt01-mint.feature",
+          "scenario_name": "An admin issues a working token and sees its value once",
+          "estimate_hours": 6,
+          "deps": ["01-01"],
+          "implementation_scope": {
+            "files": [
+              "crates/foundry-app/src/admin_tokens.rs",
+              "crates/foundry-app/src/views.rs",
+              "crates/foundry-app/templates/token_minted.html",
+              "crates/foundry-app/templates/token_mint_form.html",
+              "crates/foundry-acceptance/tests/feature_machine_token_admin.rs"
+            ]
+          },
+          "implementation_notes": "Walking-skeleton completion: greens us-mt01 @walking_skeleton 'An admin issues a working token and sees its value once' AND us-mt-display-once 'The token value is nowhere on the surface after issuance' (value never re-shown). Acceptance = the unskipped cucumber scenario; the step definitions live in feature_machine_token_admin.rs (created here, follows projects.rs verbatim). Emit the data-attribute contract hooks ([data-token-surface], [data-token-value], [data-copy-token], [data-token-jti]/-label/-scope/-expiry) so assertions key off stable markers. Real-signing cross-check presents the minted token to the shipped /api/v1 path. Extend templates from base.html like project_create.html. std #[test] for the form parse + the all-or-nothing render seam."
+        }
+      ]
+    },
+    {
+      "id": "02",
+      "name": "List the workspace's issued machine tokens",
+      "steps": [
+        {
+          "id": "02-01",
+          "name": "list_tokens use-case + /admin/tokens index screen",
+          "criteria": [
+            "foundry_services::tokens::list_tokens gates on is_workspace_admin, calls Store::list_machine_tokens(workspace_id) newest-first and workspace-scoped, and maps each row to a TokenView carrying NO value",
+            "GET /admin/tokens renders TokenListPage with one [data-token-row] per token showing label, scope, created/expiry, last-used, and status ([data-token-status=active|revoked]); a revoked token still appears, marked revoked",
+            "no token value appears anywhere in the list, and the list is scoped to the acting workspace (a credential bound to a different workspace_id never appears)",
+            "an empty workspace renders an inviting empty state ('no tokens' / 'issue one') rather than a blank table"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-mt02-list.feature",
+          "scenario_name": "A reviewer sees the workspace's issued tokens newest first",
+          "estimate_hours": 5,
+          "deps": ["01-02"],
+          "implementation_scope": {
+            "files": [
+              "crates/foundry-services/src/tokens.rs",
+              "crates/foundry-app/src/admin_tokens.rs",
+              "crates/foundry-app/src/views.rs",
+              "crates/foundry-app/templates/token_list.html",
+              "crates/foundry-acceptance/tests/feature_machine_token_admin.rs"
+            ]
+          },
+          "implementation_notes": "Greens us-mt02 (list newest-first, no value, workspace-scoped, empty state, revoked still listed). Driving port: GET /admin/tokens. MachineTokenRow gains created_by: Option<Uuid>; list read attribution via LEFT JOIN users u ON u.id = m.created_by projecting email_display with COALESCE(..., '—') (mirrors list_comments_for_issue) — the created_by display is fully surfaced in 04-02 but plumbed here. std #[test] for list_tokens authz + workspace-scoping + newest-first ordering + value-absence. Reuse the TokenRow view-model (NO value field). Workspace-isolation modelled at the read boundary per upstream-issues.md UI-1 (synthetic foreign workspace_id)."
+        }
+      ]
+    },
+    {
+      "id": "03",
+      "name": "Revoke a token so it dies on its next API use",
+      "steps": [
+        {
+          "id": "03-01",
+          "name": "revoke_token use-case + revoke action (kill-switch via shipped denylist)",
+          "criteria": [
+            "POST /admin/tokens/{jti}/revoke (inside session + CSRF) calls services.revoke_token(principal, jti); a revoke POST without a valid _csrf is refused 403 before the handler and the row remains active",
+            "foundry_services::tokens::revoke_token gates on is_workspace_admin, returns a non-enumerable NotFound when the jti is missing OR belongs to another workspace (foreign token left untouched), and otherwise flips revoked_at via Store::revoke_machine_token idempotently (already-revoked succeeds without error)",
+            "after revoke the row for that token shows status revoked, and the integration's very next /api/v1 call with that token is refused 401 by the SHIPPED per-request jti denylist (no new refusal code)",
+            "the revoke confirmation UI warns the action is immediate and cannot be undone before it happens"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-mt03-revoke.feature",
+          "scenario_name": "A revoked token is refused on its very next API call",
+          "estimate_hours": 5,
+          "deps": ["01-02"],
+          "implementation_scope": {
+            "files": [
+              "crates/foundry-services/src/tokens.rs",
+              "crates/foundry-app/src/admin_tokens.rs",
+              "crates/foundry-app/src/views.rs",
+              "crates/foundry-app/templates/token_revoke_confirm.html",
+              "crates/foundry-acceptance/tests/feature_machine_token_admin.rs"
+            ]
+          },
+          "implementation_notes": "Greens us-mt03 (next-call refused, immediate/irreversible warning, idempotent, cross-workspace non-enumerable, no-CSRF 403). Driving port: POST /admin/tokens/{jti}/revoke + the revoke confirmation. Kill-switch effectiveness REUSES the shipped per-request jti denylist (resolve_active_token / us-w05b) — no new refusal path; the cross-check presents the real revoked credential to /api/v1 and asserts 401. CSRF refusal already runs via csrf_middleware once the route is real. Non-enumerable refusal (NotFound) for missing/foreign jti per NFR-MT-SEC-03. std #[test] for revoke_token authz + workspace-isolation + idempotency; TokenRevokeConfirm view-model carries 'immediate'/'cannot be undone' copy. 303 -> GET /admin/tokens (or htmx row-fragment swap to Revoked)."
+        }
+      ]
+    },
+    {
+      "id": "04",
+      "name": "Admin-only authz, scope/expiry bounds, and audit attribution",
+      "steps": [
+        {
+          "id": "04-01",
+          "name": "Admin-only authz + browser CSRF + scope/TTL validation + signer-absent graceful",
+          "criteria": [
+            "every /admin/tokens entry point requires is_workspace_admin; a non-admin is refused non-enumerably (generic 404, never confirming the surface exists) on open, mint, and revoke, with no token value shown",
+            "scope and expiry are validated server-side: a TTL beyond the 365-day cap is refused (422) stating the maximum; a TTL exactly at the cap is accepted; a default of 90 days applies when unspecified; a team scope outside the workspace is refused as invalid (422)",
+            "all browser mint/revoke POSTs require a valid _csrf (refused 403 otherwise) within the shipped session + CSRF layer",
+            "on a verifier-only server (machine_token_signer is None) the surface reports 'not enabled' and offers NO mint form ([data-mint-form] absent), and a mint attempt is refused gracefully with no value shown and no server error"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-mt05-authz.feature",
+          "scenario_name": "A non-admin member is refused without learning the surface exists",
+          "estimate_hours": 5,
+          "deps": ["01-02"],
+          "implementation_scope": {
+            "files": [
+              "crates/foundry-app/src/admin_tokens.rs",
+              "crates/foundry-services/src/tokens.rs",
+              "crates/foundry-app/src/views.rs",
+              "crates/foundry-acceptance/tests/feature_machine_token_admin.rs"
+            ]
+          },
+          "implementation_notes": "Greens us-mt05 (admin-only, non-enumerable) AND us-mt04 (scope/expiry bounds: team-scoped token, expiry at cap accepted, beyond-cap refused stating 365, foreign-team scope refused). Driving port: all three /admin/tokens entry points. Authz is enforced in the use-case (DD3) so every entry point inherits it; the handler also pre-checks before rendering chrome (defense in depth, mirrors comments.rs) and renders a GENERIC 404 on non-admin (NOT a 403 that confirms the surface). signer-absent seam: show_index renders the 'not enabled' notice without a mint form when machine_token_signer.is_none(); submit_mint pre-checks signer presence. Constants MAX_TTL_DAYS=365 / DEFAULT_TTL_DAYS=90 already declared. proptest for TTL/scope validation invariants; std #[test] for the non-enumerable 404 and the signer-absent branches."
+        },
+        {
+          "id": "04-02",
+          "name": "created_by audit surfaced in the list (who minted + last-used)",
+          "criteria": [
+            "each list row attributes the token to the resolving issuer email from created_by (e.g. 'minted by devansh@acme.com'), with distinct admins shown correctly across rows",
+            "a row whose created_by is NULL (pre-attribution token) surfaces the issuer as unknown ('—'/'unknown'), proving the forward-only nullable column is read safely",
+            "each row shows last-used: a recently-used token shows a recent last-used time and a never-used token shows 'never' ([data-token-last-used])"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-mt06-audit.feature",
+          "scenario_name": "The list attributes each token to who issued it",
+          "estimate_hours": 3,
+          "deps": ["02-01"],
+          "implementation_scope": {
+            "files": [
+              "crates/foundry-services/src/tokens.rs",
+              "crates/foundry-app/src/views.rs",
+              "crates/foundry-app/templates/token_list.html",
+              "crates/foundry-acceptance/tests/feature_machine_token_admin.rs"
+            ]
+          },
+          "implementation_notes": "Greens us-mt06 (minted-by attribution, unknown issuer for NULL created_by, last-used/never). Builds on the 02-01 list slice (created_by/minted_by plumbing) by surfacing the resolved issuer email and last_used_at in the TokenRow view + template. NULL created_by => COALESCE display '—'/'unknown' (NFR-MT-DATA-01 forward-only safety). std #[test] for the minted_by resolution (multi-admin) and the NULL/never display mapping. No new repo column beyond 0008; reuse the LEFT JOIN users projection from 02-01."
+        }
+      ]
+    }
+  ],
+  "implementation_scope": {
+    "source_directories": [
+      "crates/foundry-app/src/",
+      "crates/foundry-services/src/",
+      "crates/foundry-store/src/"
+    ],
+    "test_directories": [
+      "crates/foundry-acceptance/tests/"
+    ],
+    "excluded_patterns": [
+      "target/**",
+      "**/*.lock"
+    ]
+  },
+  "validation": {
+    "status": "pending",
+    "reviewer": "TODO",
+    "approved_at": "TODO"
+  }
+}
