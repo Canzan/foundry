@@ -17,7 +17,10 @@
 //!     `SecretString` value EXACTLY ONCE (DD7) then dropping it. A missing label
 //!     is refused 422 with NO value shown (all-or-nothing, NFR-MT-REL-01).
 //!
-//! `submit_revoke` stays a 501 RED scaffold (step 03-01).
+//!   - `POST /admin/tokens/{jti}/revoke` (`submit_revoke`): admin gate →
+//!     `services.revoke_token(principal, jti)` (non-enumerable `NotFound` for a
+//!     missing/foreign jti) → flips `revoked_at`; the shipped `/api/v1` denylist
+//!     refuses the token on its next request. CSRF-protected, idempotent.
 //!
 //! The minted `SecretString` is rendered once via `expose_secret()` into the
 //! one-time page's owned `String` field and dropped when the handler returns —

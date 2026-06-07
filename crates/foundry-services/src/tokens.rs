@@ -1,13 +1,11 @@
 //! `foundry_services::tokens` — the machine-token admin use-cases
 //! (mint / list / revoke) for the `machine-token-admin-ux` feature.
 //!
-//! RED scaffold (DISTILL, Mandate 7 / ADR-025):
-//! These are the contract signatures DESIGN fixed in
-//! `docs/feature/machine-token-admin-ux/design/token-admin-services.md`. Each
-//! body `panic!`s with a `RED scaffold` marker so a test reaching it fails for
-//! MISSING_FUNCTIONALITY, not a compile/import error. DELIVER replaces the
-//! bodies with the ordered behaviour (authz → TTL validation → scope mapping →
-//! claims → sign → persist METADATA ONLY → return the one-time value).
+//! Each use-case follows the ordered behaviour DESIGN fixed in
+//! `docs/feature/machine-token-admin-ux/design/token-admin-services.md`:
+//! authz (`is_workspace_admin`) → TTL validation → scope mapping → claims →
+//! sign → persist METADATA ONLY (never the token value) → return the one-time
+//! value (mint); cross-workspace access returns a non-enumerable `NotFound`.
 //!
 //! Why a neutral service, not a handler: this is the seam Feature A established
 //! (`board`/`issues`/`comments`) — authz (`is_workspace_admin`), claims
@@ -15,8 +13,6 @@
 //! must be identical for the web UI now and a JSON token API later, and the
 //! adapter must not name `foundry_store::Store` (boundary guard). The signer is
 //! PASSED to `mint_token` (DD4), never stored in `Services`.
-//!
-//! SCAFFOLD: true
 
 use crate::{Principal, ServiceError};
 use foundry_store::Store;
