@@ -1036,9 +1036,28 @@ async fn row_shows_revoked(world: &mut FoundryWorld, label: String) {
 
 #[then(regex = r#"^the row for "([^"]+)" remains active$"#)]
 async fn row_remains_active(world: &mut FoundryWorld, label: String) {
-    get_token_surface(world).await;
-    require_rendered(world, "token list");
-    assert_row_status(world, &label, "active");
+    // Assert the REGISTRY truth, not a re-rendered view: the seeded token's
+    // `revoked_at` is still NULL. This is actor-independent — a non-admin (whose
+    // failed revoke this guards, us-mt05) cannot view the list at all (404), so a
+    // re-GET would be vacuous. Reading the persisted state directly proves the
+    // refused/forbidden revoke left the credential untouched.
+    let jti = *world
+        .mt_jti_by_label
+        .get(&label)
+        .unwrap_or_else(|| panic!("token {label:?} was seeded"));
+    let harness = world.harness.as_ref().expect("harness");
+    let row = harness
+        .app
+        .state
+        .store
+        .find_machine_token_by_jti(jti)
+        .await
+        .expect("lookup token by jti")
+        .unwrap_or_else(|| panic!("token {label:?} must still exist in the registry"));
+    assert!(
+        row.revoked_at.is_none(),
+        "the row for {label:?} must remain active (revoked_at must be NULL)"
+    );
 }
 
 #[then(regex = r#"^the integration's next API call with that token is refused$"#)]

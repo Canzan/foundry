@@ -535,6 +535,21 @@ impl Store {
         Ok(row.map(|(id, name)| TeamRow { id, name }))
     }
 
+    /// Resolve a team's display name by id (machine-token-admin scope labelling,
+    /// DD9). `None` when no team matches (deleted/foreign id). Read-only, by
+    /// primary key — mirrors `find_team_by_slug`'s shape but keyed on the id the
+    /// machine-token registry stores in `scope_team_id`.
+    pub async fn find_team_name_by_id(
+        &self,
+        team_id: uuid::Uuid,
+    ) -> Result<Option<String>, StoreError> {
+        let row: Option<(String,)> = sqlx::query_as("SELECT name FROM teams WHERE id = $1")
+            .bind(team_id)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(row.map(|(name,)| name))
+    }
+
     /// Is `user_id` a member of `team_id`? Drives the 403 path when a
     /// workspace member tries to create a project in a team they don't
     /// belong to (US-07 scenario 4).

@@ -120,9 +120,10 @@ pub async fn submit_mint(
         user_id: admin.user_id,
         workspace_id: admin.workspace_id,
     };
+    let scope = resolve_scope(&state, &admin, &form).await;
     let input = MintInput {
         label: label.clone(),
-        scope: ScopeChoice::Workspace,
+        scope,
         ttl_days,
     };
 
@@ -136,7 +137,7 @@ pub async fn submit_mint(
                 value_once: minted.value.expose_secret().to_string(),
                 jti: minted.jti.to_string(),
                 label: minted.label.clone(),
-                scope_label: scope_label(minted.scope_team_id),
+                scope_label: scope_label(minted.scope_team_id, minted.scope_team_name.as_deref()),
                 expires_at: format_ts(minted.expires_at),
             };
             match page.render() {
@@ -197,8 +198,68 @@ pub struct MintForm {
     pub label: String,
     #[serde(default)]
     pub ttl_days: Option<i64>,
+    /// `"team"` selects a team-scoped grant; anything else (or absent) is a
+    /// whole-workspace grant (DD9). The default radio is "workspace".
+    #[serde(default)]
+    pub scope: Option<String>,
+    /// The chosen team when `scope == "team"` — either the team's `Uuid` (the
+    /// real picker submits ids) or its name/slug (resolved to an id below). A
+    /// value that resolves to no team in the acting workspace stays a foreign
+    /// id, which `mint_token` refuses as `scope_team_not_in_workspace` (422).
+    #[serde(default)]
+    pub team: Option<String>,
     #[serde(rename = "_csrf", default)]
     pub _csrf: Option<String>,
+}
+
+/// Map the mint form's scope/team fields to a [`ScopeChoice`] (DD9). Anything
+/// other than `scope == "team"` is a whole-workspace grant. For a team grant the
+/// `team` field is either the team's `Uuid` (the real picker submits ids) or its
+/// name/slug — resolved to the acting workspace's team id when it matches, else
+/// left as the submitted/zero id so `mint_token` refuses it non-enumerably as
+/// `scope_team_not_in_workspace` (a foreign team never resolves here). The
+/// workspace-membership of the resolved id is re-validated inside the service —
+/// this only translates the form choice.
+async fn resolve_scope(state: &AppState, admin: &SessionUser, form: &MintForm) -> ScopeChoice {
+    if form.scope.as_deref() != Some("team") {
+        return ScopeChoice::Workspace;
+    }
+    let raw = form.team.as_deref().unwrap_or("").trim();
+    if let Ok(team_id) = uuid::Uuid::parse_str(raw) {
+        return ScopeChoice::Team(team_id);
+    }
+    let resolved = state
+        .store
+        .find_team_by_slug(admin.workspace_id, &slugify(raw))
+        .await
+        .ok()
+        .flatten()
+        .map(|team| team.id)
+        .unwrap_or_else(uuid::Uuid::nil);
+    ScopeChoice::Team(resolved)
+}
+
+/// Lowercase ASCII-alphanumeric slug (matches `projects::slugify` + the team
+/// seed): non-alphanumerics collapse to single hyphens, leading/trailing
+/// hyphens trimmed.
+fn slugify(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut last_hyphen = true;
+    for ch in input.chars() {
+        if ch.is_ascii_alphanumeric() {
+            for lower in ch.to_lowercase() {
+                out.push(lower);
+            }
+            last_hyphen = false;
+        } else if !last_hyphen {
+            out.push('-');
+            last_hyphen = true;
+        }
+    }
+    while out.ends_with('-') {
+        out.pop();
+    }
+    out
 }
 
 /// Resolve the signed-in admin from the session. Returns `None` (→ a generic,
@@ -248,10 +309,11 @@ async fn load_token_rows(
 /// `minted_by` renders "—"; a never-used token renders "never".
 fn token_row(view: foundry_services::tokens::TokenView, now: time::OffsetDateTime) -> TokenRow {
     let status = token_status(&view, now);
+    let scope = scope_label(view.scope_team_id, view.scope_team_name.as_deref());
     TokenRow {
         jti: view.jti.to_string(),
         label: view.label,
-        scope_label: scope_label(view.scope_team_id),
+        scope_label: scope,
         expires_at: format_ts(view.expires_at),
         status,
         minted_by: view.minted_by.unwrap_or_else(|| "—".to_string()),
@@ -319,10 +381,15 @@ fn render_list(page: TokenListPage, status: StatusCode, set_cookie: Option<Strin
     }
 }
 
-fn scope_label(scope_team_id: Option<uuid::Uuid>) -> String {
-    match scope_team_id {
-        None => "Whole workspace".to_string(),
-        Some(team_id) => format!("Team {team_id}"),
+/// The scope display label (DD9): a whole-workspace grant reads "Whole
+/// workspace"; a team grant reads the resolved team NAME (so the surface names
+/// "Backend", never an opaque id). A team that no longer resolves falls back to
+/// the id so the row is never blank.
+fn scope_label(scope_team_id: Option<uuid::Uuid>, scope_team_name: Option<&str>) -> String {
+    match (scope_team_id, scope_team_name) {
+        (None, _) => "Whole workspace".to_string(),
+        (Some(_), Some(name)) => name.to_string(),
+        (Some(team_id), None) => format!("Team {team_id}"),
     }
 }
 

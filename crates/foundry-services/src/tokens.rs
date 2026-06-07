@@ -52,6 +52,10 @@ pub struct MintedToken {
     pub jti: uuid::Uuid,
     pub label: String,
     pub scope_team_id: Option<uuid::Uuid>,
+    /// Resolved team name for a team-scoped grant (DD9) — `None` for a
+    /// whole-workspace grant. Lets the one-time display name the team instead of
+    /// echoing an opaque id.
+    pub scope_team_name: Option<String>,
     pub expires_at: time::OffsetDateTime,
 }
 
@@ -62,6 +66,9 @@ pub struct TokenView {
     pub jti: uuid::Uuid,
     pub label: String,
     pub scope_team_id: Option<uuid::Uuid>,
+    /// Resolved team name for a team-scoped grant (DD9) — `None` for a
+    /// whole-workspace grant or a team that no longer resolves.
+    pub scope_team_name: Option<String>,
     pub expires_at: time::OffsetDateTime,
     pub revoked: bool,
     pub last_used_at: Option<time::OffsetDateTime>,
@@ -173,14 +180,35 @@ pub async fn mint_token(
         .map_err(|_| ServiceError::Internal)?;
 
     // 7. Return the one-time value — it travels to the handler, renders once,
-    //    and drops (DD7).
+    //    and drops (DD7). The team name is resolved for the display label
+    //    (None for a whole-workspace grant).
+    let scope_team_name = resolve_team_name(store, scope_team_id).await?;
     Ok(MintedToken {
         value,
         jti,
         label: input.label,
         scope_team_id,
+        scope_team_name,
         expires_at,
     })
+}
+
+/// Resolve a team's display name by id (DD9 scope labelling). `None` in ⇒ `None`
+/// out (a whole-workspace grant carries no team). A team that no longer exists
+/// also resolves to `None`. Delegates to the store (SQL stays in `foundry-store`,
+/// the architecture's single SQL home) — mirrors the per-row `find_user_email_by_id`
+/// resolution `list_tokens` already does for `minted_by`.
+async fn resolve_team_name(
+    store: &Store,
+    scope_team_id: Option<uuid::Uuid>,
+) -> Result<Option<String>, ServiceError> {
+    let Some(team_id) = scope_team_id else {
+        return Ok(None);
+    };
+    store
+        .find_team_name_by_id(team_id)
+        .await
+        .map_err(|_| ServiceError::Internal)
 }
 
 /// List the workspace's issued tokens (US-MT02, US-MT06).
@@ -216,10 +244,12 @@ pub async fn list_tokens(
             .find_user_email_by_id(row.user_id)
             .await
             .map_err(|_| ServiceError::Internal)?;
+        let scope_team_name = resolve_team_name(store, row.scope_team_id).await?;
         views.push(TokenView {
             jti: row.jti,
             label: row.label,
             scope_team_id: row.scope_team_id,
+            scope_team_name,
             expires_at: row.expires_at,
             revoked: row.revoked_at.is_some(),
             last_used_at: row.last_used_at,
