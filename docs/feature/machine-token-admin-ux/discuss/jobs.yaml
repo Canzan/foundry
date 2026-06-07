@@ -1,0 +1,239 @@
+# JTBD Outcomes — Machine-Token Admin UX
+#
+# Single source of truth for job_id references used by user stories in stories.md.
+#
+# ============================================================================
+# WHAT THIS FILE IS
+# ============================================================================
+# These are NEW jobs: a workspace admin GRANTING and MANAGING programmatic
+# access (machine tokens) for an integration or an autonomous agent. They are
+# NOT the htmx-web-1/2/3 templating jobs (those are about rendering screens and
+# are unrelated). The cryptographic + storage substrate already SHIPPED in
+# Feature A (web-tier-extraction): server-side Ed25519 minting
+# (MachineTokenSigner::mint), the machine_tokens registry + jti revocation
+# denylist, MachineTokenVerifier, and is_workspace_admin. Feature A explicitly
+# DEFERRED the admin surface and the created_by audit column. This feature is
+# that issuer call-site.
+#
+# ============================================================================
+# SOURCE / VALIDATION STATUS
+# ============================================================================
+# This feature has NO diverge/ directory (no validated DIVERGE job-analysis.md).
+# Jobs are NEW and Luna-derived from (a) the brief, (b) a fresh 2026-06 reading
+# of the shipped Feature-A primitives, and (c) JTBD method. Importances and
+# satisfactions are Luna estimates pending user/field validation. See
+# wave-decisions.md "No DIVERGE directory (RISK)" + the Open Questions table.
+
+schema_version: 1
+feature: machine-token-admin-ux
+feature_label: "Machine-Token Admin UX — issue, see, and revoke programmatic access"
+source: DERIVED (no diverge/ dir) — brief + 2026-06 code-surface reading of Feature A primitives + JTBD method
+predecessor_feature: web-tier-extraction   # Feature A — shipped the crypto + store + authz substrate
+
+# ---------------------------------------------------------------------------
+# Personas (grounded in the shipped code + the brief's actors)
+# ---------------------------------------------------------------------------
+personas:
+  workspace_admin:
+    name_example: "Priya Nandakumar"
+    description: >
+      A workspace admin (role = 'admin' in workspace_memberships, the row
+      is_workspace_admin checks). She owns the integrations her team relies on
+      — a CI bot that files issues, a Slack relay, an autonomous triage agent.
+      TODAY she has no product way to grant any of them API access: tokens can
+      only be minted via env/test keys (foundry_auth::test_keys, the boot
+      self-test). She is the PRIMARY persona — the human doing the issuing.
+    grounding: "is_workspace_admin in foundry-store; workspace_memberships.role='admin'; the brief's 'workspace admin minting for an integration/agent'."
+  integration_owner:
+    name_example: "Marco Bianchi"
+    description: >
+      The engineer who wires an external agent or integration to Foundry's
+      /api/v1. He is the CONSUMER of the minted token — he pastes it into the
+      integration's config as a bearer credential. He may be the same person as
+      the admin or a teammate the admin hands the token to. Cares that the token
+      works immediately and that he is told its scope + expiry.
+    grounding: "the /api/v1 + MachineTokenVerifier bearer path shipped in Feature A; the brief's 'external agents/integrations authenticate with a bearer token'."
+  security_reviewer:
+    name_example: "Dana Whitfield"
+    description: >
+      A security-conscious operator/reviewer who periodically audits which
+      programmatic credentials exist, who issued them, what they can reach, and
+      whether any should be revoked. Cares about the audit trail (created_by,
+      last_used_at), least privilege (scope/expiry), and that revocation
+      actually takes effect.
+    grounding: "the machine_tokens registry (workspace-scoped list, revoked_at, last_used_at) shipped in Feature A; the brief's audit + revocation emphasis."
+
+# ---------------------------------------------------------------------------
+# Jobs. RANKING (primary -> supporting):
+#   1. mt-job-1  (PRIMARY)    — grant an integration programmatic access safely
+#   2. mt-job-2  (PRIMARY)    — know what credentials exist and revoke risky ones
+#   3. mt-job-3  (SUPPORTING) — grant least-privilege, time-bounded access
+#   4. mt-job-4  (SUPPORTING) — account for who granted access (audit)
+# ---------------------------------------------------------------------------
+jobs:
+  mt-job-1:
+    name: "Grant an integration or agent programmatic access without leaking or losing the secret"
+    statement: >
+      When I need an external integration or an autonomous agent to act on my
+      workspace through the API, I want to issue it a credential from the product
+      and hand over the secret safely, so I can get the integration working in
+      minutes without editing env vars, redeploying, or copying a private signing
+      key around.
+    primary_persona: workspace_admin
+    importance: 9
+    satisfaction_today: 1
+    opportunity_score: 17
+    status: critically-under-served
+    rank_note: >
+      PRIMARY. Satisfaction is 1 (not 0) only because the crypto + store + verify
+      substrate exists — but there is NO product surface, so an admin literally
+      cannot do this today without operator-level env/test-key access. The mint
+      primitive (MachineTokenSigner::mint) and the registry (insert_machine_token)
+      are shipped; the gap is purely the issuer call-site + the one-time-display UX.
+    dimensions:
+      functional: "Issue a new token from an admin action, copy its value once, and confirm the integration can call /api/v1 with it."
+      emotional: "Confidence that I issued exactly one credential, that I have the secret in hand, and that I did not have to touch a signing key or a deploy to do it."
+      social: "I can hand a teammate a working credential and tell them its scope and expiry, rather than 'ask ops to add an env var'."
+    forces:
+      push: >
+        Tokens can only be minted via env/test keys today (foundry_auth::test_keys
+        + the boot self-test); there is no admin surface. Granting access means
+        operator access, an env change, and a redeploy — slow, privileged, and
+        error-prone.
+      pull: >
+        A one-click (or one-POST) mint from the product that returns a working
+        bearer token, shown once, ready to paste into an integration. The signing
+        already exists server-side (MachineTokenSigner::mint); only the surface is
+        missing.
+      anxiety: >
+        Where does the token value go after I see it? If I lose it, can I get it
+        back? Did issuing this widen the attack surface? (Answered: shown once,
+        never re-shown, lose-it = mint a new one; the signing-key posture is the
+        real DESIGN concern, see wave-decisions Q1.)
+      habit: >
+        Admins are used to "ask ops to set MACHINE_TOKEN_*" or copy a key file;
+        the product surface replaces that out-of-band ritual with an in-product
+        action.
+
+  mt-job-2:
+    name: "Know which programmatic credentials exist and shut down the risky ones"
+    statement: >
+      When I am responsible for what can reach my workspace's API, I want to see
+      every machine token that has been issued and revoke any that should no
+      longer work, so I can stop a compromised or stale integration immediately
+      and trust that it cannot call the API again.
+    primary_persona: security_reviewer
+    importance: 8
+    satisfaction_today: 2
+    opportunity_score: 14
+    status: under-served
+    rank_note: >
+      PRIMARY. The registry (list_machine_tokens, revoke_machine_token) and the
+      per-request denylist are SHIPPED and tested — but with no product surface a
+      reviewer cannot see or revoke anything without DB access. Satisfaction 2:
+      the data + the revocation mechanism exist; the visibility + the control
+      surface do not.
+    dimensions:
+      functional: "List the workspace's tokens with their status; click revoke on one; confirm the integration using it is refused on its next call."
+      emotional: "Relief that I can see the whole picture and that 'revoke' is final and immediate — no lingering valid credential."
+      social: "I can show an auditor a list of active credentials and demonstrate that a revoked one is dead."
+    forces:
+      push: >
+        There is no way to see issued tokens or revoke one through the product;
+        doing either requires DB access. A reviewer is blind to what exists and
+        powerless to stop it without operator help.
+      pull: >
+        A workspace-scoped list (label, scope, expiry, status, last used) with a
+        revoke action whose effect is immediate on the next API request (the
+        denylist already enforces this per-request).
+      anxiety: >
+        After I click revoke, is the credential really dead, or is there a cache
+        that keeps it alive? (Answered: revocation is per-request via the shipped
+        jti denylist; refused on the very next call; the row survives so the check
+        keeps refusing until expiry.)
+      habit: >
+        Reviewers are used to grepping a DB or a config to find credentials; an
+        in-product list replaces that with a workspace-scoped view.
+
+  mt-job-3:
+    name: "Grant least-privilege, time-bounded access instead of an all-powerful forever key"
+    statement: >
+      When I issue a credential to an integration, I want to choose how far it can
+      reach (workspace-wide or one team) and when it stops working, so I can grant
+      only what the integration needs for only as long as it needs it, instead of
+      handing out a broad, never-expiring key.
+    primary_persona: workspace_admin
+    importance: 6
+    satisfaction_today: 2
+    opportunity_score: 10
+    status: under-served
+    rank_note: >
+      SUPPORTING. The claim set already carries scope: Option<Uuid> (workspace
+      vs team via scope_team_id) and exp, and insert_machine_token takes
+      scope_team_id + expires_at — so the substrate supports least-privilege
+      grants. The gap is the admin-facing choice + the server-enforced bounds
+      (default TTL, max cap). The exact scope vocabulary and TTL numbers are
+      OPEN (wave-decisions Q3).
+    dimensions:
+      functional: "At mint time, pick a label, a scope (workspace or a specific team), and an expiry within the allowed range."
+      emotional: "Comfort that I did not over-grant — this token can only do what this integration needs, and it will lapse on its own."
+      social: "An auditor sees scoped, expiring credentials rather than a pile of broad forever-keys."
+    forces:
+      push: >
+        Without a mint form there is no way to choose scope or expiry; any
+        out-of-band minted token uses whatever claims the operator hand-built.
+      pull: >
+        A mint form (or API body) that takes label + scope + expiry, with the
+        server enforcing a max TTL cap and a sane default so an admin cannot
+        accidentally issue a forever-key.
+      anxiety: >
+        Will a short expiry break the integration unexpectedly? (Mitigated by a
+        clear expiry shown at mint and surfaced in the list; reissue is a mint.)
+      habit: >
+        Admins used to long-lived shared secrets must learn to pick a scope and
+        an expiry; sensible defaults lower that friction.
+
+  mt-job-4:
+    name: "Account for who granted each piece of programmatic access"
+    statement: >
+      When I review the programmatic credentials in my workspace, I want each one
+      to record who issued it and when it was last used, so I can hold issuance
+      accountable and spot credentials that are stale or were granted by someone
+      who has since left.
+    primary_persona: security_reviewer
+    importance: 5
+    satisfaction_today: 1
+    opportunity_score: 9
+    status: under-served
+    rank_note: >
+      SUPPORTING. The machine_tokens table has NO created_by column today —
+      Feature A DEFERRED it because "no issuer call-site existed" (confirmed by
+      reading migration 0007 + insert_machine_token's signature). This feature is
+      that call-site, so created_by comes back (a forward-only migration per
+      ADR-003) and is surfaced in the list. last_used_at already exists and is
+      touched on use.
+    dimensions:
+      functional: "See 'minted by {admin}' and 'last used {time}' on each row in the token list."
+      emotional: "Accountability — issuance is attributable, not anonymous."
+      social: "An auditor can attribute every credential to a named admin."
+    forces:
+      push: >
+        machine_tokens records no issuer today; a token in the registry is
+        anonymous as to who created it. last_used_at exists but is unsurfaced.
+      pull: >
+        A created_by column populated at mint with the acting admin's user_id,
+        plus last_used_at, both shown in the list view.
+      anxiety: "Will adding a column to a shipped table be safe? (Forward-only, nullable; pre-existing rows show unknown.)"
+      habit: "Reviewers expect an issuer/owner field on any credential record."
+
+# ---------------------------------------------------------------------------
+# Story-to-job mapping (mirror of the job_id line on each story; canonical source).
+# ---------------------------------------------------------------------------
+story_job_map:
+  US-MT00: infrastructure-only  # signer-in-AppState + created_by migration; folds into Slice 1 (never standalone)
+  US-MT01: mt-job-1             # Slice 1 (walking skeleton): admin mints a token, value shown once
+  US-MT02: mt-job-2             # Slice 2: admin lists the workspace's issued tokens with status
+  US-MT03: mt-job-2             # Slice 3: admin revokes a token; refused on next API use
+  US-MT04: mt-job-3            # Slice 4: admin chooses scope + expiry within server-enforced bounds
+  US-MT05: mt-job-1            # Slice 4: only workspace admins can mint/list/revoke (authz boundary)
+  US-MT06: mt-job-4            # Slice 4: list shows 'minted by {admin}' + last used (audit)
