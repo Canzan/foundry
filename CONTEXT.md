@@ -2,15 +2,15 @@
 
 ## Current Task
 
-**Web-tier templating arc COMPLETE and the full local gate is green** (`main` at `0f9d307`). `cargo xtask ci` passes ALL stages end-to-end — fmt, clippy, `xtask check-arch`, build --release, workspace tests, `cargo deny`, and the `@all` acceptance lane (**187 scenarios / 1572 steps, 0 failures**). Foundry now has zero inline `format!()` HTML anywhere in `foundry-app/src`; every web surface renders from an Askama template.
+**`machine-token-admin-ux` shipped to trunk** (`main` at `433fe69`). Full nWave pipeline (DISCUSS→DESIGN→DISTILL→DELIVER, wave-by-wave). Workspace admins can now **mint** (server-side Ed25519, value shown once), **list**, and **revoke** machine tokens at `/admin/tokens` — making the app a token issuer (was verifier-only). 215/215 acceptance green; `foundry_services::tokens` mutation 100%; zero new crates.
 
 ## Key Decisions
 
-- Four features delivered through the full nWave pipeline, all on trunk: `web-tier-extraction` (JSON `/api/v1` + JWT, `ba791ee`) → `htmx-web-tier` (Askama + vendored htmx2, `36c0fd3`) → `remaining-surfaces-templating` (full pages 9→0, `71c9c72`) → `keyboard-fragments-templating` (last 2 fragments, `7f63c8b`). Two CI-enforced guards prevent inline-HTML regression.
-- Infra fixes that made the gate green: US-03 restore **deadlock** fixed (`FoundryWorld` field-drop-order race, `6407946`) + matching **postgresql@16** client installed (replacing libpq-18) so `pg_dump`/`pg_restore` match the pg16 testcontainer.
-- Trunk-based (AGENTS.md + memory): commit to `main`, no PRs, no CI commit-gate; `cargo xtask ci` is the local gate.
+- **Signer in `AppState`** as `Option<Arc<MachineTokenSigner>>`, retained only after the boot self-test; SecretString + Debug-omitted + never logged; **graceful-absent** (no key → mint disabled/UI hidden/403, verify-only still boots). One-time secret never persisted/logged. Revoke reuses the **shipped jti denylist** (refused next `/api/v1`). `0008` adds nullable `created_by` (ON DELETE SET NULL). Web-UI-first; JSON token API deferred.
+- **Security review (Sonnet)**: 0 blockers, 3 high fixed test-first — headline: `created_by` was written but never read back, so the audit list resolved "minted by" from the token *subject* not the *issuer*; fixed + proven with a subject≠issuer seed. Mutation pinned authz/TTL/scope/isolation/status (100% on tokens.rs).
+- **Trunk-based** (AGENTS.md + memory): all commits direct to `main`, no PRs; verify with full-workspace `cargo fmt --all --check` + `cargo clippy --all-targets --release -D warnings` (per-crate misses the acceptance crate).
 
 ## Next Steps
 
-- None outstanding — arc delivered, gate green, one branch (`main`), tree clean.
-- Lesson logged: run FULL-workspace `cargo fmt --all --check` + `cargo clippy --all-targets --release -- -D warnings` per step (per-crate checks missed nits in the acceptance crate).
+- None outstanding for this feature. Deferred (in `discuss/out-of-scope.md` + `distill/upstream-issues.md`): JSON token-management API; real cross-workspace fixtures (await multi-workspace support); key-rotation UX.
+- Five features now shipped this arc: web-tier-extraction, htmx-web-tier, remaining-surfaces-templating, keyboard-fragments-templating, machine-token-admin-ux.
