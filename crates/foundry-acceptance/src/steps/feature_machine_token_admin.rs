@@ -290,17 +290,43 @@ async fn seed_token_row(
     revoked: bool,
     expired: bool,
 ) -> uuid::Uuid {
+    // Default issuer: SOME existing member of the workspace (the FK only has to
+    // be valid — for the single-issuer scenarios authorship is not the behaviour
+    // under test). The issuer-attribution scenario (us-mt06) uses the
+    // by-issuer variant below to bind each token to a NAMED admin.
+    seed_token_row_by_issuer(world, workspace_name, label, None, revoked, expired).await
+}
+
+/// Seed a registry row whose `created_by` is a NAMED issuer (US-MT06 attribution:
+/// the list must show each token's distinct issuer email). `issuer_email = None`
+/// binds to any workspace member (FK validity only); `Some(email)` resolves that
+/// user and records them as the credential's author — so the list can attribute
+/// "CI bot" to devansh and "Old triage agent" to dana.
+async fn seed_token_row_by_issuer(
+    world: &mut FoundryWorld,
+    workspace_name: &str,
+    label: &str,
+    issuer_email: Option<&str>,
+    revoked: bool,
+    expired: bool,
+) -> uuid::Uuid {
     let workspace_id = workspace_id_by_name(world, workspace_name).await;
-    // Bind the credential to SOME existing user in that workspace (the admin if
-    // present, else any member) — authorship is a valid FK, not the behaviour.
     let harness = world.harness.as_ref().expect("harness");
     let pool = harness.app.state.store.pool();
-    let user: (uuid::Uuid,) =
-        sqlx::query_as("SELECT user_id FROM workspace_memberships WHERE workspace_id = $1 LIMIT 1")
-            .bind(workspace_id)
+    let user: (uuid::Uuid,) = match issuer_email {
+        Some(email) => sqlx::query_as("SELECT id FROM users WHERE email_lower = $1")
+            .bind(email.to_ascii_lowercase())
             .fetch_one(pool)
             .await
-            .expect("a member exists in the workspace");
+            .unwrap_or_else(|e| panic!("resolve issuer {email:?}: {e}")),
+        None => sqlx::query_as(
+            "SELECT user_id FROM workspace_memberships WHERE workspace_id = $1 LIMIT 1",
+        )
+        .bind(workspace_id)
+        .fetch_one(pool)
+        .await
+        .expect("a member exists in the workspace"),
+    };
     let jti = uuid::Uuid::now_v7();
     let now = time::OffsetDateTime::now_utc();
     let exp = if expired {
@@ -493,8 +519,10 @@ async fn two_admins_issued(
         None,
     )
     .await;
-    seed_token_row(world, "Acme", &label_a, false, false).await;
-    seed_token_row(world, "Acme", &label_b, false, false).await;
+    // Attribute each token to its NAMED issuer so the list can show distinct
+    // admins (US-MT06): label_a is the acting admin's, label_b is dana's.
+    seed_token_row_by_issuer(world, "Acme", &label_a, Some(ADMIN_EMAIL), false, false).await;
+    seed_token_row_by_issuer(world, "Acme", &label_b, Some(&other_admin), false, false).await;
 }
 
 #[given(
