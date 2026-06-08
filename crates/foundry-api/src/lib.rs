@@ -32,7 +32,7 @@ use axum::extract::{FromRef, FromRequestParts, Path, State};
 use axum::http::request::Parts;
 use axum::http::{header, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Json, Response};
-use axum::routing::{get, patch, post};
+use axum::routing::{delete, get, patch, post};
 use axum::Router;
 use foundry_auth::MachineTokenVerifier;
 use foundry_services::{Principal, ServiceError, Services};
@@ -233,6 +233,10 @@ where
             "/api/v1/teams/{team_slug}/projects/{project_slug}/tokens",
             get(list_tokens_handler),
         )
+        .route(
+            "/api/v1/teams/{team_slug}/projects/{project_slug}/tokens/{jti}",
+            delete(revoke_token_handler),
+        )
 }
 
 /// `GET /api/v1/teams/{team}/projects/{project}/issues` (US-W05a/b). The
@@ -383,6 +387,32 @@ async fn list_tokens_handler(
     let views = services.list_tokens(&principal).await?;
     let body = views.into_iter().map(TokenJson::from).collect();
     Ok(Json(body))
+}
+
+/// `DELETE /api/v1/teams/{team}/projects/{project}/tokens/{jti}` (US-TMA02/03).
+/// The `MachinePrincipal` extractor authenticates the bearer credential (fail-
+/// closed 401) BEFORE the handler body runs; the `{jti}` is extracted as a
+/// `uuid::Uuid` path param, so a malformed id fails axum extraction before the
+/// handler — leaking no existence (api-contract.md §3). It then calls the shared
+/// core seam `revoke_token`, where the SHIPPED, mutation-hardened use-case
+/// decides authorization (403 when the bound user is not a workspace admin),
+/// workspace-confined non-enumerable NotFound (404 — identical for a foreign or
+/// unknown jti), and idempotency (a re-revoke of an already-revoked credential
+/// is a harmless success). The use-case returns `()` (there is no representation
+/// of a deletion), so a success maps to `204 No Content` with no body — keeping
+/// the contract minimal and the read-after-write (US-TMA04) honest.
+///
+/// Kill-switch effectiveness is NOT a new mechanism here: after a successful
+/// revoke, the credential's very next `/api/v1` call is refused 401 by the
+/// SHIPPED per-request jti denylist (`token_auth::authenticate` ->
+/// `Services::resolve_active_token`), unchanged by this handler.
+async fn revoke_token_handler(
+    State(services): State<Services>,
+    MachinePrincipal(principal): MachinePrincipal,
+    Path((_team_slug, _project_slug, jti)): Path<(String, String, uuid::Uuid)>,
+) -> Result<StatusCode, ApiError> {
+    services.revoke_token(&principal, jti).await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// The authenticated machine principal, recovered by the bearer-token

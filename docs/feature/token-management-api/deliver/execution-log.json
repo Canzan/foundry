@@ -65,6 +65,41 @@
       "s": "EXECUTED",
       "d": "PASS",
       "t": "2026-06-08T12:14:17Z"
+    },
+    {
+      "sid": "01-02",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-08T12:15:16Z"
+    },
+    {
+      "sid": "02-01",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-08T12:16:58Z"
+    },
+    {
+      "sid": "02-01",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-08T12:22:29Z"
+    },
+    {
+      "sid": "02-01",
+      "p": "RED_UNIT",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: 204-mapping + idempotency + non-enumerable NotFound + authz all inherited from the shipped mutation-hardened revoke_token use-case and the shipped jti denylist; the only new code is a thin DELETE handler + route registration asserted port-to-port over real HTTP at the acceptance layer. A unit test would re-test the shipped use-case (redundant) or mock inside the hexagon (forbidden).",
+      "t": "2026-06-08T12:22:38Z"
+    },
+    {
+      "sid": "02-01",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-08T12:28:35Z"
     }
   ]
 }

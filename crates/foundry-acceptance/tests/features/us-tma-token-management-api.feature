@@ -100,7 +100,7 @@ Feature: A machine manages its workspace's tokens over the JSON API
   # US-TMA02 (revoke) + US-TMA03 (revoke-self / rotation)
   # ======================================================================
 
-  @us-tma02 @pending
+  @us-tma02
   Scenario: A rotation job revokes a credential and it is dead on its next call
     Given a credential "leaked-ci" is active in workspace "Acme"
     And a rotation job holds a management-capable bearer for "Acme"
@@ -108,7 +108,7 @@ Feature: A machine manages its workspace's tokens over the JSON API
     Then the revoke is reported as succeeded with no content
     And the next API call made with "leaked-ci" is refused as unauthorized
 
-  @us-tma02 @error @pending
+  @us-tma02 @error
   Scenario: Revoking an already-revoked credential is a harmless success
     Given a credential "old-triage" in workspace "Acme" is already revoked
     And a rotation job holds a management-capable bearer for "Acme"
@@ -123,7 +123,7 @@ Feature: A machine manages its workspace's tokens over the JSON API
     Then the revoke is refused as not found
     And the refusal is identical to revoking an id that exists nowhere
 
-  @us-tma02 @error @pending
+  @us-tma02 @error
   Scenario: A non-management caller cannot revoke
     Given a credential "leaked-ci" is active in workspace "Acme"
     And a caller holds a non-management bearer for "Acme"
