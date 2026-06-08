@@ -558,6 +558,12 @@ pub struct FoundryWorld {
     /// Per-request HTTP statuses of the rate-guardrail burst (US-TMA05,
     /// @pending), so the within-/beyond-guardrail Thens can classify them.
     pub tma_burst_statuses: Vec<u16>,
+    /// jti of the caller's OWN authenticating bearer (the provisioning
+    /// credential). A management bearer is itself a `machine_tokens` row, so it
+    /// necessarily appears in its OWN token list — `list_tokens` lists every
+    /// workspace token, including the caller's. The "empty registry" scenario
+    /// asserts no token OTHER than this bootstrap credential is listed.
+    pub tma_self_bearer_jti: Option<uuid::Uuid>,
 
     // ---- Feature "Remaining-Surfaces Templating" (remaining-surfaces-templating) ----
     /// Email of the persona signed in for the current remaining-surfaces

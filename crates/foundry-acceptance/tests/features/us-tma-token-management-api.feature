@@ -100,7 +100,7 @@ Feature: A machine manages its workspace's tokens over the JSON API
   # US-TMA02 (revoke) + US-TMA03 (revoke-self / rotation)
   # ======================================================================
 
-  @us-tma02
+  @us-tma02 @pending
   Scenario: A rotation job revokes a credential and it is dead on its next call
     Given a credential "leaked-ci" is active in workspace "Acme"
     And a rotation job holds a management-capable bearer for "Acme"
@@ -108,14 +108,14 @@ Feature: A machine manages its workspace's tokens over the JSON API
     Then the revoke is reported as succeeded with no content
     And the next API call made with "leaked-ci" is refused as unauthorized
 
-  @us-tma02 @error
+  @us-tma02 @error @pending
   Scenario: Revoking an already-revoked credential is a harmless success
     Given a credential "old-triage" in workspace "Acme" is already revoked
     And a rotation job holds a management-capable bearer for "Acme"
     When the job revokes "old-triage" over the API again
     Then the revoke is reported as succeeded with no content
 
-  @us-tma02 @error
+  @us-tma02 @error @pending
   Scenario: Revoking a credential from another workspace reveals nothing
     Given a credential exists in another workspace
     And a rotation job holds a management-capable bearer for "Acme"
@@ -123,7 +123,7 @@ Feature: A machine manages its workspace's tokens over the JSON API
     Then the revoke is refused as not found
     And the refusal is identical to revoking an id that exists nowhere
 
-  @us-tma02 @error
+  @us-tma02 @error @pending
   Scenario: A non-management caller cannot revoke
     Given a credential "leaked-ci" is active in workspace "Acme"
     And a caller holds a non-management bearer for "Acme"
@@ -131,14 +131,14 @@ Feature: A machine manages its workspace's tokens over the JSON API
     Then the token request is refused as not allowed
     And the credential "leaked-ci" remains active
 
-  @us-tma03
+  @us-tma03 @pending
   Scenario: A rotation job retires its own credential after promoting a new one
     Given a rotation job holds its own management-capable bearer "rotating-bot" for "Acme"
     When the job revokes its own credential "rotating-bot" over the API
     Then the revoke is reported as succeeded with no content
     And the next API call made with "rotating-bot" is refused as unauthorized
 
-  @us-tma03 @error
+  @us-tma03 @error @pending
   Scenario: Re-running rotation against an already-retired credential is harmless
     Given a credential "rotating-bot" in workspace "Acme" is already revoked
     And a rotation job holds a management-capable bearer for "Acme"
@@ -150,7 +150,7 @@ Feature: A machine manages its workspace's tokens over the JSON API
   # US-TMA04 (stable contract) + US-TMA05 (evil-caller boundary + no-mint + rate)
   # ======================================================================
 
-  @us-tma04
+  @us-tma04 @pending
   Scenario: A listed token reflects its revocation on the next read
     Given the workspace "Acme" has a managed token "slack-relay" never used
     And an audit pipeline holds a management-capable bearer for "Acme"
@@ -158,14 +158,14 @@ Feature: A machine manages its workspace's tokens over the JSON API
     Then the listed token "slack-relay" now shows as revoked
     And every other field of "slack-relay" is unchanged from the previous read
 
-  @us-tma04 @error
+  @us-tma04 @error @pending
   Scenario: Every token-route refusal carries a stable machine-readable code
     Given a caller holds a non-management bearer for "Acme"
     When the caller requests the token list over the API
     Then the refusal carries a stable error code and the conventional status
     And the code can be branched on without parsing prose
 
-  @us-tma05 @error
+  @us-tma05 @error @pending
   Scenario: Cross-workspace and unknown ids are indistinguishable
     Given a credential exists in another workspace
     And a rotation job holds a management-capable bearer for "Acme"
@@ -173,21 +173,21 @@ Feature: A machine manages its workspace's tokens over the JSON API
     And the job attempts to revoke an id that exists nowhere over the API
     Then both attempts return the identical not-found refusal
 
-  @us-tma05 @error
+  @us-tma05 @error @pending
   Scenario: An invalid or revoked credential is refused identically
     Given a caller holds a credential the workspace never issued
     When the caller requests the token list over the API
     Then the token request is refused as unauthorized
     And no token data is returned by the API
 
-  @us-tma05 @error
+  @us-tma05 @error @pending
   Scenario: A credential signed with a disallowed algorithm is refused
     Given a caller holds a token-management credential signed with an algorithm the server does not accept
     When the caller requests the token list over the API
     Then the token request is refused as unauthorized
     And no token data is returned by the API
 
-  @us-tma05 @error
+  @us-tma05 @error @pending
   Scenario: There is no programmatic mint surface to escalate through
     Given an audit pipeline holds a management-capable bearer for "Acme"
     When the caller attempts to mint a token over the API

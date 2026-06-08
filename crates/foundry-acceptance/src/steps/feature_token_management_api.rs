@@ -330,8 +330,9 @@ async fn audit_pipeline_management_bearer(world: &mut FoundryWorld, _ws: String)
     // is_workspace_admin true). The use-cases' is_workspace_admin gate is the
     // ratified authz seam (DD-TMA-07).
     let (user_id, workspace_id) = user_and_workspace(world, ADMIN_EMAIL).await;
-    let (jwt, _) = mint_bearer(world, user_id, workspace_id, "audit-pipeline", 3600, true).await;
+    let (jwt, jti) = mint_bearer(world, user_id, workspace_id, "audit-pipeline", 3600, true).await;
     world.fa_credential = Some(jwt);
+    world.tma_self_bearer_jti = Some(jti);
 }
 
 #[given(regex = r#"^a rotation job holds a management-capable bearer for "([^"]+)"$"#)]
@@ -366,15 +367,12 @@ async fn caller_non_management_bearer(world: &mut FoundryWorld, _ws: String) {
     world.fa_credential = Some(jwt);
 }
 
-#[given(regex = r#"^a caller holds a credential the workspace never issued$"#)]
-async fn caller_forged_credential(world: &mut FoundryWorld) {
-    ensure_harness(world).await;
-    // Validly EdDSA-signed by the test key (passes the crypto) but its jti is
-    // NOT inserted, so the denylist has no row -> 401. register=false.
-    let (user_id, workspace_id) = user_and_workspace(world, ADMIN_EMAIL).await;
-    let (jwt, _) = mint_bearer(world, user_id, workspace_id, "forged", 3600, false).await;
-    world.fa_credential = Some(jwt);
-}
+// NOTE: the Given `a caller holds a credential the workspace never issued` is
+// the SHIPPED global step defined in `feature_a_programmatic.rs` (cucumber-rs
+// requires globally-unique step text). The token module REUSES it — re-declaring
+// it here made the match ambiguous and broke the pre-existing us-w05b
+// "forged credential" scenario. Removed (the @pending us-tma05 scenario that
+// uses this phrase will bind to the shipped global step when unskipped).
 
 #[given(
     regex = r#"^a caller holds a token-management credential signed with an algorithm the server does not accept$"#
@@ -620,7 +618,24 @@ async fn answer_empty_list(world: &mut FoundryWorld) {
     let body = world.last_body.clone().unwrap_or_default();
     let arr: serde_json::Value = serde_json::from_str(&body).expect("empty list is JSON");
     let list = arr.as_array().expect("empty list is array");
-    assert!(list.is_empty(), "expected [], got: {body}");
+    // A management bearer IS a `machine_tokens` row, and `list_tokens` lists
+    // every workspace token — including the caller's own provisioning
+    // credential. So "the registry has no managed tokens" is observable as "the
+    // list contains nothing OTHER than the caller's own authenticating bearer":
+    // a clean 200 JSON array (never a 404/error), with no spurious managed-token
+    // rows. Exclude the bootstrap bearer's jti and assert the remainder is empty.
+    let self_jti = world
+        .tma_self_bearer_jti
+        .map(|j| j.to_string())
+        .unwrap_or_default();
+    let others: Vec<&serde_json::Value> = list
+        .iter()
+        .filter(|t| t.get("jti").and_then(|v| v.as_str()) != Some(self_jti.as_str()))
+        .collect();
+    assert!(
+        others.is_empty(),
+        "expected no managed tokens beyond the caller's own bearer, got: {body}"
+    );
 }
 
 #[then(regex = r#"^the token request is reported as successful$"#)]

@@ -107,6 +107,46 @@ impl From<foundry_services::comments::CommentView> for CommentJson {
     }
 }
 
+/// The wire shape of a machine-token registry row (api-contract.md §2
+/// "TokenJson"). Serialized by this adapter from the neutral
+/// `foundry_services::tokens::TokenView`. Field names are the VERBATIM
+/// `TokenView` snake_case names. There is deliberately NO `value` / `token` /
+/// `secret` / `hash` field — by construction this struct cannot carry a token
+/// value (NFR-TMA-SEC-02). `scope_team_id` / `scope_team_name` / `last_used_at`
+/// / `minted_by` serialize as JSON `null` when absent; timestamps are RFC3339
+/// strings (the conventional JSON timestamp encoding).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct TokenJson {
+    pub jti: String,
+    pub label: String,
+    pub scope_team_id: Option<String>,
+    pub scope_team_name: Option<String>,
+    pub expires_at: String,
+    pub revoked: bool,
+    pub last_used_at: Option<String>,
+    pub minted_by: Option<String>,
+}
+
+impl From<foundry_services::tokens::TokenView> for TokenJson {
+    fn from(view: foundry_services::tokens::TokenView) -> Self {
+        use time::format_description::well_known::Rfc3339;
+        let format_ts = |ts: time::OffsetDateTime| {
+            ts.format(&Rfc3339)
+                .unwrap_or_else(|_| ts.unix_timestamp().to_string())
+        };
+        TokenJson {
+            jti: view.jti.to_string(),
+            label: view.label,
+            scope_team_id: view.scope_team_id.map(|id| id.to_string()),
+            scope_team_name: view.scope_team_name,
+            expires_at: format_ts(view.expires_at),
+            revoked: view.revoked,
+            last_used_at: view.last_used_at.map(format_ts),
+            minted_by: view.minted_by,
+        }
+    }
+}
+
 /// Map a `ServiceError` to its `(status, envelope)` per
 /// `api-contract.md` §"Status code conventions". Every variant maps to
 /// exactly one HTTP status + JSON envelope code; the envelope never
@@ -188,6 +228,10 @@ where
         .route(
             "/api/v1/teams/{team_slug}/projects/{project_slug}/issues/{number}/comments/{comment_id}",
             patch(edit_comment_handler),
+        )
+        .route(
+            "/api/v1/teams/{team_slug}/projects/{project_slug}/tokens",
+            get(list_tokens_handler),
         )
 }
 
@@ -320,6 +364,27 @@ async fn edit_comment_handler(
     Ok(Json(view.into()))
 }
 
+/// `GET /api/v1/teams/{team}/projects/{project}/tokens` (US-TMA01). The
+/// `MachinePrincipal` extractor authenticates the bearer credential (fail-
+/// closed 401 on any auth failure) BEFORE the handler body runs; it then calls
+/// the shared core seam `list_tokens` (which decides authorization — 403 when
+/// the bound user is not a workspace admin) and serializes the neutral
+/// `TokenView` rows as a JSON array, newest-first (the use-case ORDERs by
+/// `created_at DESC`). An empty registry returns `[]` with 200 (never a 404).
+/// The `{team}`/`{project}` path segments mirror the issue/comment shape; the
+/// use-case is workspace-scoped via the bound principal, so the path is the
+/// addressing convention, not an authorization input. No `TokenJson` carries a
+/// token value by construction (NFR-TMA-SEC-02).
+async fn list_tokens_handler(
+    State(services): State<Services>,
+    MachinePrincipal(principal): MachinePrincipal,
+    Path((_team_slug, _project_slug)): Path<(String, String)>,
+) -> Result<Json<Vec<TokenJson>>, ApiError> {
+    let views = services.list_tokens(&principal).await?;
+    let body = views.into_iter().map(TokenJson::from).collect();
+    Ok(Json(body))
+}
+
 /// The authenticated machine principal, recovered by the bearer-token
 /// extractor. Wrapping `Principal` lets axum run authentication via
 /// `FromRequestParts` BEFORE the handler body — every `/api/v1` handler that
@@ -424,6 +489,77 @@ pub mod token_auth {
             jti: claims.jti,
             scope_team_id: active.scope_team_id,
         })
+    }
+}
+
+#[cfg(test)]
+mod token_json_tests {
+    //! Port-to-port serde test for the `TokenJson` wire shape. `TokenJson` IS
+    //! the driving port here — its serialized JSON is the API's observable
+    //! contract. This compensates for the LAYER-3 (real-Postgres) example-based
+    //! acceptance test with a fast, deterministic assertion that the serialized
+    //! key set is EXACTLY the api-contract.md §2 field list and carries no
+    //! token/secret/hash/value key by construction (NFR-TMA-SEC-02).
+    //!
+    //! Behaviour budget: 1 distinct behaviour ("`TokenJson` serializes the
+    //! value-free contract key set, with `None` rendered as JSON null") ×2 = 2.
+    //! Authored: 1.
+
+    use super::*;
+    use std::collections::BTreeSet;
+
+    /// The serialized object exposes EXACTLY the contract keys (api-contract.md
+    /// §2) — no more, no fewer — and NONE of the credential-material keys. A
+    /// whole-workspace, never-used, unattributed row renders its `Option` fields
+    /// as JSON `null` (the keys are still present, value-free).
+    #[test]
+    fn serializes_exactly_the_value_free_contract_key_set() {
+        let token = TokenJson {
+            jti: "0190a5c1-2b3d-7e4f-8a9b-1c2d3e4f5a6b".to_string(),
+            label: "ci-issue-filer".to_string(),
+            scope_team_id: None,
+            scope_team_name: None,
+            expires_at: "2026-09-05T00:00:00Z".to_string(),
+            revoked: false,
+            last_used_at: None,
+            minted_by: None,
+        };
+
+        let value: serde_json::Value = serde_json::to_value(&token).expect("serialize TokenJson");
+        let object = value
+            .as_object()
+            .expect("TokenJson serializes to an object");
+
+        let got: BTreeSet<&str> = object.keys().map(String::as_str).collect();
+        let want: BTreeSet<&str> = [
+            "jti",
+            "label",
+            "scope_team_id",
+            "scope_team_name",
+            "expires_at",
+            "revoked",
+            "last_used_at",
+            "minted_by",
+        ]
+        .into_iter()
+        .collect();
+        assert_eq!(
+            got, want,
+            "TokenJson key set must be exactly the api-contract.md §2 fields"
+        );
+
+        for forbidden in ["value", "token", "secret", "hash"] {
+            assert!(
+                !object.contains_key(forbidden),
+                "TokenJson must never carry a {forbidden:?} key (NFR-TMA-SEC-02)"
+            );
+        }
+
+        // Absent Option fields are present-but-null (the key exists, value-free).
+        assert!(object["scope_team_id"].is_null());
+        assert!(object["scope_team_name"].is_null());
+        assert!(object["last_used_at"].is_null());
+        assert!(object["minted_by"].is_null());
     }
 }
 
