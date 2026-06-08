@@ -148,15 +148,15 @@
     },
     {
       "id": "04",
-      "name": "Slice 3 (deferred) — Rate guardrail: BLOCKED pending OD-TMA-1/1b/5 ratification",
+      "name": "Slice 4 — Rate guardrail: RATIFIED token-bucket (OD-TMA-1/1b/5 accepted at checkpoint)",
       "steps": [
         {
           "id": "04-01",
-          "name": "[DEFERRED — BLOCKED] Per-principal revoke-storm rate guardrail (429) + mutation metric",
+          "name": "Per-principal revoke-storm rate guardrail (429) + mutation metric",
           "criteria": [
-            "BLOCKED: do NOT implement until the rate-bucket mechanism (OD-TMA-1 token-bucket capacity C / refill R, OD-TMA-1b key = bound user_id, OD-TMA-5 adapter-local 429 vs new ServiceError variant, and the test-only clock-advance affordance) is RATIFIED at the post-roadmap checkpoint",
-            "once ratified: unskip the @pending scenario #18 and implement an in-process per-principal token bucket in AppState (keyed by bound user_id), checked on the DELETE route AFTER auth and BEFORE Services::revoke_token; revokes within the guardrail succeed, the burst beyond it is refused 429 rate_limited via the SHIPPED ErrorBody envelope",
-            "once ratified: the bucket reads the SHIPPED state.clock / MockClock so the burst test is deterministic (advance the mock clock to prove refill, NO wall-clock sleep), and a per-principal mutation counter (foundry_token_mutations_total{principal,outcome}) makes the rate observable as a guardrail metric (NFR-TMA-SEC-07)",
+            "RATIFIED at the post-roadmap checkpoint: in-process per-principal token bucket (OD-TMA-1), key = bound user_id (OD-TMA-1b), adapter-local 429 — NOT a new ServiceError variant (OD-TMA-5); deterministic via the SHIPPED state.clock / MockClock",
+            "unskip the @pending scenario #18 and implement an in-process per-principal token bucket in AppState (keyed by bound user_id), checked on the DELETE route AFTER auth and BEFORE Services::revoke_token; revokes within the guardrail succeed, the burst beyond it is refused 429 rate_limited via the SHIPPED ErrorBody envelope",
+            "the bucket reads the SHIPPED state.clock / MockClock so the burst test is deterministic (advance the mock clock to prove refill, NO wall-clock sleep), and a per-principal mutation counter (foundry_token_mutations_total{principal,outcome}) makes the rate observable as a guardrail metric (NFR-TMA-SEC-07)",
             "the guardrail must NOT regress the LIST (read path, unguarded) or the existing /api/v1 routes, and must NOT live in foundry-services (it is an adapter transport-rate policy, not a domain rule) — preferred 429 rides adapter-local, leaving the cross-adapter ServiceError contract unchanged"
           ],
           "test_file": "crates/foundry-acceptance/tests/features/us-tma-token-management-api.feature",
@@ -169,7 +169,7 @@
               "crates/foundry-app/src/lib.rs"
             ]
           },
-          "implementation_notes": "DEFERRED / BLOCKED — this is the SEPARATE final step for the @pending @rate-guardrail scenario #18. It is NOT a dependency of any earlier step and earlier steps do NOT depend on it; the 16 active-RED scenarios all flip green WITHOUT this. Unskip + implement ONLY once OD-TMA-1 (bucket capacity C / refill R; design-suggested C=20, R=1/sec, NOT load-bearing), OD-TMA-1b (key = bound user_id, the accountable blast-radius unit, vs jti), and OD-TMA-5 (adapter-local 429 preferred over a new ServiceError::TooManyRequests) are ratified at the checkpoint and the test-only clock-advance affordance is wired (rate-guardrail.md). Mechanism: Mutex<HashMap<Uuid, BucketState>> in AppState (prefer std Mutex<HashMap> over a new dashmap dep), derived into foundry-api via FromRef exactly like Services / MachineTokenVerifier (foundry-api gains no new crate dep — files_to_modify: foundry-api/src/lib.rs for the DELETE-route check; foundry-app/src/lib.rs for the AppState bucket + FromRef wiring). Metric sink: emit foundry_token_mutations_total now (tracing counter minimum); wiring a Prometheus exporter is a DEVOPS/platform-architect decision. TEST PARADIGM: LAYER-3 real-adapter, example-based (Mandates 9+11) but deterministic-by-design via the mock clock; EXEMPT FROM PARADIGM — burst-then-refill is a fixed sequence over the mock clock, not a quantified property. Compensate: a std #[test] on the bucket's consume/refill arithmetic over the clock seam (a real invariant: tokens_available is monotone-bounded by C and refills at R). Earned-Trust: the deterministic burst (clock-advanced, never sleep) IS the probe that the guardrail honors its cap under a revoke storm without flaking on wall-clock timing."
+          "implementation_notes": "RATIFIED at checkpoint — implement now. This is the SEPARATE final step for scenario #18 (unskip the @pending tag). It is NOT a dependency of any earlier step and earlier steps do NOT depend on it; the 16 active-RED scenarios all flip green WITHOUT this. Ratified mechanism: OD-TMA-1 token bucket (design-suggested C=20, R=1/sec, NOT load-bearing — pick sane defaults), OD-TMA-1b key = bound user_id (the accountable blast-radius unit, vs jti), OD-TMA-5 adapter-local 429 (NOT a new ServiceError::TooManyRequests variant), test-only clock-advance affordance wired via the SHIPPED MockClock (rate-guardrail.md). Mechanism: Mutex<HashMap<Uuid, BucketState>> in AppState (prefer std Mutex<HashMap> over a new dashmap dep), derived into foundry-api via FromRef exactly like Services / MachineTokenVerifier (foundry-api gains no new crate dep — files_to_modify: foundry-api/src/lib.rs for the DELETE-route check; foundry-app/src/lib.rs for the AppState bucket + FromRef wiring). Metric sink: emit foundry_token_mutations_total now (tracing counter minimum); wiring a Prometheus exporter is a DEVOPS/platform-architect decision. TEST PARADIGM: LAYER-3 real-adapter, example-based (Mandates 9+11) but deterministic-by-design via the mock clock; EXEMPT FROM PARADIGM — burst-then-refill is a fixed sequence over the mock clock, not a quantified property. Compensate: a std #[test] on the bucket's consume/refill arithmetic over the clock seam (a real invariant: tokens_available is monotone-bounded by C and refills at R). Earned-Trust: the deterministic burst (clock-advanced, never sleep) IS the probe that the guardrail honors its cap under a revoke storm without flaking on wall-clock timing."
         }
       ]
     }
@@ -189,8 +189,8 @@
     ]
   },
   "validation": {
-    "status": "pending",
-    "reviewer": "TODO",
-    "approved_at": "TODO"
+    "status": "approved",
+    "reviewer": "user-checkpoint-ratification",
+    "approved_at": "2026-06-08T00:00:00Z"
   }
 }
