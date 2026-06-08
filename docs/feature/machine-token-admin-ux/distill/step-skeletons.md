@@ -146,4 +146,5 @@ Feature-B `b_asset_*` / `data-hx-fragment` precedent.)
   foreign jti/team uuids.
 - The JSON token-management API (`/api/v1/.../tokens`) — DISCUSS/DESIGN deferred
   it as a fast-follow; the `tokens` use-cases are shaped to make it a thin second
-  adapter.
+  adapter. SHIPPED 2026-06-08 as `token-management-api` (the thin second adapter
+  confirmed: list + revoke, no mint) — `docs/evolution/2026-06-08-token-management-api.md`.

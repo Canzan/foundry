@@ -31,8 +31,8 @@ The genuinely new bits, and ONLY these:
 2. **`DELETE /api/v1/teams/{team}/projects/{project}/tokens/{jti}`** handler → `Services::revoke_token`.
 3. **Two serde response shapes** (`TokenJson` for the list array; no body for the 204 revoke).
 4. **The per-principal rate guardrail** on the mutation route (DELETE) + its metric.
-5. **(Proposed) a new `check-arch` LAYER-1d guard rule** asserting no MINT route is exposed
-   on `/api/v1/.../tokens`.
+5. **(IMPLEMENTED, ship `a23cc2b`) a new `check-arch` LAYER-1d guard rule** asserting no MINT route
+   is exposed on `/api/v1/.../tokens`.
 
 ## 2. Component (C4 L3) — MANDATORY
 
@@ -55,7 +55,7 @@ C4Component
     Component(revokeRoute, "DELETE .../tokens/{jti} handler ★", "foundry-api · NEW", "Rate-guarded; calls Services::revoke_token; 204 on success; idempotent; non-enumerable 404")
     Component(guardrail, "Per-principal mutation guardrail ★", "foundry-api / foundry-app state · NEW", "In-process token bucket keyed by principal; throttles revoke storm -> 429; emits a rate metric")
 
-    Component(noMintGuard, "check-arch no-mint rule ★", "xtask · NEW (proposed)", "AST assertion: no POST/mint route on /api/v1/.../tokens (LAYER 1d)")
+    Component(noMintGuard, "check-arch no-mint rule ★", "xtask · NEW (IMPLEMENTED)", "AST assertion: no POST/mint route on /api/v1/.../tokens (LAYER 1d)")
 
     Component(services, "Services handle", "foundry-services", "SHIPPED. The ONLY owner of Store; exposes list_tokens / revoke_token / (mint_token — NOT routed)")
     Component(usecases, "tokens::{list_tokens, revoke_token}", "foundry-services", "SHIPPED + mutation-hardened. authz=is_workspace_admin; workspace isolation; non-enumerable NotFound; idempotent")
@@ -101,7 +101,7 @@ dependency probed; here the "dependency" is the invariant that mint stays off th
 | `DELETE .../tokens/{jti}` handler | **CREATE NEW** | `foundry-api` | New verb shape (204). |
 | `TokenJson` serde response shape | **CREATE NEW** | `foundry-api` | Mirrors `TokenView` (no value). See `api-contract.md`. |
 | Per-principal rate guardrail + metric | **CREATE NEW** | `foundry-api` + `AppState` | In-process token bucket; see `rate-guardrail.md`. |
-| `check-arch` no-mint LAYER-1d rule | **CREATE NEW (proposed)** | `xtask/src/check_arch.rs` | AST assertion; see `no-mint-boundary.md`. |
+| `check-arch` no-mint LAYER-1d rule | **CREATE NEW (IMPLEMENTED, `a23cc2b`)** | `xtask/src/check_arch.rs` | AST assertion `check_api_no_mint_route` + gold test; see `no-mint-boundary.md`. |
 
 **Verdict count: REUSE/EXTEND = 9 (8 reuse-as-is + 1 extend) · CREATE NEW = 5** (2 routes,
 1 serde shape, 1 guardrail, 1 guard rule). The walking-skeleton intuition holds — this feature

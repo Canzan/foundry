@@ -41,7 +41,7 @@ Then: scaffold-comment cleanup; **security-focused adversarial review** (Sonnet)
 
 ## Residuals / follow-ups
 
-- **JSON token-management API** — deferred (web-UI-first per OD3/Q6); a natural fast-follow.
+- **JSON token-management API** — deferred (web-UI-first per OD3/Q6); a natural fast-follow. **SHIPPED 2026-06-08** as the `token-management-api` feature (list + revoke under `/api/v1`, no mint) — see `docs/evolution/2026-06-08-token-management-api.md`.
 - **Single-workspace schema** (`uniq_one_workspace`) means cross-workspace evil-user paths are tested with synthetic uuids; the CODE enforces workspace scoping + non-enumerability, but real two-workspace fixtures await multi-workspace support (UI-1, `distill/upstream-issues.md`).
 - **Signing-key heap residual**: the transient `env::var` String + `.replace()` allocation aren't zeroized (accepted residual, documented in `design/signer.md`; no logging/persistence).
 - **Key rotation UX** — out of scope (env-var overlapping-key rotation from Feature A still applies operationally).

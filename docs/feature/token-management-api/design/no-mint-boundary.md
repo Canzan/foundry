@@ -25,10 +25,13 @@ later contributor adding token routes could innocently wire `POST .../tokens -> 
 (`Services::mint_token` already EXISTS — it is reachable, just not routed). Convention does not stop
 that; a guard does.
 
-### Layer B — a `check-arch` no-mint guard rule (PROPOSED — recommend ADOPT)
+### Layer B — a `check-arch` no-mint guard rule (IMPLEMENTED — ratified + shipped)
 
-> **Decision proposed: ADD a LAYER-1d AST rule to `xtask/src/check_arch.rs` asserting no MINT route
-> is exposed on `/api/v1`.** Awaiting ratification.
+> **Decision RATIFIED + IMPLEMENTED (ship `a23cc2b`, step 03-02): a LAYER-1d AST rule
+> (`check_api_no_mint_route`) in `xtask/src/check_arch.rs` asserts no MINT route is exposed on
+> `/api/v1`.** Remediation (F3) hardened the POST detector to a per-`.route(..)`-block two-pass,
+> closing the multi-line axum route evasion; a planted-violation gold test proves the guard bites.
+> See `docs/evolution/2026-06-08-token-management-api.md`.
 
 `check_arch.rs` already AST-walks `crates/foundry-api/src` for three orthogonal rules (api≠HTML,
 api≠ad-hoc-authz, JWT alg pin). A no-mint rule is a natural fourth detector (`check_api_no_mint_route`)
