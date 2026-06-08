@@ -263,6 +263,8 @@ async fn main() -> anyhow::Result<()> {
         public_url: public_url.clone(),
         clock: Arc::new(SystemClock),
         email: Arc::new(NoopEmailSender),
+        // US-TMA05 — production guardrail at the ratified defaults (C=20, R=1/sec).
+        revoke_rate_limiter: Arc::new(foundry_app::rate_limit::RevokeRateLimiter::default()),
         realtime_tx,
         sse_heartbeat_ms,
         file_upload_max_mb,

@@ -26,6 +26,7 @@ pub mod issues;
 pub mod keyboard;
 pub mod metrics_server;
 pub mod projects;
+pub mod rate_limit;
 pub mod session;
 pub mod signin;
 pub mod views;
@@ -86,6 +87,17 @@ pub struct AppState {
     pub public_url: String,
     pub clock: Arc<dyn Clock>,
     pub email: Arc<dyn EmailSender>,
+    /// US-TMA05 (NFR-TMA-SEC-07 / OD-TMA-1) — the in-process per-principal
+    /// revoke-storm guardrail. A token bucket keyed by the bound `user_id`,
+    /// checked on the DELETE token route AFTER auth and BEFORE
+    /// `Services::revoke_token`. Derived into the foundry-api adapter via
+    /// `FromRef` exactly like `Services` / `machine_token_verifier`, so
+    /// foundry-api reads the shared guardrail through the existing seam and
+    /// gains no new crate dependency. The bucket reads `self.clock` so its
+    /// refill is deterministic under the acceptance harness's `MockClock`.
+    /// This is an adapter transport-rate policy, not a domain rule — it lives
+    /// in the composition root, never in foundry-services.
+    pub revoke_rate_limiter: Arc<rate_limit::RevokeRateLimiter>,
     /// Broadcast channel for realtime events. Cloning the sender is
     /// cheap (Arc inside); each SSE connection subscribes for a fresh
     /// Receiver. The pg-listener task is the sole publisher.
@@ -172,6 +184,22 @@ impl axum::extract::FromRef<AppState> for foundry_services::Services {
 impl axum::extract::FromRef<AppState> for Arc<foundry_auth::MachineTokenVerifier> {
     fn from_ref(state: &AppState) -> Self {
         state.machine_token_verifier.clone()
+    }
+}
+
+/// US-TMA05 — expose the per-principal revoke guardrail to the foundry-api
+/// DELETE token handler as the `foundry_api::RevokeRateGuard` driven port via
+/// `FromRef`, the same way the verifier is exposed. foundry-api extracts
+/// `State<Arc<dyn RevokeRateGuard>>` and never names the concrete bucket, so it
+/// depends on neither foundry-app nor a new crate. The guard binds the shared
+/// limiter (bucket STATE persists across requests behind its own `Mutex`) to the
+/// SHIPPED `clock` seam, so refill is deterministic under the harness MockClock.
+impl axum::extract::FromRef<AppState> for Arc<dyn foundry_api::RevokeRateGuard> {
+    fn from_ref(state: &AppState) -> Self {
+        Arc::new(rate_limit::ClockedRevokeGuard::new(
+            state.revoke_rate_limiter.clone(),
+            state.clock.clone(),
+        ))
     }
 }
 

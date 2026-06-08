@@ -305,6 +305,11 @@ impl InProcHarness {
             public_url: "http://localhost".into(),
             clock: fake_clock.clone(),
             email: fake_email.clone(),
+            // US-TMA05 — the per-principal revoke guardrail at the ratified
+            // defaults (C=20, R=1/sec). Reads `clock` above (the MockClock), so
+            // the burst scenario drives refill by advancing the mock clock — no
+            // wall-clock sleep.
+            revoke_rate_limiter: Arc::new(foundry_app::rate_limit::RevokeRateLimiter::default()),
             realtime_tx,
             sse_heartbeat_ms: heartbeat_ms,
             file_upload_max_mb,

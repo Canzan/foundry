@@ -246,6 +246,9 @@ impl MultiReplicaHarness {
                     public_url: "http://localhost".into(),
                     clock: fake_clock.clone(),
                     email: fake_email.clone(),
+                    revoke_rate_limiter: Arc::new(
+                        foundry_app::rate_limit::RevokeRateLimiter::default(),
+                    ),
                     realtime_tx,
                     sse_heartbeat_ms: heartbeat_ms,
                     file_upload_max_mb,
@@ -401,6 +404,7 @@ impl MultiReplicaHarness {
                 public_url: "http://localhost".into(),
                 clock: fake_clock.clone(),
                 email: fake_email.clone(),
+                revoke_rate_limiter: Arc::new(foundry_app::rate_limit::RevokeRateLimiter::default()),
                 realtime_tx,
                 sse_heartbeat_ms: heartbeat_ms,
                 file_upload_max_mb,

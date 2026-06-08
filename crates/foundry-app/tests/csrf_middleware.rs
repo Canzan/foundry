@@ -57,6 +57,7 @@ async fn build_test_router() -> Router {
         public_url: "http://localhost".into(),
         clock: Arc::new(SystemClock),
         email: Arc::new(NoopEmailSender),
+        revoke_rate_limiter: Arc::new(foundry_app::rate_limit::RevokeRateLimiter::default()),
         realtime_tx: foundry_realtime::build_broadcast(),
         sse_heartbeat_ms: foundry_app::DEFAULT_SSE_HEARTBEAT_MS,
         file_upload_max_mb: foundry_app::DEFAULT_FILE_UPLOAD_MAX_MB,

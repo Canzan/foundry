@@ -555,9 +555,16 @@ pub struct FoundryWorld {
     /// Status of the revoke that precedes a read-after-write re-list
     /// (US-TMA04), so the re-list Then can confirm the revoke returned 204.
     pub tma_revoke_status: Option<StatusCode>,
-    /// Per-request HTTP statuses of the rate-guardrail burst (US-TMA05,
-    /// @pending), so the within-/beyond-guardrail Thens can classify them.
+    /// Per-request HTTP statuses of the rate-guardrail burst (US-TMA05), so the
+    /// within-/beyond-guardrail Thens can classify them.
     pub tma_burst_statuses: Vec<u16>,
+    /// Per-request HTTP statuses of the sub-burst fired AFTER the mock clock was
+    /// advanced (US-TMA05), proving the bucket refilled deterministically via the
+    /// SHIPPED clock seam (NO wall-clock sleep).
+    pub tma_burst_after_refill: Vec<u16>,
+    /// Response body of the FIRST throttled (429) revoke in the burst (US-TMA05),
+    /// so the Then can assert the stable `rate_limited` ErrorBody envelope.
+    pub tma_throttle_body: Option<String>,
     /// jti of the caller's OWN authenticating bearer (the provisioning
     /// credential). A management bearer is itself a `machine_tokens` row, so it
     /// necessarily appears in its OWN token list — `list_tokens` lists every

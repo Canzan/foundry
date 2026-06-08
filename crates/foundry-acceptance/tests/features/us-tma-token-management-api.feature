@@ -202,7 +202,7 @@ Feature: A machine manages its workspace's tokens over the JSON API
   # exercise refill — NO wall-clock sleep, NO real-time flake) but is held
   # @pending until the bucket mechanism is ratified, so DELIVER does not race a
   # half-specified guardrail. See distill/upstream-issues.md (the one open item).
-  @us-tma05 @rate-guardrail @pending
+  @us-tma05 @rate-guardrail
   Scenario: A burst of revocations beyond the guardrail is throttled
     Given a rotation job holds a management-capable bearer for "Acme"
     And the workspace "Acme" has a managed token for every revoke in the burst

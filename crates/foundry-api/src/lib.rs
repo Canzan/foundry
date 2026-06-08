@@ -37,6 +37,24 @@ use axum::Router;
 use foundry_auth::MachineTokenVerifier;
 use foundry_services::{Principal, ServiceError, Services};
 
+/// US-TMA05 (NFR-TMA-SEC-07) — the per-principal revoke-storm guardrail PORT.
+///
+/// A driven-port abstraction the DELETE token handler consults AFTER auth and
+/// BEFORE `Services::revoke_token`. The concrete in-process token bucket lives
+/// in the composition root (`foundry-app`), which implements this trait and
+/// exposes it through `AppState`'s `FromRef` seam — so this adapter reads the
+/// guardrail WITHOUT depending on foundry-app and WITHOUT gaining a new crate
+/// dependency. The guardrail is a transport-rate policy, not a domain rule: the
+/// 429 it drives rides adapter-local here, leaving the cross-adapter
+/// `ServiceError` contract unchanged.
+pub trait RevokeRateGuard: Send + Sync {
+    /// Charge one revoke against the calling principal's per-principal budget.
+    /// Returns `true` when the revoke is within the guardrail (proceed) or
+    /// `false` when the principal's budget is exhausted (refuse 429). The
+    /// implementation reads its own clock seam, so callers pass no time.
+    fn check_revoke(&self, principal_user_id: uuid::Uuid) -> bool;
+}
+
 /// The stable JSON error envelope (api-contract.md §"Error envelope").
 /// Every non-2xx response carries exactly this shape; the `code` is a stable
 /// machine token, the `message` carries the same copy the UI shows where one
@@ -191,6 +209,22 @@ impl IntoResponse for ApiError {
     }
 }
 
+/// The adapter-local 429 `rate_limited` response (US-TMA05). The guardrail is a
+/// transport-rate concern that never reaches the domain, so it does NOT route
+/// through `ServiceError` (no `TooManyRequests` variant is added — OD-TMA-5);
+/// instead it builds the SHIPPED `ErrorBody` envelope directly with the stable
+/// `rate_limited` code, so US-TMA04's "every refusal is a stable machine-readable
+/// code" contract still holds.
+fn rate_limited_response() -> Response {
+    let body = ErrorBody {
+        error: ErrorDetail {
+            code: "rate_limited".to_string(),
+            message: "too many token revocations; slow down".to_string(),
+        },
+    };
+    (StatusCode::TOO_MANY_REQUESTS, Json(body)).into_response()
+}
+
 /// The `/api/v1` sub-router. Merged into `foundry_app::build_router` via
 /// `.merge(foundry_api::routes())`. Generic over the composition root's state
 /// `S`: the handler extracts `State<Services>` (the shared seam) and the
@@ -202,6 +236,11 @@ impl IntoResponse for ApiError {
 /// owns the only `Store`, satisfying the `foundry-api ⊀ foundry-store`
 /// boundary-guard ban, LAYER 2).
 ///
+/// US-TMA05: the DELETE token route additionally reads the per-principal revoke
+/// guardrail via `State<Arc<dyn RevokeRateGuard>>` (also `FromRef`-derived from
+/// `S`), so the rate policy stays adapter-local — foundry-api never names the
+/// concrete bucket and gains no new crate dependency.
+///
 /// Slice 2 (US-W05b): this group is mounted OUTSIDE the session + CSRF tower
 /// layers (auth.md §Coexistence). A machine request carries a bearer JWT and
 /// NO cookie, so CSRF-exemption is correct by construction. Authentication is
@@ -210,6 +249,7 @@ pub fn routes<S>() -> Router<S>
 where
     Services: FromRef<S>,
     Arc<MachineTokenVerifier>: FromRef<S>,
+    Arc<dyn RevokeRateGuard>: FromRef<S>,
     S: Clone + Send + Sync + 'static,
 {
     Router::new()
@@ -406,13 +446,25 @@ async fn list_tokens_handler(
 /// revoke, the credential's very next `/api/v1` call is refused 401 by the
 /// SHIPPED per-request jti denylist (`token_auth::authenticate` ->
 /// `Services::resolve_active_token`), unchanged by this handler.
+///
+/// US-TMA05: AFTER authentication (so there is a `Principal` to key on) and
+/// BEFORE `Services::revoke_token`, the bound `user_id` is charged against the
+/// per-principal revoke guardrail. An exhausted budget is refused adapter-local
+/// as 429 `rate_limited` (never reaching the use-case), bounding a revoke storm
+/// from a single leaked bearer. The guardrail keys on the accountable identity
+/// (bound `user_id`), so sibling tokens of the same admin share one budget. The
+/// read path (LIST) is deliberately unguarded.
 async fn revoke_token_handler(
     State(services): State<Services>,
+    State(rate_guard): State<Arc<dyn RevokeRateGuard>>,
     MachinePrincipal(principal): MachinePrincipal,
     Path((_team_slug, _project_slug, jti)): Path<(String, String, uuid::Uuid)>,
-) -> Result<StatusCode, ApiError> {
+) -> Result<Response, ApiError> {
+    if !rate_guard.check_revoke(principal.user_id()) {
+        return Ok(rate_limited_response());
+    }
     services.revoke_token(&principal, jti).await?;
-    Ok(StatusCode::NO_CONTENT)
+    Ok(StatusCode::NO_CONTENT.into_response())
 }
 
 /// The authenticated machine principal, recovered by the bearer-token
