@@ -100,6 +100,48 @@
       "s": "EXECUTED",
       "d": "PASS",
       "t": "2026-06-08T12:28:35Z"
+    },
+    {
+      "sid": "02-01",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-08T12:29:25Z"
+    },
+    {
+      "sid": "02-02",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-08T12:31:04Z"
+    },
+    {
+      "sid": "02-02",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-08T12:32:05Z"
+    },
+    {
+      "sid": "02-02",
+      "p": "RED_UNIT",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: all 4 scenarios pass by inheritance from the SHIPPED 02-01 DELETE revoke route; revoke-self/idempotent/non-enumerable-404 are existing revoke_token guarantees asserted at acceptance layer; no production change, so no unit test required",
+      "t": "2026-06-08T12:32:05Z"
+    },
+    {
+      "sid": "02-02",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-08T12:35:56Z"
+    },
+    {
+      "sid": "02-02",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-08T12:36:45Z"
     }
   ]
 }

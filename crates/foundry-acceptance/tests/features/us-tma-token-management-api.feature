@@ -115,7 +115,7 @@ Feature: A machine manages its workspace's tokens over the JSON API
     When the job revokes "old-triage" over the API again
     Then the revoke is reported as succeeded with no content
 
-  @us-tma02 @error @pending
+  @us-tma02 @error
   Scenario: Revoking a credential from another workspace reveals nothing
     Given a credential exists in another workspace
     And a rotation job holds a management-capable bearer for "Acme"
@@ -131,14 +131,14 @@ Feature: A machine manages its workspace's tokens over the JSON API
     Then the token request is refused as not allowed
     And the credential "leaked-ci" remains active
 
-  @us-tma03 @pending
+  @us-tma03
   Scenario: A rotation job retires its own credential after promoting a new one
     Given a rotation job holds its own management-capable bearer "rotating-bot" for "Acme"
     When the job revokes its own credential "rotating-bot" over the API
     Then the revoke is reported as succeeded with no content
     And the next API call made with "rotating-bot" is refused as unauthorized
 
-  @us-tma03 @error @pending
+  @us-tma03 @error
   Scenario: Re-running rotation against an already-retired credential is harmless
     Given a credential "rotating-bot" in workspace "Acme" is already revoked
     And a rotation job holds a management-capable bearer for "Acme"
@@ -165,7 +165,7 @@ Feature: A machine manages its workspace's tokens over the JSON API
     Then the refusal carries a stable error code and the conventional status
     And the code can be branched on without parsing prose
 
-  @us-tma05 @error @pending
+  @us-tma05 @error
   Scenario: Cross-workspace and unknown ids are indistinguishable
     Given a credential exists in another workspace
     And a rotation job holds a management-capable bearer for "Acme"
