@@ -14,6 +14,13 @@
 //!       * api≠ad-hoc-authz — no `is_team_member` / `is_workspace_admin` call
 //!                          site appears in `foundry-api` (authz lives in
 //!                          foundry-services, NFR-WEB-API-SEC-02).
+//!       * api≠mint        — no `foundry-api` source names `mint_token` and no
+//!                          `post(` is registered on the `.../tokens` collection
+//!                          route. Minting stays confined to the /admin/tokens
+//!                          human-session path (foundry-app); the bearer surface
+//!                          exposes no programmatic mint (no-mint-boundary.md
+//!                          DD-TMA-04). Doc-comment mentions of `mint_token` are
+//!                          NOT flagged (strip_comment).
 //!       * JWT alg pin    — the machine-token `Validation` pins
 //!                          `algorithms = [EdDSA]` and never disables signature
 //!                          validation (closes the alg-confusion / `alg:none`
@@ -49,6 +56,7 @@ pub fn run(args: Vec<String>) -> ExitCode {
     // LAYER 1 — AST / source walk.
     violations.extend(check_api_no_html(&root));
     violations.extend(check_api_no_adhoc_authz(&root));
+    violations.extend(check_api_no_mint_route(&root));
     violations.extend(check_jwt_alg_pin(&root));
 
     // LAYER 2 — cargo-deny crate-graph dependency-direction.
@@ -57,7 +65,7 @@ pub fn run(args: Vec<String>) -> ExitCode {
     }
 
     if violations.is_empty() {
-        println!("check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, JWT alg pinned to [EdDSA], dependency direction)");
+        println!("check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA], dependency direction)");
         return ExitCode::SUCCESS;
     }
 
@@ -151,6 +159,83 @@ fn check_api_no_adhoc_authz(root: &Path) -> Vec<String> {
         }
     }
     violations
+}
+
+/// LAYER 1d — api≠mint. The bearer surface (`foundry-api`) must NEVER mint a
+/// token: minting is confined to the `/admin/tokens` human-session path in
+/// `foundry-app`, which calls `Services::mint_token` (DD4). The no-mint boundary
+/// (no-mint-boundary.md / DD-TMA-04) is enforced structurally — there is no POST
+/// on the `.../tokens` collection route — and this rule LOCKS that invariant so
+/// a future edit cannot wire a bearer mint path green.
+///
+/// Two orthogonal detectors, both NAMING the offending file + line:
+///   * load-bearing — any `foundry-api` source line that names `mint_token`
+///     (a `Services::mint_token` / `services.mint_token(` call). `strip_comment`
+///     means a doc-comment mention of `mint_token` (design prose) is NOT flagged.
+///   * belt-and-braces — a `post(` registration on the `.../tokens` COLLECTION
+///     route literal (the route a mint handler would hang off). The existing
+///     `get(list_tokens_handler)` + `delete(revoke_token_handler)` registrations
+///     and a `post(create_comment_handler)` on the `comments` route are NOT
+///     flagged — only a `post(` against the tokens-collection literal.
+fn check_api_no_mint_route(root: &Path) -> Vec<String> {
+    let api_src = root.join("crates").join("foundry-api").join("src");
+    let mut violations = Vec::new();
+    for file in rust_sources(&api_src) {
+        let Ok(contents) = std::fs::read_to_string(&file) else {
+            continue;
+        };
+        for (line_no, line) in contents.lines().enumerate() {
+            let code = strip_comment(line);
+
+            // Load-bearing: a mint_token call site in the data-API tier.
+            if code.contains("mint_token") {
+                violations.push(format!(
+                    "api≠mint: {} names `mint_token` at {}:{} (`{}`) — minting is confined to the /admin/tokens human-session path (foundry-app); the bearer data-API must never expose a mint surface (no-mint-boundary.md DD-TMA-04)",
+                    handler_label(&file),
+                    rel(root, &file),
+                    line_no + 1,
+                    code.trim(),
+                ));
+            }
+
+            // Belt-and-braces: a POST registered on the `.../tokens` COLLECTION
+            // route literal. Match the route literal ending in `/tokens"` (NOT
+            // `/tokens/{jti}"`) carrying a `post(` on the same source line.
+            if registers_post_on_tokens_collection(&code) {
+                violations.push(format!(
+                    "api≠mint: {} registers a POST on the `.../tokens` collection route at {}:{} (`{}`) — a mint route on the bearer surface is forbidden (no-mint-boundary.md DD-TMA-04)",
+                    handler_label(&file),
+                    rel(root, &file),
+                    line_no + 1,
+                    code.trim(),
+                ));
+            }
+        }
+    }
+    violations
+}
+
+/// True iff `code` registers a `post(` against the `.../tokens` COLLECTION route
+/// (literal ending `/tokens"`), not the `.../tokens/{jti}` revoke route. The
+/// route literal and the `post(` may appear on the same line (`.route("…tokens",
+/// get(..).post(..))`) — the common axum chaining form.
+fn registers_post_on_tokens_collection(code: &str) -> bool {
+    if !code.contains("post(") {
+        return false;
+    }
+    // Find a `/tokens"` collection literal that is NOT `/tokens/{...}"`.
+    let mut search_from = 0;
+    while let Some(rel_idx) = code[search_from..].find("tokens\"") {
+        let idx = search_from + rel_idx;
+        // The char before `tokens"` must be `/` (a path segment, not a suffix
+        // like `mtokens"`), confirming the collection literal `.../tokens"`.
+        let preceded_by_slash = code[..idx].ends_with('/');
+        if preceded_by_slash {
+            return true;
+        }
+        search_from = idx + "tokens\"".len();
+    }
+    false
 }
 
 /// LAYER 1c — JWT alg pin. The machine-token `Validation` (in foundry-auth, the
@@ -371,6 +456,51 @@ mod tests {
         assert!(
             !found.is_empty() && found[0].contains("is_team_member"),
             "an is_team_member call site must be flagged: {found:?}"
+        );
+    }
+
+    #[test]
+    fn api_mint_surface_is_flagged_but_clean_read_delete_is_not() {
+        // A clean foundry-api: a GET list + DELETE revoke on the tokens routes,
+        // a doc-comment that NAMES mint_token (prose), and a POST on a DIFFERENT
+        // (comments) route — none of which is a bearer mint surface.
+        let clean = stage(&[(
+            "crates/foundry-api/src/lib.rs",
+            "// the human /admin/tokens path calls Services::mint_token; the API never does\n\
+             .route(\"/api/v1/teams/{t}/projects/{p}/tokens\", get(list_tokens_handler))\n\
+             .route(\"/api/v1/teams/{t}/projects/{p}/tokens/{jti}\", delete(revoke_token_handler))\n\
+             .route(\"/api/v1/teams/{t}/projects/{p}/issues/{n}/comments\", post(create_comment_handler))\n",
+        )]);
+        assert!(
+            check_api_no_mint_route(clean.path()).is_empty(),
+            "a GET/DELETE tokens surface, a mint_token DOC COMMENT, and a POST on a \
+             non-tokens route must NOT be flagged: {:?}",
+            check_api_no_mint_route(clean.path())
+        );
+
+        // The load-bearing violation: a foundry-api line CALLS Services::mint_token.
+        let minting = stage(&[(
+            "crates/foundry-api/src/tokens.rs",
+            "async fn mint_handler(s: State<Services>) { let _ = s.mint_token(&signer, &p, input).await; }\n",
+        )]);
+        let found = check_api_no_mint_route(minting.path());
+        assert!(
+            !found.is_empty()
+                && found[0].contains("foundry-api::tokens")
+                && found[0].contains("tokens.rs:1")
+                && found[0].contains("mint_token"),
+            "a mint_token call site in foundry-api must be flagged and NAME file:line: {found:?}"
+        );
+
+        // Belt-and-braces: a POST registration on the .../tokens COLLECTION route.
+        let posting = stage(&[(
+            "crates/foundry-api/src/lib.rs",
+            ".route(\"/api/v1/teams/{t}/projects/{p}/tokens\", get(list_tokens_handler).post(create_token_handler))\n",
+        )]);
+        let found = check_api_no_mint_route(posting.path());
+        assert!(
+            !found.is_empty() && found[0].contains("lib.rs:1"),
+            "a post( registration on the .../tokens collection route must be flagged: {found:?}"
         );
     }
 

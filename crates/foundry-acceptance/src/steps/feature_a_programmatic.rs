@@ -618,6 +618,11 @@ async fn tree_with_alg_violation(world: &mut FoundryWorld) {
     world.fa_guard_violation = Some("verifier-accepts-any-alg".to_string());
 }
 
+#[given(regex = r#"^a copy of the tree in which a data-API handler is changed to mint a token$"#)]
+async fn tree_with_mint_violation(world: &mut FoundryWorld) {
+    world.fa_guard_violation = Some("api-mints-token".to_string());
+}
+
 #[when(regex = r#"^the maintainer runs the boundary check$"#)]
 async fn run_boundary_check_clean(world: &mut FoundryWorld) {
     run_boundary_check(world).await;
@@ -1025,6 +1030,21 @@ async fn names_alg_violation(world: &mut FoundryWorld) {
     assert!(
         out.to_lowercase().contains("alg") || out.to_lowercase().contains("algorithm"),
         "guard output did not report the algorithm-pin violation: {out:?}"
+    );
+}
+
+#[then(regex = r#"^it names the handler that mints a token$"#)]
+async fn names_mint_handler(world: &mut FoundryWorld) {
+    let out = world.fa_guard_stderr.clone().unwrap_or_default();
+    // The guard must NAME the offending foundry-api file + line and the mint
+    // token it found (no-mint-boundary.md Layer B / DD-TMA-04).
+    assert!(
+        out.contains("mint_token") || out.to_lowercase().contains("mint"),
+        "guard output did not name the token-minting handler: {out:?}"
+    );
+    assert!(
+        out.contains("planted_mint_violation.rs"),
+        "guard output did not name the planted-violation file: {out:?}"
     );
 }
 
@@ -1510,6 +1530,18 @@ fn stage_violation_tree(src: &std::path::Path, kind: &str) -> std::io::Result<te
                 "foundry-store = { path = \"../foundry-store\" }",
             );
             std::fs::write(&manifest, patched)?;
+        }
+        // (d) a foundry-api handler that calls `Services::mint_token` — the
+        // bearer mint surface the no-mint boundary forbids (DD-TMA-04). The AST
+        // layer must NAME the offending file + line.
+        "api-mints-token" => {
+            let path = dir
+                .path()
+                .join("crates/foundry-api/src/planted_mint_violation.rs");
+            std::fs::write(
+                &path,
+                "// planted by the us-tma05 no-mint gold test\npub async fn mint(s: &Services) { let _ = s.mint_token(&signer, &principal, input).await; }\n",
+            )?;
         }
         // (c) a `Validation` that accepts any algorithm.
         "verifier-accepts-any-alg" => {

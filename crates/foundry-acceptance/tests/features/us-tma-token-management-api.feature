@@ -187,7 +187,7 @@ Feature: A machine manages its workspace's tokens over the JSON API
     Then the token request is refused as unauthorized
     And no token data is returned by the API
 
-  @us-tma05 @error @pending
+  @us-tma05 @error
   Scenario: There is no programmatic mint surface to escalate through
     Given an audit pipeline holds a management-capable bearer for "Acme"
     When the caller attempts to mint a token over the API

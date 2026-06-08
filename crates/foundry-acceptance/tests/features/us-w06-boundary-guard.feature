@@ -50,3 +50,10 @@ Feature: The web/api boundary is enforced as a check, not a review chore
     When the maintainer runs the boundary check on that copy
     Then the check fails
     And it reports the credential verifier no longer pins the single allowed algorithm
+
+  @error @real-io @boundary-guard @us-tma05
+  Scenario: A data-API mint surface fails the check
+    Given a copy of the tree in which a data-API handler is changed to mint a token
+    When the maintainer runs the boundary check on that copy
+    Then the check fails
+    And it names the handler that mints a token
