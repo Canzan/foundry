@@ -173,14 +173,14 @@ Feature: A machine manages its workspace's tokens over the JSON API
     And the job attempts to revoke an id that exists nowhere over the API
     Then both attempts return the identical not-found refusal
 
-  @us-tma05 @error @pending
+  @us-tma05 @error
   Scenario: An invalid or revoked credential is refused identically
     Given a caller holds a credential the workspace never issued
     When the caller requests the token list over the API
     Then the token request is refused as unauthorized
     And no token data is returned by the API
 
-  @us-tma05 @error @pending
+  @us-tma05 @error
   Scenario: A credential signed with a disallowed algorithm is refused
     Given a caller holds a token-management credential signed with an algorithm the server does not accept
     When the caller requests the token list over the API
