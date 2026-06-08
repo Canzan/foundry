@@ -209,6 +209,8 @@ mod tests {
     //! covering drain, throttle, refill, and the C-clamp.
 
     use super::*;
+    use crate::clock::MockClock;
+    use foundry_api::RevokeRateGuard;
 
     fn t0() -> time::OffsetDateTime {
         time::OffsetDateTime::from_unix_timestamp(1_700_000_000).expect("anchor time")
@@ -271,6 +273,109 @@ mod tests {
             limiter.consume(principal, much_later),
             RateDecision::Throttled,
             "refill must clamp at C={capacity}: tokens_available never exceeds capacity"
+        );
+    }
+
+    /// Refill arithmetic must be `elapsed_secs * R` (multiply), not divide.
+    /// The original invariant test used R=1.0 with whole-second elapsed, where
+    /// `e * 1.0 == e / 1.0`, so the `*`→`/` mutant on line 159 survived. Here R≠1
+    /// AND elapsed≠1s so the two operators diverge: at R=2/sec over 2s the bucket
+    /// must refill EXACTLY 4 tokens (multiply); the divide mutant would refill
+    /// `2/2.0 = 1` token, allowing only 1 of the 4 expected post-refill consumes.
+    #[test]
+    fn refill_is_elapsed_times_rate_not_divided() {
+        let capacity: u32 = 10;
+        let refill_per_sec: f64 = 2.0; // R != 1 so * and / diverge
+        let limiter = RevokeRateLimiter::new(capacity, refill_per_sec);
+        let principal = Uuid::now_v7();
+        let now = t0();
+
+        // Drain the fresh bucket completely (C consumes), then confirm empty.
+        for _ in 0..capacity {
+            assert_eq!(limiter.consume(principal, now), RateDecision::Allowed);
+        }
+        assert_eq!(limiter.consume(principal, now), RateDecision::Throttled);
+
+        // Advance 2s at R=2/sec → 2 * 2.0 = 4 tokens refilled (multiply).
+        // Divide mutant: 2 / 2.0 = 1 token → only the 1st of these would pass.
+        let later = now + time::Duration::seconds(2);
+        for i in 0..4 {
+            assert_eq!(
+                limiter.consume(principal, later),
+                RateDecision::Allowed,
+                "refilled consume #{i}: 2s * R=2/sec must yield exactly 4 tokens (multiply, not divide)"
+            );
+        }
+        // The 5th must throttle: exactly 4 refilled, no more.
+        assert_eq!(
+            limiter.consume(principal, later),
+            RateDecision::Throttled,
+            "exactly elapsed*R = 4 tokens refilled — the 5th must be Throttled"
+        );
+    }
+
+    /// `RateDecision::is_allowed()` and `outcome_label()` must report the exact
+    /// per-variant predicate/string. Kills the `is_allowed -> true/false` and
+    /// `outcome_label -> ""/"xyzzy"` mutants by asserting both variants directly.
+    #[test]
+    fn decision_predicates_and_labels_are_per_variant() {
+        assert!(
+            RateDecision::Allowed.is_allowed(),
+            "Allowed must report is_allowed() == true"
+        );
+        assert!(
+            !RateDecision::Throttled.is_allowed(),
+            "Throttled must report is_allowed() == false"
+        );
+        assert_eq!(
+            RateDecision::Allowed.outcome_label(),
+            "ok",
+            "Allowed outcome label must be the metric value \"ok\""
+        );
+        assert_eq!(
+            RateDecision::Throttled.outcome_label(),
+            "throttled",
+            "Throttled outcome label must be the metric value \"throttled\""
+        );
+    }
+
+    /// `ClockedRevokeGuard::check_revoke` is the foundry-api driven port the
+    /// DELETE route calls. Drive it in-crate over a `RevokeRateLimiter` + the
+    /// shipped `MockClock`: within budget it returns true, the over-budget revoke
+    /// returns false, and after advancing the clock it returns true again. Kills
+    /// the `check_revoke -> true/false` mutants (a constant-true mutant never
+    /// throttles; a constant-false mutant never allows).
+    #[test]
+    fn check_revoke_allows_within_budget_throttles_when_drained_then_refills() {
+        let capacity: u32 = 3;
+        let refill_per_sec: f64 = 1.0;
+        let limiter = Arc::new(RevokeRateLimiter::new(capacity, refill_per_sec));
+        let clock = MockClock::at(t0());
+        let guard = ClockedRevokeGuard::new(Arc::clone(&limiter), clock.clone());
+        let principal = Uuid::now_v7();
+
+        // Within budget: exactly C allowed (true).
+        for i in 0..capacity {
+            assert!(
+                guard.check_revoke(principal),
+                "check_revoke #{i} within capacity C={capacity} must return true"
+            );
+        }
+        // Drained: the next revoke is refused (false).
+        assert!(
+            !guard.check_revoke(principal),
+            "check_revoke beyond capacity C={capacity} must return false"
+        );
+
+        // Advance the clock 1s at R=1/sec → 1 token refills → true once more.
+        clock.advance(std::time::Duration::from_secs(1));
+        assert!(
+            guard.check_revoke(principal),
+            "after a 1s refill at R=1/sec, check_revoke must return true again"
+        );
+        assert!(
+            !guard.check_revoke(principal),
+            "only 1 token refilled — the following check_revoke must return false"
         );
     }
 }
