@@ -57,3 +57,10 @@ Feature: The web/api boundary is enforced as a check, not a review chore
     When the maintainer runs the boundary check on that copy
     Then the check fails
     And it names the handler that mints a token
+
+  @error @real-io @boundary-guard @us-tma05
+  Scenario: A multi-line POST on the tokens collection cannot evade the check
+    Given a copy of the tree in which a multi-line route block registers a POST on the tokens collection
+    When the maintainer runs the boundary check on that copy
+    Then the check fails
+    And it names the handler that registers a mint POST

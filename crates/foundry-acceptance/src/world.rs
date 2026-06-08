@@ -555,6 +555,11 @@ pub struct FoundryWorld {
     /// Status of the revoke that precedes a read-after-write re-list
     /// (US-TMA04), so the re-list Then can confirm the revoke returned 204.
     pub tma_revoke_status: Option<StatusCode>,
+    /// The token's list entry captured from the read IMMEDIATELY BEFORE the
+    /// revoke in the read-after-write scenario (US-TMA04), so the post-revoke
+    /// re-list Then can assert every field EXCEPT `revoked`/`last_used_at` is
+    /// byte-identical — making "every other field unchanged" a real comparison.
+    pub tma_pre_revoke_entry: Option<serde_json::Value>,
     /// Per-request HTTP statuses of the rate-guardrail burst (US-TMA05), so the
     /// within-/beyond-guardrail Thens can classify them.
     pub tma_burst_statuses: Vec<u16>,

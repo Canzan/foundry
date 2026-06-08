@@ -26,6 +26,25 @@
 //! composition root / adapter layer, never in `foundry-services`, and the 429 it
 //! drives rides adapter-local (it leaves the cross-adapter `ServiceError`
 //! contract unchanged).
+//!
+//! ## Accepted residual — unbounded bucket map (no eviction policy)
+//!
+//! The per-principal `buckets` `HashMap` (keyed by bound `user_id`) has **no
+//! eviction / TTL / LRU policy**: an entry is created on a principal's first
+//! revoke and lives for the process lifetime. This is an **ACCEPTED RESIDUAL**
+//! under the current **single-workspace model** (`uniq_one_workspace`,
+//! `0001_init.sql`): the key population is bounded by the count of authenticated
+//! workspace admins able to mint a management bearer — O(dozens), not
+//! attacker-controlled — so the map cannot grow without bound from untrusted
+//! input, and a bucket entry is ~40 bytes. The map is therefore not a memory-
+//! exhaustion vector in this deployment shape.
+//!
+//! **Tracked mitigation** (if/when multi-workspace lands and the keyspace becomes
+//! larger / less trusted): add an idle-eviction or LRU policy — evict a bucket
+//! whose `last_refill` is older than some idle window (a bucket idle longer than
+//! `C / R` seconds has fully refilled to `C` and is indistinguishable from a
+//! fresh one, so eviction is behaviour-preserving). Until then the unbounded map
+//! is the deliberate, reviewed trade-off.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};

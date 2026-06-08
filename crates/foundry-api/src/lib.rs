@@ -460,6 +460,21 @@ async fn revoke_token_handler(
     MachinePrincipal(principal): MachinePrincipal,
     Path((_team_slug, _project_slug, jti)): Path<(String, String, uuid::Uuid)>,
 ) -> Result<Response, ApiError> {
+    // DELIBERATE ordering (ACCEPTED design decision, not an oversight): the rate
+    // guard fires AFTER authn (`MachinePrincipal` resolved a bound identity) and
+    // BEFORE the use-case authz (`is_workspace_admin`, inside `revoke_token`). So
+    // a throttled NON-admin may receive 429 before it would have received 403.
+    // This is accepted because:
+    //   (a) it protects the authz DB lookup itself from a revoke-storm — the
+    //       guard is the cheap, identity-keyed front line ahead of any query;
+    //   (b) the 429-vs-403 distinction leaks NOTHING about token existence — the
+    //       non-enumerability contract concerns jtis, which remain byte-identical
+    //       404 regardless of this ordering;
+    //   (c) the reviewer's alternative (an adapter-side `is_workspace_admin`
+    //       pre-check so authz precedes throttling) would VIOLATE the
+    //       `check_api_no_adhoc_authz` boundary guard — authz must stay in
+    //       foundry-services, never in this adapter. We do NOT add adapter-side
+    //       authz.
     if !rate_guard.check_revoke(principal.user_id()) {
         return Ok(rate_limited_response());
     }

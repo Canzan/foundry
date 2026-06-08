@@ -623,6 +623,13 @@ async fn tree_with_mint_violation(world: &mut FoundryWorld) {
     world.fa_guard_violation = Some("api-mints-token".to_string());
 }
 
+#[given(
+    regex = r#"^a copy of the tree in which a multi-line route block registers a POST on the tokens collection$"#
+)]
+async fn tree_with_multiline_post_violation(world: &mut FoundryWorld) {
+    world.fa_guard_violation = Some("api-posts-tokens-multiline".to_string());
+}
+
 #[when(regex = r#"^the maintainer runs the boundary check$"#)]
 async fn run_boundary_check_clean(world: &mut FoundryWorld) {
     run_boundary_check(world).await;
@@ -1045,6 +1052,21 @@ async fn names_mint_handler(world: &mut FoundryWorld) {
     assert!(
         out.contains("planted_mint_violation.rs"),
         "guard output did not name the planted-violation file: {out:?}"
+    );
+}
+
+#[then(regex = r#"^it names the handler that registers a mint POST$"#)]
+async fn names_multiline_post_handler(world: &mut FoundryWorld) {
+    let out = world.fa_guard_stderr.clone().unwrap_or_default();
+    // The guard must catch the multi-line POST-on-the-tokens-collection evasion
+    // and NAME the offending file + line (no-mint-boundary.md DD-TMA-04).
+    assert!(
+        out.to_lowercase().contains("post") && out.contains("tokens"),
+        "guard output did not report the POST on the tokens collection: {out:?}"
+    );
+    assert!(
+        out.contains("planted_multiline_post.rs"),
+        "guard output did not name the planted multi-line POST file: {out:?}"
     );
 }
 
@@ -1541,6 +1563,27 @@ fn stage_violation_tree(src: &std::path::Path, kind: &str) -> std::io::Result<te
             std::fs::write(
                 &path,
                 "// planted by the us-tma05 no-mint gold test\npub async fn mint(s: &Services) { let _ = s.mint_token(&signer, &principal, input).await; }\n",
+            )?;
+        }
+        // (d') a foundry-api `.route(..)` block that registers a POST on the
+        // `.../tokens` COLLECTION route, with the `post(` and the collection
+        // literal split across DIFFERENT lines (the multi-line evasion). The AST
+        // layer must bite the route BLOCK, not co-located lines, and NAME the
+        // offending file + line (no-mint-boundary.md DD-TMA-04).
+        "api-posts-tokens-multiline" => {
+            let path = dir
+                .path()
+                .join("crates/foundry-api/src/planted_multiline_post.rs");
+            std::fs::write(
+                &path,
+                "// planted by the us-tma05 no-mint multi-line gold test\n\
+                 pub fn routes() -> axum::Router {\n\
+                 \x20   axum::Router::new()\n\
+                 \x20       .route(\n\
+                 \x20           \"/api/v1/teams/{team_slug}/projects/{project_slug}/tokens\",\n\
+                 \x20           axum::routing::get(list_tokens_handler).post(mint_handler),\n\
+                 \x20       )\n\
+                 }\n",
             )?;
         }
         // (c) a `Validation` that accepts any algorithm.

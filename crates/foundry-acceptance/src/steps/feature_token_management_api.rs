@@ -467,9 +467,26 @@ async fn job_revokes_unknown(world: &mut FoundryWorld) {
 #[when(regex = r#"^the pipeline revokes "([^"]+)" and then lists the tokens again over the API$"#)]
 async fn pipeline_revoke_then_relist(world: &mut FoundryWorld, label: String) {
     let jti = jti_for_label(world, &label);
+    // Read the token's entry IMMEDIATELY BEFORE revoking, so the post-revoke
+    // re-list Then can assert read-after-write field equality (NFR-TMA-CON-02):
+    // every field except `revoked`/`last_used_at` must be byte-identical.
+    get_token_list(world).await;
+    world.tma_pre_revoke_entry = token_entry_by_label(world, &label);
     delete_token(world, jti).await;
     world.tma_revoke_status = world.last_status;
     get_token_list(world).await;
+}
+
+/// Find the list entry whose `label` matches in the most recently captured token
+/// list (`world.last_body`). `None` if the body is absent / not a JSON array /
+/// has no matching entry.
+fn token_entry_by_label(world: &FoundryWorld, label: &str) -> Option<serde_json::Value> {
+    let body = world.last_body.clone()?;
+    let arr: serde_json::Value = serde_json::from_str(&body).ok()?;
+    arr.as_array()?
+        .iter()
+        .find(|t| t.get("label").and_then(|v| v.as_str()) == Some(label))
+        .cloned()
 }
 
 // ==========================================================================
@@ -659,6 +676,15 @@ async fn answer_empty_list(world: &mut FoundryWorld) {
     // list contains nothing OTHER than the caller's own authenticating bearer":
     // a clean 200 JSON array (never a 404/error), with no spurious managed-token
     // rows. Exclude the bootstrap bearer's jti and assert the remainder is empty.
+    //
+    // Guard against a false-pass: the exclusion is only meaningful if we KNOW the
+    // caller's own bearer jti. If it was never recorded, the filter would compare
+    // against an empty string and silently pass even if rows leaked.
+    assert!(
+        world.tma_self_bearer_jti.is_some(),
+        "the caller's own bearer jti was not recorded — the self-exclusion would \
+         silently filter against an empty string and could false-pass"
+    );
     let self_jti = world
         .tma_self_bearer_jti
         .map(|j| j.to_string())
@@ -845,23 +871,63 @@ async fn listed_token_revoked(world: &mut FoundryWorld, label: String) {
 
 #[then(regex = r#"^every other field of "([^"]+)" is unchanged from the previous read$"#)]
 async fn other_fields_unchanged(world: &mut FoundryWorld, label: String) {
-    // Read-after-write equality (NFR-TMA-CON-02): every field except `revoked`
-    // (and last_used_at, which may advance) is byte-identical. The previous read
-    // is not separately captured in the RED scaffold; DELIVER's GREEN compares
-    // the pre-revoke and post-revoke entries. For RED, assert the post-revoke
-    // entry at least carries the stable identity fields unchanged-shaped.
+    // Read-after-write equality (NFR-TMA-CON-02): compare the post-revoke entry
+    // field-by-field against the entry captured in the PRE-revoke read. Every
+    // field must be byte-identical EXCEPT `revoked` (now true) and `last_used_at`
+    // (which may advance). This makes "every other field unchanged" a real
+    // comparison, not a presence check.
     assert_status(world, 200);
+    let before = world
+        .tma_pre_revoke_entry
+        .clone()
+        .unwrap_or_else(|| panic!("no pre-revoke entry was captured for {label:?}"));
     let body = world.last_body.clone().unwrap_or_default();
     let arr: serde_json::Value = serde_json::from_str(&body).expect("re-list is JSON");
     let list = arr.as_array().expect("array");
-    let entry = list
+    let after = list
         .iter()
         .find(|t| t.get("label").and_then(|v| v.as_str()) == Some(label.as_str()))
         .unwrap_or_else(|| panic!("re-list missing {label:?}"));
-    assert!(
-        entry.get("jti").is_some() && entry.get("expires_at").is_some(),
-        "stable identity fields missing after revoke; entry: {entry}"
+
+    let before_obj = before
+        .as_object()
+        .expect("pre-revoke entry is a JSON object");
+    let after_obj = after
+        .as_object()
+        .expect("post-revoke entry is a JSON object");
+
+    // The two reads must describe the SAME set of fields.
+    let before_keys: std::collections::BTreeSet<&String> = before_obj.keys().collect();
+    let after_keys: std::collections::BTreeSet<&String> = after_obj.keys().collect();
+    assert_eq!(
+        before_keys, after_keys,
+        "the token entry's field set changed across the revoke: before={before_keys:?} after={after_keys:?}"
     );
+
+    // `revoked` must flip false -> true; every OTHER field except the
+    // intentionally-mutable `last_used_at` must be byte-identical.
+    assert_eq!(
+        before_obj.get("revoked").and_then(|v| v.as_bool()),
+        Some(false),
+        "pre-revoke entry should not already be revoked; entry: {before}"
+    );
+    assert_eq!(
+        after_obj.get("revoked").and_then(|v| v.as_bool()),
+        Some(true),
+        "post-revoke entry should be revoked; entry: {after}"
+    );
+    for (field, before_value) in before_obj {
+        if field == "revoked" || field == "last_used_at" {
+            continue;
+        }
+        assert_eq!(
+            after_obj.get(field),
+            Some(before_value),
+            "field {field:?} changed across the revoke (read-after-write inconsistency): \
+             before={before_value:?} after={:?}",
+            after_obj.get(field)
+        );
+    }
 }
 
 #[then(regex = r#"^the refusal carries a stable error code and the conventional status$"#)]
@@ -938,9 +1004,13 @@ async fn revokes_within_guardrail_succeed(world: &mut FoundryWorld) {
         .iter()
         .filter(|&&s| s == 204)
         .count();
-    assert!(
-        ok_count >= 20,
-        "fewer than the C=20 capacity succeeded within the guardrail; statuses: {:?}",
+    // EXACT count: the burst runs at a frozen mock clock with C=20, so sub-burst
+    // 1 yields exactly 20 successes (the full bucket), and the post-refill
+    // sub-burst 2 (5 revokes after +5s at R=1/sec) yields exactly 5 more — 25
+    // total. An off-by-one in the bucket arithmetic would change this count.
+    assert_eq!(
+        ok_count, 25,
+        "expected exactly 25 successful revokes (C=20 burst + 5 post-refill); statuses: {:?}",
         world.tma_burst_statuses
     );
     // Determinism proof: the post-advance sub-burst succeeds (refill driven by
@@ -962,9 +1032,13 @@ async fn revokes_beyond_throttled(world: &mut FoundryWorld) {
         .iter()
         .filter(|&&s| s == 429)
         .count();
-    assert!(
-        throttled >= 5,
-        "the burst beyond capacity was not throttled with 429; statuses: {:?}",
+    // EXACT count: sub-burst 1 fires C+5 = 25 revokes at the frozen mock clock;
+    // the first C=20 drain the bucket (204) and the next 5 find it empty (429).
+    // The post-refill sub-burst adds no 429s. So exactly 5 are throttled — an
+    // off-by-one in the bucket arithmetic would change this count.
+    assert_eq!(
+        throttled, 5,
+        "expected exactly 5 throttled revokes (C+5=25 burst past a C=20 bucket); statuses: {:?}",
         world.tma_burst_statuses
     );
     // The refusal carries the SHIPPED ErrorBody envelope with a stable code, so

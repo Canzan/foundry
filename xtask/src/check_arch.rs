@@ -173,10 +173,14 @@ fn check_api_no_adhoc_authz(root: &Path) -> Vec<String> {
 ///     (a `Services::mint_token` / `services.mint_token(` call). `strip_comment`
 ///     means a doc-comment mention of `mint_token` (design prose) is NOT flagged.
 ///   * belt-and-braces — a `post(` registration on the `.../tokens` COLLECTION
-///     route literal (the route a mint handler would hang off). The existing
-///     `get(list_tokens_handler)` + `delete(revoke_token_handler)` registrations
-///     and a `post(create_comment_handler)` on the `comments` route are NOT
-///     flagged — only a `post(` against the tokens-collection literal.
+///     route. Detection is per `.route(..)` BLOCK (a route-literal + its method
+///     handlers), so a `post(` and the `/tokens"` collection literal split across
+///     SEPARATE source lines of the same axum route block (the multi-line form)
+///     are caught — co-location on one line is NOT required. The existing
+///     `get(list_tokens_handler)` + `delete(revoke_token_handler)` registrations,
+///     and a `post(create_comment_handler)` on a DIFFERENT (issues/comments)
+///     route block, are NOT flagged — only a `post(` inside the SAME route block
+///     that carries the tokens-collection literal.
 fn check_api_no_mint_route(root: &Path) -> Vec<String> {
     let api_src = root.join("crates").join("foundry-api").join("src");
     let mut violations = Vec::new();
@@ -184,10 +188,12 @@ fn check_api_no_mint_route(root: &Path) -> Vec<String> {
         let Ok(contents) = std::fs::read_to_string(&file) else {
             continue;
         };
-        for (line_no, line) in contents.lines().enumerate() {
-            let code = strip_comment(line);
 
-            // Load-bearing: a mint_token call site in the data-API tier.
+        // Comment-stripped source, one entry per line (1-based line numbers).
+        let stripped: Vec<String> = contents.lines().map(strip_comment).collect();
+
+        // Load-bearing: a mint_token call site in the data-API tier.
+        for (line_no, code) in stripped.iter().enumerate() {
             if code.contains("mint_token") {
                 violations.push(format!(
                     "api≠mint: {} names `mint_token` at {}:{} (`{}`) — minting is confined to the /admin/tokens human-session path (foundry-app); the bearer data-API must never expose a mint surface (no-mint-boundary.md DD-TMA-04)",
@@ -197,40 +203,106 @@ fn check_api_no_mint_route(root: &Path) -> Vec<String> {
                     code.trim(),
                 ));
             }
+        }
 
-            // Belt-and-braces: a POST registered on the `.../tokens` COLLECTION
-            // route literal. Match the route literal ending in `/tokens"` (NOT
-            // `/tokens/{jti}"`) carrying a `post(` on the same source line.
-            if registers_post_on_tokens_collection(&code) {
-                violations.push(format!(
+        // Belt-and-braces: per `.route(..)` BLOCK, flag the block if it contains
+        // BOTH a `post(` AND a `.../tokens"` collection literal (regardless of
+        // line co-location), naming the line carrying the `post(`.
+        violations.extend(post_on_tokens_collection_blocks(&stripped).into_iter().map(
+            |(post_line, post_code)| {
+                format!(
                     "api≠mint: {} registers a POST on the `.../tokens` collection route at {}:{} (`{}`) — a mint route on the bearer surface is forbidden (no-mint-boundary.md DD-TMA-04)",
                     handler_label(&file),
                     rel(root, &file),
-                    line_no + 1,
-                    code.trim(),
-                ));
-            }
-        }
+                    post_line + 1,
+                    post_code.trim(),
+                )
+            },
+        ));
     }
     violations
 }
 
-/// True iff `code` registers a `post(` against the `.../tokens` COLLECTION route
-/// (literal ending `/tokens"`), not the `.../tokens/{jti}` revoke route. The
-/// route literal and the `post(` may appear on the same line (`.route("…tokens",
-/// get(..).post(..))`) — the common axum chaining form.
-fn registers_post_on_tokens_collection(code: &str) -> bool {
-    if !code.contains("post(") {
-        return false;
+/// Scan `.route(..)` blocks in a comment-stripped source and report each block
+/// that registers a `post(` against the `.../tokens` COLLECTION route. Returns
+/// `(line_index, line_text)` of the offending `post(` line for each hit.
+///
+/// A route block opens at a line containing `.route(` and closes when the paren
+/// depth (counted from the `.route(` onward) returns to zero. Within a block we
+/// independently collect whether ANY line carries a `post(` and whether ANY line
+/// carries a tokens-collection literal (`.../tokens"`, NOT `.../tokens/{...}"`).
+/// If BOTH hold, the block is a mint surface — even when `post(` and the literal
+/// sit on different lines (the multi-line evasion). This is intentionally
+/// block-scoped, not file-scoped, so a `post(` on a SEPARATE (issues) route
+/// block plus a GET-only tokens block do NOT false-positive.
+fn post_on_tokens_collection_blocks(stripped: &[String]) -> Vec<(usize, String)> {
+    let mut hits = Vec::new();
+    let mut idx = 0;
+    while idx < stripped.len() {
+        if !stripped[idx].contains(".route(") {
+            idx += 1;
+            continue;
+        }
+        // Walk the block from `.route(` to the matching close paren, tracking
+        // paren depth across lines.
+        let block_start = idx;
+        let mut depth: i32 = 0;
+        let mut started = false;
+        let mut end = idx;
+        'block: for (offset, line) in stripped[block_start..].iter().enumerate() {
+            // Begin depth-counting at the `.route(` token on the first line.
+            let scan = if offset == 0 {
+                match line.find(".route(") {
+                    Some(p) => &line[p..],
+                    None => line.as_str(),
+                }
+            } else {
+                line.as_str()
+            };
+            for ch in scan.chars() {
+                if ch == '(' {
+                    depth += 1;
+                    started = true;
+                } else if ch == ')' {
+                    depth -= 1;
+                }
+                if started && depth == 0 {
+                    end = block_start + offset;
+                    break 'block;
+                }
+            }
+            end = block_start + offset;
+        }
+
+        // Two independent passes over the block's lines.
+        let mut post_line: Option<(usize, String)> = None;
+        let mut has_tokens_collection = false;
+        for (line_no, line) in stripped[block_start..=end].iter().enumerate() {
+            if post_line.is_none() && line.contains("post(") {
+                post_line = Some((block_start + line_no, line.clone()));
+            }
+            if line_contains_tokens_collection_literal(line) {
+                has_tokens_collection = true;
+            }
+        }
+        if let (true, Some(hit)) = (has_tokens_collection, post_line) {
+            hits.push(hit);
+        }
+
+        idx = end + 1;
     }
-    // Find a `/tokens"` collection literal that is NOT `/tokens/{...}"`.
+    hits
+}
+
+/// True iff `code` carries a `.../tokens"` COLLECTION route literal (path segment
+/// `tokens` immediately followed by the closing quote), NOT the `.../tokens/{jti}`
+/// revoke route. The char before `tokens"` must be `/` (a path segment, not a
+/// suffix like `mtokens"`).
+fn line_contains_tokens_collection_literal(code: &str) -> bool {
     let mut search_from = 0;
     while let Some(rel_idx) = code[search_from..].find("tokens\"") {
         let idx = search_from + rel_idx;
-        // The char before `tokens"` must be `/` (a path segment, not a suffix
-        // like `mtokens"`), confirming the collection literal `.../tokens"`.
-        let preceded_by_slash = code[..idx].ends_with('/');
-        if preceded_by_slash {
+        if code[..idx].ends_with('/') {
             return true;
         }
         search_from = idx + "tokens\"".len();
@@ -501,6 +573,51 @@ mod tests {
         assert!(
             !found.is_empty() && found[0].contains("lib.rs:1"),
             "a post( registration on the .../tokens collection route must be flagged: {found:?}"
+        );
+
+        // Multi-line evasion: the same POST-on-the-tokens-collection split across
+        // a multi-line axum `.route(..)` block — the `post(` and the `/tokens"`
+        // collection literal land on DIFFERENT source lines. The detector must
+        // bite the route BLOCK, not co-located lines, and NAME the offending line.
+        let multiline = stage(&[(
+            "crates/foundry-api/src/lib.rs",
+            "    Router::new()\n\
+             \x20       .route(\n\
+             \x20           \"/api/v1/teams/{t}/projects/{p}/tokens\",\n\
+             \x20           get(list_tokens_handler).post(mint_handler),\n\
+             \x20       )\n",
+        )]);
+        let found = check_api_no_mint_route(multiline.path());
+        assert!(
+            !found.is_empty() && found[0].contains("foundry-api::lib"),
+            "a multi-line POST on the .../tokens collection route must be flagged: {found:?}"
+        );
+
+        // No false positive on the REAL router shape: a multi-line GET-only
+        // tokens-collection route block plus a SEPARATE issues route block that
+        // carries a `post(` (on a DIFFERENT, non-tokens literal) must NOT trip the
+        // detector — the `post(` and the tokens literal live in distinct blocks.
+        let real_shape = stage(&[(
+            "crates/foundry-api/src/lib.rs",
+            "    Router::new()\n\
+             \x20       .route(\n\
+             \x20           \"/api/v1/teams/{t}/projects/{p}/issues\",\n\
+             \x20           get(list_issues_handler).post(create_issue_handler),\n\
+             \x20       )\n\
+             \x20       .route(\n\
+             \x20           \"/api/v1/teams/{t}/projects/{p}/tokens\",\n\
+             \x20           get(list_tokens_handler),\n\
+             \x20       )\n\
+             \x20       .route(\n\
+             \x20           \"/api/v1/teams/{t}/projects/{p}/tokens/{jti}\",\n\
+             \x20           delete(revoke_token_handler),\n\
+             \x20       )\n",
+        )]);
+        assert!(
+            check_api_no_mint_route(real_shape.path()).is_empty(),
+            "the real GET-tokens + DELETE-tokens/{{jti}} router (a post( only on the \
+             issues block) must NOT be flagged: {:?}",
+            check_api_no_mint_route(real_shape.path())
         );
     }
 
