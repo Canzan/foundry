@@ -150,7 +150,7 @@ Feature: A machine manages its workspace's tokens over the JSON API
   # US-TMA04 (stable contract) + US-TMA05 (evil-caller boundary + no-mint + rate)
   # ======================================================================
 
-  @us-tma04 @pending
+  @us-tma04
   Scenario: A listed token reflects its revocation on the next read
     Given the workspace "Acme" has a managed token "slack-relay" never used
     And an audit pipeline holds a management-capable bearer for "Acme"
@@ -158,7 +158,7 @@ Feature: A machine manages its workspace's tokens over the JSON API
     Then the listed token "slack-relay" now shows as revoked
     And every other field of "slack-relay" is unchanged from the previous read
 
-  @us-tma04 @error @pending
+  @us-tma04 @error
   Scenario: Every token-route refusal carries a stable machine-readable code
     Given a caller holds a non-management bearer for "Acme"
     When the caller requests the token list over the API
