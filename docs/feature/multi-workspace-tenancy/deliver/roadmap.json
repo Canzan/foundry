@@ -1,0 +1,96 @@
+{
+  "roadmap": {
+    "project_id": "multi-workspace-tenancy",
+    "feature_id": "multi-workspace-tenancy",
+    "created_at": "2026-06-09T00:00:00Z",
+    "total_steps": 3
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "Slice 1 — walking-skeleton coexistence + fail-closed resolution",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "Forward-only 0009 migration drops uniq_one_workspace + the walking-skeleton coexistence proof (Acme sees only Acme)",
+          "criteria": [
+            "a NEW forward-only migration crates/foundry-store/migrations/0009_multi_workspace.sql DROPs the shipped uniq_one_workspace unique index (0001_init.sql:15) so a second `workspaces` row can be INSERTed; the migration edits no prior migration file and rewrites/moves/deletes NO existing row (dropping an index touches no row data, ADR-006)",
+            "the existing workspace keeps its id and all `workspace_id` FKs unchanged — the migration is purely additive/subtractive at the index level (CREATE TABLE instance_admins from ADR-006 §2 MAY ride along in 0009, additive + empty, but is Slice-6-consumed and harmless here)",
+            "with 0009 applied via the per-scenario schema set, the Background's SECOND `INSERT INTO workspaces` (\"Globex\") succeeds where it RED-failed before, and a member of Acme listing the \"Auth\" project's issues over GET /api/v1/teams/{team}/projects/{project}/issues receives 200 with ONLY the Acme issues (ACME-1, ACME-2)",
+            "no Globex issue (no GLOBEX- key) appears in the Acme answer — proving the shipped per-table `workspace_id` scoping is genuinely load-bearing once a second tenant exists (the slice's riskiest assumption)",
+            "the @walking_skeleton tag's scenario authenticates end-to-end against the real /api/v1 router via the InProcHarness (real HTTP, real EdDSA bearer bound to (marco, Acme), real testcontainers Postgres) — answering 'two real workspaces coexist and a request resolves to exactly its own workspace on one read path'"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-mwt-slice-01-coexist.feature",
+          "scenario_name": "A member of one workspace lists only their own workspace's issues",
+          "estimate_hours": 4,
+          "deps": [],
+          "implementation_scope": {
+            "files": [
+              "crates/foundry-store/migrations/0009_multi_workspace.sql",
+              "crates/foundry-acceptance/tests/features/us-mwt-slice-01-coexist.feature"
+            ]
+          },
+          "implementation_notes": "WALKING SKELETON (@walking_skeleton @wiring_e2e @us-mwt01). Greens scenario #1 (the core hypothesis). FILENAME DIVERGENCE (load-bearing — honor the REPO, not the prose): the DISTILL/slice/ADR-006 docs colloquially name this `0002_multi_workspace.sql`, but the shipped tree ALREADY has 0001..0008 (0002_sessions_and_reset.sql exists). `sqlx::migrate!(\"./migrations\")` (foundry-store/src/lib.rs:122,1589) iterates by version number, so the next free forward migration is 0009 — author it as crates/foundry-store/migrations/0009_multi_workspace.sql. Using `0002` would collide and is WRONG. THE ONLY GENUINELY-NEW PRODUCTION SURFACE THIS SLICE NEEDS: this one-statement index drop. Everything below the migration is SHIPPED-REUSE: the GET .../issues route + list_issues_handler (foundry-api US-W05a/b), the MachinePrincipal extractor whose token.workspace_id is the acting workspace (foundry-api/src/lib.rs:583-588, ADR-001 API leg), Services::list_board_issues' membership authz + per-table workspace_id scoping (foundry-services/src/lib.rs:326-372), the InProcHarness + testcontainers PG16 + mint_bearer_bound — ALL ALREADY SHIP. The step's production work is the migration; the .feature edit is keeping scenario #1's @walking_skeleton un-skipped (it already is). bootstrap.rs:289 409 guard is NOT touched: the fixture INSERTs the workspace row directly via sqlx and never hits create_workspace (upstream-changes.md Finding 1 — the 409 removal is Slice 6, verified out of this path). ACTINGWORKSPACE NOTE (ADR-002): NOT introduced in this slice — the resolution seam slice 1 exercises is the shipped token.workspace_id via principal.workspace_id(); ActingWorkspace + its check-arch LAYER-1e guard earn their keep once multiple surfaces exist (deferred to Slice 2 per ADR-002 slice-alignment; for a walking skeleton, smallest surface that proves the hypothesis). TEST PARADIGM: LAYER-3 real-adapter acceptance (real HTTP + real Postgres + real EdDSA), example-based per Mandates 9+11 — NO @given/state-machine PBT machinery; Tier-A-only per DISTILL. EXEMPT FROM PARADIGM: real-I/O acceptance verifies wiring/isolation end-to-end, not a quantified invariant over a domain-rich input space; the contract is a fixed (200 + only-own-keys) outcome. Compensate: the migration's no-rewrite contract is probed behaviorally by scenario #6 (step 01-02) and as a user-guarantee in Slice 5 (US-MWT06, real pre-feature DB). EARNED-TRUST (Principle 12): the migration is a driven-adapter dependency on Postgres index semantics — scenario #1's REAL second-INSERT-then-isolated-read IS the empirical probe that dropping the index actually lets two tenants coexist WITHOUT bleeding data (asking 'what happens once a second tenant really exists?'), not a faith-based DROP INDEX. RED entry signal: today the second INSERT fails on uniq_one_workspace (MISSING_FUNCTIONALITY, not BROKEN); the crate compiles clean (cargo test -p foundry-acceptance --no-run = Finished)."
+        },
+        {
+          "id": "01-02",
+          "name": "Coexistence hardening over the migration: disjoint A/B sets, second-workspace creation, empty-new-workspace, and migration no-rewrite",
+          "criteria": [
+            "with 0009 applied, two bearers bound to Acme and Globex respectively each list their own project and the Acme answer contains only ACME- keys, the Globex answer only GLOBEX- keys, and neither answer contains any of the other workspace's issues (disjoint sets, scenario #2)",
+            "a second `workspaces` row (\"Globex\") is created alongside an instance that already has \"Acme\" and both workspaces exist on the instance (COUNT(*) >= 2), with neither creation blocked by a single-workspace limit — the coexistence guarantee the index drop unlocks (scenario #3)",
+            "a brand-new workspace (Globex) whose project has issues, listed by its own bound credential, returns 200 with an empty data list when the targeted project is genuinely empty, and no neighbour's (Acme's) issues appear — a new workspace starts empty, not populated from a neighbour (scenario #4)",
+            "after the single-workspace guard is dropped, the pre-existing Acme workspace's id is unchanged and every Acme issue recorded beforehand is present and unchanged afterward (count-equal over `workspace_id`) — the forward-only migration rewrites no existing data (scenario #6, NFR-MWT-DATA-01/02)",
+            "all four scenarios run at LAYER 3 against the real two-workspace fixture (real members, tokens, issues) and add ZERO new production surface beyond the 01-01 migration — they assert properties of the shipped scoping + the dropped index over the real transport"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-mwt-slice-01-coexist.feature",
+          "scenario_name": "Each workspace's members see a disjoint set of data | A second workspace can be created where none could before | A brand-new workspace starts empty, not populated from a neighbour | Dropping the single-workspace guard leaves the existing workspace's data unchanged",
+          "estimate_hours": 3,
+          "deps": ["01-01"],
+          "implementation_scope": {
+            "files": [
+              "crates/foundry-acceptance/tests/features/us-mwt-slice-01-coexist.feature"
+            ]
+          },
+          "implementation_notes": "Greens scenarios #2 (disjoint A/B), #3 (@coexistence second workspace), #4 (empty new workspace), #6 (@migration @no-rewrite). NO NEW PRODUCTION CODE: every one of these is a behavioral consequence of the 01-01 migration plus SHIPPED machinery — the per-table workspace_id scoping in Services::list_board_issues (disjoint + empty), the dropped index (coexistence COUNT>=2), and the no-data-touch nature of DROP INDEX (no-rewrite). The step's work is purely un-skipping these four @pending scenarios one at a time (one-at-a-time DELIVER cycle: flip ONE @pending per RED->GREEN->COMMIT, in the order #3 coexistence -> #2 disjoint -> #4 empty -> #6 no-rewrite, smallest-blast-radius first) and confirming each holds over the real transport; files_to_modify is the .feature only (remove @pending). The no-rewrite scenario #6 is the BEHAVIORAL probe of ADR-006's contract at slice scope (its full user-guarantee against a real pre-feature DB snapshot is Slice 5 / US-MWT06 — do NOT pull that forward). bootstrap.rs:289 409 is NOT touched here: scenario #3's 'created alongside' seeds via the additive sqlx fixture (workspace_created_alongside -> workspace_exists_with_admin), which never calls create_workspace (upstream-changes.md Finding 1; the product create-workspace flow + 409 removal is Slice 6). The two un-scoped reads (invites WHERE id, teams WHERE id, upstream Finding 2) are NOT on the issue-list path and are Slice 2/6 — do NOT pull forward. TEST PARADIGM: LAYER-3 real-adapter, example-based (Mandates 9+11), Tier-A-only per DISTILL. EXEMPT FROM PARADIGM: these are fixed isolation/coexistence/equality outcomes over real I/O, not quantified properties over a domain-rich space; sad/edge paths (empty, no-rewrite) are enumerated as distinct scenarios — the correct instrument for an isolation boundary. Compensate: scenario #6's before/after id-equality + issue-count-equality is itself a tight equality probe of the migration's no-rewrite contract. EARNED-TRUST (Principle 12): #2/#4 are the empirical probe that tenant A's data cannot bleed into B's answer (and vice versa) under two REAL coexisting tenants — the leak risk is the risk register's top-rated risk; #6 probes that the index drop does not silently rewrite the incumbent tenant's rows."
+        },
+        {
+          "id": "01-03",
+          "name": "Fail-closed resolution: a credential whose holder resolves to no workspace is refused, not defaulted",
+          "criteria": [
+            "a request carrying a credential whose holder belongs to NO workspace (a registered bearer for a user with no membership) listing the Acme \"Auth\" project's issues is REFUSED with a fail-closed status (401/403/404), never served against an arbitrary workspace's data (scenario #5, ADR-001 fail-closed contract, NFR-MWT-SEC-03)",
+            "the refusal body contains no issue data — no ACME- and no GLOBEX- key leaks to the orphan caller",
+            "the refusal is DETERMINED from the shipped seam: Services::list_board_issues resolves the team by principal.workspace_id() (the token.workspace_id claim) then gates on Store::is_team_member(team_id, principal.user_id()); the orphan holder has NO membership, so the SHIPPED membership check returns Forbidden (403) BEFORE any issue fetch — confirm this empirically; add a guard ONLY if the assertion reveals the shipped path does NOT already fail closed",
+            "no adapter-side authz is added to foundry-api for this slice (the gate stays in the use-case's membership check; the boundary guard's api-no-adhoc-authz rule stays green)"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-mwt-slice-01-coexist.feature",
+          "scenario_name": "A request that resolves to no workspace is refused, not defaulted",
+          "estimate_hours": 2,
+          "deps": ["01-01"],
+          "implementation_scope": {
+            "files": [
+              "crates/foundry-acceptance/tests/features/us-mwt-slice-01-coexist.feature"
+            ]
+          },
+          "implementation_notes": "Greens scenario #5 (@us-mwt00 @error, the fail-closed edge). EXPECTED NO NEW PRODUCTION CODE — the fail-closed refusal is ALREADY ENFORCED by the shipped path, verified at design time: the orphan fixture (credential_no_workspace) mints a real registered bearer whose token.workspace_id points at a real workspace (so the MachinePrincipal extractor AUTHENTICATES — auth is not the gate), but the holder has NO workspace_memberships row. Services::list_board_issues (foundry-services/src/lib.rs:326-361) resolves find_team_by_slug(principal.workspace_id(), 'Backend') (found), then is_team_member(team.id, principal.user_id()) returns false -> ServiceError::Forbidden -> 403 via the shipped status_for envelope, BEFORE list_issues_by_project runs. So the holder-with-no-membership is refused 403 and served no data: fail-closed holds on the shipped API leg with zero new code. The step's work is un-skipping scenario #5 (remove @pending) and asserting the refusal (request_refused accepts 401/403/404; not_served asserts no ACME-/GLOBEX- key). CONTINGENCY (Earned Trust, do not assume): if the empirical run shows the shipped path does NOT fail closed (e.g. resolution somewhere defaults to a workspace), THEN and only then scope a minimal guard — most likely in the resolution seam, NOT a new adapter authz path — and record it; files_to_modify currently lists only the .feature on the design-validated expectation that no production change is needed. NOTE: this slice's fail-closed is the API leg's membership gate; the ActingWorkspace newtype + its provenance guard (ADR-002) are NOT needed to fail closed here and are deferred to Slice 2 (see 01-01 note). TEST PARADIGM: LAYER-3 real-adapter, example-based (Mandates 9+11), Tier-A-only per DISTILL. EXEMPT FROM PARADIGM: the contract is a fixed (refused, no-data) outcome for a single adversarial example (the orphan), a security-boundary refusal, not a quantified property; enumerated as its own scenario is the right instrument. Compensate: list_board_issues' own membership-authz path is already exercised by the shipped Feature-A scenarios. EARNED-TRUST (Principle 12, load-bearing): scenario #5 IS the probe that the resolution seam refuses rather than defaults when the world hands it a holder that resolves to no workspace — 'what happens when the credential lies about belonging somewhere?' is answered empirically, not on faith; a request that cannot resolve to exactly one workspace must be refused (ADR-001), and this scenario proves the shipped path honors that."
+        }
+      ]
+    }
+  ],
+  "implementation_scope": {
+    "source_directories": [
+      "crates/foundry-store/migrations/"
+    ],
+    "test_directories": [
+      "crates/foundry-acceptance/tests/"
+    ],
+    "excluded_patterns": [
+      "target/**",
+      "**/*.lock"
+    ]
+  },
+  "validation": {
+    "status": "approved",
+    "reviewer": "slice-by-slice-checkpoint",
+    "approved_at": "2026-06-09T00:00:00Z"
+  }
+}
