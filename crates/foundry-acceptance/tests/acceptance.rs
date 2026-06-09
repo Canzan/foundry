@@ -35,6 +35,8 @@ use foundry_acceptance::steps::feature_b_web_tier as _feature_b;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_machine_token_admin as _feature_mt;
 #[allow(unused_imports)]
+use foundry_acceptance::steps::feature_mwt_slice_01_coexist as _feature_mwt_s01;
+#[allow(unused_imports)]
 use foundry_acceptance::steps::feature_remaining_surfaces as _feature_remaining;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_token_management_api as _feature_tma;

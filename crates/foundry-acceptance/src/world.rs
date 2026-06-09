@@ -592,6 +592,40 @@ pub struct FoundryWorld {
     /// Headers of the most recent remaining-surfaces GET/POST (for the
     /// signed-out 303 Location assertion on US-R04).
     pub r_last_headers: Option<HeaderMap>,
+
+    // ---- Feature "multi-workspace-tenancy" — Slice 1 (coexistence + resolution) ----
+    /// workspace name -> workspace_id for every workspace seeded this scenario.
+    /// Slice 1 is the FIRST fixture that holds more than one entry; the second
+    /// `INSERT INTO workspaces` fails RED until the `0002` migration drops
+    /// `uniq_one_workspace` (and the bootstrap.rs:289 409 guard is gone).
+    pub mwt_workspace_ids: HashMap<String, uuid::Uuid>,
+    /// (workspace name, project name) -> (team_slug, project_slug) so a When
+    /// step can reconstruct the `/api/v1/teams/{team}/projects/{project}/issues`
+    /// URL for a workspace-scoped project.
+    pub mwt_project_route: HashMap<(String, String), (String, String)>,
+    /// member email -> the bearer JWT minted bound to that member's workspace
+    /// (the `token.workspace_id` resolution seam, ADR-001).
+    pub mwt_bearer_by_email: HashMap<String, String>,
+    /// A credential whose holder belongs to NO workspace (the fail-closed
+    /// resolution scenario). Presented like any bearer; resolution must refuse.
+    pub mwt_no_workspace_bearer: Option<String>,
+    /// Issue keys recorded for a workspace BEFORE the guard is dropped, so the
+    /// no-rewrite scenario can assert before/after equality.
+    pub mwt_issues_before_by_workspace: HashMap<String, Vec<String>>,
+    /// The workspace_id captured before the guard-drop, to assert identity is
+    /// unchanged afterward.
+    pub mwt_workspace_id_before: Option<uuid::Uuid>,
+    /// Status of the most recent `/api/v1/.../issues` GET captured by a When
+    /// step, reused by the Then assertions.
+    pub mwt_last_status: Option<StatusCode>,
+    /// Body of the most recent `/api/v1/.../issues` GET, parsed by the Then
+    /// assertions for the listed issue keys.
+    pub mwt_last_body: Option<String>,
+    /// The Acme list answer captured in the disjoint-set scenario (so a second
+    /// When can capture the Globex answer and the Then compares both).
+    pub mwt_acme_answer: Option<String>,
+    /// The Globex list answer captured in the disjoint-set scenario.
+    pub mwt_globex_answer: Option<String>,
 }
 
 impl FoundryWorld {
