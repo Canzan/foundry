@@ -210,6 +210,28 @@ async fn workspace_has_member_team_project(
     .await
     .expect("insert team");
 
+    // Resolve the real team id (the ON CONFLICT above may have kept an existing
+    // row, so the generated `team_id` is not authoritative), then seed the
+    // member's team membership. The shipped board-read authz requires
+    // `is_team_member` (foundry-services/src/issues.rs:160) — a workspace
+    // membership alone is refused 403, so the member must belong to the team.
+    let (team_id,): (uuid::Uuid,) =
+        sqlx::query_as("SELECT id FROM teams WHERE workspace_id = $1 AND slug = $2")
+            .bind(workspace_id)
+            .bind(&team_slug)
+            .fetch_one(&pool)
+            .await
+            .expect("resolve team id");
+    sqlx::query(
+        "INSERT INTO team_memberships (team_id, user_id, role) VALUES ($1, $2, 'member')
+              ON CONFLICT DO NOTHING",
+    )
+    .bind(team_id)
+    .bind(user_id)
+    .execute(&pool)
+    .await
+    .expect("insert team membership");
+
     let project_id = uuid::Uuid::now_v7();
     let project_slug = slugify(&project);
     sqlx::query(
@@ -584,7 +606,7 @@ async fn neither_contains_other(world: &mut FoundryWorld) {
     );
 }
 
-#[then(regex = r#"^the answer is an empty data list$"#)]
+#[then(regex = r#"^the answer is an empty data list for the new workspace$"#)]
 async fn answer_empty(world: &mut FoundryWorld) {
     let body = world.mwt_last_body.as_deref().expect("answer body");
     assert_eq!(

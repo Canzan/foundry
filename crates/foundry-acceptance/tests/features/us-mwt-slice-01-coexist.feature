@@ -106,7 +106,7 @@ Feature: Two workspaces coexist in one instance and each request sees only its o
     And "Globex" has a member "lucia@globex.com" in team "Platform" with project "Core" prefix "GLOBEX"
     And a machine credential is bound to "lucia@globex.com" in workspace "Globex"
     When the Globex-bound credential lists the "Core" project's issues as data
-    Then the answer is an empty data list
+    Then the answer is an empty data list for the new workspace
     And no other workspace's issues appear
 
   @us-mwt00 @error @pending
