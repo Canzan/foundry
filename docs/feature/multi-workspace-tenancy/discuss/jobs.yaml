@@ -1,0 +1,301 @@
+# JTBD Outcomes — Multi-Workspace Tenancy
+#
+# Single source of truth for job_id references used by user stories in stories.md.
+#
+# ============================================================================
+# WHAT THIS FILE IS
+# ============================================================================
+# These are NEW jobs about HOSTING SEVERAL INDEPENDENT TEAMS in one Foundry
+# instance with genuine per-tenant data isolation. Foundry is SINGLE-workspace
+# today, enforced by `CREATE UNIQUE INDEX uniq_one_workspace ON workspaces
+# ((true))` (migration 0001_init.sql:15). Every workspace-scoped table already
+# carries a `workspace_id` FK (users hang off `workspace_memberships`; teams,
+# projects, issues, invites all FK to `workspaces(id)`), and the code already
+# scopes queries by `workspace_id` and is non-enumerable — but only ONE
+# workspace can ever exist, so that isolation is exercised today with SYNTHETIC
+# uuids, never with two real coexisting workspaces. This feature makes tenancy
+# REAL: drop the single-workspace guard, resolve which workspace a request acts
+# on, prove the isolation boundary on every surface, and migrate the existing
+# single-workspace install to "workspace 1" with no data loss.
+#
+# ============================================================================
+# SOURCE / VALIDATION STATUS
+# ============================================================================
+# This feature has NO diverge/ directory (no validated DIVERGE job-analysis.md).
+# Jobs are NEW and Luna-derived from (a) the brief, (b) a fresh 2026-06 reading
+# of the shipped single-workspace schema + authz seam (is_workspace_admin,
+# is_team_member, the per-table workspace_id scoping, the attachments.rs
+# non-enumerable lookup pattern), and (c) the two accepted residuals this
+# feature unblocks (real cross-workspace fixtures + rate-bucket eviction, in
+# docs/evolution/2026-06-07 and 2026-06-08). Importances and satisfactions are
+# Luna estimates pending user/field validation. See wave-decisions.md
+# "No DIVERGE directory (RISK)" + the Open Product Decisions table.
+
+schema_version: 1
+feature: multi-workspace-tenancy
+feature_label: "Multi-Workspace Tenancy — host several isolated teams in one Foundry instance"
+source: DERIVED (no diverge/ dir) — brief + 2026-06 code-surface reading of the single-workspace schema/authz + the two unblocked residuals + JTBD method
+predecessor_features:
+  - web-tier-extraction       # shipped the machine-token + per-table workspace_id scoping substrate
+  - machine-token-admin-ux    # residual: cross-workspace evil-user paths tested with synthetic uuids
+  - token-management-api      # residual: rate-bucket map eviction unbounded beyond single-workspace
+
+# ---------------------------------------------------------------------------
+# Personas (grounded in the shipped single-workspace code + the brief's actors)
+# ---------------------------------------------------------------------------
+personas:
+  instance_operator:
+    name_example: "Sasha Okonkwo"
+    description: >
+      The person who runs ONE self-hosted Foundry process for several
+      independent teams or client orgs (an agency hosting client projects, a
+      platform team hosting internal squads, a community admin hosting a few
+      groups). TODAY she can only host ONE team per instance: the
+      `uniq_one_workspace` guard means a second team means a second Postgres,
+      a second process, a second deploy. She is the PRIMARY persona — the one
+      the single-workspace limit blocks. She cares that each tenant's data is
+      fully isolated AND invisible to the others, and that she does not have to
+      stand up a separate instance per team.
+    grounding: "uniq_one_workspace (0001_init.sql:15) limits her to one team; the brief's 'run one Foundry instance for several independent teams'."
+  workspace_admin:
+    name_example: "Priya Nandakumar"
+    description: >
+      An admin (role='admin' in workspace_memberships, the is_workspace_admin
+      check) of ONE tenant on a shared instance. She administers HER workspace —
+      members, teams, projects, machine tokens — and must never see, reach, or
+      affect any OTHER tenant's data. Carried over from machine-token-admin-ux;
+      here her concern is that the boundary around her workspace is real on a
+      shared instance, not just true-by-construction because she is the only
+      tenant.
+    grounding: "is_workspace_admin in foundry-store; workspace_memberships.role='admin'."
+  workspace_member:
+    name_example: "Marco Bianchi"
+    description: >
+      A regular member (or a machine-token principal) of a tenant. He signs in,
+      works his team's issues, and — critically — must be unable to read or
+      mutate any other tenant's issues/projects/attachments/tokens, and unable
+      to even tell that another tenant EXISTS (non-enumerability). He is the
+      actor in the evil-user isolation-violation scenarios.
+    grounding: "workspace_memberships + team_memberships; the attachments.rs requester_workspace_id non-enumerable lookup; the brief's 'member/admin/machine-token of A must never read or mutate B'."
+  security_reviewer:
+    name_example: "Dana Whitfield"
+    description: >
+      A security-conscious operator/auditor who must be able to PROVE the
+      tenant boundary holds — with real two-workspace fixtures, not synthetic
+      uuids. Carried over from the token features; here she is the persona whose
+      accepted residual (synthetic-uuid cross-workspace tests) this feature
+      finally lets close with genuine fixtures.
+    grounding: "the synthetic-uuid residual in docs/evolution/2026-06-07 + 2026-06-08; distill/upstream-issues.md."
+
+# ---------------------------------------------------------------------------
+# Jobs. RANKING (primary -> supporting):
+#   1. mwt-job-1 (PRIMARY)    — host several teams in one instance, fully isolated
+#   2. mwt-job-2 (PRIMARY)    — be certain my tenant's data is invisible to others (non-enumerable)
+#   3. mwt-job-3 (SUPPORTING) — bring my existing single-workspace install across safely
+#   4. mwt-job-4 (SUPPORTING) — create / provision a new tenant on a running instance
+#   5. mwt-job-5 (SUPPORTING) — prove the boundary holds with real fixtures (unblocks residuals)
+# ---------------------------------------------------------------------------
+jobs:
+  mwt-job-1:
+    name: "Host several independent teams in one Foundry instance without standing up a separate instance each"
+    statement: >
+      When I run one Foundry instance for several independent teams or client
+      orgs, I want each team's data to live side by side in the same instance
+      and stay fully isolated from the others, so I can host them all safely
+      without provisioning, deploying, and paying for a separate instance per
+      team.
+    primary_persona: instance_operator
+    importance: 9
+    satisfaction_today: 1
+    opportunity_score: 17
+    status: critically-under-served
+    rank_note: >
+      PRIMARY. Satisfaction is 1 (not 0) only because the schema already carries
+      `workspace_id` on every tenant-scoped table and the code already scopes
+      queries — so the substrate for many workspaces is mostly there — but the
+      `uniq_one_workspace` guard makes a second workspace literally impossible to
+      create. Today hosting two teams means two instances. The gap is: drop the
+      guard, resolve which workspace a request targets, and prove isolation on
+      every surface.
+    dimensions:
+      functional: "Run one process/one Postgres that holds multiple workspaces; each user's session/requests act on exactly their workspace's data."
+      emotional: "Confidence that putting two clients on one box is SAFE — that A can never see B — so I am not negligent for consolidating."
+      social: "I can tell a prospective client 'you get full isolation on shared infrastructure' and mean it, the way a real multi-tenant SaaS can."
+    forces:
+      push: >
+        `uniq_one_workspace` caps the instance at one workspace; a second team
+        means a second deploy, a second DB, double the ops and cost. There is no
+        product path to add a tenant.
+      pull: >
+        Multiple workspaces coexisting in one instance, each request resolved to
+        its workspace, each query already scoped by `workspace_id` — so adding a
+        tenant is a data operation, not an infra operation.
+      anxiety: >
+        If they share a process and a database, can one tenant's bug or one
+        crafted request leak another's data? (Answered by mwt-job-2: the boundary
+        must be proven, fail-closed, and non-enumerable on every surface.)
+      habit: >
+        Operators used to "one instance per customer" must learn to trust a
+        shared instance — earned only by a demonstrable, tested isolation boundary.
+
+  mwt-job-2:
+    name: "Be certain my tenant's data — and even its existence — is invisible to every other tenant"
+    statement: >
+      When my workspace shares an instance with other tenants, I want it to be
+      impossible for any member, admin, or machine token of another workspace to
+      read or change my data, or even to discover that my workspace or its
+      resources exist, so I can trust the shared instance the way I would trust a
+      dedicated one.
+    primary_persona: workspace_member
+    importance: 9
+    satisfaction_today: 2
+    opportunity_score: 16
+    status: critically-under-served
+    rank_note: >
+      PRIMARY. The CODE already scopes by `workspace_id` and already collapses
+      "not found" and "not yours" into a single non-enumerable response (see
+      `attachments.rs` `requester_workspace_id`), and authz checks
+      (`is_workspace_admin`, `is_team_member`) exist — satisfaction 2, not 0.
+      BUT with only one workspace possible, none of this is exercised against a
+      REAL second tenant; the guarantee is asserted with synthetic uuids. This
+      job is the security heart of the feature: make the boundary real, on EVERY
+      surface (web htmx tier, JSON /api/v1, machine-token auth, sign-in/sessions,
+      backup/restore), fail-closed, and non-enumerable.
+    dimensions:
+      functional: "Every read/write is scoped to the acting workspace; a request for another workspace's resource is refused identically to a request for a non-existent one."
+      emotional: "Trust — I can put my real data here because a neighbour, even a hostile or buggy one, cannot reach it or learn it is there."
+      social: "An auditor can be shown that tenant A cannot enumerate, read, or mutate tenant B — proven, not promised."
+    forces:
+      push: >
+        On a shared instance, a single missing scope check, a guessable id, or a
+        leaky error message would expose one tenant to another — the classic
+        multi-tenant data-leak failure.
+      pull: >
+        Isolation enforced at a single, auditable seam (workspace resolution +
+        the per-table `workspace_id` scoping that already exists), so every
+        surface inherits the same fail-closed, non-enumerable boundary.
+      anxiety: >
+        Will some surface forget to scope? Will a 404-vs-403 difference reveal
+        that B's resource exists? (Mitigated: a uniform non-enumerable refusal
+        and an enumerated list of every surface the boundary must cover.)
+      habit: >
+        Developers used to "there's only one workspace, scoping is academic" must
+        treat `workspace_id` scoping as load-bearing security on every new query.
+
+  mwt-job-3:
+    name: "Bring my existing single-workspace install across to multi-tenant without losing or exposing data"
+    statement: >
+      When my current single-workspace Foundry upgrades to a version that
+      supports multiple workspaces, I want my existing workspace, users, teams,
+      projects, and issues to keep working exactly as before — now simply as
+      'the first workspace' — so the upgrade is seamless and I never risk losing
+      data or accidentally exposing it to a new tenant.
+    primary_persona: instance_operator
+    importance: 8
+    satisfaction_today: 0
+    opportunity_score: 16
+    status: critically-under-served
+    rank_note: >
+      SUPPORTING but high-stakes. Every existing Foundry install is
+      single-workspace; the upgrade must convert that one workspace into
+      "workspace 1" of a multi-tenant world with ZERO data loss and ZERO change
+      to how its existing users sign in and work. Forward-only migration per
+      ADR-003. Satisfaction 0: there is no migration path today because
+      multi-workspace does not exist.
+    dimensions:
+      functional: "After upgrade, the pre-existing workspace and all its data are intact and reachable; the `uniq_one_workspace` guard is gone but the single existing row is unaffected."
+      emotional: "Relief that upgrading did not break or expose anything — my one team still works exactly as before."
+      social: "I can recommend the upgrade to other operators because it is safe and reversible-in-spirit (forward-only, no data loss)."
+    forces:
+      push: >
+        Dropping `uniq_one_workspace` and adding workspace resolution touches the
+        most load-bearing schema in the product; a bad migration could lose or
+        cross-wire data.
+      pull: >
+        A forward-only migration that simply removes the single-workspace guard
+        and leaves the one existing workspace as workspace 1 — its `workspace_id`
+        FKs already point at it, so its data needs no rewrite.
+      anxiety: >
+        Will my existing users' sessions, tokens, and bookmarks still work? Will
+        the migration touch their data? (Mitigated: existing workspace untouched;
+        only the guard is dropped + resolution added.)
+      habit: "Operators expect upgrades to be drop-in; this one must be."
+
+  mwt-job-4:
+    name: "Create and provision a new tenant on a running instance"
+    statement: >
+      When a new team needs its own isolated space on my running Foundry
+      instance, I want to create a new workspace and seed its first admin, so I
+      can onboard a tenant without redeploying or touching the database by hand.
+    primary_persona: instance_operator
+    importance: 7
+    satisfaction_today: 1
+    opportunity_score: 13
+    status: under-served
+    rank_note: >
+      SUPPORTING. Once more than one workspace can exist, the operator needs a
+      way to CREATE one and seed its first admin (today the single workspace is
+      created at bootstrap via the bootstrap_tokens flow). WHO may create a
+      workspace (instance super-admin vs self-serve) and whether there is an
+      instance-level role above workspace-admin are OPEN PRODUCT DECISIONS
+      (wave-decisions OD-3). Satisfaction 1: bootstrap creates the first
+      workspace today, but there is no path to create a second.
+    dimensions:
+      functional: "Provision a new workspace with a name and a first admin (e.g. via a bootstrap/invite flow), reachable immediately."
+      emotional: "Self-sufficiency — onboarding a tenant is a product action, not an ops/DB task."
+      social: "I can promise a new client same-day onboarding."
+    forces:
+      push: "There is no way to make a second workspace; the bootstrap flow creates exactly one."
+      pull: "A create-workspace path (operator action or seeded bootstrap) that yields an isolated, ready-to-use tenant with its first admin."
+      anxiety: "Could anyone create a workspace? Who is allowed? (OD-3: provisioning authority is an open product decision; default = instance operator/super-admin only.)"
+      habit: "Operators expect tenant onboarding to be self-service or at least operator-driven, not a manual DB insert."
+
+  mwt-job-5:
+    name: "Prove the tenant boundary holds with real two-workspace fixtures and bounded per-tenant resources"
+    statement: >
+      When I need to trust (and demonstrate) that the isolation boundary is
+      real, I want the system tested with genuine coexisting workspaces and its
+      per-tenant in-memory resources bounded, so I can close the gaps that the
+      single-workspace limit forced — synthetic-uuid cross-workspace tests and
+      an unbounded per-principal rate-bucket map.
+    primary_persona: security_reviewer
+    importance: 6
+    satisfaction_today: 1
+    opportunity_score: 11
+    status: under-served
+    rank_note: >
+      SUPPORTING. This is the job that the two accepted residuals map onto:
+      (1) real cross-workspace evil-user fixtures replacing synthetic uuids
+      (docs/evolution/2026-06-07 + 2026-06-08; distill/upstream-issues.md), and
+      (2) bounding the per-principal revoke-storm rate-bucket map, which is safe
+      today only because the single-workspace admin count is O(dozens)
+      (token-management-api residual F2). Multi-workspace makes both real.
+    dimensions:
+      functional: "Acceptance suites use two real workspaces A and B with real members/tokens; the rate-bucket map evicts idle/stale principals so it cannot grow unbounded across many tenants."
+      emotional: "Confidence that the proof is genuine, not a synthetic-uuid stand-in; comfort that resource growth is bounded."
+      social: "An auditor accepts the cross-tenant isolation evidence because it uses real coexisting tenants."
+    forces:
+      push: >
+        Cross-workspace paths are tested with synthetic uuids (only one workspace
+        can exist); the rate-bucket map is bounded only by the single-workspace
+        admin count — both are accepted residuals waiting on multi-workspace.
+      pull: >
+        Real two-workspace fixtures (A and B coexisting) that exercise the
+        evil-user paths for real; an eviction policy (LRU/idle) on the rate-bucket
+        map keyed by principal.
+      anxiety: "Will real fixtures surface a scoping bug the synthetic tests missed? (That is exactly the point — better found here.)"
+      habit: "Test authors used to synthetic single-workspace fixtures must build genuine two-tenant fixtures."
+
+# ---------------------------------------------------------------------------
+# Story-to-job mapping (mirror of the job_id line on each story; canonical source).
+# ---------------------------------------------------------------------------
+story_job_map:
+  US-MWT00: infrastructure-only  # drop uniq_one_workspace + workspace-resolution seam; folds into Slice 1 (never standalone)
+  US-MWT01: mwt-job-1            # Slice 1 (walking skeleton): two workspaces coexist; a request resolves to ITS workspace end-to-end on ONE surface
+  US-MWT02: mwt-job-2            # Slice 2: tenant-scoped authz + non-enumerable refusal proven on ONE surface (the web htmx tier) with real A/B fixtures
+  US-MWT03: mwt-job-2            # Slice 3: isolation boundary propagated to the JSON /api/v1 surface (incl. machine-token principals)
+  US-MWT04: mwt-job-2            # Slice 3: isolation boundary propagated to sign-in/sessions + machine-token auth (workspace selection / scoping)
+  US-MWT05: mwt-job-2            # Slice 4: cross-tenant non-enumerability hardening — uniform refusal, no existence leak, adversarial coverage
+  US-MWT06: mwt-job-3            # Slice 5: existing single-workspace install migrates to workspace 1, no data loss, users unaffected
+  US-MWT07: mwt-job-4            # Slice 6: operator creates a new workspace and seeds its first admin
+  US-MWT08: mwt-job-5            # Slice 6: real two-workspace fixtures replace synthetic uuids; rate-bucket map eviction (unblocks residuals)
