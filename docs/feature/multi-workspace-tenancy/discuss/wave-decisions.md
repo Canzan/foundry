@@ -195,14 +195,18 @@ specific pre-commitment (see hypotheses).
 | OD-2 (multi-membership) or OD-3 (instance super-admin) ratified differently than the default | Medium | Medium | Both flagged for explicit user ratification BEFORE DESIGN; stories written so the resolution seam + provisioning surface can absorb either answer. |
 | No DIVERGE validation of the NEW jobs | Medium | Low | Substrate is shipped/tested; the only real unknowns (tenant model, cardinality, provisioning) are flagged as OD-1/2/3; confirm job ranking before DESIGN. |
 
-## Open Product Decisions — STATUS: AWAITING USER RATIFICATION
+## Open Product Decisions — STATUS: RATIFIED 2026-06-09
 
-OD-1 through OD-5 above are proposed with defaults but are **NOT yet ratified by the user**.
-DM3/DM4/DM6/DM7 record the recommended defaults. **OD-2 (user↔workspace cardinality) and OD-3
-(provisioning authority + instance super-admin role) are the two that most change the design
-and should be confirmed before DESIGN begins.** Unlike machine-token-admin-ux (whose open
-questions were ratified same-day), these are left OPEN for the user; DESIGN must not pick
-silently.
+User ratified at the end of DISCUSS:
+- **OD-2 = Multi-membership (RATIFIED).** A user/email MAY belong to multiple workspaces. DESIGN
+  owns the workspace-selection/switch UX + the request→workspace resolution mechanism (session
+  carries the active workspace), but the cardinality is settled: multi-membership.
+- **OD-3 = Instance super-admin only (RATIFIED).** A NEW instance-level super-admin role (above
+  workspace-admin) provisions tenants. No self-serve signup for v1. Bootstrap creates workspace 1
+  + the super-admin. DESIGN owns the role's exact shape + the provisioning surface.
+
+OD-1 (shared-schema + `workspace_id`), OD-4 (forward-only migration, no data touch), and OD-5
+(whole-instance backup for v1) stand at their recommended defaults — DESIGN ratifies the mechanisms.
 
 ## Assumptions about the current single-workspace code (flag for verification)
 
