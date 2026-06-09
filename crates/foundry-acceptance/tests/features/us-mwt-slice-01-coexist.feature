@@ -109,7 +109,7 @@ Feature: Two workspaces coexist in one instance and each request sees only its o
     Then the answer is an empty data list for the new workspace
     And no other workspace's issues appear
 
-  @us-mwt00 @error @pending
+  @us-mwt00 @error
   Scenario: A request that resolves to no workspace is refused, not defaulted
     Given "Acme" has a member "marco@acme.com" in team "Backend" with project "Auth" prefix "ACME"
     And the "Acme" project "Auth" has issues ACME-1 and ACME-2
