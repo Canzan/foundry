@@ -444,7 +444,13 @@ async fn instance_already_has_workspace(world: &mut FoundryWorld, ws_name: Strin
 )]
 async fn existing_workspace_recorded(world: &mut FoundryWorld, ws_name: String) {
     ensure_harness(world).await;
-    workspace_exists_with_admin(world, ws_name.clone(), "ops@first.test".to_string()).await;
+    // The Background already seeded this workspace additively (one row, recorded
+    // in `mwt_workspace_ids`). Re-seeding here would insert a DUPLICATE
+    // same-named `workspaces` row, making the Then's `SELECT id ... WHERE name`
+    // ambiguous. Reuse the existing row and only add its team/project/issues.
+    if !world.mwt_workspace_ids.contains_key(&ws_name) {
+        workspace_exists_with_admin(world, ws_name.clone(), "ops@first.test".to_string()).await;
+    }
     workspace_has_member_team_project(
         world,
         ws_name.clone(),

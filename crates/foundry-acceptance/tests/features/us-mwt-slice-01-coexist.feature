@@ -78,7 +78,7 @@ Feature: Two workspaces coexist in one instance and each request sees only its o
     Then the answer lists only the "Acme" issues ACME-1 and ACME-2
     And no "Globex" issue appears in the answer
 
-  @us-mwt01 @pending
+  @us-mwt01
   Scenario: Each workspace's members see a disjoint set of data
     Given "Acme" has a member "marco@acme.com" in team "Backend" with project "Auth" prefix "ACME"
     And "Globex" has a member "lucia@globex.com" in team "Platform" with project "Core" prefix "GLOBEX"
@@ -92,14 +92,14 @@ Feature: Two workspaces coexist in one instance and each request sees only its o
     And the Globex answer contains only "Globex" issues
     And neither answer contains any of the other workspace's issues
 
-  @us-mwt00 @coexistence @pending
+  @us-mwt00 @coexistence
   Scenario: A second workspace can be created where none could before
     Given an instance that already has the workspace "Acme"
     When the workspace "Globex" is created alongside it
     Then both workspaces exist on the instance
     And neither creation is blocked by a single-workspace limit
 
-  @us-mwt01 @pending
+  @us-mwt01
   Scenario: A brand-new workspace starts empty, not populated from a neighbour
     Given "Acme" has a member "marco@acme.com" in team "Backend" with project "Auth" prefix "ACME"
     And the "Acme" project "Auth" has issues ACME-1 and ACME-2
@@ -118,7 +118,7 @@ Feature: Two workspaces coexist in one instance and each request sees only its o
     Then the request is refused
     And it is not served against any workspace's data
 
-  @us-mwt00 @migration @no-rewrite @pending
+  @us-mwt00 @migration @no-rewrite
   Scenario: Dropping the single-workspace guard leaves the existing workspace's data unchanged
     Given the existing workspace "Acme" with its issues recorded before the guard is dropped
     When the single-workspace guard is dropped so a second workspace becomes possible
