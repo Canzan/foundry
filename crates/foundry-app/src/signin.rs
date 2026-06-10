@@ -137,14 +137,31 @@ pub async fn submit_signin(
     }
 
     let user = user.expect("verified implies user row found");
-    let workspace_id = match state.store.first_workspace().await {
+    // ADR-005: the session's ACTIVE workspace is resolved by the member's
+    // `workspace_memberships`, NOT by the global `first_workspace()`. Under two
+    // coexisting workspaces (slice 1), `first_workspace()`'s unordered `LIMIT 1`
+    // would scope a member of one tenant to an arbitrary other; membership
+    // resolution scopes them to their own. A single-membership user
+    // auto-resolves to their one workspace; a user with NO membership FAILS
+    // CLOSED (we refuse — never default to a tenant they do not belong to). The
+    // multi-membership selector + switcher (step 02-05) layer onto this same
+    // seam later.
+    let workspace_id = match state.store.resolve_active_workspace(user.id).await {
         Ok(Some((id, _))) => id,
         Ok(None) => {
-            tracing::error!("no workspace exists at sign-in time");
-            return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
+            // Fail closed: a verified user who belongs to no workspace cannot be
+            // given an active tenant. Refuse rather than default.
+            tracing::warn!(user_id = %user.id, "sign-in: user belongs to no workspace; refusing");
+            let (token, set_cookie) = ensure_csrf_cookie(&state, &headers);
+            let body = render_signin_form(&token, Some(GENERIC_SIGNIN_ERROR));
+            return response_with_optional_cookie(
+                StatusCode::UNAUTHORIZED,
+                Html(body).into_response(),
+                set_cookie,
+            );
         }
         Err(err) => {
-            tracing::error!(%err, "first_workspace failed");
+            tracing::error!(%err, "resolve_active_workspace failed");
             return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
         }
     };

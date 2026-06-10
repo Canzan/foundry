@@ -394,6 +394,40 @@ impl Store {
         Ok(row)
     }
 
+    /// Resolve a user's ACTIVE workspace by MEMBERSHIP (ADR-005), not by the
+    /// global "first" workspace. This is the multi-workspace-tenancy resolution
+    /// seam the web sign-in path uses to stamp `SessionUser.workspace_id`.
+    ///
+    /// Contract (ADR-005 multi-membership):
+    /// - exactly ONE membership → `Some((workspace_id, name))` (auto-resolve);
+    /// - ZERO memberships → `Ok(None)` so the caller can FAIL CLOSED (refuse,
+    ///   never default to an arbitrary tenant);
+    /// - MULTIPLE memberships → returns the lowest-id membership deterministically
+    ///   for now; the explicit selector + switcher (steps 02-05) layer on top of
+    ///   this same seam later. (A single-membership user — the only shape exercised
+    ///   here — auto-resolves to their one workspace exactly as before.)
+    ///
+    /// The `ORDER BY w.id` makes the choice DETERMINISTIC (unlike
+    /// `first_workspace`'s unordered `LIMIT 1`), so a member of one workspace is
+    /// never silently scoped to another by heap order.
+    pub async fn resolve_active_workspace(
+        &self,
+        user_id: uuid::Uuid,
+    ) -> Result<Option<(uuid::Uuid, String)>, StoreError> {
+        let row: Option<(uuid::Uuid, String)> = sqlx::query_as(
+            "SELECT w.id, w.name
+               FROM workspaces w
+               JOIN workspace_memberships m ON m.workspace_id = w.id
+              WHERE m.user_id = $1
+              ORDER BY w.id
+              LIMIT 1",
+        )
+        .bind(user_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row)
+    }
+
     /// Record an invite row. Returns the row id (which the caller signs
     /// into the URL).
     pub async fn insert_invite(
