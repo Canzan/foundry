@@ -142,10 +142,14 @@ async fn workspace_exists_with_admin(world: &mut FoundryWorld, ws_name: String, 
 /// Seed a member + a team + a project, all scoped to the named workspace. The
 /// project route is recorded workspace-scoped so the When step targets the
 /// right tenant's project (name lookups alone are ambiguous across tenants).
+// `pub` so Slice 2 (feature_mwt_slice_02_web_boundary) can delegate its
+// additive cross-membership seed (`"<email>" is also a member of "<ws>" ...`) to
+// this exact workspace-scoped member+team+project seed — the documented
+// slice-1→slice-2 reuse contract. The `#[given]` registration is unaffected.
 #[given(
     regex = r#"^"([^"]+)" has a member "([^"]+)" in team "([^"]+)" with project "([^"]+)" prefix "([^"]+)"$"#
 )]
-async fn workspace_has_member_team_project(
+pub async fn workspace_has_member_team_project(
     world: &mut FoundryWorld,
     ws_name: String,
     member: String,

@@ -626,6 +626,37 @@ pub struct FoundryWorld {
     pub mwt_acme_answer: Option<String>,
     /// The Globex list answer captured in the disjoint-set scenario.
     pub mwt_globex_answer: Option<String>,
+
+    // ---- Feature "multi-workspace-tenancy" — Slice 2 (web-tier boundary) ----
+    /// Email of the member signed in on the WEB for the current slice-2 scenario,
+    /// set by `"<email>" is signed in on the web acting on workspace "<ws>"`.
+    /// Drives the authenticated web GET/POST (the harness re-authenticates per
+    /// request — no cookie jar — so the password is recorded too).
+    pub mwt2_web_email: Option<String>,
+    /// Password matching `mwt2_web_email`. Seeds use a per-role constant so the
+    /// web sign-in can authenticate the member/admin/contractor.
+    pub mwt2_web_password: Option<String>,
+    /// The workspace name the signed-in web member is ACTING on (the session's
+    /// active workspace, ADR-005). Recorded so a When step can resolve the
+    /// acting-workspace route + the switch step can re-stamp it.
+    pub mwt2_acting_ws: Option<String>,
+    /// Body of the most recent web GET/POST captured by a slice-2 When step,
+    /// reused by the Then assertions on the same surface so they don't re-fetch.
+    pub mwt2_last_body: Option<String>,
+    /// Status of the most recent slice-2 web GET/POST.
+    pub mwt2_last_status: Option<StatusCode>,
+    /// Body of the FIRST refusal in a foreign-id-vs-never-existed-id comparison
+    /// (the non-enumerability core), captured so the second (never-existed)
+    /// request can be asserted observationally identical.
+    pub mwt2_first_refusal_body: Option<String>,
+    /// Status of that first (foreign-id) refusal — must equal the second.
+    pub mwt2_first_refusal_status: Option<StatusCode>,
+    /// label -> jti for a credential seeded into a NAMED workspace (the admin-
+    /// cannot-cross scenario seeds a Globex credential and addresses it by label).
+    pub mwt2_credential_jti_by_label: HashMap<String, uuid::Uuid>,
+    /// (workspace name, jti) snapshot of a foreign credential's `revoked_at` BEFORE
+    /// the cross-tenant revoke attempt, so the Then can assert it is unchanged.
+    pub mwt2_credential_revoked_before: Option<bool>,
 }
 
 impl FoundryWorld {
