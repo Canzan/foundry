@@ -190,6 +190,18 @@ pub async fn workspace_has_member_team_project(
     .execute(&pool)
     .await
     .expect("insert member user");
+    // Resolve the AUTHORITATIVE user id by email: when this same person is a
+    // member of a SECOND workspace (the multi-membership/02-05 case), the
+    // `ON CONFLICT (email_lower) DO NOTHING` above kept the EXISTING user row,
+    // so the freshly-generated `user_id` is a phantom. Binding it into
+    // `workspace_memberships`/`team_memberships` would violate the user FK.
+    // Re-read the row's id (mirrors the team-id resolution below) so a user can
+    // join multiple workspaces, exactly as ADR-005 multi-membership requires.
+    let (user_id,): (uuid::Uuid,) = sqlx::query_as("SELECT id FROM users WHERE email_lower = $1")
+        .bind(&member_lower)
+        .fetch_one(&pool)
+        .await
+        .expect("resolve member user id");
     sqlx::query(
         "INSERT INTO workspace_memberships (workspace_id, user_id, role) VALUES ($1, $2, 'member')
               ON CONFLICT DO NOTHING",

@@ -398,18 +398,24 @@ impl Store {
     /// global "first" workspace. This is the multi-workspace-tenancy resolution
     /// seam the web sign-in path uses to stamp `SessionUser.workspace_id`.
     ///
-    /// Contract (ADR-005 multi-membership):
+    /// Contract (ADR-005 multi-membership + 02-05 switcher):
     /// - exactly ONE membership → `Some((workspace_id, name))` (auto-resolve);
     /// - ZERO memberships → `Ok(None)` so the caller can FAIL CLOSED (refuse,
     ///   never default to an arbitrary tenant);
-    /// - MULTIPLE memberships → returns the lowest-id membership deterministically
-    ///   for now; the explicit selector + switcher (steps 02-05) layer on top of
-    ///   this same seam later. (A single-membership user — the only shape exercised
-    ///   here — auto-resolves to their one workspace exactly as before.)
+    /// - MULTIPLE memberships → the user's PERSISTED active workspace
+    ///   (`users.active_workspace_id`, set by the `/workspace/switch` action via
+    ///   [`Self::set_active_workspace`]) when it is STILL a valid membership;
+    ///   otherwise the lowest-id membership deterministically.
     ///
-    /// The `ORDER BY w.id` makes the choice DETERMINISTIC (unlike
-    /// `first_workspace`'s unordered `LIMIT 1`), so a member of one workspace is
-    /// never silently scoped to another by heap order.
+    /// The persisted active workspace is honoured ONLY through the membership
+    /// JOIN, so a stale `active_workspace_id` (e.g. the user was removed from that
+    /// workspace after switching) can NEVER scope a user to a tenant they no
+    /// longer belong to — it silently reverts to the lowest-id membership.
+    ///
+    /// The `ORDER BY` puts the active membership first (`is_active DESC`) then the
+    /// deterministic `w.id` tiebreak (unlike `first_workspace`'s unordered
+    /// `LIMIT 1`), so a member of one workspace is never silently scoped to
+    /// another by heap order.
     pub async fn resolve_active_workspace(
         &self,
         user_id: uuid::Uuid,
@@ -418,14 +424,51 @@ impl Store {
             "SELECT w.id, w.name
                FROM workspaces w
                JOIN workspace_memberships m ON m.workspace_id = w.id
+               JOIN users u ON u.id = m.user_id
               WHERE m.user_id = $1
-              ORDER BY w.id
+              ORDER BY (w.id = u.active_workspace_id) DESC, w.id
               LIMIT 1",
         )
         .bind(user_id)
         .fetch_optional(&self.pool)
         .await?;
         Ok(row)
+    }
+
+    /// Set a user's PERSISTED active workspace (the `/workspace/switch` action,
+    /// ADR-005 / step 02-05). MEMBERSHIP-GUARDED and FAIL-CLOSED: the active
+    /// workspace is written ONLY when the user is actually a member of the target.
+    ///
+    /// Returns:
+    /// - `Ok(true)`  — the user IS a member; `active_workspace_id` was set so a
+    ///   subsequent [`Self::resolve_active_workspace`] returns the target;
+    /// - `Ok(false)` — the user is NOT a member of the target: NO write happens
+    ///   (privilege boundary — a non-member can never make their session act on a
+    ///   foreign tenant, NFR-MWT-SEC). The caller maps this to a non-enumerable
+    ///   refusal.
+    ///
+    /// The membership check and the write are a single statement
+    /// (`UPDATE … WHERE EXISTS (membership)`) so the guard cannot be raced apart
+    /// from the write. `rows_affected() == 1` ⇒ the EXISTS held ⇒ member.
+    pub async fn set_active_workspace(
+        &self,
+        user_id: uuid::Uuid,
+        workspace_id: uuid::Uuid,
+    ) -> Result<bool, StoreError> {
+        let result = sqlx::query(
+            "UPDATE users
+                SET active_workspace_id = $2
+              WHERE id = $1
+                AND EXISTS (
+                    SELECT 1 FROM workspace_memberships m
+                     WHERE m.user_id = $1 AND m.workspace_id = $2
+                )",
+        )
+        .bind(user_id)
+        .bind(workspace_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected() == 1)
     }
 
     /// Record an invite row. Returns the row id (which the caller signs

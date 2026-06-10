@@ -120,6 +120,92 @@ async fn single_membership_resolves_to_that_one_workspace() {
     );
 }
 
+/// 02-05 (ADR-005 switcher) — setting the active workspace to one the user IS a
+/// member of succeeds AND `resolve_active_workspace` then returns THAT workspace,
+/// overriding the deterministic lowest-id default. This is the persisted active
+/// workspace the `/workspace/switch` route re-stamps so a subsequent (even fresh)
+/// sign-in resolves to the switched tenant.
+#[tokio::test]
+async fn set_active_workspace_to_member_workspace_switches_resolution() {
+    let (base, _guard) = fresh_postgres().await;
+    let store = migrated_store(&base).await;
+
+    // Acme inserted FIRST → lowest id → the default `ORDER BY w.id` winner.
+    let acme = seed_workspace(&store, "Acme").await;
+    let globex = seed_workspace(&store, "Globex").await;
+
+    let dana = seed_user(&store, "dana@contract.dev").await;
+    add_membership(&store, acme, dana).await;
+    add_membership(&store, globex, dana).await;
+
+    // Default (no explicit active) resolves to the lowest-id membership = Acme.
+    let before = store
+        .resolve_active_workspace(dana)
+        .await
+        .expect("resolve query succeeds");
+    assert_eq!(
+        before.map(|(id, _)| id),
+        Some(acme),
+        "multi-membership default must be the deterministic lowest-id workspace"
+    );
+
+    // Switch to Globex — dana IS a member, so it succeeds.
+    let switched = store
+        .set_active_workspace(dana, globex)
+        .await
+        .expect("set_active_workspace query succeeds");
+    assert!(
+        switched,
+        "switching to a workspace the user is a member of must succeed"
+    );
+
+    let after = store
+        .resolve_active_workspace(dana)
+        .await
+        .expect("resolve query succeeds");
+    assert_eq!(
+        after.map(|(id, _)| id),
+        Some(globex),
+        "after switching, resolution must return the chosen workspace, not the default"
+    );
+}
+
+/// 02-05 SECURITY (privilege boundary) — switching to a workspace the user is NOT
+/// a member of FAILS CLOSED: `set_active_workspace` returns `false` (no write) and
+/// the resolved active workspace is UNCHANGED. A non-member can never make their
+/// session act on a foreign tenant.
+#[tokio::test]
+async fn set_active_workspace_to_non_member_fails_closed() {
+    let (base, _guard) = fresh_postgres().await;
+    let store = migrated_store(&base).await;
+
+    let acme = seed_workspace(&store, "Acme").await;
+    let globex = seed_workspace(&store, "Globex").await;
+
+    // Marco is a member of Acme ONLY.
+    let marco = seed_user(&store, "marco@acme.com").await;
+    add_membership(&store, acme, marco).await;
+
+    let switched = store
+        .set_active_workspace(marco, globex)
+        .await
+        .expect("set_active_workspace query succeeds");
+    assert!(
+        !switched,
+        "switching to a workspace the user is NOT a member of must fail closed (no write)"
+    );
+
+    let resolved = store
+        .resolve_active_workspace(marco)
+        .await
+        .expect("resolve query succeeds");
+    assert_eq!(
+        resolved.map(|(id, _)| id),
+        Some(acme),
+        "a refused switch must NOT change the acting workspace — it stays Acme"
+    );
+}
+
 /// A user with ZERO memberships resolves to `None` so the sign-in caller fails
 /// closed (refuses) rather than defaulting to an arbitrary tenant (ADR-005).
 #[tokio::test]

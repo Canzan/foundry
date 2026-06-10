@@ -172,7 +172,6 @@ Feature: A member or admin of one workspace cannot read, write, or manage anothe
   # 8. Multi-membership (OD-2 / ADR-005) — a contractor in BOTH workspaces acts on
   #    exactly the workspace their session is resolved to.
   # ----------------------------------------------------------------------------
-  @pending
   Scenario: A multi-membership user acts on exactly their active workspace on the web
     Given "dana@contract.dev" is also a member of "Acme" in team "Backend" with project "Auth" prefix "ACME"
     And "dana@contract.dev" is also a member of "Globex" in team "Platform" with project "Core" prefix "GLOBEX"
@@ -185,7 +184,6 @@ Feature: A member or admin of one workspace cannot read, write, or manage anothe
   # 9. Multi-membership switch — switching the active workspace changes which
   #    tenant's data the web shows.
   # ----------------------------------------------------------------------------
-  @pending
   Scenario: Switching the active workspace changes which workspace's data is shown
     Given "dana@contract.dev" is also a member of "Acme" in team "Backend" with project "Auth" prefix "ACME"
     And "dana@contract.dev" is also a member of "Globex" in team "Platform" with project "Core" prefix "GLOBEX"

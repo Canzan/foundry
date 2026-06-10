@@ -288,6 +288,12 @@ pub fn build_router(state: AppState) -> Router {
             get(signin::show_form).post(signin::submit_signin),
         )
         .route("/sign-out", post(signin::submit_signout))
+        // multi-workspace-tenancy 02-05 (ADR-005) — the multi-membership active-
+        // workspace switcher. Mounted HERE so it sits UNDER `csrf_middleware` +
+        // `session_layer` below (a real signed-in cookie + double-submit `_csrf`,
+        // like every browser POST). Membership-guarded + fail-closed inside the
+        // handler (Store::set_active_workspace).
+        .route("/workspace/switch", post(session::submit_switch))
         .route(
             "/forgot-password",
             get(signin::show_forgot_form).post(signin::submit_forgot),

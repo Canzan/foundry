@@ -92,3 +92,100 @@ pub const SESSION_TTL_TIME: TimeDuration = TimeDuration::seconds(SESSION_TTL_SEC
 
 #[allow(dead_code)]
 pub const SESSION_TTL_STD: StdDuration = StdDuration::from_secs(SESSION_TTL_SECONDS as u64);
+
+// ----------------------------------------------------------- POST /workspace/switch
+
+use crate::bootstrap::{resource_not_found_page, SessionUser};
+use crate::AppState;
+use axum::extract::{Form, State};
+use axum::http::header::{HeaderMap, HeaderValue, LOCATION};
+use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
+use serde::Deserialize;
+use tower_sessions::Session;
+
+#[derive(Debug, Deserialize)]
+pub struct SwitchForm {
+    /// The workspace the user wants to act on next. A membership of the
+    /// signed-in user — NOT a free-form scoping id. It is validated against the
+    /// user's `workspace_memberships` by [`crate::Store::set_active_workspace`]
+    /// before anything is re-stamped (privilege boundary).
+    pub workspace_id: uuid::Uuid,
+    #[serde(rename = "_csrf", default)]
+    pub _csrf: Option<String>,
+}
+
+/// POST `/workspace/switch` — change the session's ACTIVE workspace for a
+/// multi-membership user (ADR-005, step 02-05).
+///
+/// Runs UNDER the session + double-submit CSRF layers (registered alongside the
+/// other browser POSTs in `build_router`), so it requires a signed-in
+/// `foundry_session` cookie and a matching `_csrf` token like every other web
+/// write.
+///
+/// SECURITY — fail-closed privilege boundary: the target is accepted ONLY if the
+/// signed-in user is a MEMBER of it. [`crate::Store::set_active_workspace`] does
+/// the membership-guarded write atomically and returns `false` for a non-member;
+/// we then refuse with the SAME non-enumerable 404 a cross-tenant resource reach
+/// returns (ADR-003), so switching to a workspace the user is not a member of
+/// neither succeeds NOR reveals that the workspace exists.
+///
+/// On success we persist the choice (so a subsequent — even fresh — sign-in
+/// resolves to it via `resolve_active_workspace`) AND re-stamp THIS session's
+/// `SessionUser.workspace_id` so the very next request on the current cookie
+/// already scopes to the new tenant through the SHIPPED `acting_workspace` seam —
+/// no scoping logic is re-implemented here.
+pub async fn submit_switch(
+    State(state): State<AppState>,
+    session: Session,
+    Form(form): Form<SwitchForm>,
+) -> Response {
+    let Some(user) = session
+        .get::<SessionUser>(SESSION_KEY_USER_ID)
+        .await
+        .ok()
+        .flatten()
+    else {
+        // Not signed in — same redirect-to-sign-in shape the other web surfaces use.
+        let mut hdrs = HeaderMap::new();
+        hdrs.insert(LOCATION, HeaderValue::from_static("/sign-in"));
+        return (StatusCode::SEE_OTHER, hdrs, "").into_response();
+    };
+
+    // Membership-guarded, fail-closed: a non-member write returns false (no row
+    // touched) and we refuse non-enumerably.
+    match state
+        .store
+        .set_active_workspace(user.user_id, form.workspace_id)
+        .await
+    {
+        Ok(true) => {}
+        Ok(false) => return resource_not_found_page(),
+        Err(err) => {
+            tracing::error!(%err, "set_active_workspace failed");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
+        }
+    }
+
+    // Re-stamp the CURRENT session so the next request on this cookie already
+    // acts on the switched workspace (the persisted column covers fresh sign-ins;
+    // this covers the live session). Reuses the same SessionUser shape sign-in
+    // stamps — the scoped reads downstream go through `acting_workspace` unchanged.
+    if let Err(err) = session
+        .insert(
+            SESSION_KEY_USER_ID,
+            SessionUser {
+                user_id: user.user_id,
+                workspace_id: form.workspace_id,
+            },
+        )
+        .await
+    {
+        tracing::error!(%err, "session.insert failed during workspace switch");
+        return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
+    }
+
+    let mut hdrs = HeaderMap::new();
+    hdrs.insert(LOCATION, HeaderValue::from_static("/"));
+    (StatusCode::SEE_OTHER, hdrs, "").into_response()
+}
