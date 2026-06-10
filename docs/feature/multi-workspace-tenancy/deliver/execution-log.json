@@ -309,6 +309,48 @@
       "s": "EXECUTED",
       "d": "PASS",
       "t": "2026-06-10T05:12:48Z"
+    },
+    {
+      "sid": "03-01",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-10T05:13:34Z"
+    },
+    {
+      "sid": "03-02",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-10T05:16:35Z"
+    },
+    {
+      "sid": "03-02",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-10T05:19:00Z"
+    },
+    {
+      "sid": "03-02",
+      "p": "RED_UNIT",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: green-by-inheritance; cross-tenant API read/write refusal rides the shipped find_team_by_slug(principal.workspace_id(),..)->None->NotFound(404) idiom (mutation-hardened in slices 1-2). Revert-scoping litmus reds both scenarios (403 vs 404 oracle); no production gap, so no unit test warranted.",
+      "t": "2026-06-10T05:19:00Z"
+    },
+    {
+      "sid": "03-02",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-10T05:23:49Z"
+    },
+    {
+      "sid": "03-02",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-10T05:24:23Z"
     }
   ],
   "project_id": "multi-workspace-tenancy"
