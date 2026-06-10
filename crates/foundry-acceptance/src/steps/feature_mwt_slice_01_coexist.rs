@@ -300,12 +300,14 @@ async fn project_has_two_issues(
             .await
             .unwrap_or_else(|e| panic!("resolve author in {ws_name:?}: {e}"));
 
+    let mut max_number: i32 = 0;
     for key in [&key_a, &key_b] {
         let number: i32 = key
             .rsplit('-')
             .next()
             .and_then(|n| n.parse().ok())
             .unwrap_or_else(|| panic!("issue key {key:?} must end in -<n>"));
+        max_number = max_number.max(number);
         sqlx::query(
             "INSERT INTO issues (id, project_id, workspace_id, number, title, author_id)
                   VALUES ($1, $2, $3, $4, $5, $6)",
@@ -320,6 +322,23 @@ async fn project_has_two_issues(
         .await
         .expect("insert issue");
     }
+
+    // These issues are inserted out-of-band (not via `insert_issue_with_outbox`),
+    // so the project's `next_issue_number` allocator counter is NOT advanced by
+    // the INSERTs above. In production the counter always tracks the highest
+    // issued number; without this fix-up the next real write allocates a number
+    // that collides with a seeded one (UNIQUE (project_id, number) -> 23505 -> a
+    // spurious 500). Advance the counter past the highest seeded number so a
+    // subsequent web/api write allocates a fresh, non-colliding number — exactly
+    // as it would after a production `insert_issue_with_outbox`.
+    sqlx::query(
+        "UPDATE projects SET next_issue_number = GREATEST(next_issue_number, $2) WHERE id = $1",
+    )
+    .bind(project_id)
+    .bind(max_number + 1)
+    .execute(&pool)
+    .await
+    .expect("advance next_issue_number past seeded issues");
 }
 
 // --------------------------------------------------------------------------

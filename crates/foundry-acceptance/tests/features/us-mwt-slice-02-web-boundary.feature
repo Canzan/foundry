@@ -103,7 +103,6 @@ Feature: A member or admin of one workspace cannot read, write, or manage anothe
   # ----------------------------------------------------------------------------
   # 2. Read isolation — issue detail is scoped too (a second representative read).
   # ----------------------------------------------------------------------------
-  @pending
   Scenario: A member reads only their own workspace's issue detail on the web
     Given "marco@acme.com" is signed in on the web acting on workspace "Acme"
     When the member opens issue ACME-1 in the "Acme" project "Auth" on the web
@@ -113,7 +112,6 @@ Feature: A member or admin of one workspace cannot read, write, or manage anothe
   # ----------------------------------------------------------------------------
   # 3. Write isolation — a write affects ONLY the acting workspace.
   # ----------------------------------------------------------------------------
-  @pending
   Scenario: A member's write affects only their own workspace on the web
     Given "marco@acme.com" is signed in on the web acting on workspace "Acme"
     When the member files issue "Rotate signing keys" in the "Acme" project "Auth" on the web
