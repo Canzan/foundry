@@ -359,6 +359,14 @@ async fn file_issue(world: &mut FoundryWorld, title: String, ws: String, project
         &[("title", title.as_str())],
     )
     .await;
+    // For scenario 3 (own-workspace write) this is the page/row under test, read
+    // from `mwt2_last_*`. For the scenario-6 write-refusal evil path this is the
+    // FOREIGN (first) write whose refusal the never-existed write is compared
+    // against — so record BOTH slots (mirroring `open_issue`): the foreign-refusal
+    // slot for `refused_identically`, and the last slot so the own-workspace
+    // assertions keep reading the same value.
+    world.mwt2_first_refusal_status = Some(outcome.status);
+    world.mwt2_first_refusal_body = Some(outcome.body.clone());
     world.mwt2_last_status = Some(outcome.status);
     world.mwt2_last_body = Some(outcome.body);
 }

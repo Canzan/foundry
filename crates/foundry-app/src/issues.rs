@@ -22,7 +22,7 @@
 //! state-change chip renders from `partials/state_chip.html`. Both are
 //! BARE fragments (no `base.html` wrapper).
 
-use crate::bootstrap::{html_escape, invalid_page, SessionUser};
+use crate::bootstrap::{html_escape, invalid_page, resource_not_found_page, SessionUser};
 use crate::session::SESSION_KEY_USER_ID;
 use crate::AppState;
 use askama::Template;
@@ -98,9 +98,17 @@ pub async fn submit_create(
         }
         Err(ServiceError::Forbidden) => non_member_page(&team_slug),
         Err(ServiceError::NotFound) => {
-            // Distinguish team-not-found from project-not-found for the
-            // error PAGE wording (the service collapses both to NotFound).
-            resolve_not_found_page(&state, &principal, &team_slug, &project_slug).await
+            // Cross-tenant / missing-resource refusal (ADR-003): the service
+            // scoped the team/project lookup by the RESOLVED acting workspace
+            // (`principal.workspace_id()`), so a write aimed at a FOREIGN project
+            // resolves to `NotFound` exactly as a never-existed one does — and
+            // BOTH render the SINGLE uniform `resource_not_found_page` (no echoed
+            // slug). A foreign-project write and a never-existed-project write
+            // are byte-identical (same status, same body), so the refusal leaks
+            // nothing about the foreign project's existence and the write never
+            // lands in the foreign workspace (NFR-MWT-SEC-02). The intra-workspace
+            // `Forbidden` 403 above is unchanged (ADR-003 boundary clause).
+            resource_not_found_page()
         }
         Err(_) => internal_error("create_issue", "service error"),
     }

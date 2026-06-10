@@ -23,7 +23,7 @@
 //! keys are rejected with 422 Unprocessable Entity (the request is
 //! syntactically well-formed but fails business validation).
 
-use crate::bootstrap::{invalid_page, SessionUser};
+use crate::bootstrap::{invalid_page, resource_not_found_page, SessionUser};
 use crate::csrf::{build_csrf_cookie, generate_token};
 use crate::session::SESSION_KEY_USER_ID;
 use crate::AppState;
@@ -215,36 +215,38 @@ pub async fn show_board(
     let Some(user) = signed_in_user(&session).await else {
         return redirect_to("/sign-in");
     };
-    // Resolve the team first so an unknown team renders the 404 page (which
-    // deliberately leaks the team_slug — its existence is not secret) and so
-    // the board heading can show `team.name`.
+    // Scope EVERY tenant lookup on this path by the RESOLVED acting workspace
+    // (ADR-002) — never by a path-parsed id. A team/project that belongs to a
+    // FOREIGN workspace resolves to `None` exactly as a never-existed slug does,
+    // and BOTH render the SINGLE uniform `resource_not_found_page` (ADR-003): no
+    // requested slug is echoed, so a foreign-id reach and a missing-id reach are
+    // byte-identical (no enumeration oracle, NFR-MWT-SEC-02). The
+    // shared-core membership check below keeps its intra-workspace 403 shape (a
+    // member off their OWN workspace's team is a separate, non-cross-tenant
+    // concern per ADR-003's boundary clause).
+    let acting = user.acting_workspace();
     let team = match state
         .store
-        .find_team_by_slug(user.workspace_id, &team_slug)
+        .find_team_by_slug(acting.workspace_id(), &team_slug)
         .await
     {
         Ok(Some(t)) => t,
-        Ok(None) => return team_not_found_page(&team_slug),
+        Ok(None) => return resource_not_found_page(),
         Err(err) => return internal_error("find_team_by_slug", err),
     };
-    // The project lookup supplies the page chrome (name + key prefix) and the
-    // distinct project-not-found page. Membership authz + the issue rows come
-    // from the shared core path (`foundry_services::board::list_board_issues`)
-    // so the browser board and the JSON API read the SAME data the SAME way
-    // (NFR-WEB-BND-05); the use-case re-validates membership before fetching.
+    // The project lookup supplies the page chrome (name + key prefix). Membership
+    // authz + the issue rows come from the shared core path
+    // (`foundry_services::board::list_board_issues`) so the browser board and the
+    // JSON API read the SAME data the SAME way (NFR-WEB-BND-05); the use-case
+    // re-validates membership before fetching. A missing project under a real
+    // (own-workspace) team collapses to the SAME uniform 404 as a foreign one.
     let project = match state
         .store
         .find_project_by_slug(team.id, &project_slug)
         .await
     {
         Ok(Some(p)) => p,
-        Ok(None) => {
-            return invalid_page(
-                StatusCode::NOT_FOUND,
-                "Project not found",
-                &format!("No project with slug {project_slug:?} exists in team {team_slug:?}."),
-            )
-        }
+        Ok(None) => return resource_not_found_page(),
         Err(err) => return internal_error("find_project_by_slug", err),
     };
 

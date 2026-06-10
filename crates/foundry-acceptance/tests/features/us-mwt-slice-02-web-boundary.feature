@@ -122,7 +122,7 @@ Feature: A member or admin of one workspace cannot read, write, or manage anothe
   # 4. Non-enumerable refusal (evil-user, the security core) — a crafted link to a
   #    FOREIGN board is refused IDENTICALLY to a never-existed board.
   # ----------------------------------------------------------------------------
-  @pending @error
+  @error
   Scenario: Reaching another workspace's board by its real address is refused non-enumerably
     Given "marco@acme.com" is signed in on the web acting on workspace "Acme"
     When the member opens the "Globex" project "Core" board on the web by its real address
@@ -134,7 +134,7 @@ Feature: A member or admin of one workspace cannot read, write, or manage anothe
   # 5. Non-enumerable refusal (evil-user) — a crafted link to a FOREIGN issue is
   #    refused identically to a never-existed issue.
   # ----------------------------------------------------------------------------
-  @pending @error
+  @error
   Scenario: Reaching another workspace's issue by its real address is refused non-enumerably
     Given "marco@acme.com" is signed in on the web acting on workspace "Acme"
     When the member opens issue GLOBEX-1 in the "Globex" project "Core" on the web
@@ -147,7 +147,7 @@ Feature: A member or admin of one workspace cannot read, write, or manage anothe
   #    project is refused identically to a write into a never-existed project, and
   #    no Globex row is created.
   # ----------------------------------------------------------------------------
-  @pending @error
+  @error
   Scenario: Writing into another workspace's project is refused non-enumerably
     Given "marco@acme.com" is signed in on the web acting on workspace "Acme"
     When the member files issue "Sneaky" in the "Globex" project "Core" on the web

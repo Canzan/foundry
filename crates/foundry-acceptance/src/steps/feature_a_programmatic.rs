@@ -630,6 +630,13 @@ async fn tree_with_multiline_post_violation(world: &mut FoundryWorld) {
     world.fa_guard_violation = Some("api-posts-tokens-multiline".to_string());
 }
 
+#[given(
+    regex = r#"^a copy of the tree in which a handler scopes a tenant query by a request-supplied workspace id$"#
+)]
+async fn tree_with_tenant_scoping_violation(world: &mut FoundryWorld) {
+    world.fa_guard_violation = Some("app-scopes-by-parsed-workspace".to_string());
+}
+
 #[when(regex = r#"^the maintainer runs the boundary check$"#)]
 async fn run_boundary_check_clean(world: &mut FoundryWorld) {
     run_boundary_check(world).await;
@@ -1067,6 +1074,22 @@ async fn names_multiline_post_handler(world: &mut FoundryWorld) {
     assert!(
         out.contains("planted_multiline_post.rs"),
         "guard output did not name the planted multi-line POST file: {out:?}"
+    );
+}
+
+#[then(regex = r#"^it names the handler that scopes by an unresolved workspace id$"#)]
+async fn names_tenant_scoping_handler(world: &mut FoundryWorld) {
+    let out = world.fa_guard_stderr.clone().unwrap_or_default();
+    // The LAYER-1e tenant-scoping guard (ADR-002) must NAME the offending
+    // foundry-app file + line and report that the workspace id is request-parsed
+    // rather than the resolved ActingWorkspace (NFR-MWT-SEC-06).
+    assert!(
+        out.to_lowercase().contains("workspace") || out.to_lowercase().contains("tenant"),
+        "guard output did not report the tenant-scoping violation: {out:?}"
+    );
+    assert!(
+        out.contains("planted_tenant_scoping.rs"),
+        "guard output did not name the planted tenant-scoping file: {out:?}"
     );
 }
 
@@ -1583,6 +1606,24 @@ fn stage_violation_tree(src: &std::path::Path, kind: &str) -> std::io::Result<te
                  \x20           \"/api/v1/teams/{team_slug}/projects/{project_slug}/tokens\",\n\
                  \x20           axum::routing::get(list_tokens_handler).post(mint_handler),\n\
                  \x20       )\n\
+                 }\n",
+            )?;
+        }
+        // (e) a foundry-app handler that scopes a tenant-scoped store call by a
+        // workspace id PARSED FROM REQUEST INPUT (a `Uuid::parse_str` of a path/
+        // query param) instead of the RESOLVED `ActingWorkspace` — the
+        // "trust a client-supplied workspace" footgun ADR-002's LAYER-1e rule
+        // forbids. The AST layer must NAME the offending file + line.
+        "app-scopes-by-parsed-workspace" => {
+            let path = dir
+                .path()
+                .join("crates/foundry-app/src/planted_tenant_scoping.rs");
+            std::fs::write(
+                &path,
+                "// planted by the us-mwt02 tenant-scoping gold test\n\
+                 pub async fn evil(state: &AppState, params: &Params) {\n\
+                 \x20   let ws = uuid::Uuid::parse_str(&params.workspace_id).unwrap();\n\
+                 \x20   let _ = state.store.find_attachment_in_workspace(id, ws).await;\n\
                  }\n",
             )?;
         }

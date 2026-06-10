@@ -64,3 +64,10 @@ Feature: The web/api boundary is enforced as a check, not a review chore
     When the maintainer runs the boundary check on that copy
     Then the check fails
     And it names the handler that registers a mint POST
+
+  @error @real-io @boundary-guard @us-mwt02 @nfr-mwt-sec-06
+  Scenario: A handler scoping a tenant query by a path-parsed workspace id fails the check
+    Given a copy of the tree in which a handler scopes a tenant query by a request-supplied workspace id
+    When the maintainer runs the boundary check on that copy
+    Then the check fails
+    And it names the handler that scopes by an unresolved workspace id

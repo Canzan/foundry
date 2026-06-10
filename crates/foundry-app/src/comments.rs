@@ -20,7 +20,7 @@
 //! render the author without a JOIN at fan-out time (wave-decisions.md).
 
 use crate::attachments::humanize_size;
-use crate::bootstrap::{html_escape, invalid_page, SessionUser};
+use crate::bootstrap::{html_escape, invalid_page, resource_not_found_page, SessionUser};
 use crate::session::SESSION_KEY_USER_ID;
 use crate::views;
 use crate::AppState;
@@ -63,13 +63,22 @@ pub async fn show_issue(
     let Some(user) = signed_in_user(&session).await else {
         return redirect_to("/sign-in");
     };
+    // Scope by the RESOLVED acting workspace (ADR-002), never a path-parsed id.
+    // A FOREIGN team/project/issue resolves to `None` exactly as a never-existed
+    // one does, and BOTH render the SINGLE uniform `resource_not_found_page`
+    // (ADR-003): the requested slug/number is NOT echoed, so a foreign-id reach
+    // and a missing-id reach are byte-identical — no enumeration oracle that
+    // could confirm the foreign issue exists (NFR-MWT-SEC-02). The membership
+    // gate below keeps its intra-workspace 403 (a member off their OWN
+    // workspace's team — a separate, non-cross-tenant concern, ADR-003 boundary).
+    let acting = user.acting_workspace();
     let team = match state
         .store
-        .find_team_by_slug(user.workspace_id, &team_slug)
+        .find_team_by_slug(acting.workspace_id(), &team_slug)
         .await
     {
         Ok(Some(t)) => t,
-        Ok(None) => return team_not_found_page(&team_slug),
+        Ok(None) => return resource_not_found_page(),
         Err(err) => return internal_error("find_team_by_slug", err),
     };
     match state.store.is_team_member(team.id, user.user_id).await {
@@ -83,7 +92,7 @@ pub async fn show_issue(
         .await
     {
         Ok(Some(i)) => i,
-        Ok(None) => return issue_not_found_page(&team_slug, &project_slug, issue_number),
+        Ok(None) => return resource_not_found_page(),
         Err(err) => return internal_error("find_issue_by_team_project_number", err),
     };
     let comments = match state.store.list_comments_for_issue(issue.issue_id).await {

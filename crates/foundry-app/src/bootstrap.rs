@@ -26,6 +26,18 @@ pub(crate) struct SessionUser {
     pub workspace_id: uuid::Uuid,
 }
 
+impl SessionUser {
+    /// The RESOLVED acting workspace for this signed-in session (ADR-002).
+    ///
+    /// `workspace_id` was stamped at sign-in by the resolution seam
+    /// (`resolve_active_workspace`, ADR-005), so this is the single trusted
+    /// origin of an [`crate::session::ActingWorkspace`]. Handlers call this and
+    /// scope every tenant query by the result, never by a path/query/body id.
+    pub(crate) fn acting_workspace(&self) -> crate::session::ActingWorkspace {
+        crate::session::ActingWorkspace::from_resolved(self.workspace_id)
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct TokenQuery {
     pub token: Option<String>,
@@ -349,6 +361,30 @@ pub(crate) fn invalid_page(status: StatusCode, heading: &str, message: &str) -> 
     .render()
     .expect("invalid_page.html renders");
     (status, Html(body)).into_response()
+}
+
+/// The UNIFORM cross-tenant / missing-resource refusal page (ADR-003,
+/// multi-workspace-tenancy).
+///
+/// Every tenant-scoped web resource (board, issue, project write) that resolves
+/// to `None` — whether because the id never existed OR because it belongs to a
+/// FOREIGN workspace — renders THIS exact response: a fixed 404 whose body
+/// carries NO requested identifier (no team/project slug, no issue number). A
+/// foreign-id reach and a never-existed reach are therefore byte-identical
+/// (same status, same body), so there is no status/body/shape oracle that could
+/// confirm a foreign resource exists (NFR-MWT-SEC-02 / DM2). Generalises the
+/// shipped `find_attachment_in_workspace → None → 404` idiom to the board/issue/
+/// write web paths.
+///
+/// Distinct from [`invalid_page`], whose callers (intra-workspace authz,
+/// validation, the single-workspace guard) legitimately echo the requested
+/// slug — those are NOT cross-tenant concerns (ADR-003's boundary clause).
+pub(crate) fn resource_not_found_page() -> Response {
+    invalid_page(
+        StatusCode::NOT_FOUND,
+        "Not found",
+        "The requested resource does not exist or is not available.",
+    )
 }
 
 pub(crate) fn html_escape(s: &str) -> String {

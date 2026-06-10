@@ -58,6 +58,7 @@ pub fn run(args: Vec<String>) -> ExitCode {
     violations.extend(check_api_no_adhoc_authz(&root));
     violations.extend(check_api_no_mint_route(&root));
     violations.extend(check_jwt_alg_pin(&root));
+    violations.extend(check_app_tenant_scoping(&root));
 
     // LAYER 2 — cargo-deny crate-graph dependency-direction.
     if let Some(dep_violation) = check_dependency_direction(&root) {
@@ -65,7 +66,7 @@ pub fn run(args: Vec<String>) -> ExitCode {
     }
 
     if violations.is_empty() {
-        println!("check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA], dependency direction)");
+        println!("check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA], tenant-scoping by resolved ActingWorkspace, dependency direction)");
         return ExitCode::SUCCESS;
     }
 
@@ -308,6 +309,136 @@ fn line_contains_tokens_collection_literal(code: &str) -> bool {
         search_from = idx + "tokens\"".len();
     }
     false
+}
+
+/// LAYER 1e — tenant-scoping (ADR-002, multi-workspace-tenancy / NFR-MWT-SEC-06).
+/// A foundry-app handler must scope every tenant-scoped store call by the
+/// RESOLVED acting workspace (`ActingWorkspace` / `user.workspace_id`), NEVER by
+/// a workspace id parsed from request input (path/query/body). Trusting a
+/// client-supplied workspace would let a member of A read/write B's data; the
+/// shipped `find_*_in_workspace(id, acting_workspace_id)` idiom is only safe
+/// because the second argument comes from the trusted resolution seam.
+///
+/// The detector flags a workspace-scoped store call (`*_in_workspace(`) whose
+/// workspace argument is derived from `Uuid::parse*` of request input — either
+/// INLINE in the call, or via a local bound from such a parse earlier in the
+/// SAME file. It NAMES the offending file + the line of the scoped call.
+///
+/// Allow-list (ADR-002 escape hatch + ADR-004 provisioning): the resolution seam
+/// and the super-admin / bootstrap provisioning paths legitimately handle a
+/// literal/parsed workspace id, so those files are exempt — keeping the guard
+/// precise on the genuinely instance-scoped paths and false-positive-free on the
+/// shipped scoped queries (which pass the resolved id, not a parsed one).
+fn check_app_tenant_scoping(root: &Path) -> Vec<String> {
+    let app_src = root.join("crates").join("foundry-app").join("src");
+    let mut violations = Vec::new();
+    for file in rust_sources(&app_src) {
+        if is_tenant_scoping_allowlisted(&file) {
+            continue;
+        }
+        let Ok(contents) = std::fs::read_to_string(&file) else {
+            continue;
+        };
+        let stripped: Vec<String> = contents.lines().map(strip_comment).collect();
+
+        // Pass 1: collect locals bound to a `Uuid::parse*` of request input.
+        // `let <name> = ... Uuid::parse_str(...) | .parse::<Uuid>() | .parse() ...`
+        // The provenance is a request param (we are lenient: any parse of a
+        // string into a Uuid is suspect as a workspace scope source — the
+        // resolution seam, which is allow-listed, is the only legitimate parser).
+        let mut tainted: Vec<String> = Vec::new();
+        for line in &stripped {
+            if let Some(name) = let_binding_name(line) {
+                if line_parses_uuid(line) {
+                    tainted.push(name);
+                }
+            }
+        }
+
+        // Pass 2: flag a `*_in_workspace(` call whose workspace argument is a
+        // parse-derived value — INLINE, or a tainted local passed as the LAST
+        // argument (the workspace-id slot by convention in `find_*_in_workspace`).
+        for (line_no, line) in stripped.iter().enumerate() {
+            let Some(args) = scoped_call_args(line) else {
+                continue;
+            };
+            let inline_parse = line_parses_uuid(line);
+            let arg_is_tainted = tainted
+                .iter()
+                .any(|t| args_mention_workspace_local(&args, t));
+            if inline_parse || arg_is_tainted {
+                violations.push(format!(
+                    "tenant-scoping: {} scopes a tenant query by a request-parsed workspace id at {}:{} (`{}`) — a tenant-scoped store call must take the RESOLVED ActingWorkspace (user.workspace_id), never a Uuid parsed from path/query/body (ADR-002 LAYER-1e / NFR-MWT-SEC-06)",
+                    handler_label(&file).replace("foundry-api", "foundry-app"),
+                    rel(root, &file),
+                    line_no + 1,
+                    line.trim(),
+                ));
+            }
+        }
+    }
+    violations
+}
+
+/// True iff `file` is on the tenant-scoping allow-list (ADR-002/004): the
+/// resolution seam + provisioning paths that legitimately handle a literal or
+/// parsed workspace id. Matched by file stem so a copy under a temp root (the
+/// gold test) is exempt identically to the real tree.
+fn is_tenant_scoping_allowlisted(file: &Path) -> bool {
+    matches!(
+        file.file_stem().and_then(|s| s.to_str()),
+        // signin: the resolution seam (resolve_active_workspace, ADR-005).
+        // bootstrap: initial-workspace provisioning / claim.
+        // admin_cli: super-admin provisioning (ADR-004).
+        // session: the ActingWorkspace newtype's home (no store calls).
+        Some("signin") | Some("bootstrap") | Some("admin_cli") | Some("session")
+    )
+}
+
+/// If `line` is a `let <name> = ...;` binding, return `<name>` (the simple
+/// identifier, ignoring `mut`). Returns `None` for non-bindings or pattern
+/// destructures we don't track.
+fn let_binding_name(line: &str) -> Option<String> {
+    let t = line.trim_start();
+    let rest = t.strip_prefix("let ")?;
+    let rest = rest.strip_prefix("mut ").unwrap_or(rest);
+    let name: String = rest
+        .chars()
+        .take_while(|c| c.is_alphanumeric() || *c == '_')
+        .collect();
+    if name.is_empty() {
+        None
+    } else {
+        Some(name)
+    }
+}
+
+/// True iff the line parses a `Uuid` from a string — the suspect provenance for
+/// a workspace scope source. Covers `Uuid::parse_str(`, `Uuid::parse(`, and a
+/// turbofish/explicit `.parse::<Uuid>(` / `.parse::<uuid::Uuid>(`.
+fn line_parses_uuid(line: &str) -> bool {
+    line.contains("Uuid::parse")
+        || line.contains(".parse::<Uuid>")
+        || line.contains(".parse::<uuid::Uuid>")
+}
+
+/// If `line` contains a workspace-scoped store call (`*_in_workspace(`), return
+/// the argument substring between that call's opening paren and the line end (a
+/// best-effort capture sufficient for the tainted-local membership test). The
+/// `find_*_in_workspace` / `*_in_workspace` convention is the shipped
+/// non-enumerable idiom (attachments.rs); the workspace id is its scope arg.
+fn scoped_call_args(line: &str) -> Option<String> {
+    let idx = line.find("_in_workspace(")?;
+    let after = &line[idx + "_in_workspace(".len()..];
+    Some(after.to_string())
+}
+
+/// True iff the captured argument list references the tainted local `name` as a
+/// standalone identifier (not as a substring of a longer ident). The workspace
+/// id is conventionally the trailing argument of `find_*_in_workspace`.
+fn args_mention_workspace_local(args: &str, name: &str) -> bool {
+    args.split(|c: char| !(c.is_alphanumeric() || c == '_'))
+        .any(|tok| tok == name)
 }
 
 /// LAYER 1c — JWT alg pin. The machine-token `Validation` (in foundry-auth, the
@@ -618,6 +749,65 @@ mod tests {
             "the real GET-tokens + DELETE-tokens/{{jti}} router (a post( only on the \
              issues block) must NOT be flagged: {:?}",
             check_api_no_mint_route(real_shape.path())
+        );
+    }
+
+    #[test]
+    fn app_tenant_scoping_flags_a_path_parsed_workspace_id_but_not_the_resolved_seam() {
+        // CLEAN: the shipped idiom — a tenant-scoped store call fed the RESOLVED
+        // acting workspace (`acting.workspace_id()` / `user.workspace_id`), never
+        // a path-parsed id. Must NOT be flagged.
+        let clean = stage(&[(
+            "crates/foundry-app/src/projects.rs",
+            "let acting = user.acting_workspace();\n\
+             let team = state.store.find_team_by_slug(acting.workspace_id(), &team_slug).await;\n\
+             let att = state.store.find_attachment_in_workspace(id, user.workspace_id).await;\n",
+        )]);
+        assert!(
+            check_app_tenant_scoping(clean.path()).is_empty(),
+            "a tenant query scoped by the resolved acting workspace must NOT be flagged: {:?}",
+            check_app_tenant_scoping(clean.path())
+        );
+
+        // PLANTED: a handler parses a workspace id straight from request input
+        // and feeds it into a workspace-scoped store call — the "trust a
+        // client-supplied workspace" footgun ADR-002 forbids. Must be flagged,
+        // NAMING file:line.
+        let planted = stage(&[(
+            "crates/foundry-app/src/evil.rs",
+            "let ws = uuid::Uuid::parse_str(&params.workspace_id).unwrap();\n\
+             let row = state.store.find_attachment_in_workspace(id, ws).await;\n",
+        )]);
+        let found = check_app_tenant_scoping(planted.path());
+        assert!(
+            !found.is_empty() && found[0].contains("evil.rs") && found[0].contains(":2"),
+            "a path-parsed workspace id fed to a tenant-scoped store call must be \
+             flagged and NAME file:line: {found:?}"
+        );
+
+        // PLANTED (single-line evasion): the parse and the scoped call co-located.
+        let inline = stage(&[(
+            "crates/foundry-app/src/evil2.rs",
+            "let row = store.find_team_in_workspace(t, uuid::Uuid::parse_str(&q.ws).unwrap()).await;\n",
+        )]);
+        let found = check_app_tenant_scoping(inline.path());
+        assert!(
+            !found.is_empty() && found[0].contains("evil2.rs:1"),
+            "an inline parse-then-scope must be flagged and NAME file:line: {found:?}"
+        );
+
+        // ALLOW-LIST: the resolution seam itself + provisioning (ADR-004) may use
+        // a literal/parsed id — those files are exempt so the guard does not
+        // false-positive on the legitimately instance-scoped paths.
+        let provisioning = stage(&[(
+            "crates/foundry-app/src/signin.rs",
+            "let ws = uuid::Uuid::parse_str(&claim.workspace_id).unwrap();\n\
+             let m = state.store.find_membership_in_workspace(uid, ws).await;\n",
+        )]);
+        assert!(
+            check_app_tenant_scoping(provisioning.path()).is_empty(),
+            "the resolution/provisioning allow-list must exempt the seam: {:?}",
+            check_app_tenant_scoping(provisioning.path())
         );
     }
 

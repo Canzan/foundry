@@ -20,6 +20,42 @@ use tower_sessions::cookie::{time::Duration as CookieDuration, SameSite};
 use tower_sessions::{Expiry, SessionManagerLayer};
 use tower_sessions_sqlx_store::PostgresStore;
 
+/// The RESOLVED acting workspace for a request (ADR-002, multi-workspace-tenancy).
+///
+/// A newtype over the workspace `Uuid` that a handler must scope every
+/// tenant-scoped read/write by. It is produced ONLY by the request-workspace
+/// resolution seam (ADR-001 / `SessionUser::acting_workspace`), never parsed from
+/// a path/query/body parameter — so "the workspace came from the trusted seam" is
+/// the only well-typed path into a tenant-scoped store call. A client-supplied id
+/// is then a type mismatch at the call boundary, making "forgot to scope" (or
+/// "scoped by an attacker-controlled id") structurally hard rather than a matter
+/// of convention. The `check-arch` LAYER-1e tenant-scoping guard locks this in at
+/// build time (xtask/src/check_arch.rs).
+///
+/// `Copy` so threading it through handler call sites is frictionless; it carries
+/// no secret beyond the workspace id the session already holds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ActingWorkspace(uuid::Uuid);
+
+impl ActingWorkspace {
+    /// Wrap a workspace id that came from the trusted resolution seam.
+    ///
+    /// Intentionally `pub(crate)` and named for the seam: the ONLY production
+    /// caller is `SessionUser::acting_workspace`, which reads the
+    /// session-resolved `workspace_id` (stamped at sign-in by
+    /// `resolve_active_workspace`, ADR-005). Handlers never call this with a
+    /// path/query/body id.
+    pub(crate) fn from_resolved(workspace_id: uuid::Uuid) -> Self {
+        Self(workspace_id)
+    }
+
+    /// The underlying workspace id, for the `WHERE … AND workspace_id = $n`
+    /// scoping clause every tenant-scoped store method takes.
+    pub fn workspace_id(self) -> uuid::Uuid {
+        self.0
+    }
+}
+
 pub const SESSION_COOKIE_NAME: &str = "foundry_session";
 /// Key under which we store the signed-in user id inside the session
 /// data map. Workspace + team memberships are looked up per-request
