@@ -160,7 +160,7 @@ Feature: A member or admin of one workspace cannot read, write, or manage anothe
   #    Acme cannot revoke a Globex credential; it is refused non-enumerably and the
   #    Globex credential is unchanged.
   # ----------------------------------------------------------------------------
-  @pending @error
+  @error
   Scenario: An admin of one workspace cannot manage another's credentials on the web
     Given "priya@acme.com" is signed in on the web acting on workspace "Acme"
     And the "Globex" workspace has an admin credential "globex-ci"
