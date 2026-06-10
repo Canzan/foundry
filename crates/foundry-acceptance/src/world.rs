@@ -657,6 +657,32 @@ pub struct FoundryWorld {
     /// (workspace name, jti) snapshot of a foreign credential's `revoked_at` BEFORE
     /// the cross-tenant revoke attempt, so the Then can assert it is unchanged.
     pub mwt2_credential_revoked_before: Option<bool>,
+
+    // ---- Feature "multi-workspace-tenancy" — Slice 3 (API + machine-token + session) ----
+    /// label -> jti for a `machine_tokens` row seeded into a NAMED real workspace
+    /// (the residual-closure fixtures: an Acme token + a REAL Globex token, so the
+    /// cross-tenant list/revoke proof uses real fixtures, not a synthetic uuid).
+    pub mwt3_token_jti_by_label: HashMap<String, uuid::Uuid>,
+    /// A fresh bearer minted + then REVOKED (its jti on the per-request denylist),
+    /// for the verify-path-unchanged regression — its next call must be 401.
+    pub mwt3_revoked_bearer: Option<String>,
+    /// Body of the FIRST refusal in a foreign-resource-vs-never-existed comparison
+    /// (the API non-enumerability core), captured so the second (never-existed)
+    /// request can be asserted byte-identical.
+    pub mwt3_first_refusal_body: Option<String>,
+    /// Status of that first (foreign) refusal — must equal the second.
+    pub mwt3_first_refusal_status: Option<StatusCode>,
+    /// The member whose session-resolution contract is under test (US-MWT04).
+    pub mwt3_resolution_user: Option<String>,
+    /// The workspace the resolution is EXPECTED to yield (`None` for the
+    /// fail-closed no-membership case).
+    pub mwt3_expected_workspace: Option<String>,
+    /// The workspace `resolve_active_workspace` actually returned (`None` =
+    /// fail-closed, no workspace resolved).
+    pub mwt3_resolved_workspace: Option<uuid::Uuid>,
+    /// Whether the resolution When step ran (guards against a Then false-pass on
+    /// an un-run resolution).
+    pub mwt3_resolution_ran: bool,
 }
 
 impl FoundryWorld {

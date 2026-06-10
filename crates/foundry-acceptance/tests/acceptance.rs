@@ -39,6 +39,8 @@ use foundry_acceptance::steps::feature_mwt_slice_01_coexist as _feature_mwt_s01;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_mwt_slice_02_web_boundary as _feature_mwt_s02;
 #[allow(unused_imports)]
+use foundry_acceptance::steps::feature_mwt_slice_03_api_auth_boundary as _feature_mwt_s03;
+#[allow(unused_imports)]
 use foundry_acceptance::steps::feature_remaining_surfaces as _feature_remaining;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_token_management_api as _feature_tma;
