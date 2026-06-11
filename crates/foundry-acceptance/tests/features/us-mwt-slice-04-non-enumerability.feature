@@ -204,7 +204,7 @@ Feature: Another tenant's existence and resources are invisible from my workspac
   #    the SAME non-enumerable 404, admin_tokens.rs:48; carried from slice 2 into
   #    the unified matrix to assert NO 403 oracle here).
   # ----------------------------------------------------------------------------
-  @error @pending
+  @error
   Scenario: A foreign web admin revoke and a never-existed revoke are indistinguishable
     Given "priya@acme.com" is signed in on the web acting on workspace "Acme"
     And the "Globex" workspace has an admin credential "globex-ci"
@@ -219,7 +219,7 @@ Feature: Another tenant's existence and resources are invisible from my workspac
   #    issue is unchanged. (An /api/v1 write surface slices 1-3 did not
   #    individually exercise.)
   # ----------------------------------------------------------------------------
-  @error @pending
+  @error
   Scenario: A foreign API state-change and a never-existed state-change are indistinguishable
     Given a machine credential is bound to "marco@acme.com" in workspace "Acme"
     When the Acme-bound credential changes the state of issue GLOBEX-1 in the "Core" project over the API by its real address
@@ -233,7 +233,7 @@ Feature: Another tenant's existence and resources are invisible from my workspac
   #     Globex comment is created. (An /api/v1 write surface slices 1-3 did not
   #     individually exercise.)
   # ----------------------------------------------------------------------------
-  @error @pending
+  @error
   Scenario: A foreign API comment and a never-existed API comment are indistinguishable
     Given a machine credential is bound to "marco@acme.com" in workspace "Acme"
     When the Acme-bound credential comments on issue GLOBEX-1 in the "Core" project over the API by its real address
