@@ -122,7 +122,7 @@ Feature: Another tenant's existence and resources are invisible from my workspac
   # 2. Web board read — foreign board reach is indistinguishable from a board
   #    that never existed (completeness alongside the issue-detail proof).
   # ----------------------------------------------------------------------------
-  @error @pending
+  @error
   Scenario: A foreign web board and a never-existed web board are indistinguishable
     Given "marco@acme.com" is signed in on the web acting on workspace "Acme"
     When the member opens the "Globex" project "Core" board on the web by its real address
@@ -189,7 +189,7 @@ Feature: Another tenant's existence and resources are invisible from my workspac
   #    a never-existed attachment id; nothing reveals the Globex attachment is
   #    real.
   # ----------------------------------------------------------------------------
-  @error @pending
+  @error
   Scenario: A foreign web attachment-download and a never-existed download are indistinguishable
     Given "marco@acme.com" is signed in on the web acting on workspace "Acme"
     And the "Globex" project "Core" issue GLOBEX-1 has an attachment

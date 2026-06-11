@@ -26,9 +26,9 @@
 //! contract is "round-trip preserves what the user uploaded", not
 //! "we re-derive a canonical type".
 
-use crate::bootstrap::{invalid_page, SessionUser};
+use crate::bootstrap::{invalid_page, resource_not_found_page, SessionUser};
 use crate::session::SESSION_KEY_USER_ID;
-use crate::views::{AttachmentRow, ErrorFragment, InvalidPage, PayloadTooLarge};
+use crate::views::{AttachmentRow, ErrorFragment, PayloadTooLarge};
 use crate::AppState;
 use askama::Template;
 use axum::extract::{DefaultBodyLimit, Multipart, Path, State};
@@ -194,17 +194,27 @@ pub async fn download_attachment(
         return unauthorized_response();
     };
 
+    // Scope the team lookup by the acting workspace (ADR-002): a team that
+    // belongs to a FOREIGN workspace resolves to `None` exactly as a
+    // never-existed slug does, and BOTH collapse to the SINGLE uniform
+    // `resource_not_found_page` (ADR-003 / NFR-MWT-SEC-02) — no team slug is
+    // echoed, so a cross-tenant reach and a missing-id reach are byte-identical
+    // (no enumeration oracle). This matches the board/issue/comment read paths.
     let team = match state
         .store
         .find_team_by_slug(user.workspace_id, &team_slug)
         .await
     {
         Ok(Some(t)) => t,
-        Ok(None) => return team_not_found_page(&team_slug),
+        Ok(None) => return resource_not_found_page(),
         Err(err) => return internal_error("find_team_by_slug", err),
     };
     match state.store.is_team_member(team.id, user.user_id).await {
         Ok(true) => {}
+        // Intra-workspace authz failure keeps its shipped 403 shape (ADR-003
+        // boundary clause): a member reaching their OWN workspace's team they do
+        // not belong to is NOT a cross-tenant concern. A cross-tenant reach never
+        // reaches this branch — the foreign team already 404'd above.
         Ok(false) => return non_member_page(&team_slug),
         Err(err) => return internal_error("is_team_member", err),
     }
@@ -226,9 +236,11 @@ pub async fn download_attachment(
         .await
     {
         Ok(Some(row)) => attachment_download_response(&row),
-        Ok(None) => not_found_page(&format!(
-            "Attachment {attachment_id} not found in this workspace"
-        )),
+        // A foreign-workspace attachment id resolves to `None` exactly as a
+        // never-existed id does — BOTH collapse to the SAME uniform 404 (ADR-003).
+        // The previous body echoed the requested `attachment_id`, an enumeration
+        // oracle (NFR-MWT-SEC-02); the uniform page reveals nothing.
+        Ok(None) => resource_not_found_page(),
         Err(err) => internal_error("find_attachment_in_workspace", err),
     }
 }
@@ -346,21 +358,6 @@ fn issue_not_found_page(team_slug: &str, project_slug: &str, n: i32) -> Response
         "Issue not found",
         &format!("No issue #{n} in project {project_slug:?} (team {team_slug:?})."),
     )
-}
-
-fn not_found_page(message: &str) -> Response {
-    // US-R05: the attachment not-found path now renders through the SHARED
-    // `invalid_page.html` (the same template US-R06 rewires its ~17 callers to).
-    // Selector-and-substring-identical to `bootstrap::invalid_page`: the
-    // `<h1>{heading}</h1><p>{message}</p>` shape, both fields auto-escaped. The
-    // 404 status is UNCHANGED.
-    let body = InvalidPage {
-        heading: "Not found".to_string(),
-        message: message.to_string(),
-    }
-    .render()
-    .expect("invalid_page.html renders");
-    (StatusCode::NOT_FOUND, Html(body)).into_response()
 }
 
 fn payload_too_large(limit_mb: u64) -> Response {

@@ -484,6 +484,41 @@
       "s": "EXECUTED",
       "d": "PASS",
       "t": "2026-06-11T03:27:59Z"
+    },
+    {
+      "sid": "04-01",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-11T03:28:45Z"
+    },
+    {
+      "sid": "04-02",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-11T03:30:53Z"
+    },
+    {
+      "sid": "04-02",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-11T03:45:27Z"
+    },
+    {
+      "sid": "04-02",
+      "p": "RED_UNIT",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: LAYER-3 real-adapter scenarios are example-based (no PBT machinery per Mandates 9+11); the production attachment-download fix is covered by the acceptance scenario",
+      "t": "2026-06-11T03:45:27Z"
+    },
+    {
+      "sid": "04-02",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-11T03:46:54Z"
     }
   ],
   "project_id": "multi-workspace-tenancy"
