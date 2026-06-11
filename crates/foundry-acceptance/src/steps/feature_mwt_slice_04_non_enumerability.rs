@@ -384,12 +384,19 @@ async fn web_upload(
         .text("_csrf", csrf.clone())
         .part("file", part);
     let url = format!("{base}/team/{team_slug}/project/{project_slug}/issues/{number}/attachments");
+    // Multipart uploads carry the double-submit CSRF token in the `x-csrf-token`
+    // HEADER (the urlencoded `_csrf` form field is NOT parsed for multipart bodies
+    // — see `csrf::csrf_middleware`). The canonical US-11 upload client (and a
+    // real browser's alpine/htmx hook) sets this header; without it the request
+    // 403s at the CSRF layer BEFORE reaching `submit_upload`, masking the real
+    // refusal surface under test.
     let resp = http
         .post(&url)
         .header(
             reqwest::header::COOKIE,
             format!("{cookie}; foundry_csrf={csrf}"),
         )
+        .header("x-csrf-token", csrf.clone())
         .multipart(form)
         .send()
         .await

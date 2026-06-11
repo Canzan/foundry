@@ -539,30 +539,25 @@ async fn signed_in_user(session: &Session) -> Option<SessionUser> {
 /// issue-not-found into one `ServiceError::NotFound`. The browser renders
 /// DISTINCT 404 pages, so on NotFound we re-run the cheap lookups purely to
 /// pick the correct page wording (byte-identical to the pre-extraction handler).
+/// Cross-tenant / missing-resource refusal page for the comment write
+/// (ADR-003 / NFR-MWT-SEC-02). The shared `create_comment` service already
+/// scoped the team/issue lookup by the RESOLVED acting workspace, so a comment
+/// aimed at a FOREIGN issue resolves to `NotFound` exactly as a never-existed one
+/// does. BOTH must render the SINGLE uniform `resource_not_found_page()` — no
+/// echoed team/project slug, no team-vs-issue body-shape difference — so a
+/// foreign reach is byte-identical to a never-existed reach and leaks nothing
+/// about the foreign issue's existence. The intra-workspace `Forbidden`
+/// (`non_member_page`, 403) keeps its shipped shape and is handled in the caller
+/// (ADR-003 boundary clause); a cross-tenant reach 404s at the team layer above
+/// and never reaches it.
 async fn resolve_comment_not_found_page(
-    state: &AppState,
-    principal: &Principal,
-    team_slug: &str,
-    project_slug: &str,
-    issue_number: i32,
+    _state: &AppState,
+    _principal: &Principal,
+    _team_slug: &str,
+    _project_slug: &str,
+    _issue_number: i32,
 ) -> Response {
-    let team = match state
-        .store
-        .find_team_by_slug(principal.workspace_id(), team_slug)
-        .await
-    {
-        Ok(Some(t)) => t,
-        Ok(None) => return team_not_found_page(team_slug),
-        Err(err) => return internal_error("find_team_by_slug", err),
-    };
-    match state
-        .store
-        .find_issue_by_team_project_number(team.id, project_slug, issue_number)
-        .await
-    {
-        Ok(Some(_)) | Ok(None) => issue_not_found_page(team_slug, project_slug, issue_number),
-        Err(err) => internal_error("find_issue_by_team_project_number", err),
-    }
+    resource_not_found_page()
 }
 
 /// The shared `edit_comment` service collapses "not a team member" and "not the
@@ -613,14 +608,6 @@ fn non_member_page(team_slug: &str) -> Response {
         &format!(
             "You are not a member of the {team_slug:?} team and cannot comment on its issues."
         ),
-    )
-}
-
-fn issue_not_found_page(team_slug: &str, project_slug: &str, n: i32) -> Response {
-    invalid_page(
-        StatusCode::NOT_FOUND,
-        "Issue not found",
-        &format!("No issue #{n} in project {project_slug:?} (team {team_slug:?})."),
     )
 }
 

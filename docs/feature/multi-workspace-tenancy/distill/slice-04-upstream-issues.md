@@ -49,3 +49,64 @@ removed.
 download (uniform 404, no slug/UUID echo). Scenario #7 GREEN; revert-reds-it
 confirmed (reverting `attachments.rs` re-reds the scenario on the body-equality
 assertion).
+
+## ISSUE-04-02 — three web WRITE surfaces leaked the SAME existence oracle (RESOLVED in step 04-03)
+
+**Surfaces (all three shared one root cause):**
+- `POST /team/{t}/project/{p}/issues/{n}/comments` (`comments.rs::submit_comment`
+  → `resolve_comment_not_found_page`)
+- `POST /team/{t}/project/{p}/issues/{n}/state` (`issues.rs::submit_state_change`
+  → `resolve_not_found_page`)
+- `POST /team/{t}/project/{p}/issues/{n}/attachments` (`attachments.rs::submit_upload`)
+
+**Scenarios:** slice-04 feature scenarios #4 (web comment), #5 (web state-change),
+#6 (web attachment-upload). Scenario #3 (web file-issue, `submit_create`) was
+ALREADY clean — it routes `ServiceError::NotFound → resource_not_found_page()` —
+and stayed GREEN by inheritance, which localised the defect to the other three.
+
+**Oracle (right-reason RED, observed against real testcontainers PG16):**
+Same family as ISSUE-04-01 — a cross-tenant write died at the team layer and
+rendered the slug-ECHOING `team_not_found_page` (`<title>Team not found</title>`,
+body `No team with slug "platform" exists in this workspace.`), whereas the
+never-existed comparator (the actor's OWN workspace, missing issue) rendered a
+DIFFERENT page — `issue_not_found_page` (comment/upload) or `project_not_found_page`
+(state-change), each echoing the actor's slugs. Two oracles in one: (a) a
+body-SHAPE difference (Team-not-found vs Issue/Project-not-found) distinguishing
+"exists elsewhere" from "never existed", and (b) the foreign team slug `platform`
+echoed verbatim. All 404 (no 403 on the comment/state paths).
+
+These three were the web WRITE surfaces never migrated to the canonical
+`resource_not_found_page()` idiom that `submit_create` / `show_board` / the read
+paths (and, post-04-02, `download_attachment`) already use.
+
+**Masking step-def bug (fixed):** the slice-04 `web_upload` helper sent the CSRF
+token in the urlencoded `_csrf` FORM field, but `csrf::csrf_middleware` requires
+multipart uploads to carry it in the `x-csrf-token` HEADER (the form field is not
+parsed for multipart bodies). The foreign upload therefore 403'd at the CSRF layer
+BEFORE reaching `submit_upload`, masking the real refusal surface. Fixed the helper
+to set the `x-csrf-token` header (matching the canonical US-11 upload client),
+which exposed the genuine slug-echo oracle above.
+
+**Fix (test-first, step 04-03):** collapse each handler's CROSS-tenant /
+missing-resource refusal branches to the single uniform `resource_not_found_page()`:
+- `resolve_comment_not_found_page` → returns `resource_not_found_page()` (was
+  `team_not_found_page` / `issue_not_found_page`).
+- `resolve_not_found_page` (state-change) → returns `resource_not_found_page()`
+  (was `team_not_found_page` / `project_not_found_page`).
+- `submit_upload` → team-None, issue-None, and `IssueNotFound` race fallback all
+  return `resource_not_found_page()` (were the slug-echoing pages).
+
+The intra-workspace membership failures keep their shipped **403** `non_member_page`
+(ADR-003 boundary clause — a cross-tenant reach 404s at the team layer above and
+never reaches the 403 branch). The now-dead `team_not_found_page` /
+`project_not_found_page` (issues.rs), `issue_not_found_page` (comments.rs +
+attachments.rs), and `team_not_found_page` (attachments.rs) helpers were removed.
+The comment edit/delete paths' intra-workspace `team_not_found_page` (comments.rs)
+is unaffected and retained.
+
+**Result:** the three foreign web writes are now byte-identical to their
+never-existed comparators (uniform 404, no slug echo, no shape diff), and no row
+is created / no state mutated in Globex. Scenarios #3–#6 GREEN; revert-reds-it
+confirmed (pre-fix, #4/#5/#6 red on body-shape inequality and the upload on the
+masked-then-real refusal; #3 stayed green, isolating the defect). Full
+default-lane suite green (255 scenarios / 2120 steps).

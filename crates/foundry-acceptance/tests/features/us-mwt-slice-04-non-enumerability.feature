@@ -134,7 +134,7 @@ Feature: Another tenant's existence and resources are invisible from my workspac
   # 3. Web file-issue WRITE — a foreign-project write is refused identically to a
   #    never-existed-project write, and no Globex row is created.
   # ----------------------------------------------------------------------------
-  @error @pending
+  @error
   Scenario: A foreign web issue-create and a never-existed web issue-create are indistinguishable
     Given "marco@acme.com" is signed in on the web acting on workspace "Acme"
     When the member files issue "Sneaky" in the "Globex" project "Core" on the web
@@ -149,7 +149,7 @@ Feature: Another tenant's existence and resources are invisible from my workspac
   #    exercise — shares the `find_team_by_slug(ws,..) -> find_project_by_slug`
   #    scoping chain.)
   # ----------------------------------------------------------------------------
-  @error @pending
+  @error
   Scenario: A foreign web comment and a never-existed web comment are indistinguishable
     Given "marco@acme.com" is signed in on the web acting on workspace "Acme"
     When the member comments on issue GLOBEX-1 in the "Globex" project "Core" on the web
@@ -162,7 +162,7 @@ Feature: Another tenant's existence and resources are invisible from my workspac
   #    refused identically to changing an issue that never existed; the Globex
   #    issue's state is unchanged.
   # ----------------------------------------------------------------------------
-  @error @pending
+  @error
   Scenario: A foreign web state-change and a never-existed web state-change are indistinguishable
     Given "marco@acme.com" is signed in on the web acting on workspace "Acme"
     When the member changes the state of issue GLOBEX-1 in the "Globex" project "Core" on the web
@@ -175,7 +175,7 @@ Feature: Another tenant's existence and resources are invisible from my workspac
   #    refused identically to uploading onto an issue that never existed; no
   #    Globex attachment is created.
   # ----------------------------------------------------------------------------
-  @error @pending
+  @error
   Scenario: A foreign web attachment-upload and a never-existed upload are indistinguishable
     Given "marco@acme.com" is signed in on the web acting on workspace "Acme"
     When the member uploads a file to issue GLOBEX-1 in the "Globex" project "Core" on the web

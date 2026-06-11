@@ -89,13 +89,24 @@ pub async fn submit_upload(
     }
 
     // Auth gate: team + membership. Same shape as issues.rs / comments.rs.
+    // Cross-tenant / missing-resource refusals (ADR-003 / NFR-MWT-SEC-02): the
+    // team + issue lookups are scoped by the actor's workspace, so a FOREIGN
+    // team/issue resolves to `None` exactly as a never-existed one does — BOTH
+    // render the SINGLE uniform `resource_not_found_page()` (no echoed team/
+    // project slug, no team-vs-issue body-shape difference), so a foreign upload
+    // is byte-identical to a never-existed upload and leaks nothing about the
+    // foreign issue's existence (matching `download_attachment`, fixed in 04-02).
+    // The intra-workspace membership failure keeps its shipped 403 `non_member_page`
+    // (ADR-003 boundary clause — a member reaching their OWN workspace's team is
+    // not a cross-tenant concern; a cross-tenant reach 404s at the team layer
+    // above and never reaches it).
     let team = match state
         .store
         .find_team_by_slug(user.workspace_id, &team_slug)
         .await
     {
         Ok(Some(t)) => t,
-        Ok(None) => return team_not_found_page(&team_slug),
+        Ok(None) => return resource_not_found_page(),
         Err(err) => return internal_error("find_team_by_slug", err),
     };
     match state.store.is_team_member(team.id, user.user_id).await {
@@ -109,7 +120,7 @@ pub async fn submit_upload(
         .await
     {
         Ok(Some(i)) => i,
-        Ok(None) => return issue_not_found_page(&team_slug, &project_slug, issue_number),
+        Ok(None) => return resource_not_found_page(),
         Err(err) => return internal_error("find_issue_by_team_project_number", err),
     };
 
@@ -171,9 +182,7 @@ pub async fn submit_upload(
                 "/team/{team_slug}/project/{project_slug}/issues/{issue_number}"
             ))
         }
-        Err(AttachmentInsertError::IssueNotFound) => {
-            issue_not_found_page(&team_slug, &project_slug, issue_number)
-        }
+        Err(AttachmentInsertError::IssueNotFound) => resource_not_found_page(),
         Err(AttachmentInsertError::Store(err)) => internal_error("insert_attachment", err),
     }
 }
@@ -334,14 +343,6 @@ fn redirect_to(location: &str) -> Response {
     (StatusCode::SEE_OTHER, hdrs, "").into_response()
 }
 
-fn team_not_found_page(team_slug: &str) -> Response {
-    invalid_page(
-        StatusCode::NOT_FOUND,
-        "Team not found",
-        &format!("No team with slug {team_slug:?} exists in this workspace."),
-    )
-}
-
 fn non_member_page(team_slug: &str) -> Response {
     invalid_page(
         StatusCode::FORBIDDEN,
@@ -349,14 +350,6 @@ fn non_member_page(team_slug: &str) -> Response {
         &format!(
             "You are not a member of the {team_slug:?} team and cannot attach files to its issues."
         ),
-    )
-}
-
-fn issue_not_found_page(team_slug: &str, project_slug: &str, n: i32) -> Response {
-    invalid_page(
-        StatusCode::NOT_FOUND,
-        "Issue not found",
-        &format!("No issue #{n} in project {project_slug:?} (team {team_slug:?})."),
     )
 }
 

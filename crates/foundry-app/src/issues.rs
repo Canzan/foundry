@@ -193,30 +193,24 @@ fn parse_issue_key(key: &str, number: i32) -> foundry_core::IssueKey {
 /// `ServiceError::NotFound`. The browser renders DISTINCT 404 pages, so when
 /// the service refuses NotFound we re-run the cheap slug lookups purely to pick
 /// the correct page wording (byte-identical to the pre-extraction handler).
+/// Cross-tenant / missing-resource refusal page for the state-change write
+/// (ADR-003 / NFR-MWT-SEC-02). The shared service already scoped the
+/// team/project lookup by the RESOLVED acting workspace, so a write aimed at a
+/// FOREIGN team/project resolves to `NotFound` exactly as a never-existed one
+/// does. BOTH must render the SINGLE uniform `resource_not_found_page()` — no
+/// echoed team/project slug, no team-vs-project body-shape difference — so a
+/// foreign reach is byte-identical to a never-existed reach and leaks nothing
+/// about the foreign resource's existence. The intra-workspace `Forbidden`
+/// (`non_member_page`, 403) keeps its shipped shape and is handled in the caller
+/// (ADR-003 boundary clause); a cross-tenant reach 404s at the team layer above
+/// and never reaches it.
 async fn resolve_not_found_page(
-    state: &AppState,
-    principal: &Principal,
-    team_slug: &str,
-    project_slug: &str,
+    _state: &AppState,
+    _principal: &Principal,
+    _team_slug: &str,
+    _project_slug: &str,
 ) -> Response {
-    let team = match state
-        .store
-        .find_team_by_slug(principal.workspace_id(), team_slug)
-        .await
-    {
-        Ok(Some(t)) => t,
-        Ok(None) => return team_not_found_page(team_slug),
-        Err(err) => return internal_error("find_team_by_slug", err),
-    };
-    match state
-        .store
-        .find_project_by_slug(team.id, project_slug)
-        .await
-    {
-        Ok(Some(_)) => project_not_found_page(team_slug, project_slug),
-        Ok(None) => project_not_found_page(team_slug, project_slug),
-        Err(err) => internal_error("find_project_by_slug", err),
-    }
+    resource_not_found_page()
 }
 
 fn redirect_to(location: &str) -> Response {
@@ -227,14 +221,6 @@ fn redirect_to(location: &str) -> Response {
     (StatusCode::SEE_OTHER, hdrs, "").into_response()
 }
 
-fn team_not_found_page(team_slug: &str) -> Response {
-    invalid_page(
-        StatusCode::NOT_FOUND,
-        "Team not found",
-        &format!("No team with slug {team_slug:?} exists in this workspace."),
-    )
-}
-
 fn non_member_page(team_slug: &str) -> Response {
     invalid_page(
         StatusCode::FORBIDDEN,
@@ -242,14 +228,6 @@ fn non_member_page(team_slug: &str) -> Response {
         &format!(
             "You are not a member of the {team_slug:?} team and cannot file issues in its projects."
         ),
-    )
-}
-
-fn project_not_found_page(team_slug: &str, project_slug: &str) -> Response {
-    invalid_page(
-        StatusCode::NOT_FOUND,
-        "Project not found",
-        &format!("No project with slug {project_slug:?} exists in team {team_slug:?}."),
     )
 }
 
