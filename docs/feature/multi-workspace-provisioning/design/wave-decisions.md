@@ -116,3 +116,12 @@ CLI-first (D2); (b) the evolution doc's claim that `0009` "removes the applicati
 inaccurate — the `bootstrap.rs:301` 409 guard is STILL PRESENT (the DB index was dropped, the app
 handler was not). Neither blocks DESIGN; both are recorded so DELIVER does not trip on them.
 </content>
+
+## Open Decisions — RATIFIED 2026-06-11
+
+User ratified the three flagged decisions (all at the DESIGN-recommended option):
+- **D2 = CLI-first provisioning (RATIFIED).** `foundry doctor provision-workspace --name … --admin-email …` is the v1 surface; the web `/admin/instance` flow is DEFERRED to a later increment. This REVISES the parent ADR-004's web-first sketch. No new LAYER-1e allow-list entry needed (the `admin_cli` path is already allow-listed).
+- **D1 = Bootstrap-claiming operator = first super-admin (RATIFIED).** Whoever claims the bootstrap token (creating workspace 1 + its admin) also becomes the first `instance_admins` row; existing installs get an idempotent `foundry doctor grant-super-admin --email …`. No separate instance identity.
+- **D5 = Idle-window + LRU size-cap eviction (RATIFIED).** Evict buckets idle > W=ceil(C/R)s (behaviour-preserving) with an LRU size-cap fallback under pathological load (one-directional: only ever under-throttles, never over-throttles an active principal). std-only off the shipped clock; zero new crate.
+
+D3 (instance_admins schema + is_instance_admin) and D4 (migration guarantee = real-snapshot before/after-equality, NO backfill) stand at their recommended options. Ready for DISTILL.
