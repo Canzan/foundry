@@ -41,6 +41,8 @@ use foundry_acceptance::steps::feature_mwt_slice_02_web_boundary as _feature_mwt
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_mwt_slice_03_api_auth_boundary as _feature_mwt_s03;
 #[allow(unused_imports)]
+use foundry_acceptance::steps::feature_mwt_slice_04_non_enumerability as _feature_mwt_s04;
+#[allow(unused_imports)]
 use foundry_acceptance::steps::feature_remaining_surfaces as _feature_remaining;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_token_management_api as _feature_tma;

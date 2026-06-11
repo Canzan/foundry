@@ -683,6 +683,34 @@ pub struct FoundryWorld {
     /// Whether the resolution When step ran (guards against a Then false-pass on
     /// an un-run resolution).
     pub mwt3_resolution_ran: bool,
+
+    // ---- Feature "multi-workspace-tenancy" — Slice 4 (non-enumerability matrix) ----
+    /// Body of the FIRST refusal (the FOREIGN-resource reach) in a slice-4 matrix
+    /// cell, captured so the second (never-existed) reach can be asserted
+    /// byte-identical. Distinct slot from the slice-2/3 ones so a unified-matrix
+    /// scenario that touches BOTH web and API surfaces does not collide.
+    pub mwt4_first_refusal_body: Option<String>,
+    /// Status of that first (foreign) refusal — must equal the second.
+    pub mwt4_first_refusal_status: Option<StatusCode>,
+    /// The foreign id/slug strings that MUST NOT appear in any refusal body (the
+    /// oracle-hunt no-echo assertion), accumulated per scenario.
+    pub mwt4_foreign_identifiers: Vec<String>,
+    /// Every cross-tenant refusal status observed in an oracle-hunt scenario, so
+    /// the Then can assert NONE is a 403 and ALL are 404.
+    pub mwt4_refusal_statuses: Vec<StatusCode>,
+    /// label -> attachment_id seeded into a NAMED real workspace's issue (the
+    /// foreign attachment-download target — the `find_attachment_for_requester`
+    /// idiom).
+    pub mwt4_attachment_id_by_label: HashMap<String, uuid::Uuid>,
+    /// Snapshot count of comments in a workspace BEFORE a cross-tenant comment
+    /// write, so the Then can assert the foreign workspace gained none.
+    pub mwt4_foreign_comment_count_before: Option<i64>,
+    /// Snapshot count of attachments in a workspace BEFORE a cross-tenant upload,
+    /// so the Then can assert the foreign workspace gained none.
+    pub mwt4_foreign_attachment_count_before: Option<i64>,
+    /// Snapshot of a Globex issue's state BEFORE a cross-tenant state-change, so
+    /// the Then can assert it is unchanged.
+    pub mwt4_foreign_issue_state_before: Option<String>,
 }
 
 impl FoundryWorld {
