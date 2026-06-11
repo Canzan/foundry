@@ -370,6 +370,13 @@ fn acme_bearer(world: &FoundryWorld) -> Option<String> {
         .get("marco@acme.com")
         .cloned()
         .or_else(|| world.mwt_bearer_by_email.get("ops@acme.com").cloned())
+        // The slice-4 unified matrix seeds Acme's admin as `priya@acme.com`
+        // (slices 1-3 used `ops@acme.com`). The token-revoke matrix cell binds the
+        // credential to the Acme ADMIN (revoke is admin-gated, US-MT05), so the
+        // workspace-isolation branch — not the admin gate — is the surface under
+        // test. Fall back to the slice-4 admin so the Acme-bound revoke When finds
+        // its bearer regardless of which slice's Background seeded the actor.
+        .or_else(|| world.mwt_bearer_by_email.get("priya@acme.com").cloned())
 }
 
 #[when(

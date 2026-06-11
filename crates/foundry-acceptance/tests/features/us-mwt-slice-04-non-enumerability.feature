@@ -247,9 +247,9 @@ Feature: Another tenant's existence and resources are invisible from my workspac
   #     active. (Carried from slice 3 into the unified matrix; the token surface
   #     completeness cell + the oracle-hunt no-echo assertion.)
   # ----------------------------------------------------------------------------
-  @error @pending
+  @error
   Scenario: A foreign API token revoke and a never-existed revoke are indistinguishable
-    Given a machine credential is bound to "ops@acme.com" in workspace "Acme"
+    Given a machine credential is bound to "priya@acme.com" in workspace "Acme"
     And a managed token "globex-ci" exists in workspace "Globex"
     When the Acme-bound credential revokes the "Globex" token "globex-ci" over the API
     And the Acme-bound credential revokes a token id that exists nowhere over the API
@@ -263,7 +263,7 @@ Feature: Another tenant's existence and resources are invisible from my workspac
   #     forbidden" from "does not exist"). This is the explicit no-403 assertion
   #     the matrix turns on.
   # ----------------------------------------------------------------------------
-  @error @pending
+  @error
   Scenario: No cross-tenant refusal anywhere is an existence-revealing 403
     Given "marco@acme.com" is signed in on the web acting on workspace "Acme"
     And a machine credential is bound to "marco@acme.com" in workspace "Acme"
