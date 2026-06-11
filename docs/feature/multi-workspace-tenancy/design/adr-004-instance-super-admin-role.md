@@ -1,7 +1,7 @@
 # ADR-004 — Instance super-admin role + provisioning surface
 
 ## Status
-Proposed (OD-3 ratified: instance super-admin only, no self-serve signup in v1).
+DEFERRED to follow-up (`multi-workspace-provisioning`, slice 6). OD-3 ratified (instance super-admin only, no self-serve signup in v1), but the role + provisioning surface are NOT shipped in the 2026-06-11 isolation-core milestone.
 
 ## Context
 Creating a tenant on a shared instance is a privileged, instance-level act, distinct from

@@ -1,7 +1,7 @@
 # ADR-005 — Multi-membership sign-in + active-workspace selection
 
 ## Status
-Proposed (OD-2 ratified: multi-membership; session carries the active workspace).
+IMPLEMENTED (milestone, 2026-06-11; slice 2). OD-2 ratified: multi-membership; the session carries the active workspace; `POST /workspace/switch` re-stamps it (membership-guarded, fail-closed).
 
 ## Context
 A user/email MAY belong to several workspaces — the schema models this (`users` is global,

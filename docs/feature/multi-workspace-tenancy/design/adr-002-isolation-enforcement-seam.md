@@ -1,7 +1,7 @@
 # ADR-002 — Isolation enforcement seam (where tenant scoping is impossible to forget)
 
 ## Status
-Proposed.
+IMPLEMENTED (milestone, 2026-06-11; slice 2). The `ActingWorkspace` newtype + the check-arch LAYER-1e tenant-scoping rule (`xtask/src/check_arch.rs`) ship with a planted-violation gold test.
 
 ## Context
 The security-critical NFR is that NO read/write escapes the acting workspace (NFR-MWT-SEC-01) and

@@ -1,7 +1,7 @@
 # ADR-006 — Forward-only migration off `uniq_one_workspace`
 
 ## Status
-Proposed (OD-4 ratified: forward-only, no data touch).
+PARTIALLY IMPLEMENTED (milestone, 2026-06-11). The forward-only `0009`/`0010` migrations (drop `uniq_one_workspace` + add active-workspace) SHIPPED in slice 1. The formal existing-install upgrade-safety GUARANTEE (before/after row-equality + sessions/tokens keep resolving) is DEFERRED to follow-up (`multi-workspace-provisioning`, slice 5). OD-4 ratified: forward-only, no data touch.
 
 ## Context
 Multi-workspace requires removing the single-workspace guard (`CREATE UNIQUE INDEX

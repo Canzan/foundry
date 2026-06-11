@@ -1,7 +1,7 @@
 # ADR-001 — Request → workspace resolution mechanism
 
 ## Status
-Proposed (DESIGN, Propose mode; user ratifies at the post-roadmap checkpoint).
+IMPLEMENTED (milestone, 2026-06-11; slices 1-4). Web resolution via `Store::resolve_active_workspace` (replacing `first_workspace()`); API resolution via `token.workspace_id`. Originally proposed in DESIGN (Propose mode), ratified at the post-roadmap checkpoint.
 
 ## Context
 Today exactly one workspace exists, so "the workspace" is implicit. With many workspaces, every

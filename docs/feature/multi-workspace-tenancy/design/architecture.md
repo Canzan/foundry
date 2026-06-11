@@ -55,14 +55,14 @@ C4Container
   Person_Ext(automation, "Automation (bearer)")
 
   Container_Boundary(foundry, "foundry (one binary)") {
-    Container(web, "foundry-app (web htmx tier)", "Rust · axum · Askama", "Session+CSRF. SHIPPED SessionUser{user_id,workspace_id} seam EXTENDED: active workspace resolved from membership + a switcher. Provisioning UI ★")
+    Container(web, "foundry-app (web htmx tier)", "Rust · axum · Askama", "Session+CSRF. SHIPPED SessionUser{user_id,workspace_id} seam EXTENDED: active workspace resolved from membership + a switcher (IMPLEMENTED, milestone 2026-06-11). Provisioning UI ★ DEFERRED to follow-up (slice 6)")
     Container(api, "foundry-api (JSON /api/v1)", "Rust · axum", "Bearer MachinePrincipal carries token.workspace_id as the acting workspace. HTML-free, no ad-hoc authz (boundary guard)")
-    Container(svc, "foundry-services (use-cases)", "Rust", "The ONLY owner of Store. Authz (is_workspace_admin/is_team_member) + non-enumerable lookups live here. EXTEND: instance-admin check + create_workspace use-case ★")
+    Container(svc, "foundry-services (use-cases)", "Rust", "The ONLY owner of Store. Authz (is_workspace_admin/is_team_member) + non-enumerable lookups live here. instance-admin check + create_workspace use-case ★ DEFERRED to follow-up (slice 6)")
     Container(auth, "foundry-auth", "Rust", "argon2id sign-in, MachineTokenVerifier (EdDSA pinned). UNCHANGED — scopes WHICH workspace, not how a credential is verified")
-    Container(store, "foundry-store", "Rust · sqlx", "Per-table workspace_id scoping (SHIPPED). EXTEND: membership lookups, instance_admins, create-workspace insert, drop the single-workspace query dependence")
-    Container(arch, "xtask check-arch", "Rust", "Boundary guard (api≠HTML/authz/mint, EdDSA, dep-direction). EXTEND: NEW tenant-scoping guard rule ★")
+    Container(store, "foundry-store", "Rust · sqlx", "Per-table workspace_id scoping (SHIPPED). IMPLEMENTED (milestone 2026-06-11): membership lookups, dropped the single-workspace query dependence. DEFERRED to follow-up (slice 6): instance_admins, create-workspace insert")
+    Container(arch, "xtask check-arch", "Rust", "Boundary guard (api≠HTML/authz/mint, EdDSA, dep-direction). IMPLEMENTED (milestone 2026-06-11): tenant-scoping guard rule (LAYER-1e) ★")
   }
-  ContainerDb(pg, "PostgreSQL", "shared-schema; workspace_id discriminator; instance_admins ★; uniq_one_workspace DROPPED")
+  ContainerDb(pg, "PostgreSQL", "shared-schema; workspace_id discriminator; uniq_one_workspace DROPPED (IMPLEMENTED, 0009); instance_admins ★ DEFERRED to follow-up (slice 6)")
 
   Rel(member, web, "active workspace selected/switched", "HTTPS HTML")
   Rel(superadmin, web, "provision workspace", "HTTPS HTML")
@@ -92,22 +92,22 @@ C4Component
 
   Container_Boundary(app, "foundry (one binary)") {
 
-    Component(sessionUser, "SessionUser resolution (web) ★ EXTEND", "foundry-app · per-request", "SHIPPED SessionUser{user_id,workspace_id}. CHANGE: workspace_id is the session's ACTIVE workspace (set at sign-in/switch from membership), no longer first_workspace(). Fail-closed if the user is not a member of it")
-    Component(switcher, "Workspace selection/switch UI ★ NEW", "foundry-app · Askama", "Single-membership: auto-resolve, no prompt. Multi-membership: explicit pick at sign-in + a switcher that re-stamps the session's active workspace")
+    Component(sessionUser, "SessionUser resolution (web) ★ IMPLEMENTED (milestone 2026-06-11)", "foundry-app · per-request", "SHIPPED SessionUser{user_id,workspace_id}. CHANGE: workspace_id is the session's ACTIVE workspace (set at sign-in/switch from membership), no longer first_workspace(). Fail-closed if the user is not a member of it")
+    Component(switcher, "Workspace selection/switch UI ★ IMPLEMENTED (milestone 2026-06-11)", "foundry-app · Askama", "Single-membership: auto-resolve, no prompt. Multi-membership: explicit pick at sign-in + a switcher that re-stamps the session's active workspace")
     Component(machinePrincipal, "MachinePrincipal extractor (API)", "foundry-api · SHIPPED", "Bearer → Principal::Machine{ workspace_id, user_id, jti, scope_team_id }. token.workspace_id IS the acting workspace for /api/v1")
 
-    Component(resolveTrait, "ActingWorkspace (resolved value) ★ NEW (thin)", "foundry-app/api", "A one-field newtype the handlers consume INSTEAD of a client-supplied id. Makes 'handler trusts the resolved seam' the only typed path (NFR-MWT-SEC-06)")
+    Component(resolveTrait, "ActingWorkspace (resolved value) ★ IMPLEMENTED (milestone 2026-06-11)", "foundry-app/api", "A one-field newtype the handlers consume INSTEAD of a client-supplied id. Makes 'handler trusts the resolved seam' the only typed path (NFR-MWT-SEC-06)")
 
     Component(usecases, "tenant-scoped use-cases", "foundry-services · SHIPPED", "issues/projects/teams/comments/tokens — all already take workspace_id; authz = is_workspace_admin/is_team_member against the acting workspace")
     Component(nonEnum, "non-enumerable lookup idiom", "foundry-store · SHIPPED", "find_*_in_workspace(id, acting_workspace_id) → WHERE id=$1 AND workspace_id=$2 → None ≡ foreign ≡ missing (attachments.rs). Generalized to every resource")
-    Component(instanceAdmin, "instance-admin authz + provisioning ★ NEW", "foundry-services + foundry-store", "is_instance_admin(user_id); create_workspace(name, first_admin) use-case; refuses non-super-admins. Seeds first admin via the bootstrap/invite idiom")
+    Component(instanceAdmin, "instance-admin authz + provisioning ★ DEFERRED to follow-up (multi-workspace-provisioning, slice 6)", "foundry-services + foundry-store", "is_instance_admin(user_id); create_workspace(name, first_admin) use-case; refuses non-super-admins. Seeds first admin via the bootstrap/invite idiom")
     Component(refusal, "uniform refusal envelope", "foundry-app (HTML 404) / foundry-api (JSON status_for)", "SHIPPED. foreign-id and missing-id collapse to ONE response per surface (no 403-vs-404 oracle). Slice 4 proves uniformity")
 
-    Component(rateMap, "per-principal rate-bucket map ★ EXTEND", "foundry-app/src/rate_limit.rs · SHIPPED", "Keyed by user_id, 100%-mutation-hardened. ADD idle/LRU eviction so it is bounded by ACTIVE principals under many tenants (residual F2)")
+    Component(rateMap, "per-principal rate-bucket map ★ eviction DEFERRED to follow-up (slice 6)", "foundry-app/src/rate_limit.rs · SHIPPED", "Keyed by user_id, 100%-mutation-hardened. ADD idle/LRU eviction so it is bounded by ACTIVE principals under many tenants (residual F2)")
 
-    Component(tenantGuard, "check-arch tenant-scoping rule ★ NEW", "xtask · build-time", "AST: a tenant-scoped store call in an adapter must be fed a resolved acting workspace, not a client-supplied/parsed id. Makes 'forgot to scope' structurally hard (NFR-MWT-SEC-01/06)")
+    Component(tenantGuard, "check-arch tenant-scoping rule (LAYER-1e) ★ IMPLEMENTED (milestone 2026-06-11)", "xtask · build-time", "AST: a tenant-scoped store call in an adapter must be fed a resolved acting workspace, not a client-supplied/parsed id. Makes 'forgot to scope' structurally hard (NFR-MWT-SEC-01/06)")
   }
-  ContainerDb(pg, "PostgreSQL", "shared-schema; instance_admins ★; uniq_one_workspace DROPPED")
+  ContainerDb(pg, "PostgreSQL", "shared-schema; uniq_one_workspace DROPPED (IMPLEMENTED, 0009); instance_admins ★ DEFERRED to follow-up (slice 6)")
 
   Rel(member, switcher, "selects/switches active workspace")
   Rel(switcher, sessionUser, "re-stamps session active workspace")
@@ -193,7 +193,7 @@ Tool: **`cargo xtask check-arch`** (the project's own AST + cargo-deny guard) �
 Rules to enforce:
 - Existing (must stay green): api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to `[EdDSA]`,
   dependency direction (adapter → services → store only).
-- **NEW (ADR-002, proposed)**: a tenant-scoped store call reached from a driving adapter must be
+- **NEW (ADR-002, IMPLEMENTED milestone 2026-06-11)**: a tenant-scoped store call reached from a driving adapter must be
   fed a *resolved acting workspace*, never a client-supplied or path-parsed workspace id — the
   "forgot to scope / trusted the client" footgun becomes a build-time failure.
 

@@ -1,7 +1,7 @@
 # ADR-003 — Non-enumerability contract (uniform foreign-id ≡ missing-id)
 
 ## Status
-Proposed.
+IMPLEMENTED (milestone, 2026-06-11; slices 2 + 4). Uniform `resource_not_found_page()` (web) / `status_for` 404 envelope (API) on every surface; slice 4 found + closed 4 enumeration oracles (see `../distill/slice-04-upstream-issues.md`).
 
 ## Context
 A cross-tenant request must reveal NOTHING about the other tenant — not even that a resource exists
