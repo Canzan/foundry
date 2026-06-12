@@ -728,3 +728,130 @@ async fn carried_token_acts_on_first(world: &mut FoundryWorld) {
         "the upgrade must not revoke the carried machine token — it stays valid"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Scenario 4: An upgraded user resolves to workspace 1 without their active
+// workspace being written (D4 / ADR-004 — the no-backfill finding made
+// OBSERVABLE).
+//
+// The no-backfill guarantee says the upgrade achieves correct resolution WITHOUT
+// rewriting any user row: an upgraded user whose `active_workspace_id` was never
+// chosen keeps it NULL across the upgrade, and the SHIPPED resolution seam still
+// maps them — NULL-active + sole-membership — to workspace 1. This step proves the
+// OBSERVABLE no-backfill state: after resolution (run REPEATEDLY) the user's
+// `active_workspace_id` is read back from the REAL database and is still NULL.
+//
+// Green-by-inheritance: resolution is READ-ONLY (a `SELECT`), so it cannot write
+// `active_workspace_id`; the upgrade adds the column NULL and never backfills it.
+//
+// FALSIFIABILITY (demonstrated during RED, then restored): make resolution
+// persist/backfill the resolved workspace into `active_workspace_id` (e.g. follow
+// `resolve_active_workspace` with a `set_active_workspace`) → the post-resolution
+// "stays NULL" assertion REDs, proving the proof bites.
+// ---------------------------------------------------------------------------
+
+/// The "actor" of this scenario: an upgraded user who NEVER chose an active
+/// workspace before the upgrade. The Background's admin `ops@acme.com` is exactly
+/// such a user — in the PRE-feature schema the `active_workspace_id` column does
+/// not even exist yet (`0010` adds it), so by construction the user never chose an
+/// active workspace. Confirm the precondition observably: the column is ABSENT
+/// pre-upgrade, and the user is a sole-membership member (the NULL-active +
+/// sole-membership path the no-backfill finding rests on).
+#[given(regex = r#"^a user whose active workspace was never chosen before the upgrade$"#)]
+async fn user_never_chose_active_workspace(world: &mut FoundryWorld) {
+    let pool = world.mwt5_pool.clone().expect("pre-feature pool seeded");
+    let admin_email = world.mwt5_admin_email.clone().expect("admin email seeded");
+
+    // Pre-feature: there is no active-workspace column to choose into — the user
+    // cannot have chosen one. (`0010` introduces `users.active_workspace_id`.)
+    let column_exists = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS (
+             SELECT 1 FROM information_schema.columns
+              WHERE table_name = 'users' AND column_name = 'active_workspace_id'
+                AND table_schema = current_schema()
+         )",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("probe whether the active_workspace_id column exists pre-upgrade");
+    assert!(
+        !column_exists,
+        "precondition: pre-feature, the active-workspace column does not exist — the user \
+         could never have chosen an active workspace"
+    );
+
+    // And the user is a sole-membership member — the NULL-active + sole-membership
+    // resolution path the no-backfill finding (D4) relies on.
+    let membership_count = sqlx::query_scalar::<_, i64>(
+        "SELECT count(*) FROM workspace_memberships m
+            JOIN users u ON u.id = m.user_id
+           WHERE u.email_lower = $1",
+    )
+    .bind(&admin_email)
+    .fetch_one(&pool)
+    .await
+    .expect("count the upgraded user's memberships pre-upgrade");
+    assert_eq!(
+        membership_count, 1,
+        "precondition: the upgraded user must be a member of exactly one workspace"
+    );
+}
+
+/// That user resolves to the first workspace: the SHIPPED `resolve_active_workspace`
+/// maps the upgraded user — NULL active workspace + sole membership — to workspace 1
+/// deterministically. Resolve REPEATEDLY (three times) and assert every resolution
+/// yields workspace 1 (AC 4: re-resolving keeps yielding the first workspace).
+#[then(regex = r#"^that user resolves to the first workspace$"#)]
+async fn upgraded_user_resolves_to_first(world: &mut FoundryWorld) {
+    let pool = world.mwt5_pool.clone().expect("pre-feature pool seeded");
+    let expected_id = world.mwt5_workspace_id.expect("workspace id captured");
+    let admin_email = world.mwt5_admin_email.clone().expect("admin email seeded");
+    let store = Store::from_pool(pool.clone());
+
+    let user = store
+        .find_user_by_email(&admin_email.to_ascii_lowercase())
+        .await
+        .expect("look up the upgraded user after the upgrade")
+        .expect("the upgraded user must still exist after the upgrade");
+
+    // Re-resolve repeatedly: each resolution must deterministically yield workspace 1
+    // (NULL-active + sole-membership). Repetition proves resolution is stable and
+    // never drifts to a different workspace across calls.
+    for attempt in 1..=3 {
+        let resolved = store
+            .resolve_active_workspace(user.id)
+            .await
+            .unwrap_or_else(|e| panic!("resolve attempt {attempt}: {e}"))
+            .unwrap_or_else(|| panic!("resolve attempt {attempt}: must resolve to a workspace"));
+        assert_eq!(
+            resolved.0, expected_id,
+            "resolve attempt {attempt}: the upgraded user must resolve to workspace 1 \
+             (NULL-active + sole-membership)"
+        );
+    }
+}
+
+/// Their active-workspace choice remains UNWRITTEN: read `active_workspace_id` back
+/// from the REAL database AFTER resolution ran (repeatedly) and assert it is still
+/// NULL — the OBSERVABLE proof of the no-backfill decision (D4 / ADR-004). The
+/// upgrade wrote no row and resolution (a read-only SELECT) backfilled nothing, so
+/// the user's unwritten active-workspace state is exactly as the upgrade left it.
+/// Verified against the real DB, not inferred from the resolution code.
+#[then(regex = r#"^their active-workspace choice remains unwritten$"#)]
+async fn active_workspace_choice_remains_unwritten(world: &mut FoundryWorld) {
+    let pool = world.mwt5_pool.clone().expect("pre-feature pool seeded");
+    let admin_email = world.mwt5_admin_email.clone().expect("admin email seeded");
+
+    let active_workspace_id = sqlx::query_scalar::<_, Option<uuid::Uuid>>(
+        "SELECT active_workspace_id FROM users WHERE email_lower = $1",
+    )
+    .bind(&admin_email)
+    .fetch_one(&pool)
+    .await
+    .expect("read the upgraded user's active_workspace_id after resolution");
+    assert!(
+        active_workspace_id.is_none(),
+        "no-backfill (D4 / ADR-004): after resolution the user's active_workspace_id must \
+         remain UNWRITTEN (NULL) — resolution wrote nothing, the upgrade backfilled nothing"
+    );
+}

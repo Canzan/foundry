@@ -142,7 +142,7 @@ Feature: An existing single-workspace install upgrades to workspace 1 with no da
   #    finding made observable). This proves the guarantee is achieved WITHOUT a
   #    row rewrite: the active-workspace value remains as the upgrade left it.
   # ----------------------------------------------------------------------------
-  @pending @us-mwt06
+  @us-mwt06
   Scenario: An upgraded user resolves to workspace 1 without their active workspace being written
     Given a user whose active workspace was never chosen before the upgrade
     When the install is upgraded to multi-workspace support
