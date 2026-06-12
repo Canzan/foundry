@@ -1,8 +1,10 @@
 # ADR-001 — How the first instance super-admin comes to exist
 
 ## Status
-Proposed (Propose mode). FIRMS one half of the parent `multi-workspace-tenancy` ADR-004
-(deferred). Awaits user ratification (flagged in `wave-decisions.md`).
+**IMPLEMENTED** (2026-06-12; ratified 2026-06-11). Shipped in DELIVER phase 02 (steps 02-01/02):
+the bootstrap claim seeds the operator as first super-admin in the same atomic tx, and
+`foundry doctor grant-super-admin` is idempotent for upgraded installs. FIRMS one half of the
+parent `multi-workspace-tenancy` ADR-004 (deferred). See the evolution doc.
 
 ## Context
 OD-3 is ratified: a NEW instance-level super-admin role (above workspace-admin) provisions

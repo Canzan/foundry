@@ -1,9 +1,12 @@
 # ADR-002 — Provisioning surface (CLI vs web vs both)
 
 ## Status
-Proposed (Propose mode). FIRMS the surface half of the parent `multi-workspace-tenancy` ADR-004
-(which proposed a web flow). **This ADR overrides the parent's surface choice for v1** (CLI-first)
-— see "Relationship". Awaits user ratification (flagged in `wave-decisions.md`).
+**IMPLEMENTED** (2026-06-12; ratified 2026-06-11). Shipped in DELIVER phase 03 (steps 03-01..06):
+`foundry doctor provision-workspace` is the v1 surface, `is_instance_admin`-gated, with structured
+exit codes and proven off the bearer surface. The web `/admin/instance/…` flow remains **DEFERRED**.
+FIRMS the surface half of the parent `multi-workspace-tenancy` ADR-004 (which proposed a web flow);
+**this ADR overrides the parent's surface choice for v1** (CLI-first) — see "Relationship". See the
+evolution doc.
 
 ## Context
 OD-3 ratified instance-operator/super-admin-only provisioning, NO self-serve. The question is the

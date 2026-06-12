@@ -117,7 +117,12 @@ inaccurate — the `bootstrap.rs:301` 409 guard is STILL PRESENT (the DB index w
 handler was not). Neither blocks DESIGN; both are recorded so DELIVER does not trip on them.
 </content>
 
-## Open Decisions — RATIFIED 2026-06-11
+## Open Decisions — RATIFIED 2026-06-11 · IMPLEMENTED 2026-06-12
+
+> **Status: IMPLEMENTED.** All seven decisions (D1–D7) shipped via the 16-step DELIVER arc
+> (commits `299a8c1` → `49f1d0e` → `3cf4ec1`); full `@all` acceptance 275/275 scenarios green,
+> scoped mutation 100% (28/28). See `docs/evolution/2026-06-12-multi-workspace-provisioning.md`.
+> D2's web `/admin/instance/…` flow remains DEFERRED (CLI-first shipped).
 
 User ratified the three flagged decisions (all at the DESIGN-recommended option):
 - **D2 = CLI-first provisioning (RATIFIED).** `foundry doctor provision-workspace --name … --admin-email …` is the v1 surface; the web `/admin/instance` flow is DEFERRED to a later increment. This REVISES the parent ADR-004's web-first sketch. No new LAYER-1e allow-list entry needed (the `admin_cli` path is already allow-listed).

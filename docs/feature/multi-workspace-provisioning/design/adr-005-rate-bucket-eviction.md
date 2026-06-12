@@ -1,9 +1,11 @@
 # ADR-005 — Rate-bucket map eviction (residual F2)
 
 ## Status
-Proposed (Propose mode). Closes the F2 residual carried by `token-management-api` /
-`machine-token-admin-ux` and named in the parent `multi-workspace-tenancy` DM8. Awaits user
-ratification only if the user wishes to tune the policy constants.
+**IMPLEMENTED** (2026-06-12; ratified 2026-06-11). Shipped in DELIVER phase 05 (step 05-01):
+std-only idle (`W=ceil(C/R)s`) + LRU size-cap eviction on `RevokeRateLimiter`, keyed off the
+shipped clock; mutation-hardened to 100%. **Closes the F2 residual** carried by
+`token-management-api` / `machine-token-admin-ux` and named in the parent `multi-workspace-tenancy`
+DM8. See the evolution doc.
 
 ## Context
 `RevokeRateLimiter` (`rate_limit.rs:103`) holds `buckets: Mutex<HashMap<Uuid, BucketState>>`,

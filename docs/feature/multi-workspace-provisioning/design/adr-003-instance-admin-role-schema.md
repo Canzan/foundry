@@ -1,8 +1,10 @@
 # ADR-003 — `instance_admins` schema + `is_instance_admin` authz seam
 
 ## Status
-Proposed (Propose mode). FIRMS the role-representation half of the parent
-`multi-workspace-tenancy` ADR-004. Awaits user ratification (flagged in `wave-decisions.md`).
+**IMPLEMENTED** (2026-06-12; ratified 2026-06-11). Shipped in DELIVER phase 01 (steps 01-01/02):
+the additive `0011_instance_admins.sql` migration and the `is_instance_admin` EXISTS-shape authz
+predicate in store/services; v1 needed no new LAYER-1e allow-list entry as designed. FIRMS the
+role-representation half of the parent `multi-workspace-tenancy` ADR-004. See the evolution doc.
 
 ## Context
 OD-3 ratified a NEW instance-level super-admin above workspace-admin. Today the only roles are

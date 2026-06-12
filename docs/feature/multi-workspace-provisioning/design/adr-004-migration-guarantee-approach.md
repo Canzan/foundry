@@ -1,9 +1,12 @@
 # ADR-004 — Existing-install migration-safety guarantee (slice 5)
 
 ## Status
-Proposed (Propose mode). FIRMS the migration-guarantee half of the parent
-`multi-workspace-tenancy` ADR-006 (the `0009`/`0010` schema change already shipped; the
-upgrade-safety PROOF was deferred here). OD-4 ratified: forward-only, no data touch.
+**IMPLEMENTED** (2026-06-12; ratified 2026-06-11). Shipped in DELIVER phase 04 (steps 04-01..05):
+NO backfill, proven by a real-snapshot before/after row-for-row equality harness; upgraded users
+resolve to workspace 1 with `active_workspace_id` left NULL; carried sessions + tokens still
+resolve. FIRMS the migration-guarantee half of the parent `multi-workspace-tenancy` ADR-006 (the
+`0009`/`0010` schema change already shipped; the upgrade-safety PROOF was deferred here). OD-4
+ratified: forward-only, no data touch. See the evolution doc.
 
 ## Context
 Every existing Foundry install is single-workspace. The `0009` migration already DROPped
