@@ -730,6 +730,14 @@ pub struct FoundryWorld {
     /// table name → ordered list of row-JSON strings. Compared for equality after a
     /// second upgrade to prove idempotence (no row rewritten or duplicated).
     pub mwt5_snapshot_after_first: HashMap<String, Vec<String>>,
+    /// Row-level snapshot of every tenant table taken BEFORE the upgrade is applied,
+    /// keyed by table name → ordered list of row-JSON strings. Compared for equality
+    /// AFTER the upgrade to prove the forward-only migrations touched no tenant row
+    /// (the walking-skeleton data-safety proof).
+    pub mwt5_snapshot_before_upgrade: HashMap<String, Vec<String>>,
+    /// The admin email seeded for the pre-feature install, so the sign-in seam can
+    /// resolve the carried-over user to workspace 1 after the upgrade.
+    pub mwt5_admin_email: Option<String>,
 
     // ---- Feature "multi-workspace-provisioning" — Slice 6 (provisioning) ----
     /// In-process harness whose migrated schema the provisioning CLI subprocess
