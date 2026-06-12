@@ -788,6 +788,20 @@ pub struct FoundryWorld {
     /// against a name that NEVER existed (step 03-05). Must equal
     /// `mwt6_authz_refusal_existing` exactly (same exit code + same output).
     pub mwt6_authz_refusal_never_existed: Option<(i32, String, String)>,
+    /// A REAL Acme-bound EdDSA machine bearer (step 03-06): the most-privileged
+    /// bearer credential a caller could hold (workspace-1-bound, registered so the
+    /// jti denylist admits it) — used to prove provisioning is unreachable on the
+    /// bearer surface EVEN for a fully-valid token.
+    pub mwt6_bearer: Option<String>,
+    /// The workspace count recorded BEFORE any bearer-surface provisioning probe
+    /// (step 03-06). The "no new workspace created" assertion compares the count
+    /// after the probes against this baseline.
+    pub mwt6_bearer_probe_ws_before: Option<i64>,
+    /// The `(status, body)` of EVERY plausible provisioning address probed over
+    /// `/api/v1` with the Acme-bound bearer (step 03-06). Each must be a
+    /// non-enumerable 404 — NOT a provisioning success (2xx) — proving no
+    /// provisioning path is reachable on the bearer surface.
+    pub mwt6_bearer_probe_responses: Vec<(StatusCode, String)>,
 }
 
 impl FoundryWorld {

@@ -34,7 +34,7 @@ use assert_cmd::Command as AssertCommand;
 use cucumber::{given, then, when};
 use reqwest::redirect::Policy;
 use reqwest::StatusCode;
-use secrecy::SecretString;
+use secrecy::{ExposeSecret, SecretString};
 use sqlx::{PgPool, Row};
 
 /// The password the Background seeds every existing-workspace member with
@@ -1553,4 +1553,195 @@ async fn neither_refusal_reveals_existence(world: &mut FoundryWorld) {
         (never_stdout.as_str(), never_stderr.as_str()),
         "the two refusals must be observationally indistinguishable"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 9 — provisioning is unreachable from the bearer API surface
+//              (NFR / api≠mint, evil-user, @verify-path-unchanged).
+//
+// Green-by-CONSTRUCTION: provisioning is CLI-ONLY (ADR-002 / D2). The
+// `foundry-api` `/api/v1` router (`crates/foundry-api/src/lib.rs:255-280`)
+// exposes ONLY issue read/write, comments, and token list/revoke routes — there
+// is NO provisioning route, and `provision_workspace` lives exclusively in
+// `admin_cli.rs`, never wired into the axum router. So the absence is
+// STRUCTURALLY guaranteed, not merely currently-absent.
+//
+// We PROVE the absence by driving the strongest observable: a caller holding the
+// most-privileged plausible bearer — a REAL, registered, workspace-1(Acme)-bound
+// EdDSA machine token (the same token that successfully acts on Acme's issues in
+// slices 1-3) — probes every plausible provisioning address over `/api/v1`. Each
+// is refused with the SHIPPED non-enumerable 404 (the default unrouted-path
+// fallback), NEVER a provisioning success (2xx); and the workspace count is
+// unchanged. An authenticated bearer that CAN read Acme but CANNOT reach any
+// provisioning path demonstrates the refusal is the route's absence, not an auth
+// failure.
+//
+// Falsifiability (route-addition mutation, demonstrated at RED then restored):
+// temporarily wire a trivial `/api/v1/.../provision-workspace` route returning
+// 200 into the api router → the probe for that address becomes reachable (2xx,
+// not 404) → this scenario REDS on `no provisioning path is reachable`. The
+// shipped router wires no such route, so it greens. (Documented in the step
+// 03-06 DELIVER notes; the route addition is reverted before COMMIT.)
+// ---------------------------------------------------------------------------
+
+/// `Given a machine token is bound to "Acme"` — mint a REAL EdDSA machine bearer
+/// bound to `(ops@acme.com, Acme.workspace_id)` and REGISTER it (so the shipped
+/// jti denylist admits it). This is the most-privileged plausible bearer: it
+/// authenticates and acts on Acme across `/api/v1` (slices 1-3 proved this), so
+/// any provisioning refusal below is the route's ABSENCE, not an auth failure.
+/// Also records the workspace-count baseline so the reused "no new workspace was
+/// created" Then proves the bearer-surface attempt created nothing.
+#[given(regex = r#"^a machine token is bound to "([^"]+)"$"#)]
+async fn machine_token_bound_to(world: &mut FoundryWorld, ws_name: String) {
+    ensure_harness(world).await;
+    let pool = harness_pool(world);
+    let workspace_id = *world
+        .mwt6_workspace_ids
+        .get(&ws_name)
+        .unwrap_or_else(|| panic!("workspace {ws_name:?} must be seeded by the Background first"));
+
+    // Bind the bearer to the workspace's super-admin (ops@acme.com), a real
+    // member of Acme — exactly the principal a workspace-1 machine token carries.
+    let admin_email = world
+        .mwt6_superadmin_email
+        .clone()
+        .expect("super-admin seeded in Background");
+    let user_id: uuid::Uuid = sqlx::query_scalar("SELECT id FROM users WHERE email_lower = $1")
+        .bind(admin_email.to_ascii_lowercase())
+        .fetch_one(&pool)
+        .await
+        .expect("resolve workspace-1 admin id");
+
+    let jti = uuid::Uuid::now_v7();
+    let now = time::OffsetDateTime::now_utc();
+    let exp = now + time::Duration::seconds(3600);
+    // Register the token so the per-request jti denylist admits it — the bearer is
+    // genuinely VALID, not a forgery. (The mwt6 harness uses the fixed test
+    // verifier+signer, so this EdDSA token verifies on `/api/v1`.)
+    world
+        .mwt6_harness
+        .as_ref()
+        .expect("mwt6 harness")
+        .app
+        .state
+        .store
+        .insert_machine_token(
+            jti,
+            user_id,
+            workspace_id,
+            None,
+            exp,
+            "slice-06-bearer",
+            user_id,
+        )
+        .await
+        .expect("register the Acme-bound machine token");
+    let claims = foundry_auth::MachineTokenClaims {
+        sub: user_id,
+        scope: None,
+        iat: now.unix_timestamp(),
+        exp: exp.unix_timestamp(),
+        jti,
+        iss: foundry_auth::MACHINE_TOKEN_ISS.to_string(),
+        aud: foundry_auth::MACHINE_TOKEN_AUD.to_string(),
+    };
+    let jwt = foundry_auth::test_keys::signer()
+        .mint(&claims)
+        .expect("mint Acme-bound machine jwt")
+        .expose_secret()
+        .to_string();
+    world.mwt6_bearer = Some(jwt);
+
+    let before: i64 = sqlx::query_scalar("SELECT count(*) FROM workspaces")
+        .fetch_one(&pool)
+        .await
+        .expect("count workspaces before the bearer-surface probe");
+    world.mwt6_bearer_probe_ws_before = Some(before);
+    // The reused "no new workspace was created" Then reads this baseline.
+    world.mwt6_workspaces_before_attempt = Some(before);
+}
+
+/// `When a caller uses it to attempt workspace provisioning over /api/v1` — drive
+/// the Acme-bound bearer against EVERY plausible provisioning address on the
+/// bearer surface (verb + path shapes a real client would try to mint a
+/// workspace). Capture each `(status, body)` for the Then to prove none is
+/// reachable. The bearer is sent on every request, so a reachable route would
+/// authenticate and act — the only thing standing between the caller and a new
+/// workspace is the route's ABSENCE.
+#[when(regex = r#"^a caller uses it to attempt workspace provisioning over /api/v1$"#)]
+async fn caller_attempts_provisioning_over_api(world: &mut FoundryWorld) {
+    ensure_harness(world).await;
+    let bearer = world
+        .mwt6_bearer
+        .clone()
+        .expect("an Acme-bound bearer was minted in the Given");
+    let base = world
+        .mwt6_harness
+        .as_ref()
+        .expect("mwt6 harness")
+        .base_url();
+    let http = http_client(world);
+
+    // Every plausible address+verb a client would try to provision a workspace
+    // over the bearer surface. None is wired into the `/api/v1` router (ADR-002 —
+    // provisioning is CLI-only), so each must be refused non-enumerably.
+    let body = serde_json::json!({
+        "name": "Sneaky",
+        "admin_email": "mallory@sneaky.test"
+    })
+    .to_string();
+    let attempts: [(reqwest::Method, &str); 6] = [
+        (reqwest::Method::POST, "/api/v1/workspaces"),
+        (reqwest::Method::POST, "/api/v1/provision-workspace"),
+        (reqwest::Method::POST, "/api/v1/admin/instance/workspaces"),
+        (reqwest::Method::POST, "/api/v1/instance/workspaces"),
+        (reqwest::Method::PUT, "/api/v1/workspaces/Sneaky"),
+        (reqwest::Method::POST, "/api/v1/doctor/provision-workspace"),
+    ];
+
+    let mut responses = Vec::with_capacity(attempts.len());
+    for (method, path) in attempts {
+        let resp = http
+            .request(method.clone(), format!("{base}{path}"))
+            .header(reqwest::header::AUTHORIZATION, format!("Bearer {bearer}"))
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .header(reqwest::header::ACCEPT, "application/json")
+            .body(body.clone())
+            .send()
+            .await
+            .unwrap_or_else(|e| panic!("send provisioning probe {method} {path}: {e}"));
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        responses.push((status, text));
+    }
+    world.mwt6_bearer_probe_responses = responses;
+}
+
+/// `Then no provisioning path is reachable on the bearer surface` — EVERY probed
+/// provisioning address was refused with the SHIPPED non-enumerable 404, and NONE
+/// returned a provisioning success (2xx). A 404 (not 401/403) confirms the
+/// refusal is the route's ABSENCE: the bearer authenticated (it acts on Acme in
+/// slices 1-3), but no provisioning route exists to dispatch to. This is the
+/// strongest observable proof that provisioning is off the bearer surface
+/// (api≠mint, ADR-002 — provisioning is CLI-only).
+#[then(regex = r#"^no provisioning path is reachable on the bearer surface$"#)]
+async fn no_provisioning_path_reachable(world: &mut FoundryWorld) {
+    let responses = &world.mwt6_bearer_probe_responses;
+    assert!(
+        !responses.is_empty(),
+        "the bearer-surface provisioning probe must have run at least one attempt"
+    );
+    for (status, body) in responses {
+        assert!(
+            !status.is_success(),
+            "a provisioning address returned a SUCCESS ({status}) — provisioning must \
+             NOT be reachable on the bearer surface (api≠mint); body={body:?}"
+        );
+        assert_eq!(
+            *status,
+            StatusCode::NOT_FOUND,
+            "every plausible provisioning address must be refused with the SHIPPED \
+             non-enumerable 404 (the route is absent, not auth-gated); got {status}, body={body:?}"
+        );
+    }
 }

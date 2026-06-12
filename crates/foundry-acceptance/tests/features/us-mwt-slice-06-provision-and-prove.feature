@@ -235,7 +235,7 @@ Feature: An instance super-admin provisions a new isolated workspace from the op
   #    machine token — even a workspace-1-bound one — cannot reach a provisioning
   #    path on /api/v1; provisioning is off the bearer surface entirely.
   # ----------------------------------------------------------------------------
-  @pending @us-mwt07 @error @verify-path-unchanged
+  @us-mwt07 @error @verify-path-unchanged
   Scenario: Provisioning is unreachable from the bearer API surface
     Given a machine token is bound to "Acme"
     When a caller uses it to attempt workspace provisioning over /api/v1
