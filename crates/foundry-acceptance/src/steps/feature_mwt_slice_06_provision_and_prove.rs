@@ -33,7 +33,7 @@ use crate::world::FoundryWorld;
 use assert_cmd::Command as AssertCommand;
 use cucumber::{given, then, when};
 use secrecy::SecretString;
-use sqlx::PgPool;
+use sqlx::{PgPool, Row};
 
 /// Resolve (or spawn) the slice-06 in-process harness. Its migrated schema is
 /// the one the provisioning CLI subprocess targets via DATABASE_URL; reusing it
@@ -359,6 +359,188 @@ async fn first_admin_acts_on(world: &mut FoundryWorld, admin_email: String, ws_n
         resolved.1, ws_name,
         "resolved workspace name must be {ws_name:?}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 2 — provisioning a new workspace leaves existing ones untouched
+//              (NFR-MWT-REL-01 / D4 untouched-A proof)
+// ---------------------------------------------------------------------------
+
+/// Every tenant-scoped table that carries a `workspace_id`. The snapshot keys
+/// on `(table, existing-workspace-id)` so the proof is row-for-row over ONLY
+/// the pre-existing tenant's rows — provisioning a new workspace must not touch
+/// any of them.
+const EXISTING_TENANT_TABLES: &[&str] = &[
+    "workspaces",
+    "workspace_memberships",
+    "teams",
+    "projects",
+    "issues",
+    "invites",
+];
+
+/// Snapshot every row belonging to the EXISTING workspace as an ordered list of
+/// whole-row JSON strings, keyed by table name. `to_jsonb(t.*)` renders the
+/// entire row deterministically; ordering by the row text makes the comparison
+/// insertion-order independent. The `workspaces` table keys on `id`; every other
+/// tenant table keys on `workspace_id`. Users are scoped via their membership in
+/// the existing workspace (a `users` row has no `workspace_id`).
+async fn snapshot_existing_tenant(
+    pool: &PgPool,
+    existing_workspace_id: uuid::Uuid,
+) -> std::collections::HashMap<String, Vec<String>> {
+    let mut out = std::collections::HashMap::new();
+    for table in EXISTING_TENANT_TABLES {
+        let id_column = if *table == "workspaces" {
+            "id"
+        } else {
+            "workspace_id"
+        };
+        let sql = format!(
+            "SELECT to_jsonb(t.*)::text AS row_json FROM {table} t \
+             WHERE t.{id_column} = $1 ORDER BY row_json"
+        );
+        let rows = sqlx::query(&sql)
+            .bind(existing_workspace_id)
+            .fetch_all(pool)
+            .await
+            .unwrap_or_else(|e| panic!("snapshot existing {table}: {e}"));
+        let row_jsons = rows
+            .into_iter()
+            .map(|r| r.get::<String, _>("row_json"))
+            .collect();
+        out.insert((*table).to_string(), row_jsons);
+    }
+    // The existing workspace's member users (scoped via membership), keyed under
+    // a synthetic "users" slot — a users row carries no workspace_id, so we
+    // resolve them through workspace_memberships.
+    let sql = "SELECT to_jsonb(u.*)::text AS row_json \
+               FROM users u \
+               JOIN workspace_memberships m ON m.user_id = u.id \
+               WHERE m.workspace_id = $1 ORDER BY row_json";
+    let rows = sqlx::query(sql)
+        .bind(existing_workspace_id)
+        .fetch_all(pool)
+        .await
+        .expect("snapshot existing users");
+    out.insert(
+        "users".to_string(),
+        rows.into_iter()
+            .map(|r| r.get::<String, _>("row_json"))
+            .collect(),
+    );
+    // team_memberships carries no workspace_id — it is scoped through its team's
+    // workspace. Snapshot the rows whose team belongs to the existing workspace.
+    let sql = "SELECT to_jsonb(tm.*)::text AS row_json \
+               FROM team_memberships tm \
+               JOIN teams t ON t.id = tm.team_id \
+               WHERE t.workspace_id = $1 ORDER BY row_json";
+    let rows = sqlx::query(sql)
+        .bind(existing_workspace_id)
+        .fetch_all(pool)
+        .await
+        .expect("snapshot existing team_memberships");
+    out.insert(
+        "team_memberships".to_string(),
+        rows.into_iter()
+            .map(|r| r.get::<String, _>("row_json"))
+            .collect(),
+    );
+    out
+}
+
+/// Record a row-level before-snapshot of the existing workspace ("Acme") and all
+/// its data + members. The After step compares the same workspace's rows after
+/// provisioning to prove they are unchanged row-for-row (NFR-MWT-REL-01).
+#[given(regex = r#"^a recorded snapshot of "([^"]+)" and its data and members$"#)]
+async fn recorded_snapshot_of_existing(world: &mut FoundryWorld, ws_name: String) {
+    let existing_id = *world
+        .mwt6_workspace_ids
+        .get(&ws_name)
+        .unwrap_or_else(|| panic!("existing workspace {ws_name:?} must be seeded first"));
+    let pool = harness_pool(world);
+    world.mwt6_existing_snapshot = snapshot_existing_tenant(&pool, existing_id).await;
+}
+
+/// AC 1/2/4: the existing workspace and all its data + members are unchanged
+/// row-for-row after provisioning a NEW workspace — the after-snapshot equals
+/// the before-snapshot exactly (no row written, updated, or deleted in any
+/// pre-existing tenant). Proven against the real database, not by inspecting
+/// internal call paths.
+#[then(regex = r#"^"([^"]+)" and all its data and members are unchanged$"#)]
+async fn existing_workspace_unchanged(world: &mut FoundryWorld, ws_name: String) {
+    assert_eq!(
+        world.mwt6_cli_exit,
+        Some(0),
+        "provision-workspace must exit 0 before proving non-interference; stdout={:?}",
+        world.mwt6_cli_stdout
+    );
+    let existing_id = *world
+        .mwt6_workspace_ids
+        .get(&ws_name)
+        .unwrap_or_else(|| panic!("existing workspace {ws_name:?} id must be known"));
+    let pool = harness_pool(world);
+    let after = snapshot_existing_tenant(&pool, existing_id).await;
+    let before = &world.mwt6_existing_snapshot;
+    assert!(
+        !before.is_empty(),
+        "a before-snapshot of {ws_name:?} must have been recorded"
+    );
+    for (table, before_rows) in before {
+        let after_rows = after
+            .get(table)
+            .unwrap_or_else(|| panic!("after-snapshot missing table {table:?}"));
+        assert_eq!(
+            after_rows, before_rows,
+            "provisioning a new workspace must leave {ws_name:?}'s {table} rows \
+             unchanged row-for-row (before={before_rows:?}, after={after_rows:?})"
+        );
+    }
+}
+
+/// AC 3: the newly-provisioned workspace's identity is distinct from every
+/// pre-existing workspace, and it starts empty + isolated — no foreign tenant's
+/// rows leaked into it. AC 4's no-cross-write is the inverse, proven by the
+/// unchanged-existing step above.
+#[then(regex = r#"^"([^"]+)" starts empty and isolated$"#)]
+async fn new_workspace_starts_empty_isolated(world: &mut FoundryWorld, ws_name: String) {
+    let pool = harness_pool(world);
+    let (new_id, name): (uuid::Uuid, String) =
+        sqlx::query_as("SELECT id, name FROM workspaces WHERE name = $1")
+            .bind(&ws_name)
+            .fetch_one(&pool)
+            .await
+            .unwrap_or_else(|e| panic!("provisioned workspace {ws_name:?} must exist: {e}"));
+    assert_eq!(name, ws_name);
+    world.mwt6_provisioned_workspace_id = Some(new_id);
+    world.mwt6_workspace_ids.insert(ws_name.clone(), new_id);
+
+    // Distinct identity: the new workspace id is not any pre-existing one.
+    let existing_ids: Vec<uuid::Uuid> = world
+        .mwt6_workspace_ids
+        .iter()
+        .filter(|(n, _)| n.as_str() != ws_name)
+        .map(|(_, id)| *id)
+        .collect();
+    assert!(
+        !existing_ids.contains(&new_id),
+        "the provisioned workspace id {new_id} must be distinct from every existing one"
+    );
+
+    // Empty + isolated: the new workspace owns no issues, teams, or projects —
+    // no foreign tenant's rows leaked in.
+    for table in ["issues", "teams", "projects"] {
+        let sql = format!("SELECT count(*) FROM {table} WHERE workspace_id = $1");
+        let count: i64 = sqlx::query_scalar(&sql)
+            .bind(new_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap_or_else(|e| panic!("count new-workspace {table}: {e}"));
+        assert_eq!(
+            count, 0,
+            "the freshly-provisioned workspace must start with no {table} (isolation)"
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------

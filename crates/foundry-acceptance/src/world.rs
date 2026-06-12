@@ -751,6 +751,11 @@ pub struct FoundryWorld {
     /// Workspace count snapshot before an unauthorized provisioning attempt, so
     /// the refusal can prove no new workspace was created (fail-closed gate).
     pub mwt6_workspaces_before_attempt: Option<i64>,
+    /// Row-level before-snapshot of the EXISTING workspace's tenant data, keyed
+    /// by `(table, workspace_id)`. Recorded before provisioning a new workspace
+    /// so the after-snapshot can prove every pre-existing tenant's rows are
+    /// unchanged row-for-row (NFR-MWT-REL-01). See step 03-02.
+    pub mwt6_existing_snapshot: HashMap<String, Vec<String>>,
 }
 
 impl FoundryWorld {

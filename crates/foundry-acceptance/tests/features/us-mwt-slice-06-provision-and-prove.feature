@@ -142,7 +142,7 @@ Feature: An instance super-admin provisions a new isolated workspace from the op
   #    Snapshot Acme before, provision Globex, assert Acme is byte-for-byte
   #    unchanged and Globex starts empty.
   # ----------------------------------------------------------------------------
-  @pending @us-mwt07
+  @us-mwt07
   Scenario: Provisioning a new workspace leaves existing workspaces untouched
     Given a recorded snapshot of "Acme" and its data and members
     When the super-admin provisions workspace "Globex" with first admin "priya@globex.com"
