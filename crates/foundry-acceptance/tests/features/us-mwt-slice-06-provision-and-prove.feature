@@ -196,7 +196,7 @@ Feature: An instance super-admin provisions a new isolated workspace from the op
   #    provision an EXISTING name and a NEVER-existed name is refused identically
   #    — the refusal carries no oracle for whether the target already exists.
   # ----------------------------------------------------------------------------
-  @pending @us-mwt07 @error
+  @us-mwt07 @error
   Scenario: An unauthorized provisioning attempt does not reveal whether the target exists
     Given "marco@acme.com" is a regular member and not a super-admin
     When "marco@acme.com" attempts to provision a workspace named like an existing one

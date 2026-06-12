@@ -1367,3 +1367,190 @@ async fn nothing_reveals_provisioned_issue(world: &mut FoundryWorld, ws_name: St
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// Scenario 6 — an unauthorized provisioning attempt does not reveal whether the
+//              target exists (non-enumerable authz, NFR-MWT-SEC-02 applied to
+//              provisioning).
+//
+// Green-by-inheritance from the exit-4 fail-closed path: the SHIPPED service
+// `provision_workspace` checks `is_instance_admin(acting_user_id)` and returns
+// `ServiceError::Forbidden` BEFORE any workspace-name lookup (services/lib.rs);
+// the CLI maps `Forbidden` → exit 4 with a FIXED stderr message
+// (`admin_cli.rs:525`), regardless of the target name. So a non-super-admin
+// attempting an EXISTING name ("Acme", seeded in the Background) and a
+// NEVER-existed name are refused with the SAME exit code AND the SAME output —
+// the refusal is observationally independent of target existence.
+//
+// Falsifiability (demonstrated at RED, then restored): make the gate look up the
+// workspace FIRST and diverge on existence — e.g. return exit 4 only when the
+// name does not exist, or echo the name into the refusal — and the two attempts
+// DIFFER → this scenario reds. The shipped gate denies before any lookup, so it
+// greens.
+// ---------------------------------------------------------------------------
+
+/// Drive the REAL operator-CLI `provision-workspace` subprocess as a
+/// non-super-admin and capture the FULL observable refusal surface
+/// (exit code + stdout + stderr) — the refusal message goes to stderr, so the
+/// non-enumerability comparison must include it. Acts as the member captured in
+/// the World (`--as <member>`), exactly as the shipped CLI is invoked.
+async fn run_provision_cli_capture_all(
+    world: &mut FoundryWorld,
+    ws_name: &str,
+    admin_email: &str,
+) -> (i32, String, String) {
+    ensure_harness(world).await;
+    let base = ensure_postgres().await;
+    let schema = world
+        .mwt6_harness
+        .as_ref()
+        .expect("mwt6 harness")
+        .schema
+        .clone();
+    let database_url = format!("{base}?options=-csearch_path%3D{schema}");
+    let acting = world
+        .mwt6_superadmin_email
+        .clone()
+        .expect("acting user recorded in the World");
+    let session_secret = "test-only-secret-must-be-at-least-32-bytes-long-please-yes".to_string();
+
+    let name = ws_name.to_string();
+    let email = admin_email.to_string();
+    let output = tokio::task::spawn_blocking(move || {
+        AssertCommand::cargo_bin("foundry")
+            .expect("cargo-bin foundry")
+            .env("DATABASE_URL", database_url)
+            .env("SESSION_SECRET", session_secret)
+            .env("FOUNDRY_PUBLIC_URL", "http://localhost")
+            .args(["doctor", "provision-workspace"])
+            .args(["--name", &name])
+            .args(["--admin-email", &email])
+            .args(["--as", &acting])
+            .output()
+            .expect("invoke foundry doctor provision-workspace")
+    })
+    .await
+    .expect("join blocking cli");
+
+    let exit = output.status.code().unwrap_or(-1);
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    (exit, stdout, stderr)
+}
+
+/// `When "<member>" attempts to provision a workspace named like an existing one`
+/// — the non-super-admin attempts to provision under the EXISTING workspace's
+/// name ("Acme", seeded in the Background). Captures the full refusal surface.
+#[when(regex = r#"^"([^"]+)" attempts to provision a workspace named like an existing one$"#)]
+async fn member_attempts_provision_existing_name(world: &mut FoundryWorld, member: String) {
+    // The Background seeds the existing workspace "Acme"; reuse its name as the
+    // target so the gate would have an EXISTING workspace to find IF it looked.
+    let existing_name = world
+        .mwt6_workspace_ids
+        .keys()
+        .find(|n| n.as_str() == "Acme")
+        .cloned()
+        .unwrap_or_else(|| "Acme".to_string());
+    world.mwt6_superadmin_email = Some(member);
+    let refusal = run_provision_cli_capture_all(world, &existing_name, "intruder@acme.com").await;
+    world.mwt6_authz_refusal_existing = Some(refusal);
+}
+
+/// `And "<member>" attempts to provision a workspace named like one that never
+/// existed` — the comparator: the SAME non-super-admin attempts a name that
+/// matches no workspace. Captures the full refusal surface for the identity
+/// comparison.
+#[when(
+    regex = r#"^"([^"]+)" attempts to provision a workspace named like one that never existed$"#
+)]
+async fn member_attempts_provision_never_existed_name(world: &mut FoundryWorld, member: String) {
+    world.mwt6_superadmin_email = Some(member);
+    let refusal =
+        run_provision_cli_capture_all(world, "NeverExistedWorkspace", "intruder@nowhere.test")
+            .await;
+    world.mwt6_authz_refusal_never_existed = Some(refusal);
+}
+
+/// `Then the two attempts are refused identically as not authorized` — both
+/// attempts exit with the structured not-authorized code (4) AND produce
+/// byte-identical output (stdout + stderr). A differing exit code or message
+/// would be an existence oracle. The shipped gate denies before any workspace
+/// lookup, so the refusal is independent of whether the target exists.
+#[then(regex = r#"^the two attempts are refused identically as not authorized$"#)]
+async fn two_attempts_refused_identically_not_authorized(world: &mut FoundryWorld) {
+    let (existing_exit, existing_stdout, existing_stderr) = world
+        .mwt6_authz_refusal_existing
+        .clone()
+        .expect("the existing-name unauthorized attempt was captured");
+    let (never_exit, never_stdout, never_stderr) = world
+        .mwt6_authz_refusal_never_existed
+        .clone()
+        .expect("the never-existed-name unauthorized attempt was captured");
+
+    assert_eq!(
+        existing_exit, 4,
+        "an unauthorized attempt against an EXISTING name must be refused with the \
+         structured not-authorized exit code (4); stdout={existing_stdout:?} \
+         stderr={existing_stderr:?}"
+    );
+    assert_eq!(
+        never_exit, 4,
+        "an unauthorized attempt against a NEVER-existed name must be refused with the \
+         structured not-authorized exit code (4); stdout={never_stdout:?} \
+         stderr={never_stderr:?}"
+    );
+    assert_eq!(
+        existing_exit, never_exit,
+        "both unauthorized attempts must share the SAME exit code (a differing code \
+         would be an existence oracle)"
+    );
+    assert_eq!(
+        existing_stdout, never_stdout,
+        "both unauthorized attempts must produce identical stdout (any difference \
+         would reveal whether the target exists)"
+    );
+    assert_eq!(
+        existing_stderr, never_stderr,
+        "both unauthorized attempts must produce identical stderr (the refusal \
+         message must not echo the target name or otherwise diverge on existence)"
+    );
+}
+
+/// `And neither refusal reveals whether the target already exists` — neither
+/// refusal's output echoes the target name, and both are observationally
+/// indistinguishable. The authz gate denies BEFORE any workspace lookup, so the
+/// refusal carries no information about target state.
+#[then(regex = r#"^neither refusal reveals whether the target already exists$"#)]
+async fn neither_refusal_reveals_existence(world: &mut FoundryWorld) {
+    let (_existing_exit, existing_stdout, existing_stderr) = world
+        .mwt6_authz_refusal_existing
+        .clone()
+        .expect("the existing-name unauthorized attempt was captured");
+    let (_never_exit, never_stdout, never_stderr) = world
+        .mwt6_authz_refusal_never_existed
+        .clone()
+        .expect("the never-existed-name unauthorized attempt was captured");
+
+    // The existing target name must not be echoed into either refusal — an
+    // echoed name would let the caller distinguish the two attempts and so leak
+    // whether the target exists.
+    for (channel, text) in [
+        ("existing.stdout", existing_stdout.as_str()),
+        ("existing.stderr", existing_stderr.as_str()),
+        ("never.stdout", never_stdout.as_str()),
+        ("never.stderr", never_stderr.as_str()),
+    ] {
+        assert!(
+            !text.contains("Acme") && !text.contains("NeverExistedWorkspace"),
+            "the refusal on {channel} echoed the target name (existence oracle): {text:?}"
+        );
+    }
+    // And the two refusals are observationally identical — the strongest
+    // statement of non-enumerability: nothing in the output distinguishes the
+    // existing-target attempt from the never-existed one.
+    assert_eq!(
+        (existing_stdout.as_str(), existing_stderr.as_str()),
+        (never_stdout.as_str(), never_stderr.as_str()),
+        "the two refusals must be observationally indistinguishable"
+    );
+}

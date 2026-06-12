@@ -778,6 +778,16 @@ pub struct FoundryWorld {
     /// (status, body) of the SECOND request — the existing member's reach for an
     /// issue that never existed (step 03-04). Must equal `mwt6_first_refusal`.
     pub mwt6_second_refusal: Option<(StatusCode, String)>,
+    /// (exit code, stdout, stderr) of the FIRST unauthorized provisioning attempt
+    /// against a name matching an EXISTING workspace (step 03-05 non-enumerable
+    /// authz leg). The authz gate denies BEFORE any workspace lookup, so this must
+    /// be byte-identical to the never-existed attempt below — the refusal carries
+    /// no oracle for whether the target already exists.
+    pub mwt6_authz_refusal_existing: Option<(i32, String, String)>,
+    /// (exit code, stdout, stderr) of the SECOND unauthorized provisioning attempt
+    /// against a name that NEVER existed (step 03-05). Must equal
+    /// `mwt6_authz_refusal_existing` exactly (same exit code + same output).
+    pub mwt6_authz_refusal_never_existed: Option<(i32, String, String)>,
 }
 
 impl FoundryWorld {
