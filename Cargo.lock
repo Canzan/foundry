@@ -1203,6 +1203,7 @@ dependencies = [
  "lettre",
  "metrics",
  "metrics-exporter-prometheus",
+ "proptest",
  "rand 0.8.6",
  "secrecy",
  "serde",

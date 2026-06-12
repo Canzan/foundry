@@ -91,6 +91,11 @@ tokio-stream = { version = "0.1", features = ["sync"] }
 # is the documented cargo idiom for "feature needed only in tests".
 foundry-app = { path = ".", features = ["test-support"] }
 foundry-realtime = { path = "../foundry-realtime" }
+# Property-based testing for the rate-bucket eviction invariants (step 05-01,
+# ADR-005). proptest 1 is ALREADY in the workspace lockfile (foundry-auth
+# dev-dep) — this adds NO new crate to Cargo.lock, only activates the existing
+# version for foundry-app's own tests.
+proptest = "1"
 
 # Slice 6 (ADR-010 / NFR-PERF-05) — middleware overhead microbench.
 # `harness = false` because the bench is hand-rolled (no criterion

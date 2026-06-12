@@ -27,24 +27,28 @@
 //! drives rides adapter-local (it leaves the cross-adapter `ServiceError`
 //! contract unchanged).
 //!
-//! ## Accepted residual — unbounded bucket map (no eviction policy)
+//! ## Bucket-map eviction (residual F2 CLOSED — ADR-005, multi-workspace)
 //!
-//! The per-principal `buckets` `HashMap` (keyed by bound `user_id`) has **no
-//! eviction / TTL / LRU policy**: an entry is created on a principal's first
-//! revoke and lives for the process lifetime. This is an **ACCEPTED RESIDUAL**
-//! under the current **single-workspace model** (`uniq_one_workspace`,
-//! `0001_init.sql`): the key population is bounded by the count of authenticated
-//! workspace admins able to mint a management bearer — O(dozens), not
-//! attacker-controlled — so the map cannot grow without bound from untrusted
-//! input, and a bucket entry is ~40 bytes. The map is therefore not a memory-
-//! exhaustion vector in this deployment shape.
+//! The per-principal `buckets` `HashMap` (keyed by bound `user_id`) is bounded by
+//! a two-tier eviction policy applied opportunistically on each `consume`, keyed
+//! off the SAME shipped clock seam (zero new crate, std `HashMap::retain`):
 //!
-//! **Tracked mitigation** (if/when multi-workspace lands and the keyspace becomes
-//! larger / less trusted): add an idle-eviction or LRU policy — evict a bucket
-//! whose `last_refill` is older than some idle window (a bucket idle longer than
-//! `C / R` seconds has fully refilled to `C` and is indistinguishable from a
-//! fresh one, so eviction is behaviour-preserving). Until then the unbounded map
-//! is the deliberate, reviewed trade-off.
+//!   - **PRIMARY — idle eviction (behaviour-preserving).** A bucket idle longer
+//!     than the window `W = ceil(C / R)` seconds has fully refilled to `C` and is
+//!     indistinguishable from a fresh one, so dropping it and re-creating it at
+//!     full `C` on return yields the IDENTICAL state — eviction cannot change any
+//!     decision. Under multi-workspace this bounds the map by ACTIVE principals.
+//!   - **SECONDARY — LRU size cap `N`.** In the pathological "many distinct
+//!     principals all active within `W`" case the idle sweep cannot fire, so a
+//!     hard cap `N` ([`DEFAULT_REVOKE_BUCKET_MAX_PRINCIPALS`]) evicts the
+//!     least-recently-used buckets down to `N`. Evicting a still-active bucket
+//!     only RELAXES its throttle (it resets to full `C` on return) — a bounded,
+//!     one-directional trade-off (never an over-throttle of a legitimate
+//!     principal), accepted and documented per ADR-005.
+//!
+//! Pre-multi-workspace this was an accepted residual (keyspace bounded by the
+//! O(dozens) admins of a single workspace); with multi-workspace shipped the
+//! principal population grows with tenants, so the map is now explicitly bounded.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -59,6 +63,15 @@ pub const DEFAULT_REVOKE_BUCKET_CAPACITY: u32 = 20;
 
 /// Refill rate `R` in tokens per second. DESIGN-tunable.
 pub const DEFAULT_REVOKE_BUCKET_REFILL_PER_SEC: f64 = 1.0;
+
+/// Hard ceiling `N` on the number of live per-principal buckets (ADR-005
+/// secondary policy). Bounds the map even in the pathological "many distinct
+/// principals all active within the idle window `W`" case where idle eviction
+/// cannot fire. When the map exceeds `N` after the idle sweep, the
+/// least-recently-used buckets are evicted down to `N`. Evicting a still-active
+/// bucket only ever RELAXES that principal's throttle (it resets to full `C` on
+/// return) — one-directional, never an over-throttle. DESIGN-tunable.
+pub const DEFAULT_REVOKE_BUCKET_MAX_PRINCIPALS: usize = 10_000;
 
 /// The metric name for the per-principal management-mutation counter
 /// (rate-guardrail.md §Metric). `principal` + `outcome` (`ok`|`throttled`)
@@ -103,6 +116,7 @@ struct BucketState {
 pub struct RevokeRateLimiter {
     capacity: u32,
     refill_per_sec: f64,
+    max_principals: usize,
     buckets: Mutex<HashMap<Uuid, BucketState>>,
 }
 
@@ -116,13 +130,43 @@ impl Default for RevokeRateLimiter {
 }
 
 impl RevokeRateLimiter {
-    /// Build a limiter with an explicit capacity `C` and refill rate `R`.
+    /// Build a limiter with an explicit capacity `C` and refill rate `R`, using
+    /// the default LRU size cap `N` ([`DEFAULT_REVOKE_BUCKET_MAX_PRINCIPALS`]).
     pub fn new(capacity: u32, refill_per_sec: f64) -> Self {
+        Self::with_max_principals(
+            capacity,
+            refill_per_sec,
+            DEFAULT_REVOKE_BUCKET_MAX_PRINCIPALS,
+        )
+    }
+
+    /// Build a limiter with an explicit capacity `C`, refill rate `R`, and LRU
+    /// size cap `N` (the hard bound on live buckets — ADR-005 secondary policy).
+    pub fn with_max_principals(capacity: u32, refill_per_sec: f64, max_principals: usize) -> Self {
         Self {
             capacity,
             refill_per_sec,
+            max_principals,
             buckets: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// The behaviour-preserving idle window `W = ceil(C / R)` seconds — the
+    /// refill-to-full horizon. A bucket idle longer than `W` has refilled to the
+    /// `C` clamp and is indistinguishable from a fresh one, so evicting it (and
+    /// re-creating it at full `C` on return) is behaviour-preserving (ADR-005).
+    pub fn idle_window_secs(&self) -> u64 {
+        // ceil(C / R) over f64, guarding R <= 0 (treat as "never idle-evict").
+        if self.refill_per_sec <= 0.0 {
+            return u64::MAX;
+        }
+        (self.capacity as f64 / self.refill_per_sec).ceil() as u64
+    }
+
+    /// The current number of live per-principal buckets — the port-exposed
+    /// observable of the eviction policy (used to assert the map stays bounded).
+    pub fn bucket_count(&self) -> usize {
+        self.buckets.lock().expect("revoke bucket mutex").len()
     }
 
     /// Charge one revoke against `principal_user_id`'s bucket as of `now`,
@@ -148,6 +192,34 @@ impl RevokeRateLimiter {
         let now_nanos = now.unix_timestamp_nanos();
         let capacity = self.capacity as f64;
         let mut buckets = self.buckets.lock().expect("revoke bucket mutex");
+
+        // ADR-005 PRIMARY policy — idle eviction (behaviour-preserving): drop any
+        // bucket idle longer than W = ceil(C/R) seconds. Such a bucket has
+        // refilled to the full C clamp, so re-creating it at full C on return
+        // yields the identical state — eviction cannot change any decision.
+        let window_nanos = (self.idle_window_secs() as i128).saturating_mul(1_000_000_000);
+        buckets.retain(|key, b| {
+            key == &principal_user_id || (now_nanos - b.last_refill_unix_nanos) <= window_nanos
+        });
+
+        // ADR-005 SECONDARY policy — LRU size cap: if the map still exceeds N
+        // after the idle sweep (many distinct principals all active within W),
+        // evict the least-recently-used (oldest last_refill) down to N. Never
+        // evict the principal being charged now. Evicting an active bucket only
+        // RELAXES (resets to full C on return) — one-directional, never an
+        // over-throttle.
+        if buckets.len() >= self.max_principals && !buckets.contains_key(&principal_user_id) {
+            let overflow = buckets.len() + 1 - self.max_principals;
+            let mut by_recency: Vec<(Uuid, i128)> = buckets
+                .iter()
+                .map(|(key, b)| (*key, b.last_refill_unix_nanos))
+                .collect();
+            by_recency.sort_by_key(|(_, last_refill)| *last_refill);
+            for (victim, _) in by_recency.into_iter().take(overflow) {
+                buckets.remove(&victim);
+            }
+        }
+
         let bucket = buckets.entry(principal_user_id).or_insert(BucketState {
             tokens: capacity,
             last_refill_unix_nanos: now_nanos,
@@ -211,6 +283,7 @@ mod tests {
     use super::*;
     use crate::clock::MockClock;
     use foundry_api::RevokeRateGuard;
+    use proptest::prelude::*;
 
     fn t0() -> time::OffsetDateTime {
         time::OffsetDateTime::from_unix_timestamp(1_700_000_000).expect("anchor time")
@@ -337,6 +410,133 @@ mod tests {
             "throttled",
             "Throttled outcome label must be the metric value \"throttled\""
         );
+    }
+
+    /// ADR-005 idle eviction (AC1): after advancing the clock past the idle
+    /// window `W = ceil(C/R)` seconds, buckets idle beyond `W` are dropped on the
+    /// next `consume`, bounding the map under many one-shot idle principals.
+    ///
+    /// Drive `K` distinct principals once each at `t0` (the map grows to `K`),
+    /// then a single distinct "sweeper" principal at `t0 + W + 1s`. The idle `K`
+    /// must be evicted, leaving only the active sweeper — observable via the
+    /// port-exposed `bucket_count()`. Kills any mutant that skips the sweep.
+    #[test]
+    fn idle_eviction_bounds_the_map_after_the_idle_window() {
+        let capacity: u32 = 5;
+        let refill_per_sec: f64 = 1.0;
+        let limiter = RevokeRateLimiter::new(capacity, refill_per_sec);
+        let now = t0();
+
+        // W = ceil(C/R) = ceil(5/1) = 5s.
+        let window = limiter.idle_window_secs();
+        assert_eq!(window, 5, "W must be ceil(C/R) = ceil(5/1) = 5s");
+
+        // K idle one-shot principals at t0 → map grows to K.
+        let idle_principals: Vec<Uuid> = (0..40).map(|_| Uuid::now_v7()).collect();
+        for p in &idle_principals {
+            limiter.consume(*p, now);
+        }
+        assert_eq!(
+            limiter.bucket_count(),
+            idle_principals.len(),
+            "before any sweep the map holds one bucket per distinct principal"
+        );
+
+        // A single active sweeper just past the window: idle K are evicted.
+        let sweeper = Uuid::now_v7();
+        let past_window = now + time::Duration::seconds(window as i64 + 1);
+        limiter.consume(sweeper, past_window);
+
+        assert_eq!(
+            limiter.bucket_count(),
+            1,
+            "all K principals idle beyond W must be evicted, leaving only the active sweeper"
+        );
+    }
+
+    // ADR-005 behaviour-preservation (AC2): an ACTIVE principal's throttle
+    // decisions are byte-identical with eviction enabled and disabled. Property:
+    // for an arbitrary interleaving of (other-principal traffic, time advances),
+    // the active principal's decision sequence is identical to a reference
+    // limiter that the noise/time never perturbs in a decision-relevant way.
+    //
+    // We compare against a model: the active principal's own bucket math depends
+    // ONLY on its own last access + elapsed time, never on other principals or on
+    // eviction (idle eviction only drops buckets that have refilled to full C, so
+    // re-creation is identical). The model replays the active principal alone.
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(200))]
+        #[test]
+        fn idle_eviction_is_behaviour_preserving_for_an_active_principal(
+            // Each step: (advance_secs in 0..=3, n_noise_principals in 0..=8).
+            steps in prop::collection::vec((0u64..=3, 0usize..=8), 1..40),
+        ) {
+            let capacity: u32 = 4;
+            let refill_per_sec: f64 = 1.0;
+            let with_eviction = RevokeRateLimiter::new(capacity, refill_per_sec);
+            let model = RevokeRateLimiter::new(capacity, refill_per_sec);
+            let active = Uuid::now_v7();
+            let mut now = t0();
+
+            for (advance, n_noise) in steps {
+                now += time::Duration::seconds(advance as i64);
+                // Noise: distinct one-shot principals hit the real limiter only.
+                for _ in 0..n_noise {
+                    with_eviction.consume(Uuid::now_v7(), now);
+                }
+                // The active principal's decision must match the model that has
+                // ONLY ever seen the active principal (no noise, no eviction).
+                let real = with_eviction.consume(active, now);
+                let reference = model.consume(active, now);
+                prop_assert_eq!(
+                    real, reference,
+                    "active principal decision must be byte-identical with vs without eviction/noise"
+                );
+            }
+        }
+    }
+
+    // ADR-005 LRU size-cap fallback (AC3): under pathological load (many active
+    // principals within W so idle eviction cannot fire), the hard size cap `N`
+    // bounds the map by size, AND eviction is one-directional — it may only ever
+    // under-throttle (a returning principal resets to full C), never over-throttle
+    // an active principal.
+    //
+    // Property: drive >> N distinct principals all within the window (no idle
+    // sweep possible); the map never exceeds N, and a principal that survived
+    // (or returns) is NEVER throttled below what the bucket math alone allows —
+    // i.e. the cap can only relax, so the FIRST consume of any principal (fresh
+    // or cap-reset) is always Allowed (full C >= 1).
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(100))]
+        #[test]
+        fn lru_size_cap_bounds_the_map_and_only_relaxes(
+            n_principals in 1usize..2_000,
+        ) {
+            let capacity: u32 = 3;
+            let refill_per_sec: f64 = 1.0;
+            let cap: usize = 256;
+            let limiter = RevokeRateLimiter::with_max_principals(capacity, refill_per_sec, cap);
+            let now = t0(); // all within W → idle sweep never fires
+
+            for _ in 0..n_principals {
+                let p = Uuid::now_v7();
+                // First touch of a fresh (or previously-evicted) principal: a full
+                // bucket → Allowed. The cap may evict an LRU victim, never throttle.
+                let decision = limiter.consume(p, now);
+                prop_assert_eq!(
+                    decision, RateDecision::Allowed,
+                    "a principal's first consume must be Allowed — the size cap only relaxes, never over-throttles"
+                );
+                // Hard bound: the map never exceeds the configured cap.
+                prop_assert!(
+                    limiter.bucket_count() <= cap,
+                    "map size {} must stay bounded by the LRU cap N={}",
+                    limiter.bucket_count(),
+                    cap
+                );
+            }
+        }
     }
 
     /// `ClockedRevokeGuard::check_revoke` is the foundry-api driven port the

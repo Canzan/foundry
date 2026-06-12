@@ -554,6 +554,34 @@
       "s": "EXECUTED",
       "d": "PASS",
       "t": "2026-06-12T12:27:14Z"
+    },
+    {
+      "sid": "05-01",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-12T12:29:58Z"
+    },
+    {
+      "sid": "05-01",
+      "p": "RED_ACCEPTANCE",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: unit/property-layer step at rate_limit.rs, no acceptance scenario (DISTILL layer placement)",
+      "t": "2026-06-12T12:29:59Z"
+    },
+    {
+      "sid": "05-01",
+      "p": "RED_UNIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-12T12:31:22Z"
+    },
+    {
+      "sid": "05-01",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-12T12:34:01Z"
     }
   ]
 }
