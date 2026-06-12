@@ -496,6 +496,98 @@ async fn granted_operator_can_provision(
 }
 
 // ---------------------------------------------------------------------------
+// Scenario 5 — a non-super-admin cannot provision (authz core, evil-user)
+// ---------------------------------------------------------------------------
+
+/// Confirm the named member is a REGULAR workspace member and NOT a super-admin:
+/// the SHIPPED `is_instance_admin` authz over the rows the real bootstrap claim +
+/// Background seeded returns false for them. They are a `workspace_memberships`
+/// member of "Acme" (seeded in the Background) with no `instance_admins` row — the
+/// fail-closed starting state the provisioning gate must refuse. We also record
+/// the workspace count so the refusal can prove no new workspace was created.
+#[given(regex = r#"^"([^"]+)" is a regular member and not a super-admin$"#)]
+async fn member_is_not_super_admin(world: &mut FoundryWorld, member: String) {
+    let store = world
+        .mwt6_harness
+        .as_ref()
+        .expect("mwt6 harness")
+        .app
+        .state
+        .store
+        .clone();
+    let member_id = store
+        .user_id_by_email(&member.to_ascii_lowercase())
+        .await
+        .expect("query member")
+        .unwrap_or_else(|| panic!("member {member:?} must exist from the Background"));
+    assert!(
+        !store
+            .is_instance_admin(member_id)
+            .await
+            .expect("is_instance_admin"),
+        "a regular member {member:?} must NOT be an instance super-admin (fail-closed)"
+    );
+
+    let pool = harness_pool(world);
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM workspaces")
+        .fetch_one(&pool)
+        .await
+        .expect("count workspaces before the unauthorized attempt");
+    world.mwt6_workspaces_before_attempt = Some(count);
+    world.mwt6_superadmin_email = Some(member);
+}
+
+/// The non-super-admin attempts to provision through the REAL operator-CLI
+/// subprocess, acting as themselves (`--as <member>`). The gate must refuse
+/// fail-closed; we stash the exit code for the Then steps.
+#[when(
+    regex = r#"^"([^"]+)" attempts to provision workspace "([^"]+)" with first admin "([^"]+)"$"#
+)]
+async fn member_attempts_to_provision(
+    world: &mut FoundryWorld,
+    member: String,
+    ws_name: String,
+    admin_email: String,
+) {
+    world.mwt6_superadmin_email = Some(member);
+    run_provision_cli(world, &ws_name, &admin_email).await;
+}
+
+/// AC: the attempt is refused as NOT AUTHORIZED — the CLI exits with the
+/// structured "not authorized" exit code (4), the `ServiceError::Forbidden`
+/// fail-closed refusal from the `is_instance_admin` gate.
+#[then(regex = r#"^the attempt is refused as not authorized$"#)]
+async fn attempt_refused_not_authorized(world: &mut FoundryWorld) {
+    assert_eq!(
+        world.mwt6_cli_exit,
+        Some(4),
+        "a non-super-admin's provisioning attempt must be refused with the \
+         structured not-authorized exit code (4); stdout={:?}",
+        world.mwt6_cli_stdout
+    );
+}
+
+/// AC: the refused attempt created NO new workspace — the workspace count is
+/// unchanged from before the attempt (the fail-closed gate refuses BEFORE the
+/// provision transaction runs, so the evil user's `Sneaky` workspace never lands).
+#[then(regex = r#"^no new workspace was created$"#)]
+async fn no_new_workspace_created(world: &mut FoundryWorld) {
+    let before = world
+        .mwt6_workspaces_before_attempt
+        .expect("workspace count recorded before the attempt");
+    let pool = harness_pool(world);
+    let after: i64 = sqlx::query_scalar("SELECT count(*) FROM workspaces")
+        .fetch_one(&pool)
+        .await
+        .expect("count workspaces after the unauthorized attempt");
+    assert_eq!(
+        after, before,
+        "a refused provisioning attempt must create NO new workspace \
+         (count before={before}, after={after})"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Scenario 7 — the bootstrap-claiming operator is the first super-admin (D1)
 // ---------------------------------------------------------------------------
 

@@ -183,7 +183,7 @@ Feature: An instance super-admin provisions a new isolated workspace from the op
   #    NFR-MWT-SEC-04). A regular workspace member's provisioning attempt is
   #    refused fail-closed via the CLI exit-code contract.
   # ----------------------------------------------------------------------------
-  @pending @us-mwt07 @error
+  @us-mwt07 @error
   Scenario: A non-super-admin cannot provision a workspace
     Given "marco@acme.com" is a regular member and not a super-admin
     When "marco@acme.com" attempts to provision workspace "Sneaky" with first admin "mallory@sneaky.test"

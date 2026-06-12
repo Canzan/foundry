@@ -748,6 +748,9 @@ pub struct FoundryWorld {
     pub mwt6_provisioned_workspace_id: Option<uuid::Uuid>,
     /// Name → id of every workspace seeded/provisioned in the scenario.
     pub mwt6_workspace_ids: HashMap<String, uuid::Uuid>,
+    /// Workspace count snapshot before an unauthorized provisioning attempt, so
+    /// the refusal can prove no new workspace was created (fail-closed gate).
+    pub mwt6_workspaces_before_attempt: Option<i64>,
 }
 
 impl FoundryWorld {
