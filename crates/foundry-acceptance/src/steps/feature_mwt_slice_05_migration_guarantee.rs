@@ -262,6 +262,10 @@ async fn install_has_session_and_token(world: &mut FoundryWorld, _ws_name: Strin
     .execute(&pool)
     .await
     .expect("insert pre-feature machine token");
+
+    // Capture the carried credential's identity so the resolution proof (sc 3) can
+    // look up the SAME token + session after the upgrade — no re-issue, no re-binding.
+    world.mwt5_machine_token_jti = Some(jti);
 }
 
 // ---------------------------------------------------------------------------
@@ -601,5 +605,126 @@ async fn existing_workspace_identity_unchanged(world: &mut FoundryWorld) {
     assert_eq!(
         id, expected_id,
         "the existing workspace's identity must be unchanged across the upgrade"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 3: Existing sessions and machine tokens still resolve after the
+// upgrade (NFR-MWT-DATA-02, ADR-004 / D4).
+//
+// A session and a machine token that PREDATE the upgrade keep working and
+// resolve to workspace 1 — proving the NULL-active + sole-membership resolution
+// path holds across the forward-only upgrade with NO re-issue or re-binding.
+//
+// Both credentials were seeded in the Background BEFORE any upgrade:
+//   - the session leg is the admin user carried over (resolved via the SHIPPED
+//     `resolve_active_workspace`, the same seam a returning user's session hits);
+//   - the API leg is the machine token bound to (admin, workspace 1) via its
+//     `workspace_id` column (looked up via the SHIPPED `find_machine_token_by_jti`,
+//     the same seam the per-request verify path hits).
+//
+// Green-by-inheritance: the upgrade adds a nullable column + an empty table and
+// drops a guard — it neither rewrites the membership the session resolves through
+// nor re-keys the token's `workspace_id` binding. So the SHIPPED resolution seam,
+// unchanged, still maps both carried credentials to workspace 1.
+//
+// FALSIFIABILITY (demonstrated during RED, then restored): mutating the carried
+// token's `workspace_id` to a different workspace, or revoking it, or deleting the
+// admin's sole membership, reds the corresponding Then — proving the proof bites.
+// ---------------------------------------------------------------------------
+
+/// The carried credentials exist BEFORE the upgrade: the Background seeded a
+/// signed-in admin (the session leg) and a machine token bound to workspace 1 (the
+/// API leg). This step confirms the carried credential is present pre-upgrade — the
+/// precondition the post-upgrade resolution proof carries forward unchanged.
+#[given(regex = r#"^an active session and a valid machine token from before the upgrade$"#)]
+async fn active_session_and_valid_token(world: &mut FoundryWorld) {
+    let pool = world.mwt5_pool.clone().expect("pre-feature pool seeded");
+    let jti = world
+        .mwt5_machine_token_jti
+        .expect("the Background seeded a pre-upgrade machine token");
+    let store = Store::from_pool(pool.clone());
+
+    // The session leg: the carried admin must be a real signed-in user pre-upgrade.
+    let admin_email = world.mwt5_admin_email.clone().expect("admin email seeded");
+    store
+        .find_user_by_email(&admin_email.to_ascii_lowercase())
+        .await
+        .expect("look up the carried-over admin pre-upgrade")
+        .expect("the carried session's admin must exist before the upgrade");
+
+    // The API leg: the carried machine token must be present + active pre-upgrade.
+    let token = store
+        .find_machine_token_by_jti(jti)
+        .await
+        .expect("look up the carried machine token pre-upgrade")
+        .expect("the carried machine token must exist before the upgrade");
+    assert!(
+        token.revoked_at.is_none(),
+        "the carried machine token must be valid (not revoked) before the upgrade"
+    );
+}
+
+/// The carried session still resolves to workspace 1 after the upgrade: the SHIPPED
+/// `resolve_active_workspace` seam (the session leg) maps the carried admin — NULL
+/// active workspace + sole membership — to workspace 1, with no re-issue or
+/// re-binding. The membership the session resolves through survived the upgrade
+/// byte-for-byte, so resolution is unchanged.
+#[then(regex = r#"^the carried session still resolves to the first workspace$"#)]
+async fn carried_session_resolves_to_first(world: &mut FoundryWorld) {
+    let pool = world.mwt5_pool.clone().expect("pre-feature pool seeded");
+    let expected_id = world.mwt5_workspace_id.expect("workspace id captured");
+    let admin_email = world.mwt5_admin_email.clone().expect("admin email seeded");
+    let store = Store::from_pool(pool.clone());
+
+    let user = store
+        .find_user_by_email(&admin_email.to_ascii_lowercase())
+        .await
+        .expect("look up the carried-over admin after the upgrade")
+        .expect("the carried session's admin must still exist after the upgrade");
+
+    let resolved = store
+        .resolve_active_workspace(user.id)
+        .await
+        .expect("resolve the carried session's active workspace after the upgrade")
+        .expect("the carried session must still resolve to a workspace");
+    assert_eq!(
+        resolved.0, expected_id,
+        "the carried session must still resolve to workspace 1 after the upgrade \
+         (NULL-active + sole-membership, no re-binding)"
+    );
+}
+
+/// The carried machine token still acts on workspace 1 after the upgrade: the
+/// SHIPPED `find_machine_token_by_jti` verify-path seam (the API leg) returns the
+/// SAME `jti` seeded before the upgrade, still bound to workspace 1 via its
+/// `workspace_id` column, still valid (not revoked) — no re-issue or re-binding.
+/// The token row survived the forward-only upgrade byte-for-byte, so the credential
+/// the operator already holds keeps acting on the first workspace.
+#[then(regex = r#"^the carried machine token still acts on the first workspace$"#)]
+async fn carried_token_acts_on_first(world: &mut FoundryWorld) {
+    let pool = world.mwt5_pool.clone().expect("pre-feature pool seeded");
+    let expected_id = world.mwt5_workspace_id.expect("workspace id captured");
+    let jti = world
+        .mwt5_machine_token_jti
+        .expect("the Background seeded a pre-upgrade machine token");
+    let store = Store::from_pool(pool.clone());
+
+    let token = store
+        .find_machine_token_by_jti(jti)
+        .await
+        .expect("verify the carried machine token after the upgrade")
+        .expect("the carried machine token must still exist after the upgrade — no re-issue");
+    assert_eq!(
+        token.jti, jti,
+        "the carried machine token must be the SAME credential — not re-issued"
+    );
+    assert_eq!(
+        token.workspace_id, expected_id,
+        "the carried machine token must still act on workspace 1 — its binding is unchanged"
+    );
+    assert!(
+        token.revoked_at.is_none(),
+        "the upgrade must not revoke the carried machine token — it stays valid"
     );
 }

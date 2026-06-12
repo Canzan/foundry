@@ -449,6 +449,34 @@
       "s": "EXECUTED",
       "d": "PASS",
       "t": "2026-06-12T11:53:02Z"
+    },
+    {
+      "sid": "04-03",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-12T11:56:44Z"
+    },
+    {
+      "sid": "04-03",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-12T12:02:40Z"
+    },
+    {
+      "sid": "04-03",
+      "p": "RED_UNIT",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: AT covers the contract port-to-port via shipped resolve_active_workspace + find_machine_token_by_jti seams; green-by-inheritance, no new production code or domain decomposition to unit-test",
+      "t": "2026-06-12T12:02:40Z"
+    },
+    {
+      "sid": "04-03",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-12T12:04:38Z"
     }
   ]
 }

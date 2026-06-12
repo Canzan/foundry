@@ -129,7 +129,7 @@ Feature: An existing single-workspace install upgrades to workspace 1 with no da
   #    A session and a token that predate the upgrade keep working and resolve to
   #    workspace 1 — proving the NULL-active + sole-membership resolution path.
   # ----------------------------------------------------------------------------
-  @pending @us-mwt06
+  @us-mwt06
   Scenario: Existing sessions and machine tokens still resolve after the upgrade
     Given an active session and a valid machine token from before the upgrade
     When the install is upgraded to multi-workspace support

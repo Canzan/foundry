@@ -738,6 +738,11 @@ pub struct FoundryWorld {
     /// The admin email seeded for the pre-feature install, so the sign-in seam can
     /// resolve the carried-over user to workspace 1 after the upgrade.
     pub mwt5_admin_email: Option<String>,
+    /// The `jti` of the machine token seeded BEFORE the upgrade (bound to the admin
+    /// plus workspace 1), captured so the carried-credential resolution proof (sc 3)
+    /// can look the SAME token up after the upgrade and assert it still acts on
+    /// workspace 1 with no re-issue or re-binding.
+    pub mwt5_machine_token_jti: Option<uuid::Uuid>,
 
     // ---- Feature "multi-workspace-provisioning" — Slice 6 (provisioning) ----
     /// In-process harness whose migrated schema the provisioning CLI subprocess
