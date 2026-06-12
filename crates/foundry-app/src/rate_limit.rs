@@ -454,6 +454,45 @@ mod tests {
         );
     }
 
+    /// The idle window is exactly `W = ceil(C / R)` seconds — the refill-to-full
+    /// horizon. The eviction test above uses `R = 1.0`, where `C / R == C * R ==
+    /// C % R-ceiled` collapse onto the same value, so the arithmetic-operator
+    /// mutants on the `C / R` expression survive there. This pins `W` with
+    /// `R != 1` and a NON-integer ratio so divide diverges from every other
+    /// operator, and exercises the `R <= 0` guard:
+    ///
+    /// - C=10, R=4 → ceil(10/4) = ceil(2.5) = 3 (the `*` mutant → ceil(40)=40;
+    ///   the `%` mutant → ceil(2)=2)
+    /// - C=20, R=1 → ceil(20) = 20 (the shipped default)
+    /// - C=20, R=0 → u64::MAX (never idle-evict; the R<=0 guard branch)
+    #[test]
+    fn idle_window_is_ceil_capacity_over_refill_rate() {
+        // Non-integer ratio: divide (2.5→3) differs from multiply (40) and
+        // modulo (2). Kills the `/ -> *` and `/ -> %` mutants on `C / R`.
+        assert_eq!(
+            RevokeRateLimiter::new(10, 4.0).idle_window_secs(),
+            3,
+            "W = ceil(C/R) = ceil(10/4) = ceil(2.5) = 3s"
+        );
+        // The shipped default (C=20, R=1) refills to full in 20s.
+        assert_eq!(
+            RevokeRateLimiter::new(
+                DEFAULT_REVOKE_BUCKET_CAPACITY,
+                DEFAULT_REVOKE_BUCKET_REFILL_PER_SEC,
+            )
+            .idle_window_secs(),
+            20,
+            "W for the shipped defaults C=20, R=1/sec must be ceil(20/1) = 20s"
+        );
+        // R <= 0 is the "never idle-evict" guard: the window is unbounded so the
+        // idle sweep can never fire (a non-refilling bucket is never stale).
+        assert_eq!(
+            RevokeRateLimiter::new(20, 0.0).idle_window_secs(),
+            u64::MAX,
+            "a non-positive refill rate must yield an unbounded window (never idle-evict)"
+        );
+    }
+
     // ADR-005 behaviour-preservation (AC2): an ACTIVE principal's throttle
     // decisions are byte-identical with eviction enabled and disabled. Property:
     // for an arbitrary interleaving of (other-principal traffic, time advances),
@@ -534,6 +573,52 @@ mod tests {
                     "map size {} must stay bounded by the LRU cap N={}",
                     limiter.bucket_count(),
                     cap
+                );
+            }
+        }
+    }
+
+    /// ADR-005 LRU size-cap eviction is MINIMAL: when the cap `N` is exceeded by
+    /// distinct one-shot principals at a single instant (idle sweep cannot fire),
+    /// each new principal evicts EXACTLY ONE least-recently-used victim, so the
+    /// map settles at EXACTLY `N` — it must not collapse below `N`.
+    ///
+    /// This pins the LOWER bound the `<= cap` property cannot see. The overflow
+    /// count is `len() + 1 - N`; the `+ -> -` mutant turns it into the `usize`
+    /// expression `len() - 1 - N`, which underflows at the cap boundary
+    /// (`len() == N`) and (in release) wraps to a huge `take`, evicting the whole
+    /// map down to ~1 each time the cap is hit. Asserting the steady-state size is
+    /// exactly `N` after driving `>> N` distinct principals kills that mutant: an
+    /// over-eviction collapses `bucket_count()` far below `N`.
+    #[test]
+    fn lru_eviction_is_minimal_map_settles_exactly_at_the_cap() {
+        let capacity: u32 = 3;
+        let refill_per_sec: f64 = 1.0;
+        let cap: usize = 8;
+        let limiter = RevokeRateLimiter::with_max_principals(capacity, refill_per_sec, cap);
+        let now = t0(); // all within W → idle sweep never fires
+
+        // Drive far more than N distinct principals at the SAME instant. Each one
+        // past the cap must evict exactly one LRU victim and insert itself, so the
+        // map size is monotone up to N and then PINNED at N — never less.
+        for i in 0..(cap * 5) {
+            limiter.consume(Uuid::now_v7(), now);
+            let size = limiter.bucket_count();
+            if i + 1 < cap {
+                // Filling phase: exactly one bucket per distinct principal so far.
+                assert_eq!(
+                    size,
+                    i + 1,
+                    "before the cap, the map holds one bucket per distinct principal"
+                );
+            } else {
+                // Steady state: minimal eviction holds the map at EXACTLY the cap.
+                // (Over-eviction — the `+ -> -` underflow mutant — collapses this
+                // far below N.)
+                assert_eq!(
+                    size, cap,
+                    "once the cap N={cap} is reached, each new principal evicts EXACTLY one \
+                     LRU victim — the map must settle at exactly N, not collapse below it"
                 );
             }
         }
