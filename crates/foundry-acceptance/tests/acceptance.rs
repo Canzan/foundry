@@ -45,6 +45,8 @@ use foundry_acceptance::steps::feature_mwt_slice_04_non_enumerability as _featur
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_mwt_slice_05_migration_guarantee as _feature_mwt_s05;
 #[allow(unused_imports)]
+use foundry_acceptance::steps::feature_mwt_slice_06_provision_and_prove as _feature_mwt_s06;
+#[allow(unused_imports)]
 use foundry_acceptance::steps::feature_remaining_surfaces as _feature_remaining;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_token_management_api as _feature_tma;

@@ -169,6 +169,104 @@ impl Services {
     ) -> Result<(), ServiceError> {
         tokens::revoke_token(&self.store, principal, jti).await
     }
+
+    /// multi-workspace-provisioning (US-MWT07, ADR-002/003) — provision a NEW
+    /// isolated workspace + its first admin, gated by the INSTANCE super-admin
+    /// authority. Delegates to [`provisioning::provision_workspace`].
+    pub async fn provision_workspace(
+        &self,
+        request: provisioning::ProvisionRequest<'_>,
+    ) -> Result<provisioning::Provisioned, ServiceError> {
+        provisioning::provision_workspace(&self.store, request).await
+    }
+}
+
+/// multi-workspace-provisioning use-case (US-MWT07, ADR-002/003).
+///
+/// The operator-CLI driving port (`foundry doctor provision-workspace`) calls
+/// this; it is the single trusted place the `is_instance_admin` authz gate and
+/// the atomic provision transaction are composed. Kept inline in this crate's
+/// orchestration seam (alongside the `board` use-case) rather than a sibling
+/// module — it is one fail-closed gate + one delegating call, with the same
+/// `Store`-typed surface the seam already owns.
+pub mod provisioning {
+    use super::{ServiceError, Store};
+    use secrecy::SecretString;
+
+    /// What the operator asks for: a NEW workspace `name` with a first admin at
+    /// `admin_email`, provisioned by the super-admin identified by
+    /// `acting_user_id` (already resolved from `--as`/the bootstrap claim).
+    pub struct ProvisionRequest<'a> {
+        pub acting_user_id: uuid::Uuid,
+        pub workspace_name: &'a str,
+        pub admin_email: &'a str,
+        /// Initial credential the operator sets for the first admin. The first
+        /// admin can reset it by accepting the emitted invite link.
+        pub admin_password: SecretString,
+        /// When the emitted first-admin invite expires.
+        pub invite_expires_at: time::OffsetDateTime,
+    }
+
+    /// The observable outcome the CLI reports: the new workspace identity + the
+    /// invite row to sign into the first-admin invite link.
+    pub struct Provisioned {
+        pub workspace_id: uuid::Uuid,
+        pub admin_user_id: uuid::Uuid,
+        pub invite_id: uuid::Uuid,
+        pub invite_expires_at: time::OffsetDateTime,
+    }
+
+    /// Provision a new isolated workspace + first admin, FAIL-CLOSED on the
+    /// instance super-admin gate.
+    ///
+    /// - `acting_user_id` is NOT a super-admin ⇒ [`ServiceError::Forbidden`]
+    ///   (the CLI maps this to a "not authorized" exit; the refusal is
+    ///   observationally independent of whether the target already exists).
+    /// - otherwise the workspace + admin + invite commit atomically (the store
+    ///   transaction mirrors `create_initial_workspace`).
+    pub async fn provision_workspace(
+        store: &Store,
+        request: ProvisionRequest<'_>,
+    ) -> Result<Provisioned, ServiceError> {
+        let is_admin = store
+            .is_instance_admin(request.acting_user_id)
+            .await
+            .map_err(|_| ServiceError::Internal)?;
+        if !is_admin {
+            return Err(ServiceError::Forbidden);
+        }
+
+        let admin_email_lower = request.admin_email.to_ascii_lowercase();
+        let password_hash = foundry_auth::hash_password(&request.admin_password)
+            .await
+            .map_err(|_| ServiceError::Internal)?;
+
+        let workspace_id = uuid::Uuid::now_v7();
+        let admin_user_id = uuid::Uuid::now_v7();
+        let invite_id = uuid::Uuid::now_v7();
+
+        store
+            .provision_workspace(
+                workspace_id,
+                request.workspace_name,
+                admin_user_id,
+                &admin_email_lower,
+                request.admin_email,
+                "Workspace Admin",
+                &password_hash,
+                invite_id,
+                request.invite_expires_at,
+            )
+            .await
+            .map_err(|_| ServiceError::Internal)?;
+
+        Ok(Provisioned {
+            workspace_id,
+            admin_user_id,
+            invite_id,
+            invite_expires_at: request.invite_expires_at,
+        })
+    }
 }
 
 /// The authenticated actor a use-case acts on behalf of. Per architecture.md

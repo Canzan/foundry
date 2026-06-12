@@ -660,17 +660,47 @@ fn dispatch_subcommand() -> Option<i32> {
                     let code = foundry_app::admin_cli::run_restore_comment(uuid);
                     Some(code)
                 }
+                // multi-workspace-provisioning (US-MWT07, ADR-002 / D2) — the
+                // CLI-FIRST provisioning surface. Reads DATABASE_URL +
+                // SESSION_SECRET to reach the LIVE DB and sign the invite link.
+                "provision-workspace" => {
+                    let opt = |flag: &str| -> Option<String> {
+                        args.iter()
+                            .position(|a| a == flag)
+                            .and_then(|i| args.get(i + 1))
+                            .cloned()
+                    };
+                    let name = opt("--name").unwrap_or_default();
+                    let admin_email = opt("--admin-email").unwrap_or_default();
+                    let acting_email = opt("--as").unwrap_or_default();
+                    if name.is_empty() || admin_email.is_empty() {
+                        eprintln!(
+                            "foundry doctor provision-workspace: missing required flags. \
+                             Usage: foundry doctor provision-workspace --name <name> \
+                             --admin-email <addr> --as <super-admin-email>"
+                        );
+                        return Some(2);
+                    }
+                    let code = foundry_app::admin_cli::run_provision_workspace(
+                        &name,
+                        &admin_email,
+                        &acting_email,
+                    );
+                    Some(code)
+                }
                 "" => {
                     eprintln!(
                         "foundry doctor: subcommand required. \
-                         Available: backup-verify <file>, restore-comment <comment-uuid>"
+                         Available: backup-verify <file>, restore-comment <comment-uuid>, \
+                         provision-workspace --name <name> --admin-email <addr> --as <addr>"
                     );
                     Some(2)
                 }
                 other => {
                     eprintln!(
                         "foundry doctor: unknown subcommand {other:?}. \
-                         Available: backup-verify <file>, restore-comment <comment-uuid>"
+                         Available: backup-verify <file>, restore-comment <comment-uuid>, \
+                         provision-workspace --name <name> --admin-email <addr> --as <addr>"
                     );
                     Some(2)
                 }

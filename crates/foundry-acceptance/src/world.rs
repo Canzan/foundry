@@ -730,6 +730,24 @@ pub struct FoundryWorld {
     /// table name → ordered list of row-JSON strings. Compared for equality after a
     /// second upgrade to prove idempotence (no row rewritten or duplicated).
     pub mwt5_snapshot_after_first: HashMap<String, Vec<String>>,
+
+    // ---- Feature "multi-workspace-provisioning" — Slice 6 (provisioning) ----
+    /// In-process harness whose migrated schema the provisioning CLI subprocess
+    /// also targets (via DATABASE_URL pinned to the same search_path). Reused to
+    /// drive the SHIPPED sign-in + resolution seam for the "first admin acts on
+    /// the new workspace" leg.
+    pub mwt6_harness: Option<InProcHarness>,
+    /// Email of the bootstrap-claiming super-admin seeded in the Background.
+    pub mwt6_superadmin_email: Option<String>,
+    /// Captured exit code of the last `provision-workspace` CLI subprocess.
+    pub mwt6_cli_exit: Option<i32>,
+    /// Captured stdout of the last `provision-workspace` CLI subprocess (carries
+    /// the new workspace id + first-admin invite link).
+    pub mwt6_cli_stdout: Option<String>,
+    /// The provisioned workspace's id, parsed from the CLI stdout.
+    pub mwt6_provisioned_workspace_id: Option<uuid::Uuid>,
+    /// Name → id of every workspace seeded/provisioned in the scenario.
+    pub mwt6_workspace_ids: HashMap<String, uuid::Uuid>,
 }
 
 impl FoundryWorld {

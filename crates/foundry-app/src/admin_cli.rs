@@ -370,6 +370,196 @@ pub fn run_restore_comment(comment_id: &str) -> i32 {
     })
 }
 
+/// multi-workspace-provisioning (US-MWT07, ADR-002/003) — entry point invoked
+/// from `main.rs` when the CLI sees
+/// `foundry doctor provision-workspace --name <name> --admin-email <addr>
+/// [--as <super-admin-email>]`.
+///
+/// CLI-FIRST provisioning surface (ADR-002 / D2). Resolves + verifies the
+/// acting super-admin via `is_instance_admin` (FAIL-CLOSED), then atomically
+/// creates a NEW workspace + its first admin (mirroring the shipped
+/// `create_initial_workspace` seeding tx) and prints the new workspace identity
+/// plus a first-admin invite link. Operates against the LIVE database via
+/// `DATABASE_URL`, reusing the `run_restore_comment` scaffold (thread-isolated
+/// tokio runtime, live DB via the service seam, structured exit codes).
+///
+/// Exit codes (mirroring `run_restore_comment`'s exit-code discipline):
+///
+/// - `0` provisioned: workspace + first admin created; stdout reports them.
+/// - `2` invalid args: missing `--name`/`--admin-email`, or no acting
+///   super-admin resolvable (`--as` required for v1).
+/// - `3` DB / infra fail: DATABASE_URL unreachable, SESSION_SECRET unset, or a
+///   DB-side failure mid-provision.
+/// - `4` not authorized: the acting user is NOT an instance super-admin. The
+///   refusal is observationally independent of whether the target already exists.
+pub fn run_provision_workspace(name: &str, admin_email: &str, acting_email: &str) -> i32 {
+    if name.is_empty() || admin_email.is_empty() || acting_email.is_empty() {
+        eprintln!(
+            "foundry doctor provision-workspace: --name, --admin-email and --as are required. \
+             Usage: foundry doctor provision-workspace --name <name> \
+             --admin-email <addr> --as <super-admin-email>"
+        );
+        return 2;
+    }
+
+    let database_url = match std::env::var("DATABASE_URL") {
+        Ok(v) if !v.is_empty() => v,
+        _ => {
+            eprintln!(
+                "foundry doctor provision-workspace: DATABASE_URL is required \
+                 to reach the live database. Set it to the same value the \
+                 foundry server uses."
+            );
+            return 3;
+        }
+    };
+    let session_secret = match std::env::var("SESSION_SECRET") {
+        Ok(v) if v.len() >= 32 => v,
+        _ => {
+            eprintln!(
+                "foundry doctor provision-workspace: SESSION_SECRET (>= 32 bytes) is \
+                 required to sign the first-admin invite link. Set it to the same \
+                 value the foundry server uses."
+            );
+            return 3;
+        }
+    };
+    let public_url =
+        std::env::var("FOUNDRY_PUBLIC_URL").unwrap_or_else(|_| "http://localhost".into());
+
+    let name = name.to_string();
+    let admin_email = admin_email.to_string();
+    let acting_email = acting_email.to_string();
+
+    // Thread-isolated runtime (see `run_restore_comment` for why): we are
+    // dispatched from inside the outer `#[tokio::main]` runtime, so nesting a
+    // `block_on` would panic.
+    std::thread::spawn(move || {
+        let runtime = match tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        {
+            Ok(rt) => rt,
+            Err(err) => {
+                eprintln!(
+                    "foundry doctor provision-workspace: could not build tokio runtime: {err}"
+                );
+                return 3;
+            }
+        };
+
+        runtime.block_on(async move {
+            let store = match foundry_store::Store::connect(&database_url).await {
+                Ok(s) => s,
+                Err(err) => {
+                    eprintln!(
+                        "foundry doctor provision-workspace: could not connect to \
+                         DATABASE_URL: {err}"
+                    );
+                    return 3;
+                }
+            };
+
+            // Resolve the acting super-admin by email. An unresolvable actor is
+            // NOT authorized (exit 4) — the same fail-closed refusal a known
+            // non-super-admin gets, so it leaks no existence oracle.
+            let acting_user_id = match store
+                .user_id_by_email(&acting_email.to_ascii_lowercase())
+                .await
+            {
+                Ok(Some(id)) => id,
+                Ok(None) => {
+                    eprintln!(
+                        "foundry doctor provision-workspace: not authorized — status: refused"
+                    );
+                    return 4;
+                }
+                Err(err) => {
+                    eprintln!(
+                        "foundry doctor provision-workspace: failed to resolve acting \
+                         operator against live DB: {err}"
+                    );
+                    return 3;
+                }
+            };
+
+            let services = foundry_services::Services::new(std::sync::Arc::new(store));
+            let now = time::OffsetDateTime::now_utc();
+            let request = foundry_services::provisioning::ProvisionRequest {
+                acting_user_id,
+                workspace_name: &name,
+                admin_email: &admin_email,
+                admin_password: secrecy::SecretString::new(generate_provisioning_password().into()),
+                invite_expires_at: now + time::Duration::days(7),
+            };
+
+            match services.provision_workspace(request).await {
+                Ok(provisioned) => {
+                    let secret = secrecy::SecretString::new(session_secret.into());
+                    let invite_url = match foundry_auth::InviteToken::new(
+                        provisioned.invite_id,
+                        provisioned.invite_expires_at,
+                        &secret,
+                    ) {
+                        Ok(token) => format!(
+                            "{}/invites/accept?id={}&sig={}",
+                            public_url.trim_end_matches('/'),
+                            provisioned.invite_id,
+                            urlencoding::encode(&token.signature),
+                        ),
+                        Err(err) => {
+                            eprintln!(
+                                "foundry doctor provision-workspace: workspace was \
+                                 provisioned but signing the invite link failed: {err}"
+                            );
+                            return 3;
+                        }
+                    };
+                    println!("workspace-id: {}", provisioned.workspace_id);
+                    println!("workspace-name: {name}");
+                    println!("first-admin: {admin_email}");
+                    println!("invite-link: {invite_url}");
+                    println!("status: provisioned");
+                    0
+                }
+                Err(foundry_services::ServiceError::Forbidden) => {
+                    // FAIL-CLOSED: the acting user is not an instance super-admin.
+                    // The refusal carries no oracle for whether the target exists.
+                    eprintln!(
+                        "foundry doctor provision-workspace: not authorized — status: refused"
+                    );
+                    4
+                }
+                Err(err) => {
+                    eprintln!(
+                        "foundry doctor provision-workspace: provisioning failed \
+                         against live DB: {err}"
+                    );
+                    3
+                }
+            }
+        })
+    })
+    .join()
+    .unwrap_or_else(|_| {
+        eprintln!(
+            "foundry doctor provision-workspace: worker thread panicked; \
+             see stderr above"
+        );
+        3
+    })
+}
+
+/// Generate a high-entropy initial credential for a provisioned first admin.
+/// The operator never sees this; the first admin resets it by accepting the
+/// emitted invite link. 32 hex chars ≈ 128 bits of entropy.
+fn generate_provisioning_password() -> String {
+    use rand::RngCore;
+    let mut bytes = [0u8; 16];
+    rand::thread_rng().fill_bytes(&mut bytes);
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
 /// Run `psql ... -t -A -c "SELECT count(*) FROM <schema>.<table>"`
 /// and return the parsed count. Returns an error if the table does
 /// not exist (caller swallows so missing tables don't break the run).

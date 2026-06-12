@@ -1141,6 +1141,99 @@ impl Store {
         Ok(row.0)
     }
 
+    /// INSTANCE-level super-admin authz (multi-workspace-provisioning, ADR-003).
+    ///
+    /// `EXISTS (SELECT 1 FROM instance_admins WHERE user_id = $1)` — the
+    /// instance-scoped mirror of [`Self::is_workspace_admin`], but it takes NO
+    /// workspace argument (a super-admin is an instance authority, NOT a
+    /// workspace member), so it can never trip the LAYER-1e tenant guard.
+    /// Fail-closed: an absent row ⇒ `false` ⇒ refused.
+    pub async fn is_instance_admin(&self, user_id: uuid::Uuid) -> Result<bool, StoreError> {
+        let row: (bool,) =
+            sqlx::query_as("SELECT EXISTS (SELECT 1 FROM instance_admins WHERE user_id = $1)")
+                .bind(user_id)
+                .fetch_one(&self.pool)
+                .await?;
+        Ok(row.0)
+    }
+
+    /// Look up a user's id by their (case-insensitive) email. Used by the
+    /// provisioning CLI to resolve the acting super-admin before the
+    /// [`Self::is_instance_admin`] gate.
+    pub async fn user_id_by_email(
+        &self,
+        email_lower: &str,
+    ) -> Result<Option<uuid::Uuid>, StoreError> {
+        let row: Option<(uuid::Uuid,)> =
+            sqlx::query_as("SELECT id FROM users WHERE email_lower = $1")
+                .bind(email_lower)
+                .fetch_optional(&self.pool)
+                .await?;
+        Ok(row.map(|r| r.0))
+    }
+
+    /// Atomically provision a NEW workspace + its first admin + an invite for
+    /// that admin (multi-workspace-provisioning, ADR-002/003). Mirrors the
+    /// shipped [`Self::create_initial_workspace`] seeding transaction — every
+    /// row commits together or not at all — but for an ADDITIONAL workspace on
+    /// a running instance (it does NOT touch any existing workspace).
+    ///
+    /// `admin_password_hash` is the first admin's initial credential set by the
+    /// provisioning operator; the returned `invite_id` is the invite row the CLI
+    /// signs into the first-admin invite link.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn provision_workspace(
+        &self,
+        workspace_id: uuid::Uuid,
+        workspace_name: &str,
+        admin_user_id: uuid::Uuid,
+        admin_email_lower: &str,
+        admin_email_display: &str,
+        admin_display_name: &str,
+        admin_password_hash: &str,
+        invite_id: uuid::Uuid,
+        invite_expires_at: time::OffsetDateTime,
+    ) -> Result<(), StoreError> {
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("INSERT INTO workspaces (id, name) VALUES ($1, $2)")
+            .bind(workspace_id)
+            .bind(workspace_name)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query(
+            "INSERT INTO users (id, email_lower, email_display, display_name, password_hash)
+                  VALUES ($1, $2, $3, $4, $5)",
+        )
+        .bind(admin_user_id)
+        .bind(admin_email_lower)
+        .bind(admin_email_display)
+        .bind(admin_display_name)
+        .bind(admin_password_hash)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            "INSERT INTO workspace_memberships (workspace_id, user_id, role)
+                  VALUES ($1, $2, 'admin')",
+        )
+        .bind(workspace_id)
+        .bind(admin_user_id)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            "INSERT INTO invites (id, workspace_id, invitee_email, created_by, expires_at)
+                  VALUES ($1, $2, $3, $4, $5)",
+        )
+        .bind(invite_id)
+        .bind(workspace_id)
+        .bind(admin_email_lower)
+        .bind(admin_user_id)
+        .bind(invite_expires_at)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
     /// Update a comment's body + write a `CommentEdited` outbox row in
     /// one transaction. `now` lands in `updated_at` (drives the "edited"
     /// indicator per Q4 = A). The Postgres trigger `notify_outbox_event`
