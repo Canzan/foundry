@@ -765,6 +765,19 @@ pub struct FoundryWorld {
     /// Issue titles returned by the last scoped board read (step 03-03), driven
     /// through the SHIPPED resolution + scoped-read seam as the provisioned admin.
     pub mwt6_listed_issue_titles: Vec<String>,
+    /// The real address (team slug, project slug, issue number) of a
+    /// provisioned-tenant issue (step 03-04 non-enumerability leg). An
+    /// existing-workspace member reaches THIS foreign address and a
+    /// never-existed one, and the two refusals must be byte-identical.
+    pub mwt6_foreign_issue_address: Option<(String, String, i32)>,
+    /// (status, body) of the FIRST request in the cross-tenant non-enumerability
+    /// comparison — the existing member's reach for a REAL provisioned-tenant
+    /// issue by its real address (step 03-04). Captured so the second
+    /// never-existed reach can be asserted byte-identical.
+    pub mwt6_first_refusal: Option<(StatusCode, String)>,
+    /// (status, body) of the SECOND request — the existing member's reach for an
+    /// issue that never existed (step 03-04). Must equal `mwt6_first_refusal`.
+    pub mwt6_second_refusal: Option<(StatusCode, String)>,
 }
 
 impl FoundryWorld {

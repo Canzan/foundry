@@ -32,8 +32,15 @@ use crate::support::harness::{ensure_postgres, InProcHarness};
 use crate::world::FoundryWorld;
 use assert_cmd::Command as AssertCommand;
 use cucumber::{given, then, when};
+use reqwest::redirect::Policy;
+use reqwest::StatusCode;
 use secrecy::SecretString;
 use sqlx::{PgPool, Row};
+
+/// The password the Background seeds every existing-workspace member with
+/// (`workspace_has_member_with_issues`). The web sign-in path re-authenticates
+/// per request (no cookie jar), so the cross-tenant probe needs it.
+const MEMBER_PASSWORD: &str = "member-password";
 
 /// Resolve (or spawn) the slice-06 in-process harness. Its migrated schema is
 /// the one the provisioning CLI subprocess targets via DATABASE_URL; reusing it
@@ -1101,4 +1108,262 @@ async fn workspace_exists_isolated(world: &mut FoundryWorld, ws_name: String) {
         issue_count, 0,
         "the freshly-provisioned workspace must start with no issues (isolation)"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 4 — a member of the EXISTING workspace cannot reach the provisioned
+//              one non-enumerably (US-MWT08 / NFR-MWT-SEC-02, evil-user).
+//
+// Green-by-inheritance: this scenario adds NO new isolation code. It provisions
+// Globex through the REAL CLI (reusing scenario-3's `Given the super-admin has
+// provisioned …`), seeds Globex with its OWN team/project/issue under a slug
+// DISTINCT from Acme's (so the foreign address genuinely does not resolve inside
+// Acme's acting workspace), then drives the SHIPPED web issue-detail handler
+// (`show_issue`, comments.rs:58) over real HTTP as the existing-workspace member
+// Marco — signed in and resolved (ADR-005) to Acme. The handler scopes by the
+// RESOLVED acting workspace: a FOREIGN team/project/issue resolves to `None`
+// through `find_team_by_slug(acting, …)` EXACTLY as a never-existed one does, and
+// BOTH render the SINGLE uniform `resource_not_found_page()` with no slug/number
+// echoed (the SHIPPED uniform-404 idiom, ADR-003). So the two requests are
+// byte-identical — no 403-vs-404 oracle, no body that reveals the Globex issue
+// exists.
+//
+// Falsifiability (demonstrated at RED, then restored): make the foreign-resource
+// path 403 (or echo the foreign slug into the refusal body) and the two responses
+// DIFFER → this scenario reds. The shipped handler does neither, so it greens.
+// ---------------------------------------------------------------------------
+
+fn http_client(world: &mut FoundryWorld) -> reqwest::Client {
+    if world.http.is_none() {
+        world.http = Some(
+            reqwest::Client::builder()
+                .redirect(Policy::none())
+                .cookie_store(false)
+                .build()
+                .expect("build reqwest client"),
+        );
+    }
+    world.http.as_ref().expect("http client").clone()
+}
+
+/// `And an issue belongs to "Globex"` — seed the provisioned tenant with its OWN
+/// team/project/issue under a slug DELIBERATELY distinct from the existing
+/// workspace's (`globex-team`/`globex-core`), and record its real address. The
+/// existing member will reach THIS address (foreign) and a never-existed one;
+/// because the address does not resolve inside the member's acting workspace, the
+/// SHIPPED scoping returns the SAME uniform-404 for both.
+#[given(regex = r#"^an issue belongs to "([^"]+)"$"#)]
+async fn an_issue_belongs_to(world: &mut FoundryWorld, ws_name: String) {
+    let pool = harness_pool(world);
+    let workspace_id = *world
+        .mwt6_workspace_ids
+        .get(&ws_name)
+        .unwrap_or_else(|| panic!("provisioned workspace {ws_name:?} must exist first"));
+
+    let team_id = uuid::Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO teams (id, workspace_id, name, slug) VALUES ($1, $2, 'Globex Team', 'globex-team')",
+    )
+    .bind(team_id)
+    .bind(workspace_id)
+    .execute(&pool)
+    .await
+    .expect("insert provisioned-tenant team");
+    let project_id = uuid::Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO projects (id, team_id, workspace_id, name, slug, key_prefix)
+              VALUES ($1, $2, $3, 'Globex Core', 'globex-core', 'GBX')",
+    )
+    .bind(project_id)
+    .bind(team_id)
+    .bind(workspace_id)
+    .execute(&pool)
+    .await
+    .expect("insert provisioned-tenant project");
+    // Resolve any member of the provisioned workspace as the issue author.
+    let author_id: uuid::Uuid = sqlx::query_scalar(
+        "SELECT user_id FROM workspace_memberships WHERE workspace_id = $1 LIMIT 1",
+    )
+    .bind(workspace_id)
+    .fetch_one(&pool)
+    .await
+    .expect("provisioned workspace has at least its first admin as a member");
+    let issue_id = uuid::Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO issues (id, project_id, workspace_id, number, title, author_id)
+              VALUES ($1, $2, $3, 1, 'Globex-secret issue', $4)",
+    )
+    .bind(issue_id)
+    .bind(project_id)
+    .bind(workspace_id)
+    .bind(author_id)
+    .execute(&pool)
+    .await
+    .expect("insert provisioned-tenant issue");
+
+    world.mwt6_foreign_issue_address =
+        Some(("globex-team".to_string(), "globex-core".to_string(), 1));
+}
+
+/// Sign `email` in over the SHIPPED web sign-in path, then GET an issue-detail
+/// URL, returning the (status, body) the shipped `show_issue` handler produced.
+/// The existing member is resolved (ADR-005) to their own workspace; a foreign or
+/// never-existed address both collapse to the uniform `resource_not_found_page`.
+async fn member_web_get_issue(
+    world: &mut FoundryWorld,
+    email: &str,
+    team_slug: &str,
+    project_slug: &str,
+    issue_number: i32,
+) -> (StatusCode, String) {
+    let http = http_client(world);
+    let base = world
+        .mwt6_harness
+        .as_ref()
+        .expect("mwt6 harness")
+        .base_url();
+
+    // (1) GET /sign-in for a CSRF cookie + token.
+    let csrf_resp = http
+        .get(format!("{base}/sign-in"))
+        .send()
+        .await
+        .expect("get /sign-in for csrf");
+    let csrf_token = csrf_resp
+        .headers()
+        .get_all(reqwest::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .find(|s| s.starts_with("foundry_csrf="))
+        .and_then(|s| s.strip_prefix("foundry_csrf="))
+        .and_then(|rest| rest.split(';').next())
+        .unwrap_or("")
+        .to_string();
+
+    // (2) POST /sign-in to authenticate; capture the session cookie.
+    let mut form: std::collections::HashMap<&str, String> = std::collections::HashMap::new();
+    form.insert("email", email.to_string());
+    form.insert("password", MEMBER_PASSWORD.to_string());
+    form.insert("_csrf", csrf_token.clone());
+    let signin = http
+        .post(format!("{base}/sign-in"))
+        .header(
+            reqwest::header::COOKIE,
+            format!("foundry_csrf={csrf_token}"),
+        )
+        .form(&form)
+        .send()
+        .await
+        .expect("post /sign-in");
+    let session_pair = signin
+        .headers()
+        .get_all(reqwest::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .find(|s| s.starts_with("foundry_session="))
+        .and_then(|s| s.split(';').next())
+        .map(|s| s.to_string())
+        .expect("sign-in must issue a foundry_session cookie");
+
+    // (3) GET the issue-detail URL with the authenticated session.
+    let url = format!("{base}/team/{team_slug}/project/{project_slug}/issues/{issue_number}");
+    let resp = http
+        .get(&url)
+        .header(
+            reqwest::header::COOKIE,
+            format!("{session_pair}; foundry_csrf={csrf_token}"),
+        )
+        .send()
+        .await
+        .expect("authenticated web GET issue detail");
+    let status = resp.status();
+    let body = resp.text().await.unwrap_or_default();
+    (status, body)
+}
+
+/// `When "<member>" requests that "<ws>" issue by its real address` — the
+/// existing member reaches the provisioned tenant's REAL issue address. The
+/// SHIPPED handler scopes by the member's resolved (Acme) workspace, so the
+/// foreign address resolves to `None` and renders the uniform 404.
+#[when(regex = r#"^"([^"]+)" requests that "([^"]+)" issue by its real address$"#)]
+async fn member_requests_foreign_issue(world: &mut FoundryWorld, member: String, _ws: String) {
+    let (team_slug, project_slug, number) = world
+        .mwt6_foreign_issue_address
+        .clone()
+        .expect("the provisioned-tenant issue address must have been seeded");
+    let refusal = member_web_get_issue(world, &member, &team_slug, &project_slug, number).await;
+    world.mwt6_first_refusal = Some(refusal);
+}
+
+/// `And "<member>" requests an issue that never existed` — the comparator: a
+/// never-existed address (a team slug that exists in no workspace). The SHIPPED
+/// handler renders the SAME uniform 404 page as the foreign reach above.
+#[when(regex = r#"^"([^"]+)" requests an issue that never existed$"#)]
+async fn member_requests_missing_issue(world: &mut FoundryWorld, member: String) {
+    let refusal = member_web_get_issue(
+        world,
+        &member,
+        "never-existed-team",
+        "never-existed-project",
+        999_999,
+    )
+    .await;
+    world.mwt6_second_refusal = Some(refusal);
+}
+
+/// `Then the two responses are refused identically` — the foreign-resource reach
+/// and the never-existed reach are observationally indistinguishable: the SAME
+/// non-enumerable 404 status AND a byte-identical body (no 403-vs-404 oracle, no
+/// shape difference). This is the SHIPPED uniform-404 idiom proven for the
+/// freshly-provisioned tenant.
+#[then(regex = r#"^the two responses are refused identically$"#)]
+async fn two_responses_refused_identically(world: &mut FoundryWorld) {
+    let (foreign_status, foreign_body) = world
+        .mwt6_first_refusal
+        .clone()
+        .expect("the foreign-resource refusal was captured");
+    let (missing_status, missing_body) = world
+        .mwt6_second_refusal
+        .clone()
+        .expect("the never-existed refusal was captured");
+    assert_eq!(
+        foreign_status,
+        StatusCode::NOT_FOUND,
+        "the cross-tenant reach into the provisioned workspace must be a non-enumerable \
+         404 (ADR-003), got {foreign_status}"
+    );
+    assert_eq!(
+        foreign_status, missing_status,
+        "the foreign-resource and never-existed reaches must share the SAME status \
+         (a 403-vs-404 difference would be an existence oracle)"
+    );
+    assert_eq!(
+        foreign_body, missing_body,
+        "the foreign-resource and never-existed reaches must be byte-identical \
+         (any body difference would reveal the provisioned issue exists)"
+    );
+}
+
+/// `And nothing reveals that the "<ws>" issue exists` — the refusal body echoes
+/// none of the provisioned tenant's identifiers (slug, project key, title, name).
+/// A leaked identifier would be an enumeration oracle even if the status matched.
+#[then(regex = r#"^nothing reveals that the "([^"]+)" issue exists$"#)]
+async fn nothing_reveals_provisioned_issue(world: &mut FoundryWorld, ws_name: String) {
+    let (_status, body) = world
+        .mwt6_first_refusal
+        .clone()
+        .expect("the foreign-resource refusal was captured");
+    for forbidden in [
+        ws_name.as_str(),
+        "globex-team",
+        "globex-core",
+        "GBX",
+        "Globex-secret issue",
+    ] {
+        assert!(
+            !body.contains(forbidden),
+            "the cross-tenant refusal body echoed a provisioned-tenant identifier \
+             {forbidden:?} (enumeration oracle): {body:?}"
+        );
+    }
 }

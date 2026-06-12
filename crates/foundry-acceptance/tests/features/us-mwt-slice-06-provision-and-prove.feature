@@ -169,7 +169,7 @@ Feature: An instance super-admin provisions a new isolated workspace from the op
   #    real Globex resource is refused IDENTICALLY to a never-existed one. Proves
   #    the SHIPPED uniform-404 idiom extends to the freshly-provisioned tenant.
   # ----------------------------------------------------------------------------
-  @pending @us-mwt07 @us-mwt08 @error
+  @us-mwt07 @us-mwt08 @error
   Scenario: A member of the existing workspace cannot reach the provisioned one non-enumerably
     Given the super-admin has provisioned workspace "Globex" with first admin "priya@globex.com"
     And an issue belongs to "Globex"
