@@ -117,7 +117,7 @@ Feature: An existing single-workspace install upgrades to workspace 1 with no da
   #    proof across every tenant table (NFR-MWT-DATA-01). This is the data-safety
   #    core: snapshot before, upgrade, snapshot after, assert equality.
   # ----------------------------------------------------------------------------
-  @pending @us-mwt06
+  @us-mwt06
   Scenario: No tenant data is lost or changed by the upgrade
     Given a recorded snapshot of all the workspace's data before the upgrade
     When the install is upgraded to multi-workspace support

@@ -32,7 +32,18 @@ use sqlx::{PgPool, Row};
 use std::collections::HashMap;
 
 /// The tenant tables whose rows the guarantee promises to leave byte-for-byte
-/// unchanged across the upgrade (ADR-004 §Decision step 2).
+/// unchanged across the upgrade (ADR-004 §Decision step 2, extended to the FULL
+/// tenant surface for step 04-02's comprehensive row-for-row equality proof).
+///
+/// Every table here carries a `workspace_id` (directly or transitively via an
+/// `issue_id`/`team_id`/`project_id` chain) and holds real tenant data the
+/// forward-only upgrade (`0009` index drop + `0010`/`0011` additive
+/// columns/table) must leave untouched. `comments` and `machine_tokens` are the
+/// two tenant tables the slice-05 Background already promises ("a live signed-in
+/// session and a valid machine token", comment threads on issues) but earlier
+/// steps did not yet snapshot — step 04-02 makes the proof faithful by seeding
+/// and diffing them too, so a rewrite/backfill/re-key of ANY tenant row reds the
+/// equality proof.
 const TENANT_TABLES: &[&str] = &[
     "workspaces",
     "users",
@@ -42,6 +53,8 @@ const TENANT_TABLES: &[&str] = &[
     "projects",
     "issues",
     "invites",
+    "comments",
+    "machine_tokens",
 ];
 
 /// Snapshot every tenant table as an ordered list of whole-row JSON strings,
@@ -169,6 +182,7 @@ async fn install_has_tenant_data(world: &mut FoundryWorld, _ws_name: String) {
     .await
     .expect("insert project");
 
+    let mut first_issue_id = None;
     for (number, title) in [(1_i32, "First issue"), (2_i32, "Second issue")] {
         let issue_id = uuid::Uuid::now_v7();
         sqlx::query(
@@ -184,7 +198,25 @@ async fn install_has_tenant_data(world: &mut FoundryWorld, _ws_name: String) {
         .execute(&pool)
         .await
         .expect("insert issue");
+        first_issue_id.get_or_insert(issue_id);
     }
+
+    // A comment thread on the first issue — a tenant row whose byte-for-byte
+    // survival the equality proof must cover (step 04-02 extends the snapshot to
+    // `comments`). `body_markdown` is the raw input; `body_html` the rendered
+    // output — the upgrade must touch neither.
+    let comment_id = uuid::Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO comments (id, workspace_id, issue_id, author_id, body_markdown, body_html)
+              VALUES ($1, $2, $3, $4, 'A pre-feature comment', '<p>A pre-feature comment</p>')",
+    )
+    .bind(comment_id)
+    .bind(workspace_id)
+    .bind(first_issue_id.expect("at least one issue was seeded"))
+    .bind(member_id)
+    .execute(&pool)
+    .await
+    .expect("insert comment");
 
     let invite_id = uuid::Uuid::now_v7();
     sqlx::query(
@@ -199,13 +231,37 @@ async fn install_has_tenant_data(world: &mut FoundryWorld, _ws_name: String) {
     .expect("insert invite");
 }
 
-/// A live session + machine token from before the upgrade. Step 01-01's scenario
-/// does not OBSERVE these (it asserts tenant-row idempotence only); seeding them
-/// is a no-op placeholder so the Background step is satisfied. Later slice-05
-/// steps (carried session/token resolution) replace this with real seeds.
+/// A live session + machine token from before the upgrade. Step 04-02 seeds a
+/// REAL `machine_tokens` row (the "valid machine token" the Background promises)
+/// so the comprehensive row-for-row equality proof covers the `machine_tokens`
+/// tenant table too — the registry row (a `jti` bound to the admin + workspace 1)
+/// must survive the upgrade byte-for-byte. The carried-session/token RESOLUTION
+/// proof is a later scenario; here the token is tenant data the upgrade must not
+/// rewrite, re-key, or revoke.
 #[given(regex = r#"^"([^"]+)" has a live signed-in session and a valid machine token$"#)]
-async fn install_has_session_and_token(_world: &mut FoundryWorld, _ws_name: String) {
-    // No observable contribution to the idempotent-re-upgrade scenario.
+async fn install_has_session_and_token(world: &mut FoundryWorld, _ws_name: String) {
+    let pool = world.mwt5_pool.clone().expect("pre-feature pool seeded");
+    let workspace_id = world.mwt5_workspace_id.expect("workspace seeded");
+    let admin_email = world.mwt5_admin_email.clone().expect("admin email seeded");
+
+    let admin_id =
+        sqlx::query_scalar::<_, uuid::Uuid>("SELECT id FROM users WHERE email_lower = $1")
+            .bind(&admin_email)
+            .fetch_one(&pool)
+            .await
+            .expect("look up the seeded admin's id for the machine token");
+
+    let jti = uuid::Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO machine_tokens (jti, user_id, workspace_id, expires_at, label)
+              VALUES ($1, $2, $3, now() + interval '30 days', 'pre-feature CI token')",
+    )
+    .bind(jti)
+    .bind(admin_id)
+    .bind(workspace_id)
+    .execute(&pool)
+    .await
+    .expect("insert pre-feature machine token");
 }
 
 // ---------------------------------------------------------------------------
@@ -455,5 +511,95 @@ async fn admin_signs_in_as_before(world: &mut FoundryWorld, admin_email: String)
     assert!(
         active_workspace_id.is_none(),
         "the upgrade must NOT backfill active_workspace_id — it stays NULL (ADR-004 / D4)"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 2: No tenant data is lost or changed by the upgrade.
+//
+// The comprehensive row-for-row before/after EQUALITY proof across EVERY tenant
+// table (NFR-MWT-DATA-01, ADR-004 / D4). Snapshot every tenant table BEFORE the
+// upgrade, apply the forward-only migrations, snapshot AFTER, assert each table's
+// rows are byte-for-byte identical (additive columns projected out) and the
+// existing workspace's identity is unchanged.
+//
+// The proof is FALSIFIABLE by construction: it diffs whole-row JSON for every
+// row of every tenant table, so ANY rewrite — a backfill writing
+// `active_workspace_id` into a DATA-bearing column, a re-keyed primary key, a
+// re-timestamped row, a moved/cross-wired foreign key — changes a row-JSON and
+// reds the equality assertion. (Verified during RED by injecting a rewrite, see
+// step 04-02 DELIVER log.)
+// ---------------------------------------------------------------------------
+
+/// Record the before-snapshot of EVERY tenant table — the baseline the equality
+/// proof compares against after the upgrade. Captures the real pre-upgrade
+/// database state row-for-row (ADR-004 §Decision step 2). The `When` step
+/// re-captures the identical pre-upgrade state at its start (nothing mutates
+/// between this `Given` and the upgrade), so this records into the same
+/// `mwt5_snapshot_before_upgrade` slot the proof reads.
+#[given(regex = r#"^a recorded snapshot of all the workspace's data before the upgrade$"#)]
+async fn recorded_snapshot_before_upgrade(world: &mut FoundryWorld) {
+    let pool = world.mwt5_pool.clone().expect("pre-feature pool seeded");
+    world.mwt5_snapshot_before_upgrade = snapshot_tenant_tables(&pool).await;
+}
+
+/// Every tenant row is present and unchanged afterward: re-snapshot every tenant
+/// table after the upgrade and assert each table's rows are byte-for-byte
+/// identical to the before-snapshot (additive-upgrade columns projected out so
+/// the nullable `active_workspace_id` added by `0010` is not mistaken for a data
+/// change). A missing, added, rewritten, re-keyed, or re-ordered-content row in
+/// ANY tenant table reds this — the equality proof has no blind spot across the
+/// full tenant surface.
+#[then(regex = r#"^every tenant row is present and unchanged afterward$"#)]
+async fn every_tenant_row_present_and_unchanged(world: &mut FoundryWorld) {
+    let pool = world.mwt5_pool.clone().expect("pre-feature pool seeded");
+    let after = snapshot_tenant_tables(&pool).await;
+
+    let after_data = project_pre_upgrade_columns(&after);
+    let before_data = project_pre_upgrade_columns(&world.mwt5_snapshot_before_upgrade);
+
+    for table in TENANT_TABLES {
+        let before_rows = before_data.get(*table);
+        let after_rows = after_data.get(*table);
+
+        // Present: the upgrade neither dropped nor duplicated any row.
+        assert_eq!(
+            after_rows.map(Vec::len),
+            before_rows.map(Vec::len),
+            "the upgrade must leave the same number of rows in `{table}` — none lost, none added"
+        );
+        // Unchanged: every row is byte-for-byte identical to the before-snapshot.
+        assert_eq!(
+            after_rows, before_rows,
+            "the upgrade must leave every row of `{table}` byte-for-byte unchanged \
+             (no rewrite, backfill, or re-key)"
+        );
+    }
+}
+
+/// The existing workspace's identity is unchanged: exactly one workspace, and its
+/// id is the same id captured at seed time. The upgrade neither duplicated nor
+/// re-identified the existing single workspace — it IS workspace 1.
+#[then(regex = r#"^the existing workspace's identity is unchanged$"#)]
+async fn existing_workspace_identity_unchanged(world: &mut FoundryWorld) {
+    let pool = world.mwt5_pool.clone().expect("pre-feature pool seeded");
+    let expected_id = world.mwt5_workspace_id.expect("workspace id captured");
+
+    let count = sqlx::query_scalar::<_, i64>("SELECT count(*) FROM workspaces")
+        .fetch_one(&pool)
+        .await
+        .expect("count workspaces");
+    assert_eq!(
+        count, 1,
+        "the upgrade must leave exactly one workspace — the existing single workspace"
+    );
+
+    let id = sqlx::query_scalar::<_, uuid::Uuid>("SELECT id FROM workspaces")
+        .fetch_one(&pool)
+        .await
+        .expect("read workspace id");
+    assert_eq!(
+        id, expected_id,
+        "the existing workspace's identity must be unchanged across the upgrade"
     );
 }
