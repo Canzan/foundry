@@ -711,6 +711,25 @@ pub struct FoundryWorld {
     /// Snapshot of a Globex issue's state BEFORE a cross-tenant state-change, so
     /// the Then can assert it is unchanged.
     pub mwt4_foreign_issue_state_before: Option<String>,
+
+    // ---- Feature "multi-workspace-provisioning" — Slice 5 (migration guarantee) ----
+    /// Per-scenario schema name for the pre-feature single-workspace install, so
+    /// the After hook (or scenario end) can drop it.
+    pub mwt5_schema: Option<String>,
+    /// Raw per-scenario pool pinned to `mwt5_schema`. Migrations are applied to it
+    /// via the real `run_migrations_from_dir` runner (NOT the embedded set), so the
+    /// pre-feature history then forward-only upgrade can be staged on disk.
+    pub mwt5_pool: Option<sqlx::PgPool>,
+    /// Handle to the staged on-disk migrations dir (pre-feature subset, then the
+    /// canonical forward-only set). Held so the temp dir lives for the scenario.
+    pub mwt5_staged: Option<TestMigrationsDir>,
+    /// The existing workspace's id, captured at seed time — must be unchanged and
+    /// not duplicated by the upgrade (and re-upgrade).
+    pub mwt5_workspace_id: Option<uuid::Uuid>,
+    /// Row-level snapshot of every tenant table AFTER the first upgrade, keyed by
+    /// table name → ordered list of row-JSON strings. Compared for equality after a
+    /// second upgrade to prove idempotence (no row rewritten or duplicated).
+    pub mwt5_snapshot_after_first: HashMap<String, Vec<String>>,
 }
 
 impl FoundryWorld {

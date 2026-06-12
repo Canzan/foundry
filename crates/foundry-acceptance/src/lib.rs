@@ -17,6 +17,7 @@ pub mod steps {
     pub mod feature_mwt_slice_02_web_boundary;
     pub mod feature_mwt_slice_03_api_auth_boundary;
     pub mod feature_mwt_slice_04_non_enumerability;
+    pub mod feature_mwt_slice_05_migration_guarantee;
     pub mod feature_remaining_surfaces;
     pub mod feature_token_management_api;
     pub mod handler_instrumentation;

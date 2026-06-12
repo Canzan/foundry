@@ -105,7 +105,7 @@ Feature: An existing single-workspace install upgrades to workspace 1 with no da
   #    This is the thinnest end-to-end cut that answers the riskiest question:
   #    does the upgrade lose or change any data, or break sign-in?
   # ----------------------------------------------------------------------------
-  @walking_skeleton @wiring_e2e @us-mwt06
+  @pending @walking_skeleton @wiring_e2e @us-mwt06
   Scenario: Upgrading a single-workspace install keeps it working as workspace 1
     When the install is upgraded to multi-workspace support
     Then the existing workspace becomes the first workspace with its identity unchanged
@@ -154,7 +154,7 @@ Feature: An existing single-workspace install upgrades to workspace 1 with no da
   #    forward-only migrations a second time neither duplicates nor alters the
   #    workspace or any tenant row.
   # ----------------------------------------------------------------------------
-  @pending @us-mwt06 @error
+  @us-mwt06 @error
   Scenario: Re-running the upgrade does not duplicate or alter anything
     Given the install has already been upgraded to multi-workspace support
     When the upgrade is applied a second time

@@ -95,6 +95,107 @@ pub fn stage(extras: &[(&str, &str)]) -> Result<TestMigrationsDir> {
     Ok(TestMigrationsDir { dir })
 }
 
+/// Stage ONLY the canonical production migrations whose numeric version
+/// prefix is `<= max_version` into a fresh temp dir.
+///
+/// Used by the slice-05 migration-guarantee harness to reconstruct a
+/// PRE-feature migration history (`0001`..`0008`, `max_version = 8`) so
+/// the forward-only set (`0009`/`0010`/`0011`) can then be applied on top
+/// against the SAME `run_migrations_from_dir` runner the production boot
+/// path uses — proving the upgrade is additive and idempotent without
+/// touching `crates/foundry-store/migrations/`.
+///
+/// Returns a handle whose `Drop` removes the temp dir.
+pub fn stage_subset(max_version: u64) -> Result<TestMigrationsDir> {
+    let dir = tempfile::Builder::new()
+        .prefix("foundry-mwt05-mig-")
+        .tempdir()
+        .context("create tempdir for staged pre-feature migrations")?;
+
+    let prod_dir = production_migrations_dir();
+    for entry in std::fs::read_dir(&prod_dir)
+        .with_context(|| format!("read production migrations dir {prod_dir:?}"))?
+    {
+        let entry = entry?;
+        let path = entry.path();
+        let is_sql = path.extension().map(|e| e == "sql").unwrap_or(false);
+        if !is_sql || !entry.file_type()?.is_file() {
+            continue;
+        }
+        let filename = path
+            .file_name()
+            .with_context(|| format!("filename for {path:?}"))?
+            .to_owned();
+        // The numeric prefix before the first '_' is the sqlx version.
+        let version: u64 = filename
+            .to_string_lossy()
+            .split('_')
+            .next()
+            .and_then(|n| n.parse().ok())
+            .with_context(|| format!("parse migration version from {filename:?}"))?;
+        if version > max_version {
+            continue;
+        }
+        let dst = dir.path().join(&filename);
+        std::fs::copy(&path, &dst).with_context(|| format!("copy {path:?} -> {dst:?}"))?;
+    }
+
+    Ok(TestMigrationsDir { dir })
+}
+
+/// Copy the canonical forward-only migrations (every production migration
+/// whose numeric version prefix is `>= 9`) into an EXISTING staged dir.
+///
+/// Companion to [`stage_subset`]: stage the pre-feature history first
+/// (`stage_subset(8)`), apply it, then `add_forward_only_to(dir)` to drop the
+/// `0009`/`0010`/`0011` upgrade migrations alongside and apply the now-canonical
+/// set — exactly the operator-upgrade sequence the slice-05 guarantee proves.
+pub fn add_forward_only_to(dir: &Path) -> Result<()> {
+    let prod_dir = production_migrations_dir();
+    let mut copied_versions = Vec::new();
+    for entry in std::fs::read_dir(&prod_dir)
+        .with_context(|| format!("read production migrations dir {prod_dir:?}"))?
+    {
+        let entry = entry?;
+        let path = entry.path();
+        let is_sql = path.extension().map(|e| e == "sql").unwrap_or(false);
+        if !is_sql || !entry.file_type()?.is_file() {
+            continue;
+        }
+        let filename = path
+            .file_name()
+            .with_context(|| format!("filename for {path:?}"))?
+            .to_owned();
+        let version: u64 = filename
+            .to_string_lossy()
+            .split('_')
+            .next()
+            .and_then(|n| n.parse().ok())
+            .with_context(|| format!("parse migration version from {filename:?}"))?;
+        if version < 9 {
+            continue;
+        }
+        let dst = dir.join(&filename);
+        std::fs::copy(&path, &dst).with_context(|| format!("copy {path:?} -> {dst:?}"))?;
+        copied_versions.push(version);
+    }
+
+    // The canonical forward-only upgrade set is `0009`, `0010`, AND the
+    // feature's additive `0011_instance_admins.sql` (ADR-003/004, D6). The
+    // slice-05 guarantee is the upgrade-safety PROOF for ALL THREE; until
+    // `0011` ships, the "upgrade" the scenario applies is incomplete and the
+    // guarantee is unproven — so staging the canonical set MUST fail. This is
+    // the genuine RED for step 01-01 (DISTILL RED-state contract: "0011
+    // MISSING → idempotence unproven until built").
+    if !copied_versions.contains(&11) {
+        anyhow::bail!(
+            "canonical forward-only migration set is incomplete: \
+             0011_instance_admins.sql is missing from {prod_dir:?}"
+        );
+    }
+    Ok(())
+}
+
 /// Resolve the absolute path to `crates/foundry-store/migrations` from
 /// this crate's `CARGO_MANIFEST_DIR`. The workspace layout is fixed:
 /// `foundry-acceptance` and `foundry-store` are siblings under
