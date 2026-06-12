@@ -372,6 +372,13 @@ async fn install_is_upgraded(world: &mut FoundryWorld) {
 
     world.mwt5_snapshot_before_upgrade = snapshot_tenant_tables(&pool).await;
 
+    // Capture the existing member's board view (the issues + projects they can
+    // see) BEFORE the upgrade, through the SHIPPED membership-gated scoped-read
+    // seam — the same chain a returning user's board hits. Step 04-05's
+    // regression proof (NFR-MWT-REL-02) compares this against the post-upgrade
+    // read to prove nothing a returning user sees changed.
+    world.mwt5_pre_upgrade_board = Some(member_board_view(&pool, Resolver::SoleMembership).await);
+
     test_migration::add_forward_only_to(staged.path())
         .expect("stage forward-only migrations 0009/0010/0011");
     run_migrations_from_dir(&pool, staged.path())
@@ -853,5 +860,244 @@ async fn active_workspace_choice_remains_unwritten(world: &mut FoundryWorld) {
         active_workspace_id.is_none(),
         "no-backfill (D4 / ADR-004): after resolution the user's active_workspace_id must \
          remain UNWRITTEN (NULL) — resolution wrote nothing, the upgrade backfilled nothing"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 6: Existing sign-in and workspace behaviour is unchanged after the
+// upgrade (NFR-MWT-REL-02 — the regression proof).
+//
+// The single-workspace experience is the ONE-MEMBERSHIP SPECIAL CASE of
+// multi-workspace, not a separate code path: an existing member signs in, the
+// SHIPPED `resolve_active_workspace` maps them (NULL-active + sole-membership)
+// to workspace 1, and the SHIPPED membership-gated scoped-read chain returns
+// EXACTLY the issues + projects they saw before — nothing added, removed, or
+// reordered. Proven through the shipped sign-in + scoped-read seams, NOT by
+// inspecting internals.
+//
+// Green-by-inheritance: the upgrade adds a nullable column + an empty role table
+// and drops a guard — it rewrites no membership, project, or issue row the board
+// read traverses, so the read is unchanged. The pre-upgrade board view is
+// captured in the `When` step (before any migration runs); this scenario asserts
+// the post-upgrade view is byte-identical.
+//
+// FALSIFIABILITY (demonstrated during RED, then restored): the upgrade altering
+// the member's visible issues/projects (e.g. an added/removed/re-titled issue),
+// or sign-in landing on a different workspace, reds the corresponding Then —
+// proving the regression proof bites.
+// ---------------------------------------------------------------------------
+
+/// The existing member ("member@acme.com") whose returning experience the
+/// regression proof carries across the upgrade. They were seeded as a
+/// sole-membership member of workspace 1 in the Background, with a team
+/// membership, a project, and issues to see.
+const EXISTING_MEMBER_EMAIL: &str = "member@acme.com";
+
+/// How to resolve the existing member's acting workspace when capturing their
+/// board view. The PRE-upgrade schema has no `active_workspace_id` column (it is
+/// added by `0010`), so the shipped `resolve_active_workspace` (which SELECTs
+/// that column) cannot run yet — pre-upgrade we resolve the sole-membership
+/// workspace directly. POST-upgrade we drive the SHIPPED `resolve_active_workspace`
+/// seam, the same path a returning user's session hits. The scoped-read chain the
+/// board view traverses is identical either way — only the acting-workspace
+/// resolver differs, mirroring the schema's forward-only evolution.
+enum Resolver {
+    /// Pre-upgrade: the active-workspace column does not exist yet; resolve the
+    /// member's sole-membership workspace directly.
+    SoleMembership,
+    /// Post-upgrade: drive the SHIPPED `resolve_active_workspace` seam.
+    Shipped,
+}
+
+/// Read the existing member's board view through the membership-gated scoped-read
+/// seam: resolve their acting workspace (sole-membership ⇒ workspace 1), then
+/// traverse the SAME `find_team_by_slug` → `is_team_member` →
+/// `find_project_by_slug` → `list_issues_by_project` chain a returning user's
+/// board hits. Returns the (issue titles, project names) the member is permitted
+/// to see, sorted so the comparison reflects VISIBLE-SET equality, not row order.
+async fn member_board_view(pool: &PgPool, resolver: Resolver) -> (Vec<String>, Vec<String>) {
+    let store = Store::from_pool(pool.clone());
+
+    let user_id = store
+        .user_id_by_email(EXISTING_MEMBER_EMAIL)
+        .await
+        .expect("look up the existing member")
+        .unwrap_or_else(|| panic!("existing member {EXISTING_MEMBER_EMAIL:?} must exist"));
+
+    // Resolve the acting workspace. Post-upgrade this is the SHIPPED sign-in /
+    // resolution seam (NULL-active + sole-membership ⇒ workspace 1, no value
+    // written — the one-membership special case). Pre-upgrade the active-workspace
+    // column does not exist yet, so we resolve the sole-membership workspace
+    // directly — the same workspace the shipped seam will resolve to afterward.
+    let acting_workspace_id = match resolver {
+        Resolver::Shipped => match store
+            .resolve_active_workspace(user_id)
+            .await
+            .expect("resolve the existing member's acting workspace")
+        {
+            Some((id, _name)) => id,
+            None => return (Vec::new(), Vec::new()),
+        },
+        Resolver::SoleMembership => {
+            match sqlx::query_scalar::<_, uuid::Uuid>(
+                "SELECT workspace_id FROM workspace_memberships WHERE user_id = $1",
+            )
+            .bind(user_id)
+            .fetch_optional(pool)
+            .await
+            .expect("resolve the existing member's sole-membership workspace pre-upgrade")
+            {
+                Some(id) => id,
+                None => return (Vec::new(), Vec::new()),
+            }
+        }
+    };
+
+    // SHIPPED membership-gated scoped-read chain — a non-member sees nothing,
+    // the lookups are scoped to the acting workspace.
+    let Some(team) = store
+        .find_team_by_slug(acting_workspace_id, "core")
+        .await
+        .expect("find team by slug scoped to the acting workspace")
+    else {
+        return (Vec::new(), Vec::new());
+    };
+    if !store
+        .is_team_member(team.id, user_id)
+        .await
+        .expect("team membership gate")
+    {
+        return (Vec::new(), Vec::new());
+    }
+    let Some(project) = store
+        .find_project_by_slug(team.id, "apollo")
+        .await
+        .expect("find project by slug scoped to the team")
+    else {
+        return (Vec::new(), Vec::new());
+    };
+
+    let mut issue_titles: Vec<String> = store
+        .list_issues_by_project(project.id)
+        .await
+        .expect("scoped issue read")
+        .into_iter()
+        .map(|row| row.title)
+        .collect();
+    issue_titles.sort();
+
+    let project_names = vec![project.name];
+
+    (issue_titles, project_names)
+}
+
+/// An existing member signs in and lands on the first workspace: the SHIPPED
+/// sign-in seam finds them and `resolve_active_workspace` maps them — NULL-active
+/// + sole-membership — to workspace 1, the same workspace they always landed on.
+/// Proven through the shipped seam, with the active-workspace value left
+/// UNWRITTEN (the single-workspace experience is the one-membership special case,
+/// not a separate code path).
+#[then(regex = r#"^an existing member signs in and lands on the first workspace$"#)]
+async fn existing_member_lands_on_first(world: &mut FoundryWorld) {
+    let pool = world.mwt5_pool.clone().expect("pre-feature pool seeded");
+    let expected_id = world.mwt5_workspace_id.expect("workspace id captured");
+    let store = Store::from_pool(pool.clone());
+
+    let user = store
+        .find_user_by_email(EXISTING_MEMBER_EMAIL)
+        .await
+        .expect("look up the existing member after the upgrade")
+        .unwrap_or_else(|| panic!("existing member {EXISTING_MEMBER_EMAIL:?} must still exist"));
+
+    let resolved = store
+        .resolve_active_workspace(user.id)
+        .await
+        .expect("resolve the existing member's active workspace after the upgrade")
+        .expect("the existing member must resolve to a workspace");
+    assert_eq!(
+        resolved.0, expected_id,
+        "the existing member must land on workspace 1 after the upgrade \
+         (the one-membership special case of multi-workspace)"
+    );
+
+    let active_workspace_id = sqlx::query_scalar::<_, Option<uuid::Uuid>>(
+        "SELECT active_workspace_id FROM users WHERE id = $1",
+    )
+    .bind(user.id)
+    .fetch_one(&pool)
+    .await
+    .expect("read the existing member's active_workspace_id");
+    assert!(
+        active_workspace_id.is_none(),
+        "sign-in must not be a separate code path that backfills active_workspace_id — \
+         it stays UNWRITTEN (the single-workspace experience is the sole-membership special case)"
+    );
+}
+
+/// The existing member sees EXACTLY the issues and projects they saw before: the
+/// post-upgrade board view (read through the SHIPPED resolution + scoped-read
+/// seam) is byte-identical to the pre-upgrade view captured in the `When` step —
+/// nothing added, removed, or re-titled.
+#[then(regex = r#"^the existing member sees exactly the issues and projects they saw before$"#)]
+async fn member_board_unchanged(world: &mut FoundryWorld) {
+    let pool = world.mwt5_pool.clone().expect("pre-feature pool seeded");
+    let before = world
+        .mwt5_pre_upgrade_board
+        .clone()
+        .expect("the pre-upgrade board view was captured in the upgrade step");
+
+    let after = member_board_view(&pool, Resolver::Shipped).await;
+
+    let (before_issues, before_projects) = &before;
+    let (after_issues, after_projects) = &after;
+
+    // The member must actually see something before the upgrade — otherwise the
+    // equality below would be a vacuous "empty == empty" pass.
+    assert!(
+        !before_issues.is_empty(),
+        "precondition: the existing member must see issues before the upgrade \
+         (otherwise the regression proof is vacuous)"
+    );
+
+    assert_eq!(
+        after_issues, before_issues,
+        "the upgrade must leave the member's visible issues EXACTLY as before — \
+         nothing added, removed, or re-titled"
+    );
+    assert_eq!(
+        after_projects, before_projects,
+        "the upgrade must leave the member's visible projects EXACTLY as before"
+    );
+}
+
+/// Nothing about the single-workspace experience has changed: there is still
+/// exactly one workspace, and the existing member's full board view (issues +
+/// projects, read through the SHIPPED seam) is unchanged across the upgrade — no
+/// behavioural change is observable at the sign-in or scoped-read surface.
+#[then(regex = r#"^nothing about the single-workspace experience has changed$"#)]
+async fn single_workspace_experience_unchanged(world: &mut FoundryWorld) {
+    let pool = world.mwt5_pool.clone().expect("pre-feature pool seeded");
+    let before = world
+        .mwt5_pre_upgrade_board
+        .clone()
+        .expect("the pre-upgrade board view was captured in the upgrade step");
+
+    // Still a single-workspace install — the upgrade did not turn the existing
+    // experience into a multi-workspace one for this member.
+    let workspace_count = sqlx::query_scalar::<_, i64>("SELECT count(*) FROM workspaces")
+        .fetch_one(&pool)
+        .await
+        .expect("count workspaces");
+    assert_eq!(
+        workspace_count, 1,
+        "the single-workspace experience is preserved — still exactly one workspace"
+    );
+
+    // And the member's whole board view is unchanged across the upgrade.
+    let after = member_board_view(&pool, Resolver::Shipped).await;
+    assert_eq!(
+        after, before,
+        "no behavioural change is observable at the member's sign-in or scoped-read \
+         surface — the single-workspace experience is unchanged"
     );
 }

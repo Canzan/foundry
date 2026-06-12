@@ -166,7 +166,7 @@ Feature: An existing single-workspace install upgrades to workspace 1 with no da
   #    (NFR-MWT-REL-02). The single-workspace behaviours are the one-membership
   #    special case of multi-workspace; nothing a returning user does regresses.
   # ----------------------------------------------------------------------------
-  @pending @us-mwt06 @regression
+  @us-mwt06 @regression
   Scenario: Existing sign-in and workspace behaviour is unchanged after the upgrade
     When the install is upgraded to multi-workspace support
     Then an existing member signs in and lands on the first workspace

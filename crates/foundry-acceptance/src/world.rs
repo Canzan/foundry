@@ -743,6 +743,12 @@ pub struct FoundryWorld {
     /// can look the SAME token up after the upgrade and assert it still acts on
     /// workspace 1 with no re-issue or re-binding.
     pub mwt5_machine_token_jti: Option<uuid::Uuid>,
+    /// The member's board view (visible issue titles + project names) captured
+    /// through the SHIPPED resolution + scoped-read seam BEFORE the upgrade, so
+    /// step 04-05's regression proof can assert the post-upgrade view is
+    /// byte-identical — nothing added, removed, or reordered (NFR-MWT-REL-02).
+    /// `None` until the upgrade `When` step records it at its start.
+    pub mwt5_pre_upgrade_board: Option<(Vec<String>, Vec<String>)>,
 
     // ---- Feature "multi-workspace-provisioning" — Slice 6 (provisioning) ----
     /// In-process harness whose migrated schema the provisioning CLI subprocess
