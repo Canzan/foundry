@@ -1,0 +1,267 @@
+{
+  "roadmap": {
+    "project_id": "multi-workspace-provisioning",
+    "created_at": "2026-06-12T05:10:09Z",
+    "total_steps": 16
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "Instance-admin foundation (schema + authz)",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "Additive 0011 migration creates the instance_admins role table",
+          "criteria": [
+            "Applying the canonical forward-only migration set (0009, 0010, 0011) against a pre-feature schema succeeds and yields an instance_admins table keyed on user_id as primary key",
+            "The 0011 migration adds no column to and rewrites no row of any prior table; it only creates the new empty instance_admins table",
+            "Re-applying the full migration set a second time neither errors nor duplicates the instance_admins table (IF NOT EXISTS idempotence)",
+            "No migration file numbered 0001 through 0010 is modified by this step (forward-only discipline)",
+            "The newly created instance_admins table is empty until a super-admin is seeded"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-mwt-slice-05-migration-guarantee.feature",
+          "scenario_name": "Re-running the upgrade does not duplicate or alter anything"
+        },
+        {
+          "id": "01-02",
+          "name": "is_instance_admin authz predicate in store and services",
+          "criteria": [
+            "Given a user whose id is present in instance_admins, an instance-admin check for that user returns true",
+            "Given a user whose id is absent from instance_admins, the check returns false (fail-closed: absence denies)",
+            "The instance-admin check takes only a user identity and no workspace argument, so it is instance-scoped and never tenant-scoped",
+            "The check mirrors the shipped is_workspace_admin EXISTS shape and resolves with a single existence query",
+            "An empty instance_admins table denies every user (no implicit super-admin)"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-mwt-slice-06-provision-and-prove.feature",
+          "scenario_name": "A non-super-admin cannot provision a workspace"
+        }
+      ]
+    },
+    {
+      "id": "02",
+      "name": "First super-admin bootstrap (D1)",
+      "steps": [
+        {
+          "id": "02-01",
+          "name": "Bootstrap claim seeds the operator as first super-admin",
+          "criteria": [
+            "When an operator claims the instance at bootstrap (creating workspace 1 and its admin), that operator is also recorded as the first instance_admins row in the same atomic claim",
+            "The bootstrap-claiming operator is both workspace 1's admin and the first super-admin with no separate instance identity",
+            "After the claim, the bootstrap-claiming operator passes the instance-admin authz check and can provision a new workspace",
+            "A fresh instance never exists with a workspace 1 but no provisioning authority",
+            "Seeding the first super-admin touches no existing tenant data beyond inserting the single instance_admins row"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-mwt-slice-06-provision-and-prove.feature",
+          "scenario_name": "The bootstrap-claiming operator is the first super-admin and can provision"
+        },
+        {
+          "id": "02-02",
+          "name": "grant-super-admin CLI is idempotent for upgraded installs",
+          "criteria": [
+            "On an upgraded install with workspace Acme and no super-admin yet, running the grant-super-admin command for the operator records exactly one instance_admins row",
+            "Running grant-super-admin a second time for the same operator records the grant exactly once (idempotent ON CONFLICT DO NOTHING semantics)",
+            "After being granted, the operator passes the instance-admin authz check and can then provision a new workspace",
+            "The grant subcommand is reachable only from the operator CLI and never from the bearer API surface",
+            "Granting super-admin alters no existing tenant data beyond the single instance_admins insert"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-mwt-slice-06-provision-and-prove.feature",
+          "scenario_name": "An upgraded install grants its first super-admin and can then provision"
+        }
+      ]
+    },
+    {
+      "id": "03",
+      "name": "CLI provisioning surface + provisioned-tenant isolation proof (D2)",
+      "steps": [
+        {
+          "id": "03-01",
+          "name": "provision-workspace CLI happy path creates a real isolated tenant",
+          "criteria": [
+            "When a super-admin runs the provision-workspace command with a workspace name and a first-admin email, a new workspace is created and isolated from all existing workspaces",
+            "The command reports the new workspace identity and a first-admin invite link on its output",
+            "The seeded first admin signs in, lands on the new workspace, and acts on it through the shipped sign-in and active-workspace resolution seam",
+            "Provisioning is invoked as a real operator CLI subprocess against a real database, never as a direct internal use-case call",
+            "The new workspace and its first admin are created atomically, mirroring the shipped initial-workspace seeding transaction"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-mwt-slice-06-provision-and-prove.feature",
+          "scenario_name": "A super-admin provisions a new isolated workspace with a first admin"
+        },
+        {
+          "id": "03-02",
+          "name": "Provisioning a new workspace leaves existing workspaces untouched",
+          "criteria": [
+            "When a super-admin provisions a new workspace, the only rows inserted belong to that new workspace and its first admin",
+            "Every pre-existing workspace's rows are unchanged row-for-row after provisioning, compared against a before-snapshot of those workspaces",
+            "The newly provisioned workspace's identity is distinct from every existing workspace identity",
+            "Provisioning performs no cross-write, update, or delete into any existing tenant's rows",
+            "The new-tenant insert and the existing-tenant invariance are both proven against a real database, not by inspecting internal call paths"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-mwt-slice-06-provision-and-prove.feature",
+          "scenario_name": "Provisioning a new workspace leaves existing workspaces untouched"
+        },
+        {
+          "id": "03-03",
+          "name": "Provisioned workspace honors the shipped isolation boundary",
+          "criteria": [
+            "After a super-admin provisions a new workspace with issues belonging to it, the new workspace's admin listing her issues sees only that workspace's issues",
+            "No existing-workspace issue appears in the provisioned tenant's scoped reads",
+            "No provisioned-tenant issue appears in any existing workspace's scoped reads",
+            "Isolation is proven green-by-inheritance through the shipped scoped-read ports without new isolation code",
+            "The provisioned workspace is a real coexisting tenant resolved through the same shipped active-workspace seam as workspace 1"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-mwt-slice-06-provision-and-prove.feature",
+          "scenario_name": "The provisioned workspace is a real coexisting tenant that sees only its own data"
+        },
+        {
+          "id": "03-04",
+          "name": "Cross-tenant reach into the provisioned workspace is non-enumerable",
+          "criteria": [
+            "When a member of the existing workspace requests a real provisioned-tenant resource by its real address, the response is refused",
+            "When that same member requests a resource that never existed, the response is refused identically to the real-but-foreign request",
+            "The two refusals are observationally indistinguishable, so the refusal reveals nothing about whether the provisioned tenant or its resource exists",
+            "The cross-tenant refusal reuses the shipped uniform-404 idiom and exposes no 403-versus-404 existence oracle",
+            "No provisioned-tenant data crosses into the existing-workspace member's response under either request"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-mwt-slice-06-provision-and-prove.feature",
+          "scenario_name": "A member of the existing workspace cannot reach the provisioned one non-enumerably"
+        },
+        {
+          "id": "03-05",
+          "name": "Provisioning authz refusal is fail-closed and non-enumerable",
+          "criteria": [
+            "When a regular member who is not a super-admin attempts to provision a workspace, the attempt is refused as not authorized via a distinct structured non-zero CLI exit code",
+            "After an unauthorized attempt, no new workspace was created",
+            "An unauthorized attempt against a name matching an existing workspace and against a name that never existed are refused identically",
+            "Neither refusal reveals whether the target workspace already exists (no existence oracle; refusal is observationally independent of target existence)",
+            "The authz gate denies before any workspace lookup so refusal carries no information about target state"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-mwt-slice-06-provision-and-prove.feature",
+          "scenario_name": "An unauthorized provisioning attempt does not reveal whether the target exists"
+        },
+        {
+          "id": "03-06",
+          "name": "Provisioning is unreachable from the bearer API surface",
+          "criteria": [
+            "When a caller uses a machine token bound to a workspace to attempt provisioning over the /api/v1 bearer surface, no provisioning path is reachable",
+            "After the bearer-surface attempt, no new workspace was created",
+            "Provisioning remains exclusively on the operator CLI surface (api differs from mint), preserving the shipped verify-path-unchanged invariant",
+            "Even a workspace-1-bound machine token cannot reach any provisioning endpoint"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-mwt-slice-06-provision-and-prove.feature",
+          "scenario_name": "Provisioning is unreachable from the bearer API surface"
+        }
+      ]
+    },
+    {
+      "id": "04",
+      "name": "Migration-as-guarantee (slice 5 / D4, no backfill)",
+      "steps": [
+        {
+          "id": "04-01",
+          "name": "Existing single-workspace install upgrades and resolves to workspace 1",
+          "criteria": [
+            "When a real pre-feature single-workspace install is upgraded to multi-workspace support, the existing workspace becomes the first workspace with its identity unchanged",
+            "All of the upgraded workspace's tenant data is present and unchanged after the upgrade",
+            "A user whose active workspace was never chosen resolves to the first workspace via the shipped NULL-active plus sole-membership resolution path",
+            "The upgrade is driven through the same migration runner the production boot path uses (0009, 0010, 0011 applied forward-only)",
+            "The upgrade is the walking skeleton for slice 5: it proves the end-to-end migration-then-resolve path before the finer guarantees are split out"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-mwt-slice-05-migration-guarantee.feature",
+          "scenario_name": "Upgrading a single-workspace install keeps it working as workspace 1"
+        },
+        {
+          "id": "04-02",
+          "name": "Real-snapshot before/after equality proves rows are untouched",
+          "criteria": [
+            "Given a recorded snapshot of every tenant table before the upgrade, after the upgrade every tenant row is present and unchanged when compared row-for-row against the snapshot",
+            "The existing workspace's identity is unchanged across the upgrade",
+            "The before/after snapshot harness is a new DELIVER prerequisite authored to capture and diff every tenant table against a real database before the assertion runs",
+            "The guarantee is achieved by before/after-equality proof against a real database, not by rewriting any row",
+            "No row is rewritten, backfilled, or re-keyed by the upgrade (the equality proof would fail on any rewrite)"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-mwt-slice-05-migration-guarantee.feature",
+          "scenario_name": "No tenant data is lost or changed by the upgrade"
+        },
+        {
+          "id": "04-03",
+          "name": "Carried sessions and machine tokens still resolve after the upgrade",
+          "criteria": [
+            "A session created before the upgrade still resolves to and acts on the first workspace afterward",
+            "A valid machine token created before the upgrade still resolves to and acts on the first workspace afterward",
+            "The carried credentials require no re-issue or re-binding to keep working across the upgrade",
+            "Credential resolution after the upgrade flows through the shipped active-workspace resolution seam unchanged"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-mwt-slice-05-migration-guarantee.feature",
+          "scenario_name": "Existing sessions and machine tokens still resolve after the upgrade"
+        },
+        {
+          "id": "04-04",
+          "name": "Upgraded user resolves to workspace 1 without writing active workspace",
+          "criteria": [
+            "An upgraded user who never chose an active workspace resolves to the first workspace via the shipped NULL-active plus sole-membership resolution path",
+            "After resolution, the user's active_workspace_id remains unwritten and NULL (observable proof of the no-backfill decision D4)",
+            "Resolution to the first workspace writes no row and performs no backfill update on the user or membership tables",
+            "Re-resolving the same user repeatedly continues to yield the first workspace while active_workspace_id stays NULL",
+            "The unwritten active-workspace state is verified against a real database, not inferred from internal resolution code"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-mwt-slice-05-migration-guarantee.feature",
+          "scenario_name": "An upgraded user resolves to workspace 1 without their active workspace being written"
+        },
+        {
+          "id": "04-05",
+          "name": "Existing sign-in and workspace behaviour is unchanged after the upgrade",
+          "criteria": [
+            "An existing member signs in after the upgrade and lands on the first workspace",
+            "After sign-in the member sees exactly the issues and projects they saw before the upgrade, with nothing added or removed",
+            "No behavioural change is observable at the sign-in or web surface compared with the pre-upgrade single-workspace experience",
+            "The single-workspace experience is preserved as the one-membership special case of multi-workspace, not a separate code path",
+            "The unchanged behaviour is proven through the shipped sign-in and scoped-read seams, not by inspecting internals"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-mwt-slice-05-migration-guarantee.feature",
+          "scenario_name": "Existing sign-in and workspace behaviour is unchanged after the upgrade"
+        }
+      ]
+    },
+    {
+      "id": "05",
+      "name": "Rate-bucket eviction (D5)",
+      "steps": [
+        {
+          "id": "05-01",
+          "name": "Idle plus LRU size-cap eviction bounds the RevokeRateLimiter map",
+          "criteria": [
+            "Advancing the shipped clock past the idle window (W = ceil(C/R) seconds) evicts buckets idle beyond W, bounding the in-memory map under many idle principals",
+            "An active principal's throttle decision is byte-identical with eviction enabled and disabled (idle eviction is behaviour-preserving)",
+            "Under pathological load the LRU size-cap fallback bounds the map by size and only ever under-throttles, never over-throttling an active principal (one-directional relaxation)",
+            "Eviction reads the existing clock seam and introduces zero new crate (std HashMap retain only)",
+            "Eviction is exercised by MockClock-driven unit and property tests at the rate-limit module, not by an HTTP acceptance scenario"
+          ],
+          "test_file": "crates/foundry-app/src/rate_limit.rs",
+          "scenario_name": "rate_limit::tests (MockClock-driven idle-eviction and LRU size-cap unit/property tests)"
+        }
+      ]
+    }
+  ],
+  "implementation_scope": {
+    "source_directories": [
+      "crates/foundry-store/migrations/",
+      "crates/foundry-store/src/",
+      "crates/foundry-services/src/",
+      "crates/foundry-app/src/"
+    ],
+    "test_directories": [
+      "crates/foundry-acceptance/tests/",
+      "crates/foundry-store/src/",
+      "crates/foundry-app/src/"
+    ],
+    "excluded_patterns": [
+      "target/**",
+      "**/*.md"
+    ]
+  },
+  "validation": {
+    "status": "approved",
+    "reviewer": "nw-software-crafter-reviewer",
+    "approved_at": "2026-06-12"
+  }
+}

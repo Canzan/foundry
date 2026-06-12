@@ -756,6 +756,15 @@ pub struct FoundryWorld {
     /// so the after-snapshot can prove every pre-existing tenant's rows are
     /// unchanged row-for-row (NFR-MWT-REL-01). See step 03-02.
     pub mwt6_existing_snapshot: HashMap<String, Vec<String>>,
+    /// Email of the provisioned workspace's first admin (step 03-03 isolation
+    /// leg) — used to seed her team membership and resolve her acting workspace.
+    pub mwt6_first_admin_email: Option<String>,
+    /// Provisioned-tenant issue titles by workspace name (step 03-03), so the
+    /// isolation read can assert the admin sees EXACTLY her own workspace's data.
+    pub mwt6_provisioned_issue_titles: HashMap<String, Vec<String>>,
+    /// Issue titles returned by the last scoped board read (step 03-03), driven
+    /// through the SHIPPED resolution + scoped-read seam as the provisioned admin.
+    pub mwt6_listed_issue_titles: Vec<String>,
 }
 
 impl FoundryWorld {

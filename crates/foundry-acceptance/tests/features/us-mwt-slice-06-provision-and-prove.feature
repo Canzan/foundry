@@ -155,7 +155,7 @@ Feature: An instance super-admin provisions a new isolated workspace from the op
   #    (NFR-MWT-SEC-01, proven for the NEW tenant). Green-by-inheritance behind
   #    the provisioning gate.
   # ----------------------------------------------------------------------------
-  @pending @us-mwt07 @us-mwt08
+  @us-mwt07 @us-mwt08
   Scenario: The provisioned workspace is a real coexisting tenant that sees only its own data
     Given the super-admin has provisioned workspace "Globex" with first admin "priya@globex.com"
     And "Globex" has issues that belong to "Globex"

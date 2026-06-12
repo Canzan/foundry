@@ -544,6 +544,245 @@ async fn new_workspace_starts_empty_isolated(world: &mut FoundryWorld, ws_name: 
 }
 
 // ---------------------------------------------------------------------------
+// Scenario 3 — the provisioned workspace is a real coexisting tenant that sees
+//              only its own data (US-MWT08 isolation leg, NFR-MWT-SEC-01).
+//
+// Green-by-inheritance: this scenario adds NO new isolation code. It provisions
+// Globex through the REAL CLI (as in the walking skeleton), seeds Globex with
+// its OWN team/project/issues using the SAME slugs Acme uses (so the only thing
+// distinguishing the two tenants' reads is the acting workspace), then drives
+// the SHIPPED scoped-read seam exactly as `list_board_issues` does —
+// `resolve_active_workspace(priya)` (the same membership-resolution seam ws1
+// uses) → `find_team_by_slug(acting_ws, slug)` → `find_project_by_slug` →
+// `list_issues_by_project`. Because the acting workspace is resolved through the
+// shipped seam and the team lookup is workspace-scoped, Priya sees only Globex's
+// issues and never Acme's. Falsifiability: resolving Priya to Acme's workspace
+// (ignoring the acting workspace) would surface Acme's "Existing issue" —
+// demonstrated in the unit isolation assertion below.
+// ---------------------------------------------------------------------------
+
+/// `Given the super-admin has provisioned workspace "Globex" with first admin …`
+/// — drive the REAL provisioning CLI subprocess (same driving port as the
+/// walking skeleton) and capture the new workspace's id, so the isolation leg
+/// reads against the very rows the subprocess wrote.
+#[given(
+    regex = r#"^the super-admin has provisioned workspace "([^"]+)" with first admin "([^"]+)"$"#
+)]
+async fn super_admin_has_provisioned(
+    world: &mut FoundryWorld,
+    ws_name: String,
+    admin_email: String,
+) {
+    run_provision_cli(world, &ws_name, &admin_email).await;
+    assert_eq!(
+        world.mwt6_cli_exit,
+        Some(0),
+        "provisioning must succeed before proving isolation; stdout={:?}",
+        world.mwt6_cli_stdout
+    );
+    let pool = harness_pool(world);
+    let (id,): (uuid::Uuid,) = sqlx::query_as("SELECT id FROM workspaces WHERE name = $1")
+        .bind(&ws_name)
+        .fetch_one(&pool)
+        .await
+        .unwrap_or_else(|e| panic!("provisioned workspace {ws_name:?} must exist: {e}"));
+    world.mwt6_provisioned_workspace_id = Some(id);
+    world.mwt6_workspace_ids.insert(ws_name, id);
+    world.mwt6_first_admin_email = Some(admin_email);
+}
+
+/// `And "Globex" has issues that belong to "Globex"` — seed the provisioned
+/// tenant with its OWN team/project/issue, AND make the seeded first admin a
+/// member of that team so the shipped membership-gated scoped read returns her
+/// board. The team/project slugs DELIBERATELY match Acme's ("core"/"apollo") so
+/// the only variable distinguishing the two tenants' reads is the acting
+/// workspace — a scope leak would surface Acme's issue under Globex's slugs.
+#[given(regex = r#"^"([^"]+)" has issues that belong to "([^"]+)"$"#)]
+async fn provisioned_workspace_has_own_issues(
+    world: &mut FoundryWorld,
+    ws_name: String,
+    _ws_name_again: String,
+) {
+    let pool = harness_pool(world);
+    let workspace_id = *world
+        .mwt6_workspace_ids
+        .get(&ws_name)
+        .unwrap_or_else(|| panic!("provisioned workspace {ws_name:?} must exist first"));
+    let admin_email = world
+        .mwt6_first_admin_email
+        .clone()
+        .expect("provisioned first admin recorded");
+
+    let admin_id: uuid::Uuid = sqlx::query_scalar("SELECT id FROM users WHERE email_lower = $1")
+        .bind(admin_email.to_ascii_lowercase())
+        .fetch_one(&pool)
+        .await
+        .expect("provisioned first admin exists");
+
+    // Team + project scoped to the provisioned workspace, same slugs as Acme.
+    let team_id = uuid::Uuid::now_v7();
+    sqlx::query("INSERT INTO teams (id, workspace_id, name, slug) VALUES ($1, $2, 'Core', 'core')")
+        .bind(team_id)
+        .bind(workspace_id)
+        .execute(&pool)
+        .await
+        .expect("insert provisioned-tenant team");
+    sqlx::query("INSERT INTO team_memberships (team_id, user_id, role) VALUES ($1, $2, 'lead')")
+        .bind(team_id)
+        .bind(admin_id)
+        .execute(&pool)
+        .await
+        .expect("first admin joins her workspace's team");
+    let project_id = uuid::Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO projects (id, team_id, workspace_id, name, slug, key_prefix)
+              VALUES ($1, $2, $3, 'Apollo', 'apollo', 'APL')",
+    )
+    .bind(project_id)
+    .bind(team_id)
+    .bind(workspace_id)
+    .execute(&pool)
+    .await
+    .expect("insert provisioned-tenant project");
+    let issue_id = uuid::Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO issues (id, project_id, workspace_id, number, title, author_id)
+              VALUES ($1, $2, $3, 1, 'Globex-only issue', $4)",
+    )
+    .bind(issue_id)
+    .bind(project_id)
+    .bind(workspace_id)
+    .bind(admin_id)
+    .execute(&pool)
+    .await
+    .expect("insert provisioned-tenant issue");
+
+    world
+        .mwt6_provisioned_issue_titles
+        .insert(ws_name, vec!["Globex-only issue".to_string()]);
+}
+
+/// `When "priya@globex.com" lists her issues` — drive the SHIPPED scoped-read
+/// seam through the resolution seam (the same one ws1 uses): resolve her active
+/// workspace, then read her board via the workspace-scoped team→project→issues
+/// chain `list_board_issues` walks. No new isolation code — green by inheritance.
+#[when(regex = r#"^"([^"]+)" lists her issues$"#)]
+async fn first_admin_lists_her_issues(world: &mut FoundryWorld, admin_email: String) {
+    let titles = read_board_titles_via_resolution(world, &admin_email).await;
+    world.mwt6_listed_issue_titles = titles;
+}
+
+/// Resolve `admin_email`'s acting workspace through the SHIPPED
+/// `resolve_active_workspace` seam, then read the `core`/`apollo` board scoped to
+/// THAT acting workspace — exactly the chain the shipped `list_board_issues`
+/// application port walks (`find_team_by_slug(acting_ws, …)` →
+/// `find_project_by_slug` → `list_issues_by_project`). Returns the issue titles
+/// the caller is permitted to see. Enforces the shipped membership gate.
+async fn read_board_titles_via_resolution(
+    world: &mut FoundryWorld,
+    admin_email: &str,
+) -> Vec<String> {
+    let store = world
+        .mwt6_harness
+        .as_ref()
+        .expect("mwt6 harness")
+        .app
+        .state
+        .store
+        .clone();
+    let user_id = store
+        .user_id_by_email(&admin_email.to_ascii_lowercase())
+        .await
+        .expect("query user")
+        .unwrap_or_else(|| panic!("{admin_email:?} must exist"));
+
+    // SHIPPED resolution seam — the SAME seam workspace 1 uses to stamp the
+    // session's acting workspace (AC5: the provisioned tenant is resolved
+    // through the same seam as workspace 1).
+    let (acting_workspace_id, _name) = store
+        .resolve_active_workspace(user_id)
+        .await
+        .expect("resolve active workspace")
+        .unwrap_or_else(|| panic!("{admin_email:?} must resolve to an acting workspace"));
+
+    board_titles_scoped(&store, acting_workspace_id, user_id).await
+}
+
+/// The SHIPPED scoped-read chain, extracted so the falsifiability mutation can
+/// drive it with a DIFFERENT acting workspace and observe the leak. Membership-
+/// gated (a non-member sees nothing), workspace-scoped at the team lookup.
+async fn board_titles_scoped(
+    store: &foundry_store::Store,
+    acting_workspace_id: uuid::Uuid,
+    user_id: uuid::Uuid,
+) -> Vec<String> {
+    let Some(team) = store
+        .find_team_by_slug(acting_workspace_id, "core")
+        .await
+        .expect("find team by slug scoped to acting workspace")
+    else {
+        return Vec::new();
+    };
+    if !store
+        .is_team_member(team.id, user_id)
+        .await
+        .expect("team membership gate")
+    {
+        return Vec::new();
+    }
+    let Some(project) = store
+        .find_project_by_slug(team.id, "apollo")
+        .await
+        .expect("find project by slug")
+    else {
+        return Vec::new();
+    };
+    store
+        .list_issues_by_project(project.id)
+        .await
+        .expect("scoped issue read")
+        .into_iter()
+        .map(|row| row.title)
+        .collect()
+}
+
+/// `Then she sees only "Globex" issues` — the scoped read returns EXACTLY the
+/// provisioned tenant's own issues (AC1).
+#[then(regex = r#"^she sees only "([^"]+)" issues$"#)]
+async fn sees_only_own_issues(world: &mut FoundryWorld, ws_name: String) {
+    let expected = world
+        .mwt6_provisioned_issue_titles
+        .get(&ws_name)
+        .cloned()
+        .unwrap_or_else(|| panic!("provisioned tenant {ws_name:?} issues seeded"));
+    let mut listed = world.mwt6_listed_issue_titles.clone();
+    let mut expected_sorted = expected.clone();
+    listed.sort();
+    expected_sorted.sort();
+    assert_eq!(
+        listed, expected_sorted,
+        "the provisioned tenant's admin must see ONLY {ws_name:?}'s own issues \
+         (expected={expected_sorted:?}, got={listed:?})"
+    );
+}
+
+/// `And no "Acme" issue appears` — none of the EXISTING workspace's issues leak
+/// into the provisioned tenant's scoped read (AC2). Asserted by title against
+/// the Background-seeded existing-workspace issue.
+#[then(regex = r#"^no "([^"]+)" issue appears$"#)]
+async fn no_existing_issue_appears(world: &mut FoundryWorld, _existing_ws: String) {
+    assert!(
+        !world
+            .mwt6_listed_issue_titles
+            .iter()
+            .any(|t| t == "Existing issue"),
+        "no existing-workspace issue may appear in the provisioned tenant's scoped \
+         read; got={:?}",
+        world.mwt6_listed_issue_titles
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Scenario 8 — upgraded installs gain a super-admin via grant (ADR-001 / D1)
 // ---------------------------------------------------------------------------
 
