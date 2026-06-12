@@ -63,14 +63,24 @@ fn harness_pool(world: &FoundryWorld) -> PgPool {
 // Background
 // ---------------------------------------------------------------------------
 
-/// Seed an instance CLAIMED by a super-admin: a workspace + its admin user +
-/// admin membership, AND the `instance_admins` row that makes the admin the
-/// first super-admin (the bootstrap-claim path, ADR-001 / D1 — the seed CLI is
-/// step 02-02; this Background uses a direct insert fixture per the task brief).
+/// Seed an instance CLAIMED by a super-admin via the REAL bootstrap-claim path
+/// (ADR-001 / D1, step 02-01): the SHIPPED `create_initial_workspace` seeding
+/// transaction atomically creates workspace 1 + its admin (+ seeded team/project)
+/// AND records that operator as the first `instance_admins` row. We drive the
+/// production claim — NOT a fixture `instance_admins` insert — so every scenario
+/// in this feature proves the bootstrap claim establishes the first super-admin
+/// (a fresh instance never has a workspace 1 with no provisioning authority).
 #[given(regex = r#"^an instance claimed by super-admin "([^"]+)" with workspace "([^"]+)"$"#)]
 async fn instance_claimed_by_superadmin(world: &mut FoundryWorld, admin: String, ws_name: String) {
     ensure_harness(world).await;
-    let pool = harness_pool(world);
+    let store = world
+        .mwt6_harness
+        .as_ref()
+        .expect("mwt6 harness")
+        .app
+        .state
+        .store
+        .clone();
 
     let workspace_id = uuid::Uuid::now_v7();
     let admin_id = uuid::Uuid::now_v7();
@@ -80,43 +90,27 @@ async fn instance_claimed_by_superadmin(world: &mut FoundryWorld, admin: String,
             .await
             .expect("hash super-admin pw");
 
-    sqlx::query("INSERT INTO workspaces (id, name) VALUES ($1, $2)")
-        .bind(workspace_id)
-        .bind(&ws_name)
-        .execute(&pool)
+    // The REAL bootstrap claim (the `submit` handler's seam): one atomic tx
+    // creates ws1 + its admin + seeded team/project AND the first super-admin.
+    store
+        .create_initial_workspace(
+            workspace_id,
+            &ws_name,
+            admin_id,
+            &admin_lower,
+            &admin,
+            "Ops",
+            &admin_hash,
+            uuid::Uuid::now_v7(),
+            "General",
+            "general",
+            uuid::Uuid::now_v7(),
+            "Sandbox",
+            "sandbox",
+            "GEN",
+        )
         .await
-        .expect("insert claimed workspace");
-    sqlx::query(
-        "INSERT INTO users (id, email_lower, email_display, display_name, password_hash)
-              VALUES ($1, $2, $3, 'Ops', $4) ON CONFLICT (email_lower) DO NOTHING",
-    )
-    .bind(admin_id)
-    .bind(&admin_lower)
-    .bind(&admin)
-    .bind(&admin_hash)
-    .execute(&pool)
-    .await
-    .expect("insert super-admin user");
-    let (admin_id,): (uuid::Uuid,) = sqlx::query_as("SELECT id FROM users WHERE email_lower = $1")
-        .bind(&admin_lower)
-        .fetch_one(&pool)
-        .await
-        .expect("resolve super-admin user id");
-    sqlx::query(
-        "INSERT INTO workspace_memberships (workspace_id, user_id, role)
-              VALUES ($1, $2, 'admin')",
-    )
-    .bind(workspace_id)
-    .bind(admin_id)
-    .execute(&pool)
-    .await
-    .expect("insert super-admin membership");
-    // The bootstrap-claiming operator IS the first instance super-admin (D1).
-    sqlx::query("INSERT INTO instance_admins (user_id) VALUES ($1) ON CONFLICT DO NOTHING")
-        .bind(admin_id)
-        .execute(&pool)
-        .await
-        .expect("seed first instance super-admin");
+        .expect("real bootstrap claim seeds ws1 + its admin + first super-admin");
 
     world.mwt6_superadmin_email = Some(admin);
     world.mwt6_workspace_ids.insert(ws_name, workspace_id);
@@ -211,6 +205,13 @@ async fn workspace_has_member_with_issues(
 /// emitted invite link is signable, and `--as` carries the bootstrap super-admin.
 #[when(regex = r#"^the super-admin provisions workspace "([^"]+)" with first admin "([^"]+)"$"#)]
 async fn superadmin_provisions(world: &mut FoundryWorld, ws_name: String, admin_email: String) {
+    run_provision_cli(world, &ws_name, &admin_email).await;
+}
+
+/// Shared driving-port invocation: run the REAL operator-CLI `provision-workspace`
+/// subprocess against the per-scenario schema, acting as the super-admin email
+/// captured in the World, and stash the exit code + stdout for the Then steps.
+async fn run_provision_cli(world: &mut FoundryWorld, ws_name: &str, admin_email: &str) {
     ensure_harness(world).await;
     let base = ensure_postgres().await;
     let schema = world
@@ -228,8 +229,8 @@ async fn superadmin_provisions(world: &mut FoundryWorld, ws_name: String, admin_
     // signed invite link is verifiable by the shipped server.
     let session_secret = "test-only-secret-must-be-at-least-32-bytes-long-please-yes".to_string();
 
-    let name = ws_name.clone();
-    let email = admin_email.clone();
+    let name = ws_name.to_string();
+    let email = admin_email.to_string();
     let output = tokio::task::spawn_blocking(move || {
         AssertCommand::cargo_bin("foundry")
             .expect("cargo-bin foundry")
@@ -357,5 +358,100 @@ async fn first_admin_acts_on(world: &mut FoundryWorld, admin_email: String, ws_n
     assert_eq!(
         resolved.1, ws_name,
         "resolved workspace name must be {ws_name:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 7 — the bootstrap-claiming operator is the first super-admin (D1)
+// ---------------------------------------------------------------------------
+
+/// Confirm the named operator was established as the first super-admin by the
+/// REAL bootstrap claim (run in the Background via `create_initial_workspace`).
+/// This rides the SHIPPED `is_instance_admin` authz over the rows the production
+/// claim seeded — NOT a fixture insert — proving D1: claiming the instance
+/// makes the operator both ws1's admin AND the first super-admin.
+#[given(regex = r#"^"([^"]+)" claimed the instance at bootstrap$"#)]
+async fn operator_claimed_at_bootstrap(world: &mut FoundryWorld, operator: String) {
+    let store = world
+        .mwt6_harness
+        .as_ref()
+        .expect("mwt6 harness")
+        .app
+        .state
+        .store
+        .clone();
+    let operator_id = store
+        .user_id_by_email(&operator.to_ascii_lowercase())
+        .await
+        .expect("query bootstrap operator")
+        .unwrap_or_else(|| panic!("bootstrap operator {operator:?} must exist after the claim"));
+    assert!(
+        store
+            .is_instance_admin(operator_id)
+            .await
+            .expect("is_instance_admin"),
+        "the bootstrap-claiming operator {operator:?} must be the first super-admin (D1)"
+    );
+    world.mwt6_superadmin_email = Some(operator);
+}
+
+/// The named bootstrap operator provisions a new workspace through the REAL
+/// operator-CLI subprocess (same driving surface as the walking skeleton),
+/// acting as `--as <operator>` — the super-admin seeded by the real claim.
+#[when(regex = r#"^"([^"]+)" provisions workspace "([^"]+)" with first admin "([^"]+)"$"#)]
+async fn operator_provisions(
+    world: &mut FoundryWorld,
+    operator: String,
+    ws_name: String,
+    admin_email: String,
+) {
+    world.mwt6_superadmin_email = Some(operator);
+    run_provision_cli(world, &ws_name, &admin_email).await;
+}
+
+/// The provisioning command succeeded (exit 0) — the bootstrap operator's
+/// super-admin authority (seeded by the real claim) passed `is_instance_admin`.
+#[then(regex = r#"^the provisioning succeeds$"#)]
+async fn provisioning_succeeds(world: &mut FoundryWorld) {
+    assert_eq!(
+        world.mwt6_cli_exit,
+        Some(0),
+        "provision-workspace must succeed (exit 0); stdout={:?}",
+        world.mwt6_cli_stdout
+    );
+}
+
+/// The provisioned workspace exists and coexists as an isolated tenant beside
+/// the bootstrap workspace. Mirrors the walking-skeleton isolation assertion.
+#[then(regex = r#"^"([^"]+)" exists and is isolated from all others$"#)]
+async fn workspace_exists_isolated(world: &mut FoundryWorld, ws_name: String) {
+    let pool = harness_pool(world);
+    let (id, name): (uuid::Uuid, String) =
+        sqlx::query_as("SELECT id, name FROM workspaces WHERE name = $1")
+            .bind(&ws_name)
+            .fetch_one(&pool)
+            .await
+            .unwrap_or_else(|e| panic!("provisioned workspace {ws_name:?} must exist: {e}"));
+    assert_eq!(name, ws_name);
+    world.mwt6_provisioned_workspace_id = Some(id);
+    world.mwt6_workspace_ids.insert(ws_name, id);
+
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM workspaces")
+        .fetch_one(&pool)
+        .await
+        .expect("count workspaces");
+    assert!(
+        count >= 2,
+        "provisioning must create an ADDITIONAL workspace beside the bootstrap one (got {count})"
+    );
+    let issue_count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM issues WHERE workspace_id = $1")
+            .bind(id)
+            .fetch_one(&pool)
+            .await
+            .expect("count new-workspace issues");
+    assert_eq!(
+        issue_count, 0,
+        "the freshly-provisioned workspace must start with no issues (isolation)"
     );
 }

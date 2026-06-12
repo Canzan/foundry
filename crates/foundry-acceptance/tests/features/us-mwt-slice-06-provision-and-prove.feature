@@ -209,7 +209,7 @@ Feature: An instance super-admin provisions a new isolated workspace from the op
   #    operator who claimed the instance is the first super-admin and can
   #    provision; an operator who never claimed cannot.
   # ----------------------------------------------------------------------------
-  @pending @us-mwt07
+  @us-mwt07
   Scenario: The bootstrap-claiming operator is the first super-admin and can provision
     Given "ops@acme.com" claimed the instance at bootstrap
     When "ops@acme.com" provisions workspace "Globex" with first admin "priya@globex.com"

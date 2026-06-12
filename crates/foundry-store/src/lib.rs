@@ -372,6 +372,17 @@ impl Store {
         .bind(project_key_prefix)
         .execute(&mut *tx)
         .await?;
+        // The bootstrap CLAIM also seeds the claiming operator as the FIRST
+        // instance super-admin (ADR-001 / D1), in the SAME atomic transaction:
+        // a fresh instance never exists with a workspace 1 but no provisioning
+        // authority. The operator is therefore both workspace 1's admin AND the
+        // first `instance_admins` row — one human, no separate instance identity.
+        // `ON CONFLICT DO NOTHING` keeps the seed idempotent and race-free,
+        // mirroring the shipped `grant-super-admin` idiom.
+        sqlx::query("INSERT INTO instance_admins (user_id) VALUES ($1) ON CONFLICT DO NOTHING")
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await?;
         tx.commit().await?;
         Ok(())
     }
