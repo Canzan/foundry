@@ -362,6 +362,140 @@ async fn first_admin_acts_on(world: &mut FoundryWorld, admin_email: String, ws_n
 }
 
 // ---------------------------------------------------------------------------
+// Scenario 8 — upgraded installs gain a super-admin via grant (ADR-001 / D1)
+// ---------------------------------------------------------------------------
+
+/// Model an UPGRADED install: workspace "Acme" + its admin exist, but there is
+/// NO `instance_admins` row yet (the pre-super-admin-role world of an install
+/// that predates the bootstrap seed). The Background claimed the instance via the
+/// SHIPPED `create_initial_workspace` (which now ALSO seeds the first super-admin
+/// per step 02-01) — so to authentically model the upgraded state we DELETE the
+/// `instance_admins` rows, leaving ws1 + its admin intact. The install thus has
+/// the workspace and its admin but NO provisioning authority until granted.
+#[given(regex = r#"^an upgraded instance with workspace "([^"]+)" and no super-admin yet$"#)]
+async fn upgraded_instance_no_super_admin(world: &mut FoundryWorld, ws_name: String) {
+    ensure_harness(world).await;
+    let pool = harness_pool(world);
+
+    // Strip the bootstrap-seeded super-admin authority → an install with a
+    // workspace + admin but no super-admin (the upgrade starting point).
+    sqlx::query("DELETE FROM instance_admins")
+        .execute(&pool)
+        .await
+        .expect("clear instance_admins to model an upgraded install");
+
+    let supers: i64 = sqlx::query_scalar("SELECT count(*) FROM instance_admins")
+        .fetch_one(&pool)
+        .await
+        .expect("count instance_admins on upgraded install");
+    assert_eq!(supers, 0, "an upgraded install starts with no super-admin");
+
+    // Acme + its admin "ops@acme.com" remain from the Background claim.
+    assert!(
+        world.mwt6_workspace_ids.contains_key(&ws_name),
+        "workspace {ws_name:?} must already exist from the Background claim"
+    );
+    world.mwt6_superadmin_email = Some("ops@acme.com".to_string());
+}
+
+/// Drive the REAL operator-CLI `grant-super-admin` subprocess against the
+/// per-scenario schema — the upgrade path that records the operator as the first
+/// instance super-admin (idempotent `ON CONFLICT DO NOTHING`). Mirrors
+/// `run_provision_cli`'s subprocess wiring + structured exit code.
+#[when(regex = r#"^"([^"]+)" is granted super-admin$"#)]
+async fn operator_is_granted_super_admin(world: &mut FoundryWorld, operator: String) {
+    run_grant_cli(world, &operator).await;
+}
+
+/// Second grant for the SAME operator — the idempotence leg. The CLI must exit 0
+/// again and record the grant exactly once (no second `instance_admins` row).
+#[when(regex = r#"^"([^"]+)" is granted super-admin a second time$"#)]
+async fn operator_is_granted_super_admin_again(world: &mut FoundryWorld, operator: String) {
+    run_grant_cli(world, &operator).await;
+}
+
+/// Shared driving-port invocation: run the REAL operator-CLI `grant-super-admin`
+/// subprocess against the per-scenario schema and stash the exit code + stdout.
+async fn run_grant_cli(world: &mut FoundryWorld, operator: &str) {
+    ensure_harness(world).await;
+    let base = ensure_postgres().await;
+    let schema = world
+        .mwt6_harness
+        .as_ref()
+        .expect("mwt6 harness")
+        .schema
+        .clone();
+    let database_url = format!("{base}?options=-csearch_path%3D{schema}");
+
+    let email = operator.to_string();
+    let output = tokio::task::spawn_blocking(move || {
+        AssertCommand::cargo_bin("foundry")
+            .expect("cargo-bin foundry")
+            .env("DATABASE_URL", database_url)
+            .args(["doctor", "grant-super-admin"])
+            .args(["--email", &email])
+            .output()
+            .expect("invoke foundry doctor grant-super-admin")
+    })
+    .await
+    .expect("join blocking cli");
+
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    world.mwt6_cli_exit = Some(output.status.code().unwrap_or(-1));
+    world.mwt6_cli_stdout = Some(stdout);
+}
+
+/// AC 1/2: after granting (twice, for the same operator), exactly one
+/// `instance_admins` row exists for that operator — the grant is idempotent.
+#[then(regex = r#"^the grant is recorded exactly once$"#)]
+async fn grant_recorded_exactly_once(world: &mut FoundryWorld) {
+    assert_eq!(
+        world.mwt6_cli_exit,
+        Some(0),
+        "grant-super-admin must exit 0; stdout={:?}",
+        world.mwt6_cli_stdout
+    );
+    let pool = harness_pool(world);
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM instance_admins")
+        .fetch_one(&pool)
+        .await
+        .expect("count instance_admins after grant");
+    assert_eq!(
+        count, 1,
+        "granting (even twice) records the operator as super-admin exactly once"
+    );
+}
+
+/// AC 3: the granted operator now passes `is_instance_admin` and can provision a
+/// NEW workspace through the same operator-CLI provisioning subprocess. This is
+/// an `And` following a `Then`, so cucumber dispatches it as a `then` step.
+#[then(regex = r#"^"([^"]+)" can then provision workspace "([^"]+)" with first admin "([^"]+)"$"#)]
+async fn granted_operator_can_provision(
+    world: &mut FoundryWorld,
+    operator: String,
+    ws_name: String,
+    admin_email: String,
+) {
+    world.mwt6_superadmin_email = Some(operator);
+    run_provision_cli(world, &ws_name, &admin_email).await;
+    assert_eq!(
+        world.mwt6_cli_exit,
+        Some(0),
+        "the granted operator must be able to provision (exit 0); stdout={:?}",
+        world.mwt6_cli_stdout
+    );
+    let pool = harness_pool(world);
+    let (id,): (uuid::Uuid,) = sqlx::query_as("SELECT id FROM workspaces WHERE name = $1")
+        .bind(&ws_name)
+        .fetch_one(&pool)
+        .await
+        .unwrap_or_else(|e| {
+            panic!("granted operator's provisioned workspace {ws_name:?} must exist: {e}")
+        });
+    world.mwt6_workspace_ids.insert(ws_name, id);
+}
+
+// ---------------------------------------------------------------------------
 // Scenario 7 — the bootstrap-claiming operator is the first super-admin (D1)
 // ---------------------------------------------------------------------------
 

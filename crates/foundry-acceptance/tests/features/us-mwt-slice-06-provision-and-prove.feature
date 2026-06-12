@@ -222,7 +222,7 @@ Feature: An instance super-admin provisions a new isolated workspace from the op
   #    `grant-super-admin`; the grant is idempotent; the granted operator can then
   #    provision.
   # ----------------------------------------------------------------------------
-  @pending @us-mwt07
+  @us-mwt07
   Scenario: An upgraded install grants its first super-admin and can then provision
     Given an upgraded instance with workspace "Acme" and no super-admin yet
     When "ops@acme.com" is granted super-admin

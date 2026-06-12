@@ -1168,6 +1168,22 @@ impl Store {
         Ok(row.0)
     }
 
+    /// Grant a user the INSTANCE-level super-admin authority — the UPGRADE path
+    /// (multi-workspace-provisioning, ADR-001 / D1). An install that predates the
+    /// super-admin role has a workspace + its admin but no `instance_admins` row;
+    /// this records that operator as the first super-admin so they can provision.
+    ///
+    /// Idempotent + race-free via `ON CONFLICT DO NOTHING` (mirrors the bootstrap
+    /// claim's seed at `create_initial_workspace`): granting an already-granted
+    /// operator is a no-op, leaving exactly one row. Touches no other tenant data.
+    pub async fn grant_instance_admin(&self, user_id: uuid::Uuid) -> Result<(), StoreError> {
+        sqlx::query("INSERT INTO instance_admins (user_id) VALUES ($1) ON CONFLICT DO NOTHING")
+            .bind(user_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     /// Look up a user's id by their (case-insensitive) email. Used by the
     /// provisioning CLI to resolve the acting super-admin before the
     /// [`Self::is_instance_admin`] gate.

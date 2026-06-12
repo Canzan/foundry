@@ -550,6 +550,126 @@ pub fn run_provision_workspace(name: &str, admin_email: &str, acting_email: &str
     })
 }
 
+/// multi-workspace-provisioning (US-MWT07, ADR-001 / D1) — entry point invoked
+/// from `main.rs` when the CLI sees
+/// `foundry doctor grant-super-admin --email <operator>`.
+///
+/// The UPGRADE path: an existing single-workspace install (workspace + admin, but
+/// no super-admin yet — i.e. NOT created via the new bootstrap seed) grants its
+/// first instance super-admin, who can then provision. Resolves the operator by
+/// email to a `users` row, then records the grant via the idempotent
+/// `grant_instance_admin` store fn (`INSERT … ON CONFLICT DO NOTHING`), so a
+/// second grant for the same operator is a no-op. Reachable ONLY from the operator
+/// CLI, never the bearer API. Operates against the LIVE DB via `DATABASE_URL`,
+/// reusing the `run_restore_comment` scaffold (thread-isolated tokio runtime,
+/// structured exit codes).
+///
+/// Exit codes (mirroring `run_provision_workspace`'s discipline):
+///
+/// - `0` granted: the operator is recorded as an instance super-admin (idempotent
+///   — a re-grant of an already-super-admin operator also exits 0).
+/// - `2` invalid args: missing `--email`, or no `users` row matches the operator
+///   (you cannot grant a non-existent user; the operator must already be a user).
+/// - `3` DB / infra fail: DATABASE_URL unreachable, or a DB-side failure mid-grant.
+pub fn run_grant_super_admin(operator_email: &str) -> i32 {
+    if operator_email.is_empty() {
+        eprintln!(
+            "foundry doctor grant-super-admin: --email is required. \
+             Usage: foundry doctor grant-super-admin --email <operator-email>"
+        );
+        return 2;
+    }
+
+    let database_url = match std::env::var("DATABASE_URL") {
+        Ok(v) if !v.is_empty() => v,
+        _ => {
+            eprintln!(
+                "foundry doctor grant-super-admin: DATABASE_URL is required \
+                 to reach the live database. Set it to the same value the \
+                 foundry server uses."
+            );
+            return 3;
+        }
+    };
+
+    let operator_email = operator_email.to_string();
+
+    // Thread-isolated runtime (see `run_restore_comment` for why): we are
+    // dispatched from inside the outer `#[tokio::main]` runtime, so nesting a
+    // `block_on` would panic.
+    std::thread::spawn(move || {
+        let runtime = match tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        {
+            Ok(rt) => rt,
+            Err(err) => {
+                eprintln!("foundry doctor grant-super-admin: could not build tokio runtime: {err}");
+                return 3;
+            }
+        };
+
+        runtime.block_on(async move {
+            let store = match foundry_store::Store::connect(&database_url).await {
+                Ok(s) => s,
+                Err(err) => {
+                    eprintln!(
+                        "foundry doctor grant-super-admin: could not connect to \
+                         DATABASE_URL: {err}"
+                    );
+                    return 3;
+                }
+            };
+
+            // Resolve the operator by email. You cannot grant a user who does not
+            // exist — exit 2 (invalid argument), distinct from a DB failure (3).
+            let operator_id = match store
+                .user_id_by_email(&operator_email.to_ascii_lowercase())
+                .await
+            {
+                Ok(Some(id)) => id,
+                Ok(None) => {
+                    eprintln!(
+                        "foundry doctor grant-super-admin: no user matches {operator_email:?}; \
+                         the operator must already be a user of this instance."
+                    );
+                    return 2;
+                }
+                Err(err) => {
+                    eprintln!(
+                        "foundry doctor grant-super-admin: failed to resolve operator \
+                         against live DB: {err}"
+                    );
+                    return 3;
+                }
+            };
+
+            match store.grant_instance_admin(operator_id).await {
+                Ok(()) => {
+                    println!("operator: {operator_email}");
+                    println!("status: super-admin-granted");
+                    0
+                }
+                Err(err) => {
+                    eprintln!(
+                        "foundry doctor grant-super-admin: grant against live DB \
+                         failed: {err}"
+                    );
+                    3
+                }
+            }
+        })
+    })
+    .join()
+    .unwrap_or_else(|_| {
+        eprintln!(
+            "foundry doctor grant-super-admin: worker thread panicked; \
+             see stderr above"
+        );
+        3
+    })
+}
+
 /// Generate a high-entropy initial credential for a provisioned first admin.
 /// The operator never sees this; the first admin resets it by accepting the
 /// emitted invite link. 32 hex chars ≈ 128 bits of entropy.

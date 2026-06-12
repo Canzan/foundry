@@ -688,11 +688,34 @@ fn dispatch_subcommand() -> Option<i32> {
                     );
                     Some(code)
                 }
+                // multi-workspace-provisioning (US-MWT07, ADR-001 / D1) — the
+                // UPGRADE path. Records an existing user as the first instance
+                // super-admin via the idempotent grant. Reads DATABASE_URL to
+                // reach the LIVE DB. Reachable ONLY here, never the bearer API.
+                "grant-super-admin" => {
+                    let opt = |flag: &str| -> Option<String> {
+                        args.iter()
+                            .position(|a| a == flag)
+                            .and_then(|i| args.get(i + 1))
+                            .cloned()
+                    };
+                    let email = opt("--email").unwrap_or_default();
+                    if email.is_empty() {
+                        eprintln!(
+                            "foundry doctor grant-super-admin: missing required flag. \
+                             Usage: foundry doctor grant-super-admin --email <operator-email>"
+                        );
+                        return Some(2);
+                    }
+                    let code = foundry_app::admin_cli::run_grant_super_admin(&email);
+                    Some(code)
+                }
                 "" => {
                     eprintln!(
                         "foundry doctor: subcommand required. \
                          Available: backup-verify <file>, restore-comment <comment-uuid>, \
-                         provision-workspace --name <name> --admin-email <addr> --as <addr>"
+                         provision-workspace --name <name> --admin-email <addr> --as <addr>, \
+                         grant-super-admin --email <addr>"
                     );
                     Some(2)
                 }
@@ -700,7 +723,8 @@ fn dispatch_subcommand() -> Option<i32> {
                     eprintln!(
                         "foundry doctor: unknown subcommand {other:?}. \
                          Available: backup-verify <file>, restore-comment <comment-uuid>, \
-                         provision-workspace --name <name> --admin-email <addr> --as <addr>"
+                         provision-workspace --name <name> --admin-email <addr> --as <addr>, \
+                         grant-super-admin --email <addr>"
                     );
                     Some(2)
                 }
