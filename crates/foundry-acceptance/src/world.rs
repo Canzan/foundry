@@ -837,6 +837,22 @@ pub struct FoundryWorld {
     /// is asserted on the email-NORMALISED bodies. What MUST be identical is the
     /// confirmation TEMPLATE; what may differ is only the echoed input.
     pub mwt6_grant_submitted_emails: Vec<String>,
+
+    /// (route, status, body) of EACH `/admin/instance/…` route an unauthorised
+    /// caller probed in the non-enumerability scenarios (web-provisioning-flow
+    /// 02-02 signed-out / 02-03 non-super-admin). Every entry must be
+    /// BYTE-IDENTICAL (status + full body) to `mwt6_admin_never_existed` — no 403,
+    /// 401, or login redirect distinguishes the admin surface from a never-existed
+    /// path (ADR-002 response-mapping contract).
+    pub mwt6_admin_surface_refusals: Vec<(String, StatusCode, String)>,
+    /// METHOD → (status, body) of an unauthorised caller's request to a path that
+    /// never existed, captured PER HTTP METHOD — the control each admin-surface
+    /// refusal is compared against. Per-method because a non-safe method (POST)
+    /// is screened by the double-submit CSRF layer BEFORE routing, so a
+    /// never-existed POST and a never-existed GET refuse through different layers;
+    /// the non-enumerability property is that an `/admin/instance/…` route refuses
+    /// IDENTICALLY to a never-existed path requested with the SAME method.
+    pub mwt6_admin_never_existed: HashMap<String, (StatusCode, String)>,
 }
 
 impl FoundryWorld {

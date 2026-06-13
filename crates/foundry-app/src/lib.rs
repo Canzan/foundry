@@ -35,7 +35,7 @@ pub mod views;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::middleware;
-use axum::response::IntoResponse;
+use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::Router;
 use foundry_realtime::EventPayload;
@@ -386,6 +386,17 @@ pub fn build_router(state: AppState) -> Router {
             post(instance_admin::submit_grant),
         )
         .route("/", get(signin::dashboard_root))
+        // Non-enumerability (ADR-002, web-provisioning-flow): a path with NO
+        // route is refused with the SAME uniform `resource_not_found_page()` the
+        // tenancy/instance-admin gates return for a foreign-or-missing resource.
+        // Without this, axum's default fallback returns a bare empty-body 404,
+        // which DIFFERS from the gated-surface refusal — a body oracle that lets
+        // an attacker distinguish "the admin surface exists but you can't reach
+        // it" (styled 404 page) from "this path never existed" (empty 404). The
+        // fallback collapses both to one byte-identical refusal, so the
+        // `/admin/instance/…` signed-out refusal is indistinguishable from a
+        // never-existed path (ADR-002 response-mapping contract).
+        .fallback(uniform_not_found)
         .layer(middleware::from_fn_with_state(
             state.clone(),
             csrf::csrf_middleware,
@@ -409,6 +420,15 @@ pub fn build_router(state: AppState) -> Router {
         // handler-signature changes.
         .layer(metrics_server::request_tracking_layer())
         .with_state(state)
+}
+
+/// Router fallback for any unmatched path: the SHIPPED uniform
+/// `resource_not_found_page()` (ADR-002 non-enumerability). A never-existed path
+/// is refused BYTE-IDENTICALLY to a gated surface's signed-out/non-member refusal,
+/// so neither status nor body reveals whether a path corresponds to a real-but-
+/// forbidden resource or to nothing at all.
+async fn uniform_not_found() -> Response {
+    bootstrap::resource_not_found_page()
 }
 
 async fn healthz() -> impl IntoResponse {

@@ -205,7 +205,7 @@ Feature: An instance super-admin provisions a new workspace and grants super-adm
   #    BYTE-IDENTICAL to a never-existed path — no 403, no 401, no login redirect.
   #    The control is a path that never existed. (Evil-user.)
   # ----------------------------------------------------------------------------
-  @pending @us-mwt08 @error
+  @us-mwt08 @error
   Scenario: A signed-out request to the admin surface is refused like a path that never existed
     Given no user is signed in on the web
     When a signed-out caller requests each /admin/instance route on the web

@@ -162,6 +162,48 @@
       "s": "SKIPPED",
       "d": "NOT_APPLICABLE: no-oracle property asserted at acceptance port-to-port layer; production green-by-inheritance; falsifiability litmus performed at acceptance layer (404 oracle mutation RED-ed)",
       "t": "2026-06-13T17:13:35Z"
+    },
+    {
+      "sid": "02-01",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-13T17:20:38Z"
+    },
+    {
+      "sid": "02-01",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-13T17:20:38Z"
+    },
+    {
+      "sid": "02-02",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-13T17:25:04Z"
+    },
+    {
+      "sid": "02-02",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-13T17:27:28Z"
+    },
+    {
+      "sid": "02-02",
+      "p": "RED_UNIT",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: behavior is router-fallback + shipped session gate, exercised port-to-port via HTTP acceptance test; no pure domain fn to unit-test (falsifiability proven by byte-identity assertion firing in RED_ACCEPTANCE)",
+      "t": "2026-06-13T17:27:46Z"
+    },
+    {
+      "sid": "02-02",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-13T17:34:05Z"
     }
   ]
 }

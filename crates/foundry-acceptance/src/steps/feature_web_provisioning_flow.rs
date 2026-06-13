@@ -633,6 +633,204 @@ async fn neither_response_reveals_existence(world: &mut FoundryWorld) {
 }
 
 // ---------------------------------------------------------------------------
+// Non-enumerable refusal — SIGNED-OUT (web-provisioning-flow 02-02, ADR-002).
+//
+// A signed-OUT caller's request to EVERY /admin/instance/… route (the GET
+// dashboard + both state-changing POSTs) is refused with a uniform 404 that is
+// BYTE-IDENTICAL (status AND full body) to a path that never existed — NO 403,
+// NO 401, NO login redirect; nothing reveals the admin surface exists. The
+// `require_instance_admin` gate returns the SHIPPED `resource_not_found_page()`
+// for a missing SessionUser (ADR-002 response-mapping, row 1); the control is a
+// path with no route at all, which the SHIPPED router fallback also refuses with
+// the SAME uniform 404 page. Green-by-inheritance behind the shipped gate +
+// fallback; this scenario PROVES the byte-identity holds on every route.
+//
+// Falsifiability (revert-reds-it litmus, ADR-002): collapsing the gate's refusal
+// into a DISTINCT response — a 401, a 303 redirect-to-sign-in, or a body that
+// differs from the never-existed page — diverges from the control and re-REDS
+// `every_admin_response_refused_identically`. Demonstrated during RED (step log).
+// ---------------------------------------------------------------------------
+
+/// The three `/admin/instance/…` routes an unauthorised caller probes, each with
+/// the HTTP method it is served under (GET dashboard + the two state-changing
+/// POSTs). The refusal MUST be byte-identical across all three (and to the
+/// never-existed control) — a per-route divergence would be an enumeration oracle.
+const ADMIN_INSTANCE_ROUTES: &[(&str, &str)] = &[
+    ("GET", "/admin/instance/workspaces"),
+    ("POST", "/admin/instance/workspaces"),
+    ("POST", "/admin/instance/super-admins"),
+];
+
+/// Issue an ANONYMOUS request (no session cookie, no CSRF) for `method url`
+/// against the in-process harness, returning the full (status, body) refusal
+/// shape. A signed-out caller carries no credentials at all — this is the
+/// adversary the non-enumerability property defends against.
+async fn anonymous_request(
+    world: &mut FoundryWorld,
+    method: &str,
+    url: &str,
+) -> (StatusCode, String) {
+    let base = harness(world).base_url();
+    let client = http(world);
+    let request = match method {
+        "GET" => client.get(format!("{base}{url}")),
+        "POST" => client.post(format!("{base}{url}")),
+        other => panic!("unsupported anonymous method {other:?}"),
+    };
+    let resp = request.send().await.expect("send anonymous request");
+    let status = resp.status();
+    let body = resp.text().await.unwrap_or_default();
+    (status, body)
+}
+
+/// `Given no user is signed in on the web` — the acting persona carries NO
+/// session cookie. The slice-06 Background already claimed the instance + a
+/// super-admin (so the surface genuinely exists for SOMEONE); this step only
+/// asserts the adversary is unauthenticated and primes the http client.
+#[given(regex = r#"^no user is signed in on the web$"#)]
+async fn no_user_signed_in(world: &mut FoundryWorld) {
+    assert!(
+        world.mwt6_superadmin_email.is_some(),
+        "the slice-06 Background must have claimed the instance first (so the \
+         admin surface exists for the super-admin the signed-out caller cannot reach)"
+    );
+    let _ = http(world);
+}
+
+/// `When a signed-out caller requests each /admin/instance route on the web` —
+/// drive an ANONYMOUS request to EVERY /admin/instance/… route (GET dashboard +
+/// both POSTs) over real HTTP, recording each (route, status, body) refusal so
+/// the `Then` can assert byte-identity against the never-existed control.
+#[when(regex = r#"^a signed-out caller requests each /admin/instance route on the web$"#)]
+async fn signed_out_requests_each_admin_route(world: &mut FoundryWorld) {
+    for (method, url) in ADMIN_INSTANCE_ROUTES {
+        let (status, body) = anonymous_request(world, method, url).await;
+        world
+            .mwt6_admin_surface_refusals
+            .push((format!("{method} {url}"), status, body));
+    }
+}
+
+/// `And a signed-out caller requests a path that never existed on the web` —
+/// drive an ANONYMOUS request to a path with NO route at all (the control),
+/// once per HTTP METHOD the admin routes use (GET + POST). Each admin-surface
+/// refusal must be byte-identical to the never-existed-path refusal for its OWN
+/// method: a GET admin route vs a never-existed GET (both the SHIPPED router
+/// fallback's uniform `resource_not_found_page()`); a POST admin route vs a
+/// never-existed POST (both screened identically by the SHIPPED CSRF layer that
+/// runs ahead of routing). Capturing per method is what keeps the comparison
+/// honest — comparing a POST refusal against a GET control would be a category
+/// error, not an oracle test.
+#[when(regex = r#"^a signed-out caller requests a path that never existed on the web$"#)]
+async fn signed_out_requests_never_existed_path(world: &mut FoundryWorld) {
+    for method in ["GET", "POST"] {
+        let (status, body) =
+            anonymous_request(world, method, "/this-path-has-never-existed-anywhere").await;
+        world
+            .mwt6_admin_never_existed
+            .insert(method.to_string(), (status, body));
+    }
+}
+
+/// `Then every admin-surface response is refused identically to the never-existed
+/// path` — the non-enumerability core. EVERY /admin/instance/… route's refusal is
+/// BYTE-IDENTICAL (status AND full body) to the never-existed-path control: a
+/// uniform 404, no 403, no 401, no login redirect, no per-route divergence. The
+/// control itself must be a genuine 404 (so the comparison is not vacuously
+/// matching two redirects). Comparing the FULL body — not merely "both 404" — is
+/// what makes the assertion falsifiable: any existence-revealing divergence on
+/// any route (a 401, a 303, a distinct body) re-REDS here.
+#[then(
+    regex = r#"^every admin-surface response is refused identically to the never-existed path$"#
+)]
+async fn every_admin_response_refused_identically(world: &mut FoundryWorld) {
+    assert_eq!(
+        world.mwt6_admin_surface_refusals.len(),
+        ADMIN_INSTANCE_ROUTES.len(),
+        "every /admin/instance route must have been probed; got {:?}",
+        world.mwt6_admin_surface_refusals
+    );
+    // No admin-surface refusal may reveal that the surface exists — none is a
+    // login redirect (3xx) and none is a 401/403 status oracle distinct from the
+    // never-existed control for the SAME method.
+    for (route, status, _body) in &world.mwt6_admin_surface_refusals {
+        assert!(
+            !status.is_redirection(),
+            "{route} answered with a redirect ({status}) — a login-redirect oracle \
+             that reveals the admin surface exists (ADR-002 forbids it)"
+        );
+    }
+    for (route, status, body) in &world.mwt6_admin_surface_refusals {
+        let method = route
+            .split_whitespace()
+            .next()
+            .expect("each recorded route is 'METHOD /path'");
+        let (control_status, control_body) = world
+            .mwt6_admin_never_existed
+            .get(method)
+            .unwrap_or_else(|| panic!("a never-existed {method} control was captured"));
+        assert_eq!(
+            status, control_status,
+            "{route} refused with status {status} but a never-existed {method} path \
+             refused with {control_status} — a status oracle (no 403, 401, or \
+             redirect distinguishing the admin surface from nothing is allowed)"
+        );
+        assert_eq!(
+            body, control_body,
+            "{route} refusal body differs from the never-existed {method}-path body \
+             — a body oracle that reveals the admin surface exists. \
+             admin = {body:?}, never-existed = {control_body:?}"
+        );
+    }
+}
+
+/// `And nothing reveals that the admin surface exists` — no admin-surface refusal
+/// body carries an oracle distinguishing it from a never-existed path of the same
+/// method: no admin-surface vocabulary (route names, "admin", "super-admin",
+/// "instance", "workspaces") leaked into any refusal body, and each body is
+/// byte-identical to its same-method never-existed control. Complements the
+/// status/body identity check so a regression that made BOTH the control and the
+/// admin refusals name the surface (still byte-identical, but both leaking) still
+/// REDS here.
+#[then(regex = r#"^nothing reveals that the admin surface exists$"#)]
+async fn nothing_reveals_admin_surface(world: &mut FoundryWorld) {
+    assert!(
+        !world.mwt6_admin_surface_refusals.is_empty(),
+        "no admin-surface refusal was captured to assert on"
+    );
+    for (route, _status, body) in &world.mwt6_admin_surface_refusals {
+        let method = route
+            .split_whitespace()
+            .next()
+            .expect("each recorded route is 'METHOD /path'");
+        let (_, control_body) = world
+            .mwt6_admin_never_existed
+            .get(method)
+            .unwrap_or_else(|| panic!("a never-existed {method} control was captured"));
+        assert_eq!(
+            body, control_body,
+            "{route} refusal body diverges from the never-existed {method}-path \
+             control — an existence oracle; admin = {body:?}, control = {control_body:?}"
+        );
+        let body_lower = body.to_ascii_lowercase();
+        for oracle_phrase in [
+            "super-admin",
+            "super admin",
+            "/admin/instance",
+            "instance dashboard",
+            "provision",
+            "grant",
+        ] {
+            assert!(
+                !body_lower.contains(oracle_phrase),
+                "{route} refusal body leaked admin-surface vocabulary \
+                 ({oracle_phrase:?}) — an existence oracle; got {body:?}"
+            );
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // When — submit the web provision form (NEW text)
 // ---------------------------------------------------------------------------
 
