@@ -89,3 +89,11 @@ This project uses **trunk-based development**.
 - **CI is not a commit gate.** Do NOT wait for, require, or block on CI for commits — commits go straight to trunk. The GitHub Actions workflow is not a per-commit gate.
 - **Validate locally instead.** Before committing, run the local gate `cargo xtask ci` (build + fmt + clippy + tests) — that is the quality bar, not remote CI.
 - Commit when the user asks; keep commits small and frequent in the trunk-based style.
+
+## Dead code
+
+This project has not reached a stable release. **Remove dead/legacy code outright — do not leave it inert.**
+
+- When a route, function, guard, or path is superseded, **delete it** in the same change rather than leaving it commented-out, feature-flagged-off, or unreachable "for safety."
+- Pre-stable, there is no backward-compatibility obligation, so defence-in-depth dead code is just carry: prefer a clean tree and rely on git history to recover anything removed.
+- Re-evaluate this policy once a stable version is released (at that point, deprecate-then-remove may be warranted instead).
