@@ -261,7 +261,7 @@ Feature: An instance super-admin provisions a new workspace and grants super-adm
   #     provision Globex from the browser, assert Acme is byte-for-byte unchanged
   #     and Globex starts empty and isolated. (US-MWT07 / US-MWT08 web legs.)
   # ----------------------------------------------------------------------------
-  @pending @us-mwt07 @us-mwt08
+  @us-mwt07 @us-mwt08
   Scenario: Provisioning from the browser leaves existing workspaces untouched
     Given the super-admin is signed in on the web
     And a recorded snapshot of "Acme" and its data and members
