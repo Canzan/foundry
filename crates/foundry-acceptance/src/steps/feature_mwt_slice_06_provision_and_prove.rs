@@ -42,6 +42,12 @@ use sqlx::{PgPool, Row};
 /// per request (no cookie jar), so the cross-tenant probe needs it.
 const MEMBER_PASSWORD: &str = "member-password";
 
+/// The password the Background seeds the bootstrap super-admin with
+/// (`instance_claimed_by_superadmin` → `create_initial_workspace`). Single source
+/// of truth — the web-provisioning-flow steps re-authenticate the super-admin per
+/// request and import this rather than duplicating the literal.
+pub(crate) const SUPERADMIN_PASSWORD: &str = "ops-password";
+
 /// Resolve (or spawn) the slice-06 in-process harness. Its migrated schema is
 /// the one the provisioning CLI subprocess targets via DATABASE_URL; reusing it
 /// lets the "first admin acts on the new workspace" leg drive the SHIPPED
@@ -93,7 +99,7 @@ async fn instance_claimed_by_superadmin(world: &mut FoundryWorld, admin: String,
     let admin_id = uuid::Uuid::now_v7();
     let admin_lower = admin.to_ascii_lowercase();
     let admin_hash =
-        foundry_auth::hash_password(&SecretString::new("ops-password".to_string().into()))
+        foundry_auth::hash_password(&SecretString::new(SUPERADMIN_PASSWORD.to_string().into()))
             .await
             .expect("hash super-admin pw");
 

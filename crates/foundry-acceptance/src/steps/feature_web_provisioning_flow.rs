@@ -45,10 +45,10 @@ use reqwest::StatusCode;
 use secrecy::SecretString;
 
 /// The password the slice-06 Background seeds the bootstrap super-admin with
-/// (`instance_claimed_by_superadmin` → `create_initial_workspace` with the fixed
-/// "ops-password"). The web sign-in path re-authenticates per request, so the
-/// provision POST needs it.
-const SUPERADMIN_PASSWORD: &str = "ops-password";
+/// (`instance_claimed_by_superadmin` → `create_initial_workspace`). The web
+/// sign-in path re-authenticates per request, so the provision POST needs it.
+/// Single source of truth lives in the slice-06 module that owns the seed.
+use super::feature_mwt_slice_06_provision_and_prove::SUPERADMIN_PASSWORD;
 
 fn harness(world: &FoundryWorld) -> &InProcHarness {
     world

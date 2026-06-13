@@ -62,7 +62,7 @@ pub struct ProvisionForm {
     pub name: String,
     pub email: String,
     #[serde(rename = "_csrf", default)]
-    pub _csrf: Option<String>,
+    _csrf: Option<String>,
 }
 
 /// `GET /admin/instance/workspaces` — the instance super-admin DASHBOARD: the
@@ -172,7 +172,7 @@ pub async fn submit_provision(
 pub struct GrantForm {
     pub email: String,
     #[serde(rename = "_csrf", default)]
-    pub _csrf: Option<String>,
+    _csrf: Option<String>,
 }
 
 /// `POST /admin/instance/super-admins` — grant a user INSTANCE super-admin from
@@ -244,6 +244,13 @@ async fn require_instance_admin(state: &AppState, session: &Session) -> Option<S
     };
     match state.store.is_instance_admin(user.user_id).await {
         Ok(true) => Some(user),
+        Err(err) => {
+            tracing::warn!(
+                error = %err,
+                "is_instance_admin probe failed; failing closed (404)"
+            );
+            None
+        }
         _ => None,
     }
 }
