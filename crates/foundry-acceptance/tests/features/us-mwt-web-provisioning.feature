@@ -220,7 +220,7 @@ Feature: An instance super-admin provisions a new workspace and grants super-adm
   #    signed-out refusal AND to a never-existed path — the non-super-admin learns
   #    nothing about whether the surface (or target) exists. (Evil-user.)
   # ----------------------------------------------------------------------------
-  @pending @us-mwt08 @error
+  @us-mwt08 @error
   Scenario: A signed-in non-super-admin request to the admin surface is refused non-enumerably
     Given "marco@acme.com" is signed in on the web and is not a super-admin
     When the member requests each /admin/instance route on the web

@@ -37,7 +37,7 @@
 //! workspace id + invite link) and the post-provision DB row presence (the shared
 //! slice-06 isolation Then).
 
-use crate::support::harness::{signed_in_get, signed_in_post, InProcHarness};
+use crate::support::harness::{signed_in_get, signed_in_post, InProcHarness, PostOutcome};
 use crate::world::FoundryWorld;
 use cucumber::{given, then, when};
 use reqwest::redirect::Policy;
@@ -827,6 +827,272 @@ async fn nothing_reveals_admin_surface(world: &mut FoundryWorld) {
                  ({oracle_phrase:?}) — an existence oracle; got {body:?}"
             );
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Non-enumerable refusal — SIGNED-IN NON-SUPER-ADMIN (web-provisioning-flow
+// 02-03, ADR-002 response-mapping rows 1+2 collapse to ONE uniform 404).
+//
+// An ordinary signed-in member's request to EVERY /admin/instance/… route (the
+// GET dashboard + both state-changing POSTs) is refused with a 404 that is
+// BYTE-IDENTICAL (status AND full body) BOTH to a never-existed path AND to the
+// SIGNED-OUT refusal for the SAME route — so the CAUSE of refusal (not-signed-in
+// vs not-authorized) is INDISTINGUISHABLE. The SHIPPED `require_instance_admin`
+// gate returns `None` for `is_instance_admin == false` exactly as it does for a
+// missing SessionUser (ADR-002 rows 1+2), so all three handlers return the SHIPPED
+// `resource_not_found_page()` either way; the never-existed control is the router
+// fallback's same uniform 404. Green-by-inheritance behind the shipped gate; this
+// scenario PROVES the cross-cause byte-identity holds on every route.
+//
+// Falsifiability (revert-reds-it litmus, ADR-002): making the non-admin arm a
+// DISTINCT response — a 403/401 for `is_instance_admin == false` while the
+// signed-out arm stays 404, or any body that diverges from the never-existed page
+// — diverges from BOTH controls and re-REDS `every_admin_response_refused_identically`
+// AND `non_super_admin_refusal_byte_identical_to_signed_out`. Demonstrated during
+// RED (step log).
+// ---------------------------------------------------------------------------
+
+/// The password `workspace_has_member` seeds the ordinary member with.
+const MEMBER_PASSWORD: &str = "member-password";
+
+/// Issue a request to `method url` as the SIGNED-IN ordinary member `email`,
+/// returning the full (status, body) refusal shape.
+///
+/// The member carries a real `foundry_session` cookie but NO double-submit CSRF
+/// token — exactly the credentials a browsing member naturally has, and exactly
+/// what makes the refusal BYTE-IDENTICAL to the signed-out caller (who also has no
+/// CSRF token):
+///   * GET (no CSRF required): the session cookie carries the member into the
+///     `require_instance_admin` GATE, which refuses `is_instance_admin == false`
+///     with the SHIPPED uniform 404 — the genuine not-authorized refusal, proven
+///     to match the signed-out 404 (gate refuses a missing session) AND the
+///     never-existed 404 (router fallback).
+///   * POST (CSRF-screened): the SHIPPED `csrf_middleware` screens the token-less
+///     POST BEFORE routing, identically to the signed-out token-less POST and the
+///     never-existed token-less POST. The non-enumerability holds at the CSRF layer
+///     for POSTs and at the gate for the GET; in BOTH cases the member's refusal is
+///     indistinguishable from the signed-out refusal — which is the property
+///     (ADR-002: the refusal CAUSE must not be observable).
+async fn member_request(
+    world: &mut FoundryWorld,
+    email: &str,
+    method: &str,
+    url: &str,
+) -> (StatusCode, String) {
+    let outcome = match method {
+        "GET" => {
+            let client = http(world);
+            signed_in_get(harness(world), &client, email, MEMBER_PASSWORD, url).await
+        }
+        "POST" => session_only_post(world, email, url).await,
+        other => panic!("unsupported member method {other:?}"),
+    };
+    (outcome.status, outcome.body)
+}
+
+/// Sign in as `email` to capture a real `foundry_session` cookie, then POST `url`
+/// carrying ONLY that session cookie — NO `_csrf` token. The SHIPPED double-submit
+/// `csrf_middleware` refuses the token-less POST before routing, the SAME way it
+/// refuses a signed-out (also token-less) POST and a never-existed token-less POST.
+/// This is what keeps the member's POST refusal byte-identical to the signed-out
+/// baseline: both are screened at the CSRF layer with no token.
+async fn session_only_post(world: &mut FoundryWorld, email: &str, url: &str) -> PostOutcome {
+    let base = harness(world).base_url();
+    let client = http(world);
+
+    // (1) GET /sign-in to mint a CSRF cookie + token (needed only to AUTHENTICATE).
+    let signin_get = client
+        .get(format!("{base}/sign-in"))
+        .send()
+        .await
+        .expect("get /sign-in for csrf");
+    let csrf_token = signin_get
+        .headers()
+        .get_all(reqwest::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .find(|s| s.starts_with("foundry_csrf="))
+        .and_then(|s| s.strip_prefix("foundry_csrf="))
+        .and_then(|rest| rest.split(';').next())
+        .unwrap_or("")
+        .to_string();
+
+    // (2) POST /sign-in to authenticate; capture the session cookie.
+    let mut signin_form: std::collections::HashMap<&str, String> = std::collections::HashMap::new();
+    signin_form.insert("email", email.to_string());
+    signin_form.insert("password", MEMBER_PASSWORD.to_string());
+    signin_form.insert("_csrf", csrf_token.clone());
+    let signin_resp = client
+        .post(format!("{base}/sign-in"))
+        .header(
+            reqwest::header::COOKIE,
+            format!("foundry_csrf={csrf_token}"),
+        )
+        .form(&signin_form)
+        .send()
+        .await
+        .expect("post /sign-in");
+    let session_pair = signin_resp
+        .headers()
+        .get_all(reqwest::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .find(|s| s.starts_with("foundry_session="))
+        .and_then(|s| s.split(';').next())
+        .map(|s| s.to_string())
+        .expect("sign-in must issue a foundry_session cookie");
+
+    // (3) POST `url` carrying ONLY the session cookie — NO _csrf cookie, NO _csrf
+    //     form field. The double-submit CSRF middleware refuses it before routing.
+    let resp = client
+        .post(format!("{base}{url}"))
+        .header(reqwest::header::COOKIE, session_pair)
+        .form(&[("name", "Globex"), ("email", "priya@globex.com")])
+        .send()
+        .await
+        .expect("post target url (session-only, no csrf)");
+    let status = resp.status();
+    let headers = resp.headers().clone();
+    let body = resp.text().await.unwrap_or_default();
+    PostOutcome {
+        status,
+        headers,
+        body,
+    }
+}
+
+/// `Given "<email>" is signed in on the web and is not a super-admin` — confirm
+/// the named ordinary member exists (seeded by the Background `"Acme" has a member
+/// "<email>"`) and assert the `is_instance_admin == false` precondition that makes
+/// this the NON-AUTHORIZED (not the unauthenticated) refusal cause. The web sign-in
+/// itself happens per-request inside `member_request` (the harness keeps no cookie
+/// jar), authenticating against the SHIPPED cookie sign-in path with the
+/// Background-seeded "member-password".
+#[given(regex = r#"^"([^"]+)" is signed in on the web and is not a super-admin$"#)]
+async fn member_signed_in_not_super_admin(world: &mut FoundryWorld, email: String) {
+    let pool = harness(world).app.state.store.pool().clone();
+    let member_lower = email.to_ascii_lowercase();
+    let (member_id,): (uuid::Uuid,) = sqlx::query_as("SELECT id FROM users WHERE email_lower = $1")
+        .bind(&member_lower)
+        .fetch_one(&pool)
+        .await
+        .unwrap_or_else(|_| {
+            panic!("the Background must have seeded the ordinary member {email:?} first")
+        });
+    let is_admin = harness(world)
+        .app
+        .state
+        .store
+        .is_instance_admin(member_id)
+        .await
+        .expect("probe is_instance_admin precondition");
+    assert!(
+        !is_admin,
+        "the acting member {email:?} must NOT be a super-admin (this is the \
+         not-authorized refusal cause, distinct from the signed-out cause)"
+    );
+    // Remember the acting member so the When step drives requests as them.
+    world.mwt6_acting_member_email = Some(email);
+    let _ = http(world);
+}
+
+/// `When the member requests each /admin/instance route on the web` — drive the
+/// signed-in ordinary member to EVERY /admin/instance/… route (GET dashboard +
+/// both POSTs), recording each (route, status, body) refusal in
+/// `mwt6_admin_surface_refusals` (so the SHARED `every admin-surface response is
+/// refused identically to the never-existed path` Then asserts it). In the SAME
+/// step, ALSO drive a SIGNED-OUT caller to every route, capturing the signed-out
+/// refusal baseline in `mwt6_signed_out_refusals` — the cross-cause control the
+/// `non-super-admin refusal is byte-identical to the signed-out refusal` Then
+/// compares against. Driving both here keeps the two refusal causes paired
+/// per-route so the byte-identity is asserted route-for-route, not in aggregate.
+#[when(regex = r#"^the member requests each /admin/instance route on the web$"#)]
+async fn member_requests_each_admin_route(world: &mut FoundryWorld) {
+    let member = world
+        .mwt6_acting_member_email
+        .clone()
+        .expect("the Given established the acting ordinary member");
+    for (method, url) in ADMIN_INSTANCE_ROUTES {
+        // (a) the signed-in non-super-admin refusal (the not-authorized cause).
+        let (status, body) = member_request(world, &member, method, url).await;
+        world
+            .mwt6_admin_surface_refusals
+            .push((format!("{method} {url}"), status, body));
+        // (b) the signed-out refusal for the SAME route (the not-signed-in cause)
+        //     — the cross-cause baseline.
+        let (so_status, so_body) = anonymous_request(world, method, url).await;
+        world
+            .mwt6_signed_out_refusals
+            .push((format!("{method} {url}"), so_status, so_body));
+    }
+}
+
+/// `And the member requests a path that never existed on the web` — capture the
+/// never-existed-path control PER HTTP METHOD (GET + POST), the same identity-blind
+/// uniform 404 the signed-out 02-02 scenario used. The control is anonymous because
+/// a never-existed path has no gate to reach — it is refused by the router fallback
+/// (GET) / the CSRF layer ahead of routing (POST) regardless of who asks; that
+/// caller-independence is precisely why it is the right control for BOTH refusal
+/// causes.
+#[when(regex = r#"^the member requests a path that never existed on the web$"#)]
+async fn member_requests_never_existed_path(world: &mut FoundryWorld) {
+    for method in ["GET", "POST"] {
+        let (status, body) =
+            anonymous_request(world, method, "/this-path-has-never-existed-anywhere").await;
+        world
+            .mwt6_admin_never_existed
+            .insert(method.to_string(), (status, body));
+    }
+}
+
+/// `And the non-super-admin refusal is byte-identical to the signed-out refusal` —
+/// the cross-cause non-enumerability core (ADR-002 AC #3). For EVERY
+/// /admin/instance/… route, the signed-in ordinary member's refusal is
+/// BYTE-IDENTICAL (status AND full body) to the SIGNED-OUT refusal for the SAME
+/// route — so an observer cannot tell WHY a request was refused (not-signed-in vs
+/// signed-in-but-not-authorized). Asserting the FULL body route-for-route (not
+/// merely "both 404") is what makes the litmus bite: collapsing the two refusal
+/// arms into distinct responses (a 403/401 on the not-authorized arm) re-REDS here.
+#[then(regex = r#"^the non-super-admin refusal is byte-identical to the signed-out refusal$"#)]
+async fn non_super_admin_refusal_byte_identical_to_signed_out(world: &mut FoundryWorld) {
+    assert_eq!(
+        world.mwt6_admin_surface_refusals.len(),
+        ADMIN_INSTANCE_ROUTES.len(),
+        "every /admin/instance route must have been probed as the non-super-admin; got {:?}",
+        world.mwt6_admin_surface_refusals
+    );
+    assert_eq!(
+        world.mwt6_signed_out_refusals.len(),
+        ADMIN_INSTANCE_ROUTES.len(),
+        "every /admin/instance route must have a paired signed-out baseline; got {:?}",
+        world.mwt6_signed_out_refusals
+    );
+    for (member_refusal, signed_out_refusal) in world
+        .mwt6_admin_surface_refusals
+        .iter()
+        .zip(world.mwt6_signed_out_refusals.iter())
+    {
+        let (member_route, member_status, member_body) = member_refusal;
+        let (signed_out_route, signed_out_status, signed_out_body) = signed_out_refusal;
+        assert_eq!(
+            member_route, signed_out_route,
+            "the non-super-admin and signed-out refusals must be compared route-for-route; \
+             got {member_route:?} vs {signed_out_route:?}"
+        );
+        assert_eq!(
+            member_status, signed_out_status,
+            "{member_route} refused the non-super-admin with status {member_status} but the \
+             signed-out caller with {signed_out_status} — a status oracle revealing WHICH \
+             refusal cause occurred (ADR-002 forbids distinguishing not-signed-in from \
+             not-authorized)"
+        );
+        assert_eq!(
+            member_body, signed_out_body,
+            "{member_route} refusal body for the non-super-admin differs from the signed-out \
+             refusal body — a body oracle that reveals the refusal CAUSE. \
+             non-super-admin = {member_body:?}, signed-out = {signed_out_body:?}"
+        );
     }
 }
 

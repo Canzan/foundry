@@ -853,6 +853,20 @@ pub struct FoundryWorld {
     /// the non-enumerability property is that an `/admin/instance/…` route refuses
     /// IDENTICALLY to a never-existed path requested with the SAME method.
     pub mwt6_admin_never_existed: HashMap<String, (StatusCode, String)>,
+    /// (route, status, body) of EACH `/admin/instance/…` route a SIGNED-OUT caller
+    /// probed, captured as the cross-cause baseline by the non-super-admin
+    /// non-enumerability scenario (web-provisioning-flow 02-03). The 02-03 scenario
+    /// drives BOTH a signed-in ordinary member AND a signed-out caller against every
+    /// route so it can assert the non-super-admin refusal is BYTE-IDENTICAL to the
+    /// signed-out refusal for the SAME route — proving the CAUSE of refusal
+    /// (not-signed-in vs not-authorized) is indistinguishable (ADR-002 response-mapping
+    /// rows 1 and 2 collapse to the same uniform 404).
+    pub mwt6_signed_out_refusals: Vec<(String, StatusCode, String)>,
+    /// The email of the ordinary signed-in member driving the non-super-admin
+    /// non-enumerability scenario (web-provisioning-flow 02-03). Set by the
+    /// `"<email>" is signed in on the web and is not a super-admin` Given and read
+    /// by the When that drives each /admin/instance route as that member.
+    pub mwt6_acting_member_email: Option<String>,
 }
 
 impl FoundryWorld {
