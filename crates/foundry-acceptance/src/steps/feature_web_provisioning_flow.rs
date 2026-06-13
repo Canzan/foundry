@@ -885,7 +885,7 @@ async fn member_request(
             let client = http(world);
             signed_in_get(harness(world), &client, email, MEMBER_PASSWORD, url).await
         }
-        "POST" => session_only_post(world, email, url).await,
+        "POST" => session_only_post(world, email, MEMBER_PASSWORD, url).await,
         other => panic!("unsupported member method {other:?}"),
     };
     (outcome.status, outcome.body)
@@ -897,7 +897,17 @@ async fn member_request(
 /// refuses a signed-out (also token-less) POST and a never-existed token-less POST.
 /// This is what keeps the member's POST refusal byte-identical to the signed-out
 /// baseline: both are screened at the CSRF layer with no token.
-async fn session_only_post(world: &mut FoundryWorld, email: &str, url: &str) -> PostOutcome {
+///
+/// `password` is the caller's sign-in credential — the ordinary member uses
+/// `MEMBER_PASSWORD`; the bootstrap super-admin (the CSRF scenario, step 02-04)
+/// uses `SUPERADMIN_PASSWORD`. Both reach the token-less POST identically; only
+/// the AUTHENTICATION step differs.
+async fn session_only_post(
+    world: &mut FoundryWorld,
+    email: &str,
+    password: &str,
+    url: &str,
+) -> PostOutcome {
     let base = harness(world).base_url();
     let client = http(world);
 
@@ -921,7 +931,7 @@ async fn session_only_post(world: &mut FoundryWorld, email: &str, url: &str) -> 
     // (2) POST /sign-in to authenticate; capture the session cookie.
     let mut signin_form: std::collections::HashMap<&str, String> = std::collections::HashMap::new();
     signin_form.insert("email", email.to_string());
-    signin_form.insert("password", MEMBER_PASSWORD.to_string());
+    signin_form.insert("password", password.to_string());
     signin_form.insert("_csrf", csrf_token.clone());
     let signin_resp = client
         .post(format!("{base}/sign-in"))
@@ -1094,6 +1104,87 @@ async fn non_super_admin_refusal_byte_identical_to_signed_out(world: &mut Foundr
              non-super-admin = {member_body:?}, signed-out = {signed_out_body:?}"
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 8 (step 02-04) — a provision POST without a valid double-submit CSRF
+// token is refused, and NO workspace is created.
+//
+// Green-by-inheritance behind the SHIPPED `csrf::csrf_middleware`: the new
+// `POST /admin/instance/workspaces` route is mounted UNDER the production
+// double-submit CSRF layer (lib.rs), so a state-changing POST carrying a real
+// `foundry_session` cookie but NO `_csrf` cookie/field is screened by that layer
+// BEFORE it ever reaches the provisioning handler — exactly as the 02-02/02-03
+// glue already observed token-less POSTs get CSRF-screened. This scenario PROVES
+// (a) the refusal (the SHIPPED middleware's 403) and (b) the no-workspace-created
+// invariant (the workspace set is unchanged, read from the REAL Postgres pool).
+//
+// Falsifiability (revert-reds-it litmus): removing the `csrf_middleware` layer
+// from the route's mount (lib.rs) lets the token-less POST through to the
+// handler → a `Globex` workspace is provisioned → the workspace count INCREASES →
+// the reused `no new workspace was created` Then re-REDS (and the refusal status
+// is no longer a 4xx). Demonstrated during RED (step 02-04 log).
+// ---------------------------------------------------------------------------
+
+/// `When the super-admin submits the provision form for workspace "<name>"
+/// without a valid security token` — drive the NEW provisioning route over real
+/// HTTP as the SIGNED-IN super-admin, carrying a real `foundry_session` cookie but
+/// NO double-submit `_csrf` token. We FIRST snapshot the real workspace count
+/// (into the `mwt6_workspaces_before_attempt` slot the reused `no new workspace
+/// was created` Then reads), THEN issue the token-less POST via the SHIPPED
+/// `session_only_post` helper (cookie, no `_csrf`). The SHIPPED `csrf_middleware`
+/// screens the POST before routing; we capture the full (status, body) refusal in
+/// `last_status` / `last_body` for the refusal Then.
+#[when(
+    regex = r#"^the super-admin submits the provision form for workspace "([^"]+)" without a valid security token$"#
+)]
+async fn submit_provision_form_without_csrf(world: &mut FoundryWorld, _ws_name: String) {
+    let super_admin = world
+        .mwt6_superadmin_email
+        .clone()
+        .expect("super-admin seeded in the Background");
+
+    // Snapshot the workspace count BEFORE the refused attempt, so the reused
+    // `no new workspace was created` Then can prove the set is unchanged.
+    let pool = harness(world).app.state.store.pool().clone();
+    let before: i64 = sqlx::query_scalar("SELECT count(*) FROM workspaces")
+        .fetch_one(&pool)
+        .await
+        .expect("count workspaces before the token-less provision attempt");
+    world.mwt6_workspaces_before_attempt = Some(before);
+
+    // Drive the token-less POST: a real session cookie, NO `_csrf`. The SHIPPED
+    // double-submit `csrf_middleware` screens it ahead of routing.
+    let outcome = session_only_post(
+        world,
+        &super_admin,
+        SUPERADMIN_PASSWORD,
+        "/admin/instance/workspaces",
+    )
+    .await;
+    world.last_status = Some(outcome.status);
+    world.last_body = Some(outcome.body);
+}
+
+/// `Then the provision request is refused` — the SHIPPED `csrf_middleware`
+/// refuses the token-less double-submit POST with its uniform 403 BEFORE the
+/// provisioning handler runs (it never reaches the SHIPPED use-case). Asserting
+/// the 403 (a client-error refusal, NOT a 200 success fragment and NOT a redirect)
+/// is the falsifiable claim: dropping the CSRF layer from the route would let the
+/// token-less POST through and this would become a 200 (re-RED).
+#[then(regex = r#"^the provision request is refused$"#)]
+async fn provision_request_is_refused(world: &mut FoundryWorld) {
+    let status = world
+        .last_status
+        .expect("the token-less provision POST must have recorded a refusal status");
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "a provision POST with no valid double-submit CSRF token must be refused by the \
+         SHIPPED csrf_middleware with a uniform 403 before routing (it must NOT reach the \
+         provisioning handler); got {status}, body = {:?}",
+        world.last_body
+    );
 }
 
 // ---------------------------------------------------------------------------

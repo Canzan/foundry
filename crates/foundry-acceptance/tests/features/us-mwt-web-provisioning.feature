@@ -235,7 +235,7 @@ Feature: An instance super-admin provisions a new workspace and grants super-adm
   #    workspace is created. (Evil-user / the shipped CSRF guard exercised on the
   #    new route.)
   # ----------------------------------------------------------------------------
-  @pending @us-mwt07 @error
+  @us-mwt07 @error
   Scenario: A provision request without a valid security token is refused
     Given the super-admin is signed in on the web
     When the super-admin submits the provision form for workspace "Globex" without a valid security token

@@ -239,6 +239,48 @@
       "s": "EXECUTED",
       "d": "PASS",
       "t": "2026-06-13T17:46:14Z"
+    },
+    {
+      "sid": "02-03",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-13T17:46:49Z"
+    },
+    {
+      "sid": "02-04",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-13T17:49:31Z"
+    },
+    {
+      "sid": "02-04",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-13T18:03:31Z"
+    },
+    {
+      "sid": "02-04",
+      "p": "RED_UNIT",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: green-by-inheritance LAYER-3 scenario; refusal+count-unchanged IS the acceptance assertion; CSRF guard already shipped/unit-tested; falsifiability proven via revert-reds-it litmus (removing csrf_middleware \u2192 token-less POST creates workspace \u2192 RED)",
+      "t": "2026-06-13T18:03:52Z"
+    },
+    {
+      "sid": "02-04",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-13T18:05:06Z"
+    },
+    {
+      "sid": "02-04",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-13T18:05:38Z"
     }
   ]
 }
