@@ -685,7 +685,7 @@ async fn first_admin_lists_her_issues(world: &mut FoundryWorld, admin_email: Str
 /// application port walks (`find_team_by_slug(acting_ws, …)` →
 /// `find_project_by_slug` → `list_issues_by_project`). Returns the issue titles
 /// the caller is permitted to see. Enforces the shipped membership gate.
-async fn read_board_titles_via_resolution(
+pub(crate) async fn read_board_titles_via_resolution(
     world: &mut FoundryWorld,
     admin_email: &str,
 ) -> Vec<String> {

@@ -1428,3 +1428,167 @@ async fn legacy_path_not_old_conflict(world: &mut FoundryWorld) {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// Scenario 11 (step 03-03) — the browser-provisioned workspace is a real
+// isolated tenant (US-MWT08 web leg, NFR-MWT-SEC-01).
+//
+// Green-by-inheritance: this scenario adds NO new isolation code. It provisions
+// Globex through the REAL WEB driving adapter (session + double-submit CSRF →
+// the SHIPPED `provision_workspace` tx, exactly as the walking skeleton does),
+// then proves the web-provisioned tenant obeys the SHIPPED isolation boundary by
+// driving the SHIPPED `resolve_active_workspace` membership seam + the
+// workspace-scoped team→project→issues read — REUSING the slice-06 isolation
+// helper `read_board_titles_via_resolution` and the slice-06 isolation `Then`
+// steps (`she sees only … issues`, `no … issue appears`) verbatim. The only NEW
+// glue here is the browser-provisioning `Given` (the WEB provision path) and the
+// `When` that phrases the read "through the membership seam" (D5 — NOT a real
+// invite-accept sign-in).
+//
+// Falsifiability geometry (identical to slice-06): Acme and the web-provisioned
+// Globex BOTH carry a team `core` / project `apollo`, so the ONLY thing
+// distinguishing the two tenants' board reads is the acting workspace resolved
+// through the SHIPPED seam. A scoped read that drops the acting-workspace filter
+// (resolving Priya to Acme, or reading `core`/`apollo` un-scoped) would surface
+// Acme's "Existing issue" under Globex's slugs — re-REDDING both `Then` steps.
+// Demonstrated during RED (step 03-03 log) by mutating
+// `board_titles_scoped`/`read_board_titles_via_resolution` to ignore the acting
+// workspace and observing Acme's issue leak into Priya's board.
+// ---------------------------------------------------------------------------
+
+/// The team/project slugs the slice-06 isolation falsifiability geometry shares
+/// across both tenants (so the acting workspace is the only distinguishing
+/// variable — a scope leak surfaces the foreign tenant's issue under these slugs).
+const SHARED_TEAM_SLUG: &str = "core";
+const SHARED_PROJECT_SLUG: &str = "apollo";
+
+/// `Given the super-admin has provisioned workspace "<name>" from the browser
+/// with first admin "<email>"` — drive the NEW WEB provisioning route over real
+/// HTTP (session + double-submit CSRF → the SHIPPED `provision_workspace` tx,
+/// exactly as the walking skeleton's `submit_provision_form` does), then record
+/// the new workspace id + first-admin email into the SAME `mwt6_*` slots the
+/// SHIPPED slice-06 isolation steps read. ALSO seed the EXISTING workspace "Acme"
+/// with a `core`/`apollo` issue ("Existing issue") so the isolation proof has a
+/// foreign tenant's row that COULD leak — without it the `no "Acme" issue
+/// appears` assertion would be vacuous.
+#[given(
+    regex = r#"^the super-admin has provisioned workspace "([^"]+)" from the browser with first admin "([^"]+)"$"#
+)]
+async fn super_admin_has_provisioned_from_browser(
+    world: &mut FoundryWorld,
+    ws_name: String,
+    admin_email: String,
+) {
+    // Seed Acme (the existing workspace) with a core/apollo issue that COULD leak
+    // into the provisioned tenant's scoped read if isolation were broken.
+    seed_existing_workspace_issue(world, "Acme").await;
+
+    // Drive the REAL web provisioning route (the same driving port as the WS).
+    let super_admin = world
+        .mwt6_superadmin_email
+        .clone()
+        .expect("super-admin seeded in the Background");
+    let client = http(world);
+    let outcome = signed_in_post(
+        harness(world),
+        &client,
+        &super_admin,
+        SUPERADMIN_PASSWORD,
+        "/admin/instance/workspaces",
+        &[("name", ws_name.as_str()), ("email", admin_email.as_str())],
+    )
+    .await;
+    assert_eq!(
+        outcome.status,
+        StatusCode::OK,
+        "the web provision form must succeed (200) before proving isolation; body = {:?}",
+        outcome.body
+    );
+
+    // Record the provisioned workspace id into the slots the SHIPPED slice-06
+    // isolation steps (`has issues that belong to …`, `she sees only …`) read.
+    let pool = harness(world).app.state.store.pool().clone();
+    let (id,): (uuid::Uuid,) = sqlx::query_as("SELECT id FROM workspaces WHERE name = $1")
+        .bind(&ws_name)
+        .fetch_one(&pool)
+        .await
+        .unwrap_or_else(|e| panic!("browser-provisioned workspace {ws_name:?} must exist: {e}"));
+    world.mwt6_provisioned_workspace_id = Some(id);
+    world.mwt6_workspace_ids.insert(ws_name, id);
+    world.mwt6_first_admin_email = Some(admin_email);
+}
+
+/// Seed the EXISTING workspace with a `core`/`apollo` team/project/issue titled
+/// "Existing issue" — the foreign-tenant row the isolation proof must NOT leak.
+/// Mirrors the slice-06 Background seed (same slugs as the provisioned tenant), so
+/// the acting workspace is the sole distinguishing variable.
+async fn seed_existing_workspace_issue(world: &mut FoundryWorld, ws_name: &str) {
+    let workspace_id = *world
+        .mwt6_workspace_ids
+        .get(ws_name)
+        .unwrap_or_else(|| panic!("workspace {ws_name:?} must be seeded by the Background first"));
+    let pool = harness(world).app.state.store.pool().clone();
+
+    // The existing workspace's Background member authors the issue.
+    let author_id: uuid::Uuid = sqlx::query_scalar(
+        "SELECT user_id FROM workspace_memberships WHERE workspace_id = $1 LIMIT 1",
+    )
+    .bind(workspace_id)
+    .fetch_one(&pool)
+    .await
+    .expect("existing workspace has at least one member to author the issue");
+
+    let team_id = uuid::Uuid::now_v7();
+    sqlx::query("INSERT INTO teams (id, workspace_id, name, slug) VALUES ($1, $2, 'Core', $3)")
+        .bind(team_id)
+        .bind(workspace_id)
+        .bind(SHARED_TEAM_SLUG)
+        .execute(&pool)
+        .await
+        .expect("insert existing-workspace team");
+    let project_id = uuid::Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO projects (id, team_id, workspace_id, name, slug, key_prefix)
+              VALUES ($1, $2, $3, 'Apollo', $4, 'APL')",
+    )
+    .bind(project_id)
+    .bind(team_id)
+    .bind(workspace_id)
+    .bind(SHARED_PROJECT_SLUG)
+    .execute(&pool)
+    .await
+    .expect("insert existing-workspace project");
+    sqlx::query(
+        "INSERT INTO issues (id, project_id, workspace_id, number, title, author_id)
+              VALUES ($1, $2, $3, 1, 'Existing issue', $4)",
+    )
+    .bind(uuid::Uuid::now_v7())
+    .bind(project_id)
+    .bind(workspace_id)
+    .bind(author_id)
+    .execute(&pool)
+    .await
+    .expect("insert existing-workspace issue");
+}
+
+/// `When the first admin of "<name>" lists her issues through the membership
+/// seam` — drive the SHIPPED `resolve_active_workspace` membership-resolution
+/// seam (D5 — NOT a real invite-accept sign-in), then read her board via the
+/// workspace-scoped team→project→issues chain `list_board_issues` walks. REUSES
+/// the slice-06 helper `read_board_titles_via_resolution` verbatim — no new
+/// isolation code (green by inheritance). The provisioned first admin is resolved
+/// from `mwt6_first_admin_email` recorded by the browser-provisioning `Given`.
+#[when(regex = r#"^the first admin of "([^"]+)" lists her issues through the membership seam$"#)]
+async fn first_admin_lists_via_membership_seam(world: &mut FoundryWorld, _ws_name: String) {
+    let admin_email = world
+        .mwt6_first_admin_email
+        .clone()
+        .expect("the browser-provisioning Given recorded the first admin's email");
+    let titles =
+        crate::steps::feature_mwt_slice_06_provision_and_prove::read_board_titles_via_resolution(
+            world,
+            &admin_email,
+        )
+        .await;
+    world.mwt6_listed_issue_titles = titles;
+}

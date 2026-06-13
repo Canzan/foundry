@@ -276,7 +276,7 @@ Feature: An instance super-admin provisions a new workspace and grants super-adm
   #     "first admin can act" leg rides the SHIPPED resolve_active_workspace
   #     membership seam (D5 — NOT a real invite-accept sign-in). (US-MWT08 web leg.)
   # ----------------------------------------------------------------------------
-  @pending @us-mwt08
+  @us-mwt08
   Scenario: The browser-provisioned workspace is a real isolated tenant
     Given the super-admin has provisioned workspace "Globex" from the browser with first admin "priya@globex.com"
     And "Globex" has issues that belong to "Globex"
