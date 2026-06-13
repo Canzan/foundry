@@ -405,6 +405,19 @@ impl Store {
         Ok(row)
     }
 
+    /// List every workspace's id + name (newest first), the thin non-tenant-
+    /// scoped instance-level read the super-admin dashboard renders (ADR-001 / D4).
+    /// Instance-scoped on purpose — it is NOT scoped by a request workspace id
+    /// (the super-admin surveys ALL tenants); the `instance_admin` web adapter that
+    /// drives it is on the `check_arch` tenant-scoping allow-list (ADR-002 LAYER-1e).
+    pub async fn list_workspaces(&self) -> Result<Vec<(uuid::Uuid, String)>, StoreError> {
+        let rows: Vec<(uuid::Uuid, String)> =
+            sqlx::query_as("SELECT id, name FROM workspaces ORDER BY id DESC")
+                .fetch_all(&self.pool)
+                .await?;
+        Ok(rows)
+    }
+
     /// Resolve a user's ACTIVE workspace by MEMBERSHIP (ADR-005), not by the
     /// global "first" workspace. This is the multi-workspace-tenancy resolution
     /// seam the web sign-in path uses to stamp `SessionUser.workspace_id`.

@@ -37,7 +37,7 @@
 //! workspace id + invite link) and the post-provision DB row presence (the shared
 //! slice-06 isolation Then).
 
-use crate::support::harness::{signed_in_post, InProcHarness};
+use crate::support::harness::{signed_in_get, signed_in_post, InProcHarness};
 use crate::world::FoundryWorld;
 use cucumber::{given, then, when};
 use reqwest::redirect::Policy;
@@ -136,6 +136,97 @@ async fn super_admin_signed_in(world: &mut FoundryWorld) {
     );
     // Ensure the http client exists for the upcoming POST.
     let _ = http(world);
+}
+
+// ---------------------------------------------------------------------------
+// When — open the instance dashboard (GET, step 01-02)
+// ---------------------------------------------------------------------------
+
+/// `When the super-admin opens the instance dashboard on the web` — drive the
+/// NEW session-gated `GET /admin/instance/workspaces` over real HTTP: sign in as
+/// the super-admin (cookie) and GET the full dashboard page (no CSRF needed for a
+/// read). Captures the rendered page for the `Then` assertions below.
+#[when(regex = r#"^the super-admin opens the instance dashboard on the web$"#)]
+async fn open_instance_dashboard(world: &mut FoundryWorld) {
+    let super_admin = world
+        .mwt6_superadmin_email
+        .clone()
+        .expect("super-admin seeded in the Background");
+    let client = http(world);
+    let outcome = signed_in_get(
+        harness(world),
+        &client,
+        &super_admin,
+        SUPERADMIN_PASSWORD,
+        "/admin/instance/workspaces",
+    )
+    .await;
+    world.last_status = Some(outcome.status);
+    world.last_body = Some(outcome.body);
+}
+
+// ---------------------------------------------------------------------------
+// Then — the dashboard renders the workspace list + both forms (step 01-02)
+// ---------------------------------------------------------------------------
+
+/// `Then the dashboard lists the existing workspaces` — the full-page (no-JS)
+/// entry point renders a 200 page that NAMES every workspace the Background
+/// seeded (the port-exposed observable: the rendered page body contains each
+/// existing workspace name).
+#[then(regex = r#"^the dashboard lists the existing workspaces$"#)]
+async fn dashboard_lists_workspaces(world: &mut FoundryWorld) {
+    assert_eq!(
+        world.last_status,
+        Some(StatusCode::OK),
+        "the dashboard GET must render a 200 full page; body = {:?}",
+        world.last_body
+    );
+    let body = world
+        .last_body
+        .as_deref()
+        .expect("a rendered dashboard page was captured");
+    assert!(
+        !world.mwt6_workspace_ids.is_empty(),
+        "the Background must have seeded at least one workspace"
+    );
+    for ws_name in world.mwt6_workspace_ids.keys() {
+        assert!(
+            body.contains(ws_name),
+            "the dashboard must list the existing workspace {ws_name:?}; got {body:?}"
+        );
+    }
+}
+
+/// `And the dashboard offers a provision-workspace form and a grant-super-admin
+/// form` — both state-changing forms are present, each POSTing to its route and
+/// each carrying a valid double-submit `_csrf` field (the port-exposed observable
+/// of the no-JS surface: the rendered forms' actions + hidden CSRF inputs).
+#[then(regex = r#"^the dashboard offers a provision-workspace form and a grant-super-admin form$"#)]
+async fn dashboard_offers_both_forms(world: &mut FoundryWorld) {
+    let body = world
+        .last_body
+        .as_deref()
+        .expect("a rendered dashboard page was captured");
+    assert!(
+        body.contains(r#"action="/admin/instance/workspaces""#)
+            && body.contains("data-provision-form"),
+        "the dashboard must offer a provision-workspace form; got {body:?}"
+    );
+    assert!(
+        body.contains(r#"action="/admin/instance/super-admins""#)
+            && body.contains("data-grant-form"),
+        "the dashboard must offer a grant-super-admin form; got {body:?}"
+    );
+    // Each form carries a valid (non-empty) double-submit CSRF token field.
+    let csrf_fields = body.matches(r#"name="_csrf""#).count();
+    assert!(
+        csrf_fields >= 2,
+        "each of the two forms must carry a hidden _csrf field (found {csrf_fields}); got {body:?}"
+    );
+    assert!(
+        !body.contains(r#"value=""></"#) && !body.contains(r#"name="_csrf" value="">"#),
+        "the _csrf token must be a non-empty value; got {body:?}"
+    );
 }
 
 // ---------------------------------------------------------------------------

@@ -538,6 +538,39 @@ pub struct TokenMintedPage {
     pub expires_at: String,
 }
 
+/// A single existing-workspace row on the instance dashboard
+/// (`GET /admin/instance/workspaces`, web-provisioning-flow 01-02). Carries the
+/// workspace id + name the thin `list_workspaces` read returned; both rendered
+/// into the `data-workspace-row` list (the `data-workspace-id` marker + the
+/// visible name). The name is auto-escaped (it is operator-entered).
+#[derive(Debug, Clone)]
+pub struct InstanceWorkspaceRow {
+    /// The workspace id — `data-workspace-id` marker + visible id.
+    pub workspace_id: String,
+    /// The workspace name (auto-escaped) — visible in the row.
+    pub name: String,
+}
+
+/// The instance super-admin DASHBOARD full page served by
+/// `GET /admin/instance/workspaces` (web-provisioning-flow 01-02, ADR-001 / D1).
+/// Extends `base.html` (the no-JS entry point of the surface). Renders the
+/// existing-workspace list (the thin `list_workspaces` read, D4) plus BOTH
+/// state-changing forms — a provision-workspace form (`POST
+/// /admin/instance/workspaces`) and a grant-super-admin form (`POST
+/// /admin/instance/super-admins`) — each carrying the hidden double-submit
+/// `_csrf` field the shipped `csrf_middleware` enforces on the POST. The grant
+/// POST route lands in a later step (01-03/04); this GET only RENDERS its form
+/// action. The `data-*` markers are the scraper contract the acceptance suite
+/// asserts against (`feature_web_provisioning_flow`).
+#[derive(Debug, Clone, Template)]
+#[template(path = "instance_dashboard.html")]
+pub struct InstanceDashboardPage {
+    /// The double-submit CSRF token, rendered into BOTH forms' hidden `_csrf`.
+    pub csrf: String,
+    /// Every existing workspace (newest first) — listed for the super-admin.
+    pub workspaces: Vec<InstanceWorkspaceRow>,
+}
+
 /// The htmx success FRAGMENT returned by `POST /admin/instance/workspaces`
 /// (web-provisioning-flow, US-MWT07 web leg). A BARE htmx fragment — it MUST NOT
 /// extend `base.html` (htmx swaps it into the live instance dashboard; extending

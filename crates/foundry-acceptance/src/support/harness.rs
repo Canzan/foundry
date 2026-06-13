@@ -448,3 +448,83 @@ pub async fn signed_in_post(
         body,
     }
 }
+
+/// Sign in as `email` / `password`, then GET `url` carrying the session cookie.
+/// Returns the full response shape so the caller can assert on the rendered
+/// page. The GET dual of [`signed_in_post`]: it authenticates (steps 1-2) and
+/// then issues the GET with the session cookie (no CSRF token needed for a
+/// read), so a signed-in super-admin reaches a session-gated GET surface like
+/// `/admin/instance/workspaces`.
+pub async fn signed_in_get(
+    harness: &InProcHarness,
+    http: &reqwest::Client,
+    email: &str,
+    password: &str,
+    url: &str,
+) -> PostOutcome {
+    let base = harness.base_url();
+
+    // (1) GET /sign-in to mint a CSRF cookie + token.
+    let signin_get = http
+        .get(format!("{base}/sign-in"))
+        .send()
+        .await
+        .expect("get /sign-in for csrf");
+    let csrf_cookie = signin_get
+        .headers()
+        .get_all(reqwest::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .find(|s| s.starts_with("foundry_csrf="))
+        .map(|s| s.to_string())
+        .expect("/sign-in must mint foundry_csrf cookie");
+    let csrf_token = csrf_cookie
+        .strip_prefix("foundry_csrf=")
+        .and_then(|rest| rest.split(';').next())
+        .unwrap_or("")
+        .to_string();
+    let signin_cookie_header = format!("foundry_csrf={csrf_token}");
+
+    // (2) POST /sign-in to authenticate. Captures the session cookie.
+    let mut signin_form: std::collections::HashMap<&str, String> = std::collections::HashMap::new();
+    signin_form.insert("email", email.to_string());
+    signin_form.insert("password", password.to_string());
+    signin_form.insert("_csrf", csrf_token.clone());
+    let signin_resp = http
+        .post(format!("{base}/sign-in"))
+        .header(reqwest::header::COOKIE, signin_cookie_header)
+        .form(&signin_form)
+        .send()
+        .await
+        .expect("post /sign-in");
+    let session_cookie = signin_resp
+        .headers()
+        .get_all(reqwest::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .find(|s| s.starts_with("foundry_session="))
+        .map(|s| s.to_string())
+        .expect("sign-in must issue a foundry_session cookie");
+    let session_pair = session_cookie
+        .split(';')
+        .next()
+        .unwrap_or(&session_cookie)
+        .to_string();
+
+    // (3) GET `url` with the session cookie.
+    let resp = http
+        .get(format!("{base}{url}"))
+        .header(reqwest::header::COOKIE, session_pair)
+        .send()
+        .await
+        .expect("get target url");
+
+    let status = resp.status();
+    let headers = resp.headers().clone();
+    let body = resp.text().await.unwrap_or_default();
+    PostOutcome {
+        status,
+        headers,
+        body,
+    }
+}

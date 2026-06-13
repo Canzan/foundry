@@ -32,12 +32,14 @@
 //! id). Its stem is on the `check_arch.rs` tenant-scoping allow-list.
 
 use crate::bootstrap::{resource_not_found_page, SessionUser};
+use crate::csrf::{build_csrf_cookie, generate_token};
 use crate::session::SESSION_KEY_USER_ID;
-use crate::views::InstanceProvisionedFragment;
+use crate::views::{InstanceDashboardPage, InstanceProvisionedFragment, InstanceWorkspaceRow};
 use crate::AppState;
 use askama::Template;
 use axum::extract::State;
-use axum::http::StatusCode;
+use axum::http::header::{COOKIE, SET_COOKIE};
+use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::{Html, IntoResponse, Response};
 use foundry_services::provisioning::ProvisionRequest;
 use foundry_services::ServiceError;
@@ -58,6 +60,49 @@ pub struct ProvisionForm {
     pub email: String,
     #[serde(rename = "_csrf", default)]
     pub _csrf: Option<String>,
+}
+
+/// `GET /admin/instance/workspaces` — the instance super-admin DASHBOARD: the
+/// full-page (no-JS) entry point of the surface (web-provisioning-flow 01-02,
+/// ADR-001 / D1). Resolves the signed-in INSTANCE super-admin from the session
+/// (`require_instance_admin`); a signed-out caller OR a signed-in non-super-admin
+/// gets the SHIPPED non-enumerable uniform 404 (`resource_not_found_page`,
+/// ADR-002) — byte-identical to a never-existed path. On a pass it renders the
+/// existing-workspace list (the thin `list_workspaces` read, D4) plus BOTH
+/// state-changing forms (provision + grant), each carrying the double-submit
+/// `_csrf` field the surrounding `csrf_middleware` enforces on the POST.
+pub async fn show_dashboard(
+    State(state): State<AppState>,
+    session: Session,
+    headers: HeaderMap,
+) -> Response {
+    if require_instance_admin(&state, &session).await.is_none() {
+        return resource_not_found_page();
+    }
+    let (csrf, set_cookie) = ensure_csrf_cookie(&state, &headers);
+    let workspaces = match state.store.list_workspaces().await {
+        Ok(rows) => rows
+            .into_iter()
+            .map(|(id, name)| InstanceWorkspaceRow {
+                workspace_id: id.to_string(),
+                name,
+            })
+            .collect(),
+        Err(err) => return internal_error("list_workspaces", err),
+    };
+    let page = InstanceDashboardPage { csrf, workspaces };
+    match page.render() {
+        Ok(html) => {
+            let mut resp = Html(html).into_response();
+            if let Some(cookie) = set_cookie {
+                if let Ok(value) = HeaderValue::from_str(&cookie) {
+                    resp.headers_mut().insert(SET_COOKIE, value);
+                }
+            }
+            resp
+        }
+        Err(err) => internal_error("render instance_dashboard", err),
+    }
 }
 
 /// `POST /admin/instance/workspaces` — provision a NEW isolated workspace + first
@@ -172,6 +217,23 @@ fn generate_initial_password() -> String {
     let mut bytes = [0u8; 24];
     rand::thread_rng().fill_bytes(&mut bytes);
     bytes.iter().map(|b| format!("{:02x}", b)).collect()
+}
+
+/// Reuse the request's existing double-submit `foundry_csrf` cookie when present,
+/// else mint one (mirrors `admin_tokens::ensure_csrf_cookie`). The returned token
+/// is rendered into the dashboard forms' hidden `_csrf` field; the optional cookie
+/// is attached to the response so a fresh visitor's first POST has a matching pair.
+fn ensure_csrf_cookie(state: &AppState, headers: &HeaderMap) -> (String, Option<String>) {
+    let existing = headers
+        .get(COOKIE)
+        .and_then(|v| v.to_str().ok())
+        .and_then(crate::csrf::extract_csrf_cookie);
+    if let Some(token) = existing {
+        return (token, None);
+    }
+    let token = generate_token();
+    let cookie = build_csrf_cookie(&token, state.session_cookie_secure);
+    (token, Some(cookie))
 }
 
 fn internal_error<E: std::fmt::Display>(label: &str, err: E) -> Response {

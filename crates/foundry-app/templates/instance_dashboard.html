@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Instance dashboard{% endblock %}
+{% block content %}
+<main data-instance-dashboard>
+  <h1>Instance dashboard</h1>
+
+  <section data-workspace-list>
+    <h2>Workspaces</h2>
+    {% if workspaces.is_empty() %}
+    <p data-workspace-empty>No workspaces yet.</p>
+    {% else %}
+    <ul>
+      {% for workspace in workspaces %}
+      <li data-workspace-row data-workspace-id="{{ workspace.workspace_id }}">{{ workspace.name }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </section>
+
+  <form method="post" action="/admin/instance/workspaces" data-provision-form>
+    <h2>Provision a workspace</h2>
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <label>Workspace name <input type="text" name="name" required></label>
+    <label>First admin email <input type="email" name="email" required></label>
+    <button type="submit">Provision workspace</button>
+  </form>
+
+  <form method="post" action="/admin/instance/super-admins" data-grant-form>
+    <h2>Grant super-admin</h2>
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <label>Operator email <input type="email" name="email" required></label>
+    <button type="submit">Grant super-admin</button>
+  </form>
+</main>
+{% endblock %}

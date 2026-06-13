@@ -149,7 +149,7 @@ Feature: An instance super-admin provisions a new workspace and grants super-adm
   #    page shows the existing workspace list plus the provision form and the grant
   #    form. The full-page (no-JS) entry point of the surface.
   # ----------------------------------------------------------------------------
-  @pending @us-mwt07
+  @us-mwt07
   Scenario: The instance dashboard shows the workspace list and the provision and grant forms
     Given the super-admin is signed in on the web
     When the super-admin opens the instance dashboard on the web

@@ -372,7 +372,7 @@ pub fn build_router(state: AppState) -> Router {
         // `Services::provision_workspace` use-case (instance_admin.rs).
         .route(
             "/admin/instance/workspaces",
-            post(instance_admin::submit_provision),
+            get(instance_admin::show_dashboard).post(instance_admin::submit_provision),
         )
         .route("/", get(signin::dashboard_root))
         .layer(middleware::from_fn_with_state(
