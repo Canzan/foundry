@@ -21,6 +21,7 @@ pub mod steps {
     pub mod feature_mwt_slice_06_provision_and_prove;
     pub mod feature_remaining_surfaces;
     pub mod feature_token_management_api;
+    pub mod feature_web_provisioning_flow;
     pub mod handler_instrumentation;
     pub mod keyboard_fragments_templating;
     pub mod slice_8_deferred_metrics;

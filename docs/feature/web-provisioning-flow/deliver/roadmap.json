@@ -1,0 +1,321 @@
+{
+  "roadmap": {
+    "project_id": "web-provisioning-flow",
+    "created_at": "2026-06-13T15:42:56Z",
+    "total_steps": 11
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "Web provisioning surface + happy paths",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "Walking skeleton: super-admin provisions an isolated workspace from the browser",
+          "criteria": [
+            "A signed-in instance super-admin who submits the web provision form for a named workspace with a first-admin email causes a new workspace to be created via the shipped provision_workspace use-case.",
+            "The newly created workspace exists in Postgres and is isolated: it contains none of any other workspace's data.",
+            "The rendered web response reports the new workspace identifier and a first-admin invite link (the link is informational per D5; no sign-in via it is asserted).",
+            "The vertical wires end-to-end through the production session and double-submit CSRF layers to the shipped use-case and back to a rendered htmx success fragment.",
+            "The new instance_admin file stem is added to the LAYER-1e is_tenant_scoping_allowlisted allow-list (D6); cargo xtask check-arch and the foundry-acceptance suite stay green."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-mwt-web-provisioning.feature",
+          "scenario_name": "A super-admin provisions a new isolated workspace from the browser",
+          "implementation_scope": {
+            "source_directories": [
+              "crates/foundry-app/src/",
+              "crates/foundry-store/src/",
+              "xtask/src/"
+            ],
+            "test_directories": [
+              "crates/foundry-acceptance/tests/",
+              "crates/foundry-acceptance/src/"
+            ],
+            "excluded_patterns": [
+              "target/**",
+              "**/*.md"
+            ]
+          }
+        },
+        {
+          "id": "01-02",
+          "name": "Instance dashboard lists workspaces and offers provision and grant forms",
+          "criteria": [
+            "A signed-in instance super-admin who opens the instance dashboard route receives a full HTML page (no-JS entry point).",
+            "The dashboard lists the existing workspaces.",
+            "The dashboard presents both a provision-workspace form and a grant-super-admin form, each carrying a valid CSRF token field.",
+            "cargo xtask check-arch passes and the foundry-acceptance suite remains green."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-mwt-web-provisioning.feature",
+          "scenario_name": "The instance dashboard shows the workspace list and the provision and grant forms",
+          "implementation_scope": {
+            "source_directories": [
+              "crates/foundry-app/src/",
+              "crates/foundry-store/src/"
+            ],
+            "test_directories": [
+              "crates/foundry-acceptance/tests/",
+              "crates/foundry-acceptance/src/"
+            ],
+            "excluded_patterns": [
+              "target/**",
+              "**/*.md"
+            ]
+          }
+        },
+        {
+          "id": "01-03",
+          "name": "Super-admin grants super-admin to another operator from the browser",
+          "criteria": [
+            "A signed-in instance super-admin who submits the grant form for an existing non-super-admin member causes that user to be granted super-admin via the shipped grant_instance_admin path.",
+            "The web response confirms the grant.",
+            "The granted user is afterwards an instance super-admin (is_instance_admin holds for that user).",
+            "cargo xtask check-arch passes and the foundry-acceptance suite remains green."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-mwt-web-provisioning.feature",
+          "scenario_name": "A super-admin grants super-admin to another operator from the browser",
+          "implementation_scope": {
+            "source_directories": [
+              "crates/foundry-app/src/"
+            ],
+            "test_directories": [
+              "crates/foundry-acceptance/tests/",
+              "crates/foundry-acceptance/src/"
+            ],
+            "excluded_patterns": [
+              "target/**",
+              "**/*.md"
+            ]
+          }
+        },
+        {
+          "id": "01-04",
+          "name": "Granting super-admin twice from the browser is idempotent",
+          "criteria": [
+            "A signed-in instance super-admin who submits the grant form for the same existing member twice receives a grant confirmation both times.",
+            "After two grants the target user is recorded as a super-admin exactly once (the role table holds no duplicate).",
+            "cargo xtask check-arch passes and the foundry-acceptance suite remains green."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-mwt-web-provisioning.feature",
+          "scenario_name": "Granting super-admin twice from the browser is idempotent",
+          "implementation_scope": {
+            "source_directories": [
+              "crates/foundry-app/src/"
+            ],
+            "test_directories": [
+              "crates/foundry-acceptance/tests/",
+              "crates/foundry-acceptance/src/"
+            ],
+            "excluded_patterns": [
+              "target/**",
+              "**/*.md"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "02",
+      "name": "Web authz + non-enumerability (security)",
+      "steps": [
+        {
+          "id": "02-01",
+          "name": "Grant form is not a user-enumeration oracle",
+          "criteria": [
+            "A signed-in super-admin who submits the grant form for a known existing email and then for an email belonging to no user receives two responses that are confirmed identically.",
+            "Neither response reveals whether the submitted email belongs to a real user (no enumeration oracle distinguishes the known-email response from the unknown-email response in status or body).",
+            "cargo xtask check-arch passes and the foundry-acceptance suite remains green."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-mwt-web-provisioning.feature",
+          "scenario_name": "Granting an unknown email does not reveal whether the user exists",
+          "implementation_scope": {
+            "source_directories": [
+              "crates/foundry-app/src/"
+            ],
+            "test_directories": [
+              "crates/foundry-acceptance/tests/",
+              "crates/foundry-acceptance/src/"
+            ],
+            "excluded_patterns": [
+              "target/**",
+              "**/*.md"
+            ]
+          }
+        },
+        {
+          "id": "02-02",
+          "name": "Signed-out admin-surface request refused like a never-existed path",
+          "criteria": [
+            "A signed-out caller's request to each /admin/instance route (the GET dashboard and both POST routes) is refused.",
+            "Each refusal is byte-identical (status and full body) to a never-existed path's response; no 403, 401, or login redirect appears.",
+            "Nothing in the responses reveals that the admin surface exists.",
+            "cargo xtask check-arch passes and the foundry-acceptance suite remains green."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-mwt-web-provisioning.feature",
+          "scenario_name": "A signed-out request to the admin surface is refused like a path that never existed",
+          "implementation_scope": {
+            "source_directories": [
+              "crates/foundry-app/src/"
+            ],
+            "test_directories": [
+              "crates/foundry-acceptance/tests/",
+              "crates/foundry-acceptance/src/"
+            ],
+            "excluded_patterns": [
+              "target/**",
+              "**/*.md"
+            ]
+          }
+        },
+        {
+          "id": "02-03",
+          "name": "Signed-in non-super-admin request to the admin surface is refused non-enumerably",
+          "criteria": [
+            "A signed-in ordinary member (not a super-admin) who requests each /admin/instance route is refused.",
+            "Each refusal is byte-identical (status and full body) to the response for a path that never existed.",
+            "The non-super-admin refusal is byte-identical to the signed-out refusal for the same route, so the cause of refusal is indistinguishable.",
+            "Nothing in the responses reveals that the admin surface exists, and removing the gate would re-RED the byte-identity assertion (revert-reds-it litmus).",
+            "cargo xtask check-arch passes and the foundry-acceptance suite remains green."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-mwt-web-provisioning.feature",
+          "scenario_name": "A signed-in non-super-admin request to the admin surface is refused non-enumerably",
+          "implementation_scope": {
+            "source_directories": [
+              "crates/foundry-app/src/"
+            ],
+            "test_directories": [
+              "crates/foundry-acceptance/tests/",
+              "crates/foundry-acceptance/src/"
+            ],
+            "excluded_patterns": [
+              "target/**",
+              "**/*.md"
+            ]
+          }
+        },
+        {
+          "id": "02-04",
+          "name": "Provision request without a valid security token is refused",
+          "criteria": [
+            "A signed-in super-admin who submits the provision POST without a valid double-submit CSRF token is refused by the shipped csrf_middleware.",
+            "No new workspace is created as a result of the token-less request (the workspace set is unchanged).",
+            "cargo xtask check-arch passes and the foundry-acceptance suite remains green."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-mwt-web-provisioning.feature",
+          "scenario_name": "A provision request without a valid security token is refused",
+          "implementation_scope": {
+            "source_directories": [
+              "crates/foundry-app/src/"
+            ],
+            "test_directories": [
+              "crates/foundry-acceptance/tests/",
+              "crates/foundry-acceptance/src/"
+            ],
+            "excluded_patterns": [
+              "target/**",
+              "**/*.md"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "03",
+      "name": "Legacy-route retirement + provisioned-tenant isolation",
+      "steps": [
+        {
+          "id": "03-01",
+          "name": "Legacy create-workspace route no longer exists",
+          "criteria": [
+            "A POST to the legacy /workspaces create-workspace path is refused as a path that never existed (the route is deleted, not left inert, per D3).",
+            "The legacy path does not answer with the old 409 conflict response.",
+            "cargo xtask check-arch passes and the foundry-acceptance suite remains green."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-mwt-web-provisioning.feature",
+          "scenario_name": "The legacy create-workspace route no longer exists",
+          "implementation_scope": {
+            "source_directories": [
+              "crates/foundry-app/src/"
+            ],
+            "test_directories": [
+              "crates/foundry-acceptance/tests/",
+              "crates/foundry-acceptance/src/"
+            ],
+            "excluded_patterns": [
+              "target/**",
+              "**/*.md"
+            ]
+          }
+        },
+        {
+          "id": "03-02",
+          "name": "Provisioning from the browser leaves existing workspaces untouched",
+          "criteria": [
+            "Given a recorded snapshot of an existing workspace, provisioning a new workspace from the browser leaves that workspace and all its data and members byte-for-byte unchanged.",
+            "The newly provisioned workspace starts empty and isolated from the existing workspace.",
+            "cargo xtask check-arch passes and the foundry-acceptance suite remains green."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-mwt-web-provisioning.feature",
+          "scenario_name": "Provisioning from the browser leaves existing workspaces untouched",
+          "implementation_scope": {
+            "source_directories": [
+              "crates/foundry-app/src/"
+            ],
+            "test_directories": [
+              "crates/foundry-acceptance/tests/",
+              "crates/foundry-acceptance/src/"
+            ],
+            "excluded_patterns": [
+              "target/**",
+              "**/*.md"
+            ]
+          }
+        },
+        {
+          "id": "03-03",
+          "name": "Browser-provisioned workspace is a real isolated tenant",
+          "criteria": [
+            "Given a browser-provisioned workspace whose first admin holds issues in it, when she lists issues through the shipped resolve_active_workspace membership seam (D5) she sees only that workspace's issues.",
+            "No data belonging to any other existing workspace appears in her listing.",
+            "cargo xtask check-arch passes and the foundry-acceptance suite remains green."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-mwt-web-provisioning.feature",
+          "scenario_name": "The browser-provisioned workspace is a real isolated tenant",
+          "implementation_scope": {
+            "source_directories": [
+              "crates/foundry-app/src/"
+            ],
+            "test_directories": [
+              "crates/foundry-acceptance/tests/",
+              "crates/foundry-acceptance/src/"
+            ],
+            "excluded_patterns": [
+              "target/**",
+              "**/*.md"
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "implementation_scope": {
+    "source_directories": [
+      "crates/foundry-app/src/",
+      "crates/foundry-store/src/",
+      "xtask/src/"
+    ],
+    "test_directories": [
+      "crates/foundry-acceptance/tests/",
+      "crates/foundry-acceptance/src/"
+    ],
+    "excluded_patterns": [
+      "target/**",
+      "**/*.md"
+    ]
+  },
+  "validation": {
+    "status": "approved",
+    "reviewer": "nw-software-crafter-reviewer",
+    "approved_at": "2026-06-13"
+  }
+}

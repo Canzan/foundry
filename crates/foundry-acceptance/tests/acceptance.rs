@@ -51,6 +51,8 @@ use foundry_acceptance::steps::feature_remaining_surfaces as _feature_remaining;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_token_management_api as _feature_tma;
 #[allow(unused_imports)]
+use foundry_acceptance::steps::feature_web_provisioning_flow as _feature_web_provisioning;
+#[allow(unused_imports)]
 use foundry_acceptance::steps::handler_instrumentation as _slice6;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::keyboard_fragments_templating as _keyboard_fragments;

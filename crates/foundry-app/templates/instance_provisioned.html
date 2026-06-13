@@ -1,0 +1,8 @@
+<div class="instance-provisioned" data-hx-fragment="instance-provisioned">
+  <h2>Workspace provisioned</h2>
+  <p data-provisioned-workspace-id="{{ workspace_id }}">New workspace: <strong>{{ workspace_name }}</strong> (id: {{ workspace_id }})</p>
+  <p data-first-admin-email="{{ first_admin_email }}">First admin: {{ first_admin_email }}</p>
+  <p>Share this first-admin invite link:
+    <a href="{{ invite_link|safe }}" data-first-admin-invite-link="{{ invite_link|safe }}">{{ invite_link|safe }}</a>
+  </p>
+</div>

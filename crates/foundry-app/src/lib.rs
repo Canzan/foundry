@@ -22,6 +22,7 @@ pub mod comments;
 pub mod csrf;
 pub mod email;
 pub mod events;
+pub mod instance_admin;
 pub mod issues;
 pub mod keyboard;
 pub mod metrics_server;
@@ -360,6 +361,18 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/admin/tokens/{jti}/revoke",
             post(admin_tokens::submit_revoke),
+        )
+        // web-provisioning-flow 01-01 (ADR-001 / D2) — the INSTANCE super-admin
+        // provisioning surface. Mounted HERE, ALONGSIDE the HTML routes, so it
+        // sits UNDER `csrf::csrf_middleware` + `session_layer` below (a real
+        // signed-in `foundry_session` cookie + double-submit `_csrf`, like every
+        // browser POST). The `require_instance_admin` session gate inside the
+        // handler refuses a signed-out / non-super-admin caller with the SHIPPED
+        // non-enumerable uniform 404 (ADR-002). Drives the SHIPPED
+        // `Services::provision_workspace` use-case (instance_admin.rs).
+        .route(
+            "/admin/instance/workspaces",
+            post(instance_admin::submit_provision),
         )
         .route("/", get(signin::dashboard_root))
         .layer(middleware::from_fn_with_state(

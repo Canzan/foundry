@@ -537,3 +537,28 @@ pub struct TokenMintedPage {
     /// Human expiry timestamp — `data-token-expiry`.
     pub expires_at: String,
 }
+
+/// The htmx success FRAGMENT returned by `POST /admin/instance/workspaces`
+/// (web-provisioning-flow, US-MWT07 web leg). A BARE htmx fragment — it MUST NOT
+/// extend `base.html` (htmx swaps it into the live instance dashboard; extending
+/// base double-wraps the swap). Reports the newly-provisioned workspace's id +
+/// name + first-admin email and the (informational, D5) first-admin invite link.
+/// The `data-*` markers are the scraper contract the acceptance suite asserts
+/// against (`feature_web_provisioning_flow`). Per D5 the invite link is rendered
+/// for the operator to relay; there is NO accept route in v1 (the URL is a dead
+/// link today). The signed `invite_link` is already URL-encoded and embedded
+/// verbatim via `|safe` so the signature stays byte-stable; every other field is
+/// auto-escaped.
+#[derive(Debug, Clone, Template)]
+#[template(path = "instance_provisioned.html")]
+pub struct InstanceProvisionedFragment {
+    /// The new workspace's id — `data-provisioned-workspace-id` marker + visible.
+    pub workspace_id: String,
+    /// The new workspace's name (auto-escaped) — `data-provisioned-workspace-name`.
+    pub workspace_name: String,
+    /// The first admin's email (auto-escaped) — `data-first-admin-email`.
+    pub first_admin_email: String,
+    /// The signed, already-URL-encoded first-admin invite link; embedded verbatim
+    /// via `|safe` — `data-first-admin-invite-link` marker.
+    pub invite_link: String,
+}

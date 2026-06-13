@@ -391,7 +391,13 @@ fn is_tenant_scoping_allowlisted(file: &Path) -> bool {
         // bootstrap: initial-workspace provisioning / claim.
         // admin_cli: super-admin provisioning (ADR-004).
         // session: the ActingWorkspace newtype's home (no store calls).
-        Some("signin") | Some("bootstrap") | Some("admin_cli") | Some("session")
+        // instance_admin: super-admin WEB provisioning (web-provisioning-flow,
+        //   ADR-004 / D6) — instance-scoped, creates a brand-new workspace id.
+        Some("signin")
+            | Some("bootstrap")
+            | Some("admin_cli")
+            | Some("session")
+            | Some("instance_admin")
     )
 }
 
