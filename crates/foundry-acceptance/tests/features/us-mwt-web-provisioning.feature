@@ -189,7 +189,7 @@ Feature: An instance super-admin provisions a new workspace and grants super-adm
   #    one — the response carries no oracle for whether the email belongs to a real
   #    user. (Evil-user / non-enumerability of the grant surface.)
   # ----------------------------------------------------------------------------
-  @pending @us-mwt07 @error
+  @us-mwt07 @error
   Scenario: Granting an unknown email does not reveal whether the user exists
     Given the super-admin is signed in on the web
     And "dana@acme.com" is an existing member who is not a super-admin

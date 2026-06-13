@@ -828,6 +828,15 @@ pub struct FoundryWorld {
     /// `instance_admins` row) — proving the SHIPPED `INSERT … ON CONFLICT DO NOTHING`
     /// idempotence behind the new web grant adapter.
     pub mwt6_grant_responses: Vec<(StatusCode, String)>,
+
+    /// The email address SUBMITTED on each web grant POST, parallel to
+    /// `mwt6_grant_responses`. Used by the non-enumerability scenario
+    /// (web-provisioning-flow 02-01) to normalise the caller-supplied email out of
+    /// each confirmation body before comparing: the response echoes the submitted
+    /// address (which the caller already knows — not an oracle), so byte-identity
+    /// is asserted on the email-NORMALISED bodies. What MUST be identical is the
+    /// confirmation TEMPLATE; what may differ is only the echoed input.
+    pub mwt6_grant_submitted_emails: Vec<String>,
 }
 
 impl FoundryWorld {

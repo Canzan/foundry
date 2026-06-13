@@ -465,6 +465,174 @@ async fn target_recorded_super_admin_exactly_once(world: &mut FoundryWorld, targ
 }
 
 // ---------------------------------------------------------------------------
+// When/Then — the grant form is not a user-enumeration oracle (step 02-01)
+//
+// ADR-002 (g) / D2: a grant POST for an email that resolves to NO user returns
+// the SAME non-committal confirmation as a grant for a real user — the grant
+// form carries no oracle for whether the email belongs to a real user. The
+// port-exposed web observable is the (status, body) pair; non-enumerability is
+// the property that the KNOWN-email and UNKNOWN-email pairs are BYTE-IDENTICAL.
+// ---------------------------------------------------------------------------
+
+/// `When the super-admin submits the grant form for the existing email "<email>"`
+/// — drive the SHIPPED web grant route over real HTTP for an email that DOES
+/// resolve to a real user, recording the (status, body) response so the
+/// non-enumerability assertion can compare it against the unknown-email response.
+#[when(regex = r#"^the super-admin submits the grant form for the existing email "([^"]+)"$"#)]
+async fn submit_grant_form_existing_email(world: &mut FoundryWorld, target_email: String) {
+    let super_admin = world
+        .mwt6_superadmin_email
+        .clone()
+        .expect("super-admin seeded in the Background");
+    let client = http(world);
+    let outcome = signed_in_post(
+        harness(world),
+        &client,
+        &super_admin,
+        SUPERADMIN_PASSWORD,
+        "/admin/instance/super-admins",
+        &[("email", target_email.as_str())],
+    )
+    .await;
+    world.last_status = Some(outcome.status);
+    world.last_body = Some(outcome.body.clone());
+    world
+        .mwt6_grant_responses
+        .push((outcome.status, outcome.body));
+    world.mwt6_grant_submitted_emails.push(target_email);
+}
+
+/// `And the super-admin submits the grant form for an email that belongs to no
+/// user` — drive the SHIPPED web grant route for an email that resolves to NO
+/// user (`user_id_by_email` → `Ok(None)`, a silent no-op). The response is
+/// recorded so the non-enumerability assertion can confirm it is byte-identical
+/// to the known-email response. The address is constructed to be absent from the
+/// per-scenario schema (no such user was seeded).
+#[when(regex = r#"^the super-admin submits the grant form for an email that belongs to no user$"#)]
+async fn submit_grant_form_unknown_email(world: &mut FoundryWorld) {
+    let super_admin = world
+        .mwt6_superadmin_email
+        .clone()
+        .expect("super-admin seeded in the Background");
+    let unknown_email = "nobody-here@acme.com";
+    let client = http(world);
+    let outcome = signed_in_post(
+        harness(world),
+        &client,
+        &super_admin,
+        SUPERADMIN_PASSWORD,
+        "/admin/instance/super-admins",
+        &[("email", unknown_email)],
+    )
+    .await;
+    world.last_status = Some(outcome.status);
+    world.last_body = Some(outcome.body.clone());
+    world
+        .mwt6_grant_responses
+        .push((outcome.status, outcome.body));
+    world
+        .mwt6_grant_submitted_emails
+        .push(unknown_email.to_string());
+}
+
+/// `Then the two grant responses are confirmed identically` — the
+/// non-enumerability property over the port-exposed web observable: once the
+/// caller-supplied email (which the caller already knows — NOT an existence
+/// oracle) is normalised out, the known-email and unknown-email grant POSTs
+/// produced BYTE-IDENTICAL responses. The status codes match AND the
+/// email-normalised body bytes match exactly — no oracle in status OR
+/// confirmation TEMPLATE distinguishes a grant for a real user from one for an
+/// email that belongs to no user (ADR-002 (g): the SAME non-committal "if that
+/// user exists" confirmation either way).
+///
+/// Comparing the FULL normalised body (not merely "both 200" or "both contain the
+/// marker") is what makes the assertion falsifiable: introducing any
+/// existence-dependent divergence — a 404 on the unknown branch, or an extra
+/// "no such user" sentence rendered only when the email did not resolve — re-REDS
+/// this step. (Demonstrated during RED: see step log.)
+#[then(regex = r#"^the two grant responses are confirmed identically$"#)]
+async fn two_grant_responses_identical(world: &mut FoundryWorld) {
+    assert_eq!(
+        world.mwt6_grant_responses.len(),
+        2,
+        "exactly two grant POSTs (one known-email, one unknown-email) must have been \
+         submitted; got {:?}",
+        world.mwt6_grant_responses
+    );
+    assert_eq!(
+        world.mwt6_grant_submitted_emails.len(),
+        2,
+        "the submitted-email log must parallel the two grant responses; got {:?}",
+        world.mwt6_grant_submitted_emails
+    );
+    // Normalise the caller-supplied email out of each body. The response echoes
+    // back the address the operator typed — information the attacker already has,
+    // so it is NOT a user-existence oracle. What MUST be identical is the
+    // confirmation template; what may legitimately differ is only the echoed input.
+    let normalise = |body: &str, email: &str| body.replace(email, "<SUBMITTED-EMAIL>");
+    let (known_status, known_body) = &world.mwt6_grant_responses[0];
+    let (unknown_status, unknown_body) = &world.mwt6_grant_responses[1];
+    let known_normalised = normalise(known_body, &world.mwt6_grant_submitted_emails[0]);
+    let unknown_normalised = normalise(unknown_body, &world.mwt6_grant_submitted_emails[1]);
+    assert_eq!(
+        known_status, unknown_status,
+        "the known-email and unknown-email grant responses must share the SAME status \
+         (no status oracle); known = {known_status}, unknown = {unknown_status}"
+    );
+    assert_eq!(
+        known_normalised, unknown_normalised,
+        "with the caller-supplied email normalised out, the known-email and unknown-email \
+         grant responses must be BYTE-IDENTICAL (no body oracle distinguishes a real user \
+         from an unknown email — ADR-002 (g)); known = {known_normalised:?}, \
+         unknown = {unknown_normalised:?}"
+    );
+}
+
+/// `And neither response reveals whether the email belongs to a real user` — both
+/// responses render the SAME non-committal confirmation marker and NEITHER leaks
+/// a user-existence oracle: no "no such user" / "not found" / "does not exist"
+/// negative phrasing appears in either body, and both carry the identical
+/// grant-confirmation marker the known-email grant produces. This complements the
+/// byte-identity check with an explicit no-negative-oracle assertion so a future
+/// regression that made BOTH bodies leak (still byte-identical, but both saying
+/// "no such user") would still RED here.
+#[then(regex = r#"^neither response reveals whether the email belongs to a real user$"#)]
+async fn neither_response_reveals_existence(world: &mut FoundryWorld) {
+    assert_eq!(
+        world.mwt6_grant_responses.len(),
+        2,
+        "exactly two grant POSTs must have been submitted; got {:?}",
+        world.mwt6_grant_responses
+    );
+    for (index, (status, body)) in world.mwt6_grant_responses.iter().enumerate() {
+        assert_eq!(
+            *status,
+            StatusCode::OK,
+            "grant response #{index} must be a non-committal 200 confirmation (no \
+             existence oracle in the status); body = {body:?}"
+        );
+        assert!(
+            body.contains("data-grant-confirmation"),
+            "grant response #{index} must carry the non-committal grant-confirmation \
+             marker; got {body:?}"
+        );
+        let body_lower = body.to_ascii_lowercase();
+        for oracle_phrase in [
+            "no such user",
+            "not found",
+            "does not exist",
+            "unknown user",
+        ] {
+            assert!(
+                !body_lower.contains(oracle_phrase),
+                "grant response #{index} must not leak a user-existence oracle phrase \
+                 ({oracle_phrase:?}); got {body:?}"
+            );
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // When — submit the web provision form (NEW text)
 // ---------------------------------------------------------------------------
 
