@@ -32,7 +32,7 @@ use axum::extract::{FromRef, FromRequestParts, Path, State};
 use axum::http::request::Parts;
 use axum::http::{header, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Json, Response};
-use axum::routing::{delete, get, patch, post};
+use axum::routing::{any, delete, get, patch, post};
 use axum::Router;
 use foundry_auth::MachineTokenVerifier;
 use foundry_services::{Principal, ServiceError, Services};
@@ -253,6 +253,21 @@ where
     S: Clone + Send + Sync + 'static,
 {
     Router::new()
+        // web-provisioning-flow regression fix — a CSRF-EXEMPT, route-absent
+        // 404 catch-all scoped to `/api/v1`. The composition root's base
+        // `uniform_not_found` fallback sits UNDER `csrf_middleware`, so an
+        // UNROUTED `/api/v1/...` request that fell through to it was refused
+        // with a CSRF 403 ("CSRF token missing or mismatched") — wrong for the
+        // CSRF-exempt bearer surface (slice-06 `@us-mwt07`), which never does
+        // CSRF and must answer route-absence with the API's own non-enumerable
+        // 404 (the same `ServiceError::NotFound` -> 404 JSON envelope the bearer
+        // surface returns for a foreign/unknown resource). Mounting this catch-
+        // all on the api router (merged OUTSIDE the csrf/session layers) keeps an
+        // unrouted `/api/v1` POST CSRF-exempt: a real api route matches more
+        // specifically and wins; only genuinely-absent `/api/v1` paths land here.
+        // The HTML base fallback stays CSRF-wrapped (preserving the web POST
+        // non-enumerability oracle steps 02-02/02-03 close).
+        .route("/api/v1/{*rest}", any(api_not_found_handler))
         .route(
             "/api/v1/teams/{team_slug}/projects/{project_slug}/issues",
             get(list_issues_handler).post(create_issue_handler),
@@ -277,6 +292,16 @@ where
             "/api/v1/teams/{team_slug}/projects/{project_slug}/tokens/{jti}",
             delete(revoke_token_handler),
         )
+}
+
+/// CSRF-exempt route-absent `404` for any unrouted `/api/v1/...` path
+/// (web-provisioning-flow regression fix). Returns the API's own non-enumerable
+/// NotFound envelope — the SAME `(404, {"error":{"code":"not_found",...}})` the
+/// bearer surface returns for a foreign/unknown resource — so a never-existed
+/// `/api/v1` path is byte-identical to a gated one (non-enumerability) and never
+/// leaks through to the CSRF-wrapped HTML base fallback (which would 403).
+async fn api_not_found_handler() -> ApiError {
+    ApiError(ServiceError::NotFound)
 }
 
 /// `GET /api/v1/teams/{team}/projects/{project}/issues` (US-W05a/b). The
