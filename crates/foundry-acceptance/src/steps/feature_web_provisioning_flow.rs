@@ -319,7 +319,12 @@ async fn submit_grant_form(world: &mut FoundryWorld, target_email: String) {
     )
     .await;
     world.last_status = Some(outcome.status);
-    world.last_body = Some(outcome.body);
+    world.last_body = Some(outcome.body.clone());
+    // Record each grant response so the idempotent-grant scenario (01-04) can
+    // assert BOTH grants for the same operator confirmed.
+    world
+        .mwt6_grant_responses
+        .push((outcome.status, outcome.body));
 }
 
 // ---------------------------------------------------------------------------
@@ -369,6 +374,93 @@ async fn target_is_now_super_admin(world: &mut FoundryWorld, target_email: Strin
     assert!(
         is_admin,
         "the granted operator {target_email:?} must be a super-admin after the grant"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// When/Then — granting the same operator twice is idempotent (step 01-04)
+// ---------------------------------------------------------------------------
+
+/// `And the super-admin submits the grant form for "<email>" a second time` —
+/// drive the NEW web grant route a SECOND time for the SAME operator over real
+/// HTTP (sign in as super-admin + CSRF, POST the same `email`). The SHIPPED grant
+/// path is `INSERT … ON CONFLICT DO NOTHING`, so the second grant is a no-op that
+/// must still confirm. Each response is recorded in `mwt6_grant_responses` for the
+/// "confirms both times" assertion.
+#[when(regex = r#"^the super-admin submits the grant form for "([^"]+)" a second time$"#)]
+async fn submit_grant_form_again(world: &mut FoundryWorld, target_email: String) {
+    let super_admin = world
+        .mwt6_superadmin_email
+        .clone()
+        .expect("super-admin seeded in the Background");
+    let client = http(world);
+    let outcome = signed_in_post(
+        harness(world),
+        &client,
+        &super_admin,
+        SUPERADMIN_PASSWORD,
+        "/admin/instance/super-admins",
+        &[("email", target_email.as_str())],
+    )
+    .await;
+    world.last_status = Some(outcome.status);
+    world.last_body = Some(outcome.body.clone());
+    world
+        .mwt6_grant_responses
+        .push((outcome.status, outcome.body));
+}
+
+/// `Then the web page confirms the grant both times` — the port-exposed web
+/// observable: BOTH grant POSTs rendered a 200 confirmation fragment carrying the
+/// grant-confirmation marker (the second grant — a no-op on the idempotent store —
+/// confirms identically to the first).
+#[then(regex = r#"^the web page confirms the grant both times$"#)]
+async fn web_page_confirms_grant_both_times(world: &mut FoundryWorld) {
+    assert_eq!(
+        world.mwt6_grant_responses.len(),
+        2,
+        "exactly two grant POSTs must have been submitted; got {:?}",
+        world.mwt6_grant_responses
+    );
+    for (index, (status, body)) in world.mwt6_grant_responses.iter().enumerate() {
+        assert_eq!(
+            *status,
+            StatusCode::OK,
+            "grant POST #{} must render a 200 confirmation fragment; body = {body:?}",
+            index + 1
+        );
+        assert!(
+            body.contains("data-grant-confirmation"),
+            "grant POST #{} must confirm the grant; got {body:?}",
+            index + 1
+        );
+    }
+}
+
+/// `And "<email>" is recorded as a super-admin exactly once` — the DB-observable
+/// idempotence outcome: after two grants for the same operator the
+/// `instance_admins` table holds EXACTLY ONE row for the target (the SHIPPED
+/// `INSERT … ON CONFLICT DO NOTHING` recorded no duplicate). A real `COUNT(*)`
+/// against the per-scenario Postgres schema, not a synthetic probe.
+#[then(regex = r#"^"([^"]+)" is recorded as a super-admin exactly once$"#)]
+async fn target_recorded_super_admin_exactly_once(world: &mut FoundryWorld, target_email: String) {
+    let pool = harness(world).app.state.store.pool().clone();
+    let target_lower = target_email.to_ascii_lowercase();
+    let (target_id,): (uuid::Uuid,) = sqlx::query_as("SELECT id FROM users WHERE email_lower = $1")
+        .bind(&target_lower)
+        .fetch_one(&pool)
+        .await
+        .expect("resolve grant-target id");
+    let (admin_rows,): (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM instance_admins WHERE user_id = $1")
+            .bind(target_id)
+            .fetch_one(&pool)
+            .await
+            .expect("count instance_admins rows for grant target");
+    assert_eq!(
+        admin_rows, 1,
+        "the granted operator {target_email:?} must be recorded as a super-admin EXACTLY ONCE \
+         after two grants (no duplicate instance_admins row); found {admin_rows} rows"
     );
 }
 

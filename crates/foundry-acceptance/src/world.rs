@@ -821,6 +821,13 @@ pub struct FoundryWorld {
     /// non-enumerable 404 — NOT a provisioning success (2xx) — proving no
     /// provisioning path is reachable on the bearer surface.
     pub mwt6_bearer_probe_responses: Vec<(StatusCode, String)>,
+    /// (status, body) of EACH web grant POST submitted for the SAME operator in the
+    /// idempotent-grant scenario (web-provisioning-flow 01-04). Two grants for one
+    /// existing member must BOTH confirm (200 + confirmation marker), and after both
+    /// the operator must be recorded a super-admin exactly once (no duplicate
+    /// `instance_admins` row) — proving the SHIPPED `INSERT … ON CONFLICT DO NOTHING`
+    /// idempotence behind the new web grant adapter.
+    pub mwt6_grant_responses: Vec<(StatusCode, String)>,
 }
 
 impl FoundryWorld {

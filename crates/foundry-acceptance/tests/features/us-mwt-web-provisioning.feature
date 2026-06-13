@@ -174,7 +174,7 @@ Feature: An instance super-admin provisions a new workspace and grants super-adm
   #    Granting the same operator twice from the browser records the role exactly
   #    once and is confirmed both times.
   # ----------------------------------------------------------------------------
-  @pending @us-mwt07
+  @us-mwt07
   Scenario: Granting super-admin twice from the browser is idempotent
     Given the super-admin is signed in on the web
     And "dana@acme.com" is an existing member who is not a super-admin
