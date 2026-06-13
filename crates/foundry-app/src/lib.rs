@@ -374,6 +374,17 @@ pub fn build_router(state: AppState) -> Router {
             "/admin/instance/workspaces",
             get(instance_admin::show_dashboard).post(instance_admin::submit_provision),
         )
+        // web-provisioning-flow 01-03 (ADR-001 / D1) — the INSTANCE super-admin
+        // grant surface. Same mount (UNDER `csrf_middleware` + `session_layer`):
+        // the `require_instance_admin` gate refuses a signed-out / non-super-admin
+        // caller with the SHIPPED non-enumerable uniform 404 (ADR-002). Drives the
+        // SHIPPED grant path (`user_id_by_email` + idempotent `grant_instance_admin`,
+        // the CLI's proven backend legs) and renders a non-committal confirmation
+        // fragment (instance_admin.rs).
+        .route(
+            "/admin/instance/super-admins",
+            post(instance_admin::submit_grant),
+        )
         .route("/", get(signin::dashboard_root))
         .layer(middleware::from_fn_with_state(
             state.clone(),

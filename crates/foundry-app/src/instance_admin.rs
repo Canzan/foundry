@@ -34,7 +34,10 @@
 use crate::bootstrap::{resource_not_found_page, SessionUser};
 use crate::csrf::{build_csrf_cookie, generate_token};
 use crate::session::SESSION_KEY_USER_ID;
-use crate::views::{InstanceDashboardPage, InstanceProvisionedFragment, InstanceWorkspaceRow};
+use crate::views::{
+    InstanceDashboardPage, InstanceGrantConfirmedFragment, InstanceProvisionedFragment,
+    InstanceWorkspaceRow,
+};
 use crate::AppState;
 use askama::Template;
 use axum::extract::State;
@@ -159,6 +162,64 @@ pub async fn submit_provision(
         // gate returns (no oracle that the surface or target exists).
         Err(ServiceError::Forbidden) | Err(ServiceError::NotFound) => resource_not_found_page(),
         Err(other) => internal_error("provision_workspace", other),
+    }
+}
+
+/// The web grant form: the operator `email` to grant super-admin. The
+/// double-submit `_csrf` token is enforced by the surrounding `csrf_middleware`
+/// BEFORE this handler runs; the field is accepted (and ignored) here.
+#[derive(Debug, Deserialize)]
+pub struct GrantForm {
+    pub email: String,
+    #[serde(rename = "_csrf", default)]
+    pub _csrf: Option<String>,
+}
+
+/// `POST /admin/instance/super-admins` — grant a user INSTANCE super-admin from
+/// the browser (web-provisioning-flow 01-03, ADR-001 / D1; ADR-004 reuse).
+///
+/// CSRF is enforced by the surrounding `csrf::csrf_middleware` (a POST with no
+/// valid `_csrf` is refused BEFORE this handler runs — ADR-002 / G5). The handler
+/// resolves the signed-in INSTANCE super-admin from the session
+/// (`require_instance_admin`); a signed-out caller OR a signed-in non-super-admin
+/// gets the SHIPPED non-enumerable uniform 404 (`resource_not_found_page`,
+/// ADR-002) — byte-identical to a never-existed path.
+///
+/// On a pass it drives the SHIPPED grant path verbatim (the CLI's proven backend
+/// legs): resolve the operator by email (`user_id_by_email`), then record the
+/// grant via the idempotent `grant_instance_admin` (`INSERT … ON CONFLICT DO
+/// NOTHING`). It renders a NON-COMMITTAL confirmation fragment: the SAME response
+/// whether or not the email matched a real user (D2 (g) — the grant form is not a
+/// user-enumeration oracle), so an unknown email is a silent no-op confirmed
+/// identically.
+pub async fn submit_grant(
+    State(state): State<AppState>,
+    session: Session,
+    axum::extract::Form(form): axum::extract::Form<GrantForm>,
+) -> Response {
+    if require_instance_admin(&state, &session).await.is_none() {
+        return resource_not_found_page();
+    }
+
+    let email = form.email.trim().to_string();
+    let email_lower = email.to_ascii_lowercase();
+
+    // Resolve the operator by email, then grant. An unknown email is a silent
+    // no-op (no enumeration oracle): we render the SAME confirmation either way.
+    match state.store.user_id_by_email(&email_lower).await {
+        Ok(Some(operator_id)) => {
+            if let Err(err) = state.store.grant_instance_admin(operator_id).await {
+                return internal_error("grant_instance_admin", err);
+            }
+        }
+        Ok(None) => {}
+        Err(err) => return internal_error("user_id_by_email", err),
+    }
+
+    let fragment = InstanceGrantConfirmedFragment { email };
+    match fragment.render() {
+        Ok(html) => Html(html).into_response(),
+        Err(err) => internal_error("render instance_grant_confirmed", err),
     }
 }
 

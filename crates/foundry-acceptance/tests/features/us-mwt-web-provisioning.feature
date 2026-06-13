@@ -161,7 +161,7 @@ Feature: An instance super-admin provisions a new workspace and grants super-adm
   #    form drives the SHIPPED idempotent grant. The granted operator becomes a
   #    super-admin. (US-MWT07 web leg — the grant operation.)
   # ----------------------------------------------------------------------------
-  @pending @us-mwt07
+  @us-mwt07
   Scenario: A super-admin grants super-admin to another operator from the browser
     Given the super-admin is signed in on the web
     And "dana@acme.com" is an existing member who is not a super-admin

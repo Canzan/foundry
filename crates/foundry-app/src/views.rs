@@ -595,3 +595,18 @@ pub struct InstanceProvisionedFragment {
     /// via `|safe` — `data-first-admin-invite-link` marker.
     pub invite_link: String,
 }
+
+/// The htmx confirmation FRAGMENT returned by `POST /admin/instance/super-admins`
+/// (web-provisioning-flow 01-03, ADR-001 / D1). A BARE htmx fragment (it MUST NOT
+/// extend `base.html` — htmx swaps it into the live dashboard). Confirms the grant
+/// NON-COMMITTALLY: the same confirmation is rendered whether or not the email
+/// belonged to a real user (D2 (g) — the grant form is not a user-enumeration
+/// oracle). The `data-grant-confirmation` marker is the scraper contract the
+/// acceptance suite asserts against; the operator-entered email is auto-escaped.
+#[derive(Debug, Clone, Template)]
+#[template(path = "instance_grant_confirmed.html")]
+pub struct InstanceGrantConfirmedFragment {
+    /// The operator email the grant was submitted for (auto-escaped) —
+    /// `data-granted-email` marker + visible in the confirmation copy.
+    pub email: String,
+}

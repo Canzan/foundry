@@ -230,6 +230,149 @@ async fn dashboard_offers_both_forms(world: &mut FoundryWorld) {
 }
 
 // ---------------------------------------------------------------------------
+// Given — an existing non-super-admin member to be granted (step 01-03)
+// ---------------------------------------------------------------------------
+
+/// `And "<email>" is an existing member who is not a super-admin` — seed an
+/// ordinary `users` row + a `member` membership in the Background-claimed
+/// workspace, asserting the user is NOT yet an `instance_admins` row. The grant
+/// target must already be a user (you cannot grant a non-existent user — the
+/// SHIPPED `user_id_by_email` resolve precedes the grant). Mirrors
+/// `workspace_has_member`; the `is_instance_admin == false` precondition is the
+/// state the `Then "<email>" is now a super-admin` step flips.
+#[given(regex = r#"^"([^"]+)" is an existing member who is not a super-admin$"#)]
+async fn member_not_super_admin(world: &mut FoundryWorld, member: String) {
+    let (ws_name, workspace_id) = world
+        .mwt6_workspace_ids
+        .iter()
+        .next()
+        .map(|(name, id)| (name.clone(), *id))
+        .expect("the Background must have seeded at least one workspace");
+    let _ = ws_name;
+    let pool = harness(world).app.state.store.pool().clone();
+
+    let member_lower = member.to_ascii_lowercase();
+    let pw = foundry_auth::hash_password(&SecretString::new("member-password".to_string().into()))
+        .await
+        .expect("hash member pw");
+    sqlx::query(
+        "INSERT INTO users (id, email_lower, email_display, display_name, password_hash)
+              VALUES ($1, $2, $3, 'Member', $4) ON CONFLICT (email_lower) DO NOTHING",
+    )
+    .bind(uuid::Uuid::now_v7())
+    .bind(&member_lower)
+    .bind(&member)
+    .bind(&pw)
+    .execute(&pool)
+    .await
+    .expect("insert grant-target user");
+    let (member_id,): (uuid::Uuid,) = sqlx::query_as("SELECT id FROM users WHERE email_lower = $1")
+        .bind(&member_lower)
+        .fetch_one(&pool)
+        .await
+        .expect("resolve grant-target id");
+    sqlx::query(
+        "INSERT INTO workspace_memberships (workspace_id, user_id, role)
+              VALUES ($1, $2, 'member') ON CONFLICT DO NOTHING",
+    )
+    .bind(workspace_id)
+    .bind(member_id)
+    .execute(&pool)
+    .await
+    .expect("insert grant-target membership");
+
+    // Precondition: the target is NOT yet a super-admin (the state the grant flips).
+    let (is_admin,): (bool,) =
+        sqlx::query_as("SELECT EXISTS (SELECT 1 FROM instance_admins WHERE user_id = $1)")
+            .bind(member_id)
+            .fetch_one(&pool)
+            .await
+            .expect("probe instance_admins precondition");
+    assert!(
+        !is_admin,
+        "the grant target {member:?} must NOT be a super-admin before the grant"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// When — submit the web grant form (step 01-03)
+// ---------------------------------------------------------------------------
+
+/// `When the super-admin submits the grant form for "<email>"` — drive the NEW
+/// web grant route over real HTTP: sign in as the super-admin (cookie + CSRF),
+/// POST the grant form (`email` + `_csrf`) to `/admin/instance/super-admins`, and
+/// capture the rendered confirmation fragment for the `Then` assertions.
+#[when(regex = r#"^the super-admin submits the grant form for "([^"]+)"$"#)]
+async fn submit_grant_form(world: &mut FoundryWorld, target_email: String) {
+    let super_admin = world
+        .mwt6_superadmin_email
+        .clone()
+        .expect("super-admin seeded in the Background");
+    let client = http(world);
+    let outcome = signed_in_post(
+        harness(world),
+        &client,
+        &super_admin,
+        SUPERADMIN_PASSWORD,
+        "/admin/instance/super-admins",
+        &[("email", target_email.as_str())],
+    )
+    .await;
+    world.last_status = Some(outcome.status);
+    world.last_body = Some(outcome.body);
+}
+
+// ---------------------------------------------------------------------------
+// Then — the grant is confirmed and the target is now a super-admin (step 01-03)
+// ---------------------------------------------------------------------------
+
+/// `Then the web page confirms the grant` — the port-exposed web observable: the
+/// grant POST renders a 200 confirmation fragment carrying the grant-confirmation
+/// marker.
+#[then(regex = r#"^the web page confirms the grant$"#)]
+async fn web_page_confirms_grant(world: &mut FoundryWorld) {
+    assert_eq!(
+        world.last_status,
+        Some(StatusCode::OK),
+        "the grant form POST must render a 200 confirmation fragment; body = {:?}",
+        world.last_body
+    );
+    let body = world
+        .last_body
+        .as_deref()
+        .expect("a rendered grant confirmation fragment was captured");
+    assert!(
+        body.contains("data-grant-confirmation"),
+        "the grant fragment must confirm the grant; got {body:?}"
+    );
+}
+
+/// `And "<email>" is now a super-admin` — the SHIPPED `is_instance_admin` holds
+/// for the granted operator (the DB-observable outcome the grant produced via the
+/// SHIPPED `grant_instance_admin` path).
+#[then(regex = r#"^"([^"]+)" is now a super-admin$"#)]
+async fn target_is_now_super_admin(world: &mut FoundryWorld, target_email: String) {
+    let pool = harness(world).app.state.store.pool().clone();
+    let target_lower = target_email.to_ascii_lowercase();
+    let (target_id,): (uuid::Uuid,) = sqlx::query_as("SELECT id FROM users WHERE email_lower = $1")
+        .bind(&target_lower)
+        .fetch_one(&pool)
+        .await
+        .expect("resolve grant-target id");
+    let is_admin = harness(world)
+        .app
+        .state
+        .store
+        .is_instance_admin(target_id)
+        .await
+        .expect("probe is_instance_admin after grant");
+    assert!(
+        is_admin,
+        "the granted operator {target_email:?} must be a super-admin after the grant"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // When — submit the web provision form (NEW text)
 // ---------------------------------------------------------------------------
 
