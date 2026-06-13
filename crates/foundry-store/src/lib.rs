@@ -387,15 +387,6 @@ impl Store {
         Ok(())
     }
 
-    /// Count workspaces. Used by the second-workspace-create handler to
-    /// short-circuit with 409 Conflict before hitting the unique index.
-    pub async fn workspace_count(&self) -> Result<i64, StoreError> {
-        let row: (i64,) = sqlx::query_as("SELECT count(*) FROM workspaces")
-            .fetch_one(&self.pool)
-            .await?;
-        Ok(row.0)
-    }
-
     /// Find the workspace's id + name (slice-1 has at most one).
     pub async fn first_workspace(&self) -> Result<Option<(uuid::Uuid, String)>, StoreError> {
         let row: Option<(uuid::Uuid, String)> =

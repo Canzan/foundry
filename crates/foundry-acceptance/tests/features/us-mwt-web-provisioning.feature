@@ -248,7 +248,7 @@ Feature: An instance super-admin provisions a new workspace and grants super-adm
   #    now refused as a path that never existed (no 409), proving the gated
   #    /admin/instance/workspaces POST is the SOLE web provisioning path.
   # ----------------------------------------------------------------------------
-  @pending @us-mwt07 @error @verify-path-unchanged
+  @us-mwt07 @error @verify-path-unchanged
   Scenario: The legacy create-workspace route no longer exists
     Given the super-admin is signed in on the web
     When the super-admin posts to the legacy create-workspace path on the web

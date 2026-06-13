@@ -573,42 +573,13 @@ async fn invite_valid_7d(world: &mut FoundryWorld) {
     );
 }
 
-// Single-workspace constraint --------------------------------------------
-
-#[when(regex = r#"^the admin submits a workspace-create form with name "([^"]+)"$"#)]
-async fn submit_workspace_create(world: &mut FoundryWorld, name: String) {
-    let cookie = session_cookie_value(world).expect("session cookie");
-    let session_pair = format!("foundry_session={cookie}");
-    let (csrf_token, combined) = ensure_csrf_for(world, &session_pair).await;
-    let harness = world.harness.as_ref().expect("harness");
-    let http = world.http.as_ref().expect("http");
-    let mut form = HashMap::new();
-    form.insert("name", name);
-    form.insert("_csrf", csrf_token);
-    let resp = http
-        .post(format!("{}/workspaces", harness.base_url()))
-        .header(reqwest::header::COOKIE, combined)
-        .form(&form)
-        .send()
-        .await
-        .expect("submit workspace create");
-    capture_response(world, resp).await;
-}
-
+// Shared HTTP-status assertion (used by the us-07 duplicate-project-key 409
+// scenario; the legacy single-workspace 409 scenario that also used it was
+// retired by ADR-003 / step 03-01).
 #[then(regex = r"^the response status is 409 Conflict$")]
 async fn status_409(world: &mut FoundryWorld) {
     let status = world.last_status.expect("status captured");
     assert_eq!(status.as_u16(), 409, "expected 409, got {status}");
-}
-
-#[then(regex = r"^the page body explains that only one workspace per instance is supported$")]
-async fn body_explains_single_workspace(world: &mut FoundryWorld) {
-    let body = world.last_body.as_deref().unwrap_or("");
-    let lower = body.to_ascii_lowercase();
-    assert!(
-        lower.contains("one workspace per instance") || lower.contains("only one workspace"),
-        "page body did not explain the single-workspace constraint: {body:?}"
-    );
 }
 
 // helpers -----------------------------------------------------------------

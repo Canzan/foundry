@@ -7,7 +7,6 @@
 //! - [`mint_bootstrap_if_needed`] — the startup hook that drives US-01.
 //! - `/bootstrap` GET/POST — admin claim flow (US-05 scenarios 1-3).
 //! - `/invites` POST — generate a shareable invite link (US-05 scenario 4).
-//! - `/workspaces` POST — second-workspace guard (US-05 scenario 5).
 //! - `/dashboard` GET — minimal post-claim landing (US-05 scenario 1 redirect target).
 
 #![forbid(unsafe_code)]
@@ -283,7 +282,6 @@ pub fn build_router(state: AppState) -> Router {
             get(bootstrap::show_form).post(bootstrap::submit),
         )
         .route("/invites", post(bootstrap::create_invite))
-        .route("/workspaces", post(bootstrap::create_workspace))
         .route(
             "/sign-in",
             get(signin::show_form).post(signin::submit_signin),

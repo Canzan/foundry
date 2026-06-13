@@ -3,7 +3,6 @@
 //! GET  /bootstrap?token=...  → claim form OR 410 explanatory page
 //! POST /bootstrap?token=...  → claim the workspace, set session, 303 → /dashboard
 //! POST /invites              → mint a shareable invite link (admin only)
-//! POST /workspaces           → 409 Conflict (single-workspace MVP)
 //! GET  /dashboard            → minimal "workspace dashboard" landing
 
 use crate::session::SESSION_KEY_USER_ID;
@@ -49,11 +48,6 @@ pub struct BootstrapForm {
     pub password: String,
     pub display_name: String,
     pub workspace_name: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct WorkspaceForm {
-    pub name: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -294,42 +288,6 @@ pub async fn create_invite(
         .render()
         .expect("bootstrap_invite.html renders");
     Html(body).into_response()
-}
-
-// --------------------------------------------------------------- POST /workspaces
-
-pub async fn create_workspace(
-    State(state): State<AppState>,
-    _session: Session,
-    Form(_form): Form<WorkspaceForm>,
-) -> Response {
-    // Slice-1 MVP supports exactly one workspace per instance — the
-    // answer is the same regardless of the requester's identity. We
-    // keep the single-workspace guard even after the unique index
-    // makes a second INSERT impossible, as a defence-in-depth /
-    // boring-monolith taste filter (cheap human-readable 409 instead
-    // of an opaque DB constraint violation).
-    match state.store.workspace_count().await {
-        Ok(0) => {
-            // No workspace exists — caller should use /bootstrap instead.
-            invalid_page(
-                StatusCode::BAD_REQUEST,
-                "No workspace claimed",
-                "Use the bootstrap link to create the initial workspace.",
-            )
-        }
-        Ok(_) => invalid_page(
-            StatusCode::CONFLICT,
-            "Only one workspace per instance",
-            "This Foundry instance already has a workspace. Multi-workspace per \
-             instance is not supported in this release; only one workspace per \
-             Foundry instance is available.",
-        ),
-        Err(err) => {
-            tracing::error!(%err, "workspace_count failed");
-            (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response()
-        }
-    }
 }
 
 // ----------------------------------------------------------------------- helpers

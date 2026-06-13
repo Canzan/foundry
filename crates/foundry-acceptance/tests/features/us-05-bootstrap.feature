@@ -57,13 +57,6 @@ Feature: An admin claims a fresh Foundry and invites teammates
     And the invite URL carries a signed token parameter
     And the invite is recorded as valid for 7 days
 
-  @error @real-io
-  Scenario: Attempting to create a second workspace via the API is rejected
-    Given the admin has claimed "Acme Eng" and is signed in
-    When the admin submits a workspace-create form with name "Second Workspace"
-    Then the response status is 409 Conflict
-    And the page body explains that only one workspace per instance is supported
-
   @real-io @smtp
   Scenario: Email invite delivers one message via the configured SMTP transport
     Given the admin has claimed "Acme Eng" and is signed in

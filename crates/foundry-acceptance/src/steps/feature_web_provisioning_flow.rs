@@ -1266,3 +1266,165 @@ async fn web_page_reports_workspace_and_invite(world: &mut FoundryWorld) {
         "the success fragment must report a first-admin invite link; got {body:?}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Scenario 9 (step 03-01) — the legacy identity-blind `POST /workspaces` 409
+// route is RETIRED (ADR-003 / D3, RATIFIED RETIRE — DELETED, not inert).
+//
+// The legacy `create_workspace` handler (bootstrap.rs) was a pure identity-blind
+// guard that hard-returned `409 CONFLICT` ("Only one workspace per instance") for
+// any second workspace. ADR-003 retires it outright (repo AGENTS.md "## Dead code":
+// pre-stable, DELETE superseded code — not leave it inert). The gated
+// `POST /admin/instance/workspaces` is the SOLE web provisioning path.
+//
+// After the route is DELETED from `build_router`, a POST to the legacy `/workspaces`
+// path is an UNROUTED web path, so it is refused EXACTLY as a never-existed web path
+// of the same method (POST): the SHIPPED double-submit CSRF layer screens the
+// token-less POST ahead of routing with its uniform 403 — BYTE-IDENTICAL (status +
+// full body) to a POST at a path that never existed. Critically it must NEVER answer
+// with the old 409 conflict response.
+//
+// Falsifiability (revert-reds-it litmus): while the legacy route still exists, a
+// token-less POST to `/workspaces` either reaches the handler (→ 409) or — being a
+// state-changing POST under the CSRF layer — could differ from the never-existed
+// control; the byte-identity assertion + the no-409 assertion RED until the route
+// is DELETED. Re-adding the route (or leaving it inert returning 409) re-REDS both
+// Then steps. Demonstrated during RED (step 03-01 log).
+// ---------------------------------------------------------------------------
+
+/// The legacy create-workspace path retired by ADR-003 / D3.
+const LEGACY_WORKSPACES_PATH: &str = "/workspaces";
+
+/// `When the super-admin posts to the legacy create-workspace path on the web` —
+/// drive a FULLY-CREDENTIALLED POST (real signed-in `foundry_session` cookie + a
+/// valid double-submit `_csrf` token, via the SHIPPED `signed_in_post` helper) to
+/// the legacy `/workspaces` path over real HTTP, capturing the refusal (status +
+/// full body) in `last_status` / `last_body`. In the SAME step capture a
+/// never-existed-POST control — the SAME credentialled `signed_in_post` against a
+/// path with no route at all — into `mwt6_admin_never_existed["POST"]`, so the
+/// `Then` can assert the legacy POST is refused BYTE-IDENTICALLY to a never-existed
+/// path.
+///
+/// Driving a valid-CSRF POST (not a token-less one) is what makes this a GENUINE
+/// route-existence probe: a token-less POST would be screened by the double-submit
+/// CSRF layer BEFORE routing — refused identically to a never-existed POST even
+/// WHILE the legacy route still exists (a false green). A valid-CSRF POST PASSES the
+/// CSRF layer and reaches ROUTING, so WHILE the legacy route exists it hits the
+/// `create_workspace` handler (→ the old 409), diverging from the never-existed
+/// control (router fallback) — genuine RED. Once the route is DELETED, the
+/// valid-CSRF POST falls through to the SAME router fallback as the never-existed
+/// control — byte-identical, GREEN.
+#[when(regex = r#"^the super-admin posts to the legacy create-workspace path on the web$"#)]
+async fn post_legacy_create_workspace_path(world: &mut FoundryWorld) {
+    let super_admin = world
+        .mwt6_superadmin_email
+        .clone()
+        .expect("super-admin seeded in the Background");
+    let client = http(world);
+
+    // The legacy POST refusal (the path under test) — fully credentialled so it
+    // passes CSRF and reaches routing, genuinely probing the route's existence.
+    let legacy = signed_in_post(
+        harness(world),
+        &client,
+        &super_admin,
+        SUPERADMIN_PASSWORD,
+        LEGACY_WORKSPACES_PATH,
+        &[("name", "Globex")],
+    )
+    .await;
+    world.last_status = Some(legacy.status);
+    world.last_body = Some(legacy.body);
+
+    // The never-existed-POST control — the SAME credentialled POST shape against a
+    // path with no route, so it too passes CSRF and reaches the router fallback.
+    let control = signed_in_post(
+        harness(world),
+        &client,
+        &super_admin,
+        SUPERADMIN_PASSWORD,
+        "/this-path-has-never-existed-anywhere",
+        &[("name", "Globex")],
+    )
+    .await;
+    world
+        .mwt6_admin_never_existed
+        .insert("POST".to_string(), (control.status, control.body));
+}
+
+/// `Then the legacy path is refused like a path that never existed` — the
+/// route-retired core (ADR-003 AC #1). The legacy `POST /workspaces` refusal is
+/// BYTE-IDENTICAL (status AND full body) to a never-existed POST: the route is GONE
+/// (not inert), so the SHIPPED CSRF layer / router fallback refuses it exactly as it
+/// refuses a path with no route at all. Asserting the FULL body (not merely "both
+/// 4xx") is what makes the litmus bite: leaving the route inert (still answering
+/// from `create_workspace`) diverges from the never-existed control and re-REDS here.
+#[then(regex = r#"^the legacy path is refused like a path that never existed$"#)]
+async fn legacy_path_refused_like_never_existed(world: &mut FoundryWorld) {
+    let status = world
+        .last_status
+        .expect("the legacy POST must have recorded a refusal status");
+    let body = world
+        .last_body
+        .clone()
+        .expect("the legacy POST must have recorded a refusal body");
+    let (control_status, control_body) = world
+        .mwt6_admin_never_existed
+        .get("POST")
+        .expect("a never-existed POST control was captured");
+    assert!(
+        !status.is_redirection(),
+        "the legacy /workspaces POST answered with a redirect ({status}) — a route still \
+         exists there (ADR-003 retires it; an unrouted path is refused, not redirected)"
+    );
+    assert_eq!(
+        status, *control_status,
+        "the legacy /workspaces POST refused with status {status} but a never-existed POST \
+         refused with {control_status} — a status oracle proving the route still exists \
+         (ADR-003: the route must be DELETED, refused identically to a never-existed path)"
+    );
+    assert_eq!(
+        body, *control_body,
+        "the legacy /workspaces POST refusal body differs from the never-existed POST-path \
+         body — the route still exists (an inert handler still answering). \
+         legacy = {body:?}, never-existed = {control_body:?}"
+    );
+}
+
+/// `And the legacy path does not answer with the old conflict response` — the
+/// no-409 invariant (ADR-003 AC #2). The retired route must NEVER answer with the
+/// old `409 CONFLICT` ("Only one workspace per instance") response: a 409 status
+/// would prove the `create_workspace` guard is still wired (inert, not deleted),
+/// and the conflict vocabulary would prove the legacy handler still rendered. This
+/// complements the byte-identity check so leaving the route inert returning 409
+/// REDS here even if the never-existed control somehow also changed.
+#[then(regex = r#"^the legacy path does not answer with the old conflict response$"#)]
+async fn legacy_path_not_old_conflict(world: &mut FoundryWorld) {
+    let status = world
+        .last_status
+        .expect("the legacy POST must have recorded a refusal status");
+    let body = world
+        .last_body
+        .clone()
+        .expect("the legacy POST must have recorded a refusal body");
+    assert_ne!(
+        status,
+        StatusCode::CONFLICT,
+        "the legacy /workspaces POST answered 409 CONFLICT — the identity-blind \
+         single-workspace guard is still wired (ADR-003 retires it: the route must be \
+         DELETED, never returning the old conflict); body = {body:?}"
+    );
+    let body_lower = body.to_ascii_lowercase();
+    for conflict_phrase in [
+        "only one workspace per instance",
+        "already has a workspace",
+        "multi-workspace per",
+    ] {
+        assert!(
+            !body_lower.contains(conflict_phrase),
+            "the legacy /workspaces POST leaked the old single-workspace conflict vocabulary \
+             ({conflict_phrase:?}) — the legacy handler still renders (ADR-003: delete it); \
+             got {body:?}"
+        );
+    }
+}
