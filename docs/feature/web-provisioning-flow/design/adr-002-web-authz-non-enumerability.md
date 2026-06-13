@@ -1,8 +1,10 @@
 # ADR-002 — Web authz gate + non-enumerability (+ CSRF/session)
 
 ## Status
-**PROPOSED** (2026-06-12). DESIGN wave, Propose mode. Awaiting ratification (D2 is a grounded
-default dictated by the shipped seams; low contention).
+**IMPLEMENTED / SHIPPED** (ratified 2026-06-13; finalized 2026-06-13). DESIGN wave, Propose mode.
+The inline `require_instance_admin` gate, the uniform non-enumerable 404 (byte-identical for
+signed-out and non-admin, revert-reds-it litmus bound), and the non-committal grant all shipped to
+`main`. See `docs/evolution/2026-06-13-web-provisioning-flow.md`.
 
 ## Context
 The web provisioning surface (ADR-001) is the highest-privilege browser surface in the product

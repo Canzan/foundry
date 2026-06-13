@@ -95,6 +95,23 @@
 - **No new domain regression**: the existing 275-scenario acceptance suite stays green (the feature
   adds an adapter, not domain logic).
 
+## Status — IMPLEMENTED / SHIPPED (finalized 2026-06-13)
+
+**All decisions D1–D6 are IMPLEMENTED and shipped to `main`** via the 11 DES-monitored TDD steps
+(`02029e7` → `0c32abd`) plus the regression fix `9efd8e9` and review-remediation `ea09033`.
+`@all` acceptance 285/285 scenarios (2348/2348 steps) green; fmt + clippy `-D warnings` clean;
+`cargo xtask check-arch` PASSED; adversarial review APPROVED (no Testing Theater). Zero new crate,
+zero migration. See `docs/evolution/2026-06-13-web-provisioning-flow.md`.
+
+| # | Decision | Status |
+|---|---|---|
+| **D1** | One-page routes/screens (GET dashboard + 2 POSTs, htmx). | **IMPLEMENTED** |
+| **D2** | Inline `require_instance_admin` gate + uniform non-enumerable 404; non-committal grant. | **IMPLEMENTED** |
+| **D3** | RETIRE legacy `POST /workspaces` 409 route (deleted outright). | **IMPLEMENTED** |
+| **D4** | Thin driving adapter + `list_workspaces` read; no new domain logic, no migration. | **IMPLEMENTED** |
+| **D5** | Invite-accept OUT of v1 (link informational). | **IMPLEMENTED** (accept flow deferred) |
+| **D6** | +1 LAYER-1e allow-list line for `instance_admin`. | **IMPLEMENTED** |
+
 ## Open decisions — RATIFIED by user 2026-06-13 (before DISTILL)
 
 Both scope-defining decisions are now CONFIRMED at their recommended options. D1/D2/D4/D6 stand at

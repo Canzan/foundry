@@ -1,10 +1,11 @@
 # ADR-001 — Web provisioning routes + screens (v1 surface)
 
 ## Status
-**PROPOSED** (2026-06-12). DESIGN wave, Propose mode. Realises the web flow DEFERRED by
-`multi-workspace-provisioning` ADR-002 (D2) and originally sketched by `multi-workspace-tenancy`
-ADR-004 (option d). Awaiting ratification (see wave-decisions.md, open decision — D1 is a grounded
-default, low contention).
+**IMPLEMENTED / SHIPPED** (ratified 2026-06-13; finalized 2026-06-13). DESIGN wave, Propose mode.
+Realises the web flow DEFERRED by `multi-workspace-provisioning` ADR-002 (D2) and originally
+sketched by `multi-workspace-tenancy` ADR-004 (option d). Shipped to `main` (`02029e7`→`0c32abd`);
+`GET /admin/instance/workspaces` + the two POSTs live behind the gate. See
+`docs/evolution/2026-06-13-web-provisioning-flow.md`.
 
 ## Context
 The shipped feature ships a CLI provisioning surface (`foundry doctor provision-workspace`) and a

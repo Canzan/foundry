@@ -1,7 +1,11 @@
 # ADR-004 — Thin driving adapter (reuse vs new) + the LAYER-1e allow-list line
 
 ## Status
-**PROPOSED** (2026-06-12). DESIGN wave, Propose mode. D4 + D6. Grounded defaults; low contention.
+**IMPLEMENTED / SHIPPED** (ratified 2026-06-13; finalized 2026-06-13). DESIGN wave, Propose mode.
+D4 + D6. The thin `instance_admin.rs` adapter over the shipped `provision_workspace` /
+`grant_instance_admin`, the one thin non-tenant-scoped `list_workspaces` read, and the
+`instance_admin` LAYER-1e allow-list line all shipped to `main` (check-arch PASSED). No new domain
+logic, no migration. See `docs/evolution/2026-06-13-web-provisioning-flow.md`.
 
 ## Context
 The framing of this feature is explicit: it is a **NEW DRIVING ADAPTER (web), not new domain logic**.

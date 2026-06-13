@@ -1,8 +1,11 @@
 # ADR-005 — Invite-accept / first-admin onboarding scope
 
 ## Status
-**PROPOSED** (2026-06-12). DESIGN wave, Propose mode. **Flagged for ratification** (wave-decisions.md
-open decision #1 — the most scope-defining decision in this feature).
+**IMPLEMENTED / SHIPPED** (ratified OUT-of-v1 2026-06-13; finalized 2026-06-13). DESIGN wave,
+Propose mode. Option (a) chosen: invite-accept stays OUT of v1. The web success fragment surfaces
+the same informational invite link the CLI emits; the `/invites/accept` + password-set +
+consume-invite vertical remains the highest-value deferred follow-up (the link is dead on both CLI
+and web today). See `docs/evolution/2026-06-13-web-provisioning-flow.md`.
 
 ## Context
 When a super-admin provisions a workspace, the use-case seeds a first admin and mints a signed

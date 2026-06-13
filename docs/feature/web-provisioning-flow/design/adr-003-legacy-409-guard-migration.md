@@ -1,9 +1,12 @@
 # ADR-003 — Migrating the legacy `POST /workspaces` 409 guard
 
 ## Status
-**PROPOSED** (2026-06-12). DESIGN wave, Propose mode. Realises the "replace point" recorded in the
-parent provisioning feature's `upstream-changes.md` (Finding 2). **Flagged for ratification**
-(wave-decisions.md open decision #2).
+**IMPLEMENTED / SHIPPED** (ratified RETIRE 2026-06-13; finalized 2026-06-13). DESIGN wave, Propose
+mode. Realises the "replace point" recorded in the parent provisioning feature's
+`upstream-changes.md` (Finding 2). Option (a) chosen: the legacy `POST /workspaces` 409 route was
+DELETED outright (per the 2026-06-13 AGENTS.md "## Dead code" policy); a POST now 404s. The gated
+`/admin/instance/workspaces` POST is the sole web provisioning path. See
+`docs/evolution/2026-06-13-web-provisioning-flow.md`.
 
 ## Context
 The parent provisioning feature's upstream Finding 2 established that `bootstrap.rs:301`
