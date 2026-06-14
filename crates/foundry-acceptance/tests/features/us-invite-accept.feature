@@ -183,7 +183,7 @@ Feature: A provisioned first-admin claims her account from her invite link and i
   #    foundation: only the POST consume TX is authoritative (D6/AC-01.2). Its
   #    Given reuses scenario 2's Given+When (chained narrative, Pillar 2).
   # ----------------------------------------------------------------------------
-  @pending @us-01
+  @us-01
   Scenario: Opening the accept page consumes nothing
     Given Priya has opened her live invite for "Northwind" and seen the set-password form
     Then no password has yet been set on her account

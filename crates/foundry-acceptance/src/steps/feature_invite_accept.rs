@@ -109,9 +109,19 @@ async fn super_admin_provisioned_workspace(world: &mut FoundryWorld, ws_name: St
         .await
         .expect("provision the Northwind workspace + first-admin + invite row");
 
+    // Snapshot the first-admin's throwaway password hash BEFORE any accept, so the
+    // "Opening the accept page consumes nothing" scenario can prove the GET wrote no
+    // password by comparing the post-GET hash against this baseline.
+    let (seeded_hash,): (String,) = sqlx::query_as("SELECT password_hash FROM users WHERE id = $1")
+        .bind(admin_user_id)
+        .fetch_one(store.pool())
+        .await
+        .expect("read the seeded first-admin password hash");
+
     world.ia_workspace_ids.insert(ws_name, workspace_id);
     world.ia_invite_id = Some(invite_id);
     world.ia_admin_user_id = Some(admin_user_id);
+    world.ia_seeded_password_hash = Some(seeded_hash);
     world.ia_harness = Some(harness);
     let _ = http(world);
 }
@@ -475,5 +485,67 @@ async fn invite_recorded_used_exactly_once(world: &mut FoundryWorld) {
         consumed_rows, 1,
         "the invite must be recorded as used EXACTLY ONCE (used_at set, used_by = the \
          first-admin); found {consumed_rows} consumed rows"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 3 (step 01-03) — Opening the accept page consumes nothing.
+//
+// Reuses the walking-skeleton arrival Given (the GET that renders the form),
+// then proves the GET was NON-COMMITTAL against the REAL per-scenario Postgres:
+// the first-admin's password is still the seeded throwaway (no password was
+// written) and the invite row is still live (used_at NULL, unexpired). Green by
+// inheritance from the non-committal `show_accept_form` GET handler, which reads
+// via `invite_accept_view` and renders without writing. The falsifiability
+// litmus: a GET that wrote `used_at` (or the chosen password) reds BOTH Thens.
+// ---------------------------------------------------------------------------
+
+/// `Then no password has yet been set on her account` — after the non-committal
+/// GET, the first-admin's `password_hash` is byte-identical to the throwaway
+/// credential snapshotted at seed time (before any accept). A GET that wrote the
+/// chosen password would change the hash and red this — the falsifiability bind.
+#[then(regex = r#"^no password has yet been set on her account$"#)]
+async fn no_password_set_yet(world: &mut FoundryWorld) {
+    let admin_id = world.ia_admin_user_id.expect("first-admin id seeded");
+    let seeded_hash = world
+        .ia_seeded_password_hash
+        .clone()
+        .expect("the Background snapshotted the seeded throwaway password hash");
+    let pool = harness(world).app.state.store.pool().clone();
+    let (current_hash,): (String,) =
+        sqlx::query_as("SELECT password_hash FROM users WHERE id = $1")
+            .bind(admin_id)
+            .fetch_one(&pool)
+            .await
+            .expect("read the first-admin password hash after the GET");
+    assert_eq!(
+        current_hash, seeded_hash,
+        "opening the accept page must write NO password — the first-admin's \
+         password_hash must equal the seeded throwaway credential; it changed, so \
+         the GET consumed/wrote something"
+    );
+}
+
+/// `And her invite is still live and unconsumed` — after the GET, the invite row
+/// is still live: `used_at` is NULL and it has not expired (exactly the same
+/// liveness the pre-GET precondition asserted). A GET that consumed the invite
+/// (set `used_at`) would drop the live count to 0 and red this.
+#[then(regex = r#"^her invite is still live and unconsumed$"#)]
+async fn invite_still_live_and_unconsumed(world: &mut FoundryWorld) {
+    let invite_id = world.ia_invite_id.expect("invite seeded");
+    let now = harness(world).app.state.clock.now();
+    let pool = harness(world).app.state.store.pool().clone();
+    let (live_rows,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM invites WHERE id = $1 AND used_at IS NULL AND expires_at > $2",
+    )
+    .bind(invite_id)
+    .bind(now)
+    .fetch_one(&pool)
+    .await
+    .expect("count the live (unused, unexpired) invite row after the GET");
+    assert_eq!(
+        live_rows, 1,
+        "opening the accept page must consume NOTHING — the invite must still be \
+         live (used_at NULL, unexpired) after the GET; found {live_rows} live rows"
     );
 }

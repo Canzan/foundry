@@ -883,6 +883,12 @@ pub struct FoundryWorld {
     /// The first-admin's user id (the invite's `created_by` — the row the consume
     /// TX writes the chosen password onto).
     pub ia_admin_user_id: Option<uuid::Uuid>,
+    /// The first-admin's `password_hash` snapshotted at Background seed time (the
+    /// throwaway initial credential, before any accept). The "no password has yet
+    /// been set" assertion compares the post-GET hash against this baseline to prove
+    /// the non-committal GET wrote no password — and the falsifiability litmus
+    /// (a GET that writes the chosen password) reds it.
+    pub ia_seeded_password_hash: Option<String>,
     /// The session cookie (`foundry_session=...`) captured from the POST 303 — the
     /// auto-sign-in credential proving "no separate login step".
     pub ia_session_cookie: Option<String>,
