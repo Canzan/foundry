@@ -721,6 +721,137 @@ async fn no_password_set_yet(world: &mut FoundryWorld) {
     );
 }
 
+// ---------------------------------------------------------------------------
+// Scenario 5 (step 02-01) — an EXPIRED invite is refused without leaking
+// existence. The CANONICAL refusal arm: scenarios 6/7/8 assert byte-identity
+// AGAINST the (status + full body) captured here. (D3/adr-002, OD-3 = 200 OK.)
+//
+// Setup re-points the seeded invite's `expires_at` to one day in the PAST
+// against the REAL per-scenario Postgres and RE-MINTS the HMAC signature over
+// the new `expires_at` (the token binds expires_at — the tamper oracle stays
+// satisfied, so ONLY the liveness check fails; this is the genuine "expired"
+// arm, not a tampered-signature arm). Test PRECONDITION setup, no store method.
+//
+// Falsifiability litmus (proven at DELIVER): making the expired path LEAK —
+// rendering the workspace name, the invitee email, or any reason-distinct copy
+// instead of the uniform refusal — REDs the no-leak Then; returning a 4xx/5xx
+// status (instead of the ratified 200 OK) REDs the standard-page Then.
+// ---------------------------------------------------------------------------
+
+/// `Given Priya's invite expired one day ago` — re-point the seeded invite's
+/// `expires_at` to one day in the past against the REAL per-scenario Postgres,
+/// and RE-MINT the signed token over the new (past) `expires_at` so the HMAC
+/// tamper oracle still verifies (only the liveness check fails — the canonical
+/// expired arm). Asserts the row is now expired-but-unused so the "expired one
+/// day ago" precondition is grounded in observable invite state, not assumed.
+#[given(regex = r#"^Priya's invite expired one day ago$"#)]
+async fn priya_invite_expired_one_day_ago(world: &mut FoundryWorld) {
+    let invite_id = world.ia_invite_id.expect("invite seeded in the Background");
+    let now = harness(world).app.state.clock.now();
+    let expires_at = now - time::Duration::days(1);
+    let pool = harness(world).app.state.store.pool().clone();
+
+    sqlx::query("UPDATE invites SET expires_at = $2 WHERE id = $1 AND used_at IS NULL")
+        .bind(invite_id)
+        .bind(expires_at)
+        .execute(&pool)
+        .await
+        .expect("re-point the seeded invite to one day past expiry");
+
+    // Re-mint the signed token over the new (past) expires_at so the HMAC
+    // verifies — isolating the failure to the liveness check (the canonical
+    // expired arm), not the tamper oracle.
+    let secret = harness(world).app.state.session_secret.clone();
+    let token = foundry_auth::InviteToken::new(invite_id, expires_at, &secret)
+        .expect("re-mint the expired invite signature");
+    world.ia_invite_sig = Some(token.signature);
+
+    let (expired_rows,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM invites WHERE id = $1 AND used_at IS NULL AND expires_at <= $2",
+    )
+    .bind(invite_id)
+    .bind(now)
+    .fetch_one(&pool)
+    .await
+    .expect("count the expired (unused, past-expiry) invite row");
+    assert_eq!(
+        expired_rows, 1,
+        "the invite under test must be expired (unused, expiry in the past) before \
+         the GET; found {expired_rows} expired rows"
+    );
+}
+
+/// `Then she sees the standard "invite is no longer valid" page` — the GET for
+/// an expired invite rendered the uniform refusal at the ratified 200 OK
+/// (OD-3 — no status-code oracle) carrying the journey's "no longer valid" copy.
+/// CAPTURES the status + full body into the canonical refusal slots so scenarios
+/// 6/7/8 can assert byte-identity against this arm.
+#[then(regex = r#"^she sees the standard "invite is no longer valid" page$"#)]
+async fn she_sees_standard_refusal_page(world: &mut FoundryWorld) {
+    assert_eq!(
+        world.ia_post_status,
+        Some(StatusCode::OK),
+        "the expired-invite refusal must be the ratified 200 OK (OD-3, no status \
+         oracle); got {:?}",
+        world.ia_post_status
+    );
+    let body = world
+        .last_body
+        .clone()
+        .expect("the GET captured a rendered body");
+    assert!(
+        body.to_ascii_lowercase().contains("no longer valid"),
+        "the refusal must render the standard \"invite is no longer valid\" page; \
+         got {body:?}"
+    );
+    // Capture the canonical refusal (status + full body) for the byte-identity
+    // comparison helper scenarios 6/7/8 reuse.
+    world.ia_refusal_status = world.ia_post_status;
+    world.ia_refusal_body = Some(body);
+}
+
+/// `And the page reveals nothing about whether any account or workspace exists`
+/// — the uniform refusal leaks NONE of: the workspace name ("Northwind"), the
+/// invitee email, or any account/invite-state identifier. This is the
+/// non-enumerability guarantee (NFR-3): a prober learns nothing. Making the
+/// expired path render the workspace name or the invitee email REDs this.
+#[then(regex = r#"^the page reveals nothing about whether any account or workspace exists$"#)]
+async fn refusal_leaks_no_existence(world: &mut FoundryWorld) {
+    let body = world
+        .ia_refusal_body
+        .clone()
+        .or_else(|| world.last_body.clone())
+        .expect("the refusal captured a rendered body");
+    assert!(
+        !body.contains("Northwind"),
+        "the refusal must NOT reveal the workspace name; got {body:?}"
+    );
+    assert!(
+        !body.contains(PRIYA_EMAIL),
+        "the refusal must NOT reveal the invitee email; got {body:?}"
+    );
+}
+
+/// `And the page advises asking the instance administrator to re-issue the
+/// invite` — the journey's universal next action (the only "reason" a legitimate
+/// recipient gets, by design): ask the instance administrator to re-issue /
+/// re-provision. Asserts the advisory copy is present (admin + re-issue intent).
+#[then(regex = r#"^the page advises asking the instance administrator to re-issue the invite$"#)]
+async fn refusal_advises_admin_reissue(world: &mut FoundryWorld) {
+    let body = world
+        .ia_refusal_body
+        .clone()
+        .or_else(|| world.last_body.clone())
+        .expect("the refusal captured a rendered body");
+    let lower = body.to_ascii_lowercase();
+    assert!(
+        lower.contains("administrator")
+            && (lower.contains("re-issue") || lower.contains("reissue")),
+        "the refusal must advise asking the instance administrator to re-issue the \
+         invite; got {body:?}"
+    );
+}
+
 /// `And her invite is still live and unconsumed` — after the GET, the invite row
 /// is still live: `used_at` is NULL and it has not expired (exactly the same
 /// liveness the pre-GET precondition asserted). A GET that consumed the invite

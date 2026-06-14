@@ -897,6 +897,10 @@ pub struct FoundryWorld {
     pub ia_post_location: Option<String>,
     /// The signed-in landing page body fetched with the session cookie.
     pub ia_landing_body: Option<String>,
+    /// The CANONICAL refusal arm (status + full body) captured by the expired
+    /// scenario (02-01) — scenarios 6/7/8 assert byte-identity AGAINST this.
+    pub ia_refusal_status: Option<StatusCode>,
+    pub ia_refusal_body: Option<String>,
 }
 
 impl FoundryWorld {

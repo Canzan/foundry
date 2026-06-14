@@ -16,7 +16,7 @@
 //! the session establish, and the 303. The uniform non-enumerable refusal
 //! (expired / used / tampered / unknown — ADR-002) and the inline recovery paths
 //! (weak / mismatch — US-03) are LATER steps; this step renders the SHIPPED
-//! `resource_not_found_page()` for any non-live invite (the thinnest refusal that
+//! `invite_refusal_page()` for any non-live invite (the thinnest refusal that
 //! keeps the GET non-committal) and re-renders the form inline on a policy/confirm
 //! failure WITHOUT opening the consume TX.
 //!
@@ -25,7 +25,7 @@
 //! `resolve_active_workspace` membership seam (like `signin`), so it must NOT trip
 //! the tenant-scoping detector (confirmed at DELIVER via `cargo xtask check-arch`).
 
-use crate::bootstrap::{resource_not_found_page, SessionUser};
+use crate::bootstrap::{invalid_page, SessionUser};
 use crate::csrf::{build_csrf_cookie, extract_csrf_cookie, generate_token};
 use crate::session::SESSION_KEY_USER_ID;
 use crate::views::InviteAcceptPage;
@@ -69,16 +69,16 @@ pub async fn show_accept_form(
     Query(query): Query<AcceptQuery>,
 ) -> Response {
     let (Some(id_raw), Some(sig)) = (query.id, query.sig) else {
-        return resource_not_found_page();
+        return invite_refusal_page();
     };
     let Ok(invite_id) = uuid::Uuid::parse_str(id_raw.trim()) else {
-        return resource_not_found_page();
+        return invite_refusal_page();
     };
 
     let now = state.clock.now();
     let view = match state.store.invite_accept_view(invite_id).await {
         Ok(Some(v)) => v,
-        Ok(None) => return resource_not_found_page(),
+        Ok(None) => return invite_refusal_page(),
         Err(err) => {
             tracing::error!(%err, %invite_id, "invite_accept_view failed");
             return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
@@ -88,7 +88,7 @@ pub async fn show_accept_form(
     // Verify the HMAC against the recovered expires_at (the tamper oracle), then
     // the advisory liveness (unused + not expired). Any failure → uniform refusal.
     if !invite_is_acceptable(&state, invite_id, view.expires_at, &sig, view.used_at, now) {
-        return resource_not_found_page();
+        return invite_refusal_page();
     }
 
     let (token, set_cookie) = ensure_csrf_cookie(&state, &headers);
@@ -109,13 +109,13 @@ pub async fn submit_accept(
     Form(form): Form<AcceptForm>,
 ) -> Response {
     let Ok(invite_id) = uuid::Uuid::parse_str(form.id.trim()) else {
-        return resource_not_found_page();
+        return invite_refusal_page();
     };
 
     let now = state.clock.now();
     let view = match state.store.invite_accept_view(invite_id).await {
         Ok(Some(v)) => v,
-        Ok(None) => return resource_not_found_page(),
+        Ok(None) => return invite_refusal_page(),
         Err(err) => {
             tracing::error!(%err, %invite_id, "invite_accept_view failed");
             return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
@@ -132,7 +132,7 @@ pub async fn submit_accept(
         view.used_at,
         now,
     ) {
-        return resource_not_found_page();
+        return invite_refusal_page();
     }
 
     let password = SecretString::new(form.password.clone().into());
@@ -186,7 +186,7 @@ pub async fn submit_accept(
     } = outcome
     else {
         // 0 rows — lost the race / already used / expired in the GET→POST window.
-        return resource_not_found_page();
+        return invite_refusal_page();
     };
 
     if let Err(err) = session
@@ -209,6 +209,33 @@ pub async fn submit_accept(
 }
 
 // ----------------------------------------------------------------------- helpers
+
+/// The UNIFORM non-enumerable invite refusal (ADR-002, the security crux). EVERY
+/// invalid-link reason — expired, already-used, tampered-signature, unknown-id,
+/// missing/garbled params, lost-race consume — collapses to THIS byte-identical
+/// response (status AND full body). It leaks NONE of: workspace name, account
+/// existence, or invite state (NFR-3, NFR-5); the reason lives ONLY in internal
+/// `tracing` keyed on `invite_id`, never in the body or status.
+///
+/// OD-3 (RATIFIED 2026-06-14): the fixed status is 200 OK — it avoids even a
+/// status-code oracle and is the most honest "this page exists, the link is
+/// dead" UX. The copy is the journey's universal next action: the recipient is
+/// told only to ask the instance administrator to re-issue / re-provision.
+///
+/// This is the CANONICAL refusal arm; scenarios 6/7/8/9 assert byte-identity
+/// against it. Diverging any arm (a distinct message, a reason-revealing status,
+/// a workspace-name leak) breaks the byte-identity bar — the revert-reds-it
+/// litmus. Deliberately diverges from the bootstrap claim flow's enumeration
+/// oracle (`bootstrap.rs:124-139`) toward the GOOD uniform-refusal posture.
+fn invite_refusal_page() -> Response {
+    invalid_page(
+        StatusCode::OK,
+        "This invite is no longer valid",
+        "It may have expired, already been used, or been mistyped. \
+         Ask your instance administrator to re-provision your workspace or \
+         re-issue the invitation.",
+    )
+}
 
 /// True iff the invite's signature verifies against the recovered `expires_at`
 /// AND the invite is advisory-live (unused + not expired). The HMAC is the tamper

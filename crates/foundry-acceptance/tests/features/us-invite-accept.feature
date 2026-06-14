@@ -204,7 +204,7 @@ Feature: A provisioned first-admin claims her account from her invite link and i
   #    canonical refusal arm; scenarios 6/7/8 assert byte-identity AGAINST this one.
   #    (E1; AC-02.3, NFR-3.)
   # ----------------------------------------------------------------------------
-  @pending @us-02 @error
+  @us-02 @error
   Scenario: An expired invite is refused without leaking existence
     Given Priya's invite expired one day ago
     When Priya opens her invite link
