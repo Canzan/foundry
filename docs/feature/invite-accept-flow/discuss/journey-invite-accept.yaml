@@ -1,0 +1,167 @@
+schema_version: 1
+
+journey:
+  name: "Invite Accept — first-admin claims their account"
+  goal: "Turn the emitted /invites/accept link from a dead URL into a working flow: verify token, set password, consume invite single-use, land signed-in on the workspace."
+  persona: "Priya Nair (priya.nair@northwind.example) — first-admin of a freshly provisioned workspace, never signed into Foundry before."
+
+  scope:
+    in_scope: "First-admin invites only (the invite minted by provision_workspace)."
+    out_of_scope:
+      - "General workspace-member invites (later feature)."
+      - "CLI-native `foundry invite accept` TUI (the emitted link is a web URL; web route fixes both emit sites)."
+
+  emotional_arc:
+    start: "Cautious trust — 'is this link legit?' Priya has never signed in; the workspace name on arrival earns trust."
+    middle: "Growing confidence — she chooses her own password; brief suspense at submit (consume+sign-in is atomic)."
+    end: "Relief and ownership — landed directly on HER workspace, no second login step."
+
+steps:
+  - id: 1
+    name: "Arrive — verify token, render set-password form"
+    command: "GET /invites/accept?id=${invite_id}&sig=${signature}"
+    tui_mockup: |
+      +-- Set your password to join "${workspace_name}" ----------+
+      | New password   [____________________]                     |
+      | Confirm        [____________________]                     |
+      | <hidden> id=${invite_id} sig=${signature} _csrf=${csrf}   |
+      |                              [ Set password & sign in ]   |
+      +-----------------------------------------------------------+
+    shared_artifacts:
+      - name: "invite_id"
+        source: "invites.id (row created by insert_invite during provision_workspace)"
+        displayed_as: "${invite_id}"
+        consumers: ["GET query param", "hidden form field", "POST body", "consume_invite TX"]
+      - name: "signature"
+        source: "InviteToken.signature (HMAC of invite_id||expires_at, signed with SESSION_SECRET)"
+        displayed_as: "${signature}"
+        consumers: ["GET query param", "hidden form field", "POST body re-verification"]
+      - name: "workspace_name"
+        source: "workspaces row joined via invites.workspace_id"
+        displayed_as: "${workspace_name}"
+        consumers: ["set-password page heading (context, builds trust)"]
+      - name: "csrf_token"
+        source: "csrf::generate_token (double-submit cookie idiom, shipped)"
+        displayed_as: "${csrf_token}"
+        consumers: ["hidden _csrf field", "CSRF middleware on POST"]
+    emotional_state:
+      entry: "cautious trust"
+      exit: "growing confidence — sees the workspace name, recognizes it"
+    integration_checkpoint: |
+      GET is non-committal: verify HMAC binds id||expires_at, look up invites row, confirm
+      unexpired AND unconsumed (used_at IS NULL). Render form ONLY for a live valid invite;
+      any failure -> uniform non-enumerable refusal. NO state mutation on GET.
+    failure_modes:
+      - "E1 Expired: invites.expires_at <= now -> uniform refusal"
+      - "E3 Invalid/tampered sig: HMAC mismatch -> uniform refusal"
+      - "E4 Unknown id: no invites row -> uniform refusal (byte-identical to E1/E3)"
+      - "E2 Already used: invites.used_at IS NOT NULL -> uniform refusal"
+    gherkin: |
+      Scenario: First-admin opens a valid invite and sees a set-password form
+        Given Priya Nair was provisioned the "Northwind" workspace with a live invite
+        And the invite has not expired and has not been used
+        When Priya opens her invite link
+        Then she sees a set-password form naming the "Northwind" workspace
+        And shared artifact "${invite_id}" matches the invites row created at provisioning
+
+  - id: 2
+    name: "Set password — atomic consume + set password + establish session"
+    command: "POST /invites/accept  (id, sig, password, confirm, _csrf)"
+    tui_mockup: |
+      +-- POST /invites/accept (server, <1s, invisible) ---------+
+      | re-verify sig binds id||expires_at                       |
+      | BEGIN TX                                                 |
+      |   consume_invite: UPDATE invites SET used_at=now         |
+      |     WHERE id=${invite_id} AND used_at IS NULL            |
+      |       AND expires_at > now   (0 rows -> ABORT, refuse)   |
+      |   write ${password_hash} onto first-admin user row       |
+      | COMMIT                                                   |
+      | establish ${session}; resolve_active_workspace           |
+      +----------------------------------------------------------+
+      302 Found -> "/"
+    shared_artifacts:
+      - name: "password_hash"
+        source: "foundry_auth::hash_password (argon2id, OWASP params — shipped, reused)"
+        displayed_as: "${password_hash}"
+        consumers: ["users row update", "later verify_password at sign-in"]
+      - name: "invites_row_used_at"
+        source: "invites.used_at (NEW column — see Open decisions: confirm column exists/needed)"
+        displayed_as: "${invites_row}.used_at"
+        consumers: ["consume_invite single-use guard", "GET re-render guard"]
+      - name: "session"
+        source: "session layer (SESSION_KEY_USER_ID -> SessionUser{user_id, workspace_id}) — shipped"
+        displayed_as: "${session}"
+        consumers: ["all subsequent authenticated requests"]
+    emotional_state:
+      entry: "growing confidence, brief suspense at submit"
+      exit: "relief — it took, I'm in"
+    integration_checkpoint: |
+      Consume MUST be atomic and single-use: the UPDATE's WHERE (used_at IS NULL AND
+      expires_at > now) is the race guard. Exactly one concurrent POST updates 1 row and
+      proceeds; all others see 0 rows and get the uniform refusal. Password write and consume
+      are in the SAME transaction — neither happens without the other.
+    failure_modes:
+      - "E5 Weak password: below policy -> inline error, invite NOT consumed, form re-renders"
+      - "E6 Passwords don't match: confirm != new -> inline error, invite NOT consumed"
+      - "E7 Lost consume race: concurrent POST, 0 rows updated -> uniform refusal"
+      - "E8 Missing/invalid CSRF: refused by shipped middleware, no consume, no password write"
+      - "E1/E2 Expired-or-used between GET and POST -> 0 rows updated -> uniform refusal"
+    gherkin: |
+      Scenario: Setting a password consumes the invite and signs the admin in
+        Given Priya has opened her valid invite for "Northwind"
+        When she submits a password meeting the strength policy
+        Then her invite is marked used and can never be used again
+        And her password is saved to her account
+        And she is signed in without a separate login step
+        And shared artifact "${workspace_id}" matches the invite's workspace
+
+  - id: 3
+    name: "Land — signed in on the workspace"
+    command: "GET / (authenticated)"
+    tui_mockup: |
+      +-- GET / (authenticated) ---------------- Priya Nair  v --+
+      | ${workspace_name}                                        |
+      | Welcome, Priya. This is your workspace.                  |
+      | [ Projects ] [ Issues ] [ Team ]                         |
+      +----------------------------------------------------------+
+    shared_artifacts:
+      - name: "workspace_id"
+        source: "resolve_active_workspace(user) — shipped membership seam"
+        displayed_as: "${workspace_id}"
+        consumers: ["dashboard tenant scoping", "all workspace-scoped reads"]
+    emotional_state:
+      entry: "relief"
+      exit: "ownership — 'this is MY workspace'"
+    integration_checkpoint: |
+      The landed workspace_id MUST equal invites.workspace_id for the consumed invite.
+      Priya sees ONLY that tenant's data through resolve_active_workspace. She must never
+      land on, or see, another tenant.
+    failure_modes:
+      - "User belongs to no workspace (should be impossible post-provision) -> fail closed, no default tenant"
+    gherkin: |
+      Scenario: Provisioned first-admin lands on her own isolated workspace
+        Given Priya has just set her password via the invite
+        When she is redirected after sign-in
+        Then she sees the "Northwind" workspace dashboard
+        And she sees no data from any other workspace
+
+integration_validation:
+  shared_artifact_consistency:
+    - artifact: "invite_id"
+      must_match_across: [1, 2]
+      failure_message: "The id verified on GET differs from the id consumed on POST — invite mismatch."
+    - artifact: "signature"
+      must_match_across: [1, 2]
+      failure_message: "The sig rendered into the form differs from the sig POST re-verifies — token integrity broken."
+    - artifact: "workspace_id"
+      must_match_across: [2, 3]
+      failure_message: "The admin landed on a workspace other than invites.workspace_id — tenant isolation breach."
+  uniform_refusal_invariant: |
+    The user-visible refusal body MUST be byte-identical across E1 (expired), E2 (used),
+    E3 (invalid sig), E4 (unknown id). A litmus test must RED if any arm's body diverges.
+    Refusals differ ONLY in internal tracing, never in the response a caller can observe.
+
+changelog:
+  - date: "2026-06-14"
+    feature: "invite-accept-flow"
+    change: "Initial journey: arrive/verify -> set-password/consume -> land. Sad paths E1-E8 first-class; uniform non-enumerable refusal; atomic single-use consume."
