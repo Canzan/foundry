@@ -901,6 +901,11 @@ pub struct FoundryWorld {
     /// scenario (02-01) — scenarios 6/7/8 assert byte-identity AGAINST this.
     pub ia_refusal_status: Option<StatusCode>,
     pub ia_refusal_body: Option<String>,
+    /// The just-past-expiry refusal arm (status + full body) captured by the
+    /// 02-02 scenario, held across the in-scenario recompute of the canonical
+    /// expired-one-day arm so the two can be asserted byte-identical.
+    pub ia_just_past_refusal_status: Option<StatusCode>,
+    pub ia_just_past_refusal_body: Option<String>,
 }
 
 impl FoundryWorld {

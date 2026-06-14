@@ -216,7 +216,7 @@ Feature: A provisioned first-admin claims her account from her invite link and i
   # 6. Boundary — a link opened just OUTSIDE its expiry window (expires_at + 1s) is
   #    refused with that same uniform page (NFR-1/AC-02.4). Pairs with scenario 4.
   # ----------------------------------------------------------------------------
-  @pending @us-02 @error
+  @us-02 @error
   Scenario: An invite opened just past its expiry window is refused
     Given Priya's invite expired one second ago
     When Priya opens her invite link

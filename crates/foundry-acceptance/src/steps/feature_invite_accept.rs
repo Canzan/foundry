@@ -875,3 +875,138 @@ async fn invite_still_live_and_unconsumed(world: &mut FoundryWorld) {
          live (used_at NULL, unexpired) after the GET; found {live_rows} live rows"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Scenario 6 (step 02-02) — an invite opened just PAST its expiry window is
+// refused, byte-identically to the canonical expired arm. Pins the EXCLUSIVE
+// side of the expiry boundary (just-past = refused), complementing scenario 4
+// (just-inside = accepted). Green by inheritance from the SHIPPED
+// `invite_is_acceptable` guard (`used_at.is_none() && expires_at > now`): an
+// invite re-pointed to `now - 1s` fails `expires_at > now`, so the GET renders
+// the uniform `invite_refusal_page()` — the SAME page the expired-one-day arm
+// (02-01) renders, because the refusal is non-committal on the reason.
+//
+// Byte-identity proof (D3/adr-002, the security crux): the just-past refusal
+// (captured by the reused "standard page" Then into `ia_refusal_*`) is asserted
+// (status + FULL body) against an in-scenario RECOMPUTE of the canonical
+// expired-one-day arm — re-pointing the SAME invite to `now - 1 day`, re-minting
+// the HMAC, and GETting again. Recomputing the canonical control in-scenario
+// (rather than reading a cross-scenario slot — each cucumber scenario gets a
+// fresh harness) mirrors the proven web-provisioning non-enumerability pattern.
+//
+// Falsifiability litmus (proven at DELIVER): loosening `invite_is_acceptable` to
+// admit a recently-expired invite (e.g. `expires_at > now - 2h`) makes the GET
+// render the 200 set-password FORM for the just-past invite instead of the
+// refusal — RED-ing BOTH the reused "no longer valid" Then and the byte-identity
+// assertion (form body != refusal body).
+// ---------------------------------------------------------------------------
+
+/// `Given Priya's invite expired one second ago` — re-point the seeded invite's
+/// `expires_at` to one second in the PAST (just OUTSIDE the window) against the
+/// REAL per-scenario Postgres, and RE-MINT the signed token over the new (past)
+/// `expires_at` so the HMAC tamper oracle still verifies (only the liveness
+/// check fails — the genuine "just-past expired" arm, not a tampered-signature
+/// arm). Asserts the row is now expired-but-unused so the "expired one second
+/// ago" precondition is grounded in observable invite state, not assumed.
+#[given(regex = r#"^Priya's invite expired one second ago$"#)]
+async fn priya_invite_expired_one_second_ago(world: &mut FoundryWorld) {
+    let invite_id = world.ia_invite_id.expect("invite seeded in the Background");
+    let now = harness(world).app.state.clock.now();
+    let expires_at = now - time::Duration::seconds(1);
+    let pool = harness(world).app.state.store.pool().clone();
+
+    sqlx::query("UPDATE invites SET expires_at = $2 WHERE id = $1 AND used_at IS NULL")
+        .bind(invite_id)
+        .bind(expires_at)
+        .execute(&pool)
+        .await
+        .expect("re-point the seeded invite to one second past expiry");
+
+    // Re-mint the signed token over the new (past) expires_at so the HMAC
+    // verifies — isolating the failure to the liveness check (the just-past
+    // expired arm), not the tamper oracle.
+    let secret = harness(world).app.state.session_secret.clone();
+    let token = foundry_auth::InviteToken::new(invite_id, expires_at, &secret)
+        .expect("re-mint the just-past-expiry invite signature");
+    world.ia_invite_sig = Some(token.signature);
+
+    let (expired_rows,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM invites WHERE id = $1 AND used_at IS NULL AND expires_at <= $2",
+    )
+    .bind(invite_id)
+    .bind(now)
+    .fetch_one(&pool)
+    .await
+    .expect("count the expired (unused, just-past-expiry) invite row");
+    assert_eq!(
+        expired_rows, 1,
+        "the invite under test must be expired (unused, expiry one second in the \
+         past) before the GET; found {expired_rows} expired rows"
+    );
+}
+
+/// `And the response is byte-identical to the expired-invite refusal` — the
+/// EXCLUSIVE-side boundary + non-enumerability core. The just-past refusal
+/// (captured by the reused "standard page" Then into `ia_refusal_*`) is held,
+/// then the CANONICAL expired-one-day arm is RECOMPUTED in this same scenario
+/// (re-point the SAME invite to `now - 1 day`, re-mint the HMAC, GET again) and
+/// the two responses are asserted byte-identical (status AND full body).
+/// Asserting the FULL body (not merely same-status) is what makes the litmus
+/// bite: a guard that admitted the just-past invite would render the
+/// set-password FORM (a divergent body) and re-RED here.
+#[then(regex = r#"^the response is byte-identical to the expired-invite refusal$"#)]
+async fn response_byte_identical_to_expired_refusal(world: &mut FoundryWorld) {
+    // The just-past refusal captured by the reused "standard page" Then.
+    let just_past_status = world
+        .ia_refusal_status
+        .expect("the just-past refusal status was captured by the standard-page Then");
+    let just_past_body = world
+        .ia_refusal_body
+        .clone()
+        .expect("the just-past refusal body was captured by the standard-page Then");
+    world.ia_just_past_refusal_status = Some(just_past_status);
+    world.ia_just_past_refusal_body = Some(just_past_body.clone());
+
+    // Recompute the CANONICAL expired-one-day arm in-scenario: re-point the SAME
+    // invite to one day past, re-mint the HMAC over the new expires_at, and GET.
+    let invite_id = world.ia_invite_id.expect("invite seeded");
+    let now = harness(world).app.state.clock.now();
+    let canonical_expires_at = now - time::Duration::days(1);
+    let pool = harness(world).app.state.store.pool().clone();
+    sqlx::query("UPDATE invites SET expires_at = $2 WHERE id = $1 AND used_at IS NULL")
+        .bind(invite_id)
+        .bind(canonical_expires_at)
+        .execute(&pool)
+        .await
+        .expect("re-point the invite to one day past expiry for the canonical control");
+    let secret = harness(world).app.state.session_secret.clone();
+    let canonical_token = foundry_auth::InviteToken::new(invite_id, canonical_expires_at, &secret)
+        .expect("re-mint the canonical expired-one-day signature");
+    let canonical_sig = canonical_token.signature;
+    let base = harness(world).base_url();
+    let client = http(world);
+    let resp = client
+        .get(format!(
+            "{base}/invites/accept?id={invite_id}&sig={sig}",
+            sig = urlencoding::encode(&canonical_sig)
+        ))
+        .send()
+        .await
+        .expect("GET /invites/accept for the canonical expired-one-day control");
+    let canonical_status = resp.status();
+    let canonical_body = resp.text().await.unwrap_or_default();
+
+    // Byte-identity: status AND full body across the two expiry-boundary arms.
+    assert_eq!(
+        just_past_status, canonical_status,
+        "the just-past-expiry refusal status ({just_past_status}) must be \
+         byte-identical to the canonical expired-one-day refusal status \
+         ({canonical_status}) — a status oracle on the expiry boundary"
+    );
+    assert_eq!(
+        just_past_body, canonical_body,
+        "the just-past-expiry refusal body must be byte-identical to the canonical \
+         expired-one-day refusal body — a body oracle would reveal HOW LONG ago the \
+         invite expired. just-past = {just_past_body:?}, canonical = {canonical_body:?}"
+    );
+}
