@@ -245,6 +245,201 @@ async fn the_form_names_the_workspace(world: &mut FoundryWorld, ws_name: String)
 }
 
 // ---------------------------------------------------------------------------
+// Scenario 4 (step 01-04) — an invite opened just INSIDE its expiry window is
+// accepted. Pins the INCLUSIVE side of the expiry boundary (just-inside =
+// accepted), complementing scenario 6 (just-past = refused). Green by
+// inheritance from the SHIPPED `expires_at > $now` guard, which is enforced
+// IDENTICALLY in the GET advisory liveness check (`invite_is_acceptable`) AND
+// the authoritative consume TX (`set_first_admin_password_and_consume`): a
+// still-future expiry (now + 1s) satisfies `expires_at > now`, so the GET
+// renders the form and the POST consumes + writes + signs in.
+//
+// Setup re-points the seeded invite's `expires_at` to ~1s in the future against
+// the REAL per-scenario Postgres and RE-MINTS the HMAC signature over the new
+// `expires_at` (the token binds expires_at — the tamper oracle). This is test
+// PRECONDITION setup, not production logic; no store method is added.
+//
+// Falsifiability litmus: tightening EITHER guard to reject a not-yet-expired
+// invite (e.g. `expires_at > now + 1 hour`, or flipping `>` to a check that
+// excludes the near-boundary) REDs this — the GET would refuse (no form) or the
+// POST would refuse (no 303 / no session).
+// ---------------------------------------------------------------------------
+
+/// `Given Priya's invite is one second away from expiring and has not been used`
+/// — re-point the seeded invite's `expires_at` to one second in the future (just
+/// INSIDE the window) against the REAL per-scenario Postgres, and RE-MINT the
+/// signed token over the new `expires_at` (the HMAC binds it). The invite stays
+/// unused (`used_at` NULL). Asserts the re-pointed row is live (`expires_at >
+/// now`, unused) so the "one second away from expiring" precondition is grounded
+/// in observable invite state, not assumed.
+#[given(regex = r#"^Priya's invite is one second away from expiring and has not been used$"#)]
+async fn priya_invite_one_second_from_expiring(world: &mut FoundryWorld) {
+    let invite_id = world.ia_invite_id.expect("invite seeded in the Background");
+    let now = harness(world).app.state.clock.now();
+    let expires_at = now + time::Duration::seconds(1);
+    let pool = harness(world).app.state.store.pool().clone();
+
+    sqlx::query("UPDATE invites SET expires_at = $2 WHERE id = $1 AND used_at IS NULL")
+        .bind(invite_id)
+        .bind(expires_at)
+        .execute(&pool)
+        .await
+        .expect("re-point the seeded invite to one second from expiring");
+
+    // Re-mint the signed token over the new expires_at (the HMAC binds it — a
+    // stale signature over the 7-day expiry would fail the tamper oracle).
+    let secret = harness(world).app.state.session_secret.clone();
+    let token = foundry_auth::InviteToken::new(invite_id, expires_at, &secret)
+        .expect("re-mint the near-expiry invite signature");
+    world.ia_invite_sig = Some(token.signature);
+
+    let (live_rows,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM invites WHERE id = $1 AND used_at IS NULL AND expires_at > $2",
+    )
+    .bind(invite_id)
+    .bind(now)
+    .fetch_one(&pool)
+    .await
+    .expect("count the live (unused, just-inside-expiry) invite row");
+    assert_eq!(
+        live_rows, 1,
+        "the invite under test must be live (unused, expiry just in the future) before \
+         the accept; found {live_rows} live rows"
+    );
+}
+
+/// `When Priya opens her invite link and sets a valid password` — drive the full
+/// accept against the just-inside-expiry invite: the GET renders the form + mints
+/// the CSRF cookie (proving the advisory `expires_at > now` admits the boundary),
+/// then the POST carries the double-submit `_csrf` + token + a policy-passing
+/// password through the SHIPPED CSRF middleware to the authoritative consume TX
+/// (which re-enforces `expires_at > now`). Capture the 303, Location, and
+/// auto-sign-in session cookie for the Then.
+#[when(regex = r#"^Priya opens her invite link and sets a valid password$"#)]
+async fn priya_opens_link_and_sets_valid_password(world: &mut FoundryWorld) {
+    let invite_id = world.ia_invite_id.expect("invite seeded");
+    let sig = world
+        .ia_invite_sig
+        .clone()
+        .expect("invite signature minted");
+    let base = harness(world).base_url();
+    let client = http(world);
+
+    // GET — render the form + mint the CSRF cookie (advisory liveness admits the
+    // just-inside-expiry invite: a 200 form, not a refusal).
+    let get_resp = client
+        .get(format!(
+            "{base}/invites/accept?id={invite_id}&sig={sig}",
+            sig = urlencoding::encode(&sig)
+        ))
+        .send()
+        .await
+        .expect("GET /invites/accept");
+    let get_status = get_resp.status();
+    let csrf_cookie = get_resp
+        .headers()
+        .get_all(reqwest::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .find(|s| s.starts_with("foundry_csrf="))
+        .map(|s| s.to_string());
+    let get_body = get_resp.text().await.unwrap_or_default();
+    assert_eq!(
+        get_status,
+        StatusCode::OK,
+        "the GET for a just-inside-expiry invite must render the form (advisory \
+         expires_at > now admits it); body = {get_body:?}"
+    );
+
+    let csrf_cookie = csrf_cookie.expect("the GET minted a foundry_csrf cookie");
+    let csrf_token = csrf_cookie
+        .strip_prefix("foundry_csrf=")
+        .and_then(|rest| rest.split(';').next())
+        .unwrap_or("")
+        .to_string();
+
+    // POST — consume + write + sign in through the SHIPPED CSRF middleware and the
+    // authoritative consume TX.
+    let form = [
+        ("id", invite_id.to_string()),
+        ("sig", sig),
+        ("password", PRIYA_PASSWORD.to_string()),
+        ("confirm", PRIYA_PASSWORD.to_string()),
+        ("_csrf", csrf_token.clone()),
+    ];
+    let resp = client
+        .post(format!("{base}/invites/accept"))
+        .header(
+            reqwest::header::COOKIE,
+            format!("foundry_csrf={csrf_token}"),
+        )
+        .form(&form)
+        .send()
+        .await
+        .expect("POST /invites/accept");
+    let status = resp.status();
+    let location = resp
+        .headers()
+        .get(reqwest::header::LOCATION)
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_string);
+    let session_cookie = resp
+        .headers()
+        .get_all(reqwest::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .find(|s| s.starts_with("foundry_session="))
+        .and_then(|s| s.split(';').next())
+        .map(str::to_string);
+
+    world.ia_post_status = Some(status);
+    world.ia_post_location = location;
+    world.ia_session_cookie = session_cookie;
+}
+
+/// `Then she is signed in on the "Northwind" workspace` — the accept of the
+/// just-inside-expiry invite succeeded end-to-end: the POST 303-redirected with
+/// an auto-sign-in `foundry_session` cookie (no separate login), and her session's
+/// RESOLVED active workspace is the provisioned tenant (DB-observable via the
+/// SHIPPED `resolve_active_workspace` seam). Together: the consume guard admitted
+/// the not-yet-expired invite (boundary inclusive side) and signed her in ON
+/// Northwind. Tightening either guard to reject the near-boundary REDs this.
+#[then(regex = r#"^she is signed in on the "([^"]+)" workspace$"#)]
+async fn she_is_signed_in_on_workspace(world: &mut FoundryWorld, ws_name: String) {
+    assert_eq!(
+        world.ia_post_status,
+        Some(StatusCode::SEE_OTHER),
+        "the accept POST for a just-inside-expiry invite must 303 SEE_OTHER on success \
+         (auto sign-in); got {:?}",
+        world.ia_post_status
+    );
+    assert!(
+        world.ia_session_cookie.is_some(),
+        "the accept POST must establish a session (issue a foundry_session cookie), \
+         proving the not-yet-expired invite was admitted and she was signed in; got none"
+    );
+
+    let expected_ws = *world
+        .ia_workspace_ids
+        .get(&ws_name)
+        .unwrap_or_else(|| panic!("workspace {ws_name:?} provisioned in the Background"));
+    let admin_id = world.ia_admin_user_id.expect("first-admin id seeded");
+    let resolved = harness(world)
+        .app
+        .state
+        .store
+        .resolve_active_workspace(admin_id)
+        .await
+        .expect("resolve the first-admin active workspace")
+        .expect("the first-admin belongs to the provisioned workspace");
+    assert_eq!(
+        resolved.0, expected_ws,
+        "she must be signed in ON the {ws_name:?} workspace ({expected_ws}); \
+         resolved {resolved:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Walking skeleton (step 01-01)
 // ---------------------------------------------------------------------------
 

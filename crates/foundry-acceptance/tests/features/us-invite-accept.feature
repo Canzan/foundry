@@ -193,7 +193,7 @@ Feature: A provisioned first-admin claims her account from her invite link and i
   # 4. Boundary — an invite opened just INSIDE its expiry window (issued 6 days 23
   #    hours ago, i.e. expires_at - 1s) still renders and accepts (NFR-1/AC-01.6).
   # ----------------------------------------------------------------------------
-  @pending @us-01
+  @us-01
   Scenario: An invite opened just inside its expiry window is accepted
     Given Priya's invite is one second away from expiring and has not been used
     When Priya opens her invite link and sets a valid password

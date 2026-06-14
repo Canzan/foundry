@@ -106,6 +106,41 @@
       "s": "EXECUTED",
       "d": "PASS",
       "t": "2026-06-14T22:18:37Z"
+    },
+    {
+      "sid": "01-04",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-14T22:21:27Z"
+    },
+    {
+      "sid": "01-04",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-14T22:29:25Z"
+    },
+    {
+      "sid": "01-04",
+      "p": "RED_UNIT",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: green-by-inheritance from the SHIPPED expires_at > now guard (GET invite_is_acceptable + consume TX); the AT drives the expiry-boundary inclusive side port-to-port over real HTTP+PG16; no new production logic to decompose, genuine RED proven via falsifiability (tightened GET guard to expires_at > now+1h -> RED)",
+      "t": "2026-06-14T22:29:25Z"
+    },
+    {
+      "sid": "01-04",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-14T22:36:15Z"
+    },
+    {
+      "sid": "01-04",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-14T22:36:54Z"
     }
   ]
 }
