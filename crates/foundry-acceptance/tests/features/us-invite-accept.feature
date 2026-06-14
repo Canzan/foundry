@@ -170,7 +170,7 @@ Feature: A provisioned first-admin claims her account from her invite link and i
   #    the workspace for context (US-01: AC-01.1). The arrival step of the chained
   #    journey — its Given is reused as the precondition of scenarios 3, 11, 12.
   # ----------------------------------------------------------------------------
-  @pending @us-01
+  @us-01
   Scenario: A live invite renders a set-password form naming the workspace
     Given Priya's invite has not expired and has not been used
     When Priya opens her invite link

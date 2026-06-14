@@ -139,6 +139,102 @@ async fn priya_seeded_with_live_invite(world: &mut FoundryWorld) {
 }
 
 // ---------------------------------------------------------------------------
+// Scenario 2 (step 01-02) — a live invite renders a set-password form naming
+// the workspace. Splits the chained walking-skeleton Given into an explicit
+// arrival narrative (precondition → GET → form observable → workspace-name
+// observable), so the GET render path is asserted in its own right. Green by
+// inheritance from the 01-01 `show_accept_form` GET handler + template.
+// ---------------------------------------------------------------------------
+
+/// `Given Priya's invite has not expired and has not been used` — the Background
+/// seeded a live invite (7-day expiry, `used_at`/`used_by` NULL). Confirm that
+/// precondition holds against the REAL per-scenario Postgres before the GET, so
+/// the "live" claim under test is grounded in observable invite state, not assumed.
+#[given(regex = r#"^Priya's invite has not expired and has not been used$"#)]
+async fn priya_invite_is_live(world: &mut FoundryWorld) {
+    let invite_id = world.ia_invite_id.expect("invite seeded in the Background");
+    let now = harness(world).app.state.clock.now();
+    let pool = harness(world).app.state.store.pool().clone();
+    let (live_rows,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM invites WHERE id = $1 AND used_at IS NULL AND expires_at > $2",
+    )
+    .bind(invite_id)
+    .bind(now)
+    .fetch_one(&pool)
+    .await
+    .expect("count the live (unused, unexpired) invite row");
+    assert_eq!(
+        live_rows, 1,
+        "the invite under test must be live (unused and unexpired) before the GET; \
+         found {live_rows} live rows"
+    );
+}
+
+/// `When Priya opens her invite link` — drive the NEW public GET
+/// `/invites/accept?id=&sig=` over real HTTP with the genuine signed token. The
+/// handler verifies the signature + advisory liveness and renders the set-password
+/// form naming the workspace. Capture the status + rendered body so the form and
+/// workspace-name observables are asserted by the following Thens.
+#[when(regex = r#"^Priya opens her invite link$"#)]
+async fn priya_opens_her_invite_link(world: &mut FoundryWorld) {
+    let invite_id = world.ia_invite_id.expect("invite seeded");
+    let sig = world
+        .ia_invite_sig
+        .clone()
+        .expect("invite signature minted");
+    let base = harness(world).base_url();
+    let client = http(world);
+
+    let resp = client
+        .get(format!(
+            "{base}/invites/accept?id={invite_id}&sig={sig}",
+            sig = urlencoding::encode(&sig)
+        ))
+        .send()
+        .await
+        .expect("GET /invites/accept");
+    world.ia_post_status = Some(resp.status());
+    world.last_body = Some(resp.text().await.unwrap_or_default());
+}
+
+/// `Then she sees a set-password form` — the GET for a live invite rendered a 200
+/// page carrying a password form posting back to `/invites/accept` (the
+/// port-exposed observable that the set-password form was served, not a refusal).
+#[then(regex = r#"^she sees a set-password form$"#)]
+async fn she_sees_a_set_password_form(world: &mut FoundryWorld) {
+    assert_eq!(
+        world.ia_post_status,
+        Some(StatusCode::OK),
+        "the GET accept page for a live invite must render a 200 set-password form; got {:?}",
+        world.ia_post_status
+    );
+    let body = world
+        .last_body
+        .clone()
+        .expect("the GET captured a rendered body");
+    assert!(
+        body.contains(r#"action="/invites/accept""#) && body.contains(r#"name="password""#),
+        "the GET must render a set-password form posting to /invites/accept; got {body:?}"
+    );
+}
+
+/// `And the form names the "Northwind" workspace` — the rendered form NAMES the
+/// workspace, proving the GET resolved the invite's workspace (via the SHIPPED
+/// `invite_accept_view` read) before rendering. The workspace-name substring is
+/// the observable that distinguishes "named the right tenant" from a blank form.
+#[then(regex = r#"^the form names the "([^"]+)" workspace$"#)]
+async fn the_form_names_the_workspace(world: &mut FoundryWorld, ws_name: String) {
+    let body = world
+        .last_body
+        .clone()
+        .expect("the GET captured a rendered body");
+    assert!(
+        body.contains(&ws_name),
+        "the set-password form must NAME the {ws_name:?} workspace; got {body:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Walking skeleton (step 01-01)
 // ---------------------------------------------------------------------------
 
