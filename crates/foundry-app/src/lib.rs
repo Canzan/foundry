@@ -22,6 +22,7 @@ pub mod csrf;
 pub mod email;
 pub mod events;
 pub mod instance_admin;
+pub mod invites_accept;
 pub mod issues;
 pub mod keyboard;
 pub mod metrics_server;
@@ -287,6 +288,19 @@ pub fn build_router(state: AppState) -> Router {
             get(signin::show_form).post(signin::submit_signin),
         )
         .route("/sign-out", post(signin::submit_signout))
+        // invite-accept-flow 01-01 (ADR-001/003/004) — the PUBLIC claim-your-account
+        // route pair. Mounted HERE, alongside the PUBLIC `/sign-in` + `/bootstrap`
+        // (NOT behind the instance-admin gate — the invitee is signed OUT), so it
+        // sits UNDER `csrf_middleware` + `session_layer` below: the GET mints the
+        // double-submit CSRF cookie (signed-out, like sign-in) and the POST is
+        // CSRF-screened before the handler runs. GET verifies the signed
+        // `InviteToken` + advisory liveness and renders the set-password form; POST
+        // runs the min-12 policy, the one-TX consume+write, the session establish,
+        // and the 303 onto the workspace (invites_accept.rs).
+        .route(
+            "/invites/accept",
+            get(invites_accept::show_accept_form).post(invites_accept::submit_accept),
+        )
         // multi-workspace-tenancy 02-05 (ADR-005) — the multi-membership active-
         // workspace switcher. Mounted HERE so it sits UNDER `csrf_middleware` +
         // `session_layer` below (a real signed-in cookie + double-submit `_csrf`,

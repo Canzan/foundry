@@ -867,6 +867,30 @@ pub struct FoundryWorld {
     /// `"<email>" is signed in on the web and is not a super-admin` Given and read
     /// by the When that drives each /admin/instance route as that member.
     pub mwt6_acting_member_email: Option<String>,
+
+    // ---- invite-accept-flow (us-invite-accept) ----
+    /// The in-process harness for the invite-accept scenarios. Its session_secret
+    /// signs the InviteToken the Background mints, so the GET/POST handlers verify
+    /// the SAME secret. Separate from `mwt6_harness` (a different feature's seed).
+    pub ia_harness: Option<InProcHarness>,
+    /// The provisioned workspace name → its id (the landing tenant). Seeded by the
+    /// Background via the SHIPPED `Store::provision_workspace`.
+    pub ia_workspace_ids: HashMap<String, uuid::Uuid>,
+    /// The live invite id minted in the Background (the `invites` row PK).
+    pub ia_invite_id: Option<uuid::Uuid>,
+    /// The HMAC signature over `invite_id|expires_at` (the `sig` URL param).
+    pub ia_invite_sig: Option<String>,
+    /// The first-admin's user id (the invite's `created_by` — the row the consume
+    /// TX writes the chosen password onto).
+    pub ia_admin_user_id: Option<uuid::Uuid>,
+    /// The session cookie (`foundry_session=...`) captured from the POST 303 — the
+    /// auto-sign-in credential proving "no separate login step".
+    pub ia_session_cookie: Option<String>,
+    /// The POST accept response (status, body) — the 303 redirect on success.
+    pub ia_post_status: Option<StatusCode>,
+    pub ia_post_location: Option<String>,
+    /// The signed-in landing page body fetched with the session cookie.
+    pub ia_landing_body: Option<String>,
 }
 
 impl FoundryWorld {

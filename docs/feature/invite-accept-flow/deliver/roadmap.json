@@ -1,0 +1,320 @@
+{
+  "roadmap": {
+    "project_id": "invite-accept-flow",
+    "created_at": "2026-06-14T21:05:58Z",
+    "total_steps": 18
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "Accept happy path plus the public vertical",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "Walking skeleton: set password and land signed in",
+          "criteria": [
+            "A first-admin with a live signed invite opens GET /invites/accept, sees the set-password form, and submits a policy-passing password.",
+            "The POST verifies the token, runs check_password_policy, then consumes the invite once and writes the argon2id hash in one tx, establishes a session, and 303-redirects.",
+            "She lands on the Northwind workspace dashboard signed in with no separate login step, sees only her own tenant's data, and invites.used_at is set exactly once.",
+            "Genuinely RED by MISSING: no /invites/accept route, no show_accept_form or submit_accept handler, no Store consume seam, and no check_password_policy exist yet.",
+            "Run cargo xtask check-arch on the new invites_accept.rs; add a LAYER-1e allow-list line for invites_accept ONLY if the run flags it (provisional: no line, mirrors signin)."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-invite-accept.feature",
+          "scenario_name": "A first-admin sets her password and lands on her workspace signed in",
+          "implementation_scope": {
+            "source_directories": ["crates/foundry-app/src/", "crates/foundry-store/src/", "crates/foundry-auth/src/", "xtask/src/"],
+            "test_directories": ["crates/foundry-acceptance/tests/", "crates/foundry-acceptance/src/"]
+          }
+        },
+        {
+          "id": "01-02",
+          "name": "Live invite renders set-password form naming workspace",
+          "criteria": [
+            "Opening a live, unexpired, unused invite link via GET renders a set-password form.",
+            "The rendered form names the Northwind workspace for context, confirming the GET resolves the invite's workspace before rendering.",
+            "Green-by-inheritance once the walking skeleton's GET handler and template exist."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-invite-accept.feature",
+          "scenario_name": "A live invite renders a set-password form naming the workspace",
+          "implementation_scope": {
+            "source_directories": ["crates/foundry-app/src/"],
+            "test_directories": ["crates/foundry-acceptance/tests/", "crates/foundry-acceptance/src/"]
+          }
+        },
+        {
+          "id": "01-03",
+          "name": "Opening the accept page consumes nothing",
+          "criteria": [
+            "After a GET on a live invite, no password has been set on the first-admin's account.",
+            "The invite remains live and unconsumed (used_at still NULL) after the GET; the GET is non-committal and mutates no state.",
+            "Proves only the POST consume tx is authoritative, establishing the TOCTOU-safety foundation."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-invite-accept.feature",
+          "scenario_name": "Opening the accept page consumes nothing",
+          "implementation_scope": {
+            "source_directories": ["crates/foundry-app/src/", "crates/foundry-store/src/"],
+            "test_directories": ["crates/foundry-acceptance/tests/", "crates/foundry-acceptance/src/"]
+          }
+        },
+        {
+          "id": "01-04",
+          "name": "Invite just inside expiry window is accepted",
+          "criteria": [
+            "An invite one second from expiring (just inside its window) is opened, a valid password is set, and the accept completes.",
+            "She is signed in on the Northwind workspace, proving the expiry boundary is inclusive up to expires_at.",
+            "Pairs with the just-past-expiry refusal boundary to pin the NFR-1 expiry edge."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-invite-accept.feature",
+          "scenario_name": "An invite opened just inside its expiry window is accepted",
+          "implementation_scope": {
+            "source_directories": ["crates/foundry-app/src/", "crates/foundry-store/src/"],
+            "test_directories": ["crates/foundry-acceptance/tests/", "crates/foundry-acceptance/src/"]
+          }
+        }
+      ]
+    },
+    {
+      "id": "02",
+      "name": "Refusal non-enumerability, single-use, CSRF, no-leak",
+      "steps": [
+        {
+          "id": "02-01",
+          "name": "Expired invite refused without leaking existence",
+          "criteria": [
+            "Opening an invite that expired one day ago returns the standard invite-is-no-longer-valid page.",
+            "The page reveals nothing about whether any account or workspace exists and advises asking the instance administrator to re-issue the invite.",
+            "This is the canonical refusal arm that scenarios 02-02 through 02-05 assert byte-identity against."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-invite-accept.feature",
+          "scenario_name": "An expired invite is refused without leaking existence",
+          "implementation_scope": {
+            "source_directories": ["crates/foundry-app/src/"],
+            "test_directories": ["crates/foundry-acceptance/tests/", "crates/foundry-acceptance/src/"]
+          }
+        },
+        {
+          "id": "02-02",
+          "name": "Invite just past expiry window is refused",
+          "criteria": [
+            "An invite that expired one second ago (just outside its window) is opened and returns the standard refusal page.",
+            "The full response is byte-identical (200 status and full body bytes) to the expired-invite refusal, not merely the same status.",
+            "Pairs with the just-inside boundary to pin the expiry edge on the refusal side."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-invite-accept.feature",
+          "scenario_name": "An invite opened just past its expiry window is refused",
+          "implementation_scope": {
+            "source_directories": ["crates/foundry-app/src/"],
+            "test_directories": ["crates/foundry-acceptance/tests/", "crates/foundry-acceptance/src/"]
+          }
+        },
+        {
+          "id": "02-03",
+          "name": "Tampered signature refused identically to expired",
+          "criteria": [
+            "An invite live but with one altered signature character is opened; the HMAC verify fails before any DB hit.",
+            "The response is byte-identical (status and full body) to the expired-invite refusal.",
+            "The refusal reason appears only in internal tracing keyed on invite_id, never in the observable response."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-invite-accept.feature",
+          "scenario_name": "A tampered signature is refused identically to an expired link",
+          "implementation_scope": {
+            "source_directories": ["crates/foundry-app/src/", "crates/foundry-auth/src/"],
+            "test_directories": ["crates/foundry-acceptance/tests/", "crates/foundry-acceptance/src/"]
+          }
+        },
+        {
+          "id": "02-04",
+          "name": "Unknown invite id refused identically to others",
+          "criteria": [
+            "Opening an accept link whose id was never issued returns the standard refusal page.",
+            "The response is byte-identical (status and full body) to the expired-invite refusal, and nothing reveals whether that id, account, or workspace exists.",
+            "A prober cannot distinguish a never-existed id from any other refusal reason."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-invite-accept.feature",
+          "scenario_name": "An unknown invite id is refused identically to every other reason",
+          "implementation_scope": {
+            "source_directories": ["crates/foundry-app/src/", "crates/foundry-store/src/"],
+            "test_directories": ["crates/foundry-acceptance/tests/", "crates/foundry-acceptance/src/"]
+          }
+        },
+        {
+          "id": "02-05",
+          "name": "Refusals byte-identical across all four reasons",
+          "criteria": [
+            "Expired, already-used, tampered-signature, and unknown-id links are each opened and all four produce a byte-identical user-visible refusal page (status and full body bytes).",
+            "They differ only in internal logging, never in the observable response; collapsing any two arms into divergent responses must re-RED this assertion.",
+            "The @property non-enumerability invariant, example-pinned at LAYER 3 (the security crux)."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-invite-accept.feature",
+          "scenario_name": "Invalid-link refusals are byte-identical across all four reasons",
+          "implementation_scope": {
+            "source_directories": ["crates/foundry-app/src/", "crates/foundry-store/src/", "crates/foundry-auth/src/"],
+            "test_directories": ["crates/foundry-acceptance/tests/", "crates/foundry-acceptance/src/"]
+          }
+        },
+        {
+          "id": "02-06",
+          "name": "A consumed invite can never be used again",
+          "criteria": [
+            "After a successful accept, re-opening the same invite link returns the standard refusal page.",
+            "No new password is set and no session is created on the second use; the guarded UPDATE matches zero rows.",
+            "Proves exactly-once single-use at the handler level."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-invite-accept.feature",
+          "scenario_name": "A consumed invite can never be used again",
+          "implementation_scope": {
+            "source_directories": ["crates/foundry-app/src/", "crates/foundry-store/src/"],
+            "test_directories": ["crates/foundry-acceptance/tests/", "crates/foundry-acceptance/src/"]
+          }
+        },
+        {
+          "id": "02-07",
+          "name": "Concurrent accepts succeed exactly once",
+          "criteria": [
+            "Two accept submissions for one live invite arrive concurrently; the atomic guarded UPDATE (not a read-then-write) means exactly one submission sets the password and signs in.",
+            "The other submission receives the standard refusal page and invites.used_at is recorded as used exactly once.",
+            "The @property race oracle for NFR-2, example-pinned at LAYER 3."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-invite-accept.feature",
+          "scenario_name": "Concurrent accepts of one invite succeed exactly once",
+          "implementation_scope": {
+            "source_directories": ["crates/foundry-app/src/", "crates/foundry-store/src/"],
+            "test_directories": ["crates/foundry-acceptance/tests/", "crates/foundry-acceptance/src/"]
+          }
+        },
+        {
+          "id": "02-08",
+          "name": "Submission without valid security token refused",
+          "criteria": [
+            "A forged accept POST for a live invite without a valid double-submit token reaches the endpoint and is refused by the shipped csrf_middleware before the handler runs.",
+            "No invite is consumed and no password is written.",
+            "The CSRF cookie is minted on the GET accept page; the POST mounts under the shipped double-submit layer with no exempt-path entry."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-invite-accept.feature",
+          "scenario_name": "An accept submission without a valid security token is refused",
+          "implementation_scope": {
+            "source_directories": ["crates/foundry-app/src/"],
+            "test_directories": ["crates/foundry-acceptance/tests/", "crates/foundry-acceptance/src/"]
+          }
+        },
+        {
+          "id": "02-09",
+          "name": "No invite signature or password in logs",
+          "criteria": [
+            "After a full successful accept plus a refused hostile-prober cycle, the application logs are examined.",
+            "No invite signature value appears in the logs and no submitted password appears in the logs; refusal reasons live in tracing keyed on invite_id only.",
+            "The @property no-secret-leakage invariant, example-pinned at LAYER 3."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-invite-accept.feature",
+          "scenario_name": "No invite signature or password ever appears in the logs",
+          "implementation_scope": {
+            "source_directories": ["crates/foundry-app/src/", "crates/foundry-auth/src/"],
+            "test_directories": ["crates/foundry-acceptance/tests/", "crates/foundry-acceptance/src/"]
+          }
+        },
+        {
+          "id": "02-10",
+          "name": "Link consumed before submit refused by tx guard",
+          "criteria": [
+            "After Priya opens her live invite, the same invite is consumed by another submission before she submits her own valid password on the now-stale page.",
+            "She sees the standard refusal page; no second password write occurs and the invite stays used exactly once.",
+            "Proves the GET liveness check is advisory only and the consume tx guard re-checks liveness and expiry atomically (TOCTOU closed)."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-invite-accept.feature",
+          "scenario_name": "A link consumed between opening the page and submitting is refused by the transaction guard",
+          "implementation_scope": {
+            "source_directories": ["crates/foundry-app/src/", "crates/foundry-store/src/"],
+            "test_directories": ["crates/foundry-acceptance/tests/", "crates/foundry-acceptance/src/"]
+          }
+        }
+      ]
+    },
+    {
+      "id": "03",
+      "name": "Password policy and error recovery",
+      "steps": [
+        {
+          "id": "03-01",
+          "name": "Weak password corrected inline, invite stays live",
+          "criteria": [
+            "Submitting a password below the min-12 strength policy re-renders the form with an inline error explaining the minimum password length.",
+            "The policy check runs before the consume tx opens, so the invite stays live and unconsumed and no session is created.",
+            "Strands nobody on a dead link: the invite remains re-usable for a valid retry."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-invite-accept.feature",
+          "scenario_name": "A weak password is corrected inline and the invite stays live",
+          "implementation_scope": {
+            "source_directories": ["crates/foundry-app/src/", "crates/foundry-auth/src/"],
+            "test_directories": ["crates/foundry-acceptance/tests/", "crates/foundry-acceptance/src/"]
+          }
+        },
+        {
+          "id": "03-02",
+          "name": "Mismatched confirmation corrected inline, invite live",
+          "criteria": [
+            "When the confirmation does not match the new password, the form re-renders with an inline error that the passwords do not match.",
+            "The invite stays live and unconsumed because the check runs before the consume tx opens.",
+            "No consume and no session for a confirmation mismatch."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-invite-accept.feature",
+          "scenario_name": "A mismatched confirmation is corrected inline and the invite stays live",
+          "implementation_scope": {
+            "source_directories": ["crates/foundry-app/src/", "crates/foundry-auth/src/"],
+            "test_directories": ["crates/foundry-acceptance/tests/", "crates/foundry-acceptance/src/"]
+          }
+        },
+        {
+          "id": "03-03",
+          "name": "Valid retry after error completes the accept",
+          "criteria": [
+            "After being shown an inline password error on a still-live invite, submitting a valid password and confirmation on the same invite completes the accept.",
+            "She is signed in on the Northwind workspace and the invite is recorded as used exactly once.",
+            "The recoverability proof: an inline error leaves the invite re-usable."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-invite-accept.feature",
+          "scenario_name": "A valid retry on the same invite after an error completes the accept",
+          "implementation_scope": {
+            "source_directories": ["crates/foundry-app/src/", "crates/foundry-store/src/", "crates/foundry-auth/src/"],
+            "test_directories": ["crates/foundry-acceptance/tests/", "crates/foundry-acceptance/src/"]
+          }
+        },
+        {
+          "id": "03-04",
+          "name": "Password exactly at minimum length is accepted",
+          "criteria": [
+            "Submitting a twelve-character password and matching confirmation is accepted by check_password_policy.",
+            "Her password is accepted and she is signed in on the Northwind workspace, confirming the policy is at-least-12 (inclusive).",
+            "The min-length boundary on the accept side."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-invite-accept.feature",
+          "scenario_name": "A password exactly at the minimum length is accepted",
+          "implementation_scope": {
+            "source_directories": ["crates/foundry-app/src/", "crates/foundry-store/src/", "crates/foundry-auth/src/"],
+            "test_directories": ["crates/foundry-acceptance/tests/", "crates/foundry-acceptance/src/"]
+          }
+        }
+      ]
+    }
+  ],
+  "implementation_scope": {
+    "source_directories": [
+      "crates/foundry-app/src/",
+      "crates/foundry-store/src/",
+      "crates/foundry-auth/src/",
+      "xtask/src/"
+    ],
+    "test_directories": [
+      "crates/foundry-acceptance/tests/",
+      "crates/foundry-acceptance/src/"
+    ],
+    "excluded_patterns": [
+      "target/**",
+      "**/*.md"
+    ]
+  },
+  "validation": {
+    "status": "approved",
+    "reviewer": "nw-software-crafter-reviewer",
+    "approved_at": "2026-06-14"
+  }
+}

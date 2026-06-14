@@ -389,6 +389,62 @@ fn invite_payload(id: uuid::Uuid, expires_at: time::OffsetDateTime) -> String {
     format!("{}|{}", id, expires_at.unix_timestamp())
 }
 
+/// The minimum password length (ADR-004 / NFR-4, NIST 800-63B length-first).
+pub const MIN_PASSWORD_LENGTH: usize = 12;
+
+/// Why a password failed [`check_password_policy`].
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum PolicyError {
+    #[error("password must be at least {min} characters")]
+    TooShort { min: usize },
+}
+
+/// The app-wide password-strength policy (ADR-004): length-first, minimum 12
+/// characters, no composition rule. Pure (no I/O), the single source of the
+/// policy — the accept POST is its first caller; bootstrap / sign-up / reset can
+/// import it unchanged. Returns `Err(PolicyError::TooShort)` below the minimum.
+pub fn check_password_policy(password: &SecretString) -> Result<(), PolicyError> {
+    // Length-first (NIST 800-63B): count Unicode scalar values, not bytes, so a
+    // 12-character password of multi-byte characters is not mis-rejected.
+    if password.expose_secret().chars().count() < MIN_PASSWORD_LENGTH {
+        return Err(PolicyError::TooShort {
+            min: MIN_PASSWORD_LENGTH,
+        });
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod password_policy_tests {
+    use super::*;
+
+    /// ADR-004 / NFR-4 — the min-12 length-first policy boundary. A pure
+    /// driving-port test on `check_password_policy`: passwords of exactly the
+    /// minimum length (12) and longer are accepted; anything shorter is rejected
+    /// with `PolicyError::TooShort`. The boundary at 12 is the observable
+    /// contract the accept POST enforces BEFORE opening the consume TX.
+    #[test]
+    fn enforces_min_twelve_length_boundary() {
+        for len in [0_usize, 1, 11] {
+            let pwd = SecretString::new("a".repeat(len).into());
+            assert!(
+                matches!(
+                    check_password_policy(&pwd),
+                    Err(PolicyError::TooShort { min: 12 })
+                ),
+                "a {len}-char password must be rejected as too short (min 12)"
+            );
+        }
+        for len in [12_usize, 13, 64] {
+            let pwd = SecretString::new("a".repeat(len).into());
+            assert!(
+                check_password_policy(&pwd).is_ok(),
+                "a {len}-char password (>= 12) must satisfy the policy"
+            );
+        }
+    }
+}
+
 #[cfg(test)]
 mod machine_token_tests {
     use super::*;

@@ -275,6 +275,86 @@ impl Store {
         Ok(row.map(|r| r.0))
     }
 
+    // ----- invite-accept-flow single-use consume (ADR-001) ---------------
+
+    /// Atomically consume a first-admin invite: the guarded single-use UPDATE
+    /// mirroring [`Self::claim_bootstrap_token`]. Marks the invite used
+    /// if-and-only-if it is unknown-free, not already used, and not expired, all
+    /// in ONE statement (TOCTOU-safe). Returns `(workspace_id, created_by)` on
+    /// success; `None` (0 rows) when the invite is unknown / already used /
+    /// expired — the caller refuses uniformly. `used_by` is set to `created_by`
+    /// (the first-admin claims their own invite in v1).
+    ///
+    /// Standalone seam (used directly under [`Self::set_first_admin_password_and_consume`]'s
+    /// transaction); kept for the later single-use / concurrency scenarios.
+    pub async fn consume_invite(
+        &self,
+        id: uuid::Uuid,
+        now: time::OffsetDateTime,
+    ) -> Result<Option<(uuid::Uuid, uuid::Uuid)>, StoreError> {
+        let row: Option<(uuid::Uuid, uuid::Uuid)> = sqlx::query_as(
+            "UPDATE invites
+                SET used_at = $2, used_by = created_by
+              WHERE id = $1
+                AND used_at IS NULL
+                AND expires_at > $2
+              RETURNING workspace_id, created_by",
+        )
+        .bind(id)
+        .bind(now)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row)
+    }
+
+    /// The one-TX consume + credential write (ADR-001, NFR-2 / BR-3): the
+    /// single-use guarded UPDATE and the first-admin's password write commit
+    /// ATOMICALLY — neither effect happens alone. The guarded UPDATE is the
+    /// authoritative single-use + expiry point (a read-then-write would race).
+    ///
+    /// - 0 rows from the guard (unknown / already used / expired, including a
+    ///   link consumed in the GET→POST window) ⇒ ROLLBACK ⇒ [`ConsumeOutcome::Refused`].
+    /// - 1 row ⇒ write `users.password_hash` for the returned `created_by` ⇒
+    ///   COMMIT ⇒ [`ConsumeOutcome::Consumed`] carrying the landing workspace +
+    ///   the first-admin user id.
+    pub async fn set_first_admin_password_and_consume(
+        &self,
+        id: uuid::Uuid,
+        password_hash: &str,
+        now: time::OffsetDateTime,
+    ) -> Result<ConsumeOutcome, StoreError> {
+        let mut tx = self.pool.begin().await?;
+        let row: Option<(uuid::Uuid, uuid::Uuid)> = sqlx::query_as(
+            "UPDATE invites
+                SET used_at = $2, used_by = created_by
+              WHERE id = $1
+                AND used_at IS NULL
+                AND expires_at > $2
+              RETURNING workspace_id, created_by",
+        )
+        .bind(id)
+        .bind(now)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        let Some((workspace_id, created_by)) = row else {
+            tx.rollback().await?;
+            return Ok(ConsumeOutcome::Refused);
+        };
+
+        sqlx::query("UPDATE users SET password_hash = $2 WHERE id = $1")
+            .bind(created_by)
+            .bind(password_hash)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+
+        Ok(ConsumeOutcome::Consumed {
+            workspace_id,
+            user_id: created_by,
+        })
+    }
+
     /// Why a bootstrap token lookup might fail. Drives the explanatory
     /// page rendered for invalid `/bootstrap?token=...` GETs.
     pub async fn bootstrap_token_status(
@@ -521,6 +601,35 @@ impl Store {
                 .fetch_optional(&self.pool)
                 .await?;
         Ok(row.map(|r| r.0))
+    }
+
+    /// The GET-side ADVISORY liveness read for the accept page (ADR-001 / D6):
+    /// joins the invite to its workspace, returning `(expires_at, used_at,
+    /// workspace_name)`. The handler uses `expires_at` to re-bind the HMAC verify,
+    /// `used_at`/`expires_at` for the non-committal liveness check, and the
+    /// workspace name to render the set-password form. NON-AUTHORITATIVE — the
+    /// POST consume guard is the single-use point; this read mutates nothing.
+    pub async fn invite_accept_view(
+        &self,
+        id: uuid::Uuid,
+    ) -> Result<Option<InviteAcceptView>, StoreError> {
+        let row: Option<(time::OffsetDateTime, Option<time::OffsetDateTime>, String)> =
+            sqlx::query_as(
+                "SELECT i.expires_at, i.used_at, w.name
+                   FROM invites i
+                   JOIN workspaces w ON w.id = i.workspace_id
+                  WHERE i.id = $1",
+            )
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(
+            row.map(|(expires_at, used_at, workspace_name)| InviteAcceptView {
+                expires_at,
+                used_at,
+                workspace_name,
+            }),
+        )
     }
 
     // ----- US-06 sign-in -------------------------------------------------
@@ -1765,6 +1874,29 @@ pub enum ProjectInsertError {
 pub struct UserRow {
     pub id: uuid::Uuid,
     pub password_hash: String,
+}
+
+/// The GET-side advisory liveness view of an invite (ADR-001 / D6): its expiry,
+/// consume marker, and the workspace name to render on the set-password form.
+#[derive(Debug, Clone)]
+pub struct InviteAcceptView {
+    pub expires_at: time::OffsetDateTime,
+    pub used_at: Option<time::OffsetDateTime>,
+    pub workspace_name: String,
+}
+
+/// The outcome of [`Store::set_first_admin_password_and_consume`] (ADR-001).
+/// `Consumed` carries the landing workspace + the first-admin user id the
+/// handler signs into the session; `Refused` is the uniform 0-rows path (the
+/// invite was unknown / already used / expired) the handler maps to the
+/// non-enumerable refusal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConsumeOutcome {
+    Consumed {
+        workspace_id: uuid::Uuid,
+        user_id: uuid::Uuid,
+    },
+    Refused,
 }
 
 /// What state a bootstrap-token lookup found. Drives the explanatory

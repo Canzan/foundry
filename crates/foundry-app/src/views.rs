@@ -237,6 +237,26 @@ pub struct ForgotPage {
     pub csrf_token: String,
 }
 
+/// The invite-accept set-password page (invite-accept-flow, ADR-001/003/004).
+/// Extends `base.html`. Renders for a LIVE invite only: names the workspace,
+/// carries the hidden `_csrf` (double-submit) + `id` + `sig` so the POST
+/// re-verifies the same token, and the password + confirm inputs. The optional
+/// `.error` slot shows the inline recovery message (weak / mismatch) on re-render.
+#[derive(Debug, Clone, Template)]
+#[template(path = "invite_accept.html")]
+pub struct InviteAcceptPage {
+    /// The double-submit CSRF token, rendered into the hidden `_csrf` field.
+    pub csrf_token: String,
+    /// The invite row id, echoed into the hidden `id` field for the POST.
+    pub invite_id: String,
+    /// The HMAC signature, echoed into the hidden `sig` field for the POST.
+    pub sig: String,
+    /// The workspace name the form is setting a password for.
+    pub workspace_name: String,
+    /// Inline recovery copy (weak / mismatch); `None` on the initial GET render.
+    pub error: Option<String>,
+}
+
 /// The POST /forgot-password success page. Extends `base.html` (Phase-4 FIX 3)
 /// so the confirmation links the same vendored `/static` stylesheet as every
 /// other surface, replacing the prior inline `format!` bare-`<head>` HTML.
