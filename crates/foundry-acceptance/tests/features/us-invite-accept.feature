@@ -269,7 +269,7 @@ Feature: A provisioned first-admin claims her account from her invite link and i
   #     handler level (E2; AC-02.5, NFR-2). Its Given reuses the walking skeleton's
   #     successful accept (chained narrative).
   # ----------------------------------------------------------------------------
-  @pending @us-02 @error
+  @us-02 @error
   Scenario: A consumed invite can never be used again
     Given Priya has already set her password and signed in via her invite link
     When Priya opens the same invite link again

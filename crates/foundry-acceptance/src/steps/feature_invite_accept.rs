@@ -1463,6 +1463,315 @@ async fn open_accept_get(
     (status, body)
 }
 
+// ---------------------------------------------------------------------------
+// Scenario 10 (step 02-06) — SINGLE-USE: a consumed invite can never be used
+// again. After a first-admin successfully accepts (the invite is consumed,
+// `used_at` set, the real argon2id password written, a session minted), a SECOND
+// accept attempt of the SAME invite is refused with the uniform
+// `invite_refusal_page()` (byte-identical to the expired arm) and changes
+// NOTHING: no password is re-written, no second session is minted, and
+// `used_at`/`used_by` are unchanged from the first accept.
+//
+// Green by inheritance from the ATOMIC single-use guard
+// (`set_first_admin_password_and_consume`): its guarded UPDATE carries
+// `... WHERE id = $1 AND used_at IS NULL ...`, so a SECOND POST for an
+// already-consumed invite matches 0 rows ⇒ ROLLBACK ⇒ `ConsumeOutcome::Refused`
+// ⇒ the handler renders the canonical `invite_refusal_page()` WITHOUT touching
+// the password or minting a session. (The POST's advisory `invite_is_acceptable`
+// `used_at.is_none()` check also rejects it first — defense in depth — but the
+// AUTHORITATIVE single-use is the guard's `used_at IS NULL` clause.)
+//
+// The second attempt is driven as a REAL full accept (GET → POST) over real HTTP
+// against the REAL per-scenario Postgres (LAYER 3, @real-io @wiring_e2e), with a
+// DELIBERATELY DIFFERENT password than the first accept — so "no new password is
+// set" bites: were the second consume to succeed, the stored hash would change to
+// verify the new password.
+//
+// Falsifiability litmus (proven at DELIVER): dropping the guard's
+// `AND used_at IS NULL` clause makes the SECOND accept re-consume + re-write the
+// NEW password + mint a NEW session — RED-ing the reused "no longer valid" Then
+// (the POST would 303, not render the 200 refusal) AND the state-unchanged Then
+// (the password hash + `used_at` would change). Proven manually at DELIVER, then
+// the clause restored.
+// ---------------------------------------------------------------------------
+
+/// The DIFFERENT password Priya supplies on her SECOND (refused) attempt — also
+/// policy-passing, but distinct from her first accept, so "no new password is
+/// set" bites: a second consume that succeeded would change the stored hash to
+/// verify THIS password instead of the first one.
+const PRIYA_SECOND_PASSWORD: &str = "different-secure-pass-02";
+
+/// `Given Priya has already set her password and signed in via her invite link`
+/// — drive the FULL walking-skeleton accept (GET form + CSRF cookie → POST
+/// consume+write+sign-in) over real HTTP, asserting it SUCCEEDED end-to-end (303
+/// SEE_OTHER + a `foundry_session` cookie). Then snapshot the post-accept
+/// observable state against the REAL per-scenario Postgres — the real argon2id
+/// `password_hash` the consume TX wrote (distinct from the seeded throwaway) plus
+/// the invite's now-set `used_at`/`used_by` — so the second-attempt Then can
+/// prove NOTHING changed.
+#[given(regex = r#"^Priya has already set her password and signed in via her invite link$"#)]
+async fn priya_already_accepted(world: &mut FoundryWorld) {
+    let invite_id = world.ia_invite_id.expect("invite seeded");
+    let sig = world
+        .ia_invite_sig
+        .clone()
+        .expect("invite signature minted");
+    let base = harness(world).base_url();
+    let client = http(world);
+
+    // GET — render the form + mint the double-submit CSRF cookie.
+    let get_resp = client
+        .get(format!(
+            "{base}/invites/accept?id={invite_id}&sig={sig}",
+            sig = urlencoding::encode(&sig)
+        ))
+        .send()
+        .await
+        .expect("GET /invites/accept");
+    assert_eq!(
+        get_resp.status(),
+        StatusCode::OK,
+        "the GET for the live invite must render the set-password form"
+    );
+    let csrf_cookie = get_resp
+        .headers()
+        .get_all(reqwest::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .find(|s| s.starts_with("foundry_csrf="))
+        .map(str::to_string)
+        .expect("the GET minted a foundry_csrf cookie");
+    let csrf_token = csrf_cookie
+        .strip_prefix("foundry_csrf=")
+        .and_then(|rest| rest.split(';').next())
+        .unwrap_or("")
+        .to_string();
+    // Persist the double-submit CSRF token (the cookie a browser keeps): the
+    // SECOND attempt's POST reuses it so the refusal under test fires on
+    // single-use, NOT on a missing CSRF pair (the consumed-invite GET renders the
+    // refusal page, which mints no CSRF cookie).
+    world.session_cookie_header = Some(format!("foundry_csrf={csrf_token}"));
+
+    // POST — consume + write the real password + sign in (the genuine first accept).
+    let form = [
+        ("id", invite_id.to_string()),
+        ("sig", sig),
+        ("password", PRIYA_PASSWORD.to_string()),
+        ("confirm", PRIYA_PASSWORD.to_string()),
+        ("_csrf", csrf_token.clone()),
+    ];
+    let resp = client
+        .post(format!("{base}/invites/accept"))
+        .header(
+            reqwest::header::COOKIE,
+            format!("foundry_csrf={csrf_token}"),
+        )
+        .form(&form)
+        .send()
+        .await
+        .expect("POST /invites/accept");
+    assert_eq!(
+        resp.status(),
+        StatusCode::SEE_OTHER,
+        "the FIRST accept must succeed (303 SEE_OTHER) so the single-use precondition \
+         is grounded in a genuine consume, not assumed"
+    );
+    let session_cookie = resp
+        .headers()
+        .get_all(reqwest::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .find(|s| s.starts_with("foundry_session="))
+        .and_then(|s| s.split(';').next())
+        .map(str::to_string);
+    assert!(
+        session_cookie.is_some(),
+        "the FIRST accept must mint a foundry_session cookie (auto sign-in)"
+    );
+
+    // Snapshot the post-accept observable state: the real password hash + the
+    // consumed invite's used_at/used_by, all against the REAL Postgres.
+    let admin_id = world.ia_admin_user_id.expect("first-admin id seeded");
+    let pool = harness(world).app.state.store.pool().clone();
+    let (password_hash,): (String,) =
+        sqlx::query_as("SELECT password_hash FROM users WHERE id = $1")
+            .bind(admin_id)
+            .fetch_one(&pool)
+            .await
+            .expect("read the first-admin password hash after the first accept");
+    assert_ne!(
+        password_hash,
+        world
+            .ia_seeded_password_hash
+            .clone()
+            .expect("the Background snapshotted the seeded throwaway hash"),
+        "the first accept must have WRITTEN a real password (hash differs from the \
+         seeded throwaway) so the single-use precondition is genuine"
+    );
+    let (used_at, used_by): (time::OffsetDateTime, uuid::Uuid) = sqlx::query_as(
+        "SELECT used_at, used_by FROM invites WHERE id = $1 AND used_at IS NOT NULL",
+    )
+    .bind(invite_id)
+    .fetch_one(&pool)
+    .await
+    .expect("the invite must be recorded as consumed after the first accept");
+
+    world.ia_consumed_password_hash = Some(password_hash);
+    world.ia_consumed_used_at = Some(used_at);
+    world.ia_consumed_used_by = Some(used_by);
+}
+
+/// `When Priya opens the same invite link again` — drive a SECOND accept attempt
+/// against the SAME (now-consumed) invite over real HTTP, with a DELIBERATELY
+/// DIFFERENT password. Two real legs:
+///   1. GET the same link — the advisory liveness now sees `used_at` set and the
+///      handler renders the uniform `invite_refusal_page()` (200). Its (status,
+///      full body) land in `ia_post_status`/`last_body` — the slots the reused
+///      "standard page" Then reads. (The consumed-invite GET mints NO CSRF
+///      cookie, which is why the POST below reuses the FIRST accept's token.)
+///   2. POST the same link reusing the first accept's double-submit CSRF token —
+///      this drives the AUTHORITATIVE single-use guard
+///      (`set_first_admin_password_and_consume`), whose `... AND used_at IS NULL
+///      ...` matches 0 rows ⇒ `ConsumeOutcome::Refused` ⇒ `invite_refusal_page()`.
+///      Its session cookie (expected ABSENT) is captured so "no second session"
+///      is proven, and the DIFFERENT password makes "no new password" bite were
+///      the guard dropped. The POST must NOT be a CSRF 403 — reusing the kept
+///      token isolates the refusal to single-use.
+#[when(regex = r#"^Priya opens the same invite link again$"#)]
+async fn priya_opens_same_invite_again(world: &mut FoundryWorld) {
+    let invite_id = world.ia_invite_id.expect("invite seeded");
+    let sig = world
+        .ia_invite_sig
+        .clone()
+        .expect("invite signature minted");
+    let base = harness(world).base_url();
+    let client = http(world);
+
+    // Leg 1 — GET the consumed link: the refusal page the user actually sees.
+    let get_resp = client
+        .get(format!(
+            "{base}/invites/accept?id={invite_id}&sig={sig}",
+            sig = urlencoding::encode(&sig)
+        ))
+        .send()
+        .await
+        .expect("GET /invites/accept (second attempt)");
+    let get_status = get_resp.status();
+    let get_body = get_resp.text().await.unwrap_or_default();
+    world.ia_post_status = Some(get_status);
+    world.last_body = Some(get_body);
+
+    // Leg 2 — POST the consumed link through the AUTHORITATIVE consume guard,
+    // reusing the FIRST accept's double-submit CSRF cookie/token so the refusal
+    // fires on single-use, not a CSRF rejection.
+    let csrf_cookie = world
+        .session_cookie_header
+        .clone()
+        .expect("the first accept persisted the double-submit CSRF cookie");
+    let csrf_token = csrf_cookie
+        .strip_prefix("foundry_csrf=")
+        .and_then(|rest| rest.split(';').next())
+        .unwrap_or("")
+        .to_string();
+    let form = [
+        ("id", invite_id.to_string()),
+        ("sig", sig),
+        ("password", PRIYA_SECOND_PASSWORD.to_string()),
+        ("confirm", PRIYA_SECOND_PASSWORD.to_string()),
+        ("_csrf", csrf_token.clone()),
+    ];
+    let resp = client
+        .post(format!("{base}/invites/accept"))
+        .header(reqwest::header::COOKIE, csrf_cookie)
+        .form(&form)
+        .send()
+        .await
+        .expect("POST /invites/accept (second attempt)");
+    let post_status = resp.status();
+    let second_session_cookie = resp
+        .headers()
+        .get_all(reqwest::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .find(|s| s.starts_with("foundry_session="))
+        .and_then(|s| s.split(';').next())
+        .map(str::to_string);
+
+    // The authoritative POST must be REFUSED with the uniform 200 page — never a
+    // 303 (which would mean a second consume) and never a 403 (a CSRF rejection
+    // would mask single-use).
+    assert_eq!(
+        post_status,
+        StatusCode::OK,
+        "the SECOND accept POST must hit the single-use guard and render the uniform \
+         200 refusal (not a 303 second-consume, not a 403 CSRF rejection); got \
+         {post_status:?}"
+    );
+
+    // The SECOND-attempt session cookie (expected absent — no second sign-in).
+    world.ia_session_cookie = second_session_cookie;
+}
+
+/// `And no new password is set and no session is created` — the single-use
+/// state-unchanged guarantee: against the REAL per-scenario Postgres, the
+/// first-admin's `password_hash` is byte-identical to the one the FIRST accept
+/// wrote (the SECOND attempt's different password was NOT stored), the invite's
+/// `used_at`/`used_by` are unchanged from the first consume, and the second POST
+/// minted NO `foundry_session` cookie. Dropping the guard's `used_at IS NULL`
+/// clause (so the second accept re-consumes) reds every one of these.
+#[then(regex = r#"^no new password is set and no session is created$"#)]
+async fn no_new_password_or_session(world: &mut FoundryWorld) {
+    // No second session minted by the refused POST.
+    assert!(
+        world.ia_session_cookie.is_none(),
+        "the SECOND (refused) accept must mint NO foundry_session cookie — a second \
+         session would mean the consumed invite signed her in again; got {:?}",
+        world.ia_session_cookie
+    );
+
+    let invite_id = world.ia_invite_id.expect("invite seeded");
+    let admin_id = world.ia_admin_user_id.expect("first-admin id seeded");
+    let pool = harness(world).app.state.store.pool().clone();
+
+    // The password is UNCHANGED from the first accept (the second, different
+    // password was not written).
+    let first_accept_hash = world
+        .ia_consumed_password_hash
+        .clone()
+        .expect("the Given snapshotted the first-accept password hash");
+    let (current_hash,): (String,) =
+        sqlx::query_as("SELECT password_hash FROM users WHERE id = $1")
+            .bind(admin_id)
+            .fetch_one(&pool)
+            .await
+            .expect("read the first-admin password hash after the second attempt");
+    assert_eq!(
+        current_hash, first_accept_hash,
+        "the SECOND accept must write NO new password — the stored hash must equal \
+         the one the FIRST accept wrote; it changed, so the consumed invite was \
+         re-used to set a new password"
+    );
+
+    // used_at / used_by are UNCHANGED from the first consume.
+    let (used_at, used_by): (time::OffsetDateTime, uuid::Uuid) =
+        sqlx::query_as("SELECT used_at, used_by FROM invites WHERE id = $1")
+            .bind(invite_id)
+            .fetch_one(&pool)
+            .await
+            .expect("read the invite used_at/used_by after the second attempt");
+    assert_eq!(
+        Some(used_at),
+        world.ia_consumed_used_at,
+        "the invite's used_at must be UNCHANGED from the first consume — a second \
+         consume would re-stamp it"
+    );
+    assert_eq!(
+        Some(used_by),
+        world.ia_consumed_used_by,
+        "the invite's used_by must be UNCHANGED from the first consume"
+    );
+}
+
 /// Flip a single base64url character of a genuine signature so the HMAC tamper
 /// oracle rejects it (the corruption is guaranteed to take — the replacement
 /// differs from the original character).

@@ -309,6 +309,48 @@
       "s": "EXECUTED",
       "d": "PASS",
       "t": "2026-06-15T00:34:40Z"
+    },
+    {
+      "sid": "02-05",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-15T00:35:23Z"
+    },
+    {
+      "sid": "02-06",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-15T00:37:56Z"
+    },
+    {
+      "sid": "02-06",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-15T00:51:28Z"
+    },
+    {
+      "sid": "02-06",
+      "p": "RED_UNIT",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: green-by-inheritance from the atomic single-use guard; the consume guard's used_at IS NULL clause is exercised authoritatively via the scenario POST path and proven load-bearing by the falsifiability mutation (dropping it + the advisory used_at check makes the second accept 303 re-consume). No separate unit test adds distinct behavioral coverage.",
+      "t": "2026-06-15T00:51:28Z"
+    },
+    {
+      "sid": "02-06",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-15T01:11:06Z"
+    },
+    {
+      "sid": "02-06",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-15T01:12:01Z"
     }
   ]
 }

@@ -912,6 +912,16 @@ pub struct FoundryWorld {
     /// asserts all four are MUTUALLY identical (status + full body), proving an
     /// attacker cannot distinguish WHY a link is invalid.
     pub ia_four_refusals: Vec<(StatusCode, String)>,
+    /// The first-admin's observable state snapshotted AFTER a successful accept
+    /// (02-06 single-use): the real argon2id `password_hash` written by the
+    /// consume TX, plus the `used_at`/`used_by` set on the consumed invite row.
+    /// The "no new password is set and no session is created" assertion compares
+    /// the post-SECOND-attempt state against this snapshot — the falsifiability
+    /// litmus (dropping the guard's `used_at IS NULL` clause, so the second
+    /// accept re-consumes + re-writes a NEW password) reds it.
+    pub ia_consumed_password_hash: Option<String>,
+    pub ia_consumed_used_at: Option<time::OffsetDateTime>,
+    pub ia_consumed_used_by: Option<uuid::Uuid>,
 }
 
 impl FoundryWorld {
