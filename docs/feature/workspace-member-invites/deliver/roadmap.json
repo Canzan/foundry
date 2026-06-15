@@ -1,0 +1,277 @@
+{
+  "roadmap": {
+    "project_id": "workspace-member-invites",
+    "created_at": "2026-06-15T16:01:36Z",
+    "total_steps": 14
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "Member accept vertical plus issuance core",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "Walking skeleton: admin invites a teammate who creates an account and joins as a member",
+          "criteria": [
+            "Greens exactly one scenario: \"An admin invites a teammate who creates an account and joins as a member\".",
+            "An admin GETs /workspace/invites, POSTs a teammate email, and gets a shareable signed /invites/accept link; the invitee with no account opens it, sets a policy-passing password, and is created and joined.",
+            "The new code is built in this step: Store::create_member_and_consume (ONE tx: guarded-UPDATE consume, INSERT user with argon2id hash, INSERT role='member' membership, set used_by, COMMIT; SQLSTATE-23505 collision-safe), the data-derived kind-dispatch arm in submit_accept, the invite_accept_view extension surfacing invitee_email plus created_by, and the /workspace/invites issuance route plus member_invites.rs handlers plus templates.",
+            "The invitee lands on the inviting workspace signed in with no separate login, invites.used_at is set exactly once, and exactly one user plus one member membership exist.",
+            "Genuinely RED by MISSING: no /workspace/invites route, no member_invites.rs handlers, no create_member_and_consume tx, and no member dispatch arm exist yet (route unknown / handler absent against real testcontainers PG16, never IMPORT_ERROR / FIXTURE_BROKEN).",
+            "Per D7/OD-C, run cargo xtask check-arch; add a LAYER-1e allow-list line for the issuance handler ONLY if the run flags member_invites.rs (provisional: no line, the handler scopes off session.workspace_id)."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-member-invites.feature",
+          "scenario_name": "An admin invites a teammate who creates an account and joins as a member",
+          "implementation_scope": {
+            "source_directories": ["crates/foundry-app/src/", "crates/foundry-store/src/", "crates/foundry-auth/src/", "xtask/src/"],
+            "test_directories": ["crates/foundry-acceptance/tests/", "crates/foundry-acceptance/src/"]
+          }
+        },
+        {
+          "id": "01-02",
+          "name": "Issuance happy paths: form, shareable link, email-fail-safe, second independent invite",
+          "criteria": [
+            "Greens four scenarios: \"An admin opens the member-invite form for her workspace\", \"Submitting a valid email creates an invite and shows a shareable link\", \"The shareable link is shown even when the invite email fails to send\", and \"An admin can issue a second independent invite to the same email\".",
+            "An admin GET on /workspace/invites renders the one-email-field form naming her workspace; a valid POST inserts an invite via insert_invite (created_by = inviter) and renders the shareable signed link.",
+            "A best-effort email send failure is logged at warn and is non-fatal: the shareable link is still shown so the admin can paste it out-of-band (FR-2, AC-01.4).",
+            "Issuing a second invite to the same email creates an independent invite row (no collapse), proving insert_invite is reused as-is per D2 (BR-3).",
+            "Green-by-inheritance once the walking skeleton's issuance form template, submit_invite handler, and 'invite sent' fragment exist."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-member-invites.feature",
+          "scenario_name": "An admin opens the member-invite form for her workspace",
+          "implementation_scope": {
+            "source_directories": ["crates/foundry-app/src/", "crates/foundry-store/src/", "crates/foundry-auth/src/"],
+            "test_directories": ["crates/foundry-acceptance/tests/", "crates/foundry-acceptance/src/"]
+          }
+        },
+        {
+          "id": "01-03",
+          "name": "Member accept GET plus immediate happy accepts including expiry-inside boundary",
+          "criteria": [
+            "Greens four scenarios: \"A live member invite renders a set-password form naming the workspace\", \"Opening the member-accept page creates no account and consumes nothing\", \"A near-fresh member invite accepts immediately\", and \"A member invite opened just inside its expiry window is accepted\".",
+            "A GET on a live member invite renders the set-password form naming the workspace; the GET is non-committal, creating no account and consuming nothing (used_at still NULL), so only the POST consume tx is authoritative.",
+            "A near-fresh member invite POST completes immediately via create_member_and_consume, and an invite one second from expiring (just inside its window) also accepts, proving the in-tx expiry boundary is inclusive up to expires_at (AC-02.7, NFR-2).",
+            "Green-by-inheritance once the accept GET 'join as a member' copy, the invite_accept_view extension, and create_member_and_consume from the walking skeleton exist.",
+            "Pairs with the just-past-expiry refusal (02-01) to pin the NFR-2 expiry edge on the member arm."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-member-invites.feature",
+          "scenario_name": "A live member invite renders a set-password form naming the workspace",
+          "implementation_scope": {
+            "source_directories": ["crates/foundry-app/src/", "crates/foundry-store/src/"],
+            "test_directories": ["crates/foundry-acceptance/tests/", "crates/foundry-acceptance/src/"]
+          }
+        },
+        {
+          "id": "01-04",
+          "name": "Member isolation plus role: lands on inviting workspace, cannot reach issuance",
+          "criteria": [
+            "Greens two scenarios: \"The new member lands on the inviting workspace and sees only its data\" and \"A newly joined member cannot reach the admin issuance surface\".",
+            "The newly joined member lands on the inviting workspace (landed workspace_id == invites.workspace_id via resolve_active_workspace) and sees only that tenant's data (FR-6, AC-02.4).",
+            "The new member's membership is role='member', so a GET on /workspace/invites returns the byte-identical non-enumerable 404 (resource_not_found_page) the issuance admin gate produces (AC-02.6, BR-2, NFR-1).",
+            "Green-by-inheritance once the member arm mints the role='member' membership and the issuance is_workspace_admin gate exist."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-member-invites.feature",
+          "scenario_name": "The new member lands on the inviting workspace and sees only its data",
+          "implementation_scope": {
+            "source_directories": ["crates/foundry-app/src/", "crates/foundry-store/src/"],
+            "test_directories": ["crates/foundry-acceptance/tests/", "crates/foundry-acceptance/src/"]
+          }
+        },
+        {
+          "id": "01-05",
+          "name": "First-admin regression guard: shipped accept path unchanged",
+          "criteria": [
+            "Greens exactly one scenario: \"A first-admin invite still routes to the shipped accept path\" (@verify-path-unchanged).",
+            "A first-admin invite (consumer == created_by, account pre-exists) is dispatched to the SHIPPED set_first_admin_password_and_consume tx, not the new member arm; the shipped first-admin behavior is byte-identical.",
+            "The data-derived kind dispatch in submit_accept does not change the shipped first-admin path; the foundry-acceptance @all suite that was green-before stays green-after.",
+            "Green-by-inheritance once the kind dispatch routes the first-admin discriminator to the unchanged tx; this step is the regression litmus that re-REDs if the dispatch breaks the shipped flow."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-member-invites.feature",
+          "scenario_name": "A first-admin invite still routes to the shipped accept path",
+          "implementation_scope": {
+            "source_directories": ["crates/foundry-app/src/", "crates/foundry-store/src/"],
+            "test_directories": ["crates/foundry-acceptance/tests/", "crates/foundry-acceptance/src/"]
+          }
+        }
+      ]
+    },
+    {
+      "id": "02",
+      "name": "Security: refusal non-enumerability, single-use, CSRF, no-leak",
+      "steps": [
+        {
+          "id": "02-01",
+          "name": "Expiry refusals: expired and just-past-window refused without leaking existence",
+          "criteria": [
+            "Greens two scenarios: \"An expired member invite is refused without leaking existence\" and \"A member invite opened just past its expiry window is refused\".",
+            "An expired member invite returns the SHIPPED uniform invite_refusal_page() (200 OK) revealing nothing about whether any account or workspace exists; this is the canonical refusal arm 02-02 asserts byte-identity against (AC-03.2/03.3).",
+            "A member invite that expired one second ago (just outside its window) returns a response byte-identical (status and full body bytes) to the expired refusal, pinning the expiry edge on the refusal side (AC-03.4, NFR-2).",
+            "Green-by-inheritance once the accept GET liveness check wires the member invite to the shipped invite_refusal_page()."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-member-invites.feature",
+          "scenario_name": "An expired member invite is refused without leaking existence",
+          "implementation_scope": {
+            "source_directories": ["crates/foundry-app/src/", "crates/foundry-store/src/"],
+            "test_directories": ["crates/foundry-acceptance/tests/", "crates/foundry-acceptance/src/"]
+          }
+        },
+        {
+          "id": "02-02",
+          "name": "Refusal matrix plus byte-identity across all five invalid reasons",
+          "criteria": [
+            "Greens three scenarios: \"Accept refusals are byte-identical across all five invalid reasons\" (@property), \"A tampered signature is refused identically to an expired link\", and \"An unknown invite id is refused identically to every other reason\".",
+            "A tampered signature fails HMAC verify before any DB hit and an unknown invite id are each refused with a response byte-identical (status and full body) to the expired refusal; the reason lives only in internal tracing keyed on invite_id (AC-03.2).",
+            "Expired, used, tampered, unknown, and email-collision links all produce one byte-identical user-visible refusal page; collapsing any two arms into divergent responses must re-RED this @property assertion (AC-03.2/03.3/03.8, NFR-3).",
+            "Green-by-inheritance once the five-arm uniform refusal (including the collision arm built in 02-03) is wired to the member accept."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-member-invites.feature",
+          "scenario_name": "Accept refusals are byte-identical across all five invalid reasons",
+          "implementation_scope": {
+            "source_directories": ["crates/foundry-app/src/", "crates/foundry-store/src/", "crates/foundry-auth/src/"],
+            "test_directories": ["crates/foundry-acceptance/tests/", "crates/foundry-acceptance/src/"]
+          }
+        },
+        {
+          "id": "02-03",
+          "name": "Email-collision is non-enumerable: existing-account email refused, not a 500",
+          "criteria": [
+            "Greens exactly one scenario: \"A member invite whose email already has an account is refused without leaking that fact\".",
+            "A member invite whose invitee_email already maps to an existing user triggers a users.email_lower UNIQUE violation (SQLSTATE 23505) caught INSIDE the tx, mapped to EmailCollision, and rendered as the uniform invite_refusal_page() (NOT a 500, no DB-constraint error leak) per D5/OD-1 and AC-03.8.",
+            "The collision is caught via the UNIQUE constraint, not a pre-check SELECT (race-safe, no enumeration oracle), and the invite is NOT consumed: the tx rolls back wholesale (BR-5, NFR-3).",
+            "Genuinely RED by MISSING the UNIQUE-violation-catch arm in create_member_and_consume; this is the highest-risk arm the DISCUSS flagged HIGH and must red for a REAL oracle (collision-500 or invite-consumed flags upstream-issues.md)."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-member-invites.feature",
+          "scenario_name": "A member invite whose email already has an account is refused without leaking that fact",
+          "implementation_scope": {
+            "source_directories": ["crates/foundry-app/src/", "crates/foundry-store/src/"],
+            "test_directories": ["crates/foundry-acceptance/tests/", "crates/foundry-acceptance/src/"]
+          }
+        },
+        {
+          "id": "02-04",
+          "name": "Single-use plus concurrency plus TOCTOU: account created exactly once",
+          "criteria": [
+            "Greens three scenarios: \"Concurrent accepts of one member invite create the account exactly once\" (@property), \"A consumed member invite can never be used again\", and \"A member invite consumed between opening the page and submitting is refused by the transaction guard\".",
+            "Two concurrent accepts of one live member invite mean the atomic guarded UPDATE (not a read-then-write) lets exactly one create the user plus membership plus sign-in; the other gets the uniform refusal, and exactly one user, one membership, one consumed invite result (AC-03.6, NFR-2).",
+            "After a successful accept, re-opening the same member invite returns the uniform refusal with no second account and no second consume; the guarded UPDATE matches zero rows (AC-03.5).",
+            "A member invite consumed by another submission between opening the page and submitting is refused by the in-tx zero-rows guard, proving the GET liveness check is advisory and the tx guard re-checks liveness and expiry atomically (AC-03.7, TOCTOU closed).",
+            "Green-by-inheritance once create_member_and_consume's guarded-UPDATE-consume race-safety from the walking skeleton is exercised under concurrency and replay."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-member-invites.feature",
+          "scenario_name": "Concurrent accepts of one member invite create the account exactly once",
+          "implementation_scope": {
+            "source_directories": ["crates/foundry-app/src/", "crates/foundry-store/src/"],
+            "test_directories": ["crates/foundry-acceptance/tests/", "crates/foundry-acceptance/src/"]
+          }
+        },
+        {
+          "id": "02-05",
+          "name": "Issuance authz non-enumerability: non-admin and signed-out cannot tell the surface exists",
+          "criteria": [
+            "Greens two scenarios: \"A non-admin cannot tell the issuance surface exists\" and \"A signed-out caller cannot tell the issuance surface exists\" (@property).",
+            "A non-admin GET or POST to /workspace/invites is refused by the is_workspace_admin gate with the byte-identical non-enumerable 404 (resource_not_found_page) and creates no invite (AC-03.1, NFR-1).",
+            "A signed-out caller's GET or POST is refused byte-identically to the non-admin response (no 401/403/redirect oracle), proving the route does not admit to existing; collapsing the two arms must re-RED this @property assertion.",
+            "Green-by-inheritance once the issuance is_workspace_admin gate and resource_not_found_page() posture are wired on both legs."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-member-invites.feature",
+          "scenario_name": "A non-admin cannot tell the issuance surface exists",
+          "implementation_scope": {
+            "source_directories": ["crates/foundry-app/src/", "crates/foundry-store/src/"],
+            "test_directories": ["crates/foundry-acceptance/tests/", "crates/foundry-acceptance/src/"]
+          }
+        },
+        {
+          "id": "02-06",
+          "name": "CSRF on both POST surfaces",
+          "criteria": [
+            "Greens exactly one scenario: \"Both submissions are refused without a valid security token\".",
+            "A forged issuance POST without a valid double-submit token is refused by the shipped csrf_middleware before the handler runs and creates no invite (AC-03.9, NFR-6).",
+            "A forged accept POST without a valid token is likewise refused before the handler runs, creating no account and no consume; both new POST surfaces mount under the shipped double-submit layer with no exempt-path entry.",
+            "Green-by-inheritance once CSRF screening covers both /workspace/invites POST and the member accept POST."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-member-invites.feature",
+          "scenario_name": "Both submissions are refused without a valid security token",
+          "implementation_scope": {
+            "source_directories": ["crates/foundry-app/src/"],
+            "test_directories": ["crates/foundry-acceptance/tests/", "crates/foundry-acceptance/src/"]
+          }
+        },
+        {
+          "id": "02-07",
+          "name": "No secret leakage in logs",
+          "criteria": [
+            "Greens exactly one scenario: \"No invite signature or password ever appears in the logs\" (@property).",
+            "After a full issue-plus-accept-plus-refusal cycle, the application logs contain no invite signature value and no submitted password; refusal reasons live in tracing keyed on invite_id only (AC-03.10, NFR-5).",
+            "Green-by-inheritance once the new issuance and member-accept handlers observe the tracing-keyed-on-invite_id discipline; the @property no-secret-leakage invariant is example-pinned at LAYER 3."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-member-invites.feature",
+          "scenario_name": "No invite signature or password ever appears in the logs",
+          "implementation_scope": {
+            "source_directories": ["crates/foundry-app/src/", "crates/foundry-auth/src/"],
+            "test_directories": ["crates/foundry-acceptance/tests/", "crates/foundry-acceptance/src/"]
+          }
+        }
+      ]
+    },
+    {
+      "id": "03",
+      "name": "Inline recovery",
+      "steps": [
+        {
+          "id": "03-01",
+          "name": "Password recovery: weak, mismatched, and minimum-length boundary on the member arm",
+          "criteria": [
+            "Greens three scenarios: \"A weak password is corrected inline and creates no account\", \"A mismatched confirmation is corrected inline and creates no account\", and \"A password exactly at the minimum length is accepted\".",
+            "A password below the min-12 policy re-renders the set-password form with an inline error; check_password_policy runs before any tx opens, so the invite stays live and unconsumed and no account is created (AC-04.1, FR-8, NFR-4).",
+            "A confirmation that does not match the new password re-renders inline with no tx, no consume, and no account; the invite stays re-usable for a valid retry (AC-04.2).",
+            "A twelve-character password and matching confirmation is accepted by check_password_policy and the member account is created, confirming the policy is at-least-12 inclusive (AC-04.4, NFR-4).",
+            "Green-by-inheritance once the pre-consume check_password_policy and confirm-match guards on the member arm exist."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-member-invites.feature",
+          "scenario_name": "A weak password is corrected inline and creates no account",
+          "implementation_scope": {
+            "source_directories": ["crates/foundry-app/src/", "crates/foundry-auth/src/", "crates/foundry-store/src/"],
+            "test_directories": ["crates/foundry-acceptance/tests/", "crates/foundry-acceptance/src/"]
+          }
+        },
+        {
+          "id": "03-02",
+          "name": "Issuance plus retry recovery: valid retry completes the join, blank email corrected inline",
+          "criteria": [
+            "Greens two scenarios: \"A valid retry on the same member invite after an error completes the join\" and \"A blank email on the issuance form is corrected inline\".",
+            "After an inline password error on a still-live member invite, submitting a valid password and confirmation on the same invite completes the join: the member is created, signed in, and the invite is recorded used exactly once (AC-04.5, FR-8).",
+            "A blank or malformed email on the issuance form re-renders the form with an inline error and creates no invite, proving issuance inline email validation (AC-04.3, FR-3).",
+            "Green-by-inheritance once the member arm leaves the invite live on a recoverable error and the issuance email validation exists; the recoverability proof that an inline error strands nobody on a dead link."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-member-invites.feature",
+          "scenario_name": "A valid retry on the same member invite after an error completes the join",
+          "implementation_scope": {
+            "source_directories": ["crates/foundry-app/src/", "crates/foundry-store/src/", "crates/foundry-auth/src/"],
+            "test_directories": ["crates/foundry-acceptance/tests/", "crates/foundry-acceptance/src/"]
+          }
+        }
+      ]
+    }
+  ],
+  "implementation_scope": {
+    "source_directories": [
+      "crates/foundry-app/src/",
+      "crates/foundry-store/src/",
+      "crates/foundry-auth/src/",
+      "xtask/src/"
+    ],
+    "test_directories": [
+      "crates/foundry-acceptance/tests/",
+      "crates/foundry-acceptance/src/"
+    ],
+    "excluded_patterns": [
+      "target/**",
+      "**/*.md"
+    ]
+  },
+  "validation": {
+    "status": "approved",
+    "reviewer": "nw-software-crafter-reviewer",
+    "approved_at": "2026-06-15"
+  }
+}

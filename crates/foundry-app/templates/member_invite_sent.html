@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Invite sent{% endblock %}
+{% block content %}
+<div class="member-invite-sent" data-member-invite-sent>
+  <h1>Invite sent — share this link</h1>
+  <p data-invitee-email="{{ invitee_email }}">Invited <strong>{{ invitee_email }}</strong>.</p>
+  <p>Share this accept link (valid 7 days):
+    <a href="{{ invite_url|safe }}" data-member-invite-link="{{ invite_url|safe }}">{{ invite_url|safe }}</a>
+  </p>
+</div>
+{% endblock %}

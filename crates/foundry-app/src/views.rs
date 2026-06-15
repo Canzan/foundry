@@ -257,6 +257,36 @@ pub struct InviteAcceptPage {
     pub error: Option<String>,
 }
 
+/// The member-invite ISSUANCE form (workspace-member-invites US-01). Extends
+/// `base.html`. Rendered for a signed-in WORKSPACE ADMIN: names the workspace,
+/// carries the hidden double-submit `_csrf`, and a single email field posting to
+/// `/workspace/invites`. The optional `.error` slot shows the inline blank-email
+/// recovery message on re-render.
+#[derive(Debug, Clone, Template)]
+#[template(path = "member_invite_form.html")]
+pub struct MemberInviteForm {
+    /// The double-submit CSRF token, rendered into the hidden `_csrf` field.
+    pub csrf_token: String,
+    /// The workspace name the admin is inviting a member to.
+    pub workspace_name: String,
+    /// Inline recovery copy (blank email); `None` on the initial GET render.
+    pub error: Option<String>,
+}
+
+/// The "invite sent" FRAGMENT returned by `POST /workspace/invites`
+/// (workspace-member-invites US-01). Reports the invitee email + the shareable
+/// signed `/invites/accept` link (valid 7 days). The signed `invite_url` is already
+/// URL-encoded and embedded verbatim via `|safe` so the signature stays byte-stable;
+/// the invitee email is auto-escaped.
+#[derive(Debug, Clone, Template)]
+#[template(path = "member_invite_sent.html")]
+pub struct MemberInviteSent {
+    /// The email the invite was issued to (auto-escaped).
+    pub invitee_email: String,
+    /// The signed, already-URL-encoded accept link; embedded verbatim via `|safe`.
+    pub invite_url: String,
+}
+
 /// The POST /forgot-password success page. Extends `base.html` (Phase-4 FIX 3)
 /// so the confirmation links the same vendored `/static` stylesheet as every
 /// other surface, replacing the prior inline `format!` bare-`<head>` HTML.

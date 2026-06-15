@@ -325,6 +325,103 @@ impl Store {
         })
     }
 
+    /// The account-creating MEMBER-accept transaction (ADR-002 / workspace-member-
+    /// invites). In ONE atomic tx: (1) guarded-UPDATE consume the invite (the
+    /// authoritative single-use + expiry point — 0 rows ⇒ `Refused`); (2) CREATE the
+    /// invitee's user (email = the invite's `invitee_email`, the supplied
+    /// `password_hash`); (3) ADD a `member`-role membership in the invite's
+    /// workspace; (4) set `used_by` to the new user (the FK is satisfiable now the
+    /// user exists). COMMIT ⇒ `Consumed { workspace_id, user_id }`.
+    ///
+    /// OD-1 collision (the HIGH-risk arm): if `invitee_email` already maps to an
+    /// existing user, the `users.email_lower` UNIQUE violation (SQLSTATE 23505) on
+    /// the create-user INSERT is caught SPECIFICALLY and mapped to `EmailCollision`
+    /// (the whole tx rolls back ⇒ the invite stays UNCONSUMED, no second account).
+    /// Any OTHER DB error surfaces as the generic `StoreError` (the handler's 500
+    /// path) — the catch is narrowed to 23505 so a broadened catch cannot mis-map an
+    /// FK/connection error to the uniform refusal.
+    ///
+    /// Mirrors `set_first_admin_password_and_consume`'s guarded-UPDATE idiom; differs
+    /// in that it CREATES the consumer (a member with no prior account) rather than
+    /// writing onto a pre-existing `created_by` user.
+    pub async fn create_member_and_consume(
+        &self,
+        id: uuid::Uuid,
+        password_hash: &str,
+        now: time::OffsetDateTime,
+    ) -> Result<MemberConsumeOutcome, StoreError> {
+        let mut tx = self.pool.begin().await?;
+
+        // (1) Guarded-UPDATE consume — the authoritative single-use + expiry guard.
+        let row: Option<(uuid::Uuid, Option<String>)> = sqlx::query_as(
+            "UPDATE invites
+                SET used_at = $2
+              WHERE id = $1
+                AND used_at IS NULL
+                AND expires_at > $2
+              RETURNING workspace_id, invitee_email",
+        )
+        .bind(id)
+        .bind(now)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        let Some((workspace_id, invitee_email)) = row else {
+            tx.rollback().await?;
+            return Ok(MemberConsumeOutcome::Refused);
+        };
+        let invitee_email = invitee_email.unwrap_or_default();
+        let email_lower = invitee_email.to_ascii_lowercase();
+        let display_name = display_name_from_email(&email_lower);
+
+        // (2) Create the invitee's user. A UNIQUE-email collision (23505) ⇒ rollback
+        // ⇒ EmailCollision (OD-1); any other DB error bubbles as StoreError (500).
+        let new_user_id = uuid::Uuid::now_v7();
+        let create_user = sqlx::query(
+            "INSERT INTO users (id, email_lower, email_display, display_name, password_hash)
+                  VALUES ($1, $2, $3, $4, $5)",
+        )
+        .bind(new_user_id)
+        .bind(&email_lower)
+        .bind(&invitee_email)
+        .bind(&display_name)
+        .bind(password_hash)
+        .execute(&mut *tx)
+        .await;
+        if let Err(err) = create_user {
+            tx.rollback().await?;
+            if let sqlx::Error::Database(db_err) = &err {
+                if db_err.code().as_deref() == Some("23505") {
+                    return Ok(MemberConsumeOutcome::EmailCollision);
+                }
+            }
+            return Err(StoreError::Sqlx(err));
+        }
+
+        // (3) Add the `member`-role membership in the invite's workspace.
+        sqlx::query(
+            "INSERT INTO workspace_memberships (workspace_id, user_id, role)
+                  VALUES ($1, $2, 'member')",
+        )
+        .bind(workspace_id)
+        .bind(new_user_id)
+        .execute(&mut *tx)
+        .await?;
+
+        // (4) Set used_by now the FK target (the new user) exists.
+        sqlx::query("UPDATE invites SET used_by = $2 WHERE id = $1")
+            .bind(id)
+            .bind(new_user_id)
+            .execute(&mut *tx)
+            .await?;
+
+        tx.commit().await?;
+        Ok(MemberConsumeOutcome::Consumed {
+            workspace_id,
+            user_id: new_user_id,
+        })
+    }
+
     /// Why a bootstrap token lookup might fail. Drives the explanatory
     /// page rendered for invalid `/bootstrap?token=...` GETs.
     pub async fn bootstrap_token_status(
@@ -583,23 +680,24 @@ impl Store {
         &self,
         id: uuid::Uuid,
     ) -> Result<Option<InviteAcceptView>, StoreError> {
-        let row: Option<(time::OffsetDateTime, Option<time::OffsetDateTime>, String)> =
-            sqlx::query_as(
-                "SELECT i.expires_at, i.used_at, w.name
+        let row: Option<InviteAcceptViewRow> = sqlx::query_as(
+            "SELECT i.expires_at, i.used_at, w.name, i.invitee_email, i.created_by
                    FROM invites i
                    JOIN workspaces w ON w.id = i.workspace_id
                   WHERE i.id = $1",
-            )
-            .bind(id)
-            .fetch_optional(&self.pool)
-            .await?;
-        Ok(
-            row.map(|(expires_at, used_at, workspace_name)| InviteAcceptView {
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(
+            |(expires_at, used_at, workspace_name, invitee_email, created_by)| InviteAcceptView {
                 expires_at,
                 used_at,
                 workspace_name,
-            }),
-        )
+                invitee_email,
+                created_by,
+            },
+        ))
     }
 
     // ----- US-06 sign-in -------------------------------------------------
@@ -1846,13 +1944,64 @@ pub struct UserRow {
     pub password_hash: String,
 }
 
+/// Derive a non-empty `display_name` (length 1..=64, satisfying the `users`
+/// CHECK) from an invitee email's local-part (ADR-002). Truncates by char to 64 so
+/// a long-local-part invitee still joins (never errors); falls back to the whole
+/// email when there is no `@`, and to a placeholder when the local-part is empty.
+fn display_name_from_email(email: &str) -> String {
+    let local = email.split('@').next().unwrap_or(email);
+    let local = if local.is_empty() { email } else { local };
+    let truncated: String = local.chars().take(64).collect();
+    if truncated.is_empty() {
+        "member".to_string()
+    } else {
+        truncated
+    }
+}
+
 /// The GET-side advisory liveness view of an invite (ADR-001 / D6): its expiry,
 /// consume marker, and the workspace name to render on the set-password form.
+/// The raw row shape `invite_accept_view` reads: `(expires_at, used_at,
+/// workspace_name, invitee_email, created_by)`. Aliased so the `query_as` annotation
+/// stays readable (and clippy's complex-type lint is satisfied).
+type InviteAcceptViewRow = (
+    time::OffsetDateTime,
+    Option<time::OffsetDateTime>,
+    String,
+    Option<String>,
+    Option<uuid::Uuid>,
+);
+
 #[derive(Debug, Clone)]
 pub struct InviteAcceptView {
     pub expires_at: time::OffsetDateTime,
     pub used_at: Option<time::OffsetDateTime>,
     pub workspace_name: String,
+    /// The invite's `invitee_email` (the address the invite was issued to). Surfaced
+    /// for the accept POST's data-derived kind dispatch (ADR-003): the member arm
+    /// creates the user keyed on this email.
+    pub invitee_email: Option<String>,
+    /// The invite's `created_by` (the issuing user). The kind discriminator: a
+    /// first-admin invite's `created_by` IS the prospective consumer (the account
+    /// already exists); a member invite's `created_by` is the inviting admin.
+    pub created_by: Option<uuid::Uuid>,
+}
+
+/// The outcome of [`Store::create_member_and_consume`] (ADR-002). `Consumed` carries
+/// the landing workspace + the NEWLY-CREATED member user id; `Refused` is the
+/// uniform 0-rows guard path (the invite was unknown / already used / expired / lost
+/// a race); `EmailCollision` is the OD-1 arm — the `invitee_email` already maps to an
+/// existing user, so the `users.email_lower` UNIQUE violation rolled back the tx
+/// (the invite stays UNCONSUMED, no second account). The handler maps BOTH `Refused`
+/// AND `EmailCollision` to the SAME uniform refusal (NEVER a 500).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MemberConsumeOutcome {
+    Consumed {
+        workspace_id: uuid::Uuid,
+        user_id: uuid::Uuid,
+    },
+    Refused,
+    EmailCollision,
 }
 
 /// The outcome of [`Store::set_first_admin_password_and_consume`] (ADR-001).

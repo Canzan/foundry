@@ -960,6 +960,31 @@ pub struct FoundryWorld {
     /// cleartext password). See `no_signature_in_logs` for the assertion-site guard
     /// that pins this exclusion as deliberate-by-design.
     pub ia_get_form_body: Option<String>,
+
+    // ---- workspace-member-invites (us-member-invites) ----
+    /// The in-process harness for the member-invites scenarios. Its session_secret
+    /// signs the InviteToken the REAL issuance handler mints, so the accept GET/POST
+    /// verify the SAME secret. Separate from `ia_harness`/`mwt6_harness` (each a
+    /// different feature's per-scenario seed).
+    pub mi_harness: Option<InProcHarness>,
+    /// The provisioned workspace name → its id (the inviting/landing tenant). Seeded
+    /// by the Background via the SHIPPED `Store::provision_workspace`.
+    pub mi_workspace_ids: HashMap<String, uuid::Uuid>,
+    /// The inviting admin's email (Dana) — used to authenticate her web issuance POST.
+    pub mi_admin_email: Option<String>,
+    /// The inviting admin's user id (the invite's `created_by`).
+    pub mi_admin_user_id: Option<uuid::Uuid>,
+    /// The member invite id minted by the REAL issuance handler (parsed from the
+    /// emitted accept link in the rendered "invite sent" fragment).
+    pub mi_invite_id: Option<uuid::Uuid>,
+    /// The HMAC signature parsed from the emitted accept link (the `sig` URL param).
+    pub mi_invite_sig: Option<String>,
+    /// The accept POST response (status, location) — the 303 redirect on success.
+    pub mi_post_status: Option<StatusCode>,
+    pub mi_post_location: Option<String>,
+    /// The auto-sign-in session cookie captured from the accept POST 303 (proving
+    /// "no separate login step").
+    pub mi_session_cookie: Option<String>,
 }
 
 impl FoundryWorld {

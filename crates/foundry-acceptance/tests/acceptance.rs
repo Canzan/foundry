@@ -37,6 +37,8 @@ use foundry_acceptance::steps::feature_invite_accept as _feature_invite_accept;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_machine_token_admin as _feature_mt;
 #[allow(unused_imports)]
+use foundry_acceptance::steps::feature_member_invites as _feature_member_invites;
+#[allow(unused_imports)]
 use foundry_acceptance::steps::feature_mwt_slice_01_coexist as _feature_mwt_s01;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_mwt_slice_02_web_boundary as _feature_mwt_s02;

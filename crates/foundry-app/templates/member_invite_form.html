@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Invite a member{% endblock %}
+{% block content %}
+<h1>Invite a member</h1>
+<p>Invite a teammate to join the <strong>{{ workspace_name }}</strong> workspace.</p>
+{% if let Some(error) = error %}<p class="error">{{ error }}</p>{% endif %}
+<form method="post" action="/workspace/invites" data-member-invite-form>
+  <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+  <label>Teammate email <input type="email" name="email" required></label>
+  <button type="submit">Send invite</button>
+</form>
+{% endblock %}

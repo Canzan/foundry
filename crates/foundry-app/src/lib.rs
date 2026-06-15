@@ -25,6 +25,7 @@ pub mod instance_admin;
 pub mod invites_accept;
 pub mod issues;
 pub mod keyboard;
+pub mod member_invites;
 pub mod metrics_server;
 pub mod projects;
 pub mod rate_limit;
@@ -307,6 +308,21 @@ pub fn build_router(state: AppState) -> Router {
         // like every browser POST). Membership-guarded + fail-closed inside the
         // handler (Store::set_active_workspace).
         .route("/workspace/switch", post(session::submit_switch))
+        // workspace-member-invites 01-01 (US-01) — the admin-gated member-invite
+        // ISSUANCE surface. Mounted HERE on the SHARED layer (UNDER `csrf_middleware`
+        // + `session_layer` below) alongside `/admin/tokens` + `/workspace/switch`: a
+        // real signed-in `foundry_session` cookie + double-submit `_csrf` apply. The
+        // handler gates on the SHIPPED `is_workspace_admin` (D7) — a non-admin /
+        // signed-out caller gets the SHIPPED non-enumerable uniform 404 (NFR-1). It
+        // resolves the acting workspace from the SESSION (no request-parsed workspace
+        // id), so it is LAYER-1e safe (no check_arch allow-list line). The POST
+        // inserts the invite (`created_by = the inviter`) + signs + emits the accept
+        // link + best-effort email + renders the "invite sent" fragment
+        // (member_invites.rs).
+        .route(
+            "/workspace/invites",
+            get(member_invites::show_invite_form).post(member_invites::submit_invite),
+        )
         .route(
             "/forgot-password",
             get(signin::show_forgot_form).post(signin::submit_forgot),

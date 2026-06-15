@@ -35,7 +35,7 @@ use axum::extract::{Form, Query, State};
 use axum::http::header::{HeaderMap, HeaderValue, COOKIE, LOCATION, SET_COOKIE};
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
-use foundry_store::ConsumeOutcome;
+use foundry_store::{ConsumeOutcome, MemberConsumeOutcome};
 use secrecy::SecretString;
 use serde::Deserialize;
 use tower_sessions::Session;
@@ -129,29 +129,75 @@ pub async fn submit_accept(
         };
 
     // Step 3 — the one-TX consume + credential write (the authoritative single-use
-    // guard). 0 rows (unknown / used / expired in the GET→POST window) → refusal.
-    let outcome = match state
-        .store
-        .set_first_admin_password_and_consume(invite_id, &password_hash, now)
-        .await
-    {
-        Ok(o) => o,
-        Err(err) => {
-            tracing::error!(%err, %invite_id, "set_first_admin_password_and_consume failed");
-            return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
+    // guard). DATA-DERIVED DISPATCH (ADR-003): a first-admin invite's `invitee_email`
+    // maps to an existing user whose id IS the invite's `created_by` (the account
+    // pre-exists) → the SHIPPED `set_first_admin_password_and_consume`; otherwise it
+    // is a member invite (no user for `invitee_email`) → the NEW
+    // `create_member_and_consume`, which CREATES the account. The member tx owns the
+    // OD-1 email-collision arm (an `invitee_email` that maps to a NON-`created_by`
+    // user) → the SAME uniform refusal, never a 500.
+    let (workspace_id, user_id) = if is_first_admin_invite(&state, &view).await {
+        match state
+            .store
+            .set_first_admin_password_and_consume(invite_id, &password_hash, now)
+            .await
+        {
+            Ok(ConsumeOutcome::Consumed {
+                workspace_id,
+                user_id,
+            }) => (workspace_id, user_id),
+            Ok(ConsumeOutcome::Refused) => return invite_refusal_page(),
+            Err(err) => {
+                tracing::error!(%err, %invite_id, "set_first_admin_password_and_consume failed");
+                return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
+            }
         }
-    };
-    let ConsumeOutcome::Consumed {
-        workspace_id,
-        user_id,
-    } = outcome
-    else {
-        // 0 rows — lost the race / already used / expired in the GET→POST window.
-        return invite_refusal_page();
+    } else {
+        match state
+            .store
+            .create_member_and_consume(invite_id, &password_hash, now)
+            .await
+        {
+            Ok(MemberConsumeOutcome::Consumed {
+                workspace_id,
+                user_id,
+            }) => (workspace_id, user_id),
+            // Both the 0-rows guard AND the email collision collapse to the SAME
+            // uniform refusal (D5, NFR-3) — the collision is NEVER a 500.
+            Ok(MemberConsumeOutcome::Refused) | Ok(MemberConsumeOutcome::EmailCollision) => {
+                return invite_refusal_page()
+            }
+            Err(err) => {
+                tracing::error!(%err, %invite_id, "create_member_and_consume failed");
+                return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
+            }
+        }
     };
 
     // Step 4 — establish the session and 303 onto the workspace (auto sign-in).
     establish_session_and_redirect(&session, invite_id, user_id, workspace_id).await
+}
+
+/// The kind discriminator (ADR-003): an invite is a FIRST-ADMIN invite iff its
+/// `invitee_email` resolves to an existing user whose id IS the invite's
+/// `created_by` (the prospective consumer's account already exists — `provision_
+/// workspace` seeds the first-admin AND sets them as `created_by`). Otherwise it is
+/// a MEMBER invite (the invitee has no account; the inviting admin is `created_by`).
+/// A lookup error fails toward the member arm — the member tx's own UNIQUE-email
+/// guard is the authoritative collision boundary, so a transient read error never
+/// mis-routes a member invite into the first-admin tx.
+async fn is_first_admin_invite(state: &AppState, view: &foundry_store::InviteAcceptView) -> bool {
+    let (Some(email), Some(created_by)) = (view.invitee_email.as_deref(), view.created_by) else {
+        return false;
+    };
+    match state
+        .store
+        .user_id_by_email(&email.to_ascii_lowercase())
+        .await
+    {
+        Ok(Some(existing_id)) => existing_id == created_by,
+        _ => false,
+    }
 }
 
 /// POST step 1 — re-verify the signed token + advisory liveness. Returns the
