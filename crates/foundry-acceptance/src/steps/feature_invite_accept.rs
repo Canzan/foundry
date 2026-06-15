@@ -2452,6 +2452,243 @@ async fn no_password_in_logs(world: &mut FoundryWorld) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Scenario 14 (step 02-10) — TOCTOU: a link consumed in the GET→POST window is
+// refused by the consume TX guard (the GET liveness check is advisory only;
+// expiry + single-use are enforced INSIDE the authoritative consume TX, not just
+// on GET). The TOCTOU-safety crux: Priya opens the accept page (the GET advisory
+// liveness passes — the invite is live, the form + CSRF cookie are rendered),
+// THEN the invite is consumed OUT-OF-BAND (a successful accept by another
+// submission), THEN Priya submits her now-STALE form. The POST's atomic guarded
+// UPDATE (`set_first_admin_password_and_consume`) RE-CHECKS `used_at IS NULL`
+// inside the TX, matches 0 rows ⇒ ROLLBACK ⇒ `ConsumeOutcome::Refused` ⇒ the
+// uniform `invite_refusal_page()` — writing NOTHING (no second password, no
+// session); `used_at`/`used_by` reflect the FIRST consumer ONLY. (D6; AC-02.7,
+// NFR-1/NFR-2.)
+//
+// Green by inheritance from the authoritative guard's `... AND used_at IS NULL
+// ...` clause inside the consume TX — the SAME clause the single-use (02-06) and
+// concurrency (02-07) arms ride. Step 02-10 proves the SPECIFIC TOCTOU shape: the
+// gap between the GET render and the POST submit, closed by re-checking liveness
+// INSIDE the TX rather than trusting the GET-time advisory read.
+//
+// The out-of-band consume is driven by the authoritative store seam directly
+// (`set_first_admin_password_and_consume`) — the same atomic guarded UPDATE a
+// real concurrent accept would hit — so the invite is GENUINELY consumed (real
+// `used_at`/`used_by`/`password_hash` written), not synthesised. The stale POST
+// then reuses the GET's double-submit CSRF token so the refusal under test fires
+// on the TX guard, NOT a CSRF rejection, and carries a DELIBERATELY DIFFERENT
+// password so "no second password write" bites: were the stale POST to win, the
+// stored hash would change to verify Priya's password instead of the first
+// consumer's.
+//
+// Falsifiability litmus (PROVEN at DELIVER, then reverted): making the POST trust
+// the GET-time liveness instead of the TX guard — i.e. dropping the guard's
+// `AND used_at IS NULL` clause from `set_first_admin_password_and_consume` AND
+// the POST advisory `used_at.is_none()` re-check in `invite_is_acceptable` — lets
+// the stale POST re-consume the already-used invite + write Priya's NEW password
+// + mint a session, RED-ing BOTH the reused "no longer valid" Then (the stale
+// POST would 303, not render the 200 refusal) AND the state-unchanged Then (the
+// password hash + `used_at`/`used_by` would change off the first consumer).
+// ---------------------------------------------------------------------------
+
+/// The DIFFERENT password Priya submits on her now-STALE page — also
+/// policy-passing, but distinct from the out-of-band first consumer's, so "no
+/// second password write occurs" bites: a stale POST that re-consumed would
+/// change the stored hash to verify THIS password instead of the first one.
+const PRIYA_STALE_PASSWORD: &str = "stale-page-secure-pass-10";
+
+/// `Given the same invite is consumed by another submission before Priya submits`
+/// — AFTER Priya's GET rendered the form (the reused walking-skeleton arrival
+/// Given), consume the SAME invite OUT-OF-BAND via the authoritative store seam
+/// (`set_first_admin_password_and_consume`) — the SAME atomic guarded UPDATE a
+/// real concurrent accept hits — so the invite is GENUINELY consumed in the
+/// GET→POST window. Asserts the consume SUCCEEDED (the guard returned `Consumed`)
+/// and snapshots the post-consume observable state against the REAL per-scenario
+/// Postgres (the first consumer's real password hash + the now-set
+/// `used_at`/`used_by`), so the stale-POST Then can prove NOTHING changed after.
+#[given(regex = r#"^the same invite is consumed by another submission before Priya submits$"#)]
+async fn invite_consumed_out_of_band(world: &mut FoundryWorld) {
+    let invite_id = world.ia_invite_id.expect("invite seeded");
+    let admin_id = world.ia_admin_user_id.expect("first-admin id seeded");
+    let now = harness(world).app.state.clock.now();
+    let store = harness(world).app.state.store.clone();
+
+    // The other submission's real argon2id credential — distinct from Priya's
+    // stale-page password, so "no second password write" bites against it.
+    let first_consumer_hash = foundry_auth::hash_password(&SecretString::new(
+        "out-of-band-first-consumer-pass".to_string().into(),
+    ))
+    .await
+    .expect("hash the out-of-band first consumer credential");
+
+    // Consume OUT-OF-BAND through the AUTHORITATIVE atomic guarded UPDATE — the
+    // same seam a genuine concurrent accept hits in the GET→POST window.
+    let outcome = store
+        .set_first_admin_password_and_consume(invite_id, &first_consumer_hash, now)
+        .await
+        .expect("the out-of-band consume must reach the store");
+    assert!(
+        matches!(outcome, foundry_store::ConsumeOutcome::Consumed { .. }),
+        "the out-of-band submission must GENUINELY consume the live invite (the \
+         guard returns Consumed), so the TOCTOU precondition is real; got {outcome:?}"
+    );
+
+    // Snapshot the post-consume state: the first consumer's real hash + the
+    // now-set used_at/used_by, all against the REAL Postgres.
+    let pool = store.pool().clone();
+    let (consumed_hash,): (String,) =
+        sqlx::query_as("SELECT password_hash FROM users WHERE id = $1")
+            .bind(admin_id)
+            .fetch_one(&pool)
+            .await
+            .expect("read the first-admin password hash after the out-of-band consume");
+    assert_eq!(
+        consumed_hash, first_consumer_hash,
+        "the out-of-band consume must have WRITTEN the first consumer's credential, \
+         so the stale-POST 'no second write' assertion has a genuine baseline"
+    );
+    let (used_at, used_by): (time::OffsetDateTime, uuid::Uuid) = sqlx::query_as(
+        "SELECT used_at, used_by FROM invites WHERE id = $1 AND used_at IS NOT NULL",
+    )
+    .bind(invite_id)
+    .fetch_one(&pool)
+    .await
+    .expect("the invite must be recorded as consumed after the out-of-band submission");
+
+    world.ia_consumed_password_hash = Some(consumed_hash);
+    world.ia_consumed_used_at = Some(used_at);
+    world.ia_consumed_used_by = Some(used_by);
+}
+
+/// `When Priya submits a valid password on her now-stale page` — drive Priya's
+/// POST `/invites/accept` over real HTTP from her now-STALE page: she carries the
+/// genuine id + sig + a policy-passing (but DIFFERENT) password + matching
+/// confirm + the double-submit `_csrf` token the GET minted into
+/// `session_cookie_header`, so the refusal under test fires on the TX guard, NOT
+/// a CSRF rejection. The SHIPPED `csrf_middleware` admits the matching pair; the
+/// authoritative `set_first_admin_password_and_consume` guard re-checks
+/// `used_at IS NULL` inside the TX, matches 0 rows (the out-of-band consume
+/// already stamped it) ⇒ `ConsumeOutcome::Refused` ⇒ uniform `invite_refusal_page()`.
+/// Captures the status + full body into the slots the reused "standard page" Then
+/// reads, and the (expected-absent) session cookie so "no session" is proven.
+#[when(regex = r#"^Priya submits a valid password on her now-stale page$"#)]
+async fn priya_submits_on_stale_page(world: &mut FoundryWorld) {
+    let invite_id = world.ia_invite_id.expect("invite seeded");
+    let sig = world
+        .ia_invite_sig
+        .clone()
+        .expect("invite signature minted");
+    let csrf_cookie = world
+        .session_cookie_header
+        .clone()
+        .expect("Priya's GET minted a foundry_csrf cookie into session_cookie_header");
+    let csrf_token = csrf_cookie
+        .strip_prefix("foundry_csrf=")
+        .and_then(|rest| rest.split(';').next())
+        .unwrap_or("")
+        .to_string();
+    let base = harness(world).base_url();
+    let client = http(world);
+
+    let form = [
+        ("id", invite_id.to_string()),
+        ("sig", sig),
+        ("password", PRIYA_STALE_PASSWORD.to_string()),
+        ("confirm", PRIYA_STALE_PASSWORD.to_string()),
+        ("_csrf", csrf_token.clone()),
+    ];
+    let resp = client
+        .post(format!("{base}/invites/accept"))
+        .header(
+            reqwest::header::COOKIE,
+            format!("foundry_csrf={csrf_token}"),
+        )
+        .form(&form)
+        .send()
+        .await
+        .expect("POST /invites/accept (stale page)");
+    let status = resp.status();
+    let session_cookie = resp
+        .headers()
+        .get_all(reqwest::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .find(|s| s.starts_with("foundry_session="))
+        .and_then(|s| s.split(';').next())
+        .map(str::to_string);
+    let body = resp.text().await.unwrap_or_default();
+
+    world.ia_post_status = Some(status);
+    world.ia_session_cookie = session_cookie;
+    world.last_body = Some(body);
+}
+
+/// `And no second password write occurs and the invite stays used exactly once` —
+/// the TOCTOU state-unchanged guarantee: against the REAL per-scenario Postgres,
+/// the first-admin's `password_hash` is byte-identical to the one the OUT-OF-BAND
+/// consume wrote (Priya's stale-page DIFFERENT password was NOT stored), the
+/// invite's `used_at`/`used_by` are unchanged from the first consume (still used
+/// EXACTLY ONCE by the first consumer), and the stale POST minted NO
+/// `foundry_session` cookie. Making the POST trust the GET-time liveness (dropping
+/// the guard's `used_at IS NULL` re-check) so the stale POST re-consumed reds
+/// every one of these.
+#[then(regex = r#"^no second password write occurs and the invite stays used exactly once$"#)]
+async fn no_second_write_invite_used_once(world: &mut FoundryWorld) {
+    // No session minted by the refused stale POST.
+    assert!(
+        world.ia_session_cookie.is_none(),
+        "the stale-page POST must mint NO foundry_session cookie — a session would \
+         mean the TX guard let the already-consumed invite sign Priya in; got {:?}",
+        world.ia_session_cookie
+    );
+
+    let invite_id = world.ia_invite_id.expect("invite seeded");
+    let admin_id = world.ia_admin_user_id.expect("first-admin id seeded");
+    let pool = harness(world).app.state.store.pool().clone();
+
+    // The password is UNCHANGED from the out-of-band first consume (Priya's
+    // DIFFERENT stale-page password was not written).
+    let first_consumer_hash = world
+        .ia_consumed_password_hash
+        .clone()
+        .expect("the Given snapshotted the out-of-band first-consumer password hash");
+    let (current_hash,): (String,) =
+        sqlx::query_as("SELECT password_hash FROM users WHERE id = $1")
+            .bind(admin_id)
+            .fetch_one(&pool)
+            .await
+            .expect("read the first-admin password hash after the stale POST");
+    assert_eq!(
+        current_hash, first_consumer_hash,
+        "the stale-page POST must write NO second password — the stored hash must \
+         equal the one the out-of-band FIRST consume wrote; it changed, so the \
+         already-consumed invite was re-used to set Priya's stale password (the TX \
+         guard trusted GET-time liveness instead of re-checking inside the TX)"
+    );
+
+    // used_at / used_by are UNCHANGED from the first consume — used EXACTLY ONCE,
+    // reflecting the FIRST consumer only.
+    let (used_at, used_by): (time::OffsetDateTime, uuid::Uuid) =
+        sqlx::query_as("SELECT used_at, used_by FROM invites WHERE id = $1")
+            .bind(invite_id)
+            .fetch_one(&pool)
+            .await
+            .expect("read the invite used_at/used_by after the stale POST");
+    assert_eq!(
+        Some(used_at),
+        world.ia_consumed_used_at,
+        "the invite's used_at must be UNCHANGED from the out-of-band first consume — \
+         a second consume in the GET→POST window would re-stamp it (used more than once)"
+    );
+    assert_eq!(
+        Some(used_by),
+        world.ia_consumed_used_by,
+        "the invite's used_by must reflect the FIRST consumer ONLY — a stale-POST \
+         re-consume would re-attribute it"
+    );
+}
+
 /// Flip a single base64url character of a genuine signature so the HMAC tamper
 /// oracle rejects it (the corruption is guaranteed to take — the replacement
 /// differs from the original character).

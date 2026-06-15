@@ -322,7 +322,7 @@ Feature: A provisioned first-admin claims her account from her invite link and i
   #     by the consume TX guard (the GET liveness check is advisory only); expiry is
   #     enforced INSIDE the TX, not just on GET (D6; AC-02.7, NFR-1/NFR-2).
   # ----------------------------------------------------------------------------
-  @pending @us-02 @error
+  @us-02 @error
   Scenario: A link consumed between opening the page and submitting is refused by the transaction guard
     Given Priya has opened her live invite for "Northwind" and seen the set-password form
     And the same invite is consumed by another submission before Priya submits

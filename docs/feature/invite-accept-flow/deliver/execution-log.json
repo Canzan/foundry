@@ -456,6 +456,41 @@
       "s": "EXECUTED",
       "d": "PASS",
       "t": "2026-06-15T04:15:50Z"
+    },
+    {
+      "sid": "02-10",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-15T04:19:22Z"
+    },
+    {
+      "sid": "02-10",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-15T04:25:35Z"
+    },
+    {
+      "sid": "02-10",
+      "p": "RED_UNIT",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: green-by-inheritance; the TOCTOU-safe guard (used_at IS NULL inside the consume TX) already exists. No new production code; behavior is fully covered port-to-port through the driving HTTP adapter acceptance scenario. A separate unit test adds no unique behavioral coverage.",
+      "t": "2026-06-15T04:25:46Z"
+    },
+    {
+      "sid": "02-10",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-15T04:33:22Z"
+    },
+    {
+      "sid": "02-10",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-15T04:33:56Z"
     }
   ]
 }
