@@ -663,7 +663,7 @@ async fn she_sees_only_her_tenant(world: &mut FoundryWorld) {
 /// outcome: the invite row's `used_at` is set (the consume guard fired) and exactly
 /// ONE such consumed row exists for this id, with `used_by` = the first-admin (the
 /// `created_by` the guarded-UPDATE returned). Reads the REAL per-scenario Postgres.
-#[then(regex = r#"^her invite is recorded as used exactly once$"#)]
+#[then(regex = r#"^(?:her|the) invite is recorded as used exactly once$"#)]
 async fn invite_recorded_used_exactly_once(world: &mut FoundryWorld) {
     let invite_id = world.ia_invite_id.expect("invite seeded");
     let admin_id = world.ia_admin_user_id.expect("first-admin id seeded");
@@ -1770,6 +1770,253 @@ async fn no_new_password_or_session(world: &mut FoundryWorld) {
         world.ia_consumed_used_by,
         "the invite's used_by must be UNCHANGED from the first consume"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 11 (step 02-07) — SINGLE-USE UNDER CONCURRENCY: N accept submissions
+// for ONE live invite arrive concurrently; EXACTLY ONE consumes + writes the
+// password + signs in, the rest get the uniform `invite_refusal_page()`, and
+// `invites.used_at` is set EXACTLY ONCE.
+//
+// Green by inheritance from the ATOMIC single-use guard
+// (`set_first_admin_password_and_consume`): its one-statement guarded UPDATE
+// `... WHERE id = $1 AND used_at IS NULL AND expires_at > $2 RETURNING ...`
+// runs inside a tx. Under Postgres read-committed concurrency, the first writer
+// to reach the row takes a row lock and sets `used_at`; every concurrent writer
+// BLOCKS on that lock, then RE-EVALUATES the `used_at IS NULL` predicate against
+// the now-committed row, matches 0 rows ⇒ ROLLBACK ⇒ `ConsumeOutcome::Refused`.
+// The DB therefore enforces exactly-one-winner — no read-then-write window
+// admits a second consume, no torn/duplicate write, no double session.
+//
+// Driven as N REAL concurrent accept POSTs over real HTTP against the REAL
+// per-scenario Postgres (LAYER 3, @real-io). Each leg first GETs the live link
+// (minting its own double-submit CSRF cookie/token) so the refusal under test
+// fires on single-use, NOT a CSRF rejection; each carries a DISTINCT password,
+// so the winner's stored hash is attributable to exactly one submission (a torn
+// double-write would leave an ambiguous / second hash). The N futures are fired
+// together via `join_all` so they race at the consume TX.
+//
+// Example-pinned at LAYER 3 (Mandate 11): N is a concrete small fan-out (4), the
+// invariant SHAPE (exactly-one-winner under concurrency) enumerated explicitly;
+// NO PBT machinery.
+//
+// Falsifiability (documented atomicity argument + revert-reds-it): splitting the
+// guard into a read-then-write check-then-act (SELECT used_at; if NULL then
+// UPDATE) opens a TOCTOU window where two racers both read NULL and both write —
+// admitting >1 winner (>1 303 + >1 session) and re-stamping `used_at`, RED-ing
+// BOTH the exactly-one-303 assertion AND the used-exactly-once Then. The atomic
+// one-statement guarded UPDATE closes that window; restored after the demo.
+// ---------------------------------------------------------------------------
+
+/// The number of concurrent accept submissions raced against ONE live invite.
+/// A small fan-out (>2) that still forces the guarded-UPDATE row lock to
+/// serialize multiple contenders (the example-pinned N for this layer-3 property).
+const CONCURRENT_ACCEPTS: usize = 4;
+
+/// `Given Priya's invite is live` — confirm the Background-seeded invite is live
+/// (unused + unexpired) against the REAL per-scenario Postgres, so the
+/// exactly-one-winner race under test starts from a single genuinely-consumable
+/// invite, not an assumed one.
+#[given(regex = r#"^Priya's invite is live$"#)]
+async fn priya_invite_is_live_short(world: &mut FoundryWorld) {
+    let invite_id = world.ia_invite_id.expect("invite seeded in the Background");
+    let now = harness(world).app.state.clock.now();
+    let pool = harness(world).app.state.store.pool().clone();
+    let (live_rows,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM invites WHERE id = $1 AND used_at IS NULL AND expires_at > $2",
+    )
+    .bind(invite_id)
+    .bind(now)
+    .fetch_one(&pool)
+    .await
+    .expect("count the live (unused, unexpired) invite row before the race");
+    assert_eq!(
+        live_rows, 1,
+        "the invite under test must be live (unused and unexpired) before the \
+         concurrent accepts; found {live_rows} live rows"
+    );
+}
+
+/// `When two accept submissions for the same invite arrive concurrently` — fire
+/// `CONCURRENT_ACCEPTS` REAL accept legs at ONE live invite simultaneously. Each
+/// leg GETs the link (minting its own double-submit CSRF cookie/token, so the
+/// refusal fires on single-use, not CSRF) then POSTs a DISTINCT policy-passing
+/// password through the SHIPPED CSRF middleware to the AUTHORITATIVE guarded
+/// consume TX. The legs are awaited together via `join_all` so they race at the
+/// `... WHERE used_at IS NULL ... RETURNING` row lock. Each outcome (status,
+/// session_cookie, password_sent) is captured for the exactly-one-winner Thens.
+/// (The phrasing says "two"; the harness races `CONCURRENT_ACCEPTS` ≥ 2 — a
+/// stronger fan-out of the same exactly-one-winner invariant.)
+#[when(regex = r#"^two accept submissions for the same invite arrive concurrently$"#)]
+async fn two_concurrent_accepts(world: &mut FoundryWorld) {
+    let invite_id = world.ia_invite_id.expect("invite seeded");
+    let sig = world
+        .ia_invite_sig
+        .clone()
+        .expect("invite signature minted");
+    let base = harness(world).base_url();
+    let client = http(world);
+
+    let legs = (0..CONCURRENT_ACCEPTS).map(|n| {
+        let client = client.clone();
+        let base = base.clone();
+        let sig = sig.clone();
+        // A DISTINCT policy-passing password per leg, so the winner's stored hash
+        // is attributable to EXACTLY ONE submission (a torn double-write would
+        // leave an ambiguous or second hash).
+        let password = format!("northwind-concurrent-pass-{n:02}");
+        async move {
+            // GET — render the form + mint THIS leg's double-submit CSRF cookie.
+            let get_resp = client
+                .get(format!(
+                    "{base}/invites/accept?id={invite_id}&sig={sig}",
+                    sig = urlencoding::encode(&sig)
+                ))
+                .send()
+                .await
+                .expect("GET /invites/accept (concurrent leg)");
+            let csrf_cookie = get_resp
+                .headers()
+                .get_all(reqwest::header::SET_COOKIE)
+                .iter()
+                .filter_map(|v| v.to_str().ok())
+                .find(|s| s.starts_with("foundry_csrf="))
+                .map(str::to_string)
+                .expect("the GET minted a foundry_csrf cookie");
+            let csrf_token = csrf_cookie
+                .strip_prefix("foundry_csrf=")
+                .and_then(|rest| rest.split(';').next())
+                .unwrap_or("")
+                .to_string();
+
+            // POST — race the authoritative guarded consume TX.
+            let form = [
+                ("id", invite_id.to_string()),
+                ("sig", sig.clone()),
+                ("password", password.clone()),
+                ("confirm", password.clone()),
+                ("_csrf", csrf_token.clone()),
+            ];
+            let resp = client
+                .post(format!("{base}/invites/accept"))
+                .header(
+                    reqwest::header::COOKIE,
+                    format!("foundry_csrf={csrf_token}"),
+                )
+                .form(&form)
+                .send()
+                .await
+                .expect("POST /invites/accept (concurrent leg)");
+            let status = resp.status();
+            let session_cookie = resp
+                .headers()
+                .get_all(reqwest::header::SET_COOKIE)
+                .iter()
+                .filter_map(|v| v.to_str().ok())
+                .find(|s| s.starts_with("foundry_session="))
+                .and_then(|s| s.split(';').next())
+                .map(str::to_string);
+            (status, session_cookie, password)
+        }
+    });
+
+    // Fire all legs together so they race at the guarded-UPDATE row lock.
+    world.ia_concurrent_outcomes = futures::future::join_all(legs).await;
+}
+
+/// `Then exactly one submission sets the password and signs in` — the
+/// exactly-one-winner core: across the N concurrent accepts, EXACTLY ONE answered
+/// 303 SEE_OTHER carrying a `foundry_session` cookie (the consume TX that won the
+/// guarded-UPDATE row lock), and the winning leg's DISTINCT password is the one
+/// now stored on the first-admin (the consume wrote exactly that submission's
+/// hash — no torn / second write). Splitting the guard into a read-then-write
+/// check-then-act would admit >1 winner and RED the exactly-one count.
+#[then(regex = r#"^exactly one submission sets the password and signs in$"#)]
+async fn exactly_one_winner(world: &mut FoundryWorld) {
+    let outcomes = &world.ia_concurrent_outcomes;
+    assert_eq!(
+        outcomes.len(),
+        CONCURRENT_ACCEPTS,
+        "the When must have raced {CONCURRENT_ACCEPTS} concurrent accept legs; got {}",
+        outcomes.len()
+    );
+
+    // Exactly one 303 SEE_OTHER carrying a session cookie (the single winner).
+    let winners: Vec<&(StatusCode, Option<String>, String)> = outcomes
+        .iter()
+        .filter(|(status, session, _)| *status == StatusCode::SEE_OTHER && session.is_some())
+        .collect();
+    assert_eq!(
+        winners.len(),
+        1,
+        "EXACTLY ONE concurrent accept must win (303 SEE_OTHER + a session cookie); \
+         the atomic guarded UPDATE serializes the race. got {} winners; outcomes = {:?}",
+        winners.len(),
+        outcomes
+            .iter()
+            .map(|(s, sess, _)| (*s, sess.is_some()))
+            .collect::<Vec<_>>()
+    );
+
+    // The winner's DISTINCT password is the one now stored — the consume wrote
+    // exactly that submission's hash (no torn / ambiguous double-write).
+    let winning_password = winners[0].2.clone();
+    let admin_id = world.ia_admin_user_id.expect("first-admin id seeded");
+    let pool = harness(world).app.state.store.pool().clone();
+    let (stored_hash,): (String,) = sqlx::query_as("SELECT password_hash FROM users WHERE id = $1")
+        .bind(admin_id)
+        .fetch_one(&pool)
+        .await
+        .expect("read the first-admin password hash after the race");
+    let matches = foundry_auth::verify_password(
+        &SecretString::new(winning_password.clone().into()),
+        &stored_hash,
+    )
+    .await
+    .expect("run argon2id verification of the stored hash");
+    assert!(
+        matches,
+        "the stored password_hash must verify against the WINNING submission's \
+         password ({winning_password:?}) — the consume wrote exactly that one \
+         submission's credential, with no torn or ambiguous double-write"
+    );
+}
+
+/// `And the other receives the standard "invite is no longer valid" page` — every
+/// NON-winning concurrent leg was REFUSED with the uniform 200 page (OD-3, no
+/// status oracle) and minted NO session cookie. The guarded UPDATE matched 0 rows
+/// for each loser (the row's `used_at` was already set by the winner), so each
+/// rolled back to `ConsumeOutcome::Refused` ⇒ `invite_refusal_page()`. A
+/// read-then-write split would let a loser also 303 + sign in, RED-ing this.
+#[then(regex = r#"^the other receives the standard "invite is no longer valid" page$"#)]
+async fn the_others_are_refused(world: &mut FoundryWorld) {
+    let outcomes = &world.ia_concurrent_outcomes;
+    let losers: Vec<&(StatusCode, Option<String>, String)> = outcomes
+        .iter()
+        .filter(|(status, session, _)| !(*status == StatusCode::SEE_OTHER && session.is_some()))
+        .collect();
+    assert_eq!(
+        losers.len(),
+        CONCURRENT_ACCEPTS - 1,
+        "every concurrent accept except the single winner must be refused; expected \
+         {} losers, got {}",
+        CONCURRENT_ACCEPTS - 1,
+        losers.len()
+    );
+    for (status, session, password) in losers {
+        assert_eq!(
+            *status,
+            StatusCode::OK,
+            "a refused concurrent accept must render the uniform 200 refusal (OD-3, \
+             no status oracle); the leg for password {password:?} got {status:?}"
+        );
+        assert!(
+            session.is_none(),
+            "a refused concurrent accept must mint NO session cookie — a second \
+             session would mean the invite signed two submissions in; the leg for \
+             password {password:?} got {session:?}"
+        );
+    }
 }
 
 /// Flip a single base64url character of a genuine signature so the HMAC tamper

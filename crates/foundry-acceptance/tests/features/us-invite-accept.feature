@@ -283,7 +283,7 @@ Feature: A provisioned first-admin claims her account from her invite link and i
   #     gets the uniform refusal, and `invites.used_at` is set exactly once. The
   #     race oracle for NFR-2. Example-pinned at LAYER 3 (Mandate 11). (E7; AC-02.6.)
   # ----------------------------------------------------------------------------
-  @pending @us-02 @error @property
+  @us-02 @error @property
   Scenario: Concurrent accepts of one invite succeed exactly once
     Given Priya's invite is live
     When two accept submissions for the same invite arrive concurrently

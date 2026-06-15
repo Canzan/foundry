@@ -922,6 +922,13 @@ pub struct FoundryWorld {
     pub ia_consumed_password_hash: Option<String>,
     pub ia_consumed_used_at: Option<time::OffsetDateTime>,
     pub ia_consumed_used_by: Option<uuid::Uuid>,
+    /// The outcomes of N CONCURRENT accept POSTs of ONE live invite (02-07
+    /// single-use under concurrency), each captured as (status, session_cookie,
+    /// password_sent). Exactly one must be a 303 SEE_OTHER carrying a session
+    /// cookie (the winner); the rest must be the uniform 200 refusal with no
+    /// session. The atomic guarded UPDATE (`... WHERE used_at IS NULL ...
+    /// RETURNING`) serializes the race: the DB admits exactly one winner.
+    pub ia_concurrent_outcomes: Vec<(StatusCode, Option<String>, String)>,
 }
 
 impl FoundryWorld {
