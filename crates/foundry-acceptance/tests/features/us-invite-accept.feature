@@ -297,7 +297,7 @@ Feature: A provisioned first-admin claims her account from her invite link and i
   #     handler runs — no invite is consumed and no password is written (E8;
   #     AC-02.8, NFR-6). The cookie is minted on the GET (D4/adr-003).
   # ----------------------------------------------------------------------------
-  @pending @us-02 @error
+  @us-02 @error
   Scenario: An accept submission without a valid security token is refused
     Given a forged accept submission for a live invite without a valid security token
     When it reaches the accept endpoint

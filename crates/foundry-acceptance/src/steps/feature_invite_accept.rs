@@ -2019,6 +2019,175 @@ async fn the_others_are_refused(world: &mut FoundryWorld) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Scenario 12 (step 02-08) — CSRF: the public state-changing POST without a
+// valid double-submit token is REFUSED by the SHIPPED `csrf_middleware` BEFORE
+// the handler runs — no invite is consumed and no password is written.
+//
+// Green by inheritance from the SHIPPED double-submit `csrf_middleware`
+// (csrf.rs:96): the POST `/invites/accept` route is mounted UNDER the layer
+// (lib.rs:300-303, .layer(csrf_middleware) at lib.rs:412), `/invites/accept`
+// is NOT an exempt path (only `/bootstrap` is, csrf.rs:66), and a POST with no
+// matching cookie+`_csrf` pair yields `403 FORBIDDEN` from the middleware
+// (csrf.rs:155-169) — the rejected request never reaches `submit_accept`, so the
+// one-TX consume+write is never invoked. (D4/adr-003, E8; AC-02.8, NFR-6.)
+//
+// The invite under test is the Background's LIVE invite (7-day expiry, `used_at`
+// NULL). The forged submission carries the genuine id + sig + a policy-passing
+// password — EVERYTHING a real accept needs EXCEPT the double-submit CSRF pair
+// (no `foundry_csrf` cookie, no `_csrf` field) — so the refusal is isolated to
+// the request-forgery protection, not a bad token/liveness/policy failure.
+//
+// Falsifiability litmus (proven at DELIVER, then restored): removing the
+// `.layer(csrf::csrf_middleware)` from `build_router` (or adding `/invites/accept`
+// to `is_exempt_path`) lets the token-less POST through to `submit_accept`, which
+// would consume the live invite + write the password + 303 sign-in — RED-ing the
+// 403 refusal Then AND the no-consume/no-password Then (used_at would be set, the
+// hash would change off the seeded throwaway, a session cookie would appear).
+// ---------------------------------------------------------------------------
+
+/// `Given a forged accept submission for a live invite without a valid security
+/// token` — confirm the Background-seeded invite is live (unused + unexpired)
+/// against the REAL per-scenario Postgres, so the CSRF refusal under test fires
+/// on the missing double-submit token, NOT on a dead invite. No request is sent
+/// yet; the forged (CSRF-less) POST is driven by the When.
+#[given(regex = r#"^a forged accept submission for a live invite without a valid security token$"#)]
+async fn forged_accept_without_csrf(world: &mut FoundryWorld) {
+    let invite_id = world.ia_invite_id.expect("invite seeded in the Background");
+    let now = harness(world).app.state.clock.now();
+    let pool = harness(world).app.state.store.pool().clone();
+    let (live_rows,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM invites WHERE id = $1 AND used_at IS NULL AND expires_at > $2",
+    )
+    .bind(invite_id)
+    .bind(now)
+    .fetch_one(&pool)
+    .await
+    .expect("count the live (unused, unexpired) invite row before the forged POST");
+    assert_eq!(
+        live_rows, 1,
+        "the invite under test must be live (unused and unexpired) so the refusal \
+         fires on the missing CSRF token, not a dead invite; found {live_rows} live rows"
+    );
+}
+
+/// `When it reaches the accept endpoint` — drive a REAL POST `/invites/accept`
+/// over real HTTP carrying the genuine id + sig + a policy-passing password +
+/// confirm, but DELIBERATELY OMITTING the double-submit CSRF pair (no
+/// `foundry_csrf` cookie, no `_csrf` form field). The SHIPPED `csrf_middleware`
+/// screens it BEFORE the handler. Capture the status (expected 403) + any session
+/// cookie (expected absent) for the Thens.
+#[when(regex = r#"^it reaches the accept endpoint$"#)]
+async fn forged_post_reaches_endpoint(world: &mut FoundryWorld) {
+    let invite_id = world.ia_invite_id.expect("invite seeded");
+    let sig = world
+        .ia_invite_sig
+        .clone()
+        .expect("invite signature minted");
+    let base = harness(world).base_url();
+    let client = http(world);
+
+    // No Cookie header (no foundry_csrf) and no `_csrf` form field — the forged,
+    // request-forgery-vulnerable submission a real CSRF attack would send.
+    let form = [
+        ("id", invite_id.to_string()),
+        ("sig", sig),
+        ("password", PRIYA_PASSWORD.to_string()),
+        ("confirm", PRIYA_PASSWORD.to_string()),
+    ];
+    let resp = client
+        .post(format!("{base}/invites/accept"))
+        .form(&form)
+        .send()
+        .await
+        .expect("POST /invites/accept (forged, no CSRF)");
+    let status = resp.status();
+    let session_cookie = resp
+        .headers()
+        .get_all(reqwest::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .find(|s| s.starts_with("foundry_session="))
+        .and_then(|s| s.split(';').next())
+        .map(str::to_string);
+
+    world.ia_post_status = Some(status);
+    world.ia_session_cookie = session_cookie;
+}
+
+/// `Then it is refused by the request-forgery protection` — the SHIPPED
+/// `csrf_middleware` rejected the token-less POST with `403 FORBIDDEN` BEFORE the
+/// `submit_accept` handler ran. The 403 (not a 303 success, not the handler's
+/// 200 refusal) is the port-exposed observable that the request-forgery layer —
+/// not the handler — refused it.
+#[then(regex = r#"^it is refused by the request-forgery protection$"#)]
+async fn refused_by_csrf_protection(world: &mut FoundryWorld) {
+    assert_eq!(
+        world.ia_post_status,
+        Some(StatusCode::FORBIDDEN),
+        "a token-less accept POST must be refused with 403 FORBIDDEN by the SHIPPED \
+         csrf_middleware BEFORE the handler (not a 303 success, not the handler's 200 \
+         refusal); got {:?}",
+        world.ia_post_status
+    );
+}
+
+/// `And no invite is consumed and no password is written` — the request-forgery
+/// refusal is non-committal: against the REAL per-scenario Postgres the invite is
+/// still live (`used_at` NULL, unexpired), the first-admin's `password_hash` is
+/// byte-identical to the seeded throwaway (no password was written), and the
+/// forged POST minted NO `foundry_session` cookie. Removing the CSRF layer (so the
+/// token-less POST reached `submit_accept`) would set `used_at`, change the hash,
+/// and issue a session — RED-ing every one of these.
+#[then(regex = r#"^no invite is consumed and no password is written$"#)]
+async fn forged_post_changed_nothing(world: &mut FoundryWorld) {
+    // No session minted by the refused POST.
+    assert!(
+        world.ia_session_cookie.is_none(),
+        "the forged (CSRF-refused) accept must mint NO foundry_session cookie — a \
+         session would mean the handler ran and signed her in; got {:?}",
+        world.ia_session_cookie
+    );
+
+    let invite_id = world.ia_invite_id.expect("invite seeded");
+    let admin_id = world.ia_admin_user_id.expect("first-admin id seeded");
+    let now = harness(world).app.state.clock.now();
+    let pool = harness(world).app.state.store.pool().clone();
+
+    // The invite is still live (used_at NULL, unexpired) — nothing consumed.
+    let (live_rows,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM invites WHERE id = $1 AND used_at IS NULL AND expires_at > $2",
+    )
+    .bind(invite_id)
+    .bind(now)
+    .fetch_one(&pool)
+    .await
+    .expect("count the live invite row after the forged POST");
+    assert_eq!(
+        live_rows, 1,
+        "the forged POST must consume NOTHING — the invite must still be live \
+         (used_at NULL, unexpired); found {live_rows} live rows"
+    );
+
+    // No password written — the hash equals the seeded throwaway from the Background.
+    let seeded_hash = world
+        .ia_seeded_password_hash
+        .clone()
+        .expect("the Background snapshotted the seeded throwaway password hash");
+    let (current_hash,): (String,) =
+        sqlx::query_as("SELECT password_hash FROM users WHERE id = $1")
+            .bind(admin_id)
+            .fetch_one(&pool)
+            .await
+            .expect("read the first-admin password hash after the forged POST");
+    assert_eq!(
+        current_hash, seeded_hash,
+        "the forged POST must write NO password — the first-admin's password_hash \
+         must equal the seeded throwaway credential; it changed, so the handler ran \
+         despite the missing CSRF token"
+    );
+}
+
 /// Flip a single base64url character of a genuine signature so the HMAC tamper
 /// oracle rejects it (the corruption is guaranteed to take — the replacement
 /// differs from the original character).
