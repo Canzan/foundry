@@ -335,7 +335,7 @@ Feature: A provisioned first-admin claims her account from her invite link and i
   #     inline; the policy check runs BEFORE the consume TX opens, so the invite is
   #     NOT consumed and stays live; no session is created (E5; AC-03.1, FR-5/NFR-4).
   # ----------------------------------------------------------------------------
-  @pending @us-03 @error
+  @us-03 @error
   Scenario: A weak password is corrected inline and the invite stays live
     Given Priya has opened her live invite for "Northwind" and seen the set-password form
     When she submits a password below the strength policy

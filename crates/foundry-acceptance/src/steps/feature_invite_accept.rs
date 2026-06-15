@@ -2689,6 +2689,143 @@ async fn no_second_write_invite_used_once(world: &mut FoundryWorld) {
     );
 }
 
+// ---------------------------------------------------------------------------
+// Scenario 15 (step 03-01) — a WEAK password (below the min-12 policy) is
+// corrected INLINE; the policy check runs BEFORE the consume TX opens, so the
+// invite is NOT consumed and stays live; no session is created. (US-03; E5;
+// AC-03.1, FR-5/NFR-4.)
+//
+// Green by inheritance from the SHIPPED POST handler (`submit_accept`,
+// invites_accept.rs:152): `foundry_auth::check_password_policy` runs AFTER the
+// advisory liveness/tamper re-check but BEFORE `set_first_admin_password_and_consume`
+// (the consume TX, line 173). On failure it calls `re_render_with_error`
+// (line 153 → 280) which returns 200 OK re-rendering the form inline with the
+// `PolicyError::TooShort { min: 12 }` message ("password must be at least 12
+// characters") and NEVER opens the consume TX — so the invite stays live and no
+// session cookie is issued. The min-12 boundary itself is unit-tested in
+// foundry-auth (`enforces_min_twelve_length_boundary`, lib.rs:426).
+//
+// Reuses scenario 2's arrival Given (the GET that renders the form + mints the
+// CSRF cookie) and scenario 5's `And her invite is still live and unconsumed`
+// Then (DB-observable: used_at NULL, unexpired). New steps: the weak-password
+// POST When, the inline-error Then, and the no-session Then.
+//
+// Falsifiability litmus (proven at DELIVER): moving the policy check AFTER the
+// consume TX — or dropping it — makes a weak password EITHER consume the invite
+// (the consume guard fires first → "still live and unconsumed" REDs) OR be
+// accepted (a 303 + session cookie → "inline error" and "no session" RED).
+// ---------------------------------------------------------------------------
+
+/// A weak password BELOW the min-12 policy (3 characters) — must be rejected by
+/// `check_password_policy` before the consume TX opens.
+const WEAK_PASSWORD: &str = "abc";
+
+/// `When she submits a password below the strength policy` — drive the NEW public
+/// POST `/invites/accept` over real HTTP carrying the double-submit `_csrf`
+/// (cookie + form field minted on the reused GET), the token, and a WEAK password
+/// (3 chars, below min-12) with a matching confirm (so ONLY the policy fails, not
+/// the confirm match). Capture the status, the re-rendered inline body, and any
+/// session cookie so the inline-error + no-session + still-live observables are
+/// asserted port-to-port.
+#[when(regex = r#"^she submits a password below the strength policy$"#)]
+async fn she_submits_a_weak_password(world: &mut FoundryWorld) {
+    let invite_id = world.ia_invite_id.expect("invite seeded");
+    let sig = world
+        .ia_invite_sig
+        .clone()
+        .expect("invite signature minted");
+    let csrf_cookie = world
+        .session_cookie_header
+        .clone()
+        .expect("the GET minted a foundry_csrf cookie");
+    let csrf_token = csrf_cookie
+        .strip_prefix("foundry_csrf=")
+        .and_then(|rest| rest.split(';').next())
+        .unwrap_or("")
+        .to_string();
+    let base = harness(world).base_url();
+    let client = http(world);
+
+    let form = [
+        ("id", invite_id.to_string()),
+        ("sig", sig),
+        ("password", WEAK_PASSWORD.to_string()),
+        ("confirm", WEAK_PASSWORD.to_string()),
+        ("_csrf", csrf_token.clone()),
+    ];
+    let resp = client
+        .post(format!("{base}/invites/accept"))
+        .header(
+            reqwest::header::COOKIE,
+            format!("foundry_csrf={csrf_token}"),
+        )
+        .form(&form)
+        .send()
+        .await
+        .expect("POST /invites/accept with a weak password");
+    let status = resp.status();
+    let session_cookie = resp
+        .headers()
+        .get_all(reqwest::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .find(|s| s.starts_with("foundry_session="))
+        .and_then(|s| s.split(';').next())
+        .map(str::to_string);
+    let body = resp.text().await.unwrap_or_default();
+
+    world.ia_post_status = Some(status);
+    world.ia_session_cookie = session_cookie;
+    world.last_body = Some(body);
+}
+
+/// `Then she sees an inline error explaining the minimum password length` — the
+/// weak-password POST re-rendered the set-password form IN PLACE at 200 OK
+/// carrying the min-length policy error ("at least 12 characters"). It is the
+/// SAME form (still posts to /invites/accept, still names the workspace) — an
+/// inline correction, not a refusal or a redirect. A policy check moved AFTER the
+/// consume (or dropped) would 303-redirect instead, RED-ing this.
+#[then(regex = r#"^she sees an inline error explaining the minimum password length$"#)]
+async fn she_sees_inline_min_length_error(world: &mut FoundryWorld) {
+    assert_eq!(
+        world.ia_post_status,
+        Some(StatusCode::OK),
+        "a weak-password POST must re-render the form inline at 200 OK (not a 303 \
+         redirect, not a refusal); got {:?}",
+        world.ia_post_status
+    );
+    let body = world
+        .last_body
+        .clone()
+        .expect("the weak-password POST captured a re-rendered body");
+    let lower = body.to_ascii_lowercase();
+    assert!(
+        lower.contains("at least 12") || lower.contains("at least twelve"),
+        "the inline error must explain the MINIMUM password length (at least 12 \
+         characters); got {body:?}"
+    );
+    assert!(
+        body.contains(r#"action="/invites/accept""#) && body.contains(r#"name="password""#),
+        "the inline error must be shown ON the set-password form (re-rendered in \
+         place, posting back to /invites/accept), not on a refusal page; got {body:?}"
+    );
+}
+
+/// `And no session is created` — the weak-password POST issued NO `foundry_session`
+/// cookie: because the policy check fails BEFORE the consume TX opens, the handler
+/// never reaches `session.insert` (invites_accept.rs:192). A policy gap that let a
+/// weak password through would establish a session here, RED-ing this.
+#[then(regex = r#"^no session is created$"#)]
+async fn no_session_is_created(world: &mut FoundryWorld) {
+    assert!(
+        world.ia_session_cookie.is_none(),
+        "a weak-password POST must create NO session — no foundry_session cookie \
+         must be issued (the policy check fails before the consume TX + sign-in); \
+         got {:?}",
+        world.ia_session_cookie
+    );
+}
+
 /// Flip a single base64url character of a genuine signature so the HMAC tamper
 /// oracle rejects it (the corruption is guaranteed to take — the replacement
 /// differs from the original character).
