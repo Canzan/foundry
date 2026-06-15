@@ -348,7 +348,7 @@ Feature: A workspace admin invites a teammate, who joins by creating an account 
 
   # 15. A TAMPERED signature is refused IDENTICALLY to an expired link — the HMAC
   #     tamper oracle fails before any DB hit; byte-identical response (A-E3, AC-03.2).
-  @pending @us-03 @error
+  @us-03 @error
   Scenario: A tampered signature is refused identically to an expired link
     Given Sam's member invite is live but the signature in the link has been altered by one character
     When Sam opens the tampered link
@@ -357,7 +357,7 @@ Feature: A workspace admin invites a teammate, who joins by creating an account 
 
   # 16. An UNKNOWN invite id is refused IDENTICALLY — a prober cannot tell the id
   #     never existed (A-E4, AC-03.2).
-  @pending @us-03 @error
+  @us-03 @error
   Scenario: An unknown invite id is refused identically to every other reason
     Given an invite id that was never issued
     When someone opens an accept link with that id
@@ -383,7 +383,7 @@ Feature: A workspace admin invites a teammate, who joins by creating an account 
   #     produce a byte-identical user-visible refusal (status + full body); they
   #     differ ONLY in internal logging. The revert-reds-it litmus binds it.
   #     Example-pinned at LAYER 3 (Mandate 11). (AC-03.2/03.3/03.8, NFR-3 — the crux.)
-  @pending @us-03 @error @property
+  @us-03 @error @property
   Scenario: Accept refusals are byte-identical across all five invalid reasons
     Given an expired invite, an already-used invite, a tampered-signature link, an unknown-id link, and an email-already-a-user invite
     When each accept is attempted

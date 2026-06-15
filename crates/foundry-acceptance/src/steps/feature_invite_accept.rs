@@ -47,10 +47,23 @@ const PRIYA_PASSWORD: &str = "northwind-secure-pass";
 const PRIYA_EMAIL: &str = "priya@northwind.example";
 
 fn harness(world: &FoundryWorld) -> &InProcHarness {
+    // World-source-agnostic: the invite-accept feature spawns `ia_harness`; the
+    // member-invites feature (which REUSES the byte-identical scenario-16 unknown-id
+    // steps) spawns only `mi_harness`. Prefer `ia_harness`, fall back to `mi_harness`,
+    // so the shared steps drive whichever Background ran.
     world
         .ia_harness
         .as_ref()
-        .expect("the invite-accept Background must have spawned the ia harness")
+        .or(world.mi_harness.as_ref())
+        .expect("an invite-accept or member-invites Background must have spawned a harness")
+}
+
+/// True when the current scenario is driven by the member-invites Background (only
+/// `mi_harness` present). The shared unknown-id / open / leak steps use this to read
+/// and write the `mi_*` invite + post-status slots instead of the `ia_*` ones, so a
+/// member-feature scenario 16 drives `mi_harness` end-to-end.
+fn member_mode(world: &FoundryWorld) -> bool {
+    world.ia_harness.is_none() && world.mi_harness.is_some()
 }
 
 fn http(world: &mut FoundryWorld) -> reqwest::Client {
@@ -187,11 +200,27 @@ async fn priya_invite_is_live(world: &mut FoundryWorld) {
 /// workspace-name observables are asserted by the following Thens.
 #[when(regex = r#"^Priya opens her invite link$"#)]
 async fn priya_opens_her_invite_link(world: &mut FoundryWorld) {
-    let invite_id = world.ia_invite_id.expect("invite seeded");
-    let sig = world
-        .ia_invite_sig
-        .clone()
-        .expect("invite signature minted");
+    // World-source-agnostic invite slots: the member-invites feature (reusing the
+    // shared unknown-id steps) carries `mi_invite_*` and reads `mi_post_status`; the
+    // invite-accept feature carries `ia_invite_*` / `ia_post_status`.
+    let in_member_mode = member_mode(world);
+    let (invite_id, sig) = if in_member_mode {
+        (
+            world.mi_invite_id.expect("member invite seeded"),
+            world
+                .mi_invite_sig
+                .clone()
+                .expect("member invite signature minted"),
+        )
+    } else {
+        (
+            world.ia_invite_id.expect("invite seeded"),
+            world
+                .ia_invite_sig
+                .clone()
+                .expect("invite signature minted"),
+        )
+    };
     let base = harness(world).base_url();
     let client = http(world);
 
@@ -203,7 +232,12 @@ async fn priya_opens_her_invite_link(world: &mut FoundryWorld) {
         .send()
         .await
         .expect("GET /invites/accept");
-    world.ia_post_status = Some(resp.status());
+    let status = resp.status();
+    if in_member_mode {
+        world.mi_post_status = Some(status);
+    } else {
+        world.ia_post_status = Some(status);
+    }
     world.last_body = Some(resp.text().await.unwrap_or_default());
 }
 
@@ -1192,8 +1226,16 @@ async fn an_invite_id_never_issued(world: &mut FoundryWorld) {
     let token = foundry_auth::InviteToken::new(unknown_id, expires_at, &secret)
         .expect("mint a genuine signature over the unknown invite id");
 
-    world.ia_invite_id = Some(unknown_id);
-    world.ia_invite_sig = Some(token.signature);
+    // Write to the invite slots the active Background's reused steps carry: the
+    // member feature drives `mi_*` (its GET / byte-identity recompute read those),
+    // the invite-accept feature drives `ia_*`.
+    if member_mode(world) {
+        world.mi_invite_id = Some(unknown_id);
+        world.mi_invite_sig = Some(token.signature);
+    } else {
+        world.ia_invite_id = Some(unknown_id);
+        world.ia_invite_sig = Some(token.signature);
+    }
 }
 
 /// `When someone opens an accept link with that id` — drive the NEW public GET
@@ -1252,6 +1294,7 @@ async fn they_see_standard_refusal_page(world: &mut FoundryWorld) {
 async fn refusal_leaks_no_id_or_existence(world: &mut FoundryWorld) {
     let invite_id = world
         .ia_invite_id
+        .or(world.mi_invite_id)
         .expect("the unknown invite id under test");
     refusal_leaks_no_existence(world).await;
     let body = world
@@ -1452,6 +1495,35 @@ async fn all_four_byte_identical(world: &mut FoundryWorld) {
 /// no-existence-leak guarantee: no arm leaks the workspace name or invitee email.
 #[then(regex = r#"^they differ only in internal logging, never in the observable response$"#)]
 async fn differ_only_in_logging(world: &mut FoundryWorld) {
+    // Member mode (scenario 18 of us-member-invites): the property spans FIVE arms
+    // (expired, already-used, tampered, unknown, email-collision) captured in
+    // `mi_five_responses`. Re-affirm mutual byte-identity + no enumeration leak.
+    if member_mode(world) {
+        let arms = &world.mi_five_responses;
+        assert_eq!(
+            arms.len(),
+            5,
+            "the When must have captured all five invalid member-accept arms; got {}",
+            arms.len()
+        );
+        let (ref_status, ref_body) = &arms[0];
+        for (idx, (status, body)) in arms.iter().enumerate() {
+            assert_eq!(
+                (status, body),
+                (ref_status, ref_body),
+                "member arm {idx} must be byte-identical to arm 0 — the only observable \
+                 surface (the HTTP response) is uniform; any divergence is an observable \
+                 oracle, not mere internal logging"
+            );
+            assert!(
+                !body.contains("Northwind"),
+                "member arm {idx} must NOT reveal the workspace name (an enumeration leak); \
+                 got {body:?}"
+            );
+        }
+        return;
+    }
+
     let arms = &world.ia_four_refusals;
     assert_eq!(
         arms.len(),

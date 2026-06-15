@@ -1748,7 +1748,13 @@ async fn sees_standard_member_refusal_page(world: &mut FoundryWorld) {
          got {body:?}"
     );
     world.mi_refusal_status = world.mi_post_status;
-    world.mi_refusal_body = Some(body);
+    world.mi_refusal_body = Some(body.clone());
+    // Also populate the canonical `ia_refusal_*` slots the SHARED byte-identity Then
+    // (`feature_invite_accept::response_byte_identical_to_expired_refusal`) reads, so
+    // the member tampered/unknown arms (scenarios 15/16) can assert byte-identity
+    // against the recomputed canonical member refusal.
+    world.ia_refusal_status = world.mi_post_status;
+    world.ia_refusal_body = Some(body);
 }
 
 // `And the page reveals nothing about whether any account or workspace exists`
@@ -2064,6 +2070,481 @@ async fn accept_member_invite_capturing_body(world: &mut FoundryWorld, password:
         .and_then(|s| s.split(';').next())
         .map(str::to_string);
     world.last_body = Some(resp.text().await.unwrap_or_default());
+}
+
+// ---------------------------------------------------------------------------
+// Tampered-signature + unknown-id refusals (step 02-02) — scenarios 15 + 16
+// ---------------------------------------------------------------------------
+//
+// PROVE the SHIPPED non-committal verify→refusal path applies to MEMBER invites
+// across the two pre-DB-state refusal arms, BYTE-IDENTICAL to the canonical
+// expired arm (02-01):
+//
+//   15 (tampered signature): the invite is LIVE (7-day expiry, unused) but the
+//       `sig` in the link is altered by one character. The SHIPPED
+//       `invite_is_acceptable` calls `InviteToken::verify` FIRST; the altered HMAC
+//       fails the tamper oracle BEFORE any liveness/DB-state branch, so the GET
+//       renders the uniform `invite_refusal_page()` (200) — byte-identical to the
+//       canonical expired-one-day member refusal. New Sam-variant Given + When; the
+//       "he sees the standard ..." Then (capturing into the refusal slots) and the
+//       SHARED byte-identity Then are reused.
+//
+//   16 (unknown id): a validly-signed id that names NO `invites` row. REUSES the
+//       SHIPPED scenario-16 steps from `feature_invite_accept` (now world-source-
+//       agnostic: they fall back to `mi_harness` + `mi_invite_*` + `mi_post_status`),
+//       so NO new member step is needed here.
+//
+// GREEN-BY-INHERITANCE: this step adds acceptance GLUE only — NO production code.
+//
+// Falsifiability (demonstrated at DELIVER, then reverted): a verify path that
+// DISTINGUISHED a bad signature — a distinct "invalid signature" body or a 4xx
+// tamper-oracle status instead of the uniform 200 refusal — REDs BOTH the
+// "no longer valid" Then (divergent copy/status) AND the byte-identity assertion
+// (the tampered-arm response would diverge from the canonical expired-arm body).
+
+/// `Given Sam's member invite is live but the signature in the link has been
+/// altered by one character` (scenario 15) — seed a LIVE member invite for Sam
+/// (7-day-minus-2-hours TTL, well inside the window, unused) via the SHIPPED
+/// `insert_invite`, then corrupt the genuine minted `mi_invite_sig` by flipping a
+/// single character. Confirms against the REAL per-scenario Postgres that the
+/// invite is still live (so the refusal under test isolates to the tamper oracle,
+/// NOT liveness) and that the tampered sig genuinely DIFFERS from the authentic
+/// one. The corrupted sig is stored back into `mi_invite_sig`, which the GET When
+/// then carries.
+#[given(
+    regex = r#"^Sam's member invite is live but the signature in the link has been altered by one character$"#
+)]
+async fn sam_member_invite_signature_tampered(world: &mut FoundryWorld) {
+    let ttl = time::Duration::days(7) - time::Duration::hours(2);
+    seed_member_invite(world, "Northwind", SAM_EMAIL, ttl).await;
+
+    let invite_id = world.mi_invite_id.expect("a live member invite was seeded");
+    let now = harness(world).app.state.clock.now();
+    let pool = harness(world).app.state.store.pool().clone();
+    let (live_rows,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM invites WHERE id = $1 AND used_at IS NULL AND expires_at > $2",
+    )
+    .bind(invite_id)
+    .bind(now)
+    .fetch_one(&pool)
+    .await
+    .expect("count the live (unused, unexpired) member invite row");
+    assert_eq!(
+        live_rows, 1,
+        "the member invite under test must be live (unused and unexpired) so the \
+         refusal fires on the tampered signature, not liveness; found {live_rows} live rows"
+    );
+
+    let authentic = world
+        .mi_invite_sig
+        .clone()
+        .expect("the seed minted the genuine member invite signature");
+    let mut chars: Vec<char> = authentic.chars().collect();
+    assert!(
+        !chars.is_empty(),
+        "the genuine member invite signature must be non-empty to tamper with"
+    );
+    let original = chars[0];
+    // base64url uses A-Z a-z 0-9 - _ ; flip to a different alphabet character.
+    chars[0] = if original == 'A' { 'B' } else { 'A' };
+    let tampered: String = chars.into_iter().collect();
+    assert_ne!(
+        tampered, authentic,
+        "the tampered signature must differ from the genuine one (the corruption \
+         must actually take); both = {authentic:?}"
+    );
+    world.mi_invite_sig = Some(tampered);
+}
+
+/// `When Sam opens the tampered link` (scenario 15) — drive the PUBLIC GET
+/// `/invites/accept?id=&sig=` over real HTTP carrying the now-tampered
+/// `mi_invite_sig`. The SHIPPED `invite_is_acceptable` calls `InviteToken::verify`
+/// FIRST; the altered HMAC fails the tamper oracle and the handler renders the
+/// uniform `invite_refusal_page()` — captured (status + full body) into
+/// `mi_post_status` + `last_body` for the reused "he sees the standard ..." +
+/// byte-identity Thens.
+#[when(regex = r#"^Sam opens the tampered link$"#)]
+async fn sam_opens_the_tampered_link(world: &mut FoundryWorld) {
+    get_member_accept_page(world).await;
+}
+
+// ---------------------------------------------------------------------------
+// Five-arm byte-identity property (step 02-02) — scenario 18 (@property)
+// ---------------------------------------------------------------------------
+//
+// THE CRUX (AC-03.2/03.3/03.8, NFR-3): the five invalid member-accept reasons —
+// expired, already-used/consumed, tampered-signature, unknown-id, AND
+// email-already-a-user — ALL collapse to ONE byte-identical user-visible refusal
+// (status + FULL body). An attacker cannot distinguish WHY a member invite is
+// invalid; the arms differ ONLY in internal logging. Example-pinned at LAYER 3
+// (Mandate 11): each arm is driven through the SHIPPED `/invites/accept` route
+// against the REAL per-scenario Postgres, and the five captured responses are
+// asserted MUTUALLY byte-identical.
+//
+// GREEN-BY-INHERITANCE from the four shipped/inherited arms (02-01 expired, the
+// 01-01 single-use guard, the now-green tampered + unknown arms, and the 02-03
+// email-collision arm). NO production code added.
+//
+// Falsifiability (demonstrated at DELIVER, then reverted): diverging ONE arm — e.g.
+// returning a distinct status or body for the unknown-id arm (a 404, or echoing
+// "no such invite") — makes that arm's response differ from the other four, so the
+// MUTUAL byte-identity assertion REDs. Asserting the FULL body (not merely
+// same-status) is what makes the property bite.
+
+/// `Given an expired invite, an already-used invite, a tampered-signature link, an
+/// unknown-id link, and an email-already-a-user invite` (scenario 18) — set up the
+/// FIVE invalid-accept fixtures against the REAL per-scenario Postgres (no drive
+/// yet; the When attempts each). Each fixture is grounded in observable state:
+///   * EXPIRED — a member invite one day past expiry (unused).
+///   * ALREADY-USED — a member invite consumed by a full successful accept.
+///   * TAMPERED — a live member invite whose minted `sig` is corrupted by one char.
+///   * UNKNOWN-ID — a validly-signed id naming NO `invites` row.
+///   * EMAIL-COLLISION — a live member invite whose `invitee_email` already maps to
+///     an existing user (the create-user step will hit the UNIQUE guard).
+/// Stashes each arm's drive recipe in `world.mi_five_arms` (the When replays them).
+#[given(
+    regex = r#"^an expired invite, an already-used invite, a tampered-signature link, an unknown-id link, and an email-already-a-user invite$"#
+)]
+async fn five_invalid_invites(world: &mut FoundryWorld) {
+    let now = harness(world).app.state.clock.now();
+    let secret = harness(world).app.state.session_secret.clone();
+    let store = harness(world).app.state.store.clone();
+    let pool = store.pool().clone();
+    let workspace_id = *world
+        .mi_workspace_ids
+        .get("Northwind")
+        .expect("Northwind seeded in the Background");
+    let admin_id = world
+        .mi_admin_user_id
+        .expect("the Background seeded Dana's user id");
+
+    let mut arms: Vec<FiveArm> = Vec::new();
+
+    // 1) EXPIRED — one day past expiry, unused. Genuine sig over the past expiry.
+    {
+        let id = uuid::Uuid::now_v7();
+        let expires_at = now - time::Duration::days(1);
+        store
+            .insert_invite(
+                id,
+                workspace_id,
+                Some("expired.five@northwind.example"),
+                admin_id,
+                expires_at,
+            )
+            .await
+            .expect("seed the expired five-arm member invite");
+        let sig = foundry_auth::InviteToken::new(id, expires_at, &secret)
+            .expect("mint the expired five-arm signature")
+            .signature;
+        arms.push(FiveArm {
+            id,
+            sig,
+            password: None,
+        });
+    }
+
+    // 2) ALREADY-USED — seed a live invite, accept it fully (consumes it), then a
+    //    re-open is refused by the single-use guard. The genuine sig is preserved.
+    {
+        let id = uuid::Uuid::now_v7();
+        let expires_at = now + (time::Duration::days(7) - time::Duration::hours(2));
+        store
+            .insert_invite(
+                id,
+                workspace_id,
+                Some("used.five@northwind.example"),
+                admin_id,
+                expires_at,
+            )
+            .await
+            .expect("seed the already-used five-arm member invite");
+        let sig = foundry_auth::InviteToken::new(id, expires_at, &secret)
+            .expect("mint the already-used five-arm signature")
+            .signature;
+        // Drive a full accept to CONSUME it (the member arm creates the account +
+        // consumes), so a subsequent open hits the single-use guard.
+        drive_full_accept(world, id, &sig, MEMBER_PASSWORD).await;
+        let (consumed_rows,): (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM invites WHERE id = $1 AND used_at IS NOT NULL")
+                .bind(id)
+                .fetch_one(&pool)
+                .await
+                .expect("count the consumed five-arm invite");
+        assert_eq!(
+            consumed_rows, 1,
+            "the already-used five-arm invite must be consumed before the re-open; \
+             found {consumed_rows} consumed rows"
+        );
+        arms.push(FiveArm {
+            id,
+            sig,
+            password: None,
+        });
+    }
+
+    // 3) TAMPERED — a live invite whose sig is corrupted by one character.
+    {
+        let id = uuid::Uuid::now_v7();
+        let expires_at = now + (time::Duration::days(7) - time::Duration::hours(2));
+        store
+            .insert_invite(
+                id,
+                workspace_id,
+                Some("tampered.five@northwind.example"),
+                admin_id,
+                expires_at,
+            )
+            .await
+            .expect("seed the tampered five-arm member invite");
+        let authentic = foundry_auth::InviteToken::new(id, expires_at, &secret)
+            .expect("mint the tampered five-arm signature")
+            .signature;
+        let mut chars: Vec<char> = authentic.chars().collect();
+        let original = chars[0];
+        chars[0] = if original == 'A' { 'B' } else { 'A' };
+        let tampered: String = chars.into_iter().collect();
+        assert_ne!(
+            tampered, authentic,
+            "the five-arm tamper must actually take"
+        );
+        arms.push(FiveArm {
+            id,
+            sig: tampered,
+            password: None,
+        });
+    }
+
+    // 4) UNKNOWN-ID — a validly-signed id naming NO invites row.
+    {
+        let id = uuid::Uuid::now_v7();
+        let (rows,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM invites WHERE id = $1")
+            .bind(id)
+            .fetch_one(&pool)
+            .await
+            .expect("count rows for the unknown five-arm id");
+        assert_eq!(
+            rows, 0,
+            "the unknown five-arm id must name NO row; found {rows}"
+        );
+        let expires_at = now + time::Duration::days(7);
+        let sig = foundry_auth::InviteToken::new(id, expires_at, &secret)
+            .expect("mint the unknown five-arm signature")
+            .signature;
+        arms.push(FiveArm {
+            id,
+            sig,
+            password: None,
+        });
+    }
+
+    // 5) EMAIL-COLLISION — a live invite whose invitee_email already has a user.
+    {
+        let existing_hash = foundry_auth::hash_password(&SecretString::new(
+            "five-arm-existing-pass".to_string().into(),
+        ))
+        .await
+        .expect("hash the five-arm pre-existing user password");
+        sqlx::query(
+            "INSERT INTO users (id, email_lower, email_display, display_name, password_hash)
+                  VALUES ($1, $2, $2, 'Five Arm Existing', $3)",
+        )
+        .bind(uuid::Uuid::now_v7())
+        .bind("collision.five@northwind.example")
+        .bind(&existing_hash)
+        .execute(&pool)
+        .await
+        .expect("seed the five-arm collision pre-existing user");
+        let id = uuid::Uuid::now_v7();
+        let expires_at = now + (time::Duration::days(7) - time::Duration::hours(2));
+        store
+            .insert_invite(
+                id,
+                workspace_id,
+                Some("collision.five@northwind.example"),
+                admin_id,
+                expires_at,
+            )
+            .await
+            .expect("seed the collision five-arm member invite");
+        let sig = foundry_auth::InviteToken::new(id, expires_at, &secret)
+            .expect("mint the collision five-arm signature")
+            .signature;
+        // The collision arm is refused at the POST (create-user UNIQUE rollback), so
+        // it must be driven with a password.
+        arms.push(FiveArm {
+            id,
+            sig,
+            password: Some(MEMBER_PASSWORD.to_string()),
+        });
+    }
+
+    world.mi_five_arms = arms;
+}
+
+/// `When each accept is attempted` (scenario 18) — drive each of the five invalid
+/// arms through the SHIPPED `/invites/accept` route and capture its user-visible
+/// response (status + full body). Reason-by-reason: arms WITHOUT a password are
+/// GET refusals (expired / already-used / tampered / unknown — the GET liveness or
+/// verify or lookup refuses non-committally); the email-collision arm carries a
+/// password and is refused at the POST (the create-user UNIQUE rollback). Each
+/// captured (status, body) lands in `world.mi_five_responses`.
+#[when(regex = r#"^each accept is attempted$"#)]
+async fn each_accept_attempted(world: &mut FoundryWorld) {
+    let arms = world.mi_five_arms.clone();
+    let mut responses: Vec<(StatusCode, String)> = Vec::new();
+    for arm in arms {
+        let response = match arm.password {
+            None => drive_get_refusal(world, arm.id, &arm.sig).await,
+            Some(password) => drive_full_accept(world, arm.id, &arm.sig, &password).await,
+        };
+        responses.push(response);
+    }
+    world.mi_five_responses = responses;
+}
+
+/// `Then all five produce a byte-identical user-visible refusal page` (scenario 18)
+/// — the property crux: the five captured responses are MUTUALLY byte-identical
+/// (status AND full body). An attacker cannot distinguish WHY a member invite is
+/// invalid. Diverging any single arm (a distinct status or body) REDs this.
+#[then(regex = r#"^all five produce a byte-identical user-visible refusal page$"#)]
+async fn all_five_byte_identical(world: &mut FoundryWorld) {
+    let responses = &world.mi_five_responses;
+    assert_eq!(
+        responses.len(),
+        5,
+        "the property must drive all FIVE invalid arms; captured {} responses",
+        responses.len()
+    );
+    let (first_status, first_body) = &responses[0];
+    for (idx, (status, body)) in responses.iter().enumerate() {
+        assert_eq!(
+            status, first_status,
+            "arm {idx} status ({status}) must be byte-identical to arm 0 ({first_status}) \
+             — a status oracle would distinguish the refusal reason"
+        );
+        assert_eq!(
+            body, first_body,
+            "arm {idx} body must be byte-identical to arm 0 — a body oracle would reveal \
+             WHY the invite is invalid. arm {idx} = {body:?}, arm 0 = {first_body:?}"
+        );
+    }
+}
+
+/// `And the email-collision refusal is never a server error` (scenario 18) — the
+/// HIGH-risk collision arm (the fifth) is the SHIPPED uniform 200 refusal, NEVER a
+/// 500. Reads the captured fifth response.
+#[then(regex = r#"^the email-collision refusal is never a server error$"#)]
+async fn collision_never_server_error(world: &mut FoundryWorld) {
+    let (status, _body) = world
+        .mi_five_responses
+        .last()
+        .expect("the five-arm responses were captured");
+    assert_eq!(
+        *status,
+        StatusCode::OK,
+        "the email-collision arm must be the ratified 200 uniform refusal, NEVER a 500; \
+         got {status}"
+    );
+}
+
+// NOTE: scenario 18's `And they differ only in internal logging, never in the
+// observable response` REUSES the SHARED step in `feature_invite_accept.rs`
+// (cucumber-rs steps are global; a duplicate regex would make the match ambiguous).
+// That shared step was made world-source-agnostic: in member mode it re-affirms the
+// FIVE-arm `mi_five_responses` are mutually byte-identical and leak no enumeration
+// oracle, instead of the invite-accept feature's four `ia_four_refusals`.
+
+/// One invalid-accept arm's drive recipe: the invite id, the (possibly tampered)
+/// signature, and an optional password (present ⇒ the arm is refused at the POST,
+/// e.g. the email-collision arm; absent ⇒ a GET refusal).
+#[derive(Clone, Debug)]
+pub struct FiveArm {
+    pub id: uuid::Uuid,
+    pub sig: String,
+    pub password: Option<String>,
+}
+
+/// Drive the PUBLIC GET `/invites/accept?id=&sig=` for `(id, sig)` and return the
+/// uniform refusal (status + full body). Used by the GET-refused five-arm reasons
+/// (expired / already-used / tampered / unknown).
+async fn drive_get_refusal(
+    world: &mut FoundryWorld,
+    id: uuid::Uuid,
+    sig: &str,
+) -> (StatusCode, String) {
+    let base = harness(world).base_url();
+    let client = http(world);
+    let resp = client
+        .get(format!(
+            "{base}/invites/accept?id={id}&sig={sig}",
+            sig = urlencoding::encode(sig)
+        ))
+        .send()
+        .await
+        .expect("GET /invites/accept (five-arm GET refusal)");
+    let status = resp.status();
+    let body = resp.text().await.unwrap_or_default();
+    (status, body)
+}
+
+/// Drive the full PUBLIC accept (GET form + CSRF cookie → POST id+sig+password+
+/// confirm+_csrf) for `(id, sig)` and return the POST's user-visible response
+/// (status + full body). Used by the email-collision five-arm reason (refused at
+/// the POST via the create-user UNIQUE rollback) and to CONSUME the already-used
+/// arm's invite during setup.
+async fn drive_full_accept(
+    world: &mut FoundryWorld,
+    id: uuid::Uuid,
+    sig: &str,
+    password: &str,
+) -> (StatusCode, String) {
+    let base = harness(world).base_url();
+    let client = http(world);
+
+    let get_resp = client
+        .get(format!(
+            "{base}/invites/accept?id={id}&sig={sig}",
+            sig = urlencoding::encode(sig)
+        ))
+        .send()
+        .await
+        .expect("GET /invites/accept (five-arm full accept)");
+    let csrf_cookie = get_resp
+        .headers()
+        .get_all(reqwest::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .find(|s| s.starts_with("foundry_csrf="))
+        .map(str::to_string)
+        .expect("the GET minted a foundry_csrf cookie");
+    let _ = get_resp.text().await;
+    let csrf_token = csrf_cookie
+        .strip_prefix("foundry_csrf=")
+        .and_then(|rest| rest.split(';').next())
+        .unwrap_or("")
+        .to_string();
+
+    let form = [
+        ("id", id.to_string()),
+        ("sig", sig.to_string()),
+        ("password", password.to_string()),
+        ("confirm", password.to_string()),
+        ("_csrf", csrf_token.clone()),
+    ];
+    let resp = client
+        .post(format!("{base}/invites/accept"))
+        .header(
+            reqwest::header::COOKIE,
+            format!("foundry_csrf={csrf_token}"),
+        )
+        .form(&form)
+        .send()
+        .await
+        .expect("POST /invites/accept (five-arm full accept)");
+    let status = resp.status();
+    let body = resp.text().await.unwrap_or_default();
+    (status, body)
 }
 
 // ---------------------------------------------------------------------------

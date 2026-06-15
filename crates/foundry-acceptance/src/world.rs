@@ -999,6 +999,14 @@ pub struct FoundryWorld {
     /// control invite (which overwrites `mi_invite_id`). Lets the "no second account
     /// / invite not consumed" Then assert the collision invite stayed unconsumed.
     pub mi_collision_invite_id: Option<uuid::Uuid>,
+    /// The FIVE invalid-accept arm drive recipes (id, sig, optional password) for
+    /// the byte-identity property (02-02, scenario 18): expired, already-used,
+    /// tampered-signature, unknown-id, and email-already-a-user. The When replays
+    /// each; the Then asserts the captured responses are mutually byte-identical.
+    pub mi_five_arms: Vec<crate::steps::feature_member_invites::FiveArm>,
+    /// The five invalid-accept arms' captured user-visible responses (status + full
+    /// body), in arm order — asserted MUTUALLY byte-identical by scenario 18.
+    pub mi_five_responses: Vec<(StatusCode, String)>,
 }
 
 impl FoundryWorld {
