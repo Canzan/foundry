@@ -1416,6 +1416,201 @@ async fn nothing_reveals_issuance_surface(world: &mut FoundryWorld) {
 }
 
 // ---------------------------------------------------------------------------
+// First-admin regression guard (step 01-05) — scenario 12 (@verify-path-unchanged)
+// ---------------------------------------------------------------------------
+//
+// PROVES the data-derived accept DISPATCH this feature introduced did NOT break
+// the SHIPPED first-admin accept path. A FIRST-ADMIN invite — one minted by the
+// SHIPPED `provision_workspace` tx, where the invitee's account ALREADY EXISTS
+// (the first-admin user) and the invite's `created_by` IS that same user — must
+// still route to the SHIPPED `set_first_admin_password_and_consume` (the kind
+// discriminator `is_first_admin_invite` returns true: invitee_email maps to a
+// user whose id == created_by), NOT to the member arm (`create_member_and_consume`,
+// which would CREATE a duplicate account). Green-by-inheritance; NO production
+// code added.
+//
+// Falsifiability (demonstrated at DELIVER, then reverted): forcing the dispatch to
+// ALWAYS take the member arm (e.g. hard-`false` `is_first_admin_invite`) makes the
+// first-admin accept try to CREATE a second user for `invitee_email`, which the
+// `users.email_lower UNIQUE` guard rejects → the create-member tx rolls back to
+// `EmailCollision` → the POST renders the uniform refusal (200, not 303), no
+// session, no consume. That REDs "Priya is signed in" (303 + session) AND "invite
+// recorded as used exactly once" (used_at stays NULL). Routing to the first-admin
+// arm restores all three Thens GREEN.
+
+/// Priya Nair's first-admin email — the invite's `invitee_email`, which ALSO maps
+/// to her pre-existing first-admin user row (the discriminator that routes to the
+/// SHIPPED first-admin arm).
+const PRIYA_NAIR_EMAIL: &str = "priya.nair@globex.example";
+/// Priya's chosen password — meets the min-12 length-first policy (ADR-004).
+const PRIYA_NAIR_PASSWORD: &str = "globex-first-admin-pass";
+
+/// `Given a super-admin provisioned the "<workspace>" workspace and seeded Priya
+/// Nair as its first-admin with a live invite` — drive the SHIPPED
+/// `provision_workspace` tx against the REAL per-scenario Postgres: it creates the
+/// workspace, the first-admin USER (Priya, with a throwaway initial credential she
+/// has never seen), her `admin` membership, AND the `invites` row whose
+/// `created_by` IS Priya's user id and whose `invitee_email` IS Priya's email — the
+/// exact shape that makes `is_first_admin_invite` true (the SHIPPED first-admin
+/// accept path). Then mint the genuine HMAC `sig` over `invite_id|expires_at`. The
+/// id + sig land in the `mi_*` slots so the shared accept helper drives this real,
+/// freshly-provisioned first-admin invite. Snapshots the first-admin user id so the
+/// "no second account" Then can prove no duplicate was created.
+#[given(
+    regex = r#"^a super-admin provisioned the "([^"]+)" workspace and seeded Priya Nair as its first-admin with a live invite$"#
+)]
+async fn provisioned_first_admin_with_live_invite(world: &mut FoundryWorld, ws_name: String) {
+    let store = harness(world).app.state.store.clone();
+    let now = harness(world).app.state.clock.now();
+
+    let workspace_id = uuid::Uuid::now_v7();
+    let admin_user_id = uuid::Uuid::now_v7();
+    let invite_id = uuid::Uuid::now_v7();
+    let expires_at = now + time::Duration::days(7);
+
+    // The throwaway initial credential — Priya has never seen it; the accept flow is
+    // the only way she sets a real one (mirrors the SHIPPED provisioning leg).
+    let throwaway_hash = foundry_auth::hash_password(&SecretString::new(
+        "never-seen-initial-credential".to_string().into(),
+    ))
+    .await
+    .expect("hash throwaway initial credential");
+
+    store
+        .provision_workspace(
+            workspace_id,
+            &ws_name,
+            admin_user_id,
+            PRIYA_NAIR_EMAIL,
+            PRIYA_NAIR_EMAIL,
+            "Priya Nair",
+            &throwaway_hash,
+            invite_id,
+            expires_at,
+        )
+        .await
+        .expect("provision the workspace + first-admin + invite via the shipped tx");
+
+    let secret = harness(world).app.state.session_secret.clone();
+    let token = foundry_auth::InviteToken::new(invite_id, expires_at, &secret)
+        .expect("mint the first-admin invite signature");
+
+    world.mi_workspace_ids.insert(ws_name, workspace_id);
+    world.mi_admin_user_id = Some(admin_user_id);
+    world.mi_invite_id = Some(invite_id);
+    world.mi_invite_sig = Some(token.signature);
+}
+
+/// `When Priya opens her first-admin invite link and sets a valid password` — drive
+/// the full SHIPPED accept (GET form + CSRF cookie → POST id+sig+password+confirm+
+/// _csrf) for the provisioned first-admin invite via the shared `accept_member_invite`
+/// helper. Because the invitee's account already exists (id == created_by), the
+/// accept DISPATCH routes to the SHIPPED `set_first_admin_password_and_consume`
+/// (writing her real password + consuming the invite + signing her in) — NOT the
+/// member arm. Captures the 303 + session cookie for the Thens.
+#[when(regex = r#"^Priya opens her first-admin invite link and sets a valid password$"#)]
+async fn priya_nair_opens_first_admin_link(world: &mut FoundryWorld) {
+    accept_member_invite(world, PRIYA_NAIR_PASSWORD).await;
+}
+
+/// `Then Priya is signed in on the "<workspace>" workspace without a separate login
+/// step` — the SHIPPED first-admin accept succeeded end-to-end through the dispatch:
+/// the POST 303'd with an auto-sign-in `foundry_session` cookie (no separate login),
+/// and her RESOLVED active workspace is the provisioned tenant (DB-observable via the
+/// SHIPPED `resolve_active_workspace`). If the dispatch wrongly took the member arm,
+/// the create-user UNIQUE collision would refuse (200, no session) and RED this.
+#[then(regex = r#"^Priya is signed in on the "([^"]+)" workspace without a separate login step$"#)]
+async fn priya_nair_signed_in_on_workspace(world: &mut FoundryWorld, ws_name: String) {
+    assert_eq!(
+        world.mi_post_status,
+        Some(StatusCode::SEE_OTHER),
+        "the first-admin accept POST must 303 SEE_OTHER on success (auto sign-in via \
+         the SHIPPED first-admin arm); got {:?}",
+        world.mi_post_status
+    );
+    assert!(
+        world.mi_session_cookie.is_some(),
+        "the first-admin accept POST must establish a session (issue a foundry_session \
+         cookie), proving auto sign-in with no separate login step; got none"
+    );
+
+    let expected_ws = *world
+        .mi_workspace_ids
+        .get(&ws_name)
+        .unwrap_or_else(|| panic!("workspace {ws_name:?} provisioned in the Given"));
+    let admin_id = world
+        .mi_admin_user_id
+        .expect("the Given seeded the first-admin user id");
+    let resolved = harness(world)
+        .app
+        .state
+        .store
+        .resolve_active_workspace(admin_id)
+        .await
+        .expect("resolve the first-admin's active workspace")
+        .expect("the first-admin belongs to the provisioned workspace");
+    assert_eq!(
+        resolved.0, expected_ws,
+        "the first-admin must be signed in ON the {ws_name:?} workspace ({expected_ws}); \
+         resolved {resolved:?}"
+    );
+}
+
+/// `And no second account is created for Priya` — the regression crux: the dispatch
+/// took the SHIPPED first-admin arm (which only SETS the password on her PRE-EXISTING
+/// account), so EXACTLY ONE `users` row maps to Priya's email — the one
+/// `provision_workspace` seeded. If the dispatch wrongly routed to the member arm
+/// (`create_member_and_consume`), it would attempt a duplicate INSERT for the same
+/// email; either it collides (refusal, no row) or — were the UNIQUE guard absent — a
+/// second row would appear. Asserting EXACTLY ONE proves the first-admin arm ran and
+/// created no duplicate.
+#[then(regex = r#"^no second account is created for Priya$"#)]
+async fn no_second_account_for_priya(world: &mut FoundryWorld) {
+    let pool = harness(world).app.state.store.pool().clone();
+    let (rows,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users WHERE email_lower = $1")
+        .bind(PRIYA_NAIR_EMAIL)
+        .fetch_one(&pool)
+        .await
+        .expect("count the first-admin user rows after the accept");
+    assert_eq!(
+        rows, 1,
+        "the first-admin arm must NOT create a second account — EXACTLY ONE users row \
+         for {PRIYA_NAIR_EMAIL:?} (the provisioned first-admin); found {rows} rows"
+    );
+}
+
+/// `And her first-admin invite is recorded as used exactly once` — the DB-observable
+/// single-use outcome of the SHIPPED first-admin consume: the invite row's `used_at`
+/// is set and exactly ONE consumed row exists for this id, with `used_by` = the
+/// first-admin (the `created_by` the guarded-UPDATE returned). If the dispatch had
+/// taken the member arm and refused on the email collision, `used_at` would stay NULL
+/// → 0 consumed rows → RED. Reads the REAL per-scenario Postgres. (Distinct phrasing
+/// from the shared `(?:her|the) invite ...` step to avoid an ambiguous global match.)
+#[then(regex = r#"^her first-admin invite is recorded as used exactly once$"#)]
+async fn her_first_admin_invite_recorded_used_exactly_once(world: &mut FoundryWorld) {
+    let invite_id = world
+        .mi_invite_id
+        .expect("the Given seeded a first-admin invite id");
+    let admin_id = world
+        .mi_admin_user_id
+        .expect("the Given seeded the first-admin user id");
+    let pool = harness(world).app.state.store.pool().clone();
+    let (consumed_rows,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM invites WHERE id = $1 AND used_at IS NOT NULL AND used_by = $2",
+    )
+    .bind(invite_id)
+    .bind(admin_id)
+    .fetch_one(&pool)
+    .await
+    .expect("count the consumed first-admin invite row");
+    assert_eq!(
+        consumed_rows, 1,
+        "the first-admin invite must be recorded as used EXACTLY ONCE (used_at set, \
+         used_by = the first-admin); found {consumed_rows} consumed rows"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------
 

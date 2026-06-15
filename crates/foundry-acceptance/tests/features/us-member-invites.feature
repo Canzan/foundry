@@ -314,13 +314,13 @@ Feature: A workspace admin invites a teammate, who joins by creating an account 
   #     created_by, the account pre-exists) still routes to the SHIPPED tx and signs
   #     in unchanged; the data-derived kind dispatch (D3) did NOT break the shipped
   #     flow. Proves NO second account is created for the first-admin arm.
-  @pending @us-02 @verify-path-unchanged
+  @us-02 @verify-path-unchanged
   Scenario: A first-admin invite still routes to the shipped accept path
     Given a super-admin provisioned the "Globex" workspace and seeded Priya Nair as its first-admin with a live invite
     When Priya opens her first-admin invite link and sets a valid password
     Then Priya is signed in on the "Globex" workspace without a separate login step
     And no second account is created for Priya
-    And her invite is recorded as used exactly once
+    And her first-admin invite is recorded as used exactly once
 
   # ----------------------------------------------------------------------------
   # SECURITY GATE (US-03) — non-enumerable refusals + single-use + CSRF + no-leak.
