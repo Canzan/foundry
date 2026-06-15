@@ -6,6 +6,7 @@
 
 use async_trait::async_trait;
 use std::fmt::Debug;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone)]
@@ -37,11 +38,23 @@ impl EmailSender for NoopEmailSender {
 #[derive(Debug, Default)]
 pub struct FakeEmailSender {
     inner: Mutex<Vec<SentEmail>>,
+    /// When set, every `send` returns `Err` WITHOUT recording — models a mail
+    /// service outage so a best-effort sender's non-fatal failure path can be
+    /// exercised (workspace-member-invites US-01, AC-01.4: the shareable link is
+    /// still shown when the email fails to send).
+    failing: AtomicBool,
 }
 
 impl FakeEmailSender {
     pub fn new() -> Arc<Self> {
         Arc::new(Self::default())
+    }
+
+    /// Put the sender into failure mode: every subsequent `send` returns `Err`
+    /// and records nothing (the real SMTP transport would likewise record no
+    /// send on an outage).
+    pub fn set_failing(&self) {
+        self.failing.store(true, Ordering::SeqCst);
     }
 
     pub fn sent(&self) -> Vec<SentEmail> {
@@ -60,6 +73,9 @@ impl FakeEmailSender {
 #[async_trait]
 impl EmailSender for FakeEmailSender {
     async fn send(&self, to: &str, subject: &str, body: &str) -> anyhow::Result<()> {
+        if self.failing.load(Ordering::SeqCst) {
+            anyhow::bail!("FakeEmailSender: mail service unavailable (test-induced)");
+        }
         self.inner
             .lock()
             .expect("FakeEmailSender mutex")

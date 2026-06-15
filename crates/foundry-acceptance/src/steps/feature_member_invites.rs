@@ -36,9 +36,10 @@
 //! fragment + emitted link, the 303 auto-sign-in + session cookie, the created user +
 //! member membership, and the consumed-exactly-once invite.
 
-use crate::support::harness::{signed_in_post, InProcHarness};
+use crate::support::harness::{signed_in_get, signed_in_post, InProcHarness};
 use crate::world::FoundryWorld;
 use cucumber::{given, then, when};
+use foundry_app::clock::Clock;
 use foundry_store::Store;
 use reqwest::redirect::Policy;
 use reqwest::StatusCode;
@@ -393,6 +394,320 @@ async fn invite_used_exactly_once(world: &mut FoundryWorld) {
         "the invite must be recorded as used EXACTLY ONCE (used_at set, used_by = the \
          new member); found {consumed_rows} consumed rows"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Issuance happy paths (step 01-02)
+// ---------------------------------------------------------------------------
+
+/// `When Dana opens the member-invite form` — drive the NEW admin-gated GET
+/// `/workspace/invites` over real HTTP as the signed-in admin. The handler gates on
+/// the SHIPPED `is_workspace_admin`, resolves her workspace from the session, and
+/// renders the one-email-field form naming the workspace. Captures the rendered body
+/// for the Then.
+#[when(regex = r#"^Dana opens the member-invite form$"#)]
+async fn dana_opens_form(world: &mut FoundryWorld) {
+    let dana_email = world
+        .mi_admin_email
+        .clone()
+        .expect("the Background seeded Dana's email");
+    let client = http(world);
+    let outcome = signed_in_get(
+        harness(world),
+        &client,
+        &dana_email,
+        DANA_PASSWORD,
+        "/workspace/invites",
+    )
+    .await;
+    assert_eq!(
+        outcome.status,
+        StatusCode::OK,
+        "the admin GET on /workspace/invites must render a 200 form; body = {:?}",
+        outcome.body
+    );
+    world.last_body = Some(outcome.body);
+}
+
+/// `Then she sees a one-email-field form to invite a member to "<workspace>"` — the
+/// rendered GET body is the member-invite form: it names the workspace, carries an
+/// email input field, and POSTs to the issuance surface.
+#[then(regex = r#"^she sees a one-email-field form to invite a member to "([^"]+)"$"#)]
+async fn sees_invite_form(world: &mut FoundryWorld, ws_name: String) {
+    let body = world
+        .last_body
+        .clone()
+        .expect("the GET form body was captured");
+    assert!(
+        body.contains(&ws_name),
+        "the form must name the {ws_name:?} workspace; body = {body:?}"
+    );
+    assert!(
+        body.contains("name=\"email\""),
+        "the form must carry a one-email-field input; body = {body:?}"
+    );
+    assert!(
+        body.contains("/workspace/invites"),
+        "the form must POST to the issuance surface; body = {body:?}"
+    );
+}
+
+/// `Given Dana has opened the member-invite form for "<workspace>"` — the arrival
+/// state of the issuance chain. Reuses the GET-form When so scenario 3 begins from a
+/// rendered form, matching the chained narrative.
+#[given(regex = r#"^Dana has opened the member-invite form for "([^"]+)"$"#)]
+async fn dana_has_opened_form(world: &mut FoundryWorld, _ws_name: String) {
+    dana_opens_form(world).await;
+}
+
+/// `When Dana submits "<email>"` — POST the valid email to the issuance surface via
+/// `signed_in_post` (sign-in + CSRF + form). The handler inserts the invite
+/// (`created_by = Dana`), signs the `InviteToken`, emits the link, best-effort
+/// emails, and renders the "invite sent" fragment. Parse the invite id + sig.
+#[when(regex = r#"^Dana submits "([^"]+)"$"#)]
+async fn dana_submits_email(world: &mut FoundryWorld, invitee: String) {
+    submit_issuance(world, &invitee).await;
+}
+
+/// `Then an invite to "<workspace>" is created for "<email>"` — the DB-observable
+/// issuance outcome: exactly ONE `invites` row exists for this email on the inviting
+/// workspace, `created_by = Dana`. Reads the REAL per-scenario Postgres at the driven
+/// port boundary.
+#[then(regex = r#"^an invite to "([^"]+)" is created for "([^"]+)"$"#)]
+async fn invite_created_for(world: &mut FoundryWorld, ws_name: String, email: String) {
+    let expected_ws = *world
+        .mi_workspace_ids
+        .get(&ws_name)
+        .unwrap_or_else(|| panic!("workspace {ws_name:?} seeded in the Background"));
+    let admin_id = world
+        .mi_admin_user_id
+        .expect("the Background seeded Dana's user id");
+    let pool = harness(world).app.state.store.pool().clone();
+    let (rows,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM invites \
+         WHERE invitee_email = $1 AND workspace_id = $2 AND created_by = $3",
+    )
+    .bind(&email)
+    .bind(expected_ws)
+    .bind(admin_id)
+    .fetch_one(&pool)
+    .await
+    .expect("count the issued invite row");
+    assert_eq!(
+        rows, 1,
+        "issuance must create EXACTLY ONE invite for {email:?} on {ws_name:?} \
+         (created_by = Dana); found {rows} rows"
+    );
+}
+
+/// `And Dana sees a confirmation with a shareable accept link valid for 7 days` — the
+/// rendered "invite sent" fragment carries a shareable `/invites/accept?id&sig` link,
+/// and the issued invite's `expires_at` is 7 days out from the issuing clock (the
+/// mock clock the harness froze at spawn).
+#[then(regex = r#"^Dana sees a confirmation with a shareable accept link valid for 7 days$"#)]
+async fn sees_confirmation_link_7_days(world: &mut FoundryWorld) {
+    let body = world
+        .last_body
+        .clone()
+        .expect("the issuance fragment body was captured");
+    assert!(
+        body.contains("/invites/accept?id="),
+        "the confirmation must carry a shareable accept link; body = {body:?}"
+    );
+    let invite_id = world.mi_invite_id.expect("issuance minted an invite id");
+    let pool = harness(world).app.state.store.pool().clone();
+    let (expires_at,): (time::OffsetDateTime,) =
+        sqlx::query_as("SELECT expires_at FROM invites WHERE id = $1")
+            .bind(invite_id)
+            .fetch_one(&pool)
+            .await
+            .expect("read the issued invite's expires_at");
+    let issued_at = harness(world).fake_clock.now();
+    let ttl = expires_at - issued_at;
+    assert_eq!(
+        ttl.whole_days(),
+        7,
+        "the invite must be valid for 7 days; expires_at = {expires_at}, issued_at = \
+         {issued_at}, ttl_days = {}",
+        ttl.whole_days()
+    );
+}
+
+/// `And the emitted signature verifies against that invite` — the `sig` parsed out of
+/// the emitted link is a genuine HMAC over `invite_id|expires_at` under the harness
+/// `session_secret` (the SHIPPED `InviteToken::verify`). Proves the link is signed by
+/// the real issuance handler, not a placeholder.
+#[then(regex = r#"^the emitted signature verifies against that invite$"#)]
+async fn emitted_signature_verifies(world: &mut FoundryWorld) {
+    let invite_id = world.mi_invite_id.expect("issuance minted an invite id");
+    let sig = world.mi_invite_sig.clone().expect("issuance minted a sig");
+    let pool = harness(world).app.state.store.pool().clone();
+    let (expires_at,): (time::OffsetDateTime,) =
+        sqlx::query_as("SELECT expires_at FROM invites WHERE id = $1")
+            .bind(invite_id)
+            .fetch_one(&pool)
+            .await
+            .expect("read the issued invite's expires_at");
+    let secret = harness(world).app.state.session_secret.clone();
+    foundry_auth::InviteToken::verify(invite_id, expires_at, &sig, &secret)
+        .expect("the emitted signature must verify against the issued invite");
+}
+
+/// `Given the mail service is unavailable for "<workspace>"` — flip the harness's
+/// FakeEmailSender into failure mode so the issuance handler's best-effort
+/// `state.email.send` returns Err. The handler logs at warn and is non-fatal: the
+/// invite is still inserted and the link still rendered (AC-01.4, FR-2).
+#[given(regex = r#"^the mail service is unavailable for "([^"]+)"$"#)]
+async fn mail_service_unavailable(world: &mut FoundryWorld, _ws_name: String) {
+    harness(world).fake_email.set_failing();
+}
+
+/// `When Dana submits "<email>" on the member-invite form` — same issuance POST as
+/// `Dana submits`, named distinctly for the email-failure scenario's narrative.
+#[when(regex = r#"^Dana submits "([^"]+)" on the member-invite form$"#)]
+async fn dana_submits_on_form(world: &mut FoundryWorld, invitee: String) {
+    submit_issuance(world, &invitee).await;
+}
+
+/// `Then the invite is still created` — despite the email send failing, the invite
+/// row landed (the email seam is best-effort, non-fatal). Exactly one row for the
+/// last-submitted invitee.
+#[then(regex = r#"^the invite is still created$"#)]
+async fn invite_still_created(world: &mut FoundryWorld) {
+    let invite_id = world.mi_invite_id.expect("issuance minted an invite id");
+    let pool = harness(world).app.state.store.pool().clone();
+    let (rows,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM invites WHERE id = $1")
+        .bind(invite_id)
+        .fetch_one(&pool)
+        .await
+        .expect("count the issued invite row");
+    assert_eq!(
+        rows, 1,
+        "the invite must still be created when the email send fails (best-effort, \
+         non-fatal); found {rows} rows"
+    );
+    // The email genuinely failed: nothing was recorded by the (failing) sender.
+    assert!(
+        harness(world).fake_email.sent().is_empty(),
+        "the failing mail service must have recorded NO sent email (proving the \
+         link-still-shown path ran through a real send failure)"
+    );
+}
+
+/// `And Dana still sees the shareable accept link to paste manually` — the "invite
+/// sent" fragment still carries the `/invites/accept` link so the admin can share it
+/// out-of-band.
+#[then(regex = r#"^Dana still sees the shareable accept link to paste manually$"#)]
+async fn still_sees_link(world: &mut FoundryWorld) {
+    let body = world
+        .last_body
+        .clone()
+        .expect("the issuance fragment body was captured");
+    assert!(
+        body.contains("/invites/accept?id="),
+        "the shareable accept link must still render after an email failure; body = \
+         {body:?}"
+    );
+}
+
+/// `Given Dana already issued "<email>" an invite yesterday that was never used` —
+/// seed a prior LIVE (unconsumed) invite for the same email by running the REAL
+/// issuance handler now, then record its id so the second-invite Then can prove
+/// independence (no collapse). The "yesterday/never used" framing is satisfied by an
+/// unconsumed row; insert_invite is reused as-is per D2 (BR-3).
+#[given(regex = r#"^Dana already issued "([^"]+)" an invite yesterday that was never used$"#)]
+async fn already_issued_invite(world: &mut FoundryWorld, invitee: String) {
+    submit_issuance(world, &invitee).await;
+    let first_id = world.mi_invite_id.expect("the first issuance minted an id");
+    // Stash the first invite id in mi_post_location (unused on this path) so the
+    // independence Then can compare against the second id.
+    world.mi_post_location = Some(first_id.to_string());
+}
+
+/// `When Dana issues another invite to "<email>"` — a SECOND issuance POST for the
+/// same email through the real handler. `insert_invite` does not dedupe, so this
+/// produces an independent row.
+#[when(regex = r#"^Dana issues another invite to "([^"]+)"$"#)]
+async fn issues_another_invite(world: &mut FoundryWorld, invitee: String) {
+    submit_issuance(world, &invitee).await;
+}
+
+/// `Then a second independent live invite is created with its own link` — TWO
+/// distinct, unconsumed `invites` rows now exist for the same email, with different
+/// ids and different signatures (each its own link). Proves issuance does not collapse
+/// re-invites (BR-3).
+#[then(regex = r#"^a second independent live invite is created with its own link$"#)]
+async fn second_independent_invite(world: &mut FoundryWorld) {
+    let second_id = world
+        .mi_invite_id
+        .expect("the second issuance minted an id");
+    let first_id: uuid::Uuid = world
+        .mi_post_location
+        .clone()
+        .expect("the first invite id was stashed")
+        .parse()
+        .expect("stashed first invite id parses");
+    assert_ne!(
+        first_id, second_id,
+        "the second invite must be an INDEPENDENT row (a different id), not a collapse \
+         of the first"
+    );
+
+    // The second link carries the second invite id (its own link).
+    let body = world
+        .last_body
+        .clone()
+        .expect("the second issuance fragment body was captured");
+    assert!(
+        body.contains(&format!("/invites/accept?id={second_id}")),
+        "the second confirmation must carry ITS OWN link (the second invite id); body \
+         = {body:?}"
+    );
+
+    // Both invites are live (unconsumed) and distinct in the DB.
+    let pool = harness(world).app.state.store.pool().clone();
+    let live: Vec<(uuid::Uuid,)> =
+        sqlx::query_as("SELECT id FROM invites WHERE id = ANY($1) AND used_at IS NULL ORDER BY id")
+            .bind(vec![first_id, second_id])
+            .fetch_all(&pool)
+            .await
+            .expect("read the two live invites");
+    assert_eq!(
+        live.len(),
+        2,
+        "BOTH invites must be live (unconsumed) and independent; found {} live rows",
+        live.len()
+    );
+}
+
+/// Drive the REAL issuance POST for `invitee` as the signed-in admin and capture the
+/// minted invite id + sig + rendered fragment body. Shared by the issuance-happy-path
+/// When/Given steps.
+async fn submit_issuance(world: &mut FoundryWorld, invitee: &str) {
+    let dana_email = world
+        .mi_admin_email
+        .clone()
+        .expect("the Background seeded Dana's email");
+    let client = http(world);
+    let outcome = signed_in_post(
+        harness(world),
+        &client,
+        &dana_email,
+        DANA_PASSWORD,
+        "/workspace/invites",
+        &[("email", invitee)],
+    )
+    .await;
+    assert_eq!(
+        outcome.status,
+        StatusCode::OK,
+        "the issuance POST must render a 200 'invite sent' fragment; body = {:?}",
+        outcome.body
+    );
+    let (invite_id, sig) = parse_accept_link(&outcome.body);
+    world.mi_invite_id = Some(invite_id);
+    world.mi_invite_sig = Some(sig);
+    world.last_body = Some(outcome.body);
 }
 
 // ---------------------------------------------------------------------------

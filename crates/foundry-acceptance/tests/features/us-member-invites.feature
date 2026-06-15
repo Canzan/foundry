@@ -219,14 +219,14 @@ Feature: A workspace admin invites a teammate, who joins by creating an account 
   # 2. The issuance form renders for a signed-in workspace admin, naming the
   #    workspace (AC-01.1). The arrival step of the issuance chain — its Given+When
   #    is reused by scenarios 3 and 4 (Pillar 2 chained narrative).
-  @pending @us-01
+  @us-01
   Scenario: An admin opens the member-invite form for her workspace
     When Dana opens the member-invite form
     Then she sees a one-email-field form to invite a member to "Northwind"
 
   # 3. POST with a valid email creates the invite and shows the shareable accept link
   #    valid 7 days (AC-01.2/01.3/01.5). Its Given chains off scenario 2's form.
-  @pending @us-01
+  @us-01
   Scenario: Submitting a valid email creates an invite and shows a shareable link
     Given Dana has opened the member-invite form for "Northwind"
     When Dana submits "sam.okafor@northwind.example"
@@ -236,7 +236,7 @@ Feature: A workspace admin invites a teammate, who joins by creating an account 
 
   # 4. The link is shown even when the invite email fails to send — best-effort email
   #    is non-fatal; Dana can paste the link manually (AC-01.4, I-E5).
-  @pending @us-01
+  @us-01
   Scenario: The shareable link is shown even when the invite email fails to send
     Given the mail service is unavailable for "Northwind"
     When Dana submits "sam.okafor@northwind.example" on the member-invite form
@@ -245,7 +245,7 @@ Feature: A workspace admin invites a teammate, who joins by creating an account 
 
   # 5. Two invites to the same email are independent live invites, each with its own
   #    link (US-01 domain example 3 — each invite is single-use and independent).
-  @pending @us-01
+  @us-01
   Scenario: An admin can issue a second independent invite to the same email
     Given Dana already issued "sam.okafor@northwind.example" an invite yesterday that was never used
     When Dana issues another invite to "sam.okafor@northwind.example"
