@@ -947,6 +947,14 @@ pub struct FoundryWorld {
     /// holder's sig appears in any collected log-surface body (a refusal must be
     /// non-committal on the queried sig — NFR-3/NFR-5).
     pub ia_prober_sig: Option<String>,
+    /// The holder's OWN GET set-password form body from the 02-09 no-leak cycle.
+    /// DELIBERATELY kept OUT of `ia_cycle_bodies` (the no-SIG scan set): the form
+    /// legitimately carries the sig in its hidden field — it is the holder's own
+    /// valid link round-tripped to her, NOT a log surface. It is captured here so
+    /// the no-PASSWORD Then can still scan it (the form must never echo the
+    /// cleartext password). See `no_signature_in_logs` for the assertion-site guard
+    /// that pins this exclusion as deliberate-by-design.
+    pub ia_get_form_body: Option<String>,
 }
 
 impl FoundryWorld {

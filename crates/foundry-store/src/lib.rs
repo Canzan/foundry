@@ -277,36 +277,6 @@ impl Store {
 
     // ----- invite-accept-flow single-use consume (ADR-001) ---------------
 
-    /// Atomically consume a first-admin invite: the guarded single-use UPDATE
-    /// mirroring [`Self::claim_bootstrap_token`]. Marks the invite used
-    /// if-and-only-if it is unknown-free, not already used, and not expired, all
-    /// in ONE statement (TOCTOU-safe). Returns `(workspace_id, created_by)` on
-    /// success; `None` (0 rows) when the invite is unknown / already used /
-    /// expired — the caller refuses uniformly. `used_by` is set to `created_by`
-    /// (the first-admin claims their own invite in v1).
-    ///
-    /// Standalone seam (used directly under [`Self::set_first_admin_password_and_consume`]'s
-    /// transaction); kept for the later single-use / concurrency scenarios.
-    pub async fn consume_invite(
-        &self,
-        id: uuid::Uuid,
-        now: time::OffsetDateTime,
-    ) -> Result<Option<(uuid::Uuid, uuid::Uuid)>, StoreError> {
-        let row: Option<(uuid::Uuid, uuid::Uuid)> = sqlx::query_as(
-            "UPDATE invites
-                SET used_at = $2, used_by = created_by
-              WHERE id = $1
-                AND used_at IS NULL
-                AND expires_at > $2
-              RETURNING workspace_id, created_by",
-        )
-        .bind(id)
-        .bind(now)
-        .fetch_optional(&self.pool)
-        .await?;
-        Ok(row)
-    }
-
     /// The one-TX consume + credential write (ADR-001, NFR-2 / BR-3): the
     /// single-use guarded UPDATE and the first-admin's password write commit
     /// ATOMICALLY — neither effect happens alone. The guarded UPDATE is the

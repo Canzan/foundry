@@ -108,66 +108,28 @@ pub async fn submit_accept(
     headers: HeaderMap,
     Form(form): Form<AcceptForm>,
 ) -> Response {
-    let Ok(invite_id) = uuid::Uuid::parse_str(form.id.trim()) else {
-        return invite_refusal_page();
-    };
-
     let now = state.clock.now();
-    let view = match state.store.invite_accept_view(invite_id).await {
-        Ok(Some(v)) => v,
-        Ok(None) => return invite_refusal_page(),
-        Err(err) => {
-            tracing::error!(%err, %invite_id, "invite_accept_view failed");
-            return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
-        }
+
+    // Step 1 — token + liveness re-verify (defense-in-depth; the consume guard is
+    // still authoritative). A bad/garbled id, store error, or tampered/dead link →
+    // uniform refusal, BEFORE any password handling or consume.
+    let (invite_id, view) = match verify_invite_for_post(&state, &form, now).await {
+        Ok(verified) => verified,
+        Err(response) => return response,
     };
 
-    // Re-verify the HMAC + advisory liveness (defense-in-depth; the consume guard
-    // is still authoritative). A tampered / dead link → uniform refusal.
-    if !invite_is_acceptable(
-        &state,
-        invite_id,
-        view.expires_at,
-        &form.sig,
-        view.used_at,
-        now,
-    ) {
-        return invite_refusal_page();
-    }
+    // Step 2 — policy + confirm match, run BEFORE the consume TX opens (US-03): a
+    // rejected password re-renders the form inline with the invite UNTOUCHED.
+    let password_hash =
+        match validate_password_inputs(&state, &headers, &form, invite_id, &view.workspace_name)
+            .await
+        {
+            Ok(hash) => hash,
+            Err(response) => return response,
+        };
 
-    let password = SecretString::new(form.password.clone().into());
-
-    // Policy + confirm match run BEFORE the consume TX opens (US-03): a rejected
-    // password re-renders the form inline with the invite UNTOUCHED.
-    if form.password != form.confirm {
-        return re_render_with_error(
-            &state,
-            &headers,
-            invite_id,
-            &form.sig,
-            &view.workspace_name,
-            MISMATCH_ERROR,
-        );
-    }
-    if let Err(err) = foundry_auth::check_password_policy(&password) {
-        return re_render_with_error(
-            &state,
-            &headers,
-            invite_id,
-            &form.sig,
-            &view.workspace_name,
-            &err.to_string(),
-        );
-    }
-
-    let password_hash = match foundry_auth::hash_password(&password).await {
-        Ok(h) => h,
-        Err(err) => {
-            tracing::error!(%err, %invite_id, "hash_password failed");
-            return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
-        }
-    };
-
+    // Step 3 — the one-TX consume + credential write (the authoritative single-use
+    // guard). 0 rows (unknown / used / expired in the GET→POST window) → refusal.
     let outcome = match state
         .store
         .set_first_admin_password_and_consume(invite_id, &password_hash, now)
@@ -179,7 +141,6 @@ pub async fn submit_accept(
             return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
         }
     };
-
     let ConsumeOutcome::Consumed {
         workspace_id,
         user_id,
@@ -189,6 +150,101 @@ pub async fn submit_accept(
         return invite_refusal_page();
     };
 
+    // Step 4 — establish the session and 303 onto the workspace (auto sign-in).
+    establish_session_and_redirect(&session, invite_id, user_id, workspace_id).await
+}
+
+/// POST step 1 — re-verify the signed token + advisory liveness. Returns the
+/// parsed `invite_id` and the looked-up view on success; on any failure returns
+/// the uniform refusal (bad id / dead-or-tampered link) or a 500 (store error),
+/// having opened NO consume TX.
+async fn verify_invite_for_post(
+    state: &AppState,
+    form: &AcceptForm,
+    now: time::OffsetDateTime,
+) -> Result<(uuid::Uuid, foundry_store::InviteAcceptView), Response> {
+    let Ok(invite_id) = uuid::Uuid::parse_str(form.id.trim()) else {
+        return Err(invite_refusal_page());
+    };
+
+    let view = match state.store.invite_accept_view(invite_id).await {
+        Ok(Some(v)) => v,
+        Ok(None) => return Err(invite_refusal_page()),
+        Err(err) => {
+            tracing::error!(%err, %invite_id, "invite_accept_view failed");
+            return Err((StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response());
+        }
+    };
+
+    // Re-verify the HMAC + advisory liveness (defense-in-depth; the consume guard
+    // is still authoritative). A tampered / dead link → uniform refusal.
+    if !invite_is_acceptable(
+        state,
+        invite_id,
+        view.expires_at,
+        &form.sig,
+        view.used_at,
+        now,
+    ) {
+        return Err(invite_refusal_page());
+    }
+
+    Ok((invite_id, view))
+}
+
+/// POST step 2 — confirm-match THEN the min-12 policy (ADR-004), then hash the
+/// password. Both checks run BEFORE the consume TX opens (US-03): a rejected
+/// password re-renders the form inline with the invite UNTOUCHED. Returns the
+/// argon2id hash on success; on a weak/mismatched password returns the inline
+/// re-render, on a hashing failure a 500.
+async fn validate_password_inputs(
+    state: &AppState,
+    headers: &HeaderMap,
+    form: &AcceptForm,
+    invite_id: uuid::Uuid,
+    workspace_name: &str,
+) -> Result<String, Response> {
+    let password = SecretString::new(form.password.clone().into());
+
+    if form.password != form.confirm {
+        return Err(re_render_with_error(
+            state,
+            headers,
+            invite_id,
+            &form.sig,
+            workspace_name,
+            MISMATCH_ERROR,
+        ));
+    }
+    if let Err(err) = foundry_auth::check_password_policy(&password) {
+        return Err(re_render_with_error(
+            state,
+            headers,
+            invite_id,
+            &form.sig,
+            workspace_name,
+            &err.to_string(),
+        ));
+    }
+
+    match foundry_auth::hash_password(&password).await {
+        Ok(h) => Ok(h),
+        Err(err) => {
+            tracing::error!(%err, %invite_id, "hash_password failed");
+            Err((StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response())
+        }
+    }
+}
+
+/// POST step 4 — establish the session for the freshly-consumed first-admin and
+/// 303 → `/` (auto sign-in, no separate login step). A session-insert failure →
+/// 500 (the invite is already consumed at this point).
+async fn establish_session_and_redirect(
+    session: &Session,
+    invite_id: uuid::Uuid,
+    user_id: uuid::Uuid,
+    workspace_id: uuid::Uuid,
+) -> Response {
     if let Err(err) = session
         .insert(
             SESSION_KEY_USER_ID,

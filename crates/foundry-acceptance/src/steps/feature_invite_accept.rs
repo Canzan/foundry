@@ -2285,7 +2285,15 @@ async fn full_accept_cycle_with_prober(world: &mut FoundryWorld) {
         .and_then(|rest| rest.split(';').next())
         .unwrap_or("")
         .to_string();
-    let _get_body = get_resp.text().await.unwrap_or_default();
+    // DELIBERATE EXCLUSION (no-SIG scan scope): the GET form body legitimately
+    // carries the sig in its hidden field — it is the holder's OWN valid link
+    // round-tripped back to her, NOT a log surface. It is therefore NOT pushed
+    // into `log_surface_bodies` (the set the no-SIG Then scans). It is captured
+    // separately so the no-PASSWORD Then can still scan it directly (the form must
+    // never echo the cleartext password). See `no_signature_in_logs` for the
+    // assertion-site guard that pins this scope as deliberate-by-design.
+    let get_form_body = get_resp.text().await.unwrap_or_default();
+    world.ia_get_form_body = Some(get_form_body);
 
     // 2 — POST the success accept: consume + write + sign in.
     let form = [
@@ -2414,6 +2422,24 @@ async fn no_signature_in_logs(world: &mut FoundryWorld) {
         !world.ia_cycle_bodies.is_empty(),
         "the cycle must have collected log-surface bodies to scan"
     );
+    // DELIBERATE SCAN SCOPE (structural guard, NFR-3/NFR-5): the no-SIG scan covers
+    // ONLY the LOG-surface bodies — the success 303 body, the signed-in landing,
+    // and the hostile prober's refusal. The holder's OWN GET set-password form is
+    // EXCLUDED BY DESIGN: it legitimately carries the sig in its hidden field (her
+    // own valid link round-tripped back to her, NOT a log surface). This assertion
+    // pins that exclusion so a future reader sees it is deliberate, not an
+    // oversight: the captured form body must NOT be one of the sig-scanned bodies.
+    let get_form_body = world
+        .ia_get_form_body
+        .clone()
+        .expect("the GET set-password form body was captured (no-leak cycle)");
+    assert!(
+        !world.ia_cycle_bodies.contains(&get_form_body),
+        "the holder's GET form body must be EXCLUDED from the no-SIG scan set — it \
+         legitimately carries the sig in its hidden field (it is her own valid link, \
+         NOT a log surface); finding it among the sig-scanned bodies means the \
+         deliberate exclusion was lost"
+    );
     for (idx, body) in world.ia_cycle_bodies.iter().enumerate() {
         assert!(
             !body.contains(&genuine_sig),
@@ -2441,7 +2467,19 @@ async fn no_password_in_logs(world: &mut FoundryWorld) {
         !world.ia_cycle_bodies.is_empty(),
         "the cycle must have collected log-surface bodies to scan"
     );
-    for (idx, body) in world.ia_cycle_bodies.iter().enumerate() {
+    // The no-PASSWORD scan covers ALL collected bodies — UNLIKE the no-SIG scan, it
+    // INCLUDES the holder's own GET set-password form: the form legitimately carries
+    // the sig in a hidden field, but it must NEVER echo the cleartext password.
+    let get_form_body = world
+        .ia_get_form_body
+        .clone()
+        .expect("the GET set-password form body was captured (no-leak cycle)");
+    for (idx, body) in world
+        .ia_cycle_bodies
+        .iter()
+        .chain(std::iter::once(&get_form_body))
+        .enumerate()
+    {
         assert!(
             !body.contains(PRIYA_PASSWORD),
             "log-surface body #{idx} leaked the submitted password cleartext — no \
