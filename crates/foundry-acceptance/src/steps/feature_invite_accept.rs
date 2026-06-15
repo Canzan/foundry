@@ -3055,6 +3055,164 @@ async fn she_submits_valid_retry_on_same_invite(world: &mut FoundryWorld) {
     she_sets_a_valid_password(world).await;
 }
 
+// ---------------------------------------------------------------------------
+// Scenario 18 (step 03-04) — RECOVERY/BOUNDARY (US-03): a password EXACTLY at the
+// minimum length (12 characters) is accepted end-to-end. Pins the INCLUSIVE side
+// of the min-length boundary (exactly-12 = accepted), complementing scenario 15
+// (below-12 = refused inline). The SHIPPED `check_password_policy` is length-first
+// with `chars().count() < MIN_PASSWORD_LENGTH` (strict less-than), so a 12-char
+// password satisfies the policy: the consume guarded-UPDATE fires, the argon2id
+// hash is written, a session is established, and the handler 303-redirects.
+// Green by inheritance from the SHIPPED `>= 12 inclusive` policy boundary.
+//
+// Falsifiability litmus (proven at DELIVER): tightening the policy to require
+// strictly MORE than 12 (e.g. `<= MIN_PASSWORD_LENGTH` / `>= 13`) makes a 12-char
+// password fail the policy — the POST then re-renders inline (200) with NO
+// session and NO 303, RED-ing the success Then (no SEE_OTHER, no session cookie),
+// and the invite stays unconsumed, RED-ing the consumed-once assertion.
+// ---------------------------------------------------------------------------
+
+/// A password of EXACTLY 12 characters (the inclusive boundary of the min-12
+/// length-first policy, ADR-004) with a matching confirmation.
+const TWELVE_CHAR_PASSWORD: &str = "northwind-12";
+
+/// `When she submits a twelve-character password and confirms it` — drive the NEW
+/// public POST `/invites/accept` over real HTTP carrying the double-submit `_csrf`
+/// (cookie + form field minted on the reused GET), the token, and a password of
+/// EXACTLY 12 characters with a matching confirm. The policy admits it (length >=
+/// 12 inclusive), the consume guarded-UPDATE fires, the hash is written, a session
+/// is established, and the handler 303-redirects. Captures the 303, Location, and
+/// auto-sign-in session cookie for the success Then.
+#[when(regex = r#"^she submits a twelve-character password and confirms it$"#)]
+async fn she_submits_a_twelve_char_password(world: &mut FoundryWorld) {
+    // Guard the boundary at the test level: the password under test must be
+    // EXACTLY the minimum length — otherwise the scenario would not pin the
+    // inclusive boundary.
+    assert_eq!(
+        TWELVE_CHAR_PASSWORD.chars().count(),
+        foundry_auth::MIN_PASSWORD_LENGTH,
+        "the boundary password must be EXACTLY the minimum length ({}); it is {} chars",
+        foundry_auth::MIN_PASSWORD_LENGTH,
+        TWELVE_CHAR_PASSWORD.chars().count()
+    );
+
+    let invite_id = world.ia_invite_id.expect("invite seeded");
+    let sig = world
+        .ia_invite_sig
+        .clone()
+        .expect("invite signature minted");
+    let csrf_cookie = world
+        .session_cookie_header
+        .clone()
+        .expect("the GET minted a foundry_csrf cookie");
+    let csrf_token = csrf_cookie
+        .strip_prefix("foundry_csrf=")
+        .and_then(|rest| rest.split(';').next())
+        .unwrap_or("")
+        .to_string();
+    let base = harness(world).base_url();
+    let client = http(world);
+
+    let form = [
+        ("id", invite_id.to_string()),
+        ("sig", sig),
+        ("password", TWELVE_CHAR_PASSWORD.to_string()),
+        ("confirm", TWELVE_CHAR_PASSWORD.to_string()),
+        ("_csrf", csrf_token.clone()),
+    ];
+    let resp = client
+        .post(format!("{base}/invites/accept"))
+        .header(
+            reqwest::header::COOKIE,
+            format!("foundry_csrf={csrf_token}"),
+        )
+        .form(&form)
+        .send()
+        .await
+        .expect("POST /invites/accept with an exactly-12-char password");
+    let status = resp.status();
+    let location = resp
+        .headers()
+        .get(reqwest::header::LOCATION)
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_string);
+    let session_cookie = resp
+        .headers()
+        .get_all(reqwest::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .find(|s| s.starts_with("foundry_session="))
+        .and_then(|s| s.split(';').next())
+        .map(str::to_string);
+
+    world.ia_post_status = Some(status);
+    world.ia_post_location = location;
+    world.ia_session_cookie = session_cookie;
+}
+
+/// `Then her password is accepted and she is signed in on the "Northwind"
+/// workspace` — the exactly-12-char accept succeeded end-to-end: the POST 303
+/// SEE_OTHER-redirected with an auto-sign-in `foundry_session` cookie (the policy
+/// ADMITTED the 12-char password — the inclusive boundary), her session's RESOLVED
+/// active workspace is the provisioned tenant (DB-observable via the SHIPPED
+/// `resolve_active_workspace` seam), and the invite is recorded as used EXACTLY
+/// ONCE (the consume guard fired). Tightening the policy to require > 12 would
+/// re-render inline (no 303 / no session) and leave the invite unconsumed,
+/// RED-ing every assertion here.
+#[then(regex = r#"^her password is accepted and she is signed in on the "([^"]+)" workspace$"#)]
+async fn her_password_accepted_and_signed_in(world: &mut FoundryWorld, ws_name: String) {
+    assert_eq!(
+        world.ia_post_status,
+        Some(StatusCode::SEE_OTHER),
+        "an exactly-12-char password must be ACCEPTED — the accept POST must 303 \
+         SEE_OTHER on success (the policy admits length >= 12 inclusive); got {:?}",
+        world.ia_post_status
+    );
+    assert!(
+        world.ia_session_cookie.is_some(),
+        "the accept POST must establish a session (issue a foundry_session cookie), \
+         proving the 12-char password was admitted and she was auto signed in; got none"
+    );
+
+    let expected_ws = *world
+        .ia_workspace_ids
+        .get(&ws_name)
+        .unwrap_or_else(|| panic!("workspace {ws_name:?} provisioned in the Background"));
+    let admin_id = world.ia_admin_user_id.expect("first-admin id seeded");
+    let resolved = harness(world)
+        .app
+        .state
+        .store
+        .resolve_active_workspace(admin_id)
+        .await
+        .expect("resolve the first-admin active workspace")
+        .expect("the first-admin belongs to the provisioned workspace");
+    assert_eq!(
+        resolved.0, expected_ws,
+        "she must be signed in ON the {ws_name:?} workspace ({expected_ws}); \
+         resolved {resolved:?}"
+    );
+
+    // DB-observable: the invite was consumed EXACTLY ONCE by the 12-char accept —
+    // proving the policy admitted it through to the consume TX (a policy that
+    // rejected 12 chars would leave used_at NULL and this count at 0).
+    let invite_id = world.ia_invite_id.expect("invite seeded");
+    let pool = harness(world).app.state.store.pool().clone();
+    let (consumed_rows,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM invites WHERE id = $1 AND used_at IS NOT NULL AND used_by = $2",
+    )
+    .bind(invite_id)
+    .bind(admin_id)
+    .fetch_one(&pool)
+    .await
+    .expect("count the consumed invite row after the 12-char accept");
+    assert_eq!(
+        consumed_rows, 1,
+        "the exactly-12-char accept must consume the invite EXACTLY ONCE (used_at \
+         set, used_by = the first-admin); found {consumed_rows} consumed rows"
+    );
+}
+
 /// Flip a single base64url character of a genuine signature so the HMAC tamper
 /// oracle rejects it (the corruption is guaranteed to take — the replacement
 /// differs from the original character).

@@ -370,7 +370,7 @@ Feature: A provisioned first-admin claims her account from her invite link and i
   # 18. RECOVERY (US-03) — BOUNDARY: a password EXACTLY at the minimum length (12
   #     characters) is accepted (the policy is "at least 12"; AC-03.3, NFR-4).
   # ----------------------------------------------------------------------------
-  @pending @us-03
+  @us-03
   Scenario: A password exactly at the minimum length is accepted
     Given Priya has opened her live invite for "Northwind" and seen the set-password form
     When she submits a twelve-character password and confirms it
