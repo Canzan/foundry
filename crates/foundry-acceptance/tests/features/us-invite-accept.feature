@@ -240,7 +240,7 @@ Feature: A provisioned first-admin claims her account from her invite link and i
   # 8. SECURITY (US-02) — an UNKNOWN invite id is refused IDENTICALLY to every other
   #    reason. A prober cannot tell the id never existed. (E4; AC-02.1/02.2, NFR-3.)
   # ----------------------------------------------------------------------------
-  @pending @us-02 @error
+  @us-02 @error
   Scenario: An unknown invite id is refused identically to every other reason
     Given an invite id that was never issued
     When someone opens an accept link with that id

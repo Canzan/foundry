@@ -1108,3 +1108,119 @@ async fn priya_invite_signature_tampered(world: &mut FoundryWorld) {
 async fn priya_opens_the_tampered_link(world: &mut FoundryWorld) {
     priya_opens_her_invite_link(world).await;
 }
+
+// ---------------------------------------------------------------------------
+// Scenario 8 (step 02-04) — an UNKNOWN invite id is refused IDENTICALLY to every
+// other reason. A prober opening an accept link whose id was NEVER issued (a
+// well-formed, validly-signed-for-that-id UUID that exists in NO `invites` row)
+// gets the SAME uniform `invite_refusal_page()` an expired link gets — status +
+// FULL body byte-identical. Green by inheritance from the SHIPPED
+// `invite_accept_view(invite_id)` lookup: an id with no row returns `Ok(None)`,
+// which the GET handler maps to `invite_refusal_page()` (invites_accept.rs:81),
+// BEFORE the signature check — so a non-existent id is non-committal on whether
+// it ever existed. (D3/adr-002, the security crux; E4; AC-02.1/02.2, NFR-3.)
+//
+// The id under test is a FRESH `Uuid::now_v7()` distinct from the seeded invite,
+// signed with the harness `session_secret` over a plausible 7-day expiry — so the
+// link is structurally valid (parses, carries a real HMAC for that id); it simply
+// names a row that does not exist. The refusal must therefore reveal NOTHING about
+// whether that id, the account, or the workspace exists.
+//
+// The scenario REUSES scenario 6's `And the response is byte-identical to the
+// expired-invite refusal` Then (recomputes the canonical expired-one-day arm
+// against the SEEDED invite in-scenario and asserts status + FULL body identity).
+// The ONLY new steps are the unknown-id Given, the open-with-that-id When, the
+// "they"-phrased standard-page Then (delegates to scenario 5's capture), and the
+// no-existence-leak Then.
+//
+// Falsifiability litmus: a not-found path that 404'd (a status oracle) or rendered
+// a DISTINCT "no such invite" message (a body oracle revealing the id never
+// existed) instead of the uniform 200 refusal REDs BOTH the standard-page Then
+// (divergent status/copy) AND the byte-identity assertion (the unknown-id response
+// would differ from the canonical expired-arm response). Asserting the FULL body
+// (not merely same-status) is what makes the litmus bite — the slice-04 lesson
+// that same-status hid four oracles.
+// ---------------------------------------------------------------------------
+
+/// `Given an invite id that was never issued` — mint a FRESH random invite id
+/// (distinct from the Background's seeded invite) and a genuine HMAC signature
+/// over it with the harness `session_secret`, so the accept link is structurally
+/// valid (parses, signature verifies for that id) yet names a row that exists in
+/// NO `invites` row. Confirms against the REAL per-scenario Postgres that the id
+/// resolves to ZERO rows, so the "never issued" precondition is grounded in
+/// observable invite state, not assumed. Stores the unknown id + sig into the
+/// invite slots the reused open/refusal steps carry.
+#[given(regex = r#"^an invite id that was never issued$"#)]
+async fn an_invite_id_never_issued(world: &mut FoundryWorld) {
+    let unknown_id = uuid::Uuid::now_v7();
+    let now = harness(world).app.state.clock.now();
+    let pool = harness(world).app.state.store.pool().clone();
+
+    let (existing_rows,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM invites WHERE id = $1")
+        .bind(unknown_id)
+        .fetch_one(&pool)
+        .await
+        .expect("count rows for the never-issued invite id");
+    assert_eq!(
+        existing_rows, 0,
+        "the invite id under test must name NO invite row (never issued); \
+         found {existing_rows} rows"
+    );
+
+    // Mint a genuine signature over the unknown id + a plausible 7-day expiry, so
+    // the link is structurally valid (the refusal must fire on the missing row,
+    // not a malformed link): a prober supplies a well-formed signed URL.
+    let expires_at = now + time::Duration::days(7);
+    let secret = harness(world).app.state.session_secret.clone();
+    let token = foundry_auth::InviteToken::new(unknown_id, expires_at, &secret)
+        .expect("mint a genuine signature over the unknown invite id");
+
+    world.ia_invite_id = Some(unknown_id);
+    world.ia_invite_sig = Some(token.signature);
+}
+
+/// `When someone opens an accept link with that id` — drive the NEW public GET
+/// `/invites/accept?id=&sig=` over real HTTP carrying the unknown id + its genuine
+/// signature. Identical GET path to scenario 2's `Priya opens her invite link`
+/// (distinct phrasing for the prober narrative): the SHIPPED handler's
+/// `invite_accept_view(unknown_id)` returns `Ok(None)` → uniform
+/// `invite_refusal_page()`, BEFORE any signature/liveness branch. Captures the
+/// status + full body into the slots the reused refusal / byte-identity Thens read.
+#[when(regex = r#"^someone opens an accept link with that id$"#)]
+async fn someone_opens_accept_link_with_that_id(world: &mut FoundryWorld) {
+    priya_opens_her_invite_link(world).await;
+}
+
+/// `Then they see the standard "invite is no longer valid" page` — the unknown-id
+/// arm. Identical contract to scenario 5's `she sees the standard ...` (distinct
+/// "they"-phrasing for the prober narrative): assert the ratified 200 OK (OD-3, no
+/// status oracle) + the "no longer valid" copy, and CAPTURE the status + full body
+/// into the canonical refusal slots the reused byte-identity Then reads.
+#[then(regex = r#"^they see the standard "invite is no longer valid" page$"#)]
+async fn they_see_standard_refusal_page(world: &mut FoundryWorld) {
+    she_sees_standard_refusal_page(world).await;
+}
+
+/// `And nothing reveals whether that id, account, or workspace exists` — the
+/// unknown-id non-enumerability guarantee (NFR-3): the uniform refusal leaks NONE
+/// of the workspace name, the invitee email, OR the queried invite id itself. A
+/// prober learns nothing about whether the id, the account, or the workspace
+/// exists. A not-found path that echoed the id or named the (non-)existent
+/// resource would RED this.
+#[then(regex = r#"^nothing reveals whether that id, account, or workspace exists$"#)]
+async fn refusal_leaks_no_id_or_existence(world: &mut FoundryWorld) {
+    let invite_id = world
+        .ia_invite_id
+        .expect("the unknown invite id under test");
+    refusal_leaks_no_existence(world).await;
+    let body = world
+        .ia_refusal_body
+        .clone()
+        .or_else(|| world.last_body.clone())
+        .expect("the refusal captured a rendered body");
+    assert!(
+        !body.contains(&invite_id.to_string()),
+        "the unknown-id refusal must NOT echo the queried invite id (an enumeration \
+         leak revealing the id was looked up); got {body:?}"
+    );
+}
