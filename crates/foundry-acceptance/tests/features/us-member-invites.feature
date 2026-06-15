@@ -394,7 +394,7 @@ Feature: A workspace admin invites a teammate, who joins by creating an account 
   # 19. SINGLE-USE — a consumed member invite re-opened is refused; no second account
   #     and no session (AC-03.5, A-E2). Its Given reuses the walking skeleton's
   #     successful accept (chained narrative).
-  @pending @us-03 @error
+  @us-03 @error
   Scenario: A consumed member invite can never be used again
     Given Sam has already created his account and joined "Northwind" via his invite link
     When Sam opens the same invite link again
@@ -406,7 +406,7 @@ Feature: A workspace admin invites a teammate, who joins by creating an account 
   #     one creates the account + joins + signs in, the other gets the uniform
   #     refusal, and exactly one user + one membership + one consumed invite exist.
   #     The race oracle for NFR-2. Example-pinned at LAYER 3 (Mandate 11). (AC-03.6, A-E7.)
-  @pending @us-03 @error @property
+  @us-03 @error @property
   Scenario: Concurrent accepts of one member invite create the account exactly once
     Given Sam's member invite is live
     When two accept submissions for the same invite arrive concurrently
@@ -417,7 +417,7 @@ Feature: A workspace admin invites a teammate, who joins by creating an account 
   # 21. TOCTOU — a link consumed in the GET->POST window is refused by the consume tx
   #     guard; expiry is enforced INSIDE the tx, not just on GET (AC-03.7). No second
   #     account is created (the guard returns 0 rows and rolls back).
-  @pending @us-03 @error
+  @us-03 @error
   Scenario: A member invite consumed between opening the page and submitting is refused by the transaction guard
     Given Sam has opened his live member invite for "Northwind" and seen the set-password form
     And the same invite is consumed by another submission before Sam submits

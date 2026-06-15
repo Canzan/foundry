@@ -1007,6 +1007,14 @@ pub struct FoundryWorld {
     /// The five invalid-accept arms' captured user-visible responses (status + full
     /// body), in arm order — asserted MUTUALLY byte-identical by scenario 18.
     pub mi_five_responses: Vec<(StatusCode, String)>,
+    /// The `used_at` snapshot taken right after the TOCTOU out-of-band consume
+    /// (scenario 21, 02-04) — the stale-POST Then asserts it is UNCHANGED, proving
+    /// the refused stale POST did not re-stamp the consumed invite.
+    pub mi_consumed_used_at: Option<time::OffsetDateTime>,
+    /// The `foundry_csrf=...` cookie the LIVE member-accept GET minted (scenario 21,
+    /// 02-04) — captured at arrival so the now-stale POST reuses the GET-time
+    /// double-submit token, making its refusal fire on the TX guard, not CSRF.
+    pub mi_get_csrf_cookie: Option<String>,
 }
 
 impl FoundryWorld {

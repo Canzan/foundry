@@ -801,6 +801,16 @@ async fn get_member_accept_page(world: &mut FoundryWorld) {
         .await
         .expect("GET /invites/accept");
     world.mi_post_status = Some(resp.status());
+    // Capture the GET-time double-submit CSRF cookie (a LIVE GET mints one with the
+    // set-password form), so a later stale POST can reuse it and have its refusal
+    // fire on the TX guard rather than CSRF. A refusal-page GET mints none → None.
+    world.mi_get_csrf_cookie = resp
+        .headers()
+        .get_all(reqwest::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .find(|s| s.starts_with("foundry_csrf="))
+        .map(str::to_string);
     world.last_body = Some(resp.text().await.unwrap_or_default());
 }
 
@@ -2560,6 +2570,484 @@ async fn sam_user_id(world: &FoundryWorld) -> uuid::Uuid {
         .await
         .expect("the member accept must have created Sam's user row");
     id
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 19 (step 02-04) — SINGLE-USE: a consumed member invite re-opened is
+// refused; no second account and no session.
+//
+// Green by inheritance from the authoritative atomic guarded consume
+// (`create_member_and_consume`): its one-statement guarded UPDATE
+// `... WHERE id = $1 AND used_at IS NULL AND expires_at > $2 RETURNING ...` ran
+// once on the first accept, stamping `used_at`. A re-open GET re-checks liveness
+// (`used_at IS NULL`) and, finding it set, renders the SHIPPED uniform
+// `invite_refusal_page()` (200, OD-3) — never re-creating an account or session.
+//
+// Falsifiability (documented atomicity argument + revert-reds-it): dropping the
+// `AND used_at IS NULL` clause from the guard (or letting the GET advisory
+// liveness check trust a stale read) would let the re-open re-consume the invite
+// + re-create a second account + mint a second session — RED-ing both the
+// refusal Then AND the "no second account / no session" Then.
+// ---------------------------------------------------------------------------
+
+/// `Given Sam has already created his account and joined "<workspace>" via his
+/// invite link` — seed a LIVE member invite for Sam (two hours ago) and drive the
+/// FULL successful accept (GET form + CSRF cookie → POST password) through the REAL
+/// shared `/invites/accept` flow, so the invite is GENUINELY consumed exactly once
+/// (real `used_at`/`used_by`, real argon2id) and Sam's account + member membership
+/// exist. Snapshots the post-accept observable baseline (Sam's user id) so the
+/// re-open Then can prove NO second account/session appears. The arrival state for
+/// the single-use re-open proof.
+#[given(
+    regex = r#"^Sam has already created his account and joined "([^"]+)" via his invite link$"#
+)]
+async fn sam_already_joined_via_invite(world: &mut FoundryWorld, ws_name: String) {
+    let ttl = time::Duration::days(7) - time::Duration::hours(2);
+    seed_member_invite(world, &ws_name, SAM_EMAIL, ttl).await;
+    accept_member_invite(world, SAM_PASSWORD).await;
+    assert_eq!(
+        world.mi_post_status,
+        Some(StatusCode::SEE_OTHER),
+        "the first member accept must succeed (303 auto-sign-in) so the re-open under \
+         test starts from a genuinely-consumed invite; got {:?}",
+        world.mi_post_status
+    );
+    // Ground the single-use precondition in observable state: exactly one account
+    // for Sam, exactly one consumed invite row.
+    let pool = harness(world).app.state.store.pool().clone();
+    let (user_rows,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users WHERE email_lower = $1")
+        .bind(SAM_EMAIL)
+        .fetch_one(&pool)
+        .await
+        .expect("count Sam's account after the first accept");
+    assert_eq!(
+        user_rows, 1,
+        "the first accept must have created EXACTLY ONE account for Sam; found {user_rows}"
+    );
+}
+
+/// `When Sam opens the same invite link again` — re-GET the now-CONSUMED member
+/// invite over real HTTP with the genuine signed token. The GET re-checks liveness
+/// against the REAL Postgres, finds `used_at` set, and renders the uniform refusal
+/// — captured into `mi_post_status` + `last_body` for the Thens. No second accept
+/// POST is driven (a re-open is a GET).
+#[when(regex = r#"^Sam opens the same invite link again$"#)]
+async fn sam_opens_same_link_again(world: &mut FoundryWorld) {
+    get_member_accept_page(world).await;
+}
+
+/// `And no second account is created and no session is created` — the re-open was
+/// NON-COMMITTAL: still EXACTLY ONE `users` row for Sam (no duplicate account), and
+/// the re-open GET minted NO `foundry_session` cookie (no second sign-in). Reads
+/// the REAL per-scenario Postgres. Falsifiability litmus: a re-open that
+/// re-consumed would create a second account and/or sign a second session in,
+/// RED-ing this.
+#[then(regex = r#"^no second account is created and no session is created$"#)]
+async fn no_second_account_no_session(world: &mut FoundryWorld) {
+    let pool = harness(world).app.state.store.pool().clone();
+    let (user_rows,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users WHERE email_lower = $1")
+        .bind(SAM_EMAIL)
+        .fetch_one(&pool)
+        .await
+        .expect("count Sam's accounts after the re-open");
+    assert_eq!(
+        user_rows, 1,
+        "re-opening a consumed member invite must create NO second account; Sam must \
+         still have EXACTLY ONE account, found {user_rows}"
+    );
+    // The re-open GET is non-committal: the body is the uniform refusal page, and a
+    // GET never establishes a session (the only session mint is the successful
+    // accept POST). `last_body` carries the refusal copy already asserted by the
+    // shared "no longer valid" Then; here we confirm the re-open did not 303 / sign
+    // in (it rendered the 200 refusal page, captured in `mi_post_status`).
+    assert_eq!(
+        world.mi_post_status,
+        Some(StatusCode::OK),
+        "the re-open must render the uniform 200 refusal (no second sign-in 303); got {:?}",
+        world.mi_post_status
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 20 (step 02-04) — SINGLE-USE + SINGLE-CREATE UNDER CONCURRENCY: N
+// accept submissions for ONE live member invite race; EXACTLY ONE creates the
+// account + joins + signs in, the rest get the uniform refusal, and exactly one
+// `users` row + one membership + one consumed invite exist.
+//
+// The `When two accept submissions ... arrive concurrently` and `And the other
+// receives the standard "invite is no longer valid" page` steps are the SHARED
+// concurrency idiom defined in `feature_invite_accept.rs` (cucumber-rs steps are
+// global). They drive the `ia_invite_id`/`ia_invite_sig` slots and capture
+// `ia_concurrent_outcomes`; the member `Given` below mirrors the seeded member
+// invite into those slots so the shared When races THIS member invite over the
+// shared `/invites/accept` route. The member-specific winner + invariant Thens
+// (below) read `ia_concurrent_outcomes` + the REAL Postgres.
+//
+// Green by inheritance from the ATOMIC `create_member_and_consume` guard: its
+// one-statement guarded UPDATE `... WHERE used_at IS NULL ... RETURNING` takes a
+// row lock; every concurrent writer BLOCKS, re-evaluates `used_at IS NULL` against
+// the now-committed row, matches 0 rows ⇒ rollback ⇒ `MemberConsumeOutcome::Refused`.
+// The DB serializes the race — exactly-one-winner, one user, one membership, one
+// consume; no duplicate account, no torn state, no double session.
+//
+// Falsifiability (documented atomicity argument + revert-reds-it): splitting the
+// guard into a read-then-write check-then-act (SELECT used_at; if NULL then create
+// + UPDATE) opens a TOCTOU window where two racers both read NULL and both create —
+// admitting >1 winner (>1 303 + >1 session), a SECOND `users` row (or a 23505
+// collision crash), a second membership, and a re-stamped `used_at` — RED-ing the
+// exactly-one-303 winner Then AND the exactly-one-user/membership/consume Then. The
+// atomic one-statement guarded UPDATE closes that window; restored after the demo.
+// ---------------------------------------------------------------------------
+
+/// `Given Sam's member invite is live` — seed a LIVE member invite for Sam (two
+/// hours ago) via the SHIPPED `insert_invite` and confirm it is live (unused +
+/// unexpired) against the REAL per-scenario Postgres, so the exactly-one-winner
+/// race starts from a single genuinely-consumable member invite. MIRRORS the seeded
+/// id + sig into the `ia_invite_id`/`ia_invite_sig` slots the SHARED concurrent-
+/// accept When (`feature_invite_accept::two_concurrent_accepts`) drives, so that
+/// shared idiom races THIS member invite over the shared `/invites/accept` route.
+#[given(regex = r#"^Sam's member invite is live$"#)]
+async fn sam_member_invite_is_live(world: &mut FoundryWorld) {
+    let ttl = time::Duration::days(7) - time::Duration::hours(2);
+    seed_member_invite(world, "Northwind", SAM_EMAIL, ttl).await;
+    let invite_id = world.mi_invite_id.expect("seeded a member invite");
+    let now = harness(world).app.state.clock.now();
+    let pool = harness(world).app.state.store.pool().clone();
+    let (live_rows,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM invites WHERE id = $1 AND used_at IS NULL AND expires_at > $2",
+    )
+    .bind(invite_id)
+    .bind(now)
+    .fetch_one(&pool)
+    .await
+    .expect("count the live (unused, unexpired) member invite before the race");
+    assert_eq!(
+        live_rows, 1,
+        "the member invite under test must be live (unused and unexpired) before the \
+         concurrent accepts; found {live_rows} live rows"
+    );
+    // Mirror into the slots the SHARED concurrent-accept When drives.
+    world.ia_invite_id = world.mi_invite_id;
+    world.ia_invite_sig = world.mi_invite_sig.clone();
+}
+
+/// `Then exactly one submission creates the account, joins, and signs Sam in` — the
+/// exactly-one-winner core for the member arm: across the N concurrent accepts,
+/// EXACTLY ONE answered 303 SEE_OTHER carrying a `foundry_session` cookie (the
+/// `create_member_and_consume` tx that won the guarded-UPDATE row lock), creating
+/// Sam's account and joining him. A read-then-write split would admit >1 winner,
+/// RED-ing the exactly-one count. Reads `ia_concurrent_outcomes` (populated by the
+/// shared When).
+#[then(regex = r#"^exactly one submission creates the account, joins, and signs Sam in$"#)]
+async fn member_exactly_one_winner(world: &mut FoundryWorld) {
+    let outcomes = &world.ia_concurrent_outcomes;
+    assert!(
+        outcomes.len() >= 2,
+        "the When must have raced ≥2 concurrent member-accept legs; got {}",
+        outcomes.len()
+    );
+    let winners: Vec<&(StatusCode, Option<String>, String)> = outcomes
+        .iter()
+        .filter(|(status, session, _)| *status == StatusCode::SEE_OTHER && session.is_some())
+        .collect();
+    assert_eq!(
+        winners.len(),
+        1,
+        "EXACTLY ONE concurrent member accept must win (303 SEE_OTHER + a session \
+         cookie); the atomic guarded UPDATE serializes the race. got {} winners; \
+         outcomes = {:?}",
+        winners.len(),
+        outcomes
+            .iter()
+            .map(|(s, sess, _)| (*s, sess.is_some()))
+            .collect::<Vec<_>>()
+    );
+}
+
+/// `And exactly one user and one membership are created and the invite is used
+/// exactly once` — the single-create invariant against the REAL per-scenario
+/// Postgres: EXACTLY ONE `users` row for Sam (no duplicate account from a torn
+/// double-create), EXACTLY ONE `workspace_memberships` row for him on Northwind with
+/// the `member` role, and the invite is consumed EXACTLY ONCE (`used_at` set,
+/// `used_by` = Sam's single account). A check-then-act split would admit a second
+/// user/membership and/or re-stamp `used_at`, RED-ing this.
+#[then(
+    regex = r#"^exactly one user and one membership are created and the invite is used exactly once$"#
+)]
+async fn member_exactly_one_user_membership_consume(world: &mut FoundryWorld) {
+    let invite_id = world.mi_invite_id.expect("seeded a member invite");
+    let expected_ws = *world
+        .mi_workspace_ids
+        .get("Northwind")
+        .expect("Northwind seeded in the Background");
+    let pool = harness(world).app.state.store.pool().clone();
+
+    // Exactly one account for Sam.
+    let (user_rows,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users WHERE email_lower = $1")
+        .bind(SAM_EMAIL)
+        .fetch_one(&pool)
+        .await
+        .expect("count Sam's accounts after the race");
+    assert_eq!(
+        user_rows, 1,
+        "the concurrent accepts must create EXACTLY ONE account for Sam (no duplicate \
+         from a torn double-create); found {user_rows}"
+    );
+    let sam_id = sam_user_id(world).await;
+
+    // Exactly one membership, on Northwind, member role.
+    let memberships: Vec<(uuid::Uuid, String)> =
+        sqlx::query_as("SELECT workspace_id, role FROM workspace_memberships WHERE user_id = $1")
+            .bind(sam_id)
+            .fetch_all(&pool)
+            .await
+            .expect("read Sam's memberships after the race");
+    assert_eq!(
+        memberships.len(),
+        1,
+        "the concurrent accepts must create EXACTLY ONE membership for Sam; found {memberships:?}"
+    );
+    assert_eq!(
+        (memberships[0].0, memberships[0].1.as_str()),
+        (expected_ws, "member"),
+        "Sam's sole membership must be Northwind with the member role; got {memberships:?}"
+    );
+
+    // The invite is consumed exactly once, used_by = Sam's single account.
+    let (consumed_rows,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM invites WHERE id = $1 AND used_at IS NOT NULL AND used_by = $2",
+    )
+    .bind(invite_id)
+    .bind(sam_id)
+    .fetch_one(&pool)
+    .await
+    .expect("count the consumed invite row after the race");
+    assert_eq!(
+        consumed_rows, 1,
+        "the member invite must be used EXACTLY ONCE, by Sam's single account; found {consumed_rows}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 21 (step 02-04) — TOCTOU: a member invite consumed in the GET→POST
+// window is refused by the consume tx guard, NOT trusting the GET-time advisory
+// read; nothing is created.
+//
+// Green by inheritance from the authoritative guard's `AND used_at IS NULL`
+// clause INSIDE the `create_member_and_consume` tx — the SAME clause the single-use
+// + concurrency arms ride. This step proves the SPECIFIC TOCTOU shape: the gap
+// between the GET render and the POST submit, closed by re-checking liveness INSIDE
+// the tx rather than trusting the GET-time advisory read.
+//
+// The out-of-band consume is driven through the AUTHORITATIVE store seam
+// (`create_member_and_consume`) — the SAME atomic guarded UPDATE a real concurrent
+// accept hits — so the invite is GENUINELY consumed in the GET→POST window (a real
+// first account + membership + `used_at`/`used_by` written), not synthesised. The
+// stale POST then reuses the GET's double-submit CSRF token so the refusal under
+// test fires on the TX guard, NOT a CSRF rejection.
+//
+// Falsifiability litmus (PROVEN at DELIVER, then reverted): making the POST trust
+// the GET-time liveness instead of the TX guard — dropping the guard's
+// `AND used_at IS NULL` clause — lets the stale POST re-consume + create a SECOND
+// account + mint a session, RED-ing BOTH the "no longer valid" Then (the stale POST
+// would 303, not render the 200 refusal) AND the state-unchanged Then (a second
+// `users` row would appear, `used_at`/`used_by` would change off the first consumer).
+// ---------------------------------------------------------------------------
+
+/// The out-of-band first consumer's email — DISTINCT from Sam's, so the consume
+/// routes to the member arm cleanly and "no second account for the stale email"
+/// bites against a known single first account. (The seeded invite carries Sam's
+/// email; we consume it out-of-band via the authoritative seam, which creates the
+/// invitee account from the invite's `invitee_email` = Sam's. So the first consumer
+/// IS Sam's account; the stale POST must create no SECOND account.)
+/// A policy-passing credential for the out-of-band first consume.
+const TOCTOU_FIRST_CONSUMER_PASSWORD: &str = "out-of-band-member-consumer-pass";
+/// The DIFFERENT password Sam submits on his now-STALE page — also policy-passing.
+const SAM_STALE_PASSWORD: &str = "stale-member-page-secure-pass";
+
+/// `Given the same invite is consumed by another submission before Sam submits` —
+/// AFTER Sam's GET rendered the form (the reused arrival Given), consume the SAME
+/// member invite OUT-OF-BAND via the AUTHORITATIVE store seam
+/// (`create_member_and_consume`) — the SAME atomic guarded UPDATE a real concurrent
+/// accept hits — so the invite is GENUINELY consumed in the GET→POST window.
+/// Asserts the consume SUCCEEDED (the guard returned `Consumed`) and snapshots the
+/// post-consume baseline (exactly one account for Sam + the now-set `used_at`)
+/// against the REAL per-scenario Postgres, so the stale-POST Then can prove NOTHING
+/// changed after.
+#[given(regex = r#"^the same invite is consumed by another submission before Sam submits$"#)]
+async fn member_invite_consumed_out_of_band(world: &mut FoundryWorld) {
+    let invite_id = world.mi_invite_id.expect("a member invite was seeded");
+    let now = harness(world).app.state.clock.now();
+    let store = harness(world).app.state.store.clone();
+
+    let first_consumer_hash = foundry_auth::hash_password(&SecretString::new(
+        TOCTOU_FIRST_CONSUMER_PASSWORD.to_string().into(),
+    ))
+    .await
+    .expect("hash the out-of-band first consumer credential");
+
+    // Consume OUT-OF-BAND through the AUTHORITATIVE atomic guarded UPDATE — the
+    // same seam a genuine concurrent accept hits in the GET→POST window.
+    let outcome = store
+        .create_member_and_consume(invite_id, &first_consumer_hash, now)
+        .await
+        .expect("the out-of-band member consume must reach the store");
+    assert!(
+        matches!(
+            outcome,
+            foundry_store::MemberConsumeOutcome::Consumed { .. }
+        ),
+        "the out-of-band submission must GENUINELY consume the live member invite \
+         (the guard returns Consumed), so the TOCTOU precondition is real; got {outcome:?}"
+    );
+
+    // Snapshot the post-consume baseline: exactly one account for Sam + the now-set
+    // used_at, against the REAL Postgres.
+    let pool = store.pool().clone();
+    let (user_rows,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users WHERE email_lower = $1")
+        .bind(SAM_EMAIL)
+        .fetch_one(&pool)
+        .await
+        .expect("count Sam's account after the out-of-band consume");
+    assert_eq!(
+        user_rows, 1,
+        "the out-of-band consume must have created EXACTLY ONE account for Sam, so the \
+         stale-POST 'no second account' assertion has a genuine baseline; found {user_rows}"
+    );
+    let (used_at,): (time::OffsetDateTime,) =
+        sqlx::query_as("SELECT used_at FROM invites WHERE id = $1 AND used_at IS NOT NULL")
+            .bind(invite_id)
+            .fetch_one(&pool)
+            .await
+            .expect("the invite must be recorded as consumed after the out-of-band submission");
+    world.mi_consumed_used_at = Some(used_at);
+}
+
+/// `When Sam submits a valid password on his now-stale page` — drive Sam's POST
+/// `/invites/accept` over real HTTP from his now-STALE page: he carries the genuine
+/// id + sig + a policy-passing (but DIFFERENT) password + matching confirm + the
+/// double-submit `_csrf` token the GET minted, so the refusal under test fires on
+/// the TX guard, NOT a CSRF rejection. The SHIPPED `csrf_middleware` admits the
+/// matching pair; the authoritative `create_member_and_consume` guard re-checks
+/// `used_at IS NULL` inside the TX, matches 0 rows (the out-of-band consume already
+/// stamped it) ⇒ `MemberConsumeOutcome::Refused` ⇒ uniform `invite_refusal_page()`.
+/// Captures the status + full body into the slots the reused "standard page" Then
+/// reads, and the (expected-absent) session cookie so "no second account" + "used
+/// once" can be proven.
+#[when(regex = r#"^Sam submits a valid password on his now-stale page$"#)]
+async fn sam_submits_on_stale_page(world: &mut FoundryWorld) {
+    let invite_id = world.mi_invite_id.expect("a member invite was seeded");
+    let sig = world
+        .mi_invite_sig
+        .clone()
+        .expect("the invite sig was minted");
+    // Reuse the GET-time double-submit CSRF token Sam's LIVE arrival GET minted, so
+    // the refusal under test fires on the TX guard, NOT a CSRF rejection. (A fresh
+    // re-GET would now hit the consumed-invite refusal page, which mints no CSRF
+    // cookie — Sam's page is STALE, carrying the live-GET token.)
+    let csrf_cookie = world
+        .mi_get_csrf_cookie
+        .clone()
+        .expect("Sam's live arrival GET minted a foundry_csrf cookie");
+    let csrf_token = csrf_cookie
+        .strip_prefix("foundry_csrf=")
+        .and_then(|rest| rest.split(';').next())
+        .unwrap_or("")
+        .to_string();
+    let base = harness(world).base_url();
+    let client = http(world);
+
+    let form = [
+        ("id", invite_id.to_string()),
+        ("sig", sig),
+        ("password", SAM_STALE_PASSWORD.to_string()),
+        ("confirm", SAM_STALE_PASSWORD.to_string()),
+        ("_csrf", csrf_token.clone()),
+    ];
+    let resp = client
+        .post(format!("{base}/invites/accept"))
+        .header(
+            reqwest::header::COOKIE,
+            format!("foundry_csrf={csrf_token}"),
+        )
+        .form(&form)
+        .send()
+        .await
+        .expect("POST /invites/accept (stale page)");
+    world.mi_post_status = Some(resp.status());
+    world.mi_post_location = resp
+        .headers()
+        .get(reqwest::header::LOCATION)
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_string);
+    world.mi_session_cookie = resp
+        .headers()
+        .get_all(reqwest::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .find(|s| s.starts_with("foundry_session="))
+        .and_then(|s| s.split(';').next())
+        .map(str::to_string);
+    world.last_body = Some(resp.text().await.unwrap_or_default());
+}
+
+/// `And no account is created and the invite stays used exactly once` — the
+/// stale-POST state-unchanged invariant against the REAL per-scenario Postgres: NO
+/// SECOND `users` row appeared (still exactly one account for Sam, from the
+/// out-of-band first consume — the stale POST created none), the stale POST minted
+/// NO session cookie, and the invite is STILL used exactly once with its `used_at`
+/// UNCHANGED from the out-of-band consume (the guard matched 0 rows and rolled back).
+#[then(regex = r#"^no account is created and the invite stays used exactly once$"#)]
+async fn member_stale_post_state_unchanged(world: &mut FoundryWorld) {
+    let invite_id = world.mi_invite_id.expect("a member invite was seeded");
+    let pool = harness(world).app.state.store.pool().clone();
+
+    // No second account: still exactly one account for Sam (from the first consume).
+    let (user_rows,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users WHERE email_lower = $1")
+        .bind(SAM_EMAIL)
+        .fetch_one(&pool)
+        .await
+        .expect("count Sam's accounts after the stale POST");
+    assert_eq!(
+        user_rows, 1,
+        "the stale POST must create NO second account; Sam must still have EXACTLY ONE \
+         account (from the out-of-band first consume), found {user_rows}"
+    );
+
+    // The stale POST minted no session (it rendered the 200 refusal, not a 303).
+    assert!(
+        world.mi_session_cookie.is_none(),
+        "the refused stale POST must mint NO session cookie; got {:?}",
+        world.mi_session_cookie
+    );
+
+    // The invite stays used exactly once, used_at UNCHANGED from the out-of-band consume.
+    let (used_at, used_count): (time::OffsetDateTime, i64) = {
+        let (ts,): (time::OffsetDateTime,) =
+            sqlx::query_as("SELECT used_at FROM invites WHERE id = $1 AND used_at IS NOT NULL")
+                .bind(invite_id)
+                .fetch_one(&pool)
+                .await
+                .expect("the invite must still be consumed exactly once after the stale POST");
+        let (n,): (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM invites WHERE id = $1 AND used_at IS NOT NULL")
+                .bind(invite_id)
+                .fetch_one(&pool)
+                .await
+                .expect("count the consumed invite rows after the stale POST");
+        (ts, n)
+    };
+    assert_eq!(
+        used_count, 1,
+        "the invite must stay used EXACTLY ONCE after the refused stale POST; found {used_count}"
+    );
+    assert_eq!(
+        Some(used_at),
+        world.mi_consumed_used_at,
+        "the invite's used_at must be UNCHANGED from the out-of-band consume (the stale \
+         POST's guard matched 0 rows and rolled back); a re-stamp would mean the stale \
+         POST won"
+    );
 }
 
 /// Parse the `id` + `sig` out of an emitted `/invites/accept?id=<uuid>&sig=<sig>`
