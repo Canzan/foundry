@@ -1224,3 +1224,260 @@ async fn refusal_leaks_no_id_or_existence(world: &mut FoundryWorld) {
          leak revealing the id was looked up); got {body:?}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Scenario 9 (step 02-05) — the CONSOLIDATED non-enumerability invariant: the
+// four invalid-link reasons {expired, already-used, tampered-signature,
+// unknown-id} ALL produce a byte-identical user-visible refusal (status + FULL
+// body); they differ ONLY in internal logging, never in the observable
+// response. An attacker opening any bad link cannot distinguish WHY it is
+// invalid. Green by inheritance from the SHIPPED uniform `invite_refusal_page()`
+// (invites_accept.rs:230) which EVERY invalid arm collapses to:
+//   * expired       — `invite_is_acceptable` fails `expires_at > now`
+//   * already-used  — `invite_is_acceptable` fails `used_at.is_none()`
+//   * tampered-sig  — `InviteToken::verify` (the tamper oracle) rejects the HMAC
+//   * unknown-id    — `invite_accept_view(id)` returns `Ok(None)` (no row)
+// Each arm renders the SAME page because the refusal is non-committal on reason.
+//
+// Each arm is driven as a REAL GET over real HTTP against the REAL per-scenario
+// Postgres (LAYER 3, @real-io). Three arms re-point / corrupt the SEEDED invite
+// in-scenario (re-minting the HMAC over the new expires_at where liveness is the
+// failure, so ONLY the intended check fails per arm); the unknown-id arm uses a
+// FRESH signed id naming no row. The four captured (status, full body) responses
+// are then asserted MUTUALLY byte-identical (Mandate 11 — example-pinned at
+// layer 3, the four reasons enumerated explicitly; NO PBT machinery).
+//
+// Falsifiability litmus (proven at DELIVER): diverging ANY one arm — e.g. making
+// the already-used path render a distinct "already used" message, or the
+// unknown-id path 404 — makes that arm's (status, body) differ from the other
+// three, RED-ing the mutual byte-identity assertion. Asserting the FULL body
+// (not merely same-status) is what makes the litmus bite (the slice-04 lesson:
+// same-status hid four oracles).
+// ---------------------------------------------------------------------------
+
+/// `Given an expired invite, an already-used invite, a tampered-signature link,
+/// and an unknown-id link` — the four arms are set up lazily by the When (each
+/// re-points/corrupts the seeded invite in-scenario, since each cucumber
+/// scenario gets a fresh harness + seeded invite). Confirm the seeded invite is
+/// live against the REAL per-scenario Postgres so the three seeded-invite arms
+/// start from a known-good baseline, grounding the "invalid for four distinct
+/// reasons" premise in observable state rather than assumption.
+#[given(
+    regex = r#"^an expired invite, an already-used invite, a tampered-signature link, and an unknown-id link$"#
+)]
+async fn four_invalid_arms_setup(world: &mut FoundryWorld) {
+    let invite_id = world.ia_invite_id.expect("invite seeded in the Background");
+    let now = harness(world).app.state.clock.now();
+    let pool = harness(world).app.state.store.pool().clone();
+    let (live_rows,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM invites WHERE id = $1 AND used_at IS NULL AND expires_at > $2",
+    )
+    .bind(invite_id)
+    .bind(now)
+    .fetch_one(&pool)
+    .await
+    .expect("count the live seeded invite row before deriving the four invalid arms");
+    assert_eq!(
+        live_rows, 1,
+        "the seeded invite must be live before the four invalid arms are derived \
+         from it; found {live_rows} live rows"
+    );
+}
+
+/// `When each is opened` — drive a REAL GET for each of the four invalid reasons
+/// against the REAL per-scenario Postgres, capturing each (status, full body)
+/// into `ia_four_refusals` for the mutual byte-identity assertion. Each arm
+/// isolates its failure to exactly one check; the genuine signature is re-minted
+/// for the expired/already-used arms (so liveness is the sole failure, not the
+/// tamper oracle), and the unknown-id arm names a row that does not exist.
+#[when(regex = r#"^each is opened$"#)]
+async fn each_invalid_link_is_opened(world: &mut FoundryWorld) {
+    let invite_id = world.ia_invite_id.expect("invite seeded");
+    let now = harness(world).app.state.clock.now();
+    let secret = harness(world).app.state.session_secret.clone();
+    let pool = harness(world).app.state.store.pool().clone();
+
+    // Arm 1 — EXPIRED: re-point expires_at one day past, re-mint the HMAC over
+    // the new expires_at (so ONLY liveness fails), and GET.
+    let expired_at = now - time::Duration::days(1);
+    sqlx::query("UPDATE invites SET used_at = NULL, expires_at = $2 WHERE id = $1")
+        .bind(invite_id)
+        .bind(expired_at)
+        .execute(&pool)
+        .await
+        .expect("re-point the seeded invite to one day past expiry (expired arm)");
+    let expired_sig = foundry_auth::InviteToken::new(invite_id, expired_at, &secret)
+        .expect("mint expired-arm signature")
+        .signature;
+    let expired = open_accept_get(world, invite_id, &expired_sig).await;
+
+    // Arm 2 — ALREADY-USED: restore a FUTURE expiry (so expiry is NOT the cause)
+    // and mark it consumed (used_at set); re-mint the HMAC over the future
+    // expires_at (so ONLY the used_at check fails), and GET.
+    let used_expires_at = now + time::Duration::days(7);
+    sqlx::query("UPDATE invites SET expires_at = $2, used_at = $3, used_by = $4 WHERE id = $1")
+        .bind(invite_id)
+        .bind(used_expires_at)
+        .bind(now)
+        .bind(world.ia_admin_user_id.expect("first-admin id seeded"))
+        .execute(&pool)
+        .await
+        .expect("mark the seeded invite as already used (already-used arm)");
+    let used_sig = foundry_auth::InviteToken::new(invite_id, used_expires_at, &secret)
+        .expect("mint already-used-arm signature")
+        .signature;
+    let already_used = open_accept_get(world, invite_id, &used_sig).await;
+
+    // Arm 3 — TAMPERED-SIGNATURE: keep the invite live (clear used_at, future
+    // expiry) so ONLY the tamper oracle fails; mint the genuine sig then corrupt
+    // one character, and GET.
+    let live_expires_at = now + time::Duration::days(7);
+    sqlx::query("UPDATE invites SET expires_at = $2, used_at = NULL, used_by = NULL WHERE id = $1")
+        .bind(invite_id)
+        .bind(live_expires_at)
+        .execute(&pool)
+        .await
+        .expect("restore the seeded invite to live (tampered arm)");
+    let genuine_sig = foundry_auth::InviteToken::new(invite_id, live_expires_at, &secret)
+        .expect("mint genuine signature to tamper")
+        .signature;
+    let tampered_sig = tamper_one_char(&genuine_sig);
+    let tampered = open_accept_get(world, invite_id, &tampered_sig).await;
+
+    // Arm 4 — UNKNOWN-ID: a fresh id naming NO row, with a genuine signature over
+    // it (structurally valid link), so the refusal fires on the missing row.
+    let unknown_id = uuid::Uuid::now_v7();
+    let unknown_expires_at = now + time::Duration::days(7);
+    let unknown_sig = foundry_auth::InviteToken::new(unknown_id, unknown_expires_at, &secret)
+        .expect("mint genuine signature over the unknown id")
+        .signature;
+    let unknown = open_accept_get(world, unknown_id, &unknown_sig).await;
+
+    world.ia_four_refusals = vec![expired, already_used, tampered, unknown];
+}
+
+/// `Then all four produce a byte-identical user-visible refusal page` — the
+/// security crux: assert the four captured arms are MUTUALLY byte-identical in
+/// BOTH status AND full body. Diverging any one arm (a distinct message, a
+/// reason-revealing status) makes its (status, body) differ from the others and
+/// REDs here. Asserting the FULL body is what makes the litmus bite.
+#[then(regex = r#"^all four produce a byte-identical user-visible refusal page$"#)]
+async fn all_four_byte_identical(world: &mut FoundryWorld) {
+    let arms = &world.ia_four_refusals;
+    assert_eq!(
+        arms.len(),
+        4,
+        "the When must have captured all four invalid-link arms; got {}",
+        arms.len()
+    );
+    let labels = [
+        "expired",
+        "already-used",
+        "tampered-signature",
+        "unknown-id",
+    ];
+    let (ref_status, ref_body) = &arms[0];
+    // The canonical refusal posture is the ratified 200 OK (OD-3, no status oracle).
+    assert_eq!(
+        *ref_status,
+        StatusCode::OK,
+        "the refusal must be the ratified 200 OK (OD-3, no status oracle); the \
+         {} arm got {ref_status:?}",
+        labels[0]
+    );
+    for (idx, (status, body)) in arms.iter().enumerate().skip(1) {
+        assert_eq!(
+            status, ref_status,
+            "the {} refusal status ({status:?}) must be byte-identical to the {} \
+             refusal status ({ref_status:?}) — a status oracle would reveal WHY \
+             the link is invalid",
+            labels[idx], labels[0]
+        );
+        assert_eq!(
+            body, ref_body,
+            "the {} refusal body must be byte-identical to the {} refusal body — \
+             a body oracle would let an attacker distinguish WHY the link is \
+             invalid. {} = {body:?}, {} = {ref_body:?}",
+            labels[idx], labels[0], labels[idx], labels[0]
+        );
+    }
+}
+
+/// `And they differ only in internal logging, never in the observable response`
+/// — re-affirm the consolidated invariant: the ONLY observable response surface
+/// (status + full body) is identical across all four reasons (asserted above),
+/// so any per-reason distinction lives exclusively in internal `tracing` keyed
+/// on invite_id (NFR-3/NFR-5), never in the user-visible response. Also bind the
+/// no-existence-leak guarantee: no arm leaks the workspace name or invitee email.
+#[then(regex = r#"^they differ only in internal logging, never in the observable response$"#)]
+async fn differ_only_in_logging(world: &mut FoundryWorld) {
+    let arms = &world.ia_four_refusals;
+    assert_eq!(
+        arms.len(),
+        4,
+        "the When must have captured all four invalid-link arms; got {}",
+        arms.len()
+    );
+    let labels = [
+        "expired",
+        "already-used",
+        "tampered-signature",
+        "unknown-id",
+    ];
+    for (idx, (_status, body)) in arms.iter().enumerate() {
+        assert!(
+            !body.contains("Northwind"),
+            "the {} refusal must NOT reveal the workspace name (an enumeration \
+             leak); got {body:?}",
+            labels[idx]
+        );
+        assert!(
+            !body.contains(PRIYA_EMAIL),
+            "the {} refusal must NOT reveal the invitee email (an enumeration \
+             leak); got {body:?}",
+            labels[idx]
+        );
+    }
+}
+
+/// Drive a single real GET `/invites/accept?id=&sig=` over real HTTP and return
+/// the captured (status, full body) — the observable refusal surface used by the
+/// mutual byte-identity assertion.
+async fn open_accept_get(
+    world: &mut FoundryWorld,
+    invite_id: uuid::Uuid,
+    sig: &str,
+) -> (StatusCode, String) {
+    let base = harness(world).base_url();
+    let client = http(world);
+    let resp = client
+        .get(format!(
+            "{base}/invites/accept?id={invite_id}&sig={sig}",
+            sig = urlencoding::encode(sig)
+        ))
+        .send()
+        .await
+        .expect("GET /invites/accept");
+    let status = resp.status();
+    let body = resp.text().await.unwrap_or_default();
+    (status, body)
+}
+
+/// Flip a single base64url character of a genuine signature so the HMAC tamper
+/// oracle rejects it (the corruption is guaranteed to take — the replacement
+/// differs from the original character).
+fn tamper_one_char(authentic: &str) -> String {
+    let mut chars: Vec<char> = authentic.chars().collect();
+    assert!(
+        !chars.is_empty(),
+        "the genuine invite signature must be non-empty to tamper with"
+    );
+    let original = chars[0];
+    chars[0] = if original == 'A' { 'B' } else { 'A' };
+    let tampered: String = chars.into_iter().collect();
+    assert_ne!(
+        tampered, authentic,
+        "the tampered signature must differ from the genuine one"
+    );
+    tampered
+}

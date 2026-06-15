@@ -906,6 +906,12 @@ pub struct FoundryWorld {
     /// expired-one-day arm so the two can be asserted byte-identical.
     pub ia_just_past_refusal_status: Option<StatusCode>,
     pub ia_just_past_refusal_body: Option<String>,
+    /// The four invalid-link refusal arms (expired, already-used,
+    /// tampered-signature, unknown-id), each captured as (status, full body) by
+    /// the 02-05 consolidated non-enumerability scenario. The byte-identity Then
+    /// asserts all four are MUTUALLY identical (status + full body), proving an
+    /// attacker cannot distinguish WHY a link is invalid.
+    pub ia_four_refusals: Vec<(StatusCode, String)>,
 }
 
 impl FoundryWorld {

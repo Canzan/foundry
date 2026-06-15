@@ -281,6 +281,34 @@
       "s": "EXECUTED",
       "d": "PASS",
       "t": "2026-06-15T00:16:08Z"
+    },
+    {
+      "sid": "02-05",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-15T00:18:44Z"
+    },
+    {
+      "sid": "02-05",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-15T00:25:59Z"
+    },
+    {
+      "sid": "02-05",
+      "p": "RED_UNIT",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: LAYER-3 consolidation step, green-by-inheritance from the SHIPPED uniform invite_refusal_page() (invites_accept.rs:230) which every invalid arm (expired/already-used/tampered/unknown-id) already collapses to; the AT drives all four arms through the public GET driving port and asserts mutual byte-identity port-to-port over real HTTP+PG16; no new production logic to decompose. Genuine RED proven via falsifiability: diverging the unknown-id Ok(None) arm to a distinct refusal made its full body differ -> RED on the byte-identity assertion.",
+      "t": "2026-06-15T00:26:09Z"
+    },
+    {
+      "sid": "02-05",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-15T00:34:40Z"
     }
   ]
 }

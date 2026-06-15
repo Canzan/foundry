@@ -256,7 +256,7 @@ Feature: A provisioned first-admin claims her account from her invite link and i
   #    binds it: collapsing any two arms into divergent responses re-REDs this.
   #    Example-pinned at LAYER 3 (Mandate 11). (AC-02.1/02.2, NFR-3, the security crux.)
   # ----------------------------------------------------------------------------
-  @pending @us-02 @error @property
+  @us-02 @error @property
   Scenario: Invalid-link refusals are byte-identical across all four reasons
     Given an expired invite, an already-used invite, a tampered-signature link, and an unknown-id link
     When each is opened
