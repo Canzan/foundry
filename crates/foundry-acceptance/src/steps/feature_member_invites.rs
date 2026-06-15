@@ -3540,6 +3540,210 @@ async fn no_invite_is_created(world: &mut FoundryWorld) {
     );
 }
 
+// ---------------------------------------------------------------------------
+// CSRF — BOTH state-changing POSTs refused without a valid security token
+// (scenario 24, step 02-06)
+// ---------------------------------------------------------------------------
+//
+// GREEN-BY-INHERITANCE behind the SHIPPED double-submit `csrf_middleware`
+// (csrf.rs:96-169). BOTH state-changing POSTs are mounted UNDER the layer
+// (`build_router` .layer(csrf::csrf_middleware), lib.rs:430): the issuance POST
+// `/workspace/invites` AND the accept POST `/invites/accept`. Neither is an exempt
+// path (only `/bootstrap` is, csrf.rs:66), so a non-safe-method POST with no
+// matching `foundry_csrf` cookie + `_csrf` form-field pair is rejected with
+// `403 FORBIDDEN` from the middleware (csrf.rs:160-169) BEFORE it reaches either
+// handler. The issuance POST therefore never reaches `submit_invite`
+// (insert_invite never runs → no invite) and the accept POST never reaches
+// `submit_accept` (the one-TX create-user + member-membership + consume never runs
+// → no account, the invite stays live). (AC-03.9, NFR-6, I-E4 + A-E8.)
+//
+// The accept invite under test is a REAL live member invite (seeded via the SHIPPED
+// `insert_invite` as Dana, `used_at` NULL, 7-day-minus-2-hours TTL), with a genuine
+// id + sig + a policy-passing password — EVERYTHING a real accept needs EXCEPT the
+// double-submit CSRF pair — so each refusal is isolated to the request-forgery
+// protection, not a dead invite / bad token / policy failure. The issuance forged
+// POST carries a smuggled email (`anonymous_issuance_request`) so a let-through
+// would create a visible invite.
+//
+// Falsifiability (revert-reds-it litmus, demonstrated at DELIVER then restored):
+// removing `.layer(csrf::csrf_middleware)` from `build_router` (or adding either
+// route to `is_exempt_path`) lets BOTH token-less POSTs through to their handlers —
+// the issuance POST would insert an invite for the smuggled email (RED-ing the
+// 403 refusal Then AND the no-invite-created Then) and the accept POST would consume
+// the live invite + create an account + 303 sign-in (RED-ing the 403 refusal Then
+// AND the no-consume/no-account Then).
+
+/// `Given a forged issuance submission and a forged accept submission for a live
+/// invite, each without a valid security token` — seed a REAL live member invite via
+/// the SHIPPED `insert_invite` (as Dana, `used_at` NULL, well within the 7-day
+/// window), and confirm it is live against the REAL per-scenario Postgres, so the
+/// accept-side CSRF refusal under test fires on the missing double-submit token, NOT
+/// a dead invite. No request is sent yet; both forged (CSRF-less) POSTs are driven by
+/// the When.
+#[given(
+    regex = r#"^a forged issuance submission and a forged accept submission for a live invite, each without a valid security token$"#
+)]
+async fn forged_issuance_and_accept_without_csrf(world: &mut FoundryWorld) {
+    let ttl = time::Duration::days(7) - time::Duration::hours(2);
+    seed_member_invite(world, "Northwind", "sam.okafor@northwind.example", ttl).await;
+
+    let invite_id = world.mi_invite_id.expect("a member invite was seeded");
+    let now = harness(world).app.state.clock.now();
+    let pool = harness(world).app.state.store.pool().clone();
+    let (live_rows,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM invites WHERE id = $1 AND used_at IS NULL AND expires_at > $2",
+    )
+    .bind(invite_id)
+    .bind(now)
+    .fetch_one(&pool)
+    .await
+    .expect("count the live (unused, unexpired) invite row before the forged accept POST");
+    assert_eq!(
+        live_rows, 1,
+        "the accept invite under test must be live (unused, unexpired) so the refusal \
+         fires on the missing CSRF token, not a dead invite; found {live_rows} live rows"
+    );
+}
+
+/// `When each reaches its surface` — drive BOTH forged POSTs over real HTTP, each
+/// DELIBERATELY OMITTING the double-submit CSRF pair (no `foundry_csrf` cookie, no
+/// `_csrf` form field): a token-less issuance POST to `/workspace/invites` (carrying
+/// a smuggled email, via `anonymous_issuance_request`), and a token-less accept POST
+/// to `/invites/accept` (carrying the genuine id + sig + a policy-passing
+/// password + confirm). The SHIPPED `csrf_middleware` screens each BEFORE its handler.
+/// Record each `(label, status, body)` refusal in `mi_issuance_refusals`; capture any
+/// accept session cookie (expected absent) so the no-account Then can prove
+/// non-commitment.
+#[when(regex = r#"^each reaches its surface$"#)]
+async fn each_forged_post_reaches_its_surface(world: &mut FoundryWorld) {
+    // (1) Forged ISSUANCE POST — token-less, screened ahead of routing.
+    let (issuance_status, issuance_body) =
+        anonymous_issuance_request(world, "POST", "/workspace/invites").await;
+    world.mi_issuance_refusals.push((
+        "POST /workspace/invites".to_string(),
+        issuance_status,
+        issuance_body,
+    ));
+
+    // (2) Forged ACCEPT POST — genuine id + sig + policy-passing password, but NO
+    //     foundry_csrf cookie and NO _csrf field. Screened by csrf_middleware.
+    let invite_id = world.mi_invite_id.expect("a member invite was seeded");
+    let sig = world
+        .mi_invite_sig
+        .clone()
+        .expect("the invite sig was minted");
+    let base = harness(world).base_url();
+    let client = http(world);
+    let form = [
+        ("id", invite_id.to_string()),
+        ("sig", sig),
+        ("password", MEMBER_PASSWORD.to_string()),
+        ("confirm", MEMBER_PASSWORD.to_string()),
+    ];
+    let resp = client
+        .post(format!("{base}/invites/accept"))
+        .form(&form)
+        .send()
+        .await
+        .expect("POST /invites/accept (forged, no CSRF)");
+    let accept_status = resp.status();
+    world.mi_session_cookie = resp
+        .headers()
+        .get_all(reqwest::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .find(|s| s.starts_with("foundry_session="))
+        .and_then(|s| s.split(';').next())
+        .map(str::to_string);
+    let accept_body = resp.text().await.unwrap_or_default();
+    world.mi_issuance_refusals.push((
+        "POST /invites/accept".to_string(),
+        accept_status,
+        accept_body,
+    ));
+}
+
+/// `Then each is refused by the request-forgery protection` — BOTH forged POSTs were
+/// rejected with `403 FORBIDDEN` by the SHIPPED `csrf_middleware` BEFORE their
+/// handlers ran. The 403 (not a 200 "invite sent" fragment, not a 303 accept
+/// success, not the accept handler's 200 refusal page) is the port-exposed
+/// observable that the request-forgery layer — not the handler — refused each one.
+#[then(regex = r#"^each is refused by the request-forgery protection$"#)]
+async fn each_refused_by_request_forgery_protection(world: &mut FoundryWorld) {
+    assert_eq!(
+        world.mi_issuance_refusals.len(),
+        2,
+        "both forged POSTs (issuance + accept) must have recorded a refusal; got {:?}",
+        world.mi_issuance_refusals
+    );
+    for (route, status, _body) in &world.mi_issuance_refusals {
+        assert_eq!(
+            *status,
+            StatusCode::FORBIDDEN,
+            "{route} must be refused with 403 FORBIDDEN by the SHIPPED csrf_middleware \
+             BEFORE the handler (not a 200 success fragment, not a 303 accept success, \
+             not the handler's 200 refusal); got {status}"
+        );
+    }
+}
+
+/// `And no invite is created, no invite is consumed, and no account is created` — the
+/// request-forgery refusals were fully non-committal against the REAL per-scenario
+/// Postgres: (a) the forged issuance POST created NO new invite — only the ONE seeded
+/// live member invite exists (the smuggled email never landed); (b) that seeded
+/// invite stays live (`used_at` NULL) — the forged accept POST consumed nothing; and
+/// (c) NO `users` row exists for the invitee — the accept POST created no account and
+/// established no session. Falsifiability: a CSRF bypass on either route would add an
+/// invite row, stamp `used_at`, and/or create the account → this REDs.
+#[then(regex = r#"^no invite is created, no invite is consumed, and no account is created$"#)]
+async fn no_invite_created_consumed_no_account(world: &mut FoundryWorld) {
+    let seeded_invite_id = world.mi_invite_id.expect("a member invite was seeded");
+    let pool = harness(world).app.state.store.pool().clone();
+
+    // (a) The forged issuance POST created NO new invite: only the seeded one exists.
+    let (invite_rows,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM invites")
+        .fetch_one(&pool)
+        .await
+        .expect("count invites after the forged POSTs");
+    assert_eq!(
+        invite_rows, 1,
+        "the forged issuance POST must create NO new invite (only the ONE seeded live \
+         invite may exist, the smuggled email never landed); found {invite_rows} invite rows"
+    );
+
+    // (b) The seeded invite stays live: the forged accept POST consumed nothing.
+    let (live_rows,): (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM invites WHERE id = $1 AND used_at IS NULL")
+            .bind(seeded_invite_id)
+            .fetch_one(&pool)
+            .await
+            .expect("count the still-live seeded invite after the forged accept POST");
+    assert_eq!(
+        live_rows, 1,
+        "the forged accept POST must consume NO invite (the seeded invite must stay live, \
+         used_at NULL); found {live_rows} live rows for the seeded invite"
+    );
+
+    // (c) The forged accept POST created NO account (and thus no session).
+    let (user_rows,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users WHERE email_lower = $1")
+        .bind("sam.okafor@northwind.example")
+        .fetch_one(&pool)
+        .await
+        .expect("count the invitee's user rows after the forged accept POST");
+    assert_eq!(
+        user_rows, 0,
+        "the forged accept POST must create NO account for the invitee; found {user_rows} \
+         user rows"
+    );
+    assert!(
+        world.mi_session_cookie.is_none(),
+        "the forged accept POST must establish NO session (no foundry_session cookie), \
+         proving the request-forgery layer refused it before the handler signed anyone in; \
+         got {:?}",
+        world.mi_session_cookie
+    );
+}
+
 /// Parse the `id` + `sig` out of an emitted `/invites/accept?id=<uuid>&sig=<sig>`
 /// link rendered in the issuance "invite sent" fragment.
 fn parse_accept_link(body: &str) -> (uuid::Uuid, String) {

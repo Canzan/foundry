@@ -344,6 +344,48 @@
       "s": "EXECUTED",
       "d": "PASS",
       "t": "2026-06-15T23:23:21Z"
+    },
+    {
+      "sid": "02-05",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-15T23:23:56Z"
+    },
+    {
+      "sid": "02-06",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-15T23:26:29Z"
+    },
+    {
+      "sid": "02-06",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-15T23:29:46Z"
+    },
+    {
+      "sid": "02-06",
+      "p": "RED_UNIT",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: green-by-inheritance LAYER-3 acceptance scenario; no production code added (CSRF middleware shipped in 01-xx); no separate unit test owed",
+      "t": "2026-06-15T23:29:46Z"
+    },
+    {
+      "sid": "02-06",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-15T23:36:32Z"
+    },
+    {
+      "sid": "02-06",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-15T23:37:16Z"
     }
   ]
 }

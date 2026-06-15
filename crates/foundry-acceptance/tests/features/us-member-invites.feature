@@ -452,7 +452,7 @@ Feature: A workspace admin invites a teammate, who joins by creating an account 
   #     refused by the SHIPPED csrf_middleware BEFORE the handler runs: the issuance
   #     POST creates no invite; the accept POST creates no account and consumes
   #     nothing (AC-03.9, NFR-6, I-E4 + A-E8).
-  @pending @us-03 @error
+  @us-03 @error
   Scenario: Both submissions are refused without a valid security token
     Given a forged issuance submission and a forged accept submission for a live invite, each without a valid security token
     When each reaches its surface
