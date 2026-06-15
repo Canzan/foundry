@@ -204,6 +204,48 @@
       "s": "EXECUTED",
       "d": "PASS",
       "t": "2026-06-14T23:55:46Z"
+    },
+    {
+      "sid": "02-02",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-14T23:56:25Z"
+    },
+    {
+      "sid": "02-03",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-14T23:58:32Z"
+    },
+    {
+      "sid": "02-03",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-15T00:01:35Z"
+    },
+    {
+      "sid": "02-03",
+      "p": "RED_UNIT",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: green-by-inheritance; the tampered-sig refusal is exercised end-to-end through the public GET driving port; InviteToken::verify is already unit-tested in foundry-auth; no new production code, so no separate unit test is owed",
+      "t": "2026-06-15T00:01:35Z"
+    },
+    {
+      "sid": "02-03",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-15T00:02:43Z"
+    },
+    {
+      "sid": "02-03",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-15T00:03:18Z"
     }
   ]
 }

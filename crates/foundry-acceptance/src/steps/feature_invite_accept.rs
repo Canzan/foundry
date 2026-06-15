@@ -1010,3 +1010,101 @@ async fn response_byte_identical_to_expired_refusal(world: &mut FoundryWorld) {
          invite expired. just-past = {just_past_body:?}, canonical = {canonical_body:?}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Scenario 7 (step 02-03) — a TAMPERED signature is refused IDENTICALLY to an
+// expired link. The HMAC tamper oracle (`InviteToken::verify`, called FIRST in
+// the SHIPPED `invite_is_acceptable`) rejects an altered `sig` BEFORE any
+// liveness check or DB-state mutation; the GET then renders the SAME uniform
+// `invite_refusal_page()` an expired link renders, because the refusal is
+// non-committal on the reason. Green by inheritance from the SHIPPED verify →
+// refusal path. (D3/adr-002, the security crux; E3.)
+//
+// The invite under test stays LIVE (7-day expiry, unused) — ONLY the signature
+// is altered, so the failure is isolated to the tamper oracle, not liveness
+// (this is the genuine "tampered-signature" arm, NOT an expired arm). The
+// scenario then REUSES scenario 2's `When Priya opens her invite link` (GET with
+// the now-tampered `ia_invite_sig`), scenario 5's `Then she sees the standard
+// "invite is no longer valid" page` (captures the refusal into `ia_refusal_*`),
+// and scenario 6's `And the response is byte-identical to the expired-invite
+// refusal` (recomputes the canonical expired-one-day arm in-scenario and asserts
+// status + FULL body byte-identity). The ONLY new step is the tamper Given.
+//
+// Falsifiability litmus (proven at DELIVER): a verify path that distinguished a
+// bad signature — returning a DIFFERENT message ("invalid signature") or a
+// DIFFERENT status (a 4xx tamper oracle) instead of the uniform 200 refusal —
+// REDs BOTH the reused "no longer valid" Then (divergent copy/status) AND the
+// byte-identity assertion (the tampered-arm response would differ from the
+// canonical expired-arm response). Asserting the FULL body (not merely
+// same-status) is what makes the litmus bite.
+// ---------------------------------------------------------------------------
+
+/// `Given Priya's invite is live but the signature in the link has been altered
+/// by one character` — keep the Background's live invite (7-day expiry, `used_at`
+/// NULL) UNTOUCHED, and corrupt the genuine minted `ia_invite_sig` by flipping a
+/// single character. Confirms the invite is still live against the REAL
+/// per-scenario Postgres (so the failure under test is isolated to the tamper
+/// oracle, NOT liveness) and that the tampered sig genuinely DIFFERS from the
+/// authentic one (so the corruption actually took). The corrupted sig is stored
+/// back into `ia_invite_sig`, which the reused GET step then carries.
+#[given(
+    regex = r#"^Priya's invite is live but the signature in the link has been altered by one character$"#
+)]
+async fn priya_invite_signature_tampered(world: &mut FoundryWorld) {
+    let invite_id = world.ia_invite_id.expect("invite seeded in the Background");
+    let now = harness(world).app.state.clock.now();
+    let pool = harness(world).app.state.store.pool().clone();
+
+    // The invite stays LIVE (unused + unexpired) — only the signature is altered,
+    // so the refusal under test fires on the tamper oracle, not liveness.
+    let (live_rows,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM invites WHERE id = $1 AND used_at IS NULL AND expires_at > $2",
+    )
+    .bind(invite_id)
+    .bind(now)
+    .fetch_one(&pool)
+    .await
+    .expect("count the live (unused, unexpired) invite row");
+    assert_eq!(
+        live_rows, 1,
+        "the invite under test must be live (unused and unexpired) so the refusal \
+         fires on the tampered signature, not liveness; found {live_rows} live rows"
+    );
+
+    // Corrupt the genuine signature by flipping a single character (the
+    // base64url alphabet is large; pick a replacement that differs from the
+    // original char so the corruption is guaranteed to take).
+    let authentic = world
+        .ia_invite_sig
+        .clone()
+        .expect("the Background minted the genuine invite signature");
+    let mut chars: Vec<char> = authentic.chars().collect();
+    assert!(
+        !chars.is_empty(),
+        "the genuine invite signature must be non-empty to tamper with"
+    );
+    let original = chars[0];
+    // base64url uses A-Z a-z 0-9 - _ ; flip to a different alphabet character.
+    chars[0] = if original == 'A' { 'B' } else { 'A' };
+    let tampered: String = chars.into_iter().collect();
+    assert_ne!(
+        tampered, authentic,
+        "the tampered signature must differ from the genuine one (the corruption \
+         must actually take); both = {authentic:?}"
+    );
+    world.ia_invite_sig = Some(tampered);
+}
+
+/// `When Priya opens the tampered link` — drive the NEW public GET
+/// `/invites/accept?id=&sig=` over real HTTP carrying the now-tampered
+/// `ia_invite_sig`. Identical GET path to scenario 2's `Priya opens her invite
+/// link` (distinct phrasing for the tampered narrative): the SHIPPED
+/// `invite_is_acceptable` calls `InviteToken::verify` FIRST, the altered HMAC
+/// fails the tamper oracle, and the handler renders the uniform
+/// `invite_refusal_page()` — captured (status + full body) for the byte-identity
+/// Then. Capturing the same status + body slots the reused refusal/byte-identity
+/// Thens read.
+#[when(regex = r#"^Priya opens the tampered link$"#)]
+async fn priya_opens_the_tampered_link(world: &mut FoundryWorld) {
+    priya_opens_her_invite_link(world).await;
+}

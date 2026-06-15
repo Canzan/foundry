@@ -229,7 +229,7 @@ Feature: A provisioned first-admin claims her account from her invite link and i
   #    response must be byte-identical (status + full body) to scenario 5. (E3;
   #    AC-02.1/02.2, NFR-3.)
   # ----------------------------------------------------------------------------
-  @pending @us-02 @error
+  @us-02 @error
   Scenario: A tampered signature is refused identically to an expired link
     Given Priya's invite is live but the signature in the link has been altered by one character
     When Priya opens the tampered link
