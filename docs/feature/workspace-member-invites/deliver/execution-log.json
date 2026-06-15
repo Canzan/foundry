@@ -309,6 +309,41 @@
       "s": "EXECUTED",
       "d": "PASS",
       "t": "2026-06-15T22:59:29Z"
+    },
+    {
+      "sid": "02-04",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-15T23:00:07Z"
+    },
+    {
+      "sid": "02-05",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-15T23:04:39Z"
+    },
+    {
+      "sid": "02-05",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-15T23:21:04Z"
+    },
+    {
+      "sid": "02-05",
+      "p": "RED_UNIT",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: green-by-inheritance behind the SHIPPED require_workspace_admin gate + resource_not_found_page + csrf_middleware; no new production code, so no separate unit test. Acceptance glue only; falsifiability proven by mutating the gate to a distinct 403 (status oracle RED) then reverting.",
+      "t": "2026-06-15T23:21:04Z"
+    },
+    {
+      "sid": "02-05",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-15T23:23:21Z"
     }
   ]
 }

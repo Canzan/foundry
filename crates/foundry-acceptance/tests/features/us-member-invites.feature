@@ -428,7 +428,7 @@ Feature: A workspace admin invites a teammate, who joins by creating an account 
   # 22. ISSUANCE NON-ENUMERABILITY — a signed-in non-admin (a plain member) GET/POST
   #     to the issuance surface is refused byte-identically to a never-existed path;
   #     no invite created (AC-03.1, I-E1). The control is a path that never existed.
-  @pending @us-03 @error
+  @us-03 @error
   Scenario: A non-admin cannot tell the issuance surface exists
     Given Marco is signed in as a plain member of "Northwind"
     When Marco opens the member-invite page and submits an email
@@ -440,7 +440,7 @@ Feature: A workspace admin invites a teammate, who joins by creating an account 
   # 23. ISSUANCE NON-ENUMERABILITY — a SIGNED-OUT GET/POST to the issuance surface is
   #     refused byte-identically to the non-admin refusal AND to a never-existed path;
   #     no "sign in to invite" oracle (AC-03.1, I-E2).
-  @pending @us-03 @error @property
+  @us-03 @error @property
   Scenario: A signed-out caller cannot tell the issuance surface exists
     Given no one is signed in
     When a signed-out caller opens the member-invite page and a never-existed path

@@ -3050,6 +3050,496 @@ async fn member_stale_post_state_unchanged(world: &mut FoundryWorld) {
     );
 }
 
+// ---------------------------------------------------------------------------
+// Issuance non-enumerability (step 02-05) — scenarios 22 (non-admin) + 23
+// (signed-out).
+//
+// PROVES the SECURITY CRUX (NFR-1, AC-03.1, I-E1/I-E2): a signed-in NON-ADMIN
+// member's AND a SIGNED-OUT caller's GET/POST to the admin-gated issuance surface
+// `/workspace/invites` is refused BYTE-IDENTICALLY (status AND full body) to a path
+// that never existed — NO 401/403, NO login redirect, NO oracle the issuance
+// surface exists — and for the signed-out arm, ALSO byte-identical to the non-admin
+// refusal (the refusal CAUSE is indistinguishable). GREEN-BY-INHERITANCE behind the
+// SHIPPED `require_workspace_admin` gate (returns the SHIPPED
+// `resource_not_found_page()` for `is_workspace_admin == false` AND for a missing
+// session, member_invites.rs:82-83/104-105/185-208) and the SHIPPED router fallback
+// (the never-existed control), under the SHIPPED double-submit `csrf_middleware`
+// that screens the token-less POST ahead of routing. This step adds acceptance GLUE
+// only — NO production code. The web-provisioning 02-02/02-03 idiom
+// (`feature_web_provisioning_flow`) applied to `/workspace/invites`.
+//
+// Per-method comparison (GET-vs-GET, POST-vs-POST): the gate refuses the GET, the
+// CSRF layer screens the token-less POST; comparing a POST against a GET control
+// would be a category error, not an oracle test. Each member-invite refusal is
+// asserted against the same-method never-existed control.
+//
+// Falsifiability (revert-reds-it litmus, demonstrated at DELIVER then reverted):
+// collapsing the gate's refusal into a DISTINCT response — a 403/401 for the
+// non-admin, a 303 redirect-to-sign-in for the signed-out caller, or any body that
+// diverges from the never-existed page — diverges from the control and re-REDS
+// `each_member_invite_response_byte_identical_to_never_existed` (and, for the
+// signed-out arm, `signed_out_refusal_byte_identical_to_non_admin`).
+// ---------------------------------------------------------------------------
+
+/// Marco's password — seeded on his plain-member account so his web GET/POST to
+/// `/workspace/invites` authenticates (the harness keeps no cookie jar;
+/// `signed_in_get` / `session_only_member_post` re-authenticate per request).
+const MARCO_PASSWORD: &str = "marco-northwind-member-pass";
+/// Marco's email — a plain member of Northwind (role=`member`, NOT admin), so the
+/// SHIPPED `require_workspace_admin` gate refuses him with the non-enumerable 404.
+const MARCO_EMAIL: &str = "marco@northwind.example";
+/// A path with no route at all — the never-existed control the issuance refusal is
+/// asserted byte-identical to. Refused by the SHIPPED router fallback (GET) / the
+/// CSRF layer ahead of routing (the token-less POST), regardless of who asks.
+const NEVER_EXISTED_PATH: &str = "/this-path-has-never-existed-anywhere";
+
+/// `Given Marco is signed in as a plain member of "<workspace>"` — seed Marco as an
+/// ordinary `member`-role membership on the Background-seeded workspace (a real
+/// `users` row with a KNOWN password + a `member` membership), and assert the
+/// `is_workspace_admin == false` precondition that makes this the NOT-AUTHORIZED
+/// refusal cause (distinct from signed-out). Marco's web sign-in happens per-request
+/// inside the When (the harness keeps no cookie jar).
+#[given(regex = r#"^Marco is signed in as a plain member of "([^"]+)"$"#)]
+async fn marco_signed_in_plain_member(world: &mut FoundryWorld, ws_name: String) {
+    let workspace_id = *world
+        .mi_workspace_ids
+        .get(&ws_name)
+        .unwrap_or_else(|| panic!("workspace {ws_name:?} seeded in the Background"));
+    let pool = harness(world).app.state.store.pool().clone();
+
+    let marco_id = uuid::Uuid::now_v7();
+    let marco_hash =
+        foundry_auth::hash_password(&SecretString::new(MARCO_PASSWORD.to_string().into()))
+            .await
+            .expect("hash Marco's member password");
+    sqlx::query(
+        "INSERT INTO users (id, email_lower, email_display, display_name, password_hash)
+              VALUES ($1, $2, $2, 'Marco', $3)",
+    )
+    .bind(marco_id)
+    .bind(MARCO_EMAIL)
+    .bind(&marco_hash)
+    .execute(&pool)
+    .await
+    .expect("seed Marco's plain-member user row");
+    sqlx::query(
+        "INSERT INTO workspace_memberships (workspace_id, user_id, role)
+              VALUES ($1, $2, 'member')",
+    )
+    .bind(workspace_id)
+    .bind(marco_id)
+    .execute(&pool)
+    .await
+    .expect("seed Marco's member membership");
+
+    // Precondition: Marco is NOT a workspace admin (the not-authorized refusal cause).
+    let is_admin = harness(world)
+        .app
+        .state
+        .store
+        .is_workspace_admin(workspace_id, marco_id)
+        .await
+        .expect("probe is_workspace_admin precondition for Marco");
+    assert!(
+        !is_admin,
+        "the acting member {MARCO_EMAIL:?} must NOT be a workspace admin (this is the \
+         not-authorized refusal cause, distinct from the signed-out cause)"
+    );
+    let _ = http(world);
+}
+
+/// Issue an ANONYMOUS request (no session cookie, no CSRF token) for `method url`
+/// against the in-process harness, returning the full (status, body) refusal shape.
+/// A signed-out caller carries no credentials at all — the adversary the
+/// non-enumerability property defends against. A token-less POST is screened by the
+/// SHIPPED double-submit CSRF layer ahead of routing.
+async fn anonymous_issuance_request(
+    world: &mut FoundryWorld,
+    method: &str,
+    url: &str,
+) -> (StatusCode, String) {
+    let base = harness(world).base_url();
+    let client = http(world);
+    let request = match method {
+        "GET" => client.get(format!("{base}{url}")),
+        "POST" => client
+            .post(format!("{base}{url}"))
+            .form(&[("email", "smuggled@northwind.example")]),
+        other => panic!("unsupported anonymous method {other:?}"),
+    };
+    let resp = request
+        .send()
+        .await
+        .expect("send anonymous issuance request");
+    let status = resp.status();
+    let body = resp.text().await.unwrap_or_default();
+    (status, body)
+}
+
+/// Sign in as `email` to capture a real `foundry_session` cookie, then POST `url`
+/// carrying ONLY that session cookie — NO `_csrf` token. The SHIPPED double-submit
+/// `csrf_middleware` refuses the token-less POST before routing, the SAME way it
+/// refuses a signed-out (also token-less) POST and a never-existed token-less POST —
+/// which is what keeps a signed-in member's POST refusal byte-identical to the
+/// signed-out/never-existed baseline.
+async fn session_only_member_post(
+    world: &mut FoundryWorld,
+    email: &str,
+    password: &str,
+    url: &str,
+) -> (StatusCode, String) {
+    let base = harness(world).base_url();
+    let client = http(world);
+
+    // (1) GET /sign-in to mint a CSRF cookie + token (needed only to AUTHENTICATE).
+    let signin_get = client
+        .get(format!("{base}/sign-in"))
+        .send()
+        .await
+        .expect("get /sign-in for csrf");
+    let csrf_token = signin_get
+        .headers()
+        .get_all(reqwest::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .find(|s| s.starts_with("foundry_csrf="))
+        .and_then(|s| s.strip_prefix("foundry_csrf="))
+        .and_then(|rest| rest.split(';').next())
+        .unwrap_or("")
+        .to_string();
+
+    // (2) POST /sign-in to authenticate; capture the session cookie.
+    let mut signin_form: std::collections::HashMap<&str, String> = std::collections::HashMap::new();
+    signin_form.insert("email", email.to_string());
+    signin_form.insert("password", password.to_string());
+    signin_form.insert("_csrf", csrf_token.clone());
+    let signin_resp = client
+        .post(format!("{base}/sign-in"))
+        .header(
+            reqwest::header::COOKIE,
+            format!("foundry_csrf={csrf_token}"),
+        )
+        .form(&signin_form)
+        .send()
+        .await
+        .expect("post /sign-in");
+    let session_pair = signin_resp
+        .headers()
+        .get_all(reqwest::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .find(|s| s.starts_with("foundry_session="))
+        .and_then(|s| s.split(';').next())
+        .map(str::to_string)
+        .expect("sign-in must issue a foundry_session cookie");
+
+    // (3) POST `url` carrying ONLY the session cookie — NO _csrf cookie/field. The
+    //     double-submit CSRF middleware refuses it before routing.
+    let resp = client
+        .post(format!("{base}{url}"))
+        .header(reqwest::header::COOKIE, session_pair)
+        .form(&[("email", "smuggled@northwind.example")])
+        .send()
+        .await
+        .expect("post issuance url (session-only, no csrf)");
+    let status = resp.status();
+    let body = resp.text().await.unwrap_or_default();
+    (status, body)
+}
+
+/// `When Marco opens the member-invite page and submits an email` — drive the
+/// signed-in NON-ADMIN member to BOTH issuance methods over real HTTP: GET
+/// `/workspace/invites` (session cookie, gate-refused) and a token-less POST
+/// `/workspace/invites` (session cookie, no `_csrf` — CSRF-screened). Record each
+/// `(method url, status, body)` refusal so the byte-identity Then asserts it against
+/// the same-method never-existed control.
+#[when(regex = r#"^Marco opens the member-invite page and submits an email$"#)]
+async fn marco_probes_issuance_surface(world: &mut FoundryWorld) {
+    // GET — the session-cookie-bearing member reaches the `require_workspace_admin`
+    // gate, which refuses `is_workspace_admin == false` with the uniform 404.
+    let client = http(world);
+    let get_outcome = signed_in_get(
+        harness(world),
+        &client,
+        MARCO_EMAIL,
+        MARCO_PASSWORD,
+        "/workspace/invites",
+    )
+    .await;
+    // Also expose the GET refusal body to the SHARED `nothing reveals that the
+    // issuance surface exists` Then (defined for scenario 11; reads `last_body`).
+    world.last_body = Some(get_outcome.body.clone());
+    world.mi_issuance_refusals.push((
+        "GET /workspace/invites".to_string(),
+        get_outcome.status,
+        get_outcome.body,
+    ));
+
+    // POST — token-less, CSRF-screened ahead of routing.
+    let (post_status, post_body) =
+        session_only_member_post(world, MARCO_EMAIL, MARCO_PASSWORD, "/workspace/invites").await;
+    world.mi_issuance_refusals.push((
+        "POST /workspace/invites".to_string(),
+        post_status,
+        post_body,
+    ));
+}
+
+/// `And Marco requests a path that never existed` — capture the never-existed-path
+/// control PER HTTP METHOD (GET + POST), the same identity-blind uniform 404 the
+/// admin surface must be indistinguishable from. The control is anonymous because a
+/// never-existed path has no gate to reach — refused by the router fallback (GET) /
+/// the CSRF layer ahead of routing (POST) regardless of who asks; that
+/// caller-independence is precisely why it is the right control.
+#[when(regex = r#"^Marco requests a path that never existed$"#)]
+async fn marco_requests_never_existed_path(world: &mut FoundryWorld) {
+    for method in ["GET", "POST"] {
+        let (status, body) = anonymous_issuance_request(world, method, NEVER_EXISTED_PATH).await;
+        world
+            .mi_issuance_never_existed
+            .insert(method.to_string(), (status, body));
+    }
+}
+
+/// `Given no one is signed in` — the acting persona carries NO session cookie. The
+/// Background already seeded Dana + the Northwind workspace (so the surface genuinely
+/// exists for SOMEONE); this step only primes the http client for the anonymous
+/// probes.
+#[given(regex = r#"^no one is signed in$"#)]
+async fn no_one_signed_in(world: &mut FoundryWorld) {
+    assert!(
+        world.mi_harness.is_some(),
+        "the member-invites Background must have spawned the harness (so the issuance \
+         surface exists for the admin the signed-out caller cannot reach)"
+    );
+    let _ = http(world);
+}
+
+/// `When a signed-out caller opens the member-invite page and a never-existed path` —
+/// drive an ANONYMOUS caller to BOTH issuance methods (GET + token-less POST
+/// `/workspace/invites`), recording each refusal in `mi_issuance_refusals` (so the
+/// SHARED byte-identity Then asserts it against the never-existed control), AND
+/// capture the never-existed-path control per method. ALSO drive the NON-ADMIN
+/// (Marco, seeded for this scenario) to every route into
+/// `mi_issuance_signed_out_refusals`'s counterpart so the cross-cause identity Then
+/// can compare signed-out vs non-admin route-for-route.
+#[when(regex = r#"^a signed-out caller opens the member-invite page and a never-existed path$"#)]
+async fn signed_out_probes_issuance_and_never_existed(world: &mut FoundryWorld) {
+    // The signed-out refusals (recorded in the shared `mi_issuance_refusals` slot the
+    // byte-identity-vs-never-existed Then reads).
+    for (method, url) in [
+        ("GET", "/workspace/invites"),
+        ("POST", "/workspace/invites"),
+    ] {
+        let (status, body) = anonymous_issuance_request(world, method, url).await;
+        world
+            .mi_issuance_refusals
+            .push((format!("{method} {url}"), status, body.clone()));
+        // Mirror into the signed-out baseline so the cross-cause identity Then can
+        // compare it against the non-admin refusal for the SAME route.
+        world
+            .mi_issuance_signed_out_refusals
+            .push((format!("{method} {url}"), status, body));
+    }
+
+    // The never-existed-path control per method.
+    for method in ["GET", "POST"] {
+        let (status, body) = anonymous_issuance_request(world, method, NEVER_EXISTED_PATH).await;
+        world
+            .mi_issuance_never_existed
+            .insert(method.to_string(), (status, body));
+    }
+
+    // The NON-ADMIN refusal baseline (Marco) for the SAME routes, so the cross-cause
+    // byte-identity (signed-out == non-admin) is asserted route-for-route. Seed Marco
+    // here (this scenario's Given is `no one is signed in`, so no Marco exists yet).
+    let workspace_id = *world
+        .mi_workspace_ids
+        .get("Northwind")
+        .expect("the Background seeded the Northwind workspace");
+    let pool = harness(world).app.state.store.pool().clone();
+    let marco_id = uuid::Uuid::now_v7();
+    let marco_hash =
+        foundry_auth::hash_password(&SecretString::new(MARCO_PASSWORD.to_string().into()))
+            .await
+            .expect("hash Marco's member password");
+    sqlx::query(
+        "INSERT INTO users (id, email_lower, email_display, display_name, password_hash)
+              VALUES ($1, $2, $2, 'Marco', $3) ON CONFLICT (email_lower) DO NOTHING",
+    )
+    .bind(marco_id)
+    .bind(MARCO_EMAIL)
+    .bind(&marco_hash)
+    .execute(&pool)
+    .await
+    .expect("seed Marco's plain-member user row (cross-cause baseline)");
+    let (marco_id,): (uuid::Uuid,) = sqlx::query_as("SELECT id FROM users WHERE email_lower = $1")
+        .bind(MARCO_EMAIL)
+        .fetch_one(&pool)
+        .await
+        .expect("resolve Marco's id");
+    sqlx::query(
+        "INSERT INTO workspace_memberships (workspace_id, user_id, role)
+              VALUES ($1, $2, 'member') ON CONFLICT DO NOTHING",
+    )
+    .bind(workspace_id)
+    .bind(marco_id)
+    .execute(&pool)
+    .await
+    .expect("seed Marco's member membership (cross-cause baseline)");
+
+    let client = http(world);
+    let na_get = signed_in_get(
+        harness(world),
+        &client,
+        MARCO_EMAIL,
+        MARCO_PASSWORD,
+        "/workspace/invites",
+    )
+    .await;
+    let na_get_pair = (
+        "GET /workspace/invites".to_string(),
+        na_get.status,
+        na_get.body,
+    );
+    let (na_post_status, na_post_body) =
+        session_only_member_post(world, MARCO_EMAIL, MARCO_PASSWORD, "/workspace/invites").await;
+    // The non-admin refusals live in their OWN slot (the signed-out arm already
+    // populated `mi_issuance_refusals`); the cross-cause Then compares the two
+    // dedicated vectors route-for-route.
+    world.mi_issuance_non_admin_refusals = vec![
+        na_get_pair,
+        (
+            "POST /workspace/invites".to_string(),
+            na_post_status,
+            na_post_body,
+        ),
+    ];
+}
+
+/// `Then each member-invite response is byte-identical to the never-existed path`
+/// (scenarios 22 + 23) — the non-enumerability core. EVERY recorded issuance refusal
+/// (GET + POST, non-admin or signed-out) is BYTE-IDENTICAL (status AND full body) to
+/// the same-method never-existed-path control: a uniform 404, NO 403, NO 401, NO
+/// login redirect, NO per-method divergence. The control itself must be a genuine 404
+/// (so the comparison is not vacuously matching two redirects). Comparing the FULL
+/// body — not merely "both 404" — is what makes the assertion falsifiable: any
+/// existence-revealing divergence (a 401, a 303, a distinct body) re-REDS here.
+#[then(regex = r#"^each member-invite response is byte-identical to the never-existed path$"#)]
+async fn each_member_invite_response_byte_identical_to_never_existed(world: &mut FoundryWorld) {
+    assert!(
+        !world.mi_issuance_refusals.is_empty(),
+        "no issuance-surface refusal was captured to assert on"
+    );
+    // No issuance refusal may be a login-redirect oracle.
+    for (route, status, _body) in &world.mi_issuance_refusals {
+        assert!(
+            !status.is_redirection(),
+            "{route} answered with a redirect ({status}) — a login-redirect oracle that \
+             reveals the issuance surface exists (NFR-1 forbids it)"
+        );
+    }
+    for (route, status, body) in &world.mi_issuance_refusals {
+        let method = route
+            .split_whitespace()
+            .next()
+            .expect("each recorded route is 'METHOD /path'");
+        let (control_status, control_body) = world
+            .mi_issuance_never_existed
+            .get(method)
+            .unwrap_or_else(|| panic!("a never-existed {method} control was captured"));
+        // The control must be a genuine refusal, NOT a 3xx (so the comparison is not
+        // vacuously matching two redirects). The GET control is the router fallback's
+        // 404; the POST control is the CSRF layer's 403 (token-less, screened ahead of
+        // routing) — both are 4xx client-error refusals with no existence oracle.
+        assert!(
+            control_status.is_client_error(),
+            "the never-existed {method} control must itself be a genuine 4xx refusal (so \
+             the comparison is not vacuously matching two redirects); got {control_status}"
+        );
+        assert_eq!(
+            status, control_status,
+            "{route} refused with status {status} but a never-existed {method} path refused \
+             with {control_status} — a status oracle (no 403, 401, or redirect distinguishing \
+             the issuance surface from nothing is allowed)"
+        );
+        assert_eq!(
+            body, control_body,
+            "{route} refusal body differs from the never-existed {method}-path body — a body \
+             oracle that reveals the issuance surface exists. \
+             issuance = {body:?}, never-existed = {control_body:?}"
+        );
+    }
+}
+
+/// `And the signed-out refusal is byte-identical to the non-admin refusal`
+/// (scenario 23) — the cross-cause non-enumerability core (NFR-1, AC-03.1). For EVERY
+/// issuance route, the signed-out caller's refusal is BYTE-IDENTICAL (status AND full
+/// body) to the SIGNED-IN NON-ADMIN's refusal for the SAME route — so an observer
+/// cannot tell WHY a request was refused (not-signed-in vs signed-in-but-not-admin).
+/// Asserting the FULL body route-for-route is what makes the litmus bite: collapsing
+/// the two refusal arms into distinct responses (a 403/401 on the not-authorized arm,
+/// a "sign in to invite" oracle on the signed-out arm) re-REDS here.
+#[then(regex = r#"^the signed-out refusal is byte-identical to the non-admin refusal$"#)]
+async fn signed_out_refusal_byte_identical_to_non_admin(world: &mut FoundryWorld) {
+    assert_eq!(
+        world.mi_issuance_signed_out_refusals.len(),
+        2,
+        "both issuance routes must have a signed-out refusal baseline; got {:?}",
+        world.mi_issuance_signed_out_refusals
+    );
+    assert_eq!(
+        world.mi_issuance_non_admin_refusals.len(),
+        2,
+        "both issuance routes must have a non-admin refusal baseline; got {:?}",
+        world.mi_issuance_non_admin_refusals
+    );
+    for (signed_out, non_admin) in world
+        .mi_issuance_signed_out_refusals
+        .iter()
+        .zip(world.mi_issuance_non_admin_refusals.iter())
+    {
+        let (so_route, so_status, so_body) = signed_out;
+        let (na_route, na_status, na_body) = non_admin;
+        assert_eq!(
+            so_route, na_route,
+            "the signed-out and non-admin refusals must be compared route-for-route; got \
+             {so_route:?} vs {na_route:?}"
+        );
+        assert_eq!(
+            so_status, na_status,
+            "{so_route} refused the signed-out caller with status {so_status} but the \
+             non-admin with {na_status} — a status oracle revealing the refusal CAUSE \
+             (NFR-1 forbids distinguishing not-signed-in from not-authorized)"
+        );
+        assert_eq!(
+            so_body, na_body,
+            "{so_route} refusal body for the signed-out caller differs from the non-admin \
+             refusal body — a body oracle that reveals the refusal CAUSE. \
+             signed-out = {so_body:?}, non-admin = {na_body:?}"
+        );
+    }
+}
+
+/// `And no invite is created` (scenarios 22 + 23) — the refused issuance probes
+/// produced NO `invites` row: ZERO invites exist in the per-scenario Postgres. The
+/// non-admin/signed-out POST was screened (gate or CSRF) BEFORE any `insert_invite`
+/// ran, so the invite table is empty. Falsifiability: were the gate to let the POST
+/// through, an invite for the smuggled email would appear → this REDs.
+#[then(regex = r#"^no invite is created$"#)]
+async fn no_invite_is_created(world: &mut FoundryWorld) {
+    let pool = harness(world).app.state.store.pool().clone();
+    let (rows,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM invites")
+        .fetch_one(&pool)
+        .await
+        .expect("count invites after the refused issuance probes");
+    assert_eq!(
+        rows, 0,
+        "a refused non-admin/signed-out issuance probe must create NO invite; found \
+         {rows} invite rows"
+    );
+}
+
 /// Parse the `id` + `sig` out of an emitted `/invites/accept?id=<uuid>&sig=<sig>`
 /// link rendered in the issuance "invite sent" fragment.
 fn parse_accept_link(body: &str) -> (uuid::Uuid, String) {

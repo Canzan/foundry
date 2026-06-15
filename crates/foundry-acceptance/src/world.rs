@@ -1015,6 +1015,23 @@ pub struct FoundryWorld {
     /// 02-04) — captured at arrival so the now-stale POST reuses the GET-time
     /// double-submit token, making its refusal fire on the TX guard, not CSRF.
     pub mi_get_csrf_cookie: Option<String>,
+    /// Issuance-surface refusals (scenarios 22/23, step 02-05): each `(method url,
+    /// status, body)` probe of `/workspace/invites` by a non-admin or signed-out
+    /// caller. Asserted BYTE-IDENTICAL (status + full body) to the same-method
+    /// never-existed control. Per-method because a CSRF-screened POST and a
+    /// gate-refused GET must be compared like-for-like.
+    pub mi_issuance_refusals: Vec<(String, StatusCode, String)>,
+    /// The same-method never-existed-path controls (GET + POST) for the issuance
+    /// non-enumerability comparison (scenarios 22/23). Keyed by HTTP method.
+    pub mi_issuance_never_existed: std::collections::HashMap<String, (StatusCode, String)>,
+    /// The SIGNED-OUT issuance refusals captured alongside the non-admin probes
+    /// (scenario 23) so the cross-cause byte-identity (signed-out == non-admin) is
+    /// asserted route-for-route. Each `(method url, status, body)`.
+    pub mi_issuance_signed_out_refusals: Vec<(String, StatusCode, String)>,
+    /// The SIGNED-IN NON-ADMIN issuance refusals (Marco) captured in scenario 23 as
+    /// the cross-cause baseline the signed-out refusal is asserted byte-identical to,
+    /// route-for-route. Each `(method url, status, body)`.
+    pub mi_issuance_non_admin_refusals: Vec<(String, StatusCode, String)>,
 }
 
 impl FoundryWorld {
