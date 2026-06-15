@@ -359,7 +359,7 @@ Feature: A provisioned first-admin claims her account from her invite link and i
   #     password on the SAME live invite completes the accept (the recoverability
   #     proof; AC-03.4, FR-5). Its Given chains off scenario 15's left-live invite.
   # ----------------------------------------------------------------------------
-  @pending @us-03
+  @us-03
   Scenario: A valid retry on the same invite after an error completes the accept
     Given Priya was shown an inline password error and her invite is still live
     When she submits a valid password on the same invite and confirms it

@@ -2952,6 +2952,109 @@ async fn she_sees_inline_mismatch_error(world: &mut FoundryWorld) {
     );
 }
 
+// ---------------------------------------------------------------------------
+// Scenario 17 (step 03-03) — RE-ATTEMPT: after an inline error, re-submitting a
+// VALID password on the SAME live invite completes the accept (consumed, password
+// written, session, 303 → workspace). The recoverability proof: a failed attempt
+// did NOT strand the user on a dead link. (US-03; E?; AC-03.4, FR-5.)
+//
+// Green by inheritance from the SHIPPED recovery composition (steps 03-01/02): a
+// weak/mismatched POST re-renders inline at 200 WITHOUT opening the consume TX
+// (the policy/confirm check runs BEFORE `set_first_admin_password_and_consume`),
+// so the invite stays live (`used_at` NULL); a SUBSEQUENT valid POST on the SAME
+// invite then runs the full happy path — `check_password_policy` passes, the
+// consume guarded-UPDATE fires exactly once, the argon2id hash is written, a
+// session is established, and the handler 303-redirects to the workspace. No new
+// production code: the retry is just a second POST against the still-live invite.
+//
+// The Given chains off scenario 15's left-live invite: it drives the reused GET
+// arrival (renders the form + mints the CSRF cookie into `session_cookie_header`)
+// then the reused weak-password POST When, then asserts (DB-observable) the invite
+// is STILL live — so the recovery binds explicitly to the invite-stays-live
+// behaviour proven in 03-01. The When reuses the happy-path valid POST
+// (`she_sets_a_valid_password`) against the SAME invite + SAME GET-minted CSRF
+// cookie. The Thens reuse scenario 4's `she is signed in on the "<ws>" workspace`
+// (303 + session + resolved tenant) and the walking skeleton's `the invite is
+// recorded as used exactly once` (used_at set, used_by = first-admin, exactly one
+// consumed row).
+//
+// Falsifiability litmus (proven at DELIVER): if the FAILED weak-password attempt
+// HAD consumed the invite (policy check moved AFTER the consume TX), the Given's
+// still-live assertion would RED (the invite would already be used after the weak
+// POST). And if the retry could not complete (the consume guard rejecting a live
+// invite, or the policy wrongly failing the valid password), the reused
+// signed-in + used-exactly-once Thens would RED (no 303 / no session / zero
+// consumed rows). The recovery is REAL only because the failed attempt left the
+// invite live AND the retry consumes it exactly once.
+// ---------------------------------------------------------------------------
+
+/// `Given Priya was shown an inline password error and her invite is still live`
+/// — drive the reused GET arrival (renders the set-password form + mints the CSRF
+/// cookie into `session_cookie_header`), then the reused weak-password POST (3
+/// chars, below min-12) which re-renders inline at 200 WITHOUT consuming the
+/// invite (the policy check runs before the consume TX). Then assert (DB-observable
+/// against the REAL per-scenario Postgres) the inline error was shown AND the
+/// invite is STILL live (`used_at` NULL, unexpired) — grounding the "shown an
+/// inline error, invite still live" precondition in observable state, and binding
+/// the recovery explicitly to the invite-stays-live behaviour proven in 03-01.
+#[given(regex = r#"^Priya was shown an inline password error and her invite is still live$"#)]
+async fn priya_shown_inline_error_invite_live(world: &mut FoundryWorld) {
+    // Reused arrival: GET renders the form for "Northwind" + mints the CSRF cookie.
+    priya_opened_live_invite(world, "Northwind".to_string()).await;
+
+    // Reused failed attempt: a weak password re-renders inline (200) without consuming.
+    she_submits_a_weak_password(world).await;
+
+    // The failed attempt was an INLINE error (200 re-render), not a redirect/refusal.
+    assert_eq!(
+        world.ia_post_status,
+        Some(StatusCode::OK),
+        "the failed attempt must re-render inline at 200 OK (the inline password \
+         error), proving the user was shown a correctable error; got {:?}",
+        world.ia_post_status
+    );
+    assert!(
+        world.ia_session_cookie.is_none(),
+        "the failed attempt must establish NO session (the policy check fails before \
+         the consume TX + sign-in); got {:?}",
+        world.ia_session_cookie
+    );
+
+    // DB-observable: the invite is STILL live after the failed attempt — the
+    // failed POST did not strand the user on a dead link. This is the binding to
+    // the invite-stays-live behaviour: if the weak POST HAD consumed the invite,
+    // this count would be 0 and the precondition would RED here.
+    let invite_id = world.ia_invite_id.expect("invite seeded");
+    let now = harness(world).app.state.clock.now();
+    let pool = harness(world).app.state.store.pool().clone();
+    let (live_rows,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM invites WHERE id = $1 AND used_at IS NULL AND expires_at > $2",
+    )
+    .bind(invite_id)
+    .bind(now)
+    .fetch_one(&pool)
+    .await
+    .expect("count the live (unused, unexpired) invite row after the failed attempt");
+    assert_eq!(
+        live_rows, 1,
+        "after the failed password attempt the invite must still be live (used_at \
+         NULL, unexpired) — the failed attempt must NOT have consumed it; found \
+         {live_rows} live rows"
+    );
+}
+
+/// `When she submits a valid password on the same invite and confirms it` — drive
+/// a VALID retry POST against the SAME live invite, reusing the happy-path valid
+/// POST (`she_sets_a_valid_password`): it carries the SAME GET-minted double-submit
+/// CSRF cookie + token, the SAME signed token, and a policy-passing password +
+/// matching confirm. The policy passes, the consume guarded-UPDATE fires, the hash
+/// is written, a session is established, and the handler 303-redirects. Captures
+/// the 303, Location, and auto-sign-in session cookie for the reused Thens.
+#[when(regex = r#"^she submits a valid password on the same invite and confirms it$"#)]
+async fn she_submits_valid_retry_on_same_invite(world: &mut FoundryWorld) {
+    she_sets_a_valid_password(world).await;
+}
+
 /// Flip a single base64url character of a genuine signature so the HMAC tamper
 /// oracle rejects it (the corruption is guaranteed to take — the replacement
 /// differs from the original character).
