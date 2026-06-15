@@ -347,7 +347,7 @@ Feature: A provisioned first-admin claims her account from her invite link and i
   # 16. RECOVERY (US-03) — a MISMATCHED confirmation is corrected inline; the invite
   #     is NOT consumed and stays live (E6; AC-03.2, FR-5).
   # ----------------------------------------------------------------------------
-  @pending @us-03 @error
+  @us-03 @error
   Scenario: A mismatched confirmation is corrected inline and the invite stays live
     Given Priya has opened her live invite for "Northwind" and seen the set-password form
     When her confirmation does not match her new password

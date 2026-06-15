@@ -2826,6 +2826,132 @@ async fn no_session_is_created(world: &mut FoundryWorld) {
     );
 }
 
+// ---------------------------------------------------------------------------
+// Scenario 16 (step 03-02) — a MISMATCHED confirmation is corrected INLINE; the
+// confirm-match check runs BEFORE the consume TX opens, so the invite is NOT
+// consumed and stays live. (US-03; E6; AC-03.2, FR-5.)
+//
+// Green by inheritance from the SHIPPED POST handler (`submit_accept`,
+// invites_accept.rs:142): `if form.password != form.confirm` is evaluated AFTER
+// the advisory liveness/tamper re-check but BEFORE `check_password_policy` and
+// BEFORE `set_first_admin_password_and_consume` (the consume TX, line 173). On a
+// mismatch it calls `re_render_with_error` (line 143 → 280) returning 200 OK,
+// re-rendering the form inline with the `MISMATCH_ERROR` copy ("The passwords do
+// not match.") and NEVER opening the consume TX — so the invite stays live.
+//
+// Reuses scenario 2's arrival Given (the GET that renders the form + mints the
+// CSRF cookie) and scenario 5's `And her invite is still live and unconsumed`
+// Then (DB-observable: used_at NULL, unexpired). New steps: the mismatched-confirm
+// POST When and the inline-mismatch-error Then.
+//
+// Falsifiability litmus (proven at DELIVER): dropping the `password != confirm`
+// check — or moving it AFTER the consume TX — makes a mismatched submit EITHER be
+// accepted (a 303 + session cookie → the inline-mismatch-error Then REDs: status
+// is 303 not 200, no mismatch copy) OR consume the invite (the consume guard fires
+// first → "still live and unconsumed" REDs).
+// ---------------------------------------------------------------------------
+
+/// `When her confirmation does not match her new password` — drive the NEW public
+/// POST `/invites/accept` over real HTTP carrying the double-submit `_csrf`
+/// (cookie + form field minted on the reused GET), the token, a policy-PASSING
+/// password (the same min-12 password the happy path uses, so ONLY the confirm
+/// match fails — not the policy), and a NON-matching confirm. Capture the status,
+/// the re-rendered inline body, and any session cookie so the inline-mismatch-error
+/// + still-live observables are asserted port-to-port.
+#[when(regex = r#"^her confirmation does not match her new password$"#)]
+async fn her_confirmation_does_not_match(world: &mut FoundryWorld) {
+    let invite_id = world.ia_invite_id.expect("invite seeded");
+    let sig = world
+        .ia_invite_sig
+        .clone()
+        .expect("invite signature minted");
+    let csrf_cookie = world
+        .session_cookie_header
+        .clone()
+        .expect("the GET minted a foundry_csrf cookie");
+    let csrf_token = csrf_cookie
+        .strip_prefix("foundry_csrf=")
+        .and_then(|rest| rest.split(';').next())
+        .unwrap_or("")
+        .to_string();
+    let base = harness(world).base_url();
+    let client = http(world);
+
+    // A policy-passing password with a NON-matching confirmation — so ONLY the
+    // confirm-match check fails (not the min-12 policy). The confirm differs by a
+    // suffix so the mismatch is unambiguous.
+    let form = [
+        ("id", invite_id.to_string()),
+        ("sig", sig),
+        ("password", PRIYA_PASSWORD.to_string()),
+        ("confirm", format!("{PRIYA_PASSWORD}-different")),
+        ("_csrf", csrf_token.clone()),
+    ];
+    let resp = client
+        .post(format!("{base}/invites/accept"))
+        .header(
+            reqwest::header::COOKIE,
+            format!("foundry_csrf={csrf_token}"),
+        )
+        .form(&form)
+        .send()
+        .await
+        .expect("POST /invites/accept with a mismatched confirmation");
+    let status = resp.status();
+    let session_cookie = resp
+        .headers()
+        .get_all(reqwest::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .find(|s| s.starts_with("foundry_session="))
+        .and_then(|s| s.split(';').next())
+        .map(str::to_string);
+    let body = resp.text().await.unwrap_or_default();
+
+    world.ia_post_status = Some(status);
+    world.ia_session_cookie = session_cookie;
+    world.last_body = Some(body);
+}
+
+/// `Then she sees an inline error that the passwords do not match` — the
+/// mismatched-confirm POST re-rendered the set-password form IN PLACE at 200 OK
+/// carrying the password-mismatch copy ("do not match"). It is the SAME form
+/// (still posts to /invites/accept, still names the password field) — an inline
+/// correction, not a refusal or a redirect. A confirm-match check moved AFTER the
+/// consume (or dropped) would 303-redirect instead, RED-ing this. No session is
+/// created (the consume TX + sign-in are never reached).
+#[then(regex = r#"^she sees an inline error that the passwords do not match$"#)]
+async fn she_sees_inline_mismatch_error(world: &mut FoundryWorld) {
+    assert_eq!(
+        world.ia_post_status,
+        Some(StatusCode::OK),
+        "a mismatched-confirm POST must re-render the form inline at 200 OK (not a \
+         303 redirect, not a refusal); got {:?}",
+        world.ia_post_status
+    );
+    let body = world
+        .last_body
+        .clone()
+        .expect("the mismatched-confirm POST captured a re-rendered body");
+    let lower = body.to_ascii_lowercase();
+    assert!(
+        lower.contains("do not match"),
+        "the inline error must explain the passwords DO NOT MATCH; got {body:?}"
+    );
+    assert!(
+        body.contains(r#"action="/invites/accept""#) && body.contains(r#"name="password""#),
+        "the mismatch error must be shown ON the set-password form (re-rendered in \
+         place, posting back to /invites/accept), not on a refusal page; got {body:?}"
+    );
+    assert!(
+        world.ia_session_cookie.is_none(),
+        "a mismatched-confirm POST must create NO session — no foundry_session cookie \
+         must be issued (the confirm-match check fails before the consume TX + \
+         sign-in); got {:?}",
+        world.ia_session_cookie
+    );
+}
+
 /// Flip a single base64url character of a genuine signature so the HMAC tamper
 /// oracle rejects it (the corruption is guaranteed to take — the replacement
 /// differs from the original character).
