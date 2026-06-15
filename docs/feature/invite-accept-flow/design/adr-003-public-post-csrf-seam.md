@@ -1,7 +1,7 @@
 # ADR-003 — CSRF on the public (signed-out) accept POST
 
 ## Status
-Proposed (DESIGN wave). Resolves the public-POST CSRF open decision.
+**IMPLEMENTED / SHIPPED** (finalized 2026-06-14). DESIGN wave. Resolves the public-POST CSRF open decision. CSRF cookie minted on the GET, POST mounted under the shipped double-submit middleware (token-less POST refused, step 02-08); see `docs/evolution/2026-06-14-invite-accept-flow.md`.
 
 ## Context
 NFR-6: the accept POST is state-changing (it consumes an invite + writes a credential) but the caller

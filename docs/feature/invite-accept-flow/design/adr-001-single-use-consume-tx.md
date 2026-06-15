@@ -1,7 +1,7 @@
 # ADR-001 — Single-use consume: no migration, guarded-UPDATE in one TX
 
 ## Status
-Proposed (DESIGN wave, Propose mode). Resolves OD-1. Needs a trivial user nod (uses shipped schema).
+**IMPLEMENTED / SHIPPED** (ratified 2026-06-14; finalized 2026-06-14). DESIGN wave, Propose mode. Resolves OD-1. Shipped via DELIVER steps `770626d`→`bfb7e79` + remediation `b8b9b06`; reuses the shipped `invites.used_at`/`used_by` columns (no migration); see `docs/evolution/2026-06-14-invite-accept-flow.md`.
 
 ## Context
 NFR-2 requires an invite consumable **exactly once**, race-safe, with the password write and the

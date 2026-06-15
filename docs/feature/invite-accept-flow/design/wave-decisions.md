@@ -1,5 +1,14 @@
 # DESIGN Decisions — invite-accept-flow
 
+> **STATUS: IMPLEMENTED / SHIPPED (finalized 2026-06-14).** All decisions D1–D7 are IMPLEMENTED and
+> shipped to `main` via the 18 DES-monitored TDD steps (`770626d`→`bfb7e79`) + review-remediation
+> `b8b9b06`. `@all` acceptance 303/303 scenarios (2460/2460 steps) green; fmt + release clippy
+> `-D warnings` clean; `cargo xtask check-arch` PASSED (D7 confirmed — no new allow-list line);
+> adversarial review APPROVED (no Testing Theater); scoped mutation 100% (4/4) on
+> `check_password_policy`. Zero new crate, zero migration. OD-1..OD-5 ratified by user 2026-06-14.
+> This CLOSES the dead `/invites/accept` URL flagged by the two prior provisioning features. See
+> `docs/evolution/2026-06-14-invite-accept-flow.md`.
+>
 > Morgan (nw-solution-architect), DESIGN wave, application/component scope, **Propose** mode.
 > The deferred `/invites/accept` credential-establishment vertical — the single highest-value
 > follow-up that `web-provisioning-flow` ADR-005 / D5 ratified OUT of its v1 (the emitted invite link

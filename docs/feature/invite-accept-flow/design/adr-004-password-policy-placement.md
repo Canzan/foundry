@@ -1,7 +1,7 @@
 # ADR-004 — Password-strength policy: min-12 length-first, reusable home
 
 ## Status
-Proposed (DESIGN wave). Resolves NFR-4 placement. OD-2 (the threshold) remains for user ratification.
+**IMPLEMENTED / SHIPPED** (finalized 2026-06-14). DESIGN wave. Resolves NFR-4 placement; OD-2 RATIFIED at min-12 (length-first, NIST). `foundry_auth::check_password_policy` shipped + 100% (4/4) scoped mutation coverage; see `docs/evolution/2026-06-14-invite-accept-flow.md`.
 
 ## Context
 NFR-4 introduces a minimum password-strength policy at set-password. Grounding confirms **foundry

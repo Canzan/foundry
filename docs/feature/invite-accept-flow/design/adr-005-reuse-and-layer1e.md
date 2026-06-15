@@ -1,7 +1,7 @@
 # ADR-005 — Reuse verdict & the LAYER-1e allow-list confirmation
 
 ## Status
-Proposed (DESIGN wave). Resolves the reuse-vs-new framing and the LAYER-1e (D7) question.
+**IMPLEMENTED / SHIPPED** (finalized 2026-06-14). DESIGN wave. Resolves the reuse-vs-new framing and the LAYER-1e (D7) question — confirmed against the real `cargo xtask check-arch` run: NO new allow-list line (uses the `resolve_active_workspace` seam like `signin`). See `docs/evolution/2026-06-14-invite-accept-flow.md`.
 
 ## Context
 The task asks: maximize reuse; identify the genuinely-new pieces; and confirm whether the new handler

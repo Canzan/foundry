@@ -1,7 +1,7 @@
 # ADR-002 — Non-enumerable uniform refusal (no existence oracle)
 
 ## Status
-Proposed (DESIGN wave). Resolves the non-enumerable-refusal open decision. OD-3 (status code) open.
+**IMPLEMENTED / SHIPPED** (finalized 2026-06-14). DESIGN wave. Resolves the non-enumerable-refusal open decision; OD-3 RATIFIED at 200 OK. Byte-identical refusal across expired/used/tampered/unknown shipped + proven by the revert-reds-it litmus; see `docs/evolution/2026-06-14-invite-accept-flow.md`.
 
 ## Context
 NFR-3 / FR-4 / BR-4: every invalid-link reason — expired, already-used, invalid/tampered signature,
