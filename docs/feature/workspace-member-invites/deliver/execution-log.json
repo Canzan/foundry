@@ -71,6 +71,34 @@
       "s": "EXECUTED",
       "d": "PASS",
       "t": "2026-06-15T18:00:41Z"
+    },
+    {
+      "sid": "01-03",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-15T18:03:53Z"
+    },
+    {
+      "sid": "01-03",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-15T18:08:35Z"
+    },
+    {
+      "sid": "01-03",
+      "p": "RED_UNIT",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: the member-accept GET + happy cluster is driven port-to-port through the public /invites/accept GET+POST web handler at LAYER 3 (example-based, Mandate 11); 4 scenarios green-by-inheritance from the 01-01 shipped accept path (show_accept_form + member dispatch arm). No production code added, so no separate unit test. Genuine RED established via a falsifiability probe (breaking the GET form render reds scenarios 6+7 at the form-render assertion).",
+      "t": "2026-06-15T18:08:35Z"
+    },
+    {
+      "sid": "01-03",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-15T18:14:59Z"
     }
   ]
 }

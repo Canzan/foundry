@@ -711,6 +711,391 @@ async fn submit_issuance(world: &mut FoundryWorld, invitee: &str) {
 }
 
 // ---------------------------------------------------------------------------
+// Member-accept GET + happy cluster (step 01-03)
+// ---------------------------------------------------------------------------
+//
+// Scenarios 6/7/8/9 exercise the SHIPPED member arm of the accept path:
+//   * GET `/invites/accept?id&sig` renders the set-password form NAMING the
+//     workspace, NON-COMMITTALLY (no account created, invite unconsumed) —
+//     `show_accept_form` + the invite_accept.html template;
+//   * the POST DISPATCHES to the NEW `create_member_and_consume` (no user maps
+//     to the invitee email -> member arm), creating the account + a member
+//     membership, consuming the invite, and signing in (303).
+// Green-by-inheritance from the 01-01 accept path: this step authors only the
+// acceptance GLUE (it adds NO production code). The member invite under test is
+// seeded DIRECTLY via the SHIPPED `insert_invite` (created_by = the seeded admin
+// Dana, invitee_email = a NEW email with no user) so the dispatch routes to the
+// member arm — mirroring the invite-accept feature's Background seam, but for a
+// member (account-creating) invite rather than a first-admin (pre-existing-user)
+// one.
+
+/// Priya Shah's email (scenario 8) — a distinct invitee from Sam, with no
+/// pre-existing Foundry account, so her accept dispatches to the member arm.
+const PRIYA_SHAH_EMAIL: &str = "priya.shah@northwind.example";
+/// A policy-passing password (min-12, ADR-004) for the account-creating accepts.
+const MEMBER_PASSWORD: &str = "member-northwind-secure-pass";
+
+/// Seed a LIVE member invite for `invitee_email` on the named workspace, issued by
+/// the seeded admin (Dana, the invite's `created_by`), with `expires_at` set to
+/// `now + ttl` against the REAL per-scenario Postgres via the SHIPPED
+/// `insert_invite`; then mint the genuine HMAC `sig` over `invite_id|expires_at`
+/// with the harness `session_secret` (the SAME secret the GET/POST handlers
+/// verify). Stash the id + sig in the `mi_*` slots so the accept legs drive this
+/// real, freshly-issued invite. No user exists for `invitee_email`, so the accept
+/// dispatch routes to the member arm (`create_member_and_consume`).
+async fn seed_member_invite(
+    world: &mut FoundryWorld,
+    ws_name: &str,
+    invitee_email: &str,
+    ttl: time::Duration,
+) {
+    let workspace_id = *world
+        .mi_workspace_ids
+        .get(ws_name)
+        .unwrap_or_else(|| panic!("workspace {ws_name:?} seeded in the Background"));
+    let admin_id = world
+        .mi_admin_user_id
+        .expect("the Background seeded Dana's user id");
+    let store = harness(world).app.state.store.clone();
+    let now = harness(world).app.state.clock.now();
+    let expires_at = now + ttl;
+    let invite_id = uuid::Uuid::now_v7();
+
+    store
+        .insert_invite(
+            invite_id,
+            workspace_id,
+            Some(invitee_email),
+            admin_id,
+            expires_at,
+        )
+        .await
+        .expect("seed a live member invite via the shipped insert_invite");
+
+    let secret = harness(world).app.state.session_secret.clone();
+    let token = foundry_auth::InviteToken::new(invite_id, expires_at, &secret)
+        .expect("mint the member invite signature");
+    world.mi_invite_id = Some(invite_id);
+    world.mi_invite_sig = Some(token.signature);
+}
+
+/// Drive the NEW public GET `/invites/accept?id&sig` over real HTTP with the
+/// genuine signed token, capturing the status (into `mi_post_status`) + rendered
+/// body (into `last_body`) for the form/refusal observables. NON-COMMITTAL —
+/// renders only; mutates nothing.
+async fn get_member_accept_page(world: &mut FoundryWorld) {
+    let invite_id = world.mi_invite_id.expect("a member invite was seeded");
+    let sig = world
+        .mi_invite_sig
+        .clone()
+        .expect("the invite sig was minted");
+    let base = harness(world).base_url();
+    let client = http(world);
+
+    let resp = client
+        .get(format!(
+            "{base}/invites/accept?id={invite_id}&sig={sig}",
+            sig = urlencoding::encode(&sig)
+        ))
+        .send()
+        .await
+        .expect("GET /invites/accept");
+    world.mi_post_status = Some(resp.status());
+    world.last_body = Some(resp.text().await.unwrap_or_default());
+}
+
+// --- Scenario 6: a live member invite renders a set-password form -------------
+
+/// `Given Dana issued Sam a live member invite for "Northwind" two hours ago` —
+/// seed a LIVE member invite for Sam (issued two hours ago, so well within the
+/// 7-day window) via the SHIPPED `insert_invite` as Dana, and mint its signature.
+/// "Two hours ago" is modelled by a 7-day-minus-2-hours TTL from the frozen clock
+/// (the invite is unexpired and unused — the liveness the GET requires).
+#[given(regex = r#"^Dana issued Sam a live member invite for "([^"]+)" two hours ago$"#)]
+async fn dana_issued_sam_live_invite_two_hours_ago(world: &mut FoundryWorld, ws_name: String) {
+    let ttl = time::Duration::days(7) - time::Duration::hours(2);
+    seed_member_invite(world, &ws_name, "sam.okafor@northwind.example", ttl).await;
+}
+
+/// `And Sam has no Foundry account yet` — confirm the precondition that grounds the
+/// member arm of the accept dispatch: NO `users` row maps to Sam's email. (If one
+/// existed, the dispatch would route to the first-admin/collision arms instead of
+/// `create_member_and_consume`.) Read against the REAL per-scenario Postgres.
+#[given(regex = r#"^Sam has no Foundry account yet$"#)]
+async fn sam_has_no_account_yet(world: &mut FoundryWorld) {
+    let pool = harness(world).app.state.store.pool().clone();
+    let (rows,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users WHERE email_lower = $1")
+        .bind("sam.okafor@northwind.example")
+        .fetch_one(&pool)
+        .await
+        .expect("count Sam's user rows");
+    assert_eq!(
+        rows, 0,
+        "the member-accept precondition requires NO pre-existing account for Sam (so the \
+         accept dispatches to the member arm); found {rows} rows"
+    );
+}
+
+/// `When Sam opens his invite link` — GET the live member invite (no password yet).
+#[when(regex = r#"^Sam opens his invite link$"#)]
+async fn sam_opens_his_invite_link(world: &mut FoundryWorld) {
+    get_member_accept_page(world).await;
+}
+
+/// `Then he sees a set-password form to join "<workspace>" as a member` — the GET
+/// for a live member invite rendered a 200 page carrying a password form posting
+/// back to `/invites/accept` and NAMING the workspace (the port-exposed observable
+/// that the set-password form was served, not a refusal). The workspace name +
+/// password form together prove the GET resolved the invite's workspace and offered
+/// the member the join form.
+#[then(regex = r#"^he sees a set-password form to join "([^"]+)" as a member$"#)]
+async fn sees_set_password_form_to_join(world: &mut FoundryWorld, ws_name: String) {
+    assert_eq!(
+        world.mi_post_status,
+        Some(StatusCode::OK),
+        "the GET accept page for a live member invite must render a 200 set-password form; \
+         got {:?}",
+        world.mi_post_status
+    );
+    let body = world
+        .last_body
+        .clone()
+        .expect("the GET captured a rendered body");
+    assert!(
+        body.contains(r#"action="/invites/accept""#) && body.contains(r#"name="password""#),
+        "the GET must render a set-password form posting to /invites/accept; got {body:?}"
+    );
+    assert!(
+        body.contains(&ws_name),
+        "the set-password form must NAME the {ws_name:?} workspace the member is joining; \
+         got {body:?}"
+    );
+}
+
+// --- Scenario 7: the GET is non-committal -------------------------------------
+
+/// `Given Sam has opened his live member invite for "<workspace>" and seen the
+/// set-password form` — seed the live member invite (two hours ago) and drive the
+/// GET, asserting the form rendered. The arrival state for the non-committal proof.
+#[given(
+    regex = r#"^Sam has opened his live member invite for "([^"]+)" and seen the set-password form$"#
+)]
+async fn sam_opened_live_invite_seen_form(world: &mut FoundryWorld, ws_name: String) {
+    let ttl = time::Duration::days(7) - time::Duration::hours(2);
+    seed_member_invite(world, &ws_name, "sam.okafor@northwind.example", ttl).await;
+    get_member_accept_page(world).await;
+    assert_eq!(
+        world.mi_post_status,
+        Some(StatusCode::OK),
+        "the GET accept page for a live member invite must render a 200 set-password form; \
+         got {:?}",
+        world.mi_post_status
+    );
+    let body = world
+        .last_body
+        .clone()
+        .expect("the GET captured a rendered body");
+    assert!(
+        body.contains(r#"action="/invites/accept""#) && body.contains(r#"name="password""#),
+        "the GET must render a set-password form posting to /invites/accept; got {body:?}"
+    );
+}
+
+/// `Then no account exists yet for "<email>"` — the GET was NON-COMMITTAL: it
+/// created NO account. EXACTLY ZERO `users` rows map to the invitee email after the
+/// GET. Read against the REAL per-scenario Postgres. The falsifiability litmus: a
+/// GET that ran `create_member_and_consume` (creating the user) would RED this.
+#[then(regex = r#"^no account exists yet for "([^"]+)"$"#)]
+async fn no_account_exists_yet_for(world: &mut FoundryWorld, email: String) {
+    let pool = harness(world).app.state.store.pool().clone();
+    let email_lower = email.to_ascii_lowercase();
+    let (rows,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users WHERE email_lower = $1")
+        .bind(&email_lower)
+        .fetch_one(&pool)
+        .await
+        .expect("count the invitee's user rows after the GET");
+    assert_eq!(
+        rows, 0,
+        "opening the member-accept page must create NO account (the GET is non-committal); \
+         found {rows} rows for {email:?}"
+    );
+}
+
+/// `And his invite is still live and unconsumed` — the GET mutated nothing: the
+/// seeded invite row is STILL live (`used_at` NULL and `expires_at > now`) after the
+/// GET. Read against the REAL per-scenario Postgres. The falsifiability litmus: a
+/// GET that consumed the invite (set `used_at`) would RED this.
+#[then(regex = r#"^his invite is still live and unconsumed$"#)]
+async fn his_invite_still_live_and_unconsumed(world: &mut FoundryWorld) {
+    let invite_id = world.mi_invite_id.expect("a member invite was seeded");
+    let now = harness(world).app.state.clock.now();
+    let pool = harness(world).app.state.store.pool().clone();
+    let (live_rows,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM invites WHERE id = $1 AND used_at IS NULL AND expires_at > $2",
+    )
+    .bind(invite_id)
+    .bind(now)
+    .fetch_one(&pool)
+    .await
+    .expect("count the still-live invite row after the GET");
+    assert_eq!(
+        live_rows, 1,
+        "the member invite must stay live (unused, unexpired) after the non-committal GET; \
+         found {live_rows} live rows"
+    );
+}
+
+// --- Scenarios 8 & 9: the member invite accepts (account created + signed in) --
+
+/// `Given Dana issued Priya Shah a member invite for "<workspace>" twenty seconds
+/// ago` — seed a near-fresh LIVE member invite for Priya Shah (issued 20s ago,
+/// modelled as a 7-day-minus-20s TTL from the frozen clock) via the SHIPPED
+/// `insert_invite` as Dana, and mint its signature. No user maps to Priya's email,
+/// so her accept dispatches to the member arm.
+#[given(regex = r#"^Dana issued Priya Shah a member invite for "([^"]+)" twenty seconds ago$"#)]
+async fn dana_issued_priya_invite_twenty_seconds_ago(world: &mut FoundryWorld, ws_name: String) {
+    let ttl = time::Duration::days(7) - time::Duration::seconds(20);
+    seed_member_invite(world, &ws_name, PRIYA_SHAH_EMAIL, ttl).await;
+}
+
+/// `When Priya opens her link and sets a valid password` — drive the full member
+/// accept (GET form + CSRF cookie -> POST id+sig+password+confirm+_csrf) for the
+/// near-fresh invite. The POST dispatches to `create_member_and_consume`, creating
+/// Priya's account + a member membership, consuming the invite, and auto-signing in.
+#[when(regex = r#"^Priya opens her link and sets a valid password$"#)]
+async fn priya_opens_link_sets_valid_password(world: &mut FoundryWorld) {
+    accept_member_invite(world, MEMBER_PASSWORD).await;
+}
+
+/// `Then a new member account is created for Priya and she is signed in on
+/// "<workspace>"` — the account-creating accept succeeded end-to-end: EXACTLY ONE
+/// `users` row now exists for Priya (created by the member arm), the POST 303'd with
+/// an auto-sign-in `foundry_session` cookie (no separate login), and her RESOLVED
+/// active workspace is the inviting tenant (DB-observable via the SHIPPED
+/// `resolve_active_workspace`).
+#[then(regex = r#"^a new member account is created for Priya and she is signed in on "([^"]+)"$"#)]
+async fn priya_account_created_and_signed_in(world: &mut FoundryWorld, ws_name: String) {
+    assert_member_accepted_and_signed_in(world, PRIYA_SHAH_EMAIL, &ws_name).await;
+}
+
+/// `Given Sam's member invite is one second away from expiring and has not been
+/// used` — seed a LIVE member invite for Sam whose `expires_at` is one second in the
+/// future (the INCLUSIVE side of the expiry boundary: `expires_at > now` holds),
+/// minting the signature over the near-expiry `expires_at`. Unused. The boundary the
+/// SHIPPED `expires_at > now` guard admits IDENTICALLY on the GET advisory-liveness
+/// check and the authoritative consume TX.
+#[given(regex = r#"^Sam's member invite is one second away from expiring and has not been used$"#)]
+async fn sam_invite_one_second_from_expiring(world: &mut FoundryWorld) {
+    seed_member_invite(
+        world,
+        "Northwind",
+        "sam.okafor@northwind.example",
+        time::Duration::seconds(1),
+    )
+    .await;
+    // Ground the "one second away from expiring, unused" precondition in observable
+    // invite state before the accept.
+    let invite_id = world.mi_invite_id.expect("a member invite was seeded");
+    let now = harness(world).app.state.clock.now();
+    let pool = harness(world).app.state.store.pool().clone();
+    let (live_rows,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM invites WHERE id = $1 AND used_at IS NULL AND expires_at > $2",
+    )
+    .bind(invite_id)
+    .bind(now)
+    .fetch_one(&pool)
+    .await
+    .expect("count the live (unused, just-inside-expiry) member invite row");
+    assert_eq!(
+        live_rows, 1,
+        "the member invite under test must be live (unused, expiry just in the future) \
+         before the accept; found {live_rows} live rows"
+    );
+}
+
+/// `When Sam opens his link and sets a valid password` — drive the full member
+/// accept (GET form + CSRF -> POST) for the just-inside-expiry invite. The advisory
+/// GET liveness (`expires_at > now`) admits the boundary and the authoritative
+/// consume TX re-enforces it, so the account is created + the invite consumed + Sam
+/// signed in.
+#[when(regex = r#"^Sam opens his link and sets a valid password$"#)]
+async fn sam_opens_link_sets_valid_password(world: &mut FoundryWorld) {
+    accept_member_invite(world, MEMBER_PASSWORD).await;
+}
+
+/// `Then his member account is created and he is signed in on "<workspace>"` — the
+/// just-inside-expiry member invite accepted end-to-end: EXACTLY ONE `users` row for
+/// Sam, the POST 303'd with an auto-sign-in session cookie, and his RESOLVED active
+/// workspace is the inviting tenant. Tightening either expiry guard to reject the
+/// near-boundary would RED this (no account / no 303 / no session).
+#[then(regex = r#"^his member account is created and he is signed in on "([^"]+)"$"#)]
+async fn sam_account_created_and_signed_in(world: &mut FoundryWorld, ws_name: String) {
+    assert_member_accepted_and_signed_in(world, "sam.okafor@northwind.example", &ws_name).await;
+}
+
+/// Shared account-created + signed-in assertion for the account-creating member
+/// accepts (scenarios 8 + 9): EXACTLY ONE `users` row for the invitee, a 303 with an
+/// auto-sign-in session cookie, and the RESOLVED active workspace = the inviting
+/// tenant (via the SHIPPED `resolve_active_workspace`). Reads the REAL per-scenario
+/// Postgres at the driven-port boundary.
+async fn assert_member_accepted_and_signed_in(
+    world: &FoundryWorld,
+    invitee_email: &str,
+    ws_name: &str,
+) {
+    assert_eq!(
+        world.mi_post_status,
+        Some(StatusCode::SEE_OTHER),
+        "the member accept POST must 303 SEE_OTHER on success (auto sign-in); got {:?}",
+        world.mi_post_status
+    );
+    assert!(
+        world.mi_session_cookie.is_some(),
+        "the accept POST must establish a session (issue a foundry_session cookie), proving \
+         auto sign-in with no separate login step; got none"
+    );
+
+    let pool = harness(world).app.state.store.pool().clone();
+    let email_lower = invitee_email.to_ascii_lowercase();
+    let (id, _count): (uuid::Uuid, i64) = {
+        let (count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users WHERE email_lower = $1")
+            .bind(&email_lower)
+            .fetch_one(&pool)
+            .await
+            .expect("count the created member user row");
+        assert_eq!(
+            count, 1,
+            "the member accept must create EXACTLY ONE account for {invitee_email:?}; found \
+             {count} rows"
+        );
+        let (uid,): (uuid::Uuid,) = sqlx::query_as("SELECT id FROM users WHERE email_lower = $1")
+            .bind(&email_lower)
+            .fetch_one(&pool)
+            .await
+            .expect("read the created member user id");
+        (uid, count)
+    };
+
+    let expected_ws = *world
+        .mi_workspace_ids
+        .get(ws_name)
+        .unwrap_or_else(|| panic!("workspace {ws_name:?} seeded in the Background"));
+    let resolved = harness(world)
+        .app
+        .state
+        .store
+        .resolve_active_workspace(id)
+        .await
+        .expect("resolve the new member's active workspace")
+        .expect("the new member belongs to the inviting workspace");
+    assert_eq!(
+        resolved.0, expected_ws,
+        "the new member must be signed in ON the {ws_name:?} workspace ({expected_ws}); \
+         resolved {resolved:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------
 

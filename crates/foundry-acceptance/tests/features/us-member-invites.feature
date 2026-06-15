@@ -258,7 +258,7 @@ Feature: A workspace admin invites a teammate, who joins by creating an account 
   # 6. The GET accept page renders the set-password form for a live member invite,
   #    naming the workspace and "join as a member" (AC-02.1). The arrival step of the
   #    accept chain — its Given+When is reused by scenarios 7, 17, 18, 19, 20, 21.
-  @pending @us-02
+  @us-02
   Scenario: A live member invite renders a set-password form naming the workspace
     Given Dana issued Sam a live member invite for "Northwind" two hours ago
     And Sam has no Foundry account yet
@@ -268,7 +268,7 @@ Feature: A workspace admin invites a teammate, who joins by creating an account 
   # 7. The GET is NON-COMMITTAL — opening the page creates no account and consumes
   #    nothing (AC-02.2). The TOCTOU-safety foundation: only the POST tx is
   #    authoritative. Its Given reuses scenario 6's Given+When (chained narrative).
-  @pending @us-02
+  @us-02
   Scenario: Opening the member-accept page creates no account and consumes nothing
     Given Sam has opened his live member invite for "Northwind" and seen the set-password form
     Then no account exists yet for "sam.okafor@northwind.example"
@@ -276,7 +276,7 @@ Feature: A workspace admin invites a teammate, who joins by creating an account 
 
   # 8. A near-fresh invite (issued 20 seconds ago) accepts immediately — creates the
   #    member account and signs in (US-02 domain example 2).
-  @pending @us-02
+  @us-02
   Scenario: A near-fresh member invite accepts immediately
     Given Dana issued Priya Shah a member invite for "Northwind" twenty seconds ago
     When Priya opens her link and sets a valid password
@@ -285,7 +285,7 @@ Feature: A workspace admin invites a teammate, who joins by creating an account 
   # 9. Boundary — an invite opened just INSIDE its expiry window (issued 6 days 23
   #    hours ago, i.e. expires_at - 1s) still renders and accepts (AC-02.7). Pairs
   #    with scenario 13 (just outside).
-  @pending @us-02
+  @us-02
   Scenario: A member invite opened just inside its expiry window is accepted
     Given Sam's member invite is one second away from expiring and has not been used
     When Sam opens his link and sets a valid password
