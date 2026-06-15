@@ -293,7 +293,7 @@ Feature: A workspace admin invites a teammate, who joins by creating an account 
 
   # 10. The new member lands on invites.workspace_id and sees ONLY that tenant's data
   #     (AC-02.4 — tenant landing). The isolation half of the join.
-  @pending @us-02
+  @us-02
   Scenario: The new member lands on the inviting workspace and sees only its data
     Given Sam has accepted his member invite and is signed in on "Northwind"
     When Sam views his workspace
@@ -303,7 +303,7 @@ Feature: A workspace admin invites a teammate, who joins by creating an account 
   # 11. The new member has the MEMBER role, not admin — he 404s on the issuance
   #     surface (AC-02.6, BR-2 — privilege scope). This is also the regression guard
   #     that the issuance surface stays admin-gated against a freshly-joined member.
-  @pending @us-02
+  @us-02
   Scenario: A newly joined member cannot reach the admin issuance surface
     Given Sam has accepted his member invite and is signed in on "Northwind"
     When Sam opens the member-invite form

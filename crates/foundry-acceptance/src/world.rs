@@ -985,6 +985,9 @@ pub struct FoundryWorld {
     /// The auto-sign-in session cookie captured from the accept POST 303 (proving
     /// "no separate login step").
     pub mi_session_cookie: Option<String>,
+    /// Issue titles the new member is permitted to see through the shipped
+    /// resolution + scoped-read seam (step 01-04 isolation observable).
+    pub mi_seen_titles: Vec<String>,
 }
 
 impl FoundryWorld {

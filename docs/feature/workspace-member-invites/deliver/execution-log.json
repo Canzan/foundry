@@ -99,6 +99,41 @@
       "s": "EXECUTED",
       "d": "PASS",
       "t": "2026-06-15T18:14:59Z"
+    },
+    {
+      "sid": "01-03",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-15T18:15:33Z"
+    },
+    {
+      "sid": "01-04",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-15T18:18:16Z"
+    },
+    {
+      "sid": "01-04",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-15T19:06:25Z"
+    },
+    {
+      "sid": "01-04",
+      "p": "RED_UNIT",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: both scenarios are driven port-to-port at LAYER 3 \u2014 isolation through the SHIPPED resolve_active_workspace + workspace-scoped board read (slice-06 idiom), role through the SHIPPED require_workspace_admin gate returning resource_not_found_page. Green-by-inheritance; NO production code added. Genuine RED established via two falsifiability probes (reverted): (10) reading scoped to the foreign Globex workspace REDs the sees-only-Northwind assertion; (11) promoting Sam to admin REDs the 404 refusal (200 form). No separate unit test.",
+      "t": "2026-06-15T19:06:25Z"
+    },
+    {
+      "sid": "01-04",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-15T19:08:00Z"
     }
   ]
 }

@@ -1096,6 +1096,326 @@ async fn assert_member_accepted_and_signed_in(
 }
 
 // ---------------------------------------------------------------------------
+// Member isolation + role (step 01-04)
+// ---------------------------------------------------------------------------
+//
+// Scenarios 10 + 11 prove the TWO halves of the join's privilege scope, both
+// GREEN-BY-INHERITANCE through SHIPPED seams (no production code added here):
+//
+//   10. ISOLATION — the new member, reading through the SHIPPED resolution +
+//       scoped-read seam (`resolve_active_workspace(sam)` →
+//       `find_team_by_slug(acting_ws, …)` → `is_team_member` →
+//       `find_project_by_slug` → `list_issues_by_project`, exactly the chain
+//       `list_board_issues` walks), sees ONLY the inviting workspace's data and
+//       no other tenant's. Falsifiability: a foreign workspace ("Globex") seeded
+//       with the SAME team/project slugs holds its own issue; resolving Sam to
+//       Globex (or reading unscoped) would surface Globex's issue → RED. This is
+//       the slice-06 isolation idiom (`board_titles_scoped`) applied to the
+//       member-invite join.
+//
+//   11. ROLE — Sam joined as role `'member'` (NOT admin), so a GET on the
+//       admin-gated issuance surface `/workspace/invites` is refused by the
+//       SHIPPED `require_workspace_admin` gate with the byte-identical
+//       non-enumerable `resource_not_found_page()` (404 "Not found") a
+//       never-existed path returns. Falsifiability: were Sam minted as `'admin'`,
+//       the gate's `is_workspace_admin` would pass and he would see the form (a
+//       200 carrying `name="email"`) → the 404 assertion REDs.
+
+/// Northwind's own board issue title (the data the new member IS entitled to see).
+const NORTHWIND_ISSUE_TITLE: &str = "Northwind-only issue";
+/// Globex's board issue title — a FOREIGN tenant's data the new member must NEVER
+/// see. Globex deliberately reuses Northwind's team/project slugs so the ONLY
+/// thing distinguishing the two reads is the acting workspace; a scope leak would
+/// surface this title under the shared slugs.
+const GLOBEX_ISSUE_TITLE: &str = "Globex-only issue";
+
+/// `Given Sam has accepted his member invite and is signed in on "<workspace>"` —
+/// drive the FULL shipped join end-to-end (Dana issues via the real
+/// `/workspace/invites` POST → Sam accepts via the public `/invites/accept`
+/// GET+POST), so Sam ends with a real account, a role=`member` membership on the
+/// inviting tenant, and an auto-sign-in session. Then seed BOTH the inviting
+/// tenant's own board (the data Sam may see) AND a FOREIGN "Globex" tenant with
+/// its own board under the SAME slugs (the data Sam must never see) — the
+/// isolation fixture for scenario 10 / the role fixture for scenario 11.
+#[given(regex = r#"^Sam has accepted his member invite and is signed in on "([^"]+)"$"#)]
+async fn sam_accepted_and_signed_in(world: &mut FoundryWorld, ws_name: String) {
+    // Issue + accept through the SHIPPED handlers (mirrors the walking skeleton).
+    dana_invites_teammate(
+        world,
+        "sam.okafor@northwind.example".to_string(),
+        ws_name.clone(),
+    )
+    .await;
+    accept_member_invite(world, SAM_PASSWORD).await;
+    assert_eq!(
+        world.mi_post_status,
+        Some(StatusCode::SEE_OTHER),
+        "the join precondition requires Sam to be auto-signed-in (303); got {:?}",
+        world.mi_post_status
+    );
+
+    let inviting_ws = *world
+        .mi_workspace_ids
+        .get(&ws_name)
+        .unwrap_or_else(|| panic!("workspace {ws_name:?} seeded in the Background"));
+    let sam_id = sam_user_id(world).await;
+    let pool = harness(world).app.state.store.pool().clone();
+
+    // The inviting tenant's OWN board, with Sam joined to its team so the shipped
+    // membership-gated scoped read returns it.
+    seed_board(&pool, inviting_ws, Some(sam_id), NORTHWIND_ISSUE_TITLE).await;
+
+    // A FOREIGN tenant ("Globex") with its own board under the SAME slugs and its
+    // own admin (Sam is NOT a member). The isolation falsifiability surface.
+    let globex_id = uuid::Uuid::now_v7();
+    sqlx::query("INSERT INTO workspaces (id, name) VALUES ($1, 'Globex')")
+        .bind(globex_id)
+        .execute(&pool)
+        .await
+        .expect("seed the foreign Globex workspace");
+    let globex_admin = uuid::Uuid::now_v7();
+    // Globex's admin never signs in; a non-null placeholder hash satisfies the
+    // NOT NULL constraint (the column's only insert-time precondition).
+    let globex_hash = foundry_auth::hash_password(&SecretString::new(
+        "globex-unused-secret".to_string().into(),
+    ))
+    .await
+    .expect("hash Globex admin's placeholder password");
+    sqlx::query(
+        "INSERT INTO users (id, email_lower, email_display, display_name, password_hash)
+              VALUES ($1, 'gus.globex@globex.example', 'gus.globex@globex.example', 'Gus Globex', $2)",
+    )
+    .bind(globex_admin)
+    .bind(&globex_hash)
+    .execute(&pool)
+    .await
+    .expect("seed Globex's own admin user");
+    sqlx::query(
+        "INSERT INTO workspace_memberships (workspace_id, user_id, role)
+              VALUES ($1, $2, 'admin')",
+    )
+    .bind(globex_id)
+    .bind(globex_admin)
+    .execute(&pool)
+    .await
+    .expect("seed Globex's admin membership");
+    seed_board(&pool, globex_id, Some(globex_admin), GLOBEX_ISSUE_TITLE).await;
+
+    world
+        .mi_workspace_ids
+        .insert("Globex".to_string(), globex_id);
+}
+
+/// Seed a `core`/`apollo` team→project→issue board scoped to `workspace_id` with
+/// the given issue title. When `team_member` is `Some(uid)`, that user is added to
+/// the team so the shipped membership-gated scoped read admits them. Deliberately
+/// uses the SAME slugs across tenants so the acting workspace is the only thing
+/// distinguishing two reads (a scope leak surfaces the wrong title).
+async fn seed_board(
+    pool: &sqlx::PgPool,
+    workspace_id: uuid::Uuid,
+    team_member: Option<uuid::Uuid>,
+    issue_title: &str,
+) {
+    let team_id = uuid::Uuid::now_v7();
+    sqlx::query("INSERT INTO teams (id, workspace_id, name, slug) VALUES ($1, $2, 'Core', 'core')")
+        .bind(team_id)
+        .bind(workspace_id)
+        .execute(pool)
+        .await
+        .expect("seed team");
+    if let Some(uid) = team_member {
+        sqlx::query(
+            "INSERT INTO team_memberships (team_id, user_id, role) VALUES ($1, $2, 'member')",
+        )
+        .bind(team_id)
+        .bind(uid)
+        .execute(pool)
+        .await
+        .expect("add member to team");
+    }
+    let project_id = uuid::Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO projects (id, team_id, workspace_id, name, slug, key_prefix)
+              VALUES ($1, $2, $3, 'Apollo', 'apollo', 'APL')",
+    )
+    .bind(project_id)
+    .bind(team_id)
+    .bind(workspace_id)
+    .execute(pool)
+    .await
+    .expect("seed project");
+    let author = team_member.unwrap_or(project_id);
+    sqlx::query(
+        "INSERT INTO issues (id, project_id, workspace_id, number, title, author_id)
+              VALUES ($1, $2, $3, 1, $4, $5)",
+    )
+    .bind(uuid::Uuid::now_v7())
+    .bind(project_id)
+    .bind(workspace_id)
+    .bind(issue_title)
+    .bind(author)
+    .execute(pool)
+    .await
+    .expect("seed issue");
+}
+
+/// `When Sam views his workspace` — drive the SHIPPED scoped-read seam exactly as
+/// `list_board_issues` does: resolve Sam's acting workspace from his sole
+/// membership (`resolve_active_workspace`), then read the `core`/`apollo` board
+/// scoped to THAT workspace, membership-gated. Stash the titles he is permitted to
+/// see. NO new isolation code — green by inheritance through the shipped seam.
+#[when(regex = r#"^Sam views his workspace$"#)]
+async fn sam_views_his_workspace(world: &mut FoundryWorld) {
+    let store = harness(world).app.state.store.clone();
+    let sam_id = sam_user_id(world).await;
+
+    let (acting_ws, _name) = store
+        .resolve_active_workspace(sam_id)
+        .await
+        .expect("resolve Sam's active workspace")
+        .expect("the new member resolves to his inviting workspace");
+
+    let titles = member_board_titles_scoped(&store, acting_ws, sam_id).await;
+    world.mi_seen_titles = titles;
+}
+
+/// The SHIPPED scoped-read chain (`find_team_by_slug(acting_ws, "core")` →
+/// `is_team_member` → `find_project_by_slug("apollo")` → `list_issues_by_project`),
+/// extracted so the read is driven with the RESOLVED acting workspace. A foreign
+/// acting workspace (the isolation falsifiability mutation) surfaces the other
+/// tenant's issue.
+async fn member_board_titles_scoped(
+    store: &foundry_store::Store,
+    acting_workspace_id: uuid::Uuid,
+    user_id: uuid::Uuid,
+) -> Vec<String> {
+    let Some(team) = store
+        .find_team_by_slug(acting_workspace_id, "core")
+        .await
+        .expect("find team by slug scoped to acting workspace")
+    else {
+        return Vec::new();
+    };
+    if !store
+        .is_team_member(team.id, user_id)
+        .await
+        .expect("team membership gate")
+    {
+        return Vec::new();
+    }
+    let Some(project) = store
+        .find_project_by_slug(team.id, "apollo")
+        .await
+        .expect("find project by slug")
+    else {
+        return Vec::new();
+    };
+    store
+        .list_issues_by_project(project.id)
+        .await
+        .expect("scoped issue read")
+        .into_iter()
+        .map(|row| row.title)
+        .collect()
+}
+
+/// `Then he sees only "<workspace>" data` — the scoped read returns EXACTLY the
+/// inviting tenant's own issue (and nothing else). The foreign Globex issue, seeded
+/// under the SAME slugs, does NOT appear — proving the read is scoped to Sam's
+/// resolved workspace, not leaking across tenants.
+#[then(regex = r#"^he sees only "([^"]+)" data$"#)]
+async fn sees_only_workspace_data(world: &mut FoundryWorld, _ws_name: String) {
+    assert_eq!(
+        world.mi_seen_titles,
+        vec![NORTHWIND_ISSUE_TITLE.to_string()],
+        "the new member must see ONLY his inviting tenant's data; saw {:?}",
+        world.mi_seen_titles
+    );
+}
+
+/// `And he sees no data from any other workspace` — the foreign tenant's issue
+/// (Globex's, under the SAME slugs) is absent from the new member's scoped read.
+/// The isolation guarantee: there is no path by which his resolution-scoped read
+/// surfaces another workspace's data.
+#[then(regex = r#"^he sees no data from any other workspace$"#)]
+async fn sees_no_foreign_data(world: &mut FoundryWorld) {
+    assert!(
+        !world
+            .mi_seen_titles
+            .contains(&GLOBEX_ISSUE_TITLE.to_string()),
+        "the new member must NOT see any foreign tenant's data; the Globex issue \
+         leaked into {:?}",
+        world.mi_seen_titles
+    );
+}
+
+/// `When Sam opens the member-invite form` — drive the admin-gated issuance GET
+/// `/workspace/invites` AS SAM (the freshly-joined member). `signed_in_get`
+/// re-authenticates Sam with the password he set during accept, then GETs the
+/// form. The SHIPPED `require_workspace_admin` gate calls `is_workspace_admin`,
+/// which is FALSE for Sam (role=`member`), so the handler returns the uniform
+/// non-enumerable 404. Capture the status + body.
+#[when(regex = r#"^Sam opens the member-invite form$"#)]
+async fn sam_opens_member_invite_form(world: &mut FoundryWorld) {
+    let client = http(world);
+    let outcome = signed_in_get(
+        harness(world),
+        &client,
+        "sam.okafor@northwind.example",
+        SAM_PASSWORD,
+        "/workspace/invites",
+    )
+    .await;
+    world.mi_post_status = Some(outcome.status);
+    world.last_body = Some(outcome.body);
+}
+
+/// `Then he sees a generic "not found"` — the member's GET on the admin issuance
+/// surface was refused with the SHIPPED uniform `resource_not_found_page()`: a 404
+/// whose body is the generic "Not found" page. Falsifiability: were Sam minted
+/// `'admin'`, the gate would pass and this would be a 200 form (RED).
+#[then(regex = r#"^he sees a generic "not found"$"#)]
+async fn sees_generic_not_found(world: &mut FoundryWorld) {
+    assert_eq!(
+        world.mi_post_status,
+        Some(StatusCode::NOT_FOUND),
+        "a freshly-joined member (role=member) must be refused the admin issuance \
+         surface with a 404; got {:?}",
+        world.mi_post_status
+    );
+    let body = world
+        .last_body
+        .clone()
+        .expect("the refused GET captured a body");
+    assert!(
+        body.contains("Not found"),
+        "the refusal must render the generic 'Not found' page; got {body:?}"
+    );
+}
+
+/// `And nothing reveals that the issuance surface exists` — the refusal is
+/// NON-ENUMERABLE: the 404 body carries NO oracle that an invite-issuance surface
+/// exists (no leaked form, no email field, no "invite" affordance) — byte-identical
+/// to a never-existed path. A non-admin cannot tell the surface is there.
+#[then(regex = r#"^nothing reveals that the issuance surface exists$"#)]
+async fn nothing_reveals_issuance_surface(world: &mut FoundryWorld) {
+    let body = world
+        .last_body
+        .clone()
+        .expect("the refused GET captured a body");
+    assert!(
+        !body.contains("name=\"email\""),
+        "the refusal must NOT leak the issuance form's email field; got {body:?}"
+    );
+    assert!(
+        !body.to_ascii_lowercase().contains("invite"),
+        "the refusal must NOT mention invites (no oracle the issuance surface \
+         exists); got {body:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------
 
