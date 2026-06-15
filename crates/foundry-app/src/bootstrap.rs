@@ -70,21 +70,14 @@ pub async fn show_form(State(state): State<AppState>, Query(q): Query<TokenQuery
     let now = state.clock.now();
     match state.store.bootstrap_token_status(&hash, now).await {
         Ok(BootstrapTokenStatus::Valid) => Html(render_claim_form(&token)).into_response(),
-        Ok(BootstrapTokenStatus::AlreadyUsed) => invalid_page(
-            StatusCode::GONE,
-            "Link already used",
-            "This bootstrap link has already been used to claim the workspace.",
-        ),
-        Ok(BootstrapTokenStatus::Expired) => invalid_page(
-            StatusCode::GONE,
-            "Link expired",
-            "This bootstrap link has expired. Ask the operator to generate a new one.",
-        ),
-        Ok(BootstrapTokenStatus::Unknown) => invalid_page(
-            StatusCode::GONE,
-            "Link not found",
-            "This bootstrap link is not recognised. It may have already been used or never existed.",
-        ),
+        // SECURITY (enumeration oracle): every NON-valid reason — already-used,
+        // expired, unknown — collapses to ONE byte-identical refusal so a prober
+        // cannot tell why the link is dead. The precise reason goes ONLY to
+        // tracing, never the response body/status.
+        Ok(reason) => {
+            tracing::info!(?reason, "bootstrap claim link refused (non-enumerable)");
+            bootstrap_refusal_page()
+        }
         Err(err) => {
             tracing::error!(%err, "bootstrap_token_status failed");
             (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response()
@@ -111,33 +104,16 @@ pub async fn submit(
     let now = state.clock.now();
 
     // Atomic single-use claim. If this returns None, the token is
-    // unknown/used/expired — report the same explanatory page.
+    // unknown/used/expired — SECURITY (enumeration oracle): all three reasons
+    // render the SAME byte-identical refusal (status + body) so a prober cannot
+    // distinguish them. We deliberately do NOT re-query bootstrap_token_status on
+    // this path: knowing the precise reason would only let us leak it. The reason
+    // is recoverable from tracing on the failed-claim path if ever needed.
     let token_row_id = match state.store.claim_bootstrap_token(&hash, now).await {
         Ok(Some(id)) => id,
         Ok(None) => {
-            // Report the precise reason for clarity.
-            let status = state
-                .store
-                .bootstrap_token_status(&hash, now)
-                .await
-                .unwrap_or(BootstrapTokenStatus::Unknown);
-            return match status {
-                BootstrapTokenStatus::AlreadyUsed => invalid_page(
-                    StatusCode::GONE,
-                    "Link already used",
-                    "This bootstrap link has already been used to claim the workspace.",
-                ),
-                BootstrapTokenStatus::Expired => invalid_page(
-                    StatusCode::GONE,
-                    "Link expired",
-                    "This bootstrap link has expired. Ask the operator to generate a new one.",
-                ),
-                _ => invalid_page(
-                    StatusCode::GONE,
-                    "Link not found",
-                    "This bootstrap link is not recognised.",
-                ),
-            };
+            tracing::info!("bootstrap claim refused: token not claimable (non-enumerable)");
+            return bootstrap_refusal_page();
         }
         Err(err) => {
             tracing::error!(%err, "claim_bootstrap_token failed");
@@ -304,6 +280,29 @@ fn render_claim_form(token: &str) -> String {
     }
     .render()
     .expect("bootstrap_claim.html renders")
+}
+
+/// The UNIFORM non-enumerable bootstrap-claim refusal (the security crux,
+/// mirroring `invites_accept::invite_refusal_page`). EVERY non-valid token
+/// reason — already-used, expired, unknown/forged — collapses to THIS
+/// byte-identical response (status AND full body), on BOTH the GET claim-form
+/// path and the POST claim path. It leaks NONE of: whether a token id ever
+/// existed, nor its state (used vs expired vs never-existed). The precise reason
+/// lives ONLY in internal `tracing`, never in the body or status.
+///
+/// Status is 200 OK to match the ratified invite-accept-flow convention
+/// (`invite_refusal_page`, OD-3 2026-06-14): a uniform status avoids even a
+/// status-code oracle, and "this page exists, the link is dead" is the honest
+/// UX. Supersedes the prior three distinct 410 GONE pages, which were an
+/// enumeration oracle (the leak recorded in invite-accept-flow's
+/// upstream-changes.md Finding 2).
+pub(crate) fn bootstrap_refusal_page() -> Response {
+    invalid_page(
+        StatusCode::OK,
+        "This bootstrap link is no longer valid",
+        "It may have expired, already been used, or been mistyped. \
+         Ask the operator to generate a new bootstrap link.",
+    )
 }
 
 pub(crate) fn invalid_page(status: StatusCode, heading: &str, message: &str) -> Response {

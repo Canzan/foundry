@@ -334,29 +334,113 @@ fn rewrite_token(world: &FoundryWorld, url: &str) -> String {
     url.to_string()
 }
 
-#[then(regex = r"^the response status is (\d+) Gone$")]
-async fn response_status_gone(world: &mut FoundryWorld, code: u16) {
+/// The OLD reason-revealing copy a non-enumerable refusal must NOT carry. These
+/// are the per-state strings the pre-fix bootstrap pages used to distinguish
+/// used vs expired vs unknown. The uniform refusal's honest "it may have
+/// expired, already been used, or been mistyped" lists ALL possibilities at once
+/// (identical across every arm), so it is NOT an oracle — only state-SPECIFIC
+/// phrasing is. We assert the absence of that specific phrasing.
+fn leaks_specific_reason(body: &str) -> Option<&'static str> {
+    let needles = [
+        "link already used",
+        "has already been used to claim",
+        "link expired",
+        "link has expired",
+        "ask the operator to generate a new one",
+        "link not found",
+        "not recognised",
+    ];
+    let lower = body.to_ascii_lowercase();
+    needles.into_iter().find(|n| lower.contains(n))
+}
+
+#[then(regex = r"^the bootstrap link is refused with the uniform non-enumerable page$")]
+async fn refused_uniform(world: &mut FoundryWorld) {
     let status = world.last_status.expect("status captured");
-    assert_eq!(status.as_u16(), code, "expected {code} Gone, got {status}");
+    let body = world.last_body.as_deref().unwrap_or("");
+    if let Some(leak) = leaks_specific_reason(body) {
+        panic!(
+            "refusal page leaks the token state via {leak:?} (enumeration oracle): \
+             status={status} body={body:?}"
+        );
+    }
 }
 
-#[then(regex = r"^the page body explains the link has already been used$")]
-async fn body_explains_used(world: &mut FoundryWorld) {
-    let body = world.last_body.as_deref().unwrap_or("");
-    assert!(
-        body.to_ascii_lowercase().contains("already been used")
-            || body.to_ascii_lowercase().contains("already used"),
-        "page body did not explain link was already used: {body:?}"
-    );
+// SECURITY regression — enumeration oracle on the claim POST path ----------
+
+/// Submit the bootstrap CLAIM form for `token_name` and stash the (status, body)
+/// refusal so the byte-identity assertion can compare all three arms. The token
+/// may be a minted name (translated to its raw value) or a never-minted literal
+/// (used verbatim, exercising the Unknown arm).
+async fn submit_claim_capture_refusal(world: &mut FoundryWorld, token_name: &str) {
+    ensure_harness(world).await;
+    let raw = world
+        .minted_tokens
+        .get(token_name)
+        .cloned()
+        .unwrap_or_else(|| token_name.to_string());
+    let url = format!("/bootstrap?token={}", urlencoding::encode(&raw));
+    let mut form = HashMap::new();
+    form.insert("email", "prober@acme.com");
+    form.insert("password", "correct horse battery staple");
+    form.insert("display_name", "Prober");
+    form.insert("workspace_name", "Prober WS");
+    let harness = world.harness.as_ref().expect("harness");
+    let http = world.http.as_ref().expect("http");
+    let resp = http
+        .post(format!("{}{url}", harness.base_url()))
+        .form(&form)
+        .send()
+        .await
+        .expect("submit bootstrap claim");
+    let status = resp.status();
+    let body = resp.text().await.unwrap_or_default();
+    world.bootstrap_refusals.push((status, body));
 }
 
-#[then(regex = r"^the page body explains the link has expired$")]
-async fn body_explains_expired(world: &mut FoundryWorld) {
-    let body = world.last_body.as_deref().unwrap_or("");
-    assert!(
-        body.to_ascii_lowercase().contains("expired"),
-        "page body did not explain link has expired: {body:?}"
+#[when(regex = r#"^a visitor submits the bootstrap claim for the already-used token "([^"]+)"$"#)]
+async fn submit_already_used(world: &mut FoundryWorld, token_name: String) {
+    submit_claim_capture_refusal(world, &token_name).await;
+}
+
+#[when(regex = r#"^a visitor submits the bootstrap claim for the expired token "([^"]+)"$"#)]
+async fn submit_expired(world: &mut FoundryWorld, token_name: String) {
+    submit_claim_capture_refusal(world, &token_name).await;
+}
+
+#[when(regex = r#"^a visitor submits the bootstrap claim for the unknown token "([^"]+)"$"#)]
+async fn submit_unknown(world: &mut FoundryWorld, token_name: String) {
+    submit_claim_capture_refusal(world, &token_name).await;
+}
+
+#[then(regex = r"^the three bootstrap refusals are byte-identical in status and body$")]
+async fn refusals_byte_identical(world: &mut FoundryWorld) {
+    assert_eq!(
+        world.bootstrap_refusals.len(),
+        3,
+        "expected three captured refusals (used/expired/unknown), got {}",
+        world.bootstrap_refusals.len()
     );
+    let (s0, b0) = &world.bootstrap_refusals[0];
+    for (idx, (status, body)) in world.bootstrap_refusals.iter().enumerate().skip(1) {
+        assert_eq!(
+            status, s0,
+            "refusal arm {idx} status differs (enumeration oracle): {status} vs {s0}"
+        );
+        assert_eq!(
+            body, b0,
+            "refusal arm {idx} body differs (enumeration oracle):\n--- arm0 ---\n{b0}\n--- arm{idx} ---\n{body}"
+        );
+    }
+}
+
+#[then(regex = r"^none of the refusals reveals whether the token was used, expired, or unknown$")]
+async fn refusals_reveal_nothing(world: &mut FoundryWorld) {
+    for (status, body) in &world.bootstrap_refusals {
+        if let Some(leak) = leaks_specific_reason(body) {
+            panic!("a refusal leaks the token state via {leak:?} (status={status}): {body:?}");
+        }
+    }
 }
 
 #[then(regex = r"^no second workspace is created$")]

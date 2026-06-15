@@ -37,17 +37,31 @@ Feature: An admin claims a fresh Foundry and invites teammates
   Scenario: Replayed bootstrap token is rejected after the admin is claimed
     Given the admin has already claimed the workspace using "valid-token-001"
     When a second visitor opens the bootstrap URL "/bootstrap?token=valid-token-001"
-    Then the response status is 410 Gone
-    And the page body explains the link has already been used
+    Then the bootstrap link is refused with the uniform non-enumerable page
     And no second workspace is created
 
   @error @real-io
   Scenario: Expired bootstrap token is rejected
     Given the bootstrap token "stale-token-002" was minted 31 minutes ago with a 30-minute TTL
     When a visitor opens the bootstrap URL "/bootstrap?token=stale-token-002"
-    Then the response status is 410 Gone
-    And the page body explains the link has expired
+    Then the bootstrap link is refused with the uniform non-enumerable page
     And no workspace, user, or session is created
+
+  # SECURITY regression (enumeration oracle): the claim flow must NOT tell a prober
+  # WHY a token is invalid. An already-used, an expired, and an unknown/forged token
+  # must all be refused with a BYTE-IDENTICAL response (status AND full body) so the
+  # prober cannot distinguish used vs expired vs never-existed. Mirrors the shipped
+  # invite-accept-flow `invite_refusal_page()` posture (ADR-002). Before the fix the
+  # three bodies diverged ("already used" / "expired" / "not recognised"): genuine RED.
+  @error @real-io @nfr-sec-01 @security-regression
+  Scenario: Used, expired, and unknown bootstrap tokens are refused indistinguishably
+    Given the admin has already claimed the workspace using "valid-token-001"
+    And the bootstrap token "stale-token-003" was minted 31 minutes ago with a 30-minute TTL
+    When a visitor submits the bootstrap claim for the already-used token "valid-token-001"
+    And a visitor submits the bootstrap claim for the expired token "stale-token-003"
+    And a visitor submits the bootstrap claim for the unknown token "never-minted-999"
+    Then the three bootstrap refusals are byte-identical in status and body
+    And none of the refusals reveals whether the token was used, expired, or unknown
 
   @real-io @us-05
   Scenario: Admin generates a shareable invite link that contains a signed token

@@ -42,6 +42,11 @@ pub struct FoundryWorld {
     /// by the "invite is recorded as valid for 7 days" assertion.
     pub last_invite_id: Option<uuid::Uuid>,
 
+    /// Captured bootstrap-claim refusals (status + full body) for the
+    /// enumeration-oracle regression scenario, one entry per arm
+    /// (already-used / expired / unknown). Asserted byte-identical.
+    pub bootstrap_refusals: Vec<(StatusCode, String)>,
+
     /// Session cookie value (`foundry_session=...`) captured after a
     /// successful claim. Stored separately because `reqwest`'s cookie
     /// jar requires HTTPS for `Secure` cookies and we test over plain
