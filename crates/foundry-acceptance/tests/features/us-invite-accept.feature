@@ -310,7 +310,7 @@ Feature: A provisioned first-admin claims her account from her invite link and i
   #     nor any submitted password (the reason for a refusal lives in tracing keyed
   #     on invite_id only). Example-pinned at LAYER 3 (Mandate 11). (AC-02.9, NFR-5.)
   # ----------------------------------------------------------------------------
-  @pending @us-02 @error @property
+  @us-02 @error @property
   Scenario: No invite signature or password ever appears in the logs
     Given Priya completes a successful accept and a hostile prober is refused
     When the application logs for the full cycle are examined

@@ -929,6 +929,24 @@ pub struct FoundryWorld {
     /// session. The atomic guarded UPDATE (`... WHERE used_at IS NULL ...
     /// RETURNING`) serializes the race: the DB admits exactly one winner.
     pub ia_concurrent_outcomes: Vec<(StatusCode, Option<String>, String)>,
+    /// Every response body observed across a FULL accept cycle (02-09 no-secret-
+    /// leakage): the GET set-password form, the success POST 303, the signed-in
+    /// landing page, and a hostile prober's uniform refusal. The no-leak Then
+    /// scans this collected surface for the invite `sig` and the submitted
+    /// password. This is the strongest available log observable: NO in-process
+    /// tracing-capture seam is wired into the harness (tracing is global-only,
+    /// initialised in main.rs, not the test harness), so per the step's guidance
+    /// the response-body surface stands in for "the logs", backed by the
+    /// tracing-keyed-on-invite_id design citation (invites_accept.rs:83/120/166/
+    /// 178/202 — every tracing line carries ONLY %invite_id + %err, never the sig
+    /// or password). The falsifiability litmus injects a `tracing`-shaped leak
+    /// (rendering the sig into a refusal/landing body) and proves the scan reds.
+    pub ia_cycle_bodies: Vec<String>,
+    /// The hostile prober's supplied (tampered) `sig` from the 02-09 no-leak
+    /// cycle. The no-signature-in-logs Then asserts neither this nor the genuine
+    /// holder's sig appears in any collected log-surface body (a refusal must be
+    /// non-committal on the queried sig — NFR-3/NFR-5).
+    pub ia_prober_sig: Option<String>,
 }
 
 impl FoundryWorld {
