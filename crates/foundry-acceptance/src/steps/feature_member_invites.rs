@@ -1611,6 +1611,177 @@ async fn her_first_admin_invite_recorded_used_exactly_once(world: &mut FoundryWo
 }
 
 // ---------------------------------------------------------------------------
+// Member-invite expiry refusals (step 02-01) — scenarios 14 (canonical) + 13
+// ---------------------------------------------------------------------------
+//
+// PROVES the SHIPPED uniform refusal path applies to MEMBER invites: opening an
+// EXPIRED member invite renders the canonical `invite_refusal_page()` (200 OK,
+// OD-3 — no status oracle) carrying the journey's "no longer valid" copy, leaking
+// NOTHING about whether any account or workspace exists, and advising asking the
+// administrator to re-issue. GREEN-BY-INHERITANCE: the accept GET liveness check
+// (`invite_is_acceptable` → `expires_at > now`) returns the SAME refusal page for
+// a member invite as for a first-admin one (the route is shared, the page is
+// static), so this step adds acceptance GLUE only — NO production code.
+//
+//   14 (canonical, expired one day ago): the CANONICAL refusal arm — captured
+//       (status + full body) into `mi_refusal_*` so 02-02 (just-past) + the
+//       byte-identity scenarios assert AGAINST it. Also asserts non-leakage
+//       (no workspace name / invitee email in the body) and the re-issue advisory.
+//   13 (just past, expired one second ago): the EXCLUSIVE side of the expiry
+//       boundary (`expires_at <= now` ⇒ refused), complementing scenario 9's
+//       just-inside-accepted (`expires_at > now` ⇒ accepted). Reuses the
+//       canonical standard-page Then.
+//
+// Falsifiability (demonstrated at DELIVER, then reverted): (a) tightening the GET
+// liveness to ADMIT an expired member invite (e.g. `expires_at >= now - 1d`)
+// makes the expired GET render the set-password form (200 carrying
+// `name="password"` + the workspace name) instead of the refusal → the
+// "no longer valid" + non-leakage Thens RED; (b) leaking the workspace name into
+// the refusal body REDs the non-leakage Then; (c) returning a distinct status
+// (e.g. 404/410 instead of 200) REDs the standard-page Then's ratified-200 check.
+
+/// Sam's member-invite email — no pre-existing account, so a LIVE invite would
+/// dispatch to the member arm; here we drive it past expiry to exercise refusal.
+const SAM_EMAIL: &str = "sam.okafor@northwind.example";
+
+/// `Given Sam's member invite expired one day ago` (scenario 14, canonical) — seed
+/// a member invite for Sam whose `expires_at` is one day in the PAST against the
+/// REAL per-scenario Postgres, minting the genuine HMAC `sig` over that past
+/// `expires_at` so the tamper oracle still verifies (ONLY the liveness check fails
+/// — the canonical expired arm, not a tamper). Grounds the "expired one day ago"
+/// precondition in observable invite state (unused, expiry in the past) before the
+/// GET, so the refusal is genuinely driven by expiry, not by a missing row.
+#[given(regex = r#"^Sam's member invite expired one day ago$"#)]
+async fn sam_invite_expired_one_day_ago(world: &mut FoundryWorld) {
+    seed_expired_member_invite(world, "Northwind", SAM_EMAIL, time::Duration::days(1)).await;
+}
+
+/// `Given Sam's member invite expired one second ago` (scenario 13, just-past
+/// boundary) — same as the canonical seed but expiry is ONE SECOND in the past:
+/// the EXCLUSIVE side of `expires_at > now` (the SHIPPED guard rejects it),
+/// complementing scenario 9's just-inside-accepted (one second in the future).
+#[given(regex = r#"^Sam's member invite expired one second ago$"#)]
+async fn sam_invite_expired_one_second_ago(world: &mut FoundryWorld) {
+    seed_expired_member_invite(world, "Northwind", SAM_EMAIL, time::Duration::seconds(1)).await;
+}
+
+/// Seed an EXPIRED (unused) member invite for `invitee_email` on the named
+/// workspace via the SHIPPED `insert_invite` as Dana, with `expires_at = now -
+/// past`, then mint the genuine HMAC `sig` over that past `expires_at` (so the
+/// tamper oracle verifies — the failure isolates to the liveness check). Asserts
+/// the row is now expired-but-unused so the precondition is grounded in observable
+/// invite state, not assumed. No user exists for `invitee_email` (the member arm
+/// shape), though the GET refuses before any dispatch.
+async fn seed_expired_member_invite(
+    world: &mut FoundryWorld,
+    ws_name: &str,
+    invitee_email: &str,
+    past: time::Duration,
+) {
+    let workspace_id = *world
+        .mi_workspace_ids
+        .get(ws_name)
+        .unwrap_or_else(|| panic!("workspace {ws_name:?} seeded in the Background"));
+    let admin_id = world
+        .mi_admin_user_id
+        .expect("the Background seeded Dana's user id");
+    let store = harness(world).app.state.store.clone();
+    let now = harness(world).app.state.clock.now();
+    let expires_at = now - past;
+    let invite_id = uuid::Uuid::now_v7();
+
+    store
+        .insert_invite(
+            invite_id,
+            workspace_id,
+            Some(invitee_email),
+            admin_id,
+            expires_at,
+        )
+        .await
+        .expect("seed an expired member invite via the shipped insert_invite");
+
+    let secret = harness(world).app.state.session_secret.clone();
+    let token = foundry_auth::InviteToken::new(invite_id, expires_at, &secret)
+        .expect("mint the expired member invite signature");
+    world.mi_invite_id = Some(invite_id);
+    world.mi_invite_sig = Some(token.signature);
+
+    let pool = store.pool().clone();
+    let (expired_rows,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM invites WHERE id = $1 AND used_at IS NULL AND expires_at <= $2",
+    )
+    .bind(invite_id)
+    .bind(now)
+    .fetch_one(&pool)
+    .await
+    .expect("count the expired (unused, past-expiry) member invite row");
+    assert_eq!(
+        expired_rows, 1,
+        "the member invite under test must be expired (unused, expiry in the past) \
+         before the GET; found {expired_rows} expired rows"
+    );
+}
+
+/// `Then he sees the standard "invite is no longer valid" page` (scenarios 14 + 13)
+/// — the GET for an expired member invite rendered the SHIPPED uniform refusal at
+/// the ratified 200 OK (OD-3 — no status-code oracle) carrying the journey's "no
+/// longer valid" copy. CAPTURES the status + full body into the CANONICAL member
+/// refusal slots (`mi_refusal_*`) so 02-02 (just-past) + the byte-identity
+/// scenarios assert AGAINST this arm.
+#[then(regex = r#"^he sees the standard "invite is no longer valid" page$"#)]
+async fn sees_standard_member_refusal_page(world: &mut FoundryWorld) {
+    assert_eq!(
+        world.mi_post_status,
+        Some(StatusCode::OK),
+        "the expired member-invite refusal must be the ratified 200 OK (OD-3, no \
+         status oracle); got {:?}",
+        world.mi_post_status
+    );
+    let body = world
+        .last_body
+        .clone()
+        .expect("the GET captured a rendered body");
+    assert!(
+        body.to_ascii_lowercase().contains("no longer valid"),
+        "the refusal must render the standard \"invite is no longer valid\" page; \
+         got {body:?}"
+    );
+    world.mi_refusal_status = world.mi_post_status;
+    world.mi_refusal_body = Some(body);
+}
+
+// `And the page reveals nothing about whether any account or workspace exists`
+// (scenario 14) — the non-enumerability guarantee (NFR-3) is asserted by the
+// SHARED step defined in `feature_invite_accept.rs` (cucumber-rs steps are global
+// across loaded modules). That step asserts the refusal body reveals neither the
+// workspace name ("Northwind") nor the invitee email, falling back to `last_body`
+// when `ia_refusal_body` is unset (our case). The refusal page is static, so the
+// shared assertion holds identically for a member invite — REUSED, not redefined
+// (a duplicate regex would make the match ambiguous).
+
+/// `And the page advises asking the workspace administrator to re-issue the invite`
+/// (scenario 14) — the journey's universal next action (the only "reason" a
+/// legitimate recipient gets, by design): ask the administrator to re-issue /
+/// re-provision. Asserts the advisory copy is present (administrator + re-issue
+/// intent), matching the SHIPPED `invite_refusal_page()` body.
+#[then(regex = r#"^the page advises asking the workspace administrator to re-issue the invite$"#)]
+async fn member_refusal_advises_admin_reissue(world: &mut FoundryWorld) {
+    let body = world
+        .mi_refusal_body
+        .clone()
+        .or_else(|| world.last_body.clone())
+        .expect("the refusal captured a rendered body");
+    let lower = body.to_ascii_lowercase();
+    assert!(
+        lower.contains("administrator")
+            && (lower.contains("re-issue") || lower.contains("reissue")),
+        "the refusal must advise asking the administrator to re-issue the invite; \
+         got {body:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------
 

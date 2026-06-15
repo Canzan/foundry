@@ -988,6 +988,12 @@ pub struct FoundryWorld {
     /// Issue titles the new member is permitted to see through the shipped
     /// resolution + scoped-read seam (step 01-04 isolation observable).
     pub mi_seen_titles: Vec<String>,
+    /// The CANONICAL member-invite refusal arm (status + full body) captured by
+    /// the expired-one-day scenario (02-01) — scenarios 13/15/16/17 assert
+    /// byte-identity AGAINST this. The accept route is shared, so this is the
+    /// SHIPPED `invite_refusal_page()` (200 OK, non-leaking, byte-identical).
+    pub mi_refusal_status: Option<StatusCode>,
+    pub mi_refusal_body: Option<String>,
 }
 
 impl FoundryWorld {

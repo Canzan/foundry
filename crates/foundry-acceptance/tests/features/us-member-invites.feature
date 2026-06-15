@@ -329,7 +329,7 @@ Feature: A workspace admin invites a teammate, who joins by creating an account 
   # 13. Boundary — an invite opened just OUTSIDE its expiry window (expires_at + 1s)
   #     is refused with the uniform page (AC-03.4). Expiry enforced on GET liveness.
   #     Pairs with scenario 9.
-  @pending @us-03 @error
+  @us-03 @error
   Scenario: A member invite opened just past its expiry window is refused
     Given Sam's member invite expired one second ago
     When Sam opens his invite link
@@ -338,7 +338,7 @@ Feature: A workspace admin invites a teammate, who joins by creating an account 
   # 14. The canonical accept refusal arm — an EXPIRED member invite is refused without
   #     leaking existence and advises asking the admin to re-issue (AC-03.2/03.3,
   #     A-E1). Scenarios 15/16/17 assert byte-identity AGAINST this one.
-  @pending @us-03 @error
+  @us-03 @error
   Scenario: An expired member invite is refused without leaking existence
     Given Sam's member invite expired one day ago
     When Sam opens his invite link
