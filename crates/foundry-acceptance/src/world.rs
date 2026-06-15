@@ -994,6 +994,11 @@ pub struct FoundryWorld {
     /// SHIPPED `invite_refusal_page()` (200 OK, non-leaking, byte-identical).
     pub mi_refusal_status: Option<StatusCode>,
     pub mi_refusal_body: Option<String>,
+    /// The email-collision invite-under-test id (02-03, scenario 17), stashed before
+    /// the shared byte-identity Then recomputes the canonical expired arm on a fresh
+    /// control invite (which overwrites `mi_invite_id`). Lets the "no second account
+    /// / invite not consumed" Then assert the collision invite stayed unconsumed.
+    pub mi_collision_invite_id: Option<uuid::Uuid>,
 }
 
 impl FoundryWorld {

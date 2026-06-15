@@ -370,7 +370,7 @@ Feature: A workspace admin invites a teammate, who joins by creating an account 
   #     create-user step aborts the tx on the UNIQUE violation; the response is
   #     byte-identical to the expired-link refusal — NEVER a 500 — no second account,
   #     invite NOT consumed (AC-03.8). This is the genuinely-new refusal branch.
-  @pending @us-03 @error
+  @us-03 @error
   Scenario: A member invite whose email already has an account is refused without leaking that fact
     Given Dana issued a member invite for an email that already has a Foundry account
     When that invitee opens the link and submits a valid password

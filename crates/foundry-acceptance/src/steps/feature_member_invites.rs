@@ -1782,6 +1782,291 @@ async fn member_refusal_advises_admin_reissue(world: &mut FoundryWorld) {
 }
 
 // ---------------------------------------------------------------------------
+// Email-already-a-user collision refusal (step 02-03) — scenario 17
+// ---------------------------------------------------------------------------
+//
+// PROVES the riskiest collision arm (D5, OD-1, A-E9): a member invite whose
+// `invitee_email` ALREADY maps to an existing user is refused with the canonical
+// uniform refusal (200, BYTE-IDENTICAL to the expired arm), the invite is NOT
+// consumed, NO duplicate user is created, and it is NEVER a 500. GREEN-BY-
+// INHERITANCE from the 01-01 collision handling: `create_member_and_consume`
+// catches the `users.email_lower` UNIQUE violation (SQLSTATE 23505) INSIDE the tx
+// → `MemberConsumeOutcome::EmailCollision` (rollback, invite untouched), and
+// `submit_accept` maps it to the SHIPPED `invite_refusal_page()` (200) — the SAME
+// page the expired arm renders. This step adds acceptance GLUE only — NO
+// production code.
+//
+// Falsifiability (demonstrated at DELIVER, then reverted): (a) letting the 23505
+// bubble as a StoreError instead of mapping to EmailCollision makes the accept a
+// 500 instead of the uniform 200 refusal → the standard-page + byte-identity Thens
+// RED; (b) NOT catching the collision (no UNIQUE rollback) wrongly consumes the
+// invite and/or half-creates a second account → the "not consumed / no second
+// account" Then REDs.
+
+/// The invitee email that ALREADY has a Foundry account (the collision oracle).
+const COLLISION_EMAIL: &str = "already.a.user@northwind.example";
+/// The pre-existing user's password — never used by the accept; a non-null hash
+/// satisfies the NOT NULL constraint on the seeded row.
+const COLLISION_EXISTING_PASSWORD: &str = "already-a-user-existing-pass";
+
+/// `Given Dana issued a member invite for an email that already has a Foundry
+/// account` — seed an EXISTING `users` row for the collision email (so the
+/// create-user INSERT inside the accept tx will hit the `users.email_lower` UNIQUE
+/// guard), then issue a LIVE member invite for that SAME email via the SHIPPED
+/// `insert_invite` as Dana and mint its genuine HMAC signature. Snapshots the
+/// existing user id so the "no second account" Then can prove no duplicate appears.
+/// Grounds the precondition in observable state: exactly one pre-existing user, and
+/// a live unconsumed invite for that email.
+#[given(regex = r#"^Dana issued a member invite for an email that already has a Foundry account$"#)]
+async fn dana_issued_invite_for_existing_email(world: &mut FoundryWorld) {
+    let store = harness(world).app.state.store.clone();
+    let pool = store.pool().clone();
+
+    // Pre-existing account for the collision email — the row the accept's
+    // create-user INSERT collides with on `users.email_lower` UNIQUE.
+    let existing_user_id = uuid::Uuid::now_v7();
+    let existing_hash = foundry_auth::hash_password(&SecretString::new(
+        COLLISION_EXISTING_PASSWORD.to_string().into(),
+    ))
+    .await
+    .expect("hash the pre-existing user's password");
+    sqlx::query(
+        "INSERT INTO users (id, email_lower, email_display, display_name, password_hash)
+              VALUES ($1, $2, $2, 'Already A. User', $3)",
+    )
+    .bind(existing_user_id)
+    .bind(COLLISION_EMAIL)
+    .bind(&existing_hash)
+    .execute(&pool)
+    .await
+    .expect("seed the pre-existing user that owns the collision email");
+    // Stash the pre-existing user id in mi_post_location (unused on this path) so
+    // the "no second account" Then can confirm the single surviving row is this one.
+    world.mi_post_location = Some(existing_user_id.to_string());
+
+    // A LIVE member invite for the SAME email (two hours within the 7-day window),
+    // minted by the SHIPPED insert_invite as Dana — the genuine invite under test.
+    let ttl = time::Duration::days(7) - time::Duration::hours(2);
+    seed_member_invite(world, "Northwind", COLLISION_EMAIL, ttl).await;
+
+    // Ground the precondition: exactly one pre-existing user + a live unconsumed
+    // invite for the collision email, before the accept.
+    let (existing_rows,): (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM users WHERE email_lower = $1")
+            .bind(COLLISION_EMAIL)
+            .fetch_one(&pool)
+            .await
+            .expect("count the pre-existing user rows");
+    assert_eq!(
+        existing_rows, 1,
+        "the collision precondition requires EXACTLY ONE pre-existing account for \
+         {COLLISION_EMAIL:?}; found {existing_rows} rows"
+    );
+    let invite_id = world.mi_invite_id.expect("a member invite was seeded");
+    let now = harness(world).app.state.clock.now();
+    let (live_rows,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM invites WHERE id = $1 AND used_at IS NULL AND expires_at > $2",
+    )
+    .bind(invite_id)
+    .bind(now)
+    .fetch_one(&pool)
+    .await
+    .expect("count the live (unused) collision invite row");
+    assert_eq!(
+        live_rows, 1,
+        "the collision invite under test must be live (unused, unexpired) before the \
+         accept; found {live_rows} live rows"
+    );
+}
+
+/// Recompute the CANONICAL expired-one-day member refusal as the byte-identity
+/// control for the email-collision arm (scenario 17). Called by the SHARED
+/// byte-identity Then (`feature_invite_accept.rs`) when it is driven from the
+/// member-invites feature (no `ia_harness`). Seeds a FRESH expired member invite on
+/// a NEW email (so it cannot itself collide), GETs it, and returns the SHIPPED
+/// uniform refusal (status + full body). Leaves the collision invite
+/// (`mi_collision_invite_id`) untouched — it must stay unconsumed for the
+/// "not consumed" Then. NOTE: this overwrites `mi_invite_id`/`mi_invite_sig` with
+/// the fresh control invite; the collision invite-under-test is preserved in
+/// `mi_collision_invite_id`.
+pub async fn recompute_canonical_member_refusal(world: &mut FoundryWorld) -> (StatusCode, String) {
+    seed_expired_member_invite(
+        world,
+        "Northwind",
+        "expired.control@northwind.example",
+        time::Duration::days(1),
+    )
+    .await;
+    get_member_accept_page(world).await;
+    let status = world
+        .mi_post_status
+        .expect("the canonical expired-control GET captured a status");
+    let body = world
+        .last_body
+        .clone()
+        .expect("the canonical expired-control GET captured a body");
+    (status, body)
+}
+
+/// `When that invitee opens the link and submits a valid password` — drive the full
+/// accept (GET form + CSRF cookie → POST id+sig+password+confirm+_csrf) for the live
+/// collision invite, CAPTURING the POST refusal body. The GET renders the
+/// set-password form NON-COMMITTALLY (liveness only); the POST dispatches to the
+/// member arm `create_member_and_consume`, whose create-user INSERT collides on
+/// `users.email_lower` UNIQUE → 23505 caught INSIDE the tx → rollback →
+/// `EmailCollision` → the SHIPPED `invite_refusal_page()` (200, NEVER a 500).
+/// Stashes the POST status + full body into `mi_post_status` + `last_body` for the
+/// standard-page + byte-identity Thens.
+#[when(regex = r#"^that invitee opens the link and submits a valid password$"#)]
+async fn collision_invitee_accepts(world: &mut FoundryWorld) {
+    accept_member_invite_capturing_body(world, MEMBER_PASSWORD).await;
+}
+
+// NOTE: scenario 17's `Then they see the standard "invite is no longer valid" page`
+// and `And the response is byte-identical to the expired-invite refusal` REUSE the
+// SHARED steps defined in `feature_invite_accept.rs` (cucumber-rs steps are global
+// across loaded modules; a duplicate regex would make the match ambiguous). Those
+// shared steps were made world-source-agnostic (they fall back from the `ia_*` slots
+// to the `mi_*` slots + the `mi_harness`) so a member-feature collision scenario
+// drives them identically — the refusal page is the SHIPPED static
+// `invite_refusal_page()` regardless of arm. The collision accept's POST status +
+// full body land in `mi_post_status` + `last_body` (see
+// `accept_member_invite_capturing_body`), which the shared "standard page" Then
+// captures into `mi_refusal_*`, and the shared byte-identity Then then recomputes the
+// canonical expired-one-day arm on a FRESH member invite and asserts status + FULL
+// body byte-identity. The collision invite id is preserved in
+// `mi_collision_invite_id` so the recompute (which overwrites `mi_invite_id`) does
+// not lose the invite-under-test for the "not consumed" assertion.
+
+/// `And no second account is created and the invite is not consumed` — the
+/// collision-rollback outcome: EXACTLY ONE `users` row maps to the collision email
+/// (the pre-existing one — NO duplicate was half-created), and the invite stays LIVE
+/// (`used_at` NULL). Proves the tx rolled back cleanly on the 23505: no second
+/// account, invite untouched. Reads the REAL per-scenario Postgres at the
+/// driven-port boundary. Falsifiability: a half-create or a consumed invite REDs.
+#[then(regex = r#"^no second account is created and the invite is not consumed$"#)]
+async fn collision_no_second_account_invite_not_consumed(world: &mut FoundryWorld) {
+    let pool = harness(world).app.state.store.pool().clone();
+
+    // EXACTLY ONE user row for the collision email — the pre-existing one, no dup.
+    let (user_rows,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users WHERE email_lower = $1")
+        .bind(COLLISION_EMAIL)
+        .fetch_one(&pool)
+        .await
+        .expect("count the user rows for the collision email after the accept");
+    assert_eq!(
+        user_rows, 1,
+        "the collision accept must create NO second account — EXACTLY ONE users row \
+         for {COLLISION_EMAIL:?} (the pre-existing one); found {user_rows} rows"
+    );
+    let existing_user_id: uuid::Uuid = world
+        .mi_post_location
+        .clone()
+        .expect("the pre-existing user id was stashed")
+        .parse()
+        .expect("stashed pre-existing user id parses");
+    let (surviving_id,): (uuid::Uuid,) =
+        sqlx::query_as("SELECT id FROM users WHERE email_lower = $1")
+            .bind(COLLISION_EMAIL)
+            .fetch_one(&pool)
+            .await
+            .expect("read the surviving user id for the collision email");
+    assert_eq!(
+        surviving_id, existing_user_id,
+        "the surviving account must be the PRE-EXISTING user (proving the create-user \
+         step rolled back, not that a new row replaced it)"
+    );
+
+    // The collision invite (NOT the recomputed expired control) stays LIVE — the tx
+    // rolled back, so `used_at` was never set.
+    let collision_invite_id = world.mi_collision_invite_id.expect(
+        "the collision invite id was stashed before the canonical control overwrote \
+         mi_invite_id",
+    );
+    let (live_rows,): (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM invites WHERE id = $1 AND used_at IS NULL")
+            .bind(collision_invite_id)
+            .fetch_one(&pool)
+            .await
+            .expect("count the still-live collision invite row");
+    assert_eq!(
+        live_rows, 1,
+        "the collision invite must NOT be consumed (used_at stays NULL — the tx rolled \
+         back on the 23505); found {live_rows} unconsumed rows for the collision invite"
+    );
+}
+
+/// Drive the full accept (GET → POST) for the live member invite with `password`,
+/// CAPTURING the POST status + full body into `mi_post_status` + `last_body` (the
+/// shared `accept_member_invite` discards the POST body; the collision refusal Thens
+/// need it). Also stashes the collision invite id into `mi_collision_invite_id` so a
+/// later in-scenario control (the recomputed expired arm) overwriting `mi_invite_id`
+/// does not lose the invite-under-test for the "not consumed" assertion.
+async fn accept_member_invite_capturing_body(world: &mut FoundryWorld, password: &str) {
+    let invite_id = world.mi_invite_id.expect("a member invite was seeded");
+    world.mi_collision_invite_id = Some(invite_id);
+    let sig = world
+        .mi_invite_sig
+        .clone()
+        .expect("the invite sig was minted");
+    let base = harness(world).base_url();
+    let client = http(world);
+
+    // GET — render the set-password form + mint the CSRF cookie (non-committal).
+    let get_resp = client
+        .get(format!(
+            "{base}/invites/accept?id={invite_id}&sig={sig}",
+            sig = urlencoding::encode(&sig)
+        ))
+        .send()
+        .await
+        .expect("GET /invites/accept");
+    let csrf_cookie = get_resp
+        .headers()
+        .get_all(reqwest::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .find(|s| s.starts_with("foundry_csrf="))
+        .map(str::to_string)
+        .expect("the GET minted a foundry_csrf cookie");
+    let _ = get_resp.text().await;
+    let csrf_token = csrf_cookie
+        .strip_prefix("foundry_csrf=")
+        .and_then(|rest| rest.split(';').next())
+        .unwrap_or("")
+        .to_string();
+
+    // POST — the create-user step collides → rollback → uniform refusal (200).
+    let form = [
+        ("id", invite_id.to_string()),
+        ("sig", sig),
+        ("password", password.to_string()),
+        ("confirm", password.to_string()),
+        ("_csrf", csrf_token.clone()),
+    ];
+    let resp = client
+        .post(format!("{base}/invites/accept"))
+        .header(
+            reqwest::header::COOKIE,
+            format!("foundry_csrf={csrf_token}"),
+        )
+        .form(&form)
+        .send()
+        .await
+        .expect("POST /invites/accept");
+    world.mi_post_status = Some(resp.status());
+    world.mi_session_cookie = resp
+        .headers()
+        .get_all(reqwest::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .find(|s| s.starts_with("foundry_session="))
+        .and_then(|s| s.split(';').next())
+        .map(str::to_string);
+    world.last_body = Some(resp.text().await.unwrap_or_default());
+}
+
+// ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------
 

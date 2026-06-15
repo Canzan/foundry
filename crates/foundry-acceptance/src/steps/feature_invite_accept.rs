@@ -956,58 +956,75 @@ async fn priya_invite_expired_one_second_ago(world: &mut FoundryWorld) {
 /// set-password FORM (a divergent body) and re-RED here.
 #[then(regex = r#"^the response is byte-identical to the expired-invite refusal$"#)]
 async fn response_byte_identical_to_expired_refusal(world: &mut FoundryWorld) {
-    // The just-past refusal captured by the reused "standard page" Then.
+    // The arm-under-test refusal captured by the reused "standard page" Then (the
+    // `she`/`they` variant captures into `ia_refusal_*` regardless of driving
+    // feature, falling back to `mi_*` internally).
     let just_past_status = world
         .ia_refusal_status
-        .expect("the just-past refusal status was captured by the standard-page Then");
+        .expect("the refusal-under-test status was captured by the standard-page Then");
     let just_past_body = world
         .ia_refusal_body
         .clone()
-        .expect("the just-past refusal body was captured by the standard-page Then");
+        .expect("the refusal-under-test body was captured by the standard-page Then");
     world.ia_just_past_refusal_status = Some(just_past_status);
     world.ia_just_past_refusal_body = Some(just_past_body.clone());
 
-    // Recompute the CANONICAL expired-one-day arm in-scenario: re-point the SAME
-    // invite to one day past, re-mint the HMAC over the new expires_at, and GET.
-    let invite_id = world.ia_invite_id.expect("invite seeded");
-    let now = harness(world).app.state.clock.now();
-    let canonical_expires_at = now - time::Duration::days(1);
-    let pool = harness(world).app.state.store.pool().clone();
-    sqlx::query("UPDATE invites SET expires_at = $2 WHERE id = $1 AND used_at IS NULL")
-        .bind(invite_id)
-        .bind(canonical_expires_at)
-        .execute(&pool)
-        .await
-        .expect("re-point the invite to one day past expiry for the canonical control");
-    let secret = harness(world).app.state.session_secret.clone();
-    let canonical_token = foundry_auth::InviteToken::new(invite_id, canonical_expires_at, &secret)
-        .expect("re-mint the canonical expired-one-day signature");
-    let canonical_sig = canonical_token.signature;
-    let base = harness(world).base_url();
-    let client = http(world);
-    let resp = client
-        .get(format!(
-            "{base}/invites/accept?id={invite_id}&sig={sig}",
-            sig = urlencoding::encode(&canonical_sig)
-        ))
-        .send()
-        .await
-        .expect("GET /invites/accept for the canonical expired-one-day control");
-    let canonical_status = resp.status();
-    let canonical_body = resp.text().await.unwrap_or_default();
+    // Recompute the CANONICAL expired-one-day refusal in-scenario. World-source-
+    // agnostic: the invite-accept feature re-points its own `ia_invite_id`; the
+    // member-invites feature (the email-collision arm, 02-03) drives the `mi_harness`
+    // and CANNOT re-point its collision invite (it must stay pristine for the
+    // "not consumed" Then), so it seeds a FRESH expired member invite and GETs that.
+    let (canonical_status, canonical_body) = if let Some(ia) = world.ia_harness.as_ref() {
+        let invite_id = world.ia_invite_id.expect("invite seeded");
+        let now = ia.app.state.clock.now();
+        let canonical_expires_at = now - time::Duration::days(1);
+        let pool = ia.app.state.store.pool().clone();
+        sqlx::query("UPDATE invites SET expires_at = $2 WHERE id = $1 AND used_at IS NULL")
+            .bind(invite_id)
+            .bind(canonical_expires_at)
+            .execute(&pool)
+            .await
+            .expect("re-point the invite to one day past expiry for the canonical control");
+        let secret = ia.app.state.session_secret.clone();
+        let canonical_token =
+            foundry_auth::InviteToken::new(invite_id, canonical_expires_at, &secret)
+                .expect("re-mint the canonical expired-one-day signature");
+        let canonical_sig = canonical_token.signature;
+        let base = ia.base_url();
+        let client = http(world);
+        let resp = client
+            .get(format!(
+                "{base}/invites/accept?id={invite_id}&sig={sig}",
+                sig = urlencoding::encode(&canonical_sig)
+            ))
+            .send()
+            .await
+            .expect("GET /invites/accept for the canonical expired-one-day control");
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        (status, body)
+    } else {
+        // Member-invites mode: seed a FRESH expired member invite (a NEW email so it
+        // cannot itself collide), GET it, and read the SHIPPED uniform refusal as the
+        // byte-identity control. Leaves the collision invite (mi_collision_invite_id)
+        // untouched.
+        crate::steps::feature_member_invites::recompute_canonical_member_refusal(world).await
+    };
 
-    // Byte-identity: status AND full body across the two expiry-boundary arms.
+    // Byte-identity: status AND full body across the arm-under-test and the canonical
+    // expired refusal (a status OR body oracle on the refusal reason would diverge).
     assert_eq!(
         just_past_status, canonical_status,
-        "the just-past-expiry refusal status ({just_past_status}) must be \
-         byte-identical to the canonical expired-one-day refusal status \
-         ({canonical_status}) — a status oracle on the expiry boundary"
+        "the refusal-under-test status ({just_past_status}) must be byte-identical to \
+         the canonical expired refusal status ({canonical_status}) — a status oracle \
+         on the refusal reason"
     );
     assert_eq!(
         just_past_body, canonical_body,
-        "the just-past-expiry refusal body must be byte-identical to the canonical \
-         expired-one-day refusal body — a body oracle would reveal HOW LONG ago the \
-         invite expired. just-past = {just_past_body:?}, canonical = {canonical_body:?}"
+        "the refusal-under-test body must be byte-identical to the canonical expired \
+         refusal body — a body oracle would reveal the refusal REASON (e.g. how long \
+         ago it expired, or that the email is a known account). under-test = \
+         {just_past_body:?}, canonical = {canonical_body:?}"
     );
 }
 
@@ -1198,7 +1215,31 @@ async fn someone_opens_accept_link_with_that_id(world: &mut FoundryWorld) {
 /// into the canonical refusal slots the reused byte-identity Then reads.
 #[then(regex = r#"^they see the standard "invite is no longer valid" page$"#)]
 async fn they_see_standard_refusal_page(world: &mut FoundryWorld) {
-    she_sees_standard_refusal_page(world).await;
+    // World-source-agnostic: the invite-accept feature lands the refused response in
+    // `ia_post_status`; the member-invites feature (the email-collision arm, 02-03)
+    // lands it in `mi_post_status` (its accept POST). Prefer `ia_*`, fall back to
+    // `mi_*`, and capture into BOTH canonical refusal slots so the shared
+    // byte-identity Then reads whichever the driving feature populated.
+    let status = world.ia_post_status.or(world.mi_post_status);
+    assert_eq!(
+        status,
+        Some(StatusCode::OK),
+        "the invite refusal must be the ratified 200 OK (OD-3, no status oracle, NEVER \
+         a 500 even for the email-collision arm); got {status:?}"
+    );
+    let body = world
+        .last_body
+        .clone()
+        .expect("the refused response captured a rendered body");
+    assert!(
+        body.to_ascii_lowercase().contains("no longer valid"),
+        "the refusal must render the standard \"invite is no longer valid\" page; \
+         got {body:?}"
+    );
+    world.ia_refusal_status = Some(StatusCode::OK);
+    world.ia_refusal_body = Some(body.clone());
+    world.mi_refusal_status = Some(StatusCode::OK);
+    world.mi_refusal_body = Some(body);
 }
 
 /// `And nothing reveals whether that id, account, or workspace exists` — the
