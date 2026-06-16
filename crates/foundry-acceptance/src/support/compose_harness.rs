@@ -8,10 +8,25 @@
 //! Each [`ComposeStack`] writes a unique COMPOSE_PROJECT_NAME so
 //! concurrent scenarios cannot collide. [`Drop`] tears the stack
 //! down even when a scenario panics.
+//!
+//! Image lifecycle: the compose file builds the `foundry` service from
+//! source. Left to compose's defaults, each unique project name would mint
+//! (and leak) its own `<project>-foundry` image. Instead every stack points
+//! the compose file's `${FOUNDRY_IMAGE}` at the single [`SHARED_IMAGE`] tag,
+//! so the image is built ONCE (see [`build_shared_image`]) and reused across
+//! all scenarios, then removed ONCE at suite end (see [`remove_shared_image`]).
 
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
+
+/// Single shared tag for the foundry service image across the whole
+/// acceptance suite. Every [`ComposeStack`] exports this as `FOUNDRY_IMAGE`,
+/// so compose builds/reuses exactly one image regardless of the per-scenario
+/// project name — instead of leaving a `<project>-foundry` image behind for
+/// each scenario. Built up front by [`build_shared_image`] and torn down by
+/// [`remove_shared_image`].
+pub const SHARED_IMAGE: &str = "foundry-acceptance:latest";
 
 /// Filesystem location of the workspace root (= the directory that
 /// owns `docker-compose.yml`). Computed at compile time from this
@@ -63,6 +78,10 @@ impl ComposeStack {
         let mut cmd = Command::new("docker");
         cmd.current_dir(&self.root)
             .env("FOUNDRY_HOST_PORT", "0")
+            // Pin every stack to the one shared image tag so compose reuses a
+            // single pre-built image instead of building a `<project>-foundry`
+            // image per scenario.
+            .env("FOUNDRY_IMAGE", SHARED_IMAGE)
             .arg("compose")
             .arg("-p")
             .arg(&self.project_name);
@@ -266,4 +285,46 @@ impl Drop for ComposeStack {
 pub fn read_compose_yml() -> anyhow::Result<String> {
     let path = workspace_root().join("docker-compose.yml");
     Ok(std::fs::read_to_string(path)?)
+}
+
+/// Build the foundry service image ONCE, tagged [`SHARED_IMAGE`], before any
+/// scenario runs. Every later `docker compose up` then reuses this cached
+/// image instead of rebuilding, so the suite produces exactly one image to
+/// clean up rather than one per scenario (and concurrent scenarios don't race
+/// to build the same tag). The project name here is throwaway — the built tag
+/// is fixed by the compose file's `image: ${FOUNDRY_IMAGE}` field.
+///
+/// Call this from the test runner's setup for any lane that includes the
+/// `@docker-compose` scenarios; lanes that exclude them never touch Docker.
+pub fn build_shared_image() -> anyhow::Result<()> {
+    let status = Command::new("docker")
+        .current_dir(workspace_root())
+        .env("FOUNDRY_HOST_PORT", "0")
+        .env("FOUNDRY_IMAGE", SHARED_IMAGE)
+        .args([
+            "compose",
+            "-p",
+            "foundry-acceptance-build",
+            "build",
+            "foundry",
+        ])
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .status()?;
+    if !status.success() {
+        anyhow::bail!("docker compose build foundry failed (status {status})");
+    }
+    Ok(())
+}
+
+/// Remove the [`SHARED_IMAGE`] built by [`build_shared_image`] once the suite
+/// has finished. Best-effort: errors are ignored (the image may never have
+/// been built because no `@docker-compose` scenario ran). Call this from the
+/// test runner's teardown after the run completes.
+pub fn remove_shared_image() {
+    let _ = Command::new("docker")
+        .args(["image", "rm", "-f", SHARED_IMAGE])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
 }

@@ -23,7 +23,9 @@
 //! included in `FOUNDRY_ACCEPTANCE_TAGS=all` and any explicit `@slice7`
 //! selection, but excluded from the default fast-loop.
 
+use cucumber::writer::Stats as _;
 use cucumber::World;
+use foundry_acceptance::support::compose_harness;
 use foundry_acceptance::world::FoundryWorld;
 
 // Force-link the step modules so `inventory::submit!` items are not
@@ -101,7 +103,18 @@ use foundry_acceptance::steps::us_13_contributor_onboarding as _us_13;
 async fn main() {
     let mode = std::env::var("FOUNDRY_ACCEPTANCE_TAGS").unwrap_or_default();
     let features_path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/features");
-    match mode.as_str() {
+
+    // The @docker-compose scenarios (US-01) build the foundry service image.
+    // Build it ONCE into a single shared tag up front so every scenario reuses
+    // one image instead of each leaving a `<project>-foundry` image behind;
+    // remove that one image after the run. Lanes that exclude @docker-compose
+    // never touch Docker, so the build/cleanup is skipped entirely.
+    let runs_compose = matches!(mode.as_str(), "docker-compose" | "all");
+    if runs_compose {
+        compose_harness::build_shared_image().expect("build shared foundry acceptance image");
+    }
+
+    let writer = match mode.as_str() {
         "docker-compose" => {
             // Run only @docker-compose, exclude @manual / @manual-trigger.
             FoundryWorld::cucumber()
@@ -112,13 +125,13 @@ async fn main() {
                         }
                     })
                 })
-                .filter_run_and_exit(features_path, |feat, _rule, scenario| {
+                .filter_run(features_path, |feat, _rule, scenario| {
                     let has = |t: &str| {
                         scenario.tags.iter().any(|x| x == t) || feat.tags.iter().any(|x| x == t)
                     };
                     has("docker-compose") && !has("manual") && !has("manual-trigger")
                 })
-                .await;
+                .await
         }
         "all" => {
             // Exclude @manual + @manual-trigger (slice-3 opt-in lane).
@@ -142,7 +155,7 @@ async fn main() {
                         }
                     })
                 })
-                .filter_run_and_exit(features_path, |feat, _rule, scenario| {
+                .filter_run(features_path, |feat, _rule, scenario| {
                     let has = |t: &str| {
                         scenario.tags.iter().any(|x| x == t) || feat.tags.iter().any(|x| x == t)
                     };
@@ -152,7 +165,7 @@ async fn main() {
                     // the tag once the mechanism is ratified + wired.
                     !has("manual") && !has("manual-trigger") && !has("pending")
                 })
-                .await;
+                .await
         }
         _ => {
             // Default: exclude @manual, @manual-trigger, @docker-compose,
@@ -177,7 +190,7 @@ async fn main() {
                         }
                     })
                 })
-                .filter_run_and_exit(features_path, |feat, _rule, scenario| {
+                .filter_run(features_path, |feat, _rule, scenario| {
                     let has = |t: &str| {
                         scenario.tags.iter().any(|x| x == t) || feat.tags.iter().any(|x| x == t)
                     };
@@ -190,7 +203,24 @@ async fn main() {
                         // decision (rate-guardrail OD-TMA-1). DELIVER unskips.
                         && !has("pending")
                 })
-                .await;
+                .await
         }
+    };
+
+    // Remove the single shared image now that every stack has been torn down.
+    // Best-effort and a no-op when no @docker-compose scenario ran.
+    if runs_compose {
+        compose_harness::remove_shared_image();
+    }
+
+    // Reproduce `filter_run_and_exit`'s fail-the-process behaviour: panic (which
+    // fails the test binary) if any step / parse / hook error occurred.
+    if writer.execution_has_failed() {
+        panic!(
+            "acceptance run failed: {} step(s) failed, {} parsing error(s), {} hook error(s)",
+            writer.failed_steps(),
+            writer.parsing_errors(),
+            writer.hook_errors(),
+        );
     }
 }

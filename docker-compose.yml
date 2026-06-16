@@ -22,6 +22,13 @@ services:
     restart: unless-stopped
 
   foundry:
+    # Fixed image tag so the built image is named deterministically instead
+    # of compose's default `<project>-foundry`. Operators get `foundry:latest`;
+    # the acceptance suite overrides FOUNDRY_IMAGE to a single shared test tag
+    # so its unique-per-scenario project names all reuse ONE built image
+    # (built once, removed once) rather than leaking a `<project>-foundry`
+    # image per scenario.
+    image: ${FOUNDRY_IMAGE:-foundry:latest}
     build:
       context: .
     env_file:
