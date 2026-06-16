@@ -30,7 +30,7 @@
 //! together" and "the collision rolls back to a named outcome", not "all input
 //! shapes").
 
-use foundry_store::{run_migrations, MemberConsumeOutcome, Store};
+use foundry_store::{run_migrations, InviteAcceptView, MemberConsumeOutcome, Store};
 use sqlx::postgres::PgPoolOptions;
 use std::time::Duration;
 use testcontainers_modules::postgres::Postgres;
@@ -199,6 +199,21 @@ async fn create_member_and_consume_atomically_creates_user_membership_and_consum
         consumed_rows, 1,
         "the invite must be consumed exactly once with used_by = the new member"
     );
+
+    // (4) the created user's `display_name` is the REAL derivation from the invitee
+    // email's local-part (`display_name_from_email`, ADR-002): the part before `@`.
+    // Pinning the exact derived value here kills the `display_name_from_email →
+    // "xyzzy"` mutant (a hard-coded placeholder would make this assert fail).
+    let (created_display_name,): (String,) =
+        sqlx::query_as("SELECT display_name FROM users WHERE id = $1")
+            .bind(new_user_id)
+            .fetch_one(store.pool())
+            .await
+            .expect("the created member user's display_name");
+    assert_eq!(
+        created_display_name, "sam.okafor",
+        "display_name must be derived from the invitee email local-part (NOT a placeholder)"
+    );
 }
 
 /// Behaviour 2 — the EMAIL-COLLISION arm (OD-1 / A-E9, the HIGH-risk row): when the
@@ -277,5 +292,107 @@ async fn create_member_and_consume_refuses_email_collision_without_consuming() {
     assert_eq!(
         users_after, 1,
         "no second account may be created for the colliding email (still exactly one)"
+    );
+}
+
+/// `invite_accept_view` GET-side liveness read (ADR-001 / D6): for a real seeded
+/// invite it must return `Some(view)` projecting the invite's `invitee_email` +
+/// `created_by` + `expires_at` joined to its `workspace_name` — NOT `None`.
+///
+/// Pinning the `Some(view)` projection (the four observable fields the accept page
+/// needs) kills the `invite_accept_view → Ok(None)` mutant: a blanket `Ok(None)`
+/// would make the `Some(view)` destructure panic.
+#[tokio::test]
+async fn invite_accept_view_returns_the_joined_projection_for_a_live_invite() {
+    let (base, _guard) = fresh_postgres().await;
+    let store = migrated_store(&base).await;
+    let now = time::OffsetDateTime::now_utc();
+    let expires_at = now + time::Duration::days(7);
+    let invitee = "sam.okafor@northwind.example";
+    let (workspace_id, admin_id, invite_id) =
+        seed_workspace_with_member_invite(&store, "Northwind", invitee, expires_at).await;
+    // `seed_workspace_with_member_invite` sets created_by = the inviting admin.
+    let _ = workspace_id;
+
+    let view: Option<InviteAcceptView> = store
+        .invite_accept_view(invite_id)
+        .await
+        .expect("invite_accept_view must not error for a seeded invite");
+
+    let Some(view) = view else {
+        panic!("a seeded live invite must yield Some(view), not None");
+    };
+    assert_eq!(
+        view.invitee_email.as_deref(),
+        Some(invitee),
+        "the view must project the invite's invitee_email"
+    );
+    assert_eq!(
+        view.created_by,
+        Some(admin_id),
+        "the view must project the invite's created_by (the inviting admin)"
+    );
+    assert_eq!(
+        view.workspace_name, "Northwind",
+        "the view must join in the invite's workspace name"
+    );
+    assert_eq!(
+        view.expires_at, expires_at,
+        "the view must project the invite's expires_at"
+    );
+    assert!(
+        view.used_at.is_none(),
+        "a freshly-seeded invite is unconsumed (used_at is NULL)"
+    );
+}
+
+/// `is_workspace_admin` (ADR-007 admin-moderation authz): true for a user holding the
+/// `admin` role in the workspace, FALSE for a `member`-role user in the same workspace.
+///
+/// The FALSE case is the load-bearing assertion — it kills the `is_workspace_admin →
+/// Ok(true)` mutant (a blanket `true` would authorize a non-admin member).
+#[tokio::test]
+async fn is_workspace_admin_is_true_for_admin_and_false_for_a_member() {
+    let (base, _guard) = fresh_postgres().await;
+    let store = migrated_store(&base).await;
+    let now = time::OffsetDateTime::now_utc();
+    let invitee = "sam.okafor@northwind.example";
+    // Seeds a workspace + an `admin`-role user (the inviter) + a pending member invite.
+    let (workspace_id, admin_id, invite_id) = seed_workspace_with_member_invite(
+        &store,
+        "Northwind",
+        invitee,
+        now + time::Duration::days(7),
+    )
+    .await;
+
+    // Consume the invite → creates the invitee user with a `member`-role membership.
+    let outcome = store
+        .create_member_and_consume(invite_id, "phc$member-hash", now)
+        .await
+        .expect("consume the live member invite");
+    let MemberConsumeOutcome::Consumed {
+        user_id: member_id, ..
+    } = outcome
+    else {
+        panic!("a live member invite must yield Consumed; got {outcome:?}");
+    };
+
+    let admin_is_admin = store
+        .is_workspace_admin(workspace_id, admin_id)
+        .await
+        .expect("is_workspace_admin must not error for the admin");
+    assert!(
+        admin_is_admin,
+        "the admin-role user must be reported as a workspace admin"
+    );
+
+    let member_is_admin = store
+        .is_workspace_admin(workspace_id, member_id)
+        .await
+        .expect("is_workspace_admin must not error for the member");
+    assert!(
+        !member_is_admin,
+        "a member-role user must NOT be reported as a workspace admin (kills the always-true mutant)"
     );
 }
