@@ -759,6 +759,13 @@ fn dispatch_subcommand() -> Option<i32> {
                 // workspace's data across the ten TENANT_TABLES to a single
                 // verifiable tar archive. Reads DATABASE_URL to reach the LIVE DB.
                 // Selector resolves by id OR case-insensitive name (DRIFT-1).
+                // per-workspace-backup (US-PWB-01, AC-01.1, DRIFT-1) — print every
+                // workspace's identity (id + name; no slug column) so the operator
+                // can pick a target for export-workspace. Reads DATABASE_URL.
+                "list-workspaces" => {
+                    let code = foundry_app::admin_cli::run_list_workspaces();
+                    Some(code)
+                }
                 "export-workspace" => {
                     let Some(selector) = args.get(3) else {
                         eprintln!(
@@ -783,6 +790,7 @@ fn dispatch_subcommand() -> Option<i32> {
                          Available: backup-verify <file>, restore-comment <comment-uuid>, \
                          provision-workspace --name <name> --admin-email <addr> --as <addr>, \
                          grant-super-admin --email <addr>, \
+                         list-workspaces, \
                          export-workspace <id|name> <out-path>"
                     );
                     Some(2)
@@ -793,6 +801,7 @@ fn dispatch_subcommand() -> Option<i32> {
                          Available: backup-verify <file>, restore-comment <comment-uuid>, \
                          provision-workspace --name <name> --admin-email <addr> --as <addr>, \
                          grant-super-admin --email <addr>, \
+                         list-workspaces, \
                          export-workspace <id|name> <out-path>"
                     );
                     Some(2)

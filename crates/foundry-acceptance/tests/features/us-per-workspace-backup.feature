@@ -170,7 +170,7 @@ Feature: An operator exports one workspace's data to a verifiable, isolation-cle
   # 2. list-workspaces shows each workspace's identity so the operator can name a
   #    target. DRIFT-1: prints id + name (no slug column exists). (AC-01.1)
   # ----------------------------------------------------------------------------
-  @pending @us-pwb01
+  @us-pwb01
   Scenario: An operator sees every workspace's identity before exporting
     When Devansh runs "foundry doctor list-workspaces"
     Then the output lists each workspace's id and name
@@ -183,7 +183,7 @@ Feature: An operator exports one workspace's data to a verifiable, isolation-cle
   #    the id-or-name selector is ONE resolution fn feeding the archive header.
   #    (AC-01.3)
   # ----------------------------------------------------------------------------
-  @pending @us-pwb01
+  @us-pwb01
   Scenario: An operator exports a workspace selected by its id
     When Devansh exports the workspace whose id is Acme Corp's to a backup path
     Then the selector resolves to "Acme Corp"

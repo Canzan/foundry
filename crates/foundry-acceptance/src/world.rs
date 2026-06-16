@@ -1056,6 +1056,10 @@ pub struct FoundryWorld {
     pub pwb_cli_exit: Option<i32>,
     /// The export CLI's captured stdout (the per-table report + `status:` line).
     pub pwb_cli_stdout: Option<String>,
+    /// The workspace name the id-selector export (step 01-02) is expected to
+    /// resolve to — set when exporting by id so the Then step can assert the
+    /// resolver picked the right tenant.
+    pub pwb_expected_name: Option<String>,
 }
 
 impl FoundryWorld {

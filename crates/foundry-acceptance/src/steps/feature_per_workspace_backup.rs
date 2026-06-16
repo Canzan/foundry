@@ -361,6 +361,202 @@ async fn command_exits_zero(world: &mut FoundryWorld) {
     );
 }
 
+// ---------------------------------------------------------------------------
+// Scenario 2 (step 01-02) — list-workspaces shows each workspace's identity
+// ---------------------------------------------------------------------------
+
+/// `When Devansh runs "foundry doctor list-workspaces"` — drive the REAL operator
+/// CLI `list-workspaces` subprocess against the per-scenario schema and stash the
+/// exit code + stdout for the Then steps. This is the operator's discovery surface
+/// (DRIFT-1: prints id + name; `workspaces` has no slug column) so the operator can
+/// pick a target before exporting.
+#[when(regex = r#"^Devansh runs "foundry doctor list-workspaces"$"#)]
+async fn devansh_runs_list_workspaces(world: &mut FoundryWorld) {
+    ensure_harness(world).await;
+    let base = ensure_postgres().await;
+    let schema = world
+        .pwb_harness
+        .as_ref()
+        .expect("pwb harness")
+        .schema
+        .clone();
+    let database_url = format!("{base}?options=-csearch_path%3D{schema}");
+
+    let output = tokio::task::spawn_blocking(move || {
+        AssertCommand::cargo_bin("foundry")
+            .expect("cargo-bin foundry")
+            .env("DATABASE_URL", database_url)
+            .args(["doctor", "list-workspaces"])
+            .output()
+            .expect("invoke foundry doctor list-workspaces")
+    })
+    .await
+    .expect("join blocking cli");
+
+    world.pwb_cli_exit = Some(output.status.code().unwrap_or(-1));
+    world.pwb_cli_stdout = Some(String::from_utf8_lossy(&output.stdout).into_owned());
+}
+
+/// `Then the output lists each workspace's id and name` — the CLI's port-exposed
+/// stdout carries, for EVERY seeded workspace, a row pairing its real id (UUID) and
+/// its name. Falsifiability: a list that omits a seeded workspace's id REDs this
+/// assertion.
+#[then(regex = r#"^the output lists each workspace's id and name$"#)]
+async fn output_lists_each_workspace_identity(world: &mut FoundryWorld) {
+    let stdout = world
+        .pwb_cli_stdout
+        .as_deref()
+        .expect("list-workspaces CLI stdout captured");
+    for (name, id) in &world.pwb_workspace_ids {
+        let id_str = id.to_string();
+        assert!(
+            stdout.contains(&id_str),
+            "list-workspaces stdout must contain the id {id_str:?} of workspace {name:?}; got {stdout:?}"
+        );
+        assert!(
+            stdout.contains(name.as_str()),
+            "list-workspaces stdout must contain the name {name:?}; got {stdout:?}"
+        );
+    }
+}
+
+/// `And both "<first>" and "<second>" appear` — both named workspaces are listed,
+/// so the operator sees the full instance roster, not a truncated view.
+#[then(regex = r#"^both "([^"]+)" and "([^"]+)" appear$"#)]
+async fn both_workspaces_appear(world: &mut FoundryWorld, first: String, second: String) {
+    let stdout = world
+        .pwb_cli_stdout
+        .as_deref()
+        .expect("list-workspaces CLI stdout captured");
+    for name in [first, second] {
+        assert!(
+            stdout.contains(&name),
+            "list-workspaces stdout must list workspace {name:?}; got {stdout:?}"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 3 (step 01-02) — export a workspace selected by its id
+// ---------------------------------------------------------------------------
+
+/// `When Devansh exports the workspace whose id is <ws>'s to a backup path` — drive
+/// the REAL operator CLI `export-workspace` subprocess with the SELECTED workspace's
+/// real UUID (not its name) as the selector. Proves the id branch of the id-or-name
+/// resolver (DRIFT-1) feeds the archive header. Stash exit/stdout/path + the
+/// expected name for the Then steps.
+#[when(regex = r#"^Devansh exports the workspace whose id is (.+)'s to a backup path$"#)]
+async fn devansh_exports_by_id(world: &mut FoundryWorld, ws_name: String) {
+    ensure_harness(world).await;
+    let base = ensure_postgres().await;
+    let schema = world
+        .pwb_harness
+        .as_ref()
+        .expect("pwb harness")
+        .schema
+        .clone();
+    let database_url = format!("{base}?options=-csearch_path%3D{schema}");
+
+    let workspace_id = *world
+        .pwb_workspace_ids
+        .get(&ws_name)
+        .unwrap_or_else(|| panic!("workspace {ws_name:?} must be seeded first"));
+    world.pwb_expected_name = Some(ws_name);
+
+    let tempdir = tempfile::TempDir::new().expect("create export tempdir");
+    let out_path = tempdir.path().join("export-by-id.dump");
+    world.pwb_tempdir = Some(tempdir);
+    world.pwb_out_path = Some(out_path.clone());
+
+    let selector = workspace_id.to_string();
+    let out = out_path.clone();
+    let output = tokio::task::spawn_blocking(move || {
+        AssertCommand::cargo_bin("foundry")
+            .expect("cargo-bin foundry")
+            .env("DATABASE_URL", database_url)
+            .args(["doctor", "export-workspace"])
+            .arg(&selector)
+            .arg(&out)
+            .output()
+            .expect("invoke foundry doctor export-workspace")
+    })
+    .await
+    .expect("join blocking cli");
+
+    world.pwb_cli_exit = Some(output.status.code().unwrap_or(-1));
+    world.pwb_cli_stdout = Some(String::from_utf8_lossy(&output.stdout).into_owned());
+}
+
+/// `Then the selector resolves to "<name>"` — the id selector resolved to the right
+/// workspace: the CLI's port-exposed `workspace-name:` line names the expected
+/// workspace. Falsifiability: resolving the id to the WRONG workspace's name REDs.
+#[then(regex = r#"^the selector resolves to "([^"]+)"$"#)]
+async fn selector_resolves_to(world: &mut FoundryWorld, expected: String) {
+    let stdout = world
+        .pwb_cli_stdout
+        .as_deref()
+        .expect("export CLI stdout captured");
+    let resolved = stdout
+        .lines()
+        .find_map(|l| l.trim().strip_prefix("workspace-name:"))
+        .map(str::trim);
+    assert_eq!(
+        resolved,
+        Some(expected.as_str()),
+        "the id selector must resolve to workspace {expected:?}; stdout={stdout:?}, exit={:?}",
+        world.pwb_cli_exit,
+    );
+}
+
+/// `And an archive of "<name>" exists at that path` — a real, well-formed tar
+/// archive whose manifest declares the expected workspace was written at the final
+/// path. Reading the tar offline proves it is a genuine archive of the SELECTED
+/// workspace, not a touched file or the wrong tenant.
+#[then(regex = r#"^an archive of "([^"]+)" exists at that path$"#)]
+async fn archive_of_workspace_exists(world: &mut FoundryWorld, expected: String) {
+    let path = world
+        .pwb_out_path
+        .clone()
+        .expect("export path captured in the When step");
+    assert!(
+        path.exists(),
+        "an archive must exist at {path:?}; CLI exit={:?}, stdout={:?}",
+        world.pwb_cli_exit,
+        world.pwb_cli_stdout,
+    );
+
+    let manifest = read_tar_manifest(&path);
+    let declared = manifest
+        .get("declared_workspace_name")
+        .and_then(|v| v.as_str());
+    assert_eq!(
+        declared,
+        Some(expected.as_str()),
+        "the archive manifest must declare workspace {expected:?}; manifest={manifest:?}"
+    );
+}
+
+/// Read and parse the `manifest.json` entry from a tar archive at `path`, offline.
+fn read_tar_manifest(path: &std::path::Path) -> serde_json::Value {
+    use std::io::Read;
+    let file = std::fs::File::open(path).expect("open export archive");
+    let mut archive = tar::Archive::new(file);
+    for entry in archive.entries().expect("read tar entries") {
+        let mut entry = entry.expect("tar entry");
+        let name = entry
+            .path()
+            .expect("entry path")
+            .to_string_lossy()
+            .into_owned();
+        if name == "manifest.json" {
+            let mut buf = String::new();
+            entry.read_to_string(&mut buf).expect("read manifest.json");
+            return serde_json::from_str(&buf).expect("parse manifest.json");
+        }
+    }
+    panic!("archive at {path:?} has no manifest.json entry");
+}
+
 /// Read the entry names of a tar archive at `path`, offline. Used to verify the
 /// exported archive is well-formed (the ten table JSONL files + manifest).
 fn read_tar_entry_names(path: &std::path::Path) -> Vec<String> {
