@@ -4246,3 +4246,172 @@ async fn her_invite_still_live_and_no_account(world: &mut FoundryWorld) {
 async fn he_submits_twelve_char_password(world: &mut FoundryWorld) {
     accept_member_invite(world, MEMBER_TWELVE_CHAR_PASSWORD).await;
 }
+
+// ---------------------------------------------------------------------------
+// Issuance inline recovery (step 03-02) — scenario 28: a BLANK email on the
+// issuance form is corrected inline; NO invite is created.
+// ---------------------------------------------------------------------------
+//
+// GREEN-BY-INHERITANCE through the SHIPPED issuance handler (`member_invites.rs`
+// `submit_invite`): a blank/empty `email` form field is trimmed to "" and short-
+// circuits BEFORE `insert_invite` runs, re-rendering the member-invite form inline
+// (200) carrying the `BLANK_EMAIL_ERROR` copy ("Enter an email address to invite a
+// member.") — NO `invites` row. The admin can correct and resubmit on the same form
+// (AC-04.3, FR-3, I-E3). This step authors only acceptance GLUE; NO production code.
+//
+// Falsifiability (proven at DELIVER, reverted): were the blank-email guard removed so
+// the handler called `insert_invite` with an empty email, an `invites` row would be
+// created and the response would be the "invite sent" fragment rather than the inline
+// form error → both the inline-error Then and the "no invite is created" Then would RED.
+
+/// `When Dana submits the form with an empty email` — drive the REAL admin-gated
+/// issuance POST `/workspace/invites` as the signed-in admin with an EMPTY `email`
+/// field. The SHIPPED `submit_invite` trims the blank email, short-circuits before
+/// `insert_invite`, and re-renders the form inline (200) with the blank-email error.
+/// Captures the re-rendered body for the inline-error Then.
+#[when(regex = r#"^Dana submits the form with an empty email$"#)]
+async fn dana_submits_empty_email(world: &mut FoundryWorld) {
+    let dana_email = world
+        .mi_admin_email
+        .clone()
+        .expect("the Background seeded Dana's email");
+    let client = http(world);
+    let outcome = signed_in_post(
+        harness(world),
+        &client,
+        &dana_email,
+        DANA_PASSWORD,
+        "/workspace/invites",
+        &[("email", "")],
+    )
+    .await;
+    world.mi_post_status = Some(outcome.status);
+    world.last_body = Some(outcome.body);
+}
+
+/// `Then she sees an inline error asking for an email address` — the blank-email POST
+/// re-rendered the member-invite form IN PLACE at 200 OK carrying the blank-email
+/// error copy and still posting to /workspace/invites (an inline correction, not a
+/// 303 redirect, not the "invite sent" fragment). The handler short-circuited before
+/// `insert_invite`, so the admin can correct + resubmit on the same form.
+#[then(regex = r#"^she sees an inline error asking for an email address$"#)]
+async fn sees_inline_blank_email_error(world: &mut FoundryWorld) {
+    assert_eq!(
+        world.mi_post_status,
+        Some(StatusCode::OK),
+        "a blank-email issuance POST must re-render the form inline at 200 OK (not a \
+         303, not the invite-sent fragment); got {:?}",
+        world.mi_post_status
+    );
+    let body = world
+        .last_body
+        .clone()
+        .expect("the blank-email POST captured a re-rendered body");
+    let lower = body.to_ascii_lowercase();
+    assert!(
+        lower.contains("email address"),
+        "the inline error must ask for an email address; got {body:?}"
+    );
+    assert!(
+        body.contains(r#"action="/workspace/invites""#) && body.contains(r#"name="email""#),
+        "the inline error must be shown ON the member-invite form (re-rendered in \
+         place, posting back to /workspace/invites), not on the invite-sent fragment; \
+         got {body:?}"
+    );
+    assert!(
+        !body.contains("/invites/accept?id="),
+        "a blank-email POST must NOT render the shareable accept link (no invite was \
+         created); got {body:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Member inline-recovery RE-ATTEMPT (step 03-02) — scenario 29 (PRIMARY): after an
+// inline password error, a VALID retry on the SAME live member invite completes the
+// join (account + member membership + consume + session), proving recoverability —
+// the failed attempt did NOT strand the invitee on a dead link (AC-04.5).
+// ---------------------------------------------------------------------------
+//
+// GREEN-BY-INHERITANCE through the SHIPPED member arm: scenario 26 (03-01) proved a
+// weak password re-renders inline at 200 WITHOUT consuming the invite (the policy
+// check runs before `create_member_and_consume` opens). This scenario chains off
+// that left-live invite and proves the SECOND, VALID submission on the SAME invite —
+// reusing the SAME GET-minted double-submit CSRF cookie + the SAME signed token —
+// passes the policy, fires the consume guarded-UPDATE, creates the account + member
+// membership, writes the hash, establishes a session, and 303-redirects. NO production
+// code added here; acceptance GLUE only.
+//
+// Falsifiability (proven at DELIVER, reverted): had the FAILED weak attempt consumed
+// the invite (e.g. moving the policy check AFTER the consume TX), the retry's consume
+// guarded-UPDATE would match 0 rows (`used_at IS NULL` already false) → the retry would
+// be REFUSED (the uniform refusal page / no 303 / no session) and NO account would be
+// created → the "account created + signed in" + "used exactly once" Thens would RED.
+// The Given's own DB-observable live-invite assertion binds that explicitly.
+
+/// `Given Sam was shown an inline password error and his member invite is still live`
+/// — seed a LIVE member invite for Sam (two hours ago, unused), GET the accept page
+/// (rendering the set-password form + minting the `mi_get_csrf_cookie`), then drive
+/// the reused weak-password POST (3 chars, below min-12, matching confirm) which
+/// re-renders inline at 200 WITHOUT consuming the invite (the policy check runs before
+/// the consume TX). Assert (DB-observable against the REAL per-scenario Postgres) the
+/// failed attempt was an INLINE error (200, no session) AND the invite is STILL live —
+/// grounding the "shown an inline error, invite still live" precondition in observable
+/// state, and binding the recovery explicitly to the invite-stays-live behaviour
+/// proven in scenario 26 (03-01).
+#[given(regex = r#"^Sam was shown an inline password error and his member invite is still live$"#)]
+async fn sam_shown_inline_error_invite_live(world: &mut FoundryWorld) {
+    // Reused arrival: seed the live member invite + GET the form, minting the CSRF cookie.
+    sam_opened_live_invite_seen_form(world, "Northwind".to_string()).await;
+
+    // Reused failed attempt: a weak password re-renders inline (200) without consuming.
+    he_submits_a_weak_password(world).await;
+
+    // The failed attempt was an INLINE error (200 re-render), not a redirect/refusal.
+    assert_eq!(
+        world.mi_post_status,
+        Some(StatusCode::OK),
+        "the failed attempt must re-render inline at 200 OK (the inline password \
+         error), proving the member was shown a correctable error; got {:?}",
+        world.mi_post_status
+    );
+    assert!(
+        world.mi_session_cookie.is_none(),
+        "the failed attempt must establish NO session (the policy check fails before \
+         the consume TX + sign-in); got {:?}",
+        world.mi_session_cookie
+    );
+
+    // DB-observable: the invite is STILL live after the failed attempt — the failed
+    // POST did not strand the member on a dead link. If the weak POST HAD consumed the
+    // invite, this count would be 0 and the precondition would RED here.
+    let invite_id = world.mi_invite_id.expect("a member invite was seeded");
+    let now = harness(world).app.state.clock.now();
+    let pool = harness(world).app.state.store.pool().clone();
+    let (live_rows,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM invites WHERE id = $1 AND used_at IS NULL AND expires_at > $2",
+    )
+    .bind(invite_id)
+    .bind(now)
+    .fetch_one(&pool)
+    .await
+    .expect("count the live (unused, unexpired) member invite row after the failed attempt");
+    assert_eq!(
+        live_rows, 1,
+        "after the failed password attempt the member invite must still be live \
+         (used_at NULL, unexpired) — the failed attempt must NOT have consumed it; \
+         found {live_rows} live rows"
+    );
+}
+
+/// `When he submits a valid password on the same invite and confirms it` — drive a
+/// VALID retry POST against the SAME live member invite, reusing the SAME GET-minted
+/// double-submit CSRF cookie + the SAME signed token, with a policy-passing password
+/// + matching confirm. The policy passes, `create_member_and_consume` fires (the
+/// consume guarded-UPDATE still matches because the failed attempt left the invite
+/// live), the account + member membership are created, the hash is written, a session
+/// is established, and the handler 303-redirects. Captures the 303 + session cookie
+/// for the reused success Thens.
+#[when(regex = r#"^he submits a valid password on the same invite and confirms it$"#)]
+async fn sam_submits_valid_retry_on_same_invite(world: &mut FoundryWorld) {
+    member_accept_post_with_confirm(world, MEMBER_PASSWORD, MEMBER_PASSWORD).await;
+}

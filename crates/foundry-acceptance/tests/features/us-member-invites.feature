@@ -496,7 +496,7 @@ Feature: A workspace admin invites a teammate, who joins by creating an account 
 
   # 28. A BLANK email on the issuance form is corrected inline; NO invite is created
   #     (AC-04.3, FR-3, I-E3).
-  @pending @us-04 @error
+  @us-04 @error
   Scenario: A blank email on the issuance form is corrected inline
     Given Dana has opened the member-invite form for "Northwind"
     When Dana submits the form with an empty email
@@ -506,7 +506,7 @@ Feature: A workspace admin invites a teammate, who joins by creating an account 
   # 29. RE-ATTEMPT — after an inline password error, re-submitting a valid password on
   #     the SAME live invite completes the join (AC-04.5, the recoverability proof).
   #     Its Given chains off scenario 26's left-live invite.
-  @pending @us-04
+  @us-04
   Scenario: A valid retry on the same member invite after an error completes the join
     Given Sam was shown an inline password error and his member invite is still live
     When he submits a valid password on the same invite and confirms it
