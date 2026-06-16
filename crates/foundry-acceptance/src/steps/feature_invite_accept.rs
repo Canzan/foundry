@@ -3367,7 +3367,7 @@ async fn her_password_accepted_and_signed_in(world: &mut FoundryWorld, ws_name: 
 /// Flip a single base64url character of a genuine signature so the HMAC tamper
 /// oracle rejects it (the corruption is guaranteed to take — the replacement
 /// differs from the original character).
-fn tamper_one_char(authentic: &str) -> String {
+pub(crate) fn tamper_one_char(authentic: &str) -> String {
     let mut chars: Vec<char> = authentic.chars().collect();
     assert!(
         !chars.is_empty(),

@@ -3768,3 +3768,220 @@ fn parse_accept_link(body: &str) -> (uuid::Uuid, String) {
         .unwrap_or(sig_raw);
     (invite_id, sig)
 }
+
+// ---------------------------------------------------------------------------
+// Scenario 25 (step 02-07) @property — NO-SECRET-LEAKAGE across the full member
+// cycle: across a real issuance POST + a successful member accept + a hostile
+// prober's refusal, NEITHER the invite `sig` value NOR the submitted password
+// ever appears on any captured response-surface body; the refusal reason lives
+// ONLY in internal `tracing` keyed on `invite_id` (+ %err). (AC-03.10, NFR-5.)
+//
+// Green by INHERITANCE from the SHIPPED design. PREPARE-verified production
+// citation (foundry-app):
+//   * `member_invites.rs` issuance handler — every `tracing` line carries ONLY
+//     `%err` / `error = %err` (lines 134, 141, 159, 169, 188, 200); NEVER the
+//     minted `sig`, NEVER any submitted value.
+//   * `invites_accept.rs` accept handlers — every `tracing` line carries ONLY
+//     `%invite_id` (+ `%err`) (lines 83, 151, 171, 220, 279, 304); NEVER the
+//     `sig`, NEVER the raw `password`. The password is argon2id-hashed before any
+//     persistence/log surface; the `sig` is verified by the tamper oracle but
+//     never emitted.
+//
+// LOG OBSERVABLE — no in-process tracing-capture seam (the harness wires no
+// custom subscriber; tracing is global-only, initialised in `main.rs`). So, per
+// the step's guidance, the STRONGEST AVAILABLE observable is asserted: the FULL
+// response-body surface across the cycle never contains the `sig` or the
+// submitted password — backed by the tracing-keyed-on-invite_id citation above.
+// A handler careless enough to format a secret into a log line is the same kind
+// that would format it into a rendered body; the falsifiability demo (echoing
+// the sig into the refusal/landing body, or rendering the password) reds the
+// assertions, proving they are not vacuous.
+//
+// Slot reuse: this Given populates the SAME `ia_*` slots the SHARED When/Then
+// (`feature_invite_accept.rs`) scan — `ia_cycle_bodies` (the true LOG-surface
+// bodies: success POST + signed-in landing + prober refusal, which must carry NO
+// sig and NO password), `ia_invite_sig` (the genuine member sig under
+// protection), `ia_prober_sig` (the prober's supplied tampered sig), and
+// `ia_get_form_body` (the LEGITIMATE sig-carriers — the issuance "invite sent"
+// fragment + the holder's own GET set-password form — joined; EXCLUDED from the
+// sig-scan because they are the admin's/holder's own links round-tripped back,
+// NOT log surfaces, but STILL password-scanned). The member submits
+// `PRIYA_PASSWORD` (min-12 policy-passing) so the shared password Then — which
+// scans for that literal — bites genuinely on this cycle.
+//
+// Example-pinned at LAYER 3 (Mandate 11): one concrete full member cycle, the
+// universal-invariant SHAPE (no secret in the observable log surface) enumerated
+// explicitly; NO PBT machinery at this layer.
+#[given(
+    regex = r#"^Dana issues an invite, Sam completes a successful accept, and a hostile prober is refused$"#
+)]
+async fn member_no_leak_full_cycle(world: &mut FoundryWorld) {
+    // The submitted password for the member accept — the SAME literal the shared
+    // `no_submitted_password` Then scans for, so its scan is non-vacuous here.
+    const CYCLE_PASSWORD: &str = "northwind-secure-pass";
+    let invitee = "leakprobe.sam@northwind.example";
+
+    let dana_email = world
+        .mi_admin_email
+        .clone()
+        .expect("the Background seeded Dana's email");
+    let base = harness(world).base_url();
+    let client = http(world);
+
+    let mut log_surface_bodies: Vec<String> = Vec::new();
+    // Legitimate sig-carriers (NOT log surfaces): the issuance fragment + the GET
+    // set-password form. Joined into `ia_get_form_body`; excluded from the sig-scan,
+    // included in the password-scan.
+    let mut legit_sig_carriers: Vec<String> = Vec::new();
+
+    // 1 — Dana issues a REAL member invite over the admin-gated issuance route. The
+    //     rendered "invite sent" fragment legitimately carries the accept link (with
+    //     the sig) — the admin's own shareable link, NOT a log surface. Parse the
+    //     genuine id + sig out of it for the accept + prober legs.
+    let issuance = signed_in_post(
+        harness(world),
+        &client,
+        &dana_email,
+        DANA_PASSWORD,
+        "/workspace/invites",
+        &[("email", invitee)],
+    )
+    .await;
+    assert_eq!(
+        issuance.status,
+        StatusCode::OK,
+        "the member-invite issuance POST must render a 200 'invite sent' fragment; \
+         body = {:?}",
+        issuance.body
+    );
+    let (invite_id, sig) = parse_accept_link(&issuance.body);
+    world.mi_invite_id = Some(invite_id);
+    world.mi_invite_sig = Some(sig.clone());
+    legit_sig_carriers.push(issuance.body);
+
+    // 2 — GET the live link: the set-password form + the double-submit CSRF cookie.
+    let get_resp = client
+        .get(format!(
+            "{base}/invites/accept?id={invite_id}&sig={sig}",
+            sig = urlencoding::encode(&sig)
+        ))
+        .send()
+        .await
+        .expect("GET /invites/accept (member no-leak cycle)");
+    assert_eq!(
+        get_resp.status(),
+        StatusCode::OK,
+        "the GET for the live member invite must render the set-password form"
+    );
+    let csrf_cookie = get_resp
+        .headers()
+        .get_all(reqwest::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .find(|s| s.starts_with("foundry_csrf="))
+        .map(str::to_string)
+        .expect("the GET minted a foundry_csrf cookie");
+    let csrf_token = csrf_cookie
+        .strip_prefix("foundry_csrf=")
+        .and_then(|rest| rest.split(';').next())
+        .unwrap_or("")
+        .to_string();
+    // The GET form legitimately carries the sig in its hidden field (the holder's own
+    // valid link round-tripped back to her) — a legit sig-carrier, NOT a log surface.
+    legit_sig_carriers.push(get_resp.text().await.unwrap_or_default());
+
+    // 3 — POST the success accept: create user + member membership + write password
+    //     + sign in. The submitted password is `CYCLE_PASSWORD`.
+    let form = [
+        ("id", invite_id.to_string()),
+        ("sig", sig.clone()),
+        ("password", CYCLE_PASSWORD.to_string()),
+        ("confirm", CYCLE_PASSWORD.to_string()),
+        ("_csrf", csrf_token.clone()),
+    ];
+    let post_resp = client
+        .post(format!("{base}/invites/accept"))
+        .header(
+            reqwest::header::COOKIE,
+            format!("foundry_csrf={csrf_token}"),
+        )
+        .form(&form)
+        .send()
+        .await
+        .expect("POST /invites/accept (member no-leak cycle)");
+    assert_eq!(
+        post_resp.status(),
+        StatusCode::SEE_OTHER,
+        "the success member accept must 303 SEE_OTHER (auto sign-in)"
+    );
+    let location = post_resp
+        .headers()
+        .get(reqwest::header::LOCATION)
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_string)
+        .expect("the success POST set a Location to follow");
+    let session_cookie = post_resp
+        .headers()
+        .get_all(reqwest::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .find(|s| s.starts_with("foundry_session="))
+        .and_then(|s| s.split(';').next())
+        .map(str::to_string)
+        .expect("the success POST issued a foundry_session cookie");
+    // The success POST body is a true LOG-surface body — must carry NO sig, NO password.
+    log_surface_bodies.push(post_resp.text().await.unwrap_or_default());
+
+    // 4 — follow the 303 to the signed-in landing page (a true LOG-surface body).
+    let landing_resp = client
+        .get(format!("{base}{location}"))
+        .header(reqwest::header::COOKIE, session_cookie)
+        .send()
+        .await
+        .expect("GET the signed-in landing page (member no-leak cycle)");
+    log_surface_bodies.push(landing_resp.text().await.unwrap_or_default());
+
+    // 5 — a hostile prober opens a TAMPERED link → the uniform refusal (a true
+    //     LOG-surface body). A fresh genuine signature for the SAME id, then one char
+    //     flipped, so the refusal fires on the tamper oracle; its body must leak
+    //     neither the prober's supplied sig nor any secret.
+    let secret = harness(world).app.state.session_secret.clone();
+    let now = harness(world).app.state.clock.now();
+    let prober_expires_at = now + time::Duration::days(7);
+    let prober_genuine = foundry_auth::InviteToken::new(invite_id, prober_expires_at, &secret)
+        .expect("mint a genuine signature to tamper for the prober")
+        .signature;
+    let prober_sig = crate::steps::feature_invite_accept::tamper_one_char(&prober_genuine);
+    let refusal_resp = client
+        .get(format!(
+            "{base}/invites/accept?id={invite_id}&sig={sig}",
+            sig = urlencoding::encode(&prober_sig)
+        ))
+        .send()
+        .await
+        .expect("GET /invites/accept (hostile prober, tampered member link)");
+    assert_eq!(
+        refusal_resp.status(),
+        StatusCode::OK,
+        "the hostile prober's tampered link must render the uniform 200 refusal"
+    );
+    let refusal_body = refusal_resp.text().await.unwrap_or_default();
+    assert!(
+        refusal_body
+            .to_ascii_lowercase()
+            .contains("no longer valid"),
+        "the prober refusal must be the uniform \"no longer valid\" page; got \
+         {refusal_body:?}"
+    );
+    log_surface_bodies.push(refusal_body);
+
+    // Populate the SHARED slots the When/Then scan. `ia_invite_sig` = the genuine
+    // member sig under protection; `ia_prober_sig` = the prober's supplied tampered
+    // sig; `ia_cycle_bodies` = the true LOG-surface bodies (sig + password must be
+    // absent); `ia_get_form_body` = the joined legitimate sig-carriers (issuance
+    // fragment + GET form), excluded from the sig-scan but password-scanned.
+    world.ia_invite_sig = Some(sig);
+    world.ia_prober_sig = Some(prober_sig);
+    world.ia_cycle_bodies = log_surface_bodies;
+    world.ia_get_form_body = Some(legit_sig_carriers.join("\n"));
+}

@@ -386,6 +386,34 @@
       "s": "EXECUTED",
       "d": "PASS",
       "t": "2026-06-15T23:37:16Z"
+    },
+    {
+      "sid": "02-07",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-15T23:40:06Z"
+    },
+    {
+      "sid": "02-07",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-16T00:35:53Z"
+    },
+    {
+      "sid": "02-07",
+      "p": "RED_UNIT",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: green-by-inheritance no-leak scenario; no new domain decomposition \u2014 assertion is port-to-port over the response-surface bodies through the real issuance+accept handlers; falsifiability (injected sig leak) proven to RED the acceptance assertion",
+      "t": "2026-06-16T00:35:53Z"
+    },
+    {
+      "sid": "02-07",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-16T00:44:08Z"
     }
   ]
 }

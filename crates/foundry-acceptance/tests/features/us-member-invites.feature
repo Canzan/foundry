@@ -463,7 +463,7 @@ Feature: A workspace admin invites a teammate, who joins by creating an account 
   #     the application logs contain neither the invite `sig` value nor any submitted
   #     password (the refusal reason lives in tracing keyed on invite_id only).
   #     Example-pinned at LAYER 3 (Mandate 11). (AC-03.10, NFR-5.)
-  @pending @us-03 @error @property
+  @us-03 @error @property
   Scenario: No invite signature or password ever appears in the logs
     Given Dana issues an invite, Sam completes a successful accept, and a hostile prober is refused
     When the application logs for the full cycle are examined
