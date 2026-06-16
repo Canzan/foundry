@@ -784,6 +784,17 @@ fn dispatch_subcommand() -> Option<i32> {
                     let code = foundry_app::admin_cli::run_export_workspace(selector, out_path);
                     Some(code)
                 }
+                "verify-export" => {
+                    let Some(path) = args.get(3) else {
+                        eprintln!(
+                            "foundry doctor verify-export: missing <path>. \
+                             Usage: foundry doctor verify-export <archive-path>"
+                        );
+                        return Some(4);
+                    };
+                    let code = foundry_app::admin_cli::run_verify_export(path);
+                    Some(code)
+                }
                 "" => {
                     eprintln!(
                         "foundry doctor: subcommand required. \
@@ -791,7 +802,8 @@ fn dispatch_subcommand() -> Option<i32> {
                          provision-workspace --name <name> --admin-email <addr> --as <addr>, \
                          grant-super-admin --email <addr>, \
                          list-workspaces, \
-                         export-workspace <id|name> <out-path>"
+                         export-workspace <id|name> <out-path>, \
+                         verify-export <archive-path>"
                     );
                     Some(2)
                 }
@@ -802,7 +814,8 @@ fn dispatch_subcommand() -> Option<i32> {
                          provision-workspace --name <name> --admin-email <addr> --as <addr>, \
                          grant-super-admin --email <addr>, \
                          list-workspaces, \
-                         export-workspace <id|name> <out-path>"
+                         export-workspace <id|name> <out-path>, \
+                         verify-export <archive-path>"
                     );
                     Some(2)
                 }

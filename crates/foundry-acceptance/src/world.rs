@@ -1056,6 +1056,10 @@ pub struct FoundryWorld {
     pub pwb_cli_exit: Option<i32>,
     /// The export CLI's captured stdout (the per-table report + `status:` line).
     pub pwb_cli_stdout: Option<String>,
+    /// The verify-export CLI's captured stderr — failure diagnostics (exit 4
+    /// completeness / exit 6 isolation) go to stderr, so the Then steps surface it
+    /// when a confirmation line is missing.
+    pub pwb_cli_stderr: Option<String>,
     /// The workspace name the id-selector export (step 01-02) is expected to
     /// resolve to — set when exporting by id so the Then step can assert the
     /// resolver picked the right tenant.

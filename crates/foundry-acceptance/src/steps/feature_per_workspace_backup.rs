@@ -613,6 +613,271 @@ async fn workspace_data_unchanged(world: &mut FoundryWorld, ws_name: String) {
 }
 
 // ---------------------------------------------------------------------------
+// Scenario 5 (step 02-01) — the archive contains every target row and no sibling
+// row. Offline inspection of the written archive proves the isolation crux
+// directly from the bytes (not via the CLI): every archived row resolves to the
+// target workspace, no row resolves to the sibling, and the member set is exactly
+// the target's members.
+// ---------------------------------------------------------------------------
+
+/// `Then every row in the archive belongs to "<workspace>"` — read the archive
+/// offline and re-apply the §5 scope predicate to every row across the ten tenant
+/// tables: each row resolves to the target workspace's id. Falsifiability: a row
+/// resolving to any other workspace REDs.
+#[then(regex = r#"^every row in the archive belongs to "([^"]+)"$"#)]
+async fn every_row_belongs_to(world: &mut FoundryWorld, ws_name: String) {
+    let archive = read_archive_for_isolation(world);
+    let target_id = *world
+        .pwb_workspace_ids
+        .get(&ws_name)
+        .unwrap_or_else(|| panic!("workspace {ws_name:?} must be seeded"));
+    let report = foundry_store::verify_workspace_export(&archive);
+    assert_eq!(
+        archive.declared_workspace_id, target_id,
+        "the archive must declare the target workspace {ws_name:?} ({target_id})"
+    );
+    assert!(
+        report.is_isolation_clean(),
+        "every archived row must belong to {ws_name:?}; isolation violations={:?}",
+        report.isolation_violations
+    );
+}
+
+/// `And no row in the archive belongs to "<sibling>"` — no archived row resolves
+/// to the sibling workspace's id. Falsifiability: a planted sibling row REDs. This
+/// is checked directly against the sibling's real id, complementing the
+/// declared-workspace isolation pass.
+#[then(regex = r#"^no row in the archive belongs to "([^"]+)"$"#)]
+async fn no_row_belongs_to_sibling(world: &mut FoundryWorld, sibling: String) {
+    let archive = read_archive_for_isolation(world);
+    let sibling_id = *world
+        .pwb_workspace_ids
+        .get(&sibling)
+        .unwrap_or_else(|| panic!("sibling workspace {sibling:?} must be seeded"));
+    let sibling_str = sibling_id.to_string();
+    for table in &archive.tables {
+        for row in &table.rows {
+            let mentions_sibling = row
+                .get("workspace_id")
+                .and_then(serde_json::Value::as_str)
+                .map(|w| w == sibling_str)
+                .unwrap_or(false);
+            assert!(
+                !mentions_sibling,
+                "no archived row may belong to the sibling {sibling:?} ({sibling_id}); \
+                 found one in table {:?}: {row}",
+                table.name
+            );
+        }
+    }
+}
+
+/// `And the archive's member set is exactly the members of "<workspace>"` — the
+/// archived `users` set equals exactly the user ids that are members of the target
+/// workspace (per the seeded `workspace_memberships`). Falsifiability: a missing
+/// target member or an extra non-member user REDs.
+#[then(regex = r#"^the archive's member set is exactly the members of "([^"]+)"$"#)]
+async fn member_set_is_exactly(world: &mut FoundryWorld, ws_name: String) {
+    let archive = read_archive_for_isolation(world);
+    let pool = harness_pool(world);
+    let target_id = *world
+        .pwb_workspace_ids
+        .get(&ws_name)
+        .unwrap_or_else(|| panic!("workspace {ws_name:?} must be seeded"));
+
+    let expected: std::collections::BTreeSet<String> = sqlx::query_scalar::<_, uuid::Uuid>(
+        "SELECT user_id FROM workspace_memberships WHERE workspace_id = $1",
+    )
+    .bind(target_id)
+    .fetch_all(&pool)
+    .await
+    .expect("read expected members")
+    .into_iter()
+    .map(|u| u.to_string())
+    .collect();
+
+    let archived: std::collections::BTreeSet<String> = archive
+        .tables
+        .iter()
+        .find(|t| t.name == "users")
+        .expect("archive has users table")
+        .rows
+        .iter()
+        .filter_map(|r| {
+            r.get("id")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string)
+        })
+        .collect();
+
+    assert_eq!(
+        archived, expected,
+        "the archive's member (users) set must be exactly the members of {ws_name:?}"
+    );
+}
+
+/// Read the archive written by the most recent export into a
+/// `foundry_store::ArchiveContents` (the offline verifier's input): parse
+/// `manifest.json` for the declared id + per-table counts, parse each
+/// `tables/<table>.jsonl` into whole-row JSON. Mirrors the CLI reader so the step
+/// asserts against the SAME parsed shape the production verifier consumes.
+fn read_archive_for_isolation(world: &FoundryWorld) -> foundry_store::ArchiveContents {
+    use std::io::Read;
+    let path = world
+        .pwb_out_path
+        .clone()
+        .expect("export path captured in the When step");
+    let manifest = read_tar_manifest(&path);
+    let declared_workspace_id = manifest
+        .get("declared_workspace_id")
+        .and_then(serde_json::Value::as_str)
+        .and_then(|s| uuid::Uuid::parse_str(s).ok())
+        .expect("manifest declared_workspace_id");
+    let declared_counts = manifest
+        .get("row_counts")
+        .and_then(serde_json::Value::as_object);
+
+    let file = std::fs::File::open(&path).expect("open archive");
+    let mut tar_archive = tar::Archive::new(file);
+    let mut jsonl_by_table: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
+    for entry in tar_archive.entries().expect("tar entries") {
+        let mut entry = entry.expect("tar entry");
+        let name = entry
+            .path()
+            .expect("entry path")
+            .to_string_lossy()
+            .into_owned();
+        if let Some(table) = name
+            .strip_prefix("tables/")
+            .and_then(|n| n.strip_suffix(".jsonl"))
+            .map(str::to_string)
+        {
+            let mut buf = String::new();
+            entry.read_to_string(&mut buf).expect("read jsonl");
+            jsonl_by_table.insert(table, buf);
+        }
+    }
+
+    let tables = foundry_store::TENANT_TABLES
+        .iter()
+        .map(|table| {
+            let jsonl = jsonl_by_table.get(*table).cloned().unwrap_or_default();
+            let rows: Vec<serde_json::Value> = jsonl
+                .lines()
+                .filter(|l| !l.trim().is_empty())
+                .map(|l| serde_json::from_str(l).expect("parse jsonl row"))
+                .collect();
+            let declared_count = declared_counts
+                .and_then(|m| m.get(*table))
+                .and_then(serde_json::Value::as_u64)
+                .map_or(rows.len(), |c| c as usize);
+            foundry_store::ArchivedTable {
+                name: (*table).to_string(),
+                declared_count,
+                rows,
+            }
+        })
+        .collect();
+
+    foundry_store::ArchiveContents {
+        declared_workspace_id,
+        tables,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 6 (step 02-01) — verify-export confirms completeness + isolation from
+// the path alone and exits 0 on a clean archive.
+// ---------------------------------------------------------------------------
+
+/// `Given Devansh has exported "<selector>" to a backup path` — same as the export
+/// When step, used as a precondition for the verify scenarios. Drives the REAL
+/// export CLI so a genuine archive exists on disk for verify-export to read.
+#[given(regex = r#"^Devansh has exported "([^"]+)" to a backup path$"#)]
+async fn devansh_has_exported(world: &mut FoundryWorld, selector: String) {
+    devansh_exports_to_backup_path(world, selector).await;
+}
+
+/// `When Devansh runs "foundry doctor verify-export" on that archive` — drive the
+/// REAL operator CLI `verify-export` subprocess on the exported archive path. It is
+/// PATH-ONLY (NFR-PWB-INT-01): no workspace argument is passed; the declared
+/// workspace is read from the archive's manifest header. Stash exit + stdout.
+#[when(regex = r#"^Devansh runs "foundry doctor verify-export" on that archive$"#)]
+async fn devansh_runs_verify_export(world: &mut FoundryWorld) {
+    let path = world
+        .pwb_out_path
+        .clone()
+        .expect("an archive must have been exported first");
+    let path_arg = path.clone();
+    let output = tokio::task::spawn_blocking(move || {
+        AssertCommand::cargo_bin("foundry")
+            .expect("cargo-bin foundry")
+            .args(["doctor", "verify-export"])
+            .arg(&path_arg)
+            .output()
+            .expect("invoke foundry doctor verify-export")
+    })
+    .await
+    .expect("join blocking cli");
+
+    world.pwb_cli_exit = Some(output.status.code().unwrap_or(-1));
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    // Surface stderr in the captured diagnostics: verify-export writes failure
+    // messages (exit 4 completeness / exit 6 isolation) to stderr, so a bare
+    // empty-stdout assertion would hide WHY it failed. Stash stderr too.
+    world.pwb_cli_stderr = Some(String::from_utf8_lossy(&output.stderr).into_owned());
+    world.pwb_cli_stdout = Some(stdout);
+}
+
+/// `Then the report confirms all 10 tenant tables are present` — verify-export's
+/// port-exposed stdout reports the completeness confirmation. Falsifiability: a
+/// missing table makes the CLI exit 4 with no completeness-OK line.
+#[then(regex = r#"^the report confirms all 10 tenant tables are present$"#)]
+async fn report_confirms_completeness(world: &mut FoundryWorld) {
+    let stdout = world
+        .pwb_cli_stdout
+        .as_deref()
+        .expect("verify-export stdout captured");
+    let lower = stdout.to_ascii_lowercase();
+    let stderr = world.pwb_cli_stderr.as_deref().unwrap_or("");
+    assert!(
+        lower.contains("completeness: ok") && lower.contains("tenant tables are present"),
+        "verify-export must confirm all 10 tenant tables are present; \
+         exit={:?}, stdout={stdout:?}, stderr={stderr:?}",
+        world.pwb_cli_exit,
+    );
+}
+
+/// `And the report confirms every row belongs to the declared workspace`.
+#[then(regex = r#"^the report confirms every row belongs to the declared workspace$"#)]
+async fn report_confirms_rows_belong(world: &mut FoundryWorld) {
+    let stdout = world
+        .pwb_cli_stdout
+        .as_deref()
+        .expect("verify-export stdout captured");
+    let lower = stdout.to_ascii_lowercase();
+    assert!(
+        lower.contains("every row belongs to the declared workspace"),
+        "verify-export must confirm every row belongs to the declared workspace; got {stdout:?}"
+    );
+}
+
+/// `And the report confirms no row references a sibling workspace`.
+#[then(regex = r#"^the report confirms no row references a sibling workspace$"#)]
+async fn report_confirms_no_sibling(world: &mut FoundryWorld) {
+    let stdout = world
+        .pwb_cli_stdout
+        .as_deref()
+        .expect("verify-export stdout captured");
+    let lower = stdout.to_ascii_lowercase();
+    assert!(
+        lower.contains("no row references a sibling workspace"),
+        "verify-export must confirm no row references a sibling workspace; got {stdout:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Scenario 16 (step 01-03) — sole-workspace export is valid and removes nothing
 // ---------------------------------------------------------------------------
 

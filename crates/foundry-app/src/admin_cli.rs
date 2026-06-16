@@ -905,6 +905,185 @@ pub fn run_export_workspace(selector: &str, out_path: &str) -> i32 {
     })
 }
 
+/// `main.rs` when the CLI sees `foundry doctor verify-export <path>`.
+///
+/// Verifies an exported workspace archive (US-PWB-02, AC-02.2) from the PATH ALONE
+/// (NFR-PWB-INT-01): reads the self-describing `manifest.json` header for the
+/// declared workspace id + per-table row counts, reads every `tables/<table>.jsonl`,
+/// then re-applies the SAME §5 scope predicate the export used — offline, with NO
+/// database and NO out-of-band workspace argument — via
+/// `foundry_store::verify_workspace_export`. Reports:
+///
+/// - COMPLETENESS: all ten `foundry_store::TENANT_TABLES` present AND per-table
+///   JSONL line count equals the manifest's declared `row_counts` (the exit-4
+///   truncation tripwire).
+/// - ISOLATION: every archived row resolves to the declared workspace and no row
+///   resolves to a sibling; the membership-bounded `users` special case (ADR-001)
+///   and the transitive `team_memberships` / `comments` FK cross-checks (DRIFT-2)
+///   are applied exactly as §5 defines them.
+///
+/// Exit codes (architecture.md §9):
+///
+/// - `0` OK: complete AND isolation-clean; stdout reports both confirmations and
+///   `status: OK`.
+/// - `4` archive missing / unreadable / truncated / incomplete (completeness fails).
+/// - non-zero (`6`) isolation failure: a row resolves to a sibling workspace; the
+///   message NAMES the foreign row (the falsifiability crux, AC-02.4).
+pub fn run_verify_export(path: &str) -> i32 {
+    if path.is_empty() {
+        eprintln!(
+            "foundry doctor verify-export: <path> is required. \
+             Usage: foundry doctor verify-export <archive-path>"
+        );
+        return 4;
+    }
+
+    let archive = match read_archive_contents(Path::new(path)) {
+        Ok(a) => a,
+        Err(err) => {
+            eprintln!(
+                "foundry doctor verify-export: could not read archive at {path:?}: {err}. \
+                 The archive may be missing, unreadable, truncated, or incomplete — \
+                 re-run the export."
+            );
+            return 4;
+        }
+    };
+
+    let report = foundry_store::verify_workspace_export(&archive);
+
+    if !report.is_complete() {
+        for violation in &report.completeness_violations {
+            eprintln!("foundry doctor verify-export: completeness check failed: {violation}");
+        }
+        eprintln!(
+            "foundry doctor verify-export: the archive is truncated or incomplete — \
+             re-run the export."
+        );
+        return 4;
+    }
+
+    println!("declared-workspace-id: {}", archive.declared_workspace_id);
+    println!(
+        "completeness: OK — all {} tenant tables are present with matching row counts",
+        foundry_store::TENANT_TABLES.len()
+    );
+
+    if !report.is_isolation_clean() {
+        for violation in &report.isolation_violations {
+            eprintln!("foundry doctor verify-export: isolation check failed: {violation}");
+        }
+        eprintln!(
+            "foundry doctor verify-export: the archive contains a row resolving to a \
+             workspace other than the declared one — refusing."
+        );
+        return 6;
+    }
+
+    println!("isolation: OK — every row belongs to the declared workspace");
+    println!("isolation: OK — no row references a sibling workspace");
+    println!("status: OK");
+    0
+}
+
+/// Read a tar archive at `path` into a [`foundry_store::ArchiveContents`]: parse
+/// `manifest.json` for the declared workspace id + per-table declared counts, then
+/// parse each `tables/<table>.jsonl` into whole-row JSON. Offline, no DB
+/// (NFR-PWB-INT-01). Any missing/unparseable manifest or table is an error the
+/// caller maps to exit 4.
+fn read_archive_contents(path: &Path) -> std::io::Result<foundry_store::ArchiveContents> {
+    use std::io::Read;
+
+    let mut manifest: Option<serde_json::Value> = None;
+    let mut table_jsonl: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
+
+    let file = std::fs::File::open(path)?;
+    let mut archive = tar::Archive::new(file);
+    for entry in archive.entries()? {
+        let mut entry = entry?;
+        let name = entry.path()?.to_string_lossy().into_owned();
+        let mut buf = String::new();
+        entry.read_to_string(&mut buf)?;
+        if name == "manifest.json" {
+            manifest = Some(serde_json::from_str(&buf).map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("manifest.json: {e}"),
+                )
+            })?);
+        } else if let Some(table) = name
+            .strip_prefix("tables/")
+            .and_then(|n| n.strip_suffix(".jsonl"))
+        {
+            table_jsonl.insert(table.to_string(), buf);
+        }
+    }
+
+    let manifest = manifest.ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "archive has no manifest.json entry",
+        )
+    })?;
+
+    let declared_workspace_id = manifest
+        .get("declared_workspace_id")
+        .and_then(serde_json::Value::as_str)
+        .and_then(|s| uuid::Uuid::parse_str(s).ok())
+        .ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "manifest.json has no valid declared_workspace_id",
+            )
+        })?;
+
+    let declared_counts = manifest
+        .get("row_counts")
+        .and_then(serde_json::Value::as_object);
+
+    let mut tables = Vec::with_capacity(foundry_store::TENANT_TABLES.len());
+    for table in foundry_store::TENANT_TABLES {
+        let Some(jsonl) = table_jsonl.get(table) else {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("archive is missing tables/{table}.jsonl"),
+            ));
+        };
+        let mut rows = Vec::new();
+        for line in jsonl.lines() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            let value: serde_json::Value = serde_json::from_str(line).map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("tables/{table}.jsonl: {e}"),
+                )
+            })?;
+            rows.push(value);
+        }
+        // Trust the manifest's declared count when present (the truncation tripwire
+        // compares it to the actual line count); fall back to the line count when
+        // the manifest omits it (then the count check is a tautology, but the
+        // isolation pass still reads every row).
+        let declared_count = declared_counts
+            .and_then(|m| m.get(table))
+            .and_then(serde_json::Value::as_u64)
+            .map_or(rows.len(), |c| c as usize);
+        tables.push(foundry_store::ArchivedTable {
+            name: table.to_string(),
+            declared_count,
+            rows,
+        });
+    }
+
+    Ok(foundry_store::ArchiveContents {
+        declared_workspace_id,
+        tables,
+    })
+}
+
 /// Write a [`foundry_store::WorkspaceExport`] to a single tar archive at `out_path`
 /// ATOMICALLY (NFR-PWB-ATOM-01): build the tar at `<out>.partial`, fsync it, then
 /// rename into place. A failure mid-write leaves at most a discardable `.partial`

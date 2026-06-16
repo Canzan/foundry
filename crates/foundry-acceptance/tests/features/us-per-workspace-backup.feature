@@ -209,7 +209,7 @@ Feature: An operator exports one workspace's data to a verifiable, isolation-cle
   #    the completeness + isolation core in a real two-workspace fixture. The
   #    member set is exactly Globex's members. (AC-02.1)
   # ----------------------------------------------------------------------------
-  @pending @us-pwb02
+  @us-pwb02
   Scenario: The archive contains every target row and no sibling row
     When Devansh exports "globex" to a backup path
     Then every row in the archive belongs to "Globex LLC"
@@ -221,7 +221,7 @@ Feature: An operator exports one workspace's data to a verifiable, isolation-cle
   #    exits 0 on a clean archive. The declared workspace is read from the header,
   #    not passed as an argument (NFR-PWB-INT-01). (AC-02.2)
   # ----------------------------------------------------------------------------
-  @pending @us-pwb02
+  @us-pwb02
   Scenario: An operator confirms an export is complete and isolation-clean
     Given Devansh has exported "globex" to a backup path
     When Devansh runs "foundry doctor verify-export" on that archive

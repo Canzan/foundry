@@ -8,8 +8,10 @@
 #![deny(clippy::all)]
 
 pub mod attachments;
+pub mod verify_export;
 
 pub use attachments::{AttachmentInsertError, AttachmentRow, AttachmentSummary};
+pub use verify_export::{verify_workspace_export, ArchiveContents, ArchivedTable, VerifyReport};
 
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
