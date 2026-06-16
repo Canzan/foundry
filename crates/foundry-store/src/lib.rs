@@ -16,6 +16,14 @@ use sqlx::PgPool;
 use std::time::Duration;
 use thiserror::Error;
 
+/// Workspace-membership role literals (the values the `workspace_memberships.role`
+/// CHECK constraint admits). Named here so the INSERT/SELECT sites share one
+/// spelling instead of repeating bare string literals across the store. Bound as
+/// query parameters at the call sites — the same string values reach Postgres, so
+/// the CHECK constraint is satisfied identically.
+const ROLE_MEMBER: &str = "member";
+const ROLE_ADMIN: &str = "admin";
+
 /// Advisory-lock key used to serialize migrations across replicas.
 /// (`data-access.md` §"Migration runner".)
 const MIGRATION_LOCK_ID: i64 = 0x_F0_0D_BA_BE_F0_0D_BA_BE_u64 as i64;
@@ -401,10 +409,11 @@ impl Store {
         // (3) Add the `member`-role membership in the invite's workspace.
         sqlx::query(
             "INSERT INTO workspace_memberships (workspace_id, user_id, role)
-                  VALUES ($1, $2, 'member')",
+                  VALUES ($1, $2, $3)",
         )
         .bind(workspace_id)
         .bind(new_user_id)
+        .bind(ROLE_MEMBER)
         .execute(&mut *tx)
         .await?;
 
@@ -487,10 +496,11 @@ impl Store {
         .await?;
         sqlx::query(
             "INSERT INTO workspace_memberships (workspace_id, user_id, role)
-                  VALUES ($1, $2, 'admin')",
+                  VALUES ($1, $2, $3)",
         )
         .bind(workspace_id)
         .bind(user_id)
+        .bind(ROLE_ADMIN)
         .execute(&mut *tx)
         .await?;
         sqlx::query("INSERT INTO teams (id, workspace_id, name, slug) VALUES ($1, $2, $3, $4)")
@@ -1324,10 +1334,11 @@ impl Store {
     ) -> Result<bool, StoreError> {
         let row: (bool,) = sqlx::query_as(
             "SELECT EXISTS (SELECT 1 FROM workspace_memberships
-                             WHERE workspace_id = $1 AND user_id = $2 AND role = 'admin')",
+                             WHERE workspace_id = $1 AND user_id = $2 AND role = $3)",
         )
         .bind(workspace_id)
         .bind(user_id)
+        .bind(ROLE_ADMIN)
         .fetch_one(&self.pool)
         .await?;
         Ok(row.0)
@@ -1421,10 +1432,11 @@ impl Store {
         .await?;
         sqlx::query(
             "INSERT INTO workspace_memberships (workspace_id, user_id, role)
-                  VALUES ($1, $2, 'admin')",
+                  VALUES ($1, $2, $3)",
         )
         .bind(workspace_id)
         .bind(admin_user_id)
+        .bind(ROLE_ADMIN)
         .execute(&mut *tx)
         .await?;
         sqlx::query(

@@ -1112,16 +1112,15 @@ async fn assert_member_accepted_and_signed_in(
 // Scenarios 10 + 11 prove the TWO halves of the join's privilege scope, both
 // GREEN-BY-INHERITANCE through SHIPPED seams (no production code added here):
 //
-//   10. ISOLATION — the new member, reading through the SHIPPED resolution +
-//       scoped-read seam (`resolve_active_workspace(sam)` →
-//       `find_team_by_slug(acting_ws, …)` → `is_team_member` →
-//       `find_project_by_slug` → `list_issues_by_project`, exactly the chain
-//       `list_board_issues` walks), sees ONLY the inviting workspace's data and
-//       no other tenant's. Falsifiability: a foreign workspace ("Globex") seeded
-//       with the SAME team/project slugs holds its own issue; resolving Sam to
-//       Globex (or reading unscoped) would surface Globex's issue → RED. This is
-//       the slice-06 isolation idiom (`board_titles_scoped`) applied to the
-//       member-invite join.
+//   10. ISOLATION — the new member, driving the REAL web board route over HTTP
+//       (`GET /team/core/project/apollo` as the auto-signed-in Sam), sees ONLY the
+//       inviting workspace's data and no other tenant's. The SHIPPED `show_board`
+//       handler scopes every lookup by the workspace RESOLVED from Sam's session
+//       (`acting.workspace_id()`), membership-gated through `list_board_issues` —
+//       the production scoping path. Falsifiability: a foreign workspace ("Globex")
+//       seeded with the SAME team/project slugs holds its own issue; a board-route
+//       scope leak (or resolving Sam to Globex) would render Globex's title and
+//       drop Northwind's → the rendered-body assertions RED.
 //
 //   11. ROLE — Sam joined as role `'member'` (NOT admin), so a GET on the
 //       admin-gated issuance surface `/workspace/invites` is refused by the
@@ -1270,93 +1269,75 @@ async fn seed_board(
     .expect("seed issue");
 }
 
-/// `When Sam views his workspace` — drive the SHIPPED scoped-read seam exactly as
-/// `list_board_issues` does: resolve Sam's acting workspace from his sole
-/// membership (`resolve_active_workspace`), then read the `core`/`apollo` board
-/// scoped to THAT workspace, membership-gated. Stash the titles he is permitted to
-/// see. NO new isolation code — green by inheritance through the shipped seam.
+/// `When Sam views his workspace` — drive the REAL web board route over HTTP as the
+/// freshly-joined, auto-signed-in member: `signed_in_get` re-authenticates Sam with
+/// the password he set during accept, then GETs `/team/core/project/apollo` (the
+/// `core`/`apollo` board seeded under BOTH tenants' SAME slugs). The SHIPPED
+/// `show_board` handler scopes EVERY tenant lookup by the workspace RESOLVED from
+/// Sam's session (`acting.workspace_id()`), membership-gated through
+/// `list_board_issues` — the production scoping path a browser exercises. Capture the
+/// rendered board body so the isolation Thens assert on what the route actually
+/// serves. NO new isolation code — green by inheritance through the shipped route.
 #[when(regex = r#"^Sam views his workspace$"#)]
 async fn sam_views_his_workspace(world: &mut FoundryWorld) {
-    let store = harness(world).app.state.store.clone();
-    let sam_id = sam_user_id(world).await;
-
-    let (acting_ws, _name) = store
-        .resolve_active_workspace(sam_id)
-        .await
-        .expect("resolve Sam's active workspace")
-        .expect("the new member resolves to his inviting workspace");
-
-    let titles = member_board_titles_scoped(&store, acting_ws, sam_id).await;
-    world.mi_seen_titles = titles;
+    let client = http(world);
+    let outcome = signed_in_get(
+        harness(world),
+        &client,
+        "sam.okafor@northwind.example",
+        SAM_PASSWORD,
+        "/team/core/project/apollo",
+    )
+    .await;
+    assert_eq!(
+        outcome.status,
+        StatusCode::OK,
+        "the new member must reach his OWN tenant's board over the real route (200); \
+         got {:?}, body = {:?}",
+        outcome.status,
+        outcome.body
+    );
+    world.last_body = Some(outcome.body);
 }
 
-/// The SHIPPED scoped-read chain (`find_team_by_slug(acting_ws, "core")` →
-/// `is_team_member` → `find_project_by_slug("apollo")` → `list_issues_by_project`),
-/// extracted so the read is driven with the RESOLVED acting workspace. A foreign
-/// acting workspace (the isolation falsifiability mutation) surfaces the other
-/// tenant's issue.
-async fn member_board_titles_scoped(
-    store: &foundry_store::Store,
-    acting_workspace_id: uuid::Uuid,
-    user_id: uuid::Uuid,
-) -> Vec<String> {
-    let Some(team) = store
-        .find_team_by_slug(acting_workspace_id, "core")
-        .await
-        .expect("find team by slug scoped to acting workspace")
-    else {
-        return Vec::new();
-    };
-    if !store
-        .is_team_member(team.id, user_id)
-        .await
-        .expect("team membership gate")
-    {
-        return Vec::new();
-    }
-    let Some(project) = store
-        .find_project_by_slug(team.id, "apollo")
-        .await
-        .expect("find project by slug")
-    else {
-        return Vec::new();
-    };
-    store
-        .list_issues_by_project(project.id)
-        .await
-        .expect("scoped issue read")
-        .into_iter()
-        .map(|row| row.title)
-        .collect()
-}
-
-/// `Then he sees only "<workspace>" data` — the scoped read returns EXACTLY the
-/// inviting tenant's own issue (and nothing else). The foreign Globex issue, seeded
-/// under the SAME slugs, does NOT appear — proving the read is scoped to Sam's
-/// resolved workspace, not leaking across tenants.
+/// `Then he sees only "<workspace>" data` — the board route, scoped to Sam's resolved
+/// workspace, RENDERS his inviting tenant's own issue title. The foreign Globex
+/// issue, seeded under the SAME slugs, is absent (asserted in the next Then) —
+/// together proving the route serves only the acting tenant's data. Falsifiability:
+/// an unscoped board read (resolving Sam to Globex, or dropping the
+/// `acting.workspace_id()` scope in `show_board`) would surface the Globex title and
+/// drop the Northwind one → this assertion REDs.
 #[then(regex = r#"^he sees only "([^"]+)" data$"#)]
 async fn sees_only_workspace_data(world: &mut FoundryWorld, _ws_name: String) {
-    assert_eq!(
-        world.mi_seen_titles,
-        vec![NORTHWIND_ISSUE_TITLE.to_string()],
-        "the new member must see ONLY his inviting tenant's data; saw {:?}",
-        world.mi_seen_titles
+    let body = world
+        .last_body
+        .clone()
+        .expect("the board GET captured a rendered body");
+    assert!(
+        body.contains(NORTHWIND_ISSUE_TITLE),
+        "the new member's board must render his inviting tenant's own issue {:?}; \
+         body = {body:?}",
+        NORTHWIND_ISSUE_TITLE
     );
 }
 
-/// `And he sees no data from any other workspace` — the foreign tenant's issue
-/// (Globex's, under the SAME slugs) is absent from the new member's scoped read.
-/// The isolation guarantee: there is no path by which his resolution-scoped read
-/// surfaces another workspace's data.
+/// `And he sees no data from any other workspace` — the foreign tenant's issue title
+/// (Globex's, under the SAME `core`/`apollo` slugs) is ABSENT from the rendered board
+/// the real route served. The isolation guarantee: there is no path by which the
+/// session-scoped board route surfaces another workspace's data. A board-route
+/// scoping bug (a leak past `acting.workspace_id()`) would render the Globex title
+/// → this assertion REDs.
 #[then(regex = r#"^he sees no data from any other workspace$"#)]
 async fn sees_no_foreign_data(world: &mut FoundryWorld) {
+    let body = world
+        .last_body
+        .clone()
+        .expect("the board GET captured a rendered body");
     assert!(
-        !world
-            .mi_seen_titles
-            .contains(&GLOBEX_ISSUE_TITLE.to_string()),
-        "the new member must NOT see any foreign tenant's data; the Globex issue \
-         leaked into {:?}",
-        world.mi_seen_titles
+        !body.contains(GLOBEX_ISSUE_TITLE),
+        "the new member's board must NOT render any foreign tenant's data; the Globex \
+         issue {:?} leaked into the rendered board = {body:?}",
+        GLOBEX_ISSUE_TITLE
     );
 }
 
