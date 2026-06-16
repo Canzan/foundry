@@ -27,6 +27,7 @@ pub mod steps {
     pub mod handler_instrumentation;
     pub mod keyboard_fragments_templating;
     pub mod slice_8_deferred_metrics;
+    pub mod token_mutations_metric_export;
     pub mod us_01_install;
     pub mod us_02_multi_replica;
     pub mod us_03_backup_restore;

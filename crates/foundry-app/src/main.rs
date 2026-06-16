@@ -323,6 +323,51 @@ async fn main() -> anyhow::Result<()> {
         metrics::counter!(PROBE_FAILURES_TOTAL, "probe_name" => *probe_name).absolute(0);
     }
 
+    // token-mutations-metric-export — register the per-principal
+    // revoke-storm guardrail counter at 0 BEFORE the first revoke. The
+    // live emission lives in `RateLimiter::check`
+    // (rate_limit.rs — `foundry_token_mutations_total{principal,outcome}`),
+    // but a fresh instance has had no revoke, so without this baseline the
+    // metric family is ABSENT from the first `/metrics` scrape and the
+    // Grafana "token mutations" panel shows "no-data" — the same
+    // deploy-time correctness failure the slice-8 register-at-0 work
+    // (ADR-018 / D4) removed for its five metrics, deferred for this one.
+    //
+    // `describe_counter!` alone only emits HELP/TYPE comment lines (no
+    // sample line), which a Prometheus scraper treats as "no series yet"
+    // — so we ALSO register a concrete zero series. The `principal` label
+    // is per-UUID at the live call-site, which makes a concrete zero
+    // series awkward; we use a sentinel `system` principal so the family
+    // appears with a real sample at zero. Both bounded `outcome` arms
+    // (`ok`/`throttled`) register so the panel shows the full
+    // mutation-outcome dimension as a flat-zero baseline (mirrors the
+    // slice-8 register-at-0 over the bounded `probe_name` set). The
+    // SHIPPED `{principal,outcome}` contract is unchanged — the live
+    // emission still keys on the real bound `user_id`.
+    //
+    // CARDINALITY TRADEOFF (rate-guardrail.md §Metric / OD-TMA-1b): the
+    // `principal` label is per-UUID (unbounded) — intentional for
+    // per-principal abuse attribution, bounded in practice by the count
+    // of ACTIVE principals plus the shipped per-principal bucket eviction
+    // (ADR-005 idle + LRU). A bounded-aggregate variant (drop `principal`,
+    // keep `outcome`) is a DEFERRED follow-up IF dashboard cardinality
+    // becomes a concern; the contract is not broken now.
+    metrics::describe_counter!(
+        foundry_app::rate_limit::TOKEN_MUTATIONS_METRIC,
+        "Per-principal management-mutation (revoke) decisions, labelled by \
+         accountable principal user_id and outcome (ok|throttled). The \
+         per-principal revoke-storm guardrail signal (NFR-TMA-SEC-07)."
+    );
+    const TOKEN_MUTATION_SENTINEL_PRINCIPAL: &str = "system";
+    for outcome in ["ok", "throttled"] {
+        metrics::counter!(
+            foundry_app::rate_limit::TOKEN_MUTATIONS_METRIC,
+            "principal" => TOKEN_MUTATION_SENTINEL_PRINCIPAL,
+            "outcome" => outcome,
+        )
+        .absolute(0);
+    }
+
     // Slice 6 (ADR-012) — background pool-stats poll task. Reads
     // `Store::pool_stats()` every METRICS_POOL_POLL_SECONDS and updates
     // the `db_connections_in_use` gauge. Aborts on graceful shutdown

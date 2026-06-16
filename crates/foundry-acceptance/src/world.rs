@@ -443,6 +443,14 @@ pub struct FoundryWorld {
     /// between the Given (provision) and the When (spawn, migrations skipped).
     pub slice8_store_probe_db: Option<(String, String)>,
 
+    // ---- token-mutations-metric-export ----
+    /// A real EdDSA management bearer (JWT) + the (team_slug, project_slug,
+    /// jti) of a registered, revocable machine token, seeded by the
+    /// tick-on-mutation Given so the When can drive a real `DELETE
+    /// .../tokens/{jti}` against the subprocess. The revoke decision flows
+    /// through `RateLimiter::check`, ticking `foundry_token_mutations_total`.
+    pub tmm_revoke_target: Option<(String, String, String, uuid::Uuid)>,
+
     // ---- Feature A "Programmatic Foundry" (web-tier-extraction) ----
     /// Name of the project the most recent Feature-A When step targeted,
     /// used to reconstruct the `/api/v1/...` URL and resolve the team slug.

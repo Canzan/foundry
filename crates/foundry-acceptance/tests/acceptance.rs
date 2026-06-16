@@ -63,6 +63,8 @@ use foundry_acceptance::steps::keyboard_fragments_templating as _keyboard_fragme
 #[allow(unused_imports)]
 use foundry_acceptance::steps::slice_8_deferred_metrics as _slice8;
 #[allow(unused_imports)]
+use foundry_acceptance::steps::token_mutations_metric_export as _tmm;
+#[allow(unused_imports)]
 use foundry_acceptance::steps::us_01_install as _us_01;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::us_02_multi_replica as _us_02;

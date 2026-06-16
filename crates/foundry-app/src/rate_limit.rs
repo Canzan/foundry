@@ -76,6 +76,25 @@ pub const DEFAULT_REVOKE_BUCKET_MAX_PRINCIPALS: usize = 10_000;
 /// The metric name for the per-principal management-mutation counter
 /// (rate-guardrail.md §Metric). `principal` + `outcome` (`ok`|`throttled`)
 /// labels make the per-principal rate observable.
+///
+/// Registered at 0 at startup (see `main.rs` metrics-init region) under a
+/// sentinel `system` principal so the family is present on a FRESH
+/// instance's first `/metrics` scrape — without that baseline the live
+/// emission below only mints the series on the first revoke, leaving the
+/// Grafana panel showing "no-data" until then (the slice-8 register-at-0
+/// gap, deferred for this metric). The startup baseline does NOT change
+/// the live `{principal,outcome}` contract.
+///
+/// CARDINALITY TRADEOFF (intentional, NOT a bug): the `principal` label is
+/// per-UUID — its time-series cardinality is therefore UNBOUNDED in
+/// principle. This is deliberate: per-principal attribution is the whole
+/// point of the guardrail signal (OD-TMA-1b — a leaked bearer's storm is
+/// attributable to the accountable bound `user_id`). It is bounded in
+/// practice by the count of ACTIVE principals plus the shipped
+/// per-principal bucket eviction (ADR-005 idle + LRU sweep on the same
+/// keyspace). A bounded-aggregate variant (drop `principal`, keep
+/// `outcome`) is a DEFERRED follow-up if dashboard cardinality ever
+/// becomes a concern; the shipped contract is not broken to anticipate it.
 pub const TOKEN_MUTATIONS_METRIC: &str = "foundry_token_mutations_total";
 
 /// The outcome of a guardrail check for one revoke attempt.
