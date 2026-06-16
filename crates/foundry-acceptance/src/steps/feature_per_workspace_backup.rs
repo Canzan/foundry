@@ -244,6 +244,13 @@ async fn devansh_exports_to_backup_path(world: &mut FoundryWorld, selector: Stri
         .clone();
     let database_url = format!("{base}?options=-csearch_path%3D{schema}");
 
+    // Snapshot every tenant table BEFORE the export so the read-only proof
+    // (scenario "Exporting a workspace removes nothing") can assert the source
+    // instance is byte-for-byte unchanged afterwards. Harmless for the other
+    // scenarios that reuse this When step — they simply ignore the baseline.
+    let pool = harness_pool(world);
+    world.pwb_snapshot_before_export = snapshot_tenant_tables(&pool).await;
+
     let tempdir = tempfile::TempDir::new().expect("create export tempdir");
     let out_path = tempdir.path().join("export.dump");
     world.pwb_tempdir = Some(tempdir);
@@ -555,6 +562,174 @@ fn read_tar_manifest(path: &std::path::Path) -> serde_json::Value {
         }
     }
     panic!("archive at {path:?} has no manifest.json entry");
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 4 (step 01-03) — the export is read-only: it removes nothing
+// ---------------------------------------------------------------------------
+
+/// `Then "<workspace>" and all its data still exist on the instance unchanged` —
+/// the read-only proof. The When step snapshotted every tenant table before the
+/// export; here we re-snapshot the live instance and assert it is byte-for-byte
+/// identical to that baseline (so NO row was deleted, inserted, or updated by the
+/// export), AND that the named workspace's own row is still present. Falsifiability:
+/// an export that deleted or mutated any tenant row makes the before/after equality
+/// RED; a vanished workspace row makes the presence check RED.
+#[then(regex = r#"^"([^"]+)" and all its data still exist on the instance unchanged$"#)]
+async fn workspace_data_unchanged(world: &mut FoundryWorld, ws_name: String) {
+    let pool = harness_pool(world);
+    let after = snapshot_tenant_tables(&pool).await;
+    let before = world.pwb_snapshot_before_export.clone();
+    assert!(
+        !before.is_empty(),
+        "the before-export snapshot must have been captured in the When step"
+    );
+
+    // The named workspace's own row must still be present after the export.
+    let workspace_id = *world
+        .pwb_workspace_ids
+        .get(&ws_name)
+        .unwrap_or_else(|| panic!("workspace {ws_name:?} must be seeded first"));
+    let still_present =
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM workspaces WHERE id = $1")
+            .bind(workspace_id)
+            .fetch_one(&pool)
+            .await
+            .expect("count workspace row after export");
+    assert_eq!(
+        still_present, 1,
+        "workspace {ws_name:?} ({workspace_id}) must still exist on the instance after a read-only export"
+    );
+
+    // Every tenant table must be byte-for-byte identical to the pre-export baseline:
+    // the export removed, added, and changed NOTHING.
+    for table in foundry_store::TENANT_TABLES {
+        assert_eq!(
+            after.get(table),
+            before.get(table),
+            "tenant table {table:?} must be byte-for-byte unchanged by a read-only export"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 16 (step 01-03) — sole-workspace export is valid and removes nothing
+// ---------------------------------------------------------------------------
+
+/// `Given a single-tenant instance whose only workspace is "<name>"` — stand up the
+/// harness with EXACTLY one workspace (and its full tenant data set), so the export
+/// exercises the sole-workspace path. Unlike the two-workspace Background, no sibling
+/// exists, so the CLI should note it is the only workspace on the instance.
+#[given(regex = r#"^a single-tenant instance whose only workspace is "([^"]+)"$"#)]
+async fn single_tenant_instance(world: &mut FoundryWorld, ws_name: String) {
+    ensure_harness(world).await;
+    let pool = harness_pool(world);
+
+    // The Feature Background seeds TWO coexisting workspaces (Acme + Globex). This
+    // scenario asserts the genuinely single-tenant install path, so first clear
+    // every tenant table (the Background's rows) before seeding the sole workspace.
+    // TRUNCATE ... CASCADE clears the FK-linked tenant rows in one shot.
+    let tables = foundry_store::TENANT_TABLES.join(", ");
+    sqlx::query(&format!("TRUNCATE TABLE {tables} CASCADE"))
+        .execute(&pool)
+        .await
+        .unwrap_or_else(|e| panic!("truncate tenant tables for sole-workspace fixture: {e}"));
+    world.pwb_workspace_ids.clear();
+
+    let id = uuid::Uuid::now_v7();
+    sqlx::query("INSERT INTO workspaces (id, name) VALUES ($1, $2)")
+        .bind(id)
+        .bind(&ws_name)
+        .execute(&pool)
+        .await
+        .unwrap_or_else(|e| panic!("insert sole workspace {ws_name:?}: {e}"));
+    world.pwb_workspace_ids.insert(ws_name.clone(), id);
+    seed_tenant_data(&pool, id, &ws_name).await;
+}
+
+/// `Then the output notes that this is the only workspace on the instance` — on a
+/// single-workspace instance the CLI's port-exposed stdout carries a note that this
+/// is the only workspace. Falsifiability: removing that note from the export output
+/// REDs this assertion.
+#[then(regex = r#"^the output notes that this is the only workspace on the instance$"#)]
+async fn output_notes_sole_workspace(world: &mut FoundryWorld) {
+    let stdout = world
+        .pwb_cli_stdout
+        .as_deref()
+        .expect("export CLI stdout captured");
+    let lower = stdout.to_ascii_lowercase();
+    assert!(
+        lower.contains("only workspace"),
+        "the export output must note this is the only workspace on the instance; got {stdout:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 17 (step 01-03) — at-rest sensitivity disclosure on success
+// ---------------------------------------------------------------------------
+
+/// `Then the output prints a note that the archive contains password hashes and
+/// machine-token rows` (NFR-PWB-SEC-01) — a successful export discloses that the
+/// archive holds the two sensitive row kinds. Falsifiability: removing the
+/// disclosure line from the export output REDs this assertion.
+#[then(
+    regex = r#"^the output prints a note that the archive contains password hashes and machine-token rows$"#
+)]
+async fn output_discloses_sensitive_contents(world: &mut FoundryWorld) {
+    let stdout = world
+        .pwb_cli_stdout
+        .as_deref()
+        .expect("export CLI stdout captured");
+    let lower = stdout.to_ascii_lowercase();
+    assert!(
+        lower.contains("password_hash") || lower.contains("password hash"),
+        "the export output must disclose the archive contains password hashes; got {stdout:?}"
+    );
+    assert!(
+        lower.contains("machine_tokens")
+            || lower.contains("machine-token")
+            || lower.contains("machine token"),
+        "the export output must disclose the archive contains machine-token rows; got {stdout:?}"
+    );
+}
+
+/// `And the note advises treating the archive as sensitive at rest` — the disclosure
+/// is actionable: it tells the operator to treat the archive as sensitive at rest.
+/// Falsifiability: dropping the "sensitive at rest" advice REDs this assertion.
+#[then(regex = r#"^the note advises treating the archive as sensitive at rest$"#)]
+async fn note_advises_sensitive_at_rest(world: &mut FoundryWorld) {
+    let stdout = world
+        .pwb_cli_stdout
+        .as_deref()
+        .expect("export CLI stdout captured");
+    let lower = stdout.to_ascii_lowercase();
+    assert!(
+        lower.contains("sensitive at rest"),
+        "the export output must advise treating the archive as sensitive at rest; got {stdout:?}"
+    );
+}
+
+/// Snapshot every tenant table as an ordered list of whole-row JSON strings, keyed
+/// by table name (the slice-05 idiom). `to_jsonb(t.*)` renders the entire row
+/// deterministically; ordering by the row text makes the comparison
+/// insertion-order independent. Used by the read-only proof to assert the export
+/// changed NOTHING.
+async fn snapshot_tenant_tables(pool: &PgPool) -> std::collections::HashMap<String, Vec<String>> {
+    let mut out = std::collections::HashMap::new();
+    for table in foundry_store::TENANT_TABLES {
+        let sql =
+            format!("SELECT to_jsonb(t.*)::text AS row_json FROM {table} t ORDER BY row_json");
+        let rows = sqlx::query(&sql)
+            .fetch_all(pool)
+            .await
+            .unwrap_or_else(|e| panic!("snapshot {table}: {e}"));
+        let row_jsons = rows
+            .into_iter()
+            .map(|r| sqlx::Row::get::<String, _>(&r, "row_json"))
+            .collect();
+        out.insert((*table).to_string(), row_jsons);
+    }
+    out
 }
 
 /// Read the entry names of a tar archive at `path`, offline. Used to verify the

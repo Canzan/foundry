@@ -878,6 +878,15 @@ pub fn run_export_workspace(selector: &str, out_path: &str) -> i32 {
             for (table, count) in export.row_counts() {
                 println!("  {table}: {count}");
             }
+            // Sole-workspace install (AC-03.4): note that this is the only workspace
+            // on the instance, so the operator knows the export is a full-instance
+            // snapshot — nothing was left behind.
+            if workspaces.len() == 1 {
+                println!(
+                    "note: this is the only workspace on the instance — \
+                     the export is a complete snapshot of all tenant data."
+                );
+            }
             println!(
                 "sensitivity-note: this archive contains users.password_hash and \
                  machine_tokens rows — treat it as sensitive at rest."

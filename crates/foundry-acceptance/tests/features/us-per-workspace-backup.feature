@@ -194,7 +194,7 @@ Feature: An operator exports one workspace's data to a verifiable, isolation-cle
   # 4. The export is read-only — exporting never mutates the source instance.
   #    (System constraint: read-only; reinforced by AC-03.4)
   # ----------------------------------------------------------------------------
-  @pending @us-pwb01
+  @us-pwb01
   Scenario: Exporting a workspace removes nothing from the instance
     When Devansh exports "globex" to a backup path
     Then "Globex LLC" and all its data still exist on the instance unchanged
@@ -365,7 +365,7 @@ Feature: An operator exports one workspace's data to a verifiable, isolation-cle
   #     take a pre-migration snapshot. The output notes it is the only workspace;
   #     nothing is deleted. (AC-03.4)
   # ----------------------------------------------------------------------------
-  @pending @us-pwb03
+  @us-pwb03
   Scenario: Exporting the only workspace is valid and removes nothing
     Given a single-tenant instance whose only workspace is "Acme Corp"
     When Devansh exports "acme" to a backup path
@@ -378,7 +378,7 @@ Feature: An operator exports one workspace's data to a verifiable, isolation-cle
   #     prints a note that the archive holds password hashes and machine-token
   #     rows and advises treating it as sensitive at rest. (AC-03.6)
   # ----------------------------------------------------------------------------
-  @pending @us-pwb03
+  @us-pwb03
   Scenario: The operator is warned about sensitive at-rest contents on a successful export
     When Devansh exports "globex" to a backup path
     Then the output prints a note that the archive contains password hashes and machine-token rows

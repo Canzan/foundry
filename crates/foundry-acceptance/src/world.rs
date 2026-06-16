@@ -1060,6 +1060,11 @@ pub struct FoundryWorld {
     /// resolve to — set when exporting by id so the Then step can assert the
     /// resolver picked the right tenant.
     pub pwb_expected_name: Option<String>,
+    /// Whole-instance tenant-table snapshot captured BEFORE the export runs
+    /// (step 01-03 read-only proof): table name → ordered list of whole-row JSON
+    /// strings. The export must leave every tenant row byte-for-byte unchanged, so
+    /// the Then steps re-snapshot and assert equality against this baseline.
+    pub pwb_snapshot_before_export: std::collections::HashMap<String, Vec<String>>,
 }
 
 impl FoundryWorld {
