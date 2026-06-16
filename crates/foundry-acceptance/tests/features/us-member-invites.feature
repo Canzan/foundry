@@ -477,7 +477,7 @@ Feature: A workspace admin invites a teammate, who joins by creating an account 
   # 26. A WEAK password (below min-12) is corrected inline; the policy check runs
   #     BEFORE the consume tx opens, so the invite is NOT consumed and NO account is
   #     created; no session (AC-04.1, A-E5).
-  @pending @us-04 @error
+  @us-04 @error
   Scenario: A weak password is corrected inline and creates no account
     Given Sam has opened his live member invite for "Northwind" and seen the set-password form
     When he submits a password below the strength policy
@@ -487,7 +487,7 @@ Feature: A workspace admin invites a teammate, who joins by creating an account 
 
   # 27. A MISMATCHED confirmation is corrected inline; the invite is NOT consumed and
   #     no account is created (AC-04.2, A-E6).
-  @pending @us-04 @error
+  @us-04 @error
   Scenario: A mismatched confirmation is corrected inline and creates no account
     Given Priya Shah has opened her live member invite for "Northwind" and seen the set-password form
     When her confirmation does not match her new password
@@ -515,7 +515,7 @@ Feature: A workspace admin invites a teammate, who joins by creating an account 
 
   # 30. BOUNDARY — a password EXACTLY at the minimum length (12 characters) is
   #     accepted and creates the member account (AC-04.4, NFR-4 — "at least 12").
-  @pending @us-04
+  @us-04
   Scenario: A password exactly at the minimum length is accepted
     Given Sam has opened his live member invite for "Northwind" and seen the set-password form
     When he submits a twelve-character password and confirms it

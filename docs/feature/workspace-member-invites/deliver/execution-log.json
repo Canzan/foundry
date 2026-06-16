@@ -414,6 +414,41 @@
       "s": "EXECUTED",
       "d": "PASS",
       "t": "2026-06-16T00:44:08Z"
+    },
+    {
+      "sid": "02-07",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-16T00:48:58Z"
+    },
+    {
+      "sid": "03-01",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-16T00:52:28Z"
+    },
+    {
+      "sid": "03-01",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-16T01:07:50Z"
+    },
+    {
+      "sid": "03-01",
+      "p": "RED_UNIT",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: green-by-inheritance from the SHIPPED submit_accept recovery contract (validate_password_inputs runs confirm-match THEN min-12 check_password_policy BEFORE create_member_and_consume); NO production code added, so no separate unit test. The min-12 boundary already has a foundry-auth unit test (lib.rs:421 check_password_policy proptest). The three port-to-port acceptance scenarios (weak/mismatch/exactly-12 over the real member arm + real Postgres) are the behavioral coverage. Genuine RED established via a falsifiability probe (reverted): neutering the policy+confirm checks (if false) lets a weak password + a mismatch both 303-consume the invite + create the account + sign in instead of re-rendering inline at 200 -- REDs scenarios 26 + 27 at the inline-error assertion (got 303 expected 200), while the exactly-12 boundary stays green.",
+      "t": "2026-06-16T01:07:50Z"
+    },
+    {
+      "sid": "03-01",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-16T01:14:55Z"
     }
   ]
 }

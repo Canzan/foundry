@@ -3985,3 +3985,264 @@ async fn member_no_leak_full_cycle(world: &mut FoundryWorld) {
     world.ia_cycle_bodies = log_surface_bodies;
     world.ia_get_form_body = Some(legit_sig_carriers.join("\n"));
 }
+
+// ---------------------------------------------------------------------------
+// Member password-recovery cluster (step 03-01) — scenarios 26, 27, 30
+// ---------------------------------------------------------------------------
+//
+// The member arm INHERITS the SHIPPED `submit_accept` recovery contract
+// (`invites_accept.rs`): `validate_password_inputs` runs the confirm-match check
+// THEN the min-12 `check_password_policy` BEFORE `create_member_and_consume` opens
+// — a rejected password re-renders the set-password form inline (200) and leaves
+// the invite UNTOUCHED (no account, no membership, no consume, no session). The
+// invite-accept first-admin password-recovery scenarios (03-01/02/04 in
+// `feature_invite_accept`) are the precedent; this cluster proves the SAME
+// behaviour for an account-CREATING member invite (the member arm), green by
+// inheritance — NO production code added here; acceptance GLUE only.
+//
+//   26 (PRIMARY, weak password): a sub-min-12 password on a live member invite
+//       re-renders inline with the min-length error; NO `users` row, the invite
+//       stays live (unconsumed), no `foundry_session` cookie. Falsifiability
+//       (proven at DELIVER, reverted): dropping/moving the policy check AFTER the
+//       consume TX would EITHER consume the invite (the consume guard fires first
+//       → "still live and unconsumed" REDs) OR accept the weak password (303 +
+//       session → the inline-error + no-account/no-session Thens RED).
+//
+//   27 (mismatched confirmation): password != confirm → inline mismatch error; NO
+//       account, the invite stays live. REUSES the SHIPPED invite-accept When/Then
+//       (`her confirmation does not match her new password` / `she sees an inline
+//       error that the passwords do not match`) — the member Given populates BOTH
+//       the `ia_*` slots those steps read AND `session_cookie_header` (the GET CSRF
+//       cookie), while the harness falls back to the member `mi_harness`, so the
+//       member invite drives them with NO duplicate regex.
+//
+//   30 (BOUNDARY, exactly-12): a confirm-matching exactly-12-character password
+//       completes the join (account + membership + consume + session) — the
+//       INCLUSIVE side of the min-12 boundary (NFR-4, "at least 12"). REUSES the
+//       shipped `his member account is created and he is signed in on "<ws>"` Then.
+
+/// A weak member password BELOW the min-12 policy (3 chars) — rejected by
+/// `check_password_policy` BEFORE the member consume TX opens.
+const MEMBER_WEAK_PASSWORD: &str = "abc";
+/// A member password EXACTLY at the min-12 boundary (12 chars) — the INCLUSIVE
+/// side of the `check_password_policy` length-first rule (NFR-4).
+const MEMBER_TWELVE_CHAR_PASSWORD: &str = "abcdef123456";
+
+/// POST `/invites/accept` for the LIVE member invite under test (driven by the
+/// `mi_*` slots + the GET-minted `mi_get_csrf_cookie`) with `password` + `confirm`,
+/// capturing the status + re-rendered body + any session cookie into
+/// `mi_post_status` / `last_body` / `mi_session_cookie`. Shared by the weak +
+/// boundary member-recovery Whens. The GET that minted the CSRF cookie ran in the
+/// scenario's `Given` (`sam_opened_live_invite_seen_form` → `get_member_accept_page`),
+/// so this is the SECOND leg only — no re-GET, mirroring the inherited recovery dance.
+async fn member_accept_post_with_confirm(world: &mut FoundryWorld, password: &str, confirm: &str) {
+    let invite_id = world.mi_invite_id.expect("a live member invite was seeded");
+    let sig = world
+        .mi_invite_sig
+        .clone()
+        .expect("the invite sig was minted");
+    let csrf_cookie = world
+        .mi_get_csrf_cookie
+        .clone()
+        .expect("the Given's GET minted a foundry_csrf cookie");
+    let csrf_token = csrf_cookie
+        .strip_prefix("foundry_csrf=")
+        .and_then(|rest| rest.split(';').next())
+        .unwrap_or("")
+        .to_string();
+    let base = harness(world).base_url();
+    let client = http(world);
+
+    let form = [
+        ("id", invite_id.to_string()),
+        ("sig", sig),
+        ("password", password.to_string()),
+        ("confirm", confirm.to_string()),
+        ("_csrf", csrf_token.clone()),
+    ];
+    let resp = client
+        .post(format!("{base}/invites/accept"))
+        .header(
+            reqwest::header::COOKIE,
+            format!("foundry_csrf={csrf_token}"),
+        )
+        .form(&form)
+        .send()
+        .await
+        .expect("POST /invites/accept (member recovery)");
+    world.mi_post_status = Some(resp.status());
+    world.mi_session_cookie = resp
+        .headers()
+        .get_all(reqwest::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .find(|s| s.starts_with("foundry_session="))
+        .and_then(|s| s.split(';').next())
+        .map(str::to_string);
+    world.last_body = Some(resp.text().await.unwrap_or_default());
+}
+
+// --- Scenario 26 (PRIMARY): a weak password is corrected inline ----------------
+
+/// `When he submits a password below the strength policy` — POST the SHIPPED member
+/// accept with a WEAK password (3 chars, below min-12) and a MATCHING confirm (so
+/// ONLY the policy fails, not the confirm match). `validate_password_inputs` rejects
+/// it via `check_password_policy` BEFORE `create_member_and_consume` opens, so the
+/// handler re-renders the form inline (200) and touches NOTHING.
+#[when(regex = r#"^he submits a password below the strength policy$"#)]
+async fn he_submits_a_weak_password(world: &mut FoundryWorld) {
+    member_accept_post_with_confirm(world, MEMBER_WEAK_PASSWORD, MEMBER_WEAK_PASSWORD).await;
+}
+
+/// `Then he sees an inline error explaining the minimum password length` — the
+/// weak-password POST re-rendered the set-password form IN PLACE at 200 OK carrying
+/// the min-length policy copy ("at least 12 characters"), still posting back to
+/// /invites/accept (an inline correction, not a refusal or a 303 redirect). A policy
+/// check moved AFTER the consume (or dropped) would 303 instead → this REDs.
+#[then(regex = r#"^he sees an inline error explaining the minimum password length$"#)]
+async fn he_sees_inline_min_length_error(world: &mut FoundryWorld) {
+    assert_eq!(
+        world.mi_post_status,
+        Some(StatusCode::OK),
+        "a weak-password member POST must re-render the form inline at 200 OK (not a \
+         303 redirect, not a refusal); got {:?}",
+        world.mi_post_status
+    );
+    let body = world
+        .last_body
+        .clone()
+        .expect("the weak-password POST captured a re-rendered body");
+    let lower = body.to_ascii_lowercase();
+    assert!(
+        lower.contains("at least 12") || lower.contains("at least twelve"),
+        "the inline error must explain the MINIMUM password length (at least 12 \
+         characters); got {body:?}"
+    );
+    assert!(
+        body.contains(r#"action="/invites/accept""#) && body.contains(r#"name="password""#),
+        "the inline error must be shown ON the set-password form (re-rendered in \
+         place, posting back to /invites/accept), not on a refusal page; got {body:?}"
+    );
+}
+
+/// `And no account is created and no session is created` — the rejected member
+/// accept was NON-COMMITTAL end-to-end: EXACTLY ZERO `users` rows map to Sam's email
+/// (no `create_member_and_consume` ran) AND the POST issued NO `foundry_session`
+/// cookie (the policy check fails before the consume TX + `establish_session_and_
+/// redirect`). Reads the REAL per-scenario Postgres at the driven-port boundary. A
+/// policy gap that let the weak password through would create the account + a session
+/// here → this REDs.
+#[then(regex = r#"^no account is created and no session is created$"#)]
+async fn no_account_and_no_session_created(world: &mut FoundryWorld) {
+    let pool = harness(world).app.state.store.pool().clone();
+    let (rows,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users WHERE email_lower = $1")
+        .bind(SAM_EMAIL)
+        .fetch_one(&pool)
+        .await
+        .expect("count the invitee's user rows after the rejected accept");
+    assert_eq!(
+        rows, 0,
+        "a weak-password member accept must create NO account (the policy check fails \
+         before the consume TX); found {rows} rows for {SAM_EMAIL:?}"
+    );
+    assert!(
+        world.mi_session_cookie.is_none(),
+        "a weak-password member accept must create NO session — no foundry_session \
+         cookie (the policy check fails before the consume TX + sign-in); got {:?}",
+        world.mi_session_cookie
+    );
+}
+
+// --- Scenario 27: a mismatched confirmation is corrected inline -----------------
+
+/// `Given Priya Shah has opened her live member invite for "<workspace>" and seen
+/// the set-password form` — seed a LIVE member invite for Priya Shah (two hours ago,
+/// well inside the 7-day window, unused) via the SHIPPED `insert_invite`, GET the
+/// accept page (rendering the set-password form + minting the double-submit CSRF
+/// cookie), and assert the form rendered. Then mirror the member invite into the
+/// `ia_*` slots + stash the GET CSRF cookie into `session_cookie_header`, so the
+/// SHIPPED invite-accept mismatch When/Then (`her confirmation does not match her
+/// new password` / `she sees an inline error that the passwords do not match`) drive
+/// THIS member invite with NO duplicate regex — `harness()` falls back to the member
+/// `mi_harness`. The arrival state for the mismatch-inline proof.
+#[given(
+    regex = r#"^Priya Shah has opened her live member invite for "([^"]+)" and seen the set-password form$"#
+)]
+async fn priya_shah_opened_live_invite_seen_form(world: &mut FoundryWorld, ws_name: String) {
+    let ttl = time::Duration::days(7) - time::Duration::hours(2);
+    seed_member_invite(world, &ws_name, PRIYA_SHAH_EMAIL, ttl).await;
+    get_member_accept_page(world).await;
+    assert_eq!(
+        world.mi_post_status,
+        Some(StatusCode::OK),
+        "the GET accept page for Priya's live member invite must render a 200 \
+         set-password form; got {:?}",
+        world.mi_post_status
+    );
+    let body = world
+        .last_body
+        .clone()
+        .expect("the GET captured a rendered body");
+    assert!(
+        body.contains(r#"action="/invites/accept""#) && body.contains(r#"name="password""#),
+        "the GET must render a set-password form posting to /invites/accept; got {body:?}"
+    );
+
+    // Point the SHIPPED invite-accept mismatch When/Then at THIS member invite (they
+    // read `ia_*` + `session_cookie_header`; the harness falls back to `mi_harness`).
+    world.ia_invite_id = world.mi_invite_id;
+    world.ia_invite_sig = world.mi_invite_sig.clone();
+    world.session_cookie_header = world.mi_get_csrf_cookie.clone();
+}
+
+/// `And her invite is still live and unconsumed and no account is created` — the
+/// rejected mismatch member accept was NON-COMMITTAL: Priya's seeded invite is STILL
+/// live (`used_at` NULL and `expires_at > now`) and EXACTLY ZERO `users` rows map to
+/// her email (no `create_member_and_consume` ran). Reads the REAL per-scenario
+/// Postgres at the driven-port boundary. A confirm-match check moved AFTER the
+/// consume would set `used_at` (or create the account) → this REDs.
+#[then(regex = r#"^her invite is still live and unconsumed and no account is created$"#)]
+async fn her_invite_still_live_and_no_account(world: &mut FoundryWorld) {
+    let invite_id = world.mi_invite_id.expect("a member invite was seeded");
+    let now = harness(world).app.state.clock.now();
+    let pool = harness(world).app.state.store.pool().clone();
+
+    let (live_rows,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM invites WHERE id = $1 AND used_at IS NULL AND expires_at > $2",
+    )
+    .bind(invite_id)
+    .bind(now)
+    .fetch_one(&pool)
+    .await
+    .expect("count the still-live invite row after the rejected mismatch accept");
+    assert_eq!(
+        live_rows, 1,
+        "the member invite must stay live (unused, unexpired) after the rejected \
+         mismatch accept; found {live_rows} live rows"
+    );
+
+    let (user_rows,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users WHERE email_lower = $1")
+        .bind(PRIYA_SHAH_EMAIL)
+        .fetch_one(&pool)
+        .await
+        .expect("count Priya's user rows after the rejected mismatch accept");
+    assert_eq!(
+        user_rows, 0,
+        "a mismatched-confirm member accept must create NO account; found {user_rows} \
+         rows for {PRIYA_SHAH_EMAIL:?}"
+    );
+}
+
+// --- Scenario 30 (BOUNDARY): a 12-char password is accepted --------------------
+
+/// `When he submits a twelve-character password and confirms it` — POST the SHIPPED
+/// member accept with a password EXACTLY at the min-12 boundary (12 chars) and a
+/// MATCHING confirm. `check_password_policy` admits the inclusive boundary (NFR-4,
+/// "at least 12"), so `create_member_and_consume` runs: account + member membership
+/// created, invite consumed, session established, 303 → workspace. Captures the 303 +
+/// Location + session cookie via the full GET→POST dance (a fresh GET re-mints the
+/// CSRF cookie for the redirect-following success POST).
+#[when(regex = r#"^he submits a twelve-character password and confirms it$"#)]
+async fn he_submits_twelve_char_password(world: &mut FoundryWorld) {
+    accept_member_invite(world, MEMBER_TWELVE_CHAR_PASSWORD).await;
+}
