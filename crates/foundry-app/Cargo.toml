@@ -80,6 +80,12 @@ lettre = { workspace = true }
 bytes = "1"
 futures = { workspace = true }
 tokio-stream = { version = "0.1", features = ["sync"] }
+# per-workspace-backup (ADR-002 / OD-PWB-3) — the per-workspace EXPORT archive is
+# a single tar file (manifest.json + tables/<table>.jsonl), written atomically via
+# `<out>.partial` → fsync → rename. `tar` (MIT/Apache-2.0, mature) is the archive
+# container writer; it is an external dependency, NOT a new workspace crate. Used
+# only by `admin_cli.rs::run_export_workspace`.
+tar = "0.4"
 
 [dev-dependencies]
 # Self-reference to activate `test-support` for THIS crate's own tests

@@ -82,6 +82,60 @@ pub struct PoolStats {
     pub size: i32,
 }
 
+/// per-workspace-backup (OD-PWB-2 / ADR-005) — the authoritative set of the ten
+/// TENANT tables a per-workspace export walks and a `verify-export` re-checks.
+/// This constant is OWNED by this feature and is the SINGLE source of truth for
+/// "which tables ARE tenant data"; both [`Store::export_workspace`] and the
+/// archive manifest write it, and verify re-checks against this same copy.
+///
+/// DELIBERATELY DISTINCT from `admin_cli.rs::run_backup_verify`'s hard-coded list
+/// (that whole-instance restore-verify list includes `issue_attachments`,
+/// `session`, `outbox` and omits `invites`, `machine_tokens`). Copying that list
+/// here would corrupt the tenant surface (ADR-005). The set is a domain decision,
+/// not a schema-shape fact — `team_memberships` and `users` carry NO
+/// `workspace_id`, so a column-presence derivation would wrongly omit them.
+///
+/// Order is the export/manifest order. The gold test (plant-a-row-per-table)
+/// proves this constant is load-bearing end to end: removing a table reds it.
+pub const TENANT_TABLES: [&str; 10] = [
+    "workspaces",
+    "users",
+    "workspace_memberships",
+    "teams",
+    "team_memberships",
+    "projects",
+    "issues",
+    "invites",
+    "comments",
+    "machine_tokens",
+];
+
+/// per-workspace-backup (ADR-003) — the result of a single consistent-cut export
+/// of ONE workspace's data across the ten [`TENANT_TABLES`]. `tables` maps each
+/// tenant table name to its whole-row JSONL lines (one `to_jsonb(t.*)::text` per
+/// row, slice-05 idiom). Port-exposed observable: the per-table row sets + counts
+/// the CLI reports and the manifest writer serializes.
+#[derive(Debug, Clone)]
+pub struct WorkspaceExport {
+    /// The exported workspace's id (the manifest `declared_workspace_id`).
+    pub workspace_id: uuid::Uuid,
+    /// The exported workspace's name (the manifest `declared_workspace_name`).
+    pub workspace_name: String,
+    /// table name → whole-row JSONL lines, in [`TENANT_TABLES`] order.
+    pub tables: Vec<(String, Vec<String>)>,
+}
+
+impl WorkspaceExport {
+    /// Per-table row counts in [`TENANT_TABLES`] order (the manifest `row_counts`
+    /// + the CLI per-table report). Each entry is `(table_name, row_count)`.
+    pub fn row_counts(&self) -> Vec<(String, usize)> {
+        self.tables
+            .iter()
+            .map(|(table, rows)| (table.clone(), rows.len()))
+            .collect()
+    }
+}
+
 /// Postgres-backed store. Wraps a [`sqlx::PgPool`].
 #[derive(Debug, Clone)]
 pub struct Store {
@@ -564,6 +618,115 @@ impl Store {
                 .fetch_all(&self.pool)
                 .await?;
         Ok(rows)
+    }
+
+    /// per-workspace-backup (ADR-003 / the isolation crux) — export ONE
+    /// workspace's data across the ten [`TENANT_TABLES`] as a single consistent
+    /// cut. Opens ONE read-only transaction at `REPEATABLE READ` (Postgres' true
+    /// snapshot) and runs all ten scoped `SELECT to_jsonb(t.*)::text` queries
+    /// inside it, so a concurrent writer cannot make `comments` reference an
+    /// `issues` row the archive omits (referential closure holds).
+    ///
+    /// The ten `WHERE` clauses below ARE the scope predicate (architecture.md §5)
+    /// — the SINGLE place "belongs to W" is defined, so selection and the
+    /// verify-export isolation check cannot diverge by construction:
+    ///
+    /// | table | predicate |
+    /// |---|---|
+    /// | `workspaces` | `id = W` (exactly one row) |
+    /// | `workspace_memberships`, `teams`, `projects`, `issues`, `invites`, `comments`, `machine_tokens` | `workspace_id = W` |
+    /// | `team_memberships` | transitive: `team_id IN (SELECT id FROM teams WHERE workspace_id = W)` |
+    /// | `users` | membership-bounded (ADR-001): `id IN (SELECT user_id FROM workspace_memberships WHERE workspace_id = W)` |
+    ///
+    /// Returns the per-table whole-row JSONL sets + the workspace identity for the
+    /// manifest header. Read-only — the tx never writes. Returns the rows even for
+    /// an empty workspace (every table present, possibly zero rows).
+    pub async fn export_workspace(
+        &self,
+        workspace_id: uuid::Uuid,
+    ) -> Result<WorkspaceExport, StoreError> {
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+            .execute(&mut *tx)
+            .await?;
+
+        let workspace_name: String =
+            sqlx::query_scalar("SELECT name FROM workspaces WHERE id = $1")
+                .bind(workspace_id)
+                .fetch_one(&mut *tx)
+                .await?;
+
+        // The ten scoped SELECTs, in TENANT_TABLES order. Each WHERE clause is
+        // the per-table scope predicate (architecture.md §5). `to_jsonb(t.*)`
+        // captures the WHOLE row (slice-05 idiom); ORDER BY the row text makes the
+        // JSONL insertion-order independent (stable archives modulo `exported_at`).
+        let scoped_sql: [(&str, &str); 10] = [
+            (
+                "workspaces",
+                "SELECT to_jsonb(t.*)::text FROM workspaces t WHERE t.id = $1 ORDER BY 1",
+            ),
+            (
+                "users",
+                "SELECT to_jsonb(t.*)::text FROM users t WHERE t.id IN \
+                 (SELECT user_id FROM workspace_memberships WHERE workspace_id = $1) ORDER BY 1",
+            ),
+            (
+                "workspace_memberships",
+                "SELECT to_jsonb(t.*)::text FROM workspace_memberships t \
+                 WHERE t.workspace_id = $1 ORDER BY 1",
+            ),
+            (
+                "teams",
+                "SELECT to_jsonb(t.*)::text FROM teams t WHERE t.workspace_id = $1 ORDER BY 1",
+            ),
+            (
+                "team_memberships",
+                "SELECT to_jsonb(t.*)::text FROM team_memberships t WHERE t.team_id IN \
+                 (SELECT id FROM teams WHERE workspace_id = $1) ORDER BY 1",
+            ),
+            (
+                "projects",
+                "SELECT to_jsonb(t.*)::text FROM projects t WHERE t.workspace_id = $1 ORDER BY 1",
+            ),
+            (
+                "issues",
+                "SELECT to_jsonb(t.*)::text FROM issues t WHERE t.workspace_id = $1 ORDER BY 1",
+            ),
+            (
+                "invites",
+                "SELECT to_jsonb(t.*)::text FROM invites t WHERE t.workspace_id = $1 ORDER BY 1",
+            ),
+            (
+                "comments",
+                "SELECT to_jsonb(t.*)::text FROM comments t WHERE t.workspace_id = $1 ORDER BY 1",
+            ),
+            (
+                "machine_tokens",
+                "SELECT to_jsonb(t.*)::text FROM machine_tokens t \
+                 WHERE t.workspace_id = $1 ORDER BY 1",
+            ),
+        ];
+        // Belt-and-braces: the SQL order must match the public TENANT_TABLES set.
+        debug_assert!(scoped_sql
+            .iter()
+            .map(|(t, _)| *t)
+            .eq(TENANT_TABLES.iter().copied()));
+
+        let mut tables: Vec<(String, Vec<String>)> = Vec::with_capacity(TENANT_TABLES.len());
+        for (table, sql) in scoped_sql {
+            let rows: Vec<String> = sqlx::query_scalar(sql)
+                .bind(workspace_id)
+                .fetch_all(&mut *tx)
+                .await?;
+            tables.push((table.to_string(), rows));
+        }
+
+        tx.commit().await?;
+        Ok(WorkspaceExport {
+            workspace_id,
+            workspace_name,
+            tables,
+        })
     }
 
     /// Resolve a user's ACTIVE workspace by MEMBERSHIP (ADR-005), not by the

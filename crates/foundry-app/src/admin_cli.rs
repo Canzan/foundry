@@ -670,6 +670,214 @@ pub fn run_grant_super_admin(operator_email: &str) -> i32 {
     })
 }
 
+/// per-workspace-backup (US-PWB-01, ADR-002/003/005) — entry point invoked from
+/// `main.rs` when the CLI sees `foundry doctor export-workspace <id|name> <out>`.
+///
+/// Exports ONE workspace's data across the ten `foundry_store::TENANT_TABLES` to a
+/// single, portable, verifiable tar archive (`manifest.json` +
+/// `tables/<table>.jsonl`, whole-row `to_jsonb` JSONL — the slice-05 idiom). The
+/// selector resolves the workspace by its id OR by an exact, case-insensitive
+/// name (DRIFT-1: `workspaces` has no `slug` column). Reads the scoped rows in ONE
+/// `REPEATABLE READ` snapshot (`Store::export_workspace`, the SINGLE place the
+/// scope predicate lives), then writes the archive ATOMICALLY via
+/// `<out>.partial` → fsync → rename so a failed export never leaves a
+/// complete-looking half-archive (NFR-PWB-ATOM-01). Operates against the LIVE DB
+/// via `DATABASE_URL`, reusing the `run_provision_workspace` scaffold
+/// (thread-isolated tokio runtime, structured `key: value` + `status:` stdout).
+///
+/// Exit codes (mirroring the shipped scaffold's discipline):
+///
+/// - `0` OK: archive written; stdout reports a per-table row count for all ten
+///   tenant tables, the at-rest sensitivity note (NFR-PWB-SEC-01), and `status: OK`.
+/// - `2` unknown/invalid workspace: the selector matched neither an id nor a name
+///   (later step wires the redirect to `list-workspaces`).
+/// - `3` DB unreachable / mid-read error.
+/// - `5` output-path error (parent missing / unwritable) — fails BEFORE any DB read.
+pub fn run_export_workspace(selector: &str, out_path: &str) -> i32 {
+    if selector.is_empty() || out_path.is_empty() {
+        eprintln!(
+            "foundry doctor export-workspace: <selector> and <out-path> are required. \
+             Usage: foundry doctor export-workspace <id|name> <out-path>"
+        );
+        return 2;
+    }
+
+    let database_url = match std::env::var("DATABASE_URL") {
+        Ok(v) if !v.is_empty() => v,
+        _ => {
+            eprintln!(
+                "foundry doctor export-workspace: DATABASE_URL is required \
+                 to reach the live database. Set it to the same value the \
+                 foundry server uses."
+            );
+            return 3;
+        }
+    };
+
+    let selector = selector.to_string();
+    let out_path = std::path::PathBuf::from(out_path);
+
+    // Thread-isolated runtime (see `run_restore_comment` for why): dispatched from
+    // inside the outer `#[tokio::main]` runtime, so a nested `block_on` would panic.
+    std::thread::spawn(move || {
+        let runtime = match tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        {
+            Ok(rt) => rt,
+            Err(err) => {
+                eprintln!("foundry doctor export-workspace: could not build tokio runtime: {err}");
+                return 3;
+            }
+        };
+
+        runtime.block_on(async move {
+            let store = match foundry_store::Store::connect(&database_url).await {
+                Ok(s) => s,
+                Err(err) => {
+                    eprintln!(
+                        "foundry doctor export-workspace: could not connect to \
+                         DATABASE_URL: {err}"
+                    );
+                    return 3;
+                }
+            };
+
+            // Resolve the selector to a workspace id by id OR case-insensitive name.
+            let workspaces = match store.list_workspaces().await {
+                Ok(w) => w,
+                Err(err) => {
+                    eprintln!(
+                        "foundry doctor export-workspace: failed to list workspaces \
+                         against live DB: {err}"
+                    );
+                    return 3;
+                }
+            };
+            let selector_lower = selector.to_ascii_lowercase();
+            let resolved = workspaces.iter().find(|(id, name)| {
+                id.to_string() == selector || name.to_ascii_lowercase() == selector_lower
+            });
+            let Some((workspace_id, _name)) = resolved else {
+                eprintln!(
+                    "foundry doctor export-workspace: no workspace matches {selector:?}; \
+                     run `foundry doctor list-workspaces` to see each workspace's id and name."
+                );
+                return 2;
+            };
+            let workspace_id = *workspace_id;
+
+            let export = match store.export_workspace(workspace_id).await {
+                Ok(e) => e,
+                Err(err) => {
+                    eprintln!(
+                        "foundry doctor export-workspace: export read against live DB \
+                         failed: {err}"
+                    );
+                    return 3;
+                }
+            };
+
+            match write_export_archive(&out_path, &export) {
+                Ok(()) => {}
+                Err(err) => {
+                    eprintln!("foundry doctor export-workspace: failed to write archive: {err}");
+                    return 5;
+                }
+            }
+
+            println!("workspace-id: {}", export.workspace_id);
+            println!("workspace-name: {}", export.workspace_name);
+            println!("archive: {}", out_path.display());
+            println!("row-counts:");
+            for (table, count) in export.row_counts() {
+                println!("  {table}: {count}");
+            }
+            println!(
+                "sensitivity-note: this archive contains users.password_hash and \
+                 machine_tokens rows — treat it as sensitive at rest."
+            );
+            println!("status: OK");
+            0
+        })
+    })
+    .join()
+    .unwrap_or_else(|_| {
+        eprintln!(
+            "foundry doctor export-workspace: worker thread panicked; \
+             see stderr above"
+        );
+        3
+    })
+}
+
+/// Write a [`foundry_store::WorkspaceExport`] to a single tar archive at `out_path`
+/// ATOMICALLY (NFR-PWB-ATOM-01): build the tar at `<out>.partial`, fsync it, then
+/// rename into place. A failure mid-write leaves at most a discardable `.partial`
+/// file — never a complete-looking archive at the final path. The archive holds
+/// `manifest.json` (the self-describing header verify reads first) + one
+/// `tables/<table>.jsonl` per tenant table (whole-row JSONL).
+fn write_export_archive(
+    out_path: &Path,
+    export: &foundry_store::WorkspaceExport,
+) -> std::io::Result<()> {
+    let manifest = serde_json::json!({
+        "format_version": 1,
+        "declared_workspace_id": export.workspace_id.to_string(),
+        "declared_workspace_name": export.workspace_name,
+        "exported_at": time::OffsetDateTime::now_utc()
+            .format(&time::format_description::well_known::Rfc3339)
+            .unwrap_or_default(),
+        "tenant_tables": foundry_store::TENANT_TABLES,
+        "row_counts": export
+            .row_counts()
+            .into_iter()
+            .map(|(table, count)| (table, serde_json::Value::from(count)))
+            .collect::<serde_json::Map<String, serde_json::Value>>(),
+    });
+    let manifest_bytes = serde_json::to_vec_pretty(&manifest)?;
+
+    let partial = out_path.with_extension("partial");
+    {
+        let file = std::fs::File::create(&partial)?;
+        let mut builder = tar::Builder::new(file);
+
+        append_tar_entry(&mut builder, "manifest.json", &manifest_bytes)?;
+        for (table, rows) in &export.tables {
+            let mut jsonl = String::new();
+            for row in rows {
+                jsonl.push_str(row);
+                jsonl.push('\n');
+            }
+            append_tar_entry(
+                &mut builder,
+                &format!("tables/{table}.jsonl"),
+                jsonl.as_bytes(),
+            )?;
+        }
+
+        // Finish the tar (writes the end-of-archive marker), then fsync so the
+        // bytes are durable before the atomic rename publishes the final path.
+        let file = builder.into_inner()?;
+        file.sync_all()?;
+    }
+    std::fs::rename(&partial, out_path)?;
+    Ok(())
+}
+
+/// Append one in-memory blob to a tar archive under `name`.
+fn append_tar_entry<W: std::io::Write>(
+    builder: &mut tar::Builder<W>,
+    name: &str,
+    bytes: &[u8],
+) -> std::io::Result<()> {
+    let mut header = tar::Header::new_gnu();
+    header.set_size(bytes.len() as u64);
+    header.set_mode(0o600);
+    header.set_cksum();
+    builder.append_data(&mut header, name, bytes)
+}
+
 /// Generate a high-entropy initial credential for a provisioned first admin.
 /// The operator never sees this; the first admin resets it by accepting the
 /// emitted invite link. 32 hex chars ≈ 128 bits of entropy.

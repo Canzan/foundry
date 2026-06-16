@@ -1,0 +1,175 @@
+{
+  "roadmap": {
+    "project_id": "per-workspace-backup",
+    "created_at": "2026-06-16T08:14:55Z",
+    "total_steps": 9
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "Export vertical + happy paths",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "Walking skeleton: export-workspace writes a verifiable archive reporting all ten tenant tables",
+          "criteria": [
+            "Greens scenario: An operator exports one workspace to a verifiable archive reporting all ten tables",
+            "Build the shared TENANT_TABLES constant (the owned 10-table set: workspaces, users, workspace_memberships, teams, team_memberships, projects, issues, invites, comments, machine_tokens) read by both export and verify; deliberately distinct from admin_cli run_backup_verify's list",
+            "Build Store::export_workspace(W) -> WorkspaceExport running the 10 scoped SELECTs (the per-table scope predicate of architecture.md Section 5) inside ONE REPEATABLE READ read-only transaction, using the slice-05 SELECT to_jsonb(t.*)::text whole-row JSONL idiom",
+            "Build the tar archive writer producing manifest.json (declared_workspace_id, declared_workspace_name, exported_at, tenant_tables[10], row_counts, format_version) plus tables/<table>.jsonl, written atomically as <out>.partial then fsync then rename to <out>",
+            "Add the foundry doctor export-workspace <id|name> <out> subcommand in admin_cli.rs (thread-isolated tokio runtime, structured key:value + terminating status: stdout) and the main.rs doctor dispatch match arm",
+            "Author the OD-PWB-2 / ADR-005 gold test (plant one row per tenant table for a target workspace, export, assert export count and verify completeness both see all 10; removing a table from the constant reds the test) at the foundry-store / admin_cli seam, mirroring check_arch.rs plant-a-violation discipline",
+            "An archive file exists at the output path",
+            "stdout reports a row count for all 10 tenant tables and ends with status: OK; the command exits with code 0",
+            "Verify LAYER-1e check-arch stays green with no new allow-list line (export code lives in admin_cli.rs / foundry-store, already exempt per ADR-006)"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-per-workspace-backup.feature",
+          "scenario_name": "An operator exports one workspace to a verifiable archive reporting all ten tables"
+        },
+        {
+          "id": "01-02",
+          "name": "list-workspaces shows identity; id-selector resolves the target",
+          "criteria": [
+            "Greens scenario: An operator sees every workspace's identity before exporting",
+            "Greens scenario: An operator exports a workspace selected by its id",
+            "foundry doctor list-workspaces lists each workspace's id and name (DRIFT-1: no slug column), shows both Acme Corp and Globex LLC, ends with status: OK, exits 0; reuse/extend Store::list_workspaces if it already exists",
+            "The id-or-name selector is ONE resolution fn feeding the archive header: exporting the workspace whose id is Acme Corp's resolves to Acme Corp and writes an archive of Acme Corp at the path ending status: OK"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-per-workspace-backup.feature",
+          "scenario_name": "An operator sees every workspace's identity before exporting"
+        },
+        {
+          "id": "01-03",
+          "name": "Export is read-only and discloses sensitive at-rest contents",
+          "criteria": [
+            "Greens scenario: Exporting a workspace removes nothing from the instance",
+            "Greens scenario: Exporting the only workspace is valid and removes nothing",
+            "Greens scenario: The operator is warned about sensitive at-rest contents on a successful export",
+            "After exporting globex, Globex LLC and all its data, and Acme Corp and all its data, still exist unchanged on the instance (read-only constraint)",
+            "On a single-tenant instance whose only workspace is Acme Corp, exporting acme writes an archive, notes this is the only workspace on the instance, and leaves Acme Corp and all its data unchanged",
+            "A successful export prints a note that the archive contains password hashes and machine-token rows, advises treating the archive as sensitive at rest (NFR-PWB-SEC-01), and exits 0"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-per-workspace-backup.feature",
+          "scenario_name": "Exporting a workspace removes nothing from the instance"
+        }
+      ]
+    },
+    {
+      "id": "02",
+      "name": "Isolation crux + verify-export",
+      "steps": [
+        {
+          "id": "02-01",
+          "name": "verify-export confirms completeness and isolation from the path alone",
+          "criteria": [
+            "Greens scenario: The archive contains every target row and no sibling row",
+            "Greens scenario: An operator confirms an export is complete and isolation-clean",
+            "Build the foundry doctor verify-export <path> subcommand: path-only input reading declared_workspace_id from the manifest header (no out-of-band arg, NFR-PWB-INT-01), checking completeness (all 10 tables present, per-table JSONL line count == header row_count) then re-applying the SAME scope predicate (architecture.md Section 5) per archived row for isolation",
+            "After exporting globex, every row in the archive belongs to Globex LLC, no row belongs to Acme Corp, and the archive's member set is exactly the members of Globex LLC",
+            "verify-export on a clean globex archive confirms all 10 tenant tables present, confirms every row belongs to the declared workspace, confirms no row references a sibling workspace, and exits 0"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-per-workspace-backup.feature",
+          "scenario_name": "The archive contains every target row and no sibling row"
+        },
+        {
+          "id": "02-02",
+          "name": "Transitive FK-chain isolation and multi-membership user inclusion",
+          "criteria": [
+            "Greens scenario: Transitively-scoped rows are isolation-checked through the foreign-key chain",
+            "Greens scenario: A user who belongs to two workspaces is legitimately included and not flagged as a leak",
+            "verify resolves each team membership to its owning workspace through its team (team_memberships is transitive-only via team_id), cross-checks each comment against its issue's owning workspace (comment.issue_id -> issues.workspace_id, DRIFT-2 corruption cross-check), and confirms every transitively-scoped row belongs to Globex LLC",
+            "A user who is a member of both Acme Corp and Globex LLC appears in the Globex archive as a member of Globex LLC, is NOT flagged by verification as a sibling-workspace row (OD-PWB-1 / ADR-001 membership-bounded isolation), and the command exits 0"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-per-workspace-backup.feature",
+          "scenario_name": "Transitively-scoped rows are isolation-checked through the foreign-key chain"
+        },
+        {
+          "id": "02-03",
+          "name": "Falsifiability: a planted sibling row makes verify fail loudly",
+          "criteria": [
+            "Greens scenario: Verification fails loudly when a sibling row is planted in an archive",
+            "Greens scenario: An export of any single workspace contains no sibling data",
+            "When one row belonging to Acme Corp is planted into a Globex archive, verify-export's isolation check fails, the command exits with a non-zero code, and the message identifies a row resolving to a workspace other than the declared one (the NFR-PWB-ISO-01 falsifiability crux, AC-02.4)",
+            "The @property Scenario Outline (example-pinned to the Acme/Globex fixture, both examples globex and acme): exporting then verifying either target workspace confirms zero rows resolve to any workspace other than the target and exits 0"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-per-workspace-backup.feature",
+          "scenario_name": "Verification fails loudly when a sibling row is planted in an archive"
+        }
+      ]
+    },
+    {
+      "id": "03",
+      "name": "Failure paths",
+      "steps": [
+        {
+          "id": "03-01",
+          "name": "Unknown workspace and unreachable database are refused with guidance",
+          "criteria": [
+            "Greens scenario: Exporting an unknown workspace is refused with guidance",
+            "Greens scenario: The export reports a clear error when the database is unreachable",
+            "Exporting an unknown selector (nope) exits with code 2, the message tells Devansh to run foundry doctor list-workspaces, and no archive file is created at the path",
+            "When the database is unreachable, exporting globex exits with code 3 and the message says it could not connect to the database (mirrors admin_cli.rs DB/infra failure code)"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-per-workspace-backup.feature",
+          "scenario_name": "Exporting an unknown workspace is refused with guidance"
+        },
+        {
+          "id": "03-02",
+          "name": "Output-path and disk-full failures leave no complete-looking archive",
+          "criteria": [
+            "Greens scenario: A failed export never leaves a half-written archive when the path is unwritable",
+            "Greens scenario: A disk-full export leaves no complete-looking archive",
+            "Exporting globex to a path whose parent directory does not exist exits with code 5, leaves no file at that path, and fails BEFORE any tenant data is read (pre-flight path stage precedes the DB read snapshot)",
+            "An export of globex that fails mid-write because the disk fills leaves no file at the final output path, at most a discardable partial file remains, and a later verify-export on the final path finds no archive to accept (NFR-PWB-ATOM-01: <out>.partial -> fsync -> rename atomicity)"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-per-workspace-backup.feature",
+          "scenario_name": "A failed export never leaves a half-written archive when the path is unwritable"
+        },
+        {
+          "id": "03-03",
+          "name": "verify-export detects a truncated archive",
+          "criteria": [
+            "Greens scenario: Verification detects an incomplete archive",
+            "When a globex archive was truncated when the disk filled mid-export, verify-export on the truncated archive exits with code 4 (completeness count tripwire: manifest row_counts vs JSONL line count) and the message says the archive is truncated or incomplete and to re-run the export"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-per-workspace-backup.feature",
+          "scenario_name": "Verification detects an incomplete archive"
+        }
+      ]
+    }
+  ],
+  "implementation_scope": {
+    "source_directories": [
+      "crates/foundry-store/src/",
+      "crates/foundry-app/src/"
+    ],
+    "test_directories": [
+      "crates/foundry-acceptance/tests/",
+      "crates/foundry-acceptance/src/",
+      "crates/foundry-store/tests/"
+    ],
+    "excluded_patterns": [
+      "target/**",
+      "**/*.md"
+    ]
+  },
+  "validation": {
+    "status": "approved",
+    "reviewer": "nw-software-crafter-reviewer",
+    "approved_at": "2026-06-16"
+  },
+  "reviews": {
+    "deliver_roadmap": {
+      "reviewer": "nw-software-crafter-reviewer",
+      "date": "2026-06-16",
+      "verdict": "APPROVED",
+      "findings": {
+        "scenario_coverage": "17/17 scenarios mapped to 9 steps - COMPLETE",
+        "decision_fidelity": "8/8 design decisions (OD-PWB-1 through OD-PWB-3, ADR-001 through ADR-006, NFRs) - FAITHFUL",
+        "sequencing": "All dependency chains correct: 02-01 builds verify-export before 02-02/02-03 use it",
+        "security_isolation": "Crux well-guarded: Scenarios 5,7,8,9,10 cover positive inclusion, transitive chains, membership-bounded exception, planted-sibling falsifiability"
+      },
+      "blockers": 0
+    }
+  }
+}

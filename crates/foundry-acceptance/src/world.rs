@@ -1037,6 +1037,25 @@ pub struct FoundryWorld {
     /// the cross-cause baseline the signed-out refusal is asserted byte-identical to,
     /// route-for-route. Each `(method url, status, body)`.
     pub mi_issuance_non_admin_refusals: Vec<(String, StatusCode, String)>,
+
+    // ---- per-workspace-backup (US-PWB-01/02/03) ----
+    /// The in-process harness for the per-workspace-backup scenarios. Its migrated
+    /// schema is the one the `export-workspace` CLI subprocess targets via
+    /// DATABASE_URL, so the export reads against the very rows the Background seeded.
+    pub pwb_harness: Option<InProcHarness>,
+    /// Seeded workspace name → its id (e.g. "Globex LLC" → uuid). Resolves the
+    /// selector token ("globex"/"acme") in the When step to the real workspace id.
+    pub pwb_workspace_ids: HashMap<String, uuid::Uuid>,
+    /// The output path the export CLI was told to write the archive to (a path
+    /// inside a per-scenario `TempDir`, held open by `pwb_tempdir`).
+    pub pwb_out_path: Option<PathBuf>,
+    /// The per-scenario TempDir backing `pwb_out_path` — held so the archive file
+    /// survives until the Then steps inspect it.
+    pub pwb_tempdir: Option<tempfile::TempDir>,
+    /// The export CLI's exit code (port-exposed observable).
+    pub pwb_cli_exit: Option<i32>,
+    /// The export CLI's captured stdout (the per-table report + `status:` line).
+    pub pwb_cli_stdout: Option<String>,
 }
 
 impl FoundryWorld {

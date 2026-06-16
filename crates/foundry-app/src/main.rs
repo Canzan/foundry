@@ -755,12 +755,35 @@ fn dispatch_subcommand() -> Option<i32> {
                     let code = foundry_app::admin_cli::run_grant_super_admin(&email);
                     Some(code)
                 }
+                // per-workspace-backup (US-PWB-01, ADR-002/003) — export ONE
+                // workspace's data across the ten TENANT_TABLES to a single
+                // verifiable tar archive. Reads DATABASE_URL to reach the LIVE DB.
+                // Selector resolves by id OR case-insensitive name (DRIFT-1).
+                "export-workspace" => {
+                    let Some(selector) = args.get(3) else {
+                        eprintln!(
+                            "foundry doctor export-workspace: missing <id|name> and <out-path>. \
+                             Usage: foundry doctor export-workspace <id|name> <out-path>"
+                        );
+                        return Some(2);
+                    };
+                    let Some(out_path) = args.get(4) else {
+                        eprintln!(
+                            "foundry doctor export-workspace: missing <out-path>. \
+                             Usage: foundry doctor export-workspace <id|name> <out-path>"
+                        );
+                        return Some(2);
+                    };
+                    let code = foundry_app::admin_cli::run_export_workspace(selector, out_path);
+                    Some(code)
+                }
                 "" => {
                     eprintln!(
                         "foundry doctor: subcommand required. \
                          Available: backup-verify <file>, restore-comment <comment-uuid>, \
                          provision-workspace --name <name> --admin-email <addr> --as <addr>, \
-                         grant-super-admin --email <addr>"
+                         grant-super-admin --email <addr>, \
+                         export-workspace <id|name> <out-path>"
                     );
                     Some(2)
                 }
@@ -769,7 +792,8 @@ fn dispatch_subcommand() -> Option<i32> {
                         "foundry doctor: unknown subcommand {other:?}. \
                          Available: backup-verify <file>, restore-comment <comment-uuid>, \
                          provision-workspace --name <name> --admin-email <addr> --as <addr>, \
-                         grant-super-admin --email <addr>"
+                         grant-super-admin --email <addr>, \
+                         export-workspace <id|name> <out-path>"
                     );
                     Some(2)
                 }
