@@ -1,0 +1,216 @@
+schema_version: 1
+
+journey:
+  name: "Export a Single Workspace"
+  goal: "Produce a portable, verifiable, isolation-scoped archive of exactly one tenant's data so an operator can archive, migrate, hand off, or pre-deletion-snapshot just that workspace."
+  persona: "Devansh — the self-hosting operator (same persona as `foundry doctor backup-verify`)."
+
+  scope_boundary:
+    in_scope: "Per-workspace EXPORT (read-only logical dump of one tenant)."
+    out_of_scope: "Per-workspace RESTORE / import — deferred (DD-MWT-09: a per-workspace restore must not clobber a sibling; isolation-sensitive write path, the meaningfully-harder half)."
+
+  emotional_arc:
+    start: "Anxious — 'did I pick the right workspace, and will it leak another tenant's data?'"
+    middle: "Focused — transparent per-table progress shows it is walking only this tenant's rows."
+    end: "Trusting / relieved — the archive is self-verifiable for completeness AND isolation."
+
+steps:
+  - id: 1
+    name: "Identify the target workspace"
+    command: "foundry doctor list-workspaces"
+
+    tui_mockup: |
+      +-- Step 1: Identify target ------------------------------------+
+      | $ foundry doctor list-workspaces                              |
+      | workspace-id                      slug      name              |
+      | 0190a1b2-...-acme                 acme      Acme Corp          |
+      | 0190c3d4-...-globex               globex    Globex LLC         |
+      | status: OK                                                    |
+      +--------------------------------------------------------------+
+
+    shared_artifacts:
+      - name: "workspace identity (id + slug)"
+        source: "workspaces table (id, slug, name) — the SSOT for tenant identity"
+        displayed_as: "${workspace_id} / ${workspace_slug}"
+        consumers: ["list-workspaces output", "export-workspace argument", "export archive header", "verify-export declared-workspace"]
+
+    emotional_state:
+      entry: "Anxious — needs to be certain which id/slug maps to which tenant."
+      exit: "Oriented — sees the exact id and slug to pass to export."
+
+    integration_checkpoint: |
+      The id/slug shown here MUST be the same identifier export-workspace accepts and the same value
+      the archive header records and verify-export reads back. One identity, four consumers.
+
+    failure_modes:
+      - "No workspaces exist (fresh/empty instance) — print an empty list with status: OK, not an error."
+
+    gherkin: |
+      Scenario: Operator sees every workspace's identity before exporting
+        Given an instance with workspaces "Acme Corp" (slug "acme") and "Globex LLC" (slug "globex")
+        When Devansh runs "foundry doctor list-workspaces"
+        Then the output lists both workspaces with their id, slug, and name
+        And the output ends with "status: OK"
+
+  - id: 2
+    name: "Run the export"
+    command: "foundry doctor export-workspace <id|slug> <out-path>"
+
+    tui_mockup: |
+      +-- Step 2: Export ---------------------------------------------+
+      | $ foundry doctor export-workspace globex \                    |
+      |     /backups/globex-2026-06-16.dump                           |
+      | workspace-id: 0190c3d4-...-globex                             |
+      | workspace-slug: globex                                        |
+      | out-path: /backups/globex-2026-06-16.dump                     |
+      | tables-exported: 10                                           |
+      | row-counts:                                                   |
+      |   workspaces: 1                                               |
+      |   users: 7          <- members of THIS workspace only         |
+      |   workspace_memberships: 7                                    |
+      |   teams: 3                                                    |
+      |   team_memberships: 11                                        |
+      |   projects: 8                                                 |
+      |   issues: 412                                                 |
+      |   invites: 2                                                  |
+      |   comments: 1893                                              |
+      |   machine_tokens: 4                                           |
+      | note: contains password hashes + machine-token rows; treat    |
+      |       as sensitive at rest.                                   |
+      | status: OK                                                    |
+      +--------------------------------------------------------------+
+
+    shared_artifacts:
+      - name: "TENANT_TABLES set"
+        source: "crates/foundry-acceptance/src/steps/feature_mwt_slice_05_migration_guarantee.rs::TENANT_TABLES (the 10-table tenant surface) — DESIGN ratifies the authoritative export list"
+        displayed_as: "${tenant_tables}"
+        consumers: ["export-workspace table walk + row-counts", "verify-export completeness check", "whole-instance backup-verify (overlapping subset)"]
+      - name: "workspace_id scoping rule (direct + transitive)"
+        source: "the SHIPPED scoping seam — every tenant table carries workspace_id directly or transitively via team_id/project_id/issue_id FK chains (per TENANT_TABLES doc-comment)"
+        displayed_as: "${scope_predicate}"
+        consumers: ["export row selection", "verify-export isolation check"]
+
+    emotional_state:
+      entry: "Anxious — about to extract; will it stay scoped to one tenant?"
+      exit: "Focused — per-table counts make the scoped walk transparent."
+
+    integration_checkpoint: |
+      The set of tables walked and counted here MUST equal the set verify-export checks for
+      completeness. The scope predicate used to SELECT rows MUST be the same predicate verify-export
+      uses to confirm isolation. Export and verify share one definition of "this workspace's data".
+
+    failure_modes:
+      - "Unknown workspace (id/slug matches nothing) -> exit 2, redirect to list-workspaces."
+      - "Output path parent missing / unwritable -> exit 5, fail BEFORE any DB read (no half-archive)."
+      - "Disk fills / process killed mid-write -> atomic .partial->rename leaves no file at out-path."
+      - "DATABASE_URL unreachable -> exit 3 (DB/infra), mirrors shipped scaffold."
+      - "Exporting the sole/last workspace -> VALID, status: OK with an 'only workspace' note (export is read-only, never a delete)."
+
+    gherkin: |
+      Scenario: Operator exports exactly one tenant's data
+        Given an instance with workspaces "Acme Corp" and "Globex LLC"
+        And "Globex LLC" has 7 members, 3 teams, 8 projects, 412 issues, and 1893 comments
+        When Devansh runs "foundry doctor export-workspace globex /backups/globex-2026-06-16.dump"
+        Then an archive is written to "/backups/globex-2026-06-16.dump"
+        And the output reports a per-table row count for all 10 tenant tables
+        And the output ends with "status: OK"
+
+      Scenario: The archive contains only the target workspace's data
+        Given "Acme Corp" and "Globex LLC" each have their own teams, projects, issues, and comments
+        When Devansh exports "globex"
+        Then every row in the archive belongs to the Globex workspace
+        And no row in the archive belongs to the Acme workspace
+        And the archive's member set is exactly Globex's members, not Acme's
+
+      Scenario: Exporting an unknown workspace is refused with guidance
+        Given no workspace has the id or slug "nope"
+        When Devansh runs "foundry doctor export-workspace nope /backups/x.dump"
+        Then the command exits with code 2
+        And the message tells Devansh to run "foundry doctor list-workspaces"
+        And no archive file is created
+
+      Scenario: A failed export never leaves a half-written archive
+        Given the output path's parent directory does not exist
+        When Devansh runs "foundry doctor export-workspace globex /nope/x.dump"
+        Then the command exits with code 5
+        And no file exists at the output path
+        And no partial archive can be mistaken for a complete one
+
+  - id: 3
+    name: "Verify the archive (completeness + isolation)"
+    command: "foundry doctor verify-export <out-path>"
+
+    tui_mockup: |
+      +-- Step 3: Verify ---------------------------------------------+
+      | $ foundry doctor verify-export \                              |
+      |     /backups/globex-2026-06-16.dump                           |
+      | out-path: /backups/globex-2026-06-16.dump                     |
+      | archive-format: foundry per-workspace export v1               |
+      | declared-workspace: 0190c3d4-...-globex                       |
+      | checks:                                                       |
+      |   archive is readable: YES                                    |
+      |   all 10 tenant tables present: YES                           |
+      |   every row belongs to the declared workspace: YES  <- crux   |
+      |   no rows reference a sibling workspace: YES                  |
+      | status: OK                                                    |
+      | exit-code: 0                                                  |
+      +--------------------------------------------------------------+
+
+    shared_artifacts:
+      - name: "declared-workspace identity"
+        source: "the archive header written by export-workspace (recording ${workspace_id})"
+        displayed_as: "${declared_workspace}"
+        consumers: ["verify-export isolation predicate", "operator's audit trail"]
+
+    emotional_state:
+      entry: "Wants proof before handing the archive off."
+      exit: "Trusting — completeness AND isolation are machine-confirmed; the fear is resolved."
+
+    integration_checkpoint: |
+      verify-export reads the SAME tenant-table set and the SAME scope predicate export used. The
+      isolation check confirms every row's workspace_id (direct or resolved transitively) equals the
+      archive's declared-workspace and that NO row resolves to a sibling. This is the security-critical
+      gate; it must be falsifiable (a planted sibling row must red the check).
+
+    failure_modes:
+      - "Archive truncated / .partial only -> exit 4, 'truncated or incomplete; re-run the export'."
+      - "Archive readable but a tenant table missing -> completeness check fails, non-zero exit."
+      - "Archive readable but a row resolves to a sibling workspace -> isolation check FAILS, non-zero exit (the crux invariant)."
+
+    gherkin: |
+      Scenario: Operator confirms an export is complete and isolation-clean
+        Given a freshly exported archive of the Globex workspace at "/backups/globex-2026-06-16.dump"
+        When Devansh runs "foundry doctor verify-export /backups/globex-2026-06-16.dump"
+        Then the report confirms all 10 tenant tables are present
+        And the report confirms every row belongs to the declared Globex workspace
+        And the report confirms no row references a sibling workspace
+        And the command exits with code 0
+
+      Scenario: Verification detects an incomplete archive
+        Given an archive that was truncated when the disk filled mid-export
+        When Devansh runs "foundry doctor verify-export" on it
+        Then the command exits with code 4
+        And the message says the archive is truncated or incomplete and to re-run the export
+
+      @property
+      Scenario: An export of any single workspace contains no sibling data
+        Given an instance with two or more workspaces each holding tenant data
+        When any one workspace is exported and then verified
+        Then the verification confirms zero rows resolve to any other workspace
+
+integration_validation:
+  shared_artifact_consistency:
+    - artifact: "workspace identity (id + slug)"
+      must_match_across: [1, 2, 3]
+      failure_message: "The id/slug shown by list-workspaces, accepted by export-workspace, recorded in the archive header, and read back by verify-export must be one identity. A mismatch means the operator could verify a different workspace than they exported."
+    - artifact: "TENANT_TABLES set"
+      must_match_across: [2, 3]
+      failure_message: "If export walks a different table set than verify checks, completeness is unprovable — a table silently omitted from the export would pass verification."
+    - artifact: "workspace_id scoping rule (direct + transitive)"
+      must_match_across: [2, 3]
+      failure_message: "If export selects rows by one scope predicate and verify checks isolation by another, a leak could pass verification. The selection predicate and the isolation predicate must be the same definition of 'this workspace's data'."
+
+changelog:
+  - date: "2026-06-16"
+    feature: "per-workspace-backup"
+    change: "Initial journey authored (DISCUSS wave, SUBAGENT). Export-only scope per DD-MWT-09; three-step operator journey (list -> export -> verify) on the foundry doctor CLI surface; isolation as the security-critical crux."
