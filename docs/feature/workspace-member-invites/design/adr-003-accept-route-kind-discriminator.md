@@ -1,7 +1,7 @@
 # ADR-003: How ONE /invites/accept route serves both first-admin and member invites
 
 ## Status
-Accepted (DESIGN, Propose mode). This is the headline open decision the task asked to resolve.
+IMPLEMENTED (2026-06-16 — see `docs/evolution/2026-06-16-workspace-member-invites.md`). Accepted (DESIGN, Propose mode). This is the headline open decision the task asked to resolve.
 
 ## Context
 The shipped `/invites/accept` POST (`invites_accept::submit_accept`) calls

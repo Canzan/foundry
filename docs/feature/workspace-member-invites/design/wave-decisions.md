@@ -1,5 +1,11 @@
 # DESIGN Decisions — workspace-member-invites
 
+> **STATUS: IMPLEMENTED (2026-06-16).** All decisions D1–D8 shipped and verified — see
+> `docs/evolution/2026-06-16-workspace-member-invites.md`. DELIVER commits `3fa73a7`→`a1953d7`
+> + remediation `392a9e4` + mutation-hardening `c24e73a`; `@all` 334/334 scenarios / 2623/2623 steps;
+> `check-arch` PASSED (no new LAYER-1e line, D7 held); adversarial review APPROVED; 13 reuse · 2 new ·
+> 0 migration · 0 new crate.
+>
 > Morgan (nw-solution-architect), DESIGN wave, application/component scope, **Propose** mode.
 > This feature GENERALIZES the shipped first-admin `invite-accept-flow` to general workspace members.
 > Two genuinely-new things: (1) an admin-gated member-invite ISSUANCE surface; (2) an account-CREATING

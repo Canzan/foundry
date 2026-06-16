@@ -1,7 +1,7 @@
 # ADR-001: Member-invite issuance surface + authorization
 
 ## Status
-Accepted (DESIGN, Propose mode; orchestrator auto-accepts the recommended option).
+IMPLEMENTED (2026-06-16 — see `docs/evolution/2026-06-16-workspace-member-invites.md`). Accepted (DESIGN, Propose mode; orchestrator auto-accepts the recommended option).
 
 ## Context
 There is no admin-facing invite surface today. The first-admin invite is minted by `provision_workspace`

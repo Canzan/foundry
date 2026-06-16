@@ -1,7 +1,7 @@
 # ADR-002: The account-creating member-accept transaction + email-collision handling
 
 ## Status
-Accepted (DESIGN, Propose mode).
+IMPLEMENTED (2026-06-16 — see `docs/evolution/2026-06-16-workspace-member-invites.md`). Accepted (DESIGN, Propose mode).
 
 ## Context
 The shipped `set_first_admin_password_and_consume` (`store/lib.rs:290`) writes a password onto the

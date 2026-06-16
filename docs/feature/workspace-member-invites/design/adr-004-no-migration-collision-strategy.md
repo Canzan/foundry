@@ -1,7 +1,7 @@
 # ADR-004: No migration; UNIQUE-constraint-catch for the email collision
 
 ## Status
-Accepted (DESIGN, Propose mode).
+IMPLEMENTED (2026-06-16 — see `docs/evolution/2026-06-16-workspace-member-invites.md`). Accepted (DESIGN, Propose mode).
 
 ## Context
 The task asked explicitly: is a migration needed, and what is its number if so? And: how is the OD-1
