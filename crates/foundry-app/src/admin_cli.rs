@@ -982,6 +982,22 @@ pub fn run_verify_export(path: &str) -> i32 {
 
     println!("isolation: OK — every row belongs to the declared workspace");
     println!("isolation: OK — no row references a sibling workspace");
+    // Transitive FK-chain confirmations (AC-02.3): report that the chain checks
+    // actually ran — team_memberships resolved to their owning workspace THROUGH
+    // their team (team_memberships has no direct workspace_id), and comments
+    // cross-checked against their issue's owning workspace (the DRIFT-2
+    // comment.issue_id -> issues.workspace_id corruption cross-check). The counts
+    // are the rows the resolver walked, so this is a genuine confirmation, not a
+    // constant string.
+    println!(
+        "isolation: OK — {} team membership(s) resolved to the declared workspace through their team",
+        report.team_memberships_resolved
+    );
+    println!(
+        "isolation: OK — {} comment(s) cross-checked against their issue's owning workspace",
+        report.comments_cross_checked
+    );
+    println!("isolation: OK — every transitively-scoped row belongs to the declared workspace");
     println!("status: OK");
     0
 }

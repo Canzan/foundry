@@ -878,6 +878,212 @@ async fn report_confirms_no_sibling(world: &mut FoundryWorld) {
 }
 
 // ---------------------------------------------------------------------------
+// Scenario 7 (step 02-02) — transitively-scoped rows are isolation-checked
+// through the FK chain. team_memberships reaches the workspace ONLY via team_id;
+// comments are cross-checked via comment.issue_id -> issues.workspace_id (DRIFT-2).
+// verify-export's port-exposed stdout confirms each chain check ran, and that
+// every transitively-scoped row belongs to the declared workspace.
+// ---------------------------------------------------------------------------
+
+/// `Then each team membership is resolved to its owning workspace through its
+/// team` — verify-export reports that the team_memberships rows (which carry no
+/// direct workspace_id) were resolved THROUGH their team_id to the declared
+/// workspace. Falsifiability: a team_membership whose team_id does not resolve to
+/// an archived team makes verify-export exit 6 with no such confirmation line.
+#[then(regex = r#"^each team membership is resolved to its owning workspace through its team$"#)]
+async fn each_team_membership_resolved_through_team(world: &mut FoundryWorld) {
+    let stdout = world
+        .pwb_cli_stdout
+        .as_deref()
+        .expect("verify-export stdout captured");
+    let lower = stdout.to_ascii_lowercase();
+    let stderr = world.pwb_cli_stderr.as_deref().unwrap_or("");
+    assert!(
+        lower.contains("team membership") && lower.contains("through their team"),
+        "verify-export must confirm each team membership was resolved to its owning \
+         workspace through its team; exit={:?}, stdout={stdout:?}, stderr={stderr:?}",
+        world.pwb_cli_exit,
+    );
+}
+
+/// `And each comment is cross-checked against its issue's owning workspace` —
+/// verify-export reports the DRIFT-2 cross-check ran: each comment's issue_id was
+/// resolved to an archived issue (whose workspace_id is the declared workspace),
+/// so a comment whose denormalized workspace_id disagreed with its issue's would
+/// be caught. Falsifiability: a comment whose issue_id dangles reds verify (exit 6).
+#[then(regex = r#"^each comment is cross-checked against its issue's owning workspace$"#)]
+async fn each_comment_cross_checked(world: &mut FoundryWorld) {
+    let stdout = world
+        .pwb_cli_stdout
+        .as_deref()
+        .expect("verify-export stdout captured");
+    let lower = stdout.to_ascii_lowercase();
+    assert!(
+        lower.contains("comment") && lower.contains("cross-checked"),
+        "verify-export must confirm each comment was cross-checked against its issue's \
+         owning workspace; got {stdout:?}"
+    );
+}
+
+/// `And every transitively-scoped row is confirmed to belong to "<workspace>"` —
+/// the FK-chain check passed for every transitively-scoped row and verify-export
+/// exited 0, declaring the target workspace. Falsifiability: any unresolved
+/// transitive reference reds verify (non-zero) so this OK confirmation is absent.
+#[then(regex = r#"^every transitively-scoped row is confirmed to belong to "([^"]+)"$"#)]
+async fn every_transitive_row_belongs_to(world: &mut FoundryWorld, ws_name: String) {
+    let stdout = world
+        .pwb_cli_stdout
+        .as_deref()
+        .expect("verify-export stdout captured");
+    let lower = stdout.to_ascii_lowercase();
+    assert!(
+        lower.contains("every transitively-scoped row belongs to the declared workspace"),
+        "verify-export must confirm every transitively-scoped row belongs to the declared \
+         workspace; got {stdout:?}"
+    );
+    // The archive the verify ran on must declare the named target workspace, so the
+    // "belongs to the declared workspace" confirmation is genuinely about <ws_name>.
+    let target_id = *world
+        .pwb_workspace_ids
+        .get(&ws_name)
+        .unwrap_or_else(|| panic!("workspace {ws_name:?} must be seeded"));
+    assert!(
+        stdout.contains(&target_id.to_string()),
+        "verify-export must declare the target workspace {ws_name:?} ({target_id}); got {stdout:?}"
+    );
+    assert_eq!(
+        world.pwb_cli_exit,
+        Some(0),
+        "verify-export must exit 0 on an isolation-clean archive; stdout={stdout:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 8 (step 02-02) — a user who belongs to BOTH workspaces is legitimately
+// included in the target archive and is NOT flagged as a sibling leak (OD-PWB-1 /
+// ADR-001 membership-bounded isolation). The verifier sees only that the user is a
+// member of the declared workspace; it has no sibling-membership column to trip on.
+// ---------------------------------------------------------------------------
+
+/// `Given a user is a member of both "<a>" and "<b>"` — promote one of the seeded
+/// member users so it is a member of BOTH named workspaces: add a
+/// workspace_memberships edge into the SECOND workspace for a user that already
+/// belongs to the FIRST. This is the OD-PWB-1 dual-membership fixture — the shared
+/// user must appear in either workspace's export as a legitimate member.
+#[given(regex = r#"^a user is a member of both "([^"]+)" and "([^"]+)"$"#)]
+async fn user_is_member_of_both(world: &mut FoundryWorld, first: String, second: String) {
+    let pool = harness_pool(world);
+    let first_id = *world
+        .pwb_workspace_ids
+        .get(&first)
+        .unwrap_or_else(|| panic!("workspace {first:?} must be seeded"));
+    let second_id = *world
+        .pwb_workspace_ids
+        .get(&second)
+        .unwrap_or_else(|| panic!("workspace {second:?} must be seeded"));
+
+    // Pick an existing member of the FIRST workspace and ALSO make them a member of
+    // the SECOND, so the same global users row is reachable from both workspaces'
+    // membership-bounded predicate.
+    let shared_user: uuid::Uuid = sqlx::query_scalar(
+        "SELECT user_id FROM workspace_memberships WHERE workspace_id = $1 LIMIT 1",
+    )
+    .bind(first_id)
+    .fetch_one(&pool)
+    .await
+    .expect("first workspace must already have a member to share");
+
+    sqlx::query(
+        "INSERT INTO workspace_memberships (workspace_id, user_id, role) VALUES ($1, $2, 'member')
+         ON CONFLICT DO NOTHING",
+    )
+    .bind(second_id)
+    .bind(shared_user)
+    .execute(&pool)
+    .await
+    .expect("add shared user to second workspace");
+
+    world.pwb_shared_user_id = Some(shared_user);
+}
+
+/// `Then that shared user appears in the archive as a member of "<workspace>"` —
+/// read the exported archive offline: the dual-membership user appears in the
+/// archived `users` table AND in the archived `workspace_memberships` for the
+/// target workspace (so it is included AS a member of the declared workspace, the
+/// ADR-001 membership-bounded inclusion). Falsifiability: a missing shared user, or
+/// a shared user with no membership edge into the target, reds.
+#[then(regex = r#"^that shared user appears in the archive as a member of "([^"]+)"$"#)]
+async fn shared_user_appears_as_member(world: &mut FoundryWorld, ws_name: String) {
+    let shared = world
+        .pwb_shared_user_id
+        .expect("a shared dual-membership user must have been seeded")
+        .to_string();
+    let target_id = *world
+        .pwb_workspace_ids
+        .get(&ws_name)
+        .unwrap_or_else(|| panic!("workspace {ws_name:?} must be seeded"));
+    let archive = read_archive_for_isolation(world);
+
+    let in_users = archive
+        .tables
+        .iter()
+        .find(|t| t.name == "users")
+        .expect("archive has users table")
+        .rows
+        .iter()
+        .any(|r| r.get("id").and_then(serde_json::Value::as_str) == Some(shared.as_str()));
+    assert!(
+        in_users,
+        "the shared user {shared} must appear in the archived users set for {ws_name:?}"
+    );
+
+    let is_member_of_target = archive
+        .tables
+        .iter()
+        .find(|t| t.name == "workspace_memberships")
+        .expect("archive has workspace_memberships table")
+        .rows
+        .iter()
+        .any(|r| {
+            r.get("user_id").and_then(serde_json::Value::as_str) == Some(shared.as_str())
+                && r.get("workspace_id").and_then(serde_json::Value::as_str)
+                    == Some(target_id.to_string().as_str())
+        });
+    assert!(
+        is_member_of_target,
+        "the shared user {shared} must appear as a member of the target workspace \
+         {ws_name:?} ({target_id}) in the archived memberships"
+    );
+}
+
+/// `And verification does not flag that shared user as a sibling-workspace row` —
+/// verify-export run on the archive exits 0 and reports isolation OK: the
+/// dual-membership user is NOT a sibling leak (OD-PWB-1 / ADR-001). Falsifiability:
+/// were the user wrongly flagged, verify would exit 6 with an isolation violation.
+#[then(regex = r#"^verification does not flag that shared user as a sibling-workspace row$"#)]
+async fn verification_does_not_flag_shared_user(world: &mut FoundryWorld) {
+    let stdout = world
+        .pwb_cli_stdout
+        .as_deref()
+        .expect("verify-export stdout captured");
+    let stderr = world.pwb_cli_stderr.as_deref().unwrap_or("");
+    let lower = stdout.to_ascii_lowercase();
+    assert!(
+        lower.contains("isolation: ok"),
+        "verify-export must report isolation OK (the shared member is not a leak); \
+         exit={:?}, stdout={stdout:?}, stderr={stderr:?}",
+        world.pwb_cli_exit,
+    );
+    assert!(
+        !stderr
+            .to_ascii_lowercase()
+            .contains("isolation check failed"),
+        "verify-export must NOT flag the shared member as a sibling-workspace row; \
+         stderr={stderr:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Scenario 16 (step 01-03) — sole-workspace export is valid and removes nothing
 // ---------------------------------------------------------------------------
 

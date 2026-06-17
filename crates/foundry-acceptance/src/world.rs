@@ -1069,6 +1069,11 @@ pub struct FoundryWorld {
     /// strings. The export must leave every tenant row byte-for-byte unchanged, so
     /// the Then steps re-snapshot and assert equality against this baseline.
     pub pwb_snapshot_before_export: std::collections::HashMap<String, Vec<String>>,
+    /// The user id made a member of BOTH named workspaces (step 02-02, scenario 8 /
+    /// OD-PWB-1 dual-membership fixture). The Then steps assert this shared user is
+    /// included in the target archive as a legitimate member and is NOT flagged by
+    /// verification as a sibling-workspace leak.
+    pub pwb_shared_user_id: Option<uuid::Uuid>,
 }
 
 impl FoundryWorld {

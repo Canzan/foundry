@@ -237,7 +237,7 @@ Feature: An operator exports one workspace's data to a verifiable, isolation-cle
   #    comment.issue_id → issues.workspace_id (DRIFT-2: comments has a direct
   #    workspace_id, so this is a corruption cross-check). (AC-02.3)
   # ----------------------------------------------------------------------------
-  @pending @us-pwb02
+  @us-pwb02
   Scenario: Transitively-scoped rows are isolation-checked through the foreign-key chain
     Given Devansh has exported "globex" to a backup path
     When Devansh runs "foundry doctor verify-export" on that archive
@@ -252,7 +252,7 @@ Feature: An operator exports one workspace's data to a verifiable, isolation-cle
   #    user is a member of Globex; it does not fail because the user also belongs
   #    elsewhere. (AC-02.1 + the OD-PWB-1 ratified semantics)
   # ----------------------------------------------------------------------------
-  @pending @us-pwb02
+  @us-pwb02
   Scenario: A user who belongs to two workspaces is legitimately included and not flagged as a leak
     Given a user is a member of both "Acme Corp" and "Globex LLC"
     And Devansh has exported "globex" to a backup path

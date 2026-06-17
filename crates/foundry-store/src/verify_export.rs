@@ -83,6 +83,17 @@ pub struct VerifyReport {
     /// the offending row (table + the resolving workspace / dangling FK), so the
     /// CLI can print which row leaked. Empty == isolation-clean.
     pub isolation_violations: Vec<String>,
+    /// Count of `team_memberships` rows that were resolved to their owning
+    /// workspace THROUGH their team (the transitive `team_id -> teams.workspace_id`
+    /// chain — §5 row 4). team_memberships has no direct `workspace_id`, so this
+    /// counts the rows the transitive resolver actually walked. Exposed so the CLI
+    /// can report that the FK-chain check ran (AC-02.3), not just that it passed.
+    pub team_memberships_resolved: usize,
+    /// Count of `comments` rows whose `issue_id` was cross-checked against an
+    /// archived issue's owning workspace (the DRIFT-2 `comment.issue_id ->
+    /// issues.workspace_id` corruption cross-check — §5 row 8). Exposed so the CLI
+    /// can report that the comment cross-check ran (AC-02.3).
+    pub comments_cross_checked: usize,
 }
 
 impl VerifyReport {
@@ -124,12 +135,22 @@ pub fn verify_workspace_export(archive: &ArchiveContents) -> VerifyReport {
     let declared = archive.declared_workspace_id;
 
     let completeness_violations = check_completeness(archive);
-    let isolation_violations = check_isolation(archive, declared);
+    let isolation = check_isolation(archive, declared);
 
     VerifyReport {
         completeness_violations,
-        isolation_violations,
+        isolation_violations: isolation.violations,
+        team_memberships_resolved: isolation.team_memberships_resolved,
+        comments_cross_checked: isolation.comments_cross_checked,
     }
+}
+
+/// The outcome of the isolation pass: the per-row violations plus the counts of
+/// transitively-resolved rows (so the CLI can report the FK-chain check ran).
+struct IsolationOutcome {
+    violations: Vec<String>,
+    team_memberships_resolved: usize,
+    comments_cross_checked: usize,
 }
 
 /// Completeness: every tenant table present AND per-table JSONL line count ==
@@ -156,8 +177,12 @@ fn check_completeness(archive: &ArchiveContents) -> Vec<String> {
 }
 
 /// Isolation: re-apply the §5 predicate to every archived row.
-fn check_isolation(archive: &ArchiveContents, declared: Uuid) -> Vec<String> {
+fn check_isolation(archive: &ArchiveContents, declared: Uuid) -> IsolationOutcome {
     let mut violations = Vec::new();
+    // Count the rows the transitive resolvers actually walk (team_memberships via
+    // team_id, comments via issue_id) so the CLI can report the FK-chain check ran.
+    let mut team_memberships_resolved = 0usize;
+    let mut comments_cross_checked = 0usize;
 
     // Build the in-archive resolution sets the transitive / membership / FK checks
     // need: the team ids, issue ids, and member user ids the archive carries.
@@ -195,7 +220,9 @@ fn check_isolation(archive: &ArchiveContents, declared: Uuid) -> Vec<String> {
                 for row in &archived.rows {
                     let team_id = uuid_field(row, "team_id");
                     let resolves = team_id.is_some_and(|t| archived_team_ids.contains(&t));
-                    if !resolves {
+                    if resolves {
+                        team_memberships_resolved += 1;
+                    } else {
                         violations.push(format!(
                             "team_memberships row references team_id {team_id:?} which does \
                              not resolve to any team in the archive (dangling transitive \
@@ -214,7 +241,9 @@ fn check_isolation(archive: &ArchiveContents, declared: Uuid) -> Vec<String> {
                     if name == "comments" {
                         let issue_id = uuid_field(row, "issue_id");
                         let resolves = issue_id.is_some_and(|i| archived_issue_ids.contains(&i));
-                        if !resolves {
+                        if resolves {
+                            comments_cross_checked += 1;
+                        } else {
                             violations.push(format!(
                                 "comments row references issue_id {issue_id:?} which does not \
                                  resolve to any issue in the archive (dangling FK; isolation \
@@ -228,7 +257,11 @@ fn check_isolation(archive: &ArchiveContents, declared: Uuid) -> Vec<String> {
         }
     }
 
-    violations
+    IsolationOutcome {
+        violations,
+        team_memberships_resolved,
+        comments_cross_checked,
+    }
 }
 
 /// Collect the set of UUIDs at `field` across every row of `table` in the archive.
@@ -418,6 +451,64 @@ mod tests {
         assert!(
             report.is_isolation_clean(),
             "a legitimately-included member user must not red isolation; report={report:?}"
+        );
+    }
+
+    #[test]
+    fn transitive_rows_are_resolved_through_the_fk_chain_and_counted() {
+        // AC-02.3: the isolation pass walks the FK chains — team_memberships through
+        // team_id -> teams (which is scoped to W), and comments through issue_id ->
+        // issues (the DRIFT-2 cross-check) — and REPORTS how many transitively-scoped
+        // rows it resolved, so the operator sees the chain check actually ran (not
+        // merely that nothing failed). Two extra team_memberships + comments on the
+        // same archived team/issue must all resolve and be counted.
+        let w = Uuid::now_v7();
+        let mut archive = clean_archive(w);
+        let team_id = uuid_field(
+            &archive
+                .tables
+                .iter()
+                .find(|t| t.name == "teams")
+                .unwrap()
+                .rows[0],
+            "id",
+        )
+        .expect("archived team id");
+        let issue_id = uuid_field(
+            &archive
+                .tables
+                .iter()
+                .find(|t| t.name == "issues")
+                .unwrap()
+                .rows[0],
+            "id",
+        )
+        .expect("archived issue id");
+        for t in &mut archive.tables {
+            if t.name == "team_memberships" {
+                t.rows.push(row(&[("team_id", &team_id.to_string())]));
+                t.declared_count = t.rows.len();
+            }
+            if t.name == "comments" {
+                t.rows.push(row(&[
+                    ("workspace_id", &w.to_string()),
+                    ("issue_id", &issue_id.to_string()),
+                ]));
+                t.declared_count = t.rows.len();
+            }
+        }
+
+        let report = verify_workspace_export(&archive);
+        assert!(report.is_isolation_clean(), "report={report:?}");
+        assert_eq!(
+            report.team_memberships_resolved, 2,
+            "both team_memberships rows must resolve to their owning workspace through \
+             their team_id; report={report:?}"
+        );
+        assert_eq!(
+            report.comments_cross_checked, 2,
+            "both comments must be cross-checked against their issue's owning workspace; \
+             report={report:?}"
         );
     }
 }
