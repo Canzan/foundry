@@ -242,7 +242,14 @@ async fn devansh_exports_to_backup_path(world: &mut FoundryWorld, selector: Stri
         .expect("pwb harness")
         .schema
         .clone();
-    let database_url = format!("{base}?options=-csearch_path%3D{schema}");
+    // Scenario 15 (DB unreachable): point the CLI at a deliberately bad DATABASE_URL
+    // (a closed port on localhost) so the real `Store::connect` fails and the export
+    // maps the connect error to exit 3 — a real connect failure, not a mock.
+    let database_url = if world.pwb_db_unreachable {
+        "postgres://foundry:foundry@127.0.0.1:1/foundry".to_string()
+    } else {
+        format!("{base}?options=-csearch_path%3D{schema}")
+    };
 
     // Snapshot every tenant table BEFORE the export so the read-only proof
     // (scenario "Exporting a workspace removes nothing") can assert the source
@@ -280,6 +287,9 @@ async fn devansh_exports_to_backup_path(world: &mut FoundryWorld, selector: Stri
 
     world.pwb_cli_exit = Some(output.status.code().unwrap_or(-1));
     world.pwb_cli_stdout = Some(String::from_utf8_lossy(&output.stdout).into_owned());
+    // Failure messages (exit 2 unknown-selector guidance, exit 3 DB-unreachable)
+    // go to stderr, so capture it for the failure-path Then steps (scenarios 11, 15).
+    world.pwb_cli_stderr = Some(String::from_utf8_lossy(&output.stderr).into_owned());
 }
 
 /// `Then an archive file exists at that path` — the export wrote a real,
@@ -357,14 +367,19 @@ async fn output_ends_with_status_ok(world: &mut FoundryWorld) {
     );
 }
 
-/// `And the command exits with code 0`.
-#[then(regex = r#"^the command exits with code 0$"#)]
-async fn command_exits_zero(world: &mut FoundryWorld) {
+/// `And the command exits with code <n>` — assert the CLI's port-exposed exit code
+/// is exactly the expected one. Covers the 0 happy path AND the failure-path codes
+/// (2 unknown selector, 3 DB unreachable) the exit-code contract mirrors from
+/// `admin_cli.rs`. Falsifiability: any other exit code REDs, surfacing stdout +
+/// stderr so the wrong code's cause is visible.
+#[then(regex = r#"^the command exits with code (\d+)$"#)]
+async fn command_exits_with_code(world: &mut FoundryWorld, expected: i32) {
     assert_eq!(
         world.pwb_cli_exit,
-        Some(0),
-        "export-workspace must exit 0; stdout={:?}",
-        world.pwb_cli_stdout
+        Some(expected),
+        "the command must exit {expected}; stdout={:?}, stderr={:?}",
+        world.pwb_cli_stdout,
+        world.pwb_cli_stderr,
     );
 }
 
@@ -1387,6 +1402,83 @@ async fn note_advises_sensitive_at_rest(world: &mut FoundryWorld) {
     assert!(
         lower.contains("sensitive at rest"),
         "the export output must advise treating the archive as sensitive at rest; got {stdout:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 11 (step 03-01) — unknown workspace refused with guidance (exit 2).
+// The selector matches neither an id nor a name; the export resolve stage exits 2,
+// the message redirects the operator to `list-workspaces`, and NO archive is
+// written at the output path (AC-03.1).
+// ---------------------------------------------------------------------------
+
+/// `And the message tells Devansh to run "<command>"` — the unknown-selector
+/// failure message (port-exposed on stderr) redirects the operator to the named
+/// discovery command so they can find a valid id or name. Falsifiability: a bare
+/// "not found" with no redirect REDs.
+#[then(regex = r#"^the message tells Devansh to run "([^"]+)"$"#)]
+async fn message_tells_to_run(world: &mut FoundryWorld, command: String) {
+    let stderr = world
+        .pwb_cli_stderr
+        .as_deref()
+        .expect("export CLI stderr captured");
+    assert!(
+        stderr.contains(&command),
+        "the refusal message must tell Devansh to run {command:?}; \
+         exit={:?}, stderr={stderr:?}",
+        world.pwb_cli_exit,
+    );
+}
+
+/// `And no archive file is created at that path` — an unknown-selector export is
+/// refused at the resolve stage BEFORE any archive is written, so the output path
+/// holds no file. Falsifiability: a stray (even partial) archive at the path REDs.
+#[then(regex = r#"^no archive file is created at that path$"#)]
+async fn no_archive_created(world: &mut FoundryWorld) {
+    let path = world
+        .pwb_out_path
+        .clone()
+        .expect("export path captured in the When step");
+    assert!(
+        !path.exists(),
+        "no archive file may be created at {path:?} when the workspace is unknown; \
+         exit={:?}, stderr={:?}",
+        world.pwb_cli_exit,
+        world.pwb_cli_stderr,
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 15 (step 03-01) — DB unreachable reports a clear error (exit 3). The
+// export When step is pointed at a deliberately bad DATABASE_URL so the real
+// `Store::connect` fails; the export maps the connect error to exit 3 with an
+// actionable message (AC-01.4), mirroring `admin_cli.rs`'s DB/infra failure code.
+// ---------------------------------------------------------------------------
+
+/// `Given the database is unreachable` — arm the export When step to point the CLI
+/// at a bad DATABASE_URL (a closed port), so the next export drives a REAL connect
+/// failure (not a mock) and exercises the exit-3 mapping.
+#[given(regex = r#"^the database is unreachable$"#)]
+async fn database_is_unreachable(world: &mut FoundryWorld) {
+    ensure_harness(world).await;
+    world.pwb_db_unreachable = true;
+}
+
+/// `And the message says it could not connect to the database` — the DB-unreachable
+/// failure message (port-exposed on stderr) tells the operator the connection
+/// failed. Falsifiability: a generic failure with no connect-to-database phrasing REDs.
+#[then(regex = r#"^the message says it could not connect to the database$"#)]
+async fn message_says_could_not_connect(world: &mut FoundryWorld) {
+    let stderr = world
+        .pwb_cli_stderr
+        .as_deref()
+        .expect("export CLI stderr captured");
+    let lower = stderr.to_ascii_lowercase();
+    assert!(
+        lower.contains("could not connect"),
+        "the failure message must say it could not connect to the database; \
+         exit={:?}, stderr={stderr:?}",
+        world.pwb_cli_exit,
     );
 }
 

@@ -1074,6 +1074,11 @@ pub struct FoundryWorld {
     /// included in the target archive as a legitimate member and is NOT flagged by
     /// verification as a sibling-workspace leak.
     pub pwb_shared_user_id: Option<uuid::Uuid>,
+    /// Set by `Given the database is unreachable` (step 03-01, scenario 15): when
+    /// true, the export When step points the CLI at a deliberately bad DATABASE_URL
+    /// (a closed port) instead of the per-scenario schema, so `Store::connect` fails
+    /// and the export maps the connect error to exit 3 with an actionable message.
+    pub pwb_db_unreachable: bool,
 }
 
 impl FoundryWorld {

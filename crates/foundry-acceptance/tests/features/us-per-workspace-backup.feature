@@ -305,7 +305,7 @@ Feature: An operator exports one workspace's data to a verifiable, isolation-cle
   # 11. Unknown workspace → exit 2 with a redirect to list-workspaces, no archive
   #     created. The selector matched neither an id nor a name. (AC-03.1)
   # ----------------------------------------------------------------------------
-  @pending @us-pwb03 @error
+  @us-pwb03 @error
   Scenario: Exporting an unknown workspace is refused with guidance
     When Devansh exports "nope" to a backup path
     Then the command exits with code 2
@@ -353,7 +353,7 @@ Feature: An operator exports one workspace's data to a verifiable, isolation-cle
   # 15. DB unreachable → exit 3 with an actionable message, mirroring the shipped
   #     scaffold's DB/infra failure code. (AC-01.4)
   # ----------------------------------------------------------------------------
-  @pending @us-pwb03 @error
+  @us-pwb03 @error
   Scenario: The export reports a clear error when the database is unreachable
     Given the database is unreachable
     When Devansh exports "globex" to a backup path
