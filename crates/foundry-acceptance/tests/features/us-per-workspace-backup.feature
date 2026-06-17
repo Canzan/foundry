@@ -317,7 +317,7 @@ Feature: An operator exports one workspace's data to a verifiable, isolation-cle
   #     parent directory does not exist; the pre-flight stage catches it before
   #     opening the DB read snapshot. (AC-03.2)
   # ----------------------------------------------------------------------------
-  @pending @us-pwb03 @error
+  @us-pwb03 @error
   Scenario: A failed export never leaves a half-written archive when the path is unwritable
     When Devansh exports "globex" to a path whose parent directory does not exist
     Then the command exits with code 5
@@ -329,7 +329,7 @@ Feature: An operator exports one workspace's data to a verifiable, isolation-cle
   #     at the final path (NFR-PWB-ATOM-01: <out>.partial → fsync → rename). A
   #     later verify-export on the final path finds no archive to accept. (AC-03.3)
   # ----------------------------------------------------------------------------
-  @pending @us-pwb03 @error
+  @us-pwb03 @error
   Scenario: A disk-full export leaves no complete-looking archive
     Given an export of "globex" fails mid-write because the disk fills
     Then no file exists at the final output path

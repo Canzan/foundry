@@ -246,6 +246,48 @@
       "s": "SKIPPED",
       "d": "NOT_APPLICABLE: exit-2 unknown-selector and exit-3 DB-unreachable mappings are thin admin_cli glue already shipped in the phase-01 walking skeleton; no separable domain logic to decompose, fully covered port-to-port by the two real-subprocess acceptance scenarios",
       "t": "2026-06-17T02:58:09Z"
+    },
+    {
+      "sid": "03-01",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-17T02:58:35Z"
+    },
+    {
+      "sid": "03-02",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-17T03:25:42Z"
+    },
+    {
+      "sid": "03-02",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-17T03:25:42Z"
+    },
+    {
+      "sid": "03-02",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-17T03:25:42Z"
+    },
+    {
+      "sid": "03-02",
+      "p": "RED_UNIT",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: pre-flight path-ordering guard lives in the CLI driving adapter, exercised port-to-port by real-subprocess acceptance scenarios 12+13; no hexagonal-core domain logic to unit-test and a unit test would mock the filesystem inside the adapter (Mandate 4 violation).",
+      "t": "2026-06-17T03:25:42Z"
+    },
+    {
+      "sid": "03-02",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-17T03:26:12Z"
     }
   ]
 }

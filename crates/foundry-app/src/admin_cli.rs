@@ -802,6 +802,18 @@ pub fn run_export_workspace(selector: &str, out_path: &str) -> i32 {
     let selector = selector.to_string();
     let out_path = std::path::PathBuf::from(out_path);
 
+    // Pre-flight output-path stage (NFR-PWB-ATOM-01, AC-03.2): verify the destination
+    // is writable BEFORE any DB read. An unwritable path (parent directory missing or
+    // not writable) fails here with exit 5 — so a path error never reads any tenant
+    // data and never leaves a half-written archive. This MUST precede `Store::connect`.
+    if let Err(err) = preflight_output_path(&out_path) {
+        eprintln!(
+            "foundry doctor export-workspace: output path {} is not writable: {err}",
+            out_path.display()
+        );
+        return 5;
+    }
+
     // Thread-isolated runtime (see `run_restore_comment` for why): dispatched from
     // inside the outer `#[tokio::main]` runtime, so a nested `block_on` would panic.
     std::thread::spawn(move || {
@@ -1098,6 +1110,23 @@ fn read_archive_contents(path: &Path) -> std::io::Result<foundry_store::ArchiveC
         declared_workspace_id,
         tables,
     })
+}
+
+/// Pre-flight the export output path (NFR-PWB-ATOM-01, AC-03.2): confirm the archive
+/// can be written to `out_path` BEFORE any DB read, so an output-path error fails fast
+/// (exit 5) without reading any tenant data or leaving a half-written archive. Checks
+/// that the parent directory exists and is writable by creating + removing the
+/// `<out>.partial` file the atomic writer will use — the cheapest faithful probe of
+/// "can the atomic write start here". Returns the underlying I/O error on failure.
+fn preflight_output_path(out_path: &Path) -> std::io::Result<()> {
+    let partial = out_path.with_extension("partial");
+    // Creating the `.partial` probe exercises the exact path the atomic writer opens:
+    // a missing parent directory or an unwritable parent fails here, before any DB read.
+    std::fs::File::create(&partial)?;
+    // Discard the probe so a successful pre-flight leaves the destination pristine for
+    // the real atomic write. A best-effort remove is sufficient — the writer recreates it.
+    let _ = std::fs::remove_file(&partial);
+    Ok(())
 }
 
 /// Write a [`foundry_store::WorkspaceExport`] to a single tar archive at `out_path`

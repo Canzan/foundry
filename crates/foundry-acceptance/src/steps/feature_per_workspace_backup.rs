@@ -1482,6 +1482,243 @@ async fn message_says_could_not_connect(world: &mut FoundryWorld) {
     );
 }
 
+// ---------------------------------------------------------------------------
+// Scenario 12 (step 03-02) — output-path error fails BEFORE any DB read (exit 5).
+// The parent directory of the output path does not exist; the export's pre-flight
+// path stage catches it and exits 5 BEFORE opening any DB read snapshot, leaving NO
+// file at the path (AC-03.2, NFR-PWB-ATOM-01). To PROVE the path stage precedes the
+// DB read we also point the CLI at a deliberately unreachable DATABASE_URL: were the
+// DB read attempted first, the export would exit 3 (connect failure); exit 5 instead
+// proves the pre-flight path check ran first, before any tenant data was read.
+// ---------------------------------------------------------------------------
+
+/// `When Devansh exports "<selector>" to a path whose parent directory does not
+/// exist` — drive the REAL export CLI with an out-path under a NON-EXISTENT parent
+/// directory, AND with DATABASE_URL pointed at a closed port. The pre-flight path
+/// stage must reject the unwritable path (exit 5) BEFORE the export ever tries to
+/// connect to the DB — so the exit code distinguishes path-first (5) from
+/// DB-first (3) ordering. Stash exit + stderr + the (never-created) path.
+#[when(regex = r#"^Devansh exports "([^"]+)" to a path whose parent directory does not exist$"#)]
+async fn devansh_exports_to_unwritable_path(world: &mut FoundryWorld, selector: String) {
+    ensure_harness(world).await;
+
+    // An out-path under a parent directory that does not exist on disk. The export's
+    // pre-flight path stage must reject it (exit 5) without writing anything.
+    let tempdir = tempfile::TempDir::new().expect("create export tempdir");
+    let out_path = tempdir.path().join("does-not-exist").join("export.dump");
+    world.pwb_tempdir = Some(tempdir);
+    world.pwb_out_path = Some(out_path.clone());
+
+    // Point the CLI at a deliberately unreachable DATABASE_URL (a closed port). If the
+    // export read the DB before checking the path it would exit 3; the pre-flight path
+    // stage must run FIRST and exit 5, proving no tenant data was read.
+    let database_url = "postgres://foundry:foundry@127.0.0.1:1/foundry".to_string();
+    let cli_selector =
+        token_to_workspace_name(&selector).map_or_else(|| selector.clone(), str::to_string);
+
+    let out = out_path.clone();
+    let output = tokio::task::spawn_blocking(move || {
+        AssertCommand::cargo_bin("foundry")
+            .expect("cargo-bin foundry")
+            .env("DATABASE_URL", database_url)
+            .args(["doctor", "export-workspace"])
+            .arg(&cli_selector)
+            .arg(&out)
+            .output()
+            .expect("invoke foundry doctor export-workspace")
+    })
+    .await
+    .expect("join blocking cli");
+
+    world.pwb_cli_exit = Some(output.status.code().unwrap_or(-1));
+    world.pwb_cli_stdout = Some(String::from_utf8_lossy(&output.stdout).into_owned());
+    world.pwb_cli_stderr = Some(String::from_utf8_lossy(&output.stderr).into_owned());
+}
+
+/// `Then no file exists at that path` — a failed export leaves NO file at the output
+/// path: neither a complete archive nor a discardable `.partial`. Falsifiability: a
+/// stray file at the path REDs.
+#[then(regex = r#"^no file exists at that path$"#)]
+async fn no_file_exists_at_path(world: &mut FoundryWorld) {
+    let path = world
+        .pwb_out_path
+        .clone()
+        .expect("export path captured in the When step");
+    assert!(
+        !path.exists(),
+        "no file may exist at {path:?} after a failed export; exit={:?}, stderr={:?}",
+        world.pwb_cli_exit,
+        world.pwb_cli_stderr,
+    );
+}
+
+/// `And the failure happened before any tenant data was read` — the export's
+/// pre-flight path stage rejected the unwritable path with exit 5 BEFORE any DB read.
+/// The When step pointed the CLI at an unreachable DATABASE_URL, so a DB-first export
+/// would exit 3 (connect failure); exit 5 proves the path check ran first and no
+/// tenant data was read. Falsifiability: exit 3 (DB read attempted first) REDs.
+#[then(regex = r#"^the failure happened before any tenant data was read$"#)]
+async fn failure_before_any_db_read(world: &mut FoundryWorld) {
+    assert_eq!(
+        world.pwb_cli_exit,
+        Some(5),
+        "the export must fail at the pre-flight path stage (exit 5) BEFORE any DB read; \
+         an exit 3 would mean the DB read was attempted first against the unreachable \
+         DATABASE_URL. exit={:?}, stderr={:?}",
+        world.pwb_cli_exit,
+        world.pwb_cli_stderr,
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 13 (step 03-02) — a disk-full / killed export leaves no complete-looking
+// archive at the final path (NFR-PWB-ATOM-01: <out>.partial → fsync → rename). We
+// simulate the disk filling mid-write by making the output's parent directory
+// read-only, so the atomic write fails: the final <out> never appears (at most a
+// discardable .partial may), and a later verify-export on the final path finds no
+// archive to accept.
+// ---------------------------------------------------------------------------
+
+/// `Given an export of "<selector>" fails mid-write because the disk fills` — drive
+/// the REAL export CLI against the live per-scenario DB (so the DB read succeeds and
+/// the write stage is genuinely reached), but with the output's parent directory made
+/// READ-ONLY so the archive write fails like a disk-full. The atomic `.partial` →
+/// rename discipline must leave NO complete-looking file at the final `<out>` path.
+#[given(regex = r#"^an export of "([^"]+)" fails mid-write because the disk fills$"#)]
+async fn export_fails_mid_write_disk_full(world: &mut FoundryWorld, selector: String) {
+    ensure_harness(world).await;
+    let base = ensure_postgres().await;
+    let schema = world
+        .pwb_harness
+        .as_ref()
+        .expect("pwb harness")
+        .schema
+        .clone();
+    let database_url = format!("{base}?options=-csearch_path%3D{schema}");
+
+    // A real, EXISTING parent directory the pre-flight path check accepts — then made
+    // read-only so the actual archive write (which the DB read precedes) fails like a
+    // full disk. This reaches the write stage, unlike scenario 12's missing-parent path.
+    let tempdir = tempfile::TempDir::new().expect("create export tempdir");
+    let parent = tempdir.path().join("readonly");
+    std::fs::create_dir(&parent).expect("create read-only parent dir");
+    let out_path = parent.join("export.dump");
+    let mut perms = std::fs::metadata(&parent)
+        .expect("read parent perms")
+        .permissions();
+    perms.set_readonly(true);
+    std::fs::set_permissions(&parent, perms).expect("make parent read-only");
+
+    world.pwb_tempdir = Some(tempdir);
+    world.pwb_out_path = Some(out_path.clone());
+
+    let cli_selector =
+        token_to_workspace_name(&selector).map_or_else(|| selector.clone(), str::to_string);
+    let out = out_path.clone();
+    let output = tokio::task::spawn_blocking(move || {
+        AssertCommand::cargo_bin("foundry")
+            .expect("cargo-bin foundry")
+            .env("DATABASE_URL", database_url)
+            .args(["doctor", "export-workspace"])
+            .arg(&cli_selector)
+            .arg(&out)
+            .output()
+            .expect("invoke foundry doctor export-workspace")
+    })
+    .await
+    .expect("join blocking cli");
+
+    world.pwb_cli_exit = Some(output.status.code().unwrap_or(-1));
+    world.pwb_cli_stdout = Some(String::from_utf8_lossy(&output.stdout).into_owned());
+    world.pwb_cli_stderr = Some(String::from_utf8_lossy(&output.stderr).into_owned());
+
+    // Restore write permission on the parent so the TempDir can be cleaned up and the
+    // Then steps can stat the (absent) final path without permission noise.
+    if let Some(parent) = out_path.parent() {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o755));
+    }
+}
+
+/// `Then no file exists at the final output path` — the disk-full export left NO
+/// complete-looking archive at the final `<out>` path: the atomic rename never ran.
+/// Falsifiability: a half-written file at `<out>` REDs.
+#[then(regex = r#"^no file exists at the final output path$"#)]
+async fn no_file_at_final_path(world: &mut FoundryWorld) {
+    let path = world
+        .pwb_out_path
+        .clone()
+        .expect("export path captured in the Given step");
+    assert!(
+        !path.exists(),
+        "no complete-looking archive may exist at the final path {path:?} after a \
+         disk-full export; exit={:?}, stderr={:?}",
+        world.pwb_cli_exit,
+        world.pwb_cli_stderr,
+    );
+}
+
+/// `And at most a discardable partial file remains` — the only artifact a failed
+/// atomic write may leave is a discardable `<out>.partial`; nothing else (and no file
+/// at the final `<out>`). Falsifiability: a complete archive at `<out>`, or any
+/// non-`.partial` stray file, REDs.
+#[then(regex = r#"^at most a discardable partial file remains$"#)]
+async fn at_most_partial_remains(world: &mut FoundryWorld) {
+    let path = world
+        .pwb_out_path
+        .clone()
+        .expect("export path captured in the Given step");
+    assert!(
+        !path.exists(),
+        "the final archive path {path:?} must hold no file; only a discardable \
+         <out>.partial may remain"
+    );
+    let partial = path.with_extension("partial");
+    if let Some(parent) = path.parent() {
+        if let Ok(entries) = std::fs::read_dir(parent) {
+            for entry in entries.flatten() {
+                let entry_path = entry.path();
+                assert!(
+                    entry_path == partial,
+                    "the only artifact a failed export may leave is the discardable \
+                     partial {partial:?}; found a stray {entry_path:?}"
+                );
+            }
+        }
+    }
+}
+
+/// `And a later verify-export on the final path finds no archive to accept` — running
+/// the REAL verify-export CLI on the (absent) final path must NOT accept it as a valid
+/// archive: there is no file to read, so verify exits non-zero. Falsifiability: a
+/// verify-export that exits 0 on the missing path (accepting a phantom archive) REDs.
+#[then(regex = r#"^a later verify-export on the final path finds no archive to accept$"#)]
+async fn verify_finds_no_archive(world: &mut FoundryWorld) {
+    let path = world
+        .pwb_out_path
+        .clone()
+        .expect("export path captured in the Given step");
+    let path_arg = path.clone();
+    let output = tokio::task::spawn_blocking(move || {
+        AssertCommand::cargo_bin("foundry")
+            .expect("cargo-bin foundry")
+            .args(["doctor", "verify-export"])
+            .arg(&path_arg)
+            .output()
+            .expect("invoke foundry doctor verify-export")
+    })
+    .await
+    .expect("join blocking cli");
+
+    let exit = output.status.code().unwrap_or(-1);
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    assert_ne!(
+        exit, 0,
+        "verify-export on the final path must find no archive to accept (non-zero exit); \
+         a disk-full export left no complete-looking archive there. stderr={stderr:?}"
+    );
+}
+
 /// Snapshot every tenant table as an ordered list of whole-row JSON strings, keyed
 /// by table name (the slice-05 idiom). `to_jsonb(t.*)` renders the entire row
 /// deterministically; ordering by the row text makes the comparison
