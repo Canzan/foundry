@@ -1,14 +1,21 @@
 # Foundry CI — runs on every push to main and every PR.
 #
-# Four parallel jobs:
-#   lint-format     — cargo fmt + clippy
-#   build-and-test  — cargo build/test against a Postgres service
-#   acceptance      — cucumber suite (default + @docker-compose tags)
-#   deny            — cargo-deny (licenses, advisories, bans, sources)
+# SINGLE SOURCE OF TRUTH: this workflow runs exactly ONE command —
+# `cargo xtask ci` — the same gate a developer runs locally before pushing
+# (see AGENTS.md "Development Workflow"). `cargo xtask ci` replicates every
+# check in order and stops on the first failure: fmt, clippy, the check-arch
+# boundary guard (incl. the cargo-deny dependency-direction layer), a release
+# build, the workspace unit/integration tests, `cargo deny check`, and the full
+# acceptance suite (FOUNDRY_ACCEPTANCE_TAGS=all, including the @docker-compose
+# and @needs-pgclient groups).
 #
-# Rust toolchain is pinned via rust-toolchain.toml (1.91 — current stable). All
-# jobs share a Swatinem/rust-cache layer keyed on Cargo.lock so the
-# typical PR completes in well under 15 minutes.
+# Because CI and the local gate are the SAME command, "green locally" and
+# "green in CI" cannot drift. Do NOT add bespoke check steps here — add them to
+# `xtask::run_ci` so they also run locally. The only job-level work below is
+# installing the toolchain/tools `cargo xtask ci` expects on PATH.
+#
+# Rust toolchain is pinned via rust-toolchain.toml (1.91); rustup auto-selects
+# it when cargo runs. The Swatinem/rust-cache layer is keyed on Cargo.lock.
 
 name: ci
 
@@ -19,8 +26,7 @@ on:
     branches: [main]
 
 # Cancel in-progress runs of this workflow for the same ref when a new
-# commit lands. Reduces queue time on PRs that get pushed to in quick
-# succession.
+# commit lands. Reduces queue time on PRs pushed in quick succession.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -29,58 +35,21 @@ env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
   RUST_BACKTRACE: 1
-  # sqlx will refuse to talk to a missing DB at compile time when this
-  # is unset; we only use it in the test job that boots a Postgres.
+  # sqlx refuses to talk to a missing DB at compile time when unset; the
+  # workspace test step boots a Postgres (service container below).
   SQLX_OFFLINE: "true"
 
 jobs:
-  # --------------------------------------------------------------------
-  # Job 1 — formatting + clippy. Cheap; runs without a DB.
-  # --------------------------------------------------------------------
-  lint-format:
-    name: lint + format
+  # One job, one command. `cargo xtask ci` IS the gate — locally and here.
+  ci:
+    name: cargo xtask ci (local-parity gate)
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust toolchain (from rust-toolchain.toml)
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: ci
-
-      - name: cargo fmt --all -- --check
-        run: cargo fmt --all -- --check
-
-      - name: cargo clippy --all-targets --release -- -D warnings
-        run: cargo clippy --all-targets --release -- -D warnings
-
-      # US-W06 boundary guard (boundary-guard.md): the AST source-walk layer
-      # (api≠HTML, api≠ad-hoc-authz, JWT alg pinned to [EdDSA]) PLUS the
-      # cargo-deny crate-graph dependency-direction layer. Cheap (no DB, pure
-      # source + crate-graph analysis), so it lives on this lint lane — a PR
-      # that violates the boundary goes red before merge. The check shells out
-      # to `cargo deny`, so install it first.
-      - name: install cargo-deny (for check-arch's dependency-direction layer)
-        run: cargo install --locked cargo-deny || true
-
-      - name: cargo xtask check-arch (web/api boundary guard)
-        run: cargo run -q -p xtask -- check-arch
-
-  # --------------------------------------------------------------------
-  # Job 2 — build the workspace + run unit/integration tests against a
-  # Postgres service container. Excludes the @docker-compose acceptance
-  # group; that runs in the dedicated acceptance job below.
-  # --------------------------------------------------------------------
-  build-and-test:
-    name: build + test
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
     services:
+      # Some workspace integration tests connect to DATABASE_URL; the
+      # acceptance suite spins its own Postgres via testcontainers. Providing
+      # the service keeps both paths satisfied with no local divergence (locally
+      # the same tests use testcontainers).
       postgres:
         image: postgres:16-alpine
         env:
@@ -96,152 +65,34 @@ jobs:
           --health-retries=20
     env:
       DATABASE_URL: postgres://foundry:foundry@localhost:5432/foundry
+      # Force the @docker-compose + acceptance group on (ubuntu-latest ships a
+      # running dockerd). Without this, xtask auto-detects and would still run
+      # it on the runner — set explicitly so the intent is unambiguous.
+      FOUNDRY_XTASK_INCLUDE_DOCKER: "1"
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust toolchain
+      - name: Install Rust toolchain (rustup honours rust-toolchain.toml)
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
 
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: ci
 
-      - name: cargo build --all --release
-        run: cargo build --all --release
-
-      - name: cargo test --workspace --release (default tag set)
-        run: cargo test --workspace --release
-
-      # Verify the sqlx offline cache is up-to-date IF it exists. We do
-      # not fail the build when there is no .sqlx/ directory yet — the
-      # slice-1 binary uses lazy queries, not compile-time `query!`.
-      - name: cargo sqlx prepare --check (only if .sqlx/ exists)
+      # Tools `cargo xtask ci` expects on PATH. It checks for each and fails
+      # with an install hint if missing; we install them up front so the gate
+      # runs clean. (Same tools a developer installs once locally.)
+      - name: Install cargo-deny + PostgreSQL 16 client
         run: |
-          if [ -d .sqlx ]; then
-            cargo install --locked sqlx-cli --no-default-features --features rustls,postgres
-            cargo sqlx prepare --workspace --check
-          else
-            echo "no .sqlx/ cache yet; skipping prepare --check"
-          fi
-
-  # --------------------------------------------------------------------
-  # Job 3 — full acceptance suite, including the @docker-compose group
-  # that drives a real docker build. The GHA ubuntu-latest runner ships
-  # with dockerd already running, so testcontainers + the compose tag
-  # group work without extra setup.
-  # --------------------------------------------------------------------
-  acceptance:
-    name: acceptance (all tags)
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: ci
-
-      # The @docker-compose scenarios run `docker compose up`, which reads
-      # `.env` (compose env-file). Without it, compose fails with
-      # "env file .env not found". The quickstart job does this too.
-      - name: cp .env.example .env
-        run: cp .env.example .env
-
-      # Pre-build the foundry image so the @docker-compose tag group
-      # does not eat its 10-min budget on an image build the harness
-      # would otherwise do inline.
-      - name: docker build foundry image (used by @docker-compose group)
-        run: docker build -t foundry:ci .
-
-      # The US-03 backup/restore lane shells out to pg_dump/pg_restore, and
-      # the test container is pinned to postgres:16-alpine — so the client
-      # must be >= 16 (pg_dump refuses a newer server than itself). Install
-      # it explicitly rather than relying on the runner image's default
-      # client version, which the harness's server pin would otherwise couple to.
-      - name: Install PostgreSQL 16 client (pg_dump/pg_restore for the backup lane)
-        run: |
+          cargo install --locked cargo-deny || true
           sudo apt-get update
           sudo apt-get install -y postgresql-client-16
           pg_dump --version
 
-      # The @real-io scenarios spawn the `foundry` binary via
-      # assert_cmd::cargo_bin. `cargo test -p foundry-acceptance` does NOT
-      # build it (foundry-acceptance depends on the foundry-app LIB, not its
-      # bin), so build it explicitly first — otherwise those scenarios fail
-      # with "CARGO_BIN_EXE_foundry is unset".
-      - name: Build the foundry binary (spawned by @real-io scenarios)
-        run: cargo build --release -p foundry-app --bin foundry
-
-      - name: cargo test -p foundry-acceptance (all tags)
-        env:
-          FOUNDRY_ACCEPTANCE_TAGS: all
-        run: cargo test -p foundry-acceptance --release
-
-  # --------------------------------------------------------------------
-  # Job 4 — README quickstart works end-to-end on a fresh runner.
-  #
-  # This is the literal proof that the README's documented 5-command
-  # quickstart still works after every PR (US-13 AC-5). It runs the same
-  # sequence a brand-new contributor would type on a fresh laptop, with
-  # no Foundry env vars pre-set. If a refactor breaks the contributor
-  # onboarding contract, this job fails before the PR can merge.
-  #
-  # The `dtolnay/rust-toolchain` action with `toolchain: '1.91'` mirrors
-  # the version pinned in rust-toolchain.toml — keep them in sync.
-  # --------------------------------------------------------------------
-  quickstart-verify:
-    name: README quickstart works end-to-end
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust toolchain (matching rust-toolchain.toml)
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: '1.91'
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: ci
-
-      # Faithful reproduction of README §Quickstart. The `git clone` and
-      # `cd foundry` steps are implicit (checkout above + workdir).
-      - name: cp .env.example .env
-        run: cp .env.example .env
-
-      - name: docker compose up -d postgres
-        run: docker compose up -d postgres
-
-      # Mirrors README §Quickstart: the acceptance suite spawns the `foundry`
-      # binary, which `cargo test -p foundry-acceptance` does not build.
-      - name: cargo build --release --bin foundry
-        run: cargo build --release --bin foundry
-
-      - name: cargo test -p foundry-acceptance --release
-        run: cargo test -p foundry-acceptance --release
-
-  # --------------------------------------------------------------------
-  # Job 5 — cargo-deny enforces the license allow-list, advisory DB,
-  # bans, and crate sources. Independent of the test DB.
-  # --------------------------------------------------------------------
-  deny:
-    name: cargo deny
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: ci
-
-      - uses: EmbarkStudios/cargo-deny-action@v2
-        with:
-          command: check
+      # The single gate. Seeds .env from .env.example, runs every check in the
+      # same order as the local pre-push gate, and builds the foundry binary +
+      # the one shared acceptance image as part of the run.
+      - name: cargo xtask ci
+        run: cargo run -q -p xtask -- ci

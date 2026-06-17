@@ -86,9 +86,35 @@ This project uses **trunk-based development**.
 
 - **Commit directly to `main` (trunk).** Do NOT create feature branches by default, and do NOT switch off `main` to do work unless the user explicitly asks.
 - **No pull requests.** Never open a PR. Land work by committing to `main` and pushing.
-- **CI is not a commit gate.** Do NOT wait for, require, or block on CI for commits — commits go straight to trunk. The GitHub Actions workflow is not a per-commit gate.
-- **Validate locally instead.** Before committing, run the local gate `cargo xtask ci` (build + fmt + clippy + tests) — that is the quality bar, not remote CI.
 - Commit when the user asks; keep commits small and frequent in the trunk-based style.
+
+### MANDATORY pre-push gate: `cargo xtask ci` must be green
+
+**Do NOT push to the GitHub repository unless every CI task passes locally.** CI
+minutes are not a debugging tool — the remote workflow runs the *exact same*
+command you run locally, so a red push is always avoidable.
+
+- **One command = the entire CI.** `cargo xtask ci` replicates every CI check, in
+  order, stopping on the first failure: `cargo fmt --check`, `clippy
+  --all-targets --release -D warnings`, the **check-arch boundary guard**
+  (AST source-walk + the cargo-deny dependency-direction layer), `cargo build
+  --all --release`, the workspace unit/integration tests, `cargo deny check`,
+  and the full acceptance suite (`FOUNDRY_ACCEPTANCE_TAGS=all`, including the
+  `@docker-compose` and `@needs-pgclient` groups). `.github/workflows/ci.yml` is
+  a thin wrapper that runs this same `cargo xtask ci` — nothing runs in CI that
+  you cannot run locally.
+- **Run it before every push** and require a green `xtask ci :: all gates green`.
+  A local pass means a CI pass; if CI is the first place a check runs, that is a
+  process failure — add the check to `xtask::run_ci`, not just to the workflow.
+- **Prerequisites** (xtask checks for each and prints an install hint if
+  missing): a reachable Docker daemon (Colima/OrbStack/Docker Desktop) for the
+  `@docker-compose` group, `cargo-deny` (`cargo install --locked cargo-deny`), a
+  **PostgreSQL 16+ client** (`pg_dump`/`pg_restore` on PATH — macOS `brew install
+  postgresql@16`, Debian/Ubuntu `apt-get install -y postgresql-client-16`) for
+  the US-03 backup lane, and a `.env` (auto-seeded from `.env.example`).
+- **Never add a bespoke check to `ci.yml` alone.** If a gate belongs in CI it
+  belongs in `cargo xtask ci` so it runs locally too — that single-source-of-truth
+  invariant is what keeps "green locally" and "green in CI" identical.
 
 ## Acceptance Docker images
 

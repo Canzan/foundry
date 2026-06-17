@@ -11,6 +11,10 @@ Cargo.lock.bak
 /.dual-graph/
 /.nwave/des/logs/
 
+# cargo-mutants output directory (transient feature-scoped mutation runs)
+/mutants.out/
+/mutants.out.old/
+
 # Operator-local K8s secret (copied from foundry-secret.example.yaml
 # and filled with real values; must never be committed).
 /deploy/k8s/foundry-secret.yaml

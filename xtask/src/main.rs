@@ -90,6 +90,41 @@ fn run_ci() -> ExitCode {
         }
     };
 
+    // Preflight 1 — `.env`. The @docker-compose acceptance group runs
+    // `docker compose up`, which reads `.env` as its env-file; without it
+    // compose aborts with "env file .env not found". CI does `cp .env.example
+    // .env`; mirror that locally so a fresh checkout's `cargo xtask ci` is not
+    // a divergence from CI. Only copies when `.env` is MISSING — never clobbers
+    // a developer's existing file.
+    if include_docker {
+        if let Err(err) = ensure_env_file() {
+            eprintln!("xtask ci :: could not prepare .env: {err}");
+            return ExitCode::from(1);
+        }
+    }
+
+    // Preflight 2 — PostgreSQL 16 client. The @needs-pgclient acceptance lane
+    // (US-03 backup/restore) shells out to pg_dump/pg_restore against a
+    // postgres:16 server; pg_dump refuses a server newer than itself, so the
+    // client must be >= 16. CI installs postgresql-client-16 explicitly. Fail
+    // here with actionable guidance rather than letting the lane die mid-run
+    // with a cryptic "pg_dump: not found" / version-mismatch error.
+    if include_docker {
+        if let Err(msg) = pg_dump_at_least_16() {
+            eprintln!(
+                "xtask ci :: PostgreSQL 16+ client required for the US-03 backup lane: {msg}"
+            );
+            eprintln!(
+                "  install it:  macOS -> `brew install postgresql@16` \
+                 (then add its bin to PATH);  Debian/Ubuntu -> \
+                 `sudo apt-get install -y postgresql-client-16`"
+            );
+            return ExitCode::from(1);
+        }
+    }
+
+    let sqlx_offline_cache_present = std::path::Path::new(".sqlx").is_dir();
+
     let mut steps: Vec<(&str, Vec<&str>)> = vec![
         ("cargo fmt --check", vec!["fmt", "--all", "--", "--check"]),
         (
@@ -138,6 +173,18 @@ fn run_ci() -> ExitCode {
         ("cargo deny check", vec!["deny", "check"]),
     ];
 
+    // sqlx offline-cache check — mirrors CI's conditional `cargo sqlx prepare
+    // --check`. Only meaningful when a `.sqlx/` cache exists (the slice-1
+    // binary uses lazy queries, not compile-time `query!`, so there is none
+    // yet). Guarded so the gate stays a no-op until compile-time queries land,
+    // at which point local and CI verify the cache identically.
+    if sqlx_offline_cache_present {
+        steps.push((
+            "cargo sqlx prepare --workspace --check",
+            vec!["sqlx", "prepare", "--workspace", "--check"],
+        ));
+    }
+
     if include_docker {
         steps.push((
             "cargo test -p foundry-acceptance (all tags, incl. @docker-compose)",
@@ -152,20 +199,25 @@ fn run_ci() -> ExitCode {
         } else {
             vec![]
         };
-        let bin = if label.starts_with("cargo deny") {
-            // cargo-deny is a separate binary; emit a clear message if
-            // it isn't installed yet rather than a cryptic exec error.
-            if !which("cargo-deny") {
-                eprintln!(
-                    "cargo-deny not found on PATH. Install with: \
-                     `cargo install --locked cargo-deny`"
-                );
-                return ExitCode::from(1);
-            }
-            "cargo"
-        } else {
-            "cargo"
-        };
+        // A few steps shell out to cargo *plugins* (separate binaries). Emit a
+        // clear install hint if one isn't on PATH rather than a cryptic exec
+        // error — keeps the local gate self-documenting.
+        if label.starts_with("cargo deny") && !which("cargo-deny") {
+            eprintln!(
+                "cargo-deny not found on PATH. Install with: \
+                 `cargo install --locked cargo-deny`"
+            );
+            return ExitCode::from(1);
+        }
+        if label.starts_with("cargo sqlx") && !which("cargo-sqlx") {
+            eprintln!(
+                "cargo-sqlx not found on PATH. Install with: \
+                 `cargo install --locked sqlx-cli --no-default-features \
+                 --features rustls,postgres`"
+            );
+            return ExitCode::from(1);
+        }
+        let bin = "cargo";
 
         let mut cmd = Command::new(bin);
         cmd.args(args);
@@ -200,6 +252,53 @@ fn which(bin: &str) -> bool {
         .status()
         .map(|s| s.success())
         .unwrap_or(false)
+}
+
+/// Ensure a `.env` exists for the @docker-compose acceptance group, copying
+/// `.env.example` into place when it is missing. Never overwrites an existing
+/// `.env`. Errors only if `.env` is absent AND `.env.example` cannot be read.
+fn ensure_env_file() -> std::io::Result<()> {
+    let env = std::path::Path::new(".env");
+    if env.exists() {
+        return Ok(());
+    }
+    let example = std::path::Path::new(".env.example");
+    if !example.exists() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            ".env is missing and .env.example was not found to seed it",
+        ));
+    }
+    println!("xtask ci :: .env missing, seeding it from .env.example");
+    std::fs::copy(example, env).map(|_| ())
+}
+
+/// Verify a `pg_dump` on PATH whose major version is >= 16 (the @needs-pgclient
+/// US-03 lane dumps a postgres:16 server, and pg_dump refuses a server newer
+/// than itself). Returns `Err(reason)` if `pg_dump` is absent or too old.
+fn pg_dump_at_least_16() -> Result<(), String> {
+    let out = Command::new("pg_dump")
+        .arg("--version")
+        .output()
+        .map_err(|_| "pg_dump not found on PATH".to_string())?;
+    if !out.status.success() {
+        return Err("`pg_dump --version` did not succeed".to_string());
+    }
+    // Output looks like "pg_dump (PostgreSQL) 16.14" or, on Homebrew,
+    // "pg_dump (PostgreSQL) 16.14 (Homebrew)". Find the first token that
+    // starts with a digit (the version) and take its major component — do NOT
+    // assume the version is the last whitespace token.
+    let text = String::from_utf8_lossy(&out.stdout);
+    let major = text
+        .split_whitespace()
+        .find(|tok| tok.chars().next().is_some_and(|c| c.is_ascii_digit()))
+        .and_then(|v| v.split('.').next())
+        .and_then(|m| m.parse::<u32>().ok())
+        .ok_or_else(|| format!("could not parse pg_dump version from {text:?}"))?;
+    if major < 16 {
+        return Err(format!("found pg_dump {major}.x, need >= 16"));
+    }
+    Ok(())
 }
 
 /// `docker info` round-trips through the daemon, so a 0-exit means
