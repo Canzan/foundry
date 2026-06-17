@@ -845,6 +845,119 @@ async fn devansh_runs_verify_export(world: &mut FoundryWorld) {
     world.pwb_cli_stdout = Some(stdout);
 }
 
+// ---------------------------------------------------------------------------
+// Scenario 14 (step 03-03) — verify-export detects a truncated archive: the
+// disk filled mid-export, so a table's JSONL lost rows while the manifest still
+// declares the original count. The completeness count tripwire (manifest
+// row_counts vs actual JSONL line count) must red and the CLI must exit 4 with
+// a re-run-the-export message. (AC-03.5)
+// ---------------------------------------------------------------------------
+
+/// `And that archive was truncated when the disk filled mid-export` — simulate a
+/// disk-full truncation on the REAL tar the export wrote: read the archive,
+/// DROP the last JSONL line from a populated tenant table while leaving the
+/// manifest's `row_counts` untouched, and rewrite the tar in place. The archive
+/// now declares more rows than it carries, exactly as a write cut short by a full
+/// disk would leave it. Faithful to the production tar shape
+/// (`manifest.json` + `tables/<table>.jsonl`) so verify-export reads it normally
+/// and the completeness tripwire — not a tar-parse error — is what bites.
+#[given(regex = r#"^that archive was truncated when the disk filled mid-export$"#)]
+async fn archive_was_truncated(world: &mut FoundryWorld) {
+    use std::io::Read;
+
+    let path = world
+        .pwb_out_path
+        .clone()
+        .expect("an archive must have been exported first");
+
+    // Read every tar entry into memory (manifest + per-table JSONL), preserving order.
+    let file = std::fs::File::open(&path).expect("open exported archive");
+    let mut archive = tar::Archive::new(file);
+    let mut entries: Vec<(String, String)> = Vec::new();
+    for entry in archive.entries().expect("read tar entries") {
+        let mut entry = entry.expect("tar entry");
+        let name = entry
+            .path()
+            .expect("entry path")
+            .to_string_lossy()
+            .into_owned();
+        let mut buf = String::new();
+        entry.read_to_string(&mut buf).expect("read entry body");
+        entries.push((name, buf));
+    }
+
+    // Drop the last JSONL line of the FIRST table that has at least one row, leaving
+    // the manifest row_counts as-is. That single dropped line makes the actual line
+    // count fall short of the declared count — the truncation tripwire.
+    let mut truncated_a_table = false;
+    for (name, body) in &mut entries {
+        if name.starts_with("tables/") && name.ends_with(".jsonl") {
+            let mut lines: Vec<&str> = body.lines().filter(|l| !l.trim().is_empty()).collect();
+            if !lines.is_empty() {
+                lines.pop(); // the disk filled before this row finished flushing
+                *body = if lines.is_empty() {
+                    String::new()
+                } else {
+                    format!("{}\n", lines.join("\n"))
+                };
+                truncated_a_table = true;
+                break;
+            }
+        }
+    }
+    assert!(
+        truncated_a_table,
+        "the exported archive must carry at least one populated tenant table to truncate; \
+         entries={:?}",
+        entries.iter().map(|(n, _)| n).collect::<Vec<_>>()
+    );
+
+    // Rewrite the tar in place with the truncated table body — manifest unchanged.
+    let out = std::fs::File::create(&path).expect("rewrite truncated archive");
+    let mut builder = tar::Builder::new(out);
+    for (name, body) in &entries {
+        let bytes = body.as_bytes();
+        let mut header = tar::Header::new_gnu();
+        header.set_size(bytes.len() as u64);
+        header.set_mode(0o644);
+        header.set_cksum();
+        builder
+            .append_data(&mut header, name, bytes)
+            .expect("append truncated entry");
+    }
+    builder.finish().expect("finish truncated archive");
+}
+
+/// `When Devansh runs "foundry doctor verify-export" on the truncated archive` —
+/// drive the REAL verify-export CLI subprocess on the now-truncated archive path
+/// (PATH-ONLY, NFR-PWB-INT-01). Reuses the verify-export invocation; the
+/// completeness tripwire must surface as exit 4. Stash exit + stdout + stderr.
+#[when(regex = r#"^Devansh runs "foundry doctor verify-export" on the truncated archive$"#)]
+async fn devansh_runs_verify_export_on_truncated(world: &mut FoundryWorld) {
+    devansh_runs_verify_export(world).await;
+}
+
+/// `And the message says the archive is truncated or incomplete and to re-run the
+/// export` — verify-export's port-exposed diagnostics (stdout+stderr) must name the
+/// archive as truncated/incomplete AND tell the operator to re-run the export, so the
+/// exit-4 code is paired with an actionable message. Falsifiability: a bare exit code
+/// with no such guidance REDs.
+#[then(
+    regex = r#"^the message says the archive is truncated or incomplete and to re-run the export$"#
+)]
+async fn message_says_truncated_rerun(world: &mut FoundryWorld) {
+    let stdout = world.pwb_cli_stdout.as_deref().unwrap_or("");
+    let stderr = world.pwb_cli_stderr.as_deref().unwrap_or("");
+    let combined = format!("{stdout}\n{stderr}").to_ascii_lowercase();
+    assert!(
+        (combined.contains("truncated") || combined.contains("incomplete"))
+            && combined.contains("re-run the export"),
+        "verify-export must report the archive is truncated/incomplete and to re-run the \
+         export; exit={:?}, stdout={stdout:?}, stderr={stderr:?}",
+        world.pwb_cli_exit,
+    );
+}
+
 /// `Then the report confirms all 10 tenant tables are present` — verify-export's
 /// port-exposed stdout reports the completeness confirmation. Falsifiability: a
 /// missing table makes the CLI exit 4 with no completeness-OK line.

@@ -341,7 +341,7 @@ Feature: An operator exports one workspace's data to a verifiable, isolation-cle
   #     completeness count tripwire (manifest row_counts vs JSONL line count)
   #     catches a short archive before the isolation pass. (AC-03.5)
   # ----------------------------------------------------------------------------
-  @pending @us-pwb03 @error
+  @us-pwb03 @error
   Scenario: Verification detects an incomplete archive
     Given Devansh has exported "globex" to a backup path
     And that archive was truncated when the disk filled mid-export
