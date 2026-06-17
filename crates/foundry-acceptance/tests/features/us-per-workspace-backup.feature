@@ -268,7 +268,7 @@ Feature: An operator exports one workspace's data to a verifiable, isolation-cle
   #    workspace other than the declared one. This is the security guarantee that
   #    a leak can never pass verification. (AC-02.4)
   # ----------------------------------------------------------------------------
-  @pending @us-pwb02 @error
+  @us-pwb02 @error
   Scenario: Verification fails loudly when a sibling row is planted in an archive
     Given Devansh has exported "globex" to a backup path
     And one row belonging to "Acme Corp" is planted into that archive
@@ -285,7 +285,7 @@ Feature: An operator exports one workspace's data to a verifiable, isolation-cle
   #     property test; here it is pinned to the concrete Acme/Globex fixture
   #     exercised through the real CLI. (AC-02.5)
   # ----------------------------------------------------------------------------
-  @pending @us-pwb02 @property
+  @us-pwb02 @property
   Scenario Outline: An export of any single workspace contains no sibling data
     When Devansh exports "<target>" to a backup path
     And Devansh runs "foundry doctor verify-export" on that archive

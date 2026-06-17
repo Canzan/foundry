@@ -1084,6 +1084,216 @@ async fn verification_does_not_flag_shared_user(world: &mut FoundryWorld) {
 }
 
 // ---------------------------------------------------------------------------
+// Scenario 9 (step 02-03) — the falsifiability crux (NFR-PWB-ISO-01, AC-02.4).
+// A planted sibling (Acme) row inside the Globex archive must make verify-export
+// RED: the isolation check fails, the command exits non-zero, and the message
+// NAMES a row resolving to a workspace other than the declared one. We tamper with
+// the archive ON DISK (re-write the tar with one extra sibling-workspace row in an
+// existing table's JSONL, bumping that table's manifest row_count so completeness
+// still passes and isolation is the check that bites), then drive the REAL
+// verify-export subprocess on the contaminated archive.
+// ---------------------------------------------------------------------------
+
+/// `And one row belonging to "<sibling>" is planted into that archive` — contaminate
+/// the just-exported archive on disk: read its tar, append one fabricated row whose
+/// `workspace_id` is the SIBLING workspace's real id to an existing tenant table
+/// (`issues`), increment that table's manifest `row_counts` so the completeness
+/// tripwire still passes, and re-write the tar at the same path. This is the planted
+/// leak the isolation pass must catch.
+#[given(regex = r#"^one row belonging to "([^"]+)" is planted into that archive$"#)]
+async fn plant_sibling_row(world: &mut FoundryWorld, sibling: String) {
+    let path = world
+        .pwb_out_path
+        .clone()
+        .expect("an archive must have been exported first");
+    let sibling_id = *world
+        .pwb_workspace_ids
+        .get(&sibling)
+        .unwrap_or_else(|| panic!("sibling workspace {sibling:?} must be seeded"));
+    plant_sibling_row_into_archive(&path, sibling_id);
+}
+
+/// `Then the isolation check fails` — verify-export's port-exposed stderr reports the
+/// isolation check failed on the contaminated archive. Falsifiability: a verifier
+/// that accepted the planted row would print no such failure line.
+#[then(regex = r#"^the isolation check fails$"#)]
+async fn isolation_check_fails(world: &mut FoundryWorld) {
+    let stderr = world
+        .pwb_cli_stderr
+        .as_deref()
+        .expect("verify-export stderr captured");
+    let lower = stderr.to_ascii_lowercase();
+    assert!(
+        lower.contains("isolation check failed"),
+        "verify-export must report the isolation check failed on a planted sibling row; \
+         exit={:?}, stdout={:?}, stderr={stderr:?}",
+        world.pwb_cli_exit,
+        world.pwb_cli_stdout,
+    );
+}
+
+/// `And the command exits with a non-zero code` — a contaminated archive must NOT
+/// pass verification: verify-export exits non-zero. Falsifiability: an exit 0 here
+/// would mean a sibling leak slipped through.
+#[then(regex = r#"^the command exits with a non-zero code$"#)]
+async fn command_exits_non_zero(world: &mut FoundryWorld) {
+    assert!(
+        matches!(world.pwb_cli_exit, Some(code) if code != 0),
+        "verify-export must exit non-zero on a planted sibling row; exit={:?}, stderr={:?}",
+        world.pwb_cli_exit,
+        world.pwb_cli_stderr,
+    );
+}
+
+/// `And the message identifies a row resolving to a workspace other than the declared
+/// one` — the failure message NAMES the offending row: it carries the planted
+/// sibling's real id and identifies it as a workspace other than the declared one.
+/// Falsifiability: a generic "verification failed" with no resolved-workspace id REDs.
+#[then(
+    regex = r#"^the message identifies a row resolving to a workspace other than the declared one$"#
+)]
+async fn message_identifies_foreign_row(world: &mut FoundryWorld) {
+    let stderr = world
+        .pwb_cli_stderr
+        .as_deref()
+        .expect("verify-export stderr captured");
+    let sibling_id = world
+        .pwb_workspace_ids
+        .get("Acme Corp")
+        .expect("Acme Corp must be seeded")
+        .to_string();
+    assert!(
+        stderr.contains(&sibling_id),
+        "the failure message must name the planted sibling row's resolved workspace id \
+         {sibling_id}; stderr={stderr:?}"
+    );
+    let lower = stderr.to_ascii_lowercase();
+    assert!(
+        lower.contains("workspace other than the declared")
+            || lower.contains("not the declared workspace")
+            || lower.contains("sibling-workspace row"),
+        "the failure message must identify the row as resolving to a workspace OTHER than \
+         the declared one; stderr={stderr:?}"
+    );
+}
+
+/// Plant one fabricated sibling-workspace row into the tar archive at `path`: read
+/// every entry, append a JSONL row whose `workspace_id` is `sibling_id` to the
+/// `tables/issues.jsonl` entry, bump the manifest `row_counts.issues` by one (so the
+/// completeness tripwire still passes and the isolation pass is what catches the
+/// leak), and write the modified entries back to a fresh tar at the same path.
+fn plant_sibling_row_into_archive(path: &std::path::Path, sibling_id: uuid::Uuid) {
+    use std::io::Read;
+
+    // Read the whole archive into memory (entry name -> bytes).
+    let file = std::fs::File::open(path).expect("open archive to contaminate");
+    let mut archive = tar::Archive::new(file);
+    let mut entries: Vec<(String, Vec<u8>)> = Vec::new();
+    for entry in archive.entries().expect("read tar entries") {
+        let mut entry = entry.expect("tar entry");
+        let name = entry
+            .path()
+            .expect("entry path")
+            .to_string_lossy()
+            .into_owned();
+        let mut buf = Vec::new();
+        entry.read_to_end(&mut buf).expect("read entry bytes");
+        entries.push((name, buf));
+    }
+
+    // Append a fabricated sibling-workspace issues row.
+    let planted = serde_json::json!({
+        "id": uuid::Uuid::now_v7().to_string(),
+        "workspace_id": sibling_id.to_string(),
+    });
+    let planted_line = format!("{planted}\n");
+    for (name, buf) in &mut entries {
+        if name == "tables/issues.jsonl" {
+            buf.extend_from_slice(planted_line.as_bytes());
+        }
+        if name == "manifest.json" {
+            let mut manifest: serde_json::Value =
+                serde_json::from_slice(buf).expect("parse manifest.json");
+            let counts = manifest
+                .get_mut("row_counts")
+                .and_then(serde_json::Value::as_object_mut)
+                .expect("manifest row_counts");
+            let current = counts
+                .get("issues")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(0);
+            counts.insert("issues".to_string(), serde_json::json!(current + 1));
+            *buf = serde_json::to_vec(&manifest).expect("re-serialize manifest");
+        }
+    }
+
+    // Re-write the tar at the same path from the modified entries.
+    let out = std::fs::File::create(path).expect("re-create contaminated archive");
+    let mut builder = tar::Builder::new(out);
+    for (name, buf) in &entries {
+        let mut header = tar::Header::new_gnu();
+        header.set_path(name).expect("set entry path");
+        header.set_size(buf.len() as u64);
+        header.set_mode(0o644);
+        header.set_cksum();
+        builder
+            .append(&header, buf.as_slice())
+            .expect("append contaminated entry");
+    }
+    builder.finish().expect("finish contaminated tar");
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 10 (step 02-03) — the isolation invariant, example-pinned (@property).
+// Exporting then verifying EITHER workspace ("globex" or "acme") confirms zero rows
+// resolve to any workspace OTHER than the target, and verify-export exits 0. The
+// export + verify-export When steps are reused; this Then asserts the clean-archive
+// isolation confirmation for the named target.
+// ---------------------------------------------------------------------------
+
+/// `Then verification confirms zero rows resolve to any workspace other than
+/// "<target>"` — on a clean single-workspace export, verify-export reports isolation
+/// OK (no row references a sibling workspace) and the archive declares the named
+/// target workspace, so the confirmation is genuinely about <target>. Falsifiability:
+/// an isolation violation, or an archive declaring the wrong workspace, REDs.
+#[then(
+    regex = r#"^verification confirms zero rows resolve to any workspace other than "([^"]+)"$"#
+)]
+async fn verification_confirms_zero_foreign_rows(world: &mut FoundryWorld, target: String) {
+    let stdout = world
+        .pwb_cli_stdout
+        .as_deref()
+        .expect("verify-export stdout captured");
+    let stderr = world.pwb_cli_stderr.as_deref().unwrap_or("");
+    let lower = stdout.to_ascii_lowercase();
+    assert!(
+        lower.contains("no row references a sibling workspace"),
+        "verify-export must confirm zero rows resolve to a sibling workspace; \
+         exit={:?}, stdout={stdout:?}, stderr={stderr:?}",
+        world.pwb_cli_exit,
+    );
+    assert!(
+        !stderr
+            .to_ascii_lowercase()
+            .contains("isolation check failed"),
+        "verify-export must not report any isolation failure for a clean {target:?} export; \
+         stderr={stderr:?}"
+    );
+    // The archive verify ran on must declare the named target workspace, so the
+    // "no sibling" confirmation is genuinely about <target>.
+    let target_name = token_to_workspace_name(&target).unwrap_or(&target);
+    let target_id = *world
+        .pwb_workspace_ids
+        .get(target_name)
+        .unwrap_or_else(|| panic!("workspace {target_name:?} must be seeded"));
+    assert!(
+        stdout.contains(&target_id.to_string()),
+        "verify-export must declare the target workspace {target_name:?} ({target_id}); \
+         stdout={stdout:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Scenario 16 (step 01-03) — sole-workspace export is valid and removes nothing
 // ---------------------------------------------------------------------------
 
