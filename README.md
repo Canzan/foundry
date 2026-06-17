@@ -35,7 +35,7 @@ command runs:
   manual step required.
 - **A reachable Docker daemon** — Docker Desktop, OrbStack, Colima, or
   system Docker on Linux. On macOS with Colima or OrbStack, see
-  [CONTRIBUTING.md](./CONTRIBUTING.md#docker-on-macos-colima--orbstack--lima)
+  [DEVELOPER.md](./DEVELOPER.md#docker-on-macos-colima--orbstack--lima)
   for the one-line `DOCKER_HOST` export the acceptance harness needs.
 
 The full acceptance suite additionally exercises the system `pg_dump` /
@@ -100,7 +100,8 @@ cargo watch -x 'run --bin foundry'
 `cargo watch` rebuilds and restarts the binary on every save. The app
 remains at `http://localhost:3000`; refresh the browser to see template
 or handler changes. For a fuller account of the development inner loop
-(test gates, crate boundaries, CI replication), see
+(test gates, crate boundaries, CI replication), see the
+[Developer Guide](./DEVELOPER.md). New contributors should start with
 [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## Architecture at a glance
