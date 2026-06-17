@@ -309,6 +309,20 @@
       "s": "SKIPPED",
       "d": "NOT_APPLICABLE: completeness tripwire (manifest count > actual JSONL line count -> exit-4 truncated/incomplete) already unit-tested by foundry-store verify_export.rs::truncated_table_reds_completeness (mismatch reds) and ::clean_archive_is_complete_and_isolation_clean (match passes), both from step 02-01; this step adds no new pure logic, only acceptance wiring",
       "t": "2026-06-17T03:42:21Z"
+    },
+    {
+      "sid": "03-03",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-17T04:16:45Z"
+    },
+    {
+      "sid": "03-03",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-06-17T04:16:46Z"
     }
   ]
 }
