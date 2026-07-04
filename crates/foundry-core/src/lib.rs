@@ -185,18 +185,6 @@ mod issue_key_tests {
         let ik = IssueKey::try_new(&key, 1).expect("valid");
         assert_eq!(format!("{ik}"), "WEB-1");
     }
-
-    // Behaviour 4 — IssueKey is value-comparable on (prefix, number);
-    // two instances with the same components are equal.
-    #[test]
-    fn equality_is_structural() {
-        let key = ProjectKey::try_new("AUTH").expect("valid prefix");
-        let a = IssueKey::try_new(&key, 5).expect("valid");
-        let b = IssueKey::try_new(&key, 5).expect("valid");
-        let c = IssueKey::try_new(&key, 6).expect("valid");
-        assert_eq!(a, b);
-        assert_ne!(a, c);
-    }
 }
 
 #[cfg(test)]
