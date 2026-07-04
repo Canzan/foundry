@@ -249,19 +249,37 @@ pub async fn submit_forgot(
 
 // ------------------------------------------------------------------------ GET /
 
-pub async fn dashboard_root(State(_state): State<AppState>, session: Session) -> Response {
+pub async fn dashboard_root(State(state): State<AppState>, session: Session) -> Response {
     let user = session
         .get::<SessionUser>(SESSION_KEY_USER_ID)
         .await
         .ok()
         .flatten();
     match user {
-        Some(_) => {
-            // US-R04: the signed-in landing now renders through the shared base
-            // layout (links the vendored /static stylesheet). Selector-and-
-            // substring-identical to the prior bare-<head> format! — same
-            // `<h1>Foundry</h1>` + "You are signed in. Welcome back." copy.
-            let body = crate::views::DashboardRoot
+        Some(u) => {
+            // US-R04: the signed-in landing renders through the shared base
+            // layout. Keeps the `<h1>Foundry</h1>` + "You are signed in.
+            // Welcome back." copy and now lists the acting workspace's projects,
+            // scoped by the SESSION workspace_id (never a path/query id).
+            let projects = state
+                .store
+                .list_projects_for_workspace(u.workspace_id)
+                .await
+                .unwrap_or_else(|err| {
+                    tracing::error!(%err, "dashboard: list_projects_for_workspace failed");
+                    Vec::new()
+                })
+                .into_iter()
+                .map(
+                    |(team_slug, project_slug, name, key_prefix)| crate::views::ProjectLink {
+                        team_slug,
+                        project_slug,
+                        name,
+                        key_prefix,
+                    },
+                )
+                .collect();
+            let body = crate::views::DashboardRoot { projects }
                 .render()
                 .expect("dashboard_root.html renders");
             Html(body).into_response()

@@ -622,6 +622,28 @@ impl Store {
         Ok(rows)
     }
 
+    /// List every project in one workspace for the dashboard project index,
+    /// as `(team_slug, project_slug, name, key_prefix)` ordered by name.
+    ///
+    /// Tenant-scoped by `workspace_id` (the caller passes the SESSION-resolved
+    /// acting workspace, never a path/query id), so it can only ever surface
+    /// the acting tenant's own projects.
+    pub async fn list_projects_for_workspace(
+        &self,
+        workspace_id: uuid::Uuid,
+    ) -> Result<Vec<(String, String, String, String)>, StoreError> {
+        let rows: Vec<(String, String, String, String)> = sqlx::query_as(
+            "SELECT t.slug, p.slug, p.name, p.key_prefix \
+             FROM projects p JOIN teams t ON p.team_id = t.id \
+             WHERE p.workspace_id = $1 \
+             ORDER BY p.name",
+        )
+        .bind(workspace_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
     /// per-workspace-backup (ADR-003 / the isolation crux) — export ONE
     /// workspace's data across the ten [`TENANT_TABLES`] as a single consistent
     /// cut. Opens ONE read-only transaction at `REPEATABLE READ` (Postgres' true

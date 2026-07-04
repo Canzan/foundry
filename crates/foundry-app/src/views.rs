@@ -451,7 +451,19 @@ pub struct IssuePage {
 /// (UNCHANGED, DB7) — only the signed-in body is templated.
 #[derive(Debug, Clone, Template)]
 #[template(path = "dashboard_root.html")]
-pub struct DashboardRoot;
+pub struct DashboardRoot {
+    /// Projects in the acting workspace, rendered as board links.
+    pub projects: Vec<ProjectLink>,
+}
+
+/// One project row on the dashboard project index.
+#[derive(Debug, Clone)]
+pub struct ProjectLink {
+    pub team_slug: String,
+    pub project_slug: String,
+    pub name: String,
+    pub key_prefix: String,
+}
 
 /// The events sign-in-required page served when an unauthenticated request hits
 /// the SSE stream (US-R04). Extends `base.html` so it links the vendored
