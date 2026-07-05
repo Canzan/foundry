@@ -22,4 +22,7 @@ Decision enabled: I decide to file the work I just thought of, immediately, and 
   modal** (the board is not replaced; no card is created).
 - AC-01.6: **No-JS fallback preserved** — with htmx disabled, the modal form is a plain POST that still
   creates the issue and lands the board showing the new card (the shipped redirect branch).
-- AC-01.7: No backend change — the modal endpoint, create POST, OOB card, and CSRF are unchanged.
+- AC-01.7: Near-zero backend change — the modal endpoint, create POST, OOB card, and CSRF are unchanged; the
+  ONLY `src/` edit is exposing `team_slug` + `project_slug` on the `BoardPage` view-model (populated from the
+  existing `ProjectRow.slug` + `slugify(team_name)`) so the button can address the modal endpoint (D5). No new
+  logic, no migration.

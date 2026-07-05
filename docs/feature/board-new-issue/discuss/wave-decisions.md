@@ -17,9 +17,15 @@
 - **[D4] No-JS fallback preserved**: the modal form keeps `method="post" action="{{ action }}"` alongside the
   new `hx-post`; with htmx absent the plain POST hits the shipped non-htmx branch (`redirect_to(board)`), so
   the issue is still created and shown. Wiring is additive, never replacing the plain-form contract.
-- **[D5] Zero backend change**: no handler, service, route, view-struct, or migration change — the modal
-  endpoint, create POST, OOB card, and CSRF token (`NewIssueModal.csrf`) all ship. This feature edits only
-  `board.html` and `partials/new_issue_modal.html` (+ acceptance glue).
+- **[D5] Near-zero backend change (REVISED at DELIVER)**: no handler, service, route, or migration change —
+  the modal endpoint, create POST, OOB card, and CSRF token all ship. **Correction**: the button's `hx-get`
+  needs the team + project **slugs**, which `BoardPage` (`views.rs:198`) does NOT expose (only `team_name`,
+  `project_name`, `key_prefix`, `columns`, `kb_items`). Template-only workarounds are fragile (relative
+  `issues/new` resolves wrong on a no-trailing-slash board URL; `project_name|lower` breaks on multi-word
+  names like "Auth v2"). So the slice adds **two `String` fields (`team_slug`, `project_slug`) to `BoardPage`**,
+  populated in `build_board_page` from the already-present `ProjectRow.slug` + the existing `slugify(team_name)`
+  (plus one unit-test call-site fix). No new logic, no migration — surfacing existing data to the template.
+  See `## Changed Assumptions` in `requirements.md`.
 - **[D6] Repo convention**: legacy multi-file nWave layout (per `[[foundry-nwave-old-multifile-convention]]`);
   no SSOT/feature-delta, no migration. DES step-monitoring exempt (lean mode).
 

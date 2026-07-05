@@ -54,7 +54,9 @@ keyboard shortcut layer (`c`/`Esc`/focus) is explicitly OUT (deferred).
 
 ## Constraints
 
-- **No backend change** — endpoints, service, OOB card, CSRF all shipped. This is template/markup wiring only.
+- **Near-zero backend change** (REVISED — see `## Changed Assumptions`): endpoints, service, OOB card, CSRF all
+  shipped. The ONLY `src/` change is exposing the team + project **slugs** on the `BoardPage` view-model so the
+  button's `hx-get` can address the modal endpoint (2 fields + populate + 1 test fix; no new logic, no migration).
 - **CSRF preserved** — the modal form keeps the hidden `_csrf`; an htmx POST carries it.
 - **Tenancy** — `submit_create` already scopes by the resolved acting workspace (foreign/missing project →
   uniform `resource_not_found_page`); unchanged.
@@ -67,3 +69,19 @@ keyboard shortcut layer (`c`/`Esc`/focus) is explicitly OUT (deferred).
 - OD-1: where the modal fragment is swapped (new container vs replace the button) — D1.
 - OD-2: how the modal closes after a successful create (OOB card + empty the modal target) — D2.
 - OD-3: error path — the `bad_request_fragment` must render inside the open modal, not replace the board — D3.
+
+## Changed Assumptions
+
+**Original (DISCUSS/DISTILL)**: "This is template/markup wiring only … No backend change" — the seam table
+assumed the board template could address `…/issues/new` with slugs already in scope.
+
+**Discovered (DELIVER, 2026-07-05)**: `BoardPage` (`crates/foundry-app/src/views.rs:198`) exposes
+`team_name`, `project_name`, `key_prefix`, `columns`, `kb_items` — **no slugs**. The board template renders no
+`/team/.../project/...` URL to copy, and no Askama slugify filter exists, so a robust `hx-get` cannot be built
+template-only (relative URLs resolve wrong on the no-trailing-slash board path; `name|lower` breaks on
+multi-word names).
+
+**New assumption + rationale**: the slice adds `team_slug` + `project_slug` (`String`) to `BoardPage`,
+populated in `projects.rs::build_board_page` from the existing `ProjectRow.slug` and `slugify(team_name)`, with
+one unit-test call-site update. This surfaces already-present data to the template — no new logic, no
+migration, no service/route change. User-authorized 2026-07-05. AC-01.7 is revised accordingly.
