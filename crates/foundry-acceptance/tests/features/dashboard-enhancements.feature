@@ -26,20 +26,22 @@ Feature: A signed-in user orients, navigates by role, and signs out from the das
     And Ada is signed in
 
   # ── Slice 01 — US-01 greeting ─────────────────────────────────────────────
-  @pending @us-01 @walking_skeleton @real-io
+  @us-01 @walking_skeleton @real-io
   Scenario: The dashboard greets the user by name and names the workspace
     When Ada visits "/"
     Then the response body contains "Ada Lovelace"
     And the response body contains "Acme"
     And the response body contains the heading "Foundry"
 
-  @pending @us-01 @real-io @security
+  @us-01 @real-io @security
   Scenario: A display name containing markup is rendered inert
     Given a member "Mallory" whose display name is "<b>pwn</b>" is signed in
     When Mallory visits "/"
     Then the response body contains the escaped display name
     And the response body does not contain a live "<b>" element
 
+  # DELIVER: covered by unit test — no fault seam
+  # (signin::tests::greeting_degrades_to_neutral_when_identity_absent pins D1).
   @pending @us-01 @error @real-io
   Scenario: The greeting degrades to 200 if identity cannot be loaded
     Given the identity lookup for the signed-in user fails

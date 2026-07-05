@@ -64,6 +64,14 @@ pub struct FoundryWorld {
     /// contention distribution.
     pub us_06_wrong_pw_latencies_ms: Vec<u64>,
 
+    // ---- dashboard-enhancements US-01 (greeting) scratch ----
+    /// The raw display name seeded for the persona signed in on the current
+    /// greeting scenario (e.g. Mallory's `<b>pwn</b>`). The escaped-markup Then
+    /// step reads it to assert the rendered body carries the HTML-escaped form
+    /// and not a live element (AC-01.3). Auth for the visit reuses the shared
+    /// `us_07_signed_in_email`/`_password` slots.
+    pub dash_last_display_name: Option<String>,
+
     // ---- US-07 project-create scratch ----
     /// Email of the signed-in user for the current scenario (drives
     /// `signed_in_post` and the post-redirect board fetch).

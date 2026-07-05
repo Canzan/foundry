@@ -257,10 +257,25 @@ pub async fn dashboard_root(State(state): State<AppState>, session: Session) -> 
         .flatten();
     match user {
         Some(u) => {
-            // US-R04: the signed-in landing renders through the shared base
-            // layout. Keeps the `<h1>Foundry</h1>` + "You are signed in.
-            // Welcome back." copy and now lists the acting workspace's projects,
-            // scoped by the SESSION workspace_id (never a path/query id).
+            // US-R04 / US-01: the signed-in landing renders through the shared
+            // base layout. Keeps `<h1>Foundry</h1>`, greets the user by name +
+            // names the acting workspace (US-01), and lists the acting
+            // workspace's projects — all scoped by the SESSION user_id /
+            // workspace_id (never a path/query id — ADR-002).
+            //
+            // D1 (AC-01.4): the greeting degrades to a NEUTRAL fallback and the
+            // page still renders 200 if the identity lookup errors or the row is
+            // gone — it never 500s. Same graceful-degradation posture as the
+            // project-list load below.
+            let greeting = state
+                .store
+                .dashboard_greeting(u.user_id, u.workspace_id)
+                .await
+                .unwrap_or_else(|err| {
+                    tracing::error!(%err, "dashboard: dashboard_greeting failed");
+                    None
+                });
+            let (display_name, workspace_name) = greeting_or_neutral(greeting);
             let projects = state
                 .store
                 .list_projects_for_workspace(u.workspace_id)
@@ -279,9 +294,13 @@ pub async fn dashboard_root(State(state): State<AppState>, session: Session) -> 
                     },
                 )
                 .collect();
-            let body = crate::views::DashboardRoot { projects }
-                .render()
-                .expect("dashboard_root.html renders");
+            let body = crate::views::DashboardRoot {
+                display_name,
+                workspace_name,
+                projects,
+            }
+            .render()
+            .expect("dashboard_root.html renders");
             Html(body).into_response()
         }
         None => {
@@ -293,6 +312,27 @@ pub async fn dashboard_root(State(state): State<AppState>, session: Session) -> 
 }
 
 // ----------------------------------------------------------------------- helpers
+
+/// US-01 / AC-01.4 (D1): the neutral fallback greeting shown when the identity
+/// lookup yields no row (a stale session) or errors. Rendered into the same
+/// "Welcome back, {name}" / "Workspace: {name}" slots so the page still reads
+/// 200 with a sensible, non-personalized greeting instead of 500.
+const NEUTRAL_DISPLAY_NAME: &str = "there";
+const NEUTRAL_WORKSPACE_NAME: &str = "your workspace";
+
+/// Map the greeting store read to the `(display_name, workspace_name)` the view
+/// renders: the resolved pair when present, else the neutral fallback (D1). The
+/// handler pre-maps a query `Err` to `None`, so this covers both the missing-row
+/// and the failed-lookup degradation paths.
+fn greeting_or_neutral(loaded: Option<(String, String)>) -> (String, String) {
+    match loaded {
+        Some(pair) => pair,
+        None => (
+            NEUTRAL_DISPLAY_NAME.to_string(),
+            NEUTRAL_WORKSPACE_NAME.to_string(),
+        ),
+    }
+}
 
 fn sha256(s: &str) -> Vec<u8> {
     let mut h = Sha256::new();
@@ -386,3 +426,37 @@ async fn known_bad_hash() -> &'static str {
 // Suppress unused-import lint when CSRF cookie name not referenced elsewhere.
 #[allow(dead_code)]
 const _: &str = CSRF_COOKIE_NAME;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// US-01 / AC-01.4 (D1): when the greeting lookup yields nothing — the
+    /// missing-row case AND (via the handler's `Err`→`None` pre-map) the
+    /// failed-lookup case — the dashboard renders a NEUTRAL greeting rather than
+    /// personalized copy, so the page stays 200 instead of 500.
+    ///
+    /// This covers the "greeting degrades to 200 if identity cannot be loaded"
+    /// acceptance scenario, which stays `@pending`: the in-process harness has no
+    /// clean seam to force the greeting query to fail mid-request, so the
+    /// degradation contract is pinned here at the handler's fallback seam.
+    #[test]
+    fn greeting_degrades_to_neutral_when_identity_absent() {
+        assert_eq!(
+            greeting_or_neutral(None),
+            ("there".to_string(), "your workspace".to_string()),
+            "an absent/failed identity lookup must yield the neutral fallback greeting"
+        );
+    }
+
+    /// The happy path: a resolved pair is rendered verbatim (auto-escaping in the
+    /// template handles markup — AC-01.3).
+    #[test]
+    fn greeting_uses_resolved_pair_when_present() {
+        assert_eq!(
+            greeting_or_neutral(Some(("Ada Lovelace".to_string(), "Acme".to_string()))),
+            ("Ada Lovelace".to_string(), "Acme".to_string()),
+            "a resolved identity must be greeted by its own name + workspace"
+        );
+    }
+}

@@ -646,9 +646,16 @@ async fn she_lands_on_workspace_dashboard(world: &mut FoundryWorld, ws_name: Str
         StatusCode::OK,
         "the signed-in landing page must render 200; body = {body:?}"
     );
+    // US-R04 / dashboard-enhancements D1: the signed-in landing no longer carries
+    // the old "You are signed in. Welcome back." copy — slice-01 REPLACED it with
+    // a personalized greeting that names the user AND the acting workspace. The
+    // signed-in-dashboard signal is now that the page greets her INTO her
+    // workspace (the sign-in page never renders the `<h1>Foundry</h1>` dashboard
+    // heading nor names a workspace) — a stronger landing proof than the removed
+    // generic copy.
     assert!(
-        body.to_ascii_lowercase().contains("signed in"),
-        "the landing page must show she is signed in; got {body:?}"
+        body.contains("<h1>Foundry</h1>") && body.contains(&ws_name),
+        "the landing page must be the signed-in dashboard naming {ws_name:?}; got {body:?}"
     );
 
     // DB-observable: her session's RESOLVED active workspace is Northwind.

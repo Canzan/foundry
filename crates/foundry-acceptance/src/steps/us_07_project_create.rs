@@ -519,6 +519,14 @@ fn identity_for(who: &str) -> (String, String) {
             // moves.
             "admin-password-from-bootstrap".to_string(),
         ),
+        "Ada" => (
+            "ada@acme.com".to_string(),
+            // dashboard-enhancements US-01: the Background `a workspace "Acme"
+            // exists with admin "Ada" and display name "Ada Lovelace"` step
+            // (feature_dashboard_enhancements.rs) seeds Ada with the
+            // `ADA_PASSWORD` literal below. Keep in sync if either moves.
+            "ada-correct-horse-battery-staple".to_string(),
+        ),
         other => panic!("no identity registered for {other:?}"),
     }
 }

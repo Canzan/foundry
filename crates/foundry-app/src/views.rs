@@ -441,17 +441,23 @@ pub struct IssuePage {
     pub comments: Vec<CommentCard>,
 }
 
-/// The signed-in dashboard landing page served at `GET /` (US-R04). Extends
+/// The signed-in dashboard landing page served at `GET /` (US-R04 / US-01). Extends
 /// `base.html`, which links the vendored content-hashed `/static` stylesheet
-/// (ADR-B03) — replacing the previous bare-`<head>` `format!` markup
-/// (`signin.rs::dashboard_root`). The render contract is selector-and-
-/// substring-identical to the prior page: the `<h1>Foundry</h1>` heading and the
-/// "You are signed in. Welcome back." copy are preserved byte-identically. The
-/// signed-out `/` branch keeps its `303 SEE_OTHER → /sign-in` control flow
-/// (UNCHANGED, DB7) — only the signed-in body is templated.
+/// (ADR-B03). The `<h1>Foundry</h1>` heading is preserved (US-R04); the prior
+/// "You are signed in. Welcome back." copy is REPLACED by the personalized
+/// greeting (US-01 / D1): "Welcome back, {display_name}" + "Workspace:
+/// {workspace_name}". Both fields are auto-escaped by Askama (a `display_name`
+/// carrying `<`/`&` renders inert, AC-01.3). The signed-out `/` branch keeps its
+/// `303 SEE_OTHER → /sign-in` control flow (UNCHANGED).
 #[derive(Debug, Clone, Template)]
 #[template(path = "dashboard_root.html")]
 pub struct DashboardRoot {
+    /// The signed-in user's display name (auto-escaped) — the greeting subject.
+    /// A neutral fallback when the identity lookup yields nothing (AC-01.4 / D1).
+    pub display_name: String,
+    /// The acting workspace's name (auto-escaped) — resolved from the SESSION
+    /// `workspace_id`. A neutral fallback on lookup failure (AC-01.4 / D1).
+    pub workspace_name: String,
     /// Projects in the acting workspace, rendered as board links.
     pub projects: Vec<ProjectLink>,
 }

@@ -35,6 +35,8 @@ use foundry_acceptance::steps::feature_a_programmatic as _feature_a;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_b_web_tier as _feature_b;
 #[allow(unused_imports)]
+use foundry_acceptance::steps::feature_dashboard_enhancements as _feature_dashboard;
+#[allow(unused_imports)]
 use foundry_acceptance::steps::feature_invite_accept as _feature_invite_accept;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_machine_token_admin as _feature_mt;
@@ -164,6 +166,32 @@ async fn main() {
                     // token-management rate guardrail, OD-TMA-1). DELIVER removes
                     // the tag once the mechanism is ratified + wired.
                     !has("manual") && !has("manual-trigger") && !has("pending")
+                })
+                .await
+        }
+        tag if !tag.is_empty() => {
+            // Positive single-tag selection (e.g. FOUNDRY_ACCEPTANCE_TAGS=us-01):
+            // run ONLY scenarios carrying that tag, still excluding the always-off
+            // manual lanes and @pending. Enables a fast, targeted DELIVER loop
+            // over one slice without spinning the whole default lane.
+            let wanted = tag.to_string();
+            FoundryWorld::cucumber()
+                .max_concurrent_scenarios(6)
+                .after(|_f, _r, _s, _ev, world| {
+                    Box::pin(async move {
+                        if let Some(w) = world {
+                            w.close_us03_restored_pool().await;
+                        }
+                    })
+                })
+                .filter_run(features_path, move |feat, _rule, scenario| {
+                    let has = |t: &str| {
+                        scenario.tags.iter().any(|x| x == t) || feat.tags.iter().any(|x| x == t)
+                    };
+                    has(wanted.as_str())
+                        && !has("manual")
+                        && !has("manual-trigger")
+                        && !has("pending")
                 })
                 .await
         }

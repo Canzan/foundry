@@ -1,0 +1,41 @@
+{
+  "schema_version": "3.0",
+  "feature_id": "dashboard-enhancements",
+  "events": [
+    {
+      "sid": "01",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS: un-@pended the two drivable US-01 scenarios (greets-by-name, markup-inert); kept scenario 3 (greeting-degrades) @pending with a DELIVER comment — no clean in-process fault-injection seam",
+      "t": "2026-07-04T00:00:00Z"
+    },
+    {
+      "sid": "01",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "PASS: authored steps/feature_dashboard_enhancements.rs + registered it; scenarios failed for the right reason (template rendered no name/workspace) before GREEN",
+      "t": "2026-07-04T00:05:00Z"
+    },
+    {
+      "sid": "01",
+      "p": "RED_UNIT",
+      "s": "EXECUTED",
+      "d": "PASS: foundry-store dashboard_greeting.rs (scoping + None fallback, AC-05.4) + signin::tests greeting_or_neutral fallback (D1/AC-01.4, covers the @pending fault scenario). Budget: 2 behaviors x 2 = 4 max; 4 tests (2 store + 2 handler-fallback)",
+      "t": "2026-07-04T00:10:00Z"
+    },
+    {
+      "sid": "01",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS: Store::dashboard_greeting runtime query_as; DashboardRoot gains display_name + workspace_name; dashboard_root loads greeting scoped by SessionUser, degrades to neutral on None/Err (200, not 500); template renders greeting + keeps <h1>Foundry</h1>. Updated stale invite-accept landing assertion for the deliberately-replaced US-R04 copy",
+      "t": "2026-07-04T00:20:00Z"
+    },
+    {
+      "sid": "01",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS: cargo test -p foundry-store green; FOUNDRY_ACCEPTANCE_TAGS=us-01 acceptance green (14 scenarios, 81 steps); fmt + full-workspace release clippy clean",
+      "t": "2026-07-04T00:25:00Z"
+    }
+  ]
+}

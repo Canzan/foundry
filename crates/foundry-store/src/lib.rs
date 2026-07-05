@@ -644,6 +644,32 @@ impl Store {
         Ok(rows)
     }
 
+    /// dashboard-enhancements US-01 — the ONE tenant-scoped read the signed-in
+    /// dashboard greeting needs: `(display_name, workspace_name)` for the SESSION
+    /// `user_id` + `workspace_id` (the caller passes the trusted `SessionUser`
+    /// pair, never a path/query id — ADR-002).
+    ///
+    /// A single row keyed by the two session ids. Returns `None` when either id
+    /// has no row (e.g. a stale session referencing a deleted user/workspace), so
+    /// the handler can degrade to a neutral fallback greeting (AC-01.4 / D1)
+    /// instead of failing.
+    pub async fn dashboard_greeting(
+        &self,
+        user_id: uuid::Uuid,
+        workspace_id: uuid::Uuid,
+    ) -> Result<Option<(String, String)>, StoreError> {
+        let row: Option<(String, String)> = sqlx::query_as(
+            "SELECT u.display_name, w.name \
+             FROM users u, workspaces w \
+             WHERE u.id = $1 AND w.id = $2",
+        )
+        .bind(user_id)
+        .bind(workspace_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row)
+    }
+
     /// per-workspace-backup (ADR-003 / the isolation crux) — export ONE
     /// workspace's data across the ten [`TENANT_TABLES`] as a single consistent
     /// cut. Opens ONE read-only transaction at `REPEATABLE READ` (Postgres' true
