@@ -10,6 +10,18 @@
 use crate::{BoardIssue, CreatedIssue, Principal, ServiceError};
 use foundry_store::{IssueInsertError, Store};
 
+/// The current title + description of an issue, resolved for the edit-dialog
+/// pre-fill (issue-edit-dialog). Returned by [`edit_issue_form`] AFTER the
+/// `resolve_member_project` authz gate, so a foreign issue is refused before
+/// any field is exposed.
+#[derive(Debug, Clone)]
+pub struct IssueEditView {
+    pub key: String,
+    pub number: i32,
+    pub title: String,
+    pub description_md: String,
+}
+
 /// Title length cap (chars, after trimming) — the SAME bound the browser
 /// handler enforces.
 const TITLE_MAX_LEN: usize = 256;
@@ -122,6 +134,97 @@ pub async fn change_issue_state(
         Err(IssueInsertError::ProjectNotFound) => Err(ServiceError::NotFound),
         Err(IssueInsertError::Store(_)) => Err(ServiceError::Internal),
     }
+}
+
+/// issue-edit-dialog edit-title+description use-case (ADR-002). Mirrors
+/// [`change_issue_state`]: `resolve_member_project` authz + non-enumerable
+/// NotFound → validate the title (trimmed, non-empty, ≤256 — the SAME bound
+/// create enforces) → `Store::update_issue_details`. Returns the updated
+/// `BoardIssue` so the handler re-renders the board card. `description_md` is
+/// persisted verbatim (the DB CHECK bounds its length); v1 is last-write-wins
+/// with no outbox emit (ODD-3/ODD-4).
+#[allow(clippy::too_many_arguments)]
+pub async fn edit_issue_details(
+    store: &Store,
+    principal: &Principal,
+    team_slug: &str,
+    project_slug: &str,
+    number: i32,
+    title: &str,
+    description_md: &str,
+) -> Result<BoardIssue, ServiceError> {
+    let (_team, _project, key_prefix) =
+        resolve_member_project(store, principal, team_slug, project_slug).await?;
+
+    let raw_title = title.trim();
+    if raw_title.is_empty() || raw_title.chars().count() > TITLE_MAX_LEN {
+        return Err(ServiceError::Validation {
+            code: "title_required".to_string(),
+            message: "Title is required".to_string(),
+        });
+    }
+
+    match store
+        .update_issue_details(
+            key_prefix.as_str(),
+            number,
+            raw_title,
+            description_md,
+            principal.user_id(),
+        )
+        .await
+    {
+        Ok(Some(())) => {
+            let key = foundry_core::IssueKey::try_new(&key_prefix, number as u32)
+                .map(|k| k.to_string())
+                .unwrap_or_else(|_| format!("{}-{}", key_prefix.as_str(), number));
+            Ok(BoardIssue {
+                key,
+                number,
+                // The TRIMMED title is what `update_issue_details` persisted, so
+                // the re-rendered card matches a subsequent read. `state` is not
+                // part of an edit (the card render only needs key + title), so it
+                // is left empty exactly as `change_issue_state` leaves `title`.
+                title: raw_title.to_string(),
+                state: String::new(),
+            })
+        }
+        Ok(None) => Err(ServiceError::NotFound),
+        Err(IssueInsertError::ProjectNotFound) => Err(ServiceError::NotFound),
+        Err(IssueInsertError::Store(_)) => Err(ServiceError::Internal),
+    }
+}
+
+/// issue-edit-dialog pre-fill read (ADR-002). Resolves the issue's current
+/// title + description for the edit dialog AFTER the `resolve_member_project`
+/// authz gate, so a foreign or missing issue is refused with the uniform
+/// non-enumerable NotFound (ADR-003) and no title is ever echoed for a resource
+/// the caller may not see.
+pub async fn edit_issue_form(
+    store: &Store,
+    principal: &Principal,
+    team_slug: &str,
+    project_slug: &str,
+    number: i32,
+) -> Result<IssueEditView, ServiceError> {
+    let (_team, _project, key_prefix) =
+        resolve_member_project(store, principal, team_slug, project_slug).await?;
+
+    let row = store
+        .issue_edit_view(key_prefix.as_str(), number)
+        .await
+        .map_err(|_| ServiceError::Internal)?
+        .ok_or(ServiceError::NotFound)?;
+
+    let key = foundry_core::IssueKey::try_new(&key_prefix, number as u32)
+        .map(|k| k.to_string())
+        .unwrap_or_else(|_| format!("{}-{}", key_prefix.as_str(), number));
+    Ok(IssueEditView {
+        key,
+        number,
+        title: row.title,
+        description_md: row.description_md,
+    })
 }
 
 /// Resolve `(team, project, key_prefix)` after the SAME membership authz the

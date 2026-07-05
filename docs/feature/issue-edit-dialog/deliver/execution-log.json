@@ -1,0 +1,41 @@
+{
+  "schema_version": "3.0",
+  "feature_id": "issue-edit-dialog",
+  "events": [
+    {
+      "sid": "slice-01",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS: un-@pended S1-S6 in issue-edit-dialog.feature (one vertical slice, RED S3 first per walking-skeleton.md)",
+      "t": "2026-07-05T09:02:00Z"
+    },
+    {
+      "sid": "slice-01",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "PASS: authored feature_issue_edit_dialog.rs glue + registered/force-linked; S1-S6 fail-for-right-reason (card static, no edit endpoint/view) before wiring",
+      "t": "2026-07-05T09:20:00Z"
+    },
+    {
+      "sid": "slice-01",
+      "p": "RED_UNIT",
+      "s": "EXECUTED",
+      "d": "PASS: foundry-store/tests/update_issue_details.rs (real Postgres, @real-io) — persists title+description_md + updated_at bump; key-scoped tenant isolation; absent -> Ok(None). Store write is the net-new load-bearing seam per walking-skeleton.md; service/web layers are covered port-to-port by the acceptance scenarios",
+      "t": "2026-07-05T09:35:00Z"
+    },
+    {
+      "sid": "slice-01",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS: Store::update_issue_details + issue_edit_view (mirror update_issue_state_with_outbox minus outbox, ODD-4); issue_service::edit_issue_details + edit_issue_form (mirror change_issue_state); web show_edit_form + submit_edit + IssueEditModal + card hx-get/number (R1) + OOB outerHTML replace keyed on data-issue-key (R2); 2 routes. Store test 2/2, issue-edit-dialog 6/6",
+      "t": "2026-07-05T10:40:00Z"
+    },
+    {
+      "sid": "slice-01",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS: regression board-new-issue 5/5 + us-08 10/10 + us-b01 4/4 green (shared card render/board template); fmt --all clean; clippy --all-targets --release -D warnings clean. No migration; last-write-wins; no outbox (v1)",
+      "t": "2026-07-05T10:55:00Z"
+    }
+  ]
+}

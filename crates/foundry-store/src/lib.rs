@@ -1320,6 +1320,81 @@ impl Store {
         Ok(Some(()))
     }
 
+    /// Update an issue's `title` + `description_md` (issue-edit-dialog, ADR-002).
+    /// Mirrors [`Store::update_issue_state_with_outbox`] MINUS the outbox emit
+    /// (ODD-4): v1 is last-write-wins with NO realtime event — broadcasting an
+    /// edit to other board viewers is a named deferred increment, so we do not
+    /// surprise the SSE consumer with an event kind it cannot render yet.
+    ///
+    /// Looks the issue up by `key_prefix + number`; returns `Ok(None)` when
+    /// absent so a FOREIGN or never-existed issue resolves identically — the
+    /// service maps `None` to the uniform non-enumerable NotFound (ADR-003).
+    /// Last-write-wins: no `updated_at` optimistic guard (ODD-3).
+    ///
+    /// `_actor_id` is accepted for signature parity with the state-change path
+    /// (and the deferred edit-broadcast increment that will ride it into an
+    /// outbox payload); v1 writes no payload, so it is unused today.
+    pub async fn update_issue_details(
+        &self,
+        project_key_prefix: &str,
+        issue_number: i32,
+        title: &str,
+        description_md: &str,
+        _actor_id: uuid::Uuid,
+    ) -> Result<Option<()>, IssueInsertError> {
+        let row: Option<(uuid::Uuid,)> = sqlx::query_as(
+            "SELECT i.id
+               FROM issues i
+               JOIN projects p ON p.id = i.project_id
+              WHERE p.key_prefix = $1 AND i.number = $2",
+        )
+        .bind(project_key_prefix)
+        .bind(issue_number)
+        .fetch_optional(&self.pool)
+        .await?;
+        let Some((issue_id,)) = row else {
+            return Ok(None);
+        };
+
+        sqlx::query(
+            "UPDATE issues SET title = $1, description_md = $2, updated_at = now() WHERE id = $3",
+        )
+        .bind(title)
+        .bind(description_md)
+        .bind(issue_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(Some(()))
+    }
+
+    /// Read an issue's current `title` + `description_md` for the edit-dialog
+    /// pre-fill (issue-edit-dialog). Looks up by `key_prefix + number` and
+    /// returns `Ok(None)` when absent — the service gates the call behind
+    /// `resolve_member_project` and maps `None` to the uniform non-enumerable
+    /// NotFound (ADR-003). Distinct from `find_issue_by_team_project_number`
+    /// (which returns ids for the comment path, not the title/description this
+    /// pre-fill needs, R3).
+    pub async fn issue_edit_view(
+        &self,
+        project_key_prefix: &str,
+        issue_number: i32,
+    ) -> Result<Option<IssueEditRow>, StoreError> {
+        let row: Option<(String, String)> = sqlx::query_as(
+            "SELECT i.title, i.description_md
+               FROM issues i
+               JOIN projects p ON p.id = i.project_id
+              WHERE p.key_prefix = $1 AND i.number = $2",
+        )
+        .bind(project_key_prefix)
+        .bind(issue_number)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|(title, description_md)| IssueEditRow {
+            title,
+            description_md,
+        }))
+    }
+
     /// Count issues in a project. Acceptance assertion helper for the
     /// "no issue is created" path.
     pub async fn count_issues_in_project(&self, project_id: uuid::Uuid) -> Result<i64, StoreError> {
@@ -2139,6 +2214,14 @@ pub struct IssueRow {
     pub title: String,
     pub state: String,
     pub priority: String,
+}
+
+/// The current `title` + `description_md` of an issue, read for the edit-dialog
+/// pre-fill (issue-edit-dialog). Returned by [`Store::issue_edit_view`].
+#[derive(Debug, Clone)]
+pub struct IssueEditRow {
+    pub title: String,
+    pub description_md: String,
 }
 
 /// Errors specific to issue insert.

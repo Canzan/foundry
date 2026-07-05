@@ -579,6 +579,11 @@ fn build_board_page(
     // Group issues by state. Slice 1: all newly filed issues land in
     // 'backlog'; the other columns stay empty placeholders until drag-
     // and-drop ships in slice 2.
+    // Slugs for the per-card edit-dialog `hx-get` (issue-edit-dialog, R1). The
+    // BoardPage carries these same slugs; compute them once here so the card
+    // renderer can build each `…/issues/{n}/edit` URL.
+    let team_slug = slugify(team_name);
+    let project_slug = slugify(&project.name);
     let columns = DEFAULT_COLUMNS
         .iter()
         .map(|col| {
@@ -586,7 +591,7 @@ fn build_board_page(
             let cards = issues
                 .iter()
                 .filter(|i| i.state == state_key)
-                .map(|row| issue_card(key_prefix, row))
+                .map(|row| issue_card(key_prefix, row, &team_slug, &project_slug))
                 .collect();
             crate::views::BoardColumn {
                 slug: col.to_ascii_lowercase().replace('-', "_"),
@@ -611,8 +616,8 @@ fn build_board_page(
     crate::views::BoardPage {
         team_name: team_name.to_string(),
         project_name: project.name.clone(),
-        team_slug: slugify(team_name),
-        project_slug: slugify(&project.name),
+        team_slug,
+        project_slug,
         key_prefix: project.key_prefix.clone(),
         columns,
         kb_items,
@@ -622,10 +627,16 @@ fn build_board_page(
 fn issue_card(
     key_prefix: &ProjectKey,
     row: &foundry_services::BoardIssue,
+    team_slug: &str,
+    project_slug: &str,
 ) -> crate::views::IssueCard {
     crate::views::IssueCard {
         key: issue_key_string(key_prefix, row),
         title: row.title.clone(),
+        edit_url: format!(
+            "/team/{team_slug}/project/{project_slug}/issues/{number}/edit",
+            number = row.number
+        ),
     }
 }
 

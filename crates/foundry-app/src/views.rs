@@ -178,6 +178,33 @@ pub struct IssueCard {
     /// Canonical `{PREFIX}-{N}` key (e.g. `AUTH-2`).
     pub key: String,
     pub title: String,
+    /// `GET …/issues/{n}/edit` — the card's `hx-get` to open the edit dialog
+    /// (issue-edit-dialog, R1). The card targets `#modal-root` so a click
+    /// swaps the pre-filled dialog in.
+    pub edit_url: String,
+}
+
+/// The issue-edit dialog FRAGMENT (issue-edit-dialog). A BARE htmx fragment — it
+/// MUST NOT extend `base.html` (htmx swaps it into `#modal-root`; extending base
+/// double-wraps the swap, NFR-WEBB-COMPAT-02). Mirrors `NewIssueModal` (reuses
+/// the board-new-issue `.modal`/`.modal-dialog` styling) plus a pre-filled
+/// description `<textarea>`. Carries `method="post"`/`action` for the no-JS
+/// fallback AND `hx-post` to the save endpoint targeting `#modal-root`. Fields
+/// are auto-escaped (safe pre-fill of user-entered title/description).
+#[derive(Debug, Clone, Template)]
+#[template(path = "partials/issue_edit_modal.html")]
+pub struct IssueEditModal {
+    /// `/team/{slug}/project/{slug}/issues/{n}/edit` — the save POST action.
+    pub action: String,
+    /// The double-submit CSRF token, rendered into the hidden `_csrf` field.
+    pub csrf: String,
+    /// The issue key shown in the dialog header (e.g. `GEN-1`).
+    pub key: String,
+    /// The current title, pre-filled into the title input (auto-escaped).
+    pub title: String,
+    /// The current markdown description, pre-filled into the textarea
+    /// (auto-escaped).
+    pub description: String,
 }
 
 /// A board column with its (already state-filtered) cards in display order.

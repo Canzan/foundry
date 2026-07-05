@@ -1098,6 +1098,15 @@ pub struct FoundryWorld {
     /// (a closed port) instead of the per-scenario schema, so `Store::connect` fails
     /// and the export maps the connect error to exit 3 with an actionable message.
     pub pwb_db_unreachable: bool,
+
+    // ---- issue-edit-dialog ----
+    /// The `(team_slug, project_slug, number)` of an issue seeded in a
+    /// DIFFERENT workspace from Mei (the foreign-issue non-enumerability
+    /// scenario, S5). The When builds the foreign edit path from this.
+    pub ied_foreign_path: Option<(String, String, i32)>,
+    /// The foreign issue's title — asserted NOT echoed in the uniform
+    /// not-found refusal (no enumeration oracle).
+    pub ied_foreign_title: Option<String>,
 }
 
 impl FoundryWorld {

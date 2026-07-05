@@ -25,37 +25,37 @@ Feature: A member edits an issue's title and description from a dialog
     And a project "Sandbox" (key "GEN") with an issue "GEN-1" titled "Old title" described "old body"
     And Mei is signed in
 
-  @pending @real-io
+  @real-io
   Scenario: The card is wired to open the edit dialog
     When Mei fetches the "Sandbox" board
     Then the "GEN-1" card carries an hx-get to its issue-edit endpoint targeting the modal container
 
-  @pending @real-io
+  @real-io
   Scenario: The edit dialog is pre-filled with the issue's current values
     When Mei opens the edit dialog for "GEN-1"
     Then the dialog title field contains "Old title"
     And the dialog description field contains "old body"
     And the dialog form carries an hx-post to the save endpoint and the hidden "_csrf" field
 
-  @pending @real-io
+  @real-io
   Scenario: Saving edits the issue and replaces the board card in place
     When Mei saves the edit dialog for "GEN-1" with title "New title" and description "new body"
     Then the issue "GEN-1" has title "New title" and description "new body" in the store
     And the response is an out-of-band card replacement keyed on "GEN-1" showing "New title"
 
-  @pending @real-io @error
+  @real-io @error
   Scenario: An empty title is rejected in the dialog, nothing persisted
     When Mei saves the edit dialog for "GEN-1" with an empty title
     Then the response is the "Title is required" error fragment
     And the issue "GEN-1" still has title "Old title" in the store
 
-  @pending @real-io @security
+  @real-io @security
   Scenario: Editing a foreign issue is refused non-enumerably
     Given an issue "GEN-9" exists in a DIFFERENT workspace from Mei
     When Mei requests the edit dialog for that issue's path
     Then the response is the uniform not-found page with no echoed title
 
-  @pending @real-io
+  @real-io
   Scenario: No-JS fallback saves the edit
     When Mei submits the edit form for "GEN-1" as a plain form with title "Plain edit"
     Then the response redirects to the "Sandbox" board

@@ -27,13 +27,20 @@ use crate::session::SESSION_KEY_USER_ID;
 use crate::AppState;
 use askama::Template;
 use axum::extract::{Form, Path, State};
-use axum::http::header::{HeaderMap, HeaderValue, LOCATION};
+use axum::http::header::{HeaderMap, HeaderValue, COOKIE, LOCATION, SET_COOKIE};
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
 use foundry_core::ProjectKey;
 use foundry_services::{issues as issue_service, Principal, ServiceError};
 use serde::Deserialize;
 use tower_sessions::Session;
+
+/// Build the canonical edit-dialog URL for an issue (issue-edit-dialog). The
+/// SAME string the board card's `hx-get`, the dialog form `action`/`hx-post`,
+/// and the save handler all use — one source of truth for the endpoint.
+fn edit_url(team_slug: &str, project_slug: &str, number: i32) -> String {
+    format!("/team/{team_slug}/project/{project_slug}/issues/{number}/edit")
+}
 
 #[derive(Debug, Deserialize)]
 pub struct CreateIssueForm {
@@ -83,9 +90,12 @@ pub async fn submit_create(
             // the previous inline path produced (byte-identical).
             let issue_key = parse_issue_key(&created.key, created.number);
             if is_htmx(&headers) {
+                let edit = edit_url(&team_slug, &project_slug, created.number);
                 return (
                     StatusCode::OK,
-                    Html(render_issue_card_with_column_marker(&issue_key, &raw_title)),
+                    Html(render_issue_card_with_column_marker(
+                        &issue_key, &raw_title, &edit,
+                    )),
                 )
                     .into_response();
             }
@@ -163,6 +173,127 @@ pub async fn submit_state_change(
             resolve_not_found_page(&state, &principal, &team_slug, &project_slug).await
         }
         Err(_) => internal_error("change_issue_state", "service error"),
+    }
+}
+
+// ------------------------ GET /team/:team/project/:project/issues/:n/edit
+
+/// issue-edit-dialog — render the pre-filled edit dialog (ADR-001/002). Resolves
+/// the issue's current title + description through the `resolve_member_project`-
+/// gated service read (so a FOREIGN issue is refused with the uniform
+/// non-enumerable `resource_not_found_page`, ADR-003), then renders the
+/// `IssueEditModal` fragment htmx swaps into `#modal-root`. Mints/reuses the CSRF
+/// cookie exactly as the new-issue modal does, so the save POST (under
+/// `csrf_middleware`) has a matching double-submit token.
+pub async fn show_edit_form(
+    State(state): State<AppState>,
+    Path((team_slug, project_slug, issue_number)): Path<(String, String, i32)>,
+    session: Session,
+    headers: HeaderMap,
+) -> Response {
+    let Some(user) = signed_in_user(&session).await else {
+        return redirect_to("/sign-in");
+    };
+    let principal = Principal::Human {
+        user_id: user.user_id,
+        workspace_id: user.workspace_id,
+    };
+    let view = match issue_service::edit_issue_form(
+        &state.store,
+        &principal,
+        &team_slug,
+        &project_slug,
+        issue_number,
+    )
+    .await
+    {
+        Ok(v) => v,
+        Err(ServiceError::Forbidden) => return non_member_page(&team_slug),
+        // A foreign/missing issue is byte-identical to a never-existed one
+        // (ADR-003): the requested key is NOT echoed, so there is no
+        // enumeration oracle.
+        Err(ServiceError::NotFound) => return resource_not_found_page(),
+        Err(_) => return internal_error("edit_issue_form", "service error"),
+    };
+
+    let (csrf, set_cookie) = ensure_csrf_cookie(&state, &headers);
+    let action = edit_url(&team_slug, &project_slug, issue_number);
+    let body = crate::views::IssueEditModal {
+        action,
+        csrf,
+        key: view.key,
+        title: view.title,
+        description: view.description_md,
+    }
+    .render()
+    .expect("issue_edit_modal partial renders from a fully-resolved, infallible view-model");
+    response_with_optional_cookie(StatusCode::OK, Html(body).into_response(), set_cookie)
+}
+
+// ------------------------ POST /team/:team/project/:project/issues/:n/edit
+
+#[derive(Debug, Deserialize)]
+pub struct EditIssueForm {
+    pub title: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(rename = "_csrf", default)]
+    pub _csrf: Option<String>,
+}
+
+/// issue-edit-dialog — save the edited title + description (ADR-001/002). Under
+/// `csrf_middleware`. On success + htmx: `200` carrying the updated card as an
+/// OOB `outerHTML` swap keyed on `data-issue-key` (the board card updates in
+/// place; the empty primary body clears `#modal-root` so the dialog closes). On
+/// success + no-JS: `303` → the board. Empty/oversized title → the
+/// "Title is required" fragment (mirrors `submit_create`). Foreign/missing →
+/// the uniform non-enumerable not-found page (ADR-003).
+pub async fn submit_edit(
+    State(state): State<AppState>,
+    Path((team_slug, project_slug, issue_number)): Path<(String, String, i32)>,
+    session: Session,
+    headers: HeaderMap,
+    Form(form): Form<EditIssueForm>,
+) -> Response {
+    let Some(user) = signed_in_user(&session).await else {
+        return redirect_to("/sign-in");
+    };
+    let principal = Principal::Human {
+        user_id: user.user_id,
+        workspace_id: user.workspace_id,
+    };
+    match issue_service::edit_issue_details(
+        &state.store,
+        &principal,
+        &team_slug,
+        &project_slug,
+        issue_number,
+        &form.title,
+        &form.description,
+    )
+    .await
+    {
+        Ok(updated) => {
+            let issue_key = parse_issue_key(&updated.key, updated.number);
+            let edit = edit_url(&team_slug, &project_slug, updated.number);
+            if is_htmx(&headers) {
+                (
+                    StatusCode::OK,
+                    Html(render_issue_card_oob_replace(
+                        &issue_key,
+                        &updated.title,
+                        &edit,
+                    )),
+                )
+                    .into_response()
+            } else {
+                redirect_to(&format!("/team/{team_slug}/project/{project_slug}"))
+            }
+        }
+        Err(ServiceError::Validation { .. }) => bad_request_fragment("Title is required"),
+        Err(ServiceError::Forbidden) => non_member_page(&team_slug),
+        Err(ServiceError::NotFound) => resource_not_found_page(),
+        Err(_) => internal_error("edit_issue_details", "service error"),
     }
 }
 
@@ -274,13 +405,52 @@ fn is_htmx(headers: &HeaderMap) -> bool {
         .unwrap_or(false)
 }
 
-/// Render a single issue card. The card markup is intentionally simple —
-/// the acceptance suite asserts the key + Backlog column wording is
-/// present; a designer rounds out the visual treatment in slice 2.
-pub(crate) fn render_issue_card(issue_key: &foundry_core::IssueKey, title: &str) -> String {
+/// Reuse the request's CSRF cookie if present, else mint one — mirrors
+/// `keyboard::ensure_csrf_cookie`. The edit-dialog GET renders the token into
+/// the form's hidden `_csrf` field; the save POST (under `csrf_middleware`)
+/// double-submits it against this same cookie.
+fn ensure_csrf_cookie(state: &AppState, headers: &HeaderMap) -> (String, Option<String>) {
+    let existing = headers
+        .get(COOKIE)
+        .and_then(|v| v.to_str().ok())
+        .and_then(crate::csrf::extract_csrf_cookie);
+    if let Some(token) = existing {
+        return (token, None);
+    }
+    let token = crate::csrf::generate_token();
+    let cookie = crate::csrf::build_csrf_cookie(&token, state.session_cookie_secure);
+    (token, Some(cookie))
+}
+
+fn response_with_optional_cookie(
+    status: StatusCode,
+    body: Response,
+    set_cookie: Option<String>,
+) -> Response {
+    let (mut parts, body) = body.into_parts();
+    parts.status = status;
+    if let Some(cookie) = set_cookie {
+        if let Ok(v) = HeaderValue::from_str(&cookie) {
+            parts.headers.insert(SET_COOKIE, v);
+        }
+    }
+    Response::from_parts(parts, body)
+}
+
+/// Render a single issue card. Selector-and-substring-identical to the board
+/// `partials/issue_card.html` (the render contract): both carry the
+/// `data-issue-key` marker plus the issue-edit-dialog `hx-get`/`hx-target`/
+/// `hx-swap` wiring (R1) so the card opens the pre-filled dialog. `edit_url` is
+/// the `…/issues/{n}/edit` endpoint.
+pub(crate) fn render_issue_card(
+    issue_key: &foundry_core::IssueKey,
+    title: &str,
+    edit_url: &str,
+) -> String {
     format!(
-        r#"<article class="issue-card" data-issue-key="{key}"><span class="key">{key}</span> <span class="title">{title}</span></article>"#,
+        r##"<article class="issue-card" data-issue-key="{key}" hx-get="{edit}" hx-target="#modal-root" hx-swap="innerHTML" style="cursor:pointer"><span class="key">{key}</span> <span class="title">{title}</span></article>"##,
         key = html_escape(&issue_key.to_string()),
+        edit = html_escape(edit_url),
         title = html_escape(title),
     )
 }
@@ -288,9 +458,34 @@ pub(crate) fn render_issue_card(issue_key: &foundry_core::IssueKey, title: &str)
 /// htmx response variant: same card wrapped with an out-of-band marker
 /// that names the Backlog column. The acceptance test checks the body
 /// contains both the issue key and the "Backlog" label.
-fn render_issue_card_with_column_marker(issue_key: &foundry_core::IssueKey, title: &str) -> String {
+fn render_issue_card_with_column_marker(
+    issue_key: &foundry_core::IssueKey,
+    title: &str,
+    edit_url: &str,
+) -> String {
     format!(
         r#"<div hx-swap-oob="beforeend:[data-column='backlog']" data-target-column="Backlog">{card}</div>"#,
-        card = render_issue_card(issue_key, title),
+        card = render_issue_card(issue_key, title, edit_url),
+    )
+}
+
+/// issue-edit-dialog save response (htmx): the SAME card, carrying an
+/// `hx-swap-oob="outerHTML:[data-issue-key='{key}']"` directive so htmx replaces
+/// the live board card in place (ODD-2 / ADR-001). The primary response body is
+/// otherwise empty, so `#modal-root` clears and the dialog closes. The replaced
+/// card keeps its own `hx-get` (R2 — it stays clickable after a save).
+fn render_issue_card_oob_replace(
+    issue_key: &foundry_core::IssueKey,
+    title: &str,
+    edit_url: &str,
+) -> String {
+    let key = html_escape(&issue_key.to_string());
+    // Inject the OOB directive onto the base card so there is ONE source of
+    // truth for the card body (the base renderer). Keyed on data-issue-key via
+    // the selector form htmx's board-new-issue create swap already uses.
+    render_issue_card(issue_key, title, edit_url).replacen(
+        r#"<article class="issue-card""#,
+        &format!(r#"<article class="issue-card" hx-swap-oob="outerHTML:[data-issue-key='{key}']""#),
+        1,
     )
 }

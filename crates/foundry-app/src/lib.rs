@@ -352,6 +352,16 @@ pub fn build_router(state: AppState) -> Router {
             "/team/{team_slug}/project/{project_slug}/issues/{issue_number}/state",
             post(issues::submit_state_change),
         )
+        // issue-edit-dialog (ADR-001) — GET the pre-filled edit dialog, POST the
+        // save. Same shared layer (UNDER `csrf_middleware` + `session_layer`): the
+        // save is a double-submit `_csrf` browser POST, and the no-JS fallback is a
+        // native `method="post"` form (so POST, not PATCH). Tenancy is scoped by the
+        // resolved acting workspace inside the service (ADR-002); a foreign issue
+        // 404s non-enumerably (ADR-003).
+        .route(
+            "/team/{team_slug}/project/{project_slug}/issues/{issue_number}/edit",
+            get(issues::show_edit_form).post(issues::submit_edit),
+        )
         .route(
             "/team/{team_slug}/project/{project_slug}/events",
             get(events::sse_stream),
