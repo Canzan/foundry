@@ -465,6 +465,11 @@ pub struct DashboardRoot {
     /// from `Store::is_instance_admin(session user_id)`; fail-closed to `false` on
     /// lookup error so the link is ABSENT (not merely CSS-hidden) unless proven.
     pub is_instance_admin: bool,
+    /// US-02 (D2): the double-submit CSRF token, rendered into the sign-out
+    /// form's hidden `_csrf` field. Minted via `ensure_csrf_cookie` in the
+    /// handler, which also emits the matching `foundry_csrf` Set-Cookie — so the
+    /// `/` response is `(SET_COOKIE, Html)`, mirroring `admin_tokens::show_index`.
+    pub csrf: String,
 }
 
 /// One project row on the dashboard project index.

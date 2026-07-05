@@ -24,6 +24,11 @@
     border-radius: 8px; text-decoration: none; color: #374151; background: #fff; font-size: .92rem;
     transition: border-color .12s, background .12s; }
   .actions a:hover { border-color: #c7cbd1; background: #f9fafb; }
+  .actions button { display: inline-block; padding: .55rem .95rem; border: 1px solid #e5e7eb;
+    border-radius: 8px; color: #374151; background: #fff; font-size: .92rem; cursor: pointer;
+    font-family: inherit; transition: border-color .12s, background .12s; }
+  .actions button:hover { border-color: #c7cbd1; background: #f9fafb; }
+  .actions form { margin: 0; }
 </style>
 <main class="dash">
   <h1>Foundry</h1>
@@ -57,6 +62,9 @@
       {% if is_instance_admin %}
       <li><a href="/admin/instance/workspaces">Instance admin</a></li>
       {% endif %}
+      <li>
+        <form method="post" action="/sign-out"><input type="hidden" name="_csrf" value="{{ csrf }}"><button type="submit">Sign out</button></form>
+      </li>
     </ul>
   </section>
 </main>

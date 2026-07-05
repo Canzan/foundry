@@ -71,6 +71,17 @@ pub struct FoundryWorld {
     /// and not a live element (AC-01.3). Auth for the visit reuses the shared
     /// `us_07_signed_in_email`/`_password` slots.
     pub dash_last_display_name: Option<String>,
+    /// The signed-in persona's `foundry_session=<value>` cookie pair for the
+    /// current dashboard scenario. Captured by the "visits /" / forged-post
+    /// steps (US-02 sign-out) so the flow holds ONE session across the visit →
+    /// sign-out → re-visit sequence: sign-out must destroy the SAME session the
+    /// re-visit then observes as invalid.
+    pub dash_session_cookie: Option<String>,
+    /// The `_csrf` token the dashboard visit rendered into the sign-out form
+    /// (matched against the `foundry_csrf` cookie on that same response, D2). The
+    /// "submits the sign-out form" step replays it as both the form `_csrf` field
+    /// and the `foundry_csrf` cookie for the double-submit POST.
+    pub dash_csrf_token: Option<String>,
 
     // ---- US-07 project-create scratch ----
     /// Email of the signed-in user for the current scenario (drives

@@ -249,7 +249,11 @@ pub async fn submit_forgot(
 
 // ------------------------------------------------------------------------ GET /
 
-pub async fn dashboard_root(State(state): State<AppState>, session: Session) -> Response {
+pub async fn dashboard_root(
+    State(state): State<AppState>,
+    session: Session,
+    headers: HeaderMap,
+) -> Response {
     let user = session
         .get::<SessionUser>(SESSION_KEY_USER_ID)
         .await
@@ -307,15 +311,22 @@ pub async fn dashboard_root(State(state): State<AppState>, session: Session) -> 
                     tracing::error!(%err, "dashboard: is_instance_admin failed");
                     false
                 });
+            // US-02 (D2): the sign-out control POSTs to `/sign-out` with a valid
+            // double-submit token, so `/` must mint a CSRF cookie and render the
+            // matching hidden `_csrf` — the response becomes `(SET_COOKIE, Html)`,
+            // mirroring `admin_tokens::show_index`. An existing cookie is reused;
+            // otherwise a fresh one is minted + Set-Cookie'd.
+            let (csrf, set_cookie) = ensure_csrf_cookie(&state, &headers);
             let body = crate::views::DashboardRoot {
                 display_name,
                 workspace_name,
                 projects,
                 is_instance_admin,
+                csrf,
             }
             .render()
             .expect("dashboard_root.html renders");
-            Html(body).into_response()
+            response_with_optional_cookie(StatusCode::OK, Html(body).into_response(), set_cookie)
         }
         None => {
             let mut hdrs = HeaderMap::new();

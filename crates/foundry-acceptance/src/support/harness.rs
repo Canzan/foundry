@@ -449,6 +449,133 @@ pub async fn signed_in_post(
     }
 }
 
+/// Sign in as `email` / `password` and return the `foundry_session=<value>`
+/// cookie PAIR (name=value, attributes stripped) so a caller can hold ONE
+/// session across MULTIPLE subsequent requests.
+///
+/// [`signed_in_get`] / [`signed_in_post`] re-authenticate on every call, minting
+/// a throwaway session each time — fine for one-shot reads/writes, useless for a
+/// flow whose whole point is session lifecycle (sign-out destroys the session;
+/// the SAME session must then be observed invalid). This helper hands back the
+/// session cookie so [`get_with_cookie`] / [`post_with_cookie`] can drive that
+/// continuity: visit `/` → submit sign-out → re-visit `/` with the SAME cookie.
+pub async fn establish_session(
+    harness: &InProcHarness,
+    http: &reqwest::Client,
+    email: &str,
+    password: &str,
+) -> String {
+    let base = harness.base_url();
+
+    // (1) GET /sign-in to mint a CSRF cookie + token.
+    let signin_get = http
+        .get(format!("{base}/sign-in"))
+        .send()
+        .await
+        .expect("get /sign-in for csrf");
+    let csrf_token = signin_get
+        .headers()
+        .get_all(reqwest::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .find(|s| s.starts_with("foundry_csrf="))
+        .and_then(|s| s.strip_prefix("foundry_csrf="))
+        .and_then(|rest| rest.split(';').next())
+        .expect("/sign-in must mint foundry_csrf cookie")
+        .to_string();
+
+    // (2) POST /sign-in to authenticate; capture the session cookie pair.
+    let mut signin_form: std::collections::HashMap<&str, String> = std::collections::HashMap::new();
+    signin_form.insert("email", email.to_string());
+    signin_form.insert("password", password.to_string());
+    signin_form.insert("_csrf", csrf_token.clone());
+    let signin_resp = http
+        .post(format!("{base}/sign-in"))
+        .header(
+            reqwest::header::COOKIE,
+            format!("foundry_csrf={csrf_token}"),
+        )
+        .form(&signin_form)
+        .send()
+        .await
+        .expect("post /sign-in");
+    let session_cookie = signin_resp
+        .headers()
+        .get_all(reqwest::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .find(|s| s.starts_with("foundry_session="))
+        .map(|s| s.to_string())
+        .expect("sign-in must issue a foundry_session cookie");
+    session_cookie
+        .split(';')
+        .next()
+        .unwrap_or(&session_cookie)
+        .to_string()
+}
+
+/// GET `url` presenting the already-formatted `cookie_header` Cookie value
+/// (e.g. `foundry_session=…` or `foundry_session=…; foundry_csrf=…`). Returns
+/// the full response shape. Pairs with [`establish_session`] to drive a
+/// session-continuous flow without the per-call re-authentication of
+/// [`signed_in_get`].
+pub async fn get_with_cookie(
+    harness: &InProcHarness,
+    http: &reqwest::Client,
+    url: &str,
+    cookie_header: &str,
+) -> PostOutcome {
+    let base = harness.base_url();
+    let resp = http
+        .get(format!("{base}{url}"))
+        .header(reqwest::header::COOKIE, cookie_header.to_string())
+        .send()
+        .await
+        .expect("get with cookie");
+    let status = resp.status();
+    let headers = resp.headers().clone();
+    let body = resp.text().await.unwrap_or_default();
+    PostOutcome {
+        status,
+        headers,
+        body,
+    }
+}
+
+/// POST `url` presenting the already-formatted `cookie_header` Cookie value plus
+/// the urlencoded `form`. The caller supplies the `_csrf` field (and matching
+/// `foundry_csrf=` cookie) explicitly, so this can drive BOTH the valid
+/// double-submit path AND the forged-token refusal path. Pairs with
+/// [`establish_session`].
+pub async fn post_with_cookie(
+    harness: &InProcHarness,
+    http: &reqwest::Client,
+    url: &str,
+    cookie_header: &str,
+    form: &[(&str, &str)],
+) -> PostOutcome {
+    let base = harness.base_url();
+    let mut full_form: std::collections::HashMap<&str, String> = std::collections::HashMap::new();
+    for (k, v) in form {
+        full_form.insert(k, (*v).to_string());
+    }
+    let resp = http
+        .post(format!("{base}{url}"))
+        .header(reqwest::header::COOKIE, cookie_header.to_string())
+        .form(&full_form)
+        .send()
+        .await
+        .expect("post with cookie");
+    let status = resp.status();
+    let headers = resp.headers().clone();
+    let body = resp.text().await.unwrap_or_default();
+    PostOutcome {
+        status,
+        headers,
+        body,
+    }
+}
+
 /// Sign in as `email` / `password`, then GET `url` carrying the session cookie.
 /// Returns the full response shape so the caller can assert on the rendered
 /// page. The GET dual of [`signed_in_post`]: it authenticates (steps 1-2) and

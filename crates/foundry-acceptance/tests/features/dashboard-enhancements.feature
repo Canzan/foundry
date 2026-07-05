@@ -63,7 +63,7 @@ Feature: A signed-in user orients, navigates by role, and signs out from the das
     Then the response body does not contain a link to "/admin/instance/workspaces"
 
   # ── Slice 03 — US-02 sign out ─────────────────────────────────────────────
-  @pending @us-02 @real-io
+  @us-02 @real-io
   Scenario: A signed-in user signs out from the dashboard
     When Ada visits "/"
     Then the response body contains a sign-out form posting to "/sign-out"
@@ -72,7 +72,7 @@ Feature: A signed-in user orients, navigates by role, and signs out from the das
     Then the response redirects Ada to "/sign-in"
     And requesting "/" with the old session redirects to "/sign-in"
 
-  @pending @us-02 @error @real-io
+  @us-02 @error @real-io
   Scenario: Sign-out with a forged CSRF token is refused
     When Ada posts to "/sign-out" with a "_csrf" that does not match the cookie
     Then the request is refused by CSRF middleware

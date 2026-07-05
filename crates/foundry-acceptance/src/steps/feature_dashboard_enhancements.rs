@@ -9,7 +9,13 @@
 //! Reuses, per the globally-unique-phrase rule (cucumber-rs):
 //!   - `(\w+) is signed in`                        (us_07_project_create)
 //!   - `the response body contains "..."`          (us_06_signin)
-//!   - `support::harness::{InProcHarness, signed_in_get}`
+//!   - `the response redirects (\w+) to "..."`     (us_06_signin — sign-out 303)
+//!
+//! Slice-03 (US-02 sign out) holds ONE session across the visit → sign-out →
+//! re-visit sequence via `support::harness::{establish_session, get_with_cookie,
+//! post_with_cookie}` — the per-call re-authenticating `signed_in_get`/`_post`
+//! cannot express session lifecycle (sign-out must destroy the SAME session a
+//! later step then observes invalid).
 //!
 //! The Background's `Ada is signed in` routes through us_07's `(\w+) is signed
 //! in`, which resolves personas via `identity_for` — "Ada" is registered there
@@ -22,10 +28,13 @@
 //! (D1 / AC-01.4) is pinned by a Rust unit test on the handler fallback seam
 //! (`signin::tests::greeting_degrades_to_neutral_when_identity_absent`).
 
-use crate::support::harness::{signed_in_get, InProcHarness};
+use crate::support::harness::{
+    establish_session, get_with_cookie, post_with_cookie, InProcHarness,
+};
 use crate::world::FoundryWorld;
 use cucumber::{given, then, when};
 use reqwest::redirect::Policy;
+use reqwest::StatusCode;
 use secrecy::SecretString;
 
 const TEST_NOW: &str = "2026-01-15T12:00:00Z";
@@ -112,6 +121,8 @@ async fn workspace_with_named_admin(
     world.last_body = None;
     world.last_headers = None;
     world.dash_last_display_name = None;
+    world.dash_session_cookie = None;
+    world.dash_csrf_token = None;
     world.us_07_signed_in_email = None;
     world.us_07_signed_in_password = None;
     ensure_harness(world).await;
@@ -343,7 +354,13 @@ async fn visits_root(world: &mut FoundryWorld, _who: String) {
         .expect("signed-in password recorded");
     let harness = world.harness.as_ref().expect("harness");
     let http = world.http.as_ref().expect("http");
-    let outcome = signed_in_get(harness, http, &email, &password, "/").await;
+    // Hold ONE session for the whole scenario so the sign-out flow (US-02) can
+    // destroy the SAME session it visited under and then observe it invalid. The
+    // GET carries ONLY the session cookie (no `foundry_csrf`), so `dashboard_root`
+    // MINTS a fresh CSRF cookie + renders the matching hidden `_csrf` (D2).
+    let session = establish_session(harness, http, &email, &password).await;
+    let outcome = get_with_cookie(harness, http, "/", &session).await;
+    world.dash_session_cookie = Some(session);
     world.last_status = Some(outcome.status);
     world.last_headers = Some(outcome.headers);
     world.last_body = Some(outcome.body);
@@ -414,5 +431,170 @@ async fn body_does_not_contain_link_to(world: &mut FoundryWorld, path: String) {
     assert!(
         !body.contains(&needle),
         "response body contained a link to {path:?} it must NOT expose (found {needle:?}): {body:?}"
+    );
+}
+
+// ----- US-02 sign out -----------------------------------------------------
+
+/// Pull the `value="…"` of the FIRST `<input … name="{field}" …>` in `body`.
+/// Attribute order in the rendered form is `type="hidden" name="_csrf"
+/// value="…"`, so `value=` follows `name=`.
+fn hidden_input_value(body: &str, field: &str) -> Option<String> {
+    let marker = format!("name=\"{field}\"");
+    let after = &body[body.find(&marker)? + marker.len()..];
+    let value_start = after.find("value=\"")? + "value=\"".len();
+    let rest = &after[value_start..];
+    let end = rest.find('"')?;
+    Some(rest[..end].to_string())
+}
+
+/// The `foundry_csrf` value from the response's `Set-Cookie` header(s).
+fn set_cookie_csrf(headers: &reqwest::header::HeaderMap) -> Option<String> {
+    headers
+        .get_all(reqwest::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .find(|s| s.starts_with("foundry_csrf="))
+        .and_then(|s| s.strip_prefix("foundry_csrf="))
+        .and_then(|rest| rest.split(';').next())
+        .map(str::to_string)
+}
+
+#[then(regex = r#"^the response body contains a sign-out form posting to "([^"]+)"$"#)]
+async fn body_contains_signout_form(world: &mut FoundryWorld, action: String) {
+    let body = world.last_body.as_deref().unwrap_or("");
+    let needle = format!("<form method=\"post\" action=\"{action}\">");
+    assert!(
+        body.contains(&needle),
+        "response body missing a sign-out form {needle:?}: {body:?}"
+    );
+}
+
+#[then(regex = r#"^the sign-out form carries a "_csrf" token matching the "foundry_csrf" cookie$"#)]
+async fn signout_form_csrf_matches_cookie(world: &mut FoundryWorld) {
+    let body = world.last_body.as_deref().unwrap_or("");
+    let form_token =
+        hidden_input_value(body, "_csrf").expect("sign-out form must carry a hidden _csrf field");
+    let headers = world.last_headers.as_ref().expect("headers captured");
+    let cookie_token = set_cookie_csrf(headers)
+        .expect("the dashboard visit must mint a foundry_csrf Set-Cookie (D2)");
+    assert_eq!(
+        form_token, cookie_token,
+        "the form _csrf token must match the foundry_csrf cookie on the SAME response \
+         (double-submit): form={form_token:?} cookie={cookie_token:?}"
+    );
+    // Replay the matched token on the sign-out POST (form field + cookie).
+    world.dash_csrf_token = Some(form_token);
+}
+
+#[when(regex = r#"^(\w+) submits the sign-out form$"#)]
+async fn submits_signout_form(world: &mut FoundryWorld, _who: String) {
+    let session = world
+        .dash_session_cookie
+        .clone()
+        .expect("a session was established by the dashboard visit");
+    let token = world
+        .dash_csrf_token
+        .clone()
+        .expect("the sign-out form's _csrf token was captured");
+    let cookie = format!("{session}; foundry_csrf={token}");
+    let harness = world.harness.as_ref().expect("harness");
+    let http = world.http.as_ref().expect("http");
+    let outcome = post_with_cookie(harness, http, "/sign-out", &cookie, &[("_csrf", &token)]).await;
+    world.last_status = Some(outcome.status);
+    world.last_headers = Some(outcome.headers);
+    world.last_body = Some(outcome.body);
+}
+
+#[then(regex = r#"^requesting "/" with the old session redirects to "([^"]+)"$"#)]
+async fn old_session_redirects(world: &mut FoundryWorld, location: String) {
+    let session = world
+        .dash_session_cookie
+        .clone()
+        .expect("a session was established by the dashboard visit");
+    let harness = world.harness.as_ref().expect("harness");
+    let http = world.http.as_ref().expect("http");
+    let outcome = get_with_cookie(harness, http, "/", &session).await;
+    assert_eq!(
+        outcome.status,
+        StatusCode::SEE_OTHER,
+        "the destroyed session must no longer reach the dashboard (expected 303): {outcome:?}"
+    );
+    let loc = outcome
+        .headers
+        .get(reqwest::header::LOCATION)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    assert_eq!(
+        loc, location,
+        "the old session must redirect to {location:?}, got {loc:?}"
+    );
+}
+
+#[when(regex = r#"^(\w+) posts to "/sign-out" with a "_csrf" that does not match the cookie$"#)]
+async fn forged_signout_post(world: &mut FoundryWorld, _who: String) {
+    ensure_harness(world).await;
+    let email = world
+        .us_07_signed_in_email
+        .clone()
+        .expect("a persona is signed in");
+    let password = world
+        .us_07_signed_in_password
+        .clone()
+        .expect("signed-in password recorded");
+    let harness = world.harness.as_ref().expect("harness");
+    let http = world.http.as_ref().expect("http");
+    let session = establish_session(harness, http, &email, &password).await;
+    // A well-formed but MISMATCHED double-submit: the cookie token and the form
+    // token are both non-empty and differ, so `csrf_middleware` refuses (403)
+    // BEFORE the request reaches `submit_signout` — the session is never flushed.
+    let cookie = format!("{session}; foundry_csrf=cookie-side-token-aaaa");
+    let outcome = post_with_cookie(
+        harness,
+        http,
+        "/sign-out",
+        &cookie,
+        &[("_csrf", "form-side-token-bbbb")],
+    )
+    .await;
+    world.dash_session_cookie = Some(session);
+    world.last_status = Some(outcome.status);
+    world.last_headers = Some(outcome.headers);
+    world.last_body = Some(outcome.body);
+}
+
+#[then(regex = r"^the request is refused by CSRF middleware$")]
+async fn refused_by_csrf(world: &mut FoundryWorld) {
+    let status = world.last_status.expect("status captured");
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "a mismatched double-submit token must be refused 403 by csrf_middleware"
+    );
+    let body = world.last_body.as_deref().unwrap_or("");
+    assert!(
+        body.contains("CSRF"),
+        "the refusal body must name the CSRF failure, got {body:?}"
+    );
+}
+
+#[then(regex = r#"^(\w+)'s session is still valid$"#)]
+async fn session_still_valid(world: &mut FoundryWorld, _who: String) {
+    let session = world
+        .dash_session_cookie
+        .clone()
+        .expect("a session was established before the forged post");
+    let harness = world.harness.as_ref().expect("harness");
+    let http = world.http.as_ref().expect("http");
+    let outcome = get_with_cookie(harness, http, "/", &session).await;
+    assert_eq!(
+        outcome.status,
+        StatusCode::OK,
+        "the refused sign-out must NOT have destroyed the session (expected 200): {outcome:?}"
+    );
+    assert!(
+        outcome.body.contains("<h1>Foundry</h1>"),
+        "the still-valid session must render the dashboard: {:?}",
+        outcome.body
     );
 }

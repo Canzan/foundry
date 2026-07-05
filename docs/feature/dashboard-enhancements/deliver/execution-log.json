@@ -6,7 +6,7 @@
       "sid": "01",
       "p": "PREPARE",
       "s": "EXECUTED",
-      "d": "PASS: un-@pended the two drivable US-01 scenarios (greets-by-name, markup-inert); kept scenario 3 (greeting-degrades) @pending with a DELIVER comment — no clean in-process fault-injection seam",
+      "d": "PASS: un-@pended the two drivable US-01 scenarios (greets-by-name, markup-inert); kept scenario 3 (greeting-degrades) @pending with a DELIVER comment \u2014 no clean in-process fault-injection seam",
       "t": "2026-07-04T00:00:00Z"
     },
     {
@@ -41,14 +41,14 @@
       "sid": "02",
       "p": "RED",
       "s": "EXECUTED",
-      "d": "PASS: un-@pended the two US-03 scenarios; authored Givens (Ada is an instance super-admin — shipped grant_instance_admin; a member Mei who is not an instance admin is signed in) + Thens (body contains/does-not-contain a link to a path, asserted on href). Feature-scoped run RED for the right reason: super-admin scenario failed (link absent, template unchanged); member scenario green (link correctly absent). Budget: 1 behavior (role-conditional link) x 2 = 2 max unit tests; 0 authored — both observable outcomes driven through the real HTTP driving port, fail-closed Err path mirrors the existing list_projects_for_workspace defensive unwrap_or_else (no seam).",
+      "d": "PASS: un-@pended the two US-03 scenarios; authored Givens (Ada is an instance super-admin \u2014 shipped grant_instance_admin; a member Mei who is not an instance admin is signed in) + Thens (body contains/does-not-contain a link to a path, asserted on href). Feature-scoped run RED for the right reason: super-admin scenario failed (link absent, template unchanged); member scenario green (link correctly absent). Budget: 1 behavior (role-conditional link) x 2 = 2 max unit tests; 0 authored \u2014 both observable outcomes driven through the real HTTP driving port, fail-closed Err path mirrors the existing list_projects_for_workspace defensive unwrap_or_else (no seam).",
       "t": "2026-07-04T01:00:00Z"
     },
     {
       "sid": "02",
       "p": "GREEN",
       "s": "EXECUTED",
-      "d": "PASS: DashboardRoot gains is_instance_admin: bool; dashboard_root loads Store::is_instance_admin scoped by SESSION user_id, fail-closed to false on Err (link ABSENT, not CSS-hidden); template renders the /admin/instance/workspaces quick-action link under {% if is_instance_admin %}. FOUNDRY_ACCEPTANCE_TAGS=dashboard-enhancements green (4 scenarios, 26 steps). Wiring check: all 3 production files (views.rs, signin.rs, dashboard_root.html) in the diff — no Fixture Theater.",
+      "d": "PASS: DashboardRoot gains is_instance_admin: bool; dashboard_root loads Store::is_instance_admin scoped by SESSION user_id, fail-closed to false on Err (link ABSENT, not CSS-hidden); template renders the /admin/instance/workspaces quick-action link under {% if is_instance_admin %}. FOUNDRY_ACCEPTANCE_TAGS=dashboard-enhancements green (4 scenarios, 26 steps). Wiring check: all 3 production files (views.rs, signin.rs, dashboard_root.html) in the diff \u2014 no Fixture Theater.",
       "t": "2026-07-04T01:10:00Z"
     },
     {
@@ -57,6 +57,34 @@
       "s": "EXECUTED",
       "d": "PASS: FOUNDRY_ACCEPTANCE_TAGS=dashboard-enhancements acceptance green (4 scenarios: slice-01 x2 + slice-02 x2); fmt --all --check clean; clippy --all-targets --release -D warnings clean.",
       "t": "2026-07-04T01:15:00Z"
+    },
+    {
+      "sid": "03",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "PASS: un-@pended the two US-02 scenarios; added session-continuity harness helpers (establish_session/get_with_cookie/post_with_cookie) so the flow holds ONE session across visit->sign-out->re-visit (the re-authenticating signed_in_get/_post cannot express session lifecycle). Authored steps: sign-out form posts to /sign-out; hidden _csrf matches the foundry_csrf Set-Cookie on the SAME response (D2 double-submit); submits form; old session -> 303 /sign-in; forged _csrf -> 403 + session survives. Feature-scoped run RED for the right reason: sign-out-form scenario failed (no form action=/sign-out in body, template unchanged); forged-CSRF scenario already green on shipped csrf_middleware.",
+      "t": "2026-07-05T03:51:07Z"
+    },
+    {
+      "sid": "03",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS: DashboardRoot gains csrf: String; dashboard_root now takes headers: HeaderMap, mints CSRF via ensure_csrf_cookie and returns (SET_COOKIE, Html) via response_with_optional_cookie (D2 response-type ripple) \u2014 signed-OUT 303 branch unchanged; template renders <form method=post action=/sign-out> with hidden _csrf in Quick actions. Ripple contained: dashboard_root is the ONLY caller of the DashboardRoot view; only lib.rs:416 (/ route) references the handler. FOUNDRY_ACCEPTANCE_TAGS=dashboard-enhancements green (6 scenarios: slice01 x2 + slice02 x2 + slice03 x2, 41 steps). Wiring check: all 3 production files (views.rs, signin.rs, dashboard_root.html) in git diff \u2014 no Fixture Theater.",
+      "t": "2026-07-05T03:51:21Z"
+    },
+    {
+      "sid": "03",
+      "p": "RED_UNIT",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: acceptance tests reach GREEN via pure handler+view+template wiring (D2); no in-hexagon decomposition seam to unit-test. Budget: 3 behaviors x 2 = 6 max; 0 authored \u2014 every outcome observable through the real HTTP driving port. Existing signin::tests greeting_or_neutral unit tests unaffected (2 passed).",
+      "t": "2026-07-05T03:51:33Z"
+    },
+    {
+      "sid": "03",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS: FOUNDRY_ACCEPTANCE_TAGS=dashboard-enhancements acceptance green (6 scenarios: slice-01 x2 + slice-02 x2 + slice-03 x2, 41 steps); cargo fmt --all --check clean; cargo clippy --all-targets --release -D warnings clean; foundry-app signin unit tests green (2 passed). Stopping-criterion: 0 unit tests added (budget 6) \u2014 no parametrize-inflation, no theater; forged-CSRF scenario asserts a genuine 403 + surviving session (not tautological). D2 response-type change rippled nowhere unexpected.",
+      "t": "2026-07-05T03:51:48Z"
     }
   ]
 }
