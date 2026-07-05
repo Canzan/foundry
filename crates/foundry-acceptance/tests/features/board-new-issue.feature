@@ -26,32 +26,32 @@ Feature: The board's "New issue" button files an issue
     And a project "Sandbox" with key prefix "GEN" exists under "Backend"
     And Mei is signed in
 
-  @pending @real-io
+  @real-io
   Scenario: The New issue button is wired to open the modal
     When Mei fetches the "Sandbox" board
     Then the "New issue" button carries an hx-get to the new-issue modal endpoint
     And the button targets a modal container
     And the board contains a modal container element
 
-  @pending @real-io
+  @real-io
   Scenario: The new-issue modal form is wired to submit via htmx
     When Mei fetches the new-issue modal for "Sandbox"
     Then the modal form carries an hx-post to the issues collection
     And the modal form still carries method="post" and the hidden "_csrf" field
 
-  @pending @real-io
+  @real-io
   Scenario: An htmx create returns an out-of-band card for the Backlog column
     When Mei posts a new issue titled "Wire the button" to "Sandbox" as an htmx request
     Then the response is an out-of-band fragment targeting the "backlog" column
     And it renders a card showing the key "GEN-1" and the title "Wire the button"
 
-  @pending @real-io @error
+  @real-io @error
   Scenario: An empty title returns the error fragment, not a card
     When Mei posts a new issue with an empty title to "Sandbox" as an htmx request
     Then the response is the "Title is required" error fragment
     And the response is not a board and contains no issue card
 
-  @pending @real-io
+  @real-io
   Scenario: No-JS fallback — a plain form post still files the issue
     When Mei posts a new issue titled "Fallback works" to "Sandbox" as a plain form
     Then the response redirects to the "Sandbox" board

@@ -1,0 +1,35 @@
+{
+  "schema_version": "3.0",
+  "feature_id": "board-new-issue",
+  "notes": "Single client-wiring slice over a shipped backend. 3-phase canon (ADR-025): RED -> GREEN -> COMMIT. RED unskipped S1-S5 (authored upstream in DISTILL) and confirmed they fail for the right reason (inert button / plain-POST modal). No PBT unit tests authored: the acceptance scenarios are port-to-port over the driving HTTP surface and are the full coverage; the GREEN change is template wiring plus a view-model slug surfacing with no separable domain logic to decompose (a unit test would duplicate the acceptance coverage or couple to template internals). One authorized src change surfaced team_slug/project_slug on BoardPage (build_board_page) so the button can render the absolute modal endpoint; the fragile template-only relative-URL workaround was rejected.",
+  "events": [
+    {
+      "sid": "01-01",
+      "p": "RED",
+      "s": "EXECUTED",
+      "d": "PASS: un-@pended S1-S5; verified fail-for-right-reason (inert button has no hx-get, modal form has no hx-post) before wiring",
+      "t": "2026-07-05T20:05:00Z"
+    },
+    {
+      "sid": "01-01",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS: wired board.html button (hx-get modal endpoint + #modal-root) + new_issue_modal.html form (hx-post, keeps method=post/_csrf); surfaced team_slug/project_slug on BoardPage; 5 scenarios / 31 steps green",
+      "t": "2026-07-05T20:38:00Z"
+    },
+    {
+      "sid": "01-01",
+      "p": "RED_UNIT",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: acceptance scenarios S1-S5 enter through the driving HTTP port and assert wiring + shipped contracts port-to-port; the GREEN delta is template wiring + a slug surfacing on the board view-model with no hexagonal-core logic to decompose. A unit test would either duplicate the acceptance coverage or couple to template/DOM internals.",
+      "t": "2026-07-05T20:38:30Z"
+    },
+    {
+      "sid": "01-01",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS: FOUNDRY_ACCEPTANCE_TAGS=board-new-issue 5/5 green; fmt clean; release clippy --all-targets clean",
+      "t": "2026-07-05T20:42:30Z"
+    }
+  ]
+}

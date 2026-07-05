@@ -611,6 +611,8 @@ fn build_board_page(
     crate::views::BoardPage {
         team_name: team_name.to_string(),
         project_name: project.name.clone(),
+        team_slug: slugify(team_name),
+        project_slug: slugify(&project.name),
         key_prefix: project.key_prefix.clone(),
         columns,
         kb_items,

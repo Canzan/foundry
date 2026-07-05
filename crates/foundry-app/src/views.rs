@@ -198,6 +198,10 @@ pub struct BoardColumn {
 pub struct BoardPage {
     pub team_name: String,
     pub project_name: String,
+    /// Team slug for board-scoped links (e.g. `hx-get` to the new-issue modal).
+    pub team_slug: String,
+    /// Project slug for board-scoped links (e.g. `hx-get` to the new-issue modal).
+    pub project_slug: String,
     /// The project key prefix shown in the header (e.g. `AUTH`).
     pub key_prefix: String,
     pub columns: Vec<BoardColumn>,
