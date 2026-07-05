@@ -50,13 +50,13 @@ Feature: A signed-in user orients, navigates by role, and signs out from the das
     And the response body contains a neutral greeting
 
   # ── Slice 02 — US-03 instance-admin link (super-admin only) ───────────────
-  @pending @us-03 @real-io
+  @us-03 @real-io
   Scenario: A super-admin sees the instance-admin link
     Given Ada is an instance super-admin
     When Ada visits "/"
     Then the response body contains a link to "/admin/instance/workspaces"
 
-  @pending @us-03 @real-io @security
+  @us-03 @real-io @security
   Scenario: A non-super-admin never sees the instance-admin link
     Given a member "Mei" who is not an instance admin is signed in
     When Mei visits "/"

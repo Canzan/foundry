@@ -255,6 +255,79 @@ async fn member_with_display_name_signed_in(
     world.dash_last_display_name = Some(display_name);
 }
 
+// "Ada is an instance super-admin" grants the (Background-seeded, already
+// signed-in) Ada the INSTANCE-level super-admin authority via the shipped
+// `Store::grant_instance_admin` (lib.rs:1584) — the same upgrade path a real
+// operator takes. Ada's session identity is unchanged (Background's `Ada is
+// signed in` already recorded it); this only flips the `is_instance_admin`
+// predicate the dashboard reads.
+#[given(regex = r"^Ada is an instance super-admin$")]
+async fn ada_is_instance_super_admin(world: &mut FoundryWorld) {
+    ensure_harness(world).await;
+    let harness = world.harness.as_ref().expect("harness");
+    let pool = harness.app.state.store.pool();
+    let ada_email = email_for("Ada");
+    let ada_id: (uuid::Uuid,) = sqlx::query_as("SELECT id FROM users WHERE email_lower = $1")
+        .bind(&ada_email)
+        .fetch_one(pool)
+        .await
+        .expect("fetch Ada's user id");
+    harness
+        .app
+        .state
+        .store
+        .grant_instance_admin(ada_id.0)
+        .await
+        .expect("grant Ada instance super-admin");
+}
+
+// "a member Mei who is not an instance admin is signed in" seeds Mei as a plain
+// workspace member (NO `instance_admins` row) attached to the Background
+// workspace, then records her as the signed-in persona. Mirrors
+// `member_with_display_name_signed_in` (same seeding + sign-in seam), minus the
+// markup display name and minus any super-admin grant — the negative case for
+// the role-conditional link.
+#[given(regex = r#"^a member "([^"]+)" who is not an instance admin is signed in$"#)]
+async fn member_not_instance_admin_signed_in(world: &mut FoundryWorld, member_first_name: String) {
+    ensure_harness(world).await;
+    let harness = world.harness.as_ref().expect("harness");
+    let pool = harness.app.state.store.pool();
+
+    let ws_id: (uuid::Uuid,) = sqlx::query_as("SELECT id FROM workspaces LIMIT 1")
+        .fetch_one(pool)
+        .await
+        .expect("fetch workspace");
+    let email = email_for(&member_first_name);
+    let hash = foundry_auth::hash_password(&SecretString::new(ADA_PASSWORD.to_string().into()))
+        .await
+        .expect("hash member pw");
+    let user_id = uuid::Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO users (id, email_lower, email_display, display_name, password_hash)
+              VALUES ($1, $2, $3, $4, $5)",
+    )
+    .bind(user_id)
+    .bind(&email)
+    .bind(&email)
+    .bind(&member_first_name)
+    .bind(&hash)
+    .execute(pool)
+    .await
+    .expect("insert member user");
+    sqlx::query(
+        "INSERT INTO workspace_memberships (workspace_id, user_id, role) VALUES ($1, $2, 'member')
+              ON CONFLICT DO NOTHING",
+    )
+    .bind(ws_id.0)
+    .bind(user_id)
+    .execute(pool)
+    .await
+    .expect("insert member membership");
+
+    world.us_07_signed_in_email = Some(email);
+    world.us_07_signed_in_password = Some(ADA_PASSWORD.to_string());
+}
+
 // ----- When ---------------------------------------------------------------
 
 #[when(regex = r#"^(\w+) visits "/"$"#)]
@@ -314,5 +387,32 @@ async fn body_no_live_element(world: &mut FoundryWorld) {
     assert!(
         !body.contains(&raw),
         "response body contained the LIVE markup {raw:?} (must be HTML-escaped): {body:?}"
+    );
+}
+
+/// US-03: the instance-admin link is an `<a href="…">` targeting the shipped
+/// instance surface — asserting on the `href` (not a bare substring) so it is a
+/// LINK, not incidental copy.
+fn instance_admin_href(path: &str) -> String {
+    format!("href=\"{path}\"")
+}
+
+#[then(regex = r#"^the response body contains a link to "([^"]+)"$"#)]
+async fn body_contains_link_to(world: &mut FoundryWorld, path: String) {
+    let needle = instance_admin_href(&path);
+    let body = world.last_body.as_deref().unwrap_or("");
+    assert!(
+        body.contains(&needle),
+        "response body missing a link to {path:?} (expected {needle:?}): {body:?}"
+    );
+}
+
+#[then(regex = r#"^the response body does not contain a link to "([^"]+)"$"#)]
+async fn body_does_not_contain_link_to(world: &mut FoundryWorld, path: String) {
+    let needle = instance_admin_href(&path);
+    let body = world.last_body.as_deref().unwrap_or("");
+    assert!(
+        !body.contains(&needle),
+        "response body contained a link to {path:?} it must NOT expose (found {needle:?}): {body:?}"
     );
 }

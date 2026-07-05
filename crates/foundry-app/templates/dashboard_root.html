@@ -54,6 +54,9 @@
       <li><a href="/workspace/invites">Invite a member</a></li>
       <li><a href="/admin/tokens">Machine tokens</a></li>
       <li><a href="/keyboard-help">Keyboard shortcuts</a></li>
+      {% if is_instance_admin %}
+      <li><a href="/admin/instance/workspaces">Instance admin</a></li>
+      {% endif %}
     </ul>
   </section>
 </main>

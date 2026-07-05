@@ -294,10 +294,24 @@ pub async fn dashboard_root(State(state): State<AppState>, session: Session) -> 
                     },
                 )
                 .collect();
+            // US-03: the instance-admin link renders only for an instance
+            // super-admin, scoped by the SESSION user_id (never a path/query id —
+            // ADR-002). Fail-closed: on lookup error we default to `false` so the
+            // link is ABSENT (never surface an admin affordance we could not
+            // verify) — same graceful-degradation posture as the loads above.
+            let is_instance_admin = state
+                .store
+                .is_instance_admin(u.user_id)
+                .await
+                .unwrap_or_else(|err| {
+                    tracing::error!(%err, "dashboard: is_instance_admin failed");
+                    false
+                });
             let body = crate::views::DashboardRoot {
                 display_name,
                 workspace_name,
                 projects,
+                is_instance_admin,
             }
             .render()
             .expect("dashboard_root.html renders");

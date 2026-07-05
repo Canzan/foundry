@@ -460,6 +460,11 @@ pub struct DashboardRoot {
     pub workspace_name: String,
     /// Projects in the acting workspace, rendered as board links.
     pub projects: Vec<ProjectLink>,
+    /// US-03: whether the SESSION user is an instance super-admin. Gates the
+    /// "Instance admin" quick-action link to `/admin/instance/workspaces`. Resolved
+    /// from `Store::is_instance_admin(session user_id)`; fail-closed to `false` on
+    /// lookup error so the link is ABSENT (not merely CSS-hidden) unless proven.
+    pub is_instance_admin: bool,
 }
 
 /// One project row on the dashboard project index.

@@ -36,6 +36,27 @@
       "s": "EXECUTED",
       "d": "PASS: cargo test -p foundry-store green; FOUNDRY_ACCEPTANCE_TAGS=us-01 acceptance green (14 scenarios, 81 steps); fmt + full-workspace release clippy clean",
       "t": "2026-07-04T00:25:00Z"
+    },
+    {
+      "sid": "02",
+      "p": "RED",
+      "s": "EXECUTED",
+      "d": "PASS: un-@pended the two US-03 scenarios; authored Givens (Ada is an instance super-admin — shipped grant_instance_admin; a member Mei who is not an instance admin is signed in) + Thens (body contains/does-not-contain a link to a path, asserted on href). Feature-scoped run RED for the right reason: super-admin scenario failed (link absent, template unchanged); member scenario green (link correctly absent). Budget: 1 behavior (role-conditional link) x 2 = 2 max unit tests; 0 authored — both observable outcomes driven through the real HTTP driving port, fail-closed Err path mirrors the existing list_projects_for_workspace defensive unwrap_or_else (no seam).",
+      "t": "2026-07-04T01:00:00Z"
+    },
+    {
+      "sid": "02",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS: DashboardRoot gains is_instance_admin: bool; dashboard_root loads Store::is_instance_admin scoped by SESSION user_id, fail-closed to false on Err (link ABSENT, not CSS-hidden); template renders the /admin/instance/workspaces quick-action link under {% if is_instance_admin %}. FOUNDRY_ACCEPTANCE_TAGS=dashboard-enhancements green (4 scenarios, 26 steps). Wiring check: all 3 production files (views.rs, signin.rs, dashboard_root.html) in the diff — no Fixture Theater.",
+      "t": "2026-07-04T01:10:00Z"
+    },
+    {
+      "sid": "02",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS: FOUNDRY_ACCEPTANCE_TAGS=dashboard-enhancements acceptance green (4 scenarios: slice-01 x2 + slice-02 x2); fmt --all --check clean; clippy --all-targets --release -D warnings clean.",
+      "t": "2026-07-04T01:15:00Z"
     }
   ]
 }
