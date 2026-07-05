@@ -1,8 +1,10 @@
 <div class="modal" role="dialog" aria-modal="true" data-modal="new-issue">
-  <header class="modal-header"><h2>New issue in {{ project_name }}</h2></header>
-  <form method="post" action="{{ action }}" hx-post="{{ action }}" hx-target="#modal-root" hx-swap="innerHTML">
-    <input type="hidden" name="_csrf" value="{{ csrf }}">
-    <label>Title <input type="text" name="title" required autofocus></label>
-    <button type="submit">Create</button>
-  </form>
+  <div class="modal-dialog">
+    <header class="modal-header"><h2>New issue in {{ project_name }}</h2></header>
+    <form method="post" action="{{ action }}" hx-post="{{ action }}" hx-target="#modal-root" hx-swap="innerHTML">
+      <input type="hidden" name="_csrf" value="{{ csrf }}">
+      <label>Title <input type="text" name="title" required autofocus></label>
+      <button type="submit">Create</button>
+    </form>
+  </div>
 </div>

@@ -30,6 +30,13 @@
       "s": "EXECUTED",
       "d": "PASS: FOUNDRY_ACCEPTANCE_TAGS=board-new-issue 5/5 green; fmt clean; release clippy --all-targets clean",
       "t": "2026-07-05T20:42:30Z"
+    },
+    {
+      "sid": "01-02",
+      "p": "STYLE",
+      "s": "EXECUTED",
+      "d": "PASS: user-authorized styling follow-up after live dogfood (modal rendered as an inline form, .modal/.modal-header had no CSS). Wrapped modal content in .modal-dialog; added centered-overlay + backdrop CSS to the vendored stylesheet; D3 hash bump foundry.386eb83b.css -> foundry.4c43c2a8.css (content sha256, old filename removed) + base.html reference updated. Verified render contracts unbroken: us-12 5/5, us-k01 4/4 (descendant selectors survive the wrapper), dashboard-enhancements 8/8 (stylesheet matched by glob), board-new-issue 5/5. fmt clean; release clippy --all-targets clean.",
+      "t": "2026-07-05T21:05:00Z"
     }
   ]
 }
