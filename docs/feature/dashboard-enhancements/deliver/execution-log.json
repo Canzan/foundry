@@ -85,6 +85,27 @@
       "s": "EXECUTED",
       "d": "PASS: FOUNDRY_ACCEPTANCE_TAGS=dashboard-enhancements acceptance green (6 scenarios: slice-01 x2 + slice-02 x2 + slice-03 x2, 41 steps); cargo fmt --all --check clean; cargo clippy --all-targets --release -D warnings clean; foundry-app signin unit tests green (2 passed). Stopping-criterion: 0 unit tests added (budget 6) \u2014 no parametrize-inflation, no theater; forged-CSRF scenario asserts a genuine 403 + surviving session (not tautological). D2 response-type change rippled nowhere unexpected.",
       "t": "2026-07-05T03:51:48Z"
+    },
+    {
+      "sid": "04",
+      "p": "RED",
+      "s": "EXECUTED",
+      "d": "PASS: un-@pended the US-05 + US-04 slice-04 scenarios. US-04 (styles-vendored) RED for the right reason \u2014 dashboard_root.html still carried the inline <style> block, so 'contains no inline <style>' failed pre-GREEN. US-05 (lists-projects) is retroactive coverage (D6) of the base dashboard shipped in 51ba981: authored foundry-store tests/list_projects_for_workspace.rs pinning ordering-by-name + tenant isolation (foreign workspace never leaks) + empty-workspace vec (AC-05.1/.2), plus acceptance Thens (project card GEN/Sandbox asserted on both card__key + card__title spans; card links to /team/general/project/sandbox asserted on href). Store tests green on arrival (backfill of shipped list_projects_for_workspace) and falsifiable. Budget: 2 behaviors (list-scoped-ordered, empty) x 2 = 4 max; 2 store tests authored.",
+      "t": "2026-07-05T04:10:00Z"
+    },
+    {
+      "sid": "04",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS: promoted the dashboard_root.html inline <style> into the vendored stylesheet \u2014 appended the .dash / .card / .actions rules to foundry.870985fc.css and renamed it to the fresh content hash foundry.386eb83b.css (git mv; D3 manual hash-bump, no pipeline); updated base.html:5 to the new href; stripped the inline <style> so the dashboard carries none. Fixed the known nit: .dash__workspace had no rule \u2014 gave it the muted treatment matching .dash__welcome and grouped the two lines cleanly. Behaviour-preserving (same classes/markup, AC-04.3). FOUNDRY_ACCEPTANCE_TAGS=dashboard-enhancements green (8 scenarios, 54 steps). Wiring check: base.html + dashboard_root.html + the CSS rename all in git diff \u2014 US-04 scenario would fail without them, so no Fixture Theater. Old hash 870985fc absent from the tree.",
+      "t": "2026-07-05T04:20:00Z"
+    },
+    {
+      "sid": "04",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS: cargo test -p foundry-store green (list_projects_for_workspace 2/2 + dashboard_greeting 2/2); FOUNDRY_ACCEPTANCE_TAGS=dashboard-enhancements acceptance green (8 scenarios: slices 01-04, 54 steps); cargo fmt --all --check clean; cargo clippy --all-targets --release -D warnings clean. Stopping-criterion: 2 store tests added (budget 4) \u2014 store tests are integration-level (real Postgres adapter, matrix-exempt from PBT); ordering test seeds out-of-order + a foreign tenant so it is falsifiable, not tautological. No scenario in dashboard-enhancements.feature remains @pending (only the intentionally-@pending US-01 fault-injection scenario, pinned by a unit test).",
+      "t": "2026-07-05T04:25:00Z"
     }
   ]
 }

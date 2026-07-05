@@ -174,3 +174,135 @@ textarea {
   display: flex;
   gap: 8px;
 }
+
+/* Dashboard (signed-in landing "/") — promoted from the inline <style> that
+ * shipped in dashboard_root.html (US-04). Semantic classes double as the
+ * acceptance render contract (.dash, .card, .actions). */
+.dash {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 2.5rem 1.5rem;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: #1a1a22;
+}
+
+.dash h1 {
+  font-size: 1.9rem;
+  margin: 0 0 0.25rem;
+}
+
+/* The greeting + workspace lines read as one muted pair above the sections. */
+.dash__welcome {
+  color: #6b7280;
+  margin: 0;
+}
+
+.dash__workspace {
+  color: #6b7280;
+  margin: 0 0 2.25rem;
+}
+
+.dash__section {
+  margin-bottom: 2.5rem;
+}
+
+.dash__section h2 {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #6b7280;
+  margin: 0 0 0.9rem;
+}
+
+.card-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 0.85rem;
+}
+
+.card a {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  text-decoration: none;
+  color: inherit;
+  background: #fff;
+  transition: border-color 0.12s, box-shadow 0.12s, transform 0.12s;
+}
+
+.card a:hover {
+  border-color: #c7cbd1;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  transform: translateY(-1px);
+}
+
+.card__key {
+  font: 600 0.72rem/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #4f46e5;
+  background: #eef2ff;
+  padding: 0.35rem 0.5rem;
+  border-radius: 6px;
+  letter-spacing: 0.02em;
+}
+
+.card__title {
+  font-weight: 600;
+}
+
+.dash__empty {
+  color: #6b7280;
+}
+
+.actions {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.actions a {
+  display: inline-block;
+  padding: 0.55rem 0.95rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  text-decoration: none;
+  color: #374151;
+  background: #fff;
+  font-size: 0.92rem;
+  transition: border-color 0.12s, background 0.12s;
+}
+
+.actions a:hover {
+  border-color: #c7cbd1;
+  background: #f9fafb;
+}
+
+.actions button {
+  display: inline-block;
+  padding: 0.55rem 0.95rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  color: #374151;
+  background: #fff;
+  font-size: 0.92rem;
+  cursor: pointer;
+  font-family: inherit;
+  transition: border-color 0.12s, background 0.12s;
+}
+
+.actions button:hover {
+  border-color: #c7cbd1;
+  background: #f9fafb;
+}
+
+.actions form {
+  margin: 0;
+}

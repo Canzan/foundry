@@ -79,13 +79,13 @@ Feature: A signed-in user orients, navigates by role, and signs out from the das
     And Ada's session is still valid
 
   # ── Slice 04 — US-05 coverage + US-04 style promotion ─────────────────────
-  @pending @us-05 @real-io
+  @us-05 @real-io
   Scenario: The signed-in dashboard lists projects and links to a board
     When Ada visits "/"
     Then the response body contains a project card "GEN" for "Sandbox"
     And that card links to "/team/general/project/sandbox"
 
-  @pending @us-04 @real-io @refactor
+  @us-04 @real-io @refactor
   Scenario: Dashboard styles are served from the vendored stylesheet, not inline
     When Ada visits "/"
     Then the response body contains no inline "<style>" block

@@ -598,3 +598,98 @@ async fn session_still_valid(world: &mut FoundryWorld, _who: String) {
         outcome.body
     );
 }
+
+// ----- US-05 project list (AC-05.3) ---------------------------------------
+
+/// A project card is the `<span class="card__key">KEY</span>` +
+/// `<span class="card__title">NAME</span>` pair `dashboard_root.html` renders per
+/// project — asserting on BOTH spans (not a bare substring) so it is the project
+/// card, not incidental copy.
+#[then(regex = r#"^the response body contains a project card "([^"]+)" for "([^"]+)"$"#)]
+async fn body_contains_project_card(world: &mut FoundryWorld, key_prefix: String, name: String) {
+    let body = world.last_body.as_deref().unwrap_or("");
+    let key_span = format!("<span class=\"card__key\">{key_prefix}</span>");
+    let title_span = format!("<span class=\"card__title\">{name}</span>");
+    assert!(
+        body.contains(&key_span),
+        "response body missing the project card key {key_span:?}: {body:?}"
+    );
+    assert!(
+        body.contains(&title_span),
+        "response body missing the project card title {title_span:?}: {body:?}"
+    );
+}
+
+/// The project card's `<a>` targets the project board — asserted on the `href`
+/// so it is a real navigable link, not incidental text.
+#[then(regex = r#"^that card links to "([^"]+)"$"#)]
+async fn card_links_to(world: &mut FoundryWorld, path: String) {
+    let body = world.last_body.as_deref().unwrap_or("");
+    let needle = format!("href=\"{path}\"");
+    assert!(
+        body.contains(&needle),
+        "response body missing the project card link {needle:?}: {body:?}"
+    );
+}
+
+// ----- US-04 styles promoted to the vendored stylesheet (AC-04.1–.4) ------
+
+/// Extract the FIRST `/static/css/foundry.<hash>.css` path the layout links, from
+/// `<link rel="stylesheet" href="…">`. Used to prove the layout references a
+/// hashed stylesheet AND to fetch it — WITHOUT hard-coding the (D3 hand-bumped)
+/// hash into the step, so a future re-bump doesn't touch this glue.
+fn linked_stylesheet_href(body: &str) -> Option<String> {
+    let prefix = "/static/css/foundry.";
+    let start = body.find(prefix)?;
+    let rest = &body[start..];
+    let end = rest.find(".css")? + ".css".len();
+    Some(rest[..end].to_string())
+}
+
+#[then(regex = r#"^the response body contains no inline "<style>" block$"#)]
+async fn body_has_no_inline_style(world: &mut FoundryWorld) {
+    let body = world.last_body.as_deref().unwrap_or("");
+    assert!(
+        !body.contains("<style>"),
+        "the dashboard must carry NO inline <style> block (styles are vendored): {body:?}"
+    );
+}
+
+#[then(regex = r#"^the base layout links a hashed "/static/css/foundry\.\*\.css" stylesheet$"#)]
+async fn layout_links_hashed_stylesheet(world: &mut FoundryWorld) {
+    let body = world.last_body.as_deref().unwrap_or("");
+    let href = linked_stylesheet_href(body).unwrap_or_else(|| {
+        panic!("base layout must link a /static/css/foundry.<hash>.css: {body:?}")
+    });
+    // A hashed name: `foundry.<hash>.css` with a non-empty hash segment.
+    let hash = href
+        .strip_prefix("/static/css/foundry.")
+        .and_then(|rest| rest.strip_suffix(".css"))
+        .unwrap_or("");
+    assert!(
+        !hash.is_empty(),
+        "the linked stylesheet must carry a non-empty content hash, got href {href:?}"
+    );
+}
+
+#[then(regex = r#"^fetching that stylesheet returns 200 and contains the "\.dash" rules$"#)]
+async fn fetching_stylesheet_serves_dash_rules(world: &mut FoundryWorld) {
+    let body = world.last_body.as_deref().unwrap_or("");
+    let href =
+        linked_stylesheet_href(body).expect("the layout must link a hashed stylesheet to fetch");
+    let harness = world.harness.as_ref().expect("harness");
+    let http = world.http.as_ref().expect("http");
+    // `/static` is public GET-only content (mounted outside the auth layers), so
+    // no cookie is needed to fetch the promoted stylesheet.
+    let outcome = get_with_cookie(harness, http, &href, "").await;
+    assert_eq!(
+        outcome.status,
+        StatusCode::OK,
+        "the linked stylesheet {href:?} must be served 200, got {outcome:?}"
+    );
+    assert!(
+        outcome.body.contains(".dash"),
+        "the promoted stylesheet must contain the .dash dashboard rules: {:?}",
+        outcome.body
+    );
+}
