@@ -64,7 +64,9 @@ impl Services {
         issues::create_issue(&self.store, principal, team_slug, project_slug, title).await
     }
 
-    /// US-W05c change-state — delegates to [`issues::change_issue_state`].
+    /// US-W05c change-state — delegates to [`issues::change_issue_state`]. The
+    /// optional `after` neighbour key carries the board drop's target rank
+    /// (card-ranking-within-status, ADR-002); the JSON API path passes `None`.
     pub async fn change_issue_state(
         &self,
         principal: &Principal,
@@ -72,6 +74,7 @@ impl Services {
         project_slug: &str,
         number: i32,
         new_state: &str,
+        after: Option<&str>,
     ) -> Result<BoardIssue, ServiceError> {
         issues::change_issue_state(
             &self.store,
@@ -80,6 +83,7 @@ impl Services {
             project_slug,
             number,
             new_state,
+            after,
         )
         .await
     }

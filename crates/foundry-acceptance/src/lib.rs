@@ -13,6 +13,7 @@ pub mod steps {
     pub mod feature_a_programmatic;
     pub mod feature_b_web_tier;
     pub mod feature_board_new_issue;
+    pub mod feature_card_ranking_within_status;
     pub mod feature_dashboard_enhancements;
     pub mod feature_invite_accept;
     pub mod feature_issue_edit_dialog;

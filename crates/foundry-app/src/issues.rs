@@ -138,6 +138,12 @@ pub async fn submit_create(
 #[derive(Debug, Deserialize)]
 pub struct ChangeStateForm {
     pub state: String,
+    /// The `data-issue-key` of the card immediately ABOVE the dropped card in
+    /// the target column (card-ranking-within-status, ADR-002). Absent/empty ⇒
+    /// drop at the TOP of the column. The DnD drop handler always sends it; the
+    /// no-JS status path omits it.
+    #[serde(default)]
+    pub after: Option<String>,
     #[serde(rename = "_csrf", default)]
     pub _csrf: Option<String>,
 }
@@ -166,6 +172,7 @@ pub async fn submit_state_change(
         &project_slug,
         issue_number,
         &form.state,
+        form.after.as_deref(),
     )
     .await
     {
@@ -349,6 +356,9 @@ pub async fn submit_edit(
                 &project_slug,
                 issue_number,
                 new_state,
+                // The edit-dialog status change carries no board slot; the card
+                // lands at the top of the target column.
+                None,
             )
             .await
             {

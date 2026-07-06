@@ -383,6 +383,8 @@ async fn change_issue_state_handler(
             &project_slug,
             number,
             &request.state,
+            // The JSON API changes state only; positioning is a board concern.
+            None,
         )
         .await?;
     Ok(Json(IssueJson {

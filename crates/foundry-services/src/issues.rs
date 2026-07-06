@@ -8,7 +8,7 @@
 //! or reject identically and store identical bytes (NFR-WEB-API-CON-02).
 
 use crate::{BoardIssue, CreatedIssue, Principal, ServiceError};
-use foundry_store::{IssueInsertError, Store};
+use foundry_store::{IssueInsertError, RepositionOutcome, Store};
 
 /// The current title + description of an issue, resolved for the edit-dialog
 /// pre-fill (issue-edit-dialog). Returned by [`edit_issue_form`] AFTER the
@@ -95,8 +95,14 @@ pub async fn create_issue(
     })
 }
 
-/// US-W05c change-state use-case. Reuses `Store::update_issue_state_with_outbox`
-/// and the SAME `normalize_state` logic the UI uses (DD10).
+/// US-W05c change-state use-case, extended for card-ranking-within-status
+/// (ADR-002): the board drop passes an `after` neighbour issue key (e.g.
+/// `"GEN-2"`; `None`/empty ⇒ drop at the top of the column) so the write sets
+/// BOTH state and rank atomically through `Store::reposition_issue_with_outbox`.
+/// The JSON API + no-JS status paths pass `after = None`. Reuses the SAME
+/// `resolve_member_project` authz + `normalize_state` normalisation the UI uses
+/// (DD10). A foreign/missing issue OR an unresolvable `after` neighbour resolves
+/// to the uniform non-enumerable NotFound (ADR-003), never a 500.
 pub async fn change_issue_state(
     store: &Store,
     principal: &Principal,
@@ -104,6 +110,7 @@ pub async fn change_issue_state(
     project_slug: &str,
     number: i32,
     new_state: &str,
+    after: Option<&str>,
 ) -> Result<BoardIssue, ServiceError> {
     let (_team, _project, key_prefix) =
         resolve_member_project(store, principal, team_slug, project_slug).await?;
@@ -113,16 +120,31 @@ pub async fn change_issue_state(
         message: "Invalid issue state".to_string(),
     })?;
 
+    // Resolve the `after` neighbour key → its issue number within THIS project.
+    // Absent/empty ⇒ top of column. An unparseable key is a stale-client mistake
+    // → refuse non-enumerably (R3), never a silent top-drop.
+    let after_number = match after.map(str::trim) {
+        None | Some("") => None,
+        Some(key) => match key
+            .rsplit_once('-')
+            .and_then(|(_, n)| n.parse::<i32>().ok())
+        {
+            Some(n) => Some(n),
+            None => return Err(ServiceError::NotFound),
+        },
+    };
+
     match store
-        .update_issue_state_with_outbox(
+        .reposition_issue_with_outbox(
             key_prefix.as_str(),
             number,
             normalized,
+            after_number,
             principal.user_id(),
         )
         .await
     {
-        Ok(Some(())) => {
+        Ok(RepositionOutcome::Repositioned) => {
             let key = foundry_core::IssueKey::try_new(&key_prefix, number as u32)
                 .map(|k| k.to_string())
                 .unwrap_or_else(|_| format!("{}-{}", key_prefix.as_str(), number));
@@ -133,7 +155,10 @@ pub async fn change_issue_state(
                 state: normalized.to_string(),
             })
         }
-        Ok(None) => Err(ServiceError::NotFound),
+        // Missing issue AND unresolvable neighbour BOTH refuse identically.
+        Ok(RepositionOutcome::IssueNotFound | RepositionOutcome::NeighbourNotFound) => {
+            Err(ServiceError::NotFound)
+        }
         Err(IssueInsertError::ProjectNotFound) => Err(ServiceError::NotFound),
         Err(IssueInsertError::Store(_)) => Err(ServiceError::Internal),
     }

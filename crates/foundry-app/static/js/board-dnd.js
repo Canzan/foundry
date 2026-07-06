@@ -6,11 +6,14 @@
 // server but nothing accepts a drop, so the board is unchanged and the edit
 // dialog (slice 01) remains the no-JS status path.
 //
-// On drop the card is moved optimistically into the target column, then the new
-// state is POSTed to the card's `data-state-url`. The CSRF double-submit token
-// rides the `x-csrf-token` header, read from the non-HttpOnly `foundry_csrf`
-// cookie (csrf.rs accepts the header form). A non-2xx response or a network
-// error reverts the card to its origin column.
+// On drop the card is moved optimistically to the exact slot under the cursor
+// (within its own column or into another), then `state` + `after` are POSTed to
+// the card's `data-state-url` (card-ranking-within-status, ADR-002). `after` is
+// the `data-issue-key` of the card now immediately ABOVE the dropped card
+// (omitted when dropped at the top). The CSRF double-submit token rides the
+// `x-csrf-token` header, read from the non-HttpOnly `foundry_csrf` cookie
+// (csrf.rs accepts the header form). A non-2xx response or a network error
+// reverts the card to its exact origin slot.
 (function () {
   "use strict";
 
@@ -26,9 +29,38 @@
     return "";
   }
 
+  // The sibling card the dragged card should be inserted BEFORE, given the drop
+  // Y coordinate — the first card whose vertical midpoint is below the cursor.
+  // The dragged card itself is skipped (it may still be in this column). Returns
+  // null when the cursor is past the last card (append to the end).
+  function insertBeforeTarget(column, y, dragged) {
+    var cards = column.querySelectorAll(".issue-card");
+    for (var i = 0; i < cards.length; i++) {
+      if (cards[i] === dragged) {
+        continue;
+      }
+      var rect = cards[i].getBoundingClientRect();
+      if (y < rect.top + rect.height / 2) {
+        return cards[i];
+      }
+    }
+    return null;
+  }
+
+  // The `data-issue-key` of the card immediately above `card` in its column, or
+  // "" when `card` is at the top. Skips any non-card siblings (placeholders).
+  function neighbourAbove(card) {
+    var prev = card.previousElementSibling;
+    while (prev && prev.className.indexOf("issue-card") === -1) {
+      prev = prev.previousElementSibling;
+    }
+    return prev ? prev.getAttribute("data-issue-key") || "" : "";
+  }
+
   function init() {
     var dragged = null;
     var origin = null;
+    var originNext = null;
 
     // Delegated on document so htmx-appended cards (dialog relocation, new
     // issue) are draggable without re-wiring.
@@ -40,6 +72,8 @@
       }
       dragged = card;
       origin = card.parentElement;
+      // Remember the exact origin slot so a refusal can restore it precisely.
+      originNext = card.nextElementSibling;
       if (event.dataTransfer) {
         event.dataTransfer.effectAllowed = "move";
         event.dataTransfer.setData(
@@ -64,9 +98,11 @@
         event.preventDefault();
         var card = dragged;
         var from = origin;
+        var fromNext = originNext;
         var into = event.currentTarget;
         dragged = null;
         origin = null;
+        originNext = null;
         if (!card || !into) {
           return;
         }
@@ -75,8 +111,18 @@
         if (!stateUrl || !slug) {
           return;
         }
-        // Optimistic move — land the card in the target column immediately.
-        into.appendChild(card);
+        // Optimistic move — land the card at the exact slot under the cursor.
+        var before = insertBeforeTarget(into, event.clientY, card);
+        if (before) {
+          into.insertBefore(card, before);
+        } else {
+          into.appendChild(card);
+        }
+        var after = neighbourAbove(card);
+        var body = "state=" + encodeURIComponent(slug);
+        if (after) {
+          body += "&after=" + encodeURIComponent(after);
+        }
         fetch(stateUrl, {
           method: "POST",
           credentials: "same-origin",
@@ -84,16 +130,16 @@
             "Content-Type": "application/x-www-form-urlencoded",
             "x-csrf-token": readCookie("foundry_csrf")
           },
-          body: "state=" + encodeURIComponent(slug)
+          body: body
         })
           .then(function (response) {
             if (!response.ok && from) {
-              from.appendChild(card); // revert on refusal
+              from.insertBefore(card, fromNext); // revert to exact origin slot
             }
           })
           .catch(function () {
             if (from) {
-              from.appendChild(card); // revert on network error
+              from.insertBefore(card, fromNext); // revert on network error
             }
           });
       });

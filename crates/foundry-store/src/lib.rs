@@ -1198,10 +1198,21 @@ impl Store {
             None => return Err(IssueInsertError::ProjectNotFound),
         };
 
+        // New-issue slot (card-ranking-within-status, ADR-001 / watch-item R4):
+        // land the card at the TOP of Backlog (position 0) and shift the
+        // existing Backlog column +1 IN THE SAME TX, preserving the newest-first
+        // feel while keeping the column a contiguous 0..N permutation.
+        sqlx::query(
+            "UPDATE issues SET position = position + 1 WHERE project_id = $1 AND state = 'backlog'",
+        )
+        .bind(project_id)
+        .execute(&mut *tx)
+        .await?;
+
         sqlx::query(
             "INSERT INTO issues
-                  (id, project_id, workspace_id, number, title, author_id)
-              VALUES ($1, $2, $3, $4, $5, $6)",
+                  (id, project_id, workspace_id, number, title, author_id, position)
+              VALUES ($1, $2, $3, $4, $5, $6, 0)",
         )
         .bind(issue_id)
         .bind(project_id)
@@ -1233,8 +1244,11 @@ impl Store {
         Ok(number)
     }
 
-    /// List issues in a project ordered by `number DESC` (most recent
-    /// first — matches the Linear-style "newest at the top" UX).
+    /// List issues in a project ordered by the persisted per-`(project, state)`
+    /// rank (`position ASC`), falling back to `number DESC` as a deterministic
+    /// tiebreak (card-ranking-within-status, ADR-001). The per-state filter in
+    /// `build_board_page` preserves this order into each column, so ordering the
+    /// query is the whole read change — no `position` on the projection.
     pub async fn list_issues_by_project(
         &self,
         project_id: uuid::Uuid,
@@ -1243,7 +1257,7 @@ impl Store {
             "SELECT id, number, title, state, priority
                FROM issues
               WHERE project_id = $1
-              ORDER BY number DESC",
+              ORDER BY position ASC, number DESC",
         )
         .bind(project_id)
         .fetch_all(&self.pool)
@@ -1318,6 +1332,179 @@ impl Store {
 
         tx.commit().await?;
         Ok(Some(()))
+    }
+
+    /// Reposition an issue within (or across) status columns and, IFF the state
+    /// actually changed, write a matching `IssueUpdated` outbox row — all in ONE
+    /// transaction (card-ranking-within-status, ADR-001/ADR-002).
+    ///
+    /// Sibling to [`Store::update_issue_state_with_outbox`], which it cannot
+    /// reuse because that method (a) has no notion of `position` and (b) emits
+    /// UNCONDITIONALLY. A pure within-status reorder must write `position` with
+    /// NO emit (watch-item R2 / ODD-4): broadcasting a reorder would shove other
+    /// viewers' cards to the column end, since the SSE consumer has no notion of
+    /// position. So the emit here is gated on `new_state != old_state`, mirroring
+    /// the deliberate no-emit precedent in [`Store::update_issue_details`].
+    ///
+    /// The target slot is `after` neighbour's `position + 1`, or `0` when
+    /// `after_number` is `None` (drop at the top). BOTH affected columns — the
+    /// source `(project, old_state)` and the target `(project, new_state)` — are
+    /// left as a contiguous `0..N-1` permutation (watch-item R1). The reindex
+    /// derives each column's CURRENT order via `ORDER BY position ASC, number
+    /// DESC`, so it is correct even when the rows still carry the seed/default
+    /// `position = 0` (the pre-first-move state).
+    ///
+    /// Non-enumerable refusals (ADR-003 lineage): a moved issue that does not
+    /// resolve by `key_prefix + number` → [`RepositionOutcome::IssueNotFound`];
+    /// an `after` neighbour that does not resolve WITHIN the target
+    /// `(project, new_state)` column → [`RepositionOutcome::NeighbourNotFound`]
+    /// (watch-item R3 — refuse, never a silent top-drop). The service maps BOTH
+    /// to the uniform NotFound. On either refusal NOTHING is written (the tx is
+    /// dropped before any mutation).
+    pub async fn reposition_issue_with_outbox(
+        &self,
+        project_key_prefix: &str,
+        issue_number: i32,
+        new_state: &str,
+        after_number: Option<i32>,
+        actor_id: uuid::Uuid,
+    ) -> Result<RepositionOutcome, IssueInsertError> {
+        let mut tx = self.pool.begin().await?;
+
+        // Resolve the moved issue + its project context + CURRENT state.
+        let row: Option<(uuid::Uuid, uuid::Uuid, uuid::Uuid, String)> = sqlx::query_as(
+            "SELECT i.id, i.project_id, i.workspace_id, i.state
+               FROM issues i
+               JOIN projects p ON p.id = i.project_id
+              WHERE p.key_prefix = $1 AND i.number = $2",
+        )
+        .bind(project_key_prefix)
+        .bind(issue_number)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some((issue_id, project_id, workspace_id, old_state)) = row else {
+            return Ok(RepositionOutcome::IssueNotFound);
+        };
+
+        // Resolve the `after` neighbour WITHIN the target column. An unresolvable
+        // neighbour refuses (R3) — never a silent top placement.
+        if let Some(neighbour) = after_number {
+            let found: Option<(i32,)> = sqlx::query_as(
+                "SELECT number FROM issues
+                  WHERE project_id = $1 AND state = $2 AND number = $3",
+            )
+            .bind(project_id)
+            .bind(new_state)
+            .bind(neighbour)
+            .fetch_optional(&mut *tx)
+            .await?;
+            if found.is_none() {
+                return Ok(RepositionOutcome::NeighbourNotFound);
+            }
+        }
+
+        // Read BOTH affected columns' current order BEFORE any write, so the
+        // in-Rust move works off a stable snapshot.
+        let target_current = self.ordered_column(&mut tx, project_id, new_state).await?;
+        let source_current = if old_state == new_state {
+            Vec::new()
+        } else {
+            self.ordered_column(&mut tx, project_id, &old_state).await?
+        };
+
+        // Target column: drop the moved issue (present only in a within-status
+        // move) then splice it back in at neighbour + 1 (or the top).
+        let mut target: Vec<(uuid::Uuid, i32)> = target_current
+            .into_iter()
+            .filter(|(id, _)| *id != issue_id)
+            .collect();
+        let insert_idx = match after_number {
+            None => 0,
+            Some(neighbour) => match target.iter().position(|(_, num)| *num == neighbour) {
+                Some(idx) => idx + 1,
+                // The neighbour resolved above but is not in the retained list
+                // (i.e. it WAS the moved issue) — refuse rather than mis-place.
+                None => return Ok(RepositionOutcome::NeighbourNotFound),
+            },
+        };
+        target.insert(insert_idx, (issue_id, issue_number));
+
+        // Set the moved issue's state (idempotent for a within-status reorder).
+        sqlx::query("UPDATE issues SET state = $1, updated_at = now() WHERE id = $2")
+            .bind(new_state)
+            .bind(issue_id)
+            .execute(&mut *tx)
+            .await?;
+
+        // Renumber the target column to a contiguous 0..N-1.
+        self.renumber_column(&mut tx, &target).await?;
+
+        // Cross-status move: close the gap in the source column too.
+        if old_state != new_state {
+            let source: Vec<(uuid::Uuid, i32)> = source_current
+                .into_iter()
+                .filter(|(id, _)| *id != issue_id)
+                .collect();
+            self.renumber_column(&mut tx, &source).await?;
+        }
+
+        // Emit IFF the state actually changed (watch-item R2 / ODD-4).
+        if new_state != old_state {
+            let payload = serde_json::json!({
+                "issue_id": issue_id,
+                "project_id": project_id,
+                "workspace_id": workspace_id,
+                "number": issue_number,
+                "key": format!("{project_key_prefix}-{issue_number}"),
+                "state": new_state,
+                "author_id": actor_id,
+            });
+            sqlx::query("INSERT INTO outbox (event_type, payload) VALUES ('IssueUpdated', $1)")
+                .bind(payload)
+                .execute(&mut *tx)
+                .await?;
+        }
+
+        tx.commit().await?;
+        Ok(RepositionOutcome::Repositioned)
+    }
+
+    /// The `(id, number)` of a `(project, state)` column in its current ranked
+    /// order (`position ASC, number DESC`). The `number DESC` tiebreak makes the
+    /// order deterministic even before any manual reorder (all rows at the
+    /// default `position = 0`).
+    async fn ordered_column(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        project_id: uuid::Uuid,
+        state: &str,
+    ) -> Result<Vec<(uuid::Uuid, i32)>, IssueInsertError> {
+        let rows: Vec<(uuid::Uuid, i32)> = sqlx::query_as(
+            "SELECT id, number FROM issues
+              WHERE project_id = $1 AND state = $2
+              ORDER BY position ASC, number DESC",
+        )
+        .bind(project_id)
+        .bind(state)
+        .fetch_all(&mut **tx)
+        .await?;
+        Ok(rows)
+    }
+
+    /// Renumber a column's rows to a contiguous `0..N-1` in the given order.
+    async fn renumber_column(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        ordered: &[(uuid::Uuid, i32)],
+    ) -> Result<(), IssueInsertError> {
+        for (position, (id, _)) in ordered.iter().enumerate() {
+            sqlx::query("UPDATE issues SET position = $1 WHERE id = $2")
+                .bind(position as i32)
+                .bind(id)
+                .execute(&mut **tx)
+                .await?;
+        }
+        Ok(())
     }
 
     /// Update an issue's `title` + `description_md` (issue-edit-dialog, ADR-002).
@@ -2215,6 +2402,19 @@ pub struct IssueRow {
     pub title: String,
     pub state: String,
     pub priority: String,
+}
+
+/// Outcome of [`Store::reposition_issue_with_outbox`]. The two refusal variants
+/// are distinct at the store boundary for clarity, but the service maps BOTH to
+/// the uniform non-enumerable NotFound (card-ranking-within-status, ADR-003).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RepositionOutcome {
+    /// The move landed; both affected columns are contiguous `0..N-1`.
+    Repositioned,
+    /// The moved issue does not resolve by `key_prefix + number`.
+    IssueNotFound,
+    /// The `after` neighbour does not resolve within the target column (R3).
+    NeighbourNotFound,
 }
 
 /// The current `title` + `description_md` of an issue, read for the edit-dialog

@@ -64,6 +64,12 @@ pub struct FoundryWorld {
     /// contention distribution.
     pub us_06_wrong_pw_latencies_ms: Vec<u64>,
 
+    // ---- card-ranking-within-status scratch ----
+    /// Issue key (`GEN-1`) of the most recently filed issue in a card-ranking
+    /// scenario, captured from the create response so the "newest issue is
+    /// first in Backlog" assertion can address it without magic numbers.
+    pub card_ranking_created_key: Option<String>,
+
     // ---- dashboard-enhancements US-01 (greeting) scratch ----
     /// The raw display name seeded for the persona signed in on the current
     /// greeting scenario (e.g. Mallory's `<b>pwn</b>`). The escaped-markup Then
