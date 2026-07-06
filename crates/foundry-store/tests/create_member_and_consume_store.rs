@@ -306,7 +306,16 @@ async fn create_member_and_consume_refuses_email_collision_without_consuming() {
 async fn invite_accept_view_returns_the_joined_projection_for_a_live_invite() {
     let (base, _guard) = fresh_postgres().await;
     let store = migrated_store(&base).await;
+    // Truncate to microseconds up front: Postgres `TIMESTAMPTZ` has microsecond
+    // resolution, so a nanosecond-precision `now_utc()` seeded here reads back
+    // truncated. This test asserts `view.expires_at == expires_at` below, so
+    // comparing the original nanoseconds against the round-tripped microseconds
+    // is otherwise flaky — it fails whenever the sub-microsecond nanos are
+    // non-zero (i.e. almost always; it only slipped through when they weren't).
     let now = time::OffsetDateTime::now_utc();
+    let now = now
+        .replace_nanosecond(now.microsecond() * 1000)
+        .expect("microsecond*1000 is a valid nanosecond value");
     let expires_at = now + time::Duration::days(7);
     let invitee = "sam.okafor@northwind.example";
     let (workspace_id, admin_id, invite_id) =
