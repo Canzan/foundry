@@ -20,6 +20,9 @@ pub struct IssueEditView {
     pub number: i32,
     pub title: String,
     pub description_md: String,
+    /// The issue's current state slug (`backlog`, `todo`, `in_progress`, `done`)
+    /// — pre-selects the edit-dialog status control (issue-status-move).
+    pub state: String,
 }
 
 /// Title length cap (chars, after trimming) — the SAME bound the browser
@@ -224,6 +227,7 @@ pub async fn edit_issue_form(
         number,
         title: row.title,
         description_md: row.description_md,
+        state: row.state,
     })
 }
 

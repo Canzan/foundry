@@ -1,0 +1,57 @@
+{
+  "feature": "issue-status-move",
+  "slice": "01",
+  "title": "Change an issue's status from the edit dialog (server-driven card relocation)",
+  "methodology": "Outside-In TDD, 3-phase canon (RED -> GREEN -> COMMIT)",
+  "user_story": "US-01",
+  "scenarios": [
+    {
+      "id": "S1",
+      "name": "The edit dialog exposes a status control pre-set to the current state",
+      "ac": "AC-01.1",
+      "result": "green"
+    },
+    {
+      "id": "S2",
+      "name": "Saving a new status relocates the card to that column",
+      "ac": "AC-01.2/.3",
+      "result": "green"
+    },
+    {
+      "id": "S3",
+      "name": "No-JS fallback saves the status change",
+      "ac": "AC-01.6",
+      "result": "green"
+    }
+  ],
+  "phases": {
+    "RED": {
+      "action": "Un-@pended the three @us-01 scenarios; authored HTTP-level glue in feature_issue_status_move.rs (reuses board/sign-in/issue-edit-dialog helpers).",
+      "fail_for_right_reason": "All 3 failed on business assertions (no status <select>; stored state backlog != todo/done) — not import/collection/infra errors.",
+      "gate": "pass"
+    },
+    "GREEN": {
+      "action": "Added issues.state to IssueEditRow + issue_edit_view; IssueEditView.state; IssueEditModal.selected_state + status <select> in issue_edit_modal.html; stable id=\"issue-{key}\" on the card render + issue_card.html; EditIssueForm.state; submit_edit now detects a real status change (normalize_state + authz-gated read) and, when changed, reuses change_issue_state (shipped outbox path) and returns the two-op OOB relocation (delete-old + append-to-column); unchanged status keeps the in-place outerHTML replace.",
+      "reuse": "No new store/service method. change_issue_state + edit_issue_details + edit_issue_form reused.",
+      "gate": "all-tests-pass"
+    },
+    "COMMIT": {
+      "stopping_criterion": "3 behaviors x 2 = 6 unit-test budget; 0 unit tests authored (acceptance drives all behavior port-to-port through the HTTP handler; GREEN was straightforward wiring). Within budget, no parametrize-inflation.",
+      "wiring_verification": "git diff includes all production files (app handler, views, templates, service, store) — not Fixture Theater.",
+      "gate": "pass"
+    }
+  },
+  "verification": {
+    "issue_status_move_us_01": "3 scenarios / 18 steps passed",
+    "regression_issue_edit_dialog": "6 scenarios / 36 steps passed",
+    "regression_board_new_issue": "5 scenarios / 31 steps passed",
+    "regression_us_08": "10 scenarios / 75 steps passed",
+    "foundry_store": "all tests passed",
+    "fmt": "clean (cargo fmt --all --check)",
+    "clippy": "clean (--all-targets --release -D warnings)"
+  },
+  "scope_notes": [
+    "Slice 02 (drag-and-drop) NOT implemented — the three @us-02 scenarios remain @pending.",
+    "One persist path (change_issue_state). No migration. No new store/service method."
+  ]
+}

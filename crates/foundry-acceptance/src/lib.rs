@@ -16,6 +16,7 @@ pub mod steps {
     pub mod feature_dashboard_enhancements;
     pub mod feature_invite_accept;
     pub mod feature_issue_edit_dialog;
+    pub mod feature_issue_status_move;
     pub mod feature_machine_token_admin;
     pub mod feature_member_invites;
     pub mod feature_mwt_slice_01_coexist;

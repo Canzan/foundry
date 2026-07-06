@@ -205,6 +205,10 @@ pub struct IssueEditModal {
     /// The current markdown description, pre-filled into the textarea
     /// (auto-escaped).
     pub description: String,
+    /// The issue's current state slug (`backlog`, `todo`, `in_progress`, `done`)
+    /// — the status `<select>` pre-selects the matching option
+    /// (issue-status-move slice 01).
+    pub selected_state: String,
 }
 
 /// A board column with its (already state-filtered) cards in display order.

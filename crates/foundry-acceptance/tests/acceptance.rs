@@ -43,6 +43,8 @@ use foundry_acceptance::steps::feature_invite_accept as _feature_invite_accept;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_issue_edit_dialog as _feature_issue_edit_dialog;
 #[allow(unused_imports)]
+use foundry_acceptance::steps::feature_issue_status_move as _feature_issue_status_move;
+#[allow(unused_imports)]
 use foundry_acceptance::steps::feature_machine_token_admin as _feature_mt;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_member_invites as _feature_member_invites;

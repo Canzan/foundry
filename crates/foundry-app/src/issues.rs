@@ -224,6 +224,7 @@ pub async fn show_edit_form(
         key: view.key,
         title: view.title,
         description: view.description_md,
+        selected_state: view.state,
     }
     .render()
     .expect("issue_edit_modal partial renders from a fully-resolved, infallible view-model");
@@ -237,6 +238,11 @@ pub struct EditIssueForm {
     pub title: String,
     #[serde(default)]
     pub description: String,
+    /// The submitted status slug (issue-status-move slice 01). Absent on the
+    /// issue-edit-dialog path (title/description-only edits) — an empty/absent
+    /// value normalizes to `None`, keeping the in-place card replace.
+    #[serde(default)]
+    pub state: String,
     #[serde(rename = "_csrf", default)]
     pub _csrf: Option<String>,
 }
@@ -262,6 +268,34 @@ pub async fn submit_edit(
         user_id: user.user_id,
         workspace_id: user.workspace_id,
     };
+
+    // A submitted status only counts as a real move when it NORMALIZES to a
+    // valid slug that DIFFERS from the stored one. The issue-edit-dialog path
+    // posts no `state`, so this stays `None` and the in-place card replace is
+    // preserved. We read the current state through the SAME authz-gated read the
+    // dialog pre-fill uses, so a foreign/missing issue is still refused
+    // non-enumerably (ADR-003) exactly as before.
+    let submitted_state = issue_service::normalize_state(&form.state);
+    let relocate_to = if let Some(new_state) = submitted_state {
+        match issue_service::edit_issue_form(
+            &state.store,
+            &principal,
+            &team_slug,
+            &project_slug,
+            issue_number,
+        )
+        .await
+        {
+            Ok(view) if view.state != new_state => Some(new_state),
+            Ok(_) => None,
+            Err(ServiceError::Forbidden) => return non_member_page(&team_slug),
+            Err(ServiceError::NotFound) => return resource_not_found_page(),
+            Err(_) => return internal_error("edit_issue_form", "service error"),
+        }
+    } else {
+        None
+    };
+
     match issue_service::edit_issue_details(
         &state.store,
         &principal,
@@ -276,18 +310,59 @@ pub async fn submit_edit(
         Ok(updated) => {
             let issue_key = parse_issue_key(&updated.key, updated.number);
             let edit = edit_url(&team_slug, &project_slug, updated.number);
+            let board = format!("/team/{team_slug}/project/{project_slug}");
+
+            let Some(new_state) = relocate_to else {
+                // No status change — the shipped in-place card replace / 303.
+                return if is_htmx(&headers) {
+                    (
+                        StatusCode::OK,
+                        Html(render_issue_card_oob_replace(
+                            &issue_key,
+                            &updated.title,
+                            &edit,
+                        )),
+                    )
+                        .into_response()
+                } else {
+                    redirect_to(&board)
+                };
+            };
+
+            // Persist the state change through the SHIPPED path (fires the
+            // outbox → SSE, ODD-4). Reuses `change_issue_state`; no new write.
+            match issue_service::change_issue_state(
+                &state.store,
+                &principal,
+                &team_slug,
+                &project_slug,
+                issue_number,
+                new_state,
+            )
+            .await
+            {
+                Ok(_) => {}
+                Err(ServiceError::Validation { .. }) => {
+                    return bad_request_fragment("Invalid issue state")
+                }
+                Err(ServiceError::Forbidden) => return non_member_page(&team_slug),
+                Err(ServiceError::NotFound) => return resource_not_found_page(),
+                Err(_) => return internal_error("change_issue_state", "service error"),
+            }
+
             if is_htmx(&headers) {
                 (
                     StatusCode::OK,
-                    Html(render_issue_card_oob_replace(
+                    Html(render_card_relocation(
                         &issue_key,
                         &updated.title,
                         &edit,
+                        new_state,
                     )),
                 )
                     .into_response()
             } else {
-                redirect_to(&format!("/team/{team_slug}/project/{project_slug}"))
+                redirect_to(&board)
             }
         }
         Err(ServiceError::Validation { .. }) => bad_request_fragment("Title is required"),
@@ -448,7 +523,7 @@ pub(crate) fn render_issue_card(
     edit_url: &str,
 ) -> String {
     format!(
-        r##"<article class="issue-card" data-issue-key="{key}" hx-get="{edit}" hx-target="#modal-root" hx-swap="innerHTML" style="cursor:pointer"><span class="key">{key}</span> <span class="title">{title}</span></article>"##,
+        r##"<article class="issue-card" id="issue-{key}" data-issue-key="{key}" hx-get="{edit}" hx-target="#modal-root" hx-swap="innerHTML" style="cursor:pointer"><span class="key">{key}</span> <span class="title">{title}</span></article>"##,
         key = html_escape(&issue_key.to_string()),
         edit = html_escape(edit_url),
         title = html_escape(title),
@@ -465,6 +540,29 @@ fn render_issue_card_with_column_marker(
 ) -> String {
     format!(
         r#"<div hx-swap-oob="beforeend:[data-column='backlog']" data-target-column="Backlog">{card}</div>"#,
+        card = render_issue_card(issue_key, title, edit_url),
+    )
+}
+
+/// issue-status-move save response (htmx): a state change MOVES the card between
+/// columns via TWO out-of-band ops (ODD-2 / ADR-001 server-driven relocation):
+/// (a) DELETE the old card — an element whose stable `id="issue-{key}"` matches
+/// the board card, carrying `hx-swap-oob="delete"`; (b) APPEND a fresh card to
+/// the target column via `hx-swap-oob="beforeend:[data-column='{new_state}']"`
+/// (the same append envelope board-new-issue uses). The primary body is
+/// otherwise empty, so `#modal-root` clears and the dialog closes. `new_state`
+/// is the normalized slug, which is also the target column's `data-column`.
+fn render_card_relocation(
+    issue_key: &foundry_core::IssueKey,
+    title: &str,
+    edit_url: &str,
+    new_state: &str,
+) -> String {
+    let key = html_escape(&issue_key.to_string());
+    format!(
+        r#"<div id="issue-{key}" hx-swap-oob="delete"></div><div hx-swap-oob="beforeend:[data-column='{state}']">{card}</div>"#,
+        key = key,
+        state = html_escape(new_state),
         card = render_issue_card(issue_key, title, edit_url),
     )
 }

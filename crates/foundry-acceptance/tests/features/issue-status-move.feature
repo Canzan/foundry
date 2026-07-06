@@ -24,19 +24,19 @@ Feature: A member moves an issue between status columns
     And Mei is signed in
 
   # ---- Slice 01: dialog status ----
-  @pending @us-01 @real-io
+  @us-01 @real-io
   Scenario: The edit dialog exposes a status control pre-set to the current state
     When Mei opens the edit dialog for "GEN-1"
     Then the dialog has a status control with "Backlog" selected
 
-  @pending @us-01 @real-io
+  @us-01 @real-io
   Scenario: Saving a new status relocates the card to that column
     When Mei saves the edit dialog for "GEN-1" with status "Todo"
     Then the issue "GEN-1" has state "todo" in the store
     And the response deletes the old "GEN-1" card and appends it to the "todo" column
     And the dialog is dismissed without a full navigation
 
-  @pending @us-01 @real-io
+  @us-01 @real-io
   Scenario: No-JS fallback saves the status change
     When Mei submits the edit form for "GEN-1" with status "Done" as a plain form
     Then "GEN-1" has state "done" in the store

@@ -1379,8 +1379,8 @@ impl Store {
         project_key_prefix: &str,
         issue_number: i32,
     ) -> Result<Option<IssueEditRow>, StoreError> {
-        let row: Option<(String, String)> = sqlx::query_as(
-            "SELECT i.title, i.description_md
+        let row: Option<(String, String, String)> = sqlx::query_as(
+            "SELECT i.title, i.description_md, i.state
                FROM issues i
                JOIN projects p ON p.id = i.project_id
               WHERE p.key_prefix = $1 AND i.number = $2",
@@ -1389,9 +1389,10 @@ impl Store {
         .bind(issue_number)
         .fetch_optional(&self.pool)
         .await?;
-        Ok(row.map(|(title, description_md)| IssueEditRow {
+        Ok(row.map(|(title, description_md, state)| IssueEditRow {
             title,
             description_md,
+            state,
         }))
     }
 
@@ -2222,6 +2223,9 @@ pub struct IssueRow {
 pub struct IssueEditRow {
     pub title: String,
     pub description_md: String,
+    /// The issue's current state slug (`backlog`, `todo`, `in_progress`, `done`)
+    /// — pre-selects the edit-dialog status control (issue-status-move).
+    pub state: String,
 }
 
 /// Errors specific to issue insert.
