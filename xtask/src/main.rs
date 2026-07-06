@@ -22,6 +22,7 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         "ci" => run_ci(),
+        "smoke" => run_smoke(),
         "check-arch" => check_arch::run(std::env::args().skip(2).collect()),
         other => {
             eprintln!("unknown subcommand: {other}");
@@ -35,7 +36,9 @@ fn usage() {
     println!("foundry xtask");
     println!();
     println!("Subcommands:");
-    println!("  ci          Run the full local CI replication");
+    println!("  ci          Run the full local CI replication (the pre-PUSH gate)");
+    println!("  smoke       Fast pre-COMMIT subset: fmt, clippy, boundary guard,");
+    println!("              workspace unit/integration tests (no acceptance/deny)");
     println!("  check-arch  Run the web/api boundary guard (US-W06)");
     println!("  help        Show this message");
 }
@@ -192,8 +195,61 @@ fn run_ci() -> ExitCode {
         ));
     }
 
-    for (label, args) in &steps {
-        println!("\n=== xtask ci :: {label} ===");
+    run_steps("ci", &steps)
+}
+
+/// Fast pre-COMMIT smoke: the subset of `ci` that catches the class of failure
+/// that must never reach a push — formatting, lints, the web/api boundary
+/// guard, and the workspace unit/integration tests (the exact
+/// `cargo test --workspace (excl. foundry-acceptance) --release` lane whose red
+/// output is the most common avoidable CI break). It SKIPS the heavy tail: the
+/// standalone release build (redundant — the test/clippy steps build), the full
+/// `@docker-compose` + `@needs-pgclient` acceptance suite, and `cargo deny`.
+///
+/// This is the tight feedback loop while iterating; the FULL `cargo xtask ci`
+/// remains the mandatory pre-PUSH gate (see AGENTS.md). Steps are drawn verbatim
+/// from `run_ci`, so smoke can never drift from a strict subset of CI. Like the
+/// workspace tests inside `ci`, the test step uses Postgres testcontainers, so a
+/// reachable Docker daemon is still required for that step.
+fn run_smoke() -> ExitCode {
+    let steps: Vec<(&str, Vec<&str>)> = vec![
+        ("cargo fmt --check", vec!["fmt", "--all", "--", "--check"]),
+        (
+            "cargo clippy",
+            vec![
+                "clippy",
+                "--all-targets",
+                "--release",
+                "--",
+                "-D",
+                "warnings",
+            ],
+        ),
+        (
+            "xtask check-arch (boundary guard)",
+            vec!["run", "-q", "-p", "xtask", "--", "check-arch"],
+        ),
+        (
+            "cargo test --workspace (excl. foundry-acceptance) --release",
+            vec![
+                "test",
+                "--workspace",
+                "--exclude",
+                "foundry-acceptance",
+                "--release",
+            ],
+        ),
+    ];
+
+    run_steps("smoke", &steps)
+}
+
+/// Run an ordered list of `(label, cargo-args)` gates, stopping on the first
+/// non-zero exit. Shared by `run_ci` and `run_smoke` so the two can never
+/// diverge in how a step is launched. `kind` is the log prefix (`ci` / `smoke`).
+fn run_steps(kind: &str, steps: &[(&str, Vec<&str>)]) -> ExitCode {
+    for (label, args) in steps {
+        println!("\n=== xtask {kind} :: {label} ===");
         let env_vars: Vec<(&str, &str)> = if label.contains("foundry-acceptance") {
             vec![("FOUNDRY_ACCEPTANCE_TAGS", "all")]
         } else {
@@ -227,20 +283,20 @@ fn run_ci() -> ExitCode {
         let status = match cmd.status() {
             Ok(s) => s,
             Err(err) => {
-                eprintln!("xtask ci :: failed to launch `{bin}`: {err}");
+                eprintln!("xtask {kind} :: failed to launch `{bin}`: {err}");
                 return ExitCode::from(1);
             }
         };
         if !status.success() {
             eprintln!(
-                "\nxtask ci :: FAILED at `{label}` with status {}",
+                "\nxtask {kind} :: FAILED at `{label}` with status {}",
                 status.code().unwrap_or(-1)
             );
             return ExitCode::from(1);
         }
     }
 
-    println!("\nxtask ci :: all gates green");
+    println!("\nxtask {kind} :: all gates green");
     ExitCode::SUCCESS
 }
 

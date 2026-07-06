@@ -116,6 +116,23 @@ command you run locally, so a red push is always avoidable.
   belongs in `cargo xtask ci` so it runs locally too — that single-source-of-truth
   invariant is what keeps "green locally" and "green in CI" identical.
 
+### MANDATORY pre-commit smoke: `cargo xtask smoke`
+
+`cargo xtask ci` is the full pre-**push** gate, but it is slow (release build +
+the whole `@docker-compose` / `@needs-pgclient` acceptance suite). For the tight
+edit loop, **run `cargo xtask smoke` before every commit.** It runs the same
+`fmt`, `clippy`, check-arch boundary guard, and `cargo test --workspace (excl.
+foundry-acceptance) --release` steps as CI — a strict subset drawn verbatim from
+`run_ci`, so it can never drift from CI — while skipping only the acceptance
+suite and `cargo deny`. It is the check that catches the single most common
+avoidable red push: a unit/integration test that fails under `--release`.
+
+- **Commit gate**: a green `xtask smoke :: all gates green` before you `git commit`.
+- **Push gate**: a green `xtask ci :: all gates green` before you `git push`
+  (unchanged, still mandatory — smoke is a fast pre-filter, NOT a replacement).
+- Smoke's test step uses Postgres testcontainers, so a reachable Docker daemon is
+  still required for it (same as those tests inside `cargo xtask ci`).
+
 ## Acceptance Docker images
 
 The `@docker-compose` acceptance scenarios (US-01) build the `foundry` service
