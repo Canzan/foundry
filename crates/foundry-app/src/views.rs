@@ -182,6 +182,11 @@ pub struct IssueCard {
     /// (issue-edit-dialog, R1). The card targets `#modal-root` so a click
     /// swaps the pre-filled dialog in.
     pub edit_url: String,
+    /// `POST …/issues/{n}/state` — the endpoint the DnD drop handler
+    /// (`board-dnd.js`, issue-status-move slice 02) posts the target column's
+    /// slug to. Rendered as `data-state-url` so the client script can read it
+    /// off the dragged card without a server round-trip.
+    pub state_url: String,
 }
 
 /// The issue-edit dialog FRAGMENT (issue-edit-dialog). A BARE htmx fragment — it

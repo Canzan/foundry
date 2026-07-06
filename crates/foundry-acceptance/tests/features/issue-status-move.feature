@@ -43,19 +43,19 @@ Feature: A member moves an issue between status columns
     And the board shows "GEN-1" under the "done" column
 
   # ---- Slice 02: drag-and-drop (persist contract + wiring; gesture is dogfood) ----
-  @pending @us-02 @real-io
+  @us-02 @real-io
   Scenario: Cards are draggable and columns are drop targets
     When Mei fetches the "Sandbox" board
     Then each issue card is marked draggable and carries its state-post URL
     And each state column is marked as a drop target for its slug
     And the board loads the drag-and-drop script
 
-  @pending @us-02 @real-io
+  @us-02 @real-io
   Scenario: A drop persists the new state (the endpoint the drop handler posts to)
     When Mei posts a state change for "GEN-1" to "in_progress" as the drop handler would
     Then "GEN-1" has state "in_progress" in the store
 
-  @pending @us-02 @real-io @error
+  @us-02 @real-io @error
   Scenario: A rejected drop does not change the issue's state
     When a drop posts an invalid state for "GEN-1"
     Then the response is a validation error

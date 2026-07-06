@@ -42,6 +42,14 @@ fn edit_url(team_slug: &str, project_slug: &str, number: i32) -> String {
     format!("/team/{team_slug}/project/{project_slug}/issues/{number}/edit")
 }
 
+/// Build the `POST …/issues/{n}/state` endpoint the DnD drop handler
+/// (`board-dnd.js`, issue-status-move slice 02) targets. Rendered onto every
+/// card as `data-state-url` so an htmx-appended card (dialog relocation / new
+/// issue) is drag-persistable exactly like a board-rendered one.
+fn state_url(team_slug: &str, project_slug: &str, number: i32) -> String {
+    format!("/team/{team_slug}/project/{project_slug}/issues/{number}/state")
+}
+
 #[derive(Debug, Deserialize)]
 pub struct CreateIssueForm {
     pub title: String,
@@ -91,10 +99,11 @@ pub async fn submit_create(
             let issue_key = parse_issue_key(&created.key, created.number);
             if is_htmx(&headers) {
                 let edit = edit_url(&team_slug, &project_slug, created.number);
+                let state = state_url(&team_slug, &project_slug, created.number);
                 return (
                     StatusCode::OK,
                     Html(render_issue_card_with_column_marker(
-                        &issue_key, &raw_title, &edit,
+                        &issue_key, &raw_title, &edit, &state,
                     )),
                 )
                     .into_response();
@@ -310,6 +319,7 @@ pub async fn submit_edit(
         Ok(updated) => {
             let issue_key = parse_issue_key(&updated.key, updated.number);
             let edit = edit_url(&team_slug, &project_slug, updated.number);
+            let state_post = state_url(&team_slug, &project_slug, updated.number);
             let board = format!("/team/{team_slug}/project/{project_slug}");
 
             let Some(new_state) = relocate_to else {
@@ -321,6 +331,7 @@ pub async fn submit_edit(
                             &issue_key,
                             &updated.title,
                             &edit,
+                            &state_post,
                         )),
                     )
                         .into_response()
@@ -357,6 +368,7 @@ pub async fn submit_edit(
                         &issue_key,
                         &updated.title,
                         &edit,
+                        &state_post,
                         new_state,
                     )),
                 )
@@ -521,10 +533,12 @@ pub(crate) fn render_issue_card(
     issue_key: &foundry_core::IssueKey,
     title: &str,
     edit_url: &str,
+    state_url: &str,
 ) -> String {
     format!(
-        r##"<article class="issue-card" id="issue-{key}" data-issue-key="{key}" hx-get="{edit}" hx-target="#modal-root" hx-swap="innerHTML" style="cursor:pointer"><span class="key">{key}</span> <span class="title">{title}</span></article>"##,
+        r##"<article class="issue-card" id="issue-{key}" data-issue-key="{key}" draggable="true" data-state-url="{state}" hx-get="{edit}" hx-target="#modal-root" hx-swap="innerHTML" style="cursor:pointer"><span class="key">{key}</span> <span class="title">{title}</span></article>"##,
         key = html_escape(&issue_key.to_string()),
+        state = html_escape(state_url),
         edit = html_escape(edit_url),
         title = html_escape(title),
     )
@@ -537,10 +551,11 @@ fn render_issue_card_with_column_marker(
     issue_key: &foundry_core::IssueKey,
     title: &str,
     edit_url: &str,
+    state_url: &str,
 ) -> String {
     format!(
         r#"<div hx-swap-oob="beforeend:[data-column='backlog']" data-target-column="Backlog">{card}</div>"#,
-        card = render_issue_card(issue_key, title, edit_url),
+        card = render_issue_card(issue_key, title, edit_url, state_url),
     )
 }
 
@@ -556,6 +571,7 @@ fn render_card_relocation(
     issue_key: &foundry_core::IssueKey,
     title: &str,
     edit_url: &str,
+    state_url: &str,
     new_state: &str,
 ) -> String {
     let key = html_escape(&issue_key.to_string());
@@ -563,7 +579,7 @@ fn render_card_relocation(
         r#"<div id="issue-{key}" hx-swap-oob="delete"></div><div hx-swap-oob="beforeend:[data-column='{state}']">{card}</div>"#,
         key = key,
         state = html_escape(new_state),
-        card = render_issue_card(issue_key, title, edit_url),
+        card = render_issue_card(issue_key, title, edit_url, state_url),
     )
 }
 
@@ -576,12 +592,13 @@ fn render_issue_card_oob_replace(
     issue_key: &foundry_core::IssueKey,
     title: &str,
     edit_url: &str,
+    state_url: &str,
 ) -> String {
     let key = html_escape(&issue_key.to_string());
     // Inject the OOB directive onto the base card so there is ONE source of
     // truth for the card body (the base renderer). Keyed on data-issue-key via
     // the selector form htmx's board-new-issue create swap already uses.
-    render_issue_card(issue_key, title, edit_url).replacen(
+    render_issue_card(issue_key, title, edit_url, state_url).replacen(
         r#"<article class="issue-card""#,
         &format!(r#"<article class="issue-card" hx-swap-oob="outerHTML:[data-issue-key='{key}']""#),
         1,

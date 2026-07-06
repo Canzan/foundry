@@ -1,57 +1,123 @@
-{
-  "feature": "issue-status-move",
-  "slice": "01",
-  "title": "Change an issue's status from the edit dialog (server-driven card relocation)",
-  "methodology": "Outside-In TDD, 3-phase canon (RED -> GREEN -> COMMIT)",
-  "user_story": "US-01",
-  "scenarios": [
-    {
-      "id": "S1",
-      "name": "The edit dialog exposes a status control pre-set to the current state",
-      "ac": "AC-01.1",
-      "result": "green"
+[
+  {
+    "feature": "issue-status-move",
+    "slice": "01",
+    "title": "Change an issue's status from the edit dialog (server-driven card relocation)",
+    "methodology": "Outside-In TDD, 3-phase canon (RED -> GREEN -> COMMIT)",
+    "user_story": "US-01",
+    "scenarios": [
+      {
+        "id": "S1",
+        "name": "The edit dialog exposes a status control pre-set to the current state",
+        "ac": "AC-01.1",
+        "result": "green"
+      },
+      {
+        "id": "S2",
+        "name": "Saving a new status relocates the card to that column",
+        "ac": "AC-01.2/.3",
+        "result": "green"
+      },
+      {
+        "id": "S3",
+        "name": "No-JS fallback saves the status change",
+        "ac": "AC-01.6",
+        "result": "green"
+      }
+    ],
+    "phases": {
+      "RED": {
+        "action": "Un-@pended the three @us-01 scenarios; authored HTTP-level glue in feature_issue_status_move.rs (reuses board/sign-in/issue-edit-dialog helpers).",
+        "fail_for_right_reason": "All 3 failed on business assertions (no status <select>; stored state backlog != todo/done) — not import/collection/infra errors.",
+        "gate": "pass"
+      },
+      "GREEN": {
+        "action": "Added issues.state to IssueEditRow + issue_edit_view; IssueEditView.state; IssueEditModal.selected_state + status <select> in issue_edit_modal.html; stable id=\"issue-{key}\" on the card render + issue_card.html; EditIssueForm.state; submit_edit now detects a real status change (normalize_state + authz-gated read) and, when changed, reuses change_issue_state (shipped outbox path) and returns the two-op OOB relocation (delete-old + append-to-column); unchanged status keeps the in-place outerHTML replace.",
+        "reuse": "No new store/service method. change_issue_state + edit_issue_details + edit_issue_form reused.",
+        "gate": "all-tests-pass"
+      },
+      "COMMIT": {
+        "stopping_criterion": "3 behaviors x 2 = 6 unit-test budget; 0 unit tests authored (acceptance drives all behavior port-to-port through the HTTP handler; GREEN was straightforward wiring). Within budget, no parametrize-inflation.",
+        "wiring_verification": "git diff includes all production files (app handler, views, templates, service, store) — not Fixture Theater.",
+        "gate": "pass"
+      }
     },
-    {
-      "id": "S2",
-      "name": "Saving a new status relocates the card to that column",
-      "ac": "AC-01.2/.3",
-      "result": "green"
+    "verification": {
+      "issue_status_move_us_01": "3 scenarios / 18 steps passed",
+      "regression_issue_edit_dialog": "6 scenarios / 36 steps passed",
+      "regression_board_new_issue": "5 scenarios / 31 steps passed",
+      "regression_us_08": "10 scenarios / 75 steps passed",
+      "foundry_store": "all tests passed",
+      "fmt": "clean (cargo fmt --all --check)",
+      "clippy": "clean (--all-targets --release -D warnings)"
     },
-    {
-      "id": "S3",
-      "name": "No-JS fallback saves the status change",
-      "ac": "AC-01.6",
-      "result": "green"
-    }
-  ],
-  "phases": {
-    "RED": {
-      "action": "Un-@pended the three @us-01 scenarios; authored HTTP-level glue in feature_issue_status_move.rs (reuses board/sign-in/issue-edit-dialog helpers).",
-      "fail_for_right_reason": "All 3 failed on business assertions (no status <select>; stored state backlog != todo/done) — not import/collection/infra errors.",
-      "gate": "pass"
-    },
-    "GREEN": {
-      "action": "Added issues.state to IssueEditRow + issue_edit_view; IssueEditView.state; IssueEditModal.selected_state + status <select> in issue_edit_modal.html; stable id=\"issue-{key}\" on the card render + issue_card.html; EditIssueForm.state; submit_edit now detects a real status change (normalize_state + authz-gated read) and, when changed, reuses change_issue_state (shipped outbox path) and returns the two-op OOB relocation (delete-old + append-to-column); unchanged status keeps the in-place outerHTML replace.",
-      "reuse": "No new store/service method. change_issue_state + edit_issue_details + edit_issue_form reused.",
-      "gate": "all-tests-pass"
-    },
-    "COMMIT": {
-      "stopping_criterion": "3 behaviors x 2 = 6 unit-test budget; 0 unit tests authored (acceptance drives all behavior port-to-port through the HTTP handler; GREEN was straightforward wiring). Within budget, no parametrize-inflation.",
-      "wiring_verification": "git diff includes all production files (app handler, views, templates, service, store) — not Fixture Theater.",
-      "gate": "pass"
-    }
+    "scope_notes": [
+      "Slice 02 (drag-and-drop) NOT implemented — the three @us-02 scenarios remain @pending.",
+      "One persist path (change_issue_state). No migration. No new store/service method."
+    ]
   },
-  "verification": {
-    "issue_status_move_us_01": "3 scenarios / 18 steps passed",
-    "regression_issue_edit_dialog": "6 scenarios / 36 steps passed",
-    "regression_board_new_issue": "5 scenarios / 31 steps passed",
-    "regression_us_08": "10 scenarios / 75 steps passed",
-    "foundry_store": "all tests passed",
-    "fmt": "clean (cargo fmt --all --check)",
-    "clippy": "clean (--all-targets --release -D warnings)"
-  },
-  "scope_notes": [
-    "Slice 02 (drag-and-drop) NOT implemented — the three @us-02 scenarios remain @pending.",
-    "One persist path (change_issue_state). No migration. No new store/service method."
-  ]
-}
+  {
+    "feature": "issue-status-move",
+    "slice": "02",
+    "title": "Drag an issue card between status columns (native HTML5 DnD, client optimistic move, progressive enhancement)",
+    "methodology": "Outside-In TDD, 3-phase canon (RED -> GREEN -> COMMIT)",
+    "user_story": "US-02",
+    "scenarios": [
+      {
+        "id": "S4",
+        "name": "Cards are draggable and columns are drop targets",
+        "ac": "AC-02.1",
+        "result": "green",
+        "note": "R4 wiring-only: asserts draggable=\"true\" + data-state-url on every card, [data-column] drop targets for each slug, and the board-dnd.js script link. The drag gesture + optimistic move/revert are browser-dogfood."
+      },
+      {
+        "id": "S5",
+        "name": "A drop persists the new state (the endpoint the drop handler posts to)",
+        "ac": "AC-02.2",
+        "result": "green",
+        "note": "R3: POSTs to the shipped /state exactly as board-dnd.js does — x-csrf-token header from the foundry_csrf cookie, bare state=<slug> body, no _csrf field."
+      },
+      {
+        "id": "S6",
+        "name": "A rejected drop does not change the issue's state",
+        "ac": "AC-02.3",
+        "result": "green",
+        "note": "Invalid slug -> 400 validation error; seeded backlog state unchanged."
+      }
+    ],
+    "phases": {
+      "RED": {
+        "action": "Un-@pended the three @us-02 scenarios; extended feature_issue_status_move.rs with S4 board-marker assertions, a capture_drop_post helper (x-csrf-token header + urlencoded body, no _csrf), and the S5/S6 drop When/Then steps. Reused the existing `Mei fetches the \"…\" board` When from feature_board_new_issue.",
+        "fail_for_right_reason": "S4 failed on the business assertion (cards not marked draggable / no data-state-url) — not an import/collection/infra error. S5 and S6 were already green via the shipped change_issue_state /state path (correct 'already implemented' case), confirming R3: csrf_middleware accepts the x-csrf-token header double-submit with no server change.",
+        "gate": "pass"
+      },
+      "GREEN": {
+        "action": "Added IssueCard.state_url (views.rs) populated in projects.rs issue_card(); added draggable=\"true\" + data-state-url to partials/issue_card.html AND the Rust render_issue_card (threaded a state_url param + helper through render_card_relocation / render_issue_card_oob_replace / render_issue_card_with_column_marker so htmx-appended cards are drag-persistable too); new self-contained CSP-safe static/js/board-dnd.js (native DnD: delegated dragstart, per-column dragover/drop, optimistic appendChild + fetch POST with x-csrf-token from cookie, revert on non-2xx/error); loaded it from base.html with defer.",
+        "reuse": "NO backend/store/service change. Reuses the shipped POST /state (change_issue_state) and csrf_middleware's x-csrf-token header form.",
+        "csrf_mechanism": "Header form — x-csrf-token carrying the foundry_csrf cookie value (double-submit). csrf.rs CSRF_HEADER already accepts this; no server change needed.",
+        "gate": "all-tests-pass"
+      },
+      "COMMIT": {
+        "stopping_criterion": "3 distinct port-observable behaviors (board DnD-enabling response; drop persists state; rejected drop invariant) x 2 = 6 budget; 3 acceptance scenarios + 0 unit tests. The JS optimistic-move/revert logic is browser-dogfood (HTTP harness can't drive JS) per the ratified DISTILL harness boundary. Within budget; S4's 4-slug column loop is one set-membership contract, not 4 tests; no anti-patterns.",
+        "wiring_verification": "git diff includes production files (issues.rs, projects.rs, views.rs, base.html, issue_card.html) + new board-dnd.js — not Fixture Theater.",
+        "gate": "pass"
+      }
+    },
+    "verification": {
+      "issue_status_move_all": "6 scenarios / 36 steps passed (3 @us-01 + 3 @us-02)",
+      "regression_board_new_issue": "5 scenarios / 31 steps passed",
+      "regression_issue_edit_dialog": "6 scenarios / 36 steps passed",
+      "regression_us_08": "10 scenarios / 75 steps passed",
+      "regression_us_b01": "4 scenarios / 37 steps passed",
+      "foundry_app_unit": "21 + 1 tests passed",
+      "fmt": "clean (cargo fmt --all --check)",
+      "clippy": "clean (--all-targets --release -D warnings)"
+    },
+    "scope_notes": [
+      "First app-owned client-side JS. External, same-origin, self-contained, CSP-safe (all addEventListener, no inline handlers).",
+      "Progressive enhancement: without the script cards carry draggable but nothing accepts a drop; the slice-01 dialog is the no-JS status path.",
+      "One persist path (change_issue_state). No migration. No backend/store/service change.",
+      "Browser-dogfood remaining: live drag Backlog->Todo persists (reload confirms); failed drop (offline) snaps the card back."
+    ]
+  }
+]

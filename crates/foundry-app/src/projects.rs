@@ -637,6 +637,10 @@ fn issue_card(
             "/team/{team_slug}/project/{project_slug}/issues/{number}/edit",
             number = row.number
         ),
+        state_url: format!(
+            "/team/{team_slug}/project/{project_slug}/issues/{number}/state",
+            number = row.number
+        ),
     }
 }
 

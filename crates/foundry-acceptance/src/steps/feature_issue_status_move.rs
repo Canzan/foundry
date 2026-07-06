@@ -222,6 +222,93 @@ async fn dialog_dismissed(world: &mut FoundryWorld) {
     );
 }
 
+// ----- When: S4 reuses `Mei fetches the "…" board` (feature_board_new_issue);
+//        S5-S6 issue the drop's own POST ---------------------------------------
+
+#[when(
+    regex = r#"^Mei posts a state change for "([^"]+)" to "([^"]+)" as the drop handler would$"#
+)]
+async fn drop_posts_state(world: &mut FoundryWorld, key: String, state: String) {
+    capture_drop_post(world, &key, &state).await;
+}
+
+#[when(regex = r#"^a drop posts an invalid state for "([^"]+)"$"#)]
+async fn drop_posts_invalid(world: &mut FoundryWorld, key: String) {
+    capture_drop_post(world, &key, "not_a_valid_state").await;
+}
+
+// ----- Then: S4 draggable cards + drop-target columns + script wiring --------
+
+#[then(regex = r#"^each issue card is marked draggable and carries its state-post URL$"#)]
+async fn cards_draggable_with_state_url(world: &mut FoundryWorld) {
+    let body = world.last_body.clone().unwrap_or_default();
+    let doc = Html::parse_document(&body);
+    let card_selector = Selector::parse("article.issue-card").expect("valid selector");
+    let cards: Vec<_> = doc.select(&card_selector).collect();
+    assert!(
+        !cards.is_empty(),
+        "the board must render at least one issue card to enable dragging: {body}"
+    );
+    for card in cards {
+        assert_eq!(
+            card.value().attr("draggable"),
+            Some("true"),
+            "every issue card must be marked draggable=\"true\" so the DnD handler can lift it: {body}"
+        );
+        let state_url = card.value().attr("data-state-url").unwrap_or_default();
+        assert!(
+            state_url.contains("/issues/") && state_url.ends_with("/state"),
+            "every issue card must carry a data-state-url ending in /state (the drop's POST target), got {state_url:?}: {body}"
+        );
+    }
+}
+
+#[then(regex = r#"^each state column is marked as a drop target for its slug$"#)]
+async fn columns_are_drop_targets(world: &mut FoundryWorld) {
+    let body = world.last_body.clone().unwrap_or_default();
+    let doc = Html::parse_document(&body);
+    // The DnD handler wires every `[data-column]` section as a drop target; the
+    // slug it POSTs is the section's `data-column` value.
+    for slug in ["backlog", "todo", "in_progress", "done"] {
+        let selector = Selector::parse(&format!("[data-column='{slug}']")).expect("valid selector");
+        assert!(
+            doc.select(&selector).next().is_some(),
+            "the {slug:?} column must be a drop target ([data-column='{slug}']): {body}"
+        );
+    }
+}
+
+#[then(regex = r#"^the board loads the drag-and-drop script$"#)]
+async fn board_loads_dnd_script(world: &mut FoundryWorld) {
+    let body = world.last_body.clone().unwrap_or_default();
+    assert!(
+        body.contains(r#"src="/static/js/board-dnd.js""#),
+        "the board must load the drag-and-drop script from /static/js/board-dnd.js: {body}"
+    );
+}
+
+// ----- Then: S6 the rejected drop is refused and leaves state untouched ------
+
+#[then(regex = r#"^the response is a validation error$"#)]
+async fn response_is_validation_error(world: &mut FoundryWorld) {
+    assert_eq!(
+        world.last_status,
+        Some(StatusCode::BAD_REQUEST),
+        "an invalid drop state must be refused with a 400 validation error"
+    );
+}
+
+#[then(regex = r#"^"([^"]+)" keeps its previous state in the store$"#)]
+async fn issue_keeps_previous_state(world: &mut FoundryWorld, key: String) {
+    // The Background seeds GEN-1 in "Backlog"; a refused drop must leave that
+    // seeded state untouched (the write never lands).
+    let stored = read_issue_state(world, &key).await;
+    assert_eq!(
+        stored, "backlog",
+        "a refused drop must not change {key}'s seeded state"
+    );
+}
+
 // ----- Then: S3 the board reflects the move ----------------------------------
 
 #[then(regex = r#"^the board shows "([^"]+)" under the "([^"]+)" column$"#)]
@@ -298,6 +385,37 @@ async fn capture_status_post(world: &mut FoundryWorld, url: &str, status: &str, 
         request = request.header("HX-Request", "true");
     }
     let resp = request.send().await.expect("post edit url");
+    store(world, resp).await;
+}
+
+/// POST a state change the WAY the DnD drop handler does (R3): the CSRF token
+/// travels in the `x-csrf-token` header (read from the `foundry_csrf` cookie),
+/// the body is a bare `state=<slug>` urlencoded form with NO `_csrf` field. This
+/// exercises the exact request `board-dnd.js` issues on drop, confirming
+/// `csrf_middleware` accepts the header-form double-submit (no server change).
+async fn capture_drop_post(world: &mut FoundryWorld, key: &str, state: &str) {
+    ensure_harness(world).await;
+    let harness = world.harness.as_ref().expect("harness");
+    let http = world.http.as_ref().expect("http");
+    let (session_pair, csrf) = sign_in(harness, http).await;
+    let base = harness.base_url();
+    let combined = format!("{session_pair}; foundry_csrf={csrf}");
+    let url = format!(
+        "/team/{TEAM_SLUG}/project/{PROJECT_SLUG}/issues/{number}/state",
+        number = number_of(key)
+    );
+    let resp = http
+        .post(format!("{base}{url}"))
+        .header(reqwest::header::COOKIE, combined)
+        .header("x-csrf-token", csrf)
+        .header(
+            reqwest::header::CONTENT_TYPE,
+            "application/x-www-form-urlencoded",
+        )
+        .body(format!("state={state}"))
+        .send()
+        .await
+        .expect("post state url as the drop handler");
     store(world, resp).await;
 }
 
