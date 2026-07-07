@@ -143,13 +143,23 @@ pub fn stage_subset(max_version: u64) -> Result<TestMigrationsDir> {
     Ok(TestMigrationsDir { dir })
 }
 
-/// Copy the canonical forward-only migrations (every production migration
-/// whose numeric version prefix is `>= 9`) into an EXISTING staged dir.
+/// Copy the multi-workspace-era forward-only migrations (versions `0009`,
+/// `0010`, `0011` — the migrations that INTRODUCE multi-workspace support) into
+/// an EXISTING staged dir.
 ///
 /// Companion to [`stage_subset`]: stage the pre-feature history first
 /// (`stage_subset(8)`), apply it, then `add_forward_only_to(dir)` to drop the
 /// `0009`/`0010`/`0011` upgrade migrations alongside and apply the now-canonical
 /// set — exactly the operator-upgrade sequence the slice-05 guarantee proves.
+///
+/// The version range is BOUNDED to `9..=11` on purpose. This test's guarantee is
+/// "the multi-workspace upgrade preserves every tenant `issues` row byte-for-byte
+/// (`to_jsonb(t.*)`) — no rewrite, backfill, or re-key." LATER feature migrations
+/// are NOT part of "the multi-workspace upgrade" and legitimately mutate rows —
+/// e.g. `0012_issue_position` adds + backfills `issues.position` (card-ranking),
+/// `0013_issue_change_events` adds a table — so sweeping them in here would make
+/// the byte-for-byte proof spuriously fail. Those migrations carry their own
+/// feature acceptance; this helper stays scoped to the multi-workspace set.
 pub fn add_forward_only_to(dir: &Path) -> Result<()> {
     let prod_dir = production_migrations_dir();
     let mut copied_versions = Vec::new();
@@ -172,7 +182,11 @@ pub fn add_forward_only_to(dir: &Path) -> Result<()> {
             .next()
             .and_then(|n| n.parse().ok())
             .with_context(|| format!("parse migration version from {filename:?}"))?;
-        if version < 9 {
+        // Only the multi-workspace-era migrations (0009..=0011). Later feature
+        // migrations (0012 position backfill, 0013 change-events, …) are not
+        // part of "the multi-workspace upgrade" and would break the
+        // byte-for-byte tenant-data guarantee — see the fn doc.
+        if !(9..=11).contains(&version) {
             continue;
         }
         let dst = dir.join(&filename);

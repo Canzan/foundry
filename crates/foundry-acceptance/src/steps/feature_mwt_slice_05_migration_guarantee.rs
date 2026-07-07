@@ -977,13 +977,21 @@ async fn member_board_view(pool: &PgPool, resolver: Resolver) -> (Vec<String>, V
         return (Vec::new(), Vec::new());
     };
 
-    let mut issue_titles: Vec<String> = store
-        .list_issues_by_project(project.id)
-        .await
-        .expect("scoped issue read")
-        .into_iter()
-        .map(|row| row.title)
-        .collect();
+    // Read titles POSITION-INDEPENDENTLY. This migration-guarantee snapshot runs
+    // at the PRE-multi-workspace schema (0001..0008): being before 0009 it cannot
+    // carry the `issues.position` column that card-ranking's 0012 added and that
+    // the shipped `list_issues_by_project` now orders by. The guarantee here is
+    // about the SET of issue titles a returning member sees SURVIVING the upgrade
+    // (re-sorted below), not the board's rank order — so a raw title read keeps
+    // the proof correct and decoupled from issue-column migrations that postdate
+    // multi-workspace. The isolation/gating chain above (team → membership →
+    // project) is unchanged; only the final title projection is de-coupled.
+    let mut issue_titles: Vec<String> =
+        sqlx::query_scalar::<_, String>("SELECT title FROM issues WHERE project_id = $1")
+            .bind(project.id)
+            .fetch_all(pool)
+            .await
+            .expect("scoped issue read");
     issue_titles.sort();
 
     let project_names = vec![project.name];
