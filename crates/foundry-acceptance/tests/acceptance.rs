@@ -43,6 +43,8 @@ use foundry_acceptance::steps::feature_dashboard_enhancements as _feature_dashbo
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_invite_accept as _feature_invite_accept;
 #[allow(unused_imports)]
+use foundry_acceptance::steps::feature_issue_change_history as _feature_issue_change_history;
+#[allow(unused_imports)]
 use foundry_acceptance::steps::feature_issue_edit_dialog as _feature_issue_edit_dialog;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_issue_status_move as _feature_issue_status_move;

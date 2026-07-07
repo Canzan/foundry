@@ -1274,73 +1274,12 @@ impl Store {
             .collect())
     }
 
-    /// Update an issue's `state` and write a matching `IssueUpdated`
-    /// outbox row in the same transaction. The trigger
-    /// `notify_outbox_event` then fans the event out to all replicas
-    /// LISTENing on `issue_events` (slice 2; see
-    /// `migrations/0003_outbox_notify.sql`).
-    ///
-    /// `actor_id` is the user driving the change — surfaces in the
-    /// event payload as `author_id` so the realtime layer can decide
-    /// whether to suppress echo back to the originator (out of scope
-    /// for slice 2).
-    pub async fn update_issue_state_with_outbox(
-        &self,
-        project_key_prefix: &str,
-        issue_number: i32,
-        new_state: &str,
-        actor_id: uuid::Uuid,
-    ) -> Result<Option<()>, IssueInsertError> {
-        let mut tx = self.pool.begin().await?;
-
-        // Lookup the issue row + project context. Single round trip so
-        // the trigger payload contains the project_id without a second
-        // query.
-        let row: Option<(uuid::Uuid, uuid::Uuid, uuid::Uuid)> = sqlx::query_as(
-            "SELECT i.id, i.project_id, i.workspace_id
-               FROM issues i
-               JOIN projects p ON p.id = i.project_id
-              WHERE p.key_prefix = $1 AND i.number = $2",
-        )
-        .bind(project_key_prefix)
-        .bind(issue_number)
-        .fetch_optional(&mut *tx)
-        .await?;
-        let Some((issue_id, project_id, workspace_id)) = row else {
-            return Ok(None);
-        };
-
-        sqlx::query("UPDATE issues SET state = $1, updated_at = now() WHERE id = $2")
-            .bind(new_state)
-            .bind(issue_id)
-            .execute(&mut *tx)
-            .await?;
-
-        let payload = serde_json::json!({
-            "issue_id": issue_id,
-            "project_id": project_id,
-            "workspace_id": workspace_id,
-            "number": issue_number,
-            "key": format!("{project_key_prefix}-{issue_number}"),
-            "state": new_state,
-            "author_id": actor_id,
-        });
-        sqlx::query("INSERT INTO outbox (event_type, payload) VALUES ('IssueUpdated', $1)")
-            .bind(payload)
-            .execute(&mut *tx)
-            .await?;
-
-        tx.commit().await?;
-        Ok(Some(()))
-    }
-
     /// Reposition an issue within (or across) status columns and, IFF the state
-    /// actually changed, write a matching `IssueUpdated` outbox row — all in ONE
-    /// transaction (card-ranking-within-status, ADR-001/ADR-002).
+    /// actually changed, write a matching `IssueUpdated` outbox row AND an
+    /// append-only `issue_change_events` row (issue-change-history ADR-001) — all
+    /// in ONE transaction (card-ranking-within-status, ADR-001/ADR-002).
     ///
-    /// Sibling to [`Store::update_issue_state_with_outbox`], which it cannot
-    /// reuse because that method (a) has no notion of `position` and (b) emits
-    /// UNCONDITIONALLY. A pure within-status reorder must write `position` with
+    /// A pure within-status reorder writes `position` with
     /// NO emit (watch-item R2 / ODD-4): broadcasting a reorder would shove other
     /// viewers' cards to the column end, since the SSE consumer has no notion of
     /// position. So the emit here is gated on `new_state != old_state`, mirroring
@@ -1448,7 +1387,11 @@ impl Store {
             self.renumber_column(&mut tx, &source).await?;
         }
 
-        // Emit IFF the state actually changed (watch-item R2 / ODD-4).
+        // Emit IFF the state actually changed (watch-item R2 / ODD-4). The same
+        // guard records the append-only status change (issue-change-history
+        // ADR-001 / watch-item R1+R2): in the SAME tx as the state write, so a
+        // rolled-back move records nothing and a committed one always records;
+        // a no-op reorder (state unchanged) records nothing.
         if new_state != old_state {
             let payload = serde_json::json!({
                 "issue_id": issue_id,
@@ -1463,6 +1406,18 @@ impl Store {
                 .bind(payload)
                 .execute(&mut *tx)
                 .await?;
+
+            self.record_issue_change(
+                &mut tx,
+                workspace_id,
+                project_id,
+                issue_id,
+                actor_id,
+                "status",
+                Some(&old_state),
+                new_state,
+            )
+            .await?;
         }
 
         tx.commit().await?;
@@ -1507,10 +1462,113 @@ impl Store {
         Ok(())
     }
 
+    /// Record ONE append-only `issue_change_events` row (issue-change-history
+    /// ADR-001) INSIDE the caller's transaction. The shared capture helper every
+    /// mutation calls after a tracked field actually changes: because it rides
+    /// the mutation's own `tx`, a rolled-back mutation records nothing and a
+    /// committed one always records (no phantom, no drop). `old` is `None` only
+    /// for a future creation-event kind; v1 field-change rows pass both. The row
+    /// `id` is a time-ordered uuid v7 so `(created_at, id)` is a stable
+    /// insertion order even when two rows share a `created_at`.
+    #[allow(clippy::too_many_arguments)]
+    async fn record_issue_change(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        workspace_id: uuid::Uuid,
+        project_id: uuid::Uuid,
+        issue_id: uuid::Uuid,
+        actor_id: uuid::Uuid,
+        field: &str,
+        old: Option<&str>,
+        new: &str,
+    ) -> Result<(), IssueInsertError> {
+        sqlx::query(
+            "INSERT INTO issue_change_events
+                  (id, workspace_id, project_id, issue_id, actor_id, field, old_value, new_value)
+              VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+        )
+        .bind(uuid::Uuid::now_v7())
+        .bind(workspace_id)
+        .bind(project_id)
+        .bind(issue_id)
+        .bind(actor_id)
+        .bind(field)
+        .bind(old)
+        .bind(new)
+        .execute(&mut **tx)
+        .await?;
+        Ok(())
+    }
+
+    /// The change timeline for an issue, ordered NEWEST-first (issue-change-
+    /// history ADR-002 §1 — reading order for the human detail page). Joins the
+    /// acting user's `display_name` for attribution; a deleted actor surfaces
+    /// `<deleted>`. Reads the `(issue_id, created_at)` index.
+    pub async fn list_issue_changes(
+        &self,
+        issue_id: uuid::Uuid,
+    ) -> Result<Vec<IssueChangeRow>, StoreError> {
+        let rows: Vec<(String, String, Option<String>, String, time::OffsetDateTime)> =
+            sqlx::query_as(
+                "SELECT COALESCE(u.display_name, '<deleted>'), e.field, e.old_value, e.new_value, e.created_at
+                   FROM issue_change_events e
+                   LEFT JOIN users u ON u.id = e.actor_id
+                  WHERE e.issue_id = $1
+                  ORDER BY e.created_at DESC, e.id DESC",
+            )
+            .bind(issue_id)
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(rows
+            .into_iter()
+            .map(
+                |(actor_name, field, old_value, new_value, created_at)| IssueChangeRow {
+                    actor_name,
+                    field,
+                    old_value,
+                    new_value,
+                    created_at,
+                },
+            )
+            .collect())
+    }
+
+    /// The change events across a project, ordered NEWEST-first (issue-change-
+    /// history ADR-002 §3 — the project report, US-04). Reads the
+    /// `(project_id, created_at)` index. Slice 04 renders it; added now so both
+    /// reads land with the model.
+    pub async fn list_project_changes(
+        &self,
+        project_id: uuid::Uuid,
+    ) -> Result<Vec<IssueChangeRow>, StoreError> {
+        let rows: Vec<(String, String, Option<String>, String, time::OffsetDateTime)> =
+            sqlx::query_as(
+                "SELECT COALESCE(u.display_name, '<deleted>'), e.field, e.old_value, e.new_value, e.created_at
+                   FROM issue_change_events e
+                   LEFT JOIN users u ON u.id = e.actor_id
+                  WHERE e.project_id = $1
+                  ORDER BY e.created_at DESC, e.id DESC",
+            )
+            .bind(project_id)
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(rows
+            .into_iter()
+            .map(
+                |(actor_name, field, old_value, new_value, created_at)| IssueChangeRow {
+                    actor_name,
+                    field,
+                    old_value,
+                    new_value,
+                    created_at,
+                },
+            )
+            .collect())
+    }
+
     /// Update an issue's `title` + `description_md` (issue-edit-dialog, ADR-002).
-    /// Mirrors [`Store::update_issue_state_with_outbox`] MINUS the outbox emit
-    /// (ODD-4): v1 is last-write-wins with NO realtime event — broadcasting an
-    /// edit to other board viewers is a named deferred increment, so we do not
+    /// v1 is last-write-wins with NO outbox emit (ODD-4) — broadcasting an edit
+    /// to other board viewers is a named deferred increment, so we do not
     /// surprise the SSE consumer with an event kind it cannot render yet.
     ///
     /// Looks the issue up by `key_prefix + number`; returns `Ok(None)` when
@@ -2426,6 +2484,19 @@ pub struct IssueEditRow {
     /// The issue's current state slug (`backlog`, `todo`, `in_progress`, `done`)
     /// — pre-selects the edit-dialog status control (issue-status-move).
     pub state: String,
+}
+
+/// One append-only change record as read for a surface (issue-change-history
+/// ADR-001/002). `actor_name` is the acting user's `display_name` (joined at
+/// read time; `<deleted>` sentinel for a removed user). `old_value` is `None`
+/// only for a future creation-event kind; v1 field-change rows carry both.
+#[derive(Debug, Clone)]
+pub struct IssueChangeRow {
+    pub actor_name: String,
+    pub field: String,
+    pub old_value: Option<String>,
+    pub new_value: String,
+    pub created_at: time::OffsetDateTime,
 }
 
 /// Errors specific to issue insert.

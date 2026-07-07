@@ -14,6 +14,7 @@
   <label>Attach a file <input type="file" name="file" required></label>
   <button type="submit">Upload</button>
 </form>
+<section class="change-timeline" data-change-timeline>{% if timeline.is_empty() %}<p class="timeline-empty">No changes yet.</p>{% else %}{% for e in timeline %}<div class="change-event" data-change-field="{{ e.field }}" data-new-value="{{ e.new_value }}">{{ e.summary }}</div>{% endfor %}{% endif %}</section>
 <section class="comments" data-comment-list>{% if comments.is_empty() %}<p class="empty">No comments yet.</p>{% else %}{% for card in comments %}{% include "partials/comment_card.html" %}{% endfor %}{% endif %}</section>
 <form method="post" action="{{ post_url }}">
   <label>Add a comment <textarea name="body" required></textarea></label>

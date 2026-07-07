@@ -2,7 +2,7 @@
 //! (`foundry-app`) and the JSON adapter (`foundry-api`, 03-02) call.
 //!
 //! These REUSE the exact core write+outbox path the browser handlers use
-//! (`Store::insert_issue_with_outbox`, `Store::update_issue_state_with_outbox`)
+//! (`Store::insert_issue_with_outbox`, `Store::reposition_issue_with_outbox`)
 //! plus the SAME trimmed/non-empty/≤256 title validation and the lifted
 //! `normalize_state` (DD10). An API write and a browser write therefore accept
 //! or reject identically and store identical bytes (NFR-WEB-API-CON-02).

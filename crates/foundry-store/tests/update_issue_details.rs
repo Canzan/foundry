@@ -143,7 +143,7 @@ async fn read_issue(store: &Store, project_id: uuid::Uuid, number: i32) -> (Stri
 /// A scoped `update_issue_details` persists BOTH fields for the addressed issue
 /// and touches NO same-numbered issue under a foreign project key — the
 /// write-side proof of ADR-002 last-write-wins + the key-scoped isolation the
-/// store JOIN provides (mirrors `update_issue_state_with_outbox`).
+/// store JOIN provides (mirrors `reposition_issue_with_outbox`).
 #[tokio::test]
 async fn update_issue_details_persists_both_fields_and_is_tenant_isolated() {
     let (base, _guard) = fresh_postgres().await;

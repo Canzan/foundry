@@ -178,6 +178,11 @@ pub struct IssueCard {
     /// Canonical `{PREFIX}-{N}` key (e.g. `AUTH-2`).
     pub key: String,
     pub title: String,
+    /// `GET …/issues/{n}` — the issue-detail page the card's KEY links to
+    /// (issue-change-history ADR-002 §1 / watch-item R6). Additive: the card
+    /// keeps its `hx-get` quick-edit control; the key is the least-disruptive
+    /// navigation affordance (does not collide with the drag gesture).
+    pub detail_url: String,
     /// `GET …/issues/{n}/edit` — the card's `hx-get` to open the edit dialog
     /// (issue-edit-dialog, R1). The card targets `#modal-root` so a click
     /// swaps the pre-filled dialog in.
@@ -479,6 +484,25 @@ pub struct IssuePage {
     pub upload_url: String,
     pub attachments: Vec<AttachmentItem>,
     pub comments: Vec<CommentCard>,
+    /// The change timeline (issue-change-history ADR-002 §1), NEWEST-first.
+    /// Empty for an unchanged issue (genesis = start empty, UC-1).
+    pub timeline: Vec<TimelineEntry>,
+}
+
+/// One rendered change-timeline entry (issue-change-history ADR-002 §1). Carries
+/// the raw `field` + `new_value` slug as scraper-stable `data-` markers plus the
+/// plain-language `summary` a reader sees (e.g. `Mei moved status Todo → In
+/// Progress`). Built in the handler from `IssueChangeRow`; the template only
+/// loops.
+#[derive(Debug, Clone)]
+pub struct TimelineEntry {
+    /// The changed field slug (`status`, …) — the `data-change-field` marker.
+    pub field: String,
+    /// The raw new-value slug (`in_progress`, `todo`, …) — the `data-new-value`
+    /// marker used for order + presence assertions.
+    pub new_value: String,
+    /// The attributed, plain-language sentence (auto-escaped by Askama).
+    pub summary: String,
 }
 
 /// The signed-in dashboard landing page served at `GET /` (US-R04 / US-01). Extends

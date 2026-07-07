@@ -31,7 +31,7 @@ use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
 use foundry_core::render_comment_markdown;
 use foundry_services::{comments as comment_service, Principal, ServiceError};
-use foundry_store::{AttachmentSummary, CommentRow};
+use foundry_store::{AttachmentSummary, CommentRow, IssueChangeRow};
 use serde::Deserialize;
 use tower_sessions::Session;
 
@@ -120,6 +120,16 @@ pub async fn show_issue(
         Err(err) => return internal_error("is_workspace_admin", err),
     };
 
+    // issue-change-history ADR-002 §1 — the change timeline below the issue
+    // header, NEWEST-first. Read through the SAME authz-gated issue resolution
+    // above (a foreign/absent issue already 404'd non-enumerably), so the
+    // timeline never leaks a change for an issue the caller may not see. Empty
+    // for an unchanged issue (genesis = start empty, UC-1).
+    let changes = match state.store.list_issue_changes(issue.issue_id).await {
+        Ok(rows) => rows,
+        Err(err) => return internal_error("list_issue_changes", err),
+    };
+
     let key = format!("{}-{}", issue.project_key_prefix, issue_number);
     Html(render_issue_page(
         &team_slug,
@@ -127,6 +137,7 @@ pub async fn show_issue(
         &key,
         &comments,
         &attachments,
+        &changes,
         user.user_id,
         actor_is_admin,
     ))
@@ -681,10 +692,12 @@ fn render_issue_page(
     issue_key: &str,
     comments: &[CommentRow],
     attachments: &[AttachmentSummary],
+    changes: &[IssueChangeRow],
     actor_user_id: uuid::Uuid,
     actor_is_admin: bool,
 ) -> String {
     let number = extract_number(issue_key);
+    let timeline = changes.iter().map(build_timeline_entry).collect();
     let cards = comments
         .iter()
         .map(|row| {
@@ -716,9 +729,59 @@ fn render_issue_page(
         upload_url: format!("/team/{team_slug}/project/{project_slug}/issues/{number}/attachments"),
         attachments: attachment_items,
         comments: cards,
+        timeline,
     }
     .render()
     .expect("issue page render (infallible String buffer)")
+}
+
+/// Build one plain-language [`views::TimelineEntry`] from a stored change row
+/// (issue-change-history ADR-002 §1). The raw `field` + `new_value` slugs ride
+/// through as scraper-stable `data-` markers; the `summary` is the attributed
+/// sentence a reader sees. Slice 01 records only `status`; the generic arm keeps
+/// later fields (title/description/rank) legible without a second pass. State
+/// slugs are humanized (`in_progress` → `In Progress`) for display only — the
+/// stored values are untouched.
+fn build_timeline_entry(row: &IssueChangeRow) -> views::TimelineEntry {
+    let summary = match row.field.as_str() {
+        "status" => format!(
+            "{actor} moved status {old} → {new}",
+            actor = row.actor_name,
+            old = row
+                .old_value
+                .as_deref()
+                .map(humanize_state)
+                .unwrap_or_default(),
+            new = humanize_state(&row.new_value),
+        ),
+        _ => format!(
+            "{actor} changed {field} {old} → {new}",
+            actor = row.actor_name,
+            field = row.field,
+            old = row.old_value.as_deref().unwrap_or(""),
+            new = row.new_value,
+        ),
+    };
+    views::TimelineEntry {
+        field: row.field.clone(),
+        new_value: row.new_value.clone(),
+        summary,
+    }
+}
+
+/// Humanize a stored state slug for the timeline sentence (display only):
+/// `backlog` → `Backlog`, `todo` → `Todo`, `in_progress` → `In Progress`,
+/// `done` → `Done`, `cancelled` → `Cancelled`. An unknown slug renders verbatim
+/// so a future state never blanks the entry.
+fn humanize_state(slug: &str) -> String {
+    match slug {
+        "backlog" => "Backlog".to_string(),
+        "todo" => "Todo".to_string(),
+        "in_progress" => "In Progress".to_string(),
+        "done" => "Done".to_string(),
+        "cancelled" => "Cancelled".to_string(),
+        other => other.to_string(),
+    }
 }
 
 /// Build the [`views::CommentCard`] view-model from a store row + the

@@ -136,7 +136,7 @@ async fn seeded_harness() -> Harness {
         .await
         .expect("seed AUTH-2");
     store
-        .update_issue_state_with_outbox("AUTH", 2, "in_progress", admin_id)
+        .reposition_issue_with_outbox("AUTH", 2, "in_progress", None, admin_id)
         .await
         .expect("move AUTH-2 to in_progress");
 

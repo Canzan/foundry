@@ -545,11 +545,18 @@ pub(crate) fn render_issue_card(
     edit_url: &str,
     state_url: &str,
 ) -> String {
+    // The card KEY links to the issue-detail page (issue-change-history ADR-002
+    // §1 / watch-item R6). Derived by trimming the `/edit` suffix off `edit_url`
+    // — the detail page shares the card's `…/issues/{n}` stem — so both the
+    // htmx-appended card here and the board-rendered `issue_card.html` carry the
+    // SAME additive link while keeping the quick-edit `hx-get`.
+    let detail_url = edit_url.strip_suffix("/edit").unwrap_or(edit_url);
     format!(
-        r##"<article class="issue-card" id="issue-{key}" data-issue-key="{key}" draggable="true" data-state-url="{state}" hx-get="{edit}" hx-target="#modal-root" hx-swap="innerHTML" style="cursor:pointer"><span class="key">{key}</span> <span class="title">{title}</span></article>"##,
+        r##"<article class="issue-card" id="issue-{key}" data-issue-key="{key}" draggable="true" data-state-url="{state}" hx-get="{edit}" hx-target="#modal-root" hx-swap="innerHTML" style="cursor:pointer"><a class="key" href="{detail}">{key}</a> <span class="title">{title}</span></article>"##,
         key = html_escape(&issue_key.to_string()),
         state = html_escape(state_url),
         edit = html_escape(edit_url),
+        detail = html_escape(detail_url),
         title = html_escape(title),
     )
 }

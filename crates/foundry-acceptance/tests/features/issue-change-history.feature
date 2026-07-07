@@ -35,12 +35,12 @@ Feature: A member sees, a program consumes, and a lead reports every change to a
 
   # ---- Slice 01: status-change history + human timeline (issue-detail page) ----
 
-  @us-01 @real-io @pending
+  @us-01 @real-io
   Scenario: A status change records one change event in the same transaction
     When Mei saves the edit dialog for "GEN-1" with status "Todo"
     Then a change event is recorded for "GEN-1": field "status", old "backlog", new "todo", by "Mei"
 
-  @us-01 @real-io @pending
+  @us-01 @real-io
   Scenario: The issue-detail page renders the change timeline newest-first
     When Mei saves the edit dialog for "GEN-1" with status "Todo"
     And Mei saves the edit dialog for "GEN-1" with status "In-Progress"
@@ -48,30 +48,30 @@ Feature: A member sees, a program consumes, and a lead reports every change to a
     Then the "GEN-1" timeline shows a "status" change to "In Progress" by "Mei"
     And the "GEN-1" timeline lists the "in_progress" change above the "todo" change
 
-  @us-01 @real-io @pending
+  @us-01 @real-io
   Scenario: An unchanged issue shows an empty timeline (no created event)
     When Mei opens the detail page for "GEN-2"
     Then the "GEN-2" timeline is empty
 
-  @us-01 @real-io @pending
+  @us-01 @real-io
   Scenario: History is append-only — a later change adds an entry, earlier ones unchanged
     When Mei saves the edit dialog for "GEN-1" with status "Todo"
     And Mei saves the edit dialog for "GEN-1" with status "Done"
     Then "GEN-1" has 2 change events in the store
     And the earliest "GEN-1" change event still reads field "status", old "backlog", new "todo"
 
-  @us-01 @real-io @pending
+  @us-01 @real-io
   Scenario: A same-value save records no change event
     When Mei saves the edit dialog for "GEN-2" with status "Todo"
     Then no change event is recorded for "GEN-2"
 
-  @us-01 @real-io @error @pending
+  @us-01 @real-io @error
   Scenario: The timeline of a foreign issue is refused non-enumerably
     Given a foreign issue "ZZZ-9" exists in another workspace
     When Mei opens the detail page for "ZZZ-9"
     Then the response is a non-enumerable refusal
 
-  @us-01 @real-io @pending
+  @us-01 @real-io
   Scenario: The board still opens the quick-edit modal, and the card links to the detail page
     When Mei fetches the "Sandbox" board
     Then each issue card still carries its edit-dialog control
