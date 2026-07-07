@@ -131,6 +131,21 @@ impl Services {
         .await
     }
 
+    /// issue-change-history program feed (US-03) — delegates to
+    /// [`issues::list_issue_change_history`]. Membership-authz gated then reads
+    /// the SAME `list_issue_changes` rows the human timeline renders, oldest→
+    /// newest (ADR-002 §2). A foreign/absent issue is refused non-enumerably.
+    pub async fn list_issue_change_history(
+        &self,
+        principal: &Principal,
+        team_slug: &str,
+        project_slug: &str,
+        number: i32,
+    ) -> Result<Vec<issues::IssueChangeHistoryEntry>, ServiceError> {
+        issues::list_issue_change_history(&self.store, principal, team_slug, project_slug, number)
+            .await
+    }
+
     /// US-W05b per-request `jti` denylist read — delegates to
     /// [`auth::resolve_active_token`]. The ONLY store touch the token-auth
     /// extractor needs, routed through `Services` so `foundry-api` never names

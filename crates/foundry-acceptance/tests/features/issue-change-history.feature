@@ -98,7 +98,7 @@ Feature: A member sees, a program consumes, and a lead reports every change to a
 
   # ---- Slice 03: program JSON change feed ----
 
-  @us-03 @real-io @pending
+  @us-03 @real-io
   Scenario: The history endpoint returns the issue's change events as JSON, oldest-first
     When Mei saves the edit dialog for "GEN-1" with status "Todo"
     And Mei edits "GEN-1" title to "Renamed"
@@ -106,7 +106,7 @@ Feature: A member sees, a program consumes, and a lead reports every change to a
     Then the history JSON lists the events oldest-first, each with actor, field, old, new, and a timestamp
     And the JSON events are the same as the stored change events for "GEN-1"
 
-  @us-03 @real-io @error @pending
+  @us-03 @real-io @error
   Scenario: The history endpoint refuses a foreign issue non-enumerably
     Given a foreign issue "ZZZ-9" exists in another workspace
     When a program requests the change history of "ZZZ-9"

@@ -125,6 +125,40 @@ impl From<foundry_services::comments::CommentView> for CommentJson {
     }
 }
 
+/// The wire shape of one issue change event (issue-change-history ADR-002 §2).
+/// Serialized by this adapter from the neutral
+/// `foundry_services::issues::IssueChangeHistoryEntry`. `actor` is the acting
+/// user's email (a stable identifier for integrators, matching the sibling
+/// `CommentJson.author_email`); `old` is `null` where the event has no old value
+/// (present-but-null key); `at` is an RFC3339 (ISO-8601 UTC) timestamp. The
+/// array is ordered oldest→newest (stable audit order for programs — the human
+/// timeline is newest-first; ADR-002 watch-item R7).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct IssueHistoryJson {
+    pub actor: String,
+    pub field: String,
+    pub old: Option<String>,
+    pub new: String,
+    pub at: String,
+}
+
+impl From<foundry_services::issues::IssueChangeHistoryEntry> for IssueHistoryJson {
+    fn from(entry: foundry_services::issues::IssueChangeHistoryEntry) -> Self {
+        use time::format_description::well_known::Rfc3339;
+        let at = entry
+            .at
+            .format(&Rfc3339)
+            .unwrap_or_else(|_| entry.at.unix_timestamp().to_string());
+        IssueHistoryJson {
+            actor: entry.actor_email,
+            field: entry.field,
+            old: entry.old_value,
+            new: entry.new_value,
+            at,
+        }
+    }
+}
+
 /// The wire shape of a machine-token registry row (api-contract.md §2
 /// "TokenJson"). Serialized by this adapter from the neutral
 /// `foundry_services::tokens::TokenView`. Field names are the VERBATIM
@@ -277,6 +311,10 @@ where
             patch(change_issue_state_handler),
         )
         .route(
+            "/api/v1/teams/{team_slug}/projects/{project_slug}/issues/{number}/history",
+            get(list_issue_history_handler),
+        )
+        .route(
             "/api/v1/teams/{team_slug}/projects/{project_slug}/issues/{number}/comments",
             post(create_comment_handler),
         )
@@ -393,6 +431,28 @@ async fn change_issue_state_handler(
         title: updated.title,
         state: updated.state,
     }))
+}
+
+/// `GET .../issues/{number}/history` (issue-change-history US-03, ADR-002 §2).
+/// The `MachinePrincipal` extractor authenticates the bearer credential (fail-
+/// closed 401) BEFORE the handler body runs; it then calls the shared core seam
+/// `list_issue_change_history` (which decides authorization via the SAME
+/// `resolve_member_project` gate the comments/PATCH routes use — 403 on scope/
+/// membership, and a foreign/absent issue → the uniform non-enumerable 404 JSON,
+/// never a 500). Serializes the neutral entries as a JSON array ordered
+/// oldest→newest (stable audit order); an issue with no recorded changes returns
+/// `[]` (200). The events are the SAME stored rows the human timeline renders
+/// (one source of truth, AC-03.4).
+async fn list_issue_history_handler(
+    State(services): State<Services>,
+    MachinePrincipal(principal): MachinePrincipal,
+    Path((team_slug, project_slug, number)): Path<(String, String, i32)>,
+) -> Result<Json<Vec<IssueHistoryJson>>, ApiError> {
+    let entries = services
+        .list_issue_change_history(&principal, &team_slug, &project_slug, number)
+        .await?;
+    let body = entries.into_iter().map(IssueHistoryJson::from).collect();
+    Ok(Json(body))
 }
 
 /// `POST .../issues/{number}/comments` (US-W05c). Calls

@@ -1528,26 +1528,35 @@ impl Store {
         &self,
         issue_id: uuid::Uuid,
     ) -> Result<Vec<IssueChangeRow>, StoreError> {
-        let rows: Vec<(String, String, Option<String>, String, time::OffsetDateTime)> =
-            sqlx::query_as(
-                "SELECT COALESCE(u.display_name, '<deleted>'), e.field, e.old_value, e.new_value, e.created_at
+        let rows: Vec<(
+            String,
+            String,
+            String,
+            Option<String>,
+            String,
+            time::OffsetDateTime,
+        )> = sqlx::query_as(
+            "SELECT COALESCE(u.display_name, '<deleted>'), COALESCE(u.email_display, '<deleted>'), e.field, e.old_value, e.new_value, e.created_at
                    FROM issue_change_events e
                    LEFT JOIN users u ON u.id = e.actor_id
                   WHERE e.issue_id = $1
                   ORDER BY e.created_at DESC, e.id DESC",
-            )
-            .bind(issue_id)
-            .fetch_all(&self.pool)
-            .await?;
+        )
+        .bind(issue_id)
+        .fetch_all(&self.pool)
+        .await?;
         Ok(rows
             .into_iter()
             .map(
-                |(actor_name, field, old_value, new_value, created_at)| IssueChangeRow {
-                    actor_name,
-                    field,
-                    old_value,
-                    new_value,
-                    created_at,
+                |(actor_name, actor_email, field, old_value, new_value, created_at)| {
+                    IssueChangeRow {
+                        actor_name,
+                        actor_email,
+                        field,
+                        old_value,
+                        new_value,
+                        created_at,
+                    }
                 },
             )
             .collect())
@@ -1561,26 +1570,35 @@ impl Store {
         &self,
         project_id: uuid::Uuid,
     ) -> Result<Vec<IssueChangeRow>, StoreError> {
-        let rows: Vec<(String, String, Option<String>, String, time::OffsetDateTime)> =
-            sqlx::query_as(
-                "SELECT COALESCE(u.display_name, '<deleted>'), e.field, e.old_value, e.new_value, e.created_at
+        let rows: Vec<(
+            String,
+            String,
+            String,
+            Option<String>,
+            String,
+            time::OffsetDateTime,
+        )> = sqlx::query_as(
+            "SELECT COALESCE(u.display_name, '<deleted>'), COALESCE(u.email_display, '<deleted>'), e.field, e.old_value, e.new_value, e.created_at
                    FROM issue_change_events e
                    LEFT JOIN users u ON u.id = e.actor_id
                   WHERE e.project_id = $1
                   ORDER BY e.created_at DESC, e.id DESC",
-            )
-            .bind(project_id)
-            .fetch_all(&self.pool)
-            .await?;
+        )
+        .bind(project_id)
+        .fetch_all(&self.pool)
+        .await?;
         Ok(rows
             .into_iter()
             .map(
-                |(actor_name, field, old_value, new_value, created_at)| IssueChangeRow {
-                    actor_name,
-                    field,
-                    old_value,
-                    new_value,
-                    created_at,
+                |(actor_name, actor_email, field, old_value, new_value, created_at)| {
+                    IssueChangeRow {
+                        actor_name,
+                        actor_email,
+                        field,
+                        old_value,
+                        new_value,
+                        created_at,
+                    }
                 },
             )
             .collect())
@@ -2541,12 +2559,17 @@ pub struct IssueEditRow {
 }
 
 /// One append-only change record as read for a surface (issue-change-history
-/// ADR-001/002). `actor_name` is the acting user's `display_name` (joined at
-/// read time; `<deleted>` sentinel for a removed user). `old_value` is `None`
-/// only for a future creation-event kind; v1 field-change rows carry both.
+/// ADR-001/002). `actor_name` is the acting user's `display_name` (the human
+/// timeline attributes with it); `actor_email` is the acting user's
+/// `email_display` (the program feed identifies integrators with it — a stable
+/// identifier). Both are joined at read time from the SAME row so the human and
+/// program surfaces read one source of truth (ADR-002 AC-03.4); `<deleted>`
+/// sentinel for a removed user. `old_value` is `None` only for a future
+/// creation-event kind; v1 field-change rows carry both.
 #[derive(Debug, Clone)]
 pub struct IssueChangeRow {
     pub actor_name: String,
+    pub actor_email: String,
     pub field: String,
     pub old_value: Option<String>,
     pub new_value: String,

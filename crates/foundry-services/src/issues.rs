@@ -256,6 +256,65 @@ pub async fn edit_issue_form(
     })
 }
 
+/// One change event as served by the program feed (issue-change-history
+/// ADR-002 §2). Presentation-neutral: the JSON adapter (`foundry-api`) maps it
+/// to the wire shape `{actor, field, old, new, at}`. `actor` is the acting
+/// user's email (a stable identifier for integrators, matching the sibling
+/// `CommentJson.author_email`); `at` is the change instant (serialized ISO-8601
+/// UTC by the adapter). Read from the SAME `list_issue_changes` rows the human
+/// timeline renders — one source of truth (AC-03.4).
+#[derive(Debug, Clone)]
+pub struct IssueChangeHistoryEntry {
+    pub actor_email: String,
+    pub field: String,
+    pub old_value: Option<String>,
+    pub new_value: String,
+    pub at: time::OffsetDateTime,
+}
+
+/// issue-change-history program feed (ADR-002 §2 / US-03). Mirrors the sibling
+/// read use-cases: `resolve_member_project` membership authz → resolve the issue
+/// by `(team, project_slug, number)` → uniform non-enumerable `NotFound` for a
+/// foreign/absent issue (never a 500, watch-item R9) → read the SAME
+/// `list_issue_changes` rows the human timeline renders (one source of truth,
+/// AC-03.4). The store read is NEWEST-first (reading order for the human page);
+/// the program feed reverses it to OLDEST→NEWEST — stable audit/stream order for
+/// programs (watch-item R7).
+pub async fn list_issue_change_history(
+    store: &Store,
+    principal: &Principal,
+    team_slug: &str,
+    project_slug: &str,
+    number: i32,
+) -> Result<Vec<IssueChangeHistoryEntry>, ServiceError> {
+    let (team, _project, _key_prefix) =
+        resolve_member_project(store, principal, team_slug, project_slug).await?;
+
+    let issue = store
+        .find_issue_by_team_project_number(team.id, project_slug, number)
+        .await
+        .map_err(|_| ServiceError::Internal)?
+        .ok_or(ServiceError::NotFound)?;
+
+    let rows = store
+        .list_issue_changes(issue.issue_id)
+        .await
+        .map_err(|_| ServiceError::Internal)?;
+
+    // Store read is newest-first; the program feed is oldest→newest (R7).
+    Ok(rows
+        .into_iter()
+        .rev()
+        .map(|row| IssueChangeHistoryEntry {
+            actor_email: row.actor_email,
+            field: row.field,
+            old_value: row.old_value,
+            new_value: row.new_value,
+            at: row.created_at,
+        })
+        .collect())
+}
+
 /// Resolve `(team, project, key_prefix)` after the SAME membership authz the
 /// browser handlers run: team-by-slug → is_team_member → project-by-slug.
 /// A machine credential scoped to another team is refused (Forbidden), exactly
