@@ -339,6 +339,50 @@ async fn newest_first_in_column(world: &mut FoundryWorld, column: String) {
     );
 }
 
+// ----- Then: the drag-and-drop script must reach browsers (cache policy) -----
+// Regression guard for the stale-JS bug: `/static/js/board-dnd.js` was served
+// `immutable, max-age=1y` at a NON-content-hashed URL, so an edited handler was
+// pinned stale in the browser and never re-fetched — the drag kept running the
+// old logic. The app-owned JS must revalidate so JS fixes reach browsers. This
+// is exactly the failure the HTTP persist-contract scenarios could not catch
+// (they bypass the served JS + its cache header).
+
+#[when(regex = r#"^the board drag-and-drop script is fetched$"#)]
+async fn fetch_dnd_script(world: &mut FoundryWorld) {
+    ensure_harness(world).await;
+    let harness = world.harness.as_ref().expect("harness");
+    let http = world.http.as_ref().expect("http");
+    let base = harness.base_url();
+    let resp = http
+        .get(format!("{base}/static/js/board-dnd.js"))
+        .send()
+        .await
+        .expect("GET board-dnd.js");
+    store(world, resp).await;
+}
+
+#[then(regex = r#"^it is served with a revalidating cache header so JS changes reach browsers$"#)]
+async fn dnd_script_revalidates(world: &mut FoundryWorld) {
+    assert_eq!(
+        world.last_status,
+        Some(StatusCode::OK),
+        "board-dnd.js must be served"
+    );
+    let cc = world
+        .last_headers
+        .as_ref()
+        .and_then(|h| h.get(reqwest::header::CACHE_CONTROL))
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    assert!(
+        cc.contains("no-cache") && !cc.contains("immutable"),
+        "the app-owned board-dnd.js must be served with a revalidating (non-immutable) cache \
+         header so an edited handler reaches browsers — otherwise it is pinned stale behind its \
+         unchanged URL for up to a year. Cache-Control was {cc:?}"
+    );
+}
+
 // ----- internals: authenticated HTTP + DB reads ------------------------------
 
 async fn read_issue_position(world: &mut FoundryWorld, key: &str) -> i32 {

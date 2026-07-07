@@ -16,7 +16,8 @@
 # state-only (ADR-002 / upstream UC-1): NO live two-client SSE-position scenario;
 # cross-viewer convergence is verified as a persisted re-read (a fresh board GET).
 #
-# EVERY scenario @pending until DELIVER wires the glue + un-@pends (kept out of @all).
+# All scenarios are wired and live in @all: slice 01 (@us-01, within-status) and
+# slice 02 (@us-02, cross-status positional drop — the GEN-3 → between GEN-4/GEN-2 flow).
 
 @card-ranking @us-card-ranking @driving_port
 Feature: A member ranks issue cards within a status
@@ -76,22 +77,30 @@ Feature: A member ranks issue cards within a status
     Then the "todo" column shows cards in order "GEN-2, GEN-4"
     And the board loads the drag-and-drop script
 
+  @us-01 @real-io
+  Scenario: The drag-and-drop script is served so JS fixes reach browsers
+    # Guards the stale-JS bug: board-dnd.js at a non-content-hashed URL must NOT
+    # be cached immutably for a year, or an edited handler never reaches the
+    # browser (the drag keeps running the old logic).
+    When the board drag-and-drop script is fetched
+    Then it is served with a revalidating cache header so JS changes reach browsers
+
   # ---- Slice 02: cross-status positional drop (state + rank, atomic) ----
 
-  @us-02 @real-io @pending
+  @us-02 @real-io
   Scenario: Dropping a card into another column at a slot sets state AND rank
     When Mei drops "GEN-3" after "GEN-4" in "todo" as the drop handler would
     Then "GEN-3" has state "todo" in the store
     And "GEN-3" is ranked after "GEN-4" in the "todo" column in the store
     And the "todo" column shows cards in order "GEN-4, GEN-3, GEN-2"
 
-  @us-02 @real-io @pending
+  @us-02 @real-io
   Scenario: A cross-status drop to the top of the target column
     When Mei drops "GEN-3" at the top of "todo" as the drop handler would
     Then "GEN-3" has state "todo" in the store
     And the "todo" column shows cards in order "GEN-3, GEN-4, GEN-2"
 
-  @us-02 @real-io @error @pending
+  @us-02 @real-io @error
   Scenario: A rejected cross-status drop changes neither state nor rank
     When a drop posts an invalid state for "GEN-3"
     Then the response is a validation error

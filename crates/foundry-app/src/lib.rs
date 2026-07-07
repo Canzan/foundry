@@ -232,6 +232,62 @@ fn static_dir() -> std::path::PathBuf {
     std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("static")
 }
 
+/// The `Cache-Control` value for a `/static` asset URL, path-aware so that only
+/// content-addressed URLs are cached immutably (see the `build_router` static
+/// route comment). App-owned JS under a `…/js/…*.js` path is served at a STABLE,
+/// non-content-hashed URL, so it MUST revalidate (`no-cache`) — otherwise an
+/// edited handler is pinned stale behind an unchanged URL for up to a year. The
+/// content-hashed CSS and the pinned vendored libs keep the long-lived
+/// `immutable` header. Match is on `…/js/….js` (robust to whether the nested
+/// service sees the `/static` prefix): it targets the app JS directory and never
+/// the vendored `/vendor/` libs or the hashed CSS.
+fn static_cache_control_value(path: &str) -> &'static str {
+    if path.contains("/js/") && path.ends_with(".js") {
+        "no-cache"
+    } else {
+        "public, max-age=31536000, immutable"
+    }
+}
+
+/// Axum middleware that stamps the path-aware `Cache-Control`
+/// ([`static_cache_control_value`]) onto every `/static` response.
+async fn static_cache_control(
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let value = static_cache_control_value(req.uri().path());
+    let mut resp = next.run(req).await;
+    resp.headers_mut().insert(
+        axum::http::header::CACHE_CONTROL,
+        axum::http::HeaderValue::from_static(value),
+    );
+    resp
+}
+
+#[cfg(test)]
+mod static_cache_policy_tests {
+    use super::static_cache_control_value;
+
+    #[test]
+    fn app_js_revalidates_while_hashed_css_and_vendored_libs_stay_immutable() {
+        // The bug this guards: `/static/js/board-dnd.js` was served
+        // `immutable, max-age=1y` at a non-content-hashed URL, so an edited
+        // handler was pinned stale in the browser for a year. App JS must
+        // revalidate so JS changes reach browsers.
+        assert_eq!(
+            static_cache_control_value("/static/js/board-dnd.js"),
+            "no-cache"
+        );
+        // Content-hashed CSS + pinned vendored libs stay long-lived immutable
+        // (their URLs are content-addressed / version-pinned).
+        assert!(
+            static_cache_control_value("/static/css/foundry.4c43c2a8.css").contains("immutable")
+        );
+        assert!(static_cache_control_value("/static/vendor/htmx.min.js").contains("immutable"));
+        assert!(static_cache_control_value("/static/vendor/alpine.min.js").contains("immutable"));
+    }
+}
+
 /// Build the axum router for slice 1.
 pub fn build_router(state: AppState) -> Router {
     let session_layer = session::build_session_layer(
@@ -250,18 +306,22 @@ pub fn build_router(state: AppState) -> Router {
     // a dep). Mounted on the base router OUTSIDE the session + CSRF layers —
     // `/static` is GET-only public, non-secret, vendored content that needs no
     // auth. ServeDir refuses `..` traversal by construction (US-B02 traversal
-    // @error). The long-lived immutable cache header is correct because EVERY
-    // served blob's content is pinned by its committed name: the vendored libs
-    // carry the upstream version, and the hand-authored CSS carries a content
-    // hash in its filename (`foundry.<sha256-prefix>.css`, ADR-B03 / assets.md
-    // Decision #4 option 4a). A CSS edit changes the hash → the filename → the
-    // URL `base.html` references, so `immutable` never pins stale CSS. See
-    // VENDOR.md.
+    // @error).
+    //
+    // Cache policy is PATH-AWARE (`static_cache_control`): `immutable,
+    // max-age=1y` is only safe when the URL is content-addressed. It applies to
+    // the content-hashed CSS (`foundry.<sha256-prefix>.css` — a CSS edit changes
+    // the hash → the filename → the URL, so `immutable` never pins stale CSS,
+    // ADR-B03) and the pinned vendored libs. App-owned JS under `…/js/…*.js`
+    // lives at a STABLE, non-hashed URL (`/static/js/board-dnd.js`) that does
+    // NOT change when its bytes change, so it gets `no-cache` (revalidate)
+    // instead — otherwise an edited handler is pinned stale behind an unchanged
+    // URL for up to a year (the card-ranking bug: browsers kept running the old
+    // `board-dnd.js` and never re-fetched the fixed one). ServeDir supplies
+    // ETag/Last-Modified, so revalidation is a cheap conditional GET (304 when
+    // unchanged). See VENDOR.md.
     let static_service = tower::ServiceBuilder::new()
-        .layer(tower_http::set_header::SetResponseHeaderLayer::overriding(
-            axum::http::header::CACHE_CONTROL,
-            axum::http::HeaderValue::from_static("public, max-age=31536000, immutable"),
-        ))
+        .layer(axum::middleware::from_fn(static_cache_control))
         .service(tower_http::services::ServeDir::new(static_dir()));
     let router = Router::new()
         .nest_service("/static", static_service)
