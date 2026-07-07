@@ -47,6 +47,29 @@ for bin in docker cargo curl; do
 done
 docker info >/dev/null 2>&1 || { err "Docker daemon not reachable — start Docker/OrbStack/colima"; exit 1; }
 
+# --- reap stale Foundry app processes --------------------------------------
+# A previous run.sh, a bare `cargo run`, or a `cargo watch` may still own the
+# app port (:3000) and would make this launch's bind fail. Kill any lingering
+# Foundry APP process so simply re-running this script is enough — no manual
+# hunt-and-kill. Leaves the Postgres container ALONE (it is meant to be reused)
+# and never touches this script's own PID.
+reap_foundry() {
+  local self=$$ found=0 pids pat
+  for pat in "target/debug/foundry" "target/release/foundry" \
+             "cargo-watch .*--bin foundry" "run .*--bin foundry"; do
+    pids="$(pgrep -f "$pat" 2>/dev/null | grep -vx "$self" || true)"
+    [ -n "$pids" ] || continue
+    found=1
+    log "reaping stale Foundry process(es) [$pat]: $(echo "$pids" | tr '\n' ' ')"
+    # shellcheck disable=SC2086
+    kill $pids 2>/dev/null || true
+  done
+  # Wait (briefly) for the app port to actually release before we bind it.
+  for _ in $(seq 1 25); do port_free "$APP_PORT" && break; sleep 0.2; done
+  [ "$found" = 1 ] && ok "stale Foundry processes reaped" || log "no stale Foundry app process found"
+}
+reap_foundry
+
 # --- environment -----------------------------------------------------------
 # Load a dotenv file WITHOUT executing it: values here are unquoted and can
 # contain spaces (the Ed25519 PEM keys embed "BEGIN PUBLIC KEY"), so `source`
