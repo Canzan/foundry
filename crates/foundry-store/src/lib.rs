@@ -1310,9 +1310,9 @@ impl Store {
     ) -> Result<RepositionOutcome, IssueInsertError> {
         let mut tx = self.pool.begin().await?;
 
-        // Resolve the moved issue + its project context + CURRENT state.
-        let row: Option<(uuid::Uuid, uuid::Uuid, uuid::Uuid, String)> = sqlx::query_as(
-            "SELECT i.id, i.project_id, i.workspace_id, i.state
+        // Resolve the moved issue + its project context + CURRENT state + rank.
+        let row: Option<(uuid::Uuid, uuid::Uuid, uuid::Uuid, String, i32)> = sqlx::query_as(
+            "SELECT i.id, i.project_id, i.workspace_id, i.state, i.position
                FROM issues i
                JOIN projects p ON p.id = i.project_id
               WHERE p.key_prefix = $1 AND i.number = $2",
@@ -1321,7 +1321,7 @@ impl Store {
         .bind(issue_number)
         .fetch_optional(&mut *tx)
         .await?;
-        let Some((issue_id, project_id, workspace_id, old_state)) = row else {
+        let Some((issue_id, project_id, workspace_id, old_state, old_position)) = row else {
             return Ok(RepositionOutcome::IssueNotFound);
         };
 
@@ -1416,6 +1416,26 @@ impl Store {
                 "status",
                 Some(&old_state),
                 new_state,
+            )
+            .await?;
+        }
+
+        // Record the append-only rank change (issue-change-history ADR-001,
+        // slice 02) when the moved issue's position actually changed — its new
+        // rank is its index in the renumbered target column. A within-status
+        // reorder records only this; a cross-status drop records this AND the
+        // status change above; a no-op drop (same slot) records nothing (R2).
+        let new_position = insert_idx as i32;
+        if new_position != old_position {
+            self.record_issue_change(
+                &mut tx,
+                workspace_id,
+                project_id,
+                issue_id,
+                actor_id,
+                "rank",
+                Some(&old_position.to_string()),
+                &new_position.to_string(),
             )
             .await?;
         }
@@ -1576,28 +1596,33 @@ impl Store {
     /// service maps `None` to the uniform non-enumerable NotFound (ADR-003).
     /// Last-write-wins: no `updated_at` optimistic guard (ODD-3).
     ///
-    /// `_actor_id` is accepted for signature parity with the state-change path
-    /// (and the deferred edit-broadcast increment that will ride it into an
-    /// outbox payload); v1 writes no payload, so it is unused today.
+    /// Runs in ONE transaction (issue-change-history ADR-001 / watch-item R4):
+    /// read old title + description → UPDATE → record a `title` / `description`
+    /// change PER field that actually changed (watch-items R2/R3 — a same-value
+    /// save records nothing; a multi-field save records one row per changed
+    /// field), all inside the tx so a rolled-back edit records nothing. `actor_id`
+    /// attributes the change (previously ignored — the edit path was silent).
     pub async fn update_issue_details(
         &self,
         project_key_prefix: &str,
         issue_number: i32,
         title: &str,
         description_md: &str,
-        _actor_id: uuid::Uuid,
+        actor_id: uuid::Uuid,
     ) -> Result<Option<()>, IssueInsertError> {
-        let row: Option<(uuid::Uuid,)> = sqlx::query_as(
-            "SELECT i.id
+        let mut tx = self.pool.begin().await?;
+
+        let row: Option<(uuid::Uuid, uuid::Uuid, uuid::Uuid, String, String)> = sqlx::query_as(
+            "SELECT i.id, i.project_id, i.workspace_id, i.title, i.description_md
                FROM issues i
                JOIN projects p ON p.id = i.project_id
               WHERE p.key_prefix = $1 AND i.number = $2",
         )
         .bind(project_key_prefix)
         .bind(issue_number)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *tx)
         .await?;
-        let Some((issue_id,)) = row else {
+        let Some((issue_id, project_id, workspace_id, old_title, old_description)) = row else {
             return Ok(None);
         };
 
@@ -1607,8 +1632,37 @@ impl Store {
         .bind(title)
         .bind(description_md)
         .bind(issue_id)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?;
+
+        if title != old_title {
+            self.record_issue_change(
+                &mut tx,
+                workspace_id,
+                project_id,
+                issue_id,
+                actor_id,
+                "title",
+                Some(&old_title),
+                title,
+            )
+            .await?;
+        }
+        if description_md != old_description {
+            self.record_issue_change(
+                &mut tx,
+                workspace_id,
+                project_id,
+                issue_id,
+                actor_id,
+                "description",
+                Some(&old_description),
+                description_md,
+            )
+            .await?;
+        }
+
+        tx.commit().await?;
         Ok(Some(()))
     }
 

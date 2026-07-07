@@ -79,19 +79,19 @@ Feature: A member sees, a program consumes, and a lead reports every change to a
 
   # ---- Slice 02: record every editable field ----
 
-  @us-02 @real-io @pending
+  @us-02 @real-io
   Scenario: A title edit records a title change (the previously-silent path now records)
     When Mei edits "GEN-1" title to "Login 500 on submit"
     Then a change event is recorded for "GEN-1": field "title", old "Seeded issue", new "Login 500 on submit", by "Mei"
 
-  @us-02 @real-io @pending
+  @us-02 @real-io
   Scenario: A single save changing title and description records one event per changed field
     When Mei edits "GEN-1" title to "Auth bug" and description to "Repro on submit"
     Then "GEN-1" has a change event for field "title"
     And "GEN-1" has a change event for field "description"
     And "GEN-1" has no change event for field "status"
 
-  @us-02 @real-io @pending
+  @us-02 @real-io
   Scenario: A reorder records a rank change
     When Mei drops "GEN-1" after "GEN-2" in "todo" as the drop handler would
     Then a change event is recorded for "GEN-1": field "rank", by "Mei"

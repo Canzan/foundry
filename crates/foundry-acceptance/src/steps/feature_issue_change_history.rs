@@ -175,6 +175,70 @@ async fn no_change_recorded(world: &mut FoundryWorld, key: String) {
     );
 }
 
+/// By-only variant (slice 02, S10): a rank change carries no human-meaningful
+/// old/new labels in the scenario, so we assert exactly one event for the field
+/// with the right actor (a cross-status drop also records `status`, so filter by
+/// field rather than asserting the total count).
+#[then(regex = r#"^a change event is recorded for "([^"]+)": field "([^"]+)", by "([^"]+)"$"#)]
+async fn change_recorded_by(world: &mut FoundryWorld, key: String, field: String, actor: String) {
+    let events = change_events_for(world, &key).await;
+    let matching: Vec<&ChangeEvent> = events.iter().filter(|e| e.field == field).collect();
+    assert_eq!(
+        matching.len(),
+        1,
+        "expected exactly one {field:?} change event for {key}, found {}",
+        matching.len()
+    );
+    assert_eq!(
+        matching[0].actor, actor,
+        "recorded actor mismatch for the {field:?} change of {key}"
+    );
+}
+
+/// Slice 02 (S9): at least one change event for the named field (a multi-field
+/// save writes one row PER changed field).
+#[then(regex = r#"^"([^"]+)" has a change event for field "([^"]+)"$"#)]
+async fn has_change_for_field(world: &mut FoundryWorld, key: String, field: String) {
+    let events = change_events_for(world, &key).await;
+    assert!(
+        events.iter().any(|e| e.field == field),
+        "expected a {field:?} change event for {key}, found fields {:?}",
+        events.iter().map(|e| &e.field).collect::<Vec<_>>()
+    );
+}
+
+/// Slice 02 (S9): an UNCHANGED field records nothing — no row for it.
+#[then(regex = r#"^"([^"]+)" has no change event for field "([^"]+)"$"#)]
+async fn has_no_change_for_field(world: &mut FoundryWorld, key: String, field: String) {
+    let events = change_events_for(world, &key).await;
+    assert!(
+        !events.iter().any(|e| e.field == field),
+        "an unchanged {field:?} must record NOTHING for {key}, found {:?}",
+        events.iter().map(|e| &e.field).collect::<Vec<_>>()
+    );
+}
+
+// ----- When: edit title/description via the edit-dialog POST (slice 02) -------
+
+/// S8: change ONLY the title. Re-post the seeded (empty) description and no
+/// status so the save's sole delta is the title (mirrors issue-status-move's
+/// `capture_status_post`, which re-posts the seeded title to isolate its delta).
+#[when(regex = r#"^Mei edits "([^"]+)" title to "([^"]+)"$"#)]
+async fn edit_title(world: &mut FoundryWorld, key: String, title: String) {
+    capture_edit_post(world, &key, &title, "").await;
+}
+
+/// S9: change title AND description in one save → one row per changed field.
+#[when(regex = r#"^Mei edits "([^"]+)" title to "([^"]+)" and description to "([^"]+)"$"#)]
+async fn edit_title_and_description(
+    world: &mut FoundryWorld,
+    key: String,
+    title: String,
+    description: String,
+) {
+    capture_edit_post(world, &key, &title, &description).await;
+}
+
 // ----- When: open the issue-detail page --------------------------------------
 
 #[when(regex = r#"^Mei opens the detail page for "([^"]+)"$"#)]
@@ -318,6 +382,37 @@ async fn capture_get(world: &mut FoundryWorld, url: &str) {
         .send()
         .await
         .expect("get target url");
+    world.last_status = Some(resp.status());
+    world.last_headers = Some(resp.headers().clone());
+    world.last_body = Some(resp.text().await.unwrap_or_default());
+}
+
+/// POST the issue-edit form varying title + description (no `state`, so the save
+/// is a pure title/description edit — the drop path drives status/rank). Mirrors
+/// `capture_status_post` in issue-status-move (CSRF in cookie + `_csrf` field).
+async fn capture_edit_post(world: &mut FoundryWorld, key: &str, title: &str, description: &str) {
+    ensure_http(world).await;
+    let harness = world.harness.as_ref().expect("harness");
+    let http = world.http.as_ref().expect("http");
+    let (session_pair, csrf) = sign_in(harness, http).await;
+    let base = harness.base_url();
+    let combined = format!("{session_pair}; foundry_csrf={csrf}");
+    let url = format!(
+        "/team/{TEAM_SLUG}/project/{PROJECT_SLUG}/issues/{number}/edit",
+        number = number_of(key)
+    );
+    let mut form: HashMap<&str, String> = HashMap::new();
+    form.insert("title", title.to_string());
+    form.insert("description", description.to_string());
+    form.insert("_csrf", csrf);
+    let resp = http
+        .post(format!("{base}{url}"))
+        .header(reqwest::header::COOKIE, combined)
+        .header("HX-Request", "true")
+        .form(&form)
+        .send()
+        .await
+        .expect("post edit url");
     world.last_status = Some(resp.status());
     world.last_headers = Some(resp.headers().clone());
     world.last_body = Some(resp.text().await.unwrap_or_default());
