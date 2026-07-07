@@ -114,7 +114,7 @@ Feature: A member sees, a program consumes, and a lead reports every change to a
 
   # ---- Slice 04: project change report + CSV export ----
 
-  @us-04 @real-io @pending
+  @us-04 @real-io
   Scenario: The project report lists changes across issues and summarizes them
     When Mei saves the edit dialog for "GEN-1" with status "Todo"
     And Mei saves the edit dialog for "GEN-2" with status "In-Progress"
@@ -122,13 +122,13 @@ Feature: A member sees, a program consumes, and a lead reports every change to a
     Then the report lists change events across the project's issues, most recent first
     And the report summarizes status-flow transition counts and per-actor change counts
 
-  @us-04 @real-io @pending
+  @us-04 @real-io
   Scenario: The project report exports to CSV with a stable column contract
     When Mei saves the edit dialog for "GEN-1" with status "Todo"
     And Mei exports the change report for project "Sandbox" as CSV
     Then the response is a CSV attachment with columns "issue,actor,field,old,new,at"
 
-  @us-04 @real-io @error @pending
+  @us-04 @real-io @error
   Scenario: The report shows only the acting workspace's changes
     Given a foreign issue "ZZZ-9" exists in another workspace
     When Mei opens the change report for project "Sandbox"

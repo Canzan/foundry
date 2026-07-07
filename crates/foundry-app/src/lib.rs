@@ -396,6 +396,15 @@ pub fn build_router(state: AppState) -> Router {
             "/team/{team_slug}/project/{project_slug}",
             get(projects::show_board),
         )
+        // issue-change-history ADR-002 §3 (US-04) — the project change-report
+        // page + its `?format=csv` export. Workspace-scoped via the SAME project
+        // resolution the board uses; reads `list_project_changes` (one source of
+        // truth). UNDER `csrf_middleware` + `session_layer` like the other HTML
+        // reads (a plain GET, no CSRF body).
+        .route(
+            "/team/{team_slug}/project/{project_slug}/report",
+            get(projects::show_report),
+        )
         .route(
             "/team/{team_slug}/project/{project_slug}/issues",
             post(issues::submit_create),

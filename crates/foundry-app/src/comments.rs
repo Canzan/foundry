@@ -773,7 +773,7 @@ fn build_timeline_entry(row: &IssueChangeRow) -> views::TimelineEntry {
 /// `backlog` → `Backlog`, `todo` → `Todo`, `in_progress` → `In Progress`,
 /// `done` → `Done`, `cancelled` → `Cancelled`. An unknown slug renders verbatim
 /// so a future state never blanks the entry.
-fn humanize_state(slug: &str) -> String {
+pub(crate) fn humanize_state(slug: &str) -> String {
     match slug {
         "backlog" => "Backlog".to_string(),
         "todo" => "Todo".to_string(),

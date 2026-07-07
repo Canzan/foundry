@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Change report - {{ project_name }}{% endblock %}
+{% block content %}
+<header><h1>Change report — {{ project_name }}</h1><p class="key">Key prefix: {{ key_prefix }}</p></header>
+<nav class="report-actions"><a class="board-link" href="{{ board_url }}">Back to board</a> <a class="csv-export" href="{{ csv_url }}">Export → CSV</a></nav>
+<section class="change-report" data-change-report>{% if events.is_empty() %}<p class="report-empty">No changes yet.</p>{% else %}<table><thead><tr><th>Issue</th><th>Actor</th><th>Field</th><th>Old</th><th>New</th><th>When</th></tr></thead><tbody>{% for e in events %}<tr class="report-event" data-issue-key="{{ e.issue_key }}" data-change-field="{{ e.field }}"><td class="issue">{{ e.issue_key }}</td><td class="actor">{{ e.actor }}</td><td class="field">{{ e.field }}</td><td class="old">{{ e.old_display }}</td><td class="new">{{ e.new_display }}</td><td class="when">{{ e.when }}</td></tr>{% endfor %}</tbody></table>{% endif %}</section>
+<section class="status-flow" data-status-flow><h2>Status-flow transitions</h2>{% if transitions.is_empty() %}<p class="empty">No status changes yet.</p>{% else %}<ul>{% for t in transitions %}<li class="transition" data-count="{{ t.count }}">{{ t.label }}: {{ t.count }}</li>{% endfor %}</ul>{% endif %}</section>
+<section class="actor-counts" data-actor-counts><h2>Changes per actor</h2>{% if actor_counts.is_empty() %}<p class="empty">No changes yet.</p>{% else %}<ul>{% for a in actor_counts %}<li class="actor-count" data-actor="{{ a.actor }}" data-count="{{ a.count }}">{{ a.actor }}: {{ a.count }}</li>{% endfor %}</ul>{% endif %}</section>
+{% endblock %}

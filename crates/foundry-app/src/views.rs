@@ -505,6 +505,59 @@ pub struct TimelineEntry {
     pub summary: String,
 }
 
+/// The project change-report page (issue-change-history ADR-002 §3, US-04).
+/// Extends `base.html`. Renders a table of change events across the project's
+/// issues (newest-first) plus two summaries — status-flow transition counts and
+/// per-actor change counts — all from the SAME `list_project_changes` events the
+/// CSV export serializes (one source of truth). Workspace-scoped by
+/// `project_id`, so a foreign issue never appears. The handler builds every
+/// view-model (grouping + ordering); the template only loops.
+#[derive(Debug, Clone, Template)]
+#[template(path = "report.html")]
+pub struct ReportPage {
+    pub team_name: String,
+    pub project_name: String,
+    pub key_prefix: String,
+    /// `GET …/project/{p}` — back-link to the board.
+    pub board_url: String,
+    /// `GET …/report?format=csv` — the Export → CSV action.
+    pub csv_url: String,
+    /// The change events across the project, NEWEST-first.
+    pub events: Vec<ReportEvent>,
+    /// Status-flow transition counts (`old → new` for `field=status`), ordered.
+    pub transitions: Vec<TransitionCount>,
+    /// Per-actor change counts, ordered.
+    pub actor_counts: Vec<ActorCount>,
+}
+
+/// One row of the project change-report table. `issue_key` rides through as the
+/// scraper-stable `data-issue-key` marker; `old_display`/`new_display` are the
+/// human-facing values (auto-escaped).
+#[derive(Debug, Clone)]
+pub struct ReportEvent {
+    pub issue_key: String,
+    pub field: String,
+    pub old_display: String,
+    pub new_display: String,
+    pub actor: String,
+    pub when: String,
+}
+
+/// One status-flow transition tally (`old → new` for `field=status`).
+#[derive(Debug, Clone)]
+pub struct TransitionCount {
+    /// Human label, e.g. `Todo → In Progress` (auto-escaped).
+    pub label: String,
+    pub count: u32,
+}
+
+/// One per-actor change tally.
+#[derive(Debug, Clone)]
+pub struct ActorCount {
+    pub actor: String,
+    pub count: u32,
+}
+
 /// The signed-in dashboard landing page served at `GET /` (US-R04 / US-01). Extends
 /// `base.html`, which links the vendored content-hashed `/static` stylesheet
 /// (ADR-B03). The `<h1>Foundry</h1>` heading is preserved (US-R04); the prior

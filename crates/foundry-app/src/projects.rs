@@ -28,13 +28,17 @@ use crate::csrf::{build_csrf_cookie, generate_token};
 use crate::session::SESSION_KEY_USER_ID;
 use crate::AppState;
 use askama::Template;
-use axum::extract::{Form, Path, State};
-use axum::http::header::{HeaderMap, HeaderValue, COOKIE, LOCATION, SET_COOKIE};
+use axum::extract::{Form, Path, Query, State};
+use axum::http::header::{
+    HeaderMap, HeaderValue, CONTENT_DISPOSITION, CONTENT_TYPE, COOKIE, LOCATION, SET_COOKIE,
+};
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
 use foundry_core::{ProjectKey, ProjectKeyError};
-use foundry_store::ProjectInsertError;
+use foundry_store::{ProjectChangeRow, ProjectInsertError, ProjectRow};
 use serde::Deserialize;
+use std::collections::BTreeMap;
+use time::format_description::well_known::Rfc3339;
 use tower_sessions::Session;
 
 const HX_REQUEST_HEADER: &str = "hx-request";
@@ -281,6 +285,188 @@ pub async fn show_board(
     match render_board(&state, &team.name, &project, &issues, &key_prefix) {
         Ok(html) => Html(html).into_response(),
         Err(err) => render_500(&headers, "board", err),
+    }
+}
+
+// --------------------------------------- GET /team/:team/project/:slug/report
+
+/// Query for the report endpoint. `?format=csv` selects the CSV export; any
+/// other value (or none) renders the HTML report page. Both branches read the
+/// SAME `list_project_changes` events (one source of truth, ADR-002 §3).
+#[derive(Debug, Deserialize)]
+pub struct ReportQuery {
+    #[serde(default)]
+    pub format: Option<String>,
+}
+
+/// The project change-report (issue-change-history ADR-002 §3, US-04): a table
+/// of change events across the project's issues (newest-first) plus status-flow
+/// and per-actor summaries, with a `?format=csv` export. Resolution mirrors the
+/// board/attachment read paths: team scoped by the acting workspace, membership
+/// gate, then the project. Workspace isolation rides on `project_id` — a foreign
+/// project/issue never appears (watch-item R9); a foreign/absent team collapses
+/// to the SAME uniform `resource_not_found_page` (no enumeration oracle).
+pub async fn show_report(
+    State(state): State<AppState>,
+    Path((team_slug, project_slug)): Path<(String, String)>,
+    Query(query): Query<ReportQuery>,
+    session: Session,
+    headers: HeaderMap,
+) -> Response {
+    let Some(user) = signed_in_user(&session).await else {
+        return redirect_to("/sign-in");
+    };
+    let acting = user.acting_workspace();
+    let team = match state
+        .store
+        .find_team_by_slug(acting.workspace_id(), &team_slug)
+        .await
+    {
+        Ok(Some(t)) => t,
+        Ok(None) => return resource_not_found_page(),
+        Err(err) => return internal_error("find_team_by_slug", err),
+    };
+    match state.store.is_team_member(team.id, user.user_id).await {
+        Ok(true) => {}
+        Ok(false) => return non_member_page(&team_slug),
+        Err(err) => return internal_error("is_team_member", err),
+    }
+    let project = match state
+        .store
+        .find_project_by_slug(team.id, &project_slug)
+        .await
+    {
+        Ok(Some(p)) => p,
+        Ok(None) => return resource_not_found_page(),
+        Err(err) => return internal_error("find_project_by_slug", err),
+    };
+    // One read for BOTH surfaces (HTML + CSV) — newest-first, workspace-scoped.
+    let changes = match state.store.list_project_changes(project.id).await {
+        Ok(rows) => rows,
+        Err(err) => return internal_error("list_project_changes", err),
+    };
+
+    if query.format.as_deref() == Some("csv") {
+        return csv_response(&project_slug, &changes);
+    }
+
+    match build_report_page(&team.name, &project, &team_slug, &project_slug, &changes).render() {
+        Ok(html) => Html(html).into_response(),
+        Err(err) => render_500(&headers, "report", err),
+    }
+}
+
+/// Materialize the [`crate::views::ReportPage`] view-model from the change rows.
+/// Data grouping + ordering lives HERE (the template only loops): the event
+/// table stays newest-first (store order); the status-flow + per-actor summaries
+/// are tallied into `BTreeMap`s for deterministic (label-/name-sorted) output.
+fn build_report_page(
+    team_name: &str,
+    project: &ProjectRow,
+    team_slug: &str,
+    project_slug: &str,
+    changes: &[ProjectChangeRow],
+) -> crate::views::ReportPage {
+    let events = changes
+        .iter()
+        .map(|row| crate::views::ReportEvent {
+            issue_key: row.issue_key.clone(),
+            field: row.field.clone(),
+            old_display: display_value(&row.field, row.old_value.as_deref().unwrap_or("")),
+            new_display: display_value(&row.field, &row.new_value),
+            actor: row.actor_name.clone(),
+            when: row.created_at.format(&Rfc3339).unwrap_or_default(),
+        })
+        .collect();
+
+    // Status-flow transition counts: only `status` events carry a state old→new.
+    let mut transition_tally: BTreeMap<String, u32> = BTreeMap::new();
+    for row in changes.iter().filter(|row| row.field == "status") {
+        let old = crate::comments::humanize_state(row.old_value.as_deref().unwrap_or(""));
+        let new = crate::comments::humanize_state(&row.new_value);
+        *transition_tally
+            .entry(format!("{old} → {new}"))
+            .or_insert(0) += 1;
+    }
+    let transitions = transition_tally
+        .into_iter()
+        .map(|(label, count)| crate::views::TransitionCount { label, count })
+        .collect();
+
+    // Per-actor change counts across every field.
+    let mut actor_tally: BTreeMap<String, u32> = BTreeMap::new();
+    for row in changes {
+        *actor_tally.entry(row.actor_name.clone()).or_insert(0) += 1;
+    }
+    let actor_counts = actor_tally
+        .into_iter()
+        .map(|(actor, count)| crate::views::ActorCount { actor, count })
+        .collect();
+
+    crate::views::ReportPage {
+        team_name: team_name.to_string(),
+        project_name: project.name.clone(),
+        key_prefix: project.key_prefix.clone(),
+        board_url: format!("/team/{team_slug}/project/{project_slug}"),
+        csv_url: format!("/team/{team_slug}/project/{project_slug}/report?format=csv"),
+        events,
+        transitions,
+        actor_counts,
+    }
+}
+
+/// Humanize a value for the report table: status slugs read as `In Progress`
+/// (shared with the timeline); other fields render verbatim.
+fn display_value(field: &str, value: &str) -> String {
+    if field == "status" {
+        crate::comments::humanize_state(value)
+    } else {
+        value.to_string()
+    }
+}
+
+/// Serialize the change events as a CSV attachment (issue-change-history ADR-002
+/// §3 / watch-item R8), mirroring `attachments.rs`'s `Content-Disposition`
+/// idiom. Stable header row `issue,actor,field,old,new,at`; one row per event in
+/// the SAME newest-first order the page renders. Every field is CSV-escaped
+/// (quote-wrapped with doubled quotes) so commas/quotes/newlines never break the
+/// column contract.
+fn csv_response(project_slug: &str, changes: &[ProjectChangeRow]) -> Response {
+    let mut body = String::from("issue,actor,field,old,new,at\n");
+    for row in changes {
+        let at = row.created_at.format(&Rfc3339).unwrap_or_default();
+        let cells = [
+            csv_escape(&row.issue_key),
+            csv_escape(&row.actor_name),
+            csv_escape(&row.field),
+            csv_escape(row.old_value.as_deref().unwrap_or("")),
+            csv_escape(&row.new_value),
+            csv_escape(&at),
+        ];
+        body.push_str(&cells.join(","));
+        body.push('\n');
+    }
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        CONTENT_TYPE,
+        HeaderValue::from_static("text/csv; charset=utf-8"),
+    );
+    let disposition = format!("attachment; filename=\"{project_slug}-change-report.csv\"");
+    if let Ok(value) = HeaderValue::from_str(&disposition) {
+        headers.insert(CONTENT_DISPOSITION, value);
+    }
+    (StatusCode::OK, headers, body).into_response()
+}
+
+/// Escape one CSV field per RFC 4180: wrap in quotes and double any embedded
+/// quote when the value contains a comma, quote, CR, or LF; pass through
+/// otherwise.
+fn csv_escape(field: &str) -> String {
+    if field.contains(['"', ',', '\n', '\r']) {
+        format!("\"{}\"", field.replace('"', "\"\""))
+    } else {
+        field.to_string()
     }
 }
 

@@ -1564,22 +1564,31 @@ impl Store {
 
     /// The change events across a project, ordered NEWEST-first (issue-change-
     /// history ADR-002 §3 — the project report, US-04). Reads the
-    /// `(project_id, created_at)` index. Slice 04 renders it; added now so both
-    /// reads land with the model.
+    /// `(project_id, created_at)` index, joining `issues` + `projects` for each
+    /// event's `{key_prefix}-{number}` issue key (the report spans issues, so —
+    /// unlike the per-issue timeline — each row must name its issue). Workspace
+    /// isolation rides on `project_id`: a foreign project's events never appear.
     pub async fn list_project_changes(
         &self,
         project_id: uuid::Uuid,
-    ) -> Result<Vec<IssueChangeRow>, StoreError> {
-        let rows: Vec<(
+    ) -> Result<Vec<ProjectChangeRow>, StoreError> {
+        // (key_prefix, number, actor_name, actor_email, field, old, new, at) —
+        // aliased to keep the `query_as` binding under clippy::type_complexity.
+        type ProjectChangeReadRow = (
+            String,
+            i32,
             String,
             String,
             String,
             Option<String>,
             String,
             time::OffsetDateTime,
-        )> = sqlx::query_as(
-            "SELECT COALESCE(u.display_name, '<deleted>'), COALESCE(u.email_display, '<deleted>'), e.field, e.old_value, e.new_value, e.created_at
+        );
+        let rows: Vec<ProjectChangeReadRow> = sqlx::query_as(
+            "SELECT p.key_prefix, i.number, COALESCE(u.display_name, '<deleted>'), COALESCE(u.email_display, '<deleted>'), e.field, e.old_value, e.new_value, e.created_at
                    FROM issue_change_events e
+                   JOIN issues   i ON i.id = e.issue_id
+                   JOIN projects p ON p.id = i.project_id
                    LEFT JOIN users u ON u.id = e.actor_id
                   WHERE e.project_id = $1
                   ORDER BY e.created_at DESC, e.id DESC",
@@ -1590,8 +1599,18 @@ impl Store {
         Ok(rows
             .into_iter()
             .map(
-                |(actor_name, actor_email, field, old_value, new_value, created_at)| {
-                    IssueChangeRow {
+                |(
+                    key_prefix,
+                    number,
+                    actor_name,
+                    actor_email,
+                    field,
+                    old_value,
+                    new_value,
+                    created_at,
+                )| {
+                    ProjectChangeRow {
+                        issue_key: format!("{key_prefix}-{number}"),
                         actor_name,
                         actor_email,
                         field,
@@ -2568,6 +2587,22 @@ pub struct IssueEditRow {
 /// creation-event kind; v1 field-change rows carry both.
 #[derive(Debug, Clone)]
 pub struct IssueChangeRow {
+    pub actor_name: String,
+    pub actor_email: String,
+    pub field: String,
+    pub old_value: Option<String>,
+    pub new_value: String,
+    pub created_at: time::OffsetDateTime,
+}
+
+/// One append-only change record as read for the PROJECT report (issue-change-
+/// history ADR-002 §3). Identical to [`IssueChangeRow`] but adds `issue_key` —
+/// the project report spans issues, so each row must name its issue
+/// (`{key_prefix}-{number}`), whereas the per-issue timeline already knows its
+/// key. Same one source of truth (`issue_change_events`), different surface.
+#[derive(Debug, Clone)]
+pub struct ProjectChangeRow {
+    pub issue_key: String,
     pub actor_name: String,
     pub actor_email: String,
     pub field: String,

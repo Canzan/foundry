@@ -588,6 +588,161 @@ async fn mint_bearer_for_mei(world: &mut FoundryWorld) -> String {
         .to_string()
 }
 
+// ----- Slice 04: the project change report + CSV export ----------------------
+
+/// S13/S15: open the project change-report web page (authenticated web GET,
+/// like the board). The report is workspace-scoped by `project_id` under Mei's
+/// principal, so a foreign project/issue never appears.
+#[when(regex = r#"^Mei opens the change report for project "([^"]+)"$"#)]
+async fn open_change_report(world: &mut FoundryWorld, _project: String) {
+    let url = format!("/team/{TEAM_SLUG}/project/{PROJECT_SLUG}/report");
+    capture_get(world, &url).await;
+}
+
+/// S14: export the same report as CSV via the `?format=csv` variant of the SAME
+/// report endpoint (one source of truth — `list_project_changes`).
+#[when(regex = r#"^Mei exports the change report for project "([^"]+)" as CSV$"#)]
+async fn export_change_report_csv(world: &mut FoundryWorld, _project: String) {
+    let url = format!("/team/{TEAM_SLUG}/project/{PROJECT_SLUG}/report?format=csv");
+    capture_get(world, &url).await;
+}
+
+/// The issue keys of the report's change rows, in rendered order (newest-first),
+/// scraped from each `.report-event` under `[data-change-report]`.
+fn report_event_keys(body: &str) -> Vec<String> {
+    let doc = Html::parse_document(body);
+    let container = Selector::parse("[data-change-report]").expect("valid selector");
+    assert!(
+        doc.select(&container).next().is_some(),
+        "the report must render a change-report container: {body}"
+    );
+    let row = Selector::parse("[data-change-report] .report-event").expect("valid selector");
+    doc.select(&row)
+        .map(|e| {
+            e.value()
+                .attr("data-issue-key")
+                .unwrap_or_default()
+                .to_string()
+        })
+        .collect()
+}
+
+#[then(
+    regex = r#"^the report lists change events across the project's issues, most recent first$"#
+)]
+async fn report_lists_changes(world: &mut FoundryWorld) {
+    let body = world.last_body.clone().unwrap_or_default();
+    let keys = report_event_keys(&body);
+    // Both seeded issues' changes appear across the project's issues.
+    assert!(
+        keys.iter().any(|k| k == "GEN-1"),
+        "the report must list a GEN-1 change: {keys:?}"
+    );
+    assert!(
+        keys.iter().any(|k| k == "GEN-2"),
+        "the report must list a GEN-2 change: {keys:?}"
+    );
+    // Newest-first: GEN-2 (changed LAST in the scenario) is listed above GEN-1.
+    let gen2 = keys
+        .iter()
+        .position(|k| k == "GEN-2")
+        .expect("GEN-2 present");
+    let gen1 = keys
+        .iter()
+        .position(|k| k == "GEN-1")
+        .expect("GEN-1 present");
+    assert!(
+        gen2 < gen1,
+        "the later GEN-2 change must be listed ABOVE GEN-1 (most recent first): {keys:?}"
+    );
+}
+
+#[then(
+    regex = r#"^the report summarizes status-flow transition counts and per-actor change counts$"#
+)]
+async fn report_summaries(world: &mut FoundryWorld) {
+    let body = world.last_body.clone().unwrap_or_default();
+    let doc = Html::parse_document(&body);
+
+    // Status-flow transition counts: at least one transition, each with a count.
+    let transition = Selector::parse("[data-status-flow] .transition").expect("valid selector");
+    let transitions: Vec<_> = doc.select(&transition).collect();
+    assert!(
+        !transitions.is_empty(),
+        "the report must summarize status-flow transition counts: {body}"
+    );
+    for entry in &transitions {
+        let count = entry.value().attr("data-count").unwrap_or_default();
+        assert!(
+            count.parse::<u32>().map(|n| n >= 1).unwrap_or(false),
+            "each status-flow transition must carry a count >= 1 (data-count): {body}"
+        );
+    }
+
+    // Per-actor change counts: Mei made 2 status changes in this scenario.
+    let actor = Selector::parse("[data-actor-counts] .actor-count").expect("valid selector");
+    let actors: Vec<_> = doc.select(&actor).collect();
+    assert!(
+        !actors.is_empty(),
+        "the report must summarize per-actor change counts: {body}"
+    );
+    assert!(
+        actors.iter().any(|entry| {
+            entry
+                .value()
+                .attr("data-actor")
+                .map(|name| name.contains("Mei"))
+                .unwrap_or(false)
+                && entry
+                    .value()
+                    .attr("data-count")
+                    .and_then(|count| count.parse::<u32>().ok())
+                    .map(|n| n >= 1)
+                    .unwrap_or(false)
+        }),
+        "the per-actor summary must count Mei's changes with a data-count: {body}"
+    );
+}
+
+#[then(regex = r#"^the response is a CSV attachment with columns "([^"]+)"$"#)]
+async fn csv_attachment_columns(world: &mut FoundryWorld, columns: String) {
+    let headers = world
+        .last_headers
+        .as_ref()
+        .expect("CSV export must capture response headers");
+    let content_type = headers
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default();
+    assert!(
+        content_type.contains("text/csv"),
+        "the export must be text/csv, got {content_type:?}"
+    );
+    let disposition = headers
+        .get(reqwest::header::CONTENT_DISPOSITION)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default();
+    assert!(
+        disposition.contains("attachment"),
+        "the export must be a Content-Disposition: attachment, got {disposition:?}"
+    );
+    let body = world.last_body.clone().unwrap_or_default();
+    let first_line = body.lines().next().unwrap_or_default();
+    assert_eq!(
+        first_line, columns,
+        "the CSV header row must be exactly {columns:?}, got {first_line:?}"
+    );
+}
+
+#[then(regex = r#"^the report contains no "([^"]+)" change events$"#)]
+async fn report_excludes_foreign(world: &mut FoundryWorld, foreign_key: String) {
+    let body = world.last_body.clone().unwrap_or_default();
+    assert!(
+        !body.contains(&foreign_key),
+        "the report is workspace-scoped and must not contain any {foreign_key:?} change event (R9): {body}"
+    );
+}
+
 // ----- internals: authenticated GET ------------------------------------------
 
 async fn capture_get(world: &mut FoundryWorld, url: &str) {

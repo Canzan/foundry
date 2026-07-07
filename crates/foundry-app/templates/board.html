@@ -2,6 +2,7 @@
 {% block title %}{{ project_name }} - {{ team_name }}{% endblock %}
 {% block content %}
 <header><h1>{{ project_name }}</h1><p class="key">Key prefix: {{ key_prefix }}</p></header>
+<nav class="board-actions"><a class="report-link" href="/team/{{ team_slug }}/project/{{ project_slug }}/report">Change report</a></nav>
 <button type="button" data-action="new-issue" hx-get="/team/{{ team_slug }}/project/{{ project_slug }}/issues/new" hx-target="#modal-root" hx-swap="innerHTML">New issue</button>
 <div class="board">
 {% for column in columns %}
