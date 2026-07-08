@@ -138,7 +138,9 @@ pub async fn show_issue(
     // (comment-add-csrf 01-01).
     let (csrf, set_cookie) = crate::csrf::ensure_csrf_cookie(&state, &headers);
     let key = format!("{}-{}", issue.project_key_prefix, issue_number);
-    let nav = crate::nav::NavContext::home_for(&state, user.user_id, user.workspace_id).await;
+    // Board family (issue detail lives under `/team/{slug}/project/{slug}`) —
+    // Board is the current primary item (02-02 deterministic active rule).
+    let nav = crate::nav::NavContext::board_for(&state, user.user_id, user.workspace_id).await;
     let html = render_issue_page(
         &team_slug,
         &project_slug,

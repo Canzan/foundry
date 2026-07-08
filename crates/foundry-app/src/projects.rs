@@ -292,7 +292,10 @@ pub async fn show_board(
     // the swap target shows a clean message instead of a torn DOM. The
     // test-only `force_board_render_failure` flag forces the `Err` arm so the
     // mapping is observable without a genuinely-broken template.
-    let nav = crate::nav::NavContext::home_for(&state, user.user_id, user.workspace_id).await;
+    // Board family (`/team/{slug}/project/{slug}`) — mark the Board primary item
+    // current (02-02 deterministic active rule). Every non-board authed surface
+    // stays `home_for`, so exactly one primary item is ever current.
+    let nav = crate::nav::NavContext::board_for(&state, user.user_id, user.workspace_id).await;
     match render_board(&state, &team.name, &project, &issues, &key_prefix, nav) {
         Ok(html) => Html(html).into_response(),
         Err(err) => render_500(&headers, "board", err),
@@ -361,7 +364,9 @@ pub async fn show_report(
         return csv_response(&project_slug, &changes);
     }
 
-    let nav = crate::nav::NavContext::home_for(&state, user.user_id, user.workspace_id).await;
+    // Board family (project change report) — Board is the current primary item
+    // (02-02 deterministic active rule), same as the board it belongs to.
+    let nav = crate::nav::NavContext::board_for(&state, user.user_id, user.workspace_id).await;
     match build_report_page(
         &team.name,
         &project,

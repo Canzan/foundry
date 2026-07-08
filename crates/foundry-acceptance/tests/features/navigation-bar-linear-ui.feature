@@ -65,13 +65,13 @@ Feature: A signed-in member navigates every authenticated page from one shared s
       | /workspace/invites                      |
 
   # ── Slice 03 — US-01/US-06 active-state correctness (the design's #1 risk) ──
-  @pending @us-01 @real-io
+  @us-01 @real-io
   Scenario: Board is current while viewing a project board
     When Ada opens the authenticated page "/team/general/project/sandbox"
     Then the "Board" navigation item is marked as the current page
     And the "Home" navigation item is not marked as current
 
-  @pending @property @us-01 @us-06 @real-io
+  @property @us-01 @us-06 @real-io
   Scenario Outline: Exactly one primary item is current on every authenticated page
     When Ada opens the authenticated page "<page>"
     Then exactly one primary navigation item is marked as the current page

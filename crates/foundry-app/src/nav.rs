@@ -102,6 +102,41 @@ impl NavContext {
         )
     }
 
+    /// Assemble the `Board`-section rail for a board-family authenticated page
+    /// (navigation-bar-linear-ui step 02-02 — the `/team/{slug}/project/{slug}`
+    /// route family: board, change report, issue detail). Identical identity
+    /// resolution to [`Self::home_for`] — the SAME `dashboard_greeting` seam and
+    /// the SAME neutral fallback so a lookup failure still renders 200 — differing
+    /// only in the handler-chosen active section (`Board`). This is the
+    /// deterministic active rule (DESIGN data-models.md): the board family is the
+    /// SOLE surface that marks `Board` current; every other authed page uses
+    /// `home_for`, so exactly one primary item is ever current (FR-4: never zero,
+    /// never two). The resolved first-project deep-link (`board_href`) stays the
+    /// provisional `/` until step 04-02 refines it, matching `home_for`.
+    pub(crate) async fn board_for(
+        state: &crate::AppState,
+        user_id: uuid::Uuid,
+        workspace_id: uuid::Uuid,
+    ) -> Self {
+        let (display_name, workspace_name) = state
+            .store
+            .dashboard_greeting(user_id, workspace_id)
+            .await
+            .unwrap_or_else(|err| {
+                tracing::error!(%err, "nav: dashboard_greeting failed; neutral rail identity");
+                None
+            })
+            .unwrap_or_else(|| ("there".to_string(), "your workspace".to_string()));
+        Self::for_page(
+            workspace_name,
+            display_name,
+            false,
+            String::new(),
+            NavSection::Board,
+            "/".to_string(),
+        )
+    }
+
     /// Uppercased first character of the workspace name, for the brand monogram.
     /// `"?"` when the workspace name is empty.
     pub fn monogram(&self) -> String {
@@ -167,5 +202,25 @@ mod tests {
         let board = nav_with("Acme", NavSection::Board);
         assert!(board.is_board(), "Board active → is_board() true");
         assert!(!board.is_home(), "Board active → is_home() false");
+    }
+
+    /// Behaviour 2 (totality guard, 02-02 Earned Trust) — for EVERY `NavSection`
+    /// variant the primary-item predicates partition cleanly: the count of
+    /// current primary items is exactly ONE, never zero, never two (FR-4 /
+    /// AC-03.3). Iterating every variant makes this the unit-level regression net
+    /// behind the acceptance sweep's "exactly one primary item is current"
+    /// property — a future third variant (or a predicate wired to return true for
+    /// both) that broke the never-zero/never-two invariant would red HERE, in
+    /// milliseconds, instead of only under a live-Postgres acceptance run.
+    #[test]
+    fn every_nav_section_marks_exactly_one_primary_item_current() {
+        for active in [NavSection::Home, NavSection::Board] {
+            let nav = nav_with("Acme", active);
+            let current = usize::from(nav.is_home()) + usize::from(nav.is_board());
+            assert_eq!(
+                current, 1,
+                "exactly one primary item must be current for {active:?}, got {current}"
+            );
+        }
     }
 }
