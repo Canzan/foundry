@@ -99,3 +99,24 @@ Feature: A member attaches a file to an issue and other members download it byte
     And Mei has attached a 100-kilobyte text file named "notes.txt" to "AUTH-1"
     When the operator deletes the issue "AUTH-1"
     Then no attachments exist for "AUTH-1"
+
+  @real-io @csrf
+  Scenario: The issue page CSRF-protects the attachment upload the browser way
+    # Regression for comment-add-csrf 01-02: a plain multipart HTML form CANNOT
+    # set the x-csrf-token header csrf_middleware requires for multipart uploads
+    # (the urlencoded _csrf body field is not read for multipart). The issue page
+    # must mint foundry_csrf (the 01-01 issuance seam) AND expose the
+    # csrf-upload.js hook that reads the cookie and mirrors it into the header.
+    # Pre-fix the upload form exposes no such hook, so a real browser upload 403s;
+    # this scenario fails on the missing hook rather than uploading successfully.
+    When Mei uploads a 200-kilobyte file named "diagram.png" to "AUTH-1" using only the CSRF cookie and upload hook the issue page exposes
+    Then the upload is accepted
+    And the attachment is listed on the AUTH-1 issue page with filename "diagram.png"
+
+  @real-io @csrf
+  Scenario: The attachment upload CSRF hook script is served so JS fixes reach browsers
+    # Mirrors card-ranking's board-dnd.js served-with-revalidating-cache guard:
+    # csrf-upload.js lives at a non-content-hashed URL and MUST revalidate, or an
+    # edited hook is pinned stale behind its unchanged URL for up to a year.
+    When the attachment upload CSRF script is fetched
+    Then it is served with a revalidating cache header so JS changes reach browsers

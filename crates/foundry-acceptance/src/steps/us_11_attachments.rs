@@ -651,6 +651,140 @@ async fn sign_in_capture_cookies(
     (combined, csrf_token)
 }
 
+/// comment-add-csrf 01-02 regression — prove the attachment UPLOAD form is
+/// CSRF-protected the way a real browser must do it. A plain multipart HTML form
+/// CANNOT set the `x-csrf-token` header `csrf_middleware` requires for multipart
+/// POSTs, so the issue page must (a) mint the `foundry_csrf` cookie (the 01-01
+/// issuance seam) and (b) load the `csrf-upload.js` hook + tag the upload form
+/// so the hook reads the cookie and mirrors it into the header. Pre-fix the page
+/// exposes NEITHER, so the scrape assertions below fail loudly (a real browser
+/// has no way to send the header). Then we upload EXACTLY as that hook would —
+/// the issue-page-minted cookie value carried in the `x-csrf-token` header — and
+/// assert it succeeds.
+#[when(
+    regex = r#"^(\w+) uploads a (\d+)-kilobyte file named "([^"]+)" to "(\w+)-(\d+)" using only the CSRF cookie and upload hook the issue page exposes$"#
+)]
+async fn member_uploads_via_issue_page_hook(
+    world: &mut FoundryWorld,
+    who: String,
+    kb: u32,
+    filename: String,
+    prefix: String,
+    number: i32,
+) {
+    ensure_harness(world).await;
+    let (email, password) = identity_for(&who);
+    let (combined, _signin_csrf) = sign_in_capture_cookies(world, &email, &password).await;
+    // Session-only cookie: drop the /sign-in-minted foundry_csrf so the issue
+    // page GET mints (and we capture) its OWN double-submit cookie — the exact
+    // cookie a real browser would carry into the upload.
+    let session = combined
+        .split("; foundry_csrf=")
+        .next()
+        .unwrap_or(&combined)
+        .to_string();
+    let project_slug = lookup_project_slug_by_prefix(world, &prefix).await;
+    let team_slug = "backend";
+    let base = world.harness.as_ref().expect("harness").base_url();
+
+    // (a) GET the real issue page and capture the foundry_csrf it mints.
+    let issue_url = format!("{base}/team/{team_slug}/project/{project_slug}/issues/{number}");
+    let page = world
+        .http
+        .as_ref()
+        .expect("http")
+        .get(&issue_url)
+        .header(reqwest::header::COOKIE, session.clone())
+        .send()
+        .await
+        .expect("get issue page");
+    let cookie_token = page
+        .headers()
+        .get_all(reqwest::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .find(|s| s.starts_with("foundry_csrf="))
+        .and_then(|s| s.strip_prefix("foundry_csrf="))
+        .and_then(|rest| rest.split(';').next())
+        .map(str::to_string)
+        .expect("the issue page must mint a foundry_csrf cookie (double-submit issuance seam)");
+    let page_body = page.text().await.unwrap_or_default();
+
+    // (b) The CLIENT hook: the page must load csrf-upload.js AND tag the upload
+    //     form so the hook binds to it and mirrors the cookie into the header.
+    //     Pre-fix BOTH are absent — this is the regression the fix closes.
+    assert!(
+        page_body.contains(r#"src="/static/js/csrf-upload.js""#),
+        "the issue page must load the CSRF upload hook /static/js/csrf-upload.js so a browser \
+         multipart upload can send the x-csrf-token header csrf_middleware requires; page=\n{page_body}"
+    );
+    let form_carries_hook = {
+        let doc = scraper::Html::parse_document(&page_body);
+        let sel = scraper::Selector::parse(r#"form[action$="/attachments"][data-csrf-upload]"#)
+            .expect("valid selector");
+        doc.select(&sel).next().is_some()
+    };
+    assert!(
+        form_carries_hook,
+        "the attachment upload form must carry the data-csrf-upload hook marker so csrf-upload.js \
+         binds to it; page=\n{page_body}"
+    );
+
+    // (c) Upload EXACTLY as the hook would: the multipart body plus the issue-
+    //     page-minted cookie value mirrored into the x-csrf-token header.
+    let bytes = synthetic_bytes(kb as usize * 1024);
+    let sha = sha256_hex(&bytes);
+    let key = (format!("{prefix}-{number}"), filename.clone());
+    world
+        .us_11_uploaded_bytes
+        .insert(key.clone(), bytes.clone());
+    world.us_11_uploaded_sha.insert(key, sha);
+    let form = Form::new().part(
+        "file",
+        Part::bytes(bytes)
+            .file_name(filename.clone())
+            .mime_str("application/octet-stream")
+            .expect("multipart mime"),
+    );
+    let combined_cookie = format!("{session}; foundry_csrf={cookie_token}");
+    let post_url =
+        format!("{base}/team/{team_slug}/project/{project_slug}/issues/{number}/attachments");
+    let resp = world
+        .http
+        .as_ref()
+        .expect("http")
+        .post(&post_url)
+        .header(reqwest::header::COOKIE, combined_cookie)
+        .header("x-csrf-token", cookie_token)
+        .header("hx-request", "true")
+        .multipart(form)
+        .send()
+        .await
+        .expect("upload POST");
+    world.us_11_last_upload_status = Some(resp.status());
+    world.us_11_last_upload_body = Some(resp.text().await.unwrap_or_default());
+}
+
+/// Served-with-revalidating-cache guard for the app-owned csrf-upload.js hook
+/// (mirrors card-ranking's board-dnd.js scenario). Sets `last_status` +
+/// `last_headers` for the shared "revalidating cache header" Then step.
+#[when(regex = r#"^the attachment upload CSRF script is fetched$"#)]
+async fn fetch_csrf_upload_script(world: &mut FoundryWorld) {
+    ensure_harness(world).await;
+    let base = world.harness.as_ref().expect("harness").base_url();
+    let resp = world
+        .http
+        .as_ref()
+        .expect("http")
+        .get(format!("{base}/static/js/csrf-upload.js"))
+        .send()
+        .await
+        .expect("GET csrf-upload.js");
+    world.last_status = Some(resp.status());
+    world.last_headers = Some(resp.headers().clone());
+    world.last_body = Some(resp.text().await.unwrap_or_default());
+}
+
 async fn perform_upload(
     world: &mut FoundryWorld,
     who: &str,

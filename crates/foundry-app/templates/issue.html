@@ -10,7 +10,7 @@
   <span class="size">{{ a.size }}</span>
 </li>{% endfor %}</ul>
 </section>{% endif %}
-<form method="post" action="{{ upload_url }}" enctype="multipart/form-data">
+<form method="post" action="{{ upload_url }}" enctype="multipart/form-data" data-csrf-upload>
   <label>Attach a file <input type="file" name="file" required></label>
   <button type="submit">Upload</button>
 </form>
