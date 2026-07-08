@@ -317,12 +317,26 @@ pub async fn dashboard_root(
             // mirroring `admin_tokens::show_index`. An existing cookie is reused;
             // otherwise a fresh one is minted + Set-Cookie'd.
             let (csrf, set_cookie) = ensure_csrf_cookie(&state, &headers);
+            // navigation-bar-linear-ui (US-01): assemble the shared sidebar
+            // carrier ONCE from the identity values already resolved above. The
+            // dashboard IS the `Home` section; `board_href` is the provisional
+            // `/` in this walking skeleton — real ADR-003 first-project deep-link
+            // resolution lands in step 04-02.
+            let nav = crate::nav::NavContext::for_page(
+                workspace_name.clone(),
+                display_name.clone(),
+                is_instance_admin,
+                csrf.clone(),
+                crate::nav::NavSection::Home,
+                "/".to_string(),
+            );
             let body = crate::views::DashboardRoot {
                 display_name,
                 workspace_name,
                 projects,
                 is_instance_admin,
                 csrf,
+                nav,
             }
             .render()
             .expect("dashboard_root.html renders");

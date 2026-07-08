@@ -1,0 +1,137 @@
+{
+  "roadmap": {
+    "project_id": "navigation-bar-linear-ui",
+    "created_at": "2026-07-08T00:00:00Z",
+    "total_steps": 8,
+    "scope": "Presentation-tier only: add ONE shared Linear-style left sidebar (crates/foundry-app/templates/app_shell.html + partials/sidebar.html, driven by a NavContext value object in src/nav.rs) to every authenticated foundry-app page, while pre-auth/utility pages stay chrome-free by structural template inheritance (ADR-001). No new crate, no DB migration, no new dependency; the single hand-maintained hashed stylesheet is re-hashed atomically per ADR-004."
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "Walking skeleton \u2014 stand up the shared shell on the dashboard (US-01)",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "Walking skeleton: NavContext + app_shell + sidebar + CSS re-hash + dashboard rendered with Home current (irreducibly multi-file)",
+          "criteria": [
+            "RED: un-pend the @walking_skeleton scenario \"The dashboard shows the shared sidebar with Home current\" (remove @pending). Against current code it fails at the first HTML assertion \u2014 GET \"/\" renders dashboard_root.html extending the bare base.html, so there is no persistent left sidebar, no \"Acme\" brand, and no Home/Board primary items. Capture the RED.",
+            "GREEN (new nav module): create crates/foundry-app/src/nav.rs with the NavContext value object, the NavSection { Home, Board } enum, the NavContext::for_page(&session, active, board_href) constructor, and template helpers (monogram, is_home, is_board); add `mod nav;` to crates/foundry-app/src/lib.rs. board_href is a provisional \"/\" this step \u2014 the real ADR-003 resolution lands in 04-02.",
+            "GREEN (shared shell): create crates/foundry-app/templates/app_shell.html ({% extends \"base.html\" %}, fills {% block content %} with .app-shell > {% include \"partials/sidebar.html\" %} + a .app-shell__content wrapper exposing {% block app_content %}) per ADR-001; create crates/foundry-app/templates/partials/sidebar.html rendering nav.* \u2014 brand (monogram + workspace_name) and the two primary items Home\u2192\"/\" and Board\u2192nav.board_href, with the .sidebar__item--active class on the current item. Crafter spikes ONE template first to confirm Askama 0.12 resolves the base\u2192shell\u2192page nested-block split; if it does not, fall back to ADR-001 alternative 2 (per-page {% include %}) \u2014 a mechanism change only, identical render contract.",
+            "GREEN (CSS re-hash, atomic per ADR-004): append the COMPLETE sidebar stylesheet (.app-shell, .app-shell__content offset, .sidebar + brand/monogram/nav/item/item--active/user classes, :focus-visible rings, Linear rail width ~220-260px + active tint) to static/css/foundry.4c43c2a8.css, then `git mv` it to foundry.<newhash>.css and update the two hardcoded literals IN THIS SAME STEP \u2014 base.html:5 <link href> and crates/foundry-app/src/lib.rs:284 \u2014 leaving projects.rs:958 untouched (verified hash-agnostic). Front-load ALL nav CSS here so no later step needs a re-hash.",
+            "GREEN (migrate the dashboard): re-parent crates/foundry-app/templates/dashboard_root.html from base.html to app_shell.html (rename {% block content %} \u2192 {% block app_content %}); add `pub nav: NavContext` to DashboardRoot in crates/foundry-app/src/views.rs and have the \"/\" handler build NavContext::for_page(.., NavSection::Home, ..) once. Keep the dashboard's Quick actions block untouched (additive-only migration).",
+            "Irreducibly multi-file \u2014 this is the ONE justified multi-file exception: it must stand up the whole shell end-to-end (nav module + two new templates + the re-hashed CSS + one migrated page) before ANY scenario can render a rail. Splitting it leaves app_shell.html referencing a sidebar partial, a nav field, or a CSS file that does not yet exist, and Askama fails to compile.",
+            "cargo fmt --all --check and cargo clippy --all-targets --release -D warnings are clean."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/navigation-bar-linear-ui.feature",
+          "scenario_name": "The dashboard shows the shared sidebar with Home current"
+        }
+      ]
+    },
+    {
+      "id": "02",
+      "name": "Sidebar across the whole authenticated surface + active-state correctness (US-04, US-01, US-06, US-05)",
+      "steps": [
+        {
+          "id": "02-01",
+          "name": "Migrate the full remaining authed template set to app_shell (batch) + Quick-actions-not-promoted guard",
+          "criteria": [
+            "RED: un-pend \"The shared sidebar is present on every authenticated app page\" (Scenario Outline x5) and \"Invites and machine tokens stay in Quick actions and are not promoted\". The presence sweep fails today because board.html, report.html, token_list.html and member_invite_form.html still extend base.html \u2014 so /team/general/project/sandbox, .../report, /admin/tokens and /workspace/invites render no rail. Capture the RED.",
+            "GREEN (batch migration \u2014 mechanical, near-identical per batch rule): re-parent the full remaining authed template set to app_shell.html (change {% extends \"base.html\" %} \u2192 {% extends \"app_shell.html\" %}, rename {% block content %} \u2192 {% block app_content %}) and add `pub nav: NavContext` to each owning view struct in crates/foundry-app/src/views.rs, each handler building NavContext::for_page(.., NavSection::Home, ..) once: board.html/BoardPage, report.html/ReportPage, issue.html/IssuePage, token_list.html + token_mint_form.html/TokenListPage + token_minted.html/TokenMintedPage + token_revoke_confirm.html, member_invite_form.html/MemberInviteForm, member_invite_sent.html/MemberInviteSent, project_create.html/ProjectCreatePage, instance_dashboard.html/InstanceDashboardPage. (Board-family active is corrected to Board in 02-02.)",
+            "Migrated as ONE atomic batch because the presence-sweep scenario asserts the rail across the WHOLE authed set; a partial migration leaves some authed pages railless and the sweep still RED. Every edit is the identical two-line re-parent \u2014 near-identical work batched per rule 3; distinct in kind from the 01-01 skeleton (which stood up new infrastructure).",
+            "GREEN (US-05 guard): keep dashboard_root.html's Quick actions additive-only (the /workspace/invites and /admin/tokens links stay) and keep the sidebar primary nav limited to exactly Home + Board \u2014 so those two surfaces remain reachable via Quick actions and are NOT promoted into the rail. This is the co-verified regression guard for the un-pended US-05 scenario.",
+            "cargo fmt --all --check and cargo clippy --all-targets --release -D warnings are clean."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/navigation-bar-linear-ui.feature",
+          "scenario_name": "The shared sidebar is present on every authenticated app page"
+        },
+        {
+          "id": "02-02",
+          "name": "Active-state correctness: Board current on the board family + exactly-one invariant",
+          "criteria": [
+            "RED: un-pend \"Board is current while viewing a project board\" and \"Exactly one primary item is current on every authenticated page\" (Scenario Outline x5). The Board-current scenario fails today because the board-family handlers pass NavSection::Home (from 02-01), so Board is not marked current on /team/general/project/sandbox. Capture the RED.",
+            "GREEN: change the board-family handlers to build NavContext with NavSection::Board for the /team/{slug}/project/{slug} route family (board, change report, issue detail) \u2014 board.rs board + report handlers and the issue-detail handler; every other authed surface stays NavSection::Home (the deterministic active rule in data-models.md), guaranteeing never-zero / never-two.",
+            "GREEN (exactly-one guard, Earned Trust): add a #[test] in crates/foundry-app/src/nav.rs asserting NavSection totality \u2014 for both Home and Board exactly one of is_home()/is_board() is true \u2014 so the invariant is enforced at unit level, not only by the acceptance sweep.",
+            "cargo fmt --all --check and cargo clippy --all-targets --release -D warnings are clean."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/navigation-bar-linear-ui.feature",
+          "scenario_name": "Board is current while viewing a project board"
+        },
+        {
+          "id": "02-03",
+          "name": "Accessible navigation landmark + aria-current on authed pages; chrome-free confirmed on pre-auth",
+          "criteria": [
+            "RED: un-pend \"The active item is an accessible landmark carrying aria-current\" and \"Pre-auth and utility pages do not show the sidebar\" (Scenario Outline x2). The landmark scenario fails today because partials/sidebar.html wraps the primary items in a plain container \u2014 no <nav> landmark and no aria-current marker. Capture the RED.",
+            "GREEN: in crates/foundry-app/templates/partials/sidebar.html wrap the primary nav in <nav aria-label=\"Primary\"> and add aria-current=\"page\" to the active primary item (driven by nav.is_home()/nav.is_board()). No CSS change \u2014 the visual active class + focus rings already shipped in 01-01, so no re-hash is needed.",
+            "GREEN (structural exclusion, ADR-001): the pre-auth Outline is satisfied structurally \u2014 signin.html and forgot-password (forgot.html) keep {% extends \"base.html\" %} and are NOT migrated, so no rail and no landmark render. The step confirms the exclusion still holds as the rail gains a landmark.",
+            "cargo fmt --all --check and cargo clippy --all-targets --release -D warnings are clean."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/navigation-bar-linear-ui.feature",
+          "scenario_name": "The active item is an accessible landmark carrying aria-current"
+        }
+      ]
+    },
+    {
+      "id": "03",
+      "name": "Footer user menu \u2014 account actions and instance-admin gating (US-02, US-03)",
+      "steps": [
+        {
+          "id": "03-01",
+          "name": "User menu: keyboard-shortcuts link + CSRF-protected sign-out control",
+          "criteria": [
+            "RED: un-pend \"The user menu links to keyboard shortcuts\" and \"The user menu signs out with a CSRF token\". Both fail today because partials/sidebar.html has no footer user menu \u2014 no link to /keyboard-help and no sign-out control. Capture the RED.",
+            "GREEN: add the footer user menu to crates/foundry-app/templates/partials/sidebar.html \u2014 a link to \"/keyboard-help\" and a sign-out control that POSTs to \"/sign-out\" with a hidden <input name=\"_csrf\" value=\"{{ nav.csrf }}\"> (reusing the existing CSRF-protected sign-out route; nav.csrf is already populated by NavContext::for_page from the session's per-request token).",
+            "cargo fmt --all --check and cargo clippy --all-targets --release -D warnings are clean."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/navigation-bar-linear-ui.feature",
+          "scenario_name": "The user menu links to keyboard shortcuts"
+        },
+        {
+          "id": "03-02",
+          "name": "Instance-admin item gated on is_instance_admin (two-way gate)",
+          "criteria": [
+            "RED: un-pend \"A super-admin sees the Instance admin item in the user menu\" and \"A non-super-admin never sees the Instance admin item\". The super-admin case fails today because the footer has no Instance-admin entry. Capture the RED.",
+            "GREEN: add a {% if nav.is_instance_admin %} block to the sidebar footer linking to \"/admin/instance/workspaces\"; ensure NavContext::for_page populates is_instance_admin from the session/authorization flag so the element is ABSENT from rendered HTML for non-admins (FR-6, mirroring the dashboard's existing two-way gate). Edits: partials/sidebar.html (+ the for_page wiring in src/nav.rs if the flag is not yet threaded).",
+            "cargo fmt --all --check and cargo clippy --all-targets --release -D warnings are clean."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/navigation-bar-linear-ui.feature",
+          "scenario_name": "A super-admin sees the Instance admin item in the user menu"
+        }
+      ]
+    },
+    {
+      "id": "04",
+      "name": "Rail identity, inert-markup safety, and Board deep-link resolution (US-04, US-01)",
+      "steps": [
+        {
+          "id": "04-01",
+          "name": "Rail identity: signed-in display name in the footer, rendered inert",
+          "criteria": [
+            "RED: un-pend \"The rail renders the workspace name and signed-in identity\" and \"A display name containing markup is rendered inert in the rail\". The signed-in-identity assertion fails today because the footer has no identity anchor rendering the display name (the workspace name already renders from 01-01). Capture the RED.",
+            "GREEN: render the signed-in identity in the sidebar footer anchor via {{ nav.display_name }} in crates/foundry-app/templates/partials/sidebar.html. Askama's default HTML auto-escaping renders a markup display name (e.g. \"<b>pwn</b>\") inert \u2014 escaped text, no live <b> element \u2014 so no manual escaping code is written; the auto-escape IS the guarantee under test.",
+            "cargo fmt --all --check and cargo clippy --all-targets --release -D warnings are clean."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/navigation-bar-linear-ui.feature",
+          "scenario_name": "The rail renders the workspace name and signed-in identity"
+        },
+        {
+          "id": "04-02",
+          "name": "Board deep-link resolution: first project board, with zero-project fallback to \"/\" (ADR-003)",
+          "criteria": [
+            "RED: un-pend \"The Board item deep-links to the workspace's first project board\" and \"The Board item falls back to the dashboard when there are no projects\". The deep-link scenario fails today because board_href is the provisional \"/\" from 01-01, so the rail links Board to \"/\" instead of /team/general/project/sandbox. Capture the RED.",
+            "GREEN: implement resolve_board_href(&session) in crates/foundry-app/src/nav.rs per ADR-003 \u2014 look up the workspace's first/default project (deterministic ordering, reusing the dashboard's existing first-project query family) and return /team/{team_slug}/project/{project_slug}; return \"/\" when the workspace has zero projects; thread the result into NavContext.board_href at the for_page call sites.",
+            "GREEN (test glue): add the new `the \"...\" workspace has no projects` Given to crates/foundry-acceptance/src/steps/feature_navigation_bar.rs for the fallback scenario; reuse the existing seed/link step phrasings verbatim.",
+            "cargo fmt --all --check and cargo clippy --all-targets --release -D warnings are clean."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/navigation-bar-linear-ui.feature",
+          "scenario_name": "The Board item deep-links to the workspace's first project board"
+        }
+      ]
+    }
+  ],
+  "validation": {
+    "status": "approved",
+    "reviewer": "nw-software-crafter-reviewer",
+    "verdict": "APPROVED",
+    "reviewed_at": "2026-07-08T00:00:00Z"
+  }
+}

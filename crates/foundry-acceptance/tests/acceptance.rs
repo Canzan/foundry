@@ -65,6 +65,8 @@ use foundry_acceptance::steps::feature_mwt_slice_05_migration_guarantee as _feat
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_mwt_slice_06_provision_and_prove as _feature_mwt_s06;
 #[allow(unused_imports)]
+use foundry_acceptance::steps::feature_navigation_bar as _feature_navigation_bar;
+#[allow(unused_imports)]
 use foundry_acceptance::steps::feature_per_workspace_backup as _feature_pwb;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_remaining_surfaces as _feature_remaining;

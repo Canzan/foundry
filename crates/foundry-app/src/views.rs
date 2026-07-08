@@ -591,6 +591,10 @@ pub struct DashboardRoot {
     /// handler, which also emits the matching `foundry_csrf` Set-Cookie — so the
     /// `/` response is `(SET_COOKIE, Html)`, mirroring `admin_tokens::show_index`.
     pub csrf: String,
+    /// navigation-bar-linear-ui (US-01): the shared sidebar carrier, assembled
+    /// once per page. The dashboard is the `Home` section; `base.html` →
+    /// `app_shell.html` injects `partials/sidebar.html`, which reads `nav.*`.
+    pub nav: crate::nav::NavContext,
 }
 
 /// One project row on the dashboard project index.

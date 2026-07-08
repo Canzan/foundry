@@ -358,3 +358,100 @@ textarea {
 .modal-dialog button[type="submit"] {
   align-self: flex-end;
 }
+
+/* ── navigation-bar-linear-ui: shared Linear-style left sidebar (ADR-001/004) ──
+   Front-loads the COMPLETE rail stylesheet in one atomic re-hash so no later
+   nav slice needs to touch the content hash again. Classes match the DESIGN
+   contract asserted by feature_navigation_bar (scraper selectors):
+   .app-shell, .sidebar + brand/monogram/nav/item/item--active/user. */
+.app-shell {
+  display: flex;
+  align-items: stretch;
+  min-height: 100vh;
+}
+.app-shell__content {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 24px 32px;
+}
+.sidebar {
+  flex: 0 0 240px;
+  width: 240px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 12px;
+  border-right: 1px solid #e6e6e9;
+  background: #fbfbfc;
+}
+.sidebar__brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px 12px;
+  font-weight: 600;
+}
+.sidebar__monogram {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  background: #5b5bd6;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+}
+.sidebar__workspace {
+  font-size: 14px;
+  color: #1c1c22;
+}
+.sidebar__nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.sidebar__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  color: #52525b;
+  text-decoration: none;
+  font-size: 14px;
+}
+.sidebar__item:hover {
+  background: #f0f0f3;
+  color: #1c1c22;
+}
+.sidebar__item--active {
+  background: #ecedff;
+  color: #3a3ad1;
+  font-weight: 600;
+}
+.sidebar__user {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  border-top: 1px solid #e6e6e9;
+  font-size: 13px;
+}
+.sidebar__user a {
+  color: #52525b;
+  text-decoration: none;
+  padding: 4px 6px;
+  border-radius: 5px;
+}
+.sidebar__user a:hover {
+  background: #f0f0f3;
+  color: #1c1c22;
+}
+.sidebar :focus-visible,
+.sidebar__user :focus-visible {
+  outline: 2px solid #5b5bd6;
+  outline-offset: 2px;
+}

@@ -27,6 +27,7 @@ pub mod issues;
 pub mod keyboard;
 pub mod member_invites;
 pub mod metrics_server;
+pub mod nav;
 pub mod projects;
 pub mod rate_limit;
 pub mod session;
@@ -281,7 +282,7 @@ mod static_cache_policy_tests {
         // Content-hashed CSS + pinned vendored libs stay long-lived immutable
         // (their URLs are content-addressed / version-pinned).
         assert!(
-            static_cache_control_value("/static/css/foundry.4c43c2a8.css").contains("immutable")
+            static_cache_control_value("/static/css/foundry.bbe051be.css").contains("immutable")
         );
         assert!(static_cache_control_value("/static/vendor/htmx.min.js").contains("immutable"));
         assert!(static_cache_control_value("/static/vendor/alpine.min.js").contains("immutable"));

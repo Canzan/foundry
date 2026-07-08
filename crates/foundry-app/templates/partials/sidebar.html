@@ -1,0 +1,10 @@
+<aside class="sidebar">
+  <div class="sidebar__brand">
+    <span class="sidebar__monogram" aria-hidden="true">{{ nav.monogram() }}</span>
+    <span class="sidebar__workspace">{{ nav.workspace_name }}</span>
+  </div>
+  <nav class="sidebar__nav" aria-label="Primary">
+    <a class="sidebar__item{% if nav.is_home() %} sidebar__item--active{% endif %}" href="/"{% if nav.is_home() %} aria-current="page"{% endif %}>Home</a>
+    <a class="sidebar__item{% if nav.is_board() %} sidebar__item--active{% endif %}" href="{{ nav.board_href }}"{% if nav.is_board() %} aria-current="page"{% endif %}>Board</a>
+  </nav>
+</aside>
