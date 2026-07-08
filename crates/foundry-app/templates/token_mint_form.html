@@ -1,6 +1,6 @@
-{% extends "base.html" %}
+{% extends "app_shell.html" %}
 {% block title %}Machine tokens{% endblock %}
-{% block content %}
+{% block app_content %}
 <main data-token-surface>
   <h1>Machine tokens</h1>
   {% match error %}{% when Some with (message) %}<p class="error">{{ message }}</p>{% when None %}{% endmatch %}

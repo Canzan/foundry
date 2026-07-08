@@ -38,6 +38,10 @@ pub struct ProjectCreatePage {
     pub raw_name: String,
     /// Repopulated key-prefix input value (empty on initial GET).
     pub raw_key: String,
+    /// navigation-bar-linear-ui (step 02-01): the shared sidebar carrier,
+    /// assembled once per page via `NavContext::home_for`. `app_shell.html`
+    /// injects `partials/sidebar.html`, which reads `nav.*`.
+    pub nav: crate::nav::NavContext,
 }
 
 /// A SHARED bare error fragment (US-R01 / US-R03 / US-R05). Emits
@@ -250,6 +254,10 @@ pub struct BoardPage {
     /// issue number** (US-12 / NFR-WEBB-A11Y-01). Data ordering lives in the
     /// view-model; the template only renders the `<li>` list.
     pub kb_items: Vec<String>,
+    /// navigation-bar-linear-ui (step 02-01): the shared sidebar carrier,
+    /// assembled once per page via `NavContext::home_for`. `app_shell.html`
+    /// injects `partials/sidebar.html`, which reads `nav.*`.
+    pub nav: crate::nav::NavContext,
 }
 
 /// The sign-in page. Extends `base.html`, which links the vendored `/static`
@@ -316,6 +324,10 @@ pub struct MemberInviteForm {
     pub workspace_name: String,
     /// Inline recovery copy (blank email); `None` on the initial GET render.
     pub error: Option<String>,
+    /// navigation-bar-linear-ui (step 02-01): the shared sidebar carrier,
+    /// assembled once per page via `NavContext::home_for`. `app_shell.html`
+    /// injects `partials/sidebar.html`, which reads `nav.*`.
+    pub nav: crate::nav::NavContext,
 }
 
 /// The "invite sent" FRAGMENT returned by `POST /workspace/invites`
@@ -330,6 +342,10 @@ pub struct MemberInviteSent {
     pub invitee_email: String,
     /// The signed, already-URL-encoded accept link; embedded verbatim via `|safe`.
     pub invite_url: String,
+    /// navigation-bar-linear-ui (step 02-01): the shared sidebar carrier,
+    /// assembled once per page via `NavContext::home_for`. `app_shell.html`
+    /// injects `partials/sidebar.html`, which reads `nav.*`.
+    pub nav: crate::nav::NavContext,
 }
 
 /// The POST /forgot-password success page. Extends `base.html` (Phase-4 FIX 3)
@@ -491,6 +507,10 @@ pub struct IssuePage {
     /// The change timeline (issue-change-history ADR-002 §1), NEWEST-first.
     /// Empty for an unchanged issue (genesis = start empty, UC-1).
     pub timeline: Vec<TimelineEntry>,
+    /// navigation-bar-linear-ui (step 02-01): the shared sidebar carrier,
+    /// assembled once per page via `NavContext::home_for`. `app_shell.html`
+    /// injects `partials/sidebar.html`, which reads `nav.*`.
+    pub nav: crate::nav::NavContext,
 }
 
 /// One rendered change-timeline entry (issue-change-history ADR-002 §1). Carries
@@ -532,6 +552,10 @@ pub struct ReportPage {
     pub transitions: Vec<TransitionCount>,
     /// Per-actor change counts, ordered.
     pub actor_counts: Vec<ActorCount>,
+    /// navigation-bar-linear-ui (step 02-01): the shared sidebar carrier,
+    /// assembled once per page via `NavContext::home_for`. `app_shell.html`
+    /// injects `partials/sidebar.html`, which reads `nav.*`.
+    pub nav: crate::nav::NavContext,
 }
 
 /// One row of the project change-report table. `issue_key` rides through as the
@@ -718,6 +742,10 @@ pub struct TokenListPage {
     pub error: Option<String>,
     /// The workspace's issued tokens, newest first (metadata only).
     pub tokens: Vec<TokenRow>,
+    /// navigation-bar-linear-ui (step 02-01): the shared sidebar carrier,
+    /// assembled once per page via `NavContext::home_for`. `app_shell.html`
+    /// injects `partials/sidebar.html`, which reads `nav.*`.
+    pub nav: crate::nav::NavContext,
 }
 
 /// The one-time token-display page (US-MT01, DD7 / NFR-MT-SEC-01). This is the
@@ -739,6 +767,10 @@ pub struct TokenMintedPage {
     pub scope_label: String,
     /// Human expiry timestamp — `data-token-expiry`.
     pub expires_at: String,
+    /// navigation-bar-linear-ui (step 02-01): the shared sidebar carrier,
+    /// assembled once per page via `NavContext::home_for`. `app_shell.html`
+    /// injects `partials/sidebar.html`, which reads `nav.*`.
+    pub nav: crate::nav::NavContext,
 }
 
 /// A single existing-workspace row on the instance dashboard
@@ -772,6 +804,10 @@ pub struct InstanceDashboardPage {
     pub csrf: String,
     /// Every existing workspace (newest first) — listed for the super-admin.
     pub workspaces: Vec<InstanceWorkspaceRow>,
+    /// navigation-bar-linear-ui (step 02-01): the shared sidebar carrier,
+    /// assembled once per page via `NavContext::home_for`. `app_shell.html`
+    /// injects `partials/sidebar.html`, which reads `nav.*`.
+    pub nav: crate::nav::NavContext,
 }
 
 /// The htmx success FRAGMENT returned by `POST /admin/instance/workspaces`

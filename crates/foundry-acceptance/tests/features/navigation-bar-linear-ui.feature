@@ -50,7 +50,7 @@ Feature: A signed-in member navigates every authenticated page from one shared s
     And the "Board" navigation item is not marked as current
 
   # ── Slice 02 — US-04 presence across the authenticated page set ─────────────
-  @pending @us-04 @real-io
+  @us-04 @real-io
   Scenario Outline: The shared sidebar is present on every authenticated app page
     When Ada opens the authenticated page "<page>"
     Then a persistent left sidebar is shown
@@ -154,7 +154,7 @@ Feature: A signed-in member navigates every authenticated page from one shared s
     Then the sidebar links "Board" to "/"
 
   # ── Slice 09 — US-05 scoping guard: Quick actions preserved, not promoted ───
-  @pending @us-05 @real-io
+  @us-05 @real-io
   Scenario: Invites and machine tokens stay in Quick actions and are not promoted
     When Ada visits "/"
     Then the response body contains a link to "/workspace/invites"

@@ -1,6 +1,6 @@
-{% extends "base.html" %}
+{% extends "app_shell.html" %}
 {% block title %}{{ issue_key }} - {{ project_slug }}{% endblock %}
-{% block content %}
+{% block app_content %}
 <header><h1>{{ issue_key }}</h1></header>
 {% if attachments.is_empty() %}<section class="attachments" data-attachment-list>
   <p class="attachments-empty">No attachments yet.</p>

@@ -213,6 +213,34 @@ async fn project_exists_in_workspace(
     .execute(pool)
     .await
     .expect("insert project");
+
+    // navigation-bar-linear-ui (step 02-01): the presence-sweep navigates INTO
+    // this project's board (`/team/general/project/sandbox` + `.../report`),
+    // which `projects::show_board`/`show_report` gate on TEAM membership — not
+    // merely workspace-admin. The Background seeds the admin only into
+    // `workspace_memberships`, so without a `team_memberships` row the board
+    // 403s and renders no rail. Grant the workspace admin a membership on the
+    // seeded team so the board is navigable (a project you cannot open is not a
+    // meaningful seed). Additive + idempotent (`ON CONFLICT DO NOTHING`) so the
+    // dashboard-only consumers of this shared Given are unaffected. The team
+    // role CHECK allows only `('lead','member')`, so seed as `member`.
+    let admin_id: (uuid::Uuid,) = sqlx::query_as(
+        "SELECT user_id FROM workspace_memberships \
+         WHERE workspace_id = $1 AND role = 'admin' LIMIT 1",
+    )
+    .bind(ws_id.0)
+    .fetch_one(pool)
+    .await
+    .expect("fetch workspace admin for team membership");
+    sqlx::query(
+        "INSERT INTO team_memberships (team_id, user_id, role) VALUES ($1, $2, 'member')
+              ON CONFLICT DO NOTHING",
+    )
+    .bind(team_row.0)
+    .bind(admin_id.0)
+    .execute(pool)
+    .await
+    .expect("grant workspace admin team membership");
 }
 
 // "Ada is signed in" reuses us_07_project_create's `(\w+) is signed in` Given,

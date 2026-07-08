@@ -79,11 +79,12 @@ pub async fn show_invite_form(
     session: Session,
     headers: HeaderMap,
 ) -> Response {
-    let Some((_admin, workspace_name)) = require_workspace_admin(&state, &session).await else {
+    let Some((admin, workspace_name)) = require_workspace_admin(&state, &session).await else {
         return resource_not_found_page();
     };
     let (csrf_token, set_cookie) = ensure_csrf_cookie(&state, &headers);
-    render_form(&csrf_token, &workspace_name, None, set_cookie)
+    let nav = crate::nav::NavContext::home_for(&state, admin.user_id, admin.workspace_id).await;
+    render_form(&csrf_token, &workspace_name, None, set_cookie, nav)
 }
 
 // ------------------------------------------------------ POST /workspace/invites
@@ -105,6 +106,11 @@ pub async fn submit_invite(
         return resource_not_found_page();
     };
 
+    // Shared sidebar carrier for the (full-page) invite surface — used by the
+    // blank-email re-render below AND the "invite sent" confirmation. Both are
+    // mutually-exclusive paths, so `nav` moves into exactly one.
+    let nav = crate::nav::NavContext::home_for(&state, admin.user_id, admin.workspace_id).await;
+
     let email = form.email.as_deref().map(str::trim).unwrap_or("");
     if email.is_empty() {
         let (csrf_token, set_cookie) = ensure_csrf_cookie(&state, &headers);
@@ -113,6 +119,7 @@ pub async fn submit_invite(
             &workspace_name,
             Some(BLANK_EMAIL_ERROR),
             set_cookie,
+            nav,
         );
     }
 
@@ -162,6 +169,7 @@ pub async fn submit_invite(
     let fragment = MemberInviteSent {
         invitee_email: email.to_string(),
         invite_url,
+        nav,
     };
     match fragment.render() {
         Ok(html) => Html(html).into_response(),
@@ -215,11 +223,13 @@ fn render_form(
     workspace_name: &str,
     error: Option<&str>,
     set_cookie: Option<String>,
+    nav: crate::nav::NavContext,
 ) -> Response {
     let body = MemberInviteForm {
         csrf_token: csrf_token.to_string(),
         workspace_name: workspace_name.to_string(),
         error: error.map(str::to_string),
+        nav,
     }
     .render()
     .expect("member_invite_form.html renders");

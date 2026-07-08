@@ -138,6 +138,7 @@ pub async fn show_issue(
     // (comment-add-csrf 01-01).
     let (csrf, set_cookie) = crate::csrf::ensure_csrf_cookie(&state, &headers);
     let key = format!("{}-{}", issue.project_key_prefix, issue_number);
+    let nav = crate::nav::NavContext::home_for(&state, user.user_id, user.workspace_id).await;
     let html = render_issue_page(
         &team_slug,
         &project_slug,
@@ -148,6 +149,7 @@ pub async fn show_issue(
         user.user_id,
         actor_is_admin,
         &csrf,
+        nav,
     );
     crate::csrf::response_with_optional_cookie(
         StatusCode::OK,
@@ -708,6 +710,7 @@ fn render_issue_page(
     actor_user_id: uuid::Uuid,
     actor_is_admin: bool,
     csrf: &str,
+    nav: crate::nav::NavContext,
 ) -> String {
     let number = extract_number(issue_key);
     let timeline = changes.iter().map(build_timeline_entry).collect();
@@ -744,6 +747,7 @@ fn render_issue_page(
         attachments: attachment_items,
         comments: cards,
         timeline,
+        nav,
     }
     .render()
     .expect("issue page render (infallible String buffer)")

@@ -79,9 +79,9 @@ pub async fn show_dashboard(
     session: Session,
     headers: HeaderMap,
 ) -> Response {
-    if require_instance_admin(&state, &session).await.is_none() {
+    let Some(user) = require_instance_admin(&state, &session).await else {
         return resource_not_found_page();
-    }
+    };
     let (csrf, set_cookie) = ensure_csrf_cookie(&state, &headers);
     let workspaces = match state.store.list_workspaces().await {
         Ok(rows) => rows
@@ -93,7 +93,12 @@ pub async fn show_dashboard(
             .collect(),
         Err(err) => return internal_error("list_workspaces", err),
     };
-    let page = InstanceDashboardPage { csrf, workspaces };
+    let nav = crate::nav::NavContext::home_for(&state, user.user_id, user.workspace_id).await;
+    let page = InstanceDashboardPage {
+        csrf,
+        workspaces,
+        nav,
+    };
     match page.render() {
         Ok(html) => {
             let mut resp = Html(html).into_response();

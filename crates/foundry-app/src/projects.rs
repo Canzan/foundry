@@ -82,7 +82,8 @@ pub async fn show_create_form(
         Err(err) => return internal_error("is_team_member", err),
     }
     let (csrf, set_cookie) = ensure_csrf_cookie(&state, &headers);
-    let body = render_create_form(&team_slug, &team.name, &csrf, None, "", "");
+    let nav = crate::nav::NavContext::home_for(&state, user.user_id, user.workspace_id).await;
+    let body = render_create_form(&team_slug, &team.name, &csrf, None, "", "", nav);
     response_with_optional_cookie(StatusCode::OK, Html(body).into_response(), set_cookie)
 }
 
@@ -113,6 +114,12 @@ pub async fn submit_create(
         Err(err) => return internal_error("is_team_member", err),
     }
 
+    // Shared sidebar carrier for any inline form re-render below (only the
+    // full-page, non-htmx error branches render it; the htmx error fragments and
+    // the success redirect ignore it). Each error branch is a returning path, so
+    // `nav` moves into exactly one of them.
+    let nav = crate::nav::NavContext::home_for(&state, user.user_id, user.workspace_id).await;
+
     let is_htmx = headers
         .get(HX_REQUEST_HEADER)
         .and_then(|v| v.to_str().ok())
@@ -132,6 +139,7 @@ pub async fn submit_create(
             raw_key,
             "Project name must not be empty",
             is_htmx,
+            nav,
         );
     }
 
@@ -154,6 +162,7 @@ pub async fn submit_create(
                 raw_key,
                 "Project name must be unique within the team",
                 is_htmx,
+                nav,
             );
         }
         Ok(None) => {}
@@ -168,7 +177,7 @@ pub async fn submit_create(
         Err(err) => {
             let message = key_error_message(err);
             return key_error_response(
-                &team_slug, &team.name, &state, &headers, raw_name, raw_key, message, is_htmx,
+                &team_slug, &team.name, &state, &headers, raw_name, raw_key, message, is_htmx, nav,
             );
         }
     };
@@ -192,7 +201,7 @@ pub async fn submit_create(
             redirect_to(&location)
         }
         Err(ProjectInsertError::DuplicateKey) => duplicate_key_response(
-            &team_slug, &team.name, &state, &headers, raw_name, raw_key, is_htmx,
+            &team_slug, &team.name, &state, &headers, raw_name, raw_key, is_htmx, nav,
         ),
         Err(ProjectInsertError::DuplicateName) => name_error_response(
             &team_slug,
@@ -203,6 +212,7 @@ pub async fn submit_create(
             raw_key,
             "Project name must be unique within the team",
             is_htmx,
+            nav,
         ),
         Err(ProjectInsertError::Other(err)) => internal_error("insert_project", err),
     }
@@ -282,7 +292,8 @@ pub async fn show_board(
     // the swap target shows a clean message instead of a torn DOM. The
     // test-only `force_board_render_failure` flag forces the `Err` arm so the
     // mapping is observable without a genuinely-broken template.
-    match render_board(&state, &team.name, &project, &issues, &key_prefix) {
+    let nav = crate::nav::NavContext::home_for(&state, user.user_id, user.workspace_id).await;
+    match render_board(&state, &team.name, &project, &issues, &key_prefix, nav) {
         Ok(html) => Html(html).into_response(),
         Err(err) => render_500(&headers, "board", err),
     }
@@ -350,7 +361,17 @@ pub async fn show_report(
         return csv_response(&project_slug, &changes);
     }
 
-    match build_report_page(&team.name, &project, &team_slug, &project_slug, &changes).render() {
+    let nav = crate::nav::NavContext::home_for(&state, user.user_id, user.workspace_id).await;
+    match build_report_page(
+        &team.name,
+        &project,
+        &team_slug,
+        &project_slug,
+        &changes,
+        nav,
+    )
+    .render()
+    {
         Ok(html) => Html(html).into_response(),
         Err(err) => render_500(&headers, "report", err),
     }
@@ -366,6 +387,7 @@ fn build_report_page(
     team_slug: &str,
     project_slug: &str,
     changes: &[ProjectChangeRow],
+    nav: crate::nav::NavContext,
 ) -> crate::views::ReportPage {
     let events = changes
         .iter()
@@ -412,6 +434,7 @@ fn build_report_page(
         events,
         transitions,
         actor_counts,
+        nav,
     }
 }
 
@@ -560,6 +583,7 @@ fn key_error_response(
     raw_key: &str,
     message: &str,
     is_htmx: bool,
+    nav: crate::nav::NavContext,
 ) -> Response {
     if is_htmx {
         let body = render_error_fragment(message);
@@ -577,6 +601,7 @@ fn key_error_response(
         Some(message),
         raw_name,
         raw_key,
+        nav,
     );
     response_with_optional_cookie(
         StatusCode::UNPROCESSABLE_ENTITY,
@@ -595,6 +620,7 @@ fn name_error_response(
     raw_key: &str,
     message: &str,
     is_htmx: bool,
+    nav: crate::nav::NavContext,
 ) -> Response {
     if is_htmx {
         let body = render_error_fragment(message);
@@ -612,6 +638,7 @@ fn name_error_response(
         Some(message),
         raw_name,
         raw_key,
+        nav,
     );
     response_with_optional_cookie(
         StatusCode::UNPROCESSABLE_ENTITY,
@@ -629,6 +656,7 @@ fn duplicate_key_response(
     raw_name: &str,
     raw_key: &str,
     is_htmx: bool,
+    nav: crate::nav::NavContext,
 ) -> Response {
     let message = "Project key is already in use in this workspace";
     if is_htmx {
@@ -647,6 +675,7 @@ fn duplicate_key_response(
         Some(message),
         raw_name,
         raw_key,
+        nav,
     );
     response_with_optional_cookie(StatusCode::CONFLICT, Html(body).into_response(), set_cookie)
 }
@@ -668,6 +697,7 @@ fn render_create_form(
     error: Option<&str>,
     raw_name: &str,
     raw_key: &str,
+    nav: crate::nav::NavContext,
 ) -> String {
     crate::views::ProjectCreatePage {
         team_name: team_name.to_string(),
@@ -676,6 +706,7 @@ fn render_create_form(
         error: error.map(str::to_string),
         raw_name: raw_name.to_string(),
         raw_key: raw_key.to_string(),
+        nav,
     }
     .render()
     .expect("project_create.html renders from a fully-resolved, infallible view-model")
@@ -712,6 +743,7 @@ fn render_board(
     project: &foundry_store::ProjectRow,
     issues: &[foundry_services::BoardIssue],
     key_prefix: &ProjectKey,
+    nav: crate::nav::NavContext,
 ) -> Result<String, askama::Error> {
     // Test-only render-injection: when the harness has flipped the
     // `force_board_render_failure` flag, short-circuit to the same `Err`
@@ -729,7 +761,7 @@ fn render_board(
         }
     }
     let _ = state;
-    build_board_page(team_name, project, issues, key_prefix).render()
+    build_board_page(team_name, project, issues, key_prefix, nav).render()
 }
 
 /// Map a template render failure to a CLEAN server error (US-B01 @error,
@@ -761,6 +793,7 @@ fn build_board_page(
     project: &foundry_store::ProjectRow,
     issues: &[foundry_services::BoardIssue],
     key_prefix: &ProjectKey,
+    nav: crate::nav::NavContext,
 ) -> crate::views::BoardPage {
     // Group issues by state. Slice 1: all newly filed issues land in
     // 'backlog'; the other columns stay empty placeholders until drag-
@@ -807,6 +840,7 @@ fn build_board_page(
         key_prefix: project.key_prefix.clone(),
         columns,
         kb_items,
+        nav,
     }
 }
 
@@ -912,7 +946,19 @@ mod board_render_tests {
         issues: &[foundry_services::BoardIssue],
         key_prefix: &ProjectKey,
     ) -> String {
-        build_board_page(team_name, project, issues, key_prefix)
+        // The board now renders inside the shared `app_shell.html`, so the
+        // builder needs a nav carrier. Board-family active-state lands in 02-02;
+        // for this render test the `Home` section + provisional `/` target
+        // suffice (the assertions below pin the board content, not the rail).
+        let nav = crate::nav::NavContext::for_page(
+            team_name.to_string(),
+            "Tester".to_string(),
+            false,
+            String::new(),
+            crate::nav::NavSection::Home,
+            "/".to_string(),
+        );
+        build_board_page(team_name, project, issues, key_prefix, nav)
             .render()
             .expect("board template renders")
     }

@@ -63,11 +63,13 @@ pub async fn show_index(
         Ok(rows) => rows,
         Err(err) => return internal_error("list_tokens", err),
     };
+    let nav = crate::nav::NavContext::home_for(&state, admin.user_id, admin.workspace_id).await;
     let page = TokenListPage {
         mint_enabled: state.machine_token_signer.is_some(),
         csrf,
         error: None,
         tokens,
+        nav,
     };
     render_list(page, StatusCode::OK, set_cookie)
 }
@@ -90,11 +92,13 @@ pub async fn submit_mint(
     let Some(signer) = state.machine_token_signer.clone() else {
         let (csrf, set_cookie) = ensure_csrf_cookie(&state, &headers);
         let tokens = load_token_rows(&state, &admin).await.unwrap_or_default();
+        let nav = crate::nav::NavContext::home_for(&state, admin.user_id, admin.workspace_id).await;
         let page = TokenListPage {
             mint_enabled: false,
             csrf,
             error: None,
             tokens,
+            nav,
         };
         return render_list(page, StatusCode::FORBIDDEN, set_cookie);
     };
@@ -136,12 +140,15 @@ pub async fn submit_mint(
             // Expose the SecretString EXACTLY ONCE into the owned page field,
             // then drop `minted` (and its SecretString) when this scope ends —
             // never stored, never logged (DD7 / NFR-MT-SEC-01).
+            let nav =
+                crate::nav::NavContext::home_for(&state, admin.user_id, admin.workspace_id).await;
             let page = TokenMintedPage {
                 value_once: minted.value.expose_secret().to_string(),
                 jti: minted.jti.to_string(),
                 label: minted.label.clone(),
                 scope_label: scope_label(minted.scope_team_id, minted.scope_team_name.as_deref()),
                 expires_at: format_ts(minted.expires_at),
+                nav,
             };
             match page.render() {
                 Ok(html) => Html(html).into_response(),
@@ -363,11 +370,14 @@ async fn mint_error_response(
         ServiceError::Validation { message, .. } => {
             let (csrf, set_cookie) = ensure_csrf_cookie(state, headers);
             let tokens = load_token_rows(state, admin).await.unwrap_or_default();
+            let nav =
+                crate::nav::NavContext::home_for(state, admin.user_id, admin.workspace_id).await;
             let page = TokenListPage {
                 mint_enabled: state.machine_token_signer.is_some(),
                 csrf,
                 error: Some(message),
                 tokens,
+                nav,
             };
             render_list(page, StatusCode::UNPROCESSABLE_ENTITY, set_cookie)
         }

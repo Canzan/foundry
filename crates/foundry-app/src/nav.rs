@@ -67,6 +67,41 @@ impl NavContext {
         }
     }
 
+    /// Assemble the `Home`-section rail for a batch-migrated authenticated page
+    /// (navigation-bar-linear-ui step 02-01) by resolving the acting identity
+    /// through the SHIPPED `dashboard_greeting` seam — the SAME presentation
+    /// projection the dashboard uses (`signin::dashboard_root`) — falling back
+    /// to the neutral greeting on lookup failure so the page still renders 200
+    /// (never 500s), mirroring the dashboard's graceful degradation. Board-family
+    /// active-state (02-02) and the resolved first-project deep-link (04-02)
+    /// refine `active`/`board_href` in later slices; the footer-only fields
+    /// (`is_instance_admin`, `csrf`) are inert in the current rail — there is no
+    /// footer user menu in `partials/sidebar.html` yet — so they default here and
+    /// are wired when that footer lands.
+    pub(crate) async fn home_for(
+        state: &crate::AppState,
+        user_id: uuid::Uuid,
+        workspace_id: uuid::Uuid,
+    ) -> Self {
+        let (display_name, workspace_name) = state
+            .store
+            .dashboard_greeting(user_id, workspace_id)
+            .await
+            .unwrap_or_else(|err| {
+                tracing::error!(%err, "nav: dashboard_greeting failed; neutral rail identity");
+                None
+            })
+            .unwrap_or_else(|| ("there".to_string(), "your workspace".to_string()));
+        Self::for_page(
+            workspace_name,
+            display_name,
+            false,
+            String::new(),
+            NavSection::Home,
+            "/".to_string(),
+        )
+    }
+
     /// Uppercased first character of the workspace name, for the brand monogram.
     /// `"?"` when the workspace name is empty.
     pub fn monogram(&self) -> String {
