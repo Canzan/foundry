@@ -480,6 +480,10 @@ pub struct IssuePage {
     pub project_slug: String,
     /// `POST …/issues/{n}/comments` — the add-comment form action.
     pub post_url: String,
+    /// CSRF double-submit token minted by `show_issue` — rendered into the
+    /// add-comment form's hidden `_csrf` field so the urlencoded POST clears
+    /// `csrf_middleware` (comment-add-csrf 01-01).
+    pub csrf: String,
     /// `POST …/issues/{n}/attachments` — the upload form action.
     pub upload_url: String,
     pub attachments: Vec<AttachmentItem>,

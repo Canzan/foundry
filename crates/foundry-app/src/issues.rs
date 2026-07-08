@@ -27,7 +27,7 @@ use crate::session::SESSION_KEY_USER_ID;
 use crate::AppState;
 use askama::Template;
 use axum::extract::{Form, Path, State};
-use axum::http::header::{HeaderMap, HeaderValue, COOKIE, LOCATION, SET_COOKIE};
+use axum::http::header::{HeaderMap, HeaderValue, LOCATION};
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
 use foundry_core::ProjectKey;
@@ -232,7 +232,7 @@ pub async fn show_edit_form(
         Err(_) => return internal_error("edit_issue_form", "service error"),
     };
 
-    let (csrf, set_cookie) = ensure_csrf_cookie(&state, &headers);
+    let (csrf, set_cookie) = crate::csrf::ensure_csrf_cookie(&state, &headers);
     let action = edit_url(&team_slug, &project_slug, issue_number);
     let body = crate::views::IssueEditModal {
         action,
@@ -244,7 +244,11 @@ pub async fn show_edit_form(
     }
     .render()
     .expect("issue_edit_modal partial renders from a fully-resolved, infallible view-model");
-    response_with_optional_cookie(StatusCode::OK, Html(body).into_response(), set_cookie)
+    crate::csrf::response_with_optional_cookie(
+        StatusCode::OK,
+        Html(body).into_response(),
+        set_cookie,
+    )
 }
 
 // ------------------------ POST /team/:team/project/:project/issues/:n/edit
@@ -500,38 +504,6 @@ fn is_htmx(headers: &HeaderMap) -> bool {
         .and_then(|v| v.to_str().ok())
         .map(|v| v.eq_ignore_ascii_case("true"))
         .unwrap_or(false)
-}
-
-/// Reuse the request's CSRF cookie if present, else mint one — mirrors
-/// `keyboard::ensure_csrf_cookie`. The edit-dialog GET renders the token into
-/// the form's hidden `_csrf` field; the save POST (under `csrf_middleware`)
-/// double-submits it against this same cookie.
-fn ensure_csrf_cookie(state: &AppState, headers: &HeaderMap) -> (String, Option<String>) {
-    let existing = headers
-        .get(COOKIE)
-        .and_then(|v| v.to_str().ok())
-        .and_then(crate::csrf::extract_csrf_cookie);
-    if let Some(token) = existing {
-        return (token, None);
-    }
-    let token = crate::csrf::generate_token();
-    let cookie = crate::csrf::build_csrf_cookie(&token, state.session_cookie_secure);
-    (token, Some(cookie))
-}
-
-fn response_with_optional_cookie(
-    status: StatusCode,
-    body: Response,
-    set_cookie: Option<String>,
-) -> Response {
-    let (mut parts, body) = body.into_parts();
-    parts.status = status;
-    if let Some(cookie) = set_cookie {
-        if let Ok(v) = HeaderValue::from_str(&cookie) {
-            parts.headers.insert(SET_COOKIE, v);
-        }
-    }
-    Response::from_parts(parts, body)
 }
 
 /// Render a single issue card. Selector-and-substring-identical to the board

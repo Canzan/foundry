@@ -16,7 +16,7 @@
 use crate::AppState;
 use axum::body::{to_bytes, Body};
 use axum::extract::{Request, State};
-use axum::http::{header, HeaderValue, Method, StatusCode};
+use axum::http::{header, HeaderMap, HeaderValue, Method, StatusCode};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use base64::Engine;
@@ -41,6 +41,47 @@ pub fn build_csrf_cookie(value: &str, secure: bool) -> String {
     let secure_attr = if secure { "; Secure" } else { "" };
     // Path=/; SameSite=Lax; Max-Age=86400 (1 day).
     format!("{CSRF_COOKIE_NAME}={value}; Path=/; SameSite=Lax; Max-Age=86400{secure_attr}")
+}
+
+/// Reuse the request's CSRF cookie if present, else mint a fresh one. The GET
+/// write-form handlers (new-issue modal, edit dialog, issue-detail add-comment)
+/// render the returned token into the form's hidden `_csrf` field; the matching
+/// write POST (under [`csrf_middleware`]) double-submits it against this same
+/// cookie. Returns `(token, Some(set_cookie))` when a fresh cookie must be
+/// attached, or `(token, None)` when the request already carried one. This is
+/// the single issuance seam shared by every write-form page (previously
+/// duplicated in `issues.rs` and `keyboard.rs`).
+pub(crate) fn ensure_csrf_cookie(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> (String, Option<String>) {
+    let existing = headers
+        .get(header::COOKIE)
+        .and_then(|v| v.to_str().ok())
+        .and_then(extract_csrf_cookie);
+    if let Some(token) = existing {
+        return (token, None);
+    }
+    let token = generate_token();
+    let cookie = build_csrf_cookie(&token, state.session_cookie_secure);
+    (token, Some(cookie))
+}
+
+/// Attach an optional freshly-minted CSRF `Set-Cookie` to a response and set its
+/// status. Paired with [`ensure_csrf_cookie`] on the GET write-form pages.
+pub(crate) fn response_with_optional_cookie(
+    status: StatusCode,
+    body: Response,
+    set_cookie: Option<String>,
+) -> Response {
+    let (mut parts, body) = body.into_parts();
+    parts.status = status;
+    if let Some(cookie) = set_cookie {
+        if let Ok(v) = HeaderValue::from_str(&cookie) {
+            parts.headers.insert(header::SET_COOKIE, v);
+        }
+    }
+    Response::from_parts(parts, body)
 }
 
 /// Extract the CSRF cookie value from a Cookie header.

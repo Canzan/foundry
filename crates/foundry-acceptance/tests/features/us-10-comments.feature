@@ -48,6 +48,16 @@ Feature: A team member discusses an issue inline with markdown that other viewer
     And the issue page for "AUTH-3" shows a comment by Mei containing an <a> element whose href is "https://example.com" and whose rel attribute contains "noopener"
     And the comment is recorded as authored by Mei
 
+  @real-io @csrf
+  Scenario: The add-comment form posts with the CSRF token the issue page itself mints
+    # Regression for comment-add-csrf 01-01: the token/cookie MUST come from the
+    # real issue-detail GET (the double-submit issuance seam every other write
+    # form uses), NOT from /sign-in. Pre-fix `show_issue` mints no `foundry_csrf`
+    # cookie and renders no hidden `_csrf` field, so this fails on the missing
+    # seam rather than posting successfully.
+    When Mei posts a comment on "AUTH-3" with body "Real-page CSRF proves the double-submit seam." using only the CSRF cookie and token minted by the issue page
+    Then the comment is recorded as authored by Mei
+
   @real-io @us-09 @realtime
   Scenario: A new comment appears in real time to another viewer on the same issue
     Given Hiroshi has an open subscription to events on "Auth v2"

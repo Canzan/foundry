@@ -29,12 +29,11 @@
 //! 403; unknown teams/projects get 404.
 
 use crate::bootstrap::{invalid_page, SessionUser};
-use crate::csrf::{build_csrf_cookie, generate_token};
 use crate::session::SESSION_KEY_USER_ID;
 use crate::AppState;
 use askama::Template;
 use axum::extract::{Path, Query, State};
-use axum::http::header::{HeaderMap, HeaderValue, COOKIE, LOCATION, SET_COOKIE};
+use axum::http::header::{HeaderMap, HeaderValue, LOCATION};
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
 use foundry_core::ProjectKey;
@@ -92,7 +91,7 @@ pub async fn show_new_issue_modal(
         Ok(None) => return project_not_found_page(&team_slug, &project_slug),
         Err(err) => return internal_error("find_project_by_slug", err),
     };
-    let (csrf, set_cookie) = ensure_csrf_cookie(&state, &headers);
+    let (csrf, set_cookie) = crate::csrf::ensure_csrf_cookie(&state, &headers);
     let action = format!("/team/{team_slug}/project/{project_slug}/issues");
     let body = if is_htmx(&headers) {
         // Modal fragment: just the modal element + form. No <html>
@@ -103,7 +102,11 @@ pub async fn show_new_issue_modal(
         // submit posts to the same endpoint.
         render_modal_full_page(&action, &csrf, &project.name, &team_slug)
     };
-    response_with_optional_cookie(StatusCode::OK, Html(body).into_response(), set_cookie)
+    crate::csrf::response_with_optional_cookie(
+        StatusCode::OK,
+        Html(body).into_response(),
+        set_cookie,
+    )
 }
 
 /// Render the BARE htmx modal fragment (US-12 / US-R02). Renders the ONE shared
@@ -293,34 +296,6 @@ fn is_htmx(headers: &HeaderMap) -> bool {
         .and_then(|v| v.to_str().ok())
         .map(|v| v.eq_ignore_ascii_case("true"))
         .unwrap_or(false)
-}
-
-fn ensure_csrf_cookie(state: &AppState, headers: &HeaderMap) -> (String, Option<String>) {
-    let existing = headers
-        .get(COOKIE)
-        .and_then(|v| v.to_str().ok())
-        .and_then(crate::csrf::extract_csrf_cookie);
-    if let Some(token) = existing {
-        return (token, None);
-    }
-    let token = generate_token();
-    let cookie = build_csrf_cookie(&token, state.session_cookie_secure);
-    (token, Some(cookie))
-}
-
-fn response_with_optional_cookie(
-    status: StatusCode,
-    body: Response,
-    set_cookie: Option<String>,
-) -> Response {
-    let (mut parts, body) = body.into_parts();
-    parts.status = status;
-    if let Some(cookie) = set_cookie {
-        if let Ok(v) = HeaderValue::from_str(&cookie) {
-            parts.headers.insert(SET_COOKIE, v);
-        }
-    }
-    Response::from_parts(parts, body)
 }
 
 fn redirect_to(location: &str) -> Response {

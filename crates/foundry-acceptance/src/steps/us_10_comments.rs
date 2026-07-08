@@ -198,6 +198,98 @@ async fn member_comments_on_issue(
     world.us_10_last_issue_body = None;
 }
 
+/// comment-add-csrf 01-01 regression — acquire the CSRF double-submit pair from
+/// the REAL issue-detail page (not `/sign-in`), scrape the add-comment form's
+/// hidden `_csrf` field, and POST using ONLY that cookie + token. Proves
+/// `show_issue` mints the same issuance seam every other write-form page uses.
+/// Against a `show_issue` that omits the seam this fails loudly: no
+/// `foundry_csrf` Set-Cookie and no hidden `_csrf` field to scrape.
+#[when(
+    regex = r#"^(\w+) posts a comment on "(\w+)-(\d+)" with body "([^"]*)" using only the CSRF cookie and token minted by the issue page$"#
+)]
+async fn member_comments_via_issue_page_csrf(
+    world: &mut FoundryWorld,
+    who: String,
+    prefix: String,
+    number: i32,
+    body: String,
+) {
+    ensure_harness(world).await;
+    let (email, password) = identity_for(&who);
+    let session = sign_in_and_capture_cookie(world, &email, &password).await;
+    let project_slug = lookup_project_slug_by_prefix(world, &prefix).await;
+    let team_slug = "backend";
+    let base = world.harness.as_ref().expect("harness").base_url();
+    let http = world.http.as_ref().expect("http");
+
+    // (a) GET the REAL issue page as the signed-in member.
+    let issue_url = format!("{base}/team/{team_slug}/project/{project_slug}/issues/{number}");
+    let page = http
+        .get(&issue_url)
+        .header(reqwest::header::COOKIE, session.clone())
+        .send()
+        .await
+        .expect("get issue page");
+
+    // (b) Capture `foundry_csrf` from the issue page's OWN Set-Cookie. The bug:
+    // `show_issue` never mints it, so this is absent pre-fix.
+    let cookie_token = page
+        .headers()
+        .get_all(reqwest::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .find(|s| s.starts_with("foundry_csrf="))
+        .and_then(|s| s.strip_prefix("foundry_csrf="))
+        .and_then(|rest| rest.split(';').next())
+        .map(str::to_string)
+        .expect("the issue page must mint a foundry_csrf cookie (double-submit issuance seam)");
+
+    let page_body = page.text().await.unwrap_or_default();
+
+    // (c) Scrape the hidden `_csrf` field from the add-comment form. The bug:
+    // the form has no hidden field pre-fix, so this is absent too.
+    let field_token = {
+        let doc = scraper::Html::parse_document(&page_body);
+        let sel = scraper::Selector::parse(
+            r#"form[action$="/comments"] input[type="hidden"][name="_csrf"]"#,
+        )
+        .expect("valid selector");
+        doc.select(&sel)
+            .next()
+            .and_then(|el| el.value().attr("value"))
+            .map(str::to_string)
+            .expect("the add-comment form must carry a hidden _csrf field")
+    };
+
+    // The double-submit contract requires the cookie value and the rendered
+    // form field to be the SAME token.
+    assert_eq!(
+        cookie_token, field_token,
+        "issue-page cookie token and hidden-field token must be the same double-submit value"
+    );
+
+    // (d) POST using ONLY the session + the issue-page-minted cookie/token.
+    let combined = format!("{session}; foundry_csrf={cookie_token}");
+    let post_url =
+        format!("{base}/team/{team_slug}/project/{project_slug}/issues/{number}/comments");
+    let mut form: HashMap<&str, String> = HashMap::new();
+    form.insert("body", body);
+    form.insert("_csrf", field_token);
+    let resp = http
+        .post(&post_url)
+        .header(reqwest::header::COOKIE, combined)
+        .form(&form)
+        .send()
+        .await
+        .expect("post comment");
+    world.last_status = Some(resp.status());
+    world.last_headers = Some(resp.headers().clone());
+    let body_text = resp.text().await.unwrap_or_default();
+    world.last_body = Some(body_text);
+    world.us_10_last_issue_key = Some(format!("{prefix}-{number}"));
+    world.us_10_last_issue_body = None;
+}
+
 async fn lookup_project_slug_by_prefix(world: &FoundryWorld, prefix: &str) -> String {
     let harness = world.harness.as_ref().expect("harness");
     let pool = harness.app.state.store.pool();

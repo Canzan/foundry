@@ -59,6 +59,7 @@ pub async fn show_issue(
     State(state): State<AppState>,
     Path((team_slug, project_slug, issue_number)): Path<(String, String, i32)>,
     session: Session,
+    headers: HeaderMap,
 ) -> Response {
     let Some(user) = signed_in_user(&session).await else {
         return redirect_to("/sign-in");
@@ -130,8 +131,14 @@ pub async fn show_issue(
         Err(err) => return internal_error("list_issue_changes", err),
     };
 
+    // Mint (or reuse) the CSRF double-submit cookie the SAME way every other
+    // write-form GET does (issues.rs edit dialog, keyboard.rs new-issue modal).
+    // `render_issue_page` renders the token into the add-comment form's hidden
+    // `_csrf` field so the urlencoded POST clears `csrf_middleware`
+    // (comment-add-csrf 01-01).
+    let (csrf, set_cookie) = crate::csrf::ensure_csrf_cookie(&state, &headers);
     let key = format!("{}-{}", issue.project_key_prefix, issue_number);
-    Html(render_issue_page(
+    let html = render_issue_page(
         &team_slug,
         &project_slug,
         &key,
@@ -140,8 +147,13 @@ pub async fn show_issue(
         &changes,
         user.user_id,
         actor_is_admin,
-    ))
-    .into_response()
+        &csrf,
+    );
+    crate::csrf::response_with_optional_cookie(
+        StatusCode::OK,
+        Html(html).into_response(),
+        set_cookie,
+    )
 }
 
 // ----------------------- POST /team/:team/project/:project/issues/:n/comments
@@ -695,6 +707,7 @@ fn render_issue_page(
     changes: &[IssueChangeRow],
     actor_user_id: uuid::Uuid,
     actor_is_admin: bool,
+    csrf: &str,
 ) -> String {
     let number = extract_number(issue_key);
     let timeline = changes.iter().map(build_timeline_entry).collect();
@@ -726,6 +739,7 @@ fn render_issue_page(
         issue_key: issue_key.to_string(),
         project_slug: project_slug.to_string(),
         post_url: format!("/team/{team_slug}/project/{project_slug}/issues/{number}/comments"),
+        csrf: csrf.to_string(),
         upload_url: format!("/team/{team_slug}/project/{project_slug}/issues/{number}/attachments"),
         attachments: attachment_items,
         comments: cards,

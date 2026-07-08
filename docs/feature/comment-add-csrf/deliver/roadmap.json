@@ -1,0 +1,44 @@
+{
+  "roadmap": {
+    "project_id": "comment-add-csrf",
+    "created_at": "2026-07-07T00:00:00Z",
+    "total_steps": 2,
+    "scope": "bug fix (nw-bugfix Phase 3) — root cause: comments::show_issue omits the CSRF double-submit issuance seam (cookie mint + hidden _csrf field) that every other write-form page uses, so both forms on the issue page fail csrf_middleware with 'CSRF token missing or mismatched'."
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "CSRF-protect the issue-detail page forms",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "Regression test + fix: the add-comment form carries a usable CSRF token",
+          "criteria": [
+            "RED: rewire the add-comment CSRF acquisition so the token comes from the REAL issue page, not GET /sign-in. Today crates/foundry-acceptance/src/steps/us_10_comments.rs (around the sign-in CSRF fetch) hand-mints the token from /sign-in and injects it into the form, bypassing the bug. Change it (or add a distinct @csrf scenario in tests/features/us-10-comments.feature) to: GET /team/{team}/project/{project}/issues/{n}; capture foundry_csrf from that GET's Set-Cookie; scrape input[name=_csrf] from the add-comment form via the scraper crate; POST the comment using ONLY that cookie + scraped token. Must FAIL against current code (no Set-Cookie / no hidden field -> 403 or panic on the missing field). Capture the RED evidence.",
+            "GREEN: factor ensure_csrf_cookie + response_with_optional_cookie into crate::csrf as pub(crate) and repoint issues.rs to use them (remove issues.rs private copies); dedupe keyboard.rs's copy too if a trivial repoint, else leave and note it.",
+            "GREEN: add pub csrf: String to IssuePage in crates/foundry-app/src/views.rs.",
+            "GREEN: add a hidden <input type=hidden name=_csrf value={{ csrf }}> as the first child of the add-comment <form> in crates/foundry-app/templates/issue.html (view-model + template edits must land together; askama fails to compile {{ csrf }} without the field).",
+            "GREEN: add headers: HeaderMap to show_issue in crates/foundry-app/src/comments.rs; call ensure_csrf_cookie(&state, &headers); thread the token through render_issue_page into IssuePage.csrf; return via response_with_optional_cookie(StatusCode::OK, Html(...).into_response(), set_cookie).",
+            "The new/hardened comment scenario passes AND the existing us-10 comment scenarios stay green.",
+            "cargo fmt --all --check and cargo clippy --all-targets --release -D warnings are clean."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-10-comments.feature",
+          "scenario_name": "The add-comment form carries a usable CSRF token"
+        },
+        {
+          "id": "01-02",
+          "name": "Regression test + fix: CSRF-protect the attachment upload form",
+          "criteria": [
+            "RED: add an acceptance scenario proving the server contract that makes the browser upload workable: GET the issue page -> it sets foundry_csrf -> a multipart upload POST carrying x-csrf-token = that cookie value succeeds. Against current code this fails because the issue-page GET sets no cookie to mirror (the reqwest harness sends the header directly; it is not a browser, so this pins the server side; the browser JS gesture is dogfooded, same split as board-dnd.js). Reuse the multipart upload helper idiom in feature_remaining_surfaces.rs / us_11_attachments.",
+            "GREEN: the cookie-mint from 01-01 already satisfies the server side; verify the scenario passes with that alone.",
+            "GREEN: add the browser JS hook so a real user's upload works: a small CSP-safe static script (new crates/foundry-app/static/js/csrf-upload.js, or extend board-dnd.js if cleaner) that on submit of the multipart upload form reads the foundry_csrf cookie and sends the multipart body via fetch with the x-csrf-token header (surface error on non-2xx), mirroring board-dnd.js's cookie->header idiom; wire it in templates/base.html (defer); serve it with the same revalidating cache header the other app-owned JS uses (commit e248506) so edits reach browsers.",
+            "GREEN: add a cheap acceptance assertion that the script is served (mirror card-ranking's 'the drag-and-drop script is served' scenario).",
+            "No regressions across the comment, attachment, and web scenarios; cargo fmt + release clippy clean; a full cargo xtask ci is run at the end by the orchestrator."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-11-attachments.feature",
+          "scenario_name": "The issue page CSRF-protects the attachment upload"
+        }
+      ]
+    }
+  ]
+}
