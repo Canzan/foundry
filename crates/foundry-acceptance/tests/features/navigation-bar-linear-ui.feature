@@ -84,14 +84,14 @@ Feature: A signed-in member navigates every authenticated page from one shared s
       | /admin/tokens                           |
       | /workspace/invites                      |
 
-  @pending @us-06 @real-io
+  @us-06 @real-io
   Scenario: The active item is an accessible landmark carrying aria-current
     When Ada opens the authenticated page "/team/general/project/sandbox"
     Then the sidebar is exposed as a navigation landmark
     And the current navigation item carries an aria-current marker
 
   # ── Slice 04 — US-01 absence on pre-auth / utility pages (structural) ───────
-  @pending @us-01 @real-io
+  @us-01 @real-io
   Scenario Outline: Pre-auth and utility pages do not show the sidebar
     Given a visitor is not signed in
     When a visitor opens the pre-auth page "<page>"
