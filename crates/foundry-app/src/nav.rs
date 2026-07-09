@@ -37,8 +37,9 @@ pub struct NavContext {
     pub csrf: String,
     /// Drives the active class + `aria-current` on exactly one primary item.
     pub active: NavSection,
-    /// Resolved Board deep-link target (ADR-003). Provisional `/` in the walking
-    /// skeleton; real first-project resolution lands in step 04-02.
+    /// Resolved Board deep-link target (ADR-003): the workspace's first-project
+    /// board `/team/{slug}/project/{slug}` (step 04-02, via [`resolve_board_href`]),
+    /// or `/` when the workspace has no projects.
     pub board_href: String,
 }
 
@@ -92,13 +93,14 @@ impl NavContext {
                 None
             })
             .unwrap_or_else(|| ("there".to_string(), "your workspace".to_string()));
+        let board_href = resolve_board_href(state, workspace_id).await;
         Self::for_page(
             workspace_name,
             display_name,
             false,
             String::new(),
             NavSection::Home,
-            "/".to_string(),
+            board_href,
         )
     }
 
@@ -127,13 +129,14 @@ impl NavContext {
                 None
             })
             .unwrap_or_else(|| ("there".to_string(), "your workspace".to_string()));
+        let board_href = resolve_board_href(state, workspace_id).await;
         Self::for_page(
             workspace_name,
             display_name,
             false,
             String::new(),
             NavSection::Board,
-            "/".to_string(),
+            board_href,
         )
     }
 
@@ -156,6 +159,44 @@ impl NavContext {
     pub fn is_board(&self) -> bool {
         self.active == NavSection::Board
     }
+}
+
+/// Pure ADR-003 rule: the Board primary-nav deep-link is the workspace's FIRST
+/// project board `/team/{team_slug}/project/{project_slug}`; when the workspace has
+/// ZERO projects it degrades to the dashboard `/`, whose empty-state hosts the
+/// "create your first project" affordance (no dead link, no 404). Kept pure (no
+/// store) so the href formatting + the zero-project fallback are unit-pinned without
+/// a live DB — both [`resolve_board_href`] and the dashboard feed it their
+/// already-loaded first-project `(team_slug, project_slug)` pair.
+pub(crate) fn board_href_for_first_project(first: Option<(&str, &str)>) -> String {
+    match first {
+        Some((team_slug, project_slug)) => format!("/team/{team_slug}/project/{project_slug}"),
+        None => "/".to_string(),
+    }
+}
+
+/// Resolve the Board primary-nav deep-link target (ADR-003) for an authed render.
+/// Reuses the SAME deterministic first-project query family the dashboard already
+/// issues for "Your projects" (`list_projects_for_workspace`, `ORDER BY p.name`) —
+/// no new ordering invented — and applies the pure [`board_href_for_first_project`]
+/// rule: the first project's board, else the dashboard `/`. One cheap read per
+/// render; on lookup error it degrades to `/` (never 500s), mirroring the
+/// dashboard's graceful-degradation posture.
+pub(crate) async fn resolve_board_href(
+    state: &crate::AppState,
+    workspace_id: uuid::Uuid,
+) -> String {
+    let projects = state
+        .store
+        .list_projects_for_workspace(workspace_id)
+        .await
+        .unwrap_or_else(|err| {
+            tracing::error!(%err, "nav: list_projects_for_workspace failed; Board falls back to /");
+            Vec::new()
+        });
+    board_href_for_first_project(projects.first().map(
+        |(team_slug, project_slug, _name, _key_prefix)| (team_slug.as_str(), project_slug.as_str()),
+    ))
 }
 
 #[cfg(test)]
@@ -202,6 +243,32 @@ mod tests {
         let board = nav_with("Acme", NavSection::Board);
         assert!(board.is_board(), "Board active → is_board() true");
         assert!(!board.is_home(), "Board active → is_home() false");
+    }
+
+    /// Behaviour 3 (04-02 ADR-003) — the Board deep-link is the workspace's FIRST
+    /// project board route `/team/{team_slug}/project/{project_slug}`, and degrades
+    /// to the dashboard `/` when the workspace has ZERO projects (whose empty-state
+    /// hosts the "create your first project" affordance — no dead link, no 404).
+    /// Pins the pure href-formatting + zero-project fallback rule in milliseconds,
+    /// without a live Postgres: `resolve_board_href` feeds this pure rule the
+    /// already-loaded first-project `(team_slug, project_slug)` pair.
+    #[test]
+    fn board_href_is_the_first_projects_board_or_dashboard_fallback_when_empty() {
+        let cases = [
+            (
+                Some(("general", "sandbox")),
+                "/team/general/project/sandbox",
+            ),
+            (Some(("core", "atlas")), "/team/core/project/atlas"),
+            (None, "/"),
+        ];
+        for (first, expected) in cases {
+            assert_eq!(
+                super::board_href_for_first_project(first),
+                expected,
+                "board href for first project {first:?} must be {expected:?}"
+            );
+        }
     }
 
     /// Behaviour 2 (totality guard, 02-02 Earned Trust) — for EVERY `NavSection`

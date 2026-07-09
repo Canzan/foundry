@@ -142,12 +142,12 @@ Feature: A signed-in member navigates every authenticated page from one shared s
     And the response body does not contain a live "<b>" element
 
   # ── Slice 08 — US-01 Board deep-link target (ADR-003) ───────────────────────
-  @pending @us-01 @real-io
+  @us-01 @real-io
   Scenario: The Board item deep-links to the workspace's first project board
     When Ada visits "/"
     Then the sidebar links "Board" to "/team/general/project/sandbox"
 
-  @pending @us-01 @real-io
+  @us-01 @real-io
   Scenario: The Board item falls back to the dashboard when there are no projects
     Given the "Acme" workspace has no projects
     When Ada visits "/"

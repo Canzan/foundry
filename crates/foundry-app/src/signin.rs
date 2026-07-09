@@ -280,7 +280,7 @@ pub async fn dashboard_root(
                     None
                 });
             let (display_name, workspace_name) = greeting_or_neutral(greeting);
-            let projects = state
+            let projects: Vec<crate::views::ProjectLink> = state
                 .store
                 .list_projects_for_workspace(u.workspace_id)
                 .await
@@ -319,16 +319,22 @@ pub async fn dashboard_root(
             let (csrf, set_cookie) = ensure_csrf_cookie(&state, &headers);
             // navigation-bar-linear-ui (US-01): assemble the shared sidebar
             // carrier ONCE from the identity values already resolved above. The
-            // dashboard IS the `Home` section; `board_href` is the provisional
-            // `/` in this walking skeleton — real ADR-003 first-project deep-link
-            // resolution lands in step 04-02.
+            // dashboard IS the `Home` section; `board_href` is the ADR-003
+            // first-project deep-link (step 04-02) — resolved by REUSING the
+            // `projects` list already loaded above (its `ORDER BY p.name` first row
+            // is the deterministic default board), so no extra query is issued.
+            // Zero projects → `/` (this very dashboard, whose empty-state hosts the
+            // create-first-project affordance).
+            let board_href = crate::nav::board_href_for_first_project(projects.first().map(
+                |p: &crate::views::ProjectLink| (p.team_slug.as_str(), p.project_slug.as_str()),
+            ));
             let nav = crate::nav::NavContext::for_page(
                 workspace_name.clone(),
                 display_name.clone(),
                 is_instance_admin,
                 csrf.clone(),
                 crate::nav::NavSection::Home,
-                "/".to_string(),
+                board_href,
             );
             let body = crate::views::DashboardRoot {
                 display_name,
