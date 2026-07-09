@@ -114,6 +114,24 @@ Feature: A signed-in member navigates every authenticated page from one shared s
     When Ada visits "/"
     Then the user menu contains a sign-out control posting to "/sign-out" with a CSRF token
 
+  # Adversarial-review remediation 04-03 (D1, CRITICAL): the sign-out token must be a
+  # REAL, cookie-matched double-submit value on EVERY authed page — not just the
+  # dashboard. The shipped `home_for`/`board_for` hardcoded an empty `nav.csrf`, so on
+  # every non-dashboard page the hidden `_csrf` rendered empty and POST /sign-out was
+  # CSRF-rejected (sign-out silently failed). Sweeps the full authed page set.
+  @us-02 @real-io @security
+  Scenario Outline: Sign-out carries a cookie-matched CSRF token on every authenticated page
+    When Ada opens the authenticated page "<page>"
+    Then the sidebar sign-out form carries a non-empty CSRF token matching the response CSRF cookie
+
+    Examples:
+      | page                                    |
+      | /                                       |
+      | /team/general/project/sandbox           |
+      | /team/general/project/sandbox/report    |
+      | /admin/tokens                           |
+      | /workspace/invites                      |
+
   # ── Slice 06 — US-03 instance-admin gating (mirror dashboard's two-way gate) ─
   @us-03 @real-io
   Scenario: A super-admin sees the Instance admin item in the user menu
@@ -126,6 +144,24 @@ Feature: A signed-in member navigates every authenticated page from one shared s
     Given a member "Mei" who is not an instance admin is signed in
     When Mei visits "/"
     Then the user menu does not contain a link to "/admin/instance/workspaces"
+
+  # Adversarial-review remediation 04-03 (D2, HIGH): the Instance-admin item is gated
+  # on `nav.is_instance_admin`, which `home_for`/`board_for` hardcoded to `false`. So a
+  # genuine instance super-admin saw the item ONLY on the dashboard and never on any
+  # other authed page. Sweeps the NON-dashboard authed set to prove the item follows
+  # the acting user's real super-admin authority everywhere the rail renders.
+  @us-03 @real-io @security
+  Scenario Outline: An instance super-admin sees the Instance-admin item on every authenticated page
+    Given Ada is an instance super-admin
+    When Ada opens the authenticated page "<page>"
+    Then the user menu contains a link to "/admin/instance/workspaces"
+
+    Examples:
+      | page                                    |
+      | /team/general/project/sandbox           |
+      | /team/general/project/sandbox/report    |
+      | /admin/tokens                           |
+      | /workspace/invites                      |
 
   # ── Slice 07 — US-04 rail identity + inert markup ───────────────────────────
   @us-04 @real-io

@@ -82,7 +82,18 @@ pub async fn show_create_form(
         Err(err) => return internal_error("is_team_member", err),
     }
     let (csrf, set_cookie) = ensure_csrf_cookie(&state, &headers);
-    let nav = crate::nav::NavContext::home_for(&state, user.user_id, user.workspace_id).await;
+    // The rail footer reuses the SAME `csrf` token minted for the create form (so the
+    // sign-out form is cookie-matched) and the user's REAL instance-admin authority
+    // (04-03).
+    let is_instance_admin = crate::nav::resolve_is_instance_admin(&state, user.user_id).await;
+    let nav = crate::nav::NavContext::home_for(
+        &state,
+        user.user_id,
+        user.workspace_id,
+        is_instance_admin,
+        csrf.clone(),
+    )
+    .await;
     let body = render_create_form(&team_slug, &team.name, &csrf, None, "", "", nav);
     response_with_optional_cookie(StatusCode::OK, Html(body).into_response(), set_cookie)
 }
@@ -117,8 +128,21 @@ pub async fn submit_create(
     // Shared sidebar carrier for any inline form re-render below (only the
     // full-page, non-htmx error branches render it; the htmx error fragments and
     // the success redirect ignore it). Each error branch is a returning path, so
-    // `nav` moves into exactly one of them.
-    let nav = crate::nav::NavContext::home_for(&state, user.user_id, user.workspace_id).await;
+    // `nav` moves into exactly one of them. The rail footer reuses the request's
+    // existing double-submit CSRF token (this POST already cleared `csrf_middleware`,
+    // so a valid `foundry_csrf` cookie is present — the error helpers below reuse the
+    // SAME token for the create form) and the user's REAL instance-admin authority
+    // (04-03).
+    let (csrf, _set_cookie) = ensure_csrf_cookie(&state, &headers);
+    let is_instance_admin = crate::nav::resolve_is_instance_admin(&state, user.user_id).await;
+    let nav = crate::nav::NavContext::home_for(
+        &state,
+        user.user_id,
+        user.workspace_id,
+        is_instance_admin,
+        csrf,
+    )
+    .await;
 
     let is_htmx = headers
         .get(HX_REQUEST_HEADER)
@@ -295,9 +319,24 @@ pub async fn show_board(
     // Board family (`/team/{slug}/project/{slug}`) — mark the Board primary item
     // current (02-02 deterministic active rule). Every non-board authed surface
     // stays `home_for`, so exactly one primary item is ever current.
-    let nav = crate::nav::NavContext::board_for(&state, user.user_id, user.workspace_id).await;
+    // Mint (or reuse) the double-submit CSRF cookie so the rail footer sign-out form
+    // carries a cookie-matched token on the board page too (04-03 D1 — the board
+    // previously set no CSRF cookie, leaving the sign-out `_csrf` empty). Resolve the
+    // user's REAL instance-admin authority for the Instance-admin item (04-03 D2).
+    let is_instance_admin = crate::nav::resolve_is_instance_admin(&state, user.user_id).await;
+    let (csrf, set_cookie) = ensure_csrf_cookie(&state, &headers);
+    let nav = crate::nav::NavContext::board_for(
+        &state,
+        user.user_id,
+        user.workspace_id,
+        is_instance_admin,
+        csrf,
+    )
+    .await;
     match render_board(&state, &team.name, &project, &issues, &key_prefix, nav) {
-        Ok(html) => Html(html).into_response(),
+        Ok(html) => {
+            response_with_optional_cookie(StatusCode::OK, Html(html).into_response(), set_cookie)
+        }
         Err(err) => render_500(&headers, "board", err),
     }
 }
@@ -365,8 +404,20 @@ pub async fn show_report(
     }
 
     // Board family (project change report) — Board is the current primary item
-    // (02-02 deterministic active rule), same as the board it belongs to.
-    let nav = crate::nav::NavContext::board_for(&state, user.user_id, user.workspace_id).await;
+    // (02-02 deterministic active rule), same as the board it belongs to. Mint (or
+    // reuse) the CSRF cookie for the rail footer sign-out form (04-03 D1 — the report
+    // previously set no CSRF cookie) and resolve the user's REAL instance-admin
+    // authority for the Instance-admin item (04-03 D2).
+    let is_instance_admin = crate::nav::resolve_is_instance_admin(&state, user.user_id).await;
+    let (csrf, set_cookie) = ensure_csrf_cookie(&state, &headers);
+    let nav = crate::nav::NavContext::board_for(
+        &state,
+        user.user_id,
+        user.workspace_id,
+        is_instance_admin,
+        csrf,
+    )
+    .await;
     match build_report_page(
         &team.name,
         &project,
@@ -377,7 +428,9 @@ pub async fn show_report(
     )
     .render()
     {
-        Ok(html) => Html(html).into_response(),
+        Ok(html) => {
+            response_with_optional_cookie(StatusCode::OK, Html(html).into_response(), set_cookie)
+        }
         Err(err) => render_500(&headers, "report", err),
     }
 }

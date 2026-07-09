@@ -2,7 +2,7 @@
   "roadmap": {
     "project_id": "navigation-bar-linear-ui",
     "created_at": "2026-07-08T00:00:00Z",
-    "total_steps": 8,
+    "total_steps": 9,
     "scope": "Presentation-tier only: add ONE shared Linear-style left sidebar (crates/foundry-app/templates/app_shell.html + partials/sidebar.html, driven by a NavContext value object in src/nav.rs) to every authenticated foundry-app page, while pre-auth/utility pages stay chrome-free by structural template inheritance (ADR-001). No new crate, no DB migration, no new dependency; the single hand-maintained hashed stylesheet is re-hashed atomically per ADR-004."
   },
   "phases": [
@@ -124,6 +124,18 @@
           ],
           "test_file": "crates/foundry-acceptance/tests/features/navigation-bar-linear-ui.feature",
           "scenario_name": "The Board item deep-links to the workspace's first project board"
+        },
+        {
+          "id": "04-03",
+          "name": "Review remediation: thread real csrf + is_instance_admin into home_for/board_for so the rail sign-out works and admin item shows on every authed page",
+          "criteria": [
+            "RED: extend the CSRF sign-out acceptance coverage \u2014 add a Scenario Outline (or widen the existing 'signs out with a CSRF token' scenario) that opens EACH authed page (/, board, report, /admin/tokens, /workspace/invites) and asserts the sidebar sign-out form carries a NON-EMPTY _csrf value matching a set foundry_csrf cookie. It FAILS today because nav.rs home_for/board_for hardcode csrf=String::new() (D1) so non-dashboard pages emit value=\"\". Also assert an instance super-admin sees the Instance-admin item on a NON-dashboard authed page (D2). Capture the RED.",
+            "GREEN: change NavContext::home_for/board_for to accept csrf: String and is_instance_admin: bool instead of hardcoding String::new()/false; remove the stale 'inert' comment. At every call site (admin_tokens.rs, member_invites.rs, instance_admin.rs, projects.rs board+report, comments.rs issue) mint/reuse the csrf cookie via crate::csrf::ensure_csrf_cookie and return it via response_with_optional_cookie (mirror signin.rs::dashboard_root and comments.rs::show_issue), and pass the handler's real is_instance_admin. Every authed page that renders the rail must Set-Cookie the foundry_csrf that its hidden field mirrors.",
+            "No regressions: full nav acceptance + dashboard-enhancements + the token/board/issue/invite scenarios green; the new sweep proves sign-out works on all authed pages.",
+            "cargo fmt --all --check and cargo clippy --all-targets --release -D warnings are clean."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/navigation-bar-linear-ui.feature",
+          "scenario_name": "The user menu signs out with a CSRF token"
         }
       ]
     }

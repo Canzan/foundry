@@ -83,7 +83,18 @@ pub async fn show_invite_form(
         return resource_not_found_page();
     };
     let (csrf_token, set_cookie) = ensure_csrf_cookie(&state, &headers);
-    let nav = crate::nav::NavContext::home_for(&state, admin.user_id, admin.workspace_id).await;
+    // The rail footer reuses the SAME `csrf_token` minted for the invite form (so the
+    // sign-out form is cookie-matched) and the admin's REAL instance-admin authority
+    // (a workspace admin is not necessarily an instance super-admin) — 04-03.
+    let is_instance_admin = crate::nav::resolve_is_instance_admin(&state, admin.user_id).await;
+    let nav = crate::nav::NavContext::home_for(
+        &state,
+        admin.user_id,
+        admin.workspace_id,
+        is_instance_admin,
+        csrf_token.clone(),
+    )
+    .await;
     render_form(&csrf_token, &workspace_name, None, set_cookie, nav)
 }
 
@@ -106,14 +117,27 @@ pub async fn submit_invite(
         return resource_not_found_page();
     };
 
+    // Mint (or reuse) the double-submit CSRF cookie ONCE for the whole surface so the
+    // rail footer sign-out form is cookie-matched on BOTH the blank-email re-render AND
+    // the "invite sent" confirmation (04-03 D1). `set_cookie` is attached to whichever
+    // response path renders. The rail's Instance-admin item follows the admin's REAL
+    // instance-admin authority (04-03 D2).
+    let (csrf_token, set_cookie) = ensure_csrf_cookie(&state, &headers);
+    let is_instance_admin = crate::nav::resolve_is_instance_admin(&state, admin.user_id).await;
     // Shared sidebar carrier for the (full-page) invite surface — used by the
     // blank-email re-render below AND the "invite sent" confirmation. Both are
     // mutually-exclusive paths, so `nav` moves into exactly one.
-    let nav = crate::nav::NavContext::home_for(&state, admin.user_id, admin.workspace_id).await;
+    let nav = crate::nav::NavContext::home_for(
+        &state,
+        admin.user_id,
+        admin.workspace_id,
+        is_instance_admin,
+        csrf_token.clone(),
+    )
+    .await;
 
     let email = form.email.as_deref().map(str::trim).unwrap_or("");
     if email.is_empty() {
-        let (csrf_token, set_cookie) = ensure_csrf_cookie(&state, &headers);
         return render_form(
             &csrf_token,
             &workspace_name,
@@ -172,7 +196,17 @@ pub async fn submit_invite(
         nav,
     };
     match fragment.render() {
-        Ok(html) => Html(html).into_response(),
+        Ok(html) => {
+            // Attach the freshly-minted CSRF cookie (if any) so the rendered rail's
+            // sign-out `_csrf` matches the cookie the browser now holds (04-03 D1).
+            let mut resp = Html(html).into_response();
+            if let Some(cookie) = set_cookie {
+                if let Ok(value) = HeaderValue::from_str(&cookie) {
+                    resp.headers_mut().insert(SET_COOKIE, value);
+                }
+            }
+            resp
+        }
         Err(err) => {
             tracing::error!(%err, "render member_invite_sent failed");
             (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response()

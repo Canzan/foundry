@@ -139,8 +139,20 @@ pub async fn show_issue(
     let (csrf, set_cookie) = crate::csrf::ensure_csrf_cookie(&state, &headers);
     let key = format!("{}-{}", issue.project_key_prefix, issue_number);
     // Board family (issue detail lives under `/team/{slug}/project/{slug}`) —
-    // Board is the current primary item (02-02 deterministic active rule).
-    let nav = crate::nav::NavContext::board_for(&state, user.user_id, user.workspace_id).await;
+    // Board is the current primary item (02-02 deterministic active rule). The rail
+    // footer reuses the SAME `csrf` token already minted above (so the sign-out form
+    // is cookie-matched) and the acting user's REAL instance-admin authority
+    // (note: `actor_is_admin` above is WORKSPACE-admin — a distinct gate) so the
+    // Instance-admin item follows their authority here too (04-03).
+    let is_instance_admin = crate::nav::resolve_is_instance_admin(&state, user.user_id).await;
+    let nav = crate::nav::NavContext::board_for(
+        &state,
+        user.user_id,
+        user.workspace_id,
+        is_instance_admin,
+        csrf.clone(),
+    )
+    .await;
     let html = render_issue_page(
         &team_slug,
         &project_slug,

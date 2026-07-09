@@ -338,6 +338,53 @@ async fn user_menu_signout_csrf(world: &mut FoundryWorld, action: String) {
     );
 }
 
+/// D1 remediation (adversarial review 04-03): the footer sign-out form must carry a
+/// NON-EMPTY double-submit `_csrf` token whose value MATCHES the `foundry_csrf`
+/// cookie set on the SAME response — otherwise `POST /sign-out` is refused by
+/// `csrf_middleware` and sign-out silently fails. The shipped bug hardcoded an EMPTY
+/// token on every page built via `NavContext::home_for` / `board_for` (i.e. every
+/// authed page EXCEPT the dashboard), so the hidden input rendered `value=""` even
+/// on pages that set a `foundry_csrf` cookie for their own forms. This sweep pins the
+/// token both non-empty AND cookie-matched, so an empty (or mismatched) token reds.
+#[then(
+    regex = r"^the sidebar sign-out form carries a non-empty CSRF token matching the response CSRF cookie$"
+)]
+async fn signout_csrf_matches_cookie(world: &mut FoundryWorld) {
+    let body = body_of(world);
+    let tokens = html::collect_attributes(
+        &body,
+        r#".sidebar__user form[action="/sign-out"] input[name="_csrf"]"#,
+        "value",
+    );
+    let token = tokens
+        .first()
+        .unwrap_or_else(|| panic!("no sign-out _csrf input in the sidebar footer; body:\n{body}"));
+    assert!(
+        !token.is_empty(),
+        "the sign-out form's _csrf token must be NON-EMPTY (an empty token is CSRF-rejected at \
+         POST /sign-out, so sign-out silently fails); found an empty token. body:\n{body}"
+    );
+    let headers = world
+        .last_headers
+        .as_ref()
+        .expect("a response with headers was captured");
+    let cookie_token = headers
+        .get_all(reqwest::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .find_map(|s| s.strip_prefix("foundry_csrf="))
+        .and_then(|rest| rest.split(';').next())
+        .unwrap_or_else(|| {
+            panic!("the response set no foundry_csrf cookie to match the sign-out token against")
+        });
+    assert_eq!(
+        token.as_str(),
+        cookie_token,
+        "the sign-out _csrf token must EQUAL the response's foundry_csrf cookie (double-submit); \
+         token={token:?} cookie={cookie_token:?}"
+    );
+}
+
 // ---- Then: scoping guard (US-05) -------------------------------------------
 
 #[then(regex = r#"^the sidebar does not contain a "([^"]+)" item$"#)]

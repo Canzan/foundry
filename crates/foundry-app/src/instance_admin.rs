@@ -93,7 +93,18 @@ pub async fn show_dashboard(
             .collect(),
         Err(err) => return internal_error("list_workspaces", err),
     };
-    let nav = crate::nav::NavContext::home_for(&state, user.user_id, user.workspace_id).await;
+    // The caller already passed the fail-closed instance-admin gate
+    // (`require_instance_admin`), so the rail's Instance-admin item is present (true);
+    // the footer sign-out form reuses the SAME `csrf` double-submit token minted for
+    // the provision/grant forms above (04-03).
+    let nav = crate::nav::NavContext::home_for(
+        &state,
+        user.user_id,
+        user.workspace_id,
+        true,
+        csrf.clone(),
+    )
+    .await;
     let page = InstanceDashboardPage {
         csrf,
         workspaces,

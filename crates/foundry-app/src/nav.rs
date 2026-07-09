@@ -68,21 +68,24 @@ impl NavContext {
         }
     }
 
-    /// Assemble the `Home`-section rail for a batch-migrated authenticated page
-    /// (navigation-bar-linear-ui step 02-01) by resolving the acting identity
-    /// through the SHIPPED `dashboard_greeting` seam — the SAME presentation
-    /// projection the dashboard uses (`signin::dashboard_root`) — falling back
-    /// to the neutral greeting on lookup failure so the page still renders 200
-    /// (never 500s), mirroring the dashboard's graceful degradation. Board-family
-    /// active-state (02-02) and the resolved first-project deep-link (04-02)
-    /// refine `active`/`board_href` in later slices; the footer-only fields
-    /// (`is_instance_admin`, `csrf`) are inert in the current rail — there is no
-    /// footer user menu in `partials/sidebar.html` yet — so they default here and
-    /// are wired when that footer lands.
+    /// Assemble the `Home`-section rail for an authenticated page by resolving the
+    /// acting identity through the SHIPPED `dashboard_greeting` seam — the SAME
+    /// presentation projection the dashboard uses (`signin::dashboard_root`) —
+    /// falling back to the neutral greeting on lookup failure so the page still
+    /// renders 200 (never 500s), mirroring the dashboard's graceful degradation.
+    ///
+    /// The footer user-menu fields (`is_instance_admin`, `csrf`) are supplied by the
+    /// caller: the handler resolves the acting user's REAL instance-admin authority
+    /// (via [`resolve_is_instance_admin`], fail-closed) and its per-request CSRF
+    /// double-submit token (via `ensure_csrf_cookie`), so the footer sign-out form
+    /// carries a cookie-matched token and the Instance-admin item follows the user's
+    /// actual authority on EVERY authed page — not only the dashboard (04-03).
     pub(crate) async fn home_for(
         state: &crate::AppState,
         user_id: uuid::Uuid,
         workspace_id: uuid::Uuid,
+        is_instance_admin: bool,
+        csrf: String,
     ) -> Self {
         let (display_name, workspace_name) = state
             .store
@@ -97,8 +100,8 @@ impl NavContext {
         Self::for_page(
             workspace_name,
             display_name,
-            false,
-            String::new(),
+            is_instance_admin,
+            csrf,
             NavSection::Home,
             board_href,
         )
@@ -113,12 +116,17 @@ impl NavContext {
     /// deterministic active rule (DESIGN data-models.md): the board family is the
     /// SOLE surface that marks `Board` current; every other authed page uses
     /// `home_for`, so exactly one primary item is ever current (FR-4: never zero,
-    /// never two). The resolved first-project deep-link (`board_href`) stays the
-    /// provisional `/` until step 04-02 refines it, matching `home_for`.
+    /// never two). The footer fields (`is_instance_admin`, `csrf`) are caller-
+    /// supplied exactly as in [`Self::home_for`] (04-03) — the real instance-admin
+    /// authority + the per-request CSRF double-submit token — so the board-family
+    /// footer sign-out form is cookie-matched and its Instance-admin item follows
+    /// the user's actual authority.
     pub(crate) async fn board_for(
         state: &crate::AppState,
         user_id: uuid::Uuid,
         workspace_id: uuid::Uuid,
+        is_instance_admin: bool,
+        csrf: String,
     ) -> Self {
         let (display_name, workspace_name) = state
             .store
@@ -133,8 +141,8 @@ impl NavContext {
         Self::for_page(
             workspace_name,
             display_name,
-            false,
-            String::new(),
+            is_instance_admin,
+            csrf,
             NavSection::Board,
             board_href,
         )
@@ -197,6 +205,27 @@ pub(crate) async fn resolve_board_href(
     board_href_for_first_project(projects.first().map(
         |(team_slug, project_slug, _name, _key_prefix)| (team_slug.as_str(), project_slug.as_str()),
     ))
+}
+
+/// Resolve whether the acting user is an INSTANCE super-admin for the shared rail's
+/// footer Instance-admin item (FR-6), failing CLOSED (item absent) on lookup error —
+/// the SAME fail-closed posture `signin::dashboard_root` and the instance-admin gate
+/// use, so the affordance never surfaces for a user we could not verify. Reused by
+/// every authed handler that assembles the rail via [`NavContext::home_for`] /
+/// [`NavContext::board_for`], so the item follows the user's real authority on EVERY
+/// authed page — not only the dashboard (04-03 D2).
+pub(crate) async fn resolve_is_instance_admin(
+    state: &crate::AppState,
+    user_id: uuid::Uuid,
+) -> bool {
+    state
+        .store
+        .is_instance_admin(user_id)
+        .await
+        .unwrap_or_else(|err| {
+            tracing::error!(%err, "nav: is_instance_admin failed; hiding Instance-admin item");
+            false
+        })
 }
 
 #[cfg(test)]
