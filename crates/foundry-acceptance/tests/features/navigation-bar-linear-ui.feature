@@ -115,13 +115,13 @@ Feature: A signed-in member navigates every authenticated page from one shared s
     Then the user menu contains a sign-out control posting to "/sign-out" with a CSRF token
 
   # ── Slice 06 — US-03 instance-admin gating (mirror dashboard's two-way gate) ─
-  @pending @us-03 @real-io
+  @us-03 @real-io
   Scenario: A super-admin sees the Instance admin item in the user menu
     Given Ada is an instance super-admin
     When Ada visits "/"
     Then the user menu contains a link to "/admin/instance/workspaces"
 
-  @pending @us-03 @real-io @security
+  @us-03 @real-io @security
   Scenario: A non-super-admin never sees the Instance admin item
     Given a member "Mei" who is not an instance admin is signed in
     When Mei visits "/"

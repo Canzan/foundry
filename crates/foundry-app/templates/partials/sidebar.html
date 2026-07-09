@@ -9,6 +9,7 @@
   </nav>
   <div class="sidebar__user">
     <a class="sidebar__item" href="/keyboard-help">Keyboard shortcuts</a>
+    {% if nav.is_instance_admin %}<a class="sidebar__item" href="/admin/instance/workspaces">Instance admin</a>{% endif %}
     <form method="post" action="/sign-out"><input type="hidden" name="_csrf" value="{{ nav.csrf }}"><button type="submit">Sign out</button></form>
   </div>
 </aside>
