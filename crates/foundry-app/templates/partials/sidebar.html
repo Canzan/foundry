@@ -8,6 +8,7 @@
     <a class="sidebar__item{% if nav.is_board() %} sidebar__item--active{% endif %}" href="{{ nav.board_href }}"{% if nav.is_board() %} aria-current="page"{% endif %}>Board</a>
   </nav>
   <div class="sidebar__user">
+    <span class="sidebar__identity">{{ nav.display_name }}</span>
     <a class="sidebar__item" href="/keyboard-help">Keyboard shortcuts</a>
     {% if nav.is_instance_admin %}<a class="sidebar__item" href="/admin/instance/workspaces">Instance admin</a>{% endif %}
     <form method="post" action="/sign-out"><input type="hidden" name="_csrf" value="{{ nav.csrf }}"><button type="submit">Sign out</button></form>

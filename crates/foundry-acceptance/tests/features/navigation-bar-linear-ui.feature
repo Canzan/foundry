@@ -128,13 +128,13 @@ Feature: A signed-in member navigates every authenticated page from one shared s
     Then the user menu does not contain a link to "/admin/instance/workspaces"
 
   # ── Slice 07 — US-04 rail identity + inert markup ───────────────────────────
-  @pending @us-04 @real-io
+  @us-04 @real-io
   Scenario: The rail renders the workspace name and signed-in identity
     When Ada visits "/"
     Then the sidebar shows the workspace name "Acme"
     And the sidebar footer shows the signed-in name "Ada Lovelace"
 
-  @pending @us-04 @real-io @security
+  @us-04 @real-io @security
   Scenario: A display name containing markup is rendered inert in the rail
     Given a member "Mallory" whose display name is "<b>pwn</b>" is signed in
     When Mallory visits "/"
