@@ -104,12 +104,12 @@ Feature: A signed-in member navigates every authenticated page from one shared s
       | /forgot-password |
 
   # ── Slice 05 — US-02 account actions in the footer user menu ────────────────
-  @pending @us-02 @real-io
+  @us-02 @real-io
   Scenario: The user menu links to keyboard shortcuts
     When Ada visits "/"
     Then the user menu contains a link to "/keyboard-help"
 
-  @pending @us-02 @real-io @security
+  @us-02 @real-io @security
   Scenario: The user menu signs out with a CSRF token
     When Ada visits "/"
     Then the user menu contains a sign-out control posting to "/sign-out" with a CSRF token

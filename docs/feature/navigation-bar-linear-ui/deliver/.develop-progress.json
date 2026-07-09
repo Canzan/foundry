@@ -1,14 +1,14 @@
 {
-  "project_id": "",
+  "project_id": "navigation-bar-linear-ui",
   "total_steps": 8,
-  "completed_steps": 2,
+  "completed_steps": 4,
   "completed_step_ids": [
     "01-01",
-    "02-01"
+    "02-01",
+    "02-02",
+    "02-03"
   ],
   "pending_step_ids": [
-    "02-02",
-    "02-03",
     "03-01",
     "03-02",
     "04-01",
