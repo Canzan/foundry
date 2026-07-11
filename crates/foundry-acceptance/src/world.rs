@@ -1130,6 +1130,10 @@ pub struct FoundryWorld {
     /// Captured `(exit_code, stdout, stderr)` of the `foundry` startup
     /// subprocess spawned by the "Foundry starts up" step (fail-fast scenario).
     pub ndp_startup_outcome: Option<(Option<i32>, String, String)>,
+    /// Wall-clock milliseconds the most recent notification-emitting request took
+    /// end-to-end, so the slow-provider scenario can assert the request did NOT
+    /// stall on the hanging provider (bounded to ~one per-provider timeout).
+    pub ndp_request_elapsed_ms: Option<u128>,
 }
 
 impl FoundryWorld {

@@ -267,7 +267,9 @@ async fn main() -> anyhow::Result<()> {
         // channel is constructed + probed before admission (wire → probe → use);
         // an unknown/misconfigured channel fails fast at startup.
         notifier: Arc::new(
-            build_notifier()
+            // ADR-003: the composition root reads NOTIFICATION_DELIVERY_TIMEOUT_MS
+            // (per-provider fan-out timeout) and wires it into the dispatcher.
+            build_notifier(foundry_app::notify::delivery_timeout_from_env())
                 .await
                 .context("build notification providers from NOTIFICATION_PROVIDERS")?,
         ),

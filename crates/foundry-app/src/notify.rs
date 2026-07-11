@@ -9,8 +9,9 @@
 //!
 //! ADR-001: the port carries a structured `Notification`, not an email-centric
 //! `send(to, subject, body)` — providers render it. ADR-003: `notify()` is
-//! INFALLIBLE (at N=1 a simple sequential await; the full `JoinSet` concurrency +
-//! per-provider timeout lands in slice 03). ADR-005: `NotificationEvent` is a
+//! INFALLIBLE and fans out concurrently over a `tokio::task::JoinSet`, one
+//! timeout-wrapped `deliver()` task per provider (await-bounded), emitting the
+//! per-provider delivery counter (ADR-004). ADR-005: `NotificationEvent` is a
 //! closed enum. ADR-006: the port has NO `Debug` supertrait and no secret ever
 //! appears in a log line, error, or debug output.
 
@@ -19,9 +20,21 @@ use lettre::transport::smtp::authentication::Credentials;
 use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
 use secrecy::{ExposeSecret, SecretString};
 use std::sync::Arc;
+use std::time::Duration;
 
 /// ADR-002: SMTP submission port default. Operators override via `SMTP_PORT`.
 const SMTP_DEFAULT_PORT: u16 = 587;
+
+/// ADR-003: default per-provider delivery timeout. One hung/slow provider adds at
+/// most this to the (concurrent) emit path, then is contained + counted `failed`.
+/// Operators override via `NOTIFICATION_DELIVERY_TIMEOUT_MS`.
+const DEFAULT_DELIVERY_TIMEOUT_MS: u64 = 5000;
+
+/// ADR-004: the per-provider delivery counter. Emitted once per provider per
+/// notification inside [`Notifier::notify`], labelled by the bounded triple
+/// `{provider, event, outcome}`. Register-at-0 + the cardinality guard land in
+/// slice 03-02; the increment (emit) is built here.
+pub const NOTIFICATION_DELIVERIES_METRIC: &str = "foundry_notification_deliveries_total";
 
 /// The closed catalogue of notification-triggering events. Each variant's
 /// [`NotificationEvent::as_str`] is the bounded metric-label value (ADR-004/005).
@@ -100,6 +113,37 @@ impl std::fmt::Display for DeliveryError {
 
 impl std::error::Error for DeliveryError {}
 
+impl DeliveryError {
+    /// The failure `class` carried in the structured log line (ADR-003/004): a
+    /// forward-compat seam for the future durable-retry layer (ADR-007). NOT a
+    /// metric label value — the metric `outcome` stays binary `{delivered,failed}`.
+    pub fn class(&self) -> &'static str {
+        match self {
+            DeliveryError::Transient(_) => "transient",
+            DeliveryError::Permanent(_) => "permanent",
+        }
+    }
+}
+
+/// The binary delivery outcome (ADR-003/004). The metric `outcome` label domain —
+/// a timeout, transient error, permanent error, or contained panic all map to
+/// `Failed`; only a clean `Ok(())` is `Delivered`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeliveryOutcome {
+    Delivered,
+    Failed,
+}
+
+impl DeliveryOutcome {
+    /// The bounded metric-label value for this outcome.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            DeliveryOutcome::Delivered => "delivered",
+            DeliveryOutcome::Failed => "failed",
+        }
+    }
+}
+
 /// The driven port every delivery channel implements. Bound `Send + Sync +
 /// 'static` for fan-out across the async runtime. Deliberately NO `Debug`
 /// supertrait (ADR-006): a provider may hold a `SecretString`, and a `Debug`
@@ -122,19 +166,31 @@ pub trait NotificationProvider: Send + Sync + 'static {
 /// provider erroring is logged and contained — it never propagates to the caller.
 pub struct Notifier {
     providers: Vec<Arc<dyn NotificationProvider>>,
+    /// ADR-003: per-provider delivery timeout applied to each concurrent
+    /// `deliver()` task. Bounds the emit-path stall a hung provider can cause.
+    delivery_timeout: Duration,
 }
 
 impl Notifier {
-    /// Build a notifier over an ordered active provider set.
+    /// Build a notifier over an ordered active provider set at the default
+    /// per-provider delivery timeout ([`DEFAULT_DELIVERY_TIMEOUT_MS`]).
     pub fn new(providers: Vec<Arc<dyn NotificationProvider>>) -> Self {
-        Self { providers }
+        Self {
+            providers,
+            delivery_timeout: Duration::from_millis(DEFAULT_DELIVERY_TIMEOUT_MS),
+        }
+    }
+
+    /// Override the per-provider delivery timeout (composition root reads
+    /// `NOTIFICATION_DELIVERY_TIMEOUT_MS`; tests use a short window).
+    pub fn with_delivery_timeout(mut self, delivery_timeout: Duration) -> Self {
+        self.delivery_timeout = delivery_timeout;
+        self
     }
 
     /// A notifier with no active providers — delivery is a silent no-op.
     pub fn empty() -> Self {
-        Self {
-            providers: Vec::new(),
-        }
+        Self::new(Vec::new())
     }
 
     /// The kinds of the active providers, in order. Lets a caller (and tests)
@@ -147,14 +203,73 @@ impl Notifier {
     /// provider error is logged at `warn` and contained, so the originating
     /// request is never failed or stalled by a delivery problem (NFR-5, ADR-003).
     pub async fn notify(&self, notification: &Notification) {
+        // ADR-003: concurrent fan-out. One timeout-wrapped `deliver()` task per
+        // provider in a `JoinSet` — so a slow/hung provider adds at most ONE
+        // `delivery_timeout` to the (concurrent) wall-time regardless of N, and a
+        // panicking provider is contained in its own task (a `JoinError`) and can
+        // never unwind the request. `notify` stays INFALLIBLE.
+        let mut set = tokio::task::JoinSet::new();
         for provider in &self.providers {
-            if let Err(err) = provider.deliver(notification).await {
-                tracing::warn!(
-                    provider = provider.kind().as_str(),
-                    event = notification.event.as_str(),
-                    %err,
-                    "notification delivery failed (best-effort, contained)"
-                );
+            let provider = Arc::clone(provider);
+            let notification = notification.clone();
+            let delivery_timeout = self.delivery_timeout;
+            set.spawn(async move {
+                let kind = provider.kind();
+                let event = notification.event;
+                let outcome =
+                    match tokio::time::timeout(delivery_timeout, provider.deliver(&notification))
+                        .await
+                    {
+                        Ok(Ok(())) => DeliveryOutcome::Delivered,
+                        Ok(Err(err)) => {
+                            tracing::warn!(
+                                provider = kind.as_str(),
+                                event = event.as_str(),
+                                outcome = "failed",
+                                class = err.class(),
+                                %err,
+                                "notification delivery failed (best-effort, contained)"
+                            );
+                            DeliveryOutcome::Failed
+                        }
+                        Err(_elapsed) => {
+                            tracing::warn!(
+                                provider = kind.as_str(),
+                                event = event.as_str(),
+                                outcome = "failed",
+                                class = "transient",
+                                "notification delivery timed out (best-effort, contained)"
+                            );
+                            DeliveryOutcome::Failed
+                        }
+                    };
+                (kind, event, outcome)
+            });
+        }
+        // Await-bounded: drain every task before returning so the shipped
+        // synchronous delivery assertions (NFR-5) hold. ADR-004: emit the
+        // per-provider counter HERE on the caller task (not inside the spawned
+        // task) so a scoped/thread-local recorder observes it; the globally
+        // installed Prometheus recorder sees it in production. A panicking
+        // provider surfaces as a `JoinError` — contained; no v1 consumer branches
+        // on the panic path, so it is logged, not counted.
+        while let Some(joined) = set.join_next().await {
+            match joined {
+                Ok((kind, event, outcome)) => {
+                    metrics::counter!(
+                        NOTIFICATION_DELIVERIES_METRIC,
+                        "provider" => kind.as_str(),
+                        "event" => event.as_str(),
+                        "outcome" => outcome.as_str(),
+                    )
+                    .increment(1);
+                }
+                Err(join_error) => {
+                    tracing::warn!(
+                        %join_error,
+                        "notification delivery task panicked (best-effort, contained)"
+                    );
+                }
             }
         }
     }
@@ -343,9 +458,23 @@ impl NotificationProvider for SmtpProvider {
 /// Unset/empty ⇒ an empty notifier (delivery inactive). Each listed channel is
 /// constructed, probed (wire → probe → use), and admitted only on a passing probe.
 /// An unknown channel name fails fast.
-pub async fn build_notifier() -> anyhow::Result<Notifier> {
+/// Read the per-provider delivery timeout from `NOTIFICATION_DELIVERY_TIMEOUT_MS`
+/// (ADR-003), defaulting to [`DEFAULT_DELIVERY_TIMEOUT_MS`]. A non-numeric or
+/// zero value falls back to the default. Single source of the env key + default
+/// so the composition root (`main.rs`) wires the timeout without duplicating it.
+pub fn delivery_timeout_from_env() -> Duration {
+    std::env::var("NOTIFICATION_DELIVERY_TIMEOUT_MS")
+        .ok()
+        .and_then(|raw| raw.trim().parse::<u64>().ok())
+        .filter(|ms| *ms > 0)
+        .map(Duration::from_millis)
+        .unwrap_or_else(|| Duration::from_millis(DEFAULT_DELIVERY_TIMEOUT_MS))
+}
+
+pub async fn build_notifier(delivery_timeout: Duration) -> anyhow::Result<Notifier> {
     let spec = std::env::var("NOTIFICATION_PROVIDERS").unwrap_or_default();
-    build_notifier_from(&spec, |key| std::env::var(key).ok()).await
+    let notifier = build_notifier_from(&spec, |key| std::env::var(key).ok()).await?;
+    Ok(notifier.with_delivery_timeout(delivery_timeout))
 }
 
 /// The pure-ish core of [`build_notifier`]: parse a channel-list spec and build
@@ -584,6 +713,185 @@ mod tests {
         assert!(
             !message.contains(SMTP_PASSWORD_SENTINEL),
             "the probe-failure error must carry no secret value: {message}"
+        );
+    }
+
+    // ── Slice 03 — concurrent fan-out, isolation, per-provider metric emit ──
+
+    use metrics_exporter_prometheus::PrometheusBuilder;
+    use std::collections::BTreeSet;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::Instant;
+
+    /// Behaviour a [`ControllableProvider`] test double exhibits.
+    enum TestBehavior {
+        Deliver,
+        Fail,
+        Hang(Duration),
+    }
+
+    /// A `NotificationProvider` double whose delivery outcome (and latency) the
+    /// test controls, counting successful deliveries into a shared atomic so a
+    /// test can assert a fast provider still delivered beside a slow/failing one.
+    struct ControllableProvider {
+        kind: ProviderKind,
+        behavior: TestBehavior,
+        delivered: Arc<AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl NotificationProvider for ControllableProvider {
+        async fn deliver(&self, _notification: &Notification) -> Result<(), DeliveryError> {
+            match &self.behavior {
+                TestBehavior::Deliver => {
+                    self.delivered.fetch_add(1, Ordering::SeqCst);
+                    Ok(())
+                }
+                TestBehavior::Fail => Err(DeliveryError::Transient(
+                    "induced delivery failure (test)".to_string(),
+                )),
+                TestBehavior::Hang(duration) => {
+                    tokio::time::sleep(*duration).await;
+                    self.delivered.fetch_add(1, Ordering::SeqCst);
+                    Ok(())
+                }
+            }
+        }
+
+        fn kind(&self) -> ProviderKind {
+            self.kind
+        }
+
+        async fn probe(&self) -> Result<(), DeliveryError> {
+            Ok(())
+        }
+    }
+
+    fn reset_notification() -> Notification {
+        Notification {
+            event: NotificationEvent::PasswordReset,
+            recipient: "maria.santos@acme.example".to_string(),
+            subject: "Reset your Foundry password".to_string(),
+            body: "follow this link".to_string(),
+        }
+    }
+
+    /// Locate the delivery-counter exposition line for a `(provider, outcome)`.
+    fn find_delivery_line<'a>(body: &'a str, provider: &str, outcome: &str) -> Option<&'a str> {
+        body.lines().find(|line| {
+            line.starts_with(&format!("{NOTIFICATION_DELIVERIES_METRIC}{{"))
+                && line.contains(&format!("provider=\"{provider}\""))
+                && line.contains(&format!("outcome=\"{outcome}\""))
+        })
+    }
+
+    /// The label KEY set on a Prometheus exposition line (fail-closed cardinality).
+    fn label_keys(line: &str) -> BTreeSet<String> {
+        let open = line.find('{').expect("line has `{`");
+        let close = line.rfind('}').expect("line has `}`");
+        line[open + 1..close]
+            .split(',')
+            .filter_map(|kv| kv.split('=').next())
+            .map(|key| key.trim().to_string())
+            .collect()
+    }
+
+    #[test]
+    fn notify_emits_the_delivery_counter_per_provider_with_a_bounded_binary_outcome() {
+        // Behaviour: each provider's outcome is counted once on
+        // `foundry_notification_deliveries_total{provider,event,outcome}` — a clean
+        // delivery as `delivered`, a failing provider as `failed` (binary outcome).
+        // The label KEY set is EXACTLY {provider,event,outcome} — fails closed if a
+        // future contributor widens it (ADR-004 cardinality discipline).
+        let recorder = PrometheusBuilder::new().build_recorder();
+        let handle = recorder.handle();
+        let delivered = Arc::new(AtomicUsize::new(0));
+        let providers: Vec<Arc<dyn NotificationProvider>> = vec![
+            Arc::new(ControllableProvider {
+                kind: ProviderKind::Log,
+                behavior: TestBehavior::Deliver,
+                delivered: delivered.clone(),
+            }),
+            Arc::new(ControllableProvider {
+                kind: ProviderKind::Smtp,
+                behavior: TestBehavior::Fail,
+                delivered: delivered.clone(),
+            }),
+        ];
+        let notifier = Notifier::new(providers);
+        let notification = reset_notification();
+
+        // A current-thread runtime so the scoped (thread-local) recorder set by
+        // `with_local_recorder` covers the whole fan-out.
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("build current-thread runtime");
+        metrics::with_local_recorder(&recorder, || {
+            runtime.block_on(async {
+                notifier.notify(&notification).await;
+            });
+        });
+        let body = handle.render();
+
+        let log_line = find_delivery_line(&body, "log", "delivered")
+            .unwrap_or_else(|| panic!("no log/delivered series in scrape:\n{body}"));
+        assert!(
+            log_line.trim_end().ends_with(" 1"),
+            "the log delivery must count exactly 1: {log_line}"
+        );
+        let expected_keys: BTreeSet<String> = ["event", "outcome", "provider"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert_eq!(
+            label_keys(log_line),
+            expected_keys,
+            "delivery counter labels must be exactly {{provider,event,outcome}}: {log_line}"
+        );
+
+        let smtp_line = find_delivery_line(&body, "smtp", "failed")
+            .unwrap_or_else(|| panic!("no smtp/failed series in scrape:\n{body}"));
+        assert!(
+            smtp_line.trim_end().ends_with(" 1"),
+            "the failing smtp delivery must count exactly 1 under outcome=failed: {smtp_line}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_slow_provider_does_not_extend_wall_time_beyond_one_timeout_window() {
+        // Behaviour: fan-out is concurrent + per-provider-timeout-bounded, so a
+        // provider that hangs does NOT extend the emit path beyond ~one timeout
+        // window, and its fast sibling still delivers. A sequential (or unbounded)
+        // notify would take the full hang — this reds it.
+        let delivered = Arc::new(AtomicUsize::new(0));
+        let providers: Vec<Arc<dyn NotificationProvider>> = vec![
+            Arc::new(ControllableProvider {
+                kind: ProviderKind::Log,
+                behavior: TestBehavior::Deliver,
+                delivered: delivered.clone(),
+            }),
+            Arc::new(ControllableProvider {
+                kind: ProviderKind::Smtp,
+                behavior: TestBehavior::Hang(Duration::from_secs(3)),
+                delivered: delivered.clone(),
+            }),
+        ];
+        let notifier = Notifier::new(providers).with_delivery_timeout(Duration::from_millis(200));
+        let notification = reset_notification();
+
+        let started = Instant::now();
+        notifier.notify(&notification).await;
+        let elapsed = started.elapsed();
+
+        assert!(
+            elapsed < Duration::from_secs(2),
+            "concurrent, timeout-bounded fan-out must not wait out a hung provider, took {elapsed:?}"
+        );
+        assert_eq!(
+            delivered.load(Ordering::SeqCst),
+            1,
+            "the fast provider must still deliver despite the slow sibling"
         );
     }
 }

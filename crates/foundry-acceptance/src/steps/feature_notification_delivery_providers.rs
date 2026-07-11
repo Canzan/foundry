@@ -37,7 +37,7 @@
 //! this feature's whole subject is REPLACING that single hard-wired sender with the
 //! config-built registry — DELIVER's harness seam must own the provider wiring.
 
-use crate::support::harness::{fresh_schema_pool_with_url, InProcHarness};
+use crate::support::harness::{fresh_schema_pool_with_url, signed_in_post, InProcHarness};
 use crate::world::FoundryWorld;
 use cucumber::{given, then, when};
 use foundry_app::{
@@ -48,6 +48,7 @@ use reqwest::redirect::Policy;
 use reqwest::StatusCode;
 use secrecy::SecretString;
 use std::collections::HashMap;
+use std::time::Instant;
 
 /// Fixed scenario clock anchor (mirrors the other in-process step modules).
 const NDP_NOW: &str = "2026-01-15T12:00:00Z";
@@ -59,6 +60,12 @@ const NDP_SESSION_SECRET: &str = "ndp-test-session-secret-must-be-at-least-32-by
 /// Distinctive SMTP password used by the no-leak litmus scenario: it must never
 /// surface in any recorded field, error, or debug output across a delivery cycle.
 const NDP_SMTP_PASSWORD_SENTINEL: &str = "ndp-smtp-password-must-never-leak-9f3a";
+
+/// The seeded member's known password, so the fan-out scenarios can sign her in
+/// (as a workspace admin) to drive the REAL bootstrap + member-invite issuance
+/// flows — the shipped call sites that each emit ONE notification through
+/// `notify()`. Mirrors the seed in [`seed_workspace_and_member`].
+const NDP_MEMBER_PASSWORD: &str = "ndp-correct-horse-battery-staple";
 
 /// Valid Ed25519 test public key (same literal as the slice-8 subprocess seam)
 /// so the startup subprocess gets past machine-token verifier construction and
@@ -106,11 +113,10 @@ async fn seed_workspace_and_member(harness: &InProcHarness, workspace: &str, mem
     let workspace_id = uuid::Uuid::now_v7();
     let user_id = uuid::Uuid::now_v7();
     let lower = member_email.to_ascii_lowercase();
-    let hash = foundry_auth::hash_password(&SecretString::new(
-        "ndp-correct-horse-battery-staple".to_string().into(),
-    ))
-    .await
-    .expect("hash member pw");
+    let hash =
+        foundry_auth::hash_password(&SecretString::new(NDP_MEMBER_PASSWORD.to_string().into()))
+            .await
+            .expect("hash member pw");
     sqlx::query("INSERT INTO workspaces (id, name) VALUES ($1, $2)")
         .bind(workspace_id)
         .bind(workspace)
@@ -130,7 +136,10 @@ async fn seed_workspace_and_member(harness: &InProcHarness, workspace: &str, mem
     .await
     .expect("insert member user");
     sqlx::query(
-        "INSERT INTO workspace_memberships (workspace_id, user_id, role) VALUES ($1, $2, 'member')",
+        // Seed as `admin` so the fan-out scenarios can sign her in to drive the
+        // admin-gated member-invite issuance flow (the bootstrap-invite flow needs
+        // only a session). The password-reset scenarios are role-agnostic.
+        "INSERT INTO workspace_memberships (workspace_id, user_id, role) VALUES ($1, $2, 'admin')",
     )
     .bind(workspace_id)
     .bind(user_id)
@@ -243,8 +252,17 @@ async fn provider_endpoint_unreachable(world: &mut FoundryWorld, provider: Strin
 }
 
 #[given(regex = r#"^the "([^"]+)" provider's endpoint hangs on connect$"#)]
-async fn provider_endpoint_hangs(_world: &mut FoundryWorld, _provider: String) {
-    pending("slice 03 — slow/hanging transport double (timeout containment)");
+async fn provider_endpoint_hangs(world: &mut FoundryWorld, provider: String) {
+    // Mark this provider's recording double as hanging: a delivery through it
+    // records `outcome=failed` (timeout) then blocks past the notifier's
+    // per-provider timeout, so the concurrent fan-out contains the stall.
+    let kind = provider_kind_from_name(&provider);
+    world
+        .harness
+        .as_ref()
+        .expect("the providers were activated (harness spawned) before this step")
+        .fake_email
+        .set_slow(kind);
 }
 
 #[given(regex = r#"^the "([^"]+)" endpoint rejects the delivery$"#)]
@@ -261,42 +279,40 @@ async fn webhook_configured_with_signing_secret(_world: &mut FoundryWorld, _prov
 // When — real shipped app flows (driving port 2) + startup (driving port 1)
 // ============================================================================
 
-#[when(regex = r#"^a member requests a password reset for "([^"]+)"$"#)]
-async fn member_requests_password_reset_for(world: &mut FoundryWorld, email: String) {
-    // Drive the real shipped flow: GET /forgot-password to mint the double-submit
-    // CSRF cookie/token, then POST the form. The handler (signin.rs) emits ONE
-    // PasswordReset notification through `notifier.notify()`.
-    let base;
-    let token;
-    let cookie_header;
-    {
-        let harness = world.harness.as_ref().expect("harness");
-        let http = world.http.as_ref().expect("http");
-        base = harness.base_url();
-        let get = http
-            .get(format!("{base}/forgot-password"))
-            .send()
-            .await
-            .expect("get forgot-password form for csrf");
-        let raw = get
-            .headers()
-            .get_all(reqwest::header::SET_COOKIE)
-            .iter()
-            .filter_map(|v| v.to_str().ok())
-            .find(|s| s.starts_with("foundry_csrf="))
-            .map(|s| s.to_string())
-            .expect("forgot-password GET must mint a foundry_csrf cookie");
-        token = raw
-            .strip_prefix("foundry_csrf=")
-            .and_then(|rest| rest.split(';').next())
-            .unwrap_or("")
-            .to_string();
-        cookie_header = format!("foundry_csrf={token}");
-    }
-    let http = world.http.as_ref().expect("http");
+/// Drive the real shipped `POST /forgot-password` flow: GET the form to mint the
+/// double-submit CSRF cookie/token, then POST it. The handler (signin.rs) emits
+/// ONE `PasswordReset` notification through `notifier.notify()`. Returns
+/// `(status, body, elapsed_ms)` — the elapsed wall-clock of the POST alone, so a
+/// caller can assert the request was not stalled by a slow provider.
+async fn post_forgot_password(
+    harness: &InProcHarness,
+    http: &reqwest::Client,
+    email: &str,
+) -> (StatusCode, String, u128) {
+    let base = harness.base_url();
+    let get = http
+        .get(format!("{base}/forgot-password"))
+        .send()
+        .await
+        .expect("get forgot-password form for csrf");
+    let raw = get
+        .headers()
+        .get_all(reqwest::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .find(|s| s.starts_with("foundry_csrf="))
+        .map(|s| s.to_string())
+        .expect("forgot-password GET must mint a foundry_csrf cookie");
+    let token = raw
+        .strip_prefix("foundry_csrf=")
+        .and_then(|rest| rest.split(';').next())
+        .unwrap_or("")
+        .to_string();
+    let cookie_header = format!("foundry_csrf={token}");
     let mut form = HashMap::new();
-    form.insert("email", email);
+    form.insert("email", email.to_string());
     form.insert("_csrf", token);
+    let started = Instant::now();
     let resp = http
         .post(format!("{base}/forgot-password"))
         .header(reqwest::header::COOKIE, cookie_header)
@@ -304,8 +320,21 @@ async fn member_requests_password_reset_for(world: &mut FoundryWorld, email: Str
         .send()
         .await
         .expect("post forgot-password");
-    world.last_status = Some(resp.status());
-    world.last_body = Some(resp.text().await.unwrap_or_default());
+    let status = resp.status();
+    let body = resp.text().await.unwrap_or_default();
+    (status, body, started.elapsed().as_millis())
+}
+
+#[when(regex = r#"^a member requests a password reset for "([^"]+)"$"#)]
+async fn member_requests_password_reset_for(world: &mut FoundryWorld, email: String) {
+    let (status, body, elapsed) = {
+        let harness = world.harness.as_ref().expect("harness");
+        let http = world.http.as_ref().expect("http");
+        post_forgot_password(harness, http, &email).await
+    };
+    world.last_status = Some(status);
+    world.last_body = Some(body);
+    world.ndp_request_elapsed_ms = Some(elapsed);
 }
 
 #[when(regex = r#"^Foundry starts up$"#)]
@@ -388,8 +417,35 @@ async fn spawn_foundry_expecting_refuse_to_start(
 }
 
 #[when(regex = r#"^a bootstrap workspace invite is issued for "([^"]+)"$"#)]
-async fn bootstrap_invite_issued_for(_world: &mut FoundryWorld, _email: String) {
-    pending("slice 03 — bootstrap.rs:258 emits workspace_invite");
+async fn bootstrap_invite_issued_for(world: &mut FoundryWorld, email: String) {
+    // Drive the REAL shipped issuance (bootstrap::create_invite, POST /invites):
+    // sign the seeded member in and POST the invite form. The handler emits ONE
+    // `WorkspaceInvite` notification to the invitee through `notify()`.
+    let member = world
+        .ndp_member
+        .clone()
+        .expect("Background seeded a member");
+    let outcome = {
+        let harness = world.harness.as_ref().expect("harness");
+        let http = world.http.as_ref().expect("http");
+        signed_in_post(
+            harness,
+            http,
+            &member,
+            NDP_MEMBER_PASSWORD,
+            "/invites",
+            &[("email", email.as_str())],
+        )
+        .await
+    };
+    assert!(
+        outcome.status.is_success() || outcome.status.is_redirection(),
+        "the bootstrap invite must be issued (2xx/3xx), got {}: {}",
+        outcome.status,
+        outcome.body
+    );
+    world.last_status = Some(outcome.status);
+    world.last_body = Some(outcome.body);
 }
 
 #[when(regex = r#"^a member invite is issued for "([^"]+)"$"#)]
@@ -408,8 +464,67 @@ async fn member_changes_password(_world: &mut FoundryWorld, _email: String) {
 }
 
 #[when(regex = r#"^a password reset, a bootstrap invite, and a member invite each fire$"#)]
-async fn all_three_existing_notifications_fire(_world: &mut FoundryWorld) {
-    pending("slice 03 — all three shipped call sites routed through notify()");
+async fn all_three_existing_notifications_fire(world: &mut FoundryWorld) {
+    // Fire all THREE shipped notification call sites, each emitting ONE
+    // notification through `notify()`: the forgot-password flow (password_reset),
+    // the bootstrap issuance (workspace_invite), and the admin-gated member
+    // issuance (member_invite). Each fans out to every active provider.
+    let member = world
+        .ndp_member
+        .clone()
+        .expect("Background seeded a member");
+
+    // 1. password_reset — POST /forgot-password.
+    let (status, body, elapsed) = {
+        let harness = world.harness.as_ref().expect("harness");
+        let http = world.http.as_ref().expect("http");
+        post_forgot_password(harness, http, &member).await
+    };
+    world.last_status = Some(status);
+    world.last_body = Some(body);
+    world.ndp_request_elapsed_ms = Some(elapsed);
+
+    // 2. workspace_invite — POST /invites (signed-in bootstrap issuance).
+    let bootstrap = {
+        let harness = world.harness.as_ref().expect("harness");
+        let http = world.http.as_ref().expect("http");
+        signed_in_post(
+            harness,
+            http,
+            &member,
+            NDP_MEMBER_PASSWORD,
+            "/invites",
+            &[("email", "invitee-bootstrap@acme.example")],
+        )
+        .await
+    };
+    assert!(
+        bootstrap.status.is_success() || bootstrap.status.is_redirection(),
+        "the bootstrap invite must be issued, got {}: {}",
+        bootstrap.status,
+        bootstrap.body
+    );
+
+    // 3. member_invite — POST /workspace/invites (admin-gated member issuance).
+    let member_invite = {
+        let harness = world.harness.as_ref().expect("harness");
+        let http = world.http.as_ref().expect("http");
+        signed_in_post(
+            harness,
+            http,
+            &member,
+            NDP_MEMBER_PASSWORD,
+            "/workspace/invites",
+            &[("email", "invitee-member@acme.example")],
+        )
+        .await
+    };
+    assert!(
+        member_invite.status.is_success() || member_invite.status.is_redirection(),
+        "the member invite must be issued, got {}: {}",
+        member_invite.status,
+        member_invite.body
+    );
 }
 
 // ============================================================================
@@ -426,9 +541,22 @@ async fn notification_delivered_through(world: &mut FoundryWorld, provider: Stri
     );
 }
 
+/// The three shipped notification events that fan out through the abstraction.
+const NDP_EXISTING_EVENTS: [&str; 3] = ["password_reset", "workspace_invite", "member_invite"];
+
 #[then(regex = r#"^each notification is delivered through the "([^"]+)" provider$"#)]
-async fn each_notification_delivered_through(_world: &mut FoundryWorld, _provider: String) {
-    pending("slice 03 — every emitted notification reached this provider");
+async fn each_notification_delivered_through(world: &mut FoundryWorld, provider: String) {
+    // Every one of the three emitted notifications reached this provider exactly
+    // once with outcome `delivered` (fan-out completeness through the abstraction).
+    let harness = world.harness.as_ref().expect("harness");
+    for event in NDP_EXISTING_EVENTS {
+        let count = harness.fake_email.recorded(&provider, event, "delivered");
+        assert_eq!(
+            count, 1,
+            "each notification must be delivered through the {provider:?} provider \
+             (event {event}), got {count}"
+        );
+    }
 }
 
 #[then(
@@ -450,8 +578,21 @@ async fn delivery_recorded_for(
 }
 
 #[then(regex = r#"^each delivery is recorded per provider and event$"#)]
-async fn each_delivery_recorded_per_provider_and_event(_world: &mut FoundryWorld) {
-    pending("slice 03 — N providers × M notifications counted split by outcome");
+async fn each_delivery_recorded_per_provider_and_event(world: &mut FoundryWorld) {
+    // The bounded cross-product of active providers × the three events is each
+    // recorded exactly once with outcome `delivered` (per-provider, per-event
+    // observability — the metric-emit contract at the recorder boundary).
+    let harness = world.harness.as_ref().expect("harness");
+    for provider in ["log", "smtp"] {
+        for event in NDP_EXISTING_EVENTS {
+            let count = harness.fake_email.recorded(provider, event, "delivered");
+            assert_eq!(
+                count, 1,
+                "delivery must be recorded once for provider={provider} event={event} \
+                 outcome=delivered, got {count}"
+            );
+        }
+    }
 }
 
 #[then(regex = r#"^the request returns its normal response$"#)]
@@ -466,8 +607,26 @@ async fn request_returns_normal_response(world: &mut FoundryWorld) {
 }
 
 #[then(regex = r#"^the request returns its normal response without waiting on the slow provider$"#)]
-async fn request_returns_without_waiting(_world: &mut FoundryWorld) {
-    pending("slice 03 — await-bounded fan-out: no stall on a hanging provider");
+async fn request_returns_without_waiting(world: &mut FoundryWorld) {
+    // Normal 200 response …
+    let status = world.last_status.expect("a request was made");
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "forgot-password must return its normal 200 response, got {status}"
+    );
+    // … and it did NOT stall on the hanging provider. The slow double blocks 5s;
+    // the concurrent fan-out bounds the emit path to ~one per-provider timeout
+    // (the harness sets 500ms), so the whole request completes well under that
+    // block. Reverting the timeout (awaiting the hang) re-REDs this.
+    let elapsed = world
+        .ndp_request_elapsed_ms
+        .expect("the request timing was captured");
+    assert!(
+        elapsed < 3000,
+        "the request must not stall on the slow provider (await-bounded to ~one \
+         timeout window), took {elapsed}ms"
+    );
 }
 
 #[then(regex = r#"^no notification is delivered$"#)]

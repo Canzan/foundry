@@ -120,7 +120,7 @@ Feature: An operator selects delivery providers and every notification fans out 
 
   # ── Slice 03 — US-03 (v1 GATE): fan-out, best-effort isolation, per-provider metrics ─
 
-  @pending @us-03 @property @real-io
+  @us-03 @property @real-io
   Scenario: One notification fans out to every active provider
     Given the operator has activated providers "log,smtp"
     When a bootstrap workspace invite is issued for "newadmin@acme.example"
@@ -129,7 +129,7 @@ Feature: An operator selects delivery providers and every notification fans out 
     And the delivery is recorded for provider "log", event "workspace_invite", outcome "delivered"
     And the delivery is recorded for provider "smtp", event "workspace_invite", outcome "delivered"
 
-  @pending @us-03 @error @property @real-io
+  @us-03 @error @property @real-io
   Scenario: One failing provider affects neither the others nor the request
     Given the operator has activated providers "log,smtp"
     And the "smtp" provider's endpoint is unreachable
@@ -139,7 +139,7 @@ Feature: An operator selects delivery providers and every notification fans out 
     And the delivery is recorded for provider "smtp", event "password_reset", outcome "failed"
     And the delivery is recorded for provider "log", event "password_reset", outcome "delivered"
 
-  @pending @us-03 @error @real-io
+  @us-03 @error @real-io
   Scenario: A slow provider does not stall the originating request
     Given the operator has activated providers "log,smtp"
     And the "smtp" provider's endpoint hangs on connect
@@ -147,7 +147,7 @@ Feature: An operator selects delivery providers and every notification fans out 
     Then the request returns its normal response without waiting on the slow provider
     And the delivery is recorded for provider "smtp", event "password_reset", outcome "failed"
 
-  @pending @us-03 @real-io
+  @us-03 @real-io
   Scenario: Every existing notification fans out through the abstraction
     Given the operator has activated providers "log,smtp"
     When a password reset, a bootstrap invite, and a member invite each fire

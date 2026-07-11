@@ -60,6 +60,12 @@ pub struct DeliveryRecorder {
     /// provider so a fan-out slice can down one channel while its siblings still
     /// deliver.
     unreachable: Mutex<HashSet<&'static str>>,
+    /// Provider kinds whose transport "hangs on connect": a delivery through one
+    /// RECORDS `outcome=failed` and then sleeps past any realistic per-provider
+    /// timeout, so the notifier's timeout wrapper fires and CONTAINS the stall
+    /// (US-03 slow-provider isolation). The record is written BEFORE the sleep so
+    /// it survives the notifier cancelling the timed-out `deliver()` future.
+    slow: Mutex<HashSet<&'static str>>,
 }
 
 impl DeliveryRecorder {
@@ -93,6 +99,24 @@ impl DeliveryRecorder {
         self.unreachable
             .lock()
             .expect("delivery recorder unreachable set")
+            .contains(kind.as_str())
+    }
+
+    /// Mark `kind`'s transport as hanging on connect: a delivery through a
+    /// provider of that kind records `outcome=failed` then blocks past the
+    /// notifier's per-provider timeout, so the concurrent fan-out contains the
+    /// stall (the request is never made to wait on it).
+    pub fn set_slow(&self, kind: ProviderKind) {
+        self.slow
+            .lock()
+            .expect("delivery recorder slow set")
+            .insert(kind.as_str());
+    }
+
+    fn is_slow(&self, kind: ProviderKind) -> bool {
+        self.slow
+            .lock()
+            .expect("delivery recorder slow set")
             .contains(kind.as_str())
     }
 
@@ -158,6 +182,25 @@ impl NotificationProvider for RecordingProvider {
                 "recording provider: induced outage (test)".to_string(),
             ));
         }
+        if self.recorder.is_slow(self.kind) {
+            // Hangs on connect (US-03): the attempt is OBSERVED and recorded as a
+            // timeout `failed`, THEN the future blocks well past the notifier's
+            // per-provider timeout. The notifier drops this future on timeout —
+            // the record (written first) survives, and the request never waits
+            // out the full block.
+            self.recorder.record(RecordedDelivery {
+                provider: self.kind.as_str().to_string(),
+                event: notification.event.as_str().to_string(),
+                outcome: "failed".to_string(),
+                to: notification.recipient.clone(),
+                subject: notification.subject.clone(),
+                body: notification.body.clone(),
+            });
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            return Err(DeliveryError::Transient(
+                "recording provider: endpoint hangs on connect (test)".to_string(),
+            ));
+        }
         if self.recorder.is_unreachable(self.kind) {
             // Temporarily-unreachable relay (US-02): the notifier still OBSERVES
             // the attempt, so record it as `failed`, then return the transient
@@ -207,5 +250,8 @@ pub fn notifier_from_recorder(
                 as Arc<dyn NotificationProvider>
         })
         .collect();
-    Arc::new(Notifier::new(providers))
+    // A SHORT per-provider timeout keeps the slow-provider isolation scenario
+    // fast: an in-memory recording delivery completes far inside it, while the
+    // "hangs on connect" double (which sleeps 5s) is bounded to this window.
+    Arc::new(Notifier::new(providers).with_delivery_timeout(std::time::Duration::from_millis(500)))
 }
