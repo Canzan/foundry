@@ -271,3 +271,27 @@ Feature: An operator selects delivery providers and every notification fans out 
     When member "maria.santos@acme.example" changes their password
     Then the delivery metric labels stay within their bounded sets
     And a cardinality check fails closed on an unbounded label value
+
+  # ── Slice 06 review-remediation guards (D1/D2/D3): no false or unauthenticated emits ──
+
+  @us-06 @security @real-io
+  Scenario: Removing a non-member changes nothing and emits no notification
+    Given the operator has activated providers "log"
+    And a user "outsider@other.example" exists but is not a member of "Acme"
+    When an admin removes member "outsider@other.example" from "Acme"
+    Then the removal is refused as not found
+    And no "member_removed" notification is delivered
+
+  @us-06 @security @real-io
+  Scenario: A password change with the wrong current password is refused and notifies nobody
+    Given the operator has activated providers "log"
+    When member "maria.santos@acme.example" changes their password with an incorrect current password
+    Then the password change is refused as unauthorized
+    And no "password_changed" notification is delivered
+
+  @us-06 @security @real-io
+  Scenario: A password change to a too-short new password is refused and notifies nobody
+    Given the operator has activated providers "log"
+    When member "maria.santos@acme.example" changes their password to a too-short new password
+    Then the password change is refused as a bad request
+    And no "password_changed" notification is delivered

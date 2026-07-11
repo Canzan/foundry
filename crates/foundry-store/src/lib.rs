@@ -2232,6 +2232,24 @@ impl Store {
         Ok(row.map(|r| r.0))
     }
 
+    /// Look up a user's PHC-encoded `password_hash` by id — the reauthentication
+    /// seam for the change-password flow: verify the CURRENT password (with the
+    /// same verifier sign-in uses) BEFORE rotating it, so a hijacked session
+    /// alone cannot change the credential. Returns `None` when no such user (a
+    /// data-consistency fault for a valid session). Mirrors
+    /// [`find_user_email_by_id`] / [`find_user_by_email`]'s hash read.
+    pub async fn find_user_password_hash_by_id(
+        &self,
+        user_id: uuid::Uuid,
+    ) -> Result<Option<String>, StoreError> {
+        let row: Option<(String,)> =
+            sqlx::query_as("SELECT password_hash FROM users WHERE id = $1")
+                .bind(user_id)
+                .fetch_optional(&self.pool)
+                .await?;
+        Ok(row.map(|r| r.0))
+    }
+
     /// Write a new `password_hash` for the signed-in account owner
     /// (notification-delivery-providers US-06 — the `password_changed` trigger).
     /// Returns the number of rows updated (0 ⇒ no such user). Mirrors the

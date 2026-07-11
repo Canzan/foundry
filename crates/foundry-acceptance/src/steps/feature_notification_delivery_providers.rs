@@ -160,6 +160,33 @@ async fn seed_workspace_and_member(harness: &InProcHarness, workspace: &str, mem
     .expect("insert workspace membership");
 }
 
+/// D1 regression seed: insert a user who EXISTS globally but is NOT a member of
+/// the acting workspace. Removing them deletes 0 memberships — the guard must
+/// then refuse (404) and emit no `member_removed`. The harness is already spawned
+/// (providers activated) by the time this Given runs.
+async fn seed_non_member_user(harness: &InProcHarness, email: &str) {
+    let pool = harness.app.state.store.pool();
+    let user_id = uuid::Uuid::now_v7();
+    let lower = email.to_ascii_lowercase();
+    let hash =
+        foundry_auth::hash_password(&SecretString::new(NDP_MEMBER_PASSWORD.to_string().into()))
+            .await
+            .expect("hash non-member pw");
+    sqlx::query(
+        "INSERT INTO users (id, email_lower, email_display, display_name, password_hash)
+              VALUES ($1, $2, $3, $4, $5)",
+    )
+    .bind(user_id)
+    .bind(&lower)
+    .bind(email)
+    .bind("Outsider Person")
+    .bind(&hash)
+    .execute(pool)
+    .await
+    .expect("insert non-member user");
+    // Deliberately NO workspace_memberships row: the user is not a member of Acme.
+}
+
 // ============================================================================
 // Background
 // ============================================================================
@@ -215,6 +242,19 @@ async fn operator_activated_no_providers(world: &mut FoundryWorld) {
     seed_workspace_and_member(&harness, &workspace, &member).await;
     world.harness = Some(harness);
     world.http = Some(client());
+}
+
+#[given(regex = r#"^a user "([^"]+)" exists but is not a member of "([^"]+)"$"#)]
+async fn user_exists_but_not_a_member(world: &mut FoundryWorld, email: String, _workspace: String) {
+    // D1 regression: the target must exist globally so `find_user_by_email` returns
+    // `Some`, driving the handler into `remove_workspace_member` — which deletes 0
+    // rows because there is no membership. That 0-row path is exactly what the guard
+    // must catch (refuse, do not notify).
+    let harness = world
+        .harness
+        .as_ref()
+        .expect("harness spawned by prior Given");
+    seed_non_member_user(harness, &email).await;
 }
 
 #[given(regex = r#"^the operator boots Foundry with providers "([^"]+)"$"#)]
@@ -602,7 +642,12 @@ async fn member_changes_password(world: &mut FoundryWorld, email: String) {
             &email,
             NDP_MEMBER_PASSWORD,
             "/account/password",
-            &[("new_password", "ndp-brand-new-passphrase-9x2q")],
+            // Reauth (D2) + min-12 policy (D3): send the member's REAL current
+            // password and a ≥12-char new one so the `password_changed` emit fires.
+            &[
+                ("current_password", NDP_MEMBER_PASSWORD),
+                ("new_password", "ndp-brand-new-passphrase-9x2q"),
+            ],
         )
         .await
     };
@@ -626,6 +671,56 @@ async fn member_changes_password(world: &mut FoundryWorld, email: String) {
     .await
     .expect("spawn foundry subprocess for the delivery-metric checks");
     world.slice6_foundry = Some(subprocess);
+}
+
+#[when(regex = r#"^member "([^"]+)" changes their password with an incorrect current password$"#)]
+async fn member_changes_password_wrong_current(world: &mut FoundryWorld, email: String) {
+    // D2 regression: sign the member in (so the session is valid) but POST a WRONG
+    // `current_password`. The reauth guard must refuse (401) without writing a new
+    // hash or emitting `password_changed`.
+    let outcome = {
+        let harness = world.harness.as_ref().expect("harness");
+        let http = world.http.as_ref().expect("http");
+        signed_in_post(
+            harness,
+            http,
+            &email,
+            NDP_MEMBER_PASSWORD,
+            "/account/password",
+            &[
+                ("current_password", "totally-the-wrong-current-password"),
+                ("new_password", "ndp-brand-new-passphrase-9x2q"),
+            ],
+        )
+        .await
+    };
+    world.last_status = Some(outcome.status);
+    world.last_body = Some(outcome.body);
+}
+
+#[when(regex = r#"^member "([^"]+)" changes their password to a too-short new password$"#)]
+async fn member_changes_password_too_short(world: &mut FoundryWorld, email: String) {
+    // D3 regression: a valid session + correct current password, but a NEW password
+    // below the min-12 policy. The policy guard must refuse (400) without writing a
+    // new hash or emitting `password_changed`.
+    let outcome = {
+        let harness = world.harness.as_ref().expect("harness");
+        let http = world.http.as_ref().expect("http");
+        signed_in_post(
+            harness,
+            http,
+            &email,
+            NDP_MEMBER_PASSWORD,
+            "/account/password",
+            &[
+                ("current_password", NDP_MEMBER_PASSWORD),
+                ("new_password", "short"),
+            ],
+        )
+        .await
+    };
+    world.last_status = Some(outcome.status);
+    world.last_body = Some(outcome.body);
 }
 
 #[when(regex = r#"^a password reset, a bootstrap invite, and a member invite each fire$"#)]
@@ -802,6 +897,54 @@ async fn no_notification_delivered(world: &mut FoundryWorld) {
         deliveries.is_empty(),
         "with no providers active, zero deliveries must be recorded, got {}: {deliveries:?}",
         deliveries.len()
+    );
+}
+
+#[then(regex = r#"^no "([^"]+)" notification is delivered$"#)]
+async fn no_event_notification_delivered(world: &mut FoundryWorld, event: String) {
+    // D1/D2/D3 guard: assert the specific event was NEVER emitted through any
+    // provider. Reverting the guard (notifying on the refused path) re-REDs this.
+    let harness = world.harness.as_ref().expect("harness");
+    let matches: Vec<_> = harness
+        .fake_email
+        .sent()
+        .into_iter()
+        .filter(|d| d.event == event)
+        .collect();
+    assert!(
+        matches.is_empty(),
+        "a refused action must emit no '{event}' notification, found {}: {matches:?}",
+        matches.len()
+    );
+}
+
+#[then(regex = r#"^the removal is refused as not found$"#)]
+async fn removal_refused_not_found(world: &mut FoundryWorld) {
+    let status = world.last_status.expect("a request was made");
+    assert_eq!(
+        status,
+        StatusCode::NOT_FOUND,
+        "removing a non-member must be refused with the non-enumerable 404, got {status}"
+    );
+}
+
+#[then(regex = r#"^the password change is refused as unauthorized$"#)]
+async fn password_change_refused_unauthorized(world: &mut FoundryWorld) {
+    let status = world.last_status.expect("a request was made");
+    assert_eq!(
+        status,
+        StatusCode::UNAUTHORIZED,
+        "a wrong current password must be refused with 401, got {status}"
+    );
+}
+
+#[then(regex = r#"^the password change is refused as a bad request$"#)]
+async fn password_change_refused_bad_request(world: &mut FoundryWorld) {
+    let status = world.last_status.expect("a request was made");
+    assert_eq!(
+        status,
+        StatusCode::BAD_REQUEST,
+        "a too-weak new password must be refused with 400, got {status}"
     );
 }
 

@@ -47,6 +47,10 @@ pub struct ForgotForm {
 
 #[derive(Debug, Deserialize)]
 pub struct ChangePasswordForm {
+    /// The signed-in owner's CURRENT password — reauthenticates the request so a
+    /// hijacked session alone cannot rotate the credential (D2).
+    #[serde(default)]
+    pub current_password: String,
     pub new_password: String,
     #[serde(rename = "_csrf", default)]
     pub _csrf: Option<String>,
@@ -280,21 +284,59 @@ pub async fn submit_change_password(
         _ => return crate::bootstrap::resource_not_found_page(),
     };
 
-    let new_password = form.new_password.trim();
-    if new_password.is_empty() {
-        return (StatusCode::BAD_REQUEST, "password required").into_response();
+    // D3: enforce the SHIPPED length-first password policy (ADR-004 / NFR-4,
+    // min-12 — the same policy the invite-accept set-password flow uses) on the
+    // NEW password BEFORE any state change or notification. A too-weak (or empty)
+    // password is rejected inline; nothing is written and nobody is notified.
+    let new_password = SecretString::new(form.new_password.trim().to_string().into());
+    if let Err(err) = foundry_auth::check_password_policy(&new_password) {
+        return (StatusCode::BAD_REQUEST, err.to_string()).into_response();
     }
 
+    // D2: reauthenticate — verify the CURRENT password against the stored hash
+    // using the SAME verifier the sign-in flow uses, so a hijacked session alone
+    // cannot rotate the credential. A valid session implies the user row exists;
+    // a missing/failed hash lookup is a data-consistency fault ⇒ 500 (D8 posture).
+    let stored_hash = match state
+        .store
+        .find_user_password_hash_by_id(user.user_id)
+        .await
+    {
+        Ok(Some(hash)) => hash,
+        Ok(None) => {
+            tracing::error!(user_id = %user.user_id, "change-password: no user row for a valid session");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
+        }
+        Err(err) => {
+            tracing::error!(%err, "find_user_password_hash_by_id failed during change-password");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
+        }
+    };
+    let current = SecretString::new(form.current_password.clone().into());
+    let reauthenticated = foundry_auth::verify_password(&current, &stored_hash)
+        .await
+        .unwrap_or(false);
+    if !reauthenticated {
+        // Wrong current password: refuse without changing anything and WITHOUT
+        // emitting `password_changed`.
+        return (StatusCode::UNAUTHORIZED, "current password is incorrect").into_response();
+    }
+
+    // D8: the session is valid, so the user EXISTS. A missing/failed email lookup
+    // is therefore a data-consistency fault (500), not a "not found" (404).
     let owner_email = match state.store.find_user_email_by_id(user.user_id).await {
         Ok(Some(email)) => email,
-        _ => return crate::bootstrap::resource_not_found_page(),
+        Ok(None) => {
+            tracing::error!(user_id = %user.user_id, "change-password: no email for a valid session");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
+        }
+        Err(err) => {
+            tracing::error!(%err, "find_user_email_by_id failed during change-password");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
+        }
     };
 
-    let hash = match foundry_auth::hash_password(&SecretString::new(
-        new_password.to_string().into(),
-    ))
-    .await
-    {
+    let hash = match foundry_auth::hash_password(&new_password).await {
         Ok(hash) => hash,
         Err(err) => {
             tracing::error!(%err, "hash_password failed during change-password");

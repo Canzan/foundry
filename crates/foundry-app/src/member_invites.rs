@@ -261,16 +261,28 @@ pub async fn submit_remove_member(
         }
     };
 
-    if let Err(err) = state
+    let removed = match state
         .store
         .remove_workspace_member(admin.workspace_id, target.id)
         .await
     {
-        tracing::error!(%err, "remove_workspace_member failed");
-        return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
+        Ok(count) => count,
+        Err(err) => {
+            tracing::error!(%err, "remove_workspace_member failed");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
+        }
+    };
+
+    // D1: the target exists globally but was NOT a member of the acting workspace
+    // ⇒ 0 memberships deleted. Nothing changed, so we must NOT emit a false
+    // `member_removed` to a non-member. Refuse with the SHIPPED non-enumerable 404
+    // (consistent with this surface's other refusals) and do NOT notify.
+    if removed == 0 {
+        return resource_not_found_page();
     }
 
-    // Best-effort, non-fatal delivery through the config-selected providers (NFR-5).
+    // A membership was actually removed — best-effort, non-fatal delivery through
+    // the config-selected providers (NFR-5).
     let notification = crate::notify::Notification {
         event: crate::notify::NotificationEvent::MemberRemoved,
         recipient: email.to_string(),
