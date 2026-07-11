@@ -232,9 +232,16 @@ pub async fn submit_forgot(
              If you did not request this, ignore this email.",
             email = email_lower,
         );
-        if let Err(err) = state.email.send(&email_lower, subject, &body).await {
-            tracing::warn!(%err, "email send for password reset failed");
-        }
+        // Best-effort, non-fatal delivery through the config-selected providers
+        // (NFR-5). `notify()` is infallible: a delivery problem is contained and
+        // never fails this request (we always respond the same below).
+        let notification = crate::notify::Notification {
+            event: crate::notify::NotificationEvent::PasswordReset,
+            recipient: email_lower.clone(),
+            subject: subject.to_string(),
+            body,
+        };
+        state.notifier.notify(&notification).await;
     }
 
     // Always respond the same so we don't leak which emails are on file.

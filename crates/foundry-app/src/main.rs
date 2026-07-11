@@ -9,7 +9,7 @@
 
 use anyhow::Context;
 use foundry_app::{
-    build_router, metrics_server, mint_bootstrap_if_needed, AppState, NoopEmailSender, SystemClock,
+    build_notifier, build_router, metrics_server, mint_bootstrap_if_needed, AppState, SystemClock,
     DEFAULT_FILE_UPLOAD_MAX_MB, DEFAULT_SSE_HEARTBEAT_MS,
 };
 use foundry_store::Store;
@@ -262,7 +262,15 @@ async fn main() -> anyhow::Result<()> {
         db_schema: std::env::var("FOUNDRY_DB_SCHEMA").unwrap_or_else(|_| "public".to_string()),
         public_url: public_url.clone(),
         clock: Arc::new(SystemClock),
-        email: Arc::new(NoopEmailSender),
+        // notification-delivery-providers (ADR-002): the config-selected provider
+        // set, built from `NOTIFICATION_PROVIDERS` (unset ⇒ inactive). Each listed
+        // channel is constructed + probed before admission (wire → probe → use);
+        // an unknown/misconfigured channel fails fast at startup.
+        notifier: Arc::new(
+            build_notifier()
+                .await
+                .context("build notification providers from NOTIFICATION_PROVIDERS")?,
+        ),
         // US-TMA05 — production guardrail at the ratified defaults (C=20, R=1/sec).
         revoke_rate_limiter: Arc::new(foundry_app::rate_limit::RevokeRateLimiter::default()),
         realtime_tx,

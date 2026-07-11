@@ -37,11 +37,12 @@ use crate::support::harness::{
     ensure_postgres, fresh_schema_pool_no_migrations, fresh_schema_pool_with_url, InProcHarness,
 };
 use crate::support::heartbeat_env;
+use crate::support::notify_recorder::{notifier_from_recorder, DeliveryRecorder};
 use crate::support::round_robin_proxy::{spawn_round_robin_proxy, ProxyHandle};
 use crate::support::test_migration::TestMigrationsDir;
 use foundry_app::clock::MockClock;
-use foundry_app::email::FakeEmailSender;
 use foundry_app::test_support::{boot_test_migrations, spawn_app_with_listener, TestApp};
+use foundry_app::ProviderKind;
 use foundry_app::{AppState, DEFAULT_FILE_UPLOAD_MAX_MB, DEFAULT_SSE_HEARTBEAT_MS};
 use foundry_store::{MigrationReport, Store};
 use secrecy::SecretString;
@@ -87,9 +88,9 @@ pub struct MultiReplicaHarness {
     pub proxy: ProxyHandle,
     /// Shared fake clock — Arc'd so every replica observes the same now.
     pub fake_clock: Arc<MockClock>,
-    /// Shared fake email — Arc'd so every replica's send() lands in
+    /// Shared delivery recorder — Arc'd so every replica's notifier records into
     /// the same inbox.
-    pub fake_email: Arc<FakeEmailSender>,
+    pub fake_email: Arc<DeliveryRecorder>,
     /// The pool every replica's Store shares. Tests use this for
     /// direct SQL seeding (the same path slice-1 scenarios use through
     /// `harness.app.state.store.pool()`).
@@ -220,7 +221,7 @@ impl MultiReplicaHarness {
             None => fresh_schema_pool_no_migrations().await,
         };
         let fake_clock = MockClock::new(now);
-        let fake_email = FakeEmailSender::new();
+        let fake_email = DeliveryRecorder::new();
         let heartbeat_ms =
             heartbeat_env::current_heartbeat_ms().unwrap_or(DEFAULT_SSE_HEARTBEAT_MS);
         let file_upload_max_mb =
@@ -245,7 +246,7 @@ impl MultiReplicaHarness {
                     db_schema: schema.clone(),
                     public_url: "http://localhost".into(),
                     clock: fake_clock.clone(),
-                    email: fake_email.clone(),
+                    notifier: notifier_from_recorder(&fake_email, &[ProviderKind::Log]),
                     revoke_rate_limiter: Arc::new(
                         foundry_app::rate_limit::RevokeRateLimiter::default(),
                     ),
@@ -375,7 +376,7 @@ impl MultiReplicaHarness {
             }
         };
         let fake_clock = MockClock::new(now);
-        let fake_email = FakeEmailSender::new();
+        let fake_email = DeliveryRecorder::new();
         let heartbeat_ms =
             heartbeat_env::current_heartbeat_ms().unwrap_or(DEFAULT_SSE_HEARTBEAT_MS);
         let file_upload_max_mb =
@@ -403,7 +404,7 @@ impl MultiReplicaHarness {
                 db_schema: schema.clone(),
                 public_url: "http://localhost".into(),
                 clock: fake_clock.clone(),
-                email: fake_email.clone(),
+                notifier: notifier_from_recorder(&fake_email, &[ProviderKind::Log]),
                 revoke_rate_limiter: Arc::new(foundry_app::rate_limit::RevokeRateLimiter::default()),
                 realtime_tx,
                 sse_heartbeat_ms: heartbeat_ms,

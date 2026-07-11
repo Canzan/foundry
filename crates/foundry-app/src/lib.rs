@@ -19,7 +19,6 @@ pub mod bootstrap;
 pub mod clock;
 pub mod comments;
 pub mod csrf;
-pub mod email;
 pub mod events;
 pub mod instance_admin;
 pub mod invites_accept;
@@ -28,6 +27,7 @@ pub mod keyboard;
 pub mod member_invites;
 pub mod metrics_server;
 pub mod nav;
+pub mod notify;
 pub mod projects;
 pub mod rate_limit;
 pub mod session;
@@ -60,7 +60,10 @@ use tokio::sync::broadcast;
 pub const DEFAULT_SSE_HEARTBEAT_MS: u64 = 25_000;
 
 pub use clock::{Clock, SystemClock};
-pub use email::{EmailSender, NoopEmailSender, SentEmail};
+pub use notify::{
+    build_notifier, DeliveryError, LogProvider, Notification, NotificationEvent,
+    NotificationProvider, Notifier, ProviderKind,
+};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -89,7 +92,12 @@ pub struct AppState {
     pub db_schema: String,
     pub public_url: String,
     pub clock: Arc<dyn Clock>,
-    pub email: Arc<dyn EmailSender>,
+    /// The config-selected notification fan-out dispatcher (ADR-001/003).
+    /// Replaces the single hard-wired `email` sender: a member action builds one
+    /// structured [`notify::Notification`] and calls `notifier.notify(&n)`, which
+    /// delivers it best-effort to every active provider. Built at the composition
+    /// root by [`notify::build_notifier`] from `NOTIFICATION_PROVIDERS`.
+    pub notifier: Arc<Notifier>,
     /// US-TMA05 (NFR-TMA-SEC-07 / OD-TMA-1) — the in-process per-principal
     /// revoke-storm guardrail. A token bucket keyed by the bound `user_id`,
     /// checked on the DELETE token route AFTER auth and BEFORE

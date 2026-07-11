@@ -16,7 +16,7 @@ use axum::middleware;
 use axum::routing::post;
 use axum::Router;
 use foundry_app::csrf::csrf_middleware;
-use foundry_app::{AppState, NoopEmailSender, SystemClock};
+use foundry_app::{AppState, Notifier, SystemClock};
 use foundry_store::Store;
 use secrecy::SecretString;
 use sqlx::postgres::PgPoolOptions;
@@ -56,7 +56,7 @@ async fn build_test_router() -> Router {
         db_schema: "public".into(),
         public_url: "http://localhost".into(),
         clock: Arc::new(SystemClock),
-        email: Arc::new(NoopEmailSender),
+        notifier: Arc::new(Notifier::empty()),
         revoke_rate_limiter: Arc::new(foundry_app::rate_limit::RevokeRateLimiter::default()),
         realtime_tx: foundry_realtime::build_broadcast(),
         sse_heartbeat_ms: foundry_app::DEFAULT_SSE_HEARTBEAT_MS,

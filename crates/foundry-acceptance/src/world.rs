@@ -1113,6 +1113,12 @@ pub struct FoundryWorld {
     /// The foreign issue's title — asserted NOT echoed in the uniform
     /// not-found refusal (no enumeration oracle).
     pub ied_foreign_title: Option<String>,
+
+    // ---- Feature "notification-delivery-providers" ----
+    /// Workspace name seeded by the Background, applied when the harness spawns.
+    pub ndp_workspace: Option<String>,
+    /// Member email seeded by the Background (the notification recipient).
+    pub ndp_member: Option<String>,
 }
 
 impl FoundryWorld {

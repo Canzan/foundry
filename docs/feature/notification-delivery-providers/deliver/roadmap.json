@@ -1,0 +1,342 @@
+{
+  "roadmap": {
+    "project_id": "notification-delivery-providers",
+    "created_at": "2026-07-10T00:00:00Z",
+    "total_steps": 10
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "Walking skeleton \u2014 NotificationProvider port, registry, log provider, re-routed password reset (US-01)",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "Walking skeleton: a password reset is delivered through the operator's chosen log provider",
+          "criteria": [
+            "Greens exactly these scenarios: \"A password reset is delivered through the operator's chosen log provider\".",
+            "The operator activates providers \"log\"; a member requests a password reset for \"maria.santos@acme.example\" via POST /forgot-password (signin.rs:235); the call site builds ONE Notification{event=PasswordReset, recipient, subject, body} and calls state.notifier.notify(&n).await (infallible), the recording provider double observes a delivery through \"log\", the delivery is recorded for provider \"log\", event \"password_reset\", outcome \"delivered\", and the request returns its normal response.",
+            "The new code built in this step: the NotificationProvider driven port (async deliver + kind + probe, NO Debug supertrait per ADR-006) generalizing EmailSender::send (email.rs:19-22); the Notification + NotificationEvent + ProviderKind + DeliveryError value objects in a NEW notify.rs module (ADR-001/004/005); the Notifier fan-out dispatcher at N=1 with an infallible notify() (ADR-003); build_notifier() at the composition root reading NOTIFICATION_PROVIDERS via std::env::var (ADR-002, main.rs:265 replacing Arc::new(NoopEmailSender)); a LogProvider adapter (one structured secret-free stdout line, trivial probe=Ok); the AppState.email: Arc<dyn EmailSender> field generalized to AppState.notifier: Arc<Notifier> (lib.rs:92) with the re-exports extended (lib.rs:63); and the wire-then-probe-then-use composition-root invariant (build_notifier constructs, probes, then admits LogProvider into the ordered active set).",
+            "Builds the harness provider seam every later scenario asserts against: a spawn_with_providers / build_notifier-style composition-root path on InProcHarness (crates/foundry-acceptance/src/support/harness.rs) plus a recording provider double replacing the Arc::new(FakeEmailSender) wiring at harness.rs:275/307 \u2014 the recorder captures {provider, event, outcome} per delivery.",
+            "The superseded EmailSender / NoopEmailSender path is DELETED, not left as a dual path (repo policy removes dead code pre-stable); the three shipped call sites' best-effort/non-fatal contract is preserved exactly (NFR-5) \u2014 signin.rs is re-routed here, bootstrap.rs and member_invites.rs re-route in 03-01.",
+            "Genuinely RED by MISSING: no NotificationProvider port, no notify.rs module, no Notifier dispatcher, no build_notifier registry, no LogProvider, no AppState.notifier field, and no recording-provider harness seam exist yet \u2014 the @pending scaffold panics (assertion-class RED, correct test / missing production) against real testcontainers PG16, never IMPORT_ERROR / BROKEN.",
+            "5-phase TDD contract (PREPARE -> RED_ACCEPTANCE -> RED_UNIT -> GREEN -> COMMIT); removes @pending from ONLY this scenario (the other 26 stay @pending so the @all lane stays green); run the slice with FOUNDRY_ACCEPTANCE_TAGS=us-01; ZERO new crate, ZERO migration, ZERO new infra."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/notification-delivery-providers.feature",
+          "scenario_name": "A password reset is delivered through the operator's chosen log provider",
+          "implementation_scope": {
+            "source_directories": [
+              "crates/foundry-app/src/notify.rs",
+              "crates/foundry-app/src/notify/",
+              "crates/foundry-app/src/main.rs",
+              "crates/foundry-app/src/lib.rs",
+              "crates/foundry-app/src/signin.rs",
+              "crates/foundry-app/src/email.rs"
+            ],
+            "test_directories": [
+              "crates/foundry-acceptance/src/support/",
+              "crates/foundry-acceptance/src/steps/",
+              "crates/foundry-acceptance/tests/"
+            ]
+          }
+        },
+        {
+          "id": "01-02",
+          "name": "No-op default, unknown-provider fail-fast, and secret-free log line",
+          "criteria": [
+            "Greens exactly these scenarios: \"With no providers configured, delivery is a silent no-op\", \"An unknown provider name fails fast at startup\", and \"A delivered log line carries no reset token or secret\".",
+            "With NOTIFICATION_PROVIDERS unset (no active providers), a password reset returns its normal response, delivers no notification, and raises no error \u2014 the empty active set is Noop-equivalent, preserving today's silent-drop default (BR-1, NFR-5).",
+            "An operator listing an unknown provider \"logg\" makes Foundry refuse startup and exit non-zero; the startup error names the unknown provider \"logg\" and the known providers (log, smtp, webhook, email_api) and contains no secret value \u2014 build_notifier validates the list against the bounded ProviderKind set and aborts with a health.startup.refused-class failure (NFR-1, ADR-002).",
+            "A delivered log line through the \"log\" provider carries no reset token or secret: the LogProvider keys strictly on provider + event + recipient and never interpolates the reset token or any secret (NFR-2).",
+            "Genuinely RED by MISSING: the unset-list Noop branch, the unknown-name fail-fast validation arm in build_notifier, and the secret-free LogProvider line discipline do not exist yet \u2014 each @pending scenario panics until built (assertion-class RED, never BROKEN).",
+            "Green-by-inheritance once 01-01's registry, build_notifier, and LogProvider exist; this step adds the three edge/boundary arms around them. 5-phase TDD (PREPARE -> RED_ACCEPTANCE -> RED_UNIT -> GREEN -> COMMIT); removes @pending from only these three scenarios; run with FOUNDRY_ACCEPTANCE_TAGS=us-01; ZERO new crate, ZERO migration."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/notification-delivery-providers.feature",
+          "scenario_name": "An unknown provider name fails fast at startup",
+          "implementation_scope": {
+            "source_directories": [
+              "crates/foundry-app/src/notify.rs",
+              "crates/foundry-app/src/notify/",
+              "crates/foundry-app/src/main.rs",
+              "crates/foundry-app/src/signin.rs"
+            ],
+            "test_directories": [
+              "crates/foundry-acceptance/src/support/",
+              "crates/foundry-acceptance/src/steps/",
+              "crates/foundry-acceptance/tests/"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "02",
+      "name": "SMTP provider \u2014 real email behind the port via lettre (US-02)",
+      "steps": [
+        {
+          "id": "02-01",
+          "name": "SMTP delivery, inactive no-op, and SMTP_PASSWORD non-leakage",
+          "criteria": [
+            "Greens exactly these scenarios: \"A reset email is delivered through the configured SMTP relay\", \"With SMTP inactive, no email is attempted and existing behavior is unchanged\", and \"The SMTP password never leaks across a delivery cycle\".",
+            "With providers \"smtp\" active and validly configured (SMTP_HOST/USERNAME/PASSWORD/FROM, SMTP_PORT default 587), a password reset is delivered through the \"smtp\" provider and the delivery is recorded for provider \"smtp\", event \"password_reset\", outcome \"delivered\" \u2014 realized behind the port with lettre 0.11's AsyncSmtpTransport<Tokio1Executor> (declared-but-unused dep, Cargo.toml:85-90; NO feature change, NO new crate).",
+            "With only \"log\" active, no delivery is attempted through the \"smtp\" provider and the existing notification behavior is unchanged \u2014 an unlisted provider is never constructed nor called (NFR-5).",
+            "The SMTP_PASSWORD value never appears in any log, error, metric label, or debug output across a full delivery cycle: it is held in secrecy::SecretString (Cargo.toml:68), the port has no Debug supertrait, and DeliveryError messages are hand-built and secret-free (ADR-006, five-layer no-leak litmus \u2014 reverting any layer must re-RED).",
+            "Genuinely RED by MISSING: no SmtpProvider adapter, no SMTP config validation/construction in build_notifier, and no fake-SMTP recorder double exist yet \u2014 each @pending scenario panics until built (assertion-class RED, never BROKEN); the fake SMTP transport is an in-process test double, NO real third-party SMTP call leaves the test process.",
+            "5-phase TDD (PREPARE -> RED_ACCEPTANCE -> RED_UNIT -> GREEN -> COMMIT); removes @pending from only these three scenarios; run with FOUNDRY_ACCEPTANCE_TAGS=us-02; ZERO new crate, ZERO migration."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/notification-delivery-providers.feature",
+          "scenario_name": "A reset email is delivered through the configured SMTP relay",
+          "implementation_scope": {
+            "source_directories": [
+              "crates/foundry-app/src/notify/",
+              "crates/foundry-app/src/notify.rs",
+              "crates/foundry-app/src/main.rs"
+            ],
+            "test_directories": [
+              "crates/foundry-acceptance/src/support/",
+              "crates/foundry-acceptance/src/steps/",
+              "crates/foundry-acceptance/tests/"
+            ]
+          }
+        },
+        {
+          "id": "02-02",
+          "name": "SMTP failure isolation and missing-setting fail-fast",
+          "criteria": [
+            "Greens exactly these scenarios: \"A temporarily unreachable relay does not fail the request\" and \"An SMTP provider missing a required setting fails fast at startup\".",
+            "With \"smtp\" active but its endpoint unreachable, a password reset returns its normal response and the delivery is recorded for provider \"smtp\", event \"password_reset\", outcome \"failed\" \u2014 the SmtpProvider maps the transport error to DeliveryError (Transient|Permanent, secret-free) and the notifier counts it failed without crashing or failing the request (NFR-3, best-effort at N=1; full multi-provider isolation lands in 03-01).",
+            "An operator listing \"smtp\" without the required setting SMTP_HOST makes Foundry refuse startup and exit non-zero; the startup error names provider \"smtp\" and the missing setting \"SMTP_HOST\" and contains no secret value \u2014 build_notifier validates per-provider required env before construction (fail-fast, NFR-1, ADR-002).",
+            "Genuinely RED by MISSING: the SmtpProvider transport-error -> DeliveryError classification arm and the per-provider required-setting validation arm in build_notifier do not exist yet \u2014 each @pending scenario panics until built (assertion-class RED, never BROKEN).",
+            "Green-by-inheritance once 02-01's SmtpProvider and SMTP config path exist; this step adds the failure-isolation and misconfig-fail-fast arms. 5-phase TDD (PREPARE -> RED_ACCEPTANCE -> RED_UNIT -> GREEN -> COMMIT); removes @pending from only these two scenarios; run with FOUNDRY_ACCEPTANCE_TAGS=us-02; ZERO new crate, ZERO migration."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/notification-delivery-providers.feature",
+          "scenario_name": "An SMTP provider missing a required setting fails fast at startup",
+          "implementation_scope": {
+            "source_directories": [
+              "crates/foundry-app/src/notify/",
+              "crates/foundry-app/src/notify.rs",
+              "crates/foundry-app/src/main.rs"
+            ],
+            "test_directories": [
+              "crates/foundry-acceptance/src/support/",
+              "crates/foundry-acceptance/src/steps/",
+              "crates/foundry-acceptance/tests/"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "03",
+      "name": "Fan-out, best-effort isolation, and per-provider observability \u2014 v1 gate (US-03)",
+      "steps": [
+        {
+          "id": "03-01",
+          "name": "Concurrent fan-out, best-effort isolation, and routing the remaining two call sites",
+          "criteria": [
+            "Greens exactly these scenarios: \"One notification fans out to every active provider\", \"One failing provider affects neither the others nor the request\", \"A slow provider does not stall the originating request\", and \"Every existing notification fans out through the abstraction\".",
+            "With providers \"log,smtp\" active, one emitted notification fans out to EACH active provider via a tokio::task::JoinSet (one timeout-wrapped deliver() task per provider, per-provider NOTIFICATION_DELIVERY_TIMEOUT_MS default 5000), and each delivery is recorded per provider and event through the delivery-counter emit seam foundry_notification_deliveries_total{provider,event,outcome} (ADR-003/004, mirroring rate_limit.rs:198-203).",
+            "A failing provider (smtp endpoint unreachable) is isolated: the \"log\" provider still delivers, the request returns its normal response, and the metric records provider \"smtp\" outcome \"failed\" beside provider \"log\" outcome \"delivered\" \u2014 notify() is INFALLIBLE, each deliver() contained in its own task (NFR-3, BR-2).",
+            "A slow provider (smtp hangs on connect) does not stall the originating request: the request returns its normal response without waiting on the slow provider (concurrent JoinSet \u21d2 wall-time \u2248 one timeout window regardless of N), and the smtp delivery is recorded outcome \"failed\" (timeout).",
+            "The two remaining shipped call sites are routed through the notifier \u2014 bootstrap invite (bootstrap.rs:258, event workspace_invite) and member invite (member_invites.rs:189, event member_invite) \u2014 so ALL three existing notifications fan out; each replaces its hand-rolled if-let-Err isolation with a bare state.notifier.notify(&n).await.",
+            "Genuinely RED by MISSING: no JoinSet fan-out executor, no per-provider timeout containment, no delivery-counter emit seam, and no notifier wiring at bootstrap.rs:258 / member_invites.rs:189 exist yet \u2014 each @pending scenario panics until built (assertion-class RED, never BROKEN); fan-out is await-bounded so the synchronous recorder-double assertions hold.",
+            "5-phase TDD (PREPARE -> RED_ACCEPTANCE -> RED_UNIT -> GREEN -> COMMIT); removes @pending from only these four scenarios; run with FOUNDRY_ACCEPTANCE_TAGS=us-03; ZERO new crate, ZERO migration."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/notification-delivery-providers.feature",
+          "scenario_name": "One notification fans out to every active provider",
+          "implementation_scope": {
+            "source_directories": [
+              "crates/foundry-app/src/notify.rs",
+              "crates/foundry-app/src/bootstrap.rs",
+              "crates/foundry-app/src/member_invites.rs",
+              "crates/foundry-app/src/main.rs"
+            ],
+            "test_directories": [
+              "crates/foundry-acceptance/src/support/",
+              "crates/foundry-acceptance/src/steps/",
+              "crates/foundry-acceptance/tests/"
+            ]
+          }
+        },
+        {
+          "id": "03-02",
+          "name": "Delivery metric: register-at-zero on first scrape and bounded-label cardinality fail-closed",
+          "criteria": [
+            "Greens exactly these scenarios: \"The delivery metric is registered at zero on first scrape\" and \"The delivery metric labels stay bounded\".",
+            "At startup the delivery metric family foundry_notification_deliveries_total is registered at 0 across the bounded cross-product (active providers \u00d7 NotificationEvent catalog \u00d7 {delivered,failed}) via a describe_counter! + register-at-0 idiom (mirroring main.rs:355-363), so every series is present on the /metrics sidecar (metrics_server.rs:66) at zero on first scrape before any delivery fires.",
+            "The delivery metric labels stay within their bounded sets: {provider,event,outcome} draw only from the closed ProviderKind / NotificationEvent / outcome enums, and a fail-closed cardinality unit test (mirroring metrics_server.rs:374-428) asserts the emitted label KEY set is EXACTLY {provider,event,outcome} and fails closed on any added or unbounded label value (ADR-004/ADR-011).",
+            "Genuinely RED by MISSING: no register-at-0 cross-product describe/registration at startup and no bounded-label cardinality guard exist yet \u2014 each @pending scenario panics until built (assertion-class RED, never BROKEN).",
+            "Green-by-inheritance once 03-01's delivery-counter emit seam exists; this step adds the register-at-0 startup registration and the bounded-label enforcement. 5-phase TDD (PREPARE -> RED_ACCEPTANCE -> RED_UNIT -> GREEN -> COMMIT); removes @pending from only these two scenarios; closes the v1 boundary (slices 01-03); run with FOUNDRY_ACCEPTANCE_TAGS=us-03; ZERO new crate, ZERO migration."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/notification-delivery-providers.feature",
+          "scenario_name": "The delivery metric is registered at zero on first scrape",
+          "implementation_scope": {
+            "source_directories": [
+              "crates/foundry-app/src/notify.rs",
+              "crates/foundry-app/src/main.rs",
+              "crates/foundry-app/src/metrics_server.rs"
+            ],
+            "test_directories": [
+              "crates/foundry-acceptance/src/support/",
+              "crates/foundry-acceptance/src/steps/",
+              "crates/foundry-acceptance/tests/"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "04",
+      "name": "Webhook / generic HTTP POST provider (US-04)",
+      "steps": [
+        {
+          "id": "04-01",
+          "name": "Webhook POST delivery, no-POST health probe, and HMAC-signed payload without secret leak",
+          "criteria": [
+            "Greens exactly these scenarios: \"A notification is posted to the configured webhook\", \"The webhook health probe makes no POST to the receiver\", and \"A signed webhook payload carries a signature without leaking the secret\".",
+            "With \"webhook\" active and a valid WEBHOOK_URL, a member invite is issued for \"sam.okafor@acme.example\" and a JSON payload describing the event ({event,recipient,subject,body}) is posted to the local webhook receiver double via reqwest 0.12 (Cargo.toml:104, already a workspace dep \u2014 NO new HTTP client); the delivery is recorded for provider \"webhook\", event \"member_invite\", outcome \"delivered\".",
+            "The WebhookProvider probe() makes NO POST to the receiver \u2014 it is host-reachability only (N-ODD-3, ADR-006 \u00a7Probe); the local receiver double asserts zero probe-time POSTs, satisfying the Earned-Trust wire-then-probe-then-use invariant without side-effecting the channel.",
+            "With WEBHOOK_SIGNING_SECRET set, the delivery carries a signature header derived from the secret (HMAC-SHA256 over the JSON body via hmac 0.12 + sha2 0.10, Cargo.toml:61-62), and the WEBHOOK_SIGNING_SECRET value never appears in any log, error, metric label, or debug output (SecretString + no-Debug port, ADR-006).",
+            "Genuinely RED by MISSING: no WebhookProvider adapter, no reqwest POST path, no host-reachability probe(), and no HMAC-signature header exist yet \u2014 each @pending scenario panics until built (assertion-class RED, never BROKEN); the webhook receiver is an in-process test double, no real POST leaves the test process.",
+            "5-phase TDD (PREPARE -> RED_ACCEPTANCE -> RED_UNIT -> GREEN -> COMMIT); removes @pending from only these three scenarios; run with FOUNDRY_ACCEPTANCE_TAGS=us-04; ZERO new crate, ZERO migration."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/notification-delivery-providers.feature",
+          "scenario_name": "A notification is posted to the configured webhook",
+          "implementation_scope": {
+            "source_directories": [
+              "crates/foundry-app/src/notify/",
+              "crates/foundry-app/src/notify.rs",
+              "crates/foundry-app/src/main.rs"
+            ],
+            "test_directories": [
+              "crates/foundry-acceptance/src/support/",
+              "crates/foundry-acceptance/src/steps/",
+              "crates/foundry-acceptance/tests/"
+            ]
+          }
+        },
+        {
+          "id": "04-02",
+          "name": "Webhook receiver isolation and missing-URL fail-fast",
+          "criteria": [
+            "Greens exactly these scenarios: \"A rejecting webhook receiver is isolated\" and \"A webhook provider missing its URL fails fast at startup\".",
+            "With \"log,webhook\" active and the webhook endpoint rejecting the delivery (non-2xx), a member invite for \"sam.okafor@acme.example\" records provider \"webhook\", event \"member_invite\", outcome \"failed\"; the request returns its normal response and the other active providers still deliver \u2014 per-provider isolation via the JoinSet from 03-01 (NFR-3).",
+            "An operator listing \"webhook\" without the required setting WEBHOOK_URL makes Foundry refuse startup and exit non-zero; the startup error names provider \"webhook\" and the missing setting \"WEBHOOK_URL\" \u2014 build_notifier validates required webhook env before construction (fail-fast, NFR-1, ADR-002).",
+            "Genuinely RED by MISSING: the webhook non-2xx -> DeliveryError classification arm and the WEBHOOK_URL required-setting validation arm do not exist yet \u2014 each @pending scenario panics until built (assertion-class RED, never BROKEN).",
+            "Green-by-inheritance once 04-01's WebhookProvider and 03-01's isolation machinery exist; this step adds the receiver-rejection and missing-URL fail-fast arms. 5-phase TDD (PREPARE -> RED_ACCEPTANCE -> RED_UNIT -> GREEN -> COMMIT); removes @pending from only these two scenarios; run with FOUNDRY_ACCEPTANCE_TAGS=us-04; ZERO new crate, ZERO migration."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/notification-delivery-providers.feature",
+          "scenario_name": "A webhook provider missing its URL fails fast at startup",
+          "implementation_scope": {
+            "source_directories": [
+              "crates/foundry-app/src/notify/",
+              "crates/foundry-app/src/notify.rs",
+              "crates/foundry-app/src/main.rs"
+            ],
+            "test_directories": [
+              "crates/foundry-acceptance/src/support/",
+              "crates/foundry-acceptance/src/steps/",
+              "crates/foundry-acceptance/tests/"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "05",
+      "name": "Hosted email vendor API provider (US-05)",
+      "steps": [
+        {
+          "id": "05-01",
+          "name": "Hosted email API delivery, rate-limit isolation without retry, and API-key fail-fast without leak",
+          "criteria": [
+            "Greens exactly these scenarios: \"A reset email is delivered through the hosted email API\", \"A vendor rate-limit response is isolated and not retried in v1\", and \"A hosted email API missing its key fails fast without leaking it\".",
+            "With \"email_api\" active (EMAIL_API_URL/EMAIL_API_KEY/EMAIL_API_FROM), a password reset is delivered through the \"email_api\" provider and recorded for provider \"email_api\", event \"password_reset\", outcome \"delivered\" \u2014 the EmailApiProvider POSTs to the vendor HTTPS API via reqwest, sending EMAIL_API_KEY (secrecy::SecretString) as a credential header only, used solely to construct the request.",
+            "With \"log,email_api\" active and the vendor rejecting the delivery (e.g. 429), the delivery is recorded provider \"email_api\", outcome \"failed\"; the request returns its normal response, the other active providers still deliver, and no automatic retry is attempted (best-effort at-most-once for v1, NFR-6, ADR-007).",
+            "An operator listing \"email_api\" without EMAIL_API_KEY makes Foundry refuse startup and exit non-zero; the startup error names provider \"email_api\" and the missing setting \"EMAIL_API_KEY\", and the EMAIL_API_KEY value never appears in any log, error, metric label, or debug output (NFR-1 + NFR-2, ADR-002/006).",
+            "Genuinely RED by MISSING: no EmailApiProvider adapter, no vendor-API POST path with credential-header key handling, no 429 -> failed no-retry arm, and no EMAIL_API_KEY required-setting validation exist yet \u2014 each @pending scenario panics until built (assertion-class RED, never BROKEN); the vendor API is an in-process recorder double, no real hosted-vendor call leaves the test process.",
+            "5-phase TDD (PREPARE -> RED_ACCEPTANCE -> RED_UNIT -> GREEN -> COMMIT); removes @pending from only these three scenarios; run with FOUNDRY_ACCEPTANCE_TAGS=us-05; ZERO new crate, ZERO migration."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/notification-delivery-providers.feature",
+          "scenario_name": "A reset email is delivered through the hosted email API",
+          "implementation_scope": {
+            "source_directories": [
+              "crates/foundry-app/src/notify/",
+              "crates/foundry-app/src/notify.rs",
+              "crates/foundry-app/src/main.rs"
+            ],
+            "test_directories": [
+              "crates/foundry-acceptance/src/support/",
+              "crates/foundry-acceptance/src/steps/",
+              "crates/foundry-acceptance/tests/"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "06",
+      "name": "Two new catalog events route through the same abstraction (US-06)",
+      "steps": [
+        {
+          "id": "06-01",
+          "name": "member_removed + password_changed events with fan-out, isolation, and bounded labels",
+          "criteria": [
+            "Greens exactly these scenarios: \"Removing a member notifies that person through configured channels\", \"Changing a password notifies the account owner\", \"A new event flows through fan-out and isolation like the existing ones\", and \"The event label set stays bounded as the catalog grows\".",
+            "member_removed and password_changed are added as variants to the closed NotificationEvent enum (one variant + one as_str() arm each, ADR-005) and emitted at their handlers: the remove-member admin action (emits member_removed for the removed person) and the password-change flow (emits password_changed for the account owner) \u2014 each via one state.notifier.notify(&n).await with ZERO transport code at the call site.",
+            "With \"log,smtp\" active, removing member \"maria.santos@acme.example\" from \"Acme\" delivers member_removed through both \"log\" and \"smtp\" and records provider \"log\", event \"member_removed\", outcome \"delivered\"; with \"log\" active, member \"maria.santos@acme.example\" changing their password delivers password_changed through \"log\" recorded event \"password_changed\", outcome \"delivered\".",
+            "A new event obeys best-effort isolation exactly like the existing ones: with \"log,smtp\" active and smtp unreachable, a member_removed fires \u2014 the \"log\" provider still delivers, the request returns its normal response, and the metric records provider \"smtp\", event \"member_removed\", outcome \"failed\" (NFR-3); and the delivery metric labels stay within their bounded sets with the cardinality check failing closed on an unbounded label value (BR-7, ADR-011).",
+            "Genuinely RED by MISSING: the member_removed and password_changed enum variants + as_str() arms and the two handler emit sites do not exist yet \u2014 each @pending scenario panics until built (assertion-class RED, never BROKEN); the two new events reuse the fan-out, isolation, and bounded-label machinery from slice 03 unchanged.",
+            "5-phase TDD (PREPARE -> RED_ACCEPTANCE -> RED_UNIT -> GREEN -> COMMIT); removes @pending from only these four scenarios (the final four \u2014 the whole suite is now fully un-skipped and green); run with FOUNDRY_ACCEPTANCE_TAGS=us-06; ZERO new crate, ZERO migration."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/notification-delivery-providers.feature",
+          "scenario_name": "Removing a member notifies that person through configured channels",
+          "implementation_scope": {
+            "source_directories": [
+              "crates/foundry-app/src/notify.rs",
+              "crates/foundry-app/src/instance_admin.rs",
+              "crates/foundry-app/src/member_invites.rs",
+              "crates/foundry-app/src/signin.rs",
+              "crates/foundry-app/src/session.rs"
+            ],
+            "test_directories": [
+              "crates/foundry-acceptance/src/support/",
+              "crates/foundry-acceptance/src/steps/",
+              "crates/foundry-acceptance/tests/"
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "implementation_scope": {
+    "source_directories": [
+      "crates/foundry-app/src/notify.rs",
+      "crates/foundry-app/src/notify/",
+      "crates/foundry-app/src/main.rs",
+      "crates/foundry-app/src/lib.rs",
+      "crates/foundry-app/src/signin.rs",
+      "crates/foundry-app/src/bootstrap.rs",
+      "crates/foundry-app/src/member_invites.rs",
+      "crates/foundry-app/src/instance_admin.rs",
+      "crates/foundry-app/src/session.rs",
+      "crates/foundry-app/src/metrics_server.rs",
+      "crates/foundry-app/src/email.rs"
+    ],
+    "test_directories": [
+      "crates/foundry-acceptance/src/support/",
+      "crates/foundry-acceptance/src/steps/",
+      "crates/foundry-acceptance/tests/"
+    ],
+    "excluded_patterns": [
+      "target/**",
+      "**/*.md"
+    ]
+  },
+  "validation": {
+    "status": "approved",
+    "reviewer": "nw-acceptance-designer-reviewer",
+    "authored_at": "2026-07-10",
+    "notes": "27 @pending scenarios across 6 user stories mapped to 10 steps; v1 gate = phases 01-03. Zero new crates, zero migration, zero new infra (reqwest/lettre/hmac/sha2/secrecy already workspace deps). Contract tests recommended to platform-architect for the SMTP, webhook, and hosted-email-API external transports (consumer-driven / recorded-interaction) as the build-time half of the Earned-Trust startup probe.",
+    "reviewed_at": "2026-07-10T00:00:00Z"
+  }
+}

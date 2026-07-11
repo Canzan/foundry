@@ -25,6 +25,7 @@
 
 use crate::support::file_upload_env;
 use crate::support::harness::InProcHarness;
+use crate::support::notify_recorder::{notifier_from_recorder, DeliveryRecorder};
 use crate::support::pg_backup::{
     dump_schema_to_file, fresh_dump_path, restore_file_to_schema, spawn_restore_target,
     truncate_dump,
@@ -33,8 +34,8 @@ use crate::world::FoundryWorld;
 use assert_cmd::Command as AssertCommand;
 use cucumber::{given, then, when};
 use foundry_app::clock::MockClock;
-use foundry_app::email::FakeEmailSender;
 use foundry_app::test_support::spawn_app_with_listener;
+use foundry_app::ProviderKind;
 use foundry_app::{AppState, DEFAULT_FILE_UPLOAD_MAX_MB, DEFAULT_SSE_HEARTBEAT_MS};
 use foundry_store::Store;
 use reqwest::header::HeaderMap;
@@ -973,7 +974,7 @@ async fn point_replica_at_restored(world: &mut FoundryWorld) {
     // already carries the post-migration schema.
     let realtime_tx = foundry_realtime::build_broadcast();
     let fake_clock = MockClock::new(now_anchor());
-    let fake_email = FakeEmailSender::new();
+    let fake_email = DeliveryRecorder::new();
     let file_upload_max_mb =
         file_upload_env::current_file_upload_max_mb().unwrap_or(DEFAULT_FILE_UPLOAD_MAX_MB);
     let store = Arc::new(Store::from_pool(pool));
@@ -989,7 +990,7 @@ async fn point_replica_at_restored(world: &mut FoundryWorld) {
         db_schema: schema.clone(),
         public_url: "http://localhost".into(),
         clock: fake_clock.clone(),
-        email: fake_email.clone(),
+        notifier: notifier_from_recorder(&fake_email, &[ProviderKind::Log]),
         revoke_rate_limiter: Arc::new(foundry_app::rate_limit::RevokeRateLimiter::default()),
         realtime_tx,
         sse_heartbeat_ms: DEFAULT_SSE_HEARTBEAT_MS,

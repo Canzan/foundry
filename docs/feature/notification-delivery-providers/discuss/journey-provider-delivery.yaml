@@ -1,0 +1,325 @@
+schema_version: 1
+
+journey:
+  name: "Notification Delivery Providers — configure channels, emit once, deliver everywhere"
+  goal: "Generalize the shipped single EmailSender port into a pluggable NotificationProvider abstraction with a provider registry + config-driven selection, and fan out one emitted notification to all active providers with per-provider best-effort failure isolation and per-provider delivery observability."
+  personas:
+    - "Ops Olivia (olivia.okonkwo@acme.example) — SRE running Foundry for Acme; configures the active providers via env and watches delivery."
+    - "Dev Dan (dan.novak@acme.example) — backend developer; emits one notification event and trusts delivery through whatever channels are configured."
+    - "Maria Santos (maria.santos@acme.example) — downstream recipient (reset/invite/removed); her PREFERENCES are the carved-out successor feature, not built here."
+
+  scope:
+    in_scope:
+      - "NotificationProvider port generalizing EmailSender::send (email.rs:19-22)."
+      - "Provider registry + config-driven selection (NOTIFICATION_PROVIDERS + per-provider env, std::env::var house style)."
+      - "Log/stdout provider (walking skeleton); SMTP provider (realizes the declared-but-unused lettre dep behind the port); fan-out with best-effort per-provider isolation; Webhook/HTTP POST provider; Hosted email API provider."
+      - "Routing the three existing notifications (password reset signin.rs:235, bootstrap invite bootstrap.rs:258, member invite member_invites.rs:189) through the abstraction, preserving best-effort/non-fatal behavior."
+      - "Per-provider delivery counter foundry_notification_deliveries_total{provider,event,outcome} on the existing /metrics sidecar."
+      - "A couple of new notification event types (member_removed, password_changed) as first consumers."
+    out_of_scope:
+      - "Recipient / per-user notification PREFERENCES (opt-in/out, per-channel routing, digests, quiet-hours) — carved out to successor feature recipient-notification-preferences."
+      - "Durable retry / guaranteed delivery (outbox-backed) — v1 is best-effort at-most-once (ODD-7)."
+      - "Templating/rich rendering engine."
+      - "A provider-management web UI or CLI (selection is env-config only; no new accessibility surface, NFR-7)."
+
+  brownfield_reuse:
+    - "EmailSender trait (async send(to,subject,body)->Result, Debug-bounded) — foundry-app email.rs:19-22. The port to generalize."
+    - "NoopEmailSender (only prod impl) — email.rs:26-34. Becomes the 'no active providers' behavior (BR-1, NFR-5)."
+    - "FakeEmailSender + set_failing() outage injection — email.rs:38-89. Test double + failure-injection seam for isolation tests."
+    - "Injection point Arc::new(NoopEmailSender) in AppState literal — main.rs:265. Composition root for the registry factory."
+    - "AppState.email: Arc<dyn EmailSender> DI field — lib.rs:92. Generalized to the notifier handle."
+    - "Three best-effort/non-fatal call sites — signin.rs:235, bootstrap.rs:258, member_invites.rs:189. The log-and-continue contract IS the isolation semantics generalized to N providers."
+    - "metrics facade + Prometheus /metrics sidecar — metrics_server.rs:45-77; labelled-counter template foundry_token_mutations_total rate_limit.rs:98,198-203; register-at-0 main.rs:355-363; ADR-011 bounded labels metrics_server.rs:99-108."
+    - "Config style: direct std::env::var, .env via dotenvy, DEFAULT_* consts, .context() for required — main.rs:99,102-262."
+    - "Realtime EventPayload forward-compat envelope, stringly-typed event_type — foundry-realtime/src/lib.rs:66-105. House pattern for the notification catalog (ODD-6). Distinct concern from delivery (events.rs is the SSE handler)."
+
+  new_logic:
+    - "NotificationProvider port (generalizes EmailSender; email-centric vs structured Notification is ODD-1)."
+    - "Provider registry + config parse + startup validation (env schema ODD-2; fail-fast NFR-1)."
+    - "Fan-out executor with best-effort per-provider isolation + timeout (ODD-3) and error taxonomy (ODD-4)."
+    - "Four provider adapters: log (slice 01), smtp/lettre (slice 02), webhook (slice 04), email_api (slice 05)."
+    - "Per-provider delivery counter foundry_notification_deliveries_total{provider,event,outcome} (ODD-5)."
+    - "Notification catalog + two new event types member_removed, password_changed (slice 06; ODD-6)."
+
+  emotional_arc:
+    operator:
+      start: "Anxious / uncertain — 'are notifications even firing? It's a black box (only a no-op sender today).'"
+      middle: "Growing confidence — low-friction env config; brief suspense at first delivery."
+      end: "Relief and control — 'I can see every channel's success/failure on /metrics; Foundry speaks our stack.'"
+    developer:
+      start: "Mild dread — 'I have to notify the removed member; do I wire SMTP myself?'"
+      middle: "Relief — one notify(event) call, no transport plumbing; growing confidence a broken channel can't sink the request."
+      end: "Confidence and belonging — 'it fans out to every configured channel and can't break my handler. Shipped.'"
+
+steps:
+  - id: C1
+    name: "Config — operator selects the active providers (env)"
+    command: "set NOTIFICATION_PROVIDERS + per-provider env vars"
+    tui_mockup: |
+      +-- .env  (12-factor, mirrors main.rs config style) -------+
+      | NOTIFICATION_PROVIDERS = log,smtp                        |
+      | SMTP_HOST=smtp.acme.internal  SMTP_PORT=587              |
+      | SMTP_USERNAME=foundry-mailer  SMTP_PASSWORD=${SECRET}    |
+      | SMTP_FROM=foundry@acme.example                          |
+      +----------------------------------------------------------+
+    shared_artifacts:
+      - name: "provider_config"
+        source: "environment variables read at the composition root (main.rs:265, alongside main.rs:242-262) via std::env::var — no config file (BR-5)"
+        displayed_as: "${provider_config}"
+        consumers: ["provider registry construction", "each provider's transport settings"]
+      - name: "secrets"
+        source: "SMTP_PASSWORD / WEBHOOK_SIGNING_SECRET / EMAIL_API_KEY — env only"
+        displayed_as: "${secrets}"
+        consumers: ["provider construction ONLY — never logs, errors, metric labels, or Debug (NFR-2, ODD-8)"]
+    emotional_state:
+      entry: "anxious — black box"
+      exit: "growing confidence — familiar env-var ergonomics"
+    integration_checkpoint: |
+      Selection is read once at startup with direct std::env::var (house style). Unset NOTIFICATION_PROVIDERS
+      => no active providers => Noop-equivalent (BR-1, NFR-5). Secrets are read from env into providers only.
+    failure_modes:
+      - "C-E3 No providers configured: unset list -> app starts, delivers nothing (Noop-equivalent, existing flows unchanged)"
+      - "C-E4 Secret in wrong place: secrets read from env into provider only; never observable (NFR-2)"
+    gherkin: |
+      Scenario: With no providers configured, delivery is a silent no-op
+        Given Olivia has left NOTIFICATION_PROVIDERS unset
+        When a user submits a password-reset request
+        Then the request returns its normal response
+        And no notification is delivered and no error is raised
+
+  - id: C2
+    name: "Config — validate config and build the provider registry (fail-fast)"
+    command: "app startup: build_provider_registry(env)"
+    tui_mockup: |
+      +-- startup: build_provider_registry(env) ----------------+
+      | parse NOTIFICATION_PROVIDERS -> [log, smtp]             |
+      | each listed: known name? required settings present?     |
+      |   else ABORT (non-zero, secret-free message)            |
+      | construct providers (secret-safe Debug, ODD-8)          |
+      | -> ${provider_registry} = ordered active set            |
+      +----------------------------------------------------------+
+    shared_artifacts:
+      - name: "provider_registry"
+        source: "built once at startup from ${provider_config} — the ordered set of active providers"
+        displayed_as: "${provider_registry}"
+        consumers: ["AppState notifier handle (generalizes AppState.email lib.rs:92)", "the fan-out executor at every call site"]
+    emotional_state:
+      entry: "growing confidence"
+      exit: "control — clean start, or an immediate clear config error"
+    integration_checkpoint: |
+      A provider listed but missing a required setting, or an unknown provider name, fails fast at startup with
+      an operator-actionable, secret-free error and a non-zero exit (NFR-1, BR-6). A provider not listed is
+      inactive — never constructed. This happens BEFORE the app serves any request.
+    failure_modes:
+      - "C-E1 Missing required setting: 'smtp' listed, SMTP_HOST unset -> fail-fast naming provider + setting, non-zero exit, no secret"
+      - "C-E2 Unknown provider name: NOTIFICATION_PROVIDERS=logg -> fail-fast naming unknown + known set"
+    gherkin: |
+      Scenario: An unknown provider name fails fast at startup
+        Given Olivia has set NOTIFICATION_PROVIDERS to "logg"
+        When Foundry starts
+        Then startup aborts with an error naming the unknown provider and the known ones
+        And the process exits non-zero
+
+      Scenario: A provider missing a required setting fails fast without leaking a secret
+        Given Olivia has listed "smtp" but not set SMTP_HOST
+        When Foundry starts
+        Then startup aborts naming the smtp provider and the missing SMTP_HOST
+        And no secret value appears in the error
+        And the process exits non-zero
+
+  - id: D1
+    name: "Delivery — a call site emits one notification (developer view)"
+    command: "state.notifier.notify(Notification::...) at a call site"
+    tui_mockup: |
+      +-- signin.rs::submit_forgot (POST /forgot-password) ------+
+      | // BEFORE: state.email.send(&email, subject, &body)      |
+      | // AFTER:  state.notifier.notify(                        |
+      | //           Notification::password_reset(&email,&body)) |
+      | //         .await  // best-effort, non-fatal (unchanged) |
+      +----------------------------------------------------------+
+    shared_artifacts:
+      - name: "notification"
+        source: "constructed at the emit call site (event type + recipient + content) — the ONE thing the developer emits"
+        displayed_as: "${notification}"
+        consumers: ["the fan-out executor", "every active provider's deliver()"]
+      - name: "event_type"
+        source: "the bounded notification catalog (password_reset, workspace_invite, member_invite, + member_removed, password_changed) — BR-7"
+        displayed_as: "${event_type}"
+        consumers: ["the delivery metric 'event' label", "the log line", "provider routing"]
+    emotional_state:
+      entry: "mild dread — do I wire the transport?"
+      exit: "relief — one call, no transport plumbing"
+    integration_checkpoint: |
+      The call site emits ONE ${notification} through the notifier; it is transport-agnostic (JOB-2). The
+      best-effort/non-fatal contract is identical to the shipped state.email.send (NFR-5, BR-3). Slice 01
+      routes the password-reset site; slice 03 routes the two invite sites; slice 06 adds new event types.
+    failure_modes:
+      - "(emit itself cannot fail the request — notify is best-effort; delivery outcomes are handled in D2)"
+    gherkin: |
+      Scenario: A password-reset notification is delivered through the selected log provider
+        Given Olivia has set NOTIFICATION_PROVIDERS to "log" and started Foundry
+        When a user submits a password-reset request for "maria.santos@acme.example"
+        Then the reset notification is delivered through the log provider
+        And Olivia sees one structured log line naming the event and recipient
+        And the request returns its normal response
+
+  - id: D2
+    name: "Delivery — fan out to every active provider, best-effort isolated (registry view)"
+    command: "registry.notify(${notification}) -> N independent attempts"
+    tui_mockup: |
+      +-- registry.notify(${notification}) (isolated) ----------+
+      | for each active provider in ${provider_registry}:       |
+      |   bounded attempt (ODD-3): provider.deliver(notif)      |
+      |     Ok  -> ${delivery_outcome}=delivered                |
+      |     Err -> ${delivery_outcome}=failed (log+count; NEVER |
+      |             propagate to request or other providers)    |
+      | return () -- request never waits on / fails on delivery |
+      +----------------------------------------------------------+
+      log --[delivered]--> stdout ; smtp --[relay down]--> failed
+    shared_artifacts:
+      - name: "delivery_outcome"
+        source: "each provider's deliver() result — delivered | failed"
+        displayed_as: "${delivery_outcome}"
+        consumers: ["the best-effort logger", "the delivery metric outcome label"]
+    emotional_state:
+      entry: "developer: fragility fear — can a broken channel fail me?"
+      exit: "confidence — isolation holds; user unaffected"
+    integration_checkpoint: |
+      THE CRUX (NFR-3, US-03): for any active set and any single provider failing (refused, 5xx, timeout),
+      every OTHER active provider still delivers AND the originating request returns normally. A slow provider
+      is bounded by the fan-out execution model (ODD-3) so it cannot stall the handler. A litmus must RED if a
+      provider error propagates to the request or suppresses another provider.
+    failure_modes:
+      - "D-E1 Provider refused/5xx: counted outcome=failed, logged; request + other providers unaffected"
+      - "D-E2 Provider hangs: bounded by fan-out timeout (ODD-3) -> counted failed; request not stalled"
+      - "D-E3 Vendor 429: counted failed; NO retry in v1 (NFR-6)"
+      - "D-E4 All providers fail: each counted failed; request STILL returns normally (notification lost, best-effort v1)"
+      - "D-E5 Transient outage, no retry: that provider's copy dropped, counted failed (durable retry deferred, ODD-7)"
+    gherkin: |
+      Scenario: One notification fans out to all active providers
+        Given Olivia has set NOTIFICATION_PROVIDERS to "log,smtp" and both are reachable
+        When a bootstrap workspace invite is issued for "newadmin@acme.example"
+        Then the invite notification is delivered through both the log and smtp providers
+        And the delivery metric records one delivered outcome for each provider
+
+      Scenario: One provider failing does not affect the others or the request
+        Given NOTIFICATION_PROVIDERS is "log,smtp" and the smtp relay is unreachable
+        When a user submits a password-reset request for "maria.santos@acme.example"
+        Then the log provider still delivers the notification
+        And the request returns its normal response
+        And shared artifact "${delivery_outcome}" is failed for smtp and delivered for log
+
+      @property
+      Scenario: A provider failure never fails or blocks the originating request
+        Given any active provider set with one provider guaranteed to fail
+        When any notification is emitted
+        Then the originating request returns its normal response
+        And every other active provider still delivers
+        And no request failure is attributable to delivery
+
+  - id: D3
+    name: "Delivery — observe per-provider outcome (operator view)"
+    command: "GET /metrics (existing Prometheus sidecar)"
+    tui_mockup: |
+      +-- GET /metrics -----------------------------------------+
+      | foundry_notification_deliveries_total{provider="log",   |
+      |   event="password_reset",outcome="delivered"} 12        |
+      | foundry_notification_deliveries_total{provider="smtp",  |
+      |   event="password_reset",outcome="delivered"} 11        |
+      | foundry_notification_deliveries_total{provider="smtp",  |
+      |   event="password_reset",outcome="failed"}     1        |
+      +----------------------------------------------------------+
+    shared_artifacts:
+      - name: "delivery_metric"
+        source: "metrics::counter!(\"foundry_notification_deliveries_total\", ...).increment(1) — mirrors foundry_token_mutations_total (rate_limit.rs:198-203), registered at 0 (main.rs:355-363)"
+        displayed_as: "foundry_notification_deliveries_total{provider,event,outcome}"
+        consumers: ["the /metrics sidecar (metrics_server.rs:66)", "operator dashboards / alerts (DEVOPS)"]
+    emotional_state:
+      entry: "brief suspense — did it deliver?"
+      exit: "relief and control — per-channel visibility"
+    integration_checkpoint: |
+      Each ${delivery_outcome} increments exactly one series; the sum over one notification with N active
+      providers is N, split by outcome (NFR-4). Labels stay bounded (provider,event,outcome) per ADR-011; a
+      cardinality test fails closed on an unbounded label (pattern at metrics_server.rs:374-428).
+    failure_modes:
+      - "R6 Cardinality blow-up: an unbounded event/provider label -> caught by the fail-closed cardinality test (BR-7)"
+    gherkin: |
+      Scenario: Per-provider delivery is visible on /metrics
+        Given NOTIFICATION_PROVIDERS is "log,smtp" and several notifications have fired
+        When Olivia scrapes /metrics
+        Then foundry_notification_deliveries_total is present with provider, event, and outcome labels
+        And the counts reflect the delivered and failed outcomes per provider
+
+  - id: D4
+    name: "New event types — a developer adds a first consumer (slice 06)"
+    command: "state.notifier.notify(Notification::member_removed(...))"
+    tui_mockup: |
+      +-- members.rs::remove_member ----------------------------+
+      | ... remove Maria from Northwind ...                     |
+      | state.notifier.notify(                                  |
+      |   Notification::member_removed(                         |
+      |     "maria.santos@acme.example", "Northwind")).await;   |
+      | // one emit call, no transport code                     |
+      +----------------------------------------------------------+
+    shared_artifacts:
+      - name: "event_type"
+        source: "the bounded catalog, extended with member_removed and password_changed (BR-7) — mirrors the EventPayload forward-compat envelope (foundry-realtime/src/lib.rs:66-105, ODD-6)"
+        displayed_as: "${event_type}"
+        consumers: ["fan-out delivery", "the 'event' metric label", "the log line"]
+    emotional_state:
+      entry: "developer: 'do I wire a new transport for this?'"
+      exit: "belonging — a catalog entry + one call, delivered everywhere configured"
+    integration_checkpoint: |
+      A new event type is an explicit bounded-catalog addition (BR-7) so the 'event' metric label stays
+      bounded. Adding one is a catalog entry + a single notify() call — no transport plumbing (JOB-2). It fans
+      out and isolates exactly like the existing notifications.
+    failure_modes:
+      - "D-E1..D-E5 apply identically to new event types (isolation, no retry, bounded label)"
+    gherkin: |
+      Scenario: Removing a member notifies that person through configured channels
+        Given NOTIFICATION_PROVIDERS is "log,smtp" and an admin removes "maria.santos@acme.example" from "Northwind"
+        When the remove-member action completes
+        Then a member_removed notification is delivered to Maria through both providers
+        And each delivery is counted with event "member_removed"
+
+      Scenario: A new event type flows through fan-out and isolation like the existing ones
+        Given NOTIFICATION_PROVIDERS is "log,smtp" and the smtp relay is unreachable
+        When a member_removed notification fires
+        Then the log provider still delivers it and the request is unaffected
+        And the failure is counted with provider "smtp", event "member_removed", outcome "failed"
+
+integration_validation:
+  shared_artifact_consistency:
+    - artifact: "provider_config"
+      must_match_across: ["C1", "C2"]
+      failure_message: "The env config parsed differs from what the registry is built from — provider selection mismatch."
+    - artifact: "provider_registry"
+      must_match_across: ["C2", "D2"]
+      failure_message: "The active set built at startup differs from what fan-out delivers to — a provider is silently active or inactive."
+    - artifact: "event_type"
+      must_match_across: ["D1", "D3", "D4"]
+      failure_message: "The event a call site emits differs from the 'event' metric label — observability mislabels deliveries."
+    - artifact: "delivery_outcome"
+      must_match_across: ["D2", "D3"]
+      failure_message: "A provider's delivery result differs from the counted outcome — the metric misrepresents delivery health."
+  failure_isolation_invariant: |
+    For any active provider set and any single provider failing (connection refused, 5xx, timeout), every
+    OTHER active provider still delivers AND the originating request returns its normal response. Zero request
+    failures are attributable to delivery. A litmus must RED if a provider error propagates to the request or
+    suppresses another provider (NFR-3).
+  secret_non_leakage_invariant: |
+    SMTP_PASSWORD, WEBHOOK_SIGNING_SECRET, and EMAIL_API_KEY values appear in NO log line, error message,
+    metric label, or Debug output across any full deliver cycle. A litmus must RED if a secret value appears
+    in any observable output (NFR-2, ODD-8).
+  config_fail_fast_invariant: |
+    A provider listed but missing a required setting, or an unknown provider name, aborts startup non-zero with
+    a provider-named, secret-free error. A provider not listed is inactive and never constructed (NFR-1, BR-6).
+  bounded_metric_invariant: |
+    foundry_notification_deliveries_total labels stay within their bounded domains (provider ∈ {log,smtp,
+    webhook,email_api}; event ∈ the catalog; outcome ∈ {delivered,failed}); a cardinality test fails closed on
+    an unbounded value (ADR-011, BR-7).
+
+changelog:
+  - date: "2026-07-10"
+    feature: "notification-delivery-providers"
+    change: "Initial journey: generalizes the shipped single EmailSender port into a pluggable NotificationProvider abstraction with a provider registry + config-driven selection (NOTIFICATION_PROVIDERS + per-provider env), fan-out to all active providers with best-effort per-provider failure isolation, and per-provider delivery observability (foundry_notification_deliveries_total). Four provider kinds (log/slice-01, smtp-lettre/slice-02, webhook/slice-04, email_api/slice-05), v1 boundary at slices 01-03. Routes the three existing best-effort notifications (signin.rs:235, bootstrap.rs:258, member_invites.rs:189) through the abstraction and adds two new event types (member_removed, password_changed/slice-06). Config (C-E1..E4) and runtime-delivery (D-E1..E5) sad paths first-class. Recipient preferences carved out to successor feature recipient-notification-preferences."

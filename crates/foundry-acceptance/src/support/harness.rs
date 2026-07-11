@@ -16,10 +16,10 @@
 
 use crate::support::file_upload_env;
 use crate::support::heartbeat_env;
+use crate::support::notify_recorder::{notifier_from_recorder, DeliveryRecorder};
 use foundry_app::clock::MockClock;
-use foundry_app::email::FakeEmailSender;
 use foundry_app::test_support::{spawn_app_with_listener, TestApp};
-use foundry_app::{AppState, DEFAULT_FILE_UPLOAD_MAX_MB, DEFAULT_SSE_HEARTBEAT_MS};
+use foundry_app::{AppState, ProviderKind, DEFAULT_FILE_UPLOAD_MAX_MB, DEFAULT_SSE_HEARTBEAT_MS};
 use foundry_store::Store;
 use once_cell::sync::OnceCell;
 use secrecy::SecretString;
@@ -235,7 +235,11 @@ pub async fn drop_schema(schema: &str) {
 pub struct InProcHarness {
     pub app: TestApp,
     pub fake_clock: Arc<MockClock>,
-    pub fake_email: Arc<FakeEmailSender>,
+    /// The shared delivery recorder wired behind this harness's [`Notifier`].
+    /// Named `fake_email` for continuity with the pre-generalization scenarios
+    /// that read `count_to`/`last_to`/`sent`/`set_failing`; the
+    /// notification-delivery scenarios read `recorded`/`delivered_through`.
+    pub fake_email: Arc<DeliveryRecorder>,
     pub schema: String,
 }
 
@@ -256,7 +260,16 @@ impl InProcHarness {
     /// minted through the product verifies on the `/api/v1` path (US-MT01 AC:
     /// "a token issued this way authenticates against the API").
     pub async fn spawn(now: time::OffsetDateTime) -> Self {
-        Self::spawn_inner(now, true).await
+        Self::spawn_inner(now, true, &[ProviderKind::Log]).await
+    }
+
+    /// Spawn a harness whose notifier fans out to a RECORDING provider per
+    /// requested kind (notification-delivery-providers). All providers record
+    /// into the shared `fake_email` recorder, so a step def reads deliveries per
+    /// provider + event + outcome. Models the operator's `NOTIFICATION_PROVIDERS`
+    /// selection without a real external transport.
+    pub async fn spawn_with_providers(now: time::OffsetDateTime, kinds: &[ProviderKind]) -> Self {
+        Self::spawn_inner(now, true, kinds).await
     }
 
     /// Spawn a VERIFIER-ONLY harness: `AppState.machine_token_signer` is `None`,
@@ -265,14 +278,18 @@ impl InProcHarness {
     /// server", graceful, OD1/DD2). The verifier is still present (every binary
     /// verifies).
     pub async fn spawn_verifier_only(now: time::OffsetDateTime) -> Self {
-        Self::spawn_inner(now, false).await
+        Self::spawn_inner(now, false, &[ProviderKind::Log]).await
     }
 
-    async fn spawn_inner(now: time::OffsetDateTime, issuer: bool) -> Self {
+    async fn spawn_inner(
+        now: time::OffsetDateTime,
+        issuer: bool,
+        provider_kinds: &[ProviderKind],
+    ) -> Self {
         let (schema, pool, listen_url) = fresh_schema_pool_with_url().await;
         let store = Arc::new(Store::from_pool(pool));
         let fake_clock = MockClock::new(now);
-        let fake_email = FakeEmailSender::new();
+        let fake_email = DeliveryRecorder::new();
         let realtime_tx = foundry_realtime::build_broadcast();
         let heartbeat_ms =
             heartbeat_env::current_heartbeat_ms().unwrap_or(DEFAULT_SSE_HEARTBEAT_MS);
@@ -304,7 +321,7 @@ impl InProcHarness {
             db_schema: schema.clone(),
             public_url: "http://localhost".into(),
             clock: fake_clock.clone(),
-            email: fake_email.clone(),
+            notifier: notifier_from_recorder(&fake_email, provider_kinds),
             // US-TMA05 — the per-principal revoke guardrail at the ratified
             // defaults (C=20, R=1/sec). Reads `clock` above (the MockClock), so
             // the burst scenario drives refill by advancing the mock clock — no

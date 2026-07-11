@@ -7,6 +7,7 @@ pub mod heartbeat_env;
 pub mod html_assertions;
 pub mod metrics_scrape;
 pub mod multi_replica_harness;
+pub mod notify_recorder;
 pub mod pg_backup;
 pub mod readme_inspect;
 pub mod round_robin_proxy;

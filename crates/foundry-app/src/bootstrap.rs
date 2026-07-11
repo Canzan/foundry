@@ -255,9 +255,15 @@ pub async fn create_invite(
         let body = format!(
             "You have been invited to join the workspace. Accept the invite here:\n\n{invite_url}\n\nThis link is valid for 7 days.",
         );
-        if let Err(err) = state.email.send(addr, subject, &body).await {
-            tracing::warn!(%err, "email send failed (invite link is still valid)");
-        }
+        // Best-effort delivery — a failure is non-fatal; the invite link is still
+        // rendered below.
+        let notification = crate::notify::Notification {
+            event: crate::notify::NotificationEvent::WorkspaceInvite,
+            recipient: addr.to_string(),
+            subject: subject.to_string(),
+            body,
+        };
+        state.notifier.notify(&notification).await;
     }
 
     let body = BootstrapInvite { invite_url }
