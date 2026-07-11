@@ -301,8 +301,24 @@ async fn provider_endpoint_hangs(world: &mut FoundryWorld, provider: String) {
 }
 
 #[given(regex = r#"^the "([^"]+)" endpoint rejects the delivery$"#)]
-async fn provider_endpoint_rejects(_world: &mut FoundryWorld, _provider: String) {
-    pending("slice 04/05 — receiver rejects (non-2xx) transport double");
+async fn provider_endpoint_rejects(world: &mut FoundryWorld, provider: String) {
+    // The preceding "activated providers" Given spawned the harness with a local
+    // webhook receiver double (the shipped WebhookProvider POSTs to it). Put that
+    // receiver into REJECT mode so the delivery gets a non-2xx: the provider
+    // classifies it as failed, and the fan-out records the webhook channel
+    // `outcome=failed` while its siblings still deliver (US-04 isolation).
+    assert_eq!(
+        provider, "webhook",
+        "only the webhook channel has a rejecting receiver double in this slice"
+    );
+    world
+        .harness
+        .as_ref()
+        .expect("the providers were activated (harness spawned) before this step")
+        .webhook_receiver
+        .as_ref()
+        .expect("the webhook channel was activated (receiver spawned)")
+        .set_reject();
 }
 
 #[given(regex = r#"^the "([^"]+)" provider is configured with a signing secret$"#)]
@@ -1197,8 +1213,28 @@ async fn no_automatic_retry(_world: &mut FoundryWorld) {
 }
 
 #[then(regex = r#"^the other active providers still deliver$"#)]
-async fn other_providers_still_deliver(_world: &mut FoundryWorld) {
-    pending("slice 04/05 — per-provider isolation: siblings unaffected");
+async fn other_providers_still_deliver(world: &mut FoundryWorld) {
+    // Per-provider isolation (NFR-3, ADR-003): one channel's rejection is contained
+    // by the JoinSet fan-out, so the sibling "log" channel still delivered the same
+    // notification with outcome `delivered` and recorded NO failure. Reverting the
+    // isolation (letting one failure abort the fan-out) would red this.
+    let harness = world.harness.as_ref().expect("harness");
+    let log_delivered = harness.fake_email.delivered_through("log");
+    assert!(
+        log_delivered >= 1,
+        "the other active provider (log) must still deliver despite the rejecting sibling, \
+         got {log_delivered}"
+    );
+    let log_failed = harness
+        .fake_email
+        .sent()
+        .iter()
+        .filter(|d| d.provider == "log" && d.outcome == "failed")
+        .count();
+    assert_eq!(
+        log_failed, 0,
+        "the isolated sibling failure must not affect the log provider, got {log_failed} failed"
+    );
 }
 
 #[then(regex = r#"^the delivery metric labels stay within their bounded sets$"#)]

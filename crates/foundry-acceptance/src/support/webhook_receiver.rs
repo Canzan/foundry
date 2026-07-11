@@ -29,6 +29,7 @@ use axum::routing::post;
 use axum::Router;
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::net::TcpListener;
 
@@ -46,6 +47,12 @@ pub struct RecordedPost {
 pub struct WebhookReceiver {
     addr: SocketAddr,
     posts: Mutex<Vec<RecordedPost>>,
+    /// When set, the `/hook` route observes (records) the POST but answers a
+    /// non-2xx status, modelling a receiver that REJECTS the delivery (US-04
+    /// isolation). The shipped `WebhookProvider` then classifies the non-success
+    /// response as a `DeliveryError`, so the fan-out records the webhook channel
+    /// `outcome=failed` while its siblings still deliver.
+    reject: AtomicBool,
 }
 
 impl WebhookReceiver {
@@ -58,6 +65,7 @@ impl WebhookReceiver {
         let receiver = Arc::new(Self {
             addr,
             posts: Mutex::new(Vec::new()),
+            reject: AtomicBool::new(false),
         });
         let app = Router::new()
             .route("/hook", post(handle_post))
@@ -90,6 +98,17 @@ impl WebhookReceiver {
             .cloned()
     }
 
+    /// Put the receiver into REJECT mode: it still records each POST but answers a
+    /// non-2xx status, so the shipped `WebhookProvider` treats the delivery as
+    /// failed (US-04 per-provider isolation).
+    pub fn set_reject(&self) {
+        self.reject.store(true, Ordering::SeqCst);
+    }
+
+    fn is_rejecting(&self) -> bool {
+        self.reject.load(Ordering::SeqCst)
+    }
+
     fn record(&self, post: RecordedPost) {
         self.posts
             .lock()
@@ -113,5 +132,11 @@ async fn handle_post(
         headers: recorded,
         body,
     });
-    StatusCode::OK
+    if receiver.is_rejecting() {
+        // Observed the delivery, then refused it: a 4xx the provider classifies as
+        // a permanent rejection → the fan-out records the webhook `outcome=failed`.
+        StatusCode::BAD_REQUEST
+    } else {
+        StatusCode::OK
+    }
 }

@@ -196,7 +196,7 @@ Feature: An operator selects delivery providers and every notification fans out 
     Then the delivery carries a signature header derived from the secret
     And the "WEBHOOK_SIGNING_SECRET" value never appears in any log, error, metric label, or debug output
 
-  @pending @us-04 @error @real-io
+  @us-04 @error @real-io
   Scenario: A rejecting webhook receiver is isolated
     Given the operator has activated providers "log,webhook"
     And the "webhook" endpoint rejects the delivery
@@ -205,7 +205,7 @@ Feature: An operator selects delivery providers and every notification fans out 
     And the request returns its normal response
     And the other active providers still deliver
 
-  @pending @us-04 @config @error @property @real-io
+  @us-04 @config @error @property @real-io
   Scenario: A webhook provider missing its URL fails fast at startup
     Given the operator has listed provider "webhook" without required setting "WEBHOOK_URL"
     When Foundry starts up

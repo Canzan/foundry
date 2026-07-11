@@ -240,6 +240,41 @@
       "s": "EXECUTED",
       "d": "PASS",
       "t": "2026-07-11T05:39:12Z"
+    },
+    {
+      "sid": "04-01",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-11T05:41:02Z"
+    },
+    {
+      "sid": "04-02",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-11T05:47:24Z"
+    },
+    {
+      "sid": "04-02",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-11T05:49:03Z"
+    },
+    {
+      "sid": "04-02",
+      "p": "RED_UNIT",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: production arms (WebhookConfig::from_lookup fail-fast, WebhookProvider non-2xx->failed classification, notify() JoinSet isolation) already exist with unit coverage in notify.rs; this step only activates them via scenarios + a test-double receiver reject mode. No new production behavior requires a unit test.",
+      "t": "2026-07-11T05:49:03Z"
+    },
+    {
+      "sid": "04-02",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-11T06:00:39Z"
     }
   ]
 }
