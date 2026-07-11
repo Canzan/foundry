@@ -1016,8 +1016,10 @@ async fn point_replica_at_restored(world: &mut FoundryWorld) {
         fake_clock,
         fake_email,
         schema,
-        // US-03 restore harness wires the log channel only — no webhook receiver.
+        // US-03 restore harness wires the log channel only — no webhook / email_api
+        // vendor receiver.
         webhook_receiver: None,
+        email_api_receiver: None,
     };
     world.us_03_restored_harness = Some(restored);
 }

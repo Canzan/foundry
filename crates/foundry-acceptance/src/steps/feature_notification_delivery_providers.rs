@@ -303,22 +303,27 @@ async fn provider_endpoint_hangs(world: &mut FoundryWorld, provider: String) {
 #[given(regex = r#"^the "([^"]+)" endpoint rejects the delivery$"#)]
 async fn provider_endpoint_rejects(world: &mut FoundryWorld, provider: String) {
     // The preceding "activated providers" Given spawned the harness with a local
-    // webhook receiver double (the shipped WebhookProvider POSTs to it). Put that
-    // receiver into REJECT mode so the delivery gets a non-2xx: the provider
-    // classifies it as failed, and the fan-out records the webhook channel
-    // `outcome=failed` while its siblings still deliver (US-04 isolation).
-    assert_eq!(
-        provider, "webhook",
-        "only the webhook channel has a rejecting receiver double in this slice"
-    );
-    world
+    // receiver double for the HTTP channel (the shipped WebhookProvider /
+    // EmailApiProvider POSTs to it). Put that receiver into REJECT mode so the
+    // delivery gets a non-2xx: the provider classifies it as failed, and the
+    // fan-out records the channel `outcome=failed` while its siblings still
+    // deliver (US-04/US-05 per-provider isolation).
+    let harness = world
         .harness
         .as_ref()
-        .expect("the providers were activated (harness spawned) before this step")
-        .webhook_receiver
-        .as_ref()
-        .expect("the webhook channel was activated (receiver spawned)")
-        .set_reject();
+        .expect("the providers were activated (harness spawned) before this step");
+    let receiver = match provider.as_str() {
+        "webhook" => harness
+            .webhook_receiver
+            .as_ref()
+            .expect("the webhook channel was activated (receiver spawned)"),
+        "email_api" => harness
+            .email_api_receiver
+            .as_ref()
+            .expect("the email_api channel was activated (vendor receiver spawned)"),
+        other => panic!("no rejecting receiver double for provider {other:?} in this slice"),
+    };
+    receiver.set_reject();
 }
 
 #[given(regex = r#"^the "([^"]+)" provider is configured with a signing secret$"#)]
@@ -912,9 +917,29 @@ async fn secret_value_never_appears(world: &mut FoundryWorld, secret_key: String
         webhook_no_leak_litmus(world).await;
         return;
     }
+    if secret_key == "EMAIL_API_KEY" {
+        // The missing-key fail-fast scenario drives the REAL `foundry` subprocess
+        // (no in-process harness). The refusal names the setting EMAIL_API_KEY but
+        // must leak NO secret VALUE anywhere in its startup output. The subprocess
+        // env carries a real SESSION_SECRET; assert its value never surfaces on the
+        // refusal path (NFR-1/2, ADR-002/006). If the app dumped its env on error,
+        // this reds.
+        let (_, stdout, stderr) = world
+            .ndp_startup_outcome
+            .as_ref()
+            .expect("the startup subprocess outcome was captured");
+        let haystack = format!("{stdout}\n{stderr}");
+        assert!(
+            !haystack.contains(NDP_SESSION_SECRET),
+            "the email_api missing-key refusal must leak no secret value.\n\
+             stdout:\n{stdout}\nstderr:\n{stderr}"
+        );
+        return;
+    }
     assert_eq!(
         secret_key, "SMTP_PASSWORD",
-        "this step covers the SMTP_PASSWORD and WEBHOOK_SIGNING_SECRET no-leak litmus"
+        "this step covers the SMTP_PASSWORD, WEBHOOK_SIGNING_SECRET, and EMAIL_API_KEY \
+         no-leak litmus"
     );
     let harness = world.harness.as_ref().expect("harness");
     // The full delivery cycle completed through the smtp channel.
@@ -1208,8 +1233,26 @@ async fn delivery_carries_signature_header(world: &mut FoundryWorld) {
 }
 
 #[then(regex = r#"^no automatic retry is attempted$"#)]
-async fn no_automatic_retry(_world: &mut FoundryWorld) {
-    pending("slice 05 — best-effort at-most-once, no retry in v1 (NFR-6)");
+async fn no_automatic_retry(world: &mut FoundryWorld) {
+    // Best-effort at-most-once for v1 (NFR-6, ADR-007): the rejected email_api
+    // delivery is counted `failed` and NOT re-sent. The vendor receiver records
+    // every POST it observes, so a retry (either inside the provider or by the
+    // notifier re-invoking `deliver()`) would show a SECOND POST. Exactly one
+    // observed POST proves no automatic retry. Adding a retry loop reds this.
+    let receiver = world
+        .harness
+        .as_ref()
+        .expect("harness")
+        .email_api_receiver
+        .as_ref()
+        .expect("the email_api channel was activated (vendor receiver spawned)");
+    assert_eq!(
+        receiver.post_count(),
+        1,
+        "no automatic retry: the hosted email vendor must receive EXACTLY ONE POST \
+         (at-most-once), got {}",
+        receiver.post_count()
+    );
 }
 
 #[then(regex = r#"^the other active providers still deliver$"#)]

@@ -247,6 +247,12 @@ pub struct InProcHarness {
     /// assert the POSTed JSON payload, the HMAC signature header, and that the
     /// startup probe made NO POST.
     pub webhook_receiver: Option<Arc<WebhookReceiver>>,
+    /// The local hosted-email-vendor receiver double, present only when this
+    /// harness wired a real [`foundry_app::EmailApiProvider`] (the `email_api`
+    /// channel). Reuses the [`WebhookReceiver`] HTTP double (a local POST recorder
+    /// with a reject mode). Step defs read it to reject a delivery and to assert
+    /// the vendor received exactly one POST (at-most-once, NO retry — ADR-007).
+    pub email_api_receiver: Option<Arc<WebhookReceiver>>,
 }
 
 impl std::fmt::Debug for InProcHarness {
@@ -319,11 +325,21 @@ impl InProcHarness {
             None
         };
         let webhook_url = webhook_receiver.as_ref().map(|receiver| receiver.url());
+        // Spawn the local hosted-email-vendor receiver double + wire the SHIPPED
+        // EmailApiProvider at it ONLY when the operator selected the `email_api`
+        // channel (a real POST over reqwest, keyed by a credential header).
+        let email_api_receiver = if provider_kinds.contains(&ProviderKind::EmailApi) {
+            Some(WebhookReceiver::spawn().await)
+        } else {
+            None
+        };
+        let email_api_url = email_api_receiver.as_ref().map(|receiver| receiver.url());
         let notifier = notifier_for_kinds(
             &fake_email,
             provider_kinds,
             webhook_url.as_deref(),
             webhook_secret,
+            email_api_url.as_deref(),
         )
         .await;
         let realtime_tx = foundry_realtime::build_broadcast();
@@ -383,6 +399,7 @@ impl InProcHarness {
             fake_email,
             schema,
             webhook_receiver,
+            email_api_receiver,
         }
     }
 

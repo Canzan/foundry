@@ -214,14 +214,14 @@ Feature: An operator selects delivery providers and every notification fans out 
 
   # ── Slice 05 — US-05: hosted email vendor API provider ──────────────────────────────
 
-  @pending @us-05 @real-io
+  @us-05 @real-io
   Scenario: A reset email is delivered through the hosted email API
     Given the operator has activated providers "email_api"
     When a member requests a password reset for "maria.santos@acme.example"
     Then the notification is delivered through the "email_api" provider
     And the delivery is recorded for provider "email_api", event "password_reset", outcome "delivered"
 
-  @pending @us-05 @error @real-io
+  @us-05 @error @real-io
   Scenario: A vendor rate-limit response is isolated and not retried in v1
     Given the operator has activated providers "log,email_api"
     And the "email_api" endpoint rejects the delivery
@@ -231,7 +231,7 @@ Feature: An operator selects delivery providers and every notification fans out 
     And the other active providers still deliver
     And no automatic retry is attempted
 
-  @pending @us-05 @config @security @error @property @real-io
+  @us-05 @config @security @error @property @real-io
   Scenario: A hosted email API missing its key fails fast without leaking it
     Given the operator has listed provider "email_api" without required setting "EMAIL_API_KEY"
     When Foundry starts up

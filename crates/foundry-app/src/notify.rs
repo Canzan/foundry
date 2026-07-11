@@ -651,6 +651,157 @@ impl NotificationProvider for WebhookProvider {
     }
 }
 
+/// Validated hosted email vendor API settings (ADR-002/006). All three of
+/// `EMAIL_API_URL`/`EMAIL_API_KEY`/`EMAIL_API_FROM` are required; `EMAIL_API_KEY`
+/// is held in a [`SecretString`] and exposed ONLY to the request's credential
+/// header at delivery — never logged, echoed, nor Debug-printed. This type
+/// deliberately does NOT derive `Debug`, so the key has no debug-leak vector.
+pub struct EmailApiConfig {
+    url: String,
+    api_key: SecretString,
+    from: String,
+}
+
+impl EmailApiConfig {
+    /// Parse from the process environment: `EMAIL_API_URL`, `EMAIL_API_KEY`,
+    /// `EMAIL_API_FROM` (all required).
+    pub fn from_env() -> anyhow::Result<Self> {
+        Self::from_lookup(|key| std::env::var(key).ok())
+    }
+
+    /// Parse from an arbitrary key→value lookup (so callers and tests need no
+    /// global env mutation). A missing/blank required setting fails fast, naming
+    /// the provider AND the offending setting (ADR-002 / NFR-1) — secret-free by
+    /// construction (it never echoes a value). `EMAIL_API_KEY` is validated FIRST
+    /// so a bare `email_api` listing fails fast naming the security-critical key
+    /// (the missing-setting scenario lists the provider with the key removed).
+    pub fn from_lookup<F: Fn(&str) -> Option<String>>(get: F) -> anyhow::Result<Self> {
+        let required = |key: &str| -> anyhow::Result<String> {
+            match get(key) {
+                Some(value) if !value.trim().is_empty() => Ok(value.trim().to_string()),
+                _ => anyhow::bail!("provider 'email_api' is missing required setting '{key}'"),
+            }
+        };
+        let api_key = SecretString::new(required("EMAIL_API_KEY")?.into());
+        let url = required("EMAIL_API_URL")?;
+        let from = required("EMAIL_API_FROM")?;
+        Ok(Self { url, api_key, from })
+    }
+}
+
+/// The `email_api` channel (ADR-001/002/006): renders the structured
+/// [`Notification`] into the vendor's JSON send body and POSTs it to
+/// `EMAIL_API_URL` over HTTPS via reqwest, carrying `EMAIL_API_KEY` as a bearer
+/// credential header — the key rides ONLY on that header (never the body, a log,
+/// or an error) and never leaves the process anywhere else. NOT `Debug` (ADR-006):
+/// the key has no debug-leak vector. Per ADR-007 (best-effort at-most-once for
+/// v1) a `429`/`5xx` vendor response is classified `failed` and is NOT retried —
+/// `deliver()` returns once, and the infallible fan-out never re-invokes it. All
+/// [`DeliveryError`] messages are hand-built + secret-free.
+pub struct EmailApiProvider {
+    url: String,
+    host: String,
+    port: u16,
+    from: String,
+    client: reqwest::Client,
+    api_key: SecretString,
+}
+
+impl EmailApiProvider {
+    /// Build the provider from validated config. Parses the reachability
+    /// authority once (fail fast on a malformed URL) and constructs the HTTP
+    /// client. The API key is retained for the per-request credential header.
+    pub fn new(config: EmailApiConfig) -> Result<Self, DeliveryError> {
+        let (host, port) = webhook_host_port(&config.url).ok_or_else(|| {
+            DeliveryError::Permanent(
+                "email_api 'EMAIL_API_URL' is not a valid http(s) URL".to_string(),
+            )
+        })?;
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(10))
+            .build()
+            .map_err(|_| {
+                DeliveryError::Permanent("email_api HTTP client could not be built".to_string())
+            })?;
+        Ok(Self {
+            url: config.url,
+            host,
+            port,
+            from: config.from,
+            client,
+            api_key: config.api_key,
+        })
+    }
+
+    /// Render the vendor-neutral notification into the hosted email API's JSON
+    /// send body (ADR-001): `{from, to, subject, body, event}`. The API key is
+    /// NEVER part of the body — it rides only on the credential header (ADR-006).
+    fn render_body(from: &str, notification: &Notification) -> String {
+        serde_json::json!({
+            "from": from,
+            "to": notification.recipient,
+            "subject": notification.subject,
+            "body": notification.body,
+            "event": notification.event.as_str(),
+        })
+        .to_string()
+    }
+}
+
+#[async_trait]
+impl NotificationProvider for EmailApiProvider {
+    async fn deliver(&self, notification: &Notification) -> Result<(), DeliveryError> {
+        let body = Self::render_body(&self.from, notification);
+        // ADR-006: expose the key ONLY here, as the bearer credential header, and
+        // never elsewhere. Nothing secret survives past this request construction.
+        let response = self
+            .client
+            .post(&self.url)
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .header(
+                reqwest::header::AUTHORIZATION,
+                format!("Bearer {}", self.api_key.expose_secret()),
+            )
+            .body(body)
+            .send()
+            .await
+            // Hand-built, secret-free classification (ADR-006): never interpolate
+            // the raw transport error, the URL, or the key into the delivery error.
+            .map_err(|_| {
+                DeliveryError::Transient("email_api endpoint unreachable or errored".to_string())
+            })?;
+        if response.status().is_success() {
+            Ok(())
+        } else if response.status() == reqwest::StatusCode::TOO_MANY_REQUESTS
+            || response.status().is_server_error()
+        {
+            // ADR-007: a vendor rate-limit (429) or 5xx is a transient failure —
+            // counted `failed` and NOT retried in v1 (best-effort at-most-once).
+            Err(DeliveryError::Transient(
+                "email_api vendor rate-limited or unavailable".to_string(),
+            ))
+        } else {
+            Err(DeliveryError::Permanent(
+                "email_api vendor rejected the delivery".to_string(),
+            ))
+        }
+    }
+
+    fn kind(&self) -> ProviderKind {
+        ProviderKind::EmailApi
+    }
+
+    async fn probe(&self) -> Result<(), DeliveryError> {
+        // Startup reachability probe (wire → probe → use, N-ODD-3): a TCP connect
+        // to the vendor host:port ONLY — never a send. Admitting the channel must
+        // not side-effect the vendor (no phantom email). Secret-free error.
+        tokio::net::TcpStream::connect((self.host.as_str(), self.port))
+            .await
+            .map(|_| ())
+            .map_err(|_| DeliveryError::Transient("email_api host unreachable".to_string()))
+    }
+}
+
 /// Build the active [`Notifier`] at the composition root from the
 /// `NOTIFICATION_PROVIDERS` env var (ADR-002): a comma-separated channel list.
 /// Unset/empty ⇒ an empty notifier (delivery inactive). Each listed channel is
@@ -742,6 +893,20 @@ async fn build_notifier_from<F: Fn(&str) -> Option<String>>(
                 })?;
                 provider.probe().await.map_err(|err| {
                     anyhow::anyhow!("provider 'webhook' failed its startup probe: {err}")
+                })?;
+                providers.push(Arc::new(provider));
+            }
+            "email_api" => {
+                // Wire → probe → use (ADR-002): parse+validate EMAIL_API_* (fail-
+                // fast naming the missing key), construct the HTTPS provider, and
+                // admit the channel only after its host-reachability probe passes
+                // (NO send, N-ODD-3). Every error here is secret-free (ADR-006).
+                let config = EmailApiConfig::from_lookup(&get)?;
+                let provider = EmailApiProvider::new(config).map_err(|err| {
+                    anyhow::anyhow!("provider 'email_api' could not be constructed: {err}")
+                })?;
+                provider.probe().await.map_err(|err| {
+                    anyhow::anyhow!("provider 'email_api' failed its startup probe: {err}")
                 })?;
                 providers.push(Arc::new(provider));
             }
@@ -1377,6 +1542,157 @@ mod tests {
         assert!(
             message.contains("webhook"),
             "probe failure must name webhook: {message}"
+        );
+    }
+
+    // ── Slice 05 — hosted email API adapter: credential-header POST, no-retry ──
+
+    /// A distinctive value that would leak loudly if any layer echoed the hosted
+    /// email API key. Reused across the no-leak litmus + the credential-header test.
+    const EMAIL_API_KEY_SENTINEL: &str = "ndp-email-api-key-must-never-leak-4d2b";
+
+    fn email_api_env(url: &str) -> impl Fn(&str) -> Option<String> + '_ {
+        move |key: &str| match key {
+            "EMAIL_API_URL" => Some(url.to_string()),
+            "EMAIL_API_KEY" => Some(EMAIL_API_KEY_SENTINEL.to_string()),
+            "EMAIL_API_FROM" => Some("noreply@acme.example".to_string()),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn email_api_config_parses_all_required_settings() {
+        // All three required settings land on the config; a valid lookup parses.
+        let config = EmailApiConfig::from_lookup(email_api_env("https://api.vendor.example/send"))
+            .expect("valid email_api config parses");
+        assert_eq!(config.url, "https://api.vendor.example/send");
+        assert_eq!(config.from, "noreply@acme.example");
+    }
+
+    #[test]
+    fn email_api_config_missing_key_fails_fast_naming_provider_and_setting() {
+        // A bare `email_api` listing (no settings) fails fast naming BOTH the
+        // provider and the security-critical EMAIL_API_KEY (ADR-002 / NFR-1),
+        // secret-free by construction.
+        let Err(err) = EmailApiConfig::from_lookup(|_| None) else {
+            panic!("a missing EMAIL_API_KEY must fail fast");
+        };
+        let message = format!("{err:#}");
+        assert!(
+            message.contains("email_api"),
+            "error must name provider email_api: {message}"
+        );
+        assert!(
+            message.contains("EMAIL_API_KEY"),
+            "error must name the missing setting EMAIL_API_KEY: {message}"
+        );
+    }
+
+    #[test]
+    fn email_api_render_body_carries_the_vendor_neutral_contract() {
+        // ADR-001: the hosted API renders the structured notification to
+        // `{from, to, subject, body, event}` — and NEVER the key.
+        let body = EmailApiProvider::render_body("noreply@acme.example", &reset_notification());
+        let value: serde_json::Value = serde_json::from_str(&body).expect("body is valid JSON");
+        assert_eq!(value["from"], "noreply@acme.example");
+        assert_eq!(value["to"], "maria.santos@acme.example");
+        assert_eq!(value["event"], "password_reset");
+        assert!(
+            value.get("subject").is_some() && value.get("body").is_some(),
+            "the send body must carry subject + body: {body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn email_api_deliver_sends_the_key_as_a_credential_header_only() {
+        // The key rides ONLY on the Authorization credential header — never in the
+        // JSON body. A local listener captures the raw request bytes; the sentinel
+        // appears in the `authorization:` line and NOT in the JSON payload.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind email_api listener");
+        let addr = listener.local_addr().expect("email_api listener addr");
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("accept email_api POST");
+            let mut buf = vec![0u8; 4096];
+            let read = tokio::time::timeout(Duration::from_millis(500), stream.read(&mut buf))
+                .await
+                .ok()
+                .and_then(Result::ok)
+                .unwrap_or(0);
+            // Answer 200 so the provider records a clean delivery.
+            let _ = tokio::io::AsyncWriteExt::write_all(
+                &mut stream,
+                b"HTTP/1.1 200 OK\r\ncontent-length: 0\r\n\r\n",
+            )
+            .await;
+            String::from_utf8_lossy(&buf[..read]).to_string()
+        });
+
+        let config = EmailApiConfig::from_lookup(email_api_env(&format!("http://{addr}/send")))
+            .expect("email_api config parses");
+        let provider = EmailApiProvider::new(config).expect("email_api provider builds");
+        provider
+            .deliver(&reset_notification())
+            .await
+            .expect("delivery to the local vendor listener succeeds");
+
+        let raw = server.await.expect("collect raw request");
+        let lower = raw.to_ascii_lowercase();
+        assert!(
+            lower.contains(&format!("authorization: bearer {EMAIL_API_KEY_SENTINEL}")),
+            "the key must ride on the Authorization credential header: {raw}"
+        );
+        // The body is the last line (after the blank line); the key must NOT be in it.
+        let body = raw.split("\r\n\r\n").nth(1).unwrap_or("");
+        assert!(
+            !body.contains(EMAIL_API_KEY_SENTINEL),
+            "the key must never appear in the request body: {body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn email_api_key_never_leaks_in_a_delivery_error_or_debug() {
+        // The no-leak litmus at unit scope (ADR-006): the key is held in a
+        // SecretString (redacted on Debug), the provider is not Debug, and a real
+        // DeliveryError from a closed endpoint is hand-built + secret-free.
+        let config = EmailApiConfig::from_lookup(email_api_env("http://127.0.0.1:1/send"))
+            .expect("sentinel email_api config parses");
+        let secret_debug = format!("{:?}", config.api_key);
+        assert!(
+            !secret_debug.contains(EMAIL_API_KEY_SENTINEL),
+            "SecretString must redact the key on Debug: {secret_debug}"
+        );
+        let provider = EmailApiProvider::new(config).expect("email_api provider builds");
+        // 127.0.0.1:1 is closed → connection refused → a genuine transport error.
+        let err = provider
+            .deliver(&reset_notification())
+            .await
+            .expect_err("a closed endpoint must fail the delivery");
+        let rendered = format!("{err} || {err:?}");
+        assert!(
+            !rendered.contains(EMAIL_API_KEY_SENTINEL),
+            "the email_api key must never appear in a delivery error or its debug output: {rendered}"
+        );
+    }
+
+    #[tokio::test]
+    async fn build_notifier_email_api_branch_rejects_when_the_host_is_unreachable() {
+        // The email_api registry branch is wire → probe → use: valid config but an
+        // unreachable host (closed localhost port) fails the startup probe and the
+        // channel is refused — the error names email_api and leaks no secret.
+        let get = email_api_env("http://127.0.0.1:1/send");
+        let Err(err) = build_notifier_from("email_api", get).await else {
+            panic!("email_api with an unreachable host must fail its startup probe");
+        };
+        let message = format!("{err:#}");
+        assert!(
+            message.contains("email_api"),
+            "probe failure must name email_api: {message}"
+        );
+        assert!(
+            !message.contains(EMAIL_API_KEY_SENTINEL),
+            "the probe-failure error must carry no secret value: {message}"
         );
     }
 }

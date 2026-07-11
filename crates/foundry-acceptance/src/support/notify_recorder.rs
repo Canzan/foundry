@@ -25,8 +25,8 @@
 
 use async_trait::async_trait;
 use foundry_app::{
-    DeliveryError, Notification, NotificationProvider, Notifier, ProviderKind, WebhookConfig,
-    WebhookProvider,
+    DeliveryError, EmailApiConfig, EmailApiProvider, Notification, NotificationProvider, Notifier,
+    ProviderKind, WebhookConfig, WebhookProvider,
 };
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -305,21 +305,100 @@ impl NotificationProvider for RecordingWebhookProvider {
     }
 }
 
+/// The `email_api` channel wired with the SHIPPED [`EmailApiProvider`] (a real
+/// reqwest POST to the local vendor receiver double, carrying the key on the
+/// Authorization credential header) decorated so the delivery is ALSO recorded
+/// into the shared [`DeliveryRecorder`]. The happy path thus asserts BOTH a
+/// genuine POST (observed at the vendor receiver) and the per-provider/event/
+/// outcome record (at the recorder), through one delivery — a real `@real-io`
+/// exercise of the production adapter, not a stand-in double.
+pub struct RecordingEmailApiProvider {
+    inner: EmailApiProvider,
+    recorder: Arc<DeliveryRecorder>,
+}
+
+impl RecordingEmailApiProvider {
+    pub fn new(inner: EmailApiProvider, recorder: Arc<DeliveryRecorder>) -> Self {
+        Self { inner, recorder }
+    }
+}
+
+#[async_trait]
+impl NotificationProvider for RecordingEmailApiProvider {
+    async fn deliver(&self, notification: &Notification) -> Result<(), DeliveryError> {
+        let result = self.inner.deliver(notification).await;
+        let outcome = if result.is_ok() {
+            "delivered"
+        } else {
+            "failed"
+        };
+        self.recorder.record(RecordedDelivery {
+            provider: ProviderKind::EmailApi.as_str().to_string(),
+            event: notification.event.as_str().to_string(),
+            outcome: outcome.to_string(),
+            to: notification.recipient.clone(),
+            subject: notification.subject.clone(),
+            body: notification.body.clone(),
+        });
+        result
+    }
+
+    fn kind(&self) -> ProviderKind {
+        ProviderKind::EmailApi
+    }
+
+    async fn probe(&self) -> Result<(), DeliveryError> {
+        self.inner.probe().await
+    }
+}
+
+/// A fixed hosted-email-API key handed to the harness's shipped
+/// [`EmailApiProvider`]. NOT a production secret — it exists only so the real
+/// adapter carries a credential header on its POST to the local vendor receiver.
+pub const HARNESS_EMAIL_API_KEY: &str = "ndp-harness-email-api-key-value";
+
 /// Build an `Arc<Notifier>` over `kinds`, recording every delivery into the
 /// shared `recorder`. A `Webhook` kind is wired with the SHIPPED
 /// [`WebhookProvider`] pointed at `webhook_url` (a real POST to the local
-/// receiver, optionally HMAC-signed by `webhook_secret`); every other kind is an
-/// in-memory [`RecordingProvider`]. Each provider is PROBED here (wire → probe →
-/// use) so the webhook no-POST probe scenario genuinely exercises `probe()`.
+/// receiver, optionally HMAC-signed by `webhook_secret`); an `EmailApi` kind is
+/// wired with the SHIPPED [`EmailApiProvider`] pointed at `email_api_url` (a real
+/// POST to the local vendor receiver, keyed by `HARNESS_EMAIL_API_KEY`); every
+/// other kind is an in-memory [`RecordingProvider`]. Each provider is PROBED here
+/// (wire → probe → use) so the webhook/email_api no-side-effect probe scenarios
+/// genuinely exercise `probe()`.
 pub async fn notifier_for_kinds(
     recorder: &Arc<DeliveryRecorder>,
     kinds: &[ProviderKind],
     webhook_url: Option<&str>,
     webhook_secret: Option<String>,
+    email_api_url: Option<&str>,
 ) -> Arc<Notifier> {
     let mut providers: Vec<Arc<dyn NotificationProvider>> = Vec::new();
     for kind in kinds {
         match kind {
+            ProviderKind::EmailApi => {
+                let url = email_api_url
+                    .expect("an EmailApi kind requires the local vendor receiver URL")
+                    .to_string();
+                let config = EmailApiConfig::from_lookup(|key| match key {
+                    "EMAIL_API_URL" => Some(url.clone()),
+                    "EMAIL_API_KEY" => Some(HARNESS_EMAIL_API_KEY.to_string()),
+                    "EMAIL_API_FROM" => Some("noreply@acme.example".to_string()),
+                    _ => None,
+                })
+                .expect("email_api config parses in the harness");
+                let inner = EmailApiProvider::new(config).expect("email_api provider builds");
+                // Wire → probe → use: exercise the real host-reachability probe so
+                // admission connects (but never sends) to the vendor receiver.
+                inner
+                    .probe()
+                    .await
+                    .expect("email_api probe reaches the local vendor receiver");
+                providers.push(Arc::new(RecordingEmailApiProvider::new(
+                    inner,
+                    recorder.clone(),
+                )));
+            }
             ProviderKind::Webhook => {
                 let url = webhook_url
                     .expect("a Webhook kind requires the local receiver URL")
