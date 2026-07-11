@@ -25,6 +25,7 @@
 
 use async_trait::async_trait;
 use foundry_app::{DeliveryError, Notification, NotificationProvider, Notifier, ProviderKind};
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -52,6 +53,13 @@ pub struct RecordedDelivery {
 pub struct DeliveryRecorder {
     inner: Mutex<Vec<RecordedDelivery>>,
     failing: AtomicBool,
+    /// Provider kinds whose transport is "unreachable": a delivery through one
+    /// of these is RECORDED with `outcome=failed` and then returns `Err`,
+    /// modelling a temporarily-down relay (US-02 failure isolation). Distinct
+    /// from `failing` (a full outage that records NOTHING), and scoped per
+    /// provider so a fan-out slice can down one channel while its siblings still
+    /// deliver.
+    unreachable: Mutex<HashSet<&'static str>>,
 }
 
 impl DeliveryRecorder {
@@ -69,6 +77,23 @@ impl DeliveryRecorder {
 
     fn is_failing(&self) -> bool {
         self.failing.load(Ordering::SeqCst)
+    }
+
+    /// Mark `kind`'s transport as unreachable: subsequent deliveries through a
+    /// provider of that kind record `outcome=failed` and return `Err`, so the
+    /// infallible notifier contains the failure without failing the request.
+    pub fn set_unreachable(&self, kind: ProviderKind) {
+        self.unreachable
+            .lock()
+            .expect("delivery recorder unreachable set")
+            .insert(kind.as_str());
+    }
+
+    fn is_unreachable(&self, kind: ProviderKind) -> bool {
+        self.unreachable
+            .lock()
+            .expect("delivery recorder unreachable set")
+            .contains(kind.as_str())
     }
 
     fn record(&self, delivery: RecordedDelivery) {
@@ -127,10 +152,26 @@ impl RecordingProvider {
 impl NotificationProvider for RecordingProvider {
     async fn deliver(&self, notification: &Notification) -> Result<(), DeliveryError> {
         if self.recorder.is_failing() {
-            // Transport outage: record nothing and fail. The infallible notifier
-            // contains this — the originating request is unaffected.
+            // Full transport outage: record nothing and fail. The infallible
+            // notifier contains this — the originating request is unaffected.
             return Err(DeliveryError::Transient(
                 "recording provider: induced outage (test)".to_string(),
+            ));
+        }
+        if self.recorder.is_unreachable(self.kind) {
+            // Temporarily-unreachable relay (US-02): the notifier still OBSERVES
+            // the attempt, so record it as `failed`, then return the transient
+            // error the notifier contains (the request is never failed/stalled).
+            self.recorder.record(RecordedDelivery {
+                provider: self.kind.as_str().to_string(),
+                event: notification.event.as_str().to_string(),
+                outcome: "failed".to_string(),
+                to: notification.recipient.clone(),
+                subject: notification.subject.clone(),
+                body: notification.body.clone(),
+            });
+            return Err(DeliveryError::Transient(
+                "recording provider: endpoint unreachable (test)".to_string(),
             ));
         }
         self.recorder.record(RecordedDelivery {

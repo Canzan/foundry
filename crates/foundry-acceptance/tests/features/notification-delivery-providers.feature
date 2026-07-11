@@ -89,7 +89,7 @@ Feature: An operator selects delivery providers and every notification fans out 
     Then the notification is delivered through the "smtp" provider
     And the delivery is recorded for provider "smtp", event "password_reset", outcome "delivered"
 
-  @pending @us-02 @error @real-io
+  @us-02 @error @real-io
   Scenario: A temporarily unreachable relay does not fail the request
     Given the operator has activated providers "smtp"
     And the "smtp" provider's endpoint is unreachable
@@ -97,7 +97,7 @@ Feature: An operator selects delivery providers and every notification fans out 
     Then the request returns its normal response
     And the delivery is recorded for provider "smtp", event "password_reset", outcome "failed"
 
-  @pending @us-02 @config @error @property @real-io
+  @us-02 @config @error @property @real-io
   Scenario: An SMTP provider missing a required setting fails fast at startup
     Given the operator has listed provider "smtp" without required setting "SMTP_HOST"
     When Foundry starts up

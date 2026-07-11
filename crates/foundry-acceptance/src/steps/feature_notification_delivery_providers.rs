@@ -84,14 +84,19 @@ fn parse_provider_kinds(csv: &str) -> Vec<ProviderKind> {
     csv.split(',')
         .map(str::trim)
         .filter(|s| !s.is_empty())
-        .map(|name| match name {
-            "log" => ProviderKind::Log,
-            "smtp" => ProviderKind::Smtp,
-            "webhook" => ProviderKind::Webhook,
-            "email_api" => ProviderKind::EmailApi,
-            other => panic!("unknown provider kind in scenario config: {other}"),
-        })
+        .map(provider_kind_from_name)
         .collect()
+}
+
+/// Map one operator provider name to its [`ProviderKind`].
+fn provider_kind_from_name(name: &str) -> ProviderKind {
+    match name.trim() {
+        "log" => ProviderKind::Log,
+        "smtp" => ProviderKind::Smtp,
+        "webhook" => ProviderKind::Webhook,
+        "email_api" => ProviderKind::EmailApi,
+        other => panic!("unknown provider kind in scenario config: {other}"),
+    }
 }
 
 /// Seed the Background workspace + member (the notification recipient) so
@@ -213,16 +218,28 @@ async fn operator_listed_unknown_provider(world: &mut FoundryWorld, name: String
     regex = r#"^the operator has listed provider "([^"]+)" without required setting "([^"]+)"$"#
 )]
 async fn operator_listed_provider_without_setting(
-    _world: &mut FoundryWorld,
-    _provider: String,
-    _setting: String,
+    world: &mut FoundryWorld,
+    provider: String,
+    setting: String,
 ) {
-    pending("slice 02/04/05 — misconfigured-provider fail-fast");
+    // Stash the provider + the setting the operator omitted; the "Foundry starts
+    // up" step lists the provider for the real `foundry` subprocess with that one
+    // setting removed from its env, so `build_notifier` fails fast naming both.
+    world.ndp_missing_setting = Some((provider, setting));
 }
 
 #[given(regex = r#"^the "([^"]+)" provider's endpoint is unreachable$"#)]
-async fn provider_endpoint_unreachable(_world: &mut FoundryWorld, _provider: String) {
-    pending("slice 02/03/06 — unreachable transport double");
+async fn provider_endpoint_unreachable(world: &mut FoundryWorld, provider: String) {
+    // The harness was spawned by the preceding "activated providers" Given; mark
+    // this provider's recording double as unreachable so a delivery through it is
+    // recorded `failed` and returns a transient error the notifier contains.
+    let kind = provider_kind_from_name(&provider);
+    world
+        .harness
+        .as_ref()
+        .expect("the providers were activated (harness spawned) before this step")
+        .fake_email
+        .set_unreachable(kind);
 }
 
 #[given(regex = r#"^the "([^"]+)" provider's endpoint hangs on connect$"#)]
@@ -296,12 +313,20 @@ async fn foundry_starts_up(world: &mut FoundryWorld) {
     // Drive the REAL composition root (driving port 1): spawn the shipped
     // `foundry` binary with the operator's provider selection and capture its
     // startup outcome. `build_notifier()` validates the list against the bounded
-    // ProviderKind set and aborts on an unknown name (ADR-002).
-    let providers = world
-        .ndp_unknown_provider
-        .clone()
-        .expect("a provider selection was listed by the prior Given");
-    let outcome = spawn_foundry_expecting_refuse_to_start(&providers).await;
+    // ProviderKind set and per-provider required settings, aborting on an unknown
+    // name OR a missing required setting (ADR-002).
+    let outcome = if let Some(unknown) = world.ndp_unknown_provider.clone() {
+        // Unknown-provider case: list the typo'd name; the notifier bails naming
+        // it and the known set before any per-provider settings are read.
+        spawn_foundry_expecting_refuse_to_start(&unknown, &[]).await
+    } else if let Some((provider, setting)) = world.ndp_missing_setting.clone() {
+        // Missing-setting case: list a KNOWN provider but ensure the named
+        // required setting is absent from the subprocess env, so the notifier
+        // fails fast naming the provider AND the missing key.
+        spawn_foundry_expecting_refuse_to_start(&provider, &[setting.as_str()]).await
+    } else {
+        panic!("a startup precondition Given must run before 'Foundry starts up'");
+    };
     world.ndp_startup_outcome = Some(outcome);
 }
 
@@ -309,8 +334,13 @@ async fn foundry_starts_up(world: &mut FoundryWorld) {
 /// against a fresh migrated schema, and wait for it to exit. `build_notifier()`
 /// runs at AppState construction — BEFORE the metrics sidecar binds — so an
 /// ephemeral `METRICS_PORT=0` isolates the provider-config refusal as the sole
-/// failure. Returns `(exit_code, stdout, stderr)`.
-async fn spawn_foundry_expecting_refuse_to_start(providers: &str) -> (Option<i32>, String, String) {
+/// failure. Any key in `remove_settings` is stripped from the subprocess env so
+/// the missing-required-setting fail-fast can be provoked deterministically
+/// (the parent env is otherwise inherited). Returns `(exit_code, stdout, stderr)`.
+async fn spawn_foundry_expecting_refuse_to_start(
+    providers: &str,
+    remove_settings: &[&str],
+) -> (Option<i32>, String, String) {
     use std::process::Stdio;
     use std::time::Duration;
     use tokio::process::Command;
@@ -323,6 +353,9 @@ async fn spawn_foundry_expecting_refuse_to_start(providers: &str) -> (Option<i32
 
     let binary_path = assert_cmd::cargo::cargo_bin("foundry");
     let mut cmd = Command::new(&binary_path);
+    for key in remove_settings {
+        cmd.env_remove(key);
+    }
     cmd.env("DATABASE_URL", &url)
         .env("NOTIFICATION_PROVIDERS", providers)
         .env("METRICS_PORT", "0")
@@ -564,11 +597,25 @@ async fn startup_error_names_unknown_and_known(world: &mut FoundryWorld, name: S
 
 #[then(regex = r#"^the startup error names provider "([^"]+)" and the missing setting "([^"]+)"$"#)]
 async fn startup_error_names_provider_and_missing_setting(
-    _world: &mut FoundryWorld,
-    _provider: String,
-    _setting: String,
+    world: &mut FoundryWorld,
+    provider: String,
+    setting: String,
 ) {
-    pending("slice 02/04/05 — error names the provider + the missing config key");
+    let (_, stdout, stderr) = world
+        .ndp_startup_outcome
+        .as_ref()
+        .expect("the startup subprocess outcome was captured");
+    let haystack = format!("{stdout}\n{stderr}");
+    assert!(
+        haystack.contains(&provider),
+        "startup error must name provider {provider:?}.\n\
+         stdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        haystack.contains(&setting),
+        "startup error must name the missing setting {setting:?}.\n\
+         stdout:\n{stdout}\nstderr:\n{stderr}"
+    );
 }
 
 #[then(regex = r#"^the startup error contains no secret value$"#)]

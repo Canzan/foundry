@@ -1122,6 +1122,11 @@ pub struct FoundryWorld {
     /// The unknown/typo provider name the operator listed (fail-fast scenario),
     /// handed to the `foundry` startup subprocess as `NOTIFICATION_PROVIDERS`.
     pub ndp_unknown_provider: Option<String>,
+    /// A provider the operator listed WITHOUT one of its required settings, as
+    /// `(provider, missing_setting)` — handed to the `foundry` startup subprocess
+    /// which lists the provider but has that setting removed from its env, so
+    /// `build_notifier` fails fast naming both (US-02 missing-setting scenario).
+    pub ndp_missing_setting: Option<(String, String)>,
     /// Captured `(exit_code, stdout, stderr)` of the `foundry` startup
     /// subprocess spawned by the "Foundry starts up" step (fail-fast scenario).
     pub ndp_startup_outcome: Option<(Option<i32>, String, String)>,
