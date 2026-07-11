@@ -45,6 +45,13 @@ pub struct ForgotForm {
     pub _csrf: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct ChangePasswordForm {
+    pub new_password: String,
+    #[serde(rename = "_csrf", default)]
+    pub _csrf: Option<String>,
+}
+
 // ------------------------------------------------------------------ GET /sign-in
 
 pub async fn show_form(State(state): State<AppState>, headers: HeaderMap) -> Response {
@@ -252,6 +259,65 @@ pub async fn submit_forgot(
         .render()
         .expect("forgot_sent.html renders");
     Html(body).into_response()
+}
+
+// ---------------------------------------------------------- POST /account/password
+
+/// Change the signed-in account owner's password (notification-delivery-providers
+/// US-06 — the `password_changed` trigger). Mirrors the `submit_forgot` emit idiom:
+/// perform the real state change (write the new `password_hash`), then emit ONE
+/// structured [`crate::notify::Notification`] best-effort through the config-selected
+/// providers (`notify()` is infallible — a delivery problem is contained and never
+/// fails this request, NFR-5). CSRF is enforced by the surrounding `csrf_middleware`.
+/// A signed-out caller gets the SHIPPED non-enumerable uniform 404.
+pub async fn submit_change_password(
+    State(state): State<AppState>,
+    session: Session,
+    Form(form): Form<ChangePasswordForm>,
+) -> Response {
+    let user = match session.get::<SessionUser>(SESSION_KEY_USER_ID).await {
+        Ok(Some(user)) => user,
+        _ => return crate::bootstrap::resource_not_found_page(),
+    };
+
+    let new_password = form.new_password.trim();
+    if new_password.is_empty() {
+        return (StatusCode::BAD_REQUEST, "password required").into_response();
+    }
+
+    let owner_email = match state.store.find_user_email_by_id(user.user_id).await {
+        Ok(Some(email)) => email,
+        _ => return crate::bootstrap::resource_not_found_page(),
+    };
+
+    let hash = match foundry_auth::hash_password(&SecretString::new(
+        new_password.to_string().into(),
+    ))
+    .await
+    {
+        Ok(hash) => hash,
+        Err(err) => {
+            tracing::error!(%err, "hash_password failed during change-password");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
+        }
+    };
+    if let Err(err) = state.store.update_user_password(user.user_id, &hash).await {
+        tracing::error!(%err, "update_user_password failed");
+        return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
+    }
+
+    // Best-effort, non-fatal delivery through the config-selected providers (NFR-5).
+    let notification = crate::notify::Notification {
+        event: crate::notify::NotificationEvent::PasswordChanged,
+        recipient: owner_email,
+        subject: "Your Foundry password was changed".to_string(),
+        body: "The password for your Foundry account was just changed. If this was \
+             not you, contact your workspace administrator immediately."
+            .to_string(),
+    };
+    state.notifier.notify(&notification).await;
+
+    (StatusCode::OK, "password changed").into_response()
 }
 
 // ------------------------------------------------------------------------ GET /

@@ -241,7 +241,7 @@ Feature: An operator selects delivery providers and every notification fans out 
 
   # ── Slice 06 — US-06: two new catalog events route through the same abstraction ──────
 
-  @pending @us-06 @real-io
+  @us-06 @real-io
   Scenario: Removing a member notifies that person through configured channels
     Given the operator has activated providers "log,smtp"
     When an admin removes member "maria.santos@acme.example" from "Acme"
@@ -249,14 +249,14 @@ Feature: An operator selects delivery providers and every notification fans out 
     And the notification is delivered through the "smtp" provider
     And the delivery is recorded for provider "log", event "member_removed", outcome "delivered"
 
-  @pending @us-06 @real-io
+  @us-06 @real-io
   Scenario: Changing a password notifies the account owner
     Given the operator has activated providers "log"
     When member "maria.santos@acme.example" changes their password
     Then the notification is delivered through the "log" provider
     And the delivery is recorded for provider "log", event "password_changed", outcome "delivered"
 
-  @pending @us-06 @error @property @real-io
+  @us-06 @error @property @real-io
   Scenario: A new event flows through fan-out and isolation like the existing ones
     Given the operator has activated providers "log,smtp"
     And the "smtp" provider's endpoint is unreachable
@@ -265,7 +265,7 @@ Feature: An operator selects delivery providers and every notification fans out 
     And the request returns its normal response
     And the delivery is recorded for provider "smtp", event "member_removed", outcome "failed"
 
-  @pending @us-06 @property @real-io
+  @us-06 @property @real-io
   Scenario: The event label set stays bounded as the catalog grows
     Given the operator has activated providers "log"
     When member "maria.santos@acme.example" changes their password

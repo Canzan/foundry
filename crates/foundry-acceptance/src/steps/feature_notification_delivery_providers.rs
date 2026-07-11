@@ -160,17 +160,6 @@ async fn seed_workspace_and_member(harness: &InProcHarness, workspace: &str, mem
     .expect("insert workspace membership");
 }
 
-/// RED-ready scaffold sentinel. A `panic!` is classified RED (implementation
-/// missing, test correct), NOT BROKEN (infrastructure/import error) — so once
-/// DELIVER removes `@pending`, the scenario is a genuine failing outer-loop test
-/// awaiting the production seam. `slice` names the DELIVER slice that unskips it.
-fn pending(slice: &str) -> ! {
-    panic!(
-        "@pending notification-delivery-providers ({slice}) — DELIVER implements this step \
-         against the harness provider seam it builds (recording doubles + build_notifier)"
-    );
-}
-
 // ============================================================================
 // Background
 // ============================================================================
@@ -570,13 +559,73 @@ async fn member_invite_issued_for(world: &mut FoundryWorld, email: String) {
 }
 
 #[when(regex = r#"^an admin removes member "([^"]+)" from "([^"]+)"$"#)]
-async fn admin_removes_member_from(_world: &mut FoundryWorld, _email: String, _workspace: String) {
-    pending("slice 06 — remove-member handler emits member_removed");
+async fn admin_removes_member_from(world: &mut FoundryWorld, email: String, _workspace: String) {
+    // Drive the REAL shipped admin-gated removal (member_invites::submit_remove_member,
+    // POST /workspace/members/remove): sign the seeded workspace admin in and POST the
+    // target member's email. The handler deletes the membership + emits ONE
+    // `member_removed` notification to the removed person through `notify()`, which
+    // fans out best-effort to every active provider (log + smtp here).
+    let admin = world
+        .ndp_member
+        .clone()
+        .expect("Background seeded an admin member");
+    let outcome = {
+        let harness = world.harness.as_ref().expect("harness");
+        let http = world.http.as_ref().expect("http");
+        signed_in_post(
+            harness,
+            http,
+            &admin,
+            NDP_MEMBER_PASSWORD,
+            "/workspace/members/remove",
+            &[("email", email.as_str())],
+        )
+        .await
+    };
+    world.last_status = Some(outcome.status);
+    world.last_body = Some(outcome.body);
 }
 
 #[when(regex = r#"^member "([^"]+)" changes their password$"#)]
-async fn member_changes_password(_world: &mut FoundryWorld, _email: String) {
-    pending("slice 06 — password-change handler emits password_changed");
+async fn member_changes_password(world: &mut FoundryWorld, email: String) {
+    // Drive the REAL shipped signed-in change (signin::submit_change_password,
+    // POST /account/password): sign the seeded member in and POST a new password.
+    // The handler writes the new `password_hash` + emits ONE `password_changed`
+    // notification to the account owner through `notify()`. This records the
+    // in-process delivery the "delivery is recorded" scenario asserts.
+    let outcome = {
+        let harness = world.harness.as_ref().expect("harness");
+        let http = world.http.as_ref().expect("http");
+        signed_in_post(
+            harness,
+            http,
+            &email,
+            NDP_MEMBER_PASSWORD,
+            "/account/password",
+            &[("new_password", "ndp-brand-new-passphrase-9x2q")],
+        )
+        .await
+    };
+    world.last_status = Some(outcome.status);
+    world.last_body = Some(outcome.body);
+
+    // The bounded-label / cardinality scenario asserts against a REAL `/metrics`
+    // sidecar (driving port 3), which the in-process harness does not install
+    // (metrics_server::install_recorder). Boot the shipped `foundry` subprocess
+    // with the always-buildable `log` channel — its register-at-0 cross-product now
+    // spans the GROWN NotificationEvent catalog (including `password_changed`), so
+    // the bounded-label + fail-closed cardinality checks read the widened catalog.
+    let (schema, pool, url) = fresh_schema_pool_with_url().await;
+    pool.close().await;
+    let subprocess = FoundrySubprocess::spawn_with_env_overrides(
+        &url,
+        schema,
+        1,
+        &[("NOTIFICATION_PROVIDERS", "log".to_string())],
+    )
+    .await
+    .expect("spawn foundry subprocess for the delivery-metric checks");
+    world.slice6_foundry = Some(subprocess);
 }
 
 #[when(regex = r#"^a password reset, a bootstrap invite, and a member invite each fire$"#)]

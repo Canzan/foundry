@@ -2232,6 +2232,42 @@ impl Store {
         Ok(row.map(|r| r.0))
     }
 
+    /// Write a new `password_hash` for the signed-in account owner
+    /// (notification-delivery-providers US-06 — the `password_changed` trigger).
+    /// Returns the number of rows updated (0 ⇒ no such user). Mirrors the
+    /// `UPDATE users SET password_hash` write in
+    /// [`set_first_admin_password_and_consume`].
+    pub async fn update_user_password(
+        &self,
+        user_id: uuid::Uuid,
+        password_hash: &str,
+    ) -> Result<u64, StoreError> {
+        let result = sqlx::query("UPDATE users SET password_hash = $2 WHERE id = $1")
+            .bind(user_id)
+            .bind(password_hash)
+            .execute(&self.pool)
+            .await?;
+        Ok(result.rows_affected())
+    }
+
+    /// Remove a member from a workspace (notification-delivery-providers US-06 —
+    /// the `member_removed` trigger). Returns the number of memberships deleted
+    /// (0 ⇒ the user was not a member of that workspace).
+    pub async fn remove_workspace_member(
+        &self,
+        workspace_id: uuid::Uuid,
+        user_id: uuid::Uuid,
+    ) -> Result<u64, StoreError> {
+        let result = sqlx::query(
+            "DELETE FROM workspace_memberships WHERE workspace_id = $1 AND user_id = $2",
+        )
+        .bind(workspace_id)
+        .bind(user_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected())
+    }
+
     // ----- US-10 (slice 7) tombstone GC + admin-undelete -----------------
 
     /// Hard-delete comment tombstones older than `older_than`, in

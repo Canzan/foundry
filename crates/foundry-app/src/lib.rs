@@ -393,9 +393,28 @@ pub fn build_router(state: AppState) -> Router {
             "/workspace/invites",
             get(member_invites::show_invite_form).post(member_invites::submit_invite),
         )
+        // notification-delivery-providers 06-01 (US-06) — the admin-gated
+        // member-removal trigger. Same shared layer (UNDER `csrf_middleware` +
+        // `session_layer`): a real signed-in cookie + double-submit `_csrf` apply.
+        // Gated INSIDE the handler by the SHIPPED `is_workspace_admin` (non-admin /
+        // signed-out → uniform 404). Deletes the membership + emits ONE
+        // `member_removed` notification through `notify()` (member_invites.rs).
+        .route(
+            "/workspace/members/remove",
+            post(member_invites::submit_remove_member),
+        )
         .route(
             "/forgot-password",
             get(signin::show_forgot_form).post(signin::submit_forgot),
+        )
+        // notification-delivery-providers 06-01 (US-06) — the signed-in
+        // account-owner password-change trigger. Same shared layer (UNDER
+        // `csrf_middleware` + `session_layer`): a real signed-in cookie +
+        // double-submit `_csrf` apply. Writes the new `password_hash` + emits ONE
+        // `password_changed` notification through `notify()` (signin.rs).
+        .route(
+            "/account/password",
+            post(signin::submit_change_password),
         )
         .route(
             "/team/{team_slug}/projects/new",

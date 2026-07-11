@@ -47,6 +47,8 @@ pub enum NotificationEvent {
     PasswordReset,
     WorkspaceInvite,
     MemberInvite,
+    MemberRemoved,
+    PasswordChanged,
 }
 
 impl NotificationEvent {
@@ -56,6 +58,8 @@ impl NotificationEvent {
             NotificationEvent::PasswordReset => "password_reset",
             NotificationEvent::WorkspaceInvite => "workspace_invite",
             NotificationEvent::MemberInvite => "member_invite",
+            NotificationEvent::MemberRemoved => "member_removed",
+            NotificationEvent::PasswordChanged => "password_changed",
         }
     }
 
@@ -64,10 +68,12 @@ impl NotificationEvent {
     /// present at zero on the first `/metrics` scrape (ADR-004). Slices adding
     /// events (US-06: `member_removed`, `password_changed`) extend this in
     /// lockstep with the enum.
-    pub const ALL: [NotificationEvent; 3] = [
+    pub const ALL: [NotificationEvent; 5] = [
         NotificationEvent::PasswordReset,
         NotificationEvent::WorkspaceInvite,
         NotificationEvent::MemberInvite,
+        NotificationEvent::MemberRemoved,
+        NotificationEvent::PasswordChanged,
     ];
 }
 
@@ -938,6 +944,11 @@ mod tests {
             "workspace_invite"
         );
         assert_eq!(NotificationEvent::MemberInvite.as_str(), "member_invite");
+        assert_eq!(NotificationEvent::MemberRemoved.as_str(), "member_removed");
+        assert_eq!(
+            NotificationEvent::PasswordChanged.as_str(),
+            "password_changed"
+        );
         assert_eq!(ProviderKind::Log.as_str(), "log");
         assert_eq!(ProviderKind::Smtp.as_str(), "smtp");
         assert_eq!(ProviderKind::Webhook.as_str(), "webhook");

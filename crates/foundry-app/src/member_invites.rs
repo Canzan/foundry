@@ -68,6 +68,14 @@ pub struct IssueForm {
     _csrf: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct RemoveMemberForm {
+    #[serde(default)]
+    pub email: Option<String>,
+    #[serde(rename = "_csrf", default)]
+    _csrf: Option<String>,
+}
+
 // ------------------------------------------------------- GET /workspace/invites
 
 /// Render the one-email-field member-invite form for a signed-in WORKSPACE ADMIN,
@@ -217,6 +225,61 @@ pub async fn submit_invite(
             (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response()
         }
     }
+}
+
+// ------------------------------------------------ POST /workspace/members/remove
+
+/// Remove a member from the acting workspace (notification-delivery-providers
+/// US-06 — the `member_removed` trigger). Admin-gated by the SHIPPED
+/// `is_workspace_admin` (a non-admin / signed-out caller gets the non-enumerable
+/// uniform 404, NFR-1). CSRF is enforced by the surrounding `csrf_middleware`.
+/// Performs the real state change (deletes the workspace membership), then emits
+/// ONE structured notification to the removed person best-effort through the
+/// config-selected providers (`notify()` is infallible — a delivery problem is
+/// contained and never fails this request, NFR-5), exactly like the invite idiom.
+pub async fn submit_remove_member(
+    State(state): State<AppState>,
+    session: Session,
+    Form(form): Form<RemoveMemberForm>,
+) -> Response {
+    let Some((admin, _workspace_name)) = require_workspace_admin(&state, &session).await else {
+        return resource_not_found_page();
+    };
+
+    let email = form.email.as_deref().map(str::trim).unwrap_or("");
+    if email.is_empty() {
+        return (StatusCode::BAD_REQUEST, "email required").into_response();
+    }
+    let email_lower = email.to_ascii_lowercase();
+
+    let target = match state.store.find_user_by_email(&email_lower).await {
+        Ok(Some(user)) => user,
+        Ok(None) => return resource_not_found_page(),
+        Err(err) => {
+            tracing::warn!(error = %err, "find_user_by_email failed during member removal; failing closed (404)");
+            return resource_not_found_page();
+        }
+    };
+
+    if let Err(err) = state
+        .store
+        .remove_workspace_member(admin.workspace_id, target.id)
+        .await
+    {
+        tracing::error!(%err, "remove_workspace_member failed");
+        return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
+    }
+
+    // Best-effort, non-fatal delivery through the config-selected providers (NFR-5).
+    let notification = crate::notify::Notification {
+        event: crate::notify::NotificationEvent::MemberRemoved,
+        recipient: email.to_string(),
+        subject: "You were removed from a Foundry workspace".to_string(),
+        body: "Your access to the workspace has been removed by an administrator.".to_string(),
+    };
+    state.notifier.notify(&notification).await;
+
+    (StatusCode::OK, "member removed").into_response()
 }
 
 // ----------------------------------------------------------------- internals
