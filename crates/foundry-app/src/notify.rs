@@ -15,7 +15,13 @@
 //! appears in a log line, error, or debug output.
 
 use async_trait::async_trait;
+use lettre::transport::smtp::authentication::Credentials;
+use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
+use secrecy::{ExposeSecret, SecretString};
 use std::sync::Arc;
+
+/// ADR-002: SMTP submission port default. Operators override via `SMTP_PORT`.
+const SMTP_DEFAULT_PORT: u16 = 587;
 
 /// The closed catalogue of notification-triggering events. Each variant's
 /// [`NotificationEvent::as_str`] is the bounded metric-label value (ADR-004/005).
@@ -199,6 +205,139 @@ impl NotificationProvider for LogProvider {
     }
 }
 
+/// Validated SMTP relay settings (ADR-002/006). `password` is a [`SecretString`]
+/// — read once, exposed ONLY at credential construction, never logged nor
+/// Debug-printed. This type deliberately does NOT derive `Debug`, so the password
+/// has no debug-leak vector anywhere it is held.
+pub struct SmtpConfig {
+    host: String,
+    port: u16,
+    username: String,
+    password: SecretString,
+    from: String,
+}
+
+impl SmtpConfig {
+    /// Parse from the process environment: `SMTP_HOST`, `SMTP_PORT` (default
+    /// [`SMTP_DEFAULT_PORT`]), `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM`.
+    pub fn from_env() -> anyhow::Result<Self> {
+        Self::from_lookup(|key| std::env::var(key).ok())
+    }
+
+    /// Parse from an arbitrary key→value lookup (so callers and tests need no
+    /// global env mutation). A missing/blank required setting fails fast, naming
+    /// the provider AND the offending setting (ADR-002 / NFR-1) — the message is
+    /// secret-free by construction (it never echoes a value).
+    pub fn from_lookup<F: Fn(&str) -> Option<String>>(get: F) -> anyhow::Result<Self> {
+        let required = |key: &str| -> anyhow::Result<String> {
+            match get(key) {
+                Some(value) if !value.trim().is_empty() => Ok(value),
+                _ => anyhow::bail!("provider 'smtp' is missing required setting '{key}'"),
+            }
+        };
+        let host = required("SMTP_HOST")?;
+        let username = required("SMTP_USERNAME")?;
+        let password = SecretString::new(required("SMTP_PASSWORD")?.into());
+        let from = required("SMTP_FROM")?;
+        let port = match get("SMTP_PORT") {
+            Some(raw) if !raw.trim().is_empty() => raw.trim().parse::<u16>().map_err(|_| {
+                // Secret-free: SMTP_PORT is not a secret, so echoing it is safe.
+                anyhow::anyhow!("provider 'smtp' setting 'SMTP_PORT' is not a valid port: {raw}")
+            })?,
+            _ => SMTP_DEFAULT_PORT,
+        };
+        Ok(Self {
+            host,
+            port,
+            username,
+            password,
+            from,
+        })
+    }
+}
+
+/// The `smtp` channel (ADR-001/002): renders the structured [`Notification`] into
+/// an email and delivers it through an SMTP relay via lettre's async STARTTLS
+/// transport. Holds the relay credentials inside lettre's transport (built from a
+/// [`SecretString`]); NOT `Debug` (ADR-006) — the password has no debug-leak
+/// vector. All [`DeliveryError`] messages are hand-built and secret-free.
+pub struct SmtpProvider {
+    transport: AsyncSmtpTransport<Tokio1Executor>,
+    from: String,
+}
+
+impl SmtpProvider {
+    /// Build the STARTTLS relay transport from validated config. The password is
+    /// exposed exactly ONCE here (credential construction) and thereafter lives
+    /// only inside lettre's transport — never surfaced again on any path.
+    pub fn new(config: SmtpConfig) -> Result<Self, DeliveryError> {
+        let credentials = Credentials::new(
+            config.username.clone(),
+            config.password.expose_secret().to_string(),
+        );
+        let transport = AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(&config.host)
+            .map_err(|_| {
+                DeliveryError::Permanent("smtp relay transport could not be built".to_string())
+            })?
+            .port(config.port)
+            .credentials(credentials)
+            .build();
+        Ok(Self {
+            transport,
+            from: config.from,
+        })
+    }
+}
+
+#[async_trait]
+impl NotificationProvider for SmtpProvider {
+    async fn deliver(&self, notification: &Notification) -> Result<(), DeliveryError> {
+        let email = Message::builder()
+            .from(self.from.parse().map_err(|_| {
+                DeliveryError::Permanent("smtp 'from' address is invalid".to_string())
+            })?)
+            .to(notification.recipient.parse().map_err(|_| {
+                DeliveryError::Permanent("smtp recipient address is invalid".to_string())
+            })?)
+            .subject(notification.subject.clone())
+            .body(notification.body.clone())
+            .map_err(|_| {
+                DeliveryError::Permanent("smtp message could not be constructed".to_string())
+            })?;
+        // Hand-built, secret-free classification (ADR-006): never interpolate the
+        // raw transport error (or any credential) into the delivery error.
+        self.transport.send(email).await.map_err(|err| {
+            if err.is_permanent() {
+                DeliveryError::Permanent("smtp relay rejected the message".to_string())
+            } else {
+                DeliveryError::Transient("smtp relay unreachable or errored".to_string())
+            }
+        })?;
+        Ok(())
+    }
+
+    fn kind(&self) -> ProviderKind {
+        ProviderKind::Smtp
+    }
+
+    async fn probe(&self) -> Result<(), DeliveryError> {
+        // Startup reachability probe: a TLS handshake only, NO `MAIL FROM`
+        // (design note — a handshake needs no envelope). Secret-free errors.
+        match self.transport.test_connection().await {
+            Ok(true) => Ok(()),
+            Ok(false) => Err(DeliveryError::Transient(
+                "smtp relay did not accept the connection".to_string(),
+            )),
+            Err(err) if err.is_permanent() => Err(DeliveryError::Permanent(
+                "smtp relay refused the connection".to_string(),
+            )),
+            Err(_) => Err(DeliveryError::Transient(
+                "smtp relay unreachable".to_string(),
+            )),
+        }
+    }
+}
+
 /// Build the active [`Notifier`] at the composition root from the
 /// `NOTIFICATION_PROVIDERS` env var (ADR-002): a comma-separated channel list.
 /// Unset/empty ⇒ an empty notifier (delivery inactive). Each listed channel is
@@ -206,12 +345,17 @@ impl NotificationProvider for LogProvider {
 /// An unknown channel name fails fast.
 pub async fn build_notifier() -> anyhow::Result<Notifier> {
     let spec = std::env::var("NOTIFICATION_PROVIDERS").unwrap_or_default();
-    build_notifier_from(&spec).await
+    build_notifier_from(&spec, |key| std::env::var(key).ok()).await
 }
 
 /// The pure-ish core of [`build_notifier`]: parse a channel-list spec and build
-/// the notifier. Separated from the env read so it is directly unit-testable.
-async fn build_notifier_from(spec: &str) -> anyhow::Result<Notifier> {
+/// the notifier, reading each provider's settings through `get` (the env lookup
+/// in production; an injected map in tests). Separated from the env read so it is
+/// directly unit-testable without global env mutation.
+async fn build_notifier_from<F: Fn(&str) -> Option<String>>(
+    spec: &str,
+    get: F,
+) -> anyhow::Result<Notifier> {
     let mut providers: Vec<Arc<dyn NotificationProvider>> = Vec::new();
     for name in spec.split(',').map(str::trim).filter(|s| !s.is_empty()) {
         match name {
@@ -219,6 +363,20 @@ async fn build_notifier_from(spec: &str) -> anyhow::Result<Notifier> {
                 let provider = LogProvider::new();
                 provider.probe().await.map_err(|err| {
                     anyhow::anyhow!("provider 'log' failed its startup probe: {err}")
+                })?;
+                providers.push(Arc::new(provider));
+            }
+            "smtp" => {
+                // Wire → probe → use (ADR-002): parse+validate the SMTP_* settings
+                // (fail-fast naming the missing key), construct the relay
+                // transport, and admit the channel only after its TLS-handshake
+                // probe passes. Every error here is secret-free (ADR-006).
+                let config = SmtpConfig::from_lookup(&get)?;
+                let provider = SmtpProvider::new(config).map_err(|err| {
+                    anyhow::anyhow!("provider 'smtp' could not be constructed: {err}")
+                })?;
+                provider.probe().await.map_err(|err| {
+                    anyhow::anyhow!("provider 'smtp' failed its startup probe: {err}")
                 })?;
                 providers.push(Arc::new(provider));
             }
@@ -260,10 +418,14 @@ mod tests {
     async fn build_notifier_admits_the_log_channel_and_leaves_unset_inactive() {
         // Unset/empty ⇒ inactive (no providers). Listing "log" admits exactly the
         // Log channel after its probe passes (wire → probe → use, ADR-002).
-        let inactive = build_notifier_from("").await.expect("empty spec builds");
+        let inactive = build_notifier_from("", |_| None)
+            .await
+            .expect("empty spec builds");
         assert!(inactive.active_kinds().is_empty());
 
-        let logging = build_notifier_from("log").await.expect("log spec builds");
+        let logging = build_notifier_from("log", |_| None)
+            .await
+            .expect("log spec builds");
         assert_eq!(logging.active_kinds(), vec![ProviderKind::Log]);
     }
 
@@ -275,7 +437,7 @@ mod tests {
         // "logg" is diagnosable — and it must carry no secret value.
         // `Notifier` is deliberately not `Debug` (ADR-006), so `expect_err`
         // (which needs the `Ok` value to be `Debug`) can't be used here.
-        let Err(err) = build_notifier_from("logg").await else {
+        let Err(err) = build_notifier_from("logg", |_| None).await else {
             panic!("an unknown channel must refuse to build");
         };
         let message = format!("{err:#}");
@@ -308,6 +470,120 @@ mod tests {
         assert!(
             !line.contains("SUPER_SECRET_RESET_TOKEN"),
             "the reset token must never appear in the delivery log line: {line}"
+        );
+    }
+
+    /// A distinctive value that would leak loudly if any layer echoed the SMTP
+    /// password. Reused across the no-leak litmus tests + the acceptance step.
+    const SMTP_PASSWORD_SENTINEL: &str = "ndp-smtp-password-must-never-leak-9f3a";
+
+    fn smtp_env(password: &str, port: Option<&str>) -> impl Fn(&str) -> Option<String> {
+        let password = password.to_string();
+        let port = port.map(str::to_string);
+        move |key: &str| match key {
+            "SMTP_HOST" => Some("relay.acme.example".to_string()),
+            "SMTP_USERNAME" => Some("mailer".to_string()),
+            "SMTP_PASSWORD" => Some(password.clone()),
+            "SMTP_FROM" => Some("noreply@acme.example".to_string()),
+            "SMTP_PORT" => port.clone(),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn smtp_config_parses_required_settings_and_defaults_the_port_to_587() {
+        // Unset SMTP_PORT ⇒ the ADR-002 submission default (587). An explicit
+        // value overrides it. Required strings land on the config verbatim.
+        let defaulted =
+            SmtpConfig::from_lookup(smtp_env("hunter2", None)).expect("valid smtp config parses");
+        assert_eq!(defaulted.host, "relay.acme.example");
+        assert_eq!(defaulted.username, "mailer");
+        assert_eq!(defaulted.from, "noreply@acme.example");
+        assert_eq!(defaulted.port, SMTP_DEFAULT_PORT);
+
+        let overridden = SmtpConfig::from_lookup(smtp_env("hunter2", Some("2525")))
+            .expect("explicit port parses");
+        assert_eq!(overridden.port, 2525);
+    }
+
+    #[test]
+    fn smtp_config_missing_a_required_setting_fails_fast_naming_provider_and_setting() {
+        // Omit SMTP_HOST while a password is present: the fail-fast error must
+        // name BOTH the provider and the offending key, and echo NO secret value
+        // (ADR-002 / ADR-006).
+        let get = |key: &str| match key {
+            "SMTP_USERNAME" => Some("mailer".to_string()),
+            "SMTP_PASSWORD" => Some(SMTP_PASSWORD_SENTINEL.to_string()),
+            "SMTP_FROM" => Some("noreply@acme.example".to_string()),
+            _ => None,
+        };
+        let Err(err) = SmtpConfig::from_lookup(get) else {
+            panic!("a missing required SMTP setting must fail fast");
+        };
+        let message = format!("{err:#}");
+        assert!(
+            message.contains("smtp"),
+            "error must name provider smtp: {message}"
+        );
+        assert!(
+            message.contains("SMTP_HOST"),
+            "error must name the missing setting SMTP_HOST: {message}"
+        );
+        assert!(
+            !message.contains(SMTP_PASSWORD_SENTINEL),
+            "the fail-fast error must carry no secret value: {message}"
+        );
+    }
+
+    #[tokio::test]
+    async fn smtp_password_never_appears_in_debug_output_or_a_delivery_error() {
+        // The five-layer no-leak litmus at unit scope (ADR-006): the password is
+        // held in a SecretString (redacted on Debug), the provider is not Debug,
+        // and a real DeliveryError from a closed relay is hand-built + secret-free.
+        let config = SmtpConfig::from_lookup(smtp_env(SMTP_PASSWORD_SENTINEL, Some("1")))
+            .expect("sentinel smtp config parses");
+        let secret_debug = format!("{:?}", config.password);
+        assert!(
+            !secret_debug.contains(SMTP_PASSWORD_SENTINEL),
+            "SecretString must redact the password on Debug: {secret_debug}"
+        );
+
+        let provider = SmtpProvider::new(config).expect("smtp provider builds");
+        let notification = Notification {
+            event: NotificationEvent::PasswordReset,
+            recipient: "maria.santos@acme.example".to_string(),
+            subject: "Reset your Foundry password".to_string(),
+            body: "follow this link ?token=RESET".to_string(),
+        };
+        // 127.0.0.1:1 is closed → connection refused → a genuine transport error.
+        let err = provider
+            .deliver(&notification)
+            .await
+            .expect_err("a closed relay must fail the delivery");
+        let rendered = format!("{err} || {err:?}");
+        assert!(
+            !rendered.contains(SMTP_PASSWORD_SENTINEL),
+            "the SMTP password must never appear in a delivery error or its debug output: {rendered}"
+        );
+    }
+
+    #[tokio::test]
+    async fn build_notifier_smtp_branch_rejects_when_the_relay_probe_cannot_connect() {
+        // The smtp registry branch is wire → probe → use: with valid config but an
+        // unreachable relay (closed localhost port), the startup probe fails and
+        // the channel is refused — the error names smtp and leaks no secret.
+        let get = smtp_env(SMTP_PASSWORD_SENTINEL, Some("1"));
+        let Err(err) = build_notifier_from("smtp", get).await else {
+            panic!("smtp with an unreachable relay must fail its startup probe");
+        };
+        let message = format!("{err:#}");
+        assert!(
+            message.contains("smtp"),
+            "probe failure must name smtp: {message}"
+        );
+        assert!(
+            !message.contains(SMTP_PASSWORD_SENTINEL),
+            "the probe-failure error must carry no secret value: {message}"
         );
     }
 }

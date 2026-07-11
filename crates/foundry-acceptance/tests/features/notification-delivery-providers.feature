@@ -82,7 +82,7 @@ Feature: An operator selects delivery providers and every notification fans out 
 
   # ── Slice 02 — US-02: real email behind the port through an SMTP relay ──────────────
 
-  @pending @us-02 @real-io
+  @us-02 @real-io
   Scenario: A reset email is delivered through the configured SMTP relay
     Given the operator has activated providers "smtp"
     When a member requests a password reset for "maria.santos@acme.example"
@@ -105,14 +105,14 @@ Feature: An operator selects delivery providers and every notification fans out 
     And the startup error names provider "smtp" and the missing setting "SMTP_HOST"
     And the startup error contains no secret value
 
-  @pending @us-02 @real-io
+  @us-02 @real-io
   Scenario: With SMTP inactive, no email is attempted and existing behavior is unchanged
     Given the operator has activated providers "log"
     When a member requests a password reset for "maria.santos@acme.example"
     Then no delivery is attempted through the "smtp" provider
     And the existing notification behavior is unchanged
 
-  @pending @us-02 @security @real-io
+  @us-02 @security @real-io
   Scenario: The SMTP password never leaks across a delivery cycle
     Given the operator has activated providers "smtp"
     When a member requests a password reset for "maria.santos@acme.example"

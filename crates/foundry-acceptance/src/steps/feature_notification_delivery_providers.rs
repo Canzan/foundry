@@ -40,7 +40,10 @@
 use crate::support::harness::{fresh_schema_pool_with_url, InProcHarness};
 use crate::world::FoundryWorld;
 use cucumber::{given, then, when};
-use foundry_app::{LogProvider, Notification, NotificationEvent, ProviderKind};
+use foundry_app::{
+    LogProvider, Notification, NotificationEvent, NotificationProvider, ProviderKind, SmtpConfig,
+    SmtpProvider,
+};
 use reqwest::redirect::Policy;
 use reqwest::StatusCode;
 use secrecy::SecretString;
@@ -52,6 +55,10 @@ const NDP_NOW: &str = "2026-01-15T12:00:00Z";
 /// Test `SESSION_SECRET` handed to the `foundry` startup subprocess (fail-fast
 /// scenario). Its VALUE is asserted absent from the refusal output (no-leak).
 const NDP_SESSION_SECRET: &str = "ndp-test-session-secret-must-be-at-least-32-bytes-long-yes";
+
+/// Distinctive SMTP password used by the no-leak litmus scenario: it must never
+/// surface in any recorded field, error, or debug output across a delivery cycle.
+const NDP_SMTP_PASSWORD_SENTINEL: &str = "ndp-smtp-password-must-never-leak-9f3a";
 
 /// Valid Ed25519 test public key (same literal as the slice-8 subprocess seam)
 /// so the startup subprocess gets past machine-token verifier construction and
@@ -468,13 +475,49 @@ async fn no_error_is_raised(world: &mut FoundryWorld) {
 }
 
 #[then(regex = r#"^no delivery is attempted through the "([^"]+)" provider$"#)]
-async fn no_delivery_attempted_through(_world: &mut FoundryWorld, _provider: String) {
-    pending("slice 02 — inactive provider is never constructed nor called");
+async fn no_delivery_attempted_through(world: &mut FoundryWorld, provider: String) {
+    // With smtp inactive (only "log" active), the smtp provider is never wired,
+    // so ZERO deliveries and ZERO recorded attempts (delivered OR failed) exist
+    // for it — the inactive channel was neither constructed nor called (NFR-5).
+    let harness = world.harness.as_ref().expect("harness");
+    let delivered = harness.fake_email.delivered_through(&provider);
+    let attempted = harness
+        .fake_email
+        .sent()
+        .iter()
+        .filter(|d| d.provider == provider)
+        .count();
+    assert_eq!(
+        delivered, 0,
+        "no delivery must occur through the inactive {provider:?} provider, got {delivered}"
+    );
+    assert_eq!(
+        attempted, 0,
+        "no attempt (delivered or failed) may be recorded for the inactive {provider:?} \
+         provider, got {attempted}"
+    );
 }
 
 #[then(regex = r#"^the existing notification behavior is unchanged$"#)]
-async fn existing_behavior_unchanged(_world: &mut FoundryWorld) {
-    pending("slice 02 — backwards-compat regression (NFR-5)");
+async fn existing_behavior_unchanged(world: &mut FoundryWorld) {
+    // Backwards-compat (NFR-5): the still-active "log" channel delivered the
+    // password_reset exactly as it did before smtp existed, and the originating
+    // request returned its normal 200.
+    let status = world.last_status.expect("a request was made");
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "the request must return its normal 200 response, got {status}"
+    );
+    let harness = world.harness.as_ref().expect("harness");
+    let log_delivered = harness
+        .fake_email
+        .recorded("log", "password_reset", "delivered");
+    assert_eq!(
+        log_delivered, 1,
+        "the existing log delivery must be unchanged (exactly one log password_reset \
+         delivered), got {log_delivered}"
+    );
 }
 
 #[then(regex = r#"^startup is refused and the process exits non-zero$"#)]
@@ -547,8 +590,65 @@ async fn startup_error_no_secret(world: &mut FoundryWorld) {
 #[then(
     regex = r#"^the "([^"]+)" value never appears in any log, error, metric label, or debug output$"#
 )]
-async fn secret_value_never_appears(_world: &mut FoundryWorld, _secret_key: String) {
-    pending("slice 02/04/05 — five-layer no-leak litmus (SecretString + no-Debug port)");
+async fn secret_value_never_appears(world: &mut FoundryWorld, secret_key: String) {
+    assert_eq!(
+        secret_key, "SMTP_PASSWORD",
+        "slice 02 covers the SMTP_PASSWORD no-leak litmus"
+    );
+    let harness = world.harness.as_ref().expect("harness");
+    // The full delivery cycle completed through the smtp channel.
+    let delivery = harness
+        .fake_email
+        .sent()
+        .into_iter()
+        .find(|d| d.provider == "smtp" && d.event == "password_reset")
+        .expect("an smtp delivery for password_reset was recorded");
+
+    // Layer 1 — no observable recorded field carries the password.
+    for field in [
+        &delivery.to,
+        &delivery.subject,
+        &delivery.body,
+        &delivery.provider,
+        &delivery.event,
+        &delivery.outcome,
+    ] {
+        assert!(
+            !field.contains(NDP_SMTP_PASSWORD_SENTINEL),
+            "no recorded delivery field may carry the SMTP password: {field}"
+        );
+    }
+
+    // Layers 2-5 — drive the SHIPPED SmtpProvider built WITH the sentinel
+    // password (matching 01-01's pattern of asserting the real production
+    // adapter): the SecretString redacts on Debug, the provider is not Debug,
+    // and a genuine DeliveryError from a closed relay is hand-built + secret-free
+    // (ADR-006). Reverting any layer re-REDs this.
+    let config = SmtpConfig::from_lookup(|key| match key {
+        "SMTP_HOST" => Some("127.0.0.1".to_string()),
+        "SMTP_PORT" => Some("1".to_string()),
+        "SMTP_USERNAME" => Some("mailer".to_string()),
+        "SMTP_PASSWORD" => Some(NDP_SMTP_PASSWORD_SENTINEL.to_string()),
+        "SMTP_FROM" => Some("noreply@acme.example".to_string()),
+        _ => None,
+    })
+    .expect("sentinel smtp config parses");
+    let provider = SmtpProvider::new(config).expect("smtp provider builds");
+    let notification = Notification {
+        event: NotificationEvent::PasswordReset,
+        recipient: delivery.to.clone(),
+        subject: delivery.subject.clone(),
+        body: delivery.body.clone(),
+    };
+    let err = provider
+        .deliver(&notification)
+        .await
+        .expect_err("a closed relay must fail the delivery");
+    let rendered = format!("{err} || {err:?}");
+    assert!(
+        !rendered.contains(NDP_SMTP_PASSWORD_SENTINEL),
+        "the SMTP password must never appear in any error or debug output: {rendered}"
+    );
 }
 
 #[then(regex = r#"^no reset token appears in the delivery log line$"#)]
