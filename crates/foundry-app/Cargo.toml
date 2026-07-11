@@ -76,6 +76,13 @@ metrics-exporter-prometheus = { workspace = true }
 dotenvy = { workspace = true }
 uuid = { workspace = true }
 lettre = { workspace = true }
+# notification-delivery-providers US-04 (ADR-001/006) — the webhook channel POSTs
+# the rendered JSON notification over HTTP via reqwest (already the workspace HTTP
+# client), and signs the body with HMAC-SHA256 (`hmac` over `sha2`, both workspace
+# pins) when a `WEBHOOK_SIGNING_SECRET` is configured. No new HTTP client, no new
+# crate — reqwest 0.12 + hmac 0.12 + sha2 0.10 are all already blessed.
+reqwest = { workspace = true }
+hmac = { workspace = true }
 
 bytes = "1"
 futures = { workspace = true }

@@ -16,9 +16,11 @@
 //! appears in a log line, error, or debug output.
 
 use async_trait::async_trait;
+use hmac::{Hmac, Mac};
 use lettre::transport::smtp::authentication::Credentials;
 use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
 use secrecy::{ExposeSecret, SecretString};
+use sha2::Sha256;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -477,6 +479,178 @@ impl NotificationProvider for SmtpProvider {
     }
 }
 
+/// The header carrying the webhook body's HMAC-SHA256 digest (ADR-001/006). The
+/// value is `sha256=<hex>` — a one-way derivation of the body under the signing
+/// secret. Only the DIGEST ever rides on the wire; the raw secret never does.
+const WEBHOOK_SIGNATURE_HEADER: &str = "x-foundry-signature";
+
+/// Validated webhook settings (ADR-002/006). `WEBHOOK_URL` is required; the
+/// optional `WEBHOOK_SIGNING_SECRET` is held in a [`SecretString`] and exposed
+/// ONLY to the HMAC at request construction — never logged, echoed, nor
+/// Debug-printed. This type deliberately does NOT derive `Debug`, so the secret
+/// has no debug-leak vector.
+pub struct WebhookConfig {
+    url: String,
+    signing_secret: Option<SecretString>,
+}
+
+impl WebhookConfig {
+    /// Parse from the process environment: `WEBHOOK_URL` (required),
+    /// `WEBHOOK_SIGNING_SECRET` (optional).
+    pub fn from_env() -> anyhow::Result<Self> {
+        Self::from_lookup(|key| std::env::var(key).ok())
+    }
+
+    /// Parse from an arbitrary key→value lookup (so callers and tests need no
+    /// global env mutation). A missing/blank `WEBHOOK_URL` fails fast, naming the
+    /// provider AND the offending setting (ADR-002 / NFR-1) — secret-free by
+    /// construction (it never echoes a value).
+    pub fn from_lookup<F: Fn(&str) -> Option<String>>(get: F) -> anyhow::Result<Self> {
+        let url = match get("WEBHOOK_URL") {
+            Some(value) if !value.trim().is_empty() => value.trim().to_string(),
+            _ => anyhow::bail!("provider 'webhook' is missing required setting 'WEBHOOK_URL'"),
+        };
+        let signing_secret = get("WEBHOOK_SIGNING_SECRET")
+            .filter(|value| !value.trim().is_empty())
+            .map(|value| SecretString::new(value.into()));
+        Ok(Self {
+            url,
+            signing_secret,
+        })
+    }
+}
+
+/// Split an `http(s)://host[:port][/path]` URL into `(host, port)` for the
+/// reachability probe (no `url` crate — the probe needs only the authority).
+/// Defaults the port to 80/443 by scheme when absent.
+fn webhook_host_port(url: &str) -> Option<(String, u16)> {
+    let (rest, default_port) = url
+        .strip_prefix("http://")
+        .map(|rest| (rest, 80u16))
+        .or_else(|| url.strip_prefix("https://").map(|rest| (rest, 443u16)))?;
+    let authority = rest.split('/').next().unwrap_or(rest);
+    let authority = authority.rsplit('@').next().unwrap_or(authority);
+    match authority.rsplit_once(':') {
+        Some((host, port)) if !host.is_empty() => Some((host.to_string(), port.parse().ok()?)),
+        Some(_) => None,
+        None if !authority.is_empty() => Some((authority.to_string(), default_port)),
+        None => None,
+    }
+}
+
+/// The `webhook` channel (ADR-001/002/006): renders the structured
+/// [`Notification`] into a JSON body and POSTs it to `WEBHOOK_URL` over HTTP via
+/// reqwest. When a signing secret is configured, the body is signed with
+/// HMAC-SHA256 and the digest rides in the `x-foundry-signature` header — the raw
+/// secret never leaves the process. NOT `Debug` (ADR-006): the secret has no
+/// debug-leak vector. All [`DeliveryError`] messages are hand-built + secret-free.
+pub struct WebhookProvider {
+    url: String,
+    host: String,
+    port: u16,
+    client: reqwest::Client,
+    signing_secret: Option<SecretString>,
+}
+
+impl WebhookProvider {
+    /// Build the provider from validated config. Parses the reachability
+    /// authority once (fail fast on a malformed URL) and constructs the HTTP
+    /// client. The signing secret (if any) is retained for per-request HMAC.
+    pub fn new(config: WebhookConfig) -> Result<Self, DeliveryError> {
+        let (host, port) = webhook_host_port(&config.url).ok_or_else(|| {
+            DeliveryError::Permanent("webhook 'WEBHOOK_URL' is not a valid http(s) URL".to_string())
+        })?;
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(10))
+            .build()
+            .map_err(|_| {
+                DeliveryError::Permanent("webhook HTTP client could not be built".to_string())
+            })?;
+        Ok(Self {
+            url: config.url,
+            host,
+            port,
+            client,
+            signing_secret: config.signing_secret,
+        })
+    }
+
+    /// The `sha256=<hex>` HMAC-SHA256 digest of `body` under `secret`. A one-way
+    /// derivation — the raw secret is unrecoverable from it (ADR-006).
+    fn sign(secret: &str, body: &str) -> String {
+        let mut mac =
+            Hmac::<Sha256>::new_from_slice(secret.as_bytes()).expect("HMAC accepts any key length");
+        mac.update(body.as_bytes());
+        let hex: String = mac
+            .finalize()
+            .into_bytes()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect();
+        format!("sha256={hex}")
+    }
+
+    /// Render the vendor-neutral notification into the webhook's JSON body
+    /// (ADR-001): `{event, recipient, subject, body}`.
+    fn render_body(notification: &Notification) -> String {
+        serde_json::json!({
+            "event": notification.event.as_str(),
+            "recipient": notification.recipient,
+            "subject": notification.subject,
+            "body": notification.body,
+        })
+        .to_string()
+    }
+}
+
+#[async_trait]
+impl NotificationProvider for WebhookProvider {
+    async fn deliver(&self, notification: &Notification) -> Result<(), DeliveryError> {
+        let body = Self::render_body(notification);
+        let mut request = self
+            .client
+            .post(&self.url)
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .body(body.clone());
+        if let Some(secret) = &self.signing_secret {
+            // ADR-006: expose the secret ONLY here, to the HMAC, and attach the
+            // DIGEST — never the key. Nothing secret survives past this line.
+            let signature = Self::sign(secret.expose_secret(), &body);
+            request = request.header(WEBHOOK_SIGNATURE_HEADER, signature);
+        }
+        // Hand-built, secret-free classification (ADR-006): never interpolate the
+        // raw transport error, the URL, or any secret into the delivery error.
+        let response = request.send().await.map_err(|_| {
+            DeliveryError::Transient("webhook endpoint unreachable or errored".to_string())
+        })?;
+        if response.status().is_success() {
+            Ok(())
+        } else if response.status().is_server_error() {
+            Err(DeliveryError::Transient(
+                "webhook receiver returned a server error".to_string(),
+            ))
+        } else {
+            Err(DeliveryError::Permanent(
+                "webhook receiver rejected the delivery".to_string(),
+            ))
+        }
+    }
+
+    fn kind(&self) -> ProviderKind {
+        ProviderKind::Webhook
+    }
+
+    async fn probe(&self) -> Result<(), DeliveryError> {
+        // Startup reachability probe (N-ODD-3, ADR-006 §Probe): a TCP connect to
+        // the receiver host:port ONLY — never a POST. Admitting the channel must
+        // not side-effect it (no phantom delivery on the receiver).
+        tokio::net::TcpStream::connect((self.host.as_str(), self.port))
+            .await
+            .map(|_| ())
+            .map_err(|_| DeliveryError::Transient("webhook host unreachable".to_string()))
+    }
+}
+
 /// Build the active [`Notifier`] at the composition root from the
 /// `NOTIFICATION_PROVIDERS` env var (ADR-002): a comma-separated channel list.
 /// Unset/empty ⇒ an empty notifier (delivery inactive). Each listed channel is
@@ -554,6 +728,20 @@ async fn build_notifier_from<F: Fn(&str) -> Option<String>>(
                 })?;
                 provider.probe().await.map_err(|err| {
                     anyhow::anyhow!("provider 'smtp' failed its startup probe: {err}")
+                })?;
+                providers.push(Arc::new(provider));
+            }
+            "webhook" => {
+                // Wire → probe → use (ADR-002): parse+validate WEBHOOK_* (fail-fast
+                // naming the missing key), construct the HTTP provider, and admit
+                // the channel only after its host-reachability probe passes (NO
+                // POST, N-ODD-3). Every error here is secret-free (ADR-006).
+                let config = WebhookConfig::from_lookup(&get)?;
+                let provider = WebhookProvider::new(config).map_err(|err| {
+                    anyhow::anyhow!("provider 'webhook' could not be constructed: {err}")
+                })?;
+                provider.probe().await.map_err(|err| {
+                    anyhow::anyhow!("provider 'webhook' failed its startup probe: {err}")
                 })?;
                 providers.push(Arc::new(provider));
             }
@@ -1022,6 +1210,173 @@ mod tests {
             delivered.load(Ordering::SeqCst),
             1,
             "the fast provider must still deliver despite the slow sibling"
+        );
+    }
+
+    // ── Slice 04 — webhook adapter: JSON POST, no-POST probe, HMAC signature ──
+
+    use std::sync::atomic::AtomicBool;
+    use tokio::io::AsyncReadExt;
+
+    /// A distinctive value that would leak loudly if any layer echoed the webhook
+    /// signing secret. Reused across the no-leak litmus + the acceptance step.
+    const WEBHOOK_SIGNING_SECRET_SENTINEL: &str = "ndp-webhook-signing-secret-must-never-leak-7c1e";
+
+    fn member_invite_notification() -> Notification {
+        Notification {
+            event: NotificationEvent::MemberInvite,
+            recipient: "sam.okafor@acme.example".to_string(),
+            subject: "You are invited to Acme".to_string(),
+            body: "Accept: https://foundry.example/invite?token=INVITE_SECRET".to_string(),
+        }
+    }
+
+    #[test]
+    fn webhook_signature_is_hmac_sha256_over_the_body_as_sha256_hex() {
+        // Independent oracle (NOT the production path recomputed): the well-known
+        // HMAC-SHA256 vector for key "key" over the pangram. Pins that the header
+        // value is genuinely HMAC-SHA256(body) under the secret, hex-encoded.
+        let signature = WebhookProvider::sign("key", "The quick brown fox jumps over the lazy dog");
+        assert_eq!(
+            signature, "sha256=f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8",
+            "the webhook signature must be the sha256= HMAC-SHA256 hex of the body"
+        );
+    }
+
+    #[test]
+    fn webhook_render_body_carries_the_vendor_neutral_contract() {
+        // ADR-001: the webhook renders the structured notification to
+        // `{event, recipient, subject, body}` — the JSON wire contract.
+        let body = WebhookProvider::render_body(&member_invite_notification());
+        let value: serde_json::Value = serde_json::from_str(&body).expect("body is valid JSON");
+        assert_eq!(value["event"], "member_invite");
+        assert_eq!(value["recipient"], "sam.okafor@acme.example");
+        assert_eq!(value["subject"], "You are invited to Acme");
+        assert_eq!(
+            value["body"],
+            "Accept: https://foundry.example/invite?token=INVITE_SECRET"
+        );
+    }
+
+    #[test]
+    fn webhook_config_requires_the_url_and_fails_fast_naming_provider_and_setting() {
+        // A missing WEBHOOK_URL fails fast naming BOTH the provider and the
+        // offending key (ADR-002 / NFR-1), secret-free by construction.
+        let Err(err) = WebhookConfig::from_lookup(|_| None) else {
+            panic!("a missing WEBHOOK_URL must fail fast");
+        };
+        let message = format!("{err:#}");
+        assert!(
+            message.contains("webhook"),
+            "error must name provider webhook: {message}"
+        );
+        assert!(
+            message.contains("WEBHOOK_URL"),
+            "error must name the missing setting WEBHOOK_URL: {message}"
+        );
+    }
+
+    #[tokio::test]
+    async fn webhook_probe_connects_without_posting_to_the_receiver() {
+        // N-ODD-3 (ADR-006 §Probe): probe() is host-reachability ONLY — a TCP
+        // connect, never a POST. A local listener accepts the probe connection and
+        // asserts NO HTTP request bytes (let alone a POST) ever arrive.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind probe listener");
+        let addr = listener.local_addr().expect("probe listener addr");
+        let posted = Arc::new(AtomicBool::new(false));
+        let observed = posted.clone();
+        let server = tokio::spawn(async move {
+            if let Ok((mut stream, _)) = listener.accept().await {
+                let mut buf = [0u8; 8];
+                let read = tokio::time::timeout(Duration::from_millis(300), stream.read(&mut buf))
+                    .await
+                    .ok()
+                    .and_then(Result::ok)
+                    .unwrap_or(0);
+                if read > 0 {
+                    observed.store(true, Ordering::SeqCst);
+                }
+            }
+        });
+
+        let config = WebhookConfig::from_lookup(|key| match key {
+            "WEBHOOK_URL" => Some(format!("http://{addr}/hook")),
+            _ => None,
+        })
+        .expect("webhook config parses");
+        let provider = WebhookProvider::new(config).expect("webhook provider builds");
+        provider
+            .probe()
+            .await
+            .expect("probe must succeed against a reachable host");
+        let _ = server.await;
+
+        assert!(
+            !posted.load(Ordering::SeqCst),
+            "the webhook probe must send NO bytes (no POST) to the receiver"
+        );
+    }
+
+    #[tokio::test]
+    async fn webhook_signing_secret_never_leaks_in_the_signature_error_or_debug() {
+        // The five-layer no-leak litmus at unit scope (ADR-006): the secret is held
+        // in a SecretString (redacted on Debug), the provider is not Debug, the
+        // wire-borne signature is a DIGEST (not the secret), and a real
+        // DeliveryError from a closed endpoint is hand-built + secret-free.
+        let config = WebhookConfig::from_lookup(|key| match key {
+            "WEBHOOK_URL" => Some("http://127.0.0.1:1/hook".to_string()),
+            "WEBHOOK_SIGNING_SECRET" => Some(WEBHOOK_SIGNING_SECRET_SENTINEL.to_string()),
+            _ => None,
+        })
+        .expect("sentinel webhook config parses");
+
+        let secret_debug = format!("{:?}", config.signing_secret);
+        assert!(
+            !secret_debug.contains(WEBHOOK_SIGNING_SECRET_SENTINEL),
+            "SecretString must redact the signing secret on Debug: {secret_debug}"
+        );
+
+        let signature = WebhookProvider::sign(
+            WEBHOOK_SIGNING_SECRET_SENTINEL,
+            &WebhookProvider::render_body(&member_invite_notification()),
+        );
+        assert!(
+            signature.starts_with("sha256=")
+                && !signature.contains(WEBHOOK_SIGNING_SECRET_SENTINEL),
+            "the signature must be a digest, never the raw secret: {signature}"
+        );
+
+        let provider = WebhookProvider::new(config).expect("webhook provider builds");
+        // 127.0.0.1:1 is closed → connection refused → a genuine transport error.
+        let err = provider
+            .deliver(&member_invite_notification())
+            .await
+            .expect_err("a closed endpoint must fail the delivery");
+        let rendered = format!("{err} || {err:?}");
+        assert!(
+            !rendered.contains(WEBHOOK_SIGNING_SECRET_SENTINEL),
+            "the signing secret must never appear in a delivery error or its debug output: {rendered}"
+        );
+    }
+
+    #[tokio::test]
+    async fn build_notifier_webhook_branch_rejects_when_the_host_is_unreachable() {
+        // The webhook registry branch is wire → probe → use: valid config but an
+        // unreachable host (closed localhost port) fails the startup probe and the
+        // channel is refused — the error names webhook.
+        let get = |key: &str| match key {
+            "WEBHOOK_URL" => Some("http://127.0.0.1:1/hook".to_string()),
+            _ => None,
+        };
+        let Err(err) = build_notifier_from("webhook", get).await else {
+            panic!("webhook with an unreachable host must fail its startup probe");
+        };
+        let message = format!("{err:#}");
+        assert!(
+            message.contains("webhook"),
+            "probe failure must name webhook: {message}"
         );
     }
 }

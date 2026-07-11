@@ -62,8 +62,8 @@ pub const DEFAULT_SSE_HEARTBEAT_MS: u64 = 25_000;
 pub use clock::{Clock, SystemClock};
 pub use notify::{
     build_notifier, DeliveryError, DeliveryOutcome, LogProvider, Notification, NotificationEvent,
-    NotificationProvider, Notifier, ProviderKind, SmtpConfig, SmtpProvider,
-    NOTIFICATION_DELIVERIES_METRIC,
+    NotificationProvider, Notifier, ProviderKind, SmtpConfig, SmtpProvider, WebhookConfig,
+    WebhookProvider, NOTIFICATION_DELIVERIES_METRIC,
 };
 
 #[derive(Clone)]

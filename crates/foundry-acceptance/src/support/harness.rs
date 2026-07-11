@@ -16,7 +16,8 @@
 
 use crate::support::file_upload_env;
 use crate::support::heartbeat_env;
-use crate::support::notify_recorder::{notifier_from_recorder, DeliveryRecorder};
+use crate::support::notify_recorder::{notifier_for_kinds, DeliveryRecorder};
+use crate::support::webhook_receiver::WebhookReceiver;
 use foundry_app::clock::MockClock;
 use foundry_app::test_support::{spawn_app_with_listener, TestApp};
 use foundry_app::{AppState, ProviderKind, DEFAULT_FILE_UPLOAD_MAX_MB, DEFAULT_SSE_HEARTBEAT_MS};
@@ -241,6 +242,11 @@ pub struct InProcHarness {
     /// notification-delivery scenarios read `recorded`/`delivered_through`.
     pub fake_email: Arc<DeliveryRecorder>,
     pub schema: String,
+    /// The local webhook receiver double, present only when this harness wired a
+    /// real [`WebhookProvider`] (the `webhook` channel). Step defs read it to
+    /// assert the POSTed JSON payload, the HMAC signature header, and that the
+    /// startup probe made NO POST.
+    pub webhook_receiver: Option<Arc<WebhookReceiver>>,
 }
 
 impl std::fmt::Debug for InProcHarness {
@@ -260,16 +266,29 @@ impl InProcHarness {
     /// minted through the product verifies on the `/api/v1` path (US-MT01 AC:
     /// "a token issued this way authenticates against the API").
     pub async fn spawn(now: time::OffsetDateTime) -> Self {
-        Self::spawn_inner(now, true, &[ProviderKind::Log]).await
+        Self::spawn_inner(now, true, &[ProviderKind::Log], None).await
     }
 
     /// Spawn a harness whose notifier fans out to a RECORDING provider per
     /// requested kind (notification-delivery-providers). All providers record
     /// into the shared `fake_email` recorder, so a step def reads deliveries per
-    /// provider + event + outcome. Models the operator's `NOTIFICATION_PROVIDERS`
-    /// selection without a real external transport.
+    /// provider + event + outcome. A `Webhook` kind is wired with the SHIPPED
+    /// `WebhookProvider` pointed at a local receiver double (a real reqwest POST);
+    /// every other kind is an in-memory double.
     pub async fn spawn_with_providers(now: time::OffsetDateTime, kinds: &[ProviderKind]) -> Self {
-        Self::spawn_inner(now, true, kinds).await
+        Self::spawn_inner(now, true, kinds, None).await
+    }
+
+    /// As [`spawn_with_providers`] but configures the `webhook` channel with a
+    /// signing secret, so the delivery carries an HMAC-SHA256 signature header
+    /// (US-04 security scenario). The secret is held in the shipped provider's
+    /// `SecretString` — the harness never logs it.
+    pub async fn spawn_with_webhook_secret(
+        now: time::OffsetDateTime,
+        kinds: &[ProviderKind],
+        webhook_secret: Option<String>,
+    ) -> Self {
+        Self::spawn_inner(now, true, kinds, webhook_secret).await
     }
 
     /// Spawn a VERIFIER-ONLY harness: `AppState.machine_token_signer` is `None`,
@@ -278,18 +297,35 @@ impl InProcHarness {
     /// server", graceful, OD1/DD2). The verifier is still present (every binary
     /// verifies).
     pub async fn spawn_verifier_only(now: time::OffsetDateTime) -> Self {
-        Self::spawn_inner(now, false, &[ProviderKind::Log]).await
+        Self::spawn_inner(now, false, &[ProviderKind::Log], None).await
     }
 
     async fn spawn_inner(
         now: time::OffsetDateTime,
         issuer: bool,
         provider_kinds: &[ProviderKind],
+        webhook_secret: Option<String>,
     ) -> Self {
         let (schema, pool, listen_url) = fresh_schema_pool_with_url().await;
         let store = Arc::new(Store::from_pool(pool));
         let fake_clock = MockClock::new(now);
         let fake_email = DeliveryRecorder::new();
+        // Spawn the local webhook receiver double + wire the SHIPPED WebhookProvider
+        // at it ONLY when the operator selected the `webhook` channel (a real POST
+        // over reqwest). Every other kind stays an in-memory recording double.
+        let webhook_receiver = if provider_kinds.contains(&ProviderKind::Webhook) {
+            Some(WebhookReceiver::spawn().await)
+        } else {
+            None
+        };
+        let webhook_url = webhook_receiver.as_ref().map(|receiver| receiver.url());
+        let notifier = notifier_for_kinds(
+            &fake_email,
+            provider_kinds,
+            webhook_url.as_deref(),
+            webhook_secret,
+        )
+        .await;
         let realtime_tx = foundry_realtime::build_broadcast();
         let heartbeat_ms =
             heartbeat_env::current_heartbeat_ms().unwrap_or(DEFAULT_SSE_HEARTBEAT_MS);
@@ -321,7 +357,7 @@ impl InProcHarness {
             db_schema: schema.clone(),
             public_url: "http://localhost".into(),
             clock: fake_clock.clone(),
-            notifier: notifier_from_recorder(&fake_email, provider_kinds),
+            notifier,
             // US-TMA05 — the per-principal revoke guardrail at the ratified
             // defaults (C=20, R=1/sec). Reads `clock` above (the MockClock), so
             // the burst scenario drives refill by advancing the mock clock — no
@@ -346,6 +382,7 @@ impl InProcHarness {
             fake_clock,
             fake_email,
             schema,
+            webhook_receiver,
         }
     }
 

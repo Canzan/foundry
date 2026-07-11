@@ -44,7 +44,8 @@ use crate::world::FoundryWorld;
 use cucumber::{given, then, when};
 use foundry_app::{
     DeliveryOutcome, LogProvider, Notification, NotificationEvent, NotificationProvider,
-    ProviderKind, SmtpConfig, SmtpProvider, NOTIFICATION_DELIVERIES_METRIC,
+    ProviderKind, SmtpConfig, SmtpProvider, WebhookConfig, WebhookProvider,
+    NOTIFICATION_DELIVERIES_METRIC,
 };
 use reqwest::redirect::Policy;
 use reqwest::StatusCode;
@@ -68,6 +69,15 @@ const NDP_SMTP_PASSWORD_SENTINEL: &str = "ndp-smtp-password-must-never-leak-9f3a
 /// flows — the shipped call sites that each emit ONE notification through
 /// `notify()`. Mirrors the seed in [`seed_workspace_and_member`].
 const NDP_MEMBER_PASSWORD: &str = "ndp-correct-horse-battery-staple";
+
+/// Distinctive webhook signing secret used by the US-04 security scenario: it must
+/// never surface in any recorded field, error, metric label, or debug output, and
+/// the delivery's signature header must be the HMAC-SHA256 DIGEST derived from it.
+const NDP_WEBHOOK_SIGNING_SECRET_SENTINEL: &str = "ndp-webhook-signing-secret-must-never-leak-7c1e";
+
+/// The header the shipped `WebhookProvider` carries the HMAC-SHA256 body digest in
+/// (`sha256=<hex>`). Mirrors `notify::WEBHOOK_SIGNATURE_HEADER`.
+const NDP_WEBHOOK_SIGNATURE_HEADER: &str = "x-foundry-signature";
 
 /// Valid Ed25519 test public key (same literal as the slice-8 subprocess seam)
 /// so the startup subprocess gets past machine-token verifier construction and
@@ -296,8 +306,29 @@ async fn provider_endpoint_rejects(_world: &mut FoundryWorld, _provider: String)
 }
 
 #[given(regex = r#"^the "([^"]+)" provider is configured with a signing secret$"#)]
-async fn webhook_configured_with_signing_secret(_world: &mut FoundryWorld, _provider: String) {
-    pending("slice 04 — WEBHOOK_SIGNING_SECRET set");
+async fn webhook_configured_with_signing_secret(world: &mut FoundryWorld, _provider: String) {
+    // The preceding "activated providers webhook" Given spawned the webhook harness
+    // WITHOUT a signing secret. Re-spawn it WITH the sentinel secret (so the shipped
+    // WebhookProvider signs the body) and re-seed the recipient, then replace the
+    // harness on the world. The secret lives only inside the provider's
+    // SecretString — the harness never logs it (ADR-006).
+    let harness = InProcHarness::spawn_with_webhook_secret(
+        now_anchor(),
+        &[ProviderKind::Webhook],
+        Some(NDP_WEBHOOK_SIGNING_SECRET_SENTINEL.to_string()),
+    )
+    .await;
+    let workspace = world
+        .ndp_workspace
+        .clone()
+        .expect("Background seeded a workspace");
+    let member = world
+        .ndp_member
+        .clone()
+        .expect("Background seeded a member");
+    seed_workspace_and_member(&harness, &workspace, &member).await;
+    world.harness = Some(harness);
+    world.http = Some(client());
 }
 
 // ============================================================================
@@ -369,19 +400,30 @@ async fn foundry_starts_up(world: &mut FoundryWorld) {
     // startup outcome. `build_notifier()` validates the list against the bounded
     // ProviderKind set and per-provider required settings, aborting on an unknown
     // name OR a missing required setting (ADR-002).
-    let outcome = if let Some(unknown) = world.ndp_unknown_provider.clone() {
+    if let Some(unknown) = world.ndp_unknown_provider.clone() {
         // Unknown-provider case: list the typo'd name; the notifier bails naming
         // it and the known set before any per-provider settings are read.
-        spawn_foundry_expecting_refuse_to_start(&unknown, &[]).await
+        world.ndp_startup_outcome =
+            Some(spawn_foundry_expecting_refuse_to_start(&unknown, &[]).await);
     } else if let Some((provider, setting)) = world.ndp_missing_setting.clone() {
         // Missing-setting case: list a KNOWN provider but ensure the named
         // required setting is absent from the subprocess env, so the notifier
         // fails fast naming the provider AND the missing key.
-        spawn_foundry_expecting_refuse_to_start(&provider, &[setting.as_str()]).await
+        world.ndp_startup_outcome =
+            Some(spawn_foundry_expecting_refuse_to_start(&provider, &[setting.as_str()]).await);
+    } else if world
+        .harness
+        .as_ref()
+        .and_then(|harness| harness.webhook_receiver.as_ref())
+        .is_some()
+    {
+        // Webhook probe scenario (US-04, N-ODD-3): the harness's wire → probe → use
+        // webhook startup already ran in the Given (the shipped `probe()` connected
+        // to the receiver, host-reachability only). Nothing more to spawn — the Then
+        // asserts the probe made NO POST to the receiver.
     } else {
         panic!("a startup precondition Given must run before 'Foundry starts up'");
-    };
-    world.ndp_startup_outcome = Some(outcome);
+    }
 }
 
 /// Spawn the shipped `foundry` binary with `NOTIFICATION_PROVIDERS=<providers>`
@@ -474,8 +516,36 @@ async fn bootstrap_invite_issued_for(world: &mut FoundryWorld, email: String) {
 }
 
 #[when(regex = r#"^a member invite is issued for "([^"]+)"$"#)]
-async fn member_invite_issued_for(_world: &mut FoundryWorld, _email: String) {
-    pending("slice 03/04 — member_invites.rs:189 emits member_invite");
+async fn member_invite_issued_for(world: &mut FoundryWorld, email: String) {
+    // Drive the REAL shipped admin-gated issuance (member_invites.rs:190, POST
+    // /workspace/invites): sign the seeded admin in and POST the invite form. The
+    // handler emits ONE `MemberInvite` notification to the invitee through
+    // `notify()`, which fans out to every active provider (the webhook channel).
+    let member = world
+        .ndp_member
+        .clone()
+        .expect("Background seeded a member");
+    let outcome = {
+        let harness = world.harness.as_ref().expect("harness");
+        let http = world.http.as_ref().expect("http");
+        signed_in_post(
+            harness,
+            http,
+            &member,
+            NDP_MEMBER_PASSWORD,
+            "/workspace/invites",
+            &[("email", email.as_str())],
+        )
+        .await
+    };
+    assert!(
+        outcome.status.is_success() || outcome.status.is_redirection(),
+        "the member invite must be issued (2xx/3xx), got {}: {}",
+        outcome.status,
+        outcome.body
+    );
+    world.last_status = Some(outcome.status);
+    world.last_body = Some(outcome.body);
 }
 
 #[when(regex = r#"^an admin removes member "([^"]+)" from "([^"]+)"$"#)]
@@ -822,9 +892,13 @@ async fn startup_error_no_secret(world: &mut FoundryWorld) {
     regex = r#"^the "([^"]+)" value never appears in any log, error, metric label, or debug output$"#
 )]
 async fn secret_value_never_appears(world: &mut FoundryWorld, secret_key: String) {
+    if secret_key == "WEBHOOK_SIGNING_SECRET" {
+        webhook_no_leak_litmus(world).await;
+        return;
+    }
     assert_eq!(
         secret_key, "SMTP_PASSWORD",
-        "slice 02 covers the SMTP_PASSWORD no-leak litmus"
+        "this step covers the SMTP_PASSWORD and WEBHOOK_SIGNING_SECRET no-leak litmus"
     );
     let harness = world.harness.as_ref().expect("harness");
     // The full delivery cycle completed through the smtp channel.
@@ -882,6 +956,82 @@ async fn secret_value_never_appears(world: &mut FoundryWorld, secret_key: String
     );
 }
 
+/// The webhook signing-secret no-leak litmus (ADR-006): across a full signed
+/// delivery cycle, the `WEBHOOK_SIGNING_SECRET` value appears in NO recorded
+/// field, in NO byte on the wire (body or header — only its DIGEST rides), and in
+/// NO error or debug output of the shipped adapter.
+async fn webhook_no_leak_litmus(world: &mut FoundryWorld) {
+    let harness = world.harness.as_ref().expect("harness");
+
+    // Layer 1 — no observable recorded delivery field carries the secret.
+    let delivery = harness
+        .fake_email
+        .sent()
+        .into_iter()
+        .find(|d| d.provider == "webhook" && d.event == "member_invite")
+        .expect("a webhook delivery for member_invite was recorded");
+    for field in [
+        &delivery.to,
+        &delivery.subject,
+        &delivery.body,
+        &delivery.provider,
+        &delivery.event,
+        &delivery.outcome,
+    ] {
+        assert!(
+            !field.contains(NDP_WEBHOOK_SIGNING_SECRET_SENTINEL),
+            "no recorded delivery field may carry the webhook signing secret: {field}"
+        );
+    }
+
+    // Layer 2 — the POST on the wire carries the DIGEST, never the raw secret:
+    // neither the body nor any request header echoes the signing secret.
+    let receiver = harness
+        .webhook_receiver
+        .as_ref()
+        .expect("the webhook channel was activated (receiver spawned)");
+    let post = receiver
+        .last_post()
+        .expect("a signed webhook POST was recorded");
+    assert!(
+        !post.body.contains(NDP_WEBHOOK_SIGNING_SECRET_SENTINEL),
+        "the POSTed body must not carry the raw signing secret: {}",
+        post.body
+    );
+    for (name, value) in &post.headers {
+        assert!(
+            !value.contains(NDP_WEBHOOK_SIGNING_SECRET_SENTINEL),
+            "no request header may carry the raw signing secret: {name}={value}"
+        );
+    }
+
+    // Layers 3-5 — drive the SHIPPED WebhookProvider built WITH the sentinel secret
+    // against a closed endpoint: the SecretString redacts on Debug, the provider is
+    // not Debug, and a genuine DeliveryError is hand-built + secret-free (ADR-006).
+    let config = WebhookConfig::from_lookup(|key| match key {
+        "WEBHOOK_URL" => Some("http://127.0.0.1:1/hook".to_string()),
+        "WEBHOOK_SIGNING_SECRET" => Some(NDP_WEBHOOK_SIGNING_SECRET_SENTINEL.to_string()),
+        _ => None,
+    })
+    .expect("sentinel webhook config parses");
+    let provider = WebhookProvider::new(config).expect("webhook provider builds");
+    let notification = Notification {
+        event: NotificationEvent::MemberInvite,
+        recipient: delivery.to.clone(),
+        subject: delivery.subject.clone(),
+        body: delivery.body.clone(),
+    };
+    let err = provider
+        .deliver(&notification)
+        .await
+        .expect_err("a closed endpoint must fail the delivery");
+    let rendered = format!("{err} || {err:?}");
+    assert!(
+        !rendered.contains(NDP_WEBHOOK_SIGNING_SECRET_SENTINEL),
+        "the webhook signing secret must never appear in any error or debug output: {rendered}"
+    );
+}
+
 #[then(regex = r#"^no reset token appears in the delivery log line$"#)]
 async fn no_reset_token_in_log_line(world: &mut FoundryWorld) {
     // The reset token rides in the notification BODY (`.../reset-password?token=
@@ -927,18 +1077,118 @@ async fn no_reset_token_in_log_line(world: &mut FoundryWorld) {
 }
 
 #[then(regex = r#"^a JSON payload describing the event is posted to the webhook endpoint$"#)]
-async fn json_payload_posted_to_webhook(_world: &mut FoundryWorld) {
-    pending("slice 04 — local webhook receiver observed a real POST body");
+async fn json_payload_posted_to_webhook(world: &mut FoundryWorld) {
+    // The shipped WebhookProvider made a REAL reqwest POST to the local receiver
+    // double. Assert the receiver observed it AND that the body is the ADR-001
+    // vendor-neutral JSON contract `{event, recipient, subject, body}`.
+    let receiver = world
+        .harness
+        .as_ref()
+        .expect("harness")
+        .webhook_receiver
+        .as_ref()
+        .expect("the webhook channel was activated (receiver spawned)");
+    assert!(
+        receiver.post_count() >= 1,
+        "the webhook provider must POST at least once to the receiver, got {}",
+        receiver.post_count()
+    );
+    let post = receiver.last_post().expect("a POST body was recorded");
+    let payload: serde_json::Value = serde_json::from_str(&post.body).unwrap_or_else(|err| {
+        panic!(
+            "the webhook POST body must be JSON: {err}; body={}",
+            post.body
+        )
+    });
+    assert_eq!(
+        payload["event"], "member_invite",
+        "the payload must describe the member_invite event: {payload}"
+    );
+    assert_eq!(
+        payload["recipient"], "sam.okafor@acme.example",
+        "the payload must carry the invitee recipient: {payload}"
+    );
+    assert!(
+        payload
+            .get("subject")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|subject| !subject.is_empty()),
+        "the payload must carry a non-empty subject: {payload}"
+    );
+    assert!(
+        payload
+            .get("body")
+            .and_then(serde_json::Value::as_str)
+            .is_some(),
+        "the payload must carry a body: {payload}"
+    );
 }
 
 #[then(regex = r#"^the webhook probe made no post to the receiver$"#)]
-async fn webhook_probe_made_no_post(_world: &mut FoundryWorld) {
-    pending("slice 04 — probe() is host-reachability only, NO POST (N-ODD-3)");
+async fn webhook_probe_made_no_post(world: &mut FoundryWorld) {
+    // N-ODD-3 (ADR-006 §Probe): the wire → probe → use webhook startup ran in the
+    // Given (the shipped `probe()` connected to the receiver), and no delivery has
+    // fired. `probe()` is host-reachability ONLY — so the receiver saw ZERO POSTs.
+    let receiver = world
+        .harness
+        .as_ref()
+        .expect("harness")
+        .webhook_receiver
+        .as_ref()
+        .expect("the webhook channel was activated (receiver spawned)");
+    assert_eq!(
+        receiver.post_count(),
+        0,
+        "the webhook health probe must make NO POST to the receiver, got {}",
+        receiver.post_count()
+    );
 }
 
 #[then(regex = r#"^the delivery carries a signature header derived from the secret$"#)]
-async fn delivery_carries_signature_header(_world: &mut FoundryWorld) {
-    pending("slice 04 — HMAC signature header present on the POST");
+async fn delivery_carries_signature_header(world: &mut FoundryWorld) {
+    use hmac::{Hmac, Mac};
+    use sha2::Sha256;
+
+    // The signed delivery POSTed a body + an `x-foundry-signature` header. Assert
+    // the header is present and equals the HMAC-SHA256 digest of the POSTed body
+    // under the signing secret — recomputed here with an INDEPENDENT hmac+sha2
+    // (an external oracle, NOT the production signer), proving it is genuinely
+    // derived from the secret rather than a fixed or absent value.
+    let receiver = world
+        .harness
+        .as_ref()
+        .expect("harness")
+        .webhook_receiver
+        .as_ref()
+        .expect("the webhook channel was activated (receiver spawned)");
+    let post = receiver
+        .last_post()
+        .expect("a signed webhook POST was recorded");
+    let signature = post
+        .headers
+        .get(NDP_WEBHOOK_SIGNATURE_HEADER)
+        .unwrap_or_else(|| {
+            panic!(
+                "the signed delivery must carry the {NDP_WEBHOOK_SIGNATURE_HEADER} header; \
+                 headers={:?}",
+                post.headers
+            )
+        });
+
+    let mut mac = Hmac::<Sha256>::new_from_slice(NDP_WEBHOOK_SIGNING_SECRET_SENTINEL.as_bytes())
+        .expect("HMAC accepts any key length");
+    mac.update(post.body.as_bytes());
+    let expected_hex: String = mac
+        .finalize()
+        .into_bytes()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    assert_eq!(
+        signature,
+        &format!("sha256={expected_hex}"),
+        "the signature header must be the HMAC-SHA256 digest of the body derived from the secret"
+    );
 }
 
 #[then(regex = r#"^no automatic retry is attempted$"#)]

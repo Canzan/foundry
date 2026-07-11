@@ -24,7 +24,10 @@
 //! assert on email delivery stay green through the port generalization.
 
 use async_trait::async_trait;
-use foundry_app::{DeliveryError, Notification, NotificationProvider, Notifier, ProviderKind};
+use foundry_app::{
+    DeliveryError, Notification, NotificationProvider, Notifier, ProviderKind, WebhookConfig,
+    WebhookProvider,
+};
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -253,5 +256,99 @@ pub fn notifier_from_recorder(
     // A SHORT per-provider timeout keeps the slow-provider isolation scenario
     // fast: an in-memory recording delivery completes far inside it, while the
     // "hangs on connect" double (which sleeps 5s) is bounded to this window.
+    Arc::new(Notifier::new(providers).with_delivery_timeout(std::time::Duration::from_millis(500)))
+}
+
+/// The `webhook` channel wired with the SHIPPED [`WebhookProvider`] (a real
+/// reqwest POST to the local receiver double) decorated so the delivery is ALSO
+/// recorded into the shared [`DeliveryRecorder`]. The happy path thus asserts
+/// BOTH a genuine POST (observed at the receiver) and the per-provider/event/
+/// outcome record (at the recorder), through one delivery — a real `@real-io`
+/// exercise of the production adapter, not a stand-in double.
+pub struct RecordingWebhookProvider {
+    inner: WebhookProvider,
+    recorder: Arc<DeliveryRecorder>,
+}
+
+impl RecordingWebhookProvider {
+    pub fn new(inner: WebhookProvider, recorder: Arc<DeliveryRecorder>) -> Self {
+        Self { inner, recorder }
+    }
+}
+
+#[async_trait]
+impl NotificationProvider for RecordingWebhookProvider {
+    async fn deliver(&self, notification: &Notification) -> Result<(), DeliveryError> {
+        let result = self.inner.deliver(notification).await;
+        let outcome = if result.is_ok() {
+            "delivered"
+        } else {
+            "failed"
+        };
+        self.recorder.record(RecordedDelivery {
+            provider: ProviderKind::Webhook.as_str().to_string(),
+            event: notification.event.as_str().to_string(),
+            outcome: outcome.to_string(),
+            to: notification.recipient.clone(),
+            subject: notification.subject.clone(),
+            body: notification.body.clone(),
+        });
+        result
+    }
+
+    fn kind(&self) -> ProviderKind {
+        ProviderKind::Webhook
+    }
+
+    async fn probe(&self) -> Result<(), DeliveryError> {
+        self.inner.probe().await
+    }
+}
+
+/// Build an `Arc<Notifier>` over `kinds`, recording every delivery into the
+/// shared `recorder`. A `Webhook` kind is wired with the SHIPPED
+/// [`WebhookProvider`] pointed at `webhook_url` (a real POST to the local
+/// receiver, optionally HMAC-signed by `webhook_secret`); every other kind is an
+/// in-memory [`RecordingProvider`]. Each provider is PROBED here (wire → probe →
+/// use) so the webhook no-POST probe scenario genuinely exercises `probe()`.
+pub async fn notifier_for_kinds(
+    recorder: &Arc<DeliveryRecorder>,
+    kinds: &[ProviderKind],
+    webhook_url: Option<&str>,
+    webhook_secret: Option<String>,
+) -> Arc<Notifier> {
+    let mut providers: Vec<Arc<dyn NotificationProvider>> = Vec::new();
+    for kind in kinds {
+        match kind {
+            ProviderKind::Webhook => {
+                let url = webhook_url
+                    .expect("a Webhook kind requires the local receiver URL")
+                    .to_string();
+                let secret = webhook_secret.clone();
+                let config = WebhookConfig::from_lookup(|key| match key {
+                    "WEBHOOK_URL" => Some(url.clone()),
+                    "WEBHOOK_SIGNING_SECRET" => secret.clone(),
+                    _ => None,
+                })
+                .expect("webhook config parses in the harness");
+                let inner = WebhookProvider::new(config).expect("webhook provider builds");
+                // Wire → probe → use: exercise the real host-reachability probe so
+                // the "probe makes no POST" scenario asserts against a probe that
+                // actually ran (it connects but never POSTs, N-ODD-3).
+                inner
+                    .probe()
+                    .await
+                    .expect("webhook probe reaches the local receiver");
+                providers.push(Arc::new(RecordingWebhookProvider::new(
+                    inner,
+                    recorder.clone(),
+                )));
+            }
+            other => {
+                providers.push(Arc::new(RecordingProvider::new(*other, recorder.clone()))
+                    as Arc<dyn NotificationProvider>);
+            }
+        }
+    }
     Arc::new(Notifier::new(providers).with_delivery_timeout(std::time::Duration::from_millis(500)))
 }

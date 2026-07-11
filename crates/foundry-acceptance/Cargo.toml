@@ -54,6 +54,10 @@ jsonwebtoken = { workspace = true }
 rand = { workspace = true }
 once_cell = { workspace = true }
 sha2 = { workspace = true }
+# notification-delivery-providers US-04 — independently recompute the webhook
+# HMAC-SHA256 signature in the security scenario (an external oracle, NOT the
+# production signer recomputed), asserting the header is derived from the secret.
+hmac = { workspace = true }
 urlencoding = { workspace = true }
 # US-04 — per-scenario temp dirs for staging runtime migrations.
 tempfile = { workspace = true }

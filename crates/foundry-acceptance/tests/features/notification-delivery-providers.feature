@@ -175,20 +175,20 @@ Feature: An operator selects delivery providers and every notification fans out 
 
   # ── Slice 04 — US-04: webhook / generic HTTP POST provider ──────────────────────────
 
-  @pending @us-04 @real-io
+  @us-04 @real-io
   Scenario: A notification is posted to the configured webhook
     Given the operator has activated providers "webhook"
     When a member invite is issued for "sam.okafor@acme.example"
     Then a JSON payload describing the event is posted to the webhook endpoint
     And the delivery is recorded for provider "webhook", event "member_invite", outcome "delivered"
 
-  @pending @us-04 @probe @real-io
+  @us-04 @probe @real-io
   Scenario: The webhook health probe makes no POST to the receiver
     Given the operator has activated providers "webhook"
     When Foundry starts up
     Then the webhook probe made no post to the receiver
 
-  @pending @us-04 @security @real-io
+  @us-04 @security @real-io
   Scenario: A signed webhook payload carries a signature without leaking the secret
     Given the operator has activated providers "webhook"
     And the "webhook" provider is configured with a signing secret
