@@ -306,6 +306,39 @@ async fn main() -> anyhow::Result<()> {
         test_migration_delay_ms: 0,
     };
 
+    // notification-delivery-providers (ADR-004) — register the per-provider
+    // delivery counter at 0 over the bounded cross-product of the ACTIVE
+    // providers × the `NotificationEvent` catalog × {delivered,failed}, BEFORE
+    // any notification fires. The live emission lives in `Notifier::notify`
+    // (notify.rs — `foundry_notification_deliveries_total{provider,event,outcome}`),
+    // but a fresh instance has delivered nothing, so without this baseline the
+    // family is ABSENT from the first `/metrics` scrape and the Grafana delivery
+    // panel reads "no data" — the same deploy-time correctness failure the
+    // slice-8 register-at-0 work removed for its metrics. Only ACTIVE providers
+    // mint series (an unconfigured channel is never wired, so it has no series);
+    // every label value is drawn from a closed enum, keeping the cardinality
+    // bounded at {provider,event,outcome} (ADR-004/ADR-011). `describe_counter!`
+    // alone emits only HELP/TYPE comments (no sample line a scraper counts as a
+    // series), so the concrete `.absolute(0)` registration below is what makes
+    // each series present at zero.
+    metrics::describe_counter!(
+        foundry_app::NOTIFICATION_DELIVERIES_METRIC,
+        "Per-provider notification delivery decisions, labelled by the bounded \
+         triple {provider,event,outcome}. Registered at 0 for every active-provider \
+         series so the delivery family is present on the first scrape (ADR-004)."
+    );
+    for (provider, event, outcome) in
+        foundry_app::notify::delivery_zero_series(&state.notifier.active_kinds())
+    {
+        metrics::counter!(
+            foundry_app::NOTIFICATION_DELIVERIES_METRIC,
+            "provider" => provider.as_str(),
+            "event" => event.as_str(),
+            "outcome" => outcome.as_str(),
+        )
+        .absolute(0);
+    }
+
     // Slice 6 (ADR-012, D4 = A) — register `db_connections_in_use` at
     // value 0 BEFORE the poll task spawns. Grafana sees the metric line
     // immediately; the first poll tick (within METRICS_POOL_POLL_SECONDS)

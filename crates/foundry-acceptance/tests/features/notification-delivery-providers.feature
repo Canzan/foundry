@@ -155,16 +155,21 @@ Feature: An operator selects delivery providers and every notification fans out 
     And each notification is delivered through the "smtp" provider
     And each delivery is recorded per provider and event
 
-  @pending @us-03 @real-io
+  # Register-at-0 + the bounded-label cardinality guard live in the REAL
+  # composition root (main.rs) + its `/metrics` sidecar — the in-process harness
+  # installs no recorder, so both scenarios drive a real `foundry` subprocess
+  # (driving port 1: operator config) and assert at the sidecar (driving port 3).
+  # `log` is the always-buildable active provider (no external relay); the
+  # multi-provider cross-product breadth is pinned by the notify.rs unit test.
+
+  @us-03 @real-io
   Scenario: The delivery metric is registered at zero on first scrape
-    Given the operator has activated providers "log,smtp"
-    When Foundry starts up
+    Given the operator boots Foundry with providers "log"
     Then the delivery metric is present on the metrics endpoint with every series at zero
 
-  @pending @us-03 @property @real-io
+  @us-03 @property @real-io
   Scenario: The delivery metric labels stay bounded
-    Given the operator has activated providers "log,smtp"
-    When a member requests a password reset for "maria.santos@acme.example"
+    Given the operator boots Foundry with providers "log"
     Then the delivery metric labels stay within their bounded sets
     And a cardinality check fails closed on an unbounded label value
 

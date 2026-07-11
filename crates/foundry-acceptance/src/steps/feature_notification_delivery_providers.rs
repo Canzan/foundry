@@ -37,17 +37,19 @@
 //! this feature's whole subject is REPLACING that single hard-wired sender with the
 //! config-built registry — DELIVER's harness seam must own the provider wiring.
 
+use crate::steps::handler_instrumentation::FoundrySubprocess;
 use crate::support::harness::{fresh_schema_pool_with_url, signed_in_post, InProcHarness};
+use crate::support::metrics_scrape::scrape_metrics;
 use crate::world::FoundryWorld;
 use cucumber::{given, then, when};
 use foundry_app::{
-    LogProvider, Notification, NotificationEvent, NotificationProvider, ProviderKind, SmtpConfig,
-    SmtpProvider,
+    DeliveryOutcome, LogProvider, Notification, NotificationEvent, NotificationProvider,
+    ProviderKind, SmtpConfig, SmtpProvider, NOTIFICATION_DELIVERIES_METRIC,
 };
 use reqwest::redirect::Policy;
 use reqwest::StatusCode;
 use secrecy::SecretString;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::time::Instant;
 
 /// Fixed scenario clock anchor (mirrors the other in-process step modules).
@@ -214,6 +216,29 @@ async fn operator_activated_no_providers(world: &mut FoundryWorld) {
     seed_workspace_and_member(&harness, &workspace, &member).await;
     world.harness = Some(harness);
     world.http = Some(client());
+}
+
+#[given(regex = r#"^the operator boots Foundry with providers "([^"]+)"$"#)]
+async fn operator_boots_foundry_with_providers(world: &mut FoundryWorld, providers_csv: String) {
+    // Drive the REAL composition root (driving port 1): a shipped `foundry`
+    // subprocess with a real Prometheus recorder + `/metrics` sidecar — the ONLY
+    // place the register-at-0 cross-product is minted (the in-process harness
+    // installs no recorder, per metrics_server::install_recorder's doc). `log`
+    // builds + probes with no external dependency, so the subprocess boots to a
+    // bound metrics port we then scrape (driving port 3). The multi-provider
+    // cross-product breadth is pinned by the notify.rs register-at-0 unit test.
+    let (schema, pool, url) = fresh_schema_pool_with_url().await;
+    // Drop the helper pool — the subprocess opens its own.
+    pool.close().await;
+    let subprocess = FoundrySubprocess::spawn_with_env_overrides(
+        &url,
+        schema,
+        1,
+        &[("NOTIFICATION_PROVIDERS", providers_csv.clone())],
+    )
+    .await
+    .expect("spawn foundry subprocess with the operator's providers");
+    world.slice6_foundry = Some(subprocess);
 }
 
 #[given(regex = r#"^the operator has listed an unknown provider "([^"]+)"$"#)]
@@ -927,18 +952,116 @@ async fn other_providers_still_deliver(_world: &mut FoundryWorld) {
 }
 
 #[then(regex = r#"^the delivery metric labels stay within their bounded sets$"#)]
-async fn metric_labels_bounded(_world: &mut FoundryWorld) {
-    pending("slice 03/06 — {provider,event,outcome} values stay in their closed domains");
+async fn metric_labels_bounded(world: &mut FoundryWorld) {
+    // Property (ADR-004/005): every registered delivery series draws its
+    // {provider,event,outcome} label VALUES only from the closed
+    // ProviderKind / NotificationEvent / outcome enums.
+    let addr = world
+        .slice6_foundry
+        .as_ref()
+        .expect("the operator booted Foundry (subprocess) before this step")
+        .metrics_addr;
+    let snap = scrape_metrics(addr).await;
+    let samples = snap.samples_for(NOTIFICATION_DELIVERIES_METRIC);
+    assert!(
+        !samples.is_empty(),
+        "the delivery metric family must be present (register-at-0) before its labels \
+         can be checked. Body:\n{}",
+        snap.raw_body
+    );
+    let providers: BTreeSet<&str> = ProviderKind::ALL.iter().map(|p| p.as_str()).collect();
+    let events: BTreeSet<&str> = NotificationEvent::ALL.iter().map(|e| e.as_str()).collect();
+    let outcomes: BTreeSet<&str> = DeliveryOutcome::ALL.iter().map(|o| o.as_str()).collect();
+    for sample in &samples {
+        let provider = sample.labels.get("provider").map(String::as_str);
+        let event = sample.labels.get("event").map(String::as_str);
+        let outcome = sample.labels.get("outcome").map(String::as_str);
+        assert!(
+            provider.is_some_and(|value| providers.contains(value)),
+            "provider label {provider:?} must be within the bounded set {providers:?}: {sample:?}"
+        );
+        assert!(
+            event.is_some_and(|value| events.contains(value)),
+            "event label {event:?} must be within the bounded set {events:?}: {sample:?}"
+        );
+        assert!(
+            outcome.is_some_and(|value| outcomes.contains(value)),
+            "outcome label {outcome:?} must be within the bounded set {outcomes:?}: {sample:?}"
+        );
+    }
 }
 
 #[then(regex = r#"^a cardinality check fails closed on an unbounded label value$"#)]
-async fn cardinality_fails_closed(_world: &mut FoundryWorld) {
-    pending("slice 03/06 — mirrored fail-closed cardinality guard (ADR-011)");
+async fn cardinality_fails_closed(world: &mut FoundryWorld) {
+    // Fail-closed cardinality guard (ADR-004/ADR-011): the delivery counter's
+    // label KEY set is EXACTLY {provider,event,outcome}. A future contributor
+    // widening it (adding recipient / workspace_id / any high-cardinality key)
+    // reds this before it ships — the acceptance-scope mirror of the notify.rs
+    // + metrics_server.rs fail-closed unit tests.
+    let addr = world
+        .slice6_foundry
+        .as_ref()
+        .expect("the operator booted Foundry (subprocess) before this step")
+        .metrics_addr;
+    let snap = scrape_metrics(addr).await;
+    let keys = snap.label_keys_for(NOTIFICATION_DELIVERIES_METRIC);
+    let expected: BTreeSet<String> = ["event", "outcome", "provider"]
+        .iter()
+        .map(|key| key.to_string())
+        .collect();
+    assert_eq!(
+        keys, expected,
+        "delivery metric label keys must be EXACTLY {{provider,event,outcome}} (fail closed), \
+         got {keys:?}. Body:\n{}",
+        snap.raw_body
+    );
 }
 
 #[then(
     regex = r#"^the delivery metric is present on the metrics endpoint with every series at zero$"#
 )]
-async fn metric_present_zero_series(_world: &mut FoundryWorld) {
-    pending("slice 03 — register-at-0 cross-product on first /metrics scrape");
+async fn metric_present_zero_series(world: &mut FoundryWorld) {
+    // Register-at-0 (ADR-004): on the FIRST scrape, before any delivery fires,
+    // the delivery counter family is present with every active-provider series
+    // sitting at zero — so an absent series never reads as "missing" on the
+    // Grafana panel. The `log` provider is active, so its full
+    // event × {delivered,failed} cross-product must be present at zero.
+    let addr = world
+        .slice6_foundry
+        .as_ref()
+        .expect("the operator booted Foundry (subprocess) before this step")
+        .metrics_addr;
+    let snap = scrape_metrics(addr).await;
+    let samples = snap.samples_for(NOTIFICATION_DELIVERIES_METRIC);
+    assert!(
+        !samples.is_empty(),
+        "the delivery metric family must be REGISTERED (present) on the first scrape, before \
+         any delivery fires — register-at-0 is missing. Body:\n{}",
+        snap.raw_body
+    );
+    for sample in &samples {
+        assert_eq!(
+            sample.value, 0.0,
+            "every delivery series must be registered at ZERO on the first scrape (nothing \
+             delivered yet), got {sample:?}"
+        );
+    }
+    for event in NotificationEvent::ALL {
+        for outcome in DeliveryOutcome::ALL {
+            let present = samples.iter().any(|sample| {
+                sample.labels.get("provider").map(String::as_str)
+                    == Some(ProviderKind::Log.as_str())
+                    && sample.labels.get("event").map(String::as_str) == Some(event.as_str())
+                    && sample.labels.get("outcome").map(String::as_str) == Some(outcome.as_str())
+            });
+            assert!(
+                present,
+                "register-at-0 must mint the series provider=log event={} outcome={} at zero. \
+                 Body:\n{}",
+                event.as_str(),
+                outcome.as_str(),
+                snap.raw_body
+            );
+        }
+    }
 }

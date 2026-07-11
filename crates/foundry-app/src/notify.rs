@@ -56,6 +56,17 @@ impl NotificationEvent {
             NotificationEvent::MemberInvite => "member_invite",
         }
     }
+
+    /// The full closed catalogue. The register-at-0 cross-product
+    /// ([`delivery_zero_series`]) enumerates over it so every event's series is
+    /// present at zero on the first `/metrics` scrape (ADR-004). Slices adding
+    /// events (US-06: `member_removed`, `password_changed`) extend this in
+    /// lockstep with the enum.
+    pub const ALL: [NotificationEvent; 3] = [
+        NotificationEvent::PasswordReset,
+        NotificationEvent::WorkspaceInvite,
+        NotificationEvent::MemberInvite,
+    ];
 }
 
 /// The closed set of delivery channels. [`ProviderKind::as_str`] is the bounded
@@ -78,6 +89,16 @@ impl ProviderKind {
             ProviderKind::EmailApi => "email_api",
         }
     }
+
+    /// The full closed set of channels — the bounded `provider` label domain
+    /// (ADR-004). Used by the cardinality guards to assert every emitted
+    /// `provider` value stays within this set.
+    pub const ALL: [ProviderKind; 4] = [
+        ProviderKind::Log,
+        ProviderKind::Smtp,
+        ProviderKind::Webhook,
+        ProviderKind::EmailApi,
+    ];
 }
 
 /// A structured, vendor-neutral notification (ADR-001). Providers render it into
@@ -142,6 +163,9 @@ impl DeliveryOutcome {
             DeliveryOutcome::Failed => "failed",
         }
     }
+
+    /// The binary outcome domain — the bounded `outcome` label values (ADR-004).
+    pub const ALL: [DeliveryOutcome; 2] = [DeliveryOutcome::Delivered, DeliveryOutcome::Failed];
 }
 
 /// The driven port every delivery channel implements. Bound `Send + Sync +
@@ -469,6 +493,30 @@ pub fn delivery_timeout_from_env() -> Duration {
         .filter(|ms| *ms > 0)
         .map(Duration::from_millis)
         .unwrap_or_else(|| Duration::from_millis(DEFAULT_DELIVERY_TIMEOUT_MS))
+}
+
+/// The register-at-0 cross-product for a set of ACTIVE providers: one entry per
+/// `(provider, event, outcome)` over the bounded `active × NotificationEvent
+/// catalog × {delivered,failed}`. The composition root (`main.rs`) registers each
+/// at 0 BEFORE any delivery fires so every series is present on the first
+/// `/metrics` scrape (ADR-004) — an absent series never reads as "missing" on the
+/// Grafana panel. Only ACTIVE providers mint series (an inactive channel is never
+/// wired, so it has no series). The label domain stays bounded: every value is
+/// drawn from a closed enum's `as_str()` (ADR-004/ADR-011 cardinality discipline).
+pub fn delivery_zero_series(
+    active: &[ProviderKind],
+) -> Vec<(ProviderKind, NotificationEvent, DeliveryOutcome)> {
+    let mut series = Vec::with_capacity(
+        active.len() * NotificationEvent::ALL.len() * DeliveryOutcome::ALL.len(),
+    );
+    for provider in active {
+        for event in NotificationEvent::ALL {
+            for outcome in DeliveryOutcome::ALL {
+                series.push((*provider, event, outcome));
+            }
+        }
+    }
+    series
 }
 
 pub async fn build_notifier(delivery_timeout: Duration) -> anyhow::Result<Notifier> {
@@ -856,6 +904,88 @@ mod tests {
             smtp_line.trim_end().ends_with(" 1"),
             "the failing smtp delivery must count exactly 1 under outcome=failed: {smtp_line}"
         );
+    }
+
+    #[test]
+    fn register_at_zero_mints_the_active_cross_product_with_bounded_labels() {
+        // Behaviour (ADR-004): register-at-0 mints EXACTLY the bounded cross-
+        // product `active providers × NotificationEvent catalog × {delivered,
+        // failed}`, every series at 0, with the label KEY set fail-closed at
+        // {provider,event,outcome}. Only ACTIVE providers mint series — an
+        // inactive channel (webhook/email_api here) appears nowhere. Exhaustive
+        // over the closed domains = the property this pins for the real /metrics
+        // register-at-0 the composition root performs.
+        let recorder = PrometheusBuilder::new().build_recorder();
+        let handle = recorder.handle();
+        let active = [ProviderKind::Log, ProviderKind::Smtp];
+
+        metrics::with_local_recorder(&recorder, || {
+            for (provider, event, outcome) in delivery_zero_series(&active) {
+                metrics::counter!(
+                    NOTIFICATION_DELIVERIES_METRIC,
+                    "provider" => provider.as_str(),
+                    "event" => event.as_str(),
+                    "outcome" => outcome.as_str(),
+                )
+                .absolute(0);
+            }
+        });
+        let body = handle.render();
+
+        let expected_keys: BTreeSet<String> = ["event", "outcome", "provider"]
+            .iter()
+            .map(|key| key.to_string())
+            .collect();
+
+        // Every active × event × outcome series is present at zero with exactly
+        // the bounded label keys.
+        let mut minted = 0;
+        for provider in active {
+            for event in NotificationEvent::ALL {
+                for outcome in DeliveryOutcome::ALL {
+                    let line = body
+                        .lines()
+                        .find(|line| {
+                            line.starts_with(&format!("{NOTIFICATION_DELIVERIES_METRIC}{{"))
+                                && line.contains(&format!("provider=\"{}\"", provider.as_str()))
+                                && line.contains(&format!("event=\"{}\"", event.as_str()))
+                                && line.contains(&format!("outcome=\"{}\"", outcome.as_str()))
+                        })
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "register-at-0 must mint provider={} event={} outcome={} at zero:\n{body}",
+                                provider.as_str(),
+                                event.as_str(),
+                                outcome.as_str(),
+                            )
+                        });
+                    assert!(
+                        line.trim_end().ends_with(" 0"),
+                        "the registered series must sit at zero: {line}"
+                    );
+                    assert_eq!(
+                        label_keys(line),
+                        expected_keys,
+                        "delivery series labels must be exactly {{provider,event,outcome}}: {line}"
+                    );
+                    minted += 1;
+                }
+            }
+        }
+        assert_eq!(
+            minted,
+            active.len() * NotificationEvent::ALL.len() * DeliveryOutcome::ALL.len(),
+            "the minted series count must equal the active cross-product exactly"
+        );
+
+        // Only ACTIVE providers mint series — the inactive channels are absent.
+        for inactive in [ProviderKind::Webhook, ProviderKind::EmailApi] {
+            assert!(
+                !body.contains(&format!("provider=\"{}\"", inactive.as_str())),
+                "an inactive provider must mint NO series, found {}:\n{body}",
+                inactive.as_str()
+            );
+        }
     }
 
     #[tokio::test]
