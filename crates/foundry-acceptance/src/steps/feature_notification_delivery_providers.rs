@@ -37,10 +37,10 @@
 //! this feature's whole subject is REPLACING that single hard-wired sender with the
 //! config-built registry — DELIVER's harness seam must own the provider wiring.
 
-use crate::support::harness::InProcHarness;
+use crate::support::harness::{fresh_schema_pool_with_url, InProcHarness};
 use crate::world::FoundryWorld;
 use cucumber::{given, then, when};
-use foundry_app::ProviderKind;
+use foundry_app::{LogProvider, Notification, NotificationEvent, ProviderKind};
 use reqwest::redirect::Policy;
 use reqwest::StatusCode;
 use secrecy::SecretString;
@@ -48,6 +48,15 @@ use std::collections::HashMap;
 
 /// Fixed scenario clock anchor (mirrors the other in-process step modules).
 const NDP_NOW: &str = "2026-01-15T12:00:00Z";
+
+/// Test `SESSION_SECRET` handed to the `foundry` startup subprocess (fail-fast
+/// scenario). Its VALUE is asserted absent from the refusal output (no-leak).
+const NDP_SESSION_SECRET: &str = "ndp-test-session-secret-must-be-at-least-32-bytes-long-yes";
+
+/// Valid Ed25519 test public key (same literal as the slice-8 subprocess seam)
+/// so the startup subprocess gets past machine-token verifier construction and
+/// reaches `build_notifier`, where the unknown-provider refusal fires.
+const NDP_MACHINE_TOKEN_PUBLIC_KEY: &str = "-----BEGIN PUBLIC KEY-----\\nMCowBQYDK2VwAyEAwtFPs8Jcuncc+E7dXqG/oolI3P6Hamrpd8zVKPvRmg0=\\n-----END PUBLIC KEY-----";
 
 fn now_anchor() -> time::OffsetDateTime {
     time::OffsetDateTime::parse(NDP_NOW, &time::format_description::well_known::Rfc3339)
@@ -168,13 +177,29 @@ async fn operator_activated_providers(world: &mut FoundryWorld, providers_csv: S
 }
 
 #[given(regex = r#"^the operator has activated no providers$"#)]
-async fn operator_activated_no_providers(_world: &mut FoundryWorld) {
-    pending("slice 01 — unset NOTIFICATION_PROVIDERS (Noop-equivalent)");
+async fn operator_activated_no_providers(world: &mut FoundryWorld) {
+    // Unset/empty NOTIFICATION_PROVIDERS ⇒ zero active providers (Noop-
+    // equivalent, BR-1/NFR-5). Spawn the harness with an EMPTY provider set so
+    // `notify()` fans out to nobody — a delivery is a silent drop.
+    let harness = InProcHarness::spawn_with_providers(now_anchor(), &[]).await;
+    let workspace = world
+        .ndp_workspace
+        .clone()
+        .expect("Background seeded a workspace");
+    let member = world
+        .ndp_member
+        .clone()
+        .expect("Background seeded a member");
+    seed_workspace_and_member(&harness, &workspace, &member).await;
+    world.harness = Some(harness);
+    world.http = Some(client());
 }
 
 #[given(regex = r#"^the operator has listed an unknown provider "([^"]+)"$"#)]
-async fn operator_listed_unknown_provider(_world: &mut FoundryWorld, _name: String) {
-    pending("slice 01 — unknown-name fail-fast");
+async fn operator_listed_unknown_provider(world: &mut FoundryWorld, name: String) {
+    // Stash the typo'd channel name; the `When Foundry starts up` step hands it
+    // to the real `foundry` subprocess as NOTIFICATION_PROVIDERS.
+    world.ndp_unknown_provider = Some(name);
 }
 
 #[given(
@@ -260,8 +285,66 @@ async fn member_requests_password_reset_for(world: &mut FoundryWorld, email: Str
 }
 
 #[when(regex = r#"^Foundry starts up$"#)]
-async fn foundry_starts_up(_world: &mut FoundryWorld) {
-    pending("slice 01+ — build_notifier() at the composition root");
+async fn foundry_starts_up(world: &mut FoundryWorld) {
+    // Drive the REAL composition root (driving port 1): spawn the shipped
+    // `foundry` binary with the operator's provider selection and capture its
+    // startup outcome. `build_notifier()` validates the list against the bounded
+    // ProviderKind set and aborts on an unknown name (ADR-002).
+    let providers = world
+        .ndp_unknown_provider
+        .clone()
+        .expect("a provider selection was listed by the prior Given");
+    let outcome = spawn_foundry_expecting_refuse_to_start(&providers).await;
+    world.ndp_startup_outcome = Some(outcome);
+}
+
+/// Spawn the shipped `foundry` binary with `NOTIFICATION_PROVIDERS=<providers>`
+/// against a fresh migrated schema, and wait for it to exit. `build_notifier()`
+/// runs at AppState construction — BEFORE the metrics sidecar binds — so an
+/// ephemeral `METRICS_PORT=0` isolates the provider-config refusal as the sole
+/// failure. Returns `(exit_code, stdout, stderr)`.
+async fn spawn_foundry_expecting_refuse_to_start(providers: &str) -> (Option<i32>, String, String) {
+    use std::process::Stdio;
+    use std::time::Duration;
+    use tokio::process::Command;
+
+    // A fresh, already-migrated per-scenario schema so the boot reaches
+    // `build_notifier` (the ONLY intended failure) rather than a DB/migration
+    // error. Drop the helper pool — the subprocess opens its own.
+    let (schema, pool, url) = fresh_schema_pool_with_url().await;
+    pool.close().await;
+
+    let binary_path = assert_cmd::cargo::cargo_bin("foundry");
+    let mut cmd = Command::new(&binary_path);
+    cmd.env("DATABASE_URL", &url)
+        .env("NOTIFICATION_PROVIDERS", providers)
+        .env("METRICS_PORT", "0")
+        .env("FOUNDRY_PORT", "0")
+        .env("METRICS_HOST", "127.0.0.1")
+        .env("FOUNDRY_HOST", "127.0.0.1")
+        .env("SESSION_SECRET", NDP_SESSION_SECRET)
+        .env("MACHINE_TOKEN_PUBLIC_KEYS", NDP_MACHINE_TOKEN_PUBLIC_KEY)
+        .env("SESSION_COOKIE_SECURE", "false")
+        .env("FOUNDRY_DB_SCHEMA", &schema)
+        .env("FOUNDRY_SKIP_MIGRATIONS", "1")
+        .env("RUST_LOG", "info,foundry=info,sqlx=warn")
+        .env("RUST_LOG_FORMAT", "pretty")
+        .env("NO_COLOR", "1")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+
+    let child = cmd.spawn().expect("spawn foundry startup subprocess");
+    let output = tokio::time::timeout(Duration::from_secs(30), child.wait_with_output())
+        .await
+        .expect("foundry startup subprocess did not exit within 30s")
+        .expect("collect foundry startup subprocess output");
+    (
+        output.status.code(),
+        String::from_utf8_lossy(&output.stdout).to_string(),
+        String::from_utf8_lossy(&output.stderr).to_string(),
+    )
 }
 
 #[when(regex = r#"^a bootstrap workspace invite is issued for "([^"]+)"$"#)]
@@ -348,13 +431,40 @@ async fn request_returns_without_waiting(_world: &mut FoundryWorld) {
 }
 
 #[then(regex = r#"^no notification is delivered$"#)]
-async fn no_notification_delivered(_world: &mut FoundryWorld) {
-    pending("slice 01 — unset providers ⇒ zero deliveries");
+async fn no_notification_delivered(world: &mut FoundryWorld) {
+    let harness = world.harness.as_ref().expect("harness");
+    let deliveries = harness.fake_email.sent();
+    assert!(
+        deliveries.is_empty(),
+        "with no providers active, zero deliveries must be recorded, got {}: {deliveries:?}",
+        deliveries.len()
+    );
 }
 
 #[then(regex = r#"^no error is raised$"#)]
-async fn no_error_is_raised(_world: &mut FoundryWorld) {
-    pending("slice 01 — no-op delivery raises nothing");
+async fn no_error_is_raised(world: &mut FoundryWorld) {
+    // Best-effort no-op delivery raises nothing: the request completed with its
+    // normal 200 and no failed delivery was recorded (nothing errored).
+    let status = world.last_status.expect("a request was made");
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "the no-op delivery path must raise nothing — the request stays 200, got {status}"
+    );
+    let harness = world.harness.as_ref().expect("harness");
+    let failures = harness
+        .fake_email
+        .recorded("log", "password_reset", "failed")
+        + harness
+            .fake_email
+            .sent()
+            .iter()
+            .filter(|d| d.outcome == "failed")
+            .count();
+    assert_eq!(
+        failures, 0,
+        "no delivery failure must be recorded on the no-op path"
+    );
 }
 
 #[then(regex = r#"^no delivery is attempted through the "([^"]+)" provider$"#)]
@@ -368,15 +478,45 @@ async fn existing_behavior_unchanged(_world: &mut FoundryWorld) {
 }
 
 #[then(regex = r#"^startup is refused and the process exits non-zero$"#)]
-async fn startup_refused_nonzero(_world: &mut FoundryWorld) {
-    pending("slice 01/02/04/05 — build_notifier() aborts, non-zero exit");
+async fn startup_refused_nonzero(world: &mut FoundryWorld) {
+    let (code, stdout, stderr) = world
+        .ndp_startup_outcome
+        .as_ref()
+        .expect("the startup subprocess outcome was captured");
+    match code {
+        Some(c) => assert_ne!(
+            *c, 0,
+            "startup must be refused with a non-zero exit, got {c}.\n\
+             stdout:\n{stdout}\nstderr:\n{stderr}"
+        ),
+        None => panic!(
+            "startup subprocess did not exit (no code) — expected refuse-to-start.\n\
+             stdout:\n{stdout}\nstderr:\n{stderr}"
+        ),
+    }
 }
 
 #[then(
     regex = r#"^the startup error names the unknown provider "([^"]+)" and the known providers$"#
 )]
-async fn startup_error_names_unknown_and_known(_world: &mut FoundryWorld, _name: String) {
-    pending("slice 01 — error names the typo + the known set");
+async fn startup_error_names_unknown_and_known(world: &mut FoundryWorld, name: String) {
+    let (_, stdout, stderr) = world
+        .ndp_startup_outcome
+        .as_ref()
+        .expect("the startup subprocess outcome was captured");
+    let haystack = format!("{stdout}\n{stderr}");
+    assert!(
+        haystack.contains(&name),
+        "startup error must name the unknown provider {name:?}.\n\
+         stdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    for known in ["log", "smtp", "webhook", "email_api"] {
+        assert!(
+            haystack.contains(known),
+            "startup error must name the known provider {known:?}.\n\
+             stdout:\n{stdout}\nstderr:\n{stderr}"
+        );
+    }
 }
 
 #[then(regex = r#"^the startup error names provider "([^"]+)" and the missing setting "([^"]+)"$"#)]
@@ -389,8 +529,19 @@ async fn startup_error_names_provider_and_missing_setting(
 }
 
 #[then(regex = r#"^the startup error contains no secret value$"#)]
-async fn startup_error_no_secret(_world: &mut FoundryWorld) {
-    pending("slice 01/02 — secret-free operator error (NFR-2)");
+async fn startup_error_no_secret(world: &mut FoundryWorld) {
+    let (_, stdout, stderr) = world
+        .ndp_startup_outcome
+        .as_ref()
+        .expect("the startup subprocess outcome was captured");
+    let haystack = format!("{stdout}\n{stderr}");
+    // The startup env carries a SESSION_SECRET; the refusal must never echo its
+    // value (NFR-2, ADR-006 — nothing secret in logs/errors/debug output).
+    assert!(
+        !haystack.contains(NDP_SESSION_SECRET),
+        "the startup refusal must not echo any secret value.\n\
+         stdout:\n{stdout}\nstderr:\n{stderr}"
+    );
 }
 
 #[then(
@@ -401,8 +552,47 @@ async fn secret_value_never_appears(_world: &mut FoundryWorld, _secret_key: Stri
 }
 
 #[then(regex = r#"^no reset token appears in the delivery log line$"#)]
-async fn no_reset_token_in_log_line(_world: &mut FoundryWorld) {
-    pending("slice 01 — log provider keys on provider/event/recipient, not the token");
+async fn no_reset_token_in_log_line(world: &mut FoundryWorld) {
+    // The reset token rides in the notification BODY (`.../reset-password?token=
+    // <raw>`). The `log` channel's line keys strictly on provider/event/recipient
+    // and never interpolates the token (ADR-006). Reconstruct the delivered
+    // notification and assert the SHIPPED `LogProvider::log_line` — the exact
+    // string the real adapter prints — leaks neither the token nor the body.
+    let harness = world.harness.as_ref().expect("harness");
+    let delivery = harness
+        .fake_email
+        .sent()
+        .into_iter()
+        .find(|d| d.provider == "log" && d.event == "password_reset")
+        .expect("a log delivery for password_reset was recorded");
+    let token = delivery
+        .body
+        .split("token=")
+        .nth(1)
+        .and_then(|rest| rest.split(['\n', ' ']).next())
+        .map(str::to_string)
+        .filter(|t| !t.is_empty())
+        .expect("the reset body carries a non-empty token= parameter");
+
+    let notification = Notification {
+        event: NotificationEvent::PasswordReset,
+        recipient: delivery.to.clone(),
+        subject: delivery.subject.clone(),
+        body: delivery.body.clone(),
+    };
+    let line = LogProvider::log_line(&notification);
+    assert!(
+        line.contains(&delivery.to),
+        "the delivery log line must key on the recipient: {line}"
+    );
+    assert!(
+        !line.contains(&token),
+        "the reset token must never appear in the delivery log line: {line}"
+    );
+    assert!(
+        !line.contains(&delivery.body),
+        "the notification body must never appear in the delivery log line: {line}"
+    );
 }
 
 #[then(regex = r#"^a JSON payload describing the event is posted to the webhook endpoint$"#)]

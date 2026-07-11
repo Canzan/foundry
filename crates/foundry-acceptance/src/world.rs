@@ -1119,6 +1119,12 @@ pub struct FoundryWorld {
     pub ndp_workspace: Option<String>,
     /// Member email seeded by the Background (the notification recipient).
     pub ndp_member: Option<String>,
+    /// The unknown/typo provider name the operator listed (fail-fast scenario),
+    /// handed to the `foundry` startup subprocess as `NOTIFICATION_PROVIDERS`.
+    pub ndp_unknown_provider: Option<String>,
+    /// Captured `(exit_code, stdout, stderr)` of the `foundry` startup
+    /// subprocess spawned by the "Foundry starts up" step (fail-fast scenario).
+    pub ndp_startup_outcome: Option<(Option<i32>, String, String)>,
 }
 
 impl FoundryWorld {

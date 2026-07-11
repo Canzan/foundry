@@ -57,7 +57,7 @@ Feature: An operator selects delivery providers and every notification fans out 
     And the delivery is recorded for provider "log", event "password_reset", outcome "delivered"
     And the request returns its normal response
 
-  @pending @us-01 @real-io
+  @us-01 @real-io
   Scenario: With no providers configured, delivery is a silent no-op
     Given the operator has activated no providers
     When a member requests a password reset for "maria.santos@acme.example"
@@ -65,7 +65,7 @@ Feature: An operator selects delivery providers and every notification fans out 
     And no notification is delivered
     And no error is raised
 
-  @pending @us-01 @config @error @property @real-io
+  @us-01 @config @error @property @real-io
   Scenario: An unknown provider name fails fast at startup
     Given the operator has listed an unknown provider "logg"
     When Foundry starts up
@@ -73,7 +73,7 @@ Feature: An operator selects delivery providers and every notification fans out 
     And the startup error names the unknown provider "logg" and the known providers
     And the startup error contains no secret value
 
-  @pending @us-01 @security @real-io
+  @us-01 @security @real-io
   Scenario: A delivered log line carries no reset token or secret
     Given the operator has activated providers "log"
     When a member requests a password reset for "maria.santos@acme.example"

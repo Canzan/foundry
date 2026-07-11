@@ -166,8 +166,9 @@ impl LogProvider {
 
     /// Render the single structured log line for a delivery. Deliberately carries
     /// ONLY the safe fields (provider, event, recipient) — never `subject`/`body`,
-    /// which may embed a secret token (ADR-006).
-    fn render_line(notification: &Notification) -> String {
+    /// which may embed a secret token (ADR-006). Public so the acceptance security
+    /// scenario can assert the delivered line carries no reset token or secret.
+    pub fn log_line(notification: &Notification) -> String {
         format!(
             "notification.delivered provider=log event={} recipient={}",
             notification.event.as_str(),
@@ -185,7 +186,7 @@ impl Default for LogProvider {
 #[async_trait]
 impl NotificationProvider for LogProvider {
     async fn deliver(&self, notification: &Notification) -> Result<(), DeliveryError> {
-        println!("{}", Self::render_line(notification));
+        println!("{}", Self::log_line(notification));
         Ok(())
     }
 
@@ -222,7 +223,13 @@ async fn build_notifier_from(spec: &str) -> anyhow::Result<Notifier> {
                 providers.push(Arc::new(provider));
             }
             other => {
-                anyhow::bail!("unknown notification provider '{other}' (known providers: log)")
+                // Fail fast on a typo (ADR-002 / NFR-1). Name the offending
+                // channel AND the full bounded known set so the operator can
+                // fix a fat-fingered `logg`. Secret-free by construction.
+                anyhow::bail!(
+                    "unknown notification provider '{other}' \
+                     (known: log, smtp, webhook, email_api)"
+                )
             }
         }
     }
@@ -260,6 +267,30 @@ mod tests {
         assert_eq!(logging.active_kinds(), vec![ProviderKind::Log]);
     }
 
+    #[tokio::test]
+    async fn build_notifier_rejects_an_unknown_channel_naming_it_and_the_known_set() {
+        // An unknown/typo'd channel name fails fast (ADR-002 / NFR-1). The
+        // operator-facing error must name BOTH the offending name and the full
+        // bounded known set {log, smtp, webhook, email_api} so a fat-fingered
+        // "logg" is diagnosable — and it must carry no secret value.
+        // `Notifier` is deliberately not `Debug` (ADR-006), so `expect_err`
+        // (which needs the `Ok` value to be `Debug`) can't be used here.
+        let Err(err) = build_notifier_from("logg").await else {
+            panic!("an unknown channel must refuse to build");
+        };
+        let message = format!("{err:#}");
+        assert!(
+            message.contains("logg"),
+            "error must name the unknown provider 'logg': {message}"
+        );
+        for known in ["log", "smtp", "webhook", "email_api"] {
+            assert!(
+                message.contains(known),
+                "error must name the known provider '{known}': {message}"
+            );
+        }
+    }
+
     #[test]
     fn log_line_carries_provider_event_recipient_but_never_a_secret() {
         // The delivery log line keys on the safe fields only. A reset token living
@@ -270,7 +301,7 @@ mod tests {
             subject: "Reset your Foundry password".to_string(),
             body: "follow this link ?token=SUPER_SECRET_RESET_TOKEN".to_string(),
         };
-        let line = LogProvider::render_line(&notification);
+        let line = LogProvider::log_line(&notification);
         assert!(line.contains("provider=log"));
         assert!(line.contains("event=password_reset"));
         assert!(line.contains("recipient=maria.santos@acme.example"));
