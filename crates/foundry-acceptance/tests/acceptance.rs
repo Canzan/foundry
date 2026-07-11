@@ -71,6 +71,8 @@ use foundry_acceptance::steps::feature_notification_delivery_providers as _featu
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_per_workspace_backup as _feature_pwb;
 #[allow(unused_imports)]
+use foundry_acceptance::steps::feature_recipient_notification_preferences as _feature_recipient_unsub;
+#[allow(unused_imports)]
 use foundry_acceptance::steps::feature_remaining_surfaces as _feature_remaining;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_token_management_api as _feature_tma;

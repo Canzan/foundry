@@ -1020,6 +1020,10 @@ async fn point_replica_at_restored(world: &mut FoundryWorld) {
         // vendor receiver.
         webhook_receiver: None,
         email_api_receiver: None,
+        // recipient-notification-preferences: US-03 restore scenarios assert no
+        // suppression; a fresh recorder satisfies the field (the notifier here uses
+        // the default AllowAllSuppression, so nothing is recorded).
+        suppressions: crate::support::notify_recorder::SuppressionRecorder::new(),
     };
     world.us_03_restored_harness = Some(restored);
 }

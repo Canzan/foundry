@@ -389,6 +389,48 @@ fn invite_payload(id: uuid::Uuid, expires_at: time::OffsetDateTime) -> String {
     format!("{}|{}", id, expires_at.unix_timestamp())
 }
 
+/// A signed, self-contained unsubscribe token (recipient-notification-preferences,
+/// ADR-001). Unlike [`InviteToken`] it binds NO database row and has NO expiry: the
+/// signature covers a domain-separated, versioned payload over `(email_lower,
+/// workspace_id)` only, so the link works logged-out and indefinitely. Built on the
+/// reused constant-time [`sign`] / [`verify`] primitives keyed on `SESSION_SECRET`.
+/// The `unsub` prefix is domain separation — an [`InviteToken`] signature can never
+/// be replayed as an unsubscribe, and vice-versa; `v1` is a rotation seam.
+pub struct UnsubscribeToken {
+    pub signature: String,
+}
+
+impl UnsubscribeToken {
+    /// Sign a new unsubscribe token binding `(email_lower, workspace_id)`. `secret`
+    /// is the application's `SESSION_SECRET`.
+    pub fn new(
+        email_lower: &str,
+        workspace_id: uuid::Uuid,
+        secret: &SecretString,
+    ) -> Result<Self, AuthError> {
+        let payload = unsubscribe_payload(email_lower, workspace_id);
+        let signature = sign(secret, payload.as_bytes())?;
+        Ok(Self { signature })
+    }
+
+    /// Verify a signature against the `(email_lower, workspace_id)` pair (constant
+    /// time, inherited from [`verify`]). Any failure → the uniform refusal upstream.
+    pub fn verify(
+        email_lower: &str,
+        workspace_id: uuid::Uuid,
+        signature: &str,
+        secret: &SecretString,
+    ) -> Result<(), AuthError> {
+        let payload = unsubscribe_payload(email_lower, workspace_id);
+        verify(secret, payload.as_bytes(), signature)
+    }
+}
+
+/// The domain-separated, versioned unsubscribe payload: `unsub|v1|{email_lower}|{workspace_id}`.
+fn unsubscribe_payload(email_lower: &str, workspace_id: uuid::Uuid) -> String {
+    format!("unsub|v1|{email_lower}|{workspace_id}")
+}
+
 /// The minimum password length (ADR-004 / NFR-4, NIST 800-63B length-first).
 pub const MIN_PASSWORD_LENGTH: usize = 12;
 
@@ -770,6 +812,55 @@ mod tests {
         let tok = InviteToken::new(id, exp, &secret).unwrap();
         assert!(InviteToken::verify(id, exp, &tok.signature, &secret).is_ok());
         assert!(InviteToken::verify(id, exp, "AAAA", &secret).is_err());
+    }
+
+    // recipient-notification-preferences (ADR-001): the UnsubscribeToken signature
+    // must round-trip AND bind to BOTH (email_lower, workspace_id). A signature
+    // minted for one pair must never verify a different email, a different
+    // workspace, or a tampered signature — else an attacker could redirect an
+    // unsubscribe onto a different recipient or workspace under a genuine signature.
+    #[test]
+    fn unsubscribe_token_round_trips_and_binds_email_and_workspace() {
+        let secret = SecretString::new("0123456789abcdef0123456789abcdef".to_string().into());
+        let email = "sam@northwind.example";
+        let ws = uuid::Uuid::now_v7();
+
+        let tok = UnsubscribeToken::new(email, ws, &secret).unwrap();
+        assert!(
+            UnsubscribeToken::verify(email, ws, &tok.signature, &secret).is_ok(),
+            "a freshly-minted token must verify against its own pair"
+        );
+        // A tampered/garbage signature is refused.
+        assert!(UnsubscribeToken::verify(email, ws, "AAAA", &secret).is_err());
+        // Binds to the email: a different recipient does not verify.
+        assert!(
+            UnsubscribeToken::verify("mallory@northwind.example", ws, &tok.signature, &secret)
+                .is_err(),
+            "signature must not validate a different email"
+        );
+        // Binds to the workspace: a different workspace does not verify.
+        let other_ws = uuid::Uuid::now_v7();
+        assert!(
+            UnsubscribeToken::verify(email, other_ws, &tok.signature, &secret).is_err(),
+            "signature must not validate a different workspace"
+        );
+    }
+
+    // Domain separation (ADR-001): the `unsub|v1|…` payload prefix means an
+    // InviteToken signature can never be replayed as an unsubscribe. A raw `sign`
+    // over the invite payload must NOT verify as an unsubscribe for the same ids.
+    #[test]
+    fn unsubscribe_token_is_domain_separated_from_invite_token() {
+        let secret = SecretString::new("0123456789abcdef0123456789abcdef".to_string().into());
+        let ws = uuid::Uuid::now_v7();
+        let email = "sam@northwind.example";
+        // A signature over a NON-unsub payload (here the bare email|ws, no domain
+        // prefix) must not verify as an unsubscribe token.
+        let foreign = sign(&secret, format!("{email}|{ws}").as_bytes()).unwrap();
+        assert!(
+            UnsubscribeToken::verify(email, ws, &foreign, &secret).is_err(),
+            "a signature over a differently-domained payload must not verify"
+        );
     }
 
     // The invite signature must BIND to the (invite_id, expires_at) pair. If the

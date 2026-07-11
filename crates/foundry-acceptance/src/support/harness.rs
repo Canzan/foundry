@@ -16,7 +16,9 @@
 
 use crate::support::file_upload_env;
 use crate::support::heartbeat_env;
-use crate::support::notify_recorder::{notifier_for_kinds, DeliveryRecorder};
+use crate::support::notify_recorder::{
+    notifier_for_kinds, DeliveryRecorder, RecordingSuppression, SuppressionRecorder,
+};
 use crate::support::webhook_receiver::WebhookReceiver;
 use foundry_app::clock::MockClock;
 use foundry_app::test_support::{spawn_app_with_listener, TestApp};
@@ -253,6 +255,11 @@ pub struct InProcHarness {
     /// with a reject mode). Step defs read it to reject a delivery and to assert
     /// the vendor received exactly one POST (at-most-once, NO retry — ADR-007).
     pub email_api_receiver: Option<Arc<WebhookReceiver>>,
+    /// recipient-notification-preferences — observes suppression DECISIONS at the
+    /// `SuppressionPolicy` port boundary (the real `StoreSuppression` is wrapped by a
+    /// `RecordingSuppression`). Step defs read `count()` to assert "one suppression
+    /// was counted" without an installed in-process metrics recorder.
+    pub suppressions: Arc<SuppressionRecorder>,
 }
 
 impl std::fmt::Debug for InProcHarness {
@@ -334,12 +341,24 @@ impl InProcHarness {
             None
         };
         let email_api_url = email_api_receiver.as_ref().map(|receiver| receiver.url());
+        // recipient-notification-preferences (ADR-003): wire the REAL StoreSuppression
+        // (an indexed point-read on the 0014 table) behind a RecordingSuppression so
+        // the suppression gate is live for every in-process scenario. With an empty
+        // table the read is Ok(false) ⇒ delivery byte-for-byte unchanged (NFR-7), so
+        // the pre-existing delivery scenarios are unaffected.
+        let suppressions = SuppressionRecorder::new();
+        let suppression_policy: Arc<dyn foundry_app::SuppressionPolicy> =
+            Arc::new(RecordingSuppression::new(
+                Arc::new(foundry_app::StoreSuppression::new(store.clone())),
+                suppressions.clone(),
+            ));
         let notifier = notifier_for_kinds(
             &fake_email,
             provider_kinds,
             webhook_url.as_deref(),
             webhook_secret,
             email_api_url.as_deref(),
+            suppression_policy,
         )
         .await;
         let realtime_tx = foundry_realtime::build_broadcast();
@@ -400,6 +419,7 @@ impl InProcHarness {
             schema,
             webhook_receiver,
             email_api_receiver,
+            suppressions,
         }
     }
 

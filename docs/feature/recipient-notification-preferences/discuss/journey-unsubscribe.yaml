@@ -1,0 +1,368 @@
+schema_version: 1
+
+journey:
+  name: "Recipient Unsubscribe — one click from the email, security mail always through, self-serve resubscribe"
+  goal: "Let a notification recipient (often an account-less invitee, identified by email) stop a workspace's suppressible notifications with one click from the email, keyed per (email_lower, workspace_id), while security-critical events are never suppressed; and let an account holder review per-workspace status and resubscribe."
+  personas:
+    - "Sam Okafor (sam.okafor@acme.example) — RECIPIENT / invitee with no account; wants to stop unwanted workspace-invite + member-invite emails from the email itself, without losing security-critical alerts."
+    - "Maria Santos (maria.santos@acme.example) — account-holding member of Northwind/Contoso/Initech; wants a signed-in page showing per-workspace status and a resubscribe control."
+    - "Ops/Compliance Olivia (olivia.okonkwo@acme.example) — secondary; wants unsubscribe honored + observable (opt-out volume, no PII) and security events provably never suppressed."
+    - "Malicious Mallory — the adversary the token design must defeat (enumeration, prefetch, tamper)."
+
+  scope:
+    in_scope:
+      - "Signed UnsubscribeToken binding email + workspace_id (InviteToken model, foundry-auth/src/lib.rs:354-390), embedded in the two suppressible emails (workspace_invite bootstrap.rs:266, member_invite member_invites.rs:204), working logged-out."
+      - "Public token-verified /unsubscribe route: GET confirm page (non-destructive), POST confirm records (email_lower, workspace_id); tampered/unknown token -> uniform non-enumerable refusal (invites_accept.rs:332-339)."
+      - "New table 0014_notification_unsubscribes(email_lower, workspace_id, unsubscribed_at) — the one migration this feature adds (latest shipped is 0013)."
+      - "Suppression filter in the notifier delivery path: a suppressible event to an unsubscribed pair is not delivered (hook per ODD-3, notify.rs:237). Mandatory events (password_reset, password_changed, member_removed) always delivered (BR-3, NFR-3)."
+      - "Suppression observability: a suppressed delivery counted on the /metrics seam (notify.rs:39,291-297), no recipient PII in labels (ODD-5)."
+      - "Signed-in /account/notifications page: per-workspace status (own state only, NFR-6) + CSRF-protected resubscribe (csrf.rs:137)."
+    out_of_scope:
+      - "Per-category / per-event-type preferences, digests, quiet-hours — deferred."
+      - "Per-channel routing preferences (email vs chat) — owned by notification-delivery-providers."
+      - "Making any mandatory security event suppressible — security events stay exempt (BR-3)."
+      - "Bulk/admin management of other recipients' subscriptions — a member manages only their own (NFR-6)."
+
+  brownfield_reuse:
+    - "Notifier::notify INFALLIBLE concurrent fan-out (notify.rs:237, loop :244-280, deliver() :252) — where the suppression filter hooks."
+    - "NotificationEvent closed enum (notify.rs:46-77) — partitioned into suppressible {workspace_invite, member_invite} vs mandatory {password_reset, password_changed, member_removed}."
+    - "Notification{event,recipient,subject,body} not-Debug (notify.rs:117-122) — recipient email is the key half; no workspace_id today (ODD-3)."
+    - "Delivery metric foundry_notification_deliveries_total{provider,event,outcome} + DeliveryOutcome (notify.rs:39,161-176,291-297) — suppression count extends it (ODD-5)."
+    - "InviteToken HMAC over '{id}|{unix_ts}' with SESSION_SECRET, constant-time verify (foundry-auth/src/lib.rs:354-390, sign :251, verify :260) — model for UnsubscribeToken binding '{email_lower}|{workspace_id}'."
+    - "Uniform non-enumerable refusal invite_refusal_page fixed 200 OK (invites_accept.rs:332-339) — model for a tampered/unknown unsubscribe token."
+    - "CSRF double-submit middleware (csrf.rs:137, ensure_csrf_cookie :54, layer lib.rs:536-539) — both state-changing POSTs."
+    - "Session / SessionUser{user_id, workspace_id} (session.rs:69,59,64) — the signed-in surface; public path needs no session."
+    - "Store lookups find_user_by_email, resolve_active_workspace, workspace membership (foundry-store/src/lib.rs:930,804,1955,1048) — per-workspace status, least-privilege."
+    - "Migration + store-method pattern: sqlx::migrate! (foundry-store/src/lib.rs:186), reset_tokens precedent (0002_sessions_and_reset.sql:20-28), insert_reset_token (lib.rs:980)."
+    - "Public token-route cluster /invites/accept GET+POST, /forgot-password (lib.rs:371-374,406-409); account routes /account/password (lib.rs:415-418); uniform 404 fallback (lib.rs:535)."
+    - "public_url / FOUNDRY_PUBLIC_URL (main.rs:122) — the unsubscribe link host = the invite link host already used."
+
+  new_logic:
+    - "UnsubscribeToken (HMAC binds email+workspace_id; expiry ODD-1; GET-safety/RFC 8058 ODD-2)."
+    - "notification_unsubscribes table + Store methods (insert/delete/exists) — migration 0014; email keying ODD-4."
+    - "Public /unsubscribe route (GET confirm + POST confirm) + non-enumerable refusal reuse."
+    - "Suppression filter: suppressible-event lookup of (email_lower, workspace_id) before deliver(); mandatory exempt (ODD-3)."
+    - "Suppression metric (suppressed outcome or sibling counter; no PII; ODD-5)."
+    - "Signed-in /account/notifications page (per-workspace status, own-only) + CSRF resubscribe POST."
+
+  emotional_arc:
+    recipient:
+      start: "Annoyed / trapped — 'these Northwind invites keep coming and I can't stop them; I don't even have an account.'"
+      middle: "Wary then relieved — 'is this link safe to click? will I lose important mail?' -> one confirm, noise stops."
+      end: "Reassured + in control — 'the invites are gone AND it told me I'll still get security mail. Clean.'"
+    account_holder:
+      start: "Uncertain — 'did I unsubscribe from something? which workspace? I can't find the email.'"
+      middle: "Informed — a clear per-workspace status list; 'oh, Northwind is muted.'"
+      end: "In control — one click resubscribes; 'I decide who can email me, any time.'"
+
+steps:
+  - id: U1
+    name: "Emit — a suppressible notification carries the unsubscribe link"
+    command: "bootstrap.rs::create_invite / member_invites.rs::submit_invite -> notify(workspace_invite | member_invite)"
+    tui_mockup: |
+      +-- Email: "You're invited to Northwind" ------------------+
+      | ...invitation body + accept link...                     |
+      | ---------------------------------------------------------|
+      | Don't want these? Unsubscribe from Northwind invitations |
+      |   https://foundry.acme.example/unsubscribe?token=${tok}  |
+      +----------------------------------------------------------+
+    shared_artifacts:
+      - name: "unsubscribe_token"
+        source: "UnsubscribeToken::new(email_lower, workspace_id, SESSION_SECRET) — HMAC binding, InviteToken model (foundry-auth/src/lib.rs:354-390). Expiry ODD-1."
+        displayed_as: "${tok}"
+        consumers: ["the unsubscribe link in the email body", "the public /unsubscribe route (verify)"]
+      - name: "public_url"
+        source: "FOUNDRY_PUBLIC_URL -> AppState.public_url (main.rs:122) — same host the invite accept-link already uses"
+        displayed_as: "${public_url}"
+        consumers: ["the unsubscribe link host", "the invite accept link host (already)"]
+    emotional_state:
+      entry: "recipient: annoyed — another invite I didn't ask for"
+      exit: "recipient: a lever exists — 'there's an unsubscribe link now'"
+    integration_checkpoint: |
+      Only the two SUPPRESSIBLE events (workspace_invite, member_invite) carry the link (BR-1). The token binds
+      THIS recipient email + THIS workspace_id, both in scope at the emit site. Mandatory events carry NO link.
+    failure_modes:
+      - "U1-E1 Mandatory event must NOT carry an unsubscribe link (password_reset/changed, member_removed) — allow-list only (BR-1)."
+    gherkin: |
+      Scenario: A workspace-invite email carries a per-workspace unsubscribe link
+        Given a workspace-invite for "Northwind" is issued to "sam.okafor@acme.example"
+        When the notification is built
+        Then it includes a signed unsubscribe link bound to Sam's email and the Northwind workspace
+        And a password-reset email for Sam would include no unsubscribe link
+
+  - id: U2
+    name: "Click — recipient opens the link logged-out (non-destructive GET)"
+    command: "GET /unsubscribe?token=${tok}"
+    tui_mockup: |
+      +-- GET /unsubscribe (public, no session) -----------------+
+      | Stop invitation emails from "Northwind"?                 |
+      |                                                          |
+      | You'll still receive security-critical notifications     |
+      | (password resets, account changes, removals).            |
+      |                                                          |
+      |            [ Confirm unsubscribe ]  (POST)               |
+      +----------------------------------------------------------+
+      (GET renders the page only — NO state change, prefetch-safe)
+    shared_artifacts:
+      - name: "unsubscribe_target"
+        source: "verified from ${tok}: (email_lower, workspace_id) — never echoed back to the page in a way that confirms existence (NFR-1)"
+        displayed_as: "${unsubscribe_target}"
+        consumers: ["the confirm form (carries the token forward)", "the POST handler (records the opt-out)"]
+    emotional_state:
+      entry: "recipient: wary — 'is this safe? will I lose important mail?'"
+      exit: "recipient: reassured — the page promises security mail still arrives"
+    integration_checkpoint: |
+      The GET is NON-DESTRUCTIVE (NFR-2): a prefetch/scan does not unsubscribe anyone. A tampered/unknown token
+      short-circuits to the uniform non-enumerable refusal here (U-E1). The confirm form is served with a CSRF
+      cookie (csrf.rs:54) so the POST can be validated (NFR-5).
+    failure_modes:
+      - "U-E1 Tampered/unknown/expired token -> uniform non-enumerable refusal (fixed 200, byte-identical body), records nothing (NFR-1, FR-5)."
+      - "U-E2 Prefetch: an automated GET must NOT record an opt-out (NFR-2)."
+    gherkin: |
+      Scenario: Opening the link shows a confirm page and reassurance, changing nothing yet
+        Given Sam has a valid unsubscribe link for "Northwind"
+        When Sam opens the link
+        Then he sees a confirm page that promises security-critical notifications still arrive
+        And no unsubscribe has been recorded yet
+
+      Scenario: A tampered link is refused without revealing anything
+        Given an unsubscribe link whose token has been altered
+        When the link is opened
+        Then the uniform "no longer valid" refusal page is shown
+        And no unsubscribe is recorded
+
+  - id: U3
+    name: "Confirm — recipient confirms; token verified, state flips (POST)"
+    command: "POST /unsubscribe (CSRF) -> Store.insert_unsubscribe(email_lower, workspace_id)"
+    tui_mockup: |
+      +-- POST /unsubscribe (confirm) ---------------------------+
+      | verify ${tok} (constant-time HMAC) -> (email, ws_id)     |
+      |   invalid -> uniform refusal (records nothing)           |
+      | insert_unsubscribe(email_lower, workspace_id)  [idem]    |
+      | -> "Done. You won't receive further invitations from     |
+      |     Northwind. You'll still get security-critical mail."  |
+      +----------------------------------------------------------+
+    shared_artifacts:
+      - name: "unsubscribe_row"
+        source: "notification_unsubscribes(email_lower, workspace_id, unsubscribed_at) — the new 0014 table; single source of subscription state (default absence = subscribed, BR-7)"
+        displayed_as: "${unsubscribe_row}"
+        consumers: ["the suppression filter (U4)", "the signed-in status page (S1)", "resubscribe (S2)"]
+    emotional_state:
+      entry: "recipient: hopeful — 'let this just work'"
+      exit: "recipient: relieved + reassured — noise stops, security mail safe"
+    integration_checkpoint: |
+      The POST is CSRF-protected (NFR-5) and re-verifies ${tok} server-side (never trusts a client-supplied
+      email). Insert is idempotent (BR-8). This is the ONLY way a public opt-out is recorded (BR-5). The written
+      ${unsubscribe_row} is the single source consumed by suppression, the status page, and resubscribe.
+    failure_modes:
+      - "U3-E1 Missing/invalid CSRF -> 403, no state change (NFR-5)."
+      - "U3-E2 Already unsubscribed -> idempotent no-op success, no duplicate row (BR-8)."
+      - "U3-E3 Token invalid at POST time -> uniform refusal, records nothing (NFR-1)."
+    gherkin: |
+      Scenario: Confirming records the opt-out and reassures about security mail
+        Given Sam is on the confirm page for "Northwind"
+        When Sam confirms the unsubscribe
+        Then an opt-out for Sam and Northwind is recorded
+        And Sam sees a confirmation that Northwind invitations are stopped and security mail still arrives
+
+      Scenario: A confirm without a valid CSRF token changes nothing
+        Given a cross-site request tries to confirm an unsubscribe without a valid CSRF token
+        When the request is submitted
+        Then it is rejected and no opt-out is recorded
+
+  - id: U4
+    name: "Suppress — notifier drops future suppressible events; security mail always through"
+    command: "notify(event, recipient, workspace) -> suppress if suppressible AND unsubscribed; else deliver"
+    tui_mockup: |
+      +-- Notifier.notify (suppressible check before deliver) ---+
+      | if event in {workspace_invite, member_invite}:           |
+      |    if unsubscribed(email_lower, workspace_id):           |
+      |       SKIP deliver() ; count outcome=suppressed          |
+      |    else deliver() as today                               |
+      | else (password_reset/changed, member_removed):           |
+      |    ALWAYS deliver()  <-- mandatory, never suppressed     |
+      +----------------------------------------------------------+
+      workspace_invite -> [unsubscribed] -> suppressed (counted)
+      password_reset   -> [unsubscribed] -> DELIVERED (mandatory)
+    shared_artifacts:
+      - name: "suppression_decision"
+        source: "derived: event ∈ suppressible allow-list (BR-1) AND exists ${unsubscribe_row} for (email_lower, workspace_id); mandatory events skip the check entirely (BR-3)"
+        displayed_as: "${suppression_decision}"
+        consumers: ["the delivery/skip path in notify()", "the suppression count (U5)"]
+      - name: "suppression_metric"
+        source: "a suppressed outcome on foundry_notification_deliveries_total, or a sibling counter (ODD-5) — bounded-label, no recipient PII (NFR-4)"
+        displayed_as: "foundry_notification_*{event[,workspace],outcome=suppressed}"
+        consumers: ["the /metrics sidecar (metrics_server)", "operator opt-out-volume view (S3/US-07)"]
+    emotional_state:
+      entry: "recipient: (invisible) — no more invites arrive"
+      exit: "recipient: quiet inbox for that workspace; security mail intact"
+    integration_checkpoint: |
+      THE CRUX (NFR-3): a mandatory event (password_reset/changed, member_removed) is NEVER suppressed, even for
+      an unsubscribed pair — mandatory > unsubscribe (BR-3). The suppressible set is a bounded ALLOW-LIST so a
+      new event is delivered-by-default, never accidentally suppressible. A litmus must RED if a mandatory event
+      is suppressed. The filter is ADDITIVE: empty table => behaviour identical to today (NFR-7).
+    failure_modes:
+      - "U4-E1 A mandatory event suppressed -> CRITICAL regression; blocked by the never-suppress @property (NFR-3)."
+      - "U4-E2 Suppression lookup errors in the INFALLIBLE notify() path -> must not worsen today's contract (ODD-3, R5)."
+      - "U4-E3 Wrong-workspace suppression -> per-(email,workspace) key must not mute a different workspace (FR-9, R6)."
+    gherkin: |
+      Scenario: A future suppressible notification to an unsubscribed pair is not delivered
+        Given "sam.okafor@acme.example" is unsubscribed from "Northwind"
+        When a workspace-invite for Northwind is issued to Sam
+        Then it is not delivered to Sam
+        And a suppression is counted for event "workspace_invite"
+
+      @property
+      Scenario: A mandatory security event is never suppressed
+        Given a recipient unsubscribed from every workspace they belong to
+        When a password reset, a password change, or a removal fires for them
+        Then every one is delivered
+        And none is recorded as suppressed
+
+  - id: S1
+    name: "Status — signed-in member views per-workspace subscription state"
+    command: "GET /account/notifications (authenticated)"
+    tui_mockup: |
+      +-- GET /account/notifications (Maria, signed in) ---------+
+      | Notifications — where you're subscribed                  |
+      |   Northwind ............... Muted    [ Resubscribe ]     |
+      |   Contoso ................. Subscribed                   |
+      |   Initech ................. Subscribed                   |
+      | (only YOUR workspaces, only YOUR status)                 |
+      +----------------------------------------------------------+
+    shared_artifacts:
+      - name: "member_identity"
+        source: "SessionUser (session.rs) -> user_id -> find_user_by_email / email_lower; NEVER a client-supplied email (NFR-6)"
+        displayed_as: "${member_identity}"
+        consumers: ["the per-workspace status query", "the resubscribe POST scope (S2)"]
+      - name: "workspace_status_list"
+        source: "for each workspace the member belongs to (membership lookups, foundry-store/src/lib.rs:1048,1955): exists ${unsubscribe_row}(email_lower, workspace_id) ? Muted : Subscribed"
+        displayed_as: "${workspace_status_list}"
+        consumers: ["the settings page render", "the resubscribe control per row"]
+    emotional_state:
+      entry: "account holder: uncertain — 'did I mute something?'"
+      exit: "account holder: informed — clear per-workspace status"
+    integration_checkpoint: |
+      LEAST-PRIVILEGE (NFR-6): identity comes from the SESSION; the page lists only workspaces the member
+      belongs to and only their own status. No cross-recipient enumeration. Status is derived from the single
+      source ${unsubscribe_row}. New user-facing surface => WCAG applies (NFR-8).
+    failure_modes:
+      - "S1-E1 Request steered to another user's email -> returns only the session member's own scope (NFR-6)."
+      - "S1-E2 Member of zero workspaces -> empty but valid page (no error)."
+    gherkin: |
+      Scenario: The settings page shows per-workspace subscription status
+        Given Maria is signed in, belongs to Northwind, Contoso, Initech, and is unsubscribed from Northwind
+        When Maria opens the notification settings page
+        Then Northwind shows as muted and Contoso and Initech show as subscribed
+        And only Maria's own workspaces and status are shown
+
+  - id: S2
+    name: "Resubscribe — signed-in member restores a muted workspace (CSRF POST)"
+    command: "POST /account/notifications/resubscribe (CSRF) -> Store.delete_unsubscribe(email_lower, workspace_id)"
+    tui_mockup: |
+      +-- POST /account/notifications/resubscribe ---------------+
+      | CSRF-checked; scope = session member's own (email,ws)    |
+      | delete_unsubscribe(email_lower, workspace_id) [idem]     |
+      | -> Northwind ............. Subscribed                    |
+      +----------------------------------------------------------+
+    shared_artifacts:
+      - name: "unsubscribe_row"
+        source: "same notification_unsubscribes table (U3) — resubscribe CLEARS the row for (email_lower, workspace_id), returning to the subscribed default (BR-7)"
+        displayed_as: "${unsubscribe_row}"
+        consumers: ["the suppression filter (U4) — now delivers again", "the re-rendered status page"]
+    emotional_state:
+      entry: "account holder: 'I want Northwind back on'"
+      exit: "account holder: in control — one click, subscribed again"
+    integration_checkpoint: |
+      CSRF-protected (NFR-5); scoped to the SESSION member's own pairs (NFR-6); idempotent (BR-8). Clearing
+      ${unsubscribe_row} makes U4 deliver that pair's suppressible events again — the same single source drives
+      suppression and status, so there is no divergence.
+    failure_modes:
+      - "S2-E1 Missing/invalid CSRF -> 403, no state change (NFR-5)."
+      - "S2-E2 Resubscribe an already-subscribed workspace -> idempotent no-op success (BR-8)."
+      - "S2-E3 Attempt to resubscribe a pair outside the member's scope -> refused (NFR-6)."
+    gherkin: |
+      Scenario: Resubscribing a muted workspace restores its notifications
+        Given Maria is signed in and Northwind shows as muted
+        When Maria clicks Resubscribe for Northwind
+        Then Northwind shows as subscribed
+        And the next Northwind invitation is delivered to Maria again
+
+      Scenario: A resubscribe without a valid CSRF token is rejected
+        Given a cross-site request tries to resubscribe Maria to Northwind without a valid CSRF token
+        When the request is submitted
+        Then it is rejected and Maria's subscription state is unchanged
+
+  - id: S3
+    name: "Observe — operator sees opt-out volume, no PII (US-07)"
+    command: "GET /metrics"
+    tui_mockup: |
+      +-- GET /metrics (existing sidecar) -----------------------+
+      | foundry_notification_deliveries_total{event=             |
+      |   "workspace_invite",outcome="suppressed"} 34            |
+      | foundry_notification_deliveries_total{event=             |
+      |   "member_invite",outcome="suppressed"} 8                |
+      | (no recipient email, no token, anywhere)                 |
+      +----------------------------------------------------------+
+    shared_artifacts:
+      - name: "suppression_metric"
+        source: "the bounded-label suppression count (ODD-5) — event (+ at most workspace), NEVER recipient email/token (NFR-4)"
+        displayed_as: "foundry_notification_*{event[,workspace],outcome=suppressed}"
+        consumers: ["operator/compliance opt-out-volume view", "DEVOPS alert thresholds (follow-up)"]
+    emotional_state:
+      entry: "operator: 'is opt-out working, and how much?'"
+      exit: "operator: assured — visible volume, no PII, security never suppressed"
+    integration_checkpoint: |
+      Labels stay bounded and PII-free (NFR-4); the suppressed count for mandatory events is ALWAYS 0 (US-02),
+      observably. A cardinality/PII guard fails closed on an unbounded or recipient label.
+    failure_modes:
+      - "S3-E1 Recipient PII in a metric label -> caught by the no-PII @property (NFR-4, R4)."
+    gherkin: |
+      Scenario: Suppressed deliveries are visible as a PII-free count
+        Given several workspace-invite and member-invite deliveries have been suppressed
+        When Olivia scrapes /metrics
+        Then a suppression count is present split by event
+        And no recipient email or unsubscribe token appears in any label
+
+integration_validation:
+  shared_artifact_consistency:
+    - artifact: "unsubscribe_token"
+      must_match_across: ["U1", "U2", "U3"]
+      failure_message: "The token embedded in the email differs from what the route verifies — the link would refuse a legitimate recipient or accept a forged one."
+    - artifact: "unsubscribe_row"
+      must_match_across: ["U3", "U4", "S1", "S2"]
+      failure_message: "The recorded opt-out differs from what suppression / the status page / resubscribe act on — a muted recipient still gets mail, or a status is wrong."
+    - artifact: "member_identity"
+      must_match_across: ["S1", "S2"]
+      failure_message: "The identity the page shows differs from the identity resubscribe acts on — a member could view one scope but mutate another (privilege bug)."
+    - artifact: "suppression_metric"
+      must_match_across: ["U4", "S3"]
+      failure_message: "The suppression decision differs from the counted suppression — the metric misrepresents opt-out volume."
+  mandatory_never_suppressed_invariant: |
+    password_reset, password_changed, and member_removed are ALWAYS delivered, even for a pair unsubscribed in
+    every workspace. Mandatory > unsubscribe (BR-3). A litmus must RED if any mandatory event is suppressed
+    (NFR-3). The suppressible set is a bounded ALLOW-LIST so new events are delivered by default.
+  non_enumerable_refusal_invariant: |
+    A tampered / malformed / unknown / (expired) token yields a fixed-status, byte-identical refusal that is
+    indistinguishable between a real recipient and a non-existent address, and records nothing. A litmus must
+    RED if responses differ by existence or if an invalid token mutates state (NFR-1, BR-4).
+  prefetch_safety_invariant: |
+    A bare GET of a valid unsubscribe URL records no opt-out; only an explicit confirm (POST / RFC 8058
+    one-click) mutates state. A litmus must RED if a GET creates an unsubscribe row (NFR-2).
+  least_privilege_invariant: |
+    A signed-in member views and mutates only their OWN subscription state, scoped to workspaces they belong to,
+    with identity from the session. A litmus must RED if a request can view or change another recipient's state
+    (NFR-6).
+  no_pii_metric_invariant: |
+    The suppression count carries event (+ at most workspace) labels and NEVER a recipient email or token; the
+    label/cardinality guard fails closed on an unbounded or PII label (NFR-4).
+  backwards_compat_invariant: |
+    With an empty notification_unsubscribes table, the notifier behaves byte-for-byte as it does post
+    notification-delivery-providers; the filter only ever removes a suppressible delivery for an unsubscribed
+    pair (NFR-7).
+
+changelog:
+  - date: "2026-07-11"
+    feature: "recipient-notification-preferences"
+    change: "Initial journey: recipient unsubscribe (v1) — a signed UnsubscribeToken (InviteToken model) in the two suppressible emails (workspace_invite, member_invite) working logged-out; a public token-verified /unsubscribe route with a non-destructive GET confirm + CSRF POST that records a per-(email_lower,workspace_id) opt-out in the new 0014 table; a notifier suppression filter (mandatory events password_reset/password_changed/member_removed NEVER suppressed, BR-3/NFR-3); PII-free suppression observability on the shipped /metrics seam; and a signed-in /account/notifications page (per-workspace status, own-only, NFR-6) + CSRF resubscribe. Non-enumerable refusal (invites_accept.rs:332-339 model) + prefetch-safe GET (RFC 8058 stance ODD-2). v1 boundary at U1-U4 (US-01..US-04). Carved out of notification-delivery-providers."
+</content>

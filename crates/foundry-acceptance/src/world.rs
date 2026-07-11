@@ -1134,6 +1134,20 @@ pub struct FoundryWorld {
     /// end-to-end, so the slow-provider scenario can assert the request did NOT
     /// stall on the hanging provider (bounded to ~one per-provider timeout).
     pub ndp_request_elapsed_ms: Option<u128>,
+
+    // ---- Feature "recipient-notification-preferences" ----
+    /// The recipient (Sam) the unsubscribe scenario targets — an account-less
+    /// email, lower-cased to match the token/store normalization.
+    pub unsub_email: Option<String>,
+    /// The workspace id the unsubscribe link is bound to (also the emit's
+    /// `workspace_id`, so the suppression key matches).
+    pub unsub_workspace_id: Option<uuid::Uuid>,
+    /// The `t` (base64url `email_lower|workspace_id`) and `sig` of the signed link.
+    pub unsub_t: Option<String>,
+    pub unsub_sig: Option<String>,
+    /// The seeded workspace admin (email, password) used to drive the REAL invite
+    /// emit that the suppression gate then intercepts.
+    pub unsub_admin: Option<(String, String)>,
 }
 
 impl FoundryWorld {

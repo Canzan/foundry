@@ -1,0 +1,347 @@
+{
+  "roadmap": {
+    "project_id": "recipient-notification-preferences",
+    "created_at": "2026-07-11T00:00:00Z",
+    "total_steps": 10
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "Walking skeleton \u2014 the whole unsubscribe spine on the workspace_invite event (US-01) + the fail-open + cascade edges",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "Walking skeleton: one click from a workspace-invite email stops that workspace's invitations",
+          "criteria": [
+            "Greens exactly these scenarios: \"One click from the invite email stops that workspace's invitations\" (the @walking_skeleton spine).",
+            "Sam has a workspace-invite email for \"Northwind\" carrying a signed unsubscribe link; opening the link renders the state-aware confirm page (GET, non-destructive) and confirming via the CSRF POST writes the (email_lower, workspace_id) opt-out row; Sam sees the confirmation that \"Northwind\" invitations are stopped; a subsequent workspace-invite for Sam from \"Northwind\" is NOT delivered (the shipped recording provider double observes zero delivery for that recipient); and one suppression is counted for the \"workspace_invite\" event.",
+            "The new code built in this step is the feature's entire spine (ADR-001..005): the 0014_notification_unsubscribes migration in crates/foundry-store/migrations/ \u2014 composite PRIMARY KEY (email_lower TEXT, workspace_id UUID), FK workspace_id \u2192 workspaces(id) ON DELETE CASCADE, unsubscribed_at TIMESTAMPTZ DEFAULT now(), modelled on the shipped reset_tokens/0002 shape (latest shipped is 0013); the Store methods is_unsubscribed(email_lower, ws) / insert_unsubscribe(ON CONFLICT DO NOTHING) / delete_unsubscribe on crates/foundry-store; UnsubscribeToken::{new,verify} in foundry-auth (constant-time HMAC over \"unsub|v1|{email_lower}|{workspace_id}\" via the reused foundry_auth::sign/verify keyed on SESSION_SECRET, NO expiry); Notification gains workspace_id: Option<Uuid> (notify.rs, still NOT Debug); NotificationEvent::is_suppressible() returning true ONLY for {WorkspaceInvite, MemberInvite}; the SuppressionPolicy driven port + StoreSuppression (prod adapter, indexed point-read on the 0014 PK, bounded) + AllowAllSuppression (inert Ok(false) default); the suppression gate at the top of the infallible Notifier::notify (gate on is_suppressible() FIRST, then a bounded is_suppressed lookup, early-return + increment on Ok(true), else fall through to the shipped fan-out unchanged); the public GET/POST /unsubscribe routes in a NEW unsubscribe.rs joining the public cluster under the shipped csrf_middleware + session_layer; and wiring the unsubscribe link into the bootstrap.rs workspace_invite emit body while setting workspace_id: Some(ws).",
+            "Composition-root invariant (Earned Trust): build the Notifier with Notifier::with_suppression(StoreSuppression) at main.rs \u2014 wire-then-probe-then-use holds because the store is already probed at startup; the default AllowAllSuppression keeps delivery byte-for-byte unchanged with an empty table (NFR-7).",
+            "Builds the harness seam every later scenario asserts against: a spawn_with_unsubscribe-style composition-root path on InProcHarness (crates/foundry-acceptance/src/support/) wiring StoreSuppression + the /unsubscribe route + the shipped recording provider doubles, so a Then can observe delivered-vs-suppressed per event.",
+            "Genuinely RED by MISSING: no 0014 table, no UnsubscribeToken, no SuppressionPolicy port / StoreSuppression / AllowAllSuppression, no Notification.workspace_id, no NotificationEvent::is_suppressible(), no suppression gate inside notify(), and no /unsubscribe route exist yet \u2014 the @pending scaffold panics (assertion-class RED, correct test / missing production) against real testcontainers PG16, never IMPORT_ERROR / BROKEN.",
+            "5-phase TDD contract (PREPARE -> RED_ACCEPTANCE -> RED_UNIT -> GREEN -> COMMIT); removes @pending from ONLY this scenario (the other 26 stay @pending so the @all lane stays green); run the slice with FOUNDRY_ACCEPTANCE_TAGS=recipient-unsubscribe; introduces the feature's ONE migration (0014) HERE; ZERO new crate (reuses hmac/sha2/secrecy already present)."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/recipient-notification-preferences.feature",
+          "scenario_name": "One click from the invite email stops that workspace's invitations",
+          "implementation_scope": {
+            "source_directories": [
+              "crates/foundry-store/migrations/",
+              "crates/foundry-store/src/lib.rs",
+              "crates/foundry-auth/src/lib.rs",
+              "crates/foundry-app/src/notify.rs",
+              "crates/foundry-app/src/unsubscribe.rs",
+              "crates/foundry-app/src/bootstrap.rs",
+              "crates/foundry-app/src/main.rs",
+              "crates/foundry-app/src/lib.rs"
+            ],
+            "test_directories": [
+              "crates/foundry-acceptance/src/support/",
+              "crates/foundry-acceptance/src/steps/",
+              "crates/foundry-acceptance/tests/"
+            ]
+          }
+        },
+        {
+          "id": "01-02",
+          "name": "Per-workspace independence, idempotent confirm, and the untouched default-delivery path",
+          "criteria": [
+            "Greens exactly these scenarios: \"Unsubscribing from one workspace leaves another untouched\", \"Confirming an unsubscribe twice is a harmless no-op\", and \"With no opt-out on record, a workspace-invite is delivered unchanged\".",
+            "Per-workspace independence (FR-9, a corollary of the composite key): with Sam unsubscribed from \"Northwind\" and also holding an invite for \"Contoso\", a workspace-invite for \"Contoso\" is delivered to Sam \u2014 the Northwind row and its token bind only (email_lower, Northwind) and cannot verify or suppress for Contoso.",
+            "Idempotent confirm (BR-8): confirming the unsubscribe for \"Northwind\" a second time is a harmless no-op \u2014 Sam sees that he is already unsubscribed and sees the same confirmation both times with no error (INSERT ... ON CONFLICT DO NOTHING; the state-aware confirm page reports the already-muted state).",
+            "Default-delivery exactness (NFR-7): with no opt-out row on record, a workspace-invite for \"Northwind\" is delivered unchanged \u2014 the AllowAllSuppression/empty-table path early-returns only on Ok(true), so the fan-out is byte-for-byte unchanged.",
+            "Genuinely RED by MISSING: the per-pair token-binding + independent suppression read, the ON CONFLICT idempotence + already-unsubscribed confirm rendering, and the no-row delivery assertion are not exercised yet \u2014 each @pending scenario panics until built (assertion-class RED, never BROKEN). Green-by-inheritance leans on 01-01's spine; this step adds the independence, idempotence, and no-row boundary arms.",
+            "5-phase TDD (PREPARE -> RED_ACCEPTANCE -> RED_UNIT -> GREEN -> COMMIT); removes @pending from only these three scenarios; run with FOUNDRY_ACCEPTANCE_TAGS=recipient-unsubscribe; ZERO new crate, ZERO migration (reuses 0014)."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/recipient-notification-preferences.feature",
+          "scenario_name": "With no opt-out on record, a workspace-invite is delivered unchanged",
+          "implementation_scope": {
+            "source_directories": [
+              "crates/foundry-app/src/notify.rs",
+              "crates/foundry-app/src/unsubscribe.rs",
+              "crates/foundry-store/src/lib.rs"
+            ],
+            "test_directories": [
+              "crates/foundry-acceptance/src/support/",
+              "crates/foundry-acceptance/src/steps/",
+              "crates/foundry-acceptance/tests/"
+            ]
+          }
+        },
+        {
+          "id": "01-03",
+          "name": "Cross-cutting edges: fail-open + await-bounded suppression lookup, and workspace-deletion cascade",
+          "criteria": [
+            "Greens exactly these scenarios: \"A failing suppression lookup still delivers the notification (fail-open)\", \"A slow suppression lookup does not stall the emit (await-bounded, fail-open)\", and \"Deleting a workspace clears its opt-out rows\".",
+            "Fail-open (R5, NFR-7): with Sam unsubscribed from \"Northwind\" and the SuppressionPolicy lookup FAILING, a workspace-invite for \"Northwind\" is delivered unchanged and the emit completes without stalling \u2014 the gate maps Err(_) to fall-through (log at warn, deliver) so notify() stays infallible and a store blip is \"no worse than today\".",
+            "Await-bounded (R5): with the SuppressionPolicy lookup SLOW, the same workspace-invite is delivered unchanged and the emit completes without stalling \u2014 the lookup is wrapped in a short tokio::time::timeout (design-recommended ~50-100 ms, short relative to the shipped per-provider DEFAULT_DELIVERY_TIMEOUT_MS 5000) whose expiry is treated as fail-open; notify() still returns ().",
+            "Workspace-deletion cascade (ADR-004): deleting workspace \"Northwind\" that has an unsubscribed recipient succeeds, a previously-unsubscribed recipient of that workspace resumes delivery, and no orphaned suppression state remains \u2014 the FK workspace_id \u2192 workspaces(id) ON DELETE CASCADE (declared in the 0014 migration in 01-01) removes the opt-out rows with the workspace.",
+            "Genuinely RED by MISSING: the Err-and-timeout fail-open arm of the suppression gate is not built yet (01-01 wired the happy-path gate), and the cascade behaviour is not yet asserted end-to-end \u2014 each @pending scenario panics until built (assertion-class RED, never BROKEN); the failing/slow SuppressionPolicy is injected via a test double at the composition root.",
+            "5-phase TDD (PREPARE -> RED_ACCEPTANCE -> RED_UNIT -> GREEN -> COMMIT); removes @pending from only these three scenarios (the @nfr fail-open pair + the @edge cascade); run with FOUNDRY_ACCEPTANCE_TAGS=recipient-unsubscribe; ZERO new crate, ZERO migration (the FK cascade ships in 0014)."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/recipient-notification-preferences.feature",
+          "scenario_name": "A failing suppression lookup still delivers the notification (fail-open)",
+          "implementation_scope": {
+            "source_directories": [
+              "crates/foundry-app/src/notify.rs",
+              "crates/foundry-app/src/main.rs",
+              "crates/foundry-store/src/lib.rs"
+            ],
+            "test_directories": [
+              "crates/foundry-acceptance/src/support/",
+              "crates/foundry-acceptance/src/steps/",
+              "crates/foundry-acceptance/tests/"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "02",
+      "name": "Mandatory security events are structurally never suppressed (US-02)",
+      "steps": [
+        {
+          "id": "02-01",
+          "name": "The never-suppress invariant: password-reset, password-change, and removal always reach an unsubscribed recipient",
+          "criteria": [
+            "Greens exactly these scenarios: \"A password reset reaches an unsubscribed recipient\", \"A removal notice reaches an unsubscribed recipient\", and \"No mandatory event is ever suppressed for an unsubscribed recipient\".",
+            "With Sam unsubscribed from \"Northwind\": a password reset he requests is delivered to Sam and is NOT counted as suppressed; an admin removing Sam from \"Northwind\" delivers the member-removed notification to Sam and it is NOT counted as suppressed; and when a password reset, a password change, and a removal each fire for a Sam who is unsubscribed from every workspace he belongs to, every one is delivered and none is counted as suppressed.",
+            "The invariant is STRUCTURAL (NFR-3): NotificationEvent::is_suppressible() is false for the mandatory complement {PasswordReset, PasswordChanged, MemberRemoved}, so the gate never even queries SuppressionPolicy for them; the mandatory emit sites set workspace_id: None (signin.rs password_reset/password_changed, member_invites.rs member_removed) so the gate short-circuits before any lookup. An allow-list unit test asserts is_suppressible() is true for exactly {WorkspaceInvite, MemberInvite} and false for all else, and a never-suppress @property asserts any mandatory event under any unsubscribe config is delivered and never counted suppressed.",
+            "Genuinely RED by MISSING: the mandatory emit sites do not yet set workspace_id: None and the never-suppress @property + allow-list guard are not yet asserted end-to-end \u2014 each @pending scenario panics until built (assertion-class RED, never BROKEN); the is_suppressible() predicate itself ships in 01-01, this step proves its complement holds structurally.",
+            "5-phase TDD (PREPARE -> RED_ACCEPTANCE -> RED_UNIT -> GREEN -> COMMIT); removes @pending from only these three scenarios; run with FOUNDRY_ACCEPTANCE_TAGS=recipient-unsubscribe; ZERO new crate, ZERO migration."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/recipient-notification-preferences.feature",
+          "scenario_name": "No mandatory event is ever suppressed for an unsubscribed recipient",
+          "implementation_scope": {
+            "source_directories": [
+              "crates/foundry-app/src/notify.rs",
+              "crates/foundry-app/src/signin.rs",
+              "crates/foundry-app/src/member_invites.rs"
+            ],
+            "test_directories": [
+              "crates/foundry-acceptance/src/support/",
+              "crates/foundry-acceptance/src/steps/",
+              "crates/foundry-acceptance/tests/"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "03",
+      "name": "Non-enumerable refusal, prefetch-safe GET, and CSRF-guarded POST (US-03)",
+      "steps": [
+        {
+          "id": "03-01",
+          "name": "Uniform non-enumerable refusal for tampered/invalid tokens and log hygiene",
+          "criteria": [
+            "Greens exactly these scenarios: \"A tampered token is refused exactly like an invalid one\", \"The response does not reveal whether an address exists\", and \"A refused unsubscribe request leaks no token or recipient email\".",
+            "A tampered token opened at /unsubscribe yields the uniform non-enumerable refusal page (modelled on the shipped invite_refusal_page, fixed 200, byte-identical body) and records NO unsubscribe. An unsubscribe request for a real recipient with an invalid token and one for a non-existent address with an invalid token both return a byte-identical refusal, and neither response reveals whether the address, workspace, or account exists.",
+            "Log hygiene (NFR-2): opening a tampered link writes NO unsubscribe token or recipient email to the logs \u2014 the refusal path keys on nothing recipient-identifying and never interpolates the token or address.",
+            "The refusal is driven by constant-time UnsubscribeToken::verify failure (foundry_auth::verify reused) mapping every invalid reason to one code path, so timing and body are uniform across tampered / unknown / real-but-invalid.",
+            "Genuinely RED by MISSING: the uniform-refusal arm on verify-failure and the secret-free / PII-free log discipline are not built yet \u2014 each @pending scenario panics until built (assertion-class RED, never BROKEN); the byte-identical assertion + a revert-reds-it litmus guard the non-enumerability.",
+            "5-phase TDD (PREPARE -> RED_ACCEPTANCE -> RED_UNIT -> GREEN -> COMMIT); removes @pending from only these three scenarios; run with FOUNDRY_ACCEPTANCE_TAGS=recipient-unsubscribe; ZERO new crate, ZERO migration."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/recipient-notification-preferences.feature",
+          "scenario_name": "The response does not reveal whether an address exists",
+          "implementation_scope": {
+            "source_directories": [
+              "crates/foundry-app/src/unsubscribe.rs",
+              "crates/foundry-auth/src/lib.rs"
+            ],
+            "test_directories": [
+              "crates/foundry-acceptance/src/support/",
+              "crates/foundry-acceptance/src/steps/",
+              "crates/foundry-acceptance/tests/"
+            ]
+          }
+        },
+        {
+          "id": "03-02",
+          "name": "Prefetch-safe non-destructive GET and CSRF-guarded confirm POST",
+          "criteria": [
+            "Greens exactly these scenarios: \"Prefetching the link does not unsubscribe anyone\" and \"An unsubscribe confirm without a valid CSRF token is refused\".",
+            "Prefetch-safety (NFR-2, Earned Trust): when an automated client fetches a valid unsubscribe link for \"Northwind\" that Sam has not confirmed, a subsequent workspace-invite to Sam in \"Northwind\" is still delivered and Sam remains subscribed until he explicitly confirms \u2014 the GET renders only (state-aware confirm page) and mints the CSRF cookie via ensure_csrf_cookie, writing NO row; only the CSRF POST mutates.",
+            "CSRF guard (NFR-5): an unsubscribe confirm posted without a valid CSRF token is refused and no opt-out state changes \u2014 the POST rides the shipped double-submit csrf_middleware; a failed CSRF check leaves the row absent.",
+            "Genuinely RED by MISSING: the non-destructive GET contract (no write on fetch) and the CSRF-refusal arm on POST are not asserted yet \u2014 each @pending scenario panics until built (assertion-class RED, never BROKEN); an acceptance GET of a valid link asserts no row is written (revert-reds-it litmus).",
+            "5-phase TDD (PREPARE -> RED_ACCEPTANCE -> RED_UNIT -> GREEN -> COMMIT); removes @pending from only these two scenarios; run with FOUNDRY_ACCEPTANCE_TAGS=recipient-unsubscribe; ZERO new crate, ZERO migration."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/recipient-notification-preferences.feature",
+          "scenario_name": "Prefetching the link does not unsubscribe anyone",
+          "implementation_scope": {
+            "source_directories": [
+              "crates/foundry-app/src/unsubscribe.rs"
+            ],
+            "test_directories": [
+              "crates/foundry-acceptance/src/support/",
+              "crates/foundry-acceptance/src/steps/",
+              "crates/foundry-acceptance/tests/"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "04",
+      "name": "The same one-click opt-out covers member_invite (US-04)",
+      "steps": [
+        {
+          "id": "04-01",
+          "name": "member-invite suppression, its own unsubscribe link, and security mail still intact",
+          "criteria": [
+            "Greens exactly these scenarios: \"One opt-out covers member-invite emails for a workspace\", \"The member-invite email carries its own unsubscribe link\", and \"Unsubscribing via a member-invite still leaves security mail intact\".",
+            "With Sam unsubscribed from \"Northwind\" via a workspace-invite link, a member-invite for \"Northwind\" issued to Sam is NOT delivered and one suppression is counted for the \"member_invite\" event \u2014 the single (email_lower, workspace_id) row covers BOTH suppressible events because is_suppressible() already includes MemberInvite. When Sam opens a member-invite email's own signed unsubscribe link and confirms unsubscribing from \"Northwind\", both member-invite and workspace-invite emails from \"Northwind\" are suppressed.",
+            "AC-04.4 (the mandatory-after-member-invite guard): with Sam unsubscribed from \"Northwind\" via a member-invite link, an admin removing Sam from \"Northwind\" still delivers the member-removed notification to Sam and it is NOT counted as suppressed \u2014 the never-suppress invariant is orthogonal to how the opt-out was created.",
+            "The member_invites.rs member_invite emit site appends the unsubscribe link to the body and sets workspace_id: Some(ws), mirroring the bootstrap.rs workspace_invite emit from 01-01; no gate change is needed (MemberInvite is already suppressible).",
+            "Genuinely RED by MISSING: the member_invite emit site does not yet mint the link + set Some(ws), so member-invite suppression and its own link are not exercised yet \u2014 each @pending scenario panics until built (assertion-class RED, never BROKEN).",
+            "5-phase TDD (PREPARE -> RED_ACCEPTANCE -> RED_UNIT -> GREEN -> COMMIT); removes @pending from only these three scenarios; run with FOUNDRY_ACCEPTANCE_TAGS=recipient-unsubscribe; ZERO new crate, ZERO migration."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/recipient-notification-preferences.feature",
+          "scenario_name": "One opt-out covers member-invite emails for a workspace",
+          "implementation_scope": {
+            "source_directories": [
+              "crates/foundry-app/src/member_invites.rs",
+              "crates/foundry-app/src/notify.rs"
+            ],
+            "test_directories": [
+              "crates/foundry-acceptance/src/support/",
+              "crates/foundry-acceptance/src/steps/",
+              "crates/foundry-acceptance/tests/"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "05",
+      "name": "Signed-in per-workspace status page (least-privilege) (US-05)",
+      "steps": [
+        {
+          "id": "05-01",
+          "name": "The /account/notifications status page and its least-privilege identity scoping",
+          "criteria": [
+            "Greens exactly these scenarios: \"The settings page shows per-workspace subscription status\" and \"A request cannot be steered to another recipient's status\".",
+            "With Maria signed in and belonging to \"Northwind\", \"Contoso\", and \"Initech\" and having confirmed unsubscribing from \"Northwind\", opening the notification settings page shows \"Northwind\" as muted, \"Contoso\" as subscribed, and \"Initech\" as subscribed \u2014 rendered from workspaces_for_member(user_id) JOINed against list_unsubscribed_workspace_ids(email_lower).",
+            "Least-privilege (NFR-6): a request that attempts to view notification status for another recipient's email returns only Maria's own status and lists only workspaces Maria belongs to \u2014 identity comes from SessionUser, never client-supplied email; the query is scoped to the session member's own memberships.",
+            "New surface: GET /account/notifications (account_notifications.rs) registered beside /account/password under the session + CSRF layers, plus the store reads workspaces_for_member(user_id) -> Vec<(Uuid, String)> (mirroring resolve_active_workspace's JOIN) and list_unsubscribed_workspace_ids(email_lower) -> HashSet<Uuid>; a nav link to /account/notifications is added.",
+            "Genuinely RED by MISSING: no /account/notifications route, no workspaces_for_member / list_unsubscribed_workspace_ids store methods, and no nav entry exist yet \u2014 each @pending scenario panics until built (assertion-class RED, never BROKEN).",
+            "5-phase TDD (PREPARE -> RED_ACCEPTANCE -> RED_UNIT -> GREEN -> COMMIT); removes @pending from only these two scenarios; run with FOUNDRY_ACCEPTANCE_TAGS=recipient-unsubscribe; ZERO new crate, ZERO migration."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/recipient-notification-preferences.feature",
+          "scenario_name": "The settings page shows per-workspace subscription status",
+          "implementation_scope": {
+            "source_directories": [
+              "crates/foundry-app/src/account_notifications.rs",
+              "crates/foundry-store/src/lib.rs",
+              "crates/foundry-app/src/lib.rs",
+              "crates/foundry-app/src/nav.rs"
+            ],
+            "test_directories": [
+              "crates/foundry-acceptance/src/support/",
+              "crates/foundry-acceptance/src/steps/",
+              "crates/foundry-acceptance/tests/"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "06",
+      "name": "Resubscribe \u2014 signed-in toggle and account-less token undo (US-06)",
+      "steps": [
+        {
+          "id": "06-01",
+          "name": "Signed-in resubscribe, its CSRF guard, account-less confirm-page undo, and idempotent resubscribe",
+          "criteria": [
+            "Greens exactly these scenarios: \"Resubscribing a muted workspace restores its notifications\", \"A resubscribe without a valid CSRF token is rejected\", \"An account-less recipient resubscribes from the confirm page\", and \"Resubscribing an already-subscribed workspace is harmless\".",
+            "Signed-in resubscribe: with Maria signed in and having confirmed unsubscribing from \"Northwind\", resubscribing to \"Northwind\" shows it as subscribed again and a subsequent invitation for \"Northwind\" is delivered to Maria \u2014 POST /account/notifications/resubscribe (CSRF, session identity) clears her own (email_lower, workspace_id) row via delete_unsubscribe.",
+            "CSRF guard (NFR-5): a cross-site request that attempts to resubscribe Maria to \"Northwind\" without a valid CSRF token is refused and Maria's subscription state is unchanged.",
+            "Account-less undo (ADR-006): with Sam having confirmed unsubscribing from \"Northwind\", opening his unsubscribe link and confirming RESUBSCRIBING to \"Northwind\" shows it as subscribed again and a subsequent workspace-invite for Sam from \"Northwind\" is delivered \u2014 the state-aware confirm page offers Resubscribe when the pair is already unsubscribed, and the same token authorizes both directions.",
+            "AC-06.3 idempotence (BR-8): Maria submitting a resubscribe for \"Northwind\" twice from a stale page sees the same resubscribe confirmation both times with no error, and a subsequent invitation for \"Northwind\" is delivered \u2014 delete_unsubscribe on an absent row is a harmless no-op.",
+            "Genuinely RED by MISSING: no POST /account/notifications/resubscribe handler, no delete-on-resubscribe on the confirm-page POST, and no idempotent-delete arm exist yet \u2014 each @pending scenario panics until built (assertion-class RED, never BROKEN).",
+            "5-phase TDD (PREPARE -> RED_ACCEPTANCE -> RED_UNIT -> GREEN -> COMMIT); removes @pending from only these four scenarios; run with FOUNDRY_ACCEPTANCE_TAGS=recipient-unsubscribe; ZERO new crate, ZERO migration."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/recipient-notification-preferences.feature",
+          "scenario_name": "Resubscribing a muted workspace restores its notifications",
+          "implementation_scope": {
+            "source_directories": [
+              "crates/foundry-app/src/account_notifications.rs",
+              "crates/foundry-app/src/unsubscribe.rs",
+              "crates/foundry-store/src/lib.rs"
+            ],
+            "test_directories": [
+              "crates/foundry-acceptance/src/support/",
+              "crates/foundry-acceptance/src/steps/",
+              "crates/foundry-acceptance/tests/"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "07",
+      "name": "PII-free suppression observability on the /metrics sidecar (US-07)",
+      "steps": [
+        {
+          "id": "07-01",
+          "name": "Suppression counter split by event, PII-free, register-at-0 over the full catalog",
+          "criteria": [
+            "Greens exactly these scenarios: \"Suppressed deliveries are visible as a count on the metrics endpoint\", \"The suppression metric exposes no recipient PII\", and \"Mandatory events never appear as suppressed\".",
+            "After several suppressible deliveries to unsubscribed recipients have been suppressed, Olivia scraping the metrics endpoint sees a suppression count present split by event, and the counts reflect how many suppressible deliveries were suppressed \u2014 foundry_notification_suppressions_total{event} increments only on the suppressible early-return (event-only bounded label).",
+            "PII-free (NFR-4): no recipient email or unsubscribe token appears in any metric label or line \u2014 the label is event only (\u2208 NotificationEvent::ALL snake_case), no workspace, no PII; a fail-closed cardinality unit test asserts the emitted label key set is exactly {event} and fails closed on any added label.",
+            "Register-at-0 (US-07 observable invariant): when Olivia boots Foundry with recipient unsubscribe enabled, the suppression metric is registered at zero for every event and the suppressed count for every mandatory event is zero \u2014 a describe_counter! + register-at-0 over the full NotificationEvent::ALL catalog (mirroring the shipped delivery-counter idiom), so mandatory series (password_reset, password_changed, member_removed) stay pinned at 0 structurally.",
+            "These three scenarios drive a REAL foundry subprocess and scrape its /metrics sidecar (the in-process harness installs no recorder \u2014 the same split the predecessor used).",
+            "Genuinely RED by MISSING: no foundry_notification_suppressions_total const, no increment on the suppressible early-return, no register-at-0 over the catalog, and no bounded-label cardinality guard exist yet \u2014 each @pending scenario panics until built (assertion-class RED, never BROKEN).",
+            "5-phase TDD (PREPARE -> RED_ACCEPTANCE -> RED_UNIT -> GREEN -> COMMIT); removes @pending from only these three scenarios (the whole 27-scenario suite is now fully un-skipped and green); run with FOUNDRY_ACCEPTANCE_TAGS=recipient-unsubscribe; ZERO new crate, ZERO migration."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/recipient-notification-preferences.feature",
+          "scenario_name": "Suppressed deliveries are visible as a count on the metrics endpoint",
+          "implementation_scope": {
+            "source_directories": [
+              "crates/foundry-app/src/notify.rs",
+              "crates/foundry-app/src/main.rs",
+              "crates/foundry-app/src/metrics_server.rs"
+            ],
+            "test_directories": [
+              "crates/foundry-acceptance/src/support/",
+              "crates/foundry-acceptance/src/steps/",
+              "crates/foundry-acceptance/tests/"
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "implementation_scope": {
+    "source_directories": [
+      "crates/foundry-store/migrations/",
+      "crates/foundry-store/src/lib.rs",
+      "crates/foundry-auth/src/lib.rs",
+      "crates/foundry-app/src/notify.rs",
+      "crates/foundry-app/src/unsubscribe.rs",
+      "crates/foundry-app/src/account_notifications.rs",
+      "crates/foundry-app/src/bootstrap.rs",
+      "crates/foundry-app/src/member_invites.rs",
+      "crates/foundry-app/src/signin.rs",
+      "crates/foundry-app/src/main.rs",
+      "crates/foundry-app/src/lib.rs",
+      "crates/foundry-app/src/nav.rs",
+      "crates/foundry-app/src/metrics_server.rs"
+    ],
+    "test_directories": [
+      "crates/foundry-acceptance/src/support/",
+      "crates/foundry-acceptance/src/steps/",
+      "crates/foundry-acceptance/tests/"
+    ],
+    "excluded_patterns": [
+      "target/**",
+      "**/*.md"
+    ]
+  },
+  "validation": {
+    "status": "approved",
+    "reviewer": "nw-acceptance-designer-reviewer",
+    "authored_at": "2026-07-11",
+    "notes": "27 @pending scenarios across 7 user stories (US-01..07) + 3 cross-cutting edges (2 @nfr fail-open, 1 @edge cascade) mapped to 10 steps across 7 phases; each scenario greened by exactly one step; no step covers 8+ scenarios (max 4 in 06-01). Cross-cutting landed: per-workspace independence in 01-02, fail-open pair + workspace-deletion cascade in 01-03 (with US-01's spine). Exactly ONE migration (0014_notification_unsubscribes, introduced in 01-01); ZERO new crates (hmac/sha2/secrecy/sqlx/axum/askama/metrics all already in-tree). No new external boundary \u2014 the delivery-transport contract-test recommendation already lives in the predecessor notification-delivery-providers handoff to platform-architect. Un-skip slice-by-slice via FOUNDRY_ACCEPTANCE_TAGS=recipient-unsubscribe.",
+    "reviewed_at": "2026-07-11T00:00:00Z"
+  }
+}

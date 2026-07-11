@@ -32,6 +32,7 @@ pub mod projects;
 pub mod rate_limit;
 pub mod session;
 pub mod signin;
+pub mod unsubscribe;
 pub mod views;
 
 use axum::extract::State;
@@ -61,9 +62,11 @@ pub const DEFAULT_SSE_HEARTBEAT_MS: u64 = 25_000;
 
 pub use clock::{Clock, SystemClock};
 pub use notify::{
-    build_notifier, DeliveryError, DeliveryOutcome, EmailApiConfig, EmailApiProvider, LogProvider,
-    Notification, NotificationEvent, NotificationProvider, Notifier, ProviderKind, SmtpConfig,
-    SmtpProvider, WebhookConfig, WebhookProvider, NOTIFICATION_DELIVERIES_METRIC,
+    build_notifier, AllowAllSuppression, DeliveryError, DeliveryOutcome, EmailApiConfig,
+    EmailApiProvider, LogProvider, Notification, NotificationEvent, NotificationProvider, Notifier,
+    ProviderKind, SmtpConfig, SmtpProvider, StoreSuppression, SuppressionError, SuppressionPolicy,
+    WebhookConfig, WebhookProvider, NOTIFICATION_DELIVERIES_METRIC,
+    NOTIFICATION_SUPPRESSIONS_METRIC,
 };
 
 #[derive(Clone)]
@@ -371,6 +374,17 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/invites/accept",
             get(invites_accept::show_accept_form).post(invites_accept::submit_accept),
+        )
+        // recipient-notification-preferences 01-01 (ADR-001/002) — the PUBLIC
+        // signed-link unsubscribe pair. Mounted HERE alongside the other PUBLIC
+        // signed-out routes so it sits UNDER `csrf_middleware` + `session_layer`
+        // below: the GET is non-destructive (renders the state-aware confirm page +
+        // mints the double-submit CSRF cookie), the POST is CSRF-screened before the
+        // handler writes/clears the opt-out row. A bad token → the uniform
+        // non-enumerable refusal (unsubscribe.rs).
+        .route(
+            "/unsubscribe",
+            get(unsubscribe::show_confirm).post(unsubscribe::submit_confirm),
         )
         // multi-workspace-tenancy 02-05 (ADR-005) — the multi-membership active-
         // workspace switcher. Mounted HERE so it sits UNDER `csrf_middleware` +

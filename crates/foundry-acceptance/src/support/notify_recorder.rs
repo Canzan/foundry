@@ -26,11 +26,85 @@
 use async_trait::async_trait;
 use foundry_app::{
     DeliveryError, EmailApiConfig, EmailApiProvider, Notification, NotificationProvider, Notifier,
-    ProviderKind, WebhookConfig, WebhookProvider,
+    ProviderKind, SuppressionError, SuppressionPolicy, WebhookConfig, WebhookProvider,
 };
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+
+/// recipient-notification-preferences — an in-process observer at the
+/// `SuppressionPolicy` DRIVEN-PORT boundary. Counts every suppression DECISION
+/// (`is_suppressed` → `Ok(true)`) so a step def can assert "one suppression was
+/// counted" without an installed global metrics recorder (the in-process harness
+/// installs none — the `/metrics` register-at-0 path is the subprocess, US-07). The
+/// production `foundry_notification_suppressions_total{event}` increment still fires
+/// inside `notify()`; this records the same event at the port boundary.
+#[derive(Default)]
+pub struct SuppressionRecorder {
+    /// The `workspace_id` of each suppressed suppressible delivery, in order.
+    suppressed: Mutex<Vec<uuid::Uuid>>,
+}
+
+impl SuppressionRecorder {
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self::default())
+    }
+
+    fn record(&self, workspace_id: uuid::Uuid) {
+        self.suppressed
+            .lock()
+            .expect("suppression recorder mutex")
+            .push(workspace_id);
+    }
+
+    /// Total suppression decisions observed.
+    pub fn count(&self) -> usize {
+        self.suppressed
+            .lock()
+            .expect("suppression recorder mutex")
+            .len()
+    }
+
+    /// Suppression decisions observed for a specific workspace.
+    pub fn count_for_workspace(&self, workspace_id: uuid::Uuid) -> usize {
+        self.suppressed
+            .lock()
+            .expect("suppression recorder mutex")
+            .iter()
+            .filter(|ws| **ws == workspace_id)
+            .count()
+    }
+}
+
+/// A `SuppressionPolicy` decorator that records every `Ok(true)` decision of its
+/// inner policy into a shared [`SuppressionRecorder`]. Wraps the REAL
+/// `StoreSuppression` in the harness, so the point-read stays a genuine indexed
+/// read on the `0014` table (`@real-io`) while the decision is observable.
+pub struct RecordingSuppression {
+    inner: Arc<dyn SuppressionPolicy>,
+    recorder: Arc<SuppressionRecorder>,
+}
+
+impl RecordingSuppression {
+    pub fn new(inner: Arc<dyn SuppressionPolicy>, recorder: Arc<SuppressionRecorder>) -> Self {
+        Self { inner, recorder }
+    }
+}
+
+#[async_trait]
+impl SuppressionPolicy for RecordingSuppression {
+    async fn is_suppressed(
+        &self,
+        email_lower: &str,
+        workspace_id: uuid::Uuid,
+    ) -> Result<bool, SuppressionError> {
+        let result = self.inner.is_suppressed(email_lower, workspace_id).await;
+        if let Ok(true) = &result {
+            self.recorder.record(workspace_id);
+        }
+        result
+    }
+}
 
 /// One captured delivery observed at the provider boundary.
 #[derive(Debug, Clone)]
@@ -372,6 +446,7 @@ pub async fn notifier_for_kinds(
     webhook_url: Option<&str>,
     webhook_secret: Option<String>,
     email_api_url: Option<&str>,
+    suppression: Arc<dyn SuppressionPolicy>,
 ) -> Arc<Notifier> {
     let mut providers: Vec<Arc<dyn NotificationProvider>> = Vec::new();
     for kind in kinds {
@@ -429,5 +504,12 @@ pub async fn notifier_for_kinds(
             }
         }
     }
-    Arc::new(Notifier::new(providers).with_delivery_timeout(std::time::Duration::from_millis(500)))
+    Arc::new(
+        Notifier::new(providers)
+            .with_delivery_timeout(std::time::Duration::from_millis(500))
+            // recipient-notification-preferences (ADR-003): wire the suppression
+            // gate. The harness passes a RecordingSuppression wrapping the real
+            // StoreSuppression, so the gate reads the 0014 table for real.
+            .with_suppression(suppression),
+    )
 }

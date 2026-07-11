@@ -252,16 +252,23 @@ pub async fn create_invite(
     // If the form carried an `email`, also send an email invite.
     if let Some(addr) = form.email.as_deref().filter(|s| !s.is_empty()) {
         let subject = "You have been invited to a Foundry workspace";
+        // recipient-notification-preferences (ADR-001/002): append the signed,
+        // per-(email, workspace) unsubscribe link to the suppressible email body so
+        // the recipient can opt out with one click. Best-effort: a signing failure
+        // simply omits the link (the invite still sends).
+        let unsubscribe_line =
+            crate::unsubscribe::unsubscribe_link_line(&state, addr, user.workspace_id);
         let body = format!(
-            "You have been invited to join the workspace. Accept the invite here:\n\n{invite_url}\n\nThis link is valid for 7 days.",
+            "You have been invited to join the workspace. Accept the invite here:\n\n{invite_url}\n\nThis link is valid for 7 days.{unsubscribe_line}",
         );
         // Best-effort delivery — a failure is non-fatal; the invite link is still
-        // rendered below.
+        // rendered below. `workspace_id: Some(..)` arms the suppression gate (ADR-003).
         let notification = crate::notify::Notification {
             event: crate::notify::NotificationEvent::WorkspaceInvite,
             recipient: addr.to_string(),
             subject: subject.to_string(),
             body,
+            workspace_id: Some(user.workspace_id),
         };
         state.notifier.notify(&notification).await;
     }

@@ -251,6 +251,8 @@ pub async fn submit_forgot(
             recipient: email_lower.clone(),
             subject: subject.to_string(),
             body,
+            // recipient-notification-preferences (ADR-003): MANDATORY ⇒ never suppressed.
+            workspace_id: None,
         };
         state.notifier.notify(&notification).await;
     }
@@ -356,6 +358,8 @@ pub async fn submit_change_password(
         body: "The password for your Foundry account was just changed. If this was \
              not you, contact your workspace administrator immediately."
             .to_string(),
+        // recipient-notification-preferences (ADR-003): MANDATORY ⇒ never suppressed.
+        workspace_id: None,
     };
     state.notifier.notify(&notification).await;
 

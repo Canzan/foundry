@@ -200,6 +200,8 @@ pub async fn submit_invite(
         recipient: email.to_string(),
         subject: subject.to_string(),
         body,
+        // recipient-notification-preferences (ADR-003): suppressible ⇒ arm the gate.
+        workspace_id: Some(admin.workspace_id),
     };
     state.notifier.notify(&notification).await;
 
@@ -288,6 +290,9 @@ pub async fn submit_remove_member(
         recipient: email.to_string(),
         subject: "You were removed from a Foundry workspace".to_string(),
         body: "Your access to the workspace has been removed by an administrator.".to_string(),
+        // recipient-notification-preferences (ADR-003): MANDATORY ⇒ never suppressed;
+        // `None` means the gate skips the lookup entirely (NFR-3 structural).
+        workspace_id: None,
     };
     state.notifier.notify(&notification).await;
 

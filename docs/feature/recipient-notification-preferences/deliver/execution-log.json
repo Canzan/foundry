@@ -1,0 +1,42 @@
+{
+  "schema_version": "3.0",
+  "project_id": "recipient-notification-preferences",
+  "feature_id": "recipient-notification-preferences",
+  "events": [
+    {
+      "sid": "01-01",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-11T21:52:17Z"
+    },
+    {
+      "sid": "01-01",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "FAIL: workspace_invite delivered (suppression gate absent) \u2014 assertion-class RED",
+      "t": "2026-07-11T22:38:50Z"
+    },
+    {
+      "sid": "01-01",
+      "p": "RED_UNIT",
+      "s": "EXECUTED",
+      "d": "FAIL: gate_suppresses test RED (delivered 1, expected 0) \u2014 drives the notify() gate",
+      "t": "2026-07-11T22:44:21Z"
+    },
+    {
+      "sid": "01-01",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS: WS 6/6 + notify 26/26 unit + auth 2/2 + delivery-providers 30/30 no-regression",
+      "t": "2026-07-11T22:58:27Z"
+    },
+    {
+      "sid": "01-01",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS: c2122e69 fmt+clippy clean, Step-ID 01-01",
+      "t": "2026-07-11T23:00:44Z"
+    }
+  ]
+}

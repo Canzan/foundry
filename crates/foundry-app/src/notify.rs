@@ -32,11 +32,24 @@ const SMTP_DEFAULT_PORT: u16 = 587;
 /// Operators override via `NOTIFICATION_DELIVERY_TIMEOUT_MS`.
 const DEFAULT_DELIVERY_TIMEOUT_MS: u64 = 5000;
 
+/// recipient-notification-preferences (ADR-003): the suppression point-read bound.
+/// Short relative to [`DEFAULT_DELIVERY_TIMEOUT_MS`] so `notify()` stays
+/// await-bounded — a hung store fails OPEN (delivers) within this window.
+const DEFAULT_SUPPRESSION_TIMEOUT_MS: u64 = 100;
+
 /// ADR-004: the per-provider delivery counter. Emitted once per provider per
 /// notification inside [`Notifier::notify`], labelled by the bounded triple
 /// `{provider, event, outcome}`. Register-at-0 + the cardinality guard land in
 /// slice 03-02; the increment (emit) is built here.
 pub const NOTIFICATION_DELIVERIES_METRIC: &str = "foundry_notification_deliveries_total";
+
+/// recipient-notification-preferences (ADR-005) — the sibling suppression counter.
+/// Incremented once per suppressed suppressible delivery inside [`Notifier::notify`],
+/// labelled by the bounded `event` only (∈ [`NotificationEvent::ALL`], snake_case) —
+/// NO `provider` (a suppression reaches no provider), NO PII. Register-at-0 over the
+/// full catalog (so mandatory events show a permanent `…{event="password_reset"} 0`)
+/// lands in slice 07-01; the increment (emit) seam is built here.
+pub const NOTIFICATION_SUPPRESSIONS_METRIC: &str = "foundry_notification_suppressions_total";
 
 /// The closed catalogue of notification-triggering events. Each variant's
 /// [`NotificationEvent::as_str`] is the bounded metric-label value (ADR-004/005).
@@ -75,6 +88,19 @@ impl NotificationEvent {
         NotificationEvent::MemberRemoved,
         NotificationEvent::PasswordChanged,
     ];
+
+    /// recipient-notification-preferences (ADR-003) — the SUPPRESSIBLE allow-list.
+    /// True ONLY for `{WorkspaceInvite, MemberInvite}`; the three MANDATORY security
+    /// events (`PasswordReset`, `PasswordChanged`, `MemberRemoved`) are its
+    /// complement and are held structurally exempt (NFR-3 by construction — the
+    /// suppression gate skips the lookup entirely for a non-suppressible event, so
+    /// a mandatory event can never be suppressed regardless of opt-out state).
+    pub fn is_suppressible(&self) -> bool {
+        matches!(
+            self,
+            NotificationEvent::WorkspaceInvite | NotificationEvent::MemberInvite
+        )
+    }
 }
 
 /// The closed set of delivery channels. [`ProviderKind::as_str`] is the bounded
@@ -119,6 +145,10 @@ pub struct Notification {
     pub recipient: String,
     pub subject: String,
     pub body: String,
+    /// recipient-notification-preferences (ADR-003) — the workspace this
+    /// notification belongs to, for the suppression gate. Suppressible emits set
+    /// `Some(ws)`; mandatory emits set `None` (they never reach the lookup).
+    pub workspace_id: Option<uuid::Uuid>,
 }
 
 /// A delivery failure. Messages are secret-free by construction (ADR-006) — never
@@ -193,6 +223,77 @@ pub trait NotificationProvider: Send + Sync + 'static {
     async fn probe(&self) -> Result<(), DeliveryError>;
 }
 
+/// recipient-notification-preferences (ADR-003) — a suppression-lookup failure.
+/// Kept opaque + secret-free; the gate treats ANY error as fail-open (deliver).
+#[derive(Debug, Clone)]
+pub struct SuppressionError(pub String);
+
+impl std::fmt::Display for SuppressionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "suppression lookup failed: {}", self.0)
+    }
+}
+
+impl std::error::Error for SuppressionError {}
+
+/// recipient-notification-preferences (ADR-003) — the driven port the suppression
+/// gate consults. `Notifier` depends on THIS (dependency inversion), never on the
+/// store directly. `is_suppressed` is a bounded point-read: `Ok(true)` ⇒ the
+/// `(email_lower, workspace)` pair is opted out; `Ok(false)` ⇒ subscribed;
+/// `Err(_)` ⇒ the gate fails OPEN (delivers). Bound `Send + Sync + 'static` for the
+/// shared async runtime.
+#[async_trait]
+pub trait SuppressionPolicy: Send + Sync + 'static {
+    async fn is_suppressed(
+        &self,
+        email_lower: &str,
+        workspace_id: uuid::Uuid,
+    ) -> Result<bool, SuppressionError>;
+}
+
+/// The inert default (ADR-003, NFR-7): always `Ok(false)`. With this wired the
+/// suppression gate never early-returns, so the fan-out is byte-for-byte unchanged
+/// — the composition-root default when the feature is inactive.
+pub struct AllowAllSuppression;
+
+#[async_trait]
+impl SuppressionPolicy for AllowAllSuppression {
+    async fn is_suppressed(
+        &self,
+        _email_lower: &str,
+        _workspace_id: uuid::Uuid,
+    ) -> Result<bool, SuppressionError> {
+        Ok(false)
+    }
+}
+
+/// The production adapter (ADR-003): an indexed point-read on the `0014` composite
+/// PK via [`foundry_store::Store::is_unsubscribed`]. Wraps `Arc<Store>`; the store
+/// dependency lives ONLY here, keeping `Notifier` inverted onto the port.
+pub struct StoreSuppression {
+    store: Arc<foundry_store::Store>,
+}
+
+impl StoreSuppression {
+    pub fn new(store: Arc<foundry_store::Store>) -> Self {
+        Self { store }
+    }
+}
+
+#[async_trait]
+impl SuppressionPolicy for StoreSuppression {
+    async fn is_suppressed(
+        &self,
+        email_lower: &str,
+        workspace_id: uuid::Uuid,
+    ) -> Result<bool, SuppressionError> {
+        self.store
+            .is_unsubscribed(email_lower, workspace_id)
+            .await
+            .map_err(|err| SuppressionError(err.to_string()))
+    }
+}
+
 /// The fan-out dispatcher. Holds the ordered active provider set and delivers a
 /// notification best-effort to each. `notify()` is INFALLIBLE (ADR-003): a
 /// provider erroring is logged and contained — it never propagates to the caller.
@@ -201,6 +302,13 @@ pub struct Notifier {
     /// ADR-003: per-provider delivery timeout applied to each concurrent
     /// `deliver()` task. Bounds the emit-path stall a hung provider can cause.
     delivery_timeout: Duration,
+    /// recipient-notification-preferences (ADR-003) — the suppression gate's driven
+    /// port. Defaults to the inert [`AllowAllSuppression`] so every existing caller
+    /// (and an inactive deployment) is byte-for-byte unchanged (NFR-7).
+    suppression: Arc<dyn SuppressionPolicy>,
+    /// recipient-notification-preferences (ADR-003) — the bound on the suppression
+    /// point-read so `notify()` stays await-bounded even if the store hangs.
+    suppression_timeout: Duration,
 }
 
 impl Notifier {
@@ -210,6 +318,10 @@ impl Notifier {
         Self {
             providers,
             delivery_timeout: Duration::from_millis(DEFAULT_DELIVERY_TIMEOUT_MS),
+            // ADR-003 / NFR-7: inert by default ⇒ the fan-out is byte-for-byte
+            // unchanged until a real SuppressionPolicy is wired at the root.
+            suppression: Arc::new(AllowAllSuppression),
+            suppression_timeout: Duration::from_millis(DEFAULT_SUPPRESSION_TIMEOUT_MS),
         }
     }
 
@@ -217,6 +329,20 @@ impl Notifier {
     /// `NOTIFICATION_DELIVERY_TIMEOUT_MS`; tests use a short window).
     pub fn with_delivery_timeout(mut self, delivery_timeout: Duration) -> Self {
         self.delivery_timeout = delivery_timeout;
+        self
+    }
+
+    /// recipient-notification-preferences (ADR-003) — wire the suppression gate's
+    /// driven port. The composition root injects [`StoreSuppression`] (prod) or
+    /// leaves the inert [`AllowAllSuppression`] default (feature inactive).
+    pub fn with_suppression(mut self, suppression: Arc<dyn SuppressionPolicy>) -> Self {
+        self.suppression = suppression;
+        self
+    }
+
+    /// Override the suppression-lookup timeout (tests use a short window).
+    pub fn with_suppression_timeout(mut self, suppression_timeout: Duration) -> Self {
+        self.suppression_timeout = suppression_timeout;
         self
     }
 
@@ -235,6 +361,50 @@ impl Notifier {
     /// provider error is logged at `warn` and contained, so the originating
     /// request is never failed or stalled by a delivery problem (NFR-5, ADR-003).
     pub async fn notify(&self, notification: &Notification) {
+        // recipient-notification-preferences (ADR-003) — the suppression gate, at the
+        // TOP of the infallible fan-out. Gate on the event CLASS first: MANDATORY
+        // events (the `is_suppressible()` complement) are structurally never checked
+        // (NFR-3). For a suppressible event carrying a workspace, a bounded, fail-open
+        // point-read decides: `Ok(true)` ⇒ count the suppression + EARLY-RETURN (no
+        // provider is ever invoked, FR-3); `Ok(false)` ⇒ fall through to the shipped
+        // fan-out unchanged; `Err`/timeout ⇒ FAIL-OPEN (log at `warn`, deliver). The
+        // bounded timeout keeps `notify()` await-bounded even if the store hangs, and
+        // the early-return-only-on-`Ok(true)` keeps delivery byte-for-byte unchanged
+        // with an empty table (NFR-7).
+        if notification.event.is_suppressible() {
+            if let Some(workspace_id) = notification.workspace_id {
+                let email_lower = notification.recipient.to_ascii_lowercase();
+                match tokio::time::timeout(
+                    self.suppression_timeout,
+                    self.suppression.is_suppressed(&email_lower, workspace_id),
+                )
+                .await
+                {
+                    Ok(Ok(true)) => {
+                        metrics::counter!(
+                            NOTIFICATION_SUPPRESSIONS_METRIC,
+                            "event" => notification.event.as_str(),
+                        )
+                        .increment(1);
+                        return;
+                    }
+                    Ok(Ok(false)) => {}
+                    Ok(Err(err)) => {
+                        tracing::warn!(
+                            event = notification.event.as_str(),
+                            %err,
+                            "suppression lookup failed; failing open (delivering)"
+                        );
+                    }
+                    Err(_elapsed) => {
+                        tracing::warn!(
+                            event = notification.event.as_str(),
+                            "suppression lookup timed out; failing open (delivering)"
+                        );
+                    }
+                }
+            }
+        }
         // ADR-003: concurrent fan-out. One timeout-wrapped `deliver()` task per
         // provider in a `JoinSet` — so a slow/hung provider adds at most ONE
         // `delivery_timeout` to the (concurrent) wall-time regardless of N, and a
@@ -1003,6 +1173,7 @@ mod tests {
             recipient: "maria.santos@acme.example".to_string(),
             subject: "Reset your Foundry password".to_string(),
             body: "follow this link ?token=SUPER_SECRET_RESET_TOKEN".to_string(),
+            workspace_id: None,
         };
         let line = LogProvider::log_line(&notification);
         assert!(line.contains("provider=log"));
@@ -1095,6 +1266,7 @@ mod tests {
             recipient: "maria.santos@acme.example".to_string(),
             subject: "Reset your Foundry password".to_string(),
             body: "follow this link ?token=RESET".to_string(),
+            workspace_id: None,
         };
         // 127.0.0.1:1 is closed → connection refused → a genuine transport error.
         let err = provider
@@ -1185,6 +1357,7 @@ mod tests {
             recipient: "maria.santos@acme.example".to_string(),
             subject: "Reset your Foundry password".to_string(),
             body: "follow this link".to_string(),
+            workspace_id: None,
         }
     }
 
@@ -1404,6 +1577,7 @@ mod tests {
             recipient: "sam.okafor@acme.example".to_string(),
             subject: "You are invited to Acme".to_string(),
             body: "Accept: https://foundry.example/invite?token=INVITE_SECRET".to_string(),
+            workspace_id: Some(uuid::Uuid::nil()),
         }
     }
 
@@ -1705,5 +1879,160 @@ mod tests {
             !message.contains(EMAIL_API_KEY_SENTINEL),
             "the probe-failure error must carry no secret value: {message}"
         );
+    }
+
+    // ── recipient-notification-preferences (ADR-003/005) — the suppression gate ──
+
+    #[test]
+    fn is_suppressible_is_exactly_the_workspace_and_member_invite_allow_list() {
+        // NFR-3 structural: the SUPPRESSIBLE set is EXACTLY {WorkspaceInvite,
+        // MemberInvite}; every MANDATORY security event is its complement. Adding a
+        // mandatory event can never make it suppressible.
+        for event in [
+            NotificationEvent::WorkspaceInvite,
+            NotificationEvent::MemberInvite,
+        ] {
+            assert!(
+                event.is_suppressible(),
+                "{} must be suppressible",
+                event.as_str()
+            );
+        }
+        for event in [
+            NotificationEvent::PasswordReset,
+            NotificationEvent::PasswordChanged,
+            NotificationEvent::MemberRemoved,
+        ] {
+            assert!(
+                !event.is_suppressible(),
+                "{} is MANDATORY and must never be suppressible",
+                event.as_str()
+            );
+        }
+    }
+
+    /// A `SuppressionPolicy` double returning a fixed decision (or a fail-open error).
+    struct FakeSuppression(Result<bool, ()>);
+
+    #[async_trait]
+    impl SuppressionPolicy for FakeSuppression {
+        async fn is_suppressed(
+            &self,
+            _email_lower: &str,
+            _workspace_id: uuid::Uuid,
+        ) -> Result<bool, SuppressionError> {
+            self.0
+                .map_err(|_| SuppressionError("induced (test)".to_string()))
+        }
+    }
+
+    fn suppressible_notification() -> Notification {
+        Notification {
+            event: NotificationEvent::WorkspaceInvite,
+            recipient: "sam@northwind.example".to_string(),
+            subject: "You are invited".to_string(),
+            body: "join".to_string(),
+            workspace_id: Some(uuid::Uuid::from_u128(1)),
+        }
+    }
+
+    /// Drive `notify()` under a scoped Prometheus recorder on a current-thread
+    /// runtime (so the thread-local recorder spans the whole gate) and return the
+    /// rendered exposition.
+    fn render_after_notify(notifier: &Notifier, notification: &Notification) -> String {
+        let recorder = PrometheusBuilder::new().build_recorder();
+        let handle = recorder.handle();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("build current-thread runtime");
+        metrics::with_local_recorder(&recorder, || {
+            runtime.block_on(async {
+                notifier.notify(notification).await;
+            });
+        });
+        handle.render()
+    }
+
+    /// The value of `foundry_notification_suppressions_total{event="<event>"}` in the
+    /// scrape, or `None` when the series is absent (no suppression counted).
+    fn suppression_count(body: &str, event: &str) -> Option<u64> {
+        let prefix = format!("{NOTIFICATION_SUPPRESSIONS_METRIC}{{");
+        body.lines().find_map(|line| {
+            if line.starts_with(&prefix) && line.contains(&format!("event=\"{event}\"")) {
+                line.rsplit(' ')
+                    .next()
+                    .and_then(|v| v.trim().parse::<u64>().ok())
+            } else {
+                None
+            }
+        })
+    }
+
+    fn one_delivering_provider() -> (Arc<AtomicUsize>, Vec<Arc<dyn NotificationProvider>>) {
+        let delivered = Arc::new(AtomicUsize::new(0));
+        let providers: Vec<Arc<dyn NotificationProvider>> = vec![Arc::new(ControllableProvider {
+            kind: ProviderKind::Log,
+            behavior: TestBehavior::Deliver,
+            delivered: delivered.clone(),
+        })];
+        (delivered, providers)
+    }
+
+    #[test]
+    fn gate_suppresses_a_suppressible_event_skipping_fan_out_and_counts_it() {
+        // Ok(true) for a suppressible event ⇒ NO provider is invoked (early-return
+        // before fan-out) AND the sibling suppression counter counts exactly 1 for
+        // the event. Reverting the gate delivers it (delivered==1) and counts 0.
+        let (delivered, providers) = one_delivering_provider();
+        let notifier =
+            Notifier::new(providers).with_suppression(Arc::new(FakeSuppression(Ok(true))));
+        let body = render_after_notify(&notifier, &suppressible_notification());
+        assert_eq!(
+            delivered.load(Ordering::SeqCst),
+            0,
+            "a suppressed notification must reach NO provider"
+        );
+        assert_eq!(
+            suppression_count(&body, "workspace_invite"),
+            Some(1),
+            "exactly one suppression must be counted for workspace_invite:\n{body}"
+        );
+    }
+
+    #[test]
+    fn gate_delivers_on_not_suppressed_on_lookup_error_and_for_mandatory_events() {
+        // Three fall-through arms, each must DELIVER and count NO suppression:
+        //   Ok(false) → subscribed; Err(_) → fail-open (deliver); a MANDATORY event
+        //   (PasswordReset) → the gate skips the lookup entirely (NFR-3 structural),
+        //   so even a policy that says "suppress" cannot suppress it.
+        let arms: [(Result<bool, ()>, NotificationEvent); 3] = [
+            (Ok(false), NotificationEvent::WorkspaceInvite),
+            (Err(()), NotificationEvent::WorkspaceInvite),
+            (Ok(true), NotificationEvent::PasswordReset),
+        ];
+        for (decision, event) in arms {
+            let (delivered, providers) = one_delivering_provider();
+            let notifier =
+                Notifier::new(providers).with_suppression(Arc::new(FakeSuppression(decision)));
+            let mut notification = suppressible_notification();
+            notification.event = event;
+            if !event.is_suppressible() {
+                notification.workspace_id = None;
+            }
+            let body = render_after_notify(&notifier, &notification);
+            assert_eq!(
+                delivered.load(Ordering::SeqCst),
+                1,
+                "must deliver (decision={decision:?}, event={})",
+                event.as_str()
+            );
+            assert_eq!(
+                suppression_count(&body, event.as_str()),
+                None,
+                "no suppression must be counted (decision={decision:?}, event={})",
+                event.as_str()
+            );
+        }
     }
 }

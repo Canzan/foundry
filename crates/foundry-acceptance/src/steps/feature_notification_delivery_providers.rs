@@ -1177,6 +1177,7 @@ async fn secret_value_never_appears(world: &mut FoundryWorld, secret_key: String
         recipient: delivery.to.clone(),
         subject: delivery.subject.clone(),
         body: delivery.body.clone(),
+        workspace_id: None,
     };
     let err = provider
         .deliver(&notification)
@@ -1253,6 +1254,7 @@ async fn webhook_no_leak_litmus(world: &mut FoundryWorld) {
         recipient: delivery.to.clone(),
         subject: delivery.subject.clone(),
         body: delivery.body.clone(),
+        workspace_id: None,
     };
     let err = provider
         .deliver(&notification)
@@ -1293,6 +1295,7 @@ async fn no_reset_token_in_log_line(world: &mut FoundryWorld) {
         recipient: delivery.to.clone(),
         subject: delivery.subject.clone(),
         body: delivery.body.clone(),
+        workspace_id: None,
     };
     let line = LogProvider::log_line(&notification);
     assert!(

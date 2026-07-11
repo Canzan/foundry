@@ -248,8 +248,23 @@ async fn main() -> anyhow::Result<()> {
         .and_then(|v| v.parse::<u64>().ok())
         .unwrap_or(DEFAULT_FILE_UPLOAD_MAX_MB);
 
+    // recipient-notification-preferences (ADR-003) — Arc the store BEFORE the
+    // notifier so the suppression policy can share it, then wire `StoreSuppression`
+    // into the dispatcher (wire → use: the store is already probed at startup). With
+    // an empty `notification_unsubscribes` table the point-read returns `Ok(false)`,
+    // so delivery is byte-for-byte unchanged (NFR-7).
+    let store = Arc::new(store);
+    let notifier = Arc::new(
+        // ADR-003: the composition root reads NOTIFICATION_DELIVERY_TIMEOUT_MS
+        // (per-provider fan-out timeout) and wires it into the dispatcher.
+        build_notifier(foundry_app::notify::delivery_timeout_from_env())
+            .await
+            .context("build notification providers from NOTIFICATION_PROVIDERS")?
+            .with_suppression(Arc::new(foundry_app::StoreSuppression::new(store.clone()))),
+    );
+
     let state = AppState {
-        store: Arc::new(store),
+        store: store.clone(),
         session_secret: Arc::new(SecretString::new(session_secret.into())),
         machine_token_verifier: Arc::new(machine_token_verifier),
         // machine-token-admin-ux (US-MT00/ADR-MT01/DD1): the signer parsed and
@@ -262,17 +277,10 @@ async fn main() -> anyhow::Result<()> {
         db_schema: std::env::var("FOUNDRY_DB_SCHEMA").unwrap_or_else(|_| "public".to_string()),
         public_url: public_url.clone(),
         clock: Arc::new(SystemClock),
-        // notification-delivery-providers (ADR-002): the config-selected provider
-        // set, built from `NOTIFICATION_PROVIDERS` (unset ⇒ inactive). Each listed
-        // channel is constructed + probed before admission (wire → probe → use);
-        // an unknown/misconfigured channel fails fast at startup.
-        notifier: Arc::new(
-            // ADR-003: the composition root reads NOTIFICATION_DELIVERY_TIMEOUT_MS
-            // (per-provider fan-out timeout) and wires it into the dispatcher.
-            build_notifier(foundry_app::notify::delivery_timeout_from_env())
-                .await
-                .context("build notification providers from NOTIFICATION_PROVIDERS")?,
-        ),
+        // notification-delivery-providers (ADR-002) + recipient-notification-
+        // preferences (ADR-003): the config-selected provider set wired with the
+        // StoreSuppression gate above.
+        notifier,
         // US-TMA05 — production guardrail at the ratified defaults (C=20, R=1/sec).
         revoke_rate_limiter: Arc::new(foundry_app::rate_limit::RevokeRateLimiter::default()),
         realtime_tx,

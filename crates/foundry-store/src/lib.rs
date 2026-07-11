@@ -1008,6 +1008,78 @@ impl Store {
         Ok(row.0)
     }
 
+    // ----- recipient-notification-preferences (ADR-004) ------------------
+
+    /// Is `(email_lower, workspace_id)` opted out of suppressible notifications?
+    /// The suppression point-read (bounded, indexed on the `0014` composite PK).
+    /// Absence-of-row = subscribed. Callers MUST lower-case the email first (the
+    /// token binds `email_lower`, so read/write normalization is identical).
+    pub async fn is_unsubscribed(
+        &self,
+        email_lower: &str,
+        workspace_id: uuid::Uuid,
+    ) -> Result<bool, StoreError> {
+        let row: (bool,) = sqlx::query_as(
+            "SELECT EXISTS (SELECT 1 FROM notification_unsubscribes \
+                             WHERE email_lower = $1 AND workspace_id = $2)",
+        )
+        .bind(email_lower)
+        .bind(workspace_id)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(row.0)
+    }
+
+    /// Record an opt-out for `(email_lower, workspace_id)`. Idempotent via
+    /// `ON CONFLICT DO NOTHING` on the composite PK (confirming twice is a no-op).
+    pub async fn insert_unsubscribe(
+        &self,
+        email_lower: &str,
+        workspace_id: uuid::Uuid,
+    ) -> Result<(), StoreError> {
+        sqlx::query(
+            "INSERT INTO notification_unsubscribes (email_lower, workspace_id) \
+                  VALUES ($1, $2) ON CONFLICT DO NOTHING",
+        )
+        .bind(email_lower)
+        .bind(workspace_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Clear the opt-out for `(email_lower, workspace_id)` (resubscribe).
+    /// Idempotent — deleting a non-existent row affects zero rows and is fine.
+    pub async fn delete_unsubscribe(
+        &self,
+        email_lower: &str,
+        workspace_id: uuid::Uuid,
+    ) -> Result<(), StoreError> {
+        sqlx::query(
+            "DELETE FROM notification_unsubscribes \
+                   WHERE email_lower = $1 AND workspace_id = $2",
+        )
+        .bind(email_lower)
+        .bind(workspace_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// The display name of a workspace by id (for the unsubscribe confirm page,
+    /// which names the workspace the recipient's token authorizes). `None` when
+    /// no such workspace exists.
+    pub async fn workspace_name(
+        &self,
+        workspace_id: uuid::Uuid,
+    ) -> Result<Option<String>, StoreError> {
+        let row: Option<(String,)> = sqlx::query_as("SELECT name FROM workspaces WHERE id = $1")
+            .bind(workspace_id)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(row.map(|r| r.0))
+    }
+
     // ----- US-07 project create ------------------------------------------
 
     /// Look up a team by `(workspace_id, slug)`. Returns the team id +
