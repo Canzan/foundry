@@ -1080,6 +1080,47 @@ impl Store {
         Ok(row.map(|r| r.0))
     }
 
+    /// List every workspace `user_id` is a member of, as `(id, name)` ordered by
+    /// name for a deterministic settings-page render (recipient-notification-
+    /// preferences US-05, ADR-004/006). Mirrors the [`Self::resolve_active_workspace`]
+    /// membership JOIN but returns ALL memberships rather than the single active
+    /// one — the least-privilege scope of the signed-in status page (only the
+    /// caller's own memberships, never a client-supplied workspace).
+    pub async fn workspaces_for_member(
+        &self,
+        user_id: uuid::Uuid,
+    ) -> Result<Vec<(uuid::Uuid, String)>, StoreError> {
+        let rows: Vec<(uuid::Uuid, String)> = sqlx::query_as(
+            "SELECT w.id, w.name
+               FROM workspaces w
+               JOIN workspace_memberships m ON m.workspace_id = w.id
+              WHERE m.user_id = $1
+              ORDER BY w.name, w.id",
+        )
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
+    /// The set of workspace ids `email_lower` has opted out of (recipient-
+    /// notification-preferences US-05, ADR-004). Keyed by EMAIL — not user id — so
+    /// an account holder inherits the opt-outs an account-less invitee recorded
+    /// under the same address (R8 reconciliation, no backfill). One query for the
+    /// whole settings page (no per-workspace point-read).
+    pub async fn list_unsubscribed_workspace_ids(
+        &self,
+        email_lower: &str,
+    ) -> Result<std::collections::HashSet<uuid::Uuid>, StoreError> {
+        let rows: Vec<(uuid::Uuid,)> = sqlx::query_as(
+            "SELECT workspace_id FROM notification_unsubscribes WHERE email_lower = $1",
+        )
+        .bind(email_lower)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.into_iter().map(|(id,)| id).collect())
+    }
+
     // ----- US-07 project create ------------------------------------------
 
     /// Look up a team by `(workspace_id, slug)`. Returns the team id +
@@ -2301,6 +2342,23 @@ impl Store {
                 .bind(user_id)
                 .fetch_optional(&self.pool)
                 .await?;
+        Ok(row.map(|r| r.0))
+    }
+
+    /// The signed-in user's `email_lower` — the NORMALIZED key the notification-
+    /// unsubscribe rows are stored under (recipient-notification-preferences US-05,
+    /// ADR-004). Distinct from [`Self::find_user_email_by_id`], which returns
+    /// `email_display` for greetings; the opt-out lookup must use the lower form so
+    /// it matches the token/write normalization (an inherited invitee opt-out keyed
+    /// on the same lower-cased address then resolves for the account holder, R8).
+    pub async fn find_user_email_lower_by_id(
+        &self,
+        user_id: uuid::Uuid,
+    ) -> Result<Option<String>, StoreError> {
+        let row: Option<(String,)> = sqlx::query_as("SELECT email_lower FROM users WHERE id = $1")
+            .bind(user_id)
+            .fetch_optional(&self.pool)
+            .await?;
         Ok(row.map(|r| r.0))
     }
 

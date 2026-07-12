@@ -39,7 +39,7 @@
 //! `signed_in_post`, the seed helpers), NOT at the Gherkin phrase level — so this module
 //! declares only new, non-colliding phrases and registers no duplicate.
 
-use crate::support::harness::{signed_in_post, InProcHarness};
+use crate::support::harness::{signed_in_get, signed_in_post, InProcHarness};
 use crate::world::FoundryWorld;
 use cucumber::{given, then, when};
 use foundry_app::{Notification, NotificationEvent, ProviderKind};
@@ -65,6 +65,11 @@ const SAM_PASSWORD: &str = "rnp-sam-correct-horse-battery-staple";
 /// A SECOND workspace's admin (the independence scenario seeds Contoso alongside
 /// Northwind). A distinct email so both admins coexist in the `users` table.
 const CONTOSO_ADMIN_EMAIL: &str = "admin@contoso.example";
+/// The signed-in ACCOUNT HOLDER the US-05 status-page scenarios target — a real
+/// user (unlike account-less Sam) who signs in and reads her own per-workspace
+/// notification status. Lower-cased so her `email_lower` matches the 0014 key.
+const MARIA_EMAIL: &str = "maria@northwind.example";
+const MARIA_PASSWORD: &str = "rnp-maria-correct-horse-battery-staple";
 
 fn rnp_now() -> time::OffsetDateTime {
     time::OffsetDateTime::parse(RNP_NOW, &time::format_description::well_known::Rfc3339)
@@ -687,17 +692,82 @@ async fn sam_has_valid_unconfirmed_link(world: &mut FoundryWorld, workspace: Str
 
 #[given(regex = r#"^Maria is signed in and belongs to "([^"]+)", "([^"]+)", and "([^"]+)"$"#)]
 async fn maria_signed_in_belongs_to(
-    _world: &mut FoundryWorld,
-    _ws_a: String,
-    _ws_b: String,
-    _ws_c: String,
+    world: &mut FoundryWorld,
+    ws_a: String,
+    ws_b: String,
+    ws_c: String,
 ) {
-    pending!("Maria is signed in and belongs to three workspaces");
+    // Seed Maria as ONE real, sign-in-able user (a member, not an admin) and make
+    // her a member of the three named workspaces. `signed_in_get` re-authenticates
+    // her on the When, so "signed in" is realised through the shipped sign-in flow;
+    // `resolve_active_workspace` scopes her session to one of the three (the status
+    // page lists ALL memberships regardless of the active one). Only the memberships
+    // are seeded here — her per-workspace opt-out state (if any) is a later Given.
+    let harness = world
+        .harness
+        .as_ref()
+        .expect("harness spawned by Background");
+    let pool = harness.app.state.store.pool();
+    let hash = foundry_auth::hash_password(&SecretString::new(MARIA_PASSWORD.to_string().into()))
+        .await
+        .expect("hash maria pw");
+    let user_id = uuid::Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO users (id, email_lower, email_display, display_name, password_hash)
+              VALUES ($1, $2, $3, $4, $5)",
+    )
+    .bind(user_id)
+    .bind(MARIA_EMAIL)
+    .bind(MARIA_EMAIL)
+    .bind("Maria Member")
+    .bind(&hash)
+    .execute(pool)
+    .await
+    .expect("insert maria user");
+    let mut workspaces = Vec::new();
+    for name in [ws_a, ws_b, ws_c] {
+        let workspace_id = uuid::Uuid::now_v7();
+        sqlx::query("INSERT INTO workspaces (id, name) VALUES ($1, $2)")
+            .bind(workspace_id)
+            .bind(&name)
+            .execute(pool)
+            .await
+            .expect("insert maria workspace");
+        sqlx::query(
+            "INSERT INTO workspace_memberships (workspace_id, user_id, role)
+                  VALUES ($1, $2, 'member')",
+        )
+        .bind(workspace_id)
+        .bind(user_id)
+        .execute(pool)
+        .await
+        .expect("insert maria membership");
+        workspaces.push((name, workspace_id));
+    }
+    world.maria_creds = Some((MARIA_EMAIL.to_string(), MARIA_PASSWORD.to_string()));
+    world.maria_workspaces = workspaces;
 }
 
 #[given(regex = r#"^Maria has confirmed unsubscribing from "([^"]+)"$"#)]
-async fn maria_has_confirmed_unsubscribing_from(_world: &mut FoundryWorld, _workspace: String) {
-    pending!("Maria has confirmed unsubscribing from a workspace");
+async fn maria_has_confirmed_unsubscribing_from(world: &mut FoundryWorld, workspace: String) {
+    // Record Maria's opt-out row for the named workspace directly at the store
+    // boundary (`insert_unsubscribe`, keyed by her `email_lower`) — the same row
+    // the public confirm flow writes. So the status page must read this pair as
+    // muted while her other memberships remain subscribed (per-workspace, FR-9).
+    let workspace_id = world
+        .maria_workspaces
+        .iter()
+        .find(|(name, _)| name == &workspace)
+        .map(|(_, id)| *id)
+        .unwrap_or_else(|| panic!("Maria must belong to {workspace:?} before unsubscribing"));
+    let harness = world.harness.as_ref().expect("harness");
+    harness
+        .app
+        .state
+        .store
+        .insert_unsubscribe(&MARIA_EMAIL.to_ascii_lowercase(), workspace_id)
+        .await
+        .expect("seed Maria's opt-out row for the muted workspace");
 }
 
 #[given(
@@ -1105,13 +1175,98 @@ async fn unsubscribe_confirm_posted_without_csrf(world: &mut FoundryWorld) {
 }
 
 #[when(regex = r#"^Maria opens the notification settings page$"#)]
-async fn maria_opens_notification_settings_page(_world: &mut FoundryWorld) {
-    pending!("Maria opens the notification settings page");
+async fn maria_opens_notification_settings_page(world: &mut FoundryWorld) {
+    // Drive the shipped signed-in flow: authenticate as Maria, then GET the
+    // session-gated `/account/notifications` status page carrying her session
+    // cookie. Identity is the SESSION user's — the page derives her memberships +
+    // opt-out state from `user_id`/`email_lower`, never a request parameter.
+    let (email, password) = world
+        .maria_creds
+        .clone()
+        .expect("Maria seeded in the Given");
+    let outcome = {
+        let harness = world.harness.as_ref().expect("harness");
+        let http = world.http.as_ref().expect("http");
+        signed_in_get(harness, http, &email, &password, "/account/notifications").await
+    };
+    world.last_status = Some(outcome.status);
+    world.last_body = Some(outcome.body);
 }
 
 #[when(regex = r#"^a request attempts to view notification status for another recipient's email$"#)]
-async fn request_attempts_other_recipient_status(_world: &mut FoundryWorld) {
-    pending!("a request attempts to view notification status for another recipient's email");
+async fn request_attempts_other_recipient_status(world: &mut FoundryWorld) {
+    // Seed an UNRELATED recipient (an account Maria has no relationship to) who is a
+    // member of a workspace Maria is NOT in ("Umbrella") and is MUTED there. Then,
+    // signed in as Maria, drive the status page with a crafted `?email=<intruder>`
+    // query param — the exact steering an attacker would try. The page must derive
+    // identity from the SESSION only (NFR-6), so the crafted email is ignored: the
+    // intruder's muted "Umbrella" must never surface. If the handler honoured the
+    // param, "Umbrella"/"Muted"/the intruder email would leak — the falsifiable oracle.
+    let intruder_email = "intruder@evil.example";
+    {
+        let harness = world.harness.as_ref().expect("harness");
+        let pool = harness.app.state.store.pool();
+        let hash = foundry_auth::hash_password(&SecretString::new(
+            "rnp-intruder-correct-horse-battery-staple"
+                .to_string()
+                .into(),
+        ))
+        .await
+        .expect("hash intruder pw");
+        let intruder_id = uuid::Uuid::now_v7();
+        sqlx::query(
+            "INSERT INTO users (id, email_lower, email_display, display_name, password_hash)
+                  VALUES ($1, $2, $3, $4, $5)",
+        )
+        .bind(intruder_id)
+        .bind(intruder_email)
+        .bind(intruder_email)
+        .bind("Ivan Intruder")
+        .bind(&hash)
+        .execute(pool)
+        .await
+        .expect("insert intruder user");
+        let umbrella_id = uuid::Uuid::now_v7();
+        sqlx::query("INSERT INTO workspaces (id, name) VALUES ($1, $2)")
+            .bind(umbrella_id)
+            .bind("Umbrella")
+            .execute(pool)
+            .await
+            .expect("insert umbrella workspace");
+        sqlx::query(
+            "INSERT INTO workspace_memberships (workspace_id, user_id, role)
+                  VALUES ($1, $2, 'member')",
+        )
+        .bind(umbrella_id)
+        .bind(intruder_id)
+        .execute(pool)
+        .await
+        .expect("insert intruder membership");
+        harness
+            .app
+            .state
+            .store
+            .insert_unsubscribe(intruder_email, umbrella_id)
+            .await
+            .expect("seed the intruder's own opt-out row");
+    }
+    let (email, password) = world
+        .maria_creds
+        .clone()
+        .expect("Maria seeded in the Given");
+    let url = format!(
+        "/account/notifications?email={}",
+        urlencoding::encode(intruder_email)
+    );
+    let outcome = {
+        let harness = world.harness.as_ref().expect("harness");
+        let http = world.http.as_ref().expect("http");
+        signed_in_get(harness, http, &email, &password, &url).await
+    };
+    world.last_status = Some(outcome.status);
+    world.last_body = Some(outcome.body);
+    // The oracle strings the Then proves never leak into Maria's own scope.
+    world.unsub_secret_identifiers = vec![intruder_email.to_string(), "Umbrella".to_string()];
 }
 
 #[when(regex = r#"^Maria resubscribes to "([^"]+)"$"#)]
@@ -1743,23 +1898,77 @@ async fn both_invite_events_suppressed(world: &mut FoundryWorld, workspace: Stri
 }
 
 #[then(regex = r#"^"([^"]+)" is shown as muted$"#)]
-async fn workspace_shown_as_muted(_world: &mut FoundryWorld, _workspace: String) {
-    pending!("a workspace is shown as muted");
+async fn workspace_shown_as_muted(world: &mut FoundryWorld, workspace: String) {
+    let status = world.last_status.expect("the settings page was opened");
+    let body = world.last_body.as_deref().expect("a settings page body");
+    assert!(
+        status.is_success(),
+        "the notification settings page must render 200, got {status}: {body}"
+    );
+    assert!(
+        body.contains(&format!("{workspace} — Muted")),
+        "the settings page must show {workspace:?} as muted: {body}"
+    );
 }
 
 #[then(regex = r#"^"([^"]+)" is shown as subscribed$"#)]
-async fn workspace_shown_as_subscribed(_world: &mut FoundryWorld, _workspace: String) {
-    pending!("a workspace is shown as subscribed");
+async fn workspace_shown_as_subscribed(world: &mut FoundryWorld, workspace: String) {
+    let status = world.last_status.expect("the settings page was opened");
+    let body = world.last_body.as_deref().expect("a settings page body");
+    assert!(
+        status.is_success(),
+        "the notification settings page must render 200, got {status}: {body}"
+    );
+    assert!(
+        body.contains(&format!("{workspace} — Subscribed")),
+        "the settings page must show {workspace:?} as subscribed: {body}"
+    );
 }
 
 #[then(regex = r#"^only Maria's own status is returned$"#)]
-async fn only_marias_own_status_returned(_world: &mut FoundryWorld) {
-    pending!("only Maria's own status is returned");
+async fn only_marias_own_status_returned(world: &mut FoundryWorld) {
+    let status = world.last_status.expect("the settings page was opened");
+    let body = world.last_body.as_deref().expect("a settings page body");
+    assert!(
+        status.is_success(),
+        "Maria's own settings page must render 200, got {status}: {body}"
+    );
+    // The crafted `?email=` param is ignored (identity is session-derived, NFR-6):
+    // none of the intruder's oracle strings appear, and — since Maria opted out of
+    // nothing in this scenario — NO workspace renders as muted. Honouring the param
+    // would surface the intruder's muted "Umbrella", flipping "Muted" into the body.
+    for secret in &world.unsub_secret_identifiers {
+        assert!(
+            !body.contains(secret.as_str()),
+            "the settings page must not reveal another recipient's data ({secret:?}): {body}"
+        );
+    }
+    // Precise, prose-immune status check: no workspace ROW is muted (the descriptive
+    // copy mentions the word "Muted", so match the machine marker, not the noun).
+    // Honouring the crafted email would surface the intruder's muted "Umbrella" as a
+    // `data-status="muted"` row — the falsifiable oracle.
+    assert!(
+        !body.contains(r#"data-status="muted""#),
+        "Maria muted nothing, so no muted-status row (from honouring the crafted \
+         email) may appear: {body}"
+    );
 }
 
 #[then(regex = r#"^only workspaces Maria belongs to are listed$"#)]
-async fn only_marias_workspaces_listed(_world: &mut FoundryWorld) {
-    pending!("only workspaces Maria belongs to are listed");
+async fn only_marias_workspaces_listed(world: &mut FoundryWorld) {
+    let body = world.last_body.as_deref().expect("a settings page body");
+    // Every workspace Maria is a member of appears; a workspace she is NOT a member
+    // of (the intruder's "Umbrella") never does — least-privilege membership scope.
+    for (name, _) in &world.maria_workspaces {
+        assert!(
+            body.contains(name.as_str()),
+            "Maria's workspace {name:?} must be listed on her settings page: {body}"
+        );
+    }
+    assert!(
+        !body.contains("Umbrella"),
+        "a workspace Maria does not belong to must never be listed: {body}"
+    );
 }
 
 #[then(regex = r#"^"([^"]+)" is shown as subscribed again$"#)]

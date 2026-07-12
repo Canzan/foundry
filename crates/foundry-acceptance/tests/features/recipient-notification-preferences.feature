@@ -176,7 +176,7 @@ Feature: A recipient silences a workspace's invitation emails without losing sec
 
   # ── Slice 05 — US-05: the signed-in per-workspace status page (least-privilege) ──────────
 
-  @pending @us-05 @real-io
+  @us-05 @real-io
   Scenario: The settings page shows per-workspace subscription status
     Given Maria is signed in and belongs to "Northwind", "Contoso", and "Initech"
     And Maria has confirmed unsubscribing from "Northwind"
@@ -185,7 +185,7 @@ Feature: A recipient silences a workspace's invitation emails without losing sec
     And "Contoso" is shown as subscribed
     And "Initech" is shown as subscribed
 
-  @pending @us-05 @security @real-io
+  @us-05 @security @real-io
   Scenario: A request cannot be steered to another recipient's status
     Given Maria is signed in and belongs to "Northwind", "Contoso", and "Initech"
     When a request attempts to view notification status for another recipient's email

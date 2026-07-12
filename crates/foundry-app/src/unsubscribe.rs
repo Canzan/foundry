@@ -19,8 +19,9 @@
 //! UNDER the shipped `session_layer` + `csrf::csrf_middleware`, alongside
 //! `/invites/accept` and `/forgot-password`.
 
-use crate::bootstrap::{html_escape, invalid_page};
+use crate::bootstrap::{html_escape, invalid_page, SessionUser};
 use crate::csrf::{build_csrf_cookie, extract_csrf_cookie, generate_token};
+use crate::session::SESSION_KEY_USER_ID;
 use crate::AppState;
 use axum::extract::{Form, Query, State};
 use axum::http::header::{HeaderMap, HeaderValue, COOKIE, SET_COOKIE};
@@ -28,6 +29,7 @@ use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
 use base64::Engine;
 use serde::Deserialize;
+use tower_sessions::Session;
 
 const UNSUBSCRIBE_ACTION: &str = "unsubscribe";
 const RESUBSCRIBE_ACTION: &str = "resubscribe";
@@ -130,6 +132,91 @@ pub async fn submit_confirm(
         return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
     }
     Html(render_result_page(&workspace_name, resubscribe)).into_response()
+}
+
+// ------------------------------------------------- GET /account/notifications
+
+/// The SIGNED-IN per-workspace notification status page (US-05, ADR-006). Lists
+/// every workspace the SESSION user belongs to with a Muted/Subscribed status,
+/// derived from the caller's own `email_lower` opt-out rows.
+///
+/// LEAST-PRIVILEGE (NFR-6/BR-6): identity comes ONLY from `SessionUser` — never a
+/// request-supplied email or workspace parameter — so a crafted `?email=` cannot
+/// steer the page to another recipient's state, and only the caller's OWN
+/// memberships are ever listed. A signed-out caller gets the SHIPPED
+/// non-enumerable uniform 404 (mirrors `submit_change_password`).
+pub async fn show_notifications(State(state): State<AppState>, session: Session) -> Response {
+    let user = match session.get::<SessionUser>(SESSION_KEY_USER_ID).await {
+        Ok(Some(user)) => user,
+        _ => return crate::bootstrap::resource_not_found_page(),
+    };
+    // The normalized key the 0014 opt-out rows live under. A valid session implies
+    // the user row exists; a missing/failed lookup is a data-consistency fault (500).
+    let email_lower = match state.store.find_user_email_lower_by_id(user.user_id).await {
+        Ok(Some(email)) => email,
+        Ok(None) => {
+            tracing::error!(user_id = %user.user_id, "notifications: no email for a valid session");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
+        }
+        Err(err) => {
+            tracing::error!(%err, "find_user_email_lower_by_id failed on notifications page");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
+        }
+    };
+    let memberships = match state.store.workspaces_for_member(user.user_id).await {
+        Ok(list) => list,
+        Err(err) => {
+            tracing::error!(%err, "workspaces_for_member failed on notifications page");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
+        }
+    };
+    let muted = match state
+        .store
+        .list_unsubscribed_workspace_ids(&email_lower)
+        .await
+    {
+        Ok(set) => set,
+        Err(err) => {
+            tracing::error!(%err, "list_unsubscribed_workspace_ids failed on notifications page");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
+        }
+    };
+    // Independence (ODD-7) is a corollary of the composite key: each membership's
+    // status is decided against ITS OWN id in the caller's muted set.
+    let rows: Vec<(String, bool)> = memberships
+        .into_iter()
+        .map(|(workspace_id, name)| (name, muted.contains(&workspace_id)))
+        .collect();
+    Html(render_notifications_page(&rows)).into_response()
+}
+
+/// Render the signed-in status page: one row per membership, each naming the
+/// workspace and its `Muted`/`Subscribed` state. The `{name} — {status}` shape is
+/// the observable contract the acceptance scenarios assert against.
+fn render_notifications_page(rows: &[(String, bool)]) -> String {
+    let items: String = rows
+        .iter()
+        .map(|(name, muted)| {
+            let status = if *muted { "Muted" } else { "Subscribed" };
+            let status_attr = if *muted { "muted" } else { "subscribed" };
+            format!(
+                "<li data-status=\"{status_attr}\">{name} — {status}</li>",
+                status_attr = status_attr,
+                name = html_escape(name),
+                status = status,
+            )
+        })
+        .collect();
+    format!(
+        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">\
+         <title>Notification settings</title></head><body>\
+         <main><h1>Notification settings</h1>\
+         <p>These are the workspaces you belong to. Muted workspaces send you no \
+         invitation emails; security emails such as password resets are always \
+         delivered.</p>\
+         <ul>{items}</ul></main></body></html>",
+        items = items,
+    )
 }
 
 // ----------------------------------------------------------------------- link

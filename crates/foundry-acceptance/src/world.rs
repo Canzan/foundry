@@ -1177,6 +1177,14 @@ pub struct FoundryWorld {
     /// accumulated by the US-03 Givens so the no-oracle / no-leak `Then`s scan each
     /// refusal for every one.
     pub unsub_secret_identifiers: Vec<String>,
+    /// recipient-notification-preferences (US-05 signed-in status page) — the
+    /// signed-in account holder Maria's `(email, password)`, seeded so a scenario
+    /// can drive `signed_in_get` against `/account/notifications`.
+    pub maria_creds: Option<(String, String)>,
+    /// The `(workspace_name, workspace_id)` of every workspace Maria was seeded as
+    /// a member of, so the `Then` can assert her per-workspace status and that ONLY
+    /// her memberships are listed (least-privilege, NFR-6).
+    pub maria_workspaces: Vec<(String, uuid::Uuid)>,
 }
 
 impl FoundryWorld {

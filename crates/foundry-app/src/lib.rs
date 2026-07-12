@@ -430,6 +430,17 @@ pub fn build_router(state: AppState) -> Router {
             "/account/password",
             post(signin::submit_change_password),
         )
+        // recipient-notification-preferences 05-01 (US-05) — the signed-in
+        // per-workspace notification status page. Same shared layer (UNDER
+        // `csrf_middleware` + `session_layer`): a real signed-in `foundry_session`
+        // cookie applies (a plain GET, no CSRF body). Identity is the SESSION
+        // user's ONLY (never a request-supplied email — NFR-6 least-privilege);
+        // a signed-out caller gets the SHIPPED non-enumerable uniform 404
+        // (unsubscribe.rs::show_notifications).
+        .route(
+            "/account/notifications",
+            get(unsubscribe::show_notifications),
+        )
         .route(
             "/team/{team_slug}/projects/new",
             get(projects::show_create_form),
