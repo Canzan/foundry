@@ -37,6 +37,8 @@ use foundry_acceptance::steps::feature_b_web_tier as _feature_b;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_board_new_issue as _feature_board_new_issue;
 #[allow(unused_imports)]
+use foundry_acceptance::steps::feature_bootstrap_enum_oracle as _feature_bootstrap_enum_oracle;
+#[allow(unused_imports)]
 use foundry_acceptance::steps::feature_card_ranking_within_status as _feature_card_ranking;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_dashboard_enhancements as _feature_dashboard;

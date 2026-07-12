@@ -1,0 +1,47 @@
+{
+  "roadmap": {
+    "project_id": "bootstrap-claim-enumeration-oracle",
+    "created_at": "2026-07-12T00:00:00Z",
+    "total_steps": 1
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "Close the email-collision enumeration oracle end-to-end",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "Atomic claim+create with narrow 23505 catch; rewire handler to uniform refusal",
+          "criteria": [
+            "Greens all three RED scenarios in bootstrap-claim-enumeration-oracle.feature: colliding email refused byte-identically to expired/unknown (US-01); token stays unconsumed on collision (US-02); retry with a fresh email then succeeds (US-02).",
+            "Keeps the US-03 regression scenario green AND the entire us-05-bootstrap.feature net green (13/13): happy claim seeds workspace + first instance_admin, used/expired/unknown token refusals stay byte-identical.",
+            "New code: Store::claim_bootstrap_and_create_workspace runs ONE tx = guarded-UPDATE consume of bootstrap_tokens (0 rows -> Refused, rollback) + the six workspace-seed INSERTs + the instance_admins ON CONFLICT seed; the users INSERT is wrapped so a SQLSTATE-23505 UNIQUE violation is caught SPECIFICALLY -> EmailCollision (whole tx rolls back, token UNCONSUMED); any other error propagates as StoreError. Returns BootstrapClaimOutcome { Consumed { workspace_id, user_id }, Refused, EmailCollision }. Replaces the panicking DISTILL scaffold.",
+            "Caller-preservation: extract the six seed INSERTs into a private helper (e.g. seed_initial_workspace(&mut tx, ...)) shared by BOTH the existing create_initial_workspace (signature + ~9 callers UNCHANGED) and the new method. No deletion of create_initial_workspace, no duplicated INSERT SQL.",
+            "Handler rewire (crates/foundry-app/src/bootstrap.rs): the POST claim path hashes the password then calls claim_bootstrap_and_create_workspace and matches Consumed -> insert session + 303 /dashboard; Refused | EmailCollision -> bootstrap_refusal_page() (byte-identical, status 200, NEVER 500); Err(StoreError) -> the existing 500 path. Password hashing stays OUTSIDE the tx.",
+            "NFR-3 narrow-catch pinned by a store-scope unit test: a colliding email yields EmailCollision with the token row still used_at IS NULL; a bad token yields Refused; a happy path yields Consumed with the seed rows present. Store-scope mutation must kill a mutant that broadens the 23505 catch.",
+            "Remove the __SCAFFOLD__ marker from the store method. No dead/commented-out code (pre-stable policy). Run cargo xtask check-arch if the handler/store boundary changed (no new LAYER-1e line expected — issuance resolves nothing new)."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/bootstrap-claim-enumeration-oracle.feature",
+          "scenario_name": "All scenarios (US-01 collision byte-identity, US-02 unconsumed + reusable, US-03 regression)",
+          "implementation_scope": {
+            "files_to_modify": [
+              "crates/foundry-store/src/lib.rs",
+              "crates/foundry-app/src/bootstrap.rs"
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "implementation_scope": {
+    "source_directories": ["crates/foundry-app/src/", "crates/foundry-store/src/"],
+    "test_directories": ["crates/foundry-acceptance/tests/", "crates/foundry-acceptance/src/", "crates/foundry-store/tests/"],
+    "excluded_patterns": ["target/**", "**/*.md"]
+  },
+  "validation": {
+    "status": "approved",
+    "reviewer": "orchestrator (lean roadmap; DISTILL reviews APPROVED)",
+    "approved_at": "2026-07-12",
+    "note": "DES audit-log tooling (des-init-log/log-phase/verify-integrity) is non-functional in this environment: nwave-ai 3.15.1 dropped the `des` module the CLI shims import. Execution-log.json instrumentation and integrity verification are SKIPPED; TDD is enforced via real RED->GREEN->COMMIT with Step-ID git trailers, the acceptance suite, cargo xtask ci, and store-scope mutation."
+  }
+}

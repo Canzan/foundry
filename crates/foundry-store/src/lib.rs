@@ -534,11 +534,11 @@ impl Store {
         project_key_prefix: &str,
     ) -> Result<(), StoreError> {
         let mut tx = self.pool.begin().await?;
-        sqlx::query("INSERT INTO workspaces (id, name) VALUES ($1, $2)")
-            .bind(workspace_id)
-            .bind(workspace_name)
-            .execute(&mut *tx)
-            .await?;
+        // The users INSERT is kept OUT of the shared `seed_initial_workspace` helper and
+        // inlined here (and, narrow-caught, in `claim_bootstrap_and_create_workspace`) so
+        // the claim+create path can wrap THIS statement alone in a SQLSTATE-23505 catch
+        // without the catch spanning the other seed INSERTs. `users` has no FK, so seeding
+        // it first satisfies the memberships/instance_admins FKs the helper writes next.
         sqlx::query(
             "INSERT INTO users (id, email_lower, email_display, display_name, password_hash)
                   VALUES ($1, $2, $3, $4, $5)",
@@ -550,54 +550,131 @@ impl Store {
         .bind(password_hash)
         .execute(&mut *tx)
         .await?;
-        sqlx::query(
-            "INSERT INTO workspace_memberships (workspace_id, user_id, role)
-                  VALUES ($1, $2, $3)",
+        seed_initial_workspace(
+            &mut tx,
+            workspace_id,
+            workspace_name,
+            user_id,
+            team_id,
+            team_name,
+            team_slug,
+            project_id,
+            project_name,
+            project_slug,
+            project_key_prefix,
         )
-        .bind(workspace_id)
-        .bind(user_id)
-        .bind(ROLE_ADMIN)
-        .execute(&mut *tx)
         .await?;
-        sqlx::query("INSERT INTO teams (id, workspace_id, name, slug) VALUES ($1, $2, $3, $4)")
-            .bind(team_id)
-            .bind(workspace_id)
-            .bind(team_name)
-            .bind(team_slug)
-            .execute(&mut *tx)
-            .await?;
-        sqlx::query(
-            "INSERT INTO team_memberships (team_id, user_id, role) VALUES ($1, $2, 'lead')",
-        )
-        .bind(team_id)
-        .bind(user_id)
-        .execute(&mut *tx)
-        .await?;
-        sqlx::query(
-            "INSERT INTO projects (id, team_id, workspace_id, name, slug, key_prefix)
-                  VALUES ($1, $2, $3, $4, $5, $6)",
-        )
-        .bind(project_id)
-        .bind(team_id)
-        .bind(workspace_id)
-        .bind(project_name)
-        .bind(project_slug)
-        .bind(project_key_prefix)
-        .execute(&mut *tx)
-        .await?;
-        // The bootstrap CLAIM also seeds the claiming operator as the FIRST
-        // instance super-admin (ADR-001 / D1), in the SAME atomic transaction:
-        // a fresh instance never exists with a workspace 1 but no provisioning
-        // authority. The operator is therefore both workspace 1's admin AND the
-        // first `instance_admins` row — one human, no separate instance identity.
-        // `ON CONFLICT DO NOTHING` keeps the seed idempotent and race-free,
-        // mirroring the shipped `grant-super-admin` idiom.
-        sqlx::query("INSERT INTO instance_admins (user_id) VALUES ($1) ON CONFLICT DO NOTHING")
-            .bind(user_id)
-            .execute(&mut *tx)
-            .await?;
         tx.commit().await?;
         Ok(())
+    }
+
+    /// The atomic ONE-TX bootstrap claim+create (bootstrap-claim-enumeration-oracle /
+    /// D1). Folds the two former bootstrap store calls (`claim_bootstrap_token` →
+    /// `create_initial_workspace`) into a single transaction, modeled on the shipped,
+    /// mutation-hardened [`Store::create_member_and_consume`]:
+    /// 1. Guarded UPDATE `bootstrap_tokens` (the exact single-use + expiry idiom from
+    ///    [`Store::claim_bootstrap_token`]) — 0 rows (unknown / already-used / expired)
+    ///    ⇒ rollback ⇒ [`BootstrapClaimOutcome::Refused`].
+    /// 2. The `users` INSERT — the collision point: a `users.email_lower` UNIQUE
+    ///    violation (SQLSTATE **23505**) is caught SPECIFICALLY ⇒ rollback ⇒
+    ///    [`BootstrapClaimOutcome::EmailCollision`] (the whole tx rolls back, so the
+    ///    token stays UNCONSUMED and reusable). Any OTHER DB error ⇒ propagate as
+    ///    [`StoreError`] (the handler's 500 path).
+    /// 3. The rest of the workspace seed via [`seed_initial_workspace`] (workspace +
+    ///    admin membership + team + team membership + project + first `instance_admins`).
+    /// 4. Success ⇒ commit ⇒ [`BootstrapClaimOutcome::Consumed { workspace_id, user_id }`].
+    ///
+    /// The 23505 catch wraps ONLY the users INSERT (kept out of the shared seed helper),
+    /// so an FK / CHECK / connection error on any OTHER statement can NEVER be mis-mapped
+    /// to the uniform refusal (NFR-3, the narrow-catch mutation gate).
+    #[allow(clippy::too_many_arguments)]
+    pub async fn claim_bootstrap_and_create_workspace(
+        &self,
+        token_hash: &[u8],
+        now: time::OffsetDateTime,
+        workspace_id: uuid::Uuid,
+        workspace_name: &str,
+        user_id: uuid::Uuid,
+        email_lower: &str,
+        email_display: &str,
+        display_name: &str,
+        password_hash: &str,
+        team_id: uuid::Uuid,
+        team_name: &str,
+        team_slug: &str,
+        project_id: uuid::Uuid,
+        project_name: &str,
+        project_slug: &str,
+        project_key_prefix: &str,
+    ) -> Result<BootstrapClaimOutcome, StoreError> {
+        let mut tx = self.pool.begin().await?;
+
+        // (1) Guarded-UPDATE consume — the authoritative single-use + expiry guard
+        // (the `claim_bootstrap_token` idiom, now inside this tx). 0 rows ⇒ unknown /
+        // already-used / expired ⇒ rollback ⇒ Refused.
+        let claimed: Option<(uuid::Uuid,)> = sqlx::query_as(
+            "UPDATE bootstrap_tokens
+                SET used_at = $2
+              WHERE token_hash = $1
+                AND used_at IS NULL
+                AND expires_at > $2
+              RETURNING id",
+        )
+        .bind(token_hash)
+        .bind(now)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if claimed.is_none() {
+            tx.rollback().await?;
+            return Ok(BootstrapClaimOutcome::Refused);
+        }
+
+        // (2) The users INSERT — the collision point. A UNIQUE-email violation (23505)
+        // ⇒ rollback ⇒ EmailCollision (token stays UNCONSUMED); any other DB error
+        // bubbles as StoreError (500). The catch is narrowed to THIS statement ALONE.
+        let create_user = sqlx::query(
+            "INSERT INTO users (id, email_lower, email_display, display_name, password_hash)
+                  VALUES ($1, $2, $3, $4, $5)",
+        )
+        .bind(user_id)
+        .bind(email_lower)
+        .bind(email_display)
+        .bind(display_name)
+        .bind(password_hash)
+        .execute(&mut *tx)
+        .await;
+        if let Err(err) = create_user {
+            tx.rollback().await?;
+            if let sqlx::Error::Database(db_err) = &err {
+                if db_err.code().as_deref() == Some("23505") {
+                    return Ok(BootstrapClaimOutcome::EmailCollision);
+                }
+            }
+            return Err(StoreError::Sqlx(err));
+        }
+
+        // (3) The rest of the seed (workspace + memberships + team + project +
+        // instance_admins), shared verbatim with `create_initial_workspace`.
+        seed_initial_workspace(
+            &mut tx,
+            workspace_id,
+            workspace_name,
+            user_id,
+            team_id,
+            team_name,
+            team_slug,
+            project_id,
+            project_name,
+            project_slug,
+            project_key_prefix,
+        )
+        .await?;
+
+        tx.commit().await?;
+        Ok(BootstrapClaimOutcome::Consumed {
+            workspace_id,
+            user_id,
+        })
     }
 
     /// Find the workspace's id + name (slice-1 has at most one).
@@ -2838,6 +2915,85 @@ fn display_name_from_email(email: &str) -> String {
     }
 }
 
+/// Seed the NON-user rows of the initial workspace onto an already-open transaction:
+/// the workspace, the operator's admin membership, the default team + its lead
+/// membership, the sandbox project, and the operator's first `instance_admins` row.
+///
+/// The `users` INSERT is DELIBERATELY excluded (the caller inserts it first, before
+/// calling this) so [`Store::claim_bootstrap_and_create_workspace`] can wrap the users
+/// INSERT ALONE in a narrow SQLSTATE-23505 catch (its email-collision arm) without the
+/// catch spanning any other seed statement. Shared verbatim by
+/// [`Store::create_initial_workspace`] and `claim_bootstrap_and_create_workspace`, so
+/// the six-statement seed SQL lives in exactly ONE place.
+///
+/// PRECONDITION: the `user_id` row already exists in `users` — the FK targets here
+/// (`workspace_memberships.user_id`, `team_memberships.user_id`, `instance_admins.user_id`)
+/// require it. `users` carries no FK, so the caller can seed it first.
+#[allow(clippy::too_many_arguments)]
+async fn seed_initial_workspace(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    workspace_id: uuid::Uuid,
+    workspace_name: &str,
+    user_id: uuid::Uuid,
+    team_id: uuid::Uuid,
+    team_name: &str,
+    team_slug: &str,
+    project_id: uuid::Uuid,
+    project_name: &str,
+    project_slug: &str,
+    project_key_prefix: &str,
+) -> Result<(), StoreError> {
+    sqlx::query("INSERT INTO workspaces (id, name) VALUES ($1, $2)")
+        .bind(workspace_id)
+        .bind(workspace_name)
+        .execute(&mut **tx)
+        .await?;
+    sqlx::query(
+        "INSERT INTO workspace_memberships (workspace_id, user_id, role)
+              VALUES ($1, $2, $3)",
+    )
+    .bind(workspace_id)
+    .bind(user_id)
+    .bind(ROLE_ADMIN)
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query("INSERT INTO teams (id, workspace_id, name, slug) VALUES ($1, $2, $3, $4)")
+        .bind(team_id)
+        .bind(workspace_id)
+        .bind(team_name)
+        .bind(team_slug)
+        .execute(&mut **tx)
+        .await?;
+    sqlx::query("INSERT INTO team_memberships (team_id, user_id, role) VALUES ($1, $2, 'lead')")
+        .bind(team_id)
+        .bind(user_id)
+        .execute(&mut **tx)
+        .await?;
+    sqlx::query(
+        "INSERT INTO projects (id, team_id, workspace_id, name, slug, key_prefix)
+              VALUES ($1, $2, $3, $4, $5, $6)",
+    )
+    .bind(project_id)
+    .bind(team_id)
+    .bind(workspace_id)
+    .bind(project_name)
+    .bind(project_slug)
+    .bind(project_key_prefix)
+    .execute(&mut **tx)
+    .await?;
+    // The bootstrap CLAIM also seeds the claiming operator as the FIRST instance
+    // super-admin (ADR-001 / D1), in the SAME atomic transaction: a fresh instance
+    // never exists with a workspace 1 but no provisioning authority. The operator is
+    // therefore both workspace 1's admin AND the first `instance_admins` row — one
+    // human, no separate instance identity. `ON CONFLICT DO NOTHING` keeps the seed
+    // idempotent and race-free, mirroring the shipped `grant-super-admin` idiom.
+    sqlx::query("INSERT INTO instance_admins (user_id) VALUES ($1) ON CONFLICT DO NOTHING")
+        .bind(user_id)
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
+}
+
 /// The GET-side advisory liveness view of an invite (ADR-001 / D6): its expiry,
 /// consume marker, and the workspace name to render on the set-password form.
 /// The raw row shape `invite_accept_view` reads: `(expires_at, used_at,
@@ -2875,6 +3031,25 @@ pub struct InviteAcceptView {
 /// AND `EmailCollision` to the SAME uniform refusal (NEVER a 500).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MemberConsumeOutcome {
+    Consumed {
+        workspace_id: uuid::Uuid,
+        user_id: uuid::Uuid,
+    },
+    Refused,
+    EmailCollision,
+}
+
+/// The outcome of [`Store::claim_bootstrap_and_create_workspace`] (bootstrap-claim-
+/// enumeration-oracle / D1). Models `MemberConsumeOutcome`:
+/// `Consumed` carries the newly-seeded workspace + admin user id the handler signs
+/// into the session; `Refused` is the uniform 0-rows guard path (the token was
+/// unknown / already used / expired); `EmailCollision` is the email-uniqueness arm —
+/// the `users.email_lower` UNIQUE violation (23505) rolled the whole tx back (the
+/// token stays UNCONSUMED, no partial workspace). The handler maps BOTH `Refused` AND
+/// `EmailCollision` to the SAME uniform `bootstrap_refusal_page()` (NEVER a 500); the
+/// enum distinguishes them only for tracing (D1a).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BootstrapClaimOutcome {
     Consumed {
         workspace_id: uuid::Uuid,
         user_id: uuid::Uuid,

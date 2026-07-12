@@ -103,26 +103,8 @@ pub async fn submit(
     let hash = sha256(&token);
     let now = state.clock.now();
 
-    // Atomic single-use claim. If this returns None, the token is
-    // unknown/used/expired — SECURITY (enumeration oracle): all three reasons
-    // render the SAME byte-identical refusal (status + body) so a prober cannot
-    // distinguish them. We deliberately do NOT re-query bootstrap_token_status on
-    // this path: knowing the precise reason would only let us leak it. The reason
-    // is recoverable from tracing on the failed-claim path if ever needed.
-    let token_row_id = match state.store.claim_bootstrap_token(&hash, now).await {
-        Ok(Some(id)) => id,
-        Ok(None) => {
-            tracing::info!("bootstrap claim refused: token not claimable (non-enumerable)");
-            return bootstrap_refusal_page();
-        }
-        Err(err) => {
-            tracing::error!(%err, "claim_bootstrap_token failed");
-            return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
-        }
-    };
-    let _ = token_row_id;
-
-    // Hash the password.
+    // Hash the password BEFORE opening the claim+create transaction (no crypto inside
+    // the DB tx), matching the `create_member_and_consume` handler ordering.
     let pwd = SecretString::new(form.password.into());
     let password_hash = match foundry_auth::hash_password(&pwd).await {
         Ok(h) => h,
@@ -139,9 +121,18 @@ pub async fn submit(
     let email_lower = form.email.trim().to_lowercase();
     let email_display = form.email.trim();
 
-    if let Err(err) = state
+    // Atomic single-use claim + workspace create (D1). The token consume and the
+    // whole seed commit together, so a colliding email rolls BOTH back — the token
+    // stays reusable. SECURITY (enumeration oracle): a bad token (Refused) and a
+    // colliding email (EmailCollision) BOTH render the SAME byte-identical
+    // `bootstrap_refusal_page()` (status + body) so a prober cannot tell whether the
+    // email already exists — never a 500. The distinguishing reason goes ONLY to
+    // tracing, never the response.
+    let outcome = match state
         .store
-        .create_initial_workspace(
+        .claim_bootstrap_and_create_workspace(
+            &hash,
+            now,
             workspace_id,
             form.workspace_name.trim(),
             user_id,
@@ -159,8 +150,20 @@ pub async fn submit(
         )
         .await
     {
-        tracing::error!(%err, "create_initial_workspace failed");
-        return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
+        Ok(outcome) => outcome,
+        Err(err) => {
+            tracing::error!(%err, "claim_bootstrap_and_create_workspace failed");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
+        }
+    };
+
+    match outcome {
+        foundry_store::BootstrapClaimOutcome::Consumed { .. } => {}
+        reason @ (foundry_store::BootstrapClaimOutcome::Refused
+        | foundry_store::BootstrapClaimOutcome::EmailCollision) => {
+            tracing::info!(?reason, "bootstrap claim refused (non-enumerable)");
+            return bootstrap_refusal_page();
+        }
     }
 
     // tower-sessions: insert the signed-in user id and let the
