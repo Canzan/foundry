@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}{% if already_unsubscribed %}You are unsubscribed from “{{ workspace_name }}”{% else %}Stop invitation emails from “{{ workspace_name }}”?{% endif %}{% endblock %}
+{% block content %}
+<main>
+{%- if already_unsubscribed %}
+<h1>You are unsubscribed from “{{ workspace_name }}”</h1>
+<p>You currently receive no invitation emails from “{{ workspace_name }}”.</p>
+{%- else %}
+<h1>Stop invitation emails from “{{ workspace_name }}”?</h1>
+<p>Confirm to stop receiving invitation emails from “{{ workspace_name }}”. Security emails such as password resets are always delivered.</p>
+{%- endif %}
+<form method="post" action="/unsubscribe">
+<input type="hidden" name="_csrf" value="{{ csrf }}">
+<input type="hidden" name="t" value="{{ t }}">
+<input type="hidden" name="sig" value="{{ sig }}">
+<input type="hidden" name="action" value="{% if already_unsubscribed %}resubscribe{% else %}unsubscribe{% endif %}">
+<button type="submit">{% if already_unsubscribed %}Resubscribe{% else %}Unsubscribe{% endif %}</button>
+</form>
+</main>
+{% endblock %}

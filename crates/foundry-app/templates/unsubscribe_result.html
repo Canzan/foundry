@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}{% if resubscribed %}You are subscribed to “{{ workspace_name }}” again{% else %}“{{ workspace_name }}” invitations are stopped{% endif %}{% endblock %}
+{% block content %}
+<main>
+{%- if resubscribed %}
+<h1>You are subscribed to “{{ workspace_name }}” again</h1>
+<p>You will once again receive invitation emails from “{{ workspace_name }}”.</p>
+{%- else %}
+<h1>“{{ workspace_name }}” invitations are stopped</h1>
+<p>You will no longer receive invitation emails from “{{ workspace_name }}”. Security emails such as password resets are still delivered.</p>
+{%- endif %}
+</main>
+{% endblock %}

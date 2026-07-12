@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Notification settings{% endblock %}
+{% block content %}
+<main>
+<h1>Notification settings</h1>
+<p>These are the workspaces you belong to. Muted workspaces send you no invitation emails; security emails such as password resets are always delivered.</p>
+<ul>
+{%- for row in rows %}
+{%- if row.muted %}
+<li data-status="muted">{{ row.name }} — Muted</li>
+{%- else %}
+<li data-status="subscribed">{{ row.name }} — Subscribed</li>
+{%- endif %}
+{%- endfor %}
+</ul>
+</main>
+{% endblock %}

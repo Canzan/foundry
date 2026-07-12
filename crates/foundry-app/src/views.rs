@@ -702,6 +702,67 @@ pub struct InvalidPage {
     pub message: String,
 }
 
+/// A single workspace row on the SIGNED-IN notification status page
+/// (recipient-notification-preferences US-05). `muted` selects the row's
+/// `data-status="muted"`/`"subscribed"` scraper marker (the prose-immune oracle
+/// the acceptance suite asserts against) and the visible `— Muted`/`— Subscribed`
+/// suffix; `name` is auto-escaped (matching the previous `html_escape`).
+#[derive(Debug, Clone)]
+pub struct NotificationRow {
+    /// The workspace name (auto-escaped) — visible in the `<li>`.
+    pub name: String,
+    /// Whether the caller has muted this workspace's suppressible invitations.
+    pub muted: bool,
+}
+
+/// The SIGNED-IN per-workspace notification status page (US-05, ADR-006). Extends
+/// `base.html`, which links the vendored content-hashed `/static` stylesheet —
+/// replacing the prior bare-`<head>` `format!` markup
+/// (`unsubscribe.rs::render_notifications_page`). The render contract is preserved
+/// byte-stably: one `<li data-status="muted|subscribed">{name} — {Muted|Subscribed}</li>`
+/// per membership plus the descriptive lead copy.
+#[derive(Debug, Clone, Template)]
+#[template(path = "notifications.html")]
+pub struct NotificationsPage {
+    /// One row per workspace the caller belongs to.
+    pub rows: Vec<NotificationRow>,
+}
+
+/// The STATE-AWARE unsubscribe confirm page (US-01/US-06, ADR-006). Extends
+/// `base.html` — replacing the prior bare-`<head>` `format!` markup
+/// (`unsubscribe.rs::render_confirm_page`). `already_unsubscribed` flips the page
+/// between the Unsubscribe offer (subscribed) and the Resubscribe offer (muted),
+/// keeping the hidden `_csrf`/`t`/`sig`/`action` fields the CSRF POST re-verifies.
+/// All fields are auto-escaped (matching the previous `html_escape`).
+#[derive(Debug, Clone, Template)]
+#[template(path = "unsubscribe_confirm.html")]
+pub struct UnsubscribeConfirmPage {
+    /// The double-submit CSRF token, rendered into the hidden `_csrf` field.
+    pub csrf: String,
+    /// The opaque `t` param, echoed into the hidden `t` field for the POST.
+    pub t: String,
+    /// The HMAC signature, echoed into the hidden `sig` field for the POST.
+    pub sig: String,
+    /// The workspace name the token authorizes (auto-escaped).
+    pub workspace_name: String,
+    /// True when the pair is already muted — offers Resubscribe instead of Unsubscribe.
+    pub already_unsubscribed: bool,
+}
+
+/// The post-action unsubscribe RESULT page (US-01/US-06, ADR-006). Extends
+/// `base.html` — replacing the prior bare-`<head>` `format!` markup
+/// (`unsubscribe.rs::render_result_page`). `resubscribed` selects the "subscribed
+/// again" vs "invitations are stopped" confirmation; `workspace_name` is
+/// auto-escaped (matching the previous `html_escape`).
+#[derive(Debug, Clone, Template)]
+#[template(path = "unsubscribe_result.html")]
+pub struct UnsubscribeResultPage {
+    /// The workspace name the action applied to (auto-escaped).
+    pub workspace_name: String,
+    /// True after a resubscribe (clear), false after an unsubscribe (opt-out).
+    pub resubscribed: bool,
+}
+
 /// A single issued-token row on the `/admin/tokens` list (US-MT01/US-MT06).
 /// There is deliberately NO value field (NFR-MT-SEC-02) — no surface ever
 /// re-displays a token value. The `data-token-*` markers are the scraper

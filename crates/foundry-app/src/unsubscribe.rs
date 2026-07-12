@@ -19,10 +19,14 @@
 //! UNDER the shipped `session_layer` + `csrf::csrf_middleware`, alongside
 //! `/invites/accept` and `/forgot-password`.
 
-use crate::bootstrap::{html_escape, invalid_page, SessionUser};
+use crate::bootstrap::{invalid_page, SessionUser};
 use crate::csrf::{build_csrf_cookie, extract_csrf_cookie, generate_token};
 use crate::session::SESSION_KEY_USER_ID;
+use crate::views::{
+    NotificationRow, NotificationsPage, UnsubscribeConfirmPage, UnsubscribeResultPage,
+};
 use crate::AppState;
+use askama::Template;
 use axum::extract::{Form, Query, State};
 use axum::http::header::{HeaderMap, HeaderValue, COOKIE, SET_COOKIE};
 use axum::http::StatusCode;
@@ -31,7 +35,6 @@ use base64::Engine;
 use serde::Deserialize;
 use tower_sessions::Session;
 
-const UNSUBSCRIBE_ACTION: &str = "unsubscribe";
 const RESUBSCRIBE_ACTION: &str = "resubscribe";
 
 #[derive(Debug, Deserialize)]
@@ -264,29 +267,17 @@ pub async fn resubscribe_notifications(
 /// workspace and its `Muted`/`Subscribed` state. The `{name} — {status}` shape is
 /// the observable contract the acceptance scenarios assert against.
 fn render_notifications_page(rows: &[(String, bool)]) -> String {
-    let items: String = rows
-        .iter()
-        .map(|(name, muted)| {
-            let status = if *muted { "Muted" } else { "Subscribed" };
-            let status_attr = if *muted { "muted" } else { "subscribed" };
-            format!(
-                "<li data-status=\"{status_attr}\">{name} — {status}</li>",
-                status_attr = status_attr,
-                name = html_escape(name),
-                status = status,
-            )
-        })
-        .collect();
-    format!(
-        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">\
-         <title>Notification settings</title></head><body>\
-         <main><h1>Notification settings</h1>\
-         <p>These are the workspaces you belong to. Muted workspaces send you no \
-         invitation emails; security emails such as password resets are always \
-         delivered.</p>\
-         <ul>{items}</ul></main></body></html>",
-        items = items,
-    )
+    NotificationsPage {
+        rows: rows
+            .iter()
+            .map(|(name, muted)| NotificationRow {
+                name: name.clone(),
+                muted: *muted,
+            })
+            .collect(),
+    }
+    .render()
+    .expect("notifications.html renders")
 }
 
 // ----------------------------------------------------------------------- link
@@ -370,69 +361,24 @@ fn render_confirm_page(
     workspace_name: &str,
     already_unsubscribed: bool,
 ) -> String {
-    let name = html_escape(workspace_name);
-    let (action, heading, lead, button) = if already_unsubscribed {
-        (
-            RESUBSCRIBE_ACTION,
-            format!("You are unsubscribed from “{name}”"),
-            format!("You currently receive no invitation emails from “{name}”."),
-            "Resubscribe".to_string(),
-        )
-    } else {
-        (
-            UNSUBSCRIBE_ACTION,
-            format!("Stop invitation emails from “{name}”?"),
-            format!(
-                "Confirm to stop receiving invitation emails from “{name}”. Security \
-                     emails such as password resets are always delivered."
-            ),
-            "Unsubscribe".to_string(),
-        )
-    };
-    format!(
-        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">\
-         <title>{heading}</title></head><body>\
-         <main><h1>{heading}</h1><p>{lead}</p>\
-         <form method=\"post\" action=\"/unsubscribe\">\
-         <input type=\"hidden\" name=\"_csrf\" value=\"{csrf}\">\
-         <input type=\"hidden\" name=\"t\" value=\"{t}\">\
-         <input type=\"hidden\" name=\"sig\" value=\"{sig}\">\
-         <input type=\"hidden\" name=\"action\" value=\"{action}\">\
-         <button type=\"submit\">{button}</button>\
-         </form></main></body></html>",
-        heading = heading,
-        lead = lead,
-        csrf = html_escape(csrf_token),
-        t = html_escape(t),
-        sig = html_escape(sig),
-        action = action,
-        button = button,
-    )
+    UnsubscribeConfirmPage {
+        csrf: csrf_token.to_string(),
+        t: t.to_string(),
+        sig: sig.to_string(),
+        workspace_name: workspace_name.to_string(),
+        already_unsubscribed,
+    }
+    .render()
+    .expect("unsubscribe_confirm.html renders")
 }
 
 fn render_result_page(workspace_name: &str, resubscribed: bool) -> String {
-    let name = html_escape(workspace_name);
-    let (heading, message) = if resubscribed {
-        (
-            format!("You are subscribed to “{name}” again"),
-            format!("You will once again receive invitation emails from “{name}”."),
-        )
-    } else {
-        (
-            format!("“{name}” invitations are stopped"),
-            format!(
-                "You will no longer receive invitation emails from “{name}”. Security \
-                     emails such as password resets are still delivered."
-            ),
-        )
-    };
-    format!(
-        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">\
-         <title>{heading}</title></head><body>\
-         <main><h1>{heading}</h1><p>{message}</p></main></body></html>",
-        heading = heading,
-        message = message,
-    )
+    UnsubscribeResultPage {
+        workspace_name: workspace_name.to_string(),
+        resubscribed,
+    }
+    .render()
+    .expect("unsubscribe_result.html renders")
 }
 
 /// Reuse the request's `foundry_csrf` cookie if present, else mint one (the
