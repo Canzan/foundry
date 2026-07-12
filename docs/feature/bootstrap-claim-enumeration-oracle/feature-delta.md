@@ -85,3 +85,35 @@ FOUNDRY_ACCEPTANCE_TAGS=bootstrap-enum-oracle cargo test -p foundry-acceptance -
 # Regression net intact: 13 scenarios (13 passed)
 FOUNDRY_ACCEPTANCE_TAGS=us-05 cargo test -p foundry-acceptance --test acceptance
 ```
+
+## Wave: DELIVER
+
+### [REF] Implementation summary
+
+One atomic store method (`Store::claim_bootstrap_and_create_workspace`) folds the guarded-UPDATE token
+consume + the workspace seed into one transaction, catching SQLSTATE 23505 on the users INSERT alone →
+`EmailCollision` (rollback, token unconsumed); the `POST /bootstrap` handler maps `Refused | EmailCollision`
+to the byte-identical `bootstrap_refusal_page()` (never 500). Shipped in `ae28418` (`Step-ID: 01-01`).
+
+### [REF] Files modified
+
+- `crates/foundry-store/src/lib.rs` — `BootstrapClaimOutcome` enum, `claim_bootstrap_and_create_workspace`, extracted `seed_initial_workspace` helper (shared with `create_initial_workspace`, its ~9 callers unchanged).
+- `crates/foundry-app/src/bootstrap.rs` — claim POST rewired to the new outcome match.
+- `crates/foundry-store/tests/claim_bootstrap_and_create_workspace_store.rs` — 4 store-scope tests (new).
+
+### [REF] Scenarios green
+
+`4 of 4` bootstrap-enum-oracle (29 steps) + `13 of 13` us-05 regression (89 steps) — 2026-07-12.
+
+### [REF] Quality gates
+
+- Store unit tests 4/4 (Consumed / EmailCollision+token-unconsumed / Refused / non-23505→StoreError).
+- fmt --all --check clean; clippy --all-targets --release -D warnings clean; check-arch PASSED.
+- Mutation (store-scope, new fns): 3 mutants → 2 caught, 1 unviable, 0 survived; narrow-catch operator mutant caught.
+- DELIVER implementation review APPROVED (zero defects).
+
+### [WHY] Upstream note — DES tooling
+
+DES audit CLIs (`des-init-log`/`des-log-phase`/`des-verify-integrity`) are non-functional here: nwave-ai 3.15.1
+dropped the `des` module they import. TDD enforced via real RED→GREEN→COMMIT + `Step-ID` trailer + tests + mutation;
+execution-log recorded in `a0b6ddb`.
