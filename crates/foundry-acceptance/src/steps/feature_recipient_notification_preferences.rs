@@ -254,6 +254,71 @@ async fn confirm_unsubscribe(
     (status, body)
 }
 
+/// Extract the `(decoded t, decoded sig)` of the signed unsubscribe link the emit
+/// appended to a SUPPRESSIBLE email body (ADR-002 `unsubscribe_link_line`). PANICS if
+/// the body carries no link — the falsifiable proof the emit wired one (a member_invite
+/// emit that omits the link reds every scenario that opens the link from the email).
+fn extract_unsubscribe_link_from_body(body: &str) -> (String, String) {
+    let marker = "/unsubscribe?t=";
+    let start = body
+        .find(marker)
+        .unwrap_or_else(|| panic!("the email body must carry a signed unsubscribe link: {body}"));
+    let query = &body[start + marker.len()..];
+    let (enc_t, rest) = query
+        .split_once("&sig=")
+        .unwrap_or_else(|| panic!("the unsubscribe link must carry both t and sig: {body}"));
+    let enc_sig = rest.split_whitespace().next().unwrap_or(rest);
+    let t = urlencoding::decode(enc_t).expect("decode t").into_owned();
+    let sig = urlencoding::decode(enc_sig)
+        .expect("decode sig")
+        .into_owned();
+    (t, sig)
+}
+
+/// Drive the REAL shipped member-invite emit (`member_invites::submit_invite`,
+/// `POST /workspace/invites`) and return the `(workspace_id, email_lower, t, sig)` of
+/// the unsubscribe link it appended to the delivered email body. Seeds the workspace +
+/// an admin, signs the admin in, POSTs the invite for Sam, then reads the recorded
+/// `member_invite` delivery and extracts its signed link — proving (falsifiably) the
+/// member-invite email carries its own unsubscribe link, exactly like the workspace one.
+async fn issue_member_invite_and_capture_link(
+    world: &mut FoundryWorld,
+    workspace: &str,
+) -> (uuid::Uuid, String, String, String) {
+    let workspace_id = {
+        let harness = world.harness.as_ref().expect("harness");
+        seed_workspace_and_admin(harness, workspace).await
+    };
+    let outcome = {
+        let harness = world.harness.as_ref().expect("harness");
+        let http = world.http.as_ref().expect("http");
+        signed_in_post(
+            harness,
+            http,
+            ADMIN_EMAIL,
+            ADMIN_PASSWORD,
+            "/workspace/invites",
+            &[("email", SAM_EMAIL)],
+        )
+        .await
+    };
+    assert!(
+        outcome.status.is_success() || outcome.status.is_redirection(),
+        "the member-invite must be issued (2xx/3xx), got {}: {}",
+        outcome.status,
+        outcome.body
+    );
+    let harness = world.harness.as_ref().expect("harness");
+    let delivery = harness
+        .fake_email
+        .sent()
+        .into_iter()
+        .find(|d| d.event == "member_invite" && d.to == SAM_EMAIL)
+        .expect("the member-invite must have been delivered so its body can be read");
+    let (t, sig) = extract_unsubscribe_link_from_body(&delivery.body);
+    (workspace_id, SAM_EMAIL.to_ascii_lowercase(), t, sig)
+}
+
 /// Corrupt a signature by flipping its first character, so the constant-time
 /// `UnsubscribeToken::verify` rejects it (a TAMPERED, well-formed-looking link).
 fn tamper_sig(sig: &str) -> String {
@@ -363,8 +428,22 @@ async fn sam_has_workspace_invite_email_with_link(world: &mut FoundryWorld, work
 #[given(
     regex = r#"^Sam has a member-invite email for "([^"]+)" carrying a signed unsubscribe link$"#
 )]
-async fn sam_has_member_invite_email_with_link(_world: &mut FoundryWorld, _workspace: String) {
-    pending!("Sam has a member-invite email carrying a signed unsubscribe link");
+async fn sam_has_member_invite_email_with_link(world: &mut FoundryWorld, workspace: String) {
+    // Drive the REAL member-invite emit and capture the signed unsubscribe link it
+    // appended to the delivered email body (falsifiable: an emit that omits the link
+    // panics in the extractor). The captured (t, sig) is the SAME link a recipient
+    // clicks — the When then opens + confirms it through the public flow.
+    let (workspace_id, email_lower, t, sig) =
+        issue_member_invite_and_capture_link(world, &workspace).await;
+    world.unsub_workspace_id = Some(workspace_id);
+    world.unsub_email = Some(email_lower);
+    world.unsub_t = Some(t);
+    world.unsub_sig = Some(sig);
+    world.unsub_admin = Some((ADMIN_EMAIL.to_string(), ADMIN_PASSWORD.to_string()));
+    world.unsub_ws_admins.insert(
+        workspace,
+        (ADMIN_EMAIL.to_string(), ADMIN_PASSWORD.to_string()),
+    );
 }
 
 #[given(regex = r#"^Sam has confirmed unsubscribing from "([^"]+)"$"#)]
@@ -418,13 +497,58 @@ async fn sam_also_has_invite_for_workspace(world: &mut FoundryWorld, workspace: 
 }
 
 #[given(regex = r#"^Sam has unsubscribed from "([^"]+)" via a workspace-invite link$"#)]
-async fn sam_unsubscribed_via_workspace_invite_link(_world: &mut FoundryWorld, _workspace: String) {
-    pending!("Sam has unsubscribed via a workspace-invite link");
+async fn sam_unsubscribed_via_workspace_invite_link(world: &mut FoundryWorld, workspace: String) {
+    // Establish the opt-out via the SUPPRESSIBLE workspace-invite link path — mint the
+    // same signed link a workspace_invite email carries and drive the REAL public confirm
+    // flow. The resulting 0014 row is EVENT-AGNOSTIC per (email, workspace), so a later
+    // member_invite for the same pair must ALSO be suppressed (US-04 crux).
+    let (base, t, sig, email_lower, workspace_id) = {
+        let harness = world
+            .harness
+            .as_ref()
+            .expect("harness spawned by Background");
+        let workspace_id = seed_workspace_and_admin(harness, &workspace).await;
+        let email_lower = SAM_EMAIL.to_ascii_lowercase();
+        let (t, sig) = mint_unsubscribe_link(harness, &email_lower, workspace_id);
+        (harness.base_url(), t, sig, email_lower, workspace_id)
+    };
+    let http = world.http.as_ref().expect("http").clone();
+    let (status, _body) = confirm_unsubscribe(&http, &base, &t, &sig).await;
+    assert!(
+        status.is_success(),
+        "the workspace-invite-link unsubscribe confirm must succeed, got {status}"
+    );
+    world.unsub_email = Some(email_lower);
+    world.unsub_workspace_id = Some(workspace_id);
+    world.unsub_admin = Some((ADMIN_EMAIL.to_string(), ADMIN_PASSWORD.to_string()));
+    world.unsub_ws_admins.insert(
+        workspace,
+        (ADMIN_EMAIL.to_string(), ADMIN_PASSWORD.to_string()),
+    );
 }
 
 #[given(regex = r#"^Sam has unsubscribed from "([^"]+)" via a member-invite link$"#)]
-async fn sam_unsubscribed_via_member_invite_link(_world: &mut FoundryWorld, _workspace: String) {
-    pending!("Sam has unsubscribed via a member-invite link");
+async fn sam_unsubscribed_via_member_invite_link(world: &mut FoundryWorld, workspace: String) {
+    // Establish the opt-out via the MEMBER-invite link path: drive the real member-invite
+    // emit, extract the signed unsubscribe link it appended to the email body, and confirm
+    // unsubscribing through the public flow. The @property point: the mandatory-event
+    // invariant must hold regardless of WHICH suppressible link performed the unsubscribe.
+    let (workspace_id, email_lower, t, sig) =
+        issue_member_invite_and_capture_link(world, &workspace).await;
+    let base = world.harness.as_ref().expect("harness").base_url();
+    let http = world.http.as_ref().expect("http").clone();
+    let (status, _body) = confirm_unsubscribe(&http, &base, &t, &sig).await;
+    assert!(
+        status.is_success(),
+        "the member-invite-link unsubscribe confirm must succeed, got {status}"
+    );
+    world.unsub_workspace_id = Some(workspace_id);
+    world.unsub_email = Some(email_lower);
+    world.unsub_admin = Some((ADMIN_EMAIL.to_string(), ADMIN_PASSWORD.to_string()));
+    world.unsub_ws_admins.insert(
+        workspace,
+        (ADMIN_EMAIL.to_string(), ADMIN_PASSWORD.to_string()),
+    );
 }
 
 #[given(regex = r#"^Sam is unsubscribed from every workspace he belongs to$"#)]
@@ -732,8 +856,38 @@ async fn workspace_invite_issued_to_sam(world: &mut FoundryWorld, workspace: Str
 }
 
 #[when(regex = r#"^a member-invite for "([^"]+)" is issued to Sam$"#)]
-async fn member_invite_issued_to_sam(_world: &mut FoundryWorld, _workspace: String) {
-    pending!("a member-invite is issued to Sam");
+async fn member_invite_issued_to_sam(world: &mut FoundryWorld, workspace: String) {
+    // Drive the REAL shipped member-invite issuance (`member_invites::submit_invite`,
+    // POST /workspace/invites): sign the workspace admin in and POST an invite for Sam.
+    // The handler emits ONE `MemberInvite` for Sam with `workspace_id: Some(<that ws>)`
+    // through `notify()`, where the suppression gate decides deliver-vs-suppress against
+    // Sam's opt-out state for THAT workspace.
+    let (admin_email, admin_pw) = world
+        .unsub_ws_admins
+        .get(&workspace)
+        .cloned()
+        .unwrap_or_else(|| panic!("no seeded admin for workspace {workspace:?}"));
+    let started = Instant::now();
+    let outcome = {
+        let harness = world.harness.as_ref().expect("harness");
+        let http = world.http.as_ref().expect("http");
+        signed_in_post(
+            harness,
+            http,
+            &admin_email,
+            &admin_pw,
+            "/workspace/invites",
+            &[("email", SAM_EMAIL)],
+        )
+        .await
+    };
+    world.ndp_request_elapsed_ms = Some(started.elapsed().as_millis());
+    assert!(
+        outcome.status.is_success() || outcome.status.is_redirection(),
+        "the member-invite must be issued (2xx/3xx), got {}: {}",
+        outcome.status,
+        outcome.body
+    );
 }
 
 #[when(regex = r#"^Sam confirms unsubscribing from "([^"]+)" a second time$"#)]
@@ -1076,9 +1230,10 @@ async fn subsequent_workspace_invite_not_delivered(world: &mut FoundryWorld, _wo
 
 #[then(regex = r#"^one suppression is counted for the "([^"]+)" event$"#)]
 async fn one_suppression_counted_for_event(world: &mut FoundryWorld, event: String) {
-    assert_eq!(
-        event, "workspace_invite",
-        "the walking skeleton suppresses a workspace_invite"
+    assert!(
+        event == "workspace_invite" || event == "member_invite",
+        "the suppressed event must be a suppressible one \
+         (workspace_invite | member_invite), got {event:?}"
     );
     // Observed at the SuppressionPolicy driven-port boundary: exactly ONE suppression
     // decision for the Northwind workspace (the only suppressible emit fired). The
@@ -1492,13 +1647,99 @@ async fn no_token_or_email_in_logs(world: &mut FoundryWorld) {
 }
 
 #[then(regex = r#"^the member-invite for Sam from "([^"]+)" is not delivered$"#)]
-async fn member_invite_for_sam_not_delivered(_world: &mut FoundryWorld, _workspace: String) {
-    pending!("the member-invite for Sam is not delivered");
+async fn member_invite_for_sam_not_delivered(world: &mut FoundryWorld, _workspace: String) {
+    // The suppressed member_invite reached NO provider — the recording double observes
+    // zero delivery for Sam. `member_invites::submit_invite` threads
+    // `workspace_id: Some(..)` and `MemberInvite` is suppressible, so the SAME
+    // (email, workspace) opt-out intercepts it before fan-out. Dropping either re-REDs this.
+    let harness = world.harness.as_ref().expect("harness");
+    let delivered: Vec<_> = harness
+        .fake_email
+        .sent()
+        .into_iter()
+        .filter(|d| d.event == "member_invite" && d.to == SAM_EMAIL && d.outcome == "delivered")
+        .collect();
+    assert!(
+        delivered.is_empty(),
+        "an unsubscribed recipient's member_invite must not be delivered, found {}: {delivered:?}",
+        delivered.len()
+    );
 }
 
 #[then(regex = r#"^both member-invite and workspace-invite emails from "([^"]+)" are suppressed$"#)]
-async fn both_invite_events_suppressed(_world: &mut FoundryWorld, _workspace: String) {
-    pending!("both member-invite and workspace-invite emails are suppressed");
+async fn both_invite_events_suppressed(world: &mut FoundryWorld, workspace: String) {
+    // After Sam confirmed unsubscribing via the member-invite link, the EVENT-AGNOSTIC
+    // (email, workspace) opt-out must suppress BOTH suppressible events. Drive a real
+    // member-invite (POST /workspace/invites) AND a real workspace-invite (POST /invites)
+    // for Sam, and assert both are intercepted before fan-out — observed as a +2 delta at
+    // the SuppressionPolicy port for this workspace, with zero NEW deliveries.
+    let workspace_id = world
+        .unsub_workspace_id
+        .expect("workspace id captured in the Given");
+    let (admin_email, admin_pw) = world
+        .unsub_ws_admins
+        .get(&workspace)
+        .cloned()
+        .unwrap_or_else(|| panic!("no seeded admin for workspace {workspace:?}"));
+    let (suppressed_before, delivered_before) = {
+        let harness = world.harness.as_ref().expect("harness");
+        let suppressed = harness.suppressions.count_for_workspace(workspace_id);
+        let delivered = harness
+            .fake_email
+            .sent()
+            .into_iter()
+            .filter(|d| {
+                d.to == SAM_EMAIL
+                    && (d.event == "member_invite" || d.event == "workspace_invite")
+                    && d.outcome == "delivered"
+            })
+            .count();
+        (suppressed, delivered)
+    };
+    for path in ["/workspace/invites", "/invites"] {
+        let outcome = {
+            let harness = world.harness.as_ref().expect("harness");
+            let http = world.http.as_ref().expect("http");
+            signed_in_post(
+                harness,
+                http,
+                &admin_email,
+                &admin_pw,
+                path,
+                &[("email", SAM_EMAIL)],
+            )
+            .await
+        };
+        assert!(
+            outcome.status.is_success() || outcome.status.is_redirection(),
+            "issuing an invite via {path} must succeed (2xx/3xx), got {}: {}",
+            outcome.status,
+            outcome.body
+        );
+    }
+    let harness = world.harness.as_ref().expect("harness");
+    let suppressed_after = harness.suppressions.count_for_workspace(workspace_id);
+    assert_eq!(
+        suppressed_after - suppressed_before,
+        2,
+        "both the member_invite and the workspace_invite must be suppressed for the \
+         unsubscribed (email, workspace) pair, got a suppression delta of {}",
+        suppressed_after - suppressed_before
+    );
+    let delivered_after = harness
+        .fake_email
+        .sent()
+        .into_iter()
+        .filter(|d| {
+            d.to == SAM_EMAIL
+                && (d.event == "member_invite" || d.event == "workspace_invite")
+                && d.outcome == "delivered"
+        })
+        .count();
+    assert_eq!(
+        delivered_after, delivered_before,
+        "no new suppressible invite may be delivered to the unsubscribed pair after opt-out"
+    );
 }
 
 #[then(regex = r#"^"([^"]+)" is shown as muted$"#)]

@@ -154,20 +154,20 @@ Feature: A recipient silences a workspace's invitation emails without losing sec
 
   # ── Slice 04 — US-04: the same one-click opt-out covers member_invite too ────────────────
 
-  @pending @us-04 @real-io
+  @us-04 @real-io
   Scenario: One opt-out covers member-invite emails for a workspace
     Given Sam has unsubscribed from "Northwind" via a workspace-invite link
     When a member-invite for "Northwind" is issued to Sam
     Then the member-invite for Sam from "Northwind" is not delivered
     And one suppression is counted for the "member_invite" event
 
-  @pending @us-04 @real-io
+  @us-04 @real-io
   Scenario: The member-invite email carries its own unsubscribe link
     Given Sam has a member-invite email for "Northwind" carrying a signed unsubscribe link
     When Sam opens the unsubscribe link and confirms unsubscribing from "Northwind"
     Then both member-invite and workspace-invite emails from "Northwind" are suppressed
 
-  @pending @us-04 @property @real-io
+  @us-04 @property @real-io
   Scenario: Unsubscribing via a member-invite still leaves security mail intact
     Given Sam has unsubscribed from "Northwind" via a member-invite link
     When an admin removes Sam from "Northwind"

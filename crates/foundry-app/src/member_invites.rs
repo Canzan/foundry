@@ -190,9 +190,15 @@ pub async fn submit_invite(
 
     // Best-effort email — a send failure is non-fatal; the link is still rendered.
     let subject = "You have been invited to a Foundry workspace";
+    // recipient-notification-preferences (ADR-001/002): append the signed, per-(email,
+    // workspace) unsubscribe link to this SUPPRESSIBLE email body so the recipient can
+    // opt out with one click (mirrors `bootstrap::create_invite`). Best-effort: a
+    // signing failure simply omits the link (the invite still sends).
+    let unsubscribe_line =
+        crate::unsubscribe::unsubscribe_link_line(&state, email, admin.workspace_id);
     let body = format!(
         "You have been invited to join the {workspace_name} workspace. Accept the \
-         invitation here:\n\n{invite_url}\n\nThis link is valid for 7 days.",
+         invitation here:\n\n{invite_url}\n\nThis link is valid for 7 days.{unsubscribe_line}",
     );
     // Best-effort delivery — a failure is non-fatal; the link is still rendered.
     let notification = crate::notify::Notification {
