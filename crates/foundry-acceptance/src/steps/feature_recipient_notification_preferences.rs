@@ -537,8 +537,28 @@ async fn unsubscribe_request_nonexistent_invalid_token(world: &mut FoundryWorld)
 }
 
 #[given(regex = r#"^Sam has a valid unsubscribe link for "([^"]+)" he has not confirmed$"#)]
-async fn sam_has_valid_unconfirmed_link(_world: &mut FoundryWorld, _workspace: String) {
-    pending!("Sam has a valid unsubscribe link he has not confirmed");
+async fn sam_has_valid_unconfirmed_link(world: &mut FoundryWorld, workspace: String) {
+    // Seed the workspace + an admin who can drive the shipped `POST /invites` emit,
+    // then mint the SAME well-formed signed link a suppressible email body carries —
+    // but drive NO confirm POST, so NO opt-out row exists yet. Sam is subscribed;
+    // the prefetch/CSRF-refusal scenarios prove neither a bare GET nor a CSRF-less
+    // POST can flip that state.
+    let harness = world
+        .harness
+        .as_ref()
+        .expect("harness spawned by Background");
+    let workspace_id = seed_workspace_and_admin(harness, &workspace).await;
+    let email_lower = SAM_EMAIL.to_ascii_lowercase();
+    let (t, sig) = mint_unsubscribe_link(harness, &email_lower, workspace_id);
+    world.unsub_email = Some(email_lower);
+    world.unsub_workspace_id = Some(workspace_id);
+    world.unsub_t = Some(t);
+    world.unsub_sig = Some(sig);
+    world.unsub_admin = Some((ADMIN_EMAIL.to_string(), ADMIN_PASSWORD.to_string()));
+    world.unsub_ws_admins.insert(
+        workspace,
+        (ADMIN_EMAIL.to_string(), ADMIN_PASSWORD.to_string()),
+    );
 }
 
 #[given(regex = r#"^Maria is signed in and belongs to "([^"]+)", "([^"]+)", and "([^"]+)"$"#)]
@@ -891,13 +911,43 @@ async fn both_unsubscribe_links_are_opened(world: &mut FoundryWorld) {
 }
 
 #[when(regex = r#"^an automated client fetches the unsubscribe link without confirming$"#)]
-async fn automated_client_fetches_link_without_confirming(_world: &mut FoundryWorld) {
-    pending!("an automated client fetches the unsubscribe link without confirming");
+async fn automated_client_fetches_link_without_confirming(world: &mut FoundryWorld) {
+    // An email scanner / link prefetcher issues a BARE `GET /unsubscribe?t=..&sig=..`
+    // and NEVER submits the confirm POST — exactly the shape a mail client's safe-link
+    // scan produces. The production GET (`unsubscribe::show_confirm`) is NON-DESTRUCTIVE
+    // (renders the confirm page only, writes no row — NFR-2), so the opt-out state must
+    // be untouched afterward. Capture the (status, body) so the outcome is observable.
+    let base = world.harness.as_ref().expect("harness").base_url();
+    let http = world.http.as_ref().expect("http").clone();
+    let t = world.unsub_t.clone().expect("valid link minted in Given");
+    let sig = world.unsub_sig.clone().expect("valid link minted in Given");
+    let (status, body) = open_unsubscribe_link(&http, &base, &t, &sig).await;
+    world.last_status = Some(status);
+    world.last_body = Some(body);
 }
 
 #[when(regex = r#"^the unsubscribe confirm is posted without a valid CSRF token$"#)]
-async fn unsubscribe_confirm_posted_without_csrf(_world: &mut FoundryWorld) {
-    pending!("the unsubscribe confirm is posted without a valid CSRF token");
+async fn unsubscribe_confirm_posted_without_csrf(world: &mut FoundryWorld) {
+    // Post the confirm form (t, sig, action=unsubscribe) DIRECTLY, WITHOUT the
+    // double-submit CSRF pair — no `foundry_csrf` cookie and no matching `_csrf`
+    // field (the shape a forged cross-site POST takes). The shipped `csrf_middleware`
+    // must refuse it (no cookie ⇒ invalid) before `submit_confirm` can write a row.
+    let base = world.harness.as_ref().expect("harness").base_url();
+    let http = world.http.as_ref().expect("http").clone();
+    let t = world.unsub_t.clone().expect("valid link minted in Given");
+    let sig = world.unsub_sig.clone().expect("valid link minted in Given");
+    let mut form: HashMap<&str, String> = HashMap::new();
+    form.insert("t", t);
+    form.insert("sig", sig);
+    form.insert("action", "unsubscribe".to_string());
+    let resp = http
+        .post(format!("{base}/unsubscribe"))
+        .form(&form)
+        .send()
+        .await
+        .expect("POST /unsubscribe without CSRF");
+    world.last_status = Some(resp.status());
+    world.last_body = Some(resp.text().await.unwrap_or_default());
 }
 
 #[when(regex = r#"^Maria opens the notification settings page$"#)]
@@ -1312,20 +1362,110 @@ async fn neither_response_reveals_existence(world: &mut FoundryWorld) {
 
 #[then(regex = r#"^a subsequent workspace-invite to Sam in "([^"]+)" is still delivered$"#)]
 async fn subsequent_workspace_invite_to_sam_still_delivered(
-    _world: &mut FoundryWorld,
+    world: &mut FoundryWorld,
     _workspace: String,
 ) {
-    pending!("a subsequent workspace-invite to Sam is still delivered");
+    // Prove prefetch-safety at the DELIVERY boundary: drive the REAL shipped issuance
+    // (sign the seeded admin in, `POST /invites` for Sam). The handler emits ONE
+    // `WorkspaceInvite` for Sam with `workspace_id: Some(Northwind)` through `notify()`.
+    // Because the prefetch GET wrote NO opt-out row, the suppression gate's point-read
+    // is `Ok(false)` ⇒ the invite DELIVERS — observed at the recording provider double.
+    // (If the GET had wrongly written a row, this invite would be suppressed and RED.)
+    let (admin_email, admin_pw) = world.unsub_admin.clone().expect("admin seeded in Given");
+    let outcome = {
+        let harness = world.harness.as_ref().expect("harness");
+        let http = world.http.as_ref().expect("http");
+        signed_in_post(
+            harness,
+            http,
+            &admin_email,
+            &admin_pw,
+            "/invites",
+            &[("email", SAM_EMAIL)],
+        )
+        .await
+    };
+    assert!(
+        outcome.status.is_success() || outcome.status.is_redirection(),
+        "the invite must be issued (2xx/3xx), got {}: {}",
+        outcome.status,
+        outcome.body
+    );
+    let harness = world.harness.as_ref().expect("harness");
+    let delivered: Vec<_> = harness
+        .fake_email
+        .sent()
+        .into_iter()
+        .filter(|d| d.event == "workspace_invite" && d.to == SAM_EMAIL && d.outcome == "delivered")
+        .collect();
+    assert_eq!(
+        delivered.len(),
+        1,
+        "a prefetch (bare GET, no confirm) must NOT unsubscribe Sam — his workspace_invite \
+         must still be delivered exactly once, found {}: {delivered:?}",
+        delivered.len()
+    );
 }
 
 #[then(regex = r#"^Sam remains subscribed to "([^"]+)" until he explicitly confirms$"#)]
-async fn sam_remains_subscribed_until_confirms(_world: &mut FoundryWorld, _workspace: String) {
-    pending!("Sam remains subscribed until he explicitly confirms");
+async fn sam_remains_subscribed_until_confirms(world: &mut FoundryWorld, _workspace: String) {
+    // The store-boundary observable: after the non-destructive prefetch GET, NO opt-out
+    // row exists for (Sam, workspace) — the point-read is `Ok(false)` (subscribed). Only
+    // an explicit confirm POST may ever flip this.
+    let email = world
+        .unsub_email
+        .clone()
+        .expect("recipient captured in Given");
+    let workspace_id = world
+        .unsub_workspace_id
+        .expect("workspace captured in Given");
+    let harness = world.harness.as_ref().expect("harness");
+    let recorded = harness
+        .app
+        .state
+        .store
+        .is_unsubscribed(&email, workspace_id)
+        .await
+        .expect("read opt-out state");
+    assert!(
+        !recorded,
+        "a bare prefetch GET must record NO opt-out — Sam remains subscribed until he \
+         explicitly confirms"
+    );
 }
 
 #[then(regex = r#"^the confirm is refused and no opt-out state changes$"#)]
-async fn confirm_refused_no_state_change(_world: &mut FoundryWorld) {
-    pending!("the confirm is refused and no opt-out state changes");
+async fn confirm_refused_no_state_change(world: &mut FoundryWorld) {
+    // The shipped `csrf_middleware` fronts `POST /unsubscribe`: a confirm carrying no
+    // valid double-submit CSRF token is REFUSED with 403 BEFORE `submit_confirm` runs,
+    // so no `insert_unsubscribe` is ever reached. Two observables together prove the
+    // refusal: (1) the response status is the CSRF refusal, and (2) the store still
+    // holds NO opt-out row for (Sam, workspace).
+    let status = world.last_status.expect("a CSRF-less confirm was posted");
+    assert_eq!(
+        status,
+        reqwest::StatusCode::FORBIDDEN,
+        "a confirm without a valid CSRF token must be refused with 403, got {status}"
+    );
+    let email = world
+        .unsub_email
+        .clone()
+        .expect("recipient captured in Given");
+    let workspace_id = world
+        .unsub_workspace_id
+        .expect("workspace captured in Given");
+    let harness = world.harness.as_ref().expect("harness");
+    let recorded = harness
+        .app
+        .state
+        .store
+        .is_unsubscribed(&email, workspace_id)
+        .await
+        .expect("read opt-out state");
+    assert!(
+        !recorded,
+        "a CSRF-refused confirm must change NO opt-out state — Sam stays subscribed"
+    );
 }
 
 #[then(regex = r#"^no unsubscribe token or recipient email appears in the logs$"#)]

@@ -133,14 +133,14 @@ Feature: A recipient silences a workspace's invitation emails without losing sec
     Then both requests return a byte-identical refusal
     And neither response reveals whether the address, workspace, or account exists
 
-  @pending @us-03 @security @real-io
+  @us-03 @security @real-io
   Scenario: Prefetching the link does not unsubscribe anyone
     Given Sam has a valid unsubscribe link for "Northwind" he has not confirmed
     When an automated client fetches the unsubscribe link without confirming
     Then a subsequent workspace-invite to Sam in "Northwind" is still delivered
     And Sam remains subscribed to "Northwind" until he explicitly confirms
 
-  @pending @us-03 @security @error @real-io
+  @us-03 @security @error @real-io
   Scenario: An unsubscribe confirm without a valid CSRF token is refused
     Given Sam has a valid unsubscribe link for "Northwind" he has not confirmed
     When the unsubscribe confirm is posted without a valid CSRF token
