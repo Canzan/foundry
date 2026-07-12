@@ -50,6 +50,14 @@ fn state_url(team_slug: &str, project_slug: &str, number: i32) -> String {
     format!("/team/{team_slug}/project/{project_slug}/issues/{number}/state")
 }
 
+/// Build the full issue-detail page URL (`…/issues/{n}`) — the "open full page"
+/// link rendered inside the quick-edit dialog (issue-change-history ADR-002 §1).
+/// The board card itself no longer navigates, so the dialog is the route to the
+/// full view.
+fn detail_url(team_slug: &str, project_slug: &str, number: i32) -> String {
+    format!("/team/{team_slug}/project/{project_slug}/issues/{number}")
+}
+
 #[derive(Debug, Deserialize)]
 pub struct CreateIssueForm {
     pub title: String,
@@ -234,6 +242,7 @@ pub async fn show_edit_form(
 
     let (csrf, set_cookie) = crate::csrf::ensure_csrf_cookie(&state, &headers);
     let action = edit_url(&team_slug, &project_slug, issue_number);
+    let detail = detail_url(&team_slug, &project_slug, issue_number);
     let body = crate::views::IssueEditModal {
         action,
         csrf,
@@ -241,6 +250,7 @@ pub async fn show_edit_form(
         title: view.title,
         description: view.description_md,
         selected_state: view.state,
+        detail_url: detail,
     }
     .render()
     .expect("issue_edit_modal partial renders from a fully-resolved, infallible view-model");
@@ -517,18 +527,15 @@ pub(crate) fn render_issue_card(
     edit_url: &str,
     state_url: &str,
 ) -> String {
-    // The card KEY links to the issue-detail page (issue-change-history ADR-002
-    // §1 / watch-item R6). Derived by trimming the `/edit` suffix off `edit_url`
-    // — the detail page shares the card's `…/issues/{n}` stem — so both the
-    // htmx-appended card here and the board-rendered `issue_card.html` carry the
-    // SAME additive link while keeping the quick-edit `hx-get`.
-    let detail_url = edit_url.strip_suffix("/edit").unwrap_or(edit_url);
+    // The WHOLE card opens the quick-edit dialog (the `hx-get`); the key is inert
+    // text. The link to the full issue-detail page (issue-change-history ADR-002
+    // §1) now lives INSIDE the dialog (`issue_edit_modal.html`), not on the card,
+    // so a click anywhere on the card is a dialog-open and never a full-page nav.
     format!(
-        r##"<article class="issue-card" id="issue-{key}" data-issue-key="{key}" draggable="true" data-state-url="{state}" hx-get="{edit}" hx-target="#modal-root" hx-swap="innerHTML" style="cursor:pointer"><a class="key" href="{detail}">{key}</a> <span class="title">{title}</span></article>"##,
+        r##"<article class="issue-card" id="issue-{key}" data-issue-key="{key}" draggable="true" data-state-url="{state}" hx-get="{edit}" hx-target="#modal-root" hx-swap="innerHTML" style="cursor:pointer"><span class="key">{key}</span> <span class="title">{title}</span></article>"##,
         key = html_escape(&issue_key.to_string()),
         state = html_escape(state_url),
         edit = html_escape(edit_url),
-        detail = html_escape(detail_url),
         title = html_escape(title),
     )
 }

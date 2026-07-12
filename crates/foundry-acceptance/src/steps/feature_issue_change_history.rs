@@ -342,32 +342,29 @@ async fn cards_keep_edit_control(world: &mut FoundryWorld) {
     }
 }
 
-#[then(regex = r#"^each issue card links to its detail page$"#)]
-async fn cards_link_to_detail(world: &mut FoundryWorld) {
+#[then(regex = r#"^the edit dialog for "([^"]+)" links to its detail page$"#)]
+async fn dialog_links_to_detail(world: &mut FoundryWorld, key: String) {
+    // The board card no longer navigates (issue-edit fix): a click opens the
+    // quick-edit dialog, and the link to the full issue-detail page lives INSIDE
+    // that dialog. Open the dialog and assert it carries an <a href> to the
+    // `…/issues/{n}` detail page (and not merely back to the `…/edit` endpoint).
+    let number = number_of(&key);
+    let url = format!("/team/{TEAM_SLUG}/project/{PROJECT_SLUG}/issues/{number}/edit");
+    capture_get(world, &url).await;
     let body = world.last_body.clone().unwrap_or_default();
     let doc = Html::parse_document(&body);
-    let card_selector = Selector::parse("article.issue-card").expect("valid selector");
-    let cards: Vec<_> = doc.select(&card_selector).collect();
-    assert!(
-        !cards.is_empty(),
-        "the board must render at least one issue card: {body}"
-    );
     let link_selector = Selector::parse("a[href]").expect("valid selector");
-    for card in cards {
-        let key = card.value().attr("data-issue-key").unwrap_or_default();
-        let number = number_of(key);
-        let want_suffix = format!("/issues/{number}");
-        let links_to_detail = card.select(&link_selector).any(|a| {
-            a.value()
-                .attr("href")
-                .map(|href| href.ends_with(&want_suffix))
-                .unwrap_or(false)
-        });
-        assert!(
-            links_to_detail,
-            "each card must carry an <a href> to its detail page ending in {want_suffix:?} (R6): {body}"
-        );
-    }
+    let want_suffix = format!("/issues/{number}");
+    let links_to_detail = doc.select(&link_selector).any(|a| {
+        a.value()
+            .attr("href")
+            .map(|href| href.ends_with(&want_suffix))
+            .unwrap_or(false)
+    });
+    assert!(
+        links_to_detail,
+        "the edit dialog must carry an <a href> to the detail page ending in {want_suffix:?}: {body}"
+    );
 }
 
 // ----- Slice 03: the program JSON change feed (/api/v1/.../history) ----------

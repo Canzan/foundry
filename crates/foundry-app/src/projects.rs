@@ -911,10 +911,6 @@ fn issue_card(
     crate::views::IssueCard {
         key: issue_key_string(key_prefix, row),
         title: row.title.clone(),
-        detail_url: format!(
-            "/team/{team_slug}/project/{project_slug}/issues/{number}",
-            number = row.number
-        ),
         edit_url: format!(
             "/team/{team_slug}/project/{project_slug}/issues/{number}/edit",
             number = row.number

@@ -1,6 +1,6 @@
 <div class="modal" role="dialog" aria-modal="true" data-modal="edit-issue">
   <div class="modal-dialog">
-    <header class="modal-header"><h2>Edit {{ key }}</h2></header>
+    <header class="modal-header"><h2>Edit {{ key }}</h2> <a class="full-page-link" href="{{ detail_url }}">Open full page</a></header>
     <form method="post" action="{{ action }}" hx-post="{{ action }}" hx-target="#modal-root" hx-swap="innerHTML">
       <input type="hidden" name="_csrf" value="{{ csrf }}">
       <label>Title <input type="text" name="title" value="{{ title }}" required autofocus></label>

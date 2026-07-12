@@ -182,11 +182,6 @@ pub struct IssueCard {
     /// Canonical `{PREFIX}-{N}` key (e.g. `AUTH-2`).
     pub key: String,
     pub title: String,
-    /// `GET …/issues/{n}` — the issue-detail page the card's KEY links to
-    /// (issue-change-history ADR-002 §1 / watch-item R6). Additive: the card
-    /// keeps its `hx-get` quick-edit control; the key is the least-disruptive
-    /// navigation affordance (does not collide with the drag gesture).
-    pub detail_url: String,
     /// `GET …/issues/{n}/edit` — the card's `hx-get` to open the edit dialog
     /// (issue-edit-dialog, R1). The card targets `#modal-root` so a click
     /// swaps the pre-filled dialog in.
@@ -223,6 +218,11 @@ pub struct IssueEditModal {
     /// — the status `<select>` pre-selects the matching option
     /// (issue-status-move slice 01).
     pub selected_state: String,
+    /// `GET …/issues/{n}` — the full issue-detail page. Rendered as an explicit
+    /// "open full page" link in the dialog (issue-change-history ADR-002 §1): the
+    /// board card itself no longer navigates, so this is the recipient's route
+    /// from the quick-edit dialog to the full view.
+    pub detail_url: String,
 }
 
 /// A board column with its (already state-filtered) cards in display order.

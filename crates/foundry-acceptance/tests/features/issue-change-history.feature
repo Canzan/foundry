@@ -72,10 +72,10 @@ Feature: A member sees, a program consumes, and a lead reports every change to a
     Then the response is a non-enumerable refusal
 
   @us-01 @real-io
-  Scenario: The board still opens the quick-edit modal, and the card links to the detail page
+  Scenario: The board opens the quick-edit dialog, and the dialog links to the detail page
     When Mei fetches the "Sandbox" board
     Then each issue card still carries its edit-dialog control
-    And each issue card links to its detail page
+    And the edit dialog for "GEN-1" links to its detail page
 
   # ---- Slice 02: record every editable field ----
 
