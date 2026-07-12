@@ -225,20 +225,20 @@ Feature: A recipient silences a workspace's invitation emails without losing sec
 
   # ── Slice 07 — US-07: PII-free suppression observability on the /metrics sidecar ─────────
 
-  @pending @us-07 @real-io
+  @us-07 @real-io
   Scenario: Suppressed deliveries are visible as a count on the metrics endpoint
     Given several suppressible deliveries to unsubscribed recipients have been suppressed
     When Olivia scrapes the metrics endpoint
     Then a suppression count is present split by event
     And the counts reflect how many suppressible deliveries were suppressed
 
-  @pending @us-07 @property @security @real-io
+  @us-07 @property @security @real-io
   Scenario: The suppression metric exposes no recipient PII
     Given several suppressible deliveries to unsubscribed recipients have been suppressed
     When Olivia scrapes the metrics endpoint
     Then no recipient email or unsubscribe token appears in any metric label or line
 
-  @pending @us-07 @property @real-io
+  @us-07 @property @real-io
   Scenario: Mandatory events never appear as suppressed
     Given Olivia boots Foundry with recipient unsubscribe enabled
     When Olivia scrapes the metrics endpoint

@@ -395,6 +395,12 @@ pub struct FoundryWorld {
     /// DATABASE_URL with this schema pinned via search_path.
     pub slice6_schema: Option<String>,
 
+    // ---- US-07 suppression observability (recipient-notification-preferences) ----
+    /// How many suppressible deliveries the US-07 Given actually drove into
+    /// the `foundry` subprocess as suppressions. The scrape Then asserts the
+    /// `foundry_notification_suppressions_total` family sums to exactly this.
+    pub us07_expected_suppressions: Option<u64>,
+
     // ---- US-10 tombstone GC (slice 7) ----
     /// UUIDs of tombstoned comments inserted via tombstone_factory for
     /// the current scenario. Indexed by (issue_key_prefix, issue_number)

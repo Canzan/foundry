@@ -347,6 +347,32 @@ async fn main() -> anyhow::Result<()> {
         .absolute(0);
     }
 
+    // recipient-notification-preferences (ADR-005) — register the SIBLING
+    // suppression counter at 0 over the FULL `NotificationEvent` catalog, BEFORE
+    // any notification fires. The live increment lives in `Notifier::notify`
+    // (notify.rs — `foundry_notification_suppressions_total{event}`, fired only on
+    // the suppression early-return), but a fresh instance has suppressed nothing,
+    // so without this baseline the family is ABSENT from the first `/metrics`
+    // scrape. Registering EVERY event (not just the suppressible ones) makes the
+    // mandatory events' series a permanent, scrapeable `…{event="password_reset"}
+    // 0` — the never-suppressed invariant (US-07 / NFR-3) is observable. The only
+    // label is the bounded `event` (∈ NotificationEvent::ALL, snake_case): no
+    // `provider`, no `workspace`, no recipient email/token — PII-free by
+    // construction (ADR-005 cardinality discipline).
+    metrics::describe_counter!(
+        foundry_app::NOTIFICATION_SUPPRESSIONS_METRIC,
+        "Per-event suppressed-notification decisions, labelled by the bounded \
+         `event` only (no provider/workspace/recipient — PII-free). Registered at \
+         0 for every event so mandatory events show a permanent 0 (ADR-005)."
+    );
+    for event in foundry_app::notify::suppressions_zero_series() {
+        metrics::counter!(
+            foundry_app::NOTIFICATION_SUPPRESSIONS_METRIC,
+            "event" => event.as_str(),
+        )
+        .absolute(0);
+    }
+
     // Slice 6 (ADR-012, D4 = A) — register `db_connections_in_use` at
     // value 0 BEFORE the poll task spawns. Grafana sees the metric line
     // immediately; the first poll tick (within METRICS_POOL_POLL_SECONDS)

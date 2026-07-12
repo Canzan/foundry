@@ -39,14 +39,19 @@
 //! `signed_in_post`, the seed helpers), NOT at the Gherkin phrase level — so this module
 //! declares only new, non-colliding phrases and registers no duplicate.
 
+use crate::steps::handler_instrumentation::FoundrySubprocess;
 use crate::support::harness::{
-    establish_session, post_with_cookie, signed_in_get, signed_in_post, InProcHarness,
+    establish_session, fresh_schema_pool_with_url, post_with_cookie, signed_in_get, signed_in_post,
+    InProcHarness,
 };
+use crate::support::metrics_scrape::scrape_metrics;
 use crate::world::FoundryWorld;
 use cucumber::{given, then, when};
-use foundry_app::{Notification, NotificationEvent, ProviderKind};
+use foundry_app::{
+    Notification, NotificationEvent, ProviderKind, NOTIFICATION_SUPPRESSIONS_METRIC,
+};
 use secrecy::SecretString;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::time::Instant;
 
 /// Fixed scenario clock anchor (mirrors the other in-process step modules).
@@ -468,15 +473,128 @@ async fn csrf_from_get(http: &reqwest::Client, url: &str) -> String {
         .to_string()
 }
 
-/// Shared pending-scaffold panic (assertion-class = RED, never BROKEN). DELIVER replaces
-/// each caller's body with the real harness wiring as it unskips the owning slice.
-macro_rules! pending {
-    ($phrase:literal) => {
-        panic!(concat!(
-            "pending — DELIVER wires this step when it unskips the owning slice: ",
-            $phrase
-        ))
-    };
+/// Seed a workspace + an `admin` member DIRECTLY against a raw pool (the US-07
+/// suppression scenarios drive a REAL `foundry` SUBPROCESS whose `/metrics`
+/// sidecar the in-process harness never installs, so there is no `InProcHarness`
+/// to seed through — only the subprocess's PG schema, reachable via the pool
+/// `fresh_schema_pool_with_url` hands back). Mirrors [`seed_workspace_and_named_admin`]
+/// but takes `&sqlx::PgPool`. Returns the new workspace id.
+async fn seed_workspace_and_admin_pool(
+    pool: &sqlx::PgPool,
+    workspace: &str,
+    admin_email: &str,
+    admin_password: &str,
+) -> uuid::Uuid {
+    let workspace_id = uuid::Uuid::now_v7();
+    let user_id = uuid::Uuid::now_v7();
+    let lower = admin_email.to_ascii_lowercase();
+    let hash = foundry_auth::hash_password(&SecretString::new(admin_password.to_string().into()))
+        .await
+        .expect("hash admin pw");
+    sqlx::query("INSERT INTO workspaces (id, name) VALUES ($1, $2)")
+        .bind(workspace_id)
+        .bind(workspace)
+        .execute(pool)
+        .await
+        .expect("insert workspace");
+    sqlx::query(
+        "INSERT INTO users (id, email_lower, email_display, display_name, password_hash)
+              VALUES ($1, $2, $3, $4, $5)",
+    )
+    .bind(user_id)
+    .bind(&lower)
+    .bind(admin_email)
+    .bind("Ada Admin")
+    .bind(&hash)
+    .execute(pool)
+    .await
+    .expect("insert admin user");
+    sqlx::query(
+        "INSERT INTO workspace_memberships (workspace_id, user_id, role) VALUES ($1, $2, 'admin')",
+    )
+    .bind(workspace_id)
+    .bind(user_id)
+    .execute(pool)
+    .await
+    .expect("insert admin membership");
+    workspace_id
+}
+
+/// Seed a per-(email, workspace) opt-out row DIRECTLY against a raw pool (the
+/// presence of a row = muted, BR-7), so a subsequent SUPPRESSIBLE emit to that
+/// recipient hits the suppression early-return. Mirrors the store-boundary seed
+/// the in-process scenarios use, but against the subprocess's schema pool.
+async fn seed_optout_row_pool(pool: &sqlx::PgPool, email_lower: &str, workspace_id: uuid::Uuid) {
+    sqlx::query(
+        "INSERT INTO notification_unsubscribes (email_lower, workspace_id) VALUES ($1, $2)
+             ON CONFLICT DO NOTHING",
+    )
+    .bind(email_lower)
+    .bind(workspace_id)
+    .execute(pool)
+    .await
+    .expect("seed opt-out row for the unsubscribed invitee");
+}
+
+/// Sign in as `email`/`password` and POST `path` with `form` against an arbitrary
+/// base URL — the SUBPROCESS variant of [`signed_in_post`] (which is bound to
+/// `harness.base_url()`). Drives the shipped double-submit CSRF + session flow
+/// against the real `foundry` bin's main listener. Returns (status, body).
+async fn subprocess_signed_in_post(
+    http: &reqwest::Client,
+    base: &str,
+    email: &str,
+    password: &str,
+    path: &str,
+    form: &[(&str, &str)],
+) -> (reqwest::StatusCode, String) {
+    // (1) GET /sign-in to mint a CSRF cookie + token.
+    let csrf_token = csrf_from_get(http, &format!("{base}/sign-in")).await;
+
+    // (2) POST /sign-in to authenticate; capture the session cookie.
+    let mut signin_form: HashMap<&str, String> = HashMap::new();
+    signin_form.insert("email", email.to_string());
+    signin_form.insert("password", password.to_string());
+    signin_form.insert("_csrf", csrf_token.clone());
+    let signin_resp = http
+        .post(format!("{base}/sign-in"))
+        .header(
+            reqwest::header::COOKIE,
+            format!("foundry_csrf={csrf_token}"),
+        )
+        .form(&signin_form)
+        .send()
+        .await
+        .expect("post /sign-in to subprocess");
+    let session_pair = signin_resp
+        .headers()
+        .get_all(reqwest::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .find(|s| s.starts_with("foundry_session="))
+        .and_then(|s| s.split(';').next())
+        .map(|s| s.to_string())
+        .expect("sign-in must issue a foundry_session cookie");
+
+    // (3+4) POST `path` with the session + CSRF cookies and matching form token.
+    let mut full_form: HashMap<&str, String> = HashMap::new();
+    for (k, v) in form {
+        full_form.insert(k, (*v).to_string());
+    }
+    full_form.insert("_csrf", csrf_token.clone());
+    let resp = http
+        .post(format!("{base}{path}"))
+        .header(
+            reqwest::header::COOKIE,
+            format!("{session_pair}; foundry_csrf={csrf_token}"),
+        )
+        .form(&full_form)
+        .send()
+        .await
+        .expect("post target path to subprocess");
+    let status = resp.status();
+    let body = resp.text().await.unwrap_or_default();
+    (status, body)
 }
 
 // ============================================================================
@@ -866,13 +984,77 @@ async fn maria_has_confirmed_unsubscribing_from(world: &mut FoundryWorld, worksp
 #[given(
     regex = r#"^several suppressible deliveries to unsubscribed recipients have been suppressed$"#
 )]
-async fn several_suppressible_deliveries_suppressed(_world: &mut FoundryWorld) {
-    pending!("several suppressible deliveries to unsubscribed recipients have been suppressed");
+async fn several_suppressible_deliveries_suppressed(world: &mut FoundryWorld) {
+    // Drive REAL suppressions through the shipped `foundry` subprocess (driving port:
+    // the composition root with the Prometheus recorder + `/metrics` sidecar the
+    // in-process harness never installs). Seed N distinct UNSUBSCRIBED invitees in the
+    // subprocess's schema, then POST /workspace/invites for each: every MemberInvite
+    // emit hits the suppression early-return (ADR-003) and ticks
+    // `foundry_notification_suppressions_total{event="member_invite"}` on the real
+    // recorder — the ONLY place that increment becomes scrapeable.
+    const SUPPRESSED_COUNT: usize = 3;
+    let (schema, pool, url) = fresh_schema_pool_with_url().await;
+    let workspace_id =
+        seed_workspace_and_admin_pool(&pool, "Northwind", ADMIN_EMAIL, ADMIN_PASSWORD).await;
+    let mut invitees = Vec::with_capacity(SUPPRESSED_COUNT);
+    for index in 0..SUPPRESSED_COUNT {
+        let email = format!("invitee-{index}@northwind.example");
+        seed_optout_row_pool(&pool, &email, workspace_id).await;
+        invitees.push(email);
+    }
+    // The subprocess opens its OWN pool on the same schema — release ours.
+    pool.close().await;
+
+    let subprocess = FoundrySubprocess::spawn_with_env_overrides(
+        &url,
+        schema,
+        1,
+        &[("NOTIFICATION_PROVIDERS", "log".to_string())],
+    )
+    .await
+    .expect("spawn foundry subprocess for the suppression-metric checks");
+
+    let base = format!("http://{}", subprocess.main_addr);
+    let http = rnp_client();
+    for email in &invitees {
+        let (status, body) = subprocess_signed_in_post(
+            &http,
+            &base,
+            ADMIN_EMAIL,
+            ADMIN_PASSWORD,
+            "/workspace/invites",
+            &[("email", email.as_str())],
+        )
+        .await;
+        assert!(
+            status.is_success() || status.is_redirection(),
+            "each member-invite must be issued (2xx/3xx) so its suppressed emit ticks the \
+             counter, got {status}: {body}"
+        );
+    }
+
+    world.slice6_foundry = Some(subprocess);
+    world.us07_expected_suppressions = Some(SUPPRESSED_COUNT as u64);
 }
 
 #[given(regex = r#"^Olivia boots Foundry with recipient unsubscribe enabled$"#)]
-async fn olivia_boots_foundry_with_unsubscribe(_world: &mut FoundryWorld) {
-    pending!("Olivia boots Foundry with recipient unsubscribe enabled");
+async fn olivia_boots_foundry_with_unsubscribe(world: &mut FoundryWorld) {
+    // Boot the shipped `foundry` subprocess with the always-buildable `log` channel —
+    // NO suppressions fired. The register-at-0 baseline (main.rs, ADR-005) must mint the
+    // FULL `NotificationEvent` catalog at 0 on the recorder, including every MANDATORY
+    // event, so the never-suppressed invariant is observable on the first scrape.
+    let (schema, pool, url) = fresh_schema_pool_with_url().await;
+    pool.close().await;
+    let subprocess = FoundrySubprocess::spawn_with_env_overrides(
+        &url,
+        schema,
+        1,
+        &[("NOTIFICATION_PROVIDERS", "log".to_string())],
+    )
+    .await
+    .expect("spawn foundry subprocess for the suppression register-at-0 check");
+    world.slice6_foundry = Some(subprocess);
+    world.us07_expected_suppressions = Some(0);
 }
 
 #[given(
@@ -1499,8 +1681,15 @@ async fn sam_opens_link_and_confirms_resubscribe(world: &mut FoundryWorld, _work
 }
 
 #[when(regex = r#"^Olivia scrapes the metrics endpoint$"#)]
-async fn olivia_scrapes_metrics_endpoint(_world: &mut FoundryWorld) {
-    pending!("Olivia scrapes the metrics endpoint");
+async fn olivia_scrapes_metrics_endpoint(world: &mut FoundryWorld) {
+    // Driving port 3: scrape the subprocess's real `/metrics` sidecar.
+    let addr = world
+        .slice6_foundry
+        .as_ref()
+        .expect("Olivia booted the foundry subprocess before scraping")
+        .metrics_addr;
+    let snapshot = scrape_metrics(addr).await;
+    world.slice6_last_scrape = Some(snapshot);
 }
 
 #[when(regex = r#"^the "([^"]+)" workspace is deleted$"#)]
@@ -2341,28 +2530,153 @@ async fn subsequent_workspace_invite_delivered_to_sam(
 }
 
 #[then(regex = r#"^a suppression count is present split by event$"#)]
-async fn suppression_count_present_split_by_event(_world: &mut FoundryWorld) {
-    pending!("a suppression count is present split by event");
+async fn suppression_count_present_split_by_event(world: &mut FoundryWorld) {
+    let snap = world
+        .slice6_last_scrape
+        .as_ref()
+        .expect("Olivia scraped /metrics before this step");
+    let samples = snap.samples_for(NOTIFICATION_SUPPRESSIONS_METRIC);
+    assert!(
+        !samples.is_empty(),
+        "the suppression metric family must be present on the endpoint. Body:\n{}",
+        snap.raw_body
+    );
+    // Every sample is split by the bounded `event` label (the dimension operators slice on).
+    for sample in &samples {
+        assert!(
+            sample.labels.contains_key("event"),
+            "each suppression sample must be split by an `event` label: {sample:?}"
+        );
+    }
+    // A count is genuinely PRESENT (the suppressions we drove are visible, not just the
+    // register-at-0 zeros).
+    assert!(
+        snap.sum_for(NOTIFICATION_SUPPRESSIONS_METRIC) > 0.0,
+        "a non-zero suppression count must be present after suppressions fired. Body:\n{}",
+        snap.raw_body
+    );
 }
 
 #[then(regex = r#"^the counts reflect how many suppressible deliveries were suppressed$"#)]
-async fn counts_reflect_suppressed_deliveries(_world: &mut FoundryWorld) {
-    pending!("the counts reflect how many suppressible deliveries were suppressed");
+async fn counts_reflect_suppressed_deliveries(world: &mut FoundryWorld) {
+    let expected = world
+        .us07_expected_suppressions
+        .expect("the Given tracked how many suppressions it drove");
+    let snap = world
+        .slice6_last_scrape
+        .as_ref()
+        .expect("Olivia scraped /metrics before this step");
+    let total = snap.sum_for(NOTIFICATION_SUPPRESSIONS_METRIC);
+    assert_eq!(
+        total as u64, expected,
+        "the suppression counter must reflect EXACTLY the {expected} suppressed deliveries, \
+         got {total}. Body:\n{}",
+        snap.raw_body
+    );
+    // The whole count is attributed to the suppressible event actually driven.
+    let member_invite: f64 = snap
+        .samples_for(NOTIFICATION_SUPPRESSIONS_METRIC)
+        .into_iter()
+        .filter(|s| s.labels.get("event").map(String::as_str) == Some("member_invite"))
+        .map(|s| s.value)
+        .sum();
+    assert_eq!(
+        member_invite as u64, expected,
+        "all {expected} suppressions must be attributed to event=member_invite, got {member_invite}"
+    );
 }
 
 #[then(regex = r#"^no recipient email or unsubscribe token appears in any metric label or line$"#)]
-async fn no_pii_in_metrics(_world: &mut FoundryWorld) {
-    pending!("no recipient email or unsubscribe token appears in any metric label or line");
+async fn no_pii_in_metrics(world: &mut FoundryWorld) {
+    let snap = world
+        .slice6_last_scrape
+        .as_ref()
+        .expect("Olivia scraped /metrics before this step");
+    // Property (ADR-005): the suppression series' ONLY label key is the bounded `event`
+    // — no recipient/email/workspace/token key can leak PII into the cardinality surface.
+    let keys = snap.label_keys_for(NOTIFICATION_SUPPRESSIONS_METRIC);
+    let expected: BTreeSet<String> = ["event"].iter().map(|key| key.to_string()).collect();
+    assert_eq!(
+        keys, expected,
+        "the suppression metric must carry EXACTLY the {{event}} label key (PII-free), \
+         got {keys:?}. Body:\n{}",
+        snap.raw_body
+    );
+    // Belt-and-braces over the WHOLE exposition body: no recipient email (local-part or
+    // domain) may appear anywhere in any metric label or line.
+    for needle in ["invitee-", "@northwind.example"] {
+        assert!(
+            !snap.raw_body.contains(needle),
+            "the /metrics body must expose no recipient PII; found {needle:?}. Body:\n{}",
+            snap.raw_body
+        );
+    }
 }
 
 #[then(regex = r#"^the suppression metric is registered at zero for every event$"#)]
-async fn suppression_metric_registered_at_zero(_world: &mut FoundryWorld) {
-    pending!("the suppression metric is registered at zero for every event");
+async fn suppression_metric_registered_at_zero(world: &mut FoundryWorld) {
+    let snap = world
+        .slice6_last_scrape
+        .as_ref()
+        .expect("Olivia scraped /metrics before this step");
+    let samples = snap.samples_for(NOTIFICATION_SUPPRESSIONS_METRIC);
+    assert!(
+        !samples.is_empty(),
+        "the suppression metric family must be REGISTERED (present) on the first scrape, before \
+         any suppression fires — register-at-0 is missing. Body:\n{}",
+        snap.raw_body
+    );
+    // The register-at-0 spans the FULL NotificationEvent catalog, every series at 0
+    // (fresh boot — nothing suppressed).
+    for event in NotificationEvent::ALL {
+        let sample = samples
+            .iter()
+            .find(|s| s.labels.get("event").map(String::as_str) == Some(event.as_str()))
+            .unwrap_or_else(|| {
+                panic!(
+                    "register-at-0 must mint a suppression series for event={} — the FULL \
+                     NotificationEvent catalog must be present. Body:\n{}",
+                    event.as_str(),
+                    snap.raw_body
+                )
+            });
+        assert_eq!(
+            sample.value, 0.0,
+            "on a fresh boot every suppression series must be registered at ZERO (nothing \
+             suppressed yet), got {sample:?}"
+        );
+    }
 }
 
 #[then(regex = r#"^the suppressed count for every mandatory event is zero$"#)]
-async fn suppressed_count_for_mandatory_is_zero(_world: &mut FoundryWorld) {
-    pending!("the suppressed count for every mandatory event is zero");
+async fn suppressed_count_for_mandatory_is_zero(world: &mut FoundryWorld) {
+    let snap = world
+        .slice6_last_scrape
+        .as_ref()
+        .expect("Olivia scraped /metrics before this step");
+    let samples = snap.samples_for(NOTIFICATION_SUPPRESSIONS_METRIC);
+    // Mandatory events are the complement of `is_suppressible()`; the suppression gate
+    // never checks them, so their series stay a permanent 0 (structurally never
+    // incremented). Reverting the `is_suppressible()` allow-list to admit a mandatory
+    // event would let it be suppressed-and-counted, reddening this (@property).
+    for event in NotificationEvent::ALL
+        .into_iter()
+        .filter(|event| !event.is_suppressible())
+    {
+        let value: f64 = samples
+            .iter()
+            .filter(|s| s.labels.get("event").map(String::as_str) == Some(event.as_str()))
+            .map(|s| s.value)
+            .sum();
+        assert_eq!(
+            value,
+            0.0,
+            "a MANDATORY event ({}) must never be counted as suppressed — its series must stay \
+             0, got {value}. Body:\n{}",
+            event.as_str(),
+            snap.raw_body
+        );
+    }
 }
 
 #[then(regex = r#"^deleting the workspace succeeds$"#)]

@@ -1020,6 +1020,27 @@ pub fn delivery_zero_series(
     series
 }
 
+/// The register-at-0 series for the sibling suppression counter
+/// (`foundry_notification_suppressions_total{event}`, ADR-005): one entry per
+/// `event` over the FULL bounded [`NotificationEvent::ALL`] catalog — NOT gated
+/// on suppressibility. The composition root (`main.rs`) registers each at 0
+/// BEFORE any notification fires so:
+///   - every event's series is present on the first `/metrics` scrape (an absent
+///     series never reads as "missing" on the Grafana panel), AND
+///   - the MANDATORY events show a permanent `…{event="password_reset"} 0` — the
+///     increment fires only on the suppression early-return (ADR-003), which is
+///     structurally unreachable for a non-suppressible event, so their series
+///     stay 0 as a live, scrapeable proof of the never-suppressed invariant
+///     (US-07 / NFR-3).
+///
+/// The label domain stays bounded (PII-free): the ONLY label is `event`, whose
+/// value is drawn from the closed enum's `as_str()` — no `provider` (a
+/// suppression reaches no provider), no `workspace`, no recipient email/token
+/// (ADR-005 cardinality discipline).
+pub fn suppressions_zero_series() -> [NotificationEvent; NotificationEvent::ALL.len()] {
+    NotificationEvent::ALL
+}
+
 pub async fn build_notifier(delivery_timeout: Duration) -> anyhow::Result<Notifier> {
     let spec = std::env::var("NOTIFICATION_PROVIDERS").unwrap_or_default();
     let notifier = build_notifier_from(&spec, |key| std::env::var(key).ok()).await?;
@@ -1523,6 +1544,63 @@ mod tests {
                 inactive.as_str()
             );
         }
+    }
+
+    #[test]
+    fn suppression_register_at_zero_mints_the_full_catalog_with_event_only_label() {
+        // Behaviour (ADR-005): the sibling suppression register-at-0 mints EXACTLY one
+        // series per event over the FULL NotificationEvent catalog (NOT gated on
+        // suppressibility), every series at 0, with the label KEY set fail-closed at
+        // {event} ONLY — no provider, no workspace, no recipient (PII-free). Because the
+        // MANDATORY events are registered too, their series are a permanent scrapeable 0
+        // (US-07). Widening the label set (adding recipient/workspace) or dropping a
+        // mandatory event reds this — the acceptance-scope mirror of the /metrics checks.
+        let recorder = PrometheusBuilder::new().build_recorder();
+        let handle = recorder.handle();
+
+        metrics::with_local_recorder(&recorder, || {
+            for event in suppressions_zero_series() {
+                metrics::counter!(
+                    NOTIFICATION_SUPPRESSIONS_METRIC,
+                    "event" => event.as_str(),
+                )
+                .absolute(0);
+            }
+        });
+        let body = handle.render();
+
+        let expected_keys: BTreeSet<String> = ["event"].iter().map(|k| k.to_string()).collect();
+        let mut minted = 0;
+        for event in NotificationEvent::ALL {
+            let line = body
+                .lines()
+                .find(|line| {
+                    line.starts_with(&format!("{NOTIFICATION_SUPPRESSIONS_METRIC}{{"))
+                        && line.contains(&format!("event=\"{}\"", event.as_str()))
+                })
+                .unwrap_or_else(|| {
+                    panic!(
+                        "suppression register-at-0 must mint event={} at zero over the FULL \
+                         catalog:\n{body}",
+                        event.as_str(),
+                    )
+                });
+            assert!(
+                line.trim_end().ends_with(" 0"),
+                "every suppression series must register at zero: {line}"
+            );
+            assert_eq!(
+                label_keys(line),
+                expected_keys,
+                "suppression series labels must be EXACTLY {{event}} (PII-free, fail closed): {line}"
+            );
+            minted += 1;
+        }
+        assert_eq!(
+            minted,
+            NotificationEvent::ALL.len(),
+            "the suppression register-at-0 must mint exactly one series per catalog event"
+        );
     }
 
     #[tokio::test]
