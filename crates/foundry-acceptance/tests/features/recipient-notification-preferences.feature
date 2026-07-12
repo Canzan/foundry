@@ -118,14 +118,14 @@ Feature: A recipient silences a workspace's invitation emails without losing sec
 
   # ── Slice 03 — US-03: non-enumerable refusal + prefetch-safe GET + CSRF on the POST ──────
 
-  @pending @us-03 @security @real-io
+  @us-03 @security @real-io
   Scenario: A tampered token is refused exactly like an invalid one
     Given Sam's unsubscribe link for "Northwind" has a tampered token
     When the tampered unsubscribe link is opened
     Then the uniform non-enumerable refusal page is shown
     And no unsubscribe is recorded
 
-  @pending @us-03 @security @real-io
+  @us-03 @security @real-io
   Scenario: The response does not reveal whether an address exists
     Given an unsubscribe request for a real recipient carries an invalid token
     And an unsubscribe request for a non-existent address carries an invalid token
@@ -146,7 +146,7 @@ Feature: A recipient silences a workspace's invitation emails without losing sec
     When the unsubscribe confirm is posted without a valid CSRF token
     Then the confirm is refused and no opt-out state changes
 
-  @pending @us-03 @security @real-io
+  @us-03 @security @real-io
   Scenario: A refused unsubscribe request leaks no token or recipient email
     Given Sam's unsubscribe link for "Northwind" has a tampered token
     When the tampered unsubscribe link is opened

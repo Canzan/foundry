@@ -1161,6 +1161,22 @@ pub struct FoundryWorld {
     /// workspace-deletion `When`, so the `Then` can assert the delete succeeded
     /// (exactly one workspace row removed, cascading its 0014 opt-out rows).
     pub unsub_delete_rows: Option<u64>,
+    /// recipient-notification-preferences (US-03 non-enumerable refusal) — the two
+    /// `(t, sig)` links opened side by side in the address-existence-oracle scenario:
+    /// A carries a REAL recipient + real workspace, B a NON-EXISTENT address + unknown
+    /// workspace, BOTH bearing an invalid signature. Captured so the byte-identity
+    /// `Then` can prove the refusal never branches on whether the address/workspace/
+    /// account exists.
+    pub unsub_link_a: Option<(String, String)>,
+    pub unsub_link_b: Option<(String, String)>,
+    /// The `(status, body)` refusals returned for links A and B, compared byte-for-byte.
+    pub unsub_refusal_a: Option<(StatusCode, String)>,
+    pub unsub_refusal_b: Option<(StatusCode, String)>,
+    /// Identifiers (recipient emails, workspace name/id, the opaque token `t`, and the
+    /// valid + tampered `sig`) that must NEVER appear in a refusal body / log surface —
+    /// accumulated by the US-03 Givens so the no-oracle / no-leak `Then`s scan each
+    /// refusal for every one.
+    pub unsub_secret_identifiers: Vec<String>,
 }
 
 impl FoundryWorld {

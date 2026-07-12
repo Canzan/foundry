@@ -254,6 +254,40 @@ async fn confirm_unsubscribe(
     (status, body)
 }
 
+/// Corrupt a signature by flipping its first character, so the constant-time
+/// `UnsubscribeToken::verify` rejects it (a TAMPERED, well-formed-looking link).
+fn tamper_sig(sig: &str) -> String {
+    let mut chars: Vec<char> = sig.chars().collect();
+    if let Some(first) = chars.first_mut() {
+        *first = if *first == 'a' { 'b' } else { 'a' };
+    }
+    chars.into_iter().collect()
+}
+
+/// Open an unsubscribe link at the PUBLIC driving port — a NON-DESTRUCTIVE
+/// `GET /unsubscribe?t=..&sig=..` (a scanner/prefetch-shaped fetch). Returns the
+/// `(status, body)` the opener SEES, so a `Then` can assert the uniform refusal
+/// and compare two openings byte-for-byte.
+async fn open_unsubscribe_link(
+    http: &reqwest::Client,
+    base: &str,
+    t: &str,
+    sig: &str,
+) -> (reqwest::StatusCode, String) {
+    let resp = http
+        .get(format!(
+            "{base}/unsubscribe?t={}&sig={}",
+            urlencoding::encode(t),
+            urlencoding::encode(sig),
+        ))
+        .send()
+        .await
+        .expect("GET /unsubscribe");
+    let status = resp.status();
+    let body = resp.text().await.unwrap_or_default();
+    (status, body)
+}
+
 /// Fetch a URL and return the `foundry_csrf` token minted in its `Set-Cookie`.
 async fn csrf_from_get(http: &reqwest::Client, url: &str) -> String {
     let get = http.get(url).send().await.expect("GET for csrf");
@@ -430,18 +464,76 @@ async fn sam_unsubscribed_from_every_workspace(world: &mut FoundryWorld) {
 }
 
 #[given(regex = r#"^Sam's unsubscribe link for "([^"]+)" has a tampered token$"#)]
-async fn sam_link_has_tampered_token(_world: &mut FoundryWorld, _workspace: String) {
-    pending!("Sam's unsubscribe link has a tampered token");
+async fn sam_link_has_tampered_token(world: &mut FoundryWorld, workspace: String) {
+    let harness = world
+        .harness
+        .as_ref()
+        .expect("harness spawned by Background");
+    // Seed a real workspace so the link is well-formed and points at a live target —
+    // the refusal must NOT depend on that (Sam stays account-less; the tamper alone
+    // must sink the link).
+    let workspace_id = seed_workspace_and_admin(harness, &workspace).await;
+    let email_lower = SAM_EMAIL.to_ascii_lowercase();
+    // Mint the SAME signed link a suppressible email body carries, then TAMPER the
+    // signature (flip one character) so the constant-time HMAC verify rejects it.
+    let (t, valid_sig) = mint_unsubscribe_link(harness, &email_lower, workspace_id);
+    let tampered_sig = tamper_sig(&valid_sig);
+    world.unsub_workspace_id = Some(workspace_id);
+    world.unsub_email = Some(email_lower.clone());
+    world.unsub_t = Some(t.clone());
+    world.unsub_sig = Some(tampered_sig.clone());
+    // Everything a careless handler could echo into a body/log on refusal: the
+    // recipient email, the workspace name + id, the opaque token, and BOTH signatures.
+    world.unsub_secret_identifiers = vec![
+        email_lower,
+        workspace,
+        workspace_id.to_string(),
+        t,
+        valid_sig,
+        tampered_sig,
+    ];
 }
 
 #[given(regex = r#"^an unsubscribe request for a real recipient carries an invalid token$"#)]
-async fn unsubscribe_request_real_recipient_invalid_token(_world: &mut FoundryWorld) {
-    pending!("an unsubscribe request for a real recipient carries an invalid token");
+async fn unsubscribe_request_real_recipient_invalid_token(world: &mut FoundryWorld) {
+    let harness = world
+        .harness
+        .as_ref()
+        .expect("harness spawned by Background");
+    let workspace = "Northwind";
+    let workspace_id = seed_workspace_and_admin(harness, workspace).await;
+    let email_lower = SAM_EMAIL.to_ascii_lowercase();
+    // A well-formed link for a REAL recipient + real workspace, but with a TAMPERED
+    // signature — decode succeeds, constant-time verify fails ⇒ uniform refusal.
+    let (t, valid_sig) = mint_unsubscribe_link(harness, &email_lower, workspace_id);
+    let sig = tamper_sig(&valid_sig);
+    world.unsub_link_a = Some((t.clone(), sig.clone()));
+    world.unsub_secret_identifiers.extend([
+        email_lower,
+        workspace.to_string(),
+        workspace_id.to_string(),
+        t,
+        valid_sig,
+        sig,
+    ]);
 }
 
 #[given(regex = r#"^an unsubscribe request for a non-existent address carries an invalid token$"#)]
-async fn unsubscribe_request_nonexistent_invalid_token(_world: &mut FoundryWorld) {
-    pending!("an unsubscribe request for a non-existent address carries an invalid token");
+async fn unsubscribe_request_nonexistent_invalid_token(world: &mut FoundryWorld) {
+    // A well-formed link for an address + workspace that DO NOT EXIST, with an invalid
+    // signature. Its refusal must be byte-identical to the real-recipient arm — the
+    // handler refuses BEFORE any existence lookup, so there is no oracle.
+    let ghost_email = "ghost-recipient@no-such-domain.invalid";
+    let ghost_workspace_id = uuid::Uuid::now_v7();
+    let t = foundry_app::unsubscribe::encode_t(ghost_email, ghost_workspace_id);
+    let sig = "not-a-real-signature-for-a-nonexistent-address".to_string();
+    world.unsub_link_b = Some((t.clone(), sig.clone()));
+    world.unsub_secret_identifiers.extend([
+        ghost_email.to_string(),
+        ghost_workspace_id.to_string(),
+        t,
+        sig,
+    ]);
 }
 
 #[given(regex = r#"^Sam has a valid unsubscribe link for "([^"]+)" he has not confirmed$"#)]
@@ -770,13 +862,32 @@ async fn all_three_mandatory_events_fire_for_sam(world: &mut FoundryWorld) {
 }
 
 #[when(regex = r#"^the tampered unsubscribe link is opened$"#)]
-async fn the_tampered_link_is_opened(_world: &mut FoundryWorld) {
-    pending!("the tampered unsubscribe link is opened");
+async fn the_tampered_link_is_opened(world: &mut FoundryWorld) {
+    let base = world.harness.as_ref().expect("harness").base_url();
+    let http = world.http.as_ref().expect("http").clone();
+    let t = world
+        .unsub_t
+        .clone()
+        .expect("tampered link minted in Given");
+    let sig = world
+        .unsub_sig
+        .clone()
+        .expect("tampered link minted in Given");
+    let (status, body) = open_unsubscribe_link(&http, &base, &t, &sig).await;
+    world.last_status = Some(status);
+    world.last_body = Some(body);
 }
 
 #[when(regex = r#"^both unsubscribe links are opened$"#)]
-async fn both_unsubscribe_links_are_opened(_world: &mut FoundryWorld) {
-    pending!("both unsubscribe links are opened");
+async fn both_unsubscribe_links_are_opened(world: &mut FoundryWorld) {
+    let base = world.harness.as_ref().expect("harness").base_url();
+    let http = world.http.as_ref().expect("http").clone();
+    let (t_a, sig_a) = world.unsub_link_a.clone().expect("link A minted in Given");
+    let (t_b, sig_b) = world.unsub_link_b.clone().expect("link B minted in Given");
+    let refusal_a = open_unsubscribe_link(&http, &base, &t_a, &sig_a).await;
+    let refusal_b = open_unsubscribe_link(&http, &base, &t_b, &sig_b).await;
+    world.unsub_refusal_a = Some(refusal_a);
+    world.unsub_refusal_b = Some(refusal_b);
 }
 
 #[when(regex = r#"^an automated client fetches the unsubscribe link without confirming$"#)]
@@ -1103,23 +1214,100 @@ async fn none_of_them_counted_as_suppressed(world: &mut FoundryWorld) {
 }
 
 #[then(regex = r#"^the uniform non-enumerable refusal page is shown$"#)]
-async fn uniform_non_enumerable_refusal_shown(_world: &mut FoundryWorld) {
-    pending!("the uniform non-enumerable refusal page is shown");
+async fn uniform_non_enumerable_refusal_shown(world: &mut FoundryWorld) {
+    let status = world.last_status.expect("the tampered link was opened");
+    let body = world.last_body.clone().expect("a refusal body");
+    // It is the uniform refusal page (fixed 200, reason-non-committal copy), NOT a
+    // confirm page — no <form>, no workspace name.
+    assert_eq!(
+        status,
+        reqwest::StatusCode::OK,
+        "the refusal is a fixed 200, got {status}"
+    );
+    assert!(
+        body.contains("This unsubscribe link is no longer valid"),
+        "the refusal must render the uniform non-enumerable copy: {body}"
+    );
+    assert!(
+        !body.contains("<form"),
+        "the refusal must carry NO confirm form: {body}"
+    );
+    // "refused exactly like an invalid one": a wholly-invalid link (garbage t + sig)
+    // yields a BYTE-IDENTICAL refusal — the tampered arm and the never-valid arm
+    // collapse to the same page, so a mutated sig is indistinguishable from a link
+    // that never verified. Reverting the refusal to diverge per reason reds this.
+    let base = world.harness.as_ref().expect("harness").base_url();
+    let http = world.http.as_ref().expect("http").clone();
+    let (invalid_status, invalid_body) =
+        open_unsubscribe_link(&http, &base, "not-a-real-token", "not-a-real-signature").await;
+    assert_eq!(
+        (status, body.as_str()),
+        (invalid_status, invalid_body.as_str()),
+        "the tampered-token refusal must be byte-identical to a wholly-invalid link's refusal"
+    );
 }
 
 #[then(regex = r#"^no unsubscribe is recorded$"#)]
-async fn no_unsubscribe_is_recorded(_world: &mut FoundryWorld) {
-    pending!("no unsubscribe is recorded");
+async fn no_unsubscribe_is_recorded(world: &mut FoundryWorld) {
+    let email = world
+        .unsub_email
+        .clone()
+        .expect("recipient captured in Given");
+    let workspace_id = world
+        .unsub_workspace_id
+        .expect("workspace captured in Given");
+    let harness = world.harness.as_ref().expect("harness");
+    let recorded = harness
+        .app
+        .state
+        .store
+        .is_unsubscribed(&email, workspace_id)
+        .await
+        .expect("read opt-out state");
+    assert!(
+        !recorded,
+        "a refused (tampered-token) request must record NO opt-out row"
+    );
 }
 
 #[then(regex = r#"^both requests return a byte-identical refusal$"#)]
-async fn both_requests_return_byte_identical_refusal(_world: &mut FoundryWorld) {
-    pending!("both requests return a byte-identical refusal");
+async fn both_requests_return_byte_identical_refusal(world: &mut FoundryWorld) {
+    let (status_a, body_a) = world.unsub_refusal_a.clone().expect("refusal A captured");
+    let (status_b, body_b) = world.unsub_refusal_b.clone().expect("refusal B captured");
+    assert_eq!(
+        status_a, status_b,
+        "the two refusals must share the same status (no status oracle)"
+    );
+    assert_eq!(
+        body_a, body_b,
+        "the two refusals must be byte-identical in body (no existence oracle)"
+    );
+    // And it is the uniform refusal page, not an incidental 404/500 collision.
+    assert_eq!(
+        status_a,
+        reqwest::StatusCode::OK,
+        "the refusal is the fixed-200 uniform page, got {status_a}"
+    );
+    assert!(
+        body_a.contains("This unsubscribe link is no longer valid"),
+        "the refusal must be the uniform non-enumerable page: {body_a}"
+    );
 }
 
 #[then(regex = r#"^neither response reveals whether the address, workspace, or account exists$"#)]
-async fn neither_response_reveals_existence(_world: &mut FoundryWorld) {
-    pending!("neither response reveals whether the address, workspace, or account exists");
+async fn neither_response_reveals_existence(world: &mut FoundryWorld) {
+    let (_, body_a) = world.unsub_refusal_a.clone().expect("refusal A captured");
+    let (_, body_b) = world.unsub_refusal_b.clone().expect("refusal B captured");
+    for ident in &world.unsub_secret_identifiers {
+        assert!(
+            !body_a.contains(ident.as_str()),
+            "the real-recipient refusal must not echo {ident:?} (existence oracle): {body_a}"
+        );
+        assert!(
+            !body_b.contains(ident.as_str()),
+            "the non-existent-address refusal must not echo {ident:?} (existence oracle): {body_b}"
+        );
+    }
 }
 
 #[then(regex = r#"^a subsequent workspace-invite to Sam in "([^"]+)" is still delivered$"#)]
@@ -1141,8 +1329,26 @@ async fn confirm_refused_no_state_change(_world: &mut FoundryWorld) {
 }
 
 #[then(regex = r#"^no unsubscribe token or recipient email appears in the logs$"#)]
-async fn no_token_or_email_in_logs(_world: &mut FoundryWorld) {
-    pending!("no unsubscribe token or recipient email appears in the logs");
+async fn no_token_or_email_in_logs(world: &mut FoundryWorld) {
+    // LOG OBSERVABLE (mirrors invite-accept scenario 13): the harness wires NO
+    // in-process tracing-capture seam (tracing is global-only, initialised in
+    // `main.rs::init_tracing`, not the harness), so the STRONGEST AVAILABLE observable
+    // is the refusal's response-body surface — the user-visible projection of what the
+    // handler chose to surface. The production refusal path (`unsubscribe::show_confirm`
+    // → bad token → `unsubscribe_refusal_page`) emits ZERO tracing on the refusal arm;
+    // its only `tracing::error!` lines carry `%err` alone, never the token or email. A
+    // handler careless enough to log a secret would, by the same careless formatting,
+    // echo it into this body — so the scan below is the falsifiable proxy.
+    let body = world
+        .last_body
+        .clone()
+        .expect("the tampered link was opened");
+    for ident in &world.unsub_secret_identifiers {
+        assert!(
+            !body.contains(ident.as_str()),
+            "a refused request must leak NO token/recipient email — found {ident:?}: {body}"
+        );
+    }
 }
 
 #[then(regex = r#"^the member-invite for Sam from "([^"]+)" is not delivered$"#)]
