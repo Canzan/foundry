@@ -401,6 +401,28 @@ pub struct FoundryWorld {
     /// `foundry_notification_suppressions_total` family sums to exactly this.
     pub us07_expected_suppressions: Option<u64>,
 
+    // ---- Feature "notification-preferences-ui" (signed-in settings surface) ----
+    /// The signed-in member persona's (email, password) for the current
+    /// notification-preferences-ui scenario. The harness re-authenticates per
+    /// request (no cookie jar), so both are held. Set by the "Nadia is signed in
+    /// and belongs to …" Given; read by every When that drives the settings
+    /// surface / mute / resubscribe.
+    pub npui_creds: Option<(String, String)>,
+    /// The persona's workspaces (name → id) seeded by the "belongs to …" Given,
+    /// so a mute/resubscribe When can resolve a named workspace's id and a Then
+    /// can read that pair's opt-out state directly at the store boundary.
+    pub npui_workspaces: Vec<(String, uuid::Uuid)>,
+    /// Body of the FIRST response in the double-submit idempotency scenario, so
+    /// the "same confirmation both times" Then can compare it against `last_body`.
+    pub npui_prior_body: Option<String>,
+    /// The workspace id the most-recent mute attempt targeted, so a refusal Then
+    /// can read that pair's opt-out state and prove no state changed.
+    pub npui_last_target: Option<uuid::Uuid>,
+    /// A SECOND recipient (email) + a workspace id the persona does NOT belong to,
+    /// seeded by the foreign-injection When so the Then can prove a crafted
+    /// foreign-workspace mute never steered that other recipient's state.
+    pub npui_foreign: Option<(String, uuid::Uuid)>,
+
     // ---- US-10 tombstone GC (slice 7) ----
     /// UUIDs of tombstoned comments inserted via tombstone_factory for
     /// the current scenario. Indexed by (issue_key_prefix, issue_number)

@@ -23,7 +23,8 @@ use crate::bootstrap::{invalid_page, SessionUser};
 use crate::csrf::{build_csrf_cookie, extract_csrf_cookie, generate_token};
 use crate::session::SESSION_KEY_USER_ID;
 use crate::views::{
-    NotificationRow, NotificationsPage, UnsubscribeConfirmPage, UnsubscribeResultPage,
+    NotificationRow, NotificationsPage, SettingsPage, SettingsRow, UnsubscribeConfirmPage,
+    UnsubscribeResultPage,
 };
 use crate::AppState;
 use askama::Template;
@@ -261,6 +262,152 @@ pub async fn resubscribe_notifications(
         return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
     }
     Html(render_result_page(&workspace_name, true)).into_response()
+}
+
+// ------------------------------------------------- GET /account/settings
+
+/// The SIGNED-IN notification settings surface (notification-preferences-ui
+/// FR-1/FR-3). The dedicated shell (OD-1) hosting the notifications section: it
+/// REUSES the shipped `show_notifications` data path (`workspaces_for_member` +
+/// `list_unsubscribed_workspace_ids`) to render each membership's
+/// Muted/Subscribed status, but assembled through the shared sidebar rail
+/// (`NavContext::home_for`, Home stays active — NFR-3) and with a per-row
+/// mute/resubscribe control (FR-4). Reachable from the sidebar footer link.
+///
+/// LEAST-PRIVILEGE (NFR-1): identity comes ONLY from `SessionUser` — never a
+/// request-supplied email/workspace — so only the caller's OWN memberships are
+/// ever listed. A signed-out caller gets the SHIPPED non-enumerable uniform 404
+/// (mirrors `show_notifications`).
+pub async fn show_settings(
+    State(state): State<AppState>,
+    session: Session,
+    headers: HeaderMap,
+) -> Response {
+    let user = match session.get::<SessionUser>(SESSION_KEY_USER_ID).await {
+        Ok(Some(user)) => user,
+        _ => return crate::bootstrap::resource_not_found_page(),
+    };
+    let email_lower = match state.store.find_user_email_lower_by_id(user.user_id).await {
+        Ok(Some(email)) => email,
+        Ok(None) => {
+            tracing::error!(user_id = %user.user_id, "settings: no email for a valid session");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
+        }
+        Err(err) => {
+            tracing::error!(%err, "find_user_email_lower_by_id failed on settings page");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
+        }
+    };
+    let memberships = match state.store.workspaces_for_member(user.user_id).await {
+        Ok(list) => list,
+        Err(err) => {
+            tracing::error!(%err, "workspaces_for_member failed on settings page");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
+        }
+    };
+    let muted = match state
+        .store
+        .list_unsubscribed_workspace_ids(&email_lower)
+        .await
+    {
+        Ok(set) => set,
+        Err(err) => {
+            tracing::error!(%err, "list_unsubscribed_workspace_ids failed on settings page");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
+        }
+    };
+    // Assemble the shared rail exactly as the dashboard/other authed pages do:
+    // the acting user's REAL instance-admin authority (fail-closed) + a per-request
+    // double-submit CSRF token (also rendered into each row form's `_csrf`). Home
+    // stays the active primary — settings is a footer destination (NFR-3).
+    let (csrf, set_cookie) = ensure_csrf_cookie(&state, &headers);
+    let is_instance_admin = crate::nav::resolve_is_instance_admin(&state, user.user_id).await;
+    let nav = crate::nav::NavContext::home_for(
+        &state,
+        user.user_id,
+        user.workspace_id,
+        is_instance_admin,
+        csrf.clone(),
+    )
+    .await;
+    let rows: Vec<SettingsRow> = memberships
+        .into_iter()
+        .map(|(workspace_id, name)| SettingsRow {
+            name,
+            muted: muted.contains(&workspace_id),
+            workspace_id: workspace_id.to_string(),
+        })
+        .collect();
+    let body = SettingsPage { rows, csrf, nav }
+        .render()
+        .expect("settings.html renders");
+    response_with_optional_cookie(StatusCode::OK, Html(body).into_response(), set_cookie)
+}
+
+// -------------------------------------------- POST /account/settings/mute
+
+/// The SIGNED-IN per-workspace MUTE driving port (notification-preferences-ui
+/// FR-4) — the one genuinely new write. CSRF-checked by the shipped middleware.
+/// Writes the SESSION user's own `(email_lower, workspace_id)` opt-out row so a
+/// workspace's suppressible invitations stop. Idempotent (`insert_unsubscribe` is
+/// `ON CONFLICT DO NOTHING`, BR-8): a stale-page double submit is a harmless no-op
+/// returning the SAME confirmation. Mirrors [`resubscribe_notifications`] exactly,
+/// swapping the `delete`→`insert`.
+///
+/// LEAST-PRIVILEGE (NFR-1): identity comes ONLY from `SessionUser` — never a
+/// request-supplied email — and the target workspace must be one the caller
+/// actually belongs to (checked against `workspaces_for_member`), so a crafted
+/// `workspace_id` can neither mute another recipient nor enumerate workspace
+/// names. A signed-out caller (or a non-member / unknown workspace) gets the
+/// SHIPPED non-enumerable uniform 404 (mirrors `resubscribe_notifications`).
+pub async fn mute_notifications(
+    State(state): State<AppState>,
+    session: Session,
+    Form(form): Form<ResubscribeForm>,
+) -> Response {
+    let user = match session.get::<SessionUser>(SESSION_KEY_USER_ID).await {
+        Ok(Some(user)) => user,
+        _ => return crate::bootstrap::resource_not_found_page(),
+    };
+    let Ok(workspace_id) = uuid::Uuid::parse_str(form.workspace_id.trim()) else {
+        return crate::bootstrap::resource_not_found_page();
+    };
+    let email_lower = match state.store.find_user_email_lower_by_id(user.user_id).await {
+        Ok(Some(email)) => email,
+        Ok(None) => {
+            tracing::error!(user_id = %user.user_id, "mute: no email for a valid session");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
+        }
+        Err(err) => {
+            tracing::error!(%err, "find_user_email_lower_by_id failed on mute");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
+        }
+    };
+    // Least-privilege: resolve the workspace NAME from the caller's OWN
+    // memberships. A workspace the caller does not belong to collapses to the
+    // uniform refusal — no cross-recipient write, no name-enumeration oracle.
+    let memberships = match state.store.workspaces_for_member(user.user_id).await {
+        Ok(list) => list,
+        Err(err) => {
+            tracing::error!(%err, "workspaces_for_member failed on mute");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
+        }
+    };
+    let Some((_, workspace_name)) = memberships.into_iter().find(|(id, _)| *id == workspace_id)
+    else {
+        return crate::bootstrap::resource_not_found_page();
+    };
+    // Idempotent write of the caller's OWN opt-out row (BR-8, `ON CONFLICT DO
+    // NOTHING`), so muting twice renders the same confirmation with no error.
+    if let Err(err) = state
+        .store
+        .insert_unsubscribe(&email_lower, workspace_id)
+        .await
+    {
+        tracing::error!(%err, "insert_unsubscribe failed on signed-in mute");
+        return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
+    }
+    Html(render_result_page(&workspace_name, false)).into_response()
 }
 
 /// Render the signed-in status page: one row per membership, each naming the

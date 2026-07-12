@@ -452,6 +452,20 @@ pub fn build_router(state: AppState) -> Router {
             "/account/notifications/resubscribe",
             post(unsubscribe::resubscribe_notifications),
         )
+        // notification-preferences-ui (FR-1/FR-4) — the signed-in settings shell
+        // (OD-1 canonical `/account/settings`) hosting the notifications section,
+        // plus the NEW signed-in per-workspace MUTE action (OD-3). Same shared
+        // layer (UNDER `csrf_middleware` + `session_layer`): the GET is a plain
+        // signed-in read (no CSRF body); the mute POST is a double-submit `_csrf`
+        // browser POST. Identity is the SESSION user's ONLY (never a request-
+        // supplied email — NFR-1 least-privilege); a signed-out / non-member
+        // caller gets the SHIPPED non-enumerable uniform 404
+        // (unsubscribe.rs::show_settings / mute_notifications).
+        .route("/account/settings", get(unsubscribe::show_settings))
+        .route(
+            "/account/settings/mute",
+            post(unsubscribe::mute_notifications),
+        )
         .route(
             "/team/{team_slug}/projects/new",
             get(projects::show_create_form),

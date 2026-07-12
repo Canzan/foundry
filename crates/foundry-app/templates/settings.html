@@ -1,0 +1,29 @@
+{% extends "app_shell.html" %}
+{% block title %}Notification settings{% endblock %}
+{% block app_content %}
+<main>
+<h1>Notification settings</h1>
+<p>These are the workspaces you belong to. Muted workspaces send you no invitation emails; security emails such as password resets are always delivered.</p>
+<ul>
+{%- for row in rows %}
+{%- if row.muted %}
+<li data-status="muted">{{ row.name }} — Muted
+  <form method="post" action="/account/notifications/resubscribe">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <input type="hidden" name="workspace_id" value="{{ row.workspace_id }}">
+    <button type="submit">Resubscribe</button>
+  </form>
+</li>
+{%- else %}
+<li data-status="subscribed">{{ row.name }} — Subscribed
+  <form method="post" action="/account/settings/mute">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <input type="hidden" name="workspace_id" value="{{ row.workspace_id }}">
+    <button type="submit">Mute</button>
+  </form>
+</li>
+{%- endif %}
+{%- endfor %}
+</ul>
+</main>
+{% endblock %}

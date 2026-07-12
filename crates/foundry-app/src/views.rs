@@ -728,6 +728,46 @@ pub struct NotificationsPage {
     pub rows: Vec<NotificationRow>,
 }
 
+/// A single workspace row on the SIGNED-IN notification settings surface
+/// (notification-preferences-ui US-02/US-03). `muted` selects the row's
+/// `data-status="muted"/"subscribed"` scraper marker (the prose-immune oracle the
+/// acceptance suite asserts against) AND which control renders — a Mute form when
+/// subscribed, a Resubscribe form when muted — each carrying the hidden `_csrf` +
+/// `workspace_id`. `name` is auto-escaped; `workspace_id` is the stringified uuid
+/// the mute/resubscribe POST targets.
+#[derive(Debug, Clone)]
+pub struct SettingsRow {
+    /// The workspace name (auto-escaped) — visible in the `<li>`.
+    pub name: String,
+    /// Whether the caller has muted this workspace's suppressible invitations.
+    pub muted: bool,
+    /// The stringified workspace uuid, rendered into the row form's hidden
+    /// `workspace_id` field so the mute/resubscribe POST targets this row.
+    pub workspace_id: String,
+}
+
+/// The SIGNED-IN notification settings surface served at `GET /account/settings`
+/// (notification-preferences-ui, FR-1/FR-3/FR-4). Extends `app_shell.html` so the
+/// shared sidebar rail renders (Home stays the active primary — settings is a
+/// footer destination, NFR-3). Renders one
+/// `<li data-status="muted|subscribed">{name} — {Muted|Subscribed}</li>` per
+/// membership, each with a per-row CSRF-protected control: Mute
+/// (`POST /account/settings/mute`) when subscribed, Resubscribe
+/// (`POST /account/notifications/resubscribe`) when muted — so the surface is a
+/// complete subscribe/unsubscribe control, not resubscribe-only.
+#[derive(Debug, Clone, Template)]
+#[template(path = "settings.html")]
+pub struct SettingsPage {
+    /// One row per workspace the caller belongs to.
+    pub rows: Vec<SettingsRow>,
+    /// The double-submit CSRF token, rendered into each row form's hidden `_csrf`.
+    pub csrf: String,
+    /// navigation-bar-linear-ui: the shared sidebar carrier, assembled once per
+    /// page via `NavContext::home_for`. `app_shell.html` injects
+    /// `partials/sidebar.html`, which reads `nav.*`.
+    pub nav: crate::nav::NavContext,
+}
+
 /// The STATE-AWARE unsubscribe confirm page (US-01/US-06, ADR-006). Extends
 /// `base.html` — replacing the prior bare-`<head>` `format!` markup
 /// (`unsubscribe.rs::render_confirm_page`). `already_unsubscribed` flips the page

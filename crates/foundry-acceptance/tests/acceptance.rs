@@ -69,6 +69,8 @@ use foundry_acceptance::steps::feature_navigation_bar as _feature_navigation_bar
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_notification_delivery_providers as _feature_notification;
 #[allow(unused_imports)]
+use foundry_acceptance::steps::feature_notification_preferences_ui as _feature_npui;
+#[allow(unused_imports)]
 use foundry_acceptance::steps::feature_per_workspace_backup as _feature_pwb;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_recipient_notification_preferences as _feature_recipient_unsub;
