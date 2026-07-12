@@ -95,21 +95,21 @@ Feature: A recipient silences a workspace's invitation emails without losing sec
 
   # ── Slice 02 — US-02: mandatory security events are NEVER suppressed (the crux invariant) ──
 
-  @pending @us-02 @property @real-io
+  @us-02 @property @real-io
   Scenario: A password reset reaches an unsubscribed recipient
     Given Sam has confirmed unsubscribing from "Northwind"
     When Sam requests a password reset
     Then the password-reset notification is delivered to Sam
     And it is not counted as suppressed
 
-  @pending @us-02 @real-io
+  @us-02 @real-io
   Scenario: A removal notice reaches an unsubscribed recipient
     Given Sam has confirmed unsubscribing from "Northwind"
     When an admin removes Sam from "Northwind"
     Then the member-removed notification is delivered to Sam
     And it is not counted as suppressed
 
-  @pending @us-02 @property @real-io
+  @us-02 @property @real-io
   Scenario: No mandatory event is ever suppressed for an unsubscribed recipient
     Given Sam is unsubscribed from every workspace he belongs to
     When a password reset, a password change, and a removal each fire for Sam

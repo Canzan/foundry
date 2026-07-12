@@ -100,6 +100,41 @@
       "s": "EXECUTED",
       "d": "PASS",
       "t": "2026-07-12T00:48:59Z"
+    },
+    {
+      "sid": "01-03",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-12T00:49:20Z"
+    },
+    {
+      "sid": "02-01",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-12T00:55:35Z"
+    },
+    {
+      "sid": "02-01",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-12T00:55:35Z"
+    },
+    {
+      "sid": "02-01",
+      "p": "RED_UNIT",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: invariant already pinned by shipped unit tests (notify.rs is_suppressible allow-list + FakeSuppression mandatory-deliver); step adds zero production code, pure acceptance step-def wiring over shipped emit handlers + suppression gate",
+      "t": "2026-07-12T00:55:46Z"
+    },
+    {
+      "sid": "02-01",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-12T01:03:11Z"
     }
   ]
 }

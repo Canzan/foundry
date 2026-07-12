@@ -56,6 +56,12 @@ const SAM_EMAIL: &str = "sam@northwind.example";
 /// `workspace_invite` the suppression gate then intercepts.
 const ADMIN_EMAIL: &str = "admin@northwind.example";
 const ADMIN_PASSWORD: &str = "rnp-correct-horse-battery-staple";
+/// Sam's account password, seeded ONLY for the US-02 mandatory-event scenarios
+/// where a real security event must reach Sam (a password reset resolves a real
+/// user; a removal deletes a real membership; a change signs Sam in). The US-01
+/// slice leaves Sam account-less; these scenarios upgrade him to a real user so
+/// the shipped mandatory-emit driving-ports fire a genuine delivery.
+const SAM_PASSWORD: &str = "rnp-sam-correct-horse-battery-staple";
 /// A SECOND workspace's admin (the independence scenario seeds Contoso alongside
 /// Northwind). A distinct email so both admins coexist in the `users` table.
 const CONTOSO_ADMIN_EMAIL: &str = "admin@contoso.example";
@@ -123,6 +129,78 @@ async fn seed_workspace_and_named_admin(
     .await
     .expect("insert admin membership");
     workspace_id
+}
+
+/// Seed Sam as a REAL user (an account, not just an invitee email) so a shipped
+/// mandatory-emit driving-port resolves him as the recipient: `POST /forgot-password`
+/// only emits a `PasswordReset` for an email that `find_user_by_email` resolves, and
+/// `POST /account/password` requires Sam to sign in. Returns Sam's `user_id` so a
+/// caller can also seed his workspace membership. Both `email_lower` and
+/// `email_display` are `SAM_EMAIL` (already lower-cased), so every mandatory-event
+/// delivery records `to == SAM_EMAIL`.
+async fn seed_sam_user(harness: &InProcHarness) -> uuid::Uuid {
+    let pool = harness.app.state.store.pool();
+    let user_id = uuid::Uuid::now_v7();
+    let hash = foundry_auth::hash_password(&SecretString::new(SAM_PASSWORD.to_string().into()))
+        .await
+        .expect("hash sam pw");
+    sqlx::query(
+        "INSERT INTO users (id, email_lower, email_display, display_name, password_hash)
+              VALUES ($1, $2, $3, $4, $5)",
+    )
+    .bind(user_id)
+    .bind(SAM_EMAIL)
+    .bind(SAM_EMAIL)
+    .bind("Sam Recipient")
+    .bind(&hash)
+    .execute(pool)
+    .await
+    .expect("insert sam user");
+    user_id
+}
+
+/// Make Sam a plain `member` of `workspace_id`, so an admin acting on that workspace
+/// can drive the shipped `POST /workspace/members/remove` removal (which deletes a
+/// real membership and emits ONE `MemberRemoved` to the removed person — 0 rows
+/// deleted would 404 with NO emit).
+async fn seed_sam_membership(
+    harness: &InProcHarness,
+    workspace_id: uuid::Uuid,
+    user_id: uuid::Uuid,
+) {
+    let pool = harness.app.state.store.pool();
+    sqlx::query(
+        "INSERT INTO workspace_memberships (workspace_id, user_id, role) VALUES ($1, $2, 'member')",
+    )
+    .bind(workspace_id)
+    .bind(user_id)
+    .execute(pool)
+    .await
+    .expect("insert sam membership");
+}
+
+/// Drive the shipped `POST /forgot-password` public driving-port: GET the form to
+/// mint the double-submit CSRF cookie/token, then POST `email`. The handler
+/// (`signin::submit_forgot`) emits ONE `PasswordReset` through `notify()` for a
+/// resolvable user. `PasswordReset` is MANDATORY (`is_suppressible()` false), so the
+/// suppression gate never consults the lookup — it delivers even for an unsubscribed
+/// recipient. Returns the response status.
+async fn post_forgot_password_for(
+    http: &reqwest::Client,
+    base: &str,
+    email: &str,
+) -> reqwest::StatusCode {
+    let csrf = csrf_from_get(http, &format!("{base}/forgot-password")).await;
+    let mut form: HashMap<&str, String> = HashMap::new();
+    form.insert("email", email.to_string());
+    form.insert("_csrf", csrf.clone());
+    http.post(format!("{base}/forgot-password"))
+        .header(reqwest::header::COOKIE, format!("foundry_csrf={csrf}"))
+        .form(&form)
+        .send()
+        .await
+        .expect("POST /forgot-password")
+        .status()
 }
 
 /// Mint the SAME signed link a suppressible email body carries for `(email, ws)`:
@@ -316,8 +394,39 @@ async fn sam_unsubscribed_via_member_invite_link(_world: &mut FoundryWorld, _wor
 }
 
 #[given(regex = r#"^Sam is unsubscribed from every workspace he belongs to$"#)]
-async fn sam_unsubscribed_from_every_workspace(_world: &mut FoundryWorld) {
-    pending!("Sam is unsubscribed from every workspace he belongs to");
+async fn sam_unsubscribed_from_every_workspace(world: &mut FoundryWorld) {
+    // Establish the crux invariant's precondition: Sam is a REAL user, a member of
+    // a workspace, and has an opt-out row for it (so "every workspace he belongs to"
+    // is muted). With Sam unsubscribed, the three mandatory security events must
+    // STILL deliver and count NO suppression — the structural `is_suppressible()`
+    // allow-list holds them exempt. Seed him with a password so the change-password
+    // leg can sign him in and drive the real `password_changed` emit.
+    let workspace = "Northwind";
+    let (workspace_id, email_lower) = {
+        let harness = world
+            .harness
+            .as_ref()
+            .expect("harness spawned by Background");
+        let workspace_id = seed_workspace_and_admin(harness, workspace).await;
+        let sam_id = seed_sam_user(harness).await;
+        seed_sam_membership(harness, workspace_id, sam_id).await;
+        let email_lower = SAM_EMAIL.to_ascii_lowercase();
+        harness
+            .app
+            .state
+            .store
+            .insert_unsubscribe(&email_lower, workspace_id)
+            .await
+            .expect("seed Sam's opt-out row for the workspace he belongs to");
+        (workspace_id, email_lower)
+    };
+    world.unsub_workspace_id = Some(workspace_id);
+    world.unsub_email = Some(email_lower);
+    world.unsub_admin = Some((ADMIN_EMAIL.to_string(), ADMIN_PASSWORD.to_string()));
+    world.unsub_ws_admins.insert(
+        workspace.to_string(),
+        (ADMIN_EMAIL.to_string(), ADMIN_PASSWORD.to_string()),
+    );
 }
 
 #[given(regex = r#"^Sam's unsubscribe link for "([^"]+)" has a tampered token$"#)]
@@ -533,18 +642,131 @@ async fn sam_confirms_unsubscribing_second_time(world: &mut FoundryWorld, _works
 }
 
 #[when(regex = r#"^Sam requests a password reset$"#)]
-async fn sam_requests_password_reset(_world: &mut FoundryWorld) {
-    pending!("Sam requests a password reset");
+async fn sam_requests_password_reset(world: &mut FoundryWorld) {
+    // Sam confirmed unsubscribing (the Given), but a password reset is MANDATORY.
+    // Upgrade the account-less invitee to a REAL user so `POST /forgot-password`
+    // resolves him, then drive that shipped public flow — it emits ONE `PasswordReset`
+    // through `notify()`, where the gate skips the lookup entirely (NFR-3 structural)
+    // and delivers regardless of his opt-out.
+    let base = {
+        let harness = world.harness.as_ref().expect("harness");
+        seed_sam_user(harness).await;
+        harness.base_url()
+    };
+    let http = world.http.as_ref().expect("http").clone();
+    let status = post_forgot_password_for(&http, &base, SAM_EMAIL).await;
+    assert!(
+        status.is_success() || status.is_redirection(),
+        "forgot-password must return its normal response (best-effort emit), got {status}"
+    );
 }
 
 #[when(regex = r#"^an admin removes Sam from "([^"]+)"$"#)]
-async fn admin_removes_sam_from(_world: &mut FoundryWorld, _workspace: String) {
-    pending!("an admin removes Sam from a workspace");
+async fn admin_removes_sam_from(world: &mut FoundryWorld, workspace: String) {
+    // A removal is MANDATORY. Make Sam a real member of the workspace the seeded
+    // admin acts on, then drive the shipped admin-gated `POST /workspace/members/remove`
+    // (the admin's session resolves that workspace). The handler deletes the membership
+    // and emits ONE `MemberRemoved` to Sam through `notify()` — MANDATORY ⇒ never
+    // suppressed, so it delivers despite his opt-out.
+    let workspace_id = world
+        .unsub_workspace_id
+        .expect("workspace id captured in the Given");
+    {
+        let harness = world.harness.as_ref().expect("harness");
+        let sam_id = seed_sam_user(harness).await;
+        seed_sam_membership(harness, workspace_id, sam_id).await;
+    }
+    let (admin_email, admin_pw) = world
+        .unsub_ws_admins
+        .get(&workspace)
+        .cloned()
+        .unwrap_or_else(|| panic!("no seeded admin for workspace {workspace:?}"));
+    let outcome = {
+        let harness = world.harness.as_ref().expect("harness");
+        let http = world.http.as_ref().expect("http");
+        signed_in_post(
+            harness,
+            http,
+            &admin_email,
+            &admin_pw,
+            "/workspace/members/remove",
+            &[("email", SAM_EMAIL)],
+        )
+        .await
+    };
+    assert!(
+        outcome.status.is_success() || outcome.status.is_redirection(),
+        "the removal must succeed (2xx/3xx), got {}: {}",
+        outcome.status,
+        outcome.body
+    );
 }
 
 #[when(regex = r#"^a password reset, a password change, and a removal each fire for Sam$"#)]
-async fn all_three_mandatory_events_fire_for_sam(_world: &mut FoundryWorld) {
-    pending!("a password reset, a password change, and a removal each fire for Sam");
+async fn all_three_mandatory_events_fire_for_sam(world: &mut FoundryWorld) {
+    // Fire ALL three mandatory security events for the unsubscribed Sam through their
+    // real shipped driving-ports. Every one must deliver and count NO suppression —
+    // the `is_suppressible()` allow-list holds the mandatory complement structurally
+    // exempt. Sam was seeded as a real member with a password in the Given.
+    let base = {
+        let harness = world.harness.as_ref().expect("harness");
+        harness.base_url()
+    };
+    let http = world.http.as_ref().expect("http").clone();
+    let (admin_email, admin_pw) = world
+        .unsub_admin
+        .clone()
+        .expect("admin seeded in the Given");
+
+    // 1. password reset — public POST /forgot-password (Sam is a resolvable user).
+    let reset_status = post_forgot_password_for(&http, &base, SAM_EMAIL).await;
+    assert!(
+        reset_status.is_success() || reset_status.is_redirection(),
+        "the password reset must be accepted, got {reset_status}"
+    );
+
+    // 2. password change — signed-in POST /account/password (reauth + min-12 policy).
+    let change = {
+        let harness = world.harness.as_ref().expect("harness");
+        signed_in_post(
+            harness,
+            &http,
+            SAM_EMAIL,
+            SAM_PASSWORD,
+            "/account/password",
+            &[
+                ("current_password", SAM_PASSWORD),
+                ("new_password", "rnp-sam-brand-new-passphrase-9x2q"),
+            ],
+        )
+        .await
+    };
+    assert!(
+        change.status.is_success() || change.status.is_redirection(),
+        "the password change must succeed, got {}: {}",
+        change.status,
+        change.body
+    );
+
+    // 3. removal — admin-gated POST /workspace/members/remove.
+    let removal = {
+        let harness = world.harness.as_ref().expect("harness");
+        signed_in_post(
+            harness,
+            &http,
+            &admin_email,
+            &admin_pw,
+            "/workspace/members/remove",
+            &[("email", SAM_EMAIL)],
+        )
+        .await
+    };
+    assert!(
+        removal.status.is_success() || removal.status.is_redirection(),
+        "the removal must succeed, got {}: {}",
+        removal.status,
+        removal.body
+    );
 }
 
 #[when(regex = r#"^the tampered unsubscribe link is opened$"#)]
@@ -783,28 +1005,101 @@ async fn workspace_invite_delivered_unchanged(world: &mut FoundryWorld, _workspa
 }
 
 #[then(regex = r#"^the password-reset notification is delivered to Sam$"#)]
-async fn password_reset_delivered_to_sam(_world: &mut FoundryWorld) {
-    pending!("the password-reset notification is delivered to Sam");
+async fn password_reset_delivered_to_sam(world: &mut FoundryWorld) {
+    // Observed at the provider driven-port boundary: the mandatory `PasswordReset`
+    // reached delivery for the unsubscribed Sam (the gate skipped the lookup).
+    let harness = world.harness.as_ref().expect("harness");
+    let delivered: Vec<_> = harness
+        .fake_email
+        .sent()
+        .into_iter()
+        .filter(|d| {
+            d.event == "password_reset"
+                && d.to.eq_ignore_ascii_case(SAM_EMAIL)
+                && d.outcome == "delivered"
+        })
+        .collect();
+    assert_eq!(
+        delivered.len(),
+        1,
+        "the password reset must be delivered to Sam exactly once, found {}: {delivered:?}",
+        delivered.len()
+    );
 }
 
 #[then(regex = r#"^it is not counted as suppressed$"#)]
-async fn it_is_not_counted_as_suppressed(_world: &mut FoundryWorld) {
-    pending!("it is not counted as suppressed");
+async fn it_is_not_counted_as_suppressed(world: &mut FoundryWorld) {
+    // A MANDATORY event never reaches the suppression lookup (structural exempt), so
+    // the SuppressionPolicy port records ZERO decisions for the whole scenario —
+    // the `foundry_notification_suppressions_total` counter never ticks for it.
+    // Reverting the `is_suppressible()` allow-list to admit a mandatory event would
+    // make this scenario's mandatory emit consult the lookup and (for a suppressible-
+    // carrying workspace) count a suppression, reddening this assertion.
+    let harness = world.harness.as_ref().expect("harness");
+    let count = harness.suppressions.count();
+    assert_eq!(
+        count, 0,
+        "a mandatory security event must never be counted as suppressed, got {count}"
+    );
 }
 
 #[then(regex = r#"^the member-removed notification is delivered to Sam$"#)]
-async fn member_removed_delivered_to_sam(_world: &mut FoundryWorld) {
-    pending!("the member-removed notification is delivered to Sam");
+async fn member_removed_delivered_to_sam(world: &mut FoundryWorld) {
+    // Observed at the provider driven-port boundary: the mandatory `MemberRemoved`
+    // reached delivery for the unsubscribed Sam (the gate skipped the lookup).
+    let harness = world.harness.as_ref().expect("harness");
+    let delivered: Vec<_> = harness
+        .fake_email
+        .sent()
+        .into_iter()
+        .filter(|d| {
+            d.event == "member_removed"
+                && d.to.eq_ignore_ascii_case(SAM_EMAIL)
+                && d.outcome == "delivered"
+        })
+        .collect();
+    assert_eq!(
+        delivered.len(),
+        1,
+        "the removal notice must be delivered to Sam exactly once, found {}: {delivered:?}",
+        delivered.len()
+    );
 }
 
 #[then(regex = r#"^every one of those notifications is delivered$"#)]
-async fn every_one_of_those_notifications_delivered(_world: &mut FoundryWorld) {
-    pending!("every one of those notifications is delivered");
+async fn every_one_of_those_notifications_delivered(world: &mut FoundryWorld) {
+    // All three mandatory events delivered to the unsubscribed Sam, observed at the
+    // provider boundary — the `is_suppressible()` allow-list held every one exempt.
+    let harness = world.harness.as_ref().expect("harness");
+    let sent = harness.fake_email.sent();
+    for event in ["password_reset", "password_changed", "member_removed"] {
+        let delivered: Vec<_> = sent
+            .iter()
+            .filter(|d| {
+                d.event == event && d.to.eq_ignore_ascii_case(SAM_EMAIL) && d.outcome == "delivered"
+            })
+            .collect();
+        assert_eq!(
+            delivered.len(),
+            1,
+            "the mandatory {event} must be delivered to Sam exactly once, found {}: {delivered:?}",
+            delivered.len()
+        );
+    }
 }
 
 #[then(regex = r#"^none of them is counted as suppressed$"#)]
-async fn none_of_them_counted_as_suppressed(_world: &mut FoundryWorld) {
-    pending!("none of them is counted as suppressed");
+async fn none_of_them_counted_as_suppressed(world: &mut FoundryWorld) {
+    // The crux invariant, observed at the SuppressionPolicy port: with Sam
+    // unsubscribed, NOT ONE of the three mandatory events was counted as a
+    // suppression — the structural `is_suppressible()` allow-list holds. Reverting
+    // the allow-list to admit a mandatory event reds this (@property).
+    let harness = world.harness.as_ref().expect("harness");
+    let count = harness.suppressions.count();
+    assert_eq!(
+        count, 0,
+        "no mandatory event may ever be counted as suppressed, got {count}"
+    );
 }
 
 #[then(regex = r#"^the uniform non-enumerable refusal page is shown$"#)]
