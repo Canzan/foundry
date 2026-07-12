@@ -1024,6 +1024,10 @@ async fn point_replica_at_restored(world: &mut FoundryWorld) {
         // suppression; a fresh recorder satisfies the field (the notifier here uses
         // the default AllowAllSuppression, so nothing is recorded).
         suppressions: crate::support::notify_recorder::SuppressionRecorder::new(),
+        // recipient-notification-preferences (fail-open edges): the restore harness
+        // wires the default AllowAllSuppression (no fault switch is exercised here);
+        // a fresh, unfaulted switch satisfies the field.
+        suppression_faults: crate::support::notify_recorder::SuppressionFaults::new(),
     };
     world.us_03_restored_harness = Some(restored);
 }

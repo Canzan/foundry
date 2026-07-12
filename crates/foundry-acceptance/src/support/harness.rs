@@ -17,7 +17,8 @@
 use crate::support::file_upload_env;
 use crate::support::heartbeat_env;
 use crate::support::notify_recorder::{
-    notifier_for_kinds, DeliveryRecorder, RecordingSuppression, SuppressionRecorder,
+    notifier_for_kinds, DeliveryRecorder, FaultableSuppression, RecordingSuppression,
+    SuppressionFaults, SuppressionRecorder,
 };
 use crate::support::webhook_receiver::WebhookReceiver;
 use foundry_app::clock::MockClock;
@@ -260,6 +261,11 @@ pub struct InProcHarness {
     /// `RecordingSuppression`). Step defs read `count()` to assert "one suppression
     /// was counted" without an installed in-process metrics recorder.
     pub suppressions: Arc<SuppressionRecorder>,
+    /// recipient-notification-preferences (fail-open edges) — the runtime fault
+    /// switch for the suppression lookup, so a `Given` step can make this
+    /// already-spawned notifier's point-read fail or hang and drive the gate's
+    /// fail-open arms (a faulted lookup still delivers, await-bounded).
+    pub suppression_faults: Arc<SuppressionFaults>,
 }
 
 impl std::fmt::Debug for InProcHarness {
@@ -347,9 +353,18 @@ impl InProcHarness {
         // table the read is Ok(false) ⇒ delivery byte-for-byte unchanged (NFR-7), so
         // the pre-existing delivery scenarios are unaffected.
         let suppressions = SuppressionRecorder::new();
+        // recipient-notification-preferences (fail-open edges): interpose a runtime
+        // fault switch between the recording decorator and the real StoreSuppression
+        // so a `Given` step can make the ALREADY-spawned notifier's point-read fail
+        // or hang, driving the gate's fail-open arms. Unfaulted (the default), the
+        // read is a genuine indexed read on the 0014 table (@real-io).
+        let suppression_faults = SuppressionFaults::new();
         let suppression_policy: Arc<dyn foundry_app::SuppressionPolicy> =
             Arc::new(RecordingSuppression::new(
-                Arc::new(foundry_app::StoreSuppression::new(store.clone())),
+                Arc::new(FaultableSuppression::new(
+                    Arc::new(foundry_app::StoreSuppression::new(store.clone())),
+                    suppression_faults.clone(),
+                )),
                 suppressions.clone(),
             ));
         let notifier = notifier_for_kinds(
@@ -420,6 +435,7 @@ impl InProcHarness {
             webhook_receiver,
             email_api_receiver,
             suppressions,
+            suppression_faults,
         }
     }
 

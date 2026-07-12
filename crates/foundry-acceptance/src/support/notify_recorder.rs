@@ -106,6 +106,85 @@ impl SuppressionPolicy for RecordingSuppression {
     }
 }
 
+/// recipient-notification-preferences (fail-open edges) — a runtime fault switch
+/// for the suppression point-read, shared as an `Arc` on the harness so a `Given`
+/// step can fault an ALREADY-spawned notifier's lookup (the policy is baked into
+/// the notifier at spawn, so the fault must be flippable at runtime). `set_failing`
+/// drives the gate's fail-open `Err` arm; `set_slow` drives its fail-open timeout
+/// arm. Mirrors [`DeliveryRecorder`]'s per-provider fault switches, at the
+/// suppression port instead of the delivery port.
+#[derive(Default)]
+pub struct SuppressionFaults {
+    failing: AtomicBool,
+    slow: AtomicBool,
+}
+
+impl SuppressionFaults {
+    /// A fresh switch with no fault injected (the point-read behaves normally).
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self::default())
+    }
+
+    /// Make the suppression lookup return `Err` — drives `notify()`'s fail-open
+    /// `Ok(Err(_))` arm (log at warn, deliver).
+    pub fn set_failing(&self) {
+        self.failing.store(true, Ordering::SeqCst);
+    }
+
+    /// Make the suppression lookup block past the notifier's bounded suppression
+    /// timeout — drives `notify()`'s fail-open `Err(Elapsed)` arm (log at warn,
+    /// deliver), keeping the emit await-bounded.
+    pub fn set_slow(&self) {
+        self.slow.store(true, Ordering::SeqCst);
+    }
+
+    fn is_failing(&self) -> bool {
+        self.failing.load(Ordering::SeqCst)
+    }
+
+    fn is_slow(&self) -> bool {
+        self.slow.load(Ordering::SeqCst)
+    }
+}
+
+/// A `SuppressionPolicy` decorator that injects a runtime fault (per the shared
+/// [`SuppressionFaults`] switch) before delegating to `inner`. Sits BETWEEN the
+/// recording decorator and the real `StoreSuppression`, so a faulted lookup never
+/// reaches (nor records against) the store — exactly as a real store outage or a
+/// hung connection would present to the gate.
+pub struct FaultableSuppression {
+    inner: Arc<dyn SuppressionPolicy>,
+    faults: Arc<SuppressionFaults>,
+}
+
+impl FaultableSuppression {
+    pub fn new(inner: Arc<dyn SuppressionPolicy>, faults: Arc<SuppressionFaults>) -> Self {
+        Self { inner, faults }
+    }
+}
+
+#[async_trait]
+impl SuppressionPolicy for FaultableSuppression {
+    async fn is_suppressed(
+        &self,
+        email_lower: &str,
+        workspace_id: uuid::Uuid,
+    ) -> Result<bool, SuppressionError> {
+        if self.faults.is_failing() {
+            return Err(SuppressionError(
+                "suppression lookup faulted (test): store unavailable".to_string(),
+            ));
+        }
+        if self.faults.is_slow() {
+            // Block well past the notifier's bounded suppression timeout so the
+            // gate's `Err(Elapsed)` fail-open arm fires. The notifier drops this
+            // future on timeout, so the sleep is cancelled — nothing lingers.
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        }
+        self.inner.is_suppressed(email_lower, workspace_id).await
+    }
+}
+
 /// One captured delivery observed at the provider boundary.
 #[derive(Debug, Clone)]
 pub struct RecordedDelivery {

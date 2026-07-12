@@ -42,9 +42,10 @@
 use crate::support::harness::{signed_in_post, InProcHarness};
 use crate::world::FoundryWorld;
 use cucumber::{given, then, when};
-use foundry_app::ProviderKind;
+use foundry_app::{Notification, NotificationEvent, ProviderKind};
 use secrecy::SecretString;
 use std::collections::HashMap;
+use std::time::Instant;
 
 /// Fixed scenario clock anchor (mirrors the other in-process step modules).
 const RNP_NOW: &str = "2026-01-15T12:00:00Z";
@@ -370,20 +371,63 @@ async fn olivia_boots_foundry_with_unsubscribe(_world: &mut FoundryWorld) {
     regex = r#"^a workspace "([^"]+)" with an unsubscribed recipient is scheduled for deletion$"#
 )]
 async fn workspace_with_unsubscribed_recipient_scheduled_for_deletion(
-    _world: &mut FoundryWorld,
-    _workspace: String,
+    world: &mut FoundryWorld,
+    workspace: String,
 ) {
-    pending!("a workspace with an unsubscribed recipient is scheduled for deletion");
+    // Seed the workspace + an admin, then record Sam's opt-out row for it (the
+    // precondition: an unsubscribed recipient). Presence of the 0014 row = muted,
+    // so a suppressible emit for (Sam, this ws) WOULD be suppressed — asserted here
+    // so the post-deletion "resumes delivery" is a genuine state change, not a
+    // vacuous pass.
+    let harness = world
+        .harness
+        .as_ref()
+        .expect("harness spawned by Background");
+    let workspace_id = seed_workspace_and_admin(harness, &workspace).await;
+    let email_lower = SAM_EMAIL.to_ascii_lowercase();
+    harness
+        .app
+        .state
+        .store
+        .insert_unsubscribe(&email_lower, workspace_id)
+        .await
+        .expect("seed Sam's opt-out row for the workspace");
+    let suppressed_before = harness
+        .app
+        .state
+        .store
+        .is_unsubscribed(&email_lower, workspace_id)
+        .await
+        .expect("read Sam's opt-out state");
+    assert!(
+        suppressed_before,
+        "precondition: Sam must be unsubscribed from {workspace:?} before deletion"
+    );
+    world.unsub_workspace_id = Some(workspace_id);
+    world.unsub_email = Some(email_lower);
 }
 
 #[given(regex = r#"^the suppression lookup is failing$"#)]
-async fn the_suppression_lookup_is_failing(_world: &mut FoundryWorld) {
-    pending!("the suppression lookup is failing");
+async fn the_suppression_lookup_is_failing(world: &mut FoundryWorld) {
+    // Flip the already-spawned notifier's suppression point-read into failure mode:
+    // the next `is_suppressed` returns `Err`, driving `notify()`'s fail-open Err arm.
+    let harness = world
+        .harness
+        .as_ref()
+        .expect("harness spawned by Background");
+    harness.suppression_faults.set_failing();
 }
 
 #[given(regex = r#"^the suppression lookup is slow$"#)]
-async fn the_suppression_lookup_is_slow(_world: &mut FoundryWorld) {
-    pending!("the suppression lookup is slow");
+async fn the_suppression_lookup_is_slow(world: &mut FoundryWorld) {
+    // Flip the already-spawned notifier's suppression point-read into slow mode: the
+    // next `is_suppressed` blocks past the notifier's bounded suppression timeout, so
+    // the gate's fail-open `Err(Elapsed)` arm fires and the emit stays await-bounded.
+    let harness = world
+        .harness
+        .as_ref()
+        .expect("harness spawned by Background");
+    harness.suppression_faults.set_slow();
 }
 
 // ============================================================================
@@ -440,6 +484,10 @@ async fn workspace_invite_issued_to_sam(world: &mut FoundryWorld, workspace: Str
         .get(&workspace)
         .cloned()
         .unwrap_or_else(|| panic!("no seeded admin for workspace {workspace:?}"));
+    // Time the whole issuance (signin + the /invites POST whose handler awaits
+    // `notify()`), so the fail-open edge scenarios can assert the emit stayed
+    // await-bounded (a failing/slow suppression lookup must not stall the request).
+    let started = Instant::now();
     let outcome = {
         let harness = world.harness.as_ref().expect("harness");
         let http = world.http.as_ref().expect("http");
@@ -453,6 +501,7 @@ async fn workspace_invite_issued_to_sam(world: &mut FoundryWorld, workspace: Str
         )
         .await
     };
+    world.ndp_request_elapsed_ms = Some(started.elapsed().as_millis());
     assert!(
         outcome.status.is_success() || outcome.status.is_redirection(),
         "the invite must be issued (2xx/3xx), got {}: {}",
@@ -559,8 +608,21 @@ async fn olivia_scrapes_metrics_endpoint(_world: &mut FoundryWorld) {
 }
 
 #[when(regex = r#"^the "([^"]+)" workspace is deleted$"#)]
-async fn the_workspace_is_deleted(_world: &mut FoundryWorld, _workspace: String) {
-    pending!("the workspace is deleted");
+async fn the_workspace_is_deleted(world: &mut FoundryWorld, _workspace: String) {
+    // No workspace-delete route exists in v1, so drive the deletion at the store
+    // boundary. Removing the `workspaces` row fires the 0014 FK ON DELETE CASCADE
+    // (ADR-004), clearing Sam's opt-out row as a side effect — the behaviour under
+    // test. Capture the rows affected so the `Then` asserts the delete succeeded.
+    let workspace_id = world
+        .unsub_workspace_id
+        .expect("workspace id captured in the Given");
+    let harness = world.harness.as_ref().expect("harness");
+    let result = sqlx::query("DELETE FROM workspaces WHERE id = $1")
+        .bind(workspace_id)
+        .execute(harness.app.state.store.pool())
+        .await
+        .expect("delete the workspace");
+    world.unsub_delete_rows = Some(result.rows_affected());
 }
 
 // ============================================================================
@@ -872,21 +934,93 @@ async fn suppressed_count_for_mandatory_is_zero(_world: &mut FoundryWorld) {
 }
 
 #[then(regex = r#"^deleting the workspace succeeds$"#)]
-async fn deleting_the_workspace_succeeds(_world: &mut FoundryWorld) {
-    pending!("deleting the workspace succeeds");
+async fn deleting_the_workspace_succeeds(world: &mut FoundryWorld) {
+    let rows = world
+        .unsub_delete_rows
+        .expect("the workspace deletion ran in the When");
+    assert_eq!(
+        rows, 1,
+        "deleting the workspace must remove exactly one workspace row, removed {rows}"
+    );
 }
 
 #[then(regex = r#"^a previously-unsubscribed recipient of that workspace resumes delivery$"#)]
-async fn previously_unsubscribed_recipient_resumes_delivery(_world: &mut FoundryWorld) {
-    pending!("a previously-unsubscribed recipient of that workspace resumes delivery");
+async fn previously_unsubscribed_recipient_resumes_delivery(world: &mut FoundryWorld) {
+    // Emit a fresh suppressible workspace_invite for (Sam, the deleted workspace)
+    // through the notifier driving port. No HTTP invite path remains (the workspace
+    // is gone), so drive `notify()` directly. With the FK cascade having cleared the
+    // 0014 opt-out row, the point-read is now `Ok(false)` ⇒ the gate falls through ⇒
+    // the invite delivers again — observed at the recording provider boundary.
+    let workspace_id = world
+        .unsub_workspace_id
+        .expect("workspace id captured in the Given");
+    let email = world
+        .unsub_email
+        .clone()
+        .expect("recipient captured in the Given");
+    let harness = world.harness.as_ref().expect("harness");
+    let notification = Notification {
+        event: NotificationEvent::WorkspaceInvite,
+        recipient: email.clone(),
+        subject: "You're invited".to_string(),
+        body: "join the workspace".to_string(),
+        workspace_id: Some(workspace_id),
+    };
+    harness.app.state.notifier.notify(&notification).await;
+    let delivered: Vec<_> = harness
+        .fake_email
+        .sent()
+        .into_iter()
+        .filter(|d| d.event == "workspace_invite" && d.to == email && d.outcome == "delivered")
+        .collect();
+    assert_eq!(
+        delivered.len(),
+        1,
+        "after the cascade cleared the opt-out, the workspace_invite must resume \
+         delivering, found {}: {delivered:?}",
+        delivered.len()
+    );
 }
 
 #[then(regex = r#"^no orphaned suppression state remains$"#)]
-async fn no_orphaned_suppression_state(_world: &mut FoundryWorld) {
-    pending!("no orphaned suppression state remains");
+async fn no_orphaned_suppression_state(world: &mut FoundryWorld) {
+    // The FK ON DELETE CASCADE must have removed Sam's 0014 opt-out row along with
+    // the workspace — the suppression point-read at the store boundary now reads
+    // `Ok(false)` (subscribed), so no orphaned opt-out state lingers.
+    let workspace_id = world
+        .unsub_workspace_id
+        .expect("workspace id captured in the Given");
+    let email = world
+        .unsub_email
+        .clone()
+        .expect("recipient captured in the Given");
+    let harness = world.harness.as_ref().expect("harness");
+    let still_unsubscribed = harness
+        .app
+        .state
+        .store
+        .is_unsubscribed(&email, workspace_id)
+        .await
+        .expect("read Sam's opt-out state after deletion");
+    assert!(
+        !still_unsubscribed,
+        "the workspace deletion must cascade-clear Sam's opt-out row (no orphaned \
+         suppression state)"
+    );
 }
 
 #[then(regex = r#"^the emit completes without stalling$"#)]
-async fn the_emit_completes_without_stalling(_world: &mut FoundryWorld) {
-    pending!("the emit completes without stalling");
+async fn the_emit_completes_without_stalling(world: &mut FoundryWorld) {
+    // The failing/slow suppression lookup must not stall the emit: the gate is
+    // bounded (fail-open on Err/timeout), so the /invites request completes far
+    // inside the block a slow lookup would otherwise impose. Reverting the bound
+    // (awaiting the 5s slow lookup) re-REDs this.
+    let elapsed = world
+        .ndp_request_elapsed_ms
+        .expect("the invite request timing was captured in the When");
+    assert!(
+        elapsed < 3000,
+        "the emit must not stall on a failing/slow suppression lookup \
+         (await-bounded, fail-open), took {elapsed}ms"
+    );
 }

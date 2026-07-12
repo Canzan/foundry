@@ -1157,6 +1157,10 @@ pub struct FoundryWorld {
     /// captured so the harmless-no-op scenario can assert the SECOND confirm shows
     /// the same confirmation with no error (idempotence, observed at the port).
     pub unsub_first_confirmation: Option<String>,
+    /// recipient-notification-preferences (cascade edge) — rows affected by the
+    /// workspace-deletion `When`, so the `Then` can assert the delete succeeded
+    /// (exactly one workspace row removed, cascading its 0014 opt-out rows).
+    pub unsub_delete_rows: Option<u64>,
 }
 
 impl FoundryWorld {

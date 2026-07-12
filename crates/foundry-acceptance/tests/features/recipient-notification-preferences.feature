@@ -247,7 +247,7 @@ Feature: A recipient silences a workspace's invitation emails without losing sec
 
   # ── Cross-cutting NFR/edge litmuses (fail-open + await-bounded notify(); cascade) ────────
 
-  @pending @nfr @property @error @real-io
+  @nfr @property @error @real-io
   Scenario: A failing suppression lookup still delivers the notification (fail-open)
     Given Sam has confirmed unsubscribing from "Northwind"
     And the suppression lookup is failing
@@ -255,7 +255,7 @@ Feature: A recipient silences a workspace's invitation emails without losing sec
     Then the workspace-invite for Sam from "Northwind" is delivered unchanged
     And the emit completes without stalling
 
-  @pending @nfr @property @error @real-io
+  @nfr @property @error @real-io
   Scenario: A slow suppression lookup does not stall the emit (await-bounded, fail-open)
     Given Sam has confirmed unsubscribing from "Northwind"
     And the suppression lookup is slow
@@ -263,7 +263,7 @@ Feature: A recipient silences a workspace's invitation emails without losing sec
     Then the workspace-invite for Sam from "Northwind" is delivered unchanged
     And the emit completes without stalling
 
-  @pending @edge @real-io
+  @edge @real-io
   Scenario: Deleting a workspace clears its opt-out rows
     Given a workspace "Northwind" with an unsubscribed recipient is scheduled for deletion
     When the "Northwind" workspace is deleted
