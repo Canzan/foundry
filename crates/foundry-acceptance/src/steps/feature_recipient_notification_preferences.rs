@@ -2759,13 +2759,19 @@ async fn no_orphaned_suppression_state(world: &mut FoundryWorld) {
 async fn the_emit_completes_without_stalling(world: &mut FoundryWorld) {
     // The failing/slow suppression lookup must not stall the emit: the gate is
     // bounded (fail-open on Err/timeout), so the /invites request completes far
-    // inside the block a slow lookup would otherwise impose. Reverting the bound
-    // (awaiting the 5s slow lookup) re-REDs this.
+    // inside the 30s block a slow lookup would otherwise impose. Reverting the
+    // bound (awaiting the 30s slow lookup) re-REDs this.
+    //
+    // The 15s ceiling sits between the bounded emit (~100ms, or a few seconds
+    // under a saturated CI runtime where the 100ms timer is serviced late) and
+    // an unbounded regression (~30s). It is deliberately generous — well above
+    // the worst starvation latency observed (~7s) — so a loaded CI run cannot
+    // flake it, while a genuine unbounded stall (30s) still REDs decisively.
     let elapsed = world
         .ndp_request_elapsed_ms
         .expect("the invite request timing was captured in the When");
     assert!(
-        elapsed < 3000,
+        elapsed < 15_000,
         "the emit must not stall on a failing/slow suppression lookup \
          (await-bounded, fail-open), took {elapsed}ms"
     );

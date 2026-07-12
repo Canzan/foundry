@@ -176,10 +176,17 @@ impl SuppressionPolicy for FaultableSuppression {
             ));
         }
         if self.faults.is_slow() {
-            // Block well past the notifier's bounded suppression timeout so the
+            // Block FAR past the notifier's bounded suppression timeout so the
             // gate's `Err(Elapsed)` fail-open arm fires. The notifier drops this
             // future on timeout, so the sleep is cancelled — nothing lingers.
-            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            //
+            // Sized at 30s (>> the 100ms bound) to keep the "does not stall"
+            // assertion robust under a saturated CI runtime: even when timer
+            // servicing is delayed several seconds by 6 concurrent testcontainer
+            // scenarios, the bounded emit still completes in a few seconds — far
+            // under both this 30s block and the assertion's 15s ceiling — whereas
+            // a genuine UNBOUNDED regression would await the full 30s and RED.
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
         }
         self.inner.is_suppressed(email_lower, workspace_id).await
     }
