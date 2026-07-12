@@ -37,6 +37,41 @@
       "s": "EXECUTED",
       "d": "PASS: c2122e69 fmt+clippy clean, Step-ID 01-01",
       "t": "2026-07-11T23:00:44Z"
+    },
+    {
+      "sid": "01-02",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-11T23:10:27Z"
+    },
+    {
+      "sid": "01-02",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-11T23:40:42Z"
+    },
+    {
+      "sid": "01-02",
+      "p": "RED_UNIT",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: no new production code \u2014 the independence/idempotence/no-opt-out arms are green-by-inheritance on the 01-01 composite-key spine (suppression gate + state-aware confirm page + ON CONFLICT store write), already unit-tested in 01-01; the acceptance scenarios alone drive GREEN",
+      "t": "2026-07-12T00:11:40Z"
+    },
+    {
+      "sid": "01-02",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-12T00:11:41Z"
+    },
+    {
+      "sid": "01-02",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-12T00:16:32Z"
     }
   ]
 }

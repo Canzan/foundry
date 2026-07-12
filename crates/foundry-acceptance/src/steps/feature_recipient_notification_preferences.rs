@@ -55,6 +55,9 @@ const SAM_EMAIL: &str = "sam@northwind.example";
 /// `workspace_invite` the suppression gate then intercepts.
 const ADMIN_EMAIL: &str = "admin@northwind.example";
 const ADMIN_PASSWORD: &str = "rnp-correct-horse-battery-staple";
+/// A SECOND workspace's admin (the independence scenario seeds Contoso alongside
+/// Northwind). A distinct email so both admins coexist in the `users` table.
+const CONTOSO_ADMIN_EMAIL: &str = "admin@contoso.example";
 
 fn rnp_now() -> time::OffsetDateTime {
     time::OffsetDateTime::parse(RNP_NOW, &time::format_description::well_known::Rfc3339)
@@ -73,11 +76,23 @@ fn rnp_client() -> reqwest::Client {
 /// so the scenario can sign the admin in and drive the shipped `POST /invites`
 /// emit. Returns the new workspace id (also the id the unsubscribe token binds).
 async fn seed_workspace_and_admin(harness: &InProcHarness, workspace: &str) -> uuid::Uuid {
+    seed_workspace_and_named_admin(harness, workspace, ADMIN_EMAIL, ADMIN_PASSWORD).await
+}
+
+/// As [`seed_workspace_and_admin`] but with an explicit admin identity, so a
+/// scenario can stand up TWO workspaces (Northwind + Contoso), each with its own
+/// admin who can drive the shipped `POST /invites` emit for that workspace.
+async fn seed_workspace_and_named_admin(
+    harness: &InProcHarness,
+    workspace: &str,
+    admin_email: &str,
+    admin_password: &str,
+) -> uuid::Uuid {
     let pool = harness.app.state.store.pool();
     let workspace_id = uuid::Uuid::now_v7();
     let user_id = uuid::Uuid::now_v7();
-    let lower = ADMIN_EMAIL.to_ascii_lowercase();
-    let hash = foundry_auth::hash_password(&SecretString::new(ADMIN_PASSWORD.to_string().into()))
+    let lower = admin_email.to_ascii_lowercase();
+    let hash = foundry_auth::hash_password(&SecretString::new(admin_password.to_string().into()))
         .await
         .expect("hash admin pw");
     sqlx::query("INSERT INTO workspaces (id, name) VALUES ($1, $2)")
@@ -92,7 +107,7 @@ async fn seed_workspace_and_admin(harness: &InProcHarness, workspace: &str) -> u
     )
     .bind(user_id)
     .bind(&lower)
-    .bind(ADMIN_EMAIL)
+    .bind(admin_email)
     .bind("Ada Admin")
     .bind(&hash)
     .execute(pool)
@@ -107,6 +122,57 @@ async fn seed_workspace_and_admin(harness: &InProcHarness, workspace: &str) -> u
     .await
     .expect("insert admin membership");
     workspace_id
+}
+
+/// Mint the SAME signed link a suppressible email body carries for `(email, ws)`:
+/// the base64url `t` param + the domain-separated HMAC `sig`.
+fn mint_unsubscribe_link(
+    harness: &InProcHarness,
+    email_lower: &str,
+    workspace_id: uuid::Uuid,
+) -> (String, String) {
+    let token = foundry_auth::UnsubscribeToken::new(
+        email_lower,
+        workspace_id,
+        &harness.app.state.session_secret,
+    )
+    .expect("mint unsubscribe token");
+    let t = foundry_app::unsubscribe::encode_t(email_lower, workspace_id);
+    (t, token.signature)
+}
+
+/// Drive the recipient's confirm click end-to-end at the PUBLIC driving port:
+/// GET the confirm page (mint the double-submit CSRF cookie), then POST the
+/// `action=unsubscribe` confirm re-submitting it. Returns the confirmation the
+/// recipient SEES (status + body). Idempotent on the server (`ON CONFLICT DO
+/// NOTHING`), so confirming twice yields the same confirmation.
+async fn confirm_unsubscribe(
+    http: &reqwest::Client,
+    base: &str,
+    t: &str,
+    sig: &str,
+) -> (reqwest::StatusCode, String) {
+    let get_url = format!(
+        "{base}/unsubscribe?t={}&sig={}",
+        urlencoding::encode(t),
+        urlencoding::encode(sig),
+    );
+    let csrf = csrf_from_get(http, &get_url).await;
+    let mut form: HashMap<&str, String> = HashMap::new();
+    form.insert("t", t.to_string());
+    form.insert("sig", sig.to_string());
+    form.insert("action", "unsubscribe".to_string());
+    form.insert("_csrf", csrf.clone());
+    let resp = http
+        .post(format!("{base}/unsubscribe"))
+        .header(reqwest::header::COOKIE, format!("foundry_csrf={csrf}"))
+        .form(&form)
+        .send()
+        .await
+        .expect("POST /unsubscribe confirm");
+    let status = resp.status();
+    let body = resp.text().await.unwrap_or_default();
+    (status, body)
 }
 
 /// Fetch a URL and return the `foundry_csrf` token minted in its `Set-Cookie`.
@@ -167,22 +233,18 @@ async fn sam_has_workspace_invite_email_with_link(world: &mut FoundryWorld, work
         .expect("harness spawned by Background");
     // Seed the workspace + an admin who can drive the shipped invite emit.
     let workspace_id = seed_workspace_and_admin(harness, &workspace).await;
-    // Mint the SAME signed link a suppressible email body would carry: a
-    // domain-separated HMAC over (email_lower, workspace_id) keyed on SESSION_SECRET
-    // (foundry_auth::UnsubscribeToken), plus the base64url `t` param.
+    // Mint the SAME signed link a suppressible email body would carry.
     let email_lower = SAM_EMAIL.to_ascii_lowercase();
-    let token = foundry_auth::UnsubscribeToken::new(
-        &email_lower,
-        workspace_id,
-        &harness.app.state.session_secret,
-    )
-    .expect("mint unsubscribe token");
-    let t = foundry_app::unsubscribe::encode_t(&email_lower, workspace_id);
+    let (t, sig) = mint_unsubscribe_link(harness, &email_lower, workspace_id);
     world.unsub_email = Some(email_lower);
     world.unsub_workspace_id = Some(workspace_id);
     world.unsub_t = Some(t);
-    world.unsub_sig = Some(token.signature);
+    world.unsub_sig = Some(sig);
     world.unsub_admin = Some((ADMIN_EMAIL.to_string(), ADMIN_PASSWORD.to_string()));
+    world.unsub_ws_admins.insert(
+        workspace,
+        (ADMIN_EMAIL.to_string(), ADMIN_PASSWORD.to_string()),
+    );
 }
 
 #[given(
@@ -193,13 +255,53 @@ async fn sam_has_member_invite_email_with_link(_world: &mut FoundryWorld, _works
 }
 
 #[given(regex = r#"^Sam has confirmed unsubscribing from "([^"]+)"$"#)]
-async fn sam_has_confirmed_unsubscribing_from(_world: &mut FoundryWorld, _workspace: String) {
-    pending!("Sam has confirmed unsubscribing from a workspace");
+async fn sam_has_confirmed_unsubscribing_from(world: &mut FoundryWorld, workspace: String) {
+    // Establish the "already unsubscribed" precondition by driving the REAL public
+    // confirm flow (seed workspace + admin, mint the signed link, GET the confirm
+    // page + POST the confirm). Capturing the confirmation Sam saw the FIRST time
+    // lets the harmless-no-op scenario compare it against a second confirm.
+    let (base, t, sig, email_lower, workspace_id) = {
+        let harness = world
+            .harness
+            .as_ref()
+            .expect("harness spawned by Background");
+        let workspace_id = seed_workspace_and_admin(harness, &workspace).await;
+        let email_lower = SAM_EMAIL.to_ascii_lowercase();
+        let (t, sig) = mint_unsubscribe_link(harness, &email_lower, workspace_id);
+        (harness.base_url(), t, sig, email_lower, workspace_id)
+    };
+    let http = world.http.as_ref().expect("http").clone();
+    let (status, body) = confirm_unsubscribe(&http, &base, &t, &sig).await;
+    assert!(
+        status.is_success(),
+        "the first unsubscribe confirm must succeed, got {status}"
+    );
+    world.unsub_email = Some(email_lower);
+    world.unsub_workspace_id = Some(workspace_id);
+    world.unsub_t = Some(t);
+    world.unsub_sig = Some(sig);
+    world.unsub_admin = Some((ADMIN_EMAIL.to_string(), ADMIN_PASSWORD.to_string()));
+    world.unsub_ws_admins.insert(
+        workspace,
+        (ADMIN_EMAIL.to_string(), ADMIN_PASSWORD.to_string()),
+    );
+    world.unsub_first_confirmation = Some(body);
 }
 
 #[given(regex = r#"^Sam also has an invite for workspace "([^"]+)"$"#)]
-async fn sam_also_has_invite_for_workspace(_world: &mut FoundryWorld, _workspace: String) {
-    pending!("Sam also has an invite for another workspace");
+async fn sam_also_has_invite_for_workspace(world: &mut FoundryWorld, workspace: String) {
+    // Stand up a SECOND, independent workspace with its own admin. Sam has NOT
+    // opted out here (no row for this pair), so an invite from it must deliver —
+    // proving the per-(email, workspace) opt-out is scoped, not global (FR-9).
+    let harness = world
+        .harness
+        .as_ref()
+        .expect("harness spawned by Background");
+    seed_workspace_and_named_admin(harness, &workspace, CONTOSO_ADMIN_EMAIL, ADMIN_PASSWORD).await;
+    world.unsub_ws_admins.insert(
+        workspace,
+        (CONTOSO_ADMIN_EMAIL.to_string(), ADMIN_PASSWORD.to_string()),
+    );
 }
 
 #[given(regex = r#"^Sam has unsubscribed from "([^"]+)" via a workspace-invite link$"#)]
@@ -327,8 +429,36 @@ async fn sam_opens_link_and_confirms_unsubscribe(world: &mut FoundryWorld, _work
 }
 
 #[when(regex = r#"^a workspace-invite for "([^"]+)" is issued to Sam$"#)]
-async fn workspace_invite_issued_to_sam(_world: &mut FoundryWorld, _workspace: String) {
-    pending!("a workspace-invite is issued to Sam");
+async fn workspace_invite_issued_to_sam(world: &mut FoundryWorld, workspace: String) {
+    // Drive the REAL shipped issuance (bootstrap::create_invite, POST /invites):
+    // sign the NAMED workspace's admin in and POST an invite for Sam. The handler
+    // emits ONE `WorkspaceInvite` for Sam with `workspace_id: Some(<that ws>)`
+    // through `notify()`, where the suppression gate decides deliver-vs-suppress
+    // against Sam's opt-out state for THAT workspace.
+    let (admin_email, admin_pw) = world
+        .unsub_ws_admins
+        .get(&workspace)
+        .cloned()
+        .unwrap_or_else(|| panic!("no seeded admin for workspace {workspace:?}"));
+    let outcome = {
+        let harness = world.harness.as_ref().expect("harness");
+        let http = world.http.as_ref().expect("http");
+        signed_in_post(
+            harness,
+            http,
+            &admin_email,
+            &admin_pw,
+            "/invites",
+            &[("email", SAM_EMAIL)],
+        )
+        .await
+    };
+    assert!(
+        outcome.status.is_success() || outcome.status.is_redirection(),
+        "the invite must be issued (2xx/3xx), got {}: {}",
+        outcome.status,
+        outcome.body
+    );
 }
 
 #[when(regex = r#"^a member-invite for "([^"]+)" is issued to Sam$"#)]
@@ -337,8 +467,20 @@ async fn member_invite_issued_to_sam(_world: &mut FoundryWorld, _workspace: Stri
 }
 
 #[when(regex = r#"^Sam confirms unsubscribing from "([^"]+)" a second time$"#)]
-async fn sam_confirms_unsubscribing_second_time(_world: &mut FoundryWorld, _workspace: String) {
-    pending!("Sam confirms unsubscribing a second time");
+async fn sam_confirms_unsubscribing_second_time(world: &mut FoundryWorld, _workspace: String) {
+    // Re-run the exact same confirm click against the SAME signed link. The server
+    // is idempotent (`ON CONFLICT DO NOTHING`), so this is a harmless no-op that
+    // must return the same confirmation with no error.
+    let base = {
+        let harness = world.harness.as_ref().expect("harness");
+        harness.base_url()
+    };
+    let http = world.http.as_ref().expect("http").clone();
+    let t = world.unsub_t.clone().expect("link minted in Given");
+    let sig = world.unsub_sig.clone().expect("link minted in Given");
+    let (status, body) = confirm_unsubscribe(&http, &base, &t, &sig).await;
+    world.last_status = Some(status);
+    world.last_body = Some(body);
 }
 
 #[when(regex = r#"^Sam requests a password reset$"#)]
@@ -507,23 +649,75 @@ async fn one_suppression_counted_for_event(world: &mut FoundryWorld, event: Stri
 }
 
 #[then(regex = r#"^the "([^"]+)" invitation is delivered to Sam$"#)]
-async fn the_invitation_is_delivered_to_sam(_world: &mut FoundryWorld, _workspace: String) {
-    pending!("the invitation is delivered to Sam");
+async fn the_invitation_is_delivered_to_sam(world: &mut FoundryWorld, _workspace: String) {
+    // Observed at the provider driven-port boundary: the workspace_invite for Sam
+    // reached delivery (the opt-out for a DIFFERENT workspace did not suppress it).
+    let harness = world.harness.as_ref().expect("harness");
+    let delivered: Vec<_> = harness
+        .fake_email
+        .sent()
+        .into_iter()
+        .filter(|d| d.event == "workspace_invite" && d.to == SAM_EMAIL && d.outcome == "delivered")
+        .collect();
+    assert_eq!(
+        delivered.len(),
+        1,
+        "the invitation must be delivered to Sam exactly once, found {}: {delivered:?}",
+        delivered.len()
+    );
 }
 
 #[then(regex = r#"^Sam sees that he is already unsubscribed from "([^"]+)"$"#)]
-async fn sam_sees_already_unsubscribed(_world: &mut FoundryWorld, _workspace: String) {
-    pending!("Sam sees that he is already unsubscribed");
+async fn sam_sees_already_unsubscribed(world: &mut FoundryWorld, workspace: String) {
+    // The second confirm succeeded and shows the same unsubscribed outcome — the
+    // workspace's invitations are stopped (his opt-out persisted; re-confirming did
+    // not error or flip it).
+    let status = world.last_status.expect("a second confirm was posted");
+    assert!(
+        status.is_success(),
+        "the second confirm must succeed (harmless no-op), got {status}"
+    );
+    let body = world.last_body.as_deref().expect("a second confirm body");
+    assert!(
+        body.contains(&workspace) && body.contains("invitations are stopped"),
+        "the second confirm must reaffirm the workspace {workspace:?} is unsubscribed: {body}"
+    );
 }
 
 #[then(regex = r#"^Sam sees the same confirmation both times with no error$"#)]
-async fn sam_sees_same_confirmation_both_times(_world: &mut FoundryWorld) {
-    pending!("Sam sees the same confirmation both times with no error");
+async fn sam_sees_same_confirmation_both_times(world: &mut FoundryWorld) {
+    let first = world
+        .unsub_first_confirmation
+        .as_deref()
+        .expect("first confirmation captured in Given");
+    let second = world
+        .last_body
+        .as_deref()
+        .expect("second confirmation body");
+    assert_eq!(
+        first, second,
+        "confirming twice must yield the byte-identical confirmation (idempotent no-op)"
+    );
 }
 
 #[then(regex = r#"^the workspace-invite for Sam from "([^"]+)" is delivered unchanged$"#)]
-async fn workspace_invite_delivered_unchanged(_world: &mut FoundryWorld, _workspace: String) {
-    pending!("the workspace-invite for Sam is delivered unchanged");
+async fn workspace_invite_delivered_unchanged(world: &mut FoundryWorld, _workspace: String) {
+    // With NO opt-out on record the empty-table point-read is Ok(false), so the
+    // suppression gate falls through and the invite delivers byte-for-byte
+    // unchanged (NFR-7) — observed at the provider boundary.
+    let harness = world.harness.as_ref().expect("harness");
+    let delivered: Vec<_> = harness
+        .fake_email
+        .sent()
+        .into_iter()
+        .filter(|d| d.event == "workspace_invite" && d.to == SAM_EMAIL && d.outcome == "delivered")
+        .collect();
+    assert_eq!(
+        delivered.len(),
+        1,
+        "with no opt-out the workspace_invite must be delivered unchanged, found {}: {delivered:?}",
+        delivered.len()
+    );
 }
 
 #[then(regex = r#"^the password-reset notification is delivered to Sam$"#)]

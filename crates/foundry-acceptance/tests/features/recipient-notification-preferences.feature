@@ -73,21 +73,21 @@ Feature: A recipient silences a workspace's invitation emails without losing sec
     And a subsequent workspace-invite for Sam from "Northwind" is not delivered
     And one suppression is counted for the "workspace_invite" event
 
-  @pending @us-01 @real-io
+  @us-01 @real-io
   Scenario: Unsubscribing from one workspace leaves another untouched
     Given Sam has confirmed unsubscribing from "Northwind"
     And Sam also has an invite for workspace "Contoso"
     When a workspace-invite for "Contoso" is issued to Sam
     Then the "Contoso" invitation is delivered to Sam
 
-  @pending @us-01 @error @real-io
+  @us-01 @error @real-io
   Scenario: Confirming an unsubscribe twice is a harmless no-op
     Given Sam has confirmed unsubscribing from "Northwind"
     When Sam confirms unsubscribing from "Northwind" a second time
     Then Sam sees that he is already unsubscribed from "Northwind"
     And Sam sees the same confirmation both times with no error
 
-  @pending @us-01 @real-io
+  @us-01 @real-io
   Scenario: With no opt-out on record, a workspace-invite is delivered unchanged
     Given Sam has a workspace-invite email for "Northwind" carrying a signed unsubscribe link
     When a workspace-invite for "Northwind" is issued to Sam

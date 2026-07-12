@@ -1148,6 +1148,15 @@ pub struct FoundryWorld {
     /// The seeded workspace admin (email, password) used to drive the REAL invite
     /// emit that the suppression gate then intercepts.
     pub unsub_admin: Option<(String, String)>,
+    /// workspace name -> the seeded admin (email, password) who can drive the REAL
+    /// `POST /invites` emit for THAT workspace. Lets the shared "a workspace-invite
+    /// for <ws> is issued to Sam" When resolve the right admin per named workspace
+    /// (the independence scenario seeds two: Northwind + Contoso).
+    pub unsub_ws_admins: HashMap<String, (String, String)>,
+    /// The confirmation page body Sam saw the FIRST time he confirmed unsubscribing,
+    /// captured so the harmless-no-op scenario can assert the SECOND confirm shows
+    /// the same confirmation with no error (idempotence, observed at the port).
+    pub unsub_first_confirmation: Option<String>,
 }
 
 impl FoundryWorld {
