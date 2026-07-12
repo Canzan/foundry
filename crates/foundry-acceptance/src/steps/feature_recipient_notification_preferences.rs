@@ -39,7 +39,9 @@
 //! `signed_in_post`, the seed helpers), NOT at the Gherkin phrase level — so this module
 //! declares only new, non-colliding phrases and registers no duplicate.
 
-use crate::support::harness::{signed_in_get, signed_in_post, InProcHarness};
+use crate::support::harness::{
+    establish_session, post_with_cookie, signed_in_get, signed_in_post, InProcHarness,
+};
 use crate::world::FoundryWorld;
 use cucumber::{given, then, when};
 use foundry_app::{Notification, NotificationEvent, ProviderKind};
@@ -70,6 +72,11 @@ const CONTOSO_ADMIN_EMAIL: &str = "admin@contoso.example";
 /// notification status. Lower-cased so her `email_lower` matches the 0014 key.
 const MARIA_EMAIL: &str = "maria@northwind.example";
 const MARIA_PASSWORD: &str = "rnp-maria-correct-horse-battery-staple";
+/// An admin seeded INTO one of Maria's already-seeded workspaces so a US-06
+/// resubscribe scenario can drive the shipped `POST /invites` emit toward Maria
+/// (proving delivery resumed after she resubscribed). Distinct from `ADMIN_EMAIL`
+/// so it never collides with a Sam-scenario admin in the same `users` table.
+const MARIA_WS_ADMIN_EMAIL: &str = "ws-admin@northwind.example";
 
 fn rnp_now() -> time::OffsetDateTime {
     time::OffsetDateTime::parse(RNP_NOW, &time::format_description::well_known::Rfc3339)
@@ -134,6 +141,92 @@ async fn seed_workspace_and_named_admin(
     .await
     .expect("insert admin membership");
     workspace_id
+}
+
+/// Seed `admin_email` as an `admin` member of an ALREADY-EXISTING `workspace_id`
+/// (unlike [`seed_workspace_and_named_admin`], which creates a new workspace). Used
+/// by the US-06 resubscribe scenarios: Maria's workspaces are seeded with only Maria
+/// as a member, so a resubscribe `Then` seeds an admin whose sole membership makes
+/// that workspace their active one, letting the shipped `POST /invites` emit a
+/// `WorkspaceInvite` toward Maria for THAT workspace.
+async fn seed_admin_into_workspace(
+    harness: &InProcHarness,
+    workspace_id: uuid::Uuid,
+    admin_email: &str,
+    admin_password: &str,
+) {
+    let pool = harness.app.state.store.pool();
+    let user_id = uuid::Uuid::now_v7();
+    let lower = admin_email.to_ascii_lowercase();
+    let hash = foundry_auth::hash_password(&SecretString::new(admin_password.to_string().into()))
+        .await
+        .expect("hash ws-admin pw");
+    sqlx::query(
+        "INSERT INTO users (id, email_lower, email_display, display_name, password_hash)
+              VALUES ($1, $2, $3, $4, $5)",
+    )
+    .bind(user_id)
+    .bind(&lower)
+    .bind(admin_email)
+    .bind("Wanda WorkspaceAdmin")
+    .bind(&hash)
+    .execute(pool)
+    .await
+    .expect("insert ws-admin user");
+    sqlx::query(
+        "INSERT INTO workspace_memberships (workspace_id, user_id, role) VALUES ($1, $2, 'admin')",
+    )
+    .bind(workspace_id)
+    .bind(user_id)
+    .execute(pool)
+    .await
+    .expect("insert ws-admin membership");
+}
+
+/// The id of the workspace named `workspace` that Maria was seeded into. PANICS if
+/// Maria does not belong to it — the falsifiable precondition every US-06 Maria
+/// scenario relies on.
+fn maria_workspace_id(world: &FoundryWorld, workspace: &str) -> uuid::Uuid {
+    world
+        .maria_workspaces
+        .iter()
+        .find(|(name, _)| name == workspace)
+        .map(|(_, id)| *id)
+        .unwrap_or_else(|| panic!("Maria must belong to {workspace:?} for the resubscribe"))
+}
+
+/// Drive the account-less recipient's RESUBSCRIBE click end-to-end at the PUBLIC
+/// driving port: GET the state-aware confirm page (which, for an already-muted pair,
+/// offers Resubscribe and mints the double-submit CSRF cookie), then POST the
+/// `action=resubscribe` confirm re-submitting it. Returns the confirmation the
+/// recipient SEES (status + body).
+async fn confirm_resubscribe(
+    http: &reqwest::Client,
+    base: &str,
+    t: &str,
+    sig: &str,
+) -> (reqwest::StatusCode, String) {
+    let get_url = format!(
+        "{base}/unsubscribe?t={}&sig={}",
+        urlencoding::encode(t),
+        urlencoding::encode(sig),
+    );
+    let csrf = csrf_from_get(http, &get_url).await;
+    let mut form: HashMap<&str, String> = HashMap::new();
+    form.insert("t", t.to_string());
+    form.insert("sig", sig.to_string());
+    form.insert("action", "resubscribe".to_string());
+    form.insert("_csrf", csrf.clone());
+    let resp = http
+        .post(format!("{base}/unsubscribe"))
+        .header(reqwest::header::COOKIE, format!("foundry_csrf={csrf}"))
+        .form(&form)
+        .send()
+        .await
+        .expect("POST /unsubscribe resubscribe");
+    let status = resp.status();
+    let body = resp.text().await.unwrap_or_default();
+    (status, body)
 }
 
 /// Seed Sam as a REAL user (an account, not just an invitee email) so a shipped
@@ -1270,28 +1363,139 @@ async fn request_attempts_other_recipient_status(world: &mut FoundryWorld) {
 }
 
 #[when(regex = r#"^Maria resubscribes to "([^"]+)"$"#)]
-async fn maria_resubscribes_to(_world: &mut FoundryWorld, _workspace: String) {
-    pending!("Maria resubscribes to a workspace");
+async fn maria_resubscribes_to(world: &mut FoundryWorld, workspace: String) {
+    // Drive the SIGNED-IN resubscribe driving port: authenticate as Maria and POST
+    // the CSRF-protected `/account/notifications/resubscribe` naming the workspace by
+    // id (identity is her SESSION user's; the handler clears her OWN
+    // `(email_lower, workspace_id)` opt-out row, idempotent per BR-8). Then re-open
+    // the settings page so the `Then` observes the row cleared — Northwind flips to
+    // subscribed while her other memberships are untouched (per-workspace, FR-9).
+    let workspace_id = maria_workspace_id(world, &workspace);
+    let workspace_id_str = workspace_id.to_string();
+    let (email, password) = world
+        .maria_creds
+        .clone()
+        .expect("Maria seeded in the Given");
+    world.resubscribe_workspace_id = Some(workspace_id);
+    {
+        let harness = world.harness.as_ref().expect("harness");
+        let http = world.http.as_ref().expect("http");
+        signed_in_post(
+            harness,
+            http,
+            &email,
+            &password,
+            "/account/notifications/resubscribe",
+            &[("workspace_id", workspace_id_str.as_str())],
+        )
+        .await;
+    }
+    let settings = {
+        let harness = world.harness.as_ref().expect("harness");
+        let http = world.http.as_ref().expect("http");
+        signed_in_get(harness, http, &email, &password, "/account/notifications").await
+    };
+    world.last_status = Some(settings.status);
+    world.last_body = Some(settings.body);
 }
 
 #[when(regex = r#"^Maria submits a resubscribe for "([^"]+)" twice from a stale page$"#)]
 async fn maria_submits_resubscribe_twice_from_stale_page(
-    _world: &mut FoundryWorld,
-    _workspace: String,
+    world: &mut FoundryWorld,
+    workspace: String,
 ) {
-    pending!("Maria submits a resubscribe twice from a stale page");
+    // Maria is ALREADY subscribed (no opt-out Given). A stale page / double-click
+    // POSTs the SAME resubscribe twice — `delete_unsubscribe` is idempotent (BR-8),
+    // so both are harmless no-op successes returning the SAME confirmation. Capture
+    // both bodies so the `Then` proves byte-identity with no error (observable, not a
+    // row count).
+    let workspace_id = maria_workspace_id(world, &workspace);
+    let workspace_id_str = workspace_id.to_string();
+    let (email, password) = world
+        .maria_creds
+        .clone()
+        .expect("Maria seeded in the Given");
+    world.resubscribe_workspace_id = Some(workspace_id);
+    let first = {
+        let harness = world.harness.as_ref().expect("harness");
+        let http = world.http.as_ref().expect("http");
+        signed_in_post(
+            harness,
+            http,
+            &email,
+            &password,
+            "/account/notifications/resubscribe",
+            &[("workspace_id", workspace_id_str.as_str())],
+        )
+        .await
+    };
+    let second = {
+        let harness = world.harness.as_ref().expect("harness");
+        let http = world.http.as_ref().expect("http");
+        signed_in_post(
+            harness,
+            http,
+            &email,
+            &password,
+            "/account/notifications/resubscribe",
+            &[("workspace_id", workspace_id_str.as_str())],
+        )
+        .await
+    };
+    world.last_status = Some(second.status);
+    world.last_body = Some(second.body.clone());
+    world.resubscribe_confirmations = vec![first.body, second.body];
 }
 
 #[when(
     regex = r#"^a cross-site request attempts to resubscribe Maria to "([^"]+)" without a valid CSRF token$"#
 )]
-async fn cross_site_resubscribe_without_csrf(_world: &mut FoundryWorld, _workspace: String) {
-    pending!("a cross-site request attempts to resubscribe Maria without a valid CSRF token");
+async fn cross_site_resubscribe_without_csrf(world: &mut FoundryWorld, workspace: String) {
+    // Forge the cross-site shape: hold Maria's real session cookie but POST the
+    // resubscribe WITHOUT the double-submit CSRF pair (no `foundry_csrf` cookie, no
+    // `_csrf` field). The shipped `csrf_middleware` must refuse it BEFORE the handler
+    // can clear a row — so Maria's opt-out stays intact (the `Then`'s oracle).
+    let workspace_id = maria_workspace_id(world, &workspace);
+    let workspace_id_str = workspace_id.to_string();
+    let (email, password) = world
+        .maria_creds
+        .clone()
+        .expect("Maria seeded in the Given");
+    world.resubscribe_workspace_id = Some(workspace_id);
+    let session_pair = {
+        let harness = world.harness.as_ref().expect("harness");
+        let http = world.http.as_ref().expect("http");
+        establish_session(harness, http, &email, &password).await
+    };
+    let outcome = {
+        let harness = world.harness.as_ref().expect("harness");
+        let http = world.http.as_ref().expect("http");
+        post_with_cookie(
+            harness,
+            http,
+            "/account/notifications/resubscribe",
+            &session_pair,
+            &[("workspace_id", workspace_id_str.as_str())],
+        )
+        .await
+    };
+    world.last_status = Some(outcome.status);
+    world.last_body = Some(outcome.body);
 }
 
 #[when(regex = r#"^Sam opens his unsubscribe link and confirms resubscribing to "([^"]+)"$"#)]
-async fn sam_opens_link_and_confirms_resubscribe(_world: &mut FoundryWorld, _workspace: String) {
-    pending!("Sam opens his unsubscribe link and confirms resubscribing");
+async fn sam_opens_link_and_confirms_resubscribe(world: &mut FoundryWorld, _workspace: String) {
+    // The ACCOUNT-LESS undo: Sam (no account) re-opens the SAME signed link. The
+    // state-aware confirm page sees the pair is muted and offers Resubscribe; he POSTs
+    // `action=resubscribe`, which token-authorizes clearing his opt-out row via
+    // `delete_unsubscribe` (ADR-006). No sign-in — the token proves control of the pair.
+    let base = world.harness.as_ref().expect("harness").base_url();
+    let http = world.http.as_ref().expect("http").clone();
+    let t = world.unsub_t.clone().expect("link minted in Given");
+    let sig = world.unsub_sig.clone().expect("link minted in Given");
+    let (status, body) = confirm_resubscribe(&http, &base, &t, &sig).await;
+    world.last_status = Some(status);
+    world.last_body = Some(body);
 }
 
 #[when(regex = r#"^Olivia scrapes the metrics endpoint$"#)]
@@ -1972,31 +2176,168 @@ async fn only_marias_workspaces_listed(world: &mut FoundryWorld) {
 }
 
 #[then(regex = r#"^"([^"]+)" is shown as subscribed again$"#)]
-async fn workspace_shown_as_subscribed_again(_world: &mut FoundryWorld, _workspace: String) {
-    pending!("a workspace is shown as subscribed again");
+async fn workspace_shown_as_subscribed_again(world: &mut FoundryWorld, workspace: String) {
+    // ONE phrase, two audiences: Maria observes it on the signed-in settings page
+    // (the `{name} — Subscribed` row after her resubscribe re-opened the page), Sam on
+    // the account-less resubscribe RESULT page ("You are subscribed to … again"). Both
+    // must render the workspace as subscribed with no error.
+    let status = world.last_status.expect("a resubscribe was performed");
+    let body = world
+        .last_body
+        .as_deref()
+        .expect("a resubscribe result body");
+    assert!(
+        status.is_success(),
+        "the subscribed-again surface must render 2xx, got {status}: {body}"
+    );
+    let subscribed_again =
+        body.contains(&format!("{workspace} — Subscribed")) || body.contains("subscribed to");
+    assert!(
+        subscribed_again && body.contains(&workspace),
+        "{workspace:?} must be shown as subscribed again: {body}"
+    );
 }
 
 #[then(regex = r#"^a subsequent invitation for "([^"]+)" is delivered to Maria$"#)]
-async fn subsequent_invitation_delivered_to_maria(_world: &mut FoundryWorld, _workspace: String) {
-    pending!("a subsequent invitation is delivered to Maria");
+async fn subsequent_invitation_delivered_to_maria(world: &mut FoundryWorld, workspace: String) {
+    // The strong behavioral proof delivery RESUMED: seed an admin into Maria's named
+    // workspace (its sole membership makes it the admin's active workspace), sign in,
+    // and drive the shipped `POST /invites` emit toward Maria. With her opt-out cleared
+    // by the resubscribe, the suppression gate no longer intercepts it — the recording
+    // double observes exactly the delivery a still-muted pair would NOT get.
+    let workspace_id = maria_workspace_id(world, &workspace);
+    {
+        let harness = world.harness.as_ref().expect("harness");
+        seed_admin_into_workspace(harness, workspace_id, MARIA_WS_ADMIN_EMAIL, ADMIN_PASSWORD)
+            .await;
+    }
+    let outcome = {
+        let harness = world.harness.as_ref().expect("harness");
+        let http = world.http.as_ref().expect("http");
+        signed_in_post(
+            harness,
+            http,
+            MARIA_WS_ADMIN_EMAIL,
+            ADMIN_PASSWORD,
+            "/invites",
+            &[("email", MARIA_EMAIL)],
+        )
+        .await
+    };
+    assert!(
+        outcome.status.is_success() || outcome.status.is_redirection(),
+        "the invite must be issued (2xx/3xx), got {}: {}",
+        outcome.status,
+        outcome.body
+    );
+    let harness = world.harness.as_ref().expect("harness");
+    let delivered: Vec<_> = harness
+        .fake_email
+        .sent()
+        .into_iter()
+        .filter(|d| {
+            d.event == "workspace_invite" && d.to == MARIA_EMAIL && d.outcome == "delivered"
+        })
+        .collect();
+    assert!(
+        !delivered.is_empty(),
+        "a resubscribed recipient's workspace_invite must be delivered again, found none: {delivered:?}"
+    );
 }
 
 #[then(regex = r#"^Maria sees the same resubscribe confirmation both times with no error$"#)]
-async fn maria_sees_same_resubscribe_confirmation_both_times(_world: &mut FoundryWorld) {
-    pending!("Maria sees the same resubscribe confirmation both times with no error");
+async fn maria_sees_same_resubscribe_confirmation_both_times(world: &mut FoundryWorld) {
+    let status = world.last_status.expect("a resubscribe was posted");
+    assert!(
+        status.is_success(),
+        "the repeated resubscribe must succeed (harmless no-op), got {status}"
+    );
+    let confirmations = &world.resubscribe_confirmations;
+    assert_eq!(
+        confirmations.len(),
+        2,
+        "both resubscribe submissions must have been captured"
+    );
+    assert!(
+        !confirmations[0].is_empty(),
+        "the resubscribe confirmation must render a body"
+    );
+    assert_eq!(
+        confirmations[0], confirmations[1],
+        "resubscribing twice must show the same confirmation with no error"
+    );
 }
 
 #[then(regex = r#"^the resubscribe is refused and Maria's subscription state is unchanged$"#)]
-async fn resubscribe_refused_state_unchanged(_world: &mut FoundryWorld) {
-    pending!("the resubscribe is refused and Maria's subscription state is unchanged");
+async fn resubscribe_refused_state_unchanged(world: &mut FoundryWorld) {
+    // The CSRF-less resubscribe must be refused (not a 2xx success), and — the real
+    // oracle — Maria's opt-out row for the target workspace must still exist: a refused
+    // request performed NO `delete_unsubscribe`, so she remains muted.
+    let status = world.last_status.expect("a resubscribe was attempted");
+    assert!(
+        !status.is_success(),
+        "a resubscribe without a valid CSRF token must be refused, got {status}"
+    );
+    let workspace_id = world
+        .resubscribe_workspace_id
+        .expect("the resubscribe target workspace was captured in the When");
+    let harness = world.harness.as_ref().expect("harness");
+    let still_muted = harness
+        .app
+        .state
+        .store
+        .is_unsubscribed(&MARIA_EMAIL.to_ascii_lowercase(), workspace_id)
+        .await
+        .expect("read Maria's opt-out state");
+    assert!(
+        still_muted,
+        "a refused resubscribe must leave Maria's opt-out row intact (state unchanged)"
+    );
 }
 
 #[then(regex = r#"^a subsequent workspace-invite for Sam from "([^"]+)" is delivered to Sam$"#)]
 async fn subsequent_workspace_invite_delivered_to_sam(
-    _world: &mut FoundryWorld,
+    world: &mut FoundryWorld,
     _workspace: String,
 ) {
-    pending!("a subsequent workspace-invite for Sam is delivered to Sam");
+    // Prove Sam's account-less resubscribe RESUMED delivery: drive the shipped
+    // `POST /invites` emit via the admin seeded in his Given (whose active workspace is
+    // Northwind), then observe the recording double delivered his workspace_invite —
+    // exactly what a still-muted pair would have had suppressed.
+    let (admin_email, admin_pw) = world
+        .unsub_admin
+        .clone()
+        .expect("admin seeded in the Given");
+    let outcome = {
+        let harness = world.harness.as_ref().expect("harness");
+        let http = world.http.as_ref().expect("http");
+        signed_in_post(
+            harness,
+            http,
+            &admin_email,
+            &admin_pw,
+            "/invites",
+            &[("email", SAM_EMAIL)],
+        )
+        .await
+    };
+    assert!(
+        outcome.status.is_success() || outcome.status.is_redirection(),
+        "the invite must be issued (2xx/3xx), got {}: {}",
+        outcome.status,
+        outcome.body
+    );
+    let harness = world.harness.as_ref().expect("harness");
+    let delivered: Vec<_> = harness
+        .fake_email
+        .sent()
+        .into_iter()
+        .filter(|d| d.event == "workspace_invite" && d.to == SAM_EMAIL && d.outcome == "delivered")
+        .collect();
+    assert!(
+        !delivered.is_empty(),
+        "a resubscribed recipient's workspace_invite must be delivered again, found none: {delivered:?}"
+    );
 }
 
 #[then(regex = r#"^a suppression count is present split by event$"#)]

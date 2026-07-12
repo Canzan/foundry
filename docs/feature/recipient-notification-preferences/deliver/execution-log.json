@@ -275,6 +275,48 @@
       "s": "EXECUTED",
       "d": "PASS",
       "t": "2026-07-12T03:18:26Z"
+    },
+    {
+      "sid": "05-01",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-12T03:18:59Z"
+    },
+    {
+      "sid": "06-01",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-12T03:23:59Z"
+    },
+    {
+      "sid": "06-01",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-12T03:49:54Z"
+    },
+    {
+      "sid": "06-01",
+      "p": "RED_UNIT",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: acceptance drives GREEN \u2014 signed-in resubscribe is a thin driving adapter over shipped idempotent delete_unsubscribe; a unit test would couple to internal handler mechanics (port-boundary violation)",
+      "t": "2026-07-12T03:50:06Z"
+    },
+    {
+      "sid": "06-01",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-12T03:53:56Z"
+    },
+    {
+      "sid": "06-01",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-12T04:07:38Z"
     }
   ]
 }

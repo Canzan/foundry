@@ -1185,6 +1185,15 @@ pub struct FoundryWorld {
     /// a member of, so the `Then` can assert her per-workspace status and that ONLY
     /// her memberships are listed (least-privilege, NFR-6).
     pub maria_workspaces: Vec<(String, uuid::Uuid)>,
+    /// recipient-notification-preferences (US-06 resubscribe) — the workspace id a
+    /// resubscribe `When` targeted, so the CSRF-refusal `Then` can re-read that exact
+    /// `(email_lower, workspace_id)` opt-out row and prove a refused resubscribe left
+    /// it intact (subscription state unchanged, no cross-request write).
+    pub resubscribe_workspace_id: Option<uuid::Uuid>,
+    /// The confirmation bodies returned by a repeated (stale-page / double-click)
+    /// resubscribe, captured so the idempotent-no-op `Then` can assert both renders
+    /// are byte-identical with no error (BR-8, `delete_unsubscribe` idempotent).
+    pub resubscribe_confirmations: Vec<String>,
 }
 
 impl FoundryWorld {

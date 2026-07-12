@@ -194,7 +194,7 @@ Feature: A recipient silences a workspace's invitation emails without losing sec
 
   # ── Slice 06 — US-06: resubscribe (signed-in toggle AND account-less token undo) ─────────
 
-  @pending @us-06 @real-io
+  @us-06 @real-io
   Scenario: Resubscribing a muted workspace restores its notifications
     Given Maria is signed in and belongs to "Northwind", "Contoso", and "Initech"
     And Maria has confirmed unsubscribing from "Northwind"
@@ -202,21 +202,21 @@ Feature: A recipient silences a workspace's invitation emails without losing sec
     Then "Northwind" is shown as subscribed again
     And a subsequent invitation for "Northwind" is delivered to Maria
 
-  @pending @us-06 @security @error @real-io
+  @us-06 @security @error @real-io
   Scenario: A resubscribe without a valid CSRF token is rejected
     Given Maria is signed in and belongs to "Northwind", "Contoso", and "Initech"
     And Maria has confirmed unsubscribing from "Northwind"
     When a cross-site request attempts to resubscribe Maria to "Northwind" without a valid CSRF token
     Then the resubscribe is refused and Maria's subscription state is unchanged
 
-  @pending @us-06 @real-io
+  @us-06 @real-io
   Scenario: An account-less recipient resubscribes from the confirm page
     Given Sam has confirmed unsubscribing from "Northwind"
     When Sam opens his unsubscribe link and confirms resubscribing to "Northwind"
     Then "Northwind" is shown as subscribed again
     And a subsequent workspace-invite for Sam from "Northwind" is delivered to Sam
 
-  @pending @us-06 @error @real-io
+  @us-06 @error @real-io
   Scenario: Resubscribing an already-subscribed workspace is harmless
     Given Maria is signed in and belongs to "Northwind", "Contoso", and "Initech"
     When Maria submits a resubscribe for "Northwind" twice from a stale page

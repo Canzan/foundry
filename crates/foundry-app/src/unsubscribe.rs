@@ -190,6 +190,76 @@ pub async fn show_notifications(State(state): State<AppState>, session: Session)
     Html(render_notifications_page(&rows)).into_response()
 }
 
+// -------------------------------------- POST /account/notifications/resubscribe
+
+#[derive(Debug, Deserialize)]
+pub struct ResubscribeForm {
+    pub workspace_id: String,
+    #[serde(rename = "_csrf", default)]
+    pub _csrf: Option<String>,
+}
+
+/// The SIGNED-IN resubscribe driving port (US-06, ADR-006). CSRF-checked by the
+/// shipped middleware. Clears the SESSION user's own `(email_lower, workspace_id)`
+/// opt-out row so a muted workspace's suppressible invitations resume. Idempotent
+/// (BR-8, `delete_unsubscribe` is `DELETE … WHERE`): a stale-page double submit is a
+/// harmless no-op returning the same confirmation.
+///
+/// LEAST-PRIVILEGE (NFR-6/BR-6): identity comes ONLY from `SessionUser` — never a
+/// request-supplied email — and the target workspace must be one the caller actually
+/// belongs to (checked against `workspaces_for_member`), so a crafted `workspace_id`
+/// can neither clear another recipient's row nor enumerate workspace names. A
+/// signed-out caller (or a non-member / unknown workspace) gets the SHIPPED
+/// non-enumerable uniform 404 (mirrors `show_notifications`).
+pub async fn resubscribe_notifications(
+    State(state): State<AppState>,
+    session: Session,
+    Form(form): Form<ResubscribeForm>,
+) -> Response {
+    let user = match session.get::<SessionUser>(SESSION_KEY_USER_ID).await {
+        Ok(Some(user)) => user,
+        _ => return crate::bootstrap::resource_not_found_page(),
+    };
+    let Ok(workspace_id) = uuid::Uuid::parse_str(form.workspace_id.trim()) else {
+        return crate::bootstrap::resource_not_found_page();
+    };
+    let email_lower = match state.store.find_user_email_lower_by_id(user.user_id).await {
+        Ok(Some(email)) => email,
+        Ok(None) => {
+            tracing::error!(user_id = %user.user_id, "resubscribe: no email for a valid session");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
+        }
+        Err(err) => {
+            tracing::error!(%err, "find_user_email_lower_by_id failed on resubscribe");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
+        }
+    };
+    // Least-privilege: resolve the workspace NAME from the caller's OWN memberships.
+    // A workspace the caller does not belong to collapses to the uniform refusal — no
+    // cross-recipient write, no name-enumeration oracle.
+    let memberships = match state.store.workspaces_for_member(user.user_id).await {
+        Ok(list) => list,
+        Err(err) => {
+            tracing::error!(%err, "workspaces_for_member failed on resubscribe");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
+        }
+    };
+    let Some((_, workspace_name)) = memberships.into_iter().find(|(id, _)| *id == workspace_id)
+    else {
+        return crate::bootstrap::resource_not_found_page();
+    };
+    // Idempotent clear of the caller's OWN opt-out row (BR-8).
+    if let Err(err) = state
+        .store
+        .delete_unsubscribe(&email_lower, workspace_id)
+        .await
+    {
+        tracing::error!(%err, "delete_unsubscribe failed on signed-in resubscribe");
+        return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
+    }
+    Html(render_result_page(&workspace_name, true)).into_response()
+}
+
 /// Render the signed-in status page: one row per membership, each naming the
 /// workspace and its `Muted`/`Subscribed` state. The `{name} — {status}` shape is
 /// the observable contract the acceptance scenarios assert against.

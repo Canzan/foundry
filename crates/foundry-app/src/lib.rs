@@ -441,6 +441,17 @@ pub fn build_router(state: AppState) -> Router {
             "/account/notifications",
             get(unsubscribe::show_notifications),
         )
+        // recipient-notification-preferences (US-06, ADR-006): the SIGNED-IN
+        // resubscribe. Same shared layer (UNDER `csrf_middleware` + `session_layer`):
+        // a real signed-in `foundry_session` cookie + double-submit `_csrf` apply.
+        // Identity is the SESSION user's ONLY (never a request-supplied email — NFR-6);
+        // clears the caller's own `(email_lower, workspace_id)` opt-out row, idempotent
+        // (BR-8). A signed-out / non-member caller gets the non-enumerable uniform 404
+        // (unsubscribe.rs::resubscribe_notifications).
+        .route(
+            "/account/notifications/resubscribe",
+            post(unsubscribe::resubscribe_notifications),
+        )
         .route(
             "/team/{team_slug}/projects/new",
             get(projects::show_create_form),
