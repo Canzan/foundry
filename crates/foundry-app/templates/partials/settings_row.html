@@ -1,0 +1,18 @@
+<li id="ws-{{ row.workspace_id }}" data-status="{% if row.muted %}muted{% else %}subscribed{% endif %}">
+  <span class="settings-row__label">{{ row.name }} — {% if row.muted %}Muted{% else %}Subscribed{% endif %}</span>
+{%- if row.muted %}
+  <form class="settings-row__form" method="post" action="/account/notifications/resubscribe"
+        hx-post="/account/notifications/resubscribe" hx-target="#ws-{{ row.workspace_id }}" hx-swap="outerHTML">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <input type="hidden" name="workspace_id" value="{{ row.workspace_id }}">
+    <button type="submit">Resubscribe</button>
+  </form>
+{%- else %}
+  <form class="settings-row__form" method="post" action="/account/settings/mute"
+        hx-post="/account/settings/mute" hx-target="#ws-{{ row.workspace_id }}" hx-swap="outerHTML">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <input type="hidden" name="workspace_id" value="{{ row.workspace_id }}">
+    <button type="submit">Mute</button>
+  </form>
+{%- endif %}
+</li>

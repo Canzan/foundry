@@ -23,8 +23,8 @@ use crate::bootstrap::{invalid_page, SessionUser};
 use crate::csrf::{build_csrf_cookie, extract_csrf_cookie, generate_token};
 use crate::session::SESSION_KEY_USER_ID;
 use crate::views::{
-    NotificationRow, NotificationsPage, SettingsPage, SettingsRow, UnsubscribeConfirmPage,
-    UnsubscribeResultPage,
+    NotificationRow, NotificationsPage, SettingsActionFragment, SettingsPage, SettingsRow,
+    UnsubscribeConfirmPage, UnsubscribeResultPage,
 };
 use crate::AppState;
 use askama::Template;
@@ -218,6 +218,7 @@ pub struct ResubscribeForm {
 pub async fn resubscribe_notifications(
     State(state): State<AppState>,
     session: Session,
+    headers: HeaderMap,
     Form(form): Form<ResubscribeForm>,
 ) -> Response {
     let user = match session.get::<SessionUser>(SESSION_KEY_USER_ID).await {
@@ -260,6 +261,18 @@ pub async fn resubscribe_notifications(
     {
         tracing::error!(%err, "delete_unsubscribe failed on signed-in resubscribe");
         return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
+    }
+    // htmx SPA path: swap the now-subscribed row in place + an OOB toast, so the
+    // surface updates without navigating. A non-htmx POST (no-JS fallback + the
+    // acceptance suite) keeps the byte-stable full result page.
+    if is_htmx(&headers) {
+        return settings_action_fragment(
+            &headers,
+            &workspace_name,
+            workspace_id,
+            false,
+            format!("Resubscribed to \"{workspace_name}\" — invitation emails will resume."),
+        );
     }
     Html(render_result_page(&workspace_name, true)).into_response()
 }
@@ -363,6 +376,7 @@ pub async fn show_settings(
 pub async fn mute_notifications(
     State(state): State<AppState>,
     session: Session,
+    headers: HeaderMap,
     Form(form): Form<ResubscribeForm>,
 ) -> Response {
     let user = match session.get::<SessionUser>(SESSION_KEY_USER_ID).await {
@@ -406,6 +420,19 @@ pub async fn mute_notifications(
     {
         tracing::error!(%err, "insert_unsubscribe failed on signed-in mute");
         return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
+    }
+    // htmx SPA path: swap the now-muted row in place + an OOB toast (see
+    // `resubscribe_notifications` for the progressive-enhancement rationale).
+    if is_htmx(&headers) {
+        return settings_action_fragment(
+            &headers,
+            &workspace_name,
+            workspace_id,
+            true,
+            format!(
+                "Muted \"{workspace_name}\" — invitation emails from this workspace are paused."
+            ),
+        );
     }
     Html(render_result_page(&workspace_name, false)).into_response()
 }
@@ -526,6 +553,47 @@ fn render_result_page(workspace_name: &str, resubscribed: bool) -> String {
     }
     .render()
     .expect("unsubscribe_result.html renders")
+}
+
+/// True when the request was issued by htmx (`HX-Request: true`) — mirrors
+/// `comments::is_htmx`. Selects the in-place fragment path over the full page.
+fn is_htmx(headers: &HeaderMap) -> bool {
+    headers
+        .get("hx-request")
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+}
+
+/// Render the in-place mute/resubscribe fragment: the toggled row (swapped into
+/// `#ws-{workspace_id}`) plus the out-of-band `#toast` notification. The row's new
+/// form reuses the request's own CSRF cookie token (the POST already passed the
+/// double-submit check, so the cookie is present) so the follow-up toggle
+/// re-authenticates without a page reload.
+fn settings_action_fragment(
+    headers: &HeaderMap,
+    workspace_name: &str,
+    workspace_id: uuid::Uuid,
+    muted: bool,
+    message: String,
+) -> Response {
+    let csrf = headers
+        .get(COOKIE)
+        .and_then(|v| v.to_str().ok())
+        .and_then(extract_csrf_cookie)
+        .unwrap_or_default();
+    let body = SettingsActionFragment {
+        row: SettingsRow {
+            name: workspace_name.to_string(),
+            muted,
+            workspace_id: workspace_id.to_string(),
+        },
+        csrf,
+        message,
+    }
+    .render()
+    .expect("settings_action_result.html renders");
+    Html(body).into_response()
 }
 
 /// Reuse the request's `foundry_csrf` cookie if present, else mint one (the

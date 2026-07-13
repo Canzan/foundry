@@ -768,6 +768,26 @@ pub struct SettingsPage {
     pub nav: crate::nav::NavContext,
 }
 
+/// The htmx fragment returned by the in-place mute/resubscribe POSTs
+/// (notification-preferences-ui, SPA enhancement). Rendered ONLY when the request
+/// carries `HX-Request`; a non-htmx POST (no-JS fallback + the acceptance suite)
+/// still gets the byte-stable full `UnsubscribeResultPage`. Two swaps in one
+/// response: the toggled row replaces `#ws-{workspace_id}` (`hx-swap="outerHTML"`),
+/// and — out-of-band — `message` replaces the `#toast` status region (the on-page
+/// notification, deliberately distinct from the per-workspace mute state).
+#[derive(Debug, Clone, Template)]
+#[template(path = "partials/settings_action_result.html")]
+pub struct SettingsActionFragment {
+    /// The toggled row in its NEW state — carries the opposite control (so the next
+    /// toggle works) and the same `data-status` marker the GET page renders.
+    pub row: SettingsRow,
+    /// The double-submit CSRF token (read back from the request cookie) rendered into
+    /// the swapped-in row's form so the follow-up toggle re-authenticates.
+    pub csrf: String,
+    /// The on-page notification message shown in the out-of-band `#toast` region.
+    pub message: String,
+}
+
 /// The STATE-AWARE unsubscribe confirm page (US-01/US-06, ADR-006). Extends
 /// `base.html` — replacing the prior bare-`<head>` `format!` markup
 /// (`unsubscribe.rs::render_confirm_page`). `already_unsubscribed` flips the page
@@ -949,4 +969,69 @@ pub struct InstanceGrantConfirmedFragment {
     /// The operator email the grant was submitted for (auto-escaped) —
     /// `data-granted-email` marker + visible in the confirmation copy.
     pub email: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The htmx mute/resubscribe fragment must swap exactly the toggled row and
+    /// carry an out-of-band toast. A MUTED result renders the row with
+    /// `data-status="muted"`, targets `#ws-{id}`, offers the Resubscribe control
+    /// (so the next toggle reverses it), and emits the `#toast` OOB notification.
+    #[test]
+    fn settings_action_fragment_muted_row_and_oob_toast() {
+        let html = SettingsActionFragment {
+            row: SettingsRow {
+                name: "Northwind".to_string(),
+                muted: true,
+                workspace_id: "ws-uuid-1".to_string(),
+            },
+            csrf: "csrf-token".to_string(),
+            message: "Muted Northwind.".to_string(),
+        }
+        .render()
+        .expect("fragment renders");
+
+        // Row swap: outerHTML replaces exactly this row.
+        assert!(html.contains(r#"id="ws-ws-uuid-1""#), "row anchor id:\n{html}");
+        assert!(html.contains(r#"data-status="muted""#), "muted marker:\n{html}");
+        assert!(html.contains("Northwind"), "workspace name:\n{html}");
+        // A muted row offers the REVERSE action so the toggle is repeatable.
+        assert!(
+            html.contains(r#"hx-post="/account/notifications/resubscribe""#),
+            "muted row offers resubscribe:\n{html}"
+        );
+        assert!(html.contains("csrf-token"), "row form carries the csrf token:\n{html}");
+        // Out-of-band on-page notification (distinct from the mute state).
+        assert!(html.contains(r#"id="toast""#), "toast region:\n{html}");
+        assert!(html.contains(r#"hx-swap-oob="true""#), "toast is out-of-band:\n{html}");
+        assert!(html.contains("Muted Northwind."), "toast message:\n{html}");
+    }
+
+    /// A SUBSCRIBED result renders `data-status="subscribed"` and offers the Mute
+    /// control — the mirror image, proving the fragment toggles both directions.
+    #[test]
+    fn settings_action_fragment_subscribed_row_offers_mute() {
+        let html = SettingsActionFragment {
+            row: SettingsRow {
+                name: "Contoso".to_string(),
+                muted: false,
+                workspace_id: "ws-uuid-2".to_string(),
+            },
+            csrf: "csrf-token".to_string(),
+            message: "Resubscribed to Contoso.".to_string(),
+        }
+        .render()
+        .expect("fragment renders");
+
+        assert!(html.contains(r#"id="ws-ws-uuid-2""#), "row anchor id:\n{html}");
+        assert!(html.contains(r#"data-status="subscribed""#), "subscribed marker:\n{html}");
+        assert!(
+            html.contains(r#"hx-post="/account/settings/mute""#),
+            "subscribed row offers mute:\n{html}"
+        );
+        assert!(html.contains(r#"hx-swap-oob="true""#), "toast is out-of-band:\n{html}");
+        assert!(html.contains("Resubscribed to Contoso."), "toast message:\n{html}");
+    }
 }

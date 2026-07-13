@@ -1,0 +1,6 @@
+{% include "partials/settings_row.html" %}
+<div id="toast" class="toast" role="status" aria-live="polite" hx-swap-oob="true">
+  <p class="toast__msg">{{ message }}</p>
+  <button type="button" class="toast__close" aria-label="Dismiss notification"
+          onclick="document.getElementById('toast').replaceChildren()">&times;</button>
+</div>
