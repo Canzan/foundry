@@ -135,6 +135,34 @@
       "s": "EXECUTED",
       "d": "PASS: browser lane 5/5 (36 steps) AFTER the Alpine removal \u2014 the no-JS path survived the subtraction. Default lane 514/514 + all unit suites green, so the amended US-B01/US-B02 contracts hold. fmt clean; clippy --all-targets --release -- -D warnings clean; cargo deny ok. Falsification proven by experiment, not asserted: removing the sidebar Keyboard-shortcuts link reds the scenario (4 passed/1 failed), restoring it returns 5/5 \u2014 green->red->green. Caveat recorded honestly: the probe failed at the Given (.board absent) rather than the targeted When, so it proves the scenario detects the no-JS path's removal but is imprecise about where; not fully explained. Stylesheet untouched, so no content-hash rotation was needed (base.html:5 and lib.rs:297 remain in sync at foundry.513929f9.css).",
       "t": "2026-07-16T17:23:35Z"
+    },
+    {
+      "sid": "01-03",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS: commit 10dba43 on main (trunk-based, not pushed, no PR). 18 files, +532/-163, alpine.min.js deleted.",
+      "t": "2026-07-16T17:24:07Z"
+    },
+    {
+      "sid": "01-03",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-16T17:24:47Z"
+    },
+    {
+      "sid": "01-03",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-16T17:24:47Z"
+    },
+    {
+      "sid": "01-03",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-16T17:24:47Z"
     }
   ]
 }
