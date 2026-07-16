@@ -205,6 +205,23 @@ pub async fn sign_in_through_browser(
         .expect("submit the sign-in form");
 }
 
+/// Translate a shortcut's HUMAN name — the name the help overlay advertises and
+/// the feature file writes — into the character WebDriver must send.
+///
+/// The named keys live in the WebDriver spec's Unicode private-use block; the
+/// printable ones are themselves. Without this, `send_keys("Esc")` types the
+/// three characters `E`, `s`, `c` and the scenario asserts nothing about the
+/// Escape key at all — a green test over an unbound shortcut, which is the
+/// exact failure mode this whole feature exists to close.
+pub fn key_chord(key: &str) -> &str {
+    match key {
+        "Esc" | "Escape" => "\u{E00C}",
+        "Enter" => "\u{E007}",
+        "Tab" => "\u{E004}",
+        other => other,
+    }
+}
+
 /// Bounded wait on the ADR-001 `[data-kb-ready]` marker. The condition that says
 /// "the keyboard layer initialised" — pressed keys before this are a race.
 pub async fn wait_for_kb_ready(client: &fantoccini::Client) {

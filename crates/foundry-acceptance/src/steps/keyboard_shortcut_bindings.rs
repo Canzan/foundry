@@ -1,12 +1,31 @@
 //! keyboard-shortcut-bindings — the `@needs-browser` lane's step definitions.
 //!
-//! SLICE 01 / STEP 01-01 has landed the INSTRUMENT (ADR-007): the lane-probe
-//! scenario is unskipped and drives a REAL headless Chrome, via chromedriver,
-//! against the REAL app served by `InProcHarness::base_url()`. Every other
-//! scenario in `tests/features/keyboard-shortcut-bindings.feature` still carries
-//! `@pending` (excluded from EVERY lane) and its steps still panic with the
-//! `__SCAFFOLD__` marker below — assertion-class RED (correct test / missing
-//! production), never IMPORT_ERROR / BROKEN.
+//! SLICE 01 / STEP 01-01 landed the INSTRUMENT (ADR-007): the lane-probe
+//! scenario drives a REAL headless Chrome, via chromedriver, against the REAL
+//! app served by `InProcHarness::base_url()`.
+//!
+//! STEP 01-02 unskips three more US-01 scenarios — the overlay-over-context
+//! arms (board still visible / no navigation), the ODD-3 no-modal-mount page,
+//! and the US-07 Esc-restores arm. All three proved GREEN BY INHERITANCE: 01-01's
+//! `keyboard.js` + the `base.html`-hosted `#kb-overlay-root` already satisfy
+//! them, so this step contributed the ASSERTIONS, not the binding. That is a
+//! legitimate outcome (the roadmap's slice-01 dispatch layer was built once and
+//! covers all four), but it is only meaningful because the assertions are
+//! FALSIFIABLE: unbinding `?` in `keyboard.js` reds all four. Anyone widening
+//! these steps should re-run that check rather than trust the green.
+//!
+//! Every remaining scenario still carries `@pending` (excluded from EVERY lane)
+//! and its steps still panic with the `__SCAFFOLD__` marker below — assertion-class
+//! RED (correct test / missing production), never IMPORT_ERROR / BROKEN.
+//!
+//! STILL @pending IN SLICE 01 — "the overlay lists exactly the seven advertised
+//! shortcuts and each is bound". Its middle arm, *"every shortcut it lists is
+//! bound and does something"*, cannot hold until slice 05: `slice-01`'s own scope
+//! puts KPI-1 at **2/7** ("no character key is bound here"), and `c` / `/` / `j` /
+//! `k` / `Enter` land in slices 03-05. Binding them now to satisfy the assertion
+//! would be speculative code with no requiring test; asserting only over the
+//! implemented subset would weaken the scenario. It reds honestly until 7/7 —
+//! see the DELIVER report for step 01-02.
 //!
 //! WHY A BROWSER AND NOT reqwest+scraper: every AC in this feature asserts
 //! key-pressed -> user-visible outcome (NFR-1). The shipped port-to-port suite
@@ -60,6 +79,16 @@ fn board_url(world: &FoundryWorld) -> String {
     let base = world.harness.as_ref().expect("harness").base_url();
     format!("{base}/team/{TEAM_SLUG}/project/{PROJECT_SLUG}")
 }
+
+fn dashboard_url(world: &FoundryWorld) -> String {
+    let base = world.harness.as_ref().expect("harness").base_url();
+    format!("{base}/dashboard")
+}
+
+/// The overlay host's contents (ADR-003). `#kb-overlay-root` is empty exactly
+/// when no help is showing, so "is the help open?" is a DOM question with a DOM
+/// answer — never a stored flag that htmx could desync (ADR-003 §2).
+const OVERLAY_SELECTOR: &str = "#kb-overlay-root .keyboard-help";
 
 // --- Background / navigation ------------------------------------------------
 
@@ -208,8 +237,41 @@ async fn lane_navigated_to_board(world: &mut FoundryWorld) {
 }
 
 #[given(regex = r"^Mei is viewing the AUTH project board$")]
-async fn viewing_board(_world: &mut FoundryWorld) {
-    scaffold_pending();
+async fn viewing_board(world: &mut FoundryWorld) {
+    let url = board_url(world);
+    world
+        .browser
+        .as_ref()
+        .expect("browser session")
+        .goto(&url)
+        .await
+        .expect("navigate to the AUTH board");
+}
+
+/// The ADR-003 / ODD-3 scenario's precondition: the dashboard extends
+/// `base.html` but — unlike `board.html:13` — carries NO `#modal-root`. The
+/// step ASSERTS that absence rather than assuming it, so the day someone hoists
+/// the modal mount into the shared shell this scenario stops being the
+/// no-modal-mount case it claims to be, loudly, instead of silently.
+#[given(regex = r"^Mei is viewing the dashboard, a page with no modal mount point$")]
+async fn viewing_dashboard(world: &mut FoundryWorld) {
+    let url = dashboard_url(world);
+    let browser = world.browser.as_ref().expect("browser session");
+    browser.goto(&url).await.expect("navigate to the dashboard");
+    browser
+        .find(Locator::Css("h1"))
+        .await
+        .expect("the dashboard must render for a signed-in Mei");
+    assert!(
+        browser
+            .find_all(Locator::Css("#modal-root"))
+            .await
+            .expect("look for a modal mount")
+            .is_empty(),
+        "the dashboard now has a #modal-root — this scenario exists to prove `?` works on a page \
+         WITHOUT one (ADR-003 / ODD-3). Either the mount was hoisted into the shared shell (which \
+         ADR-003 rejects) or this scenario needs a different no-modal-mount page."
+    );
 }
 
 // --- When: the key presses (the heart of every scenario) --------------------
@@ -217,6 +279,9 @@ async fn viewing_board(_world: &mut FoundryWorld) {
 /// Presses `key` on the REAL page. The keystroke goes to `document.body` (no
 /// text field focused), which is where the ADR-001 document-delegated listener
 /// receives it — the same path a human's keypress takes.
+///
+/// Named keys are mapped to their WebDriver code points: `send_keys("Esc")`
+/// would type the three characters E, s, c.
 #[when(regex = r#"^Mei presses "([^"]+)"$"#)]
 async fn mei_presses_key(world: &mut FoundryWorld, key: String) {
     let browser = world.browser.as_ref().expect("browser session");
@@ -225,7 +290,7 @@ async fn mei_presses_key(world: &mut FoundryWorld, key: String) {
         .find(Locator::Css("body"))
         .await
         .expect("find the document body")
-        .send_keys(&key)
+        .send_keys(browser_harness::key_chord(&key))
         .await
         .unwrap_or_else(|err| panic!("press {key:?}: {err}"));
 }
@@ -279,13 +344,13 @@ async fn still_signed_in_over_plain_http(world: &mut FoundryWorld) {
 /// `#kb-overlay-root` host, OVER the board. Asserts the user-visible outcome
 /// (an overlay listing the shortcuts, displayed, with the board still behind it),
 /// not the mechanism.
-#[then(regex = r"^the keyboard shortcut list appears as an overlay over the (?:board|dashboard)$")]
-async fn overlay_appears(world: &mut FoundryWorld) {
+#[then(regex = r"^the keyboard shortcut list appears as an overlay over the (board|dashboard)$")]
+async fn overlay_appears(world: &mut FoundryWorld, surface: String) {
     let browser = world.browser.as_ref().expect("browser session");
     let overlay = browser
         .wait()
         .at_most(std::time::Duration::from_secs(10))
-        .for_element(Locator::Css("#kb-overlay-root .keyboard-help"))
+        .for_element(Locator::Css(OVERLAY_SELECTOR))
         .await
         .expect("pressing \"?\" must render the shortcut list into #kb-overlay-root");
     assert!(
@@ -301,15 +366,25 @@ async fn overlay_appears(world: &mut FoundryWorld) {
         "the overlay rendered but lists no shortcuts — GET /keyboard-help's <dt data-shortcut> \
          pairs never reached the host"
     );
+    // The page Mei was on must still be underneath. `.board` on the board;
+    // the dashboard has no `.board` — its own heading is the "still there"
+    // witness (ADR-003: `#kb-overlay-root` lives in base.html, so the overlay
+    // does not depend on the board's markup at all).
+    let beneath = match surface.as_str() {
+        "dashboard" => "h1",
+        _ => ".board",
+    };
     assert!(
         browser
-            .find(Locator::Css(".board"))
+            .find(Locator::Css(beneath))
             .await
-            .expect("the board must still exist behind the overlay")
+            .unwrap_or_else(|err| panic!(
+                "the {surface} ({beneath}) must still exist behind the overlay: {err}"
+            ))
             .is_displayed()
             .await
-            .expect("board displayed?"),
-        "the overlay replaced the board instead of layering over it"
+            .expect("page beneath displayed?"),
+        "the overlay replaced the {surface} instead of layering over it"
     );
 }
 
@@ -323,9 +398,111 @@ async fn selection_or_no_modal(_world: &mut FoundryWorld) {
     scaffold_pending();
 }
 
+/// FR-4: `?` is an OVERLAY, not a page transition. The shipped full-page
+/// `GET /keyboard-help` route stays reachable — this asserts the SHORTCUT did
+/// not route Mei to it (which is exactly what a naive `location.href =
+/// "/keyboard-help"` binding would do, and would otherwise look "green" to a
+/// test that only checked the shortcut list is on screen).
 #[then(regex = r"^the browser did not navigate away from the board$")]
-async fn no_navigation(_world: &mut FoundryWorld) {
-    scaffold_pending();
+async fn no_navigation(world: &mut FoundryWorld) {
+    let expected = board_url(world);
+    let browser = world.browser.as_ref().expect("browser session");
+    let actual = browser.current_url().await.expect("read the current URL");
+    assert_eq!(
+        actual.as_str().trim_end_matches('/'),
+        expected.trim_end_matches('/'),
+        "pressing \"?\" navigated Mei from the board to {actual} — the help must layer OVER the \
+         page she is on, leaving the URL untouched (FR-4). She lost her place."
+    );
+}
+
+/// AC-01.1's second half. `overlay_appears` proves the list is on screen; this
+/// proves the board is STILL THERE UNDERNEATH — the difference between an
+/// overlay and a replacement.
+#[then(regex = r"^the board is still visible behind it$")]
+async fn board_visible_behind(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("browser session");
+    assert!(
+        browser
+            .find(Locator::Css(".board"))
+            .await
+            .expect("the board must still exist behind the overlay")
+            .is_displayed()
+            .await
+            .expect("board displayed?"),
+        "the overlay replaced the board instead of layering over it — Mei's place is gone"
+    );
+}
+
+/// Mei has the help open over the board: the precondition shared by the Esc
+/// scenario and the advertised-set contract. Drives the REAL `?` press rather
+/// than injecting the overlay — a Given that rendered the fragment itself would
+/// be Fixture Theater, greening the Esc arm over an unbound `?`.
+#[given(
+    regex = r"^Mei ha[sd] (?:the|opened the) help overlay open over the AUTH board$|^Mei has opened the help overlay on the AUTH board$"
+)]
+async fn help_overlay_open_over_board(world: &mut FoundryWorld) {
+    let url = board_url(world);
+    let browser = world.browser.as_ref().expect("browser session");
+    browser
+        .goto(&url)
+        .await
+        .expect("navigate to the AUTH board");
+    browser_harness::wait_for_kb_ready(browser).await;
+    browser
+        .find(Locator::Css("body"))
+        .await
+        .expect("find the document body")
+        .send_keys(browser_harness::key_chord("?"))
+        .await
+        .expect("press \"?\"");
+    browser
+        .wait()
+        .at_most(std::time::Duration::from_secs(10))
+        .for_element(Locator::Css(OVERLAY_SELECTOR))
+        .await
+        .expect("pressing \"?\" must open the help overlay");
+}
+
+/// US-07 / AC-01.4: `Esc` peels the help layer. Asserted as the DOM condition
+/// ADR-003 §2 makes canonical — the host is empty — via a bounded wait, never a
+/// sleep.
+#[then(regex = r"^the help overlay closes$")]
+async fn help_overlay_closes(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("browser session");
+    browser
+        .wait()
+        .at_most(std::time::Duration::from_secs(10))
+        .for_element(Locator::Css("#kb-overlay-root:empty"))
+        .await
+        .expect(
+            "pressing \"Esc\" must clear #kb-overlay-root — the help overlay is still on screen",
+        );
+}
+
+/// "…with nothing else changed" is the whole point of US-07: Esc RESTORES, it
+/// does not navigate, reload, or disturb the page beneath.
+#[then(regex = r"^Mei is still on the AUTH board with nothing else changed$")]
+async fn still_on_board_unchanged(world: &mut FoundryWorld) {
+    let expected = board_url(world);
+    let browser = world.browser.as_ref().expect("browser session");
+    let actual = browser.current_url().await.expect("read the current URL");
+    assert_eq!(
+        actual.as_str().trim_end_matches('/'),
+        expected.trim_end_matches('/'),
+        "\"Esc\" navigated Mei to {actual} instead of simply dismissing the help — Esc must never \
+         navigate (FR-5)"
+    );
+    assert!(
+        browser
+            .find(Locator::Css(".board"))
+            .await
+            .expect("the AUTH board must still be rendered after Esc")
+            .is_displayed()
+            .await
+            .expect("board displayed?"),
+        "the board is gone after \"Esc\" — Mei did not end up where she was"
+    );
 }
 
 // NOTE: This is a REPRESENTATIVE subset. The remaining ~70 concrete Given/When/Then

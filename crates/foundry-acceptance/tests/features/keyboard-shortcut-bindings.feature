@@ -76,7 +76,7 @@ Feature: The seven advertised keyboard shortcuts work in the browser
     When Mei presses "?"
     Then the keyboard shortcut list appears as an overlay over the board
 
-  @pending @needs-browser @slice1 @us-01 @help
+  @needs-browser @slice1 @us-01 @help
   Scenario: Pressing the help key shows the shortcut list over the current page
     Given Mei is viewing the AUTH project board
     When Mei presses "?"
@@ -94,13 +94,13 @@ Feature: The seven advertised keyboard shortcuts work in the browser
     And every shortcut it lists is bound and does something
     And no shortcut outside that list is bound
 
-  @pending @needs-browser @slice1 @us-01 @help @global @edge
+  @needs-browser @slice1 @us-01 @help @global @edge
   Scenario: The help overlay is available away from the board where there is no modal mount
     Given Mei is viewing the dashboard, a page with no modal mount point
     When Mei presses "?"
     Then the keyboard shortcut list appears as an overlay over the dashboard
 
-  @pending @needs-browser @slice1 @us-01 @us-07 @escape
+  @needs-browser @slice1 @us-01 @us-07 @escape
   Scenario: Dismissing the help returns Mei exactly where she was
     Given Mei has the help overlay open over the AUTH board
     When Mei presses "Esc"

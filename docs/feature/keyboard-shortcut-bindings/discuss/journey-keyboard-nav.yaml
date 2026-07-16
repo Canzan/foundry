@@ -1,0 +1,547 @@
+schema_version: 1
+
+journey:
+  name: "Keyboard Navigation — the seven advertised shortcuts, actually bound in the browser"
+  goal: "Make the seven shortcuts the help overlay already advertises (c, /, j, k, Enter, ?, Esc — keyboard.rs:48-56) actually work in the browser, guarded so they never steal a keystroke, without adding a single server route or migration."
+  personas:
+    - "Mei Tanaka (mei@acme.com) — PRIMARY; keyboard-first maintainer on the AUTH board; read the help page, pressed c, nothing happened. Uses a Japanese IME (makes the guard's isComposing handling concrete, ODD-4). The repo's own harness identity (us_12_keyboard_nav.rs:58-64)."
+    - "Hiroshi Sato (hiroshi@acme.com) — SECONDARY; mouse user who drags cards between columns; the reason drag-and-drop must not break (NFR-8) and nothing may become keyboard-only (BR-6). Also a harness identity."
+
+  the_inversion: |
+    This feature starts GREEN-BUT-ABSENT. The acceptance suite is port-to-port: it drives HTTP and parses HTML
+    with scraper, asserting the SERVER contracts the client would call (us_12_keyboard_nav.rs, 6 scenarios). It
+    NEVER presses a key, because nothing in the harness can. So GET /keyboard-help returns a well-formed <dl>
+    (green) while pressing ? does nothing at all (absent). Verified: a grep for keydown/keyup/x-on:key across
+    templates/ and static/js/ returns ZERO application hits — the only match is inside the vendored
+    alpine.min.js. static/js/ contains exactly board-dnd.js and csrf-upload.js; there is no keyboard.js.
+    CONSEQUENCE (NFR-1): every AC asserts browser-observable behaviour (key pressed -> thing happens). Every new
+    scenario MUST fail on unmodified main. A scenario that passes on main tests the server contract, not this
+    feature, and is rejected on sight.
+
+  scope:
+    in_scope:
+      - "Binding all seven advertised shortcuts in the browser (c, /, j, k, Enter, ?, Esc), bound set == SHORTCUTS (keyboard.rs:48-56)."
+      - "c, /, j, k, Enter active on the board + the search-results list (the only two issue-key-bearing surfaces that exist — ODD-6). ? and Esc global on any signed-in page."
+      - "A text-input guard (FR-2, NFR-2) and a modifier guard (FR-3, NFR-3), evaluated BEFORE any dispatch (BR-2) — the two correctness preconditions for every other shortcut."
+      - "A client-only ephemeral selection: j/k walk VISIBLE cards in DOM order, ring highlight, scrollIntoView, Enter opens, resets on navigation (BR-5)."
+      - "? renders the shipped /keyboard-help fragment as an OVERLAY on the current page, not a navigation (FR-4)."
+    out_of_scope:
+      - "New server routes/endpoints — all three are shipped and routed (lib.rs:491-498, :536). This feature adds ZERO routes and ZERO migrations."
+      - "User-remappable / configurable keybindings — SHORTCUTS stays the single source of truth (BR-1)."
+      - "New shortcuts beyond the advertised seven — the help list is the contract; we honour it, we don't grow it."
+      - "A roving-tabindex / native-focus rewrite of the board — explicitly rejected (D-4); the a11y consequence is carried as NFR-7 + ODD-7 + Risk R3."
+      - "An issue-list page — none exists (verified: …/issues is POST-only, lib.rs:487-490). Building one is a different feature (ODD-6)."
+
+  brownfield_reuse:
+    - "SHORTCUTS — the 7-entry contract (c, /, j, k, Enter, ?, Esc) with an acceptance test asserting completeness (keyboard.rs:48-56). The bound set must equal it (BR-1)."
+    - "show_keyboard_help — public GET /keyboard-help returning bare section.keyboard-help[role=dialog] + dt[data-shortcut]/dd pairs (keyboard.rs:259-279; route lib.rs:536; partial keyboard_help.html:1). PUBLIC BY DESIGN: the doc says the bootstrap GETs it once and caches it, so a session gate would break help on the sign-in page."
+    - "show_new_issue_modal — GET …/issues/new; bare htmx fragment on HX-Request: true, full-page no-JS fallback otherwise; CSRF minted server-side via ensure_csrf_cookie (keyboard.rs:62-110, fork :96-104, csrf :94; route lib.rs:491-494)."
+    - "search_issues — GET …/search?q=; ul.search-results + li.search-result[data-issue-key]; empty state ul.search-results[data-empty=true]; exact-key + case-insensitive substring matching (keyboard.rs:160-202, filter_matches :208-231; route lib.rs:495-498; partial search_results.html:4)."
+    - "issue_card.html:1 — article.issue-card[id=issue-KEY][data-issue-key], draggable, data-state-url, hx-get={edit_url} -> #modal-root. The visible card j/k walk AND the exact path Enter must trigger."
+    - "board.html — columns section.column[data-column] (:9), 'New issue' button with the same hx-get c uses (:6), #modal-root (:13), empty-state copy 'No issues yet — press c to file the first one.' (:9)."
+    - "board-dnd.js — vanilla IIFE, 'use strict', external same-origin (CSP-safe, no inline handlers), DOCUMENT-DELEGATED dragstart 'so htmx-appended cards are draggable without re-wiring' (:17, :67, :149-154). THE house idiom for surviving htmx swaps (NFR-6)."
+    - "csrf-upload.js — same IIFE/DOMContentLoaded/delegation idiom (:19, :94-108). Confirms the house pattern is VANILLA, not Alpine (ODD-2)."
+    - "base.html:6-9 — loads vendored htmx.min.js, alpine.min.js, board-dnd.js, csrf-upload.js, all defer. Where a keyboard.js registers. Alpine IS vendored+loaded but unused by app code. Vendored only, no CDN (NFR-5)."
+    - "app_shell.html (7 lines) — extends base + sidebar + app_content block. The wrapper every signed-in page shares; the natural home for a global ?/Esc layer. Has NO #modal-root (ODD-3)."
+    - "Full-page /keyboard-help links — sidebar.html:13, dashboard_root.html:32. The ONLY way to reach help today; their fate once ? is an overlay is ODD-8 (recommend keeping as the no-JS path, NFR-4)."
+    - "Harness identities Mei (mei@acme.com) / Hiroshi (hiroshi@acme.com) — us_12_keyboard_nav.rs:58-64. The personas, so examples are runnable."
+
+  the_kb_items_collision: |
+    THE ONE GENUINELY HARD THING. board.html:12 emits <ul id="kb-items" hidden aria-hidden="true"> with one
+    li[data-issue-key] per issue, sorted ASCENDING by issue number across ALL columns (built projects.rs:881-891,
+    view-model views.rs:256). The acceptance suite calls it "the source of truth for the keyboard navigation
+    order" and asserts the ASC ordering (us_12_keyboard_nav.rs:334-360; also feature_b_web_tier.rs:568-572). The
+    intent comment (projects.rs:881-885) reads: "the visible board renders most-recent-first (DESC); the
+    alpine.js j/k handler walks this hidden list ... so pressing j moves 'to the next-older issue' consistently
+    no matter which column the user is in."
+    THE LOCKED MODEL (D-4) SAYS THE OPPOSITE: j/k walk VISIBLE cards in DOM order, ring highlight, scrollIntoView.
+    THEY CANNOT BOTH HOLD:
+      1. ORDER DIFFERS — #kb-items is flat ASC-by-number; the visible board is column-grouped, DESC-within-column
+         (projects.rs:864-879). Walking one is observably not walking the other.
+      2. A HIDDEN ELEMENT CANNOT BE HIGHLIGHTED OR SCROLLED TO — #kb-items is `hidden`; a ring renders nothing and
+         scrollIntoView does nothing. The locked model REQUIRES the visible .issue-card.
+      3. aria-hidden="true" makes it invisible to assistive tech, so it cannot carry the a11y story either.
+    CONSEQUENCE: honouring D-4 RETIRES the carrier. Per AGENTS.md ("Remove dead/legacy code outright — do not
+    leave it inert") that means DELETING: the carrier (board.html:12), its builder (projects.rs:881-891), its
+    view-model field (views.rs:256), its unit tests (projects.rs:1039-1110), and TWO CURRENTLY-GREEN acceptance
+    assertions (us_12_keyboard_nav.rs:334-360, feature_b_web_tier.rs:568-572).
+    This is a DECISION, NOT AN ACCIDENT — it deletes a passing test on purpose because that test pins a contract
+    the locked UX contradicts. ODD-1, Risk R1. DESIGN owns it.
+
+  new_logic:
+    - "The guarded dispatch layer: one document-delegated keydown; bound set == SHORTCUTS; guard chain before dispatch (ODD-2 vanilla vs Alpine)."
+    - "The text-input + modifier guard predicate (element/role set, contenteditable, isComposing — ODD-4). The highest-risk piece (NFR-2, R2)."
+    - "The ? overlay render + its mount point on non-board pages (ODD-3 — #modal-root is board.html:13 only)."
+    - "The client-only ephemeral selection over visible cards + ring + scrollIntoView (retires #kb-items — ODD-1); survival across htmx swaps (ODD-5); a11y announcement mechanism (ODD-7)."
+    - "The Esc layer stack + precedence (BR-4), selection-preserving (BR-5)."
+    - "REMOVALS: the #kb-items carrier + assertions (ODD-1); the stale 'alpine.js' doc comment in keyboard.rs:1-30 if DESIGN picks vanilla (ODD-2, R9)."
+
+  emotional_arc:
+    maintainer:
+      start: "BETRAYED (not anxious) — 'the help page lists seven shortcuts. I pressed c. Nothing happened.' The product made a written promise and broke it; she half-suspects the whole help page is decorative."
+      middle: "WARY — THE CLIFF: 'ok, ? worked... but will c fire while I'm typing a title?' A layer that eats keystrokes is WORSE than no layer. This is the peak tension and it lives entirely in the text-input guard (NFR-2)."
+      end: "IN FLOW — 'c files, / finds, j/k walk, Enter opens, Esc backs out. Hands never leave the home row. This is what the help page promised.'"
+    arc_design_consequences: |
+      Starting BETRAYED (rather than anxious) changes the design job: the first thing shipped must RE-ESTABLISH
+      CREDIBILITY, which is why slice 01 binds ? — the key whose whole job is to display the promise. The promise
+      and its fulfilment become the same keystroke.
+      The cliff at the guard is why slice 02 (guards) ships IMMEDIATELY after the layer exists and BEFORE c is
+      ever bound (slice 03) — deliberately ordering the risk before the reward.
+      Sad paths are DELIBERATELY SILENT: a shortcut on the wrong surface does nothing, Esc with nothing open does
+      nothing, Enter with no selection does nothing. No error toasts — the user is mid-flow and an error message
+      would be a worse interruption than the no-op.
+
+steps:
+  - id: K1
+    name: "Dispatch — the document-delegated keyboard layer (bound set == SHORTCUTS)"
+    command: "base.html loads /static/js/keyboard.js defer; document.addEventListener('keydown', ...)"
+    tui_mockup: |
+      +-- base.html:6-9 (vendored, defer, CSP-safe) -------------+
+      | <script src="/static/vendor/htmx.min.js" defer></script> |
+      | <script src="/static/vendor/alpine.min.js" defer></script>|
+      | <script src="/static/js/board-dnd.js" defer></script>    |
+      | <script src="/static/js/csrf-upload.js" defer></script>  |
+      | <script src="/static/js/keyboard.js" defer></script> NEW |
+      +----------------------------------------------------------+
+        document-delegated keydown (the board-dnd.js:67 idiom)
+        bound set MUST equal ${shortcut_set}   (BR-1)
+        vanilla IIFE vs Alpine x-on:keydown -> ODD-2
+    shared_artifacts:
+      - name: "shortcut_set"
+        source: "SHORTCUTS (keyboard.rs:48-56) — the ONE list; renders the help overlay AND defines what is bound"
+        displayed_as: "${shortcut_set}"
+        consumers: ["the client dispatch table", "the /keyboard-help <dl> Mei reads (keyboard_help.html:1)"]
+    emotional_state:
+      entry: "maintainer: betrayed — 'I pressed c and nothing happened'"
+      exit: "maintainer: a layer exists — the keys are alive"
+    integration_checkpoint: |
+      The bound set MUST equal SHORTCUTS — the same constant that renders the help overlay. Promise and
+      fulfilment cannot drift (BR-1, FR-1). Handlers are DOCUMENT-DELEGATED so htmx swaps need no re-wiring
+      (FR-10, NFR-6). External same-origin script, defer, no inline handlers, vendored only (NFR-5).
+    failure_modes:
+      - "K1-E1 Bound set drifts from SHORTCUTS -> the help page lies again (BR-1)."
+      - "K1-E2 Per-element (non-delegated) binding -> htmx swap silently kills the shortcuts (FR-10, NFR-6)."
+      - "K1-E3 Stale 'alpine.js' doc (keyboard.rs:1-30) left uncorrected if DESIGN picks vanilla (ODD-2, R9)."
+    gherkin: |
+      Scenario: The bound shortcuts are exactly the advertised ones
+        Given Mei is signed in and viewing the AUTH project board
+        When Mei consults the shortcut help
+        Then every shortcut it lists is bound and does something
+        And no shortcut outside that list is bound
+
+  - id: K2
+    name: "Guard — typing and modifier chords are never captured (THE CLIFF)"
+    command: "guard chain evaluated BEFORE any dispatch (BR-2)"
+    tui_mockup: |
+      +-- guard chain (BR-2: no shortcut is exempt) -------------+
+      | target is input/textarea/contenteditable/... ?           |
+      |    -> INERT. the character is typed.  (FR-2, NFR-2)      |
+      | Ctrl / Cmd(Meta) / Alt held ?                            |
+      |    -> INERT. Cmd+C copies.            (FR-3, NFR-3)      |
+      | Shift held ?                                             |
+      |    -> NOT a suppressor — ? IS Shift+/ (BR-7)             |
+      | IME composing (isComposing) ?          -> ODD-4          |
+      | else -> dispatch                                         |
+      +----------------------------------------------------------+
+        "cache invalidation on login" -> exactly that string
+        "cjk/?"                       -> exactly "cjk/?"
+        Cmd+C                         -> copies, no modal
+    shared_artifacts:
+      - name: "guard_verdict"
+        source: "derived per keydown: is the target a text-entry context (ODD-4 predicate: input/textarea/contenteditable/select/role=textbox/isComposing) OR is Ctrl/Cmd/Alt held? Shift is NOT a suppressor (BR-7)."
+        displayed_as: "${guard_verdict}"
+        consumers: ["EVERY shortcut dispatch — no exemptions (BR-2)"]
+    emotional_state:
+      entry: "maintainer: wary — 'will c fire while I'm typing a title?' (PEAK TENSION)"
+      exit: "maintainer: safe — typing works; the layer can stay on"
+    integration_checkpoint: |
+      THE HIGHEST-RISK DETAIL IN THE FEATURE. Every one of the seven is a plain printable character or bare key —
+      exactly what people type. Without this guard, binding them makes text entry IMPOSSIBLE (Mei cannot type the
+      letter c into a title), which is STRICTLY WORSE THAN SHIPPING NOTHING (NFR-2, R2). The guard is STRUCTURAL
+      (BR-2) — a chain before dispatch, not seven scattered ifs. ${guard_verdict} is the single decision every
+      shortcut passes through.
+    failure_modes:
+      - "K-E1 A shortcut fires while typing -> product unusable; blocked by the text-input-guard @property (NFR-2, R2)."
+      - "K-E2 Modifier hijack (Cmd+C opens a modal instead of copying) -> FR-3, NFR-3, R6."
+      - "K-E3 IME composition breaks Japanese input (Mei) -> ODD-4 (isComposing)."
+      - "K-E4 Guard over-fires (shortcuts stay dead after leaving the field) -> guard is contextual, not a global toggle."
+    gherkin: |
+      @property
+      Scenario: No shortcut ever fires from a text-entry context
+        Given Mei is typing in any text field in Foundry
+        When Mei types any of the characters "c", "j", "k", "/" or "?"
+        Then exactly those characters are entered into the field
+        And no modal opens, no search is focused, and no selection moves
+
+      Scenario: A copy chord copies instead of creating an issue
+        Given Mei is viewing the AUTH board with text selected
+        When Mei presses "Cmd+C"
+        Then the text is copied
+        And the new-issue modal does not open
+
+      Scenario: Shortcuts wake up again once Mei leaves the field
+        Given Mei has finished typing in the title field and has left it
+        When Mei presses "c"
+        Then the new-issue modal opens
+
+  - id: K3
+    name: "Help — ? renders the shipped fragment as an OVERLAY (not a navigation)"
+    command: "? (Shift+/) -> GET /keyboard-help (public) -> render fragment as overlay"
+    tui_mockup: |
+      +-- ? -> GET /keyboard-help (public) ----------------------+
+      | +-- section.keyboard-help[role=dialog] ---------+        |
+      | |  Keyboard shortcuts                           |        |
+      | |    c ..... Create issue    ? ... Show this help|       |
+      | |    / ..... Search          Esc . Close modal  |        |
+      | |    j ..... Next                               |        |
+      | |    k ..... Previous                           |        |
+      | |    Enter . Open selected                      |        |
+      | +-----------------------------------------------+        |
+      | ...the AUTH board, STILL VISIBLE behind...              |
+      +----------------------------------------------------------+
+        URL UNCHANGED — overlay, not navigation (FR-4)
+        the <dl> IS the shipped fragment — no new route
+    shared_artifacts:
+      - name: "help_fragment"
+        source: "GET /keyboard-help -> section.keyboard-help[role=dialog][aria-label='Keyboard shortcuts'] rendered from SHORTCUTS (keyboard.rs:259-279, partial keyboard_help.html:1). PUBLIC by design (keyboard.rs:19-24)."
+        displayed_as: "${help_fragment}"
+        consumers: ["the ? overlay (this feature)", "the full-page no-JS links (sidebar.html:13, dashboard_root.html:32)"]
+      - name: "modal_mount"
+        source: "#modal-root — EXISTS ONLY at board.html:13; app_shell.html has NONE. The global ? has no mount on non-board pages -> ODD-3."
+        displayed_as: "${modal_mount}"
+        consumers: ["the ? overlay (global — ODD-3)", "the c new-issue modal (board)", "the Enter issue modal (board)"]
+    emotional_state:
+      entry: "maintainer: betrayed/suspicious — 'is the help page decorative?'"
+      exit: "maintainer: credibility restored — the promise and its fulfilment are the same keystroke"
+    integration_checkpoint: |
+      ${help_fragment} is rendered FROM SHORTCUTS, so the overlay Mei reads and the keys that are bound are the
+      SAME LIST — they cannot drift (BR-1). The route is PUBLIC by design so help works even on the sign-in page.
+      The overlay must NOT navigate (FR-4). The full-page links stay as the no-JS path (ODD-8, NFR-4).
+      GLOBAL SCOPE PROBLEM: #modal-root is board.html:13 ONLY — ODD-3, R5.
+    failure_modes:
+      - "K3-E1 ? navigates instead of overlaying -> defeats the shortcut (FR-4)."
+      - "K3-E2 ? has nowhere to render on a non-board page (#modal-root is board-only) -> ODD-3, R5."
+      - "K3-E3 Removing the sidebar/dashboard full-page links regresses no-JS help -> ODD-8, NFR-4."
+    gherkin: |
+      Scenario: Pressing the help key shows the shortcut list over the current page
+        Given Mei is signed in and viewing the AUTH project board
+        When Mei presses "?"
+        Then the keyboard shortcut list appears as an overlay over the board
+        And the board is still visible behind it
+        And the browser did not navigate away from the board
+
+      Scenario: The help overlay is available away from the board
+        Given Mei is signed in and viewing the dashboard
+        When Mei presses "?"
+        Then the keyboard shortcut list appears as an overlay over the dashboard
+
+  - id: K4
+    name: "Escape — Esc closes the topmost layer, selection intact"
+    command: "Esc -> close topmost of ${layer_stack}; nothing open -> no-op"
+    tui_mockup: |
+      +-- Esc: one layer per press (BR-4) -----------------------+
+      | [help overlay]              <- Esc closes THIS only      |
+      | [new-issue modal]           <- still open; 2nd Esc closes|
+      | [the board + ring on AUTH-2]<- selection SURVIVES (BR-5) |
+      |                                                          |
+      | nothing open -> NO-OP. never a navigation. (FR-5)        |
+      +----------------------------------------------------------+
+    shared_artifacts:
+      - name: "layer_stack"
+        source: "client-only: which layers are open (help overlay / new-issue modal / issue modal / search). Determines Esc precedence (BR-4). Interaction with htmx swaps replacing #modal-root content -> ODD-5."
+        displayed_as: "${layer_stack}"
+        consumers: ["the Esc handler (closes topmost only)"]
+    emotional_state:
+      entry: "maintainer: 'get me out of this'"
+      exit: "maintainer: reversible — 'I can always back out in one keystroke'"
+    integration_checkpoint: |
+      Esc is WHAT MAKES THE OTHER SIX SAFE TO PRESS: every one of them OPENS something, so without an escape
+      hatch each is a one-way door. Closes exactly ONE layer per press (BR-4). Must NOT silently clear
+      ${selection} (FR-5, BR-5). With nothing open it must do NOTHING — never navigate.
+    failure_modes:
+      - "E-E1 Esc with nothing open navigates (e.g. back) -> FR-5 no-op required."
+      - "E-E2 Esc clears the selection Mei worked to place -> FR-5, BR-5."
+      - "E-E3 Esc closes ALL layers at once instead of the topmost -> BR-4."
+    gherkin: |
+      Scenario: Escape closes one layer at a time
+        Given Mei has the new-issue modal open and has pressed "?" to show the help overlay
+        When Mei presses "Esc"
+        Then the help overlay closes
+        And the new-issue modal is still open
+
+      Scenario: Escape with nothing open does nothing
+        Given Mei is viewing the AUTH board with no modal or overlay open
+        When Mei presses "Esc"
+        Then nothing happens
+        And the browser does not navigate away
+
+      Scenario: Escape does not throw away the selection
+        Given Mei has selected AUTH-2 and opened it by pressing "Enter"
+        When Mei presses "Esc"
+        Then the modal closes
+        And AUTH-2 is still selected so "j" moves to the next card
+
+  - id: A1
+    name: "Create — c opens the shipped new-issue modal (htmx path)"
+    command: "c -> GET /team/{team}/project/{slug}/issues/new (HX-Request: true) -> #modal-root"
+    tui_mockup: |
+      +-- c -> GET /team/acme/project/auth/issues/new -----------+
+      |  HX-Request: true -> BARE fragment (keyboard.rs:96-101)  |
+      | +-- [data-modal=new-issue][role=dialog][aria-modal] --+  |
+      | | New issue in AUTH                                   |  |
+      | | Title: [Session cookie not cleared on sign-out|]    |  |
+      | |        ^ input[name=title][autofocus]               |  |
+      | | <input type=hidden name=_csrf value=...>            |  |
+      | | action="/team/acme/project/auth/issues"             |  |
+      | +-----------------------------------------------------+  |
+      +----------------------------------------------------------+
+        NO HX-Request -> full page fallback (:102-104) NO-JS INTACT
+        same hx-get the "New issue" button uses (board.html:6)
+    shared_artifacts:
+      - name: "project_context"
+        source: "the team_slug + project_slug of the current board (board.html:6 hx-get). REQUIRED by the route (keyboard.rs:62-95). Absent on the dashboard -> c does nothing (BR-3, ODD-6)."
+        displayed_as: "${project_context}"
+        consumers: ["the c binding (builds the …/issues/new URL)", "the / binding (builds the …/search URL)"]
+    emotional_state:
+      entry: "maintainer: 'I just spotted a bug'"
+      exit: "maintainer: captured at the speed of thought — title focused, ready to type"
+    integration_checkpoint: |
+      c triggers the IDENTICAL path the shipped "New issue" button uses (board.html:6) — ONE open path, no
+      divergence. CSRF is already minted server-side (ensure_csrf_cookie, keyboard.rs:94), so unlike board-dnd.js
+      the client needs NO CSRF work. The HX-Request fork IS the no-JS guarantee (NFR-4, BR-6) — the full-page
+      fallback is untouched.
+    failure_modes:
+      - "A-E1 c on a page with no ${project_context} -> does NOTHING, silently (no error, no navigation) (BR-3, ODD-6)."
+      - "A-E2 c fires while typing in a title -> the guard must prevent it (K2, FR-2)."
+      - "A-E3 The no-JS full-page fallback regresses -> NFR-4, R7."
+    gherkin: |
+      Scenario: Pressing the create key opens the new-issue modal on the board
+        Given Mei is signed in and viewing the AUTH project board
+        When Mei presses "c"
+        Then the new-issue modal opens over the board
+        And the title field is focused and ready for typing
+
+      Scenario: Mei files an issue entirely from the keyboard
+        Given Mei has opened the new-issue modal by pressing "c"
+        When Mei types "Session cookie not cleared on sign-out" and submits the form
+        Then a new issue with that title appears on the AUTH board
+
+      Scenario: The create key does nothing where there is no project
+        Given Mei is signed in and viewing the dashboard
+        When Mei presses "c"
+        Then no modal opens
+        And the browser does not navigate away
+
+  - id: A2
+    name: "Search — / focuses search WITHOUT typing a slash"
+    command: "/ -> focus search input + preventDefault; GET …/search?q= -> ul.search-results"
+    tui_mockup: |
+      +-- / -> focus search input, preventDefault the "/" -------+
+      | Search: [session|]      <- FOCUSED, and EMPTY (not "/")  |
+      | +-- ul.search-results ---------------------------+       |
+      | | li.search-result[data-issue-key="AUTH-2"]      |       |
+      | |    AUTH-2  Session cookie not cleared on sign-out|     |
+      | +------------------------------------------------+       |
+      | no match -> ul.search-results[data-empty="true"]         |
+      +----------------------------------------------------------+
+        exact key "AUTH-2" -> that issue only (keyboard.rs:217-224)
+        substring "session" -> case-insensitive title (:226-231)
+    shared_artifacts:
+      - name: "search_results"
+        source: "GET …/search?q= -> ul.search-results with li.search-result[data-issue-key] per match; empty state ul.search-results[data-empty=true] (keyboard.rs:160-202, filter_matches :208-231, partial search_results.html:4)"
+        displayed_as: "${search_results}"
+        consumers: ["the / results list", "j/k selection + Enter on the results list (the SECOND issue-key-bearing surface — ODD-6)"]
+    emotional_state:
+      entry: "maintainer: 'I half-remember an issue called something like session...'"
+      exit: "maintainer: found it without the mouse"
+    integration_checkpoint: |
+      THE CLASSIC BUG THIS MUST NOT SHIP: focusing the field AND typing "/" into it, so Mei's first search is
+      always for "/session". Suppress the default on the focusing keypress (FR-7). The shipped fragment already
+      has a REAL empty state, so "nothing matched" is distinguishable from "search is broken". The results list is
+      the SECOND issue-key-bearing surface, so j/k/Enter apply to it (ODD-6).
+    failure_modes:
+      - "A-E2 The '/' character is typed into the field it just focused -> FR-7."
+      - "A-E3 No-match state indistinguishable from no-query -> the shipped data-empty=true covers it (keyboard.rs:213-215)."
+      - "A-E4 Once focused, typing shortcut chars re-triggers shortcuts -> the K2 guard must hold (FR-2)."
+    gherkin: |
+      Scenario: Pressing the search key focuses the search box without typing a slash
+        Given Mei is signed in and viewing the AUTH project board
+        When Mei presses "/"
+        Then the search input is focused
+        And the search input is empty
+
+      Scenario: Mei finds an issue by typing part of its title
+        Given Mei has focused the search box by pressing "/"
+        When Mei types "session"
+        Then the results list shows the issue "Session cookie not cleared on sign-out"
+
+      Scenario: A search that matches nothing says so
+        Given Mei has focused the search box by pressing "/"
+        When Mei types "zzz"
+        Then the results list shows an empty state indicating nothing matched
+
+  - id: M1
+    name: "Select — j/k walk the VISIBLE cards (retires #kb-items)"
+    command: "j/k -> move ${selection} over ${visible_cards} in DOM order; ring + scrollIntoView"
+    tui_mockup: |
+      +-- the AUTH board (what Mei SEES) ------------------------+
+      | [ Todo ]           [ In Progress ]   [ Done ]            |
+      | +===============+  +--------------+  +------------+      |
+      | | AUTH-3 Login..|  | AUTH-1 CSRF..|  | AUTH-4 Docs|      |
+      | +===============+  +--------------+  +------------+      |
+      |  ^^^ RING = selected (j)                                 |
+      | +---------------+                                        |
+      | | AUTH-2 Sessio.|  <- j again selects THIS (next VISIBLE)|
+      | +---------------+                                        |
+      +----------------------------------------------------------+
+        order = what she sees (column-grouped, DESC-within-column)
+        NOT #kb-items' flat ASC order -> the carrier is RETIRED (ODD-1)
+        below the fold -> scrollIntoView; k at the top -> stays (no wrap)
+    shared_artifacts:
+      - name: "selection"
+        source: "CLIENT-ONLY, EPHEMERAL (BR-5) — never persisted, never sent to the server, RESETS ON NAVIGATION. Points at one ${visible_cards} element. Survival across an htmx swap (by issue-key vs index vs reset) -> ODD-5."
+        displayed_as: "${selection}"
+        consumers: ["the ring highlight + scrollIntoView (M1)", "Enter (M2) — opens the selected card", "Esc (K4) — must NOT clear it"]
+      - name: "visible_cards"
+        source: "article.issue-card in DOM order (issue_card.html:1) on the board, and li.search-result on the results list (ODD-6). NOT the hidden #kb-items carrier (board.html:12), which this model RETIRES (ODD-1)."
+        displayed_as: "${visible_cards}"
+        consumers: ["j/k selection order", "Enter's target resolution"]
+    emotional_state:
+      entry: "maintainer: 'which issue am I on?'"
+      exit: "maintainer: 'I can see exactly where I am, and it's where my eyes are'"
+    integration_checkpoint: |
+      SELECTION ORDER MUST EQUAL VISIBLE ORDER — the order Mei sees. This RETIRES #kb-items and DELETES it with
+      its builder (projects.rs:881-891), view-model field (views.rs:256), unit tests (:1039-1110), and TWO
+      GREEN acceptance assertions (us_12_keyboard_nav.rs:334-360, feature_b_web_tier.rs:568-572) per the AGENTS.md
+      dead-code policy (ODD-1, R1). A litmus must RED if selection order diverges from visible order.
+      A11Y DEBT, NAMED: a ring is NOT native focus (D-4 rejected roving tabindex), so NOTHING announces the
+      selection to a screen reader FOR FREE. NFR-7 refuses to let that be silence; ODD-7 forces DESIGN to answer
+      (aria-activedescendant or equivalent) rather than inherit it (R3).
+    failure_modes:
+      - "M-E2 k at the first card -> stays; bounded, no wrap (FR-8)."
+      - "M-E3 j on an empty board (board.html:9 empty state) -> nothing; no error (FR-8)."
+      - "M-E4 Stale ring after Hiroshi drags the selected card -> NFR-8, ODD-5, R4."
+      - "M-E5 Selection lost/corrupted across an htmx swap -> handlers survive via delegation (FR-10, NFR-6); selection survival is ODD-5."
+      - "M-E6 Screen reader never announces the selection -> NFR-7, ODD-7, R3."
+    gherkin: |
+      Scenario: Next and previous walk the cards in the order Mei sees them
+        Given Mei is signed in and viewing the AUTH board showing issues AUTH-3, AUTH-2 and AUTH-1
+        When Mei presses "j" and then "k"
+        Then the selection moves to the second visible card and back to the first
+        And the selection order matches the order the cards appear on screen
+
+      Scenario: A selection below the fold scrolls into view
+        Given Mei is viewing the AUTH board with more cards than fit on screen
+        When Mei presses "j" repeatedly until the selection passes the bottom of the viewport
+        Then the selected card is scrolled into view and its highlight is visible
+
+      Scenario: Dragging a card with the mouse leaves selection coherent
+        Given Mei has a card selected on the AUTH board
+        When Hiroshi drags that card into another column with the mouse
+        Then the drag completes as it does today
+        And no stale highlight is left behind
+
+  - id: M2
+    name: "Open — Enter opens the selected card (the card's own hx-get)"
+    command: "Enter -> activate ${selection}'s hx-get={edit_url} -> #modal-root"
+    tui_mockup: |
+      +-- Enter -> the SELECTED card's own hx-get ---------------+
+      | article.issue-card[data-issue-key="AUTH-2"]              |
+      |   hx-get="/team/acme/project/auth/issues/2/edit"         |
+      |   hx-target="#modal-root"  hx-swap="innerHTML"           |
+      |        |                                                 |
+      |        v  identical to a POINTER CLICK — one open path   |
+      | +-- issue modal for AUTH-2 --------------+               |
+      | | Session cookie not cleared on sign-out |               |
+      | +----------------------------------------+               |
+      +----------------------------------------------------------+
+        no selection -> NO-OP (FR-9)
+        Enter in a form -> submits (the K2 guard, not a special case)
+    shared_artifacts:
+      - name: "modal_mount"
+        source: "#modal-root (board.html:13) — the htmx swap target the card's own hx-get already points at (issue_card.html:1). Shared with c (A1) and the ? overlay (K3, ODD-3)."
+        displayed_as: "${modal_mount}"
+        consumers: ["the Enter issue modal", "the c new-issue modal", "the ? overlay (global — ODD-3)"]
+    emotional_state:
+      entry: "maintainer: 'this is the one'"
+      exit: "maintainer: the loop closes — find, select, open, act, all from the home row"
+    integration_checkpoint: |
+      Enter reuses the card's OWN shipped hx-get, so keyboard and pointer converge on ONE path and cannot
+      diverge. Enter closes the loop j/k opens — without it, selection is decoration. The Enter-in-a-form case is
+      handled by the K2 text-input guard rather than a special case (a design consequence of BR-2).
+    failure_modes:
+      - "M2-E1 Enter with no selection -> NO-OP (FR-9)."
+      - "M2-E2 Enter in a form opens a card instead of submitting -> the K2 guard must hold (FR-2)."
+      - "M2-E3 Keyboard-open diverges from click-open (two paths) -> must reuse the card's own hx-get."
+    gherkin: |
+      Scenario: Pressing enter opens the selected issue
+        Given Mei is viewing the AUTH board and has selected AUTH-2 with the "j" key
+        When Mei presses "Enter"
+        Then the issue modal for AUTH-2 opens over the board
+
+      Scenario: Enter with nothing selected does nothing
+        Given Mei is viewing the AUTH board and has not selected any card
+        When Mei presses "Enter"
+        Then no modal opens
+        And the browser does not navigate away
+
+      Scenario: Enter inside a form still submits the form
+        Given Mei has the new-issue modal open with a title typed into it
+        When Mei presses "Enter" in the title field
+        Then the form is submitted
+        And no issue card is opened behind the modal
+
+integration_validation:
+  shared_artifact_consistency:
+    - artifact: "shortcut_set"
+      must_match_across: ["K1", "K3"]
+      failure_message: "The bound keys differ from the help overlay's list — the product advertises a shortcut it does not honour, which is the exact bug this feature exists to fix (BR-1)."
+    - artifact: "guard_verdict"
+      must_match_across: ["K2", "K3", "K4", "A1", "A2", "M1", "M2"]
+      failure_message: "A shortcut bypassed the guard — it fires while the user is typing or under a Cmd/Ctrl/Alt chord, making text entry impossible (worse than shipping nothing) (BR-2, NFR-2)."
+    - artifact: "selection"
+      must_match_across: ["M1", "M2", "K4"]
+      failure_message: "The card the ring shows differs from the card Enter opens, or Esc silently cleared it — the user acts on the wrong issue or loses their place (FR-9, BR-5)."
+    - artifact: "visible_cards"
+      must_match_across: ["M1", "M2"]
+      failure_message: "Selection order diverges from the order the user sees — the ring jumps unpredictably because it is walking the retired #kb-items order instead of the visible cards (ODD-1, FR-8)."
+    - artifact: "modal_mount"
+      must_match_across: ["K3", "A1", "M2"]
+      failure_message: "A layer has nowhere to render — #modal-root exists only on the board (board.html:13), so the global ? overlay has no mount on other pages (ODD-3, R5)."
+  browser_observable_invariant: |
+    EVERY acceptance scenario in this feature asserts key-pressed -> user-observable outcome in a real
+    browser/DOM, and MUST FAIL on unmodified main. The shipped port-to-port suite (us_12_keyboard_nav.rs) already
+    proves the server contracts and is GREEN TODAY WHILE THE FEATURE IS ABSENT. A scenario that passes unchanged
+    on main tests the server contract, not this feature, and is rejected on sight (NFR-1).
+  typing_never_captured_invariant: |
+    No shortcut fires while the user is typing into a text-entry context, and no shortcut fires with
+    Ctrl/Cmd/Alt held. Typing "cjk/?" into any field yields exactly "cjk/?"; Cmd+C copies. A regression makes the
+    product UNUSABLE (the user cannot type the letter c into a title) — strictly worse than shipping nothing. A
+    dedicated @property litmus must RED on regression (NFR-2, NFR-3, R2, R6).
+  no_js_intact_invariant: |
+    Pure progressive enhancement. With scripting disabled the app behaves exactly as today: GET …/issues/new
+    without HX-Request still returns the full-page fallback (keyboard.rs:96-104), the "New issue" button still
+    works (board.html:6), and /keyboard-help is still reachable as a full page (sidebar.html:13). No shortcut is
+    the ONLY path to any action (BR-6, NFR-4, R7).
+  zero_server_delta_invariant: |
+    This feature adds NO route, NO endpoint, NO migration. All three routes are shipped and routed
+    (lib.rs:491-498, :536). The only server-side changes are REMOVALS: the retired #kb-items carrier + builder +
+    view-model field + unit tests + two acceptance assertions (ODD-1), and the correction of keyboard.rs's stale
+    "alpine.js" doc comment if DESIGN picks vanilla (ODD-2, R9).
+  handlers_survive_swaps_invariant: |
+    Bindings are document-delegated (the board-dnd.js:67 idiom), so an htmx swap that replaces #modal-root or
+    re-renders cards needs no re-wiring: after filing an issue via c, j/k/Enter still work with no page reload
+    (FR-10, NFR-6). Selection SURVIVAL across a swap (as opposed to handler survival) is ODD-5.
+  selection_a11y_invariant: |
+    The ring is NOT native focus (D-4 rejected roving tabindex). It must meet WCAG 2.1 AA contrast, must not rely
+    on colour alone, and selection changes MUST be conveyed to assistive tech by an explicit mechanism
+    (aria-activedescendant or equivalent) — DESIGN must answer this explicitly rather than inherit silence
+    (NFR-7, ODD-7, R3).
+  drag_coexistence_invariant: |
+    The shipped drag-and-drop (board-dnd.js) keeps working unchanged; a drag and the selection never corrupt each
+    other (no stale ring, no dangling index). Every existing drag scenario passes unchanged (NFR-8, R4).
+
+changelog:
+  - date: "2026-07-15"
+    feature: "keyboard-shortcut-bindings"
+    change: "Initial journey: bind the seven shortcuts the help overlay already advertises (SHORTCUTS, keyboard.rs:48-56) in the browser — the client layer that was never written (verified: ZERO keydown handlers in app code; the only match is inside the vendored alpine.min.js). A document-delegated dispatch layer (the board-dnd.js:67 idiom) with a guard chain evaluated BEFORE dispatch (text-input + modifier — the highest-risk piece, NFR-2); ? renders the shipped public /keyboard-help fragment as an OVERLAY; Esc closes the topmost layer selection-intact; c opens the shipped new-issue modal via the htmx path (no-JS fallback untouched); / focuses search without typing the slash; j/k walk VISIBLE cards in DOM order with a ring + scrollIntoView; Enter opens the selected card via its own shipped hx-get. ZERO new routes, ZERO migrations. KEY TENSION: the shipped hidden #kb-items carrier (board.html:12, ASC-by-number, aria-hidden, asserted green at us_12_keyboard_nav.rs:334-360) CONTRADICTS the locked visible-DOM-order selection model (D-4) and is RETIRED — deliberately deleting a passing test (ODD-1, R1). No walking skeleton (D-8) — brownfield; the server contracts are shipped and routed."
