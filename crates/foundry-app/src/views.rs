@@ -994,18 +994,30 @@ mod tests {
         .expect("fragment renders");
 
         // Row swap: outerHTML replaces exactly this row.
-        assert!(html.contains(r#"id="ws-ws-uuid-1""#), "row anchor id:\n{html}");
-        assert!(html.contains(r#"data-status="muted""#), "muted marker:\n{html}");
+        assert!(
+            html.contains(r#"id="ws-ws-uuid-1""#),
+            "row anchor id:\n{html}"
+        );
+        assert!(
+            html.contains(r#"data-status="muted""#),
+            "muted marker:\n{html}"
+        );
         assert!(html.contains("Northwind"), "workspace name:\n{html}");
         // A muted row offers the REVERSE action so the toggle is repeatable.
         assert!(
             html.contains(r#"hx-post="/account/notifications/resubscribe""#),
             "muted row offers resubscribe:\n{html}"
         );
-        assert!(html.contains("csrf-token"), "row form carries the csrf token:\n{html}");
+        assert!(
+            html.contains("csrf-token"),
+            "row form carries the csrf token:\n{html}"
+        );
         // Out-of-band on-page notification (distinct from the mute state).
         assert!(html.contains(r#"id="toast""#), "toast region:\n{html}");
-        assert!(html.contains(r#"hx-swap-oob="true""#), "toast is out-of-band:\n{html}");
+        assert!(
+            html.contains(r#"hx-swap-oob="true""#),
+            "toast is out-of-band:\n{html}"
+        );
         assert!(html.contains("Muted Northwind."), "toast message:\n{html}");
     }
 
@@ -1025,13 +1037,25 @@ mod tests {
         .render()
         .expect("fragment renders");
 
-        assert!(html.contains(r#"id="ws-ws-uuid-2""#), "row anchor id:\n{html}");
-        assert!(html.contains(r#"data-status="subscribed""#), "subscribed marker:\n{html}");
+        assert!(
+            html.contains(r#"id="ws-ws-uuid-2""#),
+            "row anchor id:\n{html}"
+        );
+        assert!(
+            html.contains(r#"data-status="subscribed""#),
+            "subscribed marker:\n{html}"
+        );
         assert!(
             html.contains(r#"hx-post="/account/settings/mute""#),
             "subscribed row offers mute:\n{html}"
         );
-        assert!(html.contains(r#"hx-swap-oob="true""#), "toast is out-of-band:\n{html}");
-        assert!(html.contains("Resubscribed to Contoso."), "toast message:\n{html}");
+        assert!(
+            html.contains(r#"hx-swap-oob="true""#),
+            "toast is out-of-band:\n{html}"
+        );
+        assert!(
+            html.contains("Resubscribed to Contoso."),
+            "toast message:\n{html}"
+        );
     }
 }

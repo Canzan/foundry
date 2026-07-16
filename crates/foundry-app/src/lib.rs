@@ -294,7 +294,7 @@ mod static_cache_policy_tests {
         // Content-hashed CSS + pinned vendored libs stay long-lived immutable
         // (their URLs are content-addressed / version-pinned).
         assert!(
-            static_cache_control_value("/static/css/foundry.bbe051be.css").contains("immutable")
+            static_cache_control_value("/static/css/foundry.513929f9.css").contains("immutable")
         );
         assert!(static_cache_control_value("/static/vendor/htmx.min.js").contains("immutable"));
         assert!(static_cache_control_value("/static/vendor/alpine.min.js").contains("immutable"));

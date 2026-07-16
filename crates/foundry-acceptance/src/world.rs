@@ -29,6 +29,13 @@ pub struct FoundryWorld {
     pub harness: Option<InProcHarness>,
     pub http: Option<reqwest::Client>,
 
+    /// keyboard-shortcut-bindings (ADR-007) — the `@needs-browser` lane's
+    /// per-scenario WebDriver session, pointed at `harness.base_url()`. ONE
+    /// session per scenario; the chromedriver PROCESS is shared lane-wide by
+    /// `support::browser_harness`. `None` for every non-browser scenario, so the
+    /// port-to-port lanes are untouched.
+    pub browser: Option<fantoccini::Client>,
+
     /// Raw bootstrap-token strings indexed by the name they were minted
     /// under in the Background step (e.g. "valid-token-001").
     pub minted_tokens: HashMap<String, String>,

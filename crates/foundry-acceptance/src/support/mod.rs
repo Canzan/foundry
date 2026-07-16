@@ -1,5 +1,6 @@
 //! Cross-cutting test helpers.
 
+pub mod browser_harness;
 pub mod compose_harness;
 pub mod file_upload_env;
 pub mod harness;

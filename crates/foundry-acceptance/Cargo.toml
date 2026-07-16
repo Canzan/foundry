@@ -44,6 +44,13 @@ thiserror = { workspace = true }
 
 testcontainers = { workspace = true }
 testcontainers-modules = { workspace = true }
+# keyboard-shortcut-bindings ADR-007 — drives a REAL browser against
+# InProcHarness::base_url() in the @needs-browser lane (support/browser_harness.rs).
+# TLS-free: chromedriver is plain HTTP on 127.0.0.1, so browser_harness supplies a
+# bare hyper-util HttpConnector rather than pulling a second TLS stack in beside
+# reqwest's (which makes rustls' CryptoProvider ambiguous process-wide).
+fantoccini = { workspace = true }
+hyper-util = { workspace = true }
 assert_cmd = { workspace = true }
 serde_yaml_ng = { workspace = true }
 

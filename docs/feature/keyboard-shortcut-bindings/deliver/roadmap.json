@@ -1,0 +1,551 @@
+{
+  "roadmap": {
+    "project_id": "keyboard-shortcut-bindings",
+    "created_at": "2026-07-16T00:00:00Z",
+    "total_steps": 14
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "Slice 01 — the instrument proof: the @needs-browser lane, the vanilla dispatch layer, the ? help overlay (US-01) and Esc (US-07)",
+      "description": "THE PAUSE BOUNDARY. Everything downstream depends on this phase. It ends with a real keypress in a real browser producing an observable overlay, scenario green. No slice-02..05 step may start until this phase is confirmed.",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "Instrument proof: the browser lane presses a real key and the help overlay appears",
+          "criteria": [
+            "Greens exactly these scenarios: \"The browser lane can drive a real key against the served app end to end\" (the @lane-probe @walking_skeleton @driving_port instrument proof — not a product skeleton; the server contracts are already shipped, D8).",
+            "Observable outcome: chromedriver starts, a fantoccini session navigates to the AUTH board served by InProcHarness::base_url(), the page reports the keyboard layer is ready via the [data-kb-ready] marker, Mei is STILL signed in after the browser accepts the session cookie over plain HTTP, and pressing \"?\" makes the keyboard shortcut list appear as an overlay over the board. If this cannot be made to run, no other scenario in the feature is worth writing (ADR-007).",
+            "The lane infrastructure built here (ADR-007, the root-cause fix): fantoccini (MIT/Apache-2.0) added to [workspace.dependencies] beside the acceptance stack (Cargo.toml:102-109) and to foundry-acceptance's [dependencies], clearing cargo deny check (xtask/src/main.rs:176) — the licenses.allow list already permits Apache-2.0, so any fallout is transitive-dep license/advisory, NOT an existing ban; support/browser_harness.rs holding BrowserHarness = InProcHarness (UNCHANGED — it already binds 127.0.0.1:0 and axum::serve's a real origin, foundry-app/src/lib.rs:729) + a fantoccini::Client on a new Option<fantoccini::Client> field of FoundryWorld; one chromedriver PROCESS per lane, one SESSION per scenario, --headless=new, FIXED window size (so AC-05.3's scrollIntoView is deterministic); waits are CONDITIONS via bounded wait().at_most() on [data-kb-ready], never sleeps.",
+            "Lane wiring: acceptance.rs ADDS @needs-browser to the DEFAULT-lane exclusion list (:247-254, beside docker-compose / needs-pgclient / slow) and KEEPS it INCLUDED in the `all` lane (:182-191, which excludes only manual/manual-trigger/pending) — excluding it from `all` would rebuild the exact bug this feature closes (ADR-007 §4). xtask/src/main.rs gains a chromedriver preflight in run_ci mirroring pg_dump_at_least_16() (:335-358) that probes chromedriver --version AND the browser version, parses both majors and asserts they MATCH (verified necessary: brew's cask ships driver 151 which REFUSES Chrome 150 — mere presence is not sufficient), printing an actionable per-OS install hint and exiting non-zero; it probes then REFUSES, never #[ignore]s and never soft-skips. The run_steps env trap is fixed FIRST: the tuple becomes (&str, Vec<&str>, Vec<(&str, &str)>) so each step carries its own env, replacing the label-substring selection at :253-257 (label.contains(\"foundry-acceptance\")) which cannot distinguish a SECOND acceptance step, and which keeps run_smoke a strict drift-proof subset.",
+            "The production layer built here (ADR-001/ADR-003): crates/foundry-app/static/js/keyboard.js — ONE vanilla IIFE with \"use strict\", external same-origin, loaded <script defer> from base.html, no inline handlers, ONE document-delegated keydown (exactly the board-dnd.js:17/67 house idiom, for the reason board-dnd.js gives: delegation survives htmx swaps); it sets document.documentElement.dataset.kbReady = \"1\" at init; the #kb-overlay-root host is added to base.html ABOVE #modal-root (ADR-003, so slice 03's layered-Esc has two hosts to peel); \"?\" renders the overlay from the shipped GET /keyboard-help and Esc closes it. Overlay styling goes in the single stylesheet crates/foundry-app/static/css/foundry.bbe051be.css, whose hand-maintained content hash MUST be rotated in BOTH base.html:5 and the hardcoded assertion at foundry-app/src/lib.rs:297 (no build-time hashing exists; precedent: docs/evolution/2026-07-08-navigation-bar-linear-ui.md:50).",
+            "Earned Trust — the probe that matters most (ADR-007 §4): harness.rs:401-406 sets session_cookie_secure: true and its own comment concedes the test \"only inspects the header text, not whether the browser would send the cookie back over HTTP\". reqwest does not care; a real browser does. The probe SIGNS IN and ASSERTS STILL-SIGNED-IN so a Secure-cookie substrate change fails as ONE clear diagnostic at lane start instead of as every scenario mysteriously failing at sign-in. Chrome treats 127.0.0.1 as a trustworthy origin and is EXPECTED to accept it — but that is an assumption about a substrate free to change, which is exactly why it is probed and not believed. If the probe reds, the sanctioned fix is making session_cookie_secure conditional for the browser harness; do NOT work around it per-scenario.",
+            "Genuinely RED by MISSING: static/js/keyboard.js does not exist (static/js/ contains exactly board-dnd.js and csrf-upload.js; the only keydown in the tree is inside the vendored alpine.min.js), there is no #kb-overlay-root, no [data-kb-ready], no fantoccini dep, no BrowserHarness, and no @needs-browser lane — the @pending scaffold at src/steps/keyboard_shortcut_bindings.rs panics with its __SCAFFOLD__ marker (assertion-class RED, correct test / missing production), never IMPORT_ERROR / BROKEN.",
+            "5-phase TDD contract (PREPARE -> RED_ACCEPTANCE -> RED_UNIT -> GREEN -> COMMIT); removes @pending from ONLY this scenario (the other 37 stay @pending so the `all` lane stays green); the steps module is ALREADY registered by DISTILL (lib.rs steps mod + acceptance.rs force-link) — do not re-wire it, and do not remove that force-link or the inventory::submit! steps silently vanish; ZERO new routes, ZERO endpoints, ZERO migrations."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/keyboard-shortcut-bindings.feature",
+          "scenario_name": "The browser lane can drive a real key against the served app end to end",
+          "files_to_modify": [
+            "Cargo.toml",
+            "deny.toml",
+            "xtask/src/main.rs",
+            "crates/foundry-acceptance/Cargo.toml",
+            "crates/foundry-acceptance/tests/acceptance.rs",
+            "crates/foundry-acceptance/src/support/browser_harness.rs",
+            "crates/foundry-acceptance/src/support/mod.rs",
+            "crates/foundry-acceptance/src/world.rs",
+            "crates/foundry-acceptance/src/steps/keyboard_shortcut_bindings.rs",
+            "crates/foundry-acceptance/tests/features/keyboard-shortcut-bindings.feature",
+            "crates/foundry-app/static/js/keyboard.js",
+            "crates/foundry-app/templates/base.html",
+            "crates/foundry-app/static/css/foundry.bbe051be.css",
+            "crates/foundry-app/src/lib.rs"
+          ],
+          "implementation_scope": {
+            "source_directories": [
+              "crates/foundry-app/static/js/",
+              "crates/foundry-app/static/css/",
+              "crates/foundry-app/templates/base.html",
+              "crates/foundry-app/src/lib.rs",
+              "xtask/src/main.rs",
+              "Cargo.toml",
+              "deny.toml"
+            ],
+            "test_directories": [
+              "crates/foundry-acceptance/src/support/",
+              "crates/foundry-acceptance/src/steps/",
+              "crates/foundry-acceptance/tests/"
+            ]
+          }
+        },
+        {
+          "id": "01-02",
+          "name": "The help overlay: bound-equals-advertised, global reach, and Esc returns Mei where she was",
+          "criteria": [
+            "Greens exactly these scenarios: \"Pressing the help key shows the shortcut list over the current page\", \"The overlay lists exactly the seven advertised shortcuts and each is bound\", \"The help overlay is available away from the board where there is no modal mount\", and \"Dismissing the help returns Mei exactly where she was\".",
+            "Overlay-over-context (AC-01.1): pressing \"?\" on the AUTH board makes the shortcut list appear as an overlay, the board is STILL VISIBLE behind it, and the browser did NOT navigate away — the overlay is an overlay, not a page transition (the shipped GET /keyboard-help full-page route stays reachable and untouched).",
+            "Bound-equals-advertised (AC-01.2, BR-1, KPI-5): the overlay lists a description for each of \"c\", \"/\", \"j\", \"k\", \"Enter\", \"?\" and \"Esc\", every shortcut it lists is bound and does something, and no shortcut outside that list is bound — both sides derive from the single SHORTCUTS const (keyboard.rs:48), so the help page and the dispatch layer cannot drift. This is the invariant whose absence IS the feature: seven advertised, zero bound. The @property tag here is an EXAMPLE-BASED invariant litmus at browser layer 3, NOT a PBT-generated one (Mandate 11: layer 3+ properties stay example-only).",
+            "Global reach (AC-01.3, ADR-003): pressing \"?\" on the dashboard — a page with NO modal mount point — still shows the overlay, because #kb-overlay-root is hosted in base.html and does not depend on #modal-root existing. This is the scenario that reds if anyone mounts the overlay inside the board's modal host.",
+            "Esc restores (AC-01.4, US-07): pressing \"Esc\" with the help overlay open closes it and leaves Mei still on the AUTH board with nothing else changed — the DOM-derived Esc stack peels the topmost layer only, which slice 03's layered-Esc scenario then proves against a modal beneath.",
+            "Genuinely RED by MISSING: 01-01 bound only the lane-probe's ?-shows-overlay path; the advertised-set contract, the no-modal-mount page, the behind-visibility / no-navigation assertions and the Esc-restores arm are not exercised yet — each @pending scenario panics until built (assertion-class RED, never BROKEN). Green-by-inheritance leans on 01-01's dispatch layer + overlay host; this step adds the contract and reach arms.",
+            "5-phase TDD (PREPARE -> RED_ACCEPTANCE -> RED_UNIT -> GREEN -> COMMIT); removes @pending from only these four scenarios; ZERO new routes, ZERO migrations."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/keyboard-shortcut-bindings.feature",
+          "scenario_name": "The overlay lists exactly the seven advertised shortcuts and each is bound",
+          "files_to_modify": [
+            "crates/foundry-app/static/js/keyboard.js",
+            "crates/foundry-app/templates/base.html",
+            "crates/foundry-app/static/css/foundry.bbe051be.css",
+            "crates/foundry-acceptance/src/steps/keyboard_shortcut_bindings.rs",
+            "crates/foundry-acceptance/src/support/browser_harness.rs",
+            "crates/foundry-acceptance/tests/features/keyboard-shortcut-bindings.feature"
+          ],
+          "implementation_scope": {
+            "source_directories": [
+              "crates/foundry-app/static/js/",
+              "crates/foundry-app/static/css/",
+              "crates/foundry-app/templates/base.html"
+            ],
+            "test_directories": [
+              "crates/foundry-acceptance/src/support/",
+              "crates/foundry-acceptance/src/steps/",
+              "crates/foundry-acceptance/tests/"
+            ]
+          }
+        },
+        {
+          "id": "01-03",
+          "name": "Drop Alpine and its vendored asset; correct the stale keyboard.rs doc; prove the no-JS path survives",
+          "criteria": [
+            "Greens exactly these scenarios: \"With scripting disabled the full-page keyboard help still works\".",
+            "No-JS fallback (AC-01.5, AC-X.3, NFR-4, ODD-8): with scripting DISABLED in Mei's browser on the AUTH board (driven by launching the session with JavaScript off), following the sidebar \"Keyboard shortcuts\" link shows the full-page keyboard help, and no advertised action is reachable only by keyboard — the shipped no-JS links are KEPT, not replaced by the overlay (ADR-003). This scenario is the reason the Alpine removal lands HERE: it is the assertion that proves subtracting script tags did not amputate the scripting-off path.",
+            "Drop Alpine (ADR-001 §2, a DECLARED scope addition, not smuggled): remove <script src=\"/static/vendor/alpine.min.js\" defer></script> from base.html:7, delete the vendored asset crates/foundry-app/static/vendor/alpine.min.js (~44 KB on every page load), and drop its crates/foundry-app/static/VENDOR.md entry. Zero app consumers is VERIFIED (x-data / x-on: / x-model / x-show / x-init / @click / Alpine across templates/ return zero hits) and MUST be re-verified as this step's precondition — if DELIVER finds ANY Alpine consumer this ADR missed, STOP and re-open ADR-001 rather than working around it. Deliberately sequenced AFTER 01-01/01-02 so the vanilla layer is proven live before the dead framework is subtracted, never both at once.",
+            "Correct the stale doc (ADR-001 §3, R9): rewrite keyboard.rs:1-29, which today documents \"three routes that back the alpine.js keyboard-shortcut handlers\" and \"the alpine.js bootstrap\" that GETs /keyboard-help once and caches it — handlers that NEVER EXISTED. Describe the vanilla layer that now does exist. The \"public by design\" rationale at :19-24 stays true and stays; only the alpine.js attribution is wrong. Leaving this comment while shipping the vanilla layer would enshrine exactly the confusion the feature exists to end.",
+            "Asset consequence: if this step touches the stylesheet, rotate the hand-maintained content hash in BOTH base.html:5 and the hardcoded assertion at foundry-app/src/lib.rs:297 — there is no build-time hashing, so the two sites drift silently if only one is edited. Removing the Alpine <script> alone requires no re-hash (JS is unhashed).",
+            "Genuinely RED by MISSING: the scripting-disabled path is not exercised by any test today — the @pending scenario panics until built (assertion-class RED, never BROKEN). The Alpine/doc removals are proved by this scenario staying green plus a zero-hit grep for alpine under crates/foundry-app/, i.e. by evidence rather than by belief.",
+            "5-phase TDD (PREPARE -> RED_ACCEPTANCE -> RED_UNIT -> GREEN -> COMMIT); removes @pending from only this scenario; ZERO new routes, ZERO migrations. PHASE 01 EXIT / PAUSE BOUNDARY: on completion slice 01 is 6/6 green, a real keypress in a real browser has produced an observable overlay, and the harness is confirmed to genuinely work before slices 02..05 begin."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/keyboard-shortcut-bindings.feature",
+          "scenario_name": "With scripting disabled the full-page keyboard help still works",
+          "files_to_modify": [
+            "crates/foundry-app/templates/base.html",
+            "crates/foundry-app/static/vendor/alpine.min.js",
+            "crates/foundry-app/static/VENDOR.md",
+            "crates/foundry-app/src/keyboard.rs",
+            "crates/foundry-acceptance/src/support/browser_harness.rs",
+            "crates/foundry-acceptance/src/steps/keyboard_shortcut_bindings.rs",
+            "crates/foundry-acceptance/tests/features/keyboard-shortcut-bindings.feature"
+          ],
+          "implementation_scope": {
+            "source_directories": [
+              "crates/foundry-app/templates/base.html",
+              "crates/foundry-app/static/vendor/",
+              "crates/foundry-app/static/VENDOR.md",
+              "crates/foundry-app/src/keyboard.rs"
+            ],
+            "test_directories": [
+              "crates/foundry-acceptance/src/support/",
+              "crates/foundry-acceptance/src/steps/",
+              "crates/foundry-acceptance/tests/"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "02",
+      "name": "Slice 02 — the typing guards (US-02, ADR-002 the crux). Ships NO new shortcut: the value is a harm avoided",
+      "description": "Capability delta is deliberately ZERO. No key is bound here. The whole slice is the guard predicate that makes slices 03..05 safe to ship.",
+      "steps": [
+        {
+          "id": "02-01",
+          "name": "The guard predicate: no shortcut fires from a text-entry context, while still firing outside one",
+          "criteria": [
+            "Greens exactly these scenarios: \"No shortcut ever fires from a text-entry context, while still firing outside one\" (the @critical @paired-assertion guard), \"Typing shortcut letters into a title inserts them instead of firing shortcuts\", and \"Leaving the text field re-enables the shortcuts immediately\".",
+            "THE PAIRED ASSERTION — DO NOT SPLIT (D15, the ONE sanctioned exception to NFR-1's reds-on-main rule). One scenario, both halves: pressing \"c\" on the board with no text field focused opens the new-issue modal, PROVING THE LAYER IS LIVE; then typing \"cjk/?\" into the title field enters exactly those characters and opens no additional modal, focuses no search, and moves no selection. This is REVERT-REDS-IT: it reds when the guard is removed from a BOUND layer, not when the layer is absent. Split apart, the guard half passes VACUOUSLY on main and on any broken half-shipped layer — the precise green-while-absent pattern this whole feature exists to end. The [data-kb-ready] marker from ADR-001 is the concrete \"the layer is live\" hook.",
+            "The predicate is STRUCTURAL (ADR-002, BR-2, NFR-2): ONE guard chain evaluated ONCE, before dispatch, with NO exemptions and no way to route around it — an isTextEntry-style predicate in one function in keyboard.js, not seven scattered ifs at seven call sites (the failure mode DISCUSS names as R2). Typing \"cache invalidation on login\" into an open new-issue modal's title field leaves the field containing exactly that string with no additional modal opened and no card selection changed — note the c, /, k and i characters that would each otherwise fire.",
+            "Re-enablement (AC-02.6): after Mei has typed in the title field and pressed \"Esc\" to leave it, pressing \"c\" opens the new-issue modal — the guard is a function of the CURRENT focus, never a sticky mode flag that can be left latched on.",
+            "Genuinely RED by MISSING: no guard chain exists — 01-01 bound \"?\" and \"Esc\" through an unguarded document-delegated listener, so shortcut letters typed into a field would fire today. Each @pending scenario panics until built (assertion-class RED, never BROKEN), EXCEPT the paired-assertion guard, which is documented in the Gherkin and in DISTILL as deliberately revert-reds-it rather than reds-on-main. That is sanctioned, not a defect — do not \"fix\" it by splitting it.",
+            "5-phase TDD (PREPARE -> RED_ACCEPTANCE -> RED_UNIT -> GREEN -> COMMIT); removes @pending from only these three scenarios; ZERO new routes, ZERO migrations. NOTE: \"c\" opening the modal is a PRECONDITION of the paired assertion, so its binding lands here; slice 03 then owns c's full contract (focus, scope, Esc)."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/keyboard-shortcut-bindings.feature",
+          "scenario_name": "No shortcut ever fires from a text-entry context, while still firing outside one",
+          "files_to_modify": [
+            "crates/foundry-app/static/js/keyboard.js",
+            "crates/foundry-acceptance/src/steps/keyboard_shortcut_bindings.rs",
+            "crates/foundry-acceptance/src/support/browser_harness.rs",
+            "crates/foundry-acceptance/tests/features/keyboard-shortcut-bindings.feature"
+          ],
+          "implementation_scope": {
+            "source_directories": [
+              "crates/foundry-app/static/js/"
+            ],
+            "test_directories": [
+              "crates/foundry-acceptance/src/support/",
+              "crates/foundry-acceptance/src/steps/",
+              "crates/foundry-acceptance/tests/"
+            ]
+          }
+        },
+        {
+          "id": "02-02",
+          "name": "Guard edges: the copy chord stays inert, Shift is not a suppressor, IME composition is respected",
+          "criteria": [
+            "Greens exactly these scenarios: \"A copy chord does not create an issue and is left for the browser to handle\", \"Shift is not a suppressor so the help key still fires\", and \"A key delivered mid IME composition does not fire a shortcut\".",
+            "Copy chord reshaped for headless (AC-02.3 RESOLVED, ADR-007 honest limit 2): with the text \"AUTH-2\" selected on the board, pressing the copy chord with Ctrl AND AGAIN with Cmd opens no new-issue modal for either modifier, and the keydown default was NOT prevented for either — the layer is INERT for modified chords and leaves them to the browser. It asserts NON-ACTIVATION, never \"the text was copied\" (clipboard contents are unassertable headless). BOTH modifiers are asserted because Linux CI's copy chord is Ctrl, not Meta — a Gherkin comment records why.",
+            "Shift is not a suppressor (AC-02.4, BR-7, ADR-002): pressing \"?\", which the browser produces as Shift plus \"/\", makes the shortcut list appear — the guard suppresses on Ctrl/Meta/Alt but MUST NOT treat Shift as a modifier, or the help key (a Shift-produced character) becomes structurally unreachable. This is the scenario that reds on the obvious wrong implementation \"ignore any keydown with a modifier\".",
+            "IME composition (AC-02.1 IME clause RESOLVED, ADR-002 guard 1, ADR-007 honest limit 1): with Mei's Japanese IME composing in the title field, a \"c\" arriving mid-composition opens no additional modal and the composing character is left to the input method. DELIVER drives this via client.execute() dispatching a CompositionEvent plus a KeyboardEvent{isComposing:true, keyCode:229} — WebDriver send_keys CANNOT produce composition. This truthfully exercises our predicate (listeners fire for untrusted events) but SIMULATES rather than exercises a real IME; a Gherkin comment states this, and the residual real-IME risk is carried explicitly by the @manual scenario, not silently.",
+            "Genuinely RED by MISSING: the modifier-inertness arm, the Shift carve-out, and the isComposing/keyCode-229 arm of the guard chain are not built yet — each @pending scenario panics until built (assertion-class RED, never BROKEN). Green-by-inheritance leans on 02-01's single guard chain; this step adds its three edges, each inside the SAME chain rather than as a special case beside it.",
+            "5-phase TDD (PREPARE -> RED_ACCEPTANCE -> RED_UNIT -> GREEN -> COMMIT); removes @pending from only these three scenarios; slice 02 is now 6/6 green; ZERO new routes, ZERO migrations."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/keyboard-shortcut-bindings.feature",
+          "scenario_name": "A copy chord does not create an issue and is left for the browser to handle",
+          "files_to_modify": [
+            "crates/foundry-app/static/js/keyboard.js",
+            "crates/foundry-acceptance/src/steps/keyboard_shortcut_bindings.rs",
+            "crates/foundry-acceptance/src/support/browser_harness.rs",
+            "crates/foundry-acceptance/tests/features/keyboard-shortcut-bindings.feature"
+          ],
+          "implementation_scope": {
+            "source_directories": [
+              "crates/foundry-app/static/js/"
+            ],
+            "test_directories": [
+              "crates/foundry-acceptance/src/support/",
+              "crates/foundry-acceptance/src/steps/",
+              "crates/foundry-acceptance/tests/"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "03",
+      "name": "Slice 03 — c files an issue (US-03) and Esc peels one layer at a time (US-07)",
+      "steps": [
+        {
+          "id": "03-01",
+          "name": "The create key: opens the modal focused, files an issue end to end, and stays scoped",
+          "criteria": [
+            "Greens exactly these scenarios: \"Pressing the create key opens the new-issue modal on the board\", \"Mei files an issue entirely from the keyboard\", and \"The create key does nothing where there is no project\".",
+            "Create + focus (AC-03.1): pressing \"c\" on the AUTH project board opens the new-issue modal OVER the board with the title field focused and ready for typing — focus handoff is the whole point; a modal that opens unfocused makes Mei reach for the mouse and defeats the JTBD.",
+            "End-to-end filing (AC-03.2): with the modal opened by \"c\", typing \"Session cookie not cleared on sign-out\" and submitting the form makes a new issue with that title appear on the AUTH board — the full keyboard round trip with no pointer at any step.",
+            "Scope (AC-03.3): pressing \"c\" on the dashboard, a page with no team or project, opens no modal and does not navigate away — a shortcut with no target is a no-op, never a navigation or an error.",
+            "REUSE, not reconstruction (DESIGN wave-decisions): keyboard.js triggers board.html:6's OWN hx-get (/team/{slug}/project/{slug}/issues/new, hx-target=\"#modal-root\") rather than reconstructing the URL, and does ZERO client CSRF work — keyboard.rs:94 mints the token and new_issue_modal.html:4 carries it. IF DELIVER FINDS ITSELF WRITING CSRF CODE IN THIS STEP, SOMETHING IS WRONG: stop and re-read the design. Zero new routes, zero endpoints — every server contract this slice needs is already shipped and green.",
+            "Genuinely RED by MISSING: 02-01 bound \"c\" only far enough to serve as the paired assertion's liveness proof; the focus handoff, the submit round trip and the no-project no-op are not built or exercised yet — each @pending scenario panics until built (assertion-class RED, never BROKEN).",
+            "5-phase TDD (PREPARE -> RED_ACCEPTANCE -> RED_UNIT -> GREEN -> COMMIT); removes @pending from only these three scenarios; ZERO new routes, ZERO migrations."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/keyboard-shortcut-bindings.feature",
+          "scenario_name": "Mei files an issue entirely from the keyboard",
+          "files_to_modify": [
+            "crates/foundry-app/static/js/keyboard.js",
+            "crates/foundry-acceptance/src/steps/keyboard_shortcut_bindings.rs",
+            "crates/foundry-acceptance/src/support/browser_harness.rs",
+            "crates/foundry-acceptance/tests/features/keyboard-shortcut-bindings.feature"
+          ],
+          "implementation_scope": {
+            "source_directories": [
+              "crates/foundry-app/static/js/"
+            ],
+            "test_directories": [
+              "crates/foundry-acceptance/src/support/",
+              "crates/foundry-acceptance/src/steps/",
+              "crates/foundry-acceptance/tests/"
+            ]
+          }
+        },
+        {
+          "id": "03-02",
+          "name": "Escape peels one layer at a time: help above, modal beneath, nothing is a no-op",
+          "criteria": [
+            "Greens exactly these scenarios: \"Escape closes the new-issue modal and returns to the board\", \"Escape closes one layer at a time, help before the modal beneath it\" (the @critical @layered proof), and \"Escape with nothing open is a harmless no-op\".",
+            "Modal dismissal (AC-07.1): with the new-issue modal opened by \"c\", pressing \"Esc\" closes the modal and returns Mei to the AUTH board with nothing else changed — no navigation, no lost board state.",
+            "THE LAYERED PROOF (ADR-003, the scenario that reds if anyone collapses the two hosts back into one): with the new-issue modal open AND \"?\" pressed to show the help overlay, the first \"Esc\" closes the help overlay while THE NEW-ISSUE MODAL IS STILL OPEN, and a second \"Esc\" then closes the modal. The Esc stack is DERIVED FROM THE DOM (which layers are actually present, #kb-overlay-root above #modal-root), never a hand-maintained JS stack variable that can desynchronise from what Mei can see.",
+            "Harmless no-op (AC-07.2): pressing \"Esc\" on the board with no modal or overlay open does nothing and does not navigate away — an empty stack pops nothing rather than falling through to a default.",
+            "Genuinely RED by MISSING: 01-01 closes only the help overlay; there is no modal-closing arm and no stack discipline at all, so a single Esc against two open layers has no defined behaviour yet — each @pending scenario panics until built (assertion-class RED, never BROKEN). The layered scenario is the anti-regression guard on ADR-003's two-host decision and must not be merged into the single-layer one.",
+            "5-phase TDD (PREPARE -> RED_ACCEPTANCE -> RED_UNIT -> GREEN -> COMMIT); removes @pending from only these three scenarios; slice 03 is now 6/6 green; ZERO new routes, ZERO migrations."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/keyboard-shortcut-bindings.feature",
+          "scenario_name": "Escape closes one layer at a time, help before the modal beneath it",
+          "files_to_modify": [
+            "crates/foundry-app/static/js/keyboard.js",
+            "crates/foundry-app/templates/base.html",
+            "crates/foundry-acceptance/src/steps/keyboard_shortcut_bindings.rs",
+            "crates/foundry-acceptance/src/support/browser_harness.rs",
+            "crates/foundry-acceptance/tests/features/keyboard-shortcut-bindings.feature"
+          ],
+          "implementation_scope": {
+            "source_directories": [
+              "crates/foundry-app/static/js/",
+              "crates/foundry-app/templates/base.html"
+            ],
+            "test_directories": [
+              "crates/foundry-acceptance/src/support/",
+              "crates/foundry-acceptance/src/steps/",
+              "crates/foundry-acceptance/tests/"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "04",
+      "name": "Slice 04 — / reveals and focuses the board search panel (US-04)",
+      "steps": [
+        {
+          "id": "04-01",
+          "name": "The search key focuses an empty box, and the shipped search fragment answers",
+          "criteria": [
+            "Greens exactly these scenarios: \"Pressing the search key focuses the search box without typing a slash\", \"Mei finds an issue by typing part of its title\", \"Mei finds an issue by its exact key\", and \"A search that matches nothing shows the empty state\".",
+            "THE CLASSIC BUG (FR-7, AC-04.1): pressing \"/\" on the AUTH board leaves the search input FOCUSED and EMPTY — no stray \"/\" character. The handler preventDefault()s its own slash; this scenario is precisely the regression guard for the bug every keyboard layer ships once.",
+            "Finding (AC-04.2/04.3/04.4): with the box focused by \"/\", typing \"session\" shows the issue \"Session cookie not cleared on sign-out\" in the results; typing \"AUTH-2\" shows exactly the issue AUTH-2; typing \"zzz\" shows an empty state indicating nothing matched — substring, exact-key and data-empty are the SHIPPED GET .../search?q= fragment's contracts, HONOURED AS-IS. This step adds no server behaviour: zero new routes, zero endpoints (D10).",
+            "Board-only surface (ADR-005, the D2 amendment ratified in upstream-changes §3): search is a JS-INJECTED PANEL on the board plus a pointer-clickable control — NOT a new page, and NOT on an \"issue list\" (verified non-existent: .../issues is POST-only, lib.rs:487-490). The injected control is pointer-clickable so the surface is not keyboard-only, honouring AC-X.3.",
+            "Genuinely RED by MISSING: \"/\" is unbound, no search panel is injected on the board, and no client ever calls the shipped search fragment — the fragment is green today and has never been reached by a keypress, which is this feature's signature failure. Each @pending scenario panics until built (assertion-class RED, never BROKEN).",
+            "5-phase TDD (PREPARE -> RED_ACCEPTANCE -> RED_UNIT -> GREEN -> COMMIT); removes @pending from only these four scenarios; ZERO new routes, ZERO migrations."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/keyboard-shortcut-bindings.feature",
+          "scenario_name": "Pressing the search key focuses the search box without typing a slash",
+          "files_to_modify": [
+            "crates/foundry-app/static/js/keyboard.js",
+            "crates/foundry-app/static/css/foundry.bbe051be.css",
+            "crates/foundry-app/src/lib.rs",
+            "crates/foundry-acceptance/src/steps/keyboard_shortcut_bindings.rs",
+            "crates/foundry-acceptance/src/support/browser_harness.rs",
+            "crates/foundry-acceptance/tests/features/keyboard-shortcut-bindings.feature"
+          ],
+          "implementation_scope": {
+            "source_directories": [
+              "crates/foundry-app/static/js/",
+              "crates/foundry-app/static/css/",
+              "crates/foundry-app/src/lib.rs"
+            ],
+            "test_directories": [
+              "crates/foundry-acceptance/src/support/",
+              "crates/foundry-acceptance/src/steps/",
+              "crates/foundry-acceptance/tests/"
+            ]
+          }
+        },
+        {
+          "id": "04-02",
+          "name": "Search edges: a typed slash is literal, and Escape restores the board",
+          "criteria": [
+            "Greens exactly these scenarios: \"A slash typed into the focused search box is inserted literally\" and \"Escape leaves search and restores the board\".",
+            "The slash-in-search guard (AC-04.5, ADR-002 + ADR-005): with the search box focused, typing \"and/or\" leaves the box containing \"and/or\" and search focus was NOT grabbed again — the \"/\" binding is subject to the SAME slice-02 guard chain as every other key, with no exemption. This is the scenario that catches the tempting special case \"but / is the search key, so handle it first\", which would make the search box unable to contain a slash.",
+            "Escape from search (AC-04.6, ADR-003 + ADR-005): with the box focused by \"/\" and a query typed, pressing \"Esc\" closes the search panel and restores the board — the panel joins the DOM-derived Esc stack from 03-02 as a layer rather than registering its own competing Esc handler.",
+            "Genuinely RED by MISSING: the guard is not yet applied to the search surface and the panel is not yet a member of the Esc stack — each @pending scenario panics until built (assertion-class RED, never BROKEN). Green-by-inheritance leans on 04-01's panel and 03-02's stack; this step proves the panel obeys both the guard and the stack instead of special-casing around them.",
+            "5-phase TDD (PREPARE -> RED_ACCEPTANCE -> RED_UNIT -> GREEN -> COMMIT); removes @pending from only these two scenarios; slice 04 is now 6/6 green; ZERO new routes, ZERO migrations."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/keyboard-shortcut-bindings.feature",
+          "scenario_name": "A slash typed into the focused search box is inserted literally",
+          "files_to_modify": [
+            "crates/foundry-app/static/js/keyboard.js",
+            "crates/foundry-acceptance/src/steps/keyboard_shortcut_bindings.rs",
+            "crates/foundry-acceptance/src/support/browser_harness.rs",
+            "crates/foundry-acceptance/tests/features/keyboard-shortcut-bindings.feature"
+          ],
+          "implementation_scope": {
+            "source_directories": [
+              "crates/foundry-app/static/js/"
+            ],
+            "test_directories": [
+              "crates/foundry-acceptance/src/support/",
+              "crates/foundry-acceptance/src/steps/",
+              "crates/foundry-acceptance/tests/"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "05",
+      "name": "Slice 05 — j/k walk the visible cards (US-05), Enter opens (US-06), and the #kb-items carrier is retired (ADR-008)",
+      "steps": [
+        {
+          "id": "05-01",
+          "name": "Selection follows the eyes: j/k walk the visible cards in on-screen order",
+          "criteria": [
+            "Greens exactly these scenarios: \"The next key selects the first visible card and highlights it\", \"Next and previous walk the cards in the order Mei sees them\", \"A selection below the fold scrolls into view\", and \"Moving previous from the first card stays put\".",
+            "Selection follows the EYES (AC-05.1, ADR-004/ADR-008, the @kb-items-collision scenario): pressing \"j\" on the AUTH board highlights the first VISIBLE card as selected, and \"j\" then \"k\" moves the selection to the second visible card and back to the first with the selection order matching THE ORDER THE CARDS APPEAR ON SCREEN. This is the scenario that pins the ADR-008 collision: the visible board is column-grouped and DESC-within-column (projects.rs:864-879), while the retired #kb-items carrier is flat ASC-by-number — walking one is observably not walking the other, and only the visible order is one a user can predict.",
+            "Selection is a KEY, not an index (ADR-004): the ring is derived from a selectedKey, so it rides the card node rather than a slot position — the property 05-02's drag scenario then proves. A hidden, aria-hidden element could carry neither a ring nor a scroll target, which is one of the three independent reasons ADR-008 retires the carrier rather than walking it.",
+            "Scroll and boundary (AC-05.3/05.4): pressing \"j\" repeatedly until the selection passes the bottom of the viewport scrolls the selected card into view with its highlight visible — deterministic ONLY under the fixed window size the 01-01 BrowserHarness pins (ADR-007). Pressing \"k\" with the first visible card selected leaves the first card selected with no error — the boundary clamps rather than wrapping or underflowing.",
+            "Genuinely RED by MISSING: \"j\" and \"k\" are unbound, no selection model or ring exists, and nothing scrolls — each @pending scenario panics until built (assertion-class RED, never BROKEN). NOTE: the carrier still exists at this point and 05-05 retires it; selection MUST be built against the visible DOM from the start and must never read #kb-items, or 05-05 becomes a rewrite instead of a deletion.",
+            "5-phase TDD (PREPARE -> RED_ACCEPTANCE -> RED_UNIT -> GREEN -> COMMIT); removes @pending from only these four scenarios; ZERO new routes, ZERO migrations."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/keyboard-shortcut-bindings.feature",
+          "scenario_name": "Next and previous walk the cards in the order Mei sees them",
+          "files_to_modify": [
+            "crates/foundry-app/static/js/keyboard.js",
+            "crates/foundry-app/static/css/foundry.bbe051be.css",
+            "crates/foundry-app/src/lib.rs",
+            "crates/foundry-acceptance/src/steps/keyboard_shortcut_bindings.rs",
+            "crates/foundry-acceptance/src/support/browser_harness.rs",
+            "crates/foundry-acceptance/tests/features/keyboard-shortcut-bindings.feature"
+          ],
+          "implementation_scope": {
+            "source_directories": [
+              "crates/foundry-app/static/js/",
+              "crates/foundry-app/static/css/",
+              "crates/foundry-app/src/lib.rs"
+            ],
+            "test_directories": [
+              "crates/foundry-acceptance/src/support/",
+              "crates/foundry-acceptance/src/steps/",
+              "crates/foundry-acceptance/tests/"
+            ]
+          }
+        },
+        {
+          "id": "05-02",
+          "name": "Selection coherence under drag, and exposure to assistive technology",
+          "criteria": [
+            "Greens exactly these scenarios: \"Dragging the selected card to another column leaves selection coherent\" and \"Once the board is focused, moving the selection is exposed to assistive technology\".",
+            "The index-vs-key proof (AC-05.8, ADR-004, @drag-coexistence): with AUTH-2 selected, Hiroshi dragging AUTH-2 into another column with the mouse completes the drag AS IT DOES TODAY, and the ring is STILL ON AUTH-2 — not on whatever now occupies the old slot. This scenario REDS if anyone switches selection to an index; the ring rides the node by key. board-dnd.js is UNTOUCHED (NFR-8) — if this step edits board-dnd.js, the key-based model has been abandoned somewhere and DELIVER should stop.",
+            "Accessibility (AC-05.7, ADR-006 Option A, RATIFIED): with Mei having Tabbed to focus the AUTH board as a screen-reader user would, pressing \"j\" to move the selection to AUTH-2 makes the board's ACTIVE DESCENDANT the AUTH-2 card, marks the AUTH-2 card selected for assistive technology, keeps the selection highlight from relying on COLOUR ALONE, and the help overlay tells the user to Tab to the board then press \"j\" or \"k\".",
+            "KPI-4 is met CONDITIONALLY and this is stated, not hidden (ADR-006): the aria-activedescendant composite works ONCE THE BOARD IS FOCUSED — the AT user Tabs to the board once. Browse-mode interception before that Tab is the ACCEPTED COST of Option A, is named in the Gherkin, and is carried by the @manual scenario rather than papered over. Slice 05 therefore also owes the help copy the \"Tab to the board, then j/k\" instruction, which is asserted here rather than left as a docs promise.",
+            "Genuinely RED by MISSING: no aria-activedescendant, no aria-selected, no focusable board composite, no non-colour highlight affordance and no help-copy instruction exist, and selection coherence under drag has never been exercised — each @pending scenario panics until built (assertion-class RED, never BROKEN).",
+            "5-phase TDD (PREPARE -> RED_ACCEPTANCE -> RED_UNIT -> GREEN -> COMMIT); removes @pending from only these two scenarios; ZERO new routes, ZERO migrations. Real-screen-reader announcement remains an honest limit the lane cannot drive — it is the @manual scenario's job, not a gap."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/keyboard-shortcut-bindings.feature",
+          "scenario_name": "Once the board is focused, moving the selection is exposed to assistive technology",
+          "files_to_modify": [
+            "crates/foundry-app/static/js/keyboard.js",
+            "crates/foundry-app/static/css/foundry.bbe051be.css",
+            "crates/foundry-app/src/lib.rs",
+            "crates/foundry-app/src/keyboard.rs",
+            "crates/foundry-app/templates/board.html",
+            "crates/foundry-acceptance/src/steps/keyboard_shortcut_bindings.rs",
+            "crates/foundry-acceptance/tests/features/keyboard-shortcut-bindings.feature"
+          ],
+          "implementation_scope": {
+            "source_directories": [
+              "crates/foundry-app/static/js/",
+              "crates/foundry-app/static/css/",
+              "crates/foundry-app/src/lib.rs",
+              "crates/foundry-app/src/keyboard.rs",
+              "crates/foundry-app/templates/board.html"
+            ],
+            "test_directories": [
+              "crates/foundry-acceptance/src/support/",
+              "crates/foundry-acceptance/src/steps/",
+              "crates/foundry-acceptance/tests/"
+            ]
+          }
+        },
+        {
+          "id": "05-03",
+          "name": "Enter opens the selected issue, stays inert unselected, and yields inside a form",
+          "criteria": [
+            "Greens exactly these scenarios: \"Pressing enter opens the selected issue\", \"Enter with nothing selected does nothing\", \"Enter inside a form still submits the form\", and \"Closing the opened issue leaves the selection intact\".",
+            "Open (AC-06.1): with AUTH-2 selected via \"j\", pressing \"Enter\" opens the issue modal for AUTH-2 over the board.",
+            "No selection, no action (AC-06.2, FR-9): with no card selected, pressing \"Enter\" opens no modal and does not navigate away — the same no-target-is-a-no-op rule slice 03's create key follows.",
+            "Enter yields inside a form (AC-06.3, ADR-002): with the new-issue modal open and a title typed, pressing \"Enter\" in the title field SUBMITS THE FORM and opens no issue card behind the modal — the slice-02 guard chain applies to Enter exactly as to letters. This is the scenario that catches an Enter binding added outside the guard.",
+            "Selection survives the round trip (AC-06.4, AC-07.3): with AUTH-2 opened by \"Enter\", pressing \"Esc\" closes the modal and AUTH-2 IS STILL SELECTED so \"j\" moves to the next card — selection is not a casualty of the layer stack; the key-based model (ADR-004) makes this fall out rather than be maintained.",
+            "Genuinely RED by MISSING: \"Enter\" is unbound; no open path, no guard arm for Enter, and no selection-survives-close behaviour exist — each @pending scenario panics until built (assertion-class RED, never BROKEN).",
+            "5-phase TDD (PREPARE -> RED_ACCEPTANCE -> RED_UNIT -> GREEN -> COMMIT); removes @pending from only these four scenarios; ZERO new routes, ZERO migrations."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/keyboard-shortcut-bindings.feature",
+          "scenario_name": "Pressing enter opens the selected issue",
+          "files_to_modify": [
+            "crates/foundry-app/static/js/keyboard.js",
+            "crates/foundry-acceptance/src/steps/keyboard_shortcut_bindings.rs",
+            "crates/foundry-acceptance/src/support/browser_harness.rs",
+            "crates/foundry-acceptance/tests/features/keyboard-shortcut-bindings.feature"
+          ],
+          "implementation_scope": {
+            "source_directories": [
+              "crates/foundry-app/static/js/"
+            ],
+            "test_directories": [
+              "crates/foundry-acceptance/src/support/",
+              "crates/foundry-acceptance/src/steps/",
+              "crates/foundry-acceptance/tests/"
+            ]
+          }
+        },
+        {
+          "id": "05-04",
+          "name": "One open path from search, its named edge, and delegation survives htmx swaps",
+          "criteria": [
+            "Greens exactly these scenarios: \"Enter from the search results opens the same modal as clicking the board card\" (the @critical @one-open-path proof), \"Enter is a no-op for a found issue that the board does not render\", and \"Shortcuts keep working after the page content is swapped\".",
+            "ONE OPEN PATH (AC-06.5, ADR-005): having searched the board for \"AUTH-2\" and selected the result with \"j\", pressing \"Enter\" opens THE SAME MODAL a pointer click on the AUTH-2 board card produces. Search-result rows carry NO hx-get (search_results.html:4), so Enter resolves selectedKey to the BOARD CARD rather than minting a second, divergent open path — two open paths would drift, and this scenario is what makes that structurally impossible.",
+            "The named edge (ADR-005): AUTH-9 existing in a state the board does not display (the board renders only backlog/todo/in_progress/done while search returns every issue) is FINDABLE but has NO CARD — so having searched for \"AUTH-9\" and selected the result with \"j\", pressing \"Enter\" opens no modal and does not navigate away. This is consistent with \"no selection means no-op\" (FR-9) and is a NAMED, DELIBERATE edge, not an oversight — it falls directly out of resolving through the board card.",
+            "Delegation survives swaps (AC-X.5, NFR-6, ADR-004): having filed an issue by pressing \"c\" and submitting (which swaps #modal-root and re-renders cards), pressing \"j\" then \"Enter\" moves the selection and opens the selected issue WITH NO PAGE RELOAD — the ONE document-delegated listener (ADR-001) and the key-based selection (ADR-004) both survive htmx re-rendering with no re-wiring, which is the exact property board-dnd.js:67 cites for the same idiom.",
+            "Genuinely RED by MISSING: the search-result-to-board-card resolution, the no-card edge, and swap survival are not built or exercised yet — each @pending scenario panics until built (assertion-class RED, never BROKEN). Green-by-inheritance leans on 04-01's search panel and 05-03's open path; this step proves they compose into ONE path rather than two.",
+            "5-phase TDD (PREPARE -> RED_ACCEPTANCE -> RED_UNIT -> GREEN -> COMMIT); removes @pending from only these three scenarios; ZERO new routes, ZERO migrations."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/keyboard-shortcut-bindings.feature",
+          "scenario_name": "Enter from the search results opens the same modal as clicking the board card",
+          "files_to_modify": [
+            "crates/foundry-app/static/js/keyboard.js",
+            "crates/foundry-acceptance/src/steps/keyboard_shortcut_bindings.rs",
+            "crates/foundry-acceptance/src/support/browser_harness.rs",
+            "crates/foundry-acceptance/tests/features/keyboard-shortcut-bindings.feature"
+          ],
+          "implementation_scope": {
+            "source_directories": [
+              "crates/foundry-app/static/js/"
+            ],
+            "test_directories": [
+              "crates/foundry-acceptance/src/support/",
+              "crates/foundry-acceptance/src/steps/",
+              "crates/foundry-acceptance/tests/"
+            ]
+          }
+        },
+        {
+          "id": "05-05",
+          "name": "Retire the #kb-items carrier whole, atomically with the trap-B vacuity repoint",
+          "criteria": [
+            "Greens exactly these scenarios: \"The hidden keyboard-navigation carrier is gone from the source tree\" (@grep-litmus @real-io — NOT @needs-browser: it is a source-tree litmus, implemented as a filesystem grep over crates/ or a cargo xtask check-arch litmus, and it REDS ON MAIN today because the carrier is present).",
+            "The doneness litmus (AC-05.6, ADR-008): a search for \"kb-items\" or \"kb_items\" under crates returns ZERO hits, and no test slices the board HTML on the string id=\"kb-items\" before asserting column placement. Zero hits is the whole, checkable statement of doneness — the deletion is proved by evidence, not by belief.",
+            "The 13-site retirement (ADR-008): board.html:12 (the carrier <ul>); projects.rs:881-891 builder (comment, sorted_issues, sort_by_key, the kb_items map/collect) plus the kb_items field at :900 of the BoardPage literal and the prose at :794; views.rs:256 field + :253-255 doc + the module-doc marker list at :9; us_12_keyboard_nav.rs:331-362 (the #[then] + async fn data_issue_key_ascending_order, deleted whole) and its module-doc bullet at :11-14; feature_b_web_tier.rs:563-581 (step fn board_kb_order, deleted WHOLE including the attribute — DISCUSS cited only the :568-572 core); us-12-keyboard-nav.feature:50 (delete ONLY that line — steps 46-49 and the scenario SURVIVE; deleting a step fn without its Gherkin step yields an undefined-step failure, not a clean pass); us-b01-styled-board.feature:60-66 (delete the scenario WHOLE — its only Then is the carrier assertion). issue_key_string STAYS: it has a second live caller at projects.rs:912 (issue_card populating IssueCard.key), so expect NO dead-code warning to prompt you.",
+            "TRAP A — EDIT, do not delete: projects.rs:1041-1075 (populated_board_renders_assets_cards_and_ascending_keyboard_carrier) also asserts the /static asset links and data-column card placement — coverage that MUST NOT be lost with the carrier. Delete only the carrier assertions and the carrier clause of its doc, and RENAME the fn, which lies once the carrier is gone.",
+            "TRAP B — THE VACUITY TRAP, REPOINTED ATOMICALLY WITH THE DELETION (the single most important line in this step): projects.rs:1110's `let visible = html.split(r#\"id=\"kb-items\"\"#).next().unwrap();` returns THE ENTIRE PAGE once the carrier is gone, so each_issue_lands_in_exactly_its_state_column KEEPS PASSING — for the wrong reason, now blind to cards leaking outside their columns. Repoint visible at the full HTML (&html) and remove the carrier comment at :1105-1110 IN THE SAME CHANGE. Deleting the carrier and leaving :1110 would reproduce green-while-absent — the exact pattern this entire feature exists to end — inside the very change that removes it. (The sibling at :1065/:1067 uses .nth(1) and would panic loudly instead; only .next() fails silently.)",
+            "This DELIBERATELY DELETES CURRENTLY-GREEN TESTS and that is a decision, not an accident (ADR-008): they pin an ASC-by-number contract the locked D-4 UX contradicts, for a browser consumer that never existed. Their coverage is not lost but REPLACED AND STRENGTHENED — 05-01's browser scenarios assert the ACTUAL user-observable navigation order the carrier's assertion was only ever a proxy for and could never verify. Sequenced LAST so the replacement coverage is green BEFORE the proxy is removed.",
+            "5-phase TDD (PREPARE -> RED_ACCEPTANCE -> RED_UNIT -> GREEN -> COMMIT); removes @pending from only this scenario — all 38 automated scenarios are now un-skipped and green (the @manual scenario stays @pending by design, excluded from every lane, and is pasted into release-checklist.md); ADR-007 §5 also retires the superseded us-12-keyboard-nav.feature @manual drill at :87-95 and its now-false no-Playwright module doc at :18-23; ZERO new routes, ZERO migrations."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/keyboard-shortcut-bindings.feature",
+          "scenario_name": "The hidden keyboard-navigation carrier is gone from the source tree",
+          "files_to_modify": [
+            "crates/foundry-app/templates/board.html",
+            "crates/foundry-app/src/projects.rs",
+            "crates/foundry-app/src/views.rs",
+            "crates/foundry-acceptance/src/steps/us_12_keyboard_nav.rs",
+            "crates/foundry-acceptance/src/steps/feature_b_web_tier.rs",
+            "crates/foundry-acceptance/tests/features/us-12-keyboard-nav.feature",
+            "crates/foundry-acceptance/tests/features/us-b01-styled-board.feature",
+            "crates/foundry-acceptance/src/steps/keyboard_shortcut_bindings.rs",
+            "crates/foundry-acceptance/tests/features/keyboard-shortcut-bindings.feature",
+            "xtask/src/main.rs"
+          ],
+          "implementation_scope": {
+            "source_directories": [
+              "crates/foundry-app/templates/board.html",
+              "crates/foundry-app/src/projects.rs",
+              "crates/foundry-app/src/views.rs",
+              "xtask/src/main.rs"
+            ],
+            "test_directories": [
+              "crates/foundry-acceptance/src/steps/",
+              "crates/foundry-acceptance/tests/"
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "implementation_scope": {
+    "source_directories": [
+      "crates/foundry-app/static/js/",
+      "crates/foundry-app/static/css/",
+      "crates/foundry-app/static/vendor/",
+      "crates/foundry-app/static/VENDOR.md",
+      "crates/foundry-app/templates/base.html",
+      "crates/foundry-app/templates/board.html",
+      "crates/foundry-app/src/keyboard.rs",
+      "crates/foundry-app/src/projects.rs",
+      "crates/foundry-app/src/views.rs",
+      "crates/foundry-app/src/lib.rs",
+      "xtask/src/main.rs",
+      "Cargo.toml",
+      "deny.toml"
+    ],
+    "test_directories": [
+      "crates/foundry-acceptance/src/support/",
+      "crates/foundry-acceptance/src/steps/",
+      "crates/foundry-acceptance/tests/"
+    ],
+    "excluded_patterns": [
+      "target/**",
+      "**/*.md",
+      "crates/foundry-app/static/js/board-dnd.js"
+    ]
+  },
+  "validation": {
+    "status": "pending",
+    "reviewer": "nw-solution-architect-reviewer",
+    "authored_at": "2026-07-16",
+    "notes": "39 @pending scenarios (38 automated + 1 @manual) across US-01..07 mapped to 14 steps across 5 phases; phase number = slice number (D11 ship order, NOT reordered — the slice-02 guard precedes the first character key on purpose). Each automated scenario is greened by exactly one step; the @manual scenario stays @pending by design and is not owned by any step. Max scenarios per step is 4 (01-02, 04-01, 05-01, 05-03). PAUSE BOUNDARY: phase 01 (01-01, 01-02, 01-03) is slice 01 and stands alone — 01-01 lands the whole instrument (fantoccini + BrowserHarness + @needs-browser lane + xtask preflight with MAJOR-VERSION MATCH + the run_steps env-tuple fix + the Secure-cookie startup probe) and ends in a real keypress producing an observable overlay; 01-03 exits the phase at slice-01 6/6 green. Do not start phase 02 until the harness is confirmed. Decomposition ratio 14 steps / 14 production files = 1.0 (<= 2.5). ZERO new routes, ZERO endpoints, ZERO migrations (D10) — every server contract is shipped and green; the feature is client-only. ONE new dependency: fantoccini (MIT/Apache-2.0, already permitted by deny.toml's licenses.allow; any fallout is transitive license/advisory, not an existing ban). NO new external integration boundary — chromedriver is a BUILD/TEST SUBSTRATE (host prerequisite + preflight + startup probe, same contract as pg_dump and Docker), NOT a consumer-driven contract; platform-architect owes Chrome + a version-matched chromedriver in the CI image, which is the one DEVOPS-shaped obligation this roadmap creates. Deliberate exceptions recorded: the US-02 @paired-assertion (02-01) is revert-reds-it not reds-on-main per D15 and MUST NOT be split; ADR-008's retirement (05-05) deliberately deletes currently-green tests and is sequenced LAST so replacement coverage lands first. Two honest limits stay honest: IME is SIMULATED via a dispatched CompositionEvent (02-02) and the copy chord asserts non-activation not clipboard contents (02-02) — both residuals carried by the @manual scenario."
+  }
+}

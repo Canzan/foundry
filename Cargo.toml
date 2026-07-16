@@ -105,6 +105,19 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 scraper = "0.20"
 testcontainers = "0.23"
 testcontainers-modules = { version = "0.11", features = ["postgres"] }
+# keyboard-shortcut-bindings ADR-007 — the @needs-browser lane. W3C WebDriver
+# (driver-agnostic: chromedriver OR geckodriver), async/tokio, small surface.
+# NO TLS feature: the lane speaks plain HTTP to a chromedriver on 127.0.0.1, so
+# it supplies its own `HttpConnector` via `ClientBuilder::new`. This is not
+# merely leaner — enabling `rustls-tls` pulls hyper-rustls in beside reqwest's
+# rustls and the process cannot then resolve a default CryptoProvider
+# ("Could not automatically determine the process-level CryptoProvider"), and
+# `native-tls` (the crate default) would drag in openssl. Both would be TLS
+# machinery for a loopback connection that never uses it.
+fantoccini = { version = "0.21", default-features = false }
+# The plain `HttpConnector` handed to `fantoccini::ClientBuilder::new` above.
+# Already in the graph via axum; named here so the acceptance crate can construct one.
+hyper-util = { version = "0.1", features = ["client-legacy", "http1", "tokio"] }
 assert_cmd = "2"
 serde_yaml_ng = "0.10"
 

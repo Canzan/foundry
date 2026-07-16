@@ -87,6 +87,8 @@ use foundry_acceptance::steps::handler_instrumentation as _slice6;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::keyboard_fragments_templating as _keyboard_fragments;
 #[allow(unused_imports)]
+use foundry_acceptance::steps::keyboard_shortcut_bindings as _keyboard_shortcut_bindings;
+#[allow(unused_imports)]
 use foundry_acceptance::steps::slice_8_deferred_metrics as _slice8;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::token_mutations_metric_export as _tmm;
@@ -247,6 +249,16 @@ async fn main() {
                         && !has("docker-compose")
                         && !has("slow")
                         && !has("needs-pgclient")
+                        // @needs-browser (keyboard-shortcut-bindings, ADR-007):
+                        // drives a REAL headless Chrome via chromedriver, a host
+                        // prerequisite the lightweight quickstart should not
+                        // require — same treatment as @needs-pgclient. It is
+                        // excluded HERE ONLY. It stays INCLUDED in the `all` lane
+                        // (= what `cargo xtask ci` runs, which preflights the
+                        // driver): excluding it there would rebuild the exact bug
+                        // it exists to catch — a suite green over an absent
+                        // client keyboard layer, because it never presses a key.
+                        && !has("needs-browser")
                         // @pending: production mechanism is an OPEN upstream
                         // decision (rate-guardrail OD-TMA-1). DELIVER unskips.
                         && !has("pending")

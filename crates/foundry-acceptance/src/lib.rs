@@ -38,6 +38,7 @@ pub mod steps {
     pub mod feature_web_provisioning_flow;
     pub mod handler_instrumentation;
     pub mod keyboard_fragments_templating;
+    pub mod keyboard_shortcut_bindings;
     pub mod slice_8_deferred_metrics;
     pub mod token_mutations_metric_export;
     pub mod us_01_install;

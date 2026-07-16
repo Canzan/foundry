@@ -455,3 +455,50 @@ textarea {
   outline: 2px solid #5b5bd6;
   outline-offset: 2px;
 }
+
+/* keyboard-shortcut-bindings slice 01 — the keyboard help overlay (ADR-003).
+   #kb-overlay-root is an inert, zero-footprint host until keyboard.js renders
+   GET /keyboard-help into it; the fixed backdrop then layers the shortcut list
+   OVER the page (the board stays visible behind it) without displacing it. */
+#kb-overlay-root:not(:empty) {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(28, 28, 34, 0.45);
+}
+#kb-overlay-root .keyboard-help {
+  background: #ffffff;
+  color: #1c1c22;
+  border-radius: 8px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.25);
+  padding: 20px 24px;
+  min-width: 320px;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+#kb-overlay-root .keyboard-help h2 {
+  margin: 0 0 12px;
+  font-size: 15px;
+}
+#kb-overlay-root .keyboard-help dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 16px;
+  margin: 0;
+  font-size: 13px;
+}
+#kb-overlay-root .keyboard-help dt {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: #f0f0f3;
+  border: 1px solid #e6e6e9;
+  border-radius: 4px;
+  padding: 1px 6px;
+  justify-self: start;
+}
+#kb-overlay-root .keyboard-help dd {
+  margin: 0;
+  color: #52525b;
+}

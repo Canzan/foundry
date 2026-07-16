@@ -2,13 +2,18 @@
 <html>
 <head>
 <title>{% block title %}Foundry{% endblock %}</title>
-<link rel="stylesheet" href="/static/css/foundry.bbe051be.css">
+<link rel="stylesheet" href="/static/css/foundry.513929f9.css">
 <script src="/static/vendor/htmx.min.js" defer></script>
 <script src="/static/vendor/alpine.min.js" defer></script>
 <script src="/static/js/board-dnd.js" defer></script>
 <script src="/static/js/csrf-upload.js" defer></script>
+<script src="/static/js/keyboard.js" defer></script>
 </head>
 <body>
 {% block content %}{% endblock %}
+{# keyboard-shortcut-bindings ADR-003 — the keyboard layer's overlay host, kept
+   DISTINCT from board.html's #modal-root and ABOVE it in the layer stack (last
+   sibling paints on top), so slice 03's Esc has two hosts to peel topmost-first. #}
+<div id="kb-overlay-root"></div>
 </body>
 </html>
