@@ -36,7 +36,9 @@ pub fn generate_token() -> String {
 }
 
 /// Build the Set-Cookie header for the CSRF token. Note `HttpOnly` is
-/// FALSE so an htmx/alpine.js hook can read it client-side.
+/// FALSE so a client-side script can read it and mirror it into a request
+/// header (see the multipart note in `csrf_middleware`). `static/js/csrf-upload.js`
+/// is the live consumer.
 pub fn build_csrf_cookie(value: &str, secure: bool) -> String {
     let secure_attr = if secure { "; Secure" } else { "" };
     // Path=/; SameSite=Lax; Max-Age=86400 (1 day).
@@ -160,8 +162,8 @@ pub async fn csrf_middleware(State(_state): State<AppState>, req: Request, next:
     // and the downstream multipart handler would see an empty body.
     // For multipart, the CSRF token MUST arrive in the `x-csrf-token`
     // (or `hx-csrf`) header — US-11's upload client sets this; a
-    // browser multipart form post can rely on a small alpine.js/htmx
-    // hook that mirrors the cookie value into the header.
+    // browser multipart form post relies on `static/js/csrf-upload.js`,
+    // which mirrors the cookie value into the header.
     let is_multipart = req
         .headers()
         .get(header::CONTENT_TYPE)

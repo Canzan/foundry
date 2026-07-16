@@ -15,7 +15,7 @@
 # the regression net (NFR-WEBB-COMPAT-01) — they MUST stay green and are NOT
 # re-asserted here. This file asserts ONLY the genuine user-visible delta:
 # the board now REFERENCES the vendored static assets (a `<link>` stylesheet
-# and the htmx/Alpine `<script>` tags under /static), which today's
+# and the htmx `<script>` tag under /static), which today's
 # `render_board` emits NONE of. That reference is absent today, so the
 # walking-skeleton scenario fails RED for MISSING_FUNCTIONALITY until DELIVER
 # adds templates/board.html + base.html (referencing /static assets) and the
@@ -45,7 +45,7 @@ Feature: A member opens the board and sees a styled, templated product surface
     Then the board still shows the columns "Backlog", "Todo", "In-Progress", "Done"
     And the board still shows the cards for AUTH-2 and AUTH-3 in their columns
     And the board links the vendored stylesheet from the application's own static path
-    And the board loads the vendored htmx and Alpine scripts from the application's own static path
+    And the board loads the vendored htmx script from the application's own static path
     And the board references no external origin
 
   @real-io

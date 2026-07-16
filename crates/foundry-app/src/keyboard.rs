@@ -1,28 +1,48 @@
 //! US-12 — keyboard-nav server contracts.
 //!
-//! Three routes that back the alpine.js keyboard-shortcut handlers:
+//! Three routes that back the client keyboard layer. Mind the tenses: this doc
+//! previously described client handlers that did not exist, and these routes
+//! shipped green for years without them. What follows describes only what is in
+//! the tree today; if you change that, change this.
+//!
+//! The client is `static/js/keyboard.js` — one app-owned vanilla IIFE with a
+//! single document-delegated `keydown` listener (ADR-001). As of slice 01 it
+//! binds `?` and `Esc`; `c` / `/` / `j` / `k` / `Enter` are advertised by the
+//! `SHORTCUTS` table below but **not yet bound** — slices 02-05 bind them
+//! through the same dispatch point. The routes below are complete regardless;
+//! they are the server half, and they are what the port-to-port suite
+//! (`us_12_keyboard_nav.rs`) proves. Whether a key is bound is a browser-lane
+//! question (`@needs-browser`), not a question these handlers can answer.
 //!
 //! - `GET /team/{team}/project/{slug}/issues/new`
-//!   The `c` shortcut opens a "new issue" modal. The handler emits a
-//!   modal-shaped htmx fragment when `HX-Request: true` is present
-//!   (no `<html>` wrapper, just the modal markup with the new-issue
-//!   form). Without the header it falls back to a full page so a
-//!   no-JS client gets a usable form.
+//!   Serves the "new issue" modal. Emits a modal-shaped htmx fragment when
+//!   `HX-Request: true` is present (no `<html>` wrapper, just the modal markup
+//!   with the new-issue form). Without the header it falls back to a full page,
+//!   so a no-JS client gets a usable form. The board's "New issue" button
+//!   (`board.html:6`) is its live consumer today; the `c` shortcut is intended
+//!   to reach the same route once slice 03 binds it.
 //!
 //! - `GET /team/{team}/project/{slug}/search?q=...`
-//!   The `/` shortcut focuses a search box; submitting it GETs this
-//!   endpoint. The handler returns a list of `<li class="search-result"
-//!   data-issue-key="...">` items matching the query. Matching is
-//!   case-insensitive substring match against title OR exact match
-//!   against the issue key (PREFIX-N).
+//!   Returns a list of `<li class="search-result" data-issue-key="...">` items
+//!   matching the query. Matching is case-insensitive substring match against
+//!   title OR exact match against the issue key (PREFIX-N). It returns a BARE
+//!   fragment with no full-page fork, so it has no no-JS path — a named limit
+//!   (`architecture.md:411`), not an oversight. Slice 04 binds `/` to it.
 //!
 //! - `GET /keyboard-help`
-//!   The `?` shortcut opens a help overlay listing every shortcut.
-//!   Intentionally public — the alpine.js bootstrap GETs it once on
-//!   page load and caches it, so requiring a session would break
-//!   the help on the sign-in page itself. The response is a
-//!   `<dl>` with one `<dt data-shortcut="X">` / `<dd>` pair per
-//!   shortcut, which is what the acceptance step walks.
+//!   Renders the shortcut list: a `<dl>` with one `<dt data-shortcut="X">` /
+//!   `<dd>` pair per `SHORTCUTS` entry, which is what the acceptance steps
+//!   walk. Two live consumers: the sidebar/dashboard links (`sidebar.html:13`,
+//!   `dashboard_root.html:32`) serve it as its own page — the no-JS path
+//!   (NFR-4, ODD-8, kept deliberately by ADR-003) — and `keyboard.js` fetches
+//!   it on `?` and renders it into `#kb-overlay-root` as an overlay. The fetch
+//!   happens ON DEMAND and is not cached; there is no bootstrap.
+//!
+//!   Intentionally PUBLIC (no session required). This rationale is unchanged and
+//!   independent of any client: `base.html` loads the keyboard layer on the
+//!   sign-in page too, so gating the route behind a session would break the help
+//!   exactly where a stuck user is most likely to ask for it. The shortcut list
+//!   is not secret — it is the same list the sidebar link serves.
 //!
 //! Authorization on the team-scoped routes mirrors issues.rs / projects.rs:
 //! signed-in user must belong to the project's team. Non-members get
@@ -203,8 +223,8 @@ pub async fn search_issues(
 
 /// Filter `issues` by either an exact-key match (`PREFIX-N`) or a
 /// case-insensitive substring match against the title. An empty query
-/// returns every issue (the alpine.js handler uses the empty result to
-/// distinguish "no query" from "query matched nothing").
+/// returns every issue, so a client can distinguish "no query" from "query
+/// matched nothing". No client consumes this yet — `/` is unbound until slice 04.
 fn filter_matches<'a>(
     issues: &'a [foundry_store::IssueRow],
     query: &str,
@@ -236,7 +256,7 @@ fn filter_matches<'a>(
 /// the `ul.search-results` wrapper with one `li.search-result[data-issue-key]`
 /// (each carrying its `.key` + `.title` spans) per match, AND the empty
 /// `ul.search-results[data-empty="true"]` no-match state. Stays BARE (no
-/// `base.html`) so the alpine.js swap is not double-wrapped. Askama
+/// `base.html`) so the fragment swap is not double-wrapped. Askama
 /// auto-escapes the key/title (replacing the manual `html_escape`).
 fn render_search_fragment(matches: &[&foundry_store::IssueRow], key_prefix: &str) -> String {
     crate::views::SearchResults {

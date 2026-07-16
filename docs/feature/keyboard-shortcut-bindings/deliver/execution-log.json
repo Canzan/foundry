@@ -72,6 +72,69 @@
       "s": "EXECUTED",
       "d": "PASS",
       "t": "2026-07-16T14:44:07Z"
+    },
+    {
+      "sid": "01-03",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-16T14:48:47Z"
+    },
+    {
+      "sid": "01-03",
+      "p": "RED_ACCEPTANCE",
+      "s": "SKIPPED",
+      "d": "BLOCKED_BY_DEPENDENCY: ADR-001 \u00a72 precondition FALSE \u2014 3 live non-pending Alpine consumers outside files_to_modify (projects.rs:1061 unit test; us-b02 @walking_skeleton serves /static/vendor/alpine.min.js; us-b01:48 asserts has_htmx && has_alpine). Step mandates STOP and re-open ADR-001 rather than work around. Halted before RED_ACCEPTANCE; zero source files modified.",
+      "t": "2026-07-16T14:49:32Z"
+    },
+    {
+      "sid": "01-03",
+      "p": "RED_UNIT",
+      "s": "SKIPPED",
+      "d": "BLOCKED_BY_DEPENDENCY: ADR-001 \u00a72 precondition FALSE \u2014 3 live non-pending Alpine consumers outside files_to_modify (projects.rs:1061 unit test; us-b02 @walking_skeleton serves /static/vendor/alpine.min.js; us-b01:48 asserts has_htmx && has_alpine). Step mandates STOP and re-open ADR-001 rather than work around. Halted before RED_ACCEPTANCE; zero source files modified.",
+      "t": "2026-07-16T14:49:32Z"
+    },
+    {
+      "sid": "01-03",
+      "p": "GREEN",
+      "s": "SKIPPED",
+      "d": "BLOCKED_BY_DEPENDENCY: ADR-001 \u00a72 precondition FALSE \u2014 3 live non-pending Alpine consumers outside files_to_modify (projects.rs:1061 unit test; us-b02 @walking_skeleton serves /static/vendor/alpine.min.js; us-b01:48 asserts has_htmx && has_alpine). Step mandates STOP and re-open ADR-001 rather than work around. Halted before RED_ACCEPTANCE; zero source files modified.",
+      "t": "2026-07-16T14:49:32Z"
+    },
+    {
+      "sid": "01-03",
+      "p": "COMMIT",
+      "s": "SKIPPED",
+      "d": "BLOCKED_BY_DEPENDENCY: ADR-001 \u00a72 precondition FALSE \u2014 3 live non-pending Alpine consumers outside files_to_modify (projects.rs:1061 unit test; us-b02 @walking_skeleton serves /static/vendor/alpine.min.js; us-b01:48 asserts has_htmx && has_alpine). Step mandates STOP and re-open ADR-001 rather than work around. Halted before RED_ACCEPTANCE; zero source files modified.",
+      "t": "2026-07-16T14:49:32Z"
+    },
+    {
+      "sid": "01-03",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-16T15:41:31Z"
+    },
+    {
+      "sid": "01-03",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "PASS (green-by-inheritance, disclosed): the no-JS scenario was unskipped and its steps authored; it passes on the pre-removal tree because the shipped sidebar link + public /keyboard-help route already satisfy the no-JS path (ADR-003 keeps them deliberately). It is a REGRESSION GUARD for the Alpine subtraction, not a driver of new production code \u2014 same posture as 01-02's four. Honest note: no business-logic RED was observed, so falsification is proven separately (removing the sidebar link reds it) rather than claimed. The Given carries an anti-vacuity assertion ([data-kb-ready] MUST be absent) so a session that silently kept scripting on cannot green it.",
+      "t": "2026-07-16T15:56:16Z"
+    },
+    {
+      "sid": "01-03",
+      "p": "RED_UNIT",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: this step SUBTRACTS a dead dependency and corrects prose; it adds no production behaviour a unit test could drive. The contract is 'the no-JS path survives the subtraction', which only a real browser with scripting off can assert (NFR-1/ODD-9) \u2014 the @needs-browser AT is the honest gate. The unit-level Alpine assertions that DO exist (lib.rs:300 cache header, projects.rs:1061 script tag) are being REMOVED, not added: they assert the presence of a framework with zero runtime consumers.",
+      "t": "2026-07-16T15:56:31Z"
+    },
+    {
+      "sid": "01-03",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS: browser lane 5/5 (36 steps) AFTER the Alpine removal \u2014 the no-JS path survived the subtraction. Default lane 514/514 + all unit suites green, so the amended US-B01/US-B02 contracts hold. fmt clean; clippy --all-targets --release -- -D warnings clean; cargo deny ok. Falsification proven by experiment, not asserted: removing the sidebar Keyboard-shortcuts link reds the scenario (4 passed/1 failed), restoring it returns 5/5 \u2014 green->red->green. Caveat recorded honestly: the probe failed at the Given (.board absent) rather than the targeted When, so it proves the scenario detects the no-JS path's removal but is imprecise about where; not fully explained. Stylesheet untouched, so no content-hash rotation was needed (base.html:5 and lib.rs:297 remain in sync at foundry.513929f9.css).",
+      "t": "2026-07-16T17:23:35Z"
     }
   ]
 }

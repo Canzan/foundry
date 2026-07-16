@@ -120,20 +120,49 @@ fn wait_for_driver_ready(port: u16) {
 /// Open ONE headless session against this lane's chromedriver, sized to a fixed
 /// viewport. One call per scenario.
 pub async fn new_session() -> fantoccini::Client {
+    open_session(Scripting::Enabled).await
+}
+
+/// Open ONE headless session with JavaScript switched OFF at the BROWSER, for the
+/// no-JS path (NFR-4 / ODD-8).
+///
+/// This is a real content setting, not a simulation: Chrome parses the page and
+/// runs no script at all, so `keyboard.js` never initialises and `[data-kb-ready]`
+/// never appears. That absence is the anti-vacuity hook the no-JS scenario asserts
+/// — without it, a session that quietly kept scripting ON would let the scenario
+/// pass while proving nothing about the scripting-off path.
+pub async fn new_session_without_scripting() -> fantoccini::Client {
+    open_session(Scripting::Disabled).await
+}
+
+/// Whether a session's browser runs page scripts. The no-JS path is a first-class
+/// surface here (NFR-4), so it gets a name rather than a bare bool at the call site.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Scripting {
+    Enabled,
+    Disabled,
+}
+
+async fn open_session(scripting: Scripting) -> fantoccini::Client {
     let port = ensure_chromedriver();
+    let mut chrome_options = serde_json::json!({
+        "args": [
+            "--headless=new",
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-gpu",
+            format!("--window-size={WINDOW_WIDTH},{WINDOW_HEIGHT}"),
+        ]
+    });
+    if scripting == Scripting::Disabled {
+        // Chrome's own JavaScript content setting: 2 == block. Applied as a
+        // profile preference so it covers the whole session, every origin.
+        chrome_options["prefs"] = serde_json::json!({
+            "profile.managed_default_content_settings.javascript": 2,
+        });
+    }
     let mut capabilities = serde_json::Map::new();
-    capabilities.insert(
-        "goog:chromeOptions".to_string(),
-        serde_json::json!({
-            "args": [
-                "--headless=new",
-                "--no-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-gpu",
-                format!("--window-size={WINDOW_WIDTH},{WINDOW_HEIGHT}"),
-            ]
-        }),
-    );
+    capabilities.insert("goog:chromeOptions".to_string(), chrome_options);
     // A bare HttpConnector: the WebDriver endpoint is plain HTTP on loopback, so
     // there is no TLS to configure — and no second TLS stack to make rustls'
     // process-level CryptoProvider ambiguous beside reqwest's.

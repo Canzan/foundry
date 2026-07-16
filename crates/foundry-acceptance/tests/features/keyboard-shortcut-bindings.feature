@@ -110,7 +110,7 @@ Feature: The seven advertised keyboard shortcuts work in the browser
   # no-JS path (NFR-4, ODD-8, AC-X.3): with scripting OFF the overlay does not
   # exist and the sidebar full-page link is the only way to read the list. Driven
   # by launching the browser with JavaScript disabled.
-  @pending @needs-browser @slice1 @us-01 @no-js @property
+  @needs-browser @slice1 @us-01 @no-js @property
   Scenario: With scripting disabled the full-page keyboard help still works
     Given scripting is disabled in Mei's browser on the AUTH board
     When Mei follows the sidebar "Keyboard shortcuts" link

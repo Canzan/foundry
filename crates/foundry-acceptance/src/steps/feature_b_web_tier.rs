@@ -458,11 +458,6 @@ async fn request_htmx_asset(world: &mut FoundryWorld) {
     request_static(world, "/static/vendor/htmx.min.js").await;
 }
 
-#[when(regex = r#"^a browser requests the vendored Alpine script from the static path$"#)]
-async fn request_alpine_asset(world: &mut FoundryWorld) {
-    request_static(world, "/static/vendor/alpine.min.js").await;
-}
-
 #[when(regex = r#"^a browser requests the vendored Foundry stylesheet from the static path$"#)]
 async fn request_css_asset(world: &mut FoundryWorld) {
     // ADR-B03: the CSS is served under a content-hashed name. We discover the
@@ -534,7 +529,7 @@ async fn board_links_stylesheet(world: &mut FoundryWorld) {
 }
 
 #[then(
-    regex = r#"^the board loads the vendored htmx and Alpine scripts from the application's own static path$"#
+    regex = r#"^the board loads the vendored htmx script from the application's own static path$"#
 )]
 async fn board_loads_scripts(world: &mut FoundryWorld) {
     let body = board_body(world);
@@ -1107,6 +1102,12 @@ fn is_content_hashed_css_href(href: &str) -> bool {
     !hash.is_empty() && hash.chars().all(|c| c.is_ascii_hexdigit())
 }
 
+/// AMENDED by keyboard-shortcut-bindings step 01-03 (user-ratified — see
+/// docs/feature/keyboard-shortcut-bindings/deliver/upstream-issues.md UI-1).
+/// This asserted `has_htmx && has_alpine`; the Alpine half is gone with the
+/// framework (ADR-001), which had zero runtime consumers. htmx is asserted
+/// exactly as before — it is the live one, driving every fragment swap on the
+/// board.
 fn assert_loads_local_scripts(body: &str, surface: &str) {
     let doc = html_assertions::parse(body);
     let scripts = html_assertions::select_all(&doc, "script[src]");
@@ -1115,12 +1116,9 @@ fn assert_loads_local_scripts(body: &str, surface: &str) {
         .filter_map(|el| el.value().attr("src").map(|s| s.to_string()))
         .filter(|s| s.starts_with("/static/"))
         .collect();
-    let has_htmx = local_srcs.iter().any(|s| s.contains("htmx"));
-    let has_alpine = local_srcs.iter().any(|s| s.contains("alpine"));
     assert!(
-        has_htmx && has_alpine,
-        "{surface} page does not load BOTH htmx and Alpine from /static \
-         (htmx={has_htmx}, alpine={has_alpine}); local script srcs were {local_srcs:?}"
+        local_srcs.iter().any(|s| s.contains("htmx")),
+        "{surface} page does not load htmx from /static; local script srcs were {local_srcs:?}"
     );
 }
 

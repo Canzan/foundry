@@ -745,7 +745,7 @@ fn duplicate_key_response(
 /// `action="/team/{slug}/projects"`, the hidden `_csrf` field, the `name` +
 /// `key_prefix` required inputs with their repopulated values, and the optional
 /// `.error` paragraph. The page now extends `base.html` (`project_create.html`),
-/// which links the vendored content-hashed `/static` stylesheet + htmx/Alpine
+/// which links the vendored content-hashed `/static` stylesheet + htmx script
 /// the bare `<head>` `format!` lacked. Askama auto-escapes `{{ … }}` exactly as
 /// the previous `html_escape` calls did.
 fn render_create_form(
@@ -792,7 +792,7 @@ fn render_error_fragment(message: &str) -> String {
 /// `format!` markup (design/render-contract.md): the template (`board.html`
 /// extending `base.html`) reproduces the same columns, `data-column` slugs,
 /// `issue-card` partials, and the hidden `#kb-items` ASC carrier — and now
-/// links the vendored `/static` stylesheet + htmx/Alpine scripts via the base
+/// links the vendored `/static` stylesheet + htmx script via the base
 /// layout. Data ordering (column state-filtering + the ASC keyboard carrier)
 /// stays HERE in the handler-side builder; the template only loops.
 fn render_board(
@@ -878,11 +878,19 @@ fn build_board_page(
         })
         .collect();
 
-    // Hidden keyboard-navigation carrier (US-12). The visible board
-    // renders most-recent-first (DESC); the alpine.js j/k handler walks
-    // this hidden list which is sorted ASCENDING by issue number so
-    // pressing `j` moves "to the next-older issue" consistently no
-    // matter which column the user is in.
+    // Hidden keyboard-navigation carrier (US-12). The visible board renders
+    // most-recent-first (DESC); this hidden list is sorted ASCENDING by issue
+    // number, the intent being that `j` moves "to the next-older issue"
+    // consistently no matter which column the user is in.
+    //
+    // NOTHING WALKS IT TODAY. This comment previously claimed a j/k handler
+    // walked this list; no such handler was ever written. `j` and `k` are
+    // advertised by `keyboard.rs`'s SHORTCUTS table but stay unbound until
+    // slice 04, so the carrier's only consumer is the port-to-port assertion in
+    // `us_12_keyboard_nav.rs` that checks its ASC ordering — a data structure
+    // currently held in shape by a test of itself. ADR-008 retires it in slice
+    // 05 once j/k are bound for real. Do not build on it: it is scheduled for
+    // deletion, not extension.
     let mut sorted_issues: Vec<&foundry_services::BoardIssue> = issues.iter().collect();
     sorted_issues.sort_by_key(|i| i.number);
     let kb_items = sorted_issues
@@ -1058,7 +1066,6 @@ mod board_render_tests {
             "board must link the content-hashed /static CSS; html was:\n{html}"
         );
         assert!(html.contains(r#"src="/static/vendor/htmx.min.js"#));
-        assert!(html.contains(r#"src="/static/vendor/alpine.min.js"#));
         assert!(!html.contains("http://") && !html.contains("https://"));
 
         // Each card sits under its column's data-column section.

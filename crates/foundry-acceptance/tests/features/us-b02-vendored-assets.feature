@@ -12,7 +12,7 @@
 #
 # RED contract: static/ is EMPTY today and build_router mounts NO /static
 # route, so every asset GET 404s — genuine MISSING_FUNCTIONALITY RED. DELIVER
-# vendors the pinned htmx/Alpine/CSS blobs into static/ and adds the ServeDir
+# vendors the pinned htmx/CSS blobs into static/ and adds the ServeDir
 # route. The path-traversal-refusal scenario is satisfied by ServeDir by
 # construction once mounted. See docs/feature/htmx-web-tier/distill/step-skeletons.md.
 #
@@ -22,20 +22,26 @@
 
 @feature-b @us-b02 @slice1 @driving_adapter @acme
 Feature: The binary serves vendored assets so the board looks like a product offline
-  The htmx, Alpine, and Foundry stylesheet that the board needs are shipped
+  The htmx script and Foundry stylesheet that the board needs are shipped
   inside the binary under its own static path and served by the binary itself —
   no CDN, no external fetch — so the board reads as a finished product even on a
   host with no internet access. A referenced asset that is missing is refused,
   and the static route never serves a file outside its own directory.
 
+  # AMENDED by keyboard-shortcut-bindings step 01-03 (user-ratified, see
+  # docs/feature/keyboard-shortcut-bindings/deliver/upstream-issues.md UI-1): the
+  # Alpine arm was dropped and the scenario retitled to match what it asserts.
+  # Alpine had ZERO runtime consumers — no template ever carried an Alpine
+  # directive — so this arm asserted only that a dead framework was still being
+  # served. Keeping it green would have pinned 44 KB of unused JavaScript to every
+  # page load solely to satisfy an assertion about its own presence. The htmx and
+  # stylesheet arms are untouched: they cover real consumers.
   @walking_skeleton @real-io @adapter-integration
-  Scenario: The vendored htmx, Alpine, and stylesheet are served by the binary
+  Scenario: The vendored htmx script and stylesheet are served by the binary
     Given the foundry binary is running
     When a browser requests the vendored htmx script from the static path
     Then the response is delivered successfully with a JavaScript content type
     And the response carries a long-lived cache header
-    When a browser requests the vendored Alpine script from the static path
-    Then the response is delivered successfully with a JavaScript content type
     When a browser requests the vendored Foundry stylesheet from the static path
     Then the response is delivered successfully with a stylesheet content type
 

@@ -14,7 +14,6 @@ this file + the hash, re-run the acceptance suite.
 | File | Version | Upstream canonical URL | Retrieved (UTC) | sha256 |
 |------|---------|------------------------|-----------------|--------|
 | `vendor/htmx.min.js` | htmx **2.0.4** (pinned latest-stable 2.0.x; step 04-01 migration) | https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js | 2026-06-04 | `e209dda5c8235479f3166defc7750e1dbcd5a5c1808b7792fc2e6733768fb447` |
-| `vendor/alpine.min.js` | Alpine.js **3.14.9** (pinned latest-stable 3.14.x patch) | https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js | 2026-06-04 | `3ed1eed252488921df65e363d6715deb04d7f92aaedb9e52199fdf73cb1e0ad3` |
 | `css/foundry.870985fc.css` | hand-authored (this repo) | — (not vendored; authored in-tree) | 2026-06-04 | `870985fc8aef09342bf108e84278d54c024cde03dcfd3f6743eecd610d746d37` |
 
 ## Notes
@@ -30,10 +29,13 @@ this file + the hash, re-run the acceptance suite.
   markers (`data-column`/`data-issue-key`/`data-comment-list`/`data-comment-id`/
   `data-hx-fragment`) are passive scraper hooks, NOT htmx directives, and are
   left byte-unchanged.
-- **Alpine 3.14.9** records `version:"3.14.9"` in the blob. This is the latest
-  stable 3.14.x patch (3.14.1, the prior pin, was superseded by 3.14.2..3.14.9;
-  the 3.15.x line is intentionally NOT taken — we hold the 3.14 minor). Re-vendored
-  2026-06-04 (Phase-4 revision FIX 5).
+- **Alpine.js was retired** (keyboard-shortcut-bindings, ADR-001) and its blob
+  deleted. It was vendored for a keyboard layer that was never written: no
+  template ever carried an Alpine directive (`x-data` / `x-on:` / `x-model` /
+  `x-show` / `x-init` / `@click`), so the framework was parsed and executed on
+  every page load to do nothing. The client keyboard layer that replaced the
+  intent is `static/js/keyboard.js` — one app-owned vanilla IIFE, no framework.
+  htmx remains the only vendored runtime dependency.
 - `foundry.870985fc.css` is hand-authored and served as-authored (gzip via the
   `compression-gzip` tower-http feature handles the wire size); no CSS minifier
   is introduced (DB6). **The `.870985fc.` segment is the content hash** (first 8

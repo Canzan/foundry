@@ -16,7 +16,7 @@
 use askama::Template;
 
 /// The project-create full page (US-R01). Extends `base.html`, which links the
-/// vendored `/static` stylesheet + htmx/Alpine scripts (US-B01/B02) — replacing
+/// vendored `/static` stylesheet + htmx script (US-B01/B02) — replacing
 /// the previous bare-`<head>` `format!` markup (`projects.rs::render_create_form`).
 /// The render contract is selector-and-substring-identical to the prior form:
 /// `method="post"`, `action="/team/{slug}/projects"`, the hidden `_csrf` field,
@@ -87,7 +87,7 @@ pub struct NewIssueModal {
 
 /// The no-JS new-issue FULL-PAGE fallback (US-R02). Extends `base.html`, which
 /// links the vendored content-hashed `/static` stylesheet (ADR-B03) + the
-/// htmx/Alpine scripts (US-B01/B02) — replacing the previous bare-`<head>`
+/// htmx script (US-B01/B02) — replacing the previous bare-`<head>`
 /// `format!` markup (`keyboard.rs::render_modal_full_page`). It `{% include %}`s
 /// the SAME `partials/new_issue_modal.html` partial the htmx fragment renders
 /// (the one-partial rule, NFR-WEBB-MAINT-02), so a no-script submit posts to the
@@ -117,10 +117,10 @@ pub struct SearchResultRow {
     pub title: String,
 }
 
-/// The keyboard `/`-search results FRAGMENT (US-K01 / US-12). A BARE htmx
-/// fragment — it MUST NOT extend `base.html` (the alpine.js handler swaps it
-/// into the live page DOM; extending base double-wraps the swap,
-/// NFR-WEBB-COMPAT-02). Renders `partials/search_results.html`. The render
+/// The keyboard `/`-search results FRAGMENT (US-K01 / US-12). A BARE fragment —
+/// it MUST NOT extend `base.html` (it is swapped into the live page DOM;
+/// extending base double-wraps the swap, NFR-WEBB-COMPAT-02). The constraint is
+/// real, but nothing swaps this fragment today: `/` is unbound until slice 04. Renders `partials/search_results.html`. The render
 /// contract is selector-and-substring-identical to the previous
 /// `keyboard.rs::render_search_fragment` `format!`: the `ul.search-results`
 /// wrapper with one `li.search-result[data-issue-key="{PREFIX}-{N}"]` per match
@@ -142,10 +142,12 @@ pub struct ShortcutEntry {
     pub label: String,
 }
 
-/// The keyboard-help overlay FRAGMENT (US-K02 / US-12). A BARE htmx fragment —
-/// it MUST NOT extend `base.html` (the alpine.js bootstrap GETs it once and
-/// caches it into the live DOM; extending base double-wraps the swap,
-/// NFR-WEBB-COMPAT-02). Renders `partials/keyboard_help.html`. The render
+/// The keyboard-help overlay FRAGMENT (US-K02 / US-12). A BARE fragment — it
+/// MUST NOT extend `base.html` (`keyboard.js` fetches it on `?` and assigns it
+/// into `#kb-overlay-root`; extending base double-wraps the swap,
+/// NFR-WEBB-COMPAT-02). Staying bare is also what lets the sidebar's no-JS link
+/// serve this same markup as its own page (ADR-003). The fetch is on demand;
+/// nothing caches it. Renders `partials/keyboard_help.html`. The render
 /// contract is selector-and-substring-identical to the previous
 /// `keyboard.rs::show_keyboard_help` `format!`:
 /// `section.keyboard-help[role="dialog"][aria-label="Keyboard shortcuts"]` with
@@ -237,7 +239,7 @@ pub struct BoardColumn {
 }
 
 /// The full board page. Extends `base.html`, which links the vendored
-/// `/static` stylesheet + htmx/Alpine scripts (US-B01/B02).
+/// `/static` stylesheet + htmx script (US-B01/B02).
 #[derive(Debug, Clone, Template)]
 #[template(path = "board.html")]
 pub struct BoardPage {
@@ -261,7 +263,7 @@ pub struct BoardPage {
 }
 
 /// The sign-in page. Extends `base.html`, which links the vendored `/static`
-/// stylesheet + htmx/Alpine scripts (US-B01/B02) — replacing the previous bare
+/// stylesheet + htmx script (US-B01/B02) — replacing the previous bare
 /// `<head>` `format!` markup (US-B04). The render contract is
 /// selector-and-substring-identical to the prior form: same `method="post"`
 /// `action="/sign-in"`, the hidden `_csrf` field (DD12 — the template emits ONLY

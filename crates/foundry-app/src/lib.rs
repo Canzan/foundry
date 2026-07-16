@@ -297,7 +297,6 @@ mod static_cache_policy_tests {
             static_cache_control_value("/static/css/foundry.513929f9.css").contains("immutable")
         );
         assert!(static_cache_control_value("/static/vendor/htmx.min.js").contains("immutable"));
-        assert!(static_cache_control_value("/static/vendor/alpine.min.js").contains("immutable"));
     }
 }
 
@@ -314,7 +313,7 @@ pub fn build_router(state: AppState) -> Router {
     let attachment_routes = attachments::build_routes(state.clone());
     // Feature B (US-B02 / design/assets.md) — vendored static assets served by
     // the binary itself: pure pre-vendored blobs under
-    // `crates/foundry-app/static/` (htmx/Alpine `.min.js` + the content-hashed
+    // `crates/foundry-app/static/` (the vendored htmx `.min.js` + the content-hashed
     // `foundry.<hash>.css`), served via `tower_http::services::ServeDir` (already
     // a dep). Mounted on the base router OUTSIDE the session + CSRF layers —
     // `/static` is GET-only public, non-secret, vendored content that needs no

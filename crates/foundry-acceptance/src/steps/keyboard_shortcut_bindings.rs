@@ -505,6 +505,154 @@ async fn still_on_board_unchanged(world: &mut FoundryWorld) {
     );
 }
 
+// --- The no-JS path (AC-01.5 / NFR-4 / ODD-8) -------------------------------
+
+/// Replaces the Background's ordinary session with one whose BROWSER has
+/// JavaScript switched off, signs in through the real form (a plain POST form —
+/// no-JS by construction), and lands on the AUTH board.
+///
+/// The two assertions here are the anti-vacuity guard, and they are the reason
+/// this Given is not just "goto the board": they prove scripting is REALLY off.
+/// `.board` present says the page rendered; `[data-kb-ready]` absent says
+/// `keyboard.js` never ran. Without the second, a session that silently kept
+/// scripting on would green this scenario while proving nothing about the
+/// scripting-off path — which is the failure mode this whole feature exists to
+/// close.
+#[given(regex = r"^scripting is disabled in Mei's browser on the AUTH board$")]
+async fn scripting_disabled_on_board(world: &mut FoundryWorld) {
+    let url = board_url(world);
+    if let Some(previous) = world.browser.take() {
+        let _ = previous.close().await;
+    }
+    let browser = browser_harness::new_session_without_scripting().await;
+    {
+        let harness = world.harness.as_ref().expect("harness");
+        browser_harness::sign_in_through_browser(&browser, harness, MEI_EMAIL, MEI_PASSWORD).await;
+    }
+    browser
+        .goto(&url)
+        .await
+        .expect("navigate to the AUTH board with scripting off");
+    browser.find(Locator::Css(".board")).await.expect(
+        "the AUTH board must render with scripting off — the board is server-rendered HTML and \
+         must not depend on script to exist (NFR-4)",
+    );
+    assert!(
+        browser
+            .find_all(Locator::Css(browser_harness::KB_READY_SELECTOR))
+            .await
+            .expect("look for the keyboard-layer readiness marker")
+            .is_empty(),
+        "{} is present with scripting disabled — the browser ran keyboard.js, so scripting is NOT \
+         actually off and this scenario would prove nothing about the no-JS path",
+        browser_harness::KB_READY_SELECTOR
+    );
+    world.browser = Some(browser);
+}
+
+/// A POINTER path to the help: the shipped `sidebar.html:13` link, clicked.
+/// ADR-003 (ODD-8) keeps this link precisely so it exists — removing it reds here.
+#[when(regex = r#"^Mei follows the sidebar "Keyboard shortcuts" link$"#)]
+async fn follows_sidebar_help_link(world: &mut FoundryWorld) {
+    world
+        .browser
+        .as_ref()
+        .expect("browser session")
+        .find(Locator::Css(".sidebar a[href='/keyboard-help']"))
+        .await
+        .expect(
+            "the sidebar must carry a \"Keyboard shortcuts\" link — it is the no-JS path to the \
+             shortcut list (ADR-003 / ODD-8) and the only way to read it with scripting off",
+        )
+        .click()
+        .await
+        .expect("follow the sidebar \"Keyboard shortcuts\" link");
+}
+
+/// The full-page help — `GET /keyboard-help` as its own page rather than layered
+/// over the board. With scripting off there is no overlay to be confused with, so
+/// "shown" is exactly: this URL, this list, on screen.
+#[then(regex = r"^the full-page keyboard help is shown$")]
+async fn full_page_help_shown(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("browser session");
+    let url = browser.current_url().await.expect("read the current URL");
+    assert_eq!(
+        url.path(),
+        "/keyboard-help",
+        "the sidebar link led to {url} instead of the full-page help"
+    );
+    let help = browser.find(Locator::Css(".keyboard-help")).await.expect(
+        "the full-page keyboard help did not render with scripting off — the link is the no-JS \
+         path to the shortcut list (NFR-4)",
+    );
+    assert!(
+        help.is_displayed().await.expect("help displayed?"),
+        "the shortcut list is in the DOM but not displayed — Mei cannot read it"
+    );
+    assert!(
+        !help
+            .find_all(Locator::Css("dt[data-shortcut]"))
+            .await
+            .expect("read the listed shortcuts")
+            .is_empty(),
+        "the help page rendered but lists no shortcuts"
+    );
+}
+
+/// BR-6, scoped honestly to what slice 01 binds.
+///
+/// Slice 01 binds exactly two shortcuts: `?` (show this list) and `Esc` (close
+/// it). `Esc` only undoes `?`, so `?` is the sole advertised ACTION in scope, and
+/// this asserts it is not keyboard-only: the very list `?` renders is here, on a
+/// page reached by a pointer click, in a browser that cannot press `?` at all.
+/// The `?` row's own presence is the falsifiable part — a full-page fork that
+/// dropped it ("you are already here") would red, and that row is what tells a
+/// no-JS reader the capability exists.
+///
+/// LIMIT, stated rather than implied: this does NOT prove BR-6 for `c` / `/` /
+/// `j` / `k` / `Enter`. Those are bound in slices 02-05 and their pointer paths
+/// belong to those slices; `architecture.md:411` already names search as JS-only
+/// with no full-page fork. This step asserts the help capability only.
+#[then(regex = r"^no advertised action is reachable only by keyboard$")]
+async fn no_keyboard_only_action(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("browser session");
+    let keys: Vec<String> = {
+        let mut collected = Vec::new();
+        for entry in browser
+            .find_all(Locator::Css(".keyboard-help dt[data-shortcut]"))
+            .await
+            .expect("read the advertised shortcuts")
+        {
+            collected.push(
+                entry
+                    .attr("data-shortcut")
+                    .await
+                    .expect("read data-shortcut")
+                    .unwrap_or_default(),
+            );
+        }
+        collected
+    };
+    assert!(
+        keys.iter().any(|key| key == "?"),
+        "the pointer-reachable help does not advertise \"?\" itself (it lists {keys:?}) — the one \
+         action slice 01 binds would then be discoverable only to someone who already knew the \
+         key, which is what BR-6 forbids"
+    );
+    let described = browser
+        .find_all(Locator::Css(".keyboard-help dd"))
+        .await
+        .expect("read the shortcut descriptions")
+        .len();
+    assert_eq!(
+        described,
+        keys.len(),
+        "the help lists {} shortcuts but {described} descriptions — an advertised key with no \
+         label tells a no-JS reader nothing about what it does",
+        keys.len()
+    );
+}
+
 // NOTE: This is a REPRESENTATIVE subset. The remaining ~70 concrete Given/When/Then
 // phrases in keyboard-shortcut-bindings.feature are added by DELIVER as it unskips
 // each slice (they are inert while the scenarios are @pending). Keeping the starter
