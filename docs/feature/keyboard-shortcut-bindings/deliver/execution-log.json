@@ -58,6 +58,20 @@
       "s": "SKIPPED",
       "d": "NOT_APPLICABLE: browser + vanilla-JS step; the @needs-browser acceptance tests drive real Chrome against the real served app and are the honest gate. Falsification proven: unbinding '?' in keyboard.js reds all four scenarios. A unit test below the browser could not assert key-pressed -> user-visible outcome (NFR-1), which is the whole contract.",
       "t": "2026-07-16T14:34:27Z"
+    },
+    {
+      "sid": "01-02",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-16T14:44:07Z"
+    },
+    {
+      "sid": "01-02",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-16T14:44:07Z"
     }
   ]
 }
