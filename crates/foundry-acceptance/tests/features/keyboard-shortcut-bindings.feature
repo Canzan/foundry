@@ -273,14 +273,14 @@ Feature: The seven advertised keyboard shortcuts work in the browser
     When Mei types "zzz" into the search box
     Then the results list shows an empty state indicating nothing matched
 
-  @pending @needs-browser @slice4 @us-04 @search @guard @edge
+  @needs-browser @slice4 @us-04 @search @guard @edge
   Scenario: A slash typed into the focused search box is inserted literally
     Given Mei has focused the board search box by pressing "/"
     When Mei types "and/or" into the search box
     Then the search box contains "and/or"
     And search focus was not grabbed again
 
-  @pending @needs-browser @slice4 @us-04 @search @us-07 @escape
+  @needs-browser @slice4 @us-04 @search @us-07 @escape
   Scenario: Escape leaves search and restores the board
     Given Mei has focused the board search box by pressing "/" and typed a query
     When Mei presses "Esc"

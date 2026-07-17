@@ -624,6 +624,33 @@ async fn focused_search_by_pressing_slash(world: &mut FoundryWorld) {
          so the finding this scenario asserts cannot be exercised at all. ADR-005 §2: `/` reveals \
          and focuses the JS-injected panel."
     );
+    // From here on, any focus() the page makes on this box is a RE-grab. The
+    // probe counts from zero because the legitimate focus — the `/` above — has
+    // already happened. Passive for every scenario that never reads the count.
+    browser_harness::probe_focus_grabs(browser, SEARCH_INPUT_SELECTOR).await;
+}
+
+/// The Esc scenario's precondition: the panel is open (by the REAL `/`) AND
+/// carries a query, so `Esc` has something to clear and the restore it asserts
+/// is distinguishable from a panel that was empty all along.
+#[given(regex = r#"^Mei has focused the board search box by pressing "/" and typed a query$"#)]
+async fn focused_search_and_typed_query(world: &mut FoundryWorld) {
+    focused_search_by_pressing_slash(world).await;
+    let browser = world.browser.as_ref().expect("browser session");
+    browser
+        .find(Locator::Css(SEARCH_INPUT_SELECTOR))
+        .await
+        .expect("the search panel must carry an input to type into")
+        .send_keys("session")
+        .await
+        .expect("type a query into the search box");
+    // The query has to have LANDED, or `Esc` would be clearing a box the
+    // keystrokes had not reached yet and the scenario would pass on a race.
+    let (_, value) = focused_field(browser).await;
+    assert_eq!(
+        value, "session",
+        "the query never reached the search box, so this scenario cannot show `Esc` clearing one."
+    );
 }
 
 // --- Then: the user-visible outcomes ----------------------------------------
@@ -663,6 +690,122 @@ async fn search_input_is_empty(world: &mut FoundryWorld) {
         value, "",
         "the search box contains {value:?} after `/` opened it — the slash that opened the panel \
          was also typed INTO it (FR-7). The `/` handler must preventDefault() its own keypress."
+    );
+}
+
+/// AC-04.5, arm one. `/` is one of the seven advertised shortcuts, and this is
+/// the assertion that says it is subject to the SAME guard chain as every other
+/// key: typed into a focused text field it is a character, not a command. Read
+/// from the box's live `value`, so it speaks to what Mei sees.
+#[then(regex = r#"^the search box contains "([^"]+)"$"#)]
+async fn search_box_contains(world: &mut FoundryWorld, expected: String) {
+    let browser = world.browser.as_ref().expect("browser session");
+    let value = browser
+        .find(Locator::Css(SEARCH_INPUT_SELECTOR))
+        .await
+        .expect("the search panel must carry an input to read")
+        .prop("value")
+        .await
+        .expect("read the search box's value")
+        .unwrap_or_default();
+    assert_eq!(
+        value, expected,
+        "the search box holds {value:?}, not {expected:?} — the `/` Mei typed INTO the focused box \
+         was eaten as a shortcut. Guard 4 makes a typed `/` inert in a text-entry context because \
+         `/` is a character the field consumes (isConsumableByTextEntry), with no special case for \
+         `/` anywhere: BR-2 forbids one. If this reds, the guard's domain has been narrowed past \
+         the character keys and `c`, `j`, `k` and `?` are untypable too."
+    );
+}
+
+/// AC-04.5, arm two — the PAIRED assertion, and it is not a restatement of arm
+/// one. Arm one reds when `/`'s handler calls `preventDefault()`; this arm reds
+/// when the handler RUNS AT ALL. A `dispatch` that focused the box without
+/// preventing the default would leave the text intact — arm one green — while
+/// yanking focus mid-word. Counting the grabs is the only way to see it: a
+/// `focus()` on an already-focused element fires no event and moves no caret.
+#[then(regex = r"^search focus was not grabbed again$")]
+async fn search_focus_not_grabbed_again(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("browser session");
+    let grabs = browser_harness::focus_grabs(browser).await;
+    assert_eq!(
+        grabs, 0,
+        "the page called focus() on the search box {grabs} time(s) while Mei was typing into it, \
+         so `/`'s handler ran from inside a focused text field. The keystroke should never have \
+         reached `dispatch`: guard 4 owns it (ADR-002)."
+    );
+    let (focused, _) = focused_field(browser).await;
+    assert!(
+        focused.contains("[name=q]"),
+        "focus left the search box for {focused} while Mei typed into it — the count above is zero \
+         only because nothing re-grabbed a box she had already lost."
+    );
+}
+
+/// AC-04.6 / ADR-005 §2 — `Esc` "hides it, clears the query and results, and
+/// restores the board", stated as all four of those things. The board arm is the
+/// one that makes this more than "the panel is hidden": ADR-005 §4 rests on the
+/// cards STAYING in the DOM (it is what lets slice 05's `Enter` resolve through
+/// a board card), so a close that took the board with it would satisfy a
+/// hidden-panel check and break the surface underneath.
+#[then(regex = r"^the search panel closes and the board is restored$")]
+async fn search_panel_closes_and_board_restored(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("browser session");
+    let state = browser
+        .wait()
+        .at_most(std::time::Duration::from_secs(5))
+        .for_element(Locator::Css(
+            format!("{SEARCH_PANEL_SELECTOR}[hidden]").as_str(),
+        ))
+        .await;
+    assert!(
+        state.is_ok(),
+        "`Esc` left the search panel visible. ADR-003 §2: the panel is the third layer of the \
+         DOM-derived Esc stack (help, else the modal, else the search panel) — it is not a fourth \
+         handler and it is not exempt from the peel."
+    );
+
+    let (value, results) = browser
+        .execute(
+            "var input = document.querySelector(\"#kb-search-panel input[name='q']\");
+             var results = document.querySelector('#kb-search-panel [data-search-results]');
+             return [input ? input.value : '<gone>', results ? results.innerHTML.trim() : '<gone>'];",
+            Vec::new(),
+        )
+        .await
+        .map(|v| {
+            let parts = v.as_array().expect("the panel probe returns a pair").clone();
+            (
+                parts[0].as_str().unwrap_or_default().to_string(),
+                parts[1].as_str().unwrap_or_default().to_string(),
+            )
+        })
+        .expect("read the search panel's state after Esc");
+    assert_eq!(
+        value, "",
+        "`Esc` hid the panel but left {value:?} in the box, so the next `/` reopens Mei's LAST \
+         search instead of a fresh one. ADR-005 §2: Esc clears the query."
+    );
+    assert_eq!(
+        results, "",
+        "`Esc` hid the panel but left its results mounted, so the next `/` shows stale answers to \
+         a question Mei has not asked yet. ADR-005 §2: Esc clears the results."
+    );
+
+    let keys = board_issue_keys(browser).await;
+    assert_eq!(
+        keys,
+        vec!["AUTH-1", "AUTH-2", "AUTH-3", "AUTH-4"],
+        "the board is not intact after `Esc` closed the search panel — it shows {keys:?}. The \
+         panel OVERLAYS the board rather than replacing it (ADR-005 §4), which is the property \
+         slice 05's `Enter`-via-the-board-card depends on."
+    );
+
+    let (focused, _) = focused_field(browser).await;
+    assert!(
+        !focused.contains("[name=q]"),
+        "`Esc` hid the panel but left focus inside its box ({focused}), so Mei is typing into a \
+         field she cannot see and the board shortcuts stay inert behind guard 4."
     );
 }
 

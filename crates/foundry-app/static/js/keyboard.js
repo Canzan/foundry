@@ -65,6 +65,24 @@
     return document.getElementById(MODAL_HOST_ID);
   }
 
+  // Asked of the HOST's contents, exactly as `helpIsOpen()` is — a layer is open
+  // when it is holding something, not when its mount exists. The distinction is
+  // load-bearing now that a third layer sits below this one: `#modal-root` is
+  // present on every board page whether or not a modal is up (board.html:13), so
+  // "the host exists" would claim the modal layer on every press and the search
+  // panel below it could never be reached.
+  function modalIsOpen() {
+    var host = modalHost();
+    return !!host && host.childElementCount > 0;
+  }
+
+  function closeModal() {
+    var host = modalHost();
+    if (host) {
+      host.innerHTML = "";
+    }
+  }
+
   // Esc peels the TOPMOST layer only (ADR-003: `#kb-overlay-root` sits above
   // `#modal-root` in base.html), one layer per press (BR-4).
   //
@@ -82,15 +100,26 @@
   //     rejects) → the layered scenario REDS on its own premise, and 8 more with it
   // So the two-host split and the early return below are load-bearing, and a test
   // says so.
+  // Step 04-02 added the THIRD arm, which is the whole of ADR-003 §2's stack:
+  // help → modal → search panel → no-op. The search panel does NOT register a
+  // handler of its own; `Esc` has exactly one owner and it is this function.
+  // A second `key === "Escape"` listener would race this one for the same press
+  // and close two layers at once — which is BR-4's failure, and precisely what
+  // 03-02's @layered scenario reds on.
   function closeTopLayer() {
     if (helpIsOpen()) {
       closeHelp();
       return;
     }
-    var host = modalHost();
-    if (host) {
-      host.innerHTML = "";
+    if (modalIsOpen()) {
+      closeModal();
+      return;
     }
+    if (searchIsOpen()) {
+      closeSearch();
+      return;
+    }
+    // Empty stack: no-op. Never navigate, never touch selection (ADR-003 §2).
   }
 
   function openHelp() {
@@ -412,6 +441,35 @@
     input.addEventListener("input", function () {
       runSearch(panel);
     });
+  }
+
+  function searchIsOpen() {
+    var panel = searchPanel();
+    return !!panel && panel.hidden === false;
+  }
+
+  // `Esc`'s third arm (ADR-005 §2: "hides it, clears the query and results, and
+  // restores the board"). The board needs no restoring: the panel OVERLAYS it and
+  // never owned those cards, which is the property ADR-005 §4's Enter-via-the-
+  // board-card rests on. So "restore" here is only "stop covering it".
+  //
+  // The query and results are cleared because the panel is REVEALED, not rebuilt
+  // — the same node comes back on the next `/`, and a box still holding Mei's
+  // last search would reopen an answer to a question she has not asked yet.
+  function closeSearch() {
+    var panel = searchPanel();
+    if (!panel) {
+      return;
+    }
+    panel.hidden = true;
+    var input = searchInput();
+    if (input) {
+      input.value = "";
+    }
+    var results = panel.querySelector("[data-search-results]");
+    if (results) {
+      results.innerHTML = "";
+    }
   }
 
   // `/` reveals the panel and focuses the box. The caller preventDefault()s.

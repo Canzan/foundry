@@ -251,6 +251,55 @@ pub fn key_chord(key: &str) -> &str {
     }
 }
 
+/// Starts counting `focus()` calls the PAGE makes on `selector`'s element, from
+/// now on. Answers "did the client layer grab focus AGAIN?" — a question with no
+/// natural observable, because `.focus()` on an already-focused element fires no
+/// `focus` event and moves no caret. Without this probe the only honest wording
+/// of AC-04.5's second arm would be "focus is still on the box", which is true
+/// whether or not the handler ran, and would therefore assert nothing.
+///
+/// It counts, it does not intercept: the native `focus` still runs, so a page
+/// under probe behaves exactly as it does un-probed. Install it AFTER the focus
+/// that is legitimate (the `/` that opened the panel), so the count starts at
+/// zero and any increment means "again".
+pub async fn probe_focus_grabs(client: &fantoccini::Client, selector: &str) {
+    client
+        .execute(
+            "var el = document.querySelector(arguments[0]);
+             if (!el) { throw new Error('nothing to probe at ' + arguments[0]); }
+             var native = el.focus.bind(el);
+             el.__kbFocusGrabs = 0;
+             // An OWN property shadowing the prototype method. keyboard.js
+             // re-queries the DOM for this same node, so the shadow persists.
+             el.focus = function () {
+               el.__kbFocusGrabs += 1;
+               return native();
+             };
+             window.__kbFocusProbe = el;
+             return true;",
+            vec![serde_json::Value::String(selector.to_string())],
+        )
+        .await
+        .expect("install the focus-grab probe");
+}
+
+/// How many times the page has called `focus()` on the probed element since
+/// [`probe_focus_grabs`] was installed.
+pub async fn focus_grabs(client: &fantoccini::Client) -> u64 {
+    let count = client
+        .execute(
+            "var el = window.__kbFocusProbe;
+             if (!el) { throw new Error('no focus probe was installed'); }
+             return el.__kbFocusGrabs;",
+            Vec::new(),
+        )
+        .await
+        .expect("read the focus-grab count");
+    count
+        .as_u64()
+        .expect("the focus-grab probe returns a count")
+}
+
 /// Bounded wait on the ADR-001 `[data-kb-ready]` marker. The condition that says
 /// "the keyboard layer initialised" — pressed keys before this are a race.
 pub async fn wait_for_kb_ready(client: &fantoccini::Client) {
