@@ -348,7 +348,7 @@ runs"*. The orchestrator repeated that framing to 05-01. **Both were wrong, and 
 in-flight `runSearch` fetch therefore still considers itself current when it lands, and re-mounts
 results into the now-hidden panel. Slice 04's **shipped, un-`@pending`'d** scenario
 `Escape leaves search and restores the board` asserts the results are gone, so it **reds** — observed
-at roughly **2 runs in 3**:
+at roughly **2 runs in 3** — **an impression, and it was wrong**:
 
 ```
 `Esc` hid the panel but left its results mounted…
@@ -369,6 +369,28 @@ discarded — the same mechanism `runSearch` already uses. One line, in the exis
 not a new special case.
 
 **Status**: assigned to step **04-03** (a repair step, added to the roadmap after the fact).
+
+**MEASURED RATE — correcting the estimate above (recorded at 04-03).** "2 runs in 3" was an
+impression formed from a handful of runs at 05-01, and it was repeated by the orchestrator into
+04-03's brief as if it were a measurement. 04-03 counted instead of trusting:
+
+| Condition | Runs | Target reds |
+|---|---|---|
+| Unmodified (pre-fix) | 26 | **4** (~15%) |
+| With the `searchSequence` bump | 10 | **0** |
+| Bump reverted | 12 | **5** |
+
+~15%, not ~67%. The defect and its mechanism are exactly as described; only the rate was overstated.
+The revert column is the decisive evidence — remove the line, the red returns.
+
+**The irony is the point**: this file's own prose estimate outlived the measurement that contradicted
+it, in the feature that exists because a written claim outlived the code it described. Caught at
+finalize by the archivist cross-checking this section against `mutation-assessment.md`, not by any
+review. The original wording is left above, struck through in substance rather than deleted, because
+the lapse is more instructive than a clean number would be.
+
+**Status**: **FIXED at step 04-03** (`c3a18d1`) — `searchSequence += 1` in `closeSearch()`, reusing the
+existing token discipline. No flag, no special case.
 
 ---
 

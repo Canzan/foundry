@@ -182,7 +182,23 @@ If the Tab cost is ever judged unacceptable, D-4 must be reopened; ADR-006 alrea
 
 ## Peer Review
 
-- **Status**: NOT RUN — `nw-solution-architect-reviewer` was not invoked in this pass.
+- **Status**: **RUN and APPROVED** — `nw-solution-architect-reviewer` (Atlas) was invoked by the
+  orchestrator on 2026-07-15, immediately after ODD-7's ratification and before DISTILL began.
+  **Verdict: approved — 0 critical / 0 high / 0 medium.** It pressure-tested the two ADRs flagged below
+  as widest-blast-radius: ADR-006's browse-mode finding (confirmed correct — `j`/`k` are AT quick-nav
+  keys, so a live region would announce into a void) and ADR-007's harness (confirmed it closes the
+  root-cause gap, and that `InProcHarness` already binds a real TCP port). It also verified ADR-008's
+  13-site map and named the `projects.rs:1110` vacuity trap.
+  **NOTE (recorded 2026-07-17, at finalize):** the paragraph below said "NOT RUN" for two days *after*
+  the review had run and passed — a written claim outliving the fact, in the very feature that exists to
+  end that. Found by the archivist cross-checking this file against the orchestrator's summary, not by
+  any review. Left visible rather than silently overwritten, because the lapse is the lesson.
+  **What DELIVER then proved**: the review approved ADRs that execution later found **self-contradicting**
+  (UI-3: `Esc` could never close the modal it opened) and **built on a false precondition** (UI-1: Alpine's
+  "zero consumers"). Five of the seven upstream issues were defects *inside DESIGN artifacts* that a
+  clean read-only review did not see. That is not a failure of the reviewer; it is evidence about what a
+  review can see. See `deliver/upstream-issues.md`.
+- **Superseded below** — the original text is kept for the record:
 - **Consequence**: the DESIGN → DISTILL gate is **not** formally cleared by a reviewer. The artifacts are
   complete and every ODD is resolved, but the house workflow's peer-review step (max 2 iterations, address
   critical/high) has not been executed for this feature. **Recommend running it before DISTILL begins**, with
