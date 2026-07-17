@@ -194,20 +194,20 @@ Feature: The seven advertised keyboard shortcuts work in the browser
   # CSRF code here, something is wrong (DESIGN wave-decisions).
   # ===========================================================================
 
-  @pending @needs-browser @slice3 @us-03 @create
+  @needs-browser @slice3 @us-03 @create
   Scenario: Pressing the create key opens the new-issue modal on the board
     Given Mei is viewing the AUTH project board
     When Mei presses "c"
     Then the new-issue modal opens over the board
     And the title field is focused and ready for typing
 
-  @pending @needs-browser @slice3 @us-03 @create
+  @needs-browser @slice3 @us-03 @create
   Scenario: Mei files an issue entirely from the keyboard
     Given Mei has opened the new-issue modal by pressing "c"
     When Mei types "Session cookie not cleared on sign-out" and submits the form
     Then a new issue with that title appears on the AUTH board
 
-  @pending @needs-browser @slice3 @us-03 @create @scope @edge
+  @needs-browser @slice3 @us-03 @create @scope @edge
   Scenario: The create key does nothing where there is no project
     Given Mei is viewing the dashboard, a page with no team or project
     When Mei presses "c"

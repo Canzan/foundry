@@ -95,6 +95,19 @@ const OVERLAY_SELECTOR: &str = "#kb-overlay-root .keyboard-help";
 /// `#modal-root` — so "how many modals are open?" is one DOM query.
 const MODAL_SELECTOR: &str = "#modal-root [data-modal]";
 
+/// The same question asked of the WHOLE document. On a page with no `#modal-root`
+/// — the dashboard — `MODAL_SELECTOR` is zero for ANY implementation, so a
+/// no-modal assertion scoped to the host would be vacuous exactly where AC-03.3
+/// needs it to bite.
+const ANY_MODAL_SELECTOR: &str = "[data-modal]";
+
+/// The board's own shipped new-issue trigger (`board.html:6`). It carries the
+/// hx-get, the hx-target and the swap; `keyboard.js` CLICKS it rather than
+/// reconstructing its URL, so the keyboard path and the pointer path open the same
+/// modal by the same mechanism and the client does zero CSRF work (DESIGN
+/// wave-decisions). Its ABSENCE on the dashboard is what makes `c` a no-op there.
+const NEW_ISSUE_TRIGGER_SELECTOR: &str = "[data-action='new-issue']";
+
 /// The autofocused title input the guard must protect (`new_issue_modal.html:6`).
 const TITLE_FIELD_SELECTOR: &str = "#modal-root [data-modal='new-issue'] input[name='title']";
 
@@ -104,6 +117,15 @@ async fn open_modal_count(browser: &fantoccini::Client) -> usize {
         .find_all(Locator::Css(MODAL_SELECTOR))
         .await
         .expect("count the open modals")
+        .len()
+}
+
+/// How many modals are mounted anywhere in the document.
+async fn any_modal_count(browser: &fantoccini::Client) -> usize {
+    browser
+        .find_all(Locator::Css(ANY_MODAL_SELECTOR))
+        .await
+        .expect("count every modal on the page")
         .len()
 }
 
@@ -296,6 +318,28 @@ async fn project_exists_with_issues(world: &mut FoundryWorld, project: String) {
         .await
         .expect("seed AUTH issue");
     }
+    // Advance the project's per-project issue-number allocator past the seeded
+    // issues. These four rows were INSERTed directly, which bypasses
+    // `insert_issue_with_outbox`'s `UPDATE projects SET next_issue_number = ...`
+    // (store/lib.rs:1378) — the ONLY writer of that counter. Without this, the
+    // column still reads 1 while AUTH-1..4 exist, so the next real create is
+    // handed number 1, collides with the seeded AUTH-1's unique key, and the POST
+    // answers 500.
+    //
+    // That state is UNREACHABLE through the application: no code path creates an
+    // issue without advancing the counter. A fixture that builds it is asserting
+    // over a database the app can never produce — the pointer path would 500 here
+    // too, and it would have nothing to do with the keyboard. `GREATEST` mirrors
+    // the shipped idiom (`feature_mwt_slice_01_coexist.rs:347`,
+    // `feature_card_ranking_within_status.rs:109`), which seed issues the same way
+    // and repair the counter for the same reason.
+    sqlx::query(
+        "UPDATE projects SET next_issue_number = GREATEST(next_issue_number, 5) WHERE id = $1",
+    )
+    .bind(project_id)
+    .execute(pool)
+    .await
+    .expect("advance next_issue_number past the seeded AUTH issues");
 }
 
 #[given(regex = r#"^AUTH-2 is titled "([^"]+)"$"#)]
@@ -507,9 +551,291 @@ async fn overlay_appears(world: &mut FoundryWorld, surface: String) {
     );
 }
 
+// --- SLICE 03 (US-03): `c` files an issue, end to end, from the keyboard ------
+
+/// AC-03.1, first arm. The modal is OVER the board: mounted in `#modal-root` and
+/// the board still rendered behind it — the same "layered, not replaced"
+/// distinction `overlay_appears` draws for `?`.
 #[then(regex = r"^the new-issue modal opens over the board$")]
-async fn new_issue_modal_opens(_world: &mut FoundryWorld) {
-    scaffold_pending();
+async fn new_issue_modal_opens(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("browser session");
+    let modal = browser
+        .wait()
+        .at_most(std::time::Duration::from_secs(10))
+        .for_element(Locator::Css(MODAL_SELECTOR))
+        .await
+        .expect(
+            "pressing \"c\" on the AUTH board must open the new-issue modal. `keyboard.js` binds \
+             `c` to a click on board.html:6's OWN `[data-action='new-issue']` trigger, which \
+             carries the hx-get and hx-target — so a failure here means either the key is not \
+             dispatched or the shipped trigger is gone.",
+        );
+    assert!(
+        modal.is_displayed().await.expect("modal displayed?"),
+        "the new-issue modal is in the DOM but not displayed — Mei cannot see the form she is \
+         supposed to type into"
+    );
+    assert_eq!(
+        open_modal_count(browser).await,
+        1,
+        "expected exactly the new-issue modal to be open after pressing \"c\""
+    );
+    assert!(
+        browser
+            .find(Locator::Css(".board"))
+            .await
+            .expect("the AUTH board must still be rendered behind the modal")
+            .is_displayed()
+            .await
+            .expect("board displayed?"),
+        "the modal replaced the board instead of opening over it — `c` navigated Mei away instead \
+         of layering a dialog on the page she was on"
+    );
+}
+
+/// AC-03.1, second arm — the focus handoff, and the reason this scenario exists
+/// rather than "a modal appeared".
+///
+/// A modal that opens UNFOCUSED makes Mei reach for the mouse, which defeats the
+/// whole JTBD: the point of `c` is that her hands never leave the keyboard. So
+/// the assertion is about `document.activeElement`, read from the LIVE page — not
+/// about the presence of an `autofocus` attribute, which is a claim about markup
+/// rather than about where the next keystroke lands.
+///
+/// "…and ready for typing" is the EMPTY half: a field that opened focused but
+/// pre-seeded with the `c` that opened it is the classic bug (the same one FR-7
+/// names for `/`), and it would pass a focus-only assertion.
+#[then(regex = r"^the title field is focused and ready for typing$")]
+async fn title_field_focused_and_ready(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("browser session");
+    let (focused, value) = focused_field(browser).await;
+    assert_eq!(
+        focused, "INPUT[name=title]",
+        "the new-issue modal opened with {focused} focused instead of the title field. Mei's next \
+         keystroke goes nowhere and she has to reach for the mouse — which is exactly the \
+         hands-on-keyboard flow `c` exists to provide (AC-03.1)."
+    );
+    assert_eq!(
+        value, "",
+        "the title field opened focused but already containing {value:?} — the \"c\" that opened \
+         the modal leaked into the field. Mei has to clear it before she can type, so the \
+         shortcut costs her a keystroke instead of saving one."
+    );
+}
+
+/// AC-03.2's precondition, driven by a REAL `c` press. A Given that mounted the
+/// modal via htmx or `execute()` would be Fixture Theater: the scenario's claim is
+/// the KEYBOARD round trip, so the keyboard has to open it.
+#[given(regex = r#"^Mei has opened the new-issue modal by pressing "c"$"#)]
+async fn modal_opened_by_pressing_c(world: &mut FoundryWorld) {
+    open_new_issue_modal_by_pressing_c(world).await;
+}
+
+/// AC-03.2 — the full round trip, with NO POINTER AT ANY STEP.
+///
+/// Keys go to `active_element()`, never to an element this step located by CSS.
+/// That is the whole discipline: `find(TITLE_FIELD_SELECTOR).send_keys(...)`
+/// FOCUSES the field as a side effect, so it would green this scenario over a
+/// modal that opened unfocused — i.e. over a build where Mei really does have to
+/// reach for the mouse. Typing into whatever the browser says is focused is the
+/// only way this step can speak to the keyboard flow it claims.
+///
+/// Submitting is `Enter`, not a click on the Create button, for the same reason.
+/// `Enter` reaches the form because the guard chain (ADR-002) declines it inside a
+/// text-entry context — `NATIVE_TEXT_ENTRY_KEYS` names it as a key the browser
+/// acts on natively — so the browser submits the form through the shipped
+/// `hx-post`. No client code is involved in the submit at all.
+#[when(regex = r#"^Mei types "([^"]+)" and submits the form$"#)]
+async fn types_and_submits(world: &mut FoundryWorld, text: String) {
+    let browser = world.browser.as_ref().expect("browser session");
+    // The board's issue keys BEFORE filing, stashed on the page so the Then can
+    // name the card that is genuinely NEW. This matters here specifically: the
+    // Background titles AUTH-2 "Session cookie not cleared on sign-out", which is
+    // the very title Mei types. "a card with that title exists" is therefore TRUE
+    // BEFORE she files anything — a vacuous assertion. The delta is the fact.
+    let captured = browser
+        .execute(
+            "window.__kbFiledTitle = arguments[0];
+             window.__kbKeysBeforeFiling = Array.prototype.map.call(
+               document.querySelectorAll('.board .issue-card[data-issue-key]'),
+               function (card) { return card.getAttribute('data-issue-key'); }
+             );
+             return window.__kbKeysBeforeFiling.length;",
+            vec![serde_json::json!(text)],
+        )
+        .await
+        .expect("record the board's issue keys before filing");
+    assert!(
+        captured.as_u64().unwrap_or(0) > 0,
+        "the AUTH board shows no issue cards before filing, so the \"a NEW issue appeared\" \
+         assertion below would have no baseline to be new against"
+    );
+
+    let active = browser
+        .active_element()
+        .await
+        .expect("read the focused element to type into");
+    active.send_keys(&text).await.unwrap_or_else(|err| {
+        panic!(
+            "could not type {text:?} into the focused element: {err}. This step types into \
+             whatever the browser says is FOCUSED — deliberately, so it cannot pass over a modal \
+             that opened unfocused. If this fails, the focus handoff (AC-03.1) is broken."
+        )
+    });
+    active
+        .send_keys(browser_harness::key_chord("Enter"))
+        .await
+        .expect("press \"Enter\" to submit the new-issue form");
+}
+
+/// AC-03.2's outcome, stated as the DELTA rather than as a presence check.
+///
+/// The shipped POST answers htmx with an out-of-band append
+/// (`issues.rs:553` — `hx-swap-oob="beforeend:[data-column='backlog']"`), so the
+/// new card lands in the board's Backlog column and the modal clears. This asserts
+/// exactly ONE key appeared that was not there before, and that ITS card carries
+/// the typed title — not merely that some card somewhere does, which AUTH-2 already
+/// satisfies.
+#[then(regex = r"^a new issue with that title appears on the AUTH board$")]
+async fn new_issue_appears_on_board(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("browser session");
+    // The submit is an htmx round trip, so the card arrives asynchronously. Wait
+    // on the CONDITION this scenario is about — the modal cleared, which is the
+    // shipped response's own primary swap (issues.rs:553 answers with nothing but
+    // an out-of-band append) — rather than on a duration.
+    browser
+        .wait()
+        .at_most(std::time::Duration::from_secs(10))
+        .for_element(Locator::Css("#modal-root:empty"))
+        .await
+        .expect(
+            "submitting the new-issue form left the modal open. The shipped POST answers htmx with \
+             an out-of-band append and an EMPTY primary body (issues.rs:553), so `#modal-root` \
+             clearing is how the create is known to have succeeded — a modal still on screen means \
+             the form was rejected or never submitted at all.",
+        );
+    let described = browser
+        .execute(
+            "var before = window.__kbKeysBeforeFiling || [];
+             var title = window.__kbFiledTitle;
+             var cards = Array.prototype.slice.call(
+               document.querySelectorAll('.board .issue-card[data-issue-key]')
+             );
+             var added = cards.filter(function (card) {
+               return before.indexOf(card.getAttribute('data-issue-key')) === -1;
+             });
+             return {
+               added: added.map(function (card) {
+                 var titleNode = card.querySelector('.title');
+                 return {
+                   key: card.getAttribute('data-issue-key'),
+                   title: titleNode ? titleNode.textContent.trim() : '<no .title node>',
+                   column: card.closest('[data-column]')
+                     ? card.closest('[data-column]').getAttribute('data-column')
+                     : '<not in a column>'
+                 };
+               }),
+               expectedTitle: title
+             };",
+            Vec::new(),
+        )
+        .await
+        .expect("read the board's new cards");
+    let added = described["added"]
+        .as_array()
+        .expect("the probe reports the added cards")
+        .clone();
+    let expected_title = described["expectedTitle"].as_str().unwrap_or_default();
+    assert_eq!(
+        added.len(),
+        1,
+        "Mei typed a title and pressed Enter, and the AUTH board gained {} new card(s) (saw \
+         {added:?}). Exactly one issue must appear. Note the Background already titles AUTH-2 \
+         {expected_title:?} — that is why this asserts the DELTA and not merely that some card \
+         carries the title, which was true before she filed anything.",
+        added.len()
+    );
+    assert_eq!(
+        added[0]["title"].as_str(),
+        Some(expected_title),
+        "a new card appeared on the board but it is titled {:?} instead of {expected_title:?} — \
+         the title Mei typed did not reach the issue that was created",
+        added[0]["title"].as_str().unwrap_or_default()
+    );
+}
+
+// --- AC-03.3: the create key is scoped to a surface that has a project --------
+
+/// AC-03.3's precondition, ASSERTED rather than assumed. The dashboard is the
+/// no-project surface, and what makes it one is the ABSENCE of board.html:6's
+/// `[data-action='new-issue']` trigger — which is precisely the thing `c` looks
+/// for. If someone ever renders that trigger into the shared shell, this scenario
+/// stops being the no-project case it claims to be, and it says so here rather
+/// than passing quietly.
+#[given(regex = r"^Mei is viewing the dashboard, a page with no team or project$")]
+async fn viewing_dashboard_no_project(world: &mut FoundryWorld) {
+    let url = dashboard_url(world);
+    let browser = world.browser.as_ref().expect("browser session");
+    browser.goto(&url).await.expect("navigate to the dashboard");
+    browser
+        .find(Locator::Css("h1"))
+        .await
+        .expect("the dashboard must render for a signed-in Mei");
+    browser_harness::wait_for_kb_ready(browser).await;
+    assert!(
+        browser
+            .find_all(Locator::Css(NEW_ISSUE_TRIGGER_SELECTOR))
+            .await
+            .expect("look for a new-issue trigger")
+            .is_empty(),
+        "the dashboard carries a {NEW_ISSUE_TRIGGER_SELECTOR} — this scenario exists to prove \
+         \"c\" is a no-op where there is NO project to create an issue in (AC-03.3). With the \
+         trigger present there IS a target, and the scenario proves nothing."
+    );
+}
+
+/// AC-03.3, first arm. Scoped to the WHOLE document, not to `#modal-root`: the
+/// dashboard has no modal mount at all, so `#modal-root [data-modal]` is zero by
+/// construction there and would pass over any implementation whatsoever. Asking
+/// "is there a modal ANYWHERE" is the only form of this assertion that a broken
+/// `c` could fail.
+///
+/// The `?` sentinel first, for the reason `press_help_and_await_overlay` documents:
+/// a negative assertion needs the layer proven LIVE (an unbound layer opens no
+/// modal either) and needs the `c` press to have SETTLED. `openNewIssue()` clicks
+/// synchronously inside the keydown handler, so had `c` fired, its htmx GET would
+/// have been issued strictly before the help fetch this blocks on. An ordering
+/// argument on one loopback origin — not a sleep.
+#[then(regex = r"^no modal opens$")]
+async fn no_modal_opens(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("browser session");
+    press_help_and_await_overlay(browser).await;
+    let modals = any_modal_count(browser).await;
+    assert_eq!(
+        modals, 0,
+        "pressing \"c\" on a page with no project opened {modals} modal(s) — a shortcut with no \
+         target must be a no-op, never a modal for an issue that has nowhere to go (AC-03.3)"
+    );
+}
+
+/// AC-03.3, second arm — and the one with teeth. "No modal" alone would pass for
+/// an implementation that RECONSTRUCTED the URL and did `location.href = ...`:
+/// there would be no modal on the dashboard, because Mei would no longer be on the
+/// dashboard. That is the failure this arm names. It is also why `c` clicks
+/// board.html:6's own trigger instead of building a URL — with no trigger there is
+/// nothing to click, and doing nothing falls out for free (DESIGN wave-decisions).
+#[then(regex = r"^the browser does not navigate away$")]
+async fn browser_does_not_navigate_away(world: &mut FoundryWorld) {
+    let expected = dashboard_url(world);
+    let browser = world.browser.as_ref().expect("browser session");
+    let actual = browser.current_url().await.expect("read the current URL");
+    assert_eq!(
+        actual.as_str().trim_end_matches('/'),
+        expected.trim_end_matches('/'),
+        "pressing \"c\" took Mei from the dashboard to {actual}. A shortcut with no target is a \
+         no-op — never a navigation, and never an error (AC-03.3). This is what reds if anyone \
+         reconstructs the new-issue URL instead of clicking the board's own shipped trigger."
+    );
 }
 
 // --- SLICE 02 (US-02): the guard chain (ADR-002) -----------------------------
@@ -719,8 +1045,10 @@ async fn new_issue_modal_reopens(world: &mut FoundryWorld) {
         );
 }
 
-#[then(regex = r"^(?:the first visible card is highlighted as selected|no modal opens)$")]
-async fn selection_or_no_modal(_world: &mut FoundryWorld) {
+/// Still slice 05's. `no modal opens` shared this scaffold until step 03-01 gave
+/// it a real assertion (AC-03.3), so only the selection arm remains pending.
+#[then(regex = r"^the first visible card is highlighted as selected$")]
+async fn first_visible_card_selected(_world: &mut FoundryWorld) {
     scaffold_pending();
 }
 

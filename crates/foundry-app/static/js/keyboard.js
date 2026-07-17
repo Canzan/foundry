@@ -238,9 +238,21 @@
   // keyboard path and the pointer path open the same modal by the same
   // mechanism, and this file needs no knowledge of routes or CSRF.
   //
-  // Slice 02 binds only as much of `c` as the guard scenario requires — that a
-  // press outside a text field demonstrably fires. `c`'s full contract (focus,
-  // surface scope, Esc-to-close) belongs to slice 03.
+  // Slice 03 (step 03-01) added NO code here: reusing the shipped trigger is
+  // what made `c`'s full contract fall out of the four lines below, and the
+  // scenarios were green the moment they were unskipped. Each arm is earned by
+  // the REUSE, not by a branch:
+  //   - FOCUS (AC-03.1) — `new_issue_modal.html:6`'s own `autofocus`. Removing
+  //     that attribute reds "the title field is focused and ready for typing"
+  //     while the modal still opens: verified, not assumed.
+  //   - SCOPE (AC-03.3) — the early return below. There is no trigger on a page
+  //     with no project, so the no-op needs no surface check. A version that
+  //     reconstructed the URL and navigated instead reds the dashboard scenario.
+  //   - FILING (AC-03.2) — the browser submits `new_issue_modal.html:4`'s
+  //     `hx-post`; `Enter` reaches it because guard 4's domain declines the keys
+  //     a field consumes natively. No client code is on that path at all.
+  // Still slice 03's, still @pending: `Esc`-closes-the-modal and the layered-Esc
+  // contract (`closeTopLayer()` above binds only slice 02's arm).
   function openNewIssue() {
     var trigger = document.querySelector(NEW_ISSUE_TRIGGER);
     if (!trigger) {
