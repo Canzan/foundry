@@ -583,6 +583,34 @@
       "s": "EXECUTED",
       "d": "PASS",
       "t": "2026-07-17T06:49:51Z"
+    },
+    {
+      "sid": "05-04",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-17T06:54:20Z"
+    },
+    {
+      "sid": "05-04",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-17T07:16:28Z"
+    },
+    {
+      "sid": "05-04",
+      "p": "RED_UNIT",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: the changed unit is client JS (keyboard.js) with no unit harness in this workspace; the two ATs plus the new help-copy scenario drive every line, and the falsifications below prove each is load-bearing.",
+      "t": "2026-07-17T07:16:28Z"
+    },
+    {
+      "sid": "05-04",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-17T07:42:04Z"
     }
   ]
 }

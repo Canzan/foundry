@@ -436,6 +436,72 @@ narrowing), and it closes the panel. ADR-005's search→select→open flow has n
 ratified one ADR over. Option 2 buys the same behaviour by breaking the crux; option 4 pays for a
 sentence with a requirement.
 
+### RESOLUTION — Option 1, ratified by the user 2026-07-16
+
+**Blur the search box once results arrive**, so `j`/`k`/`Enter` reach `body` and drive the result
+selection. Guard 4 is **untouched**; ADR-002 and ADR-005 both stay byte-for-byte. The precedent is
+already ratified one ADR over: ADR-006 accepted exactly this cost for the board (*"an AT user must Tab
+here ONCE before `j`/`k` arrive"*), and carried it into the help copy via `SELECTION_INSTRUCTION`.
+
+**Why blur-on-results rather than requiring a manual `Tab`**: the user is typing a query, and the
+moment results exist the box has done its job — blurring is the system doing the `Tab` on Mei's behalf
+rather than charging her a keystroke to discover. Typing continues to work because re-focusing the box
+is one `/` away, and `Esc` still closes the panel from either focus state. If blur-on-arrival proves
+to fight incremental typing (each keystroke refetches, and a blur mid-query would strand the user),
+fall back to the explicit `Tab` — but **do not** buy the behaviour with a guard carve-out (option 2),
+which is the BR-2 failure UI-3's ratification explicitly refuses to authorise.
+
+**The obligation that travels with it**: like ADR-006's Tab, this costs a discoverability beat, so the
+**help overlay's own copy must say how to reach the results** — the same `SELECTION_INSTRUCTION`
+mechanism, same source of truth, asserted by a scenario. A cost that is not written down is a cost the
+user pays twice.
+
+**Unblocks**: `Enter from the search results opens the same modal as clicking the board card` (the
+`@critical @one-open-path` proof) and `Enter is a no-op for a found issue that the board does not
+render`. Both step definitions are already written and were left red on the shared Given rather than
+forced — including the byte-identical pointer-vs-keyboard modal comparison, which should need no
+change once the Given is reachable.
+
+**Process note**: step 05-04 shipped the one scenario it honestly could (`@htmx-swap`, with the shared
+`projectBoard()` hook re-applying ring AND ARIA together — proven by two falsifications, including one
+showing a half-hook cannot pass), and returned the other two to `@pending` rather than manufacture a
+reachable flow inside a step definition. It named both bad options and took neither. That is the
+fourth correct block on this feature.
+
+### Outcome — blur-on-results was MEASURED and fell back to the explicit `Tab` (step 05-04 re-dispatch, 2026-07-17)
+
+The resolution's first choice was implemented, not argued away — and then measured, which killed it.
+**At a human's typing pace, blur-on-results turns the query `and/or` into `ao`.**
+
+The box blurs the instant the FIRST character's results land, so every later keystroke goes to `body`:
+`n` and `d` fell on the floor, the `/` was **dispatched as a shortcut** (re-opening and re-focusing the
+box), and only the trailing `o` reached the field. That is not merely "fighting incremental typing" —
+it is **AC-04.5 destroyed** (a typed `/` must stay literal), and the query is unreachable past its
+first character. The fallback clause's condition is met, so `Tab` it is. Guard 4 is untouched; no
+carve-out was bought.
+
+**The lane could not see it, and that is the finding worth keeping.** With blur-on-results shipped, the
+slice-04 search lane ran **6/6 green**. WebDriver's `send_keys("cookie")` types all six characters in a
+single command with no network round-trip between them, so the fetch for `"c"` lands *after* typing
+finishes — the batched lane structurally cannot observe a blur that strands a human. The green was an
+artefact of the instrument, not evidence about the product. This is UI-6's lesson recurring: a claim
+about coverage deserves the same scepticism as a claim about behaviour, and this feature exists because
+a green suite sat over an absent thing.
+
+**So the probe was kept.** `mei_types_into_search` now types one character per 150ms at
+`active_element()` — never re-finding the box, since a `find(box).send_keys(..)` per character would
+re-focus it and paper over exactly the defect being hunted. Reverting it would restore a scenario that
+cannot falsify the design we just rejected. Same posture as 05-02 and 05-03, which strengthened
+scenarios that could not fail. Disclosed as a scope delta: the step's `files_to_modify` covers this
+file, but the strengthened Given is slice-04's scenario, not slice-05's.
+
+**The cost is written down where the user meets it**: `SELECTION_INSTRUCTION` gained a second sentence
+("From the search box, press Tab to reach the results…"), rendered through the same
+`p.kb-selection-instruction` element ADR-006's board `Tab` already uses, and asserted by a NEW scenario
+(`The help overlay says how to reach the search results`) that reads the RENDERED overlay rather than
+the Rust constant — a constant the template forgot to render would satisfy any assertion made against
+the string. Reverting the sentence reds it. Browser lane: **37/37** (34 + the 2 unblocked + this one).
+
 **Note for whoever resolves it**: `Enter`'s **resolution** (ADR-005 §4 — `selectedKey` → the board
 card → its own shipped `hx-get`) is **already built and green** on the board surface (step 05-03).
 Nothing in ADR-005 §4 is in doubt; only the input path that puts the ring on a result row. The

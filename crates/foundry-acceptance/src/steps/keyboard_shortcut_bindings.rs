@@ -712,13 +712,25 @@ async fn type_into_title(world: &mut FoundryWorld, text: &str) {
 #[when(regex = r#"^Mei types "([^"]+)" into the search box$"#)]
 async fn mei_types_into_search(world: &mut FoundryWorld, text: String) {
     let browser = world.browser.as_ref().expect("browser session");
+    // TEMPORARY PROBE (step 05-04): type at a HUMAN's pace, one character per
+    // 150ms, at whatever is FOCUSED right now — never re-finding the box. A
+    // `find(box).send_keys(..)` per character would re-focus it and paper over a
+    // blur that had moved focus away between keystrokes; `active_element` is the
+    // honest model of "the next character goes where the caret actually is".
     browser
         .find(Locator::Css(SEARCH_INPUT_SELECTOR))
         .await
-        .expect("the search panel must carry an input to type into")
-        .send_keys(&text)
-        .await
-        .unwrap_or_else(|err| panic!("type {text:?} into the search box: {err}"));
+        .expect("the search panel must carry an input to type into");
+    for ch in text.chars() {
+        browser
+            .active_element()
+            .await
+            .expect("read the focused element")
+            .send_keys(&ch.to_string())
+            .await
+            .unwrap_or_else(|err| panic!("type {ch:?} at the focused element: {err}"));
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+    }
 }
 
 /// The precondition the three finding scenarios share: the panel is open because
@@ -3944,13 +3956,29 @@ async fn modal_root_markup(browser: &fantoccini::Client) -> String {
 }
 
 /// Reveals the panel with the REAL `/`, types `query` with REAL keystrokes, waits
-/// for the SHIPPED fragment to show exactly that issue, then moves the ring onto
-/// the result row with the REAL `j`.
+/// for the SHIPPED fragment to show exactly that issue, `Tab`s out of the box, and
+/// moves the ring onto the result row with the REAL `j`.
 ///
-/// `j` is pressed AT THE SEARCH INPUT, which is where `/` left Mei's focus — not
-/// at `body`. Pressing it anywhere else would be the test arranging a focus state
-/// the user never has, and would green a build whose `j` cannot actually be
-/// reached from the surface this scenario is about.
+/// **The `Tab` is the ratified cost, not test convenience** (upstream-issues.md
+/// UI-7, Option 1, and the fallback its resolution names). `/` leaves Mei's focus
+/// in the search box, which is a text-entry context, so guard 4 correctly makes the
+/// `j` after it inert — the box would read "AUTH-2j". `Tab` is the way out that
+/// costs no carve-out: it is in `NATIVE_TEXT_ENTRY_KEYS`, so guard 4 hands it to
+/// the FIELD, the browser performs its own default focus move, and not one line of
+/// the guard path knows this scenario exists. ADR-006 already ratified this exact
+/// shape for the board ("an AT user must Tab here ONCE before j/k arrive").
+///
+/// Blur-on-results — the resolution's first choice — was implemented and MEASURED
+/// first, not argued away: at a human's typing pace it turns "and/or" into "ao".
+/// The box blurs the moment the first character's results land, so the rest of the
+/// query goes to `body` and a typed `/` is DISPATCHED rather than inserted, which
+/// is AC-04.5 destroyed. See the report; this is the fallback that finding earned.
+///
+/// The `Tab` is followed by an assertion that focus actually LEFT the box, because
+/// the `j` below is pressed at `body`: without that assertion a build where `Tab`
+/// did nothing would still pass here, since pressing at `body` would itself blur
+/// the box and hand `j` to the dispatch table. The assertion is what makes this
+/// Given measure the real focus path instead of manufacturing one.
 ///
 /// The ring is ASSERTED here rather than assumed: this is a Given, and "selected
 /// the result with j" is either true or the scenario below is measuring `Enter`
@@ -3993,8 +4021,21 @@ async fn searched_and_selected_the_result(world: &mut FoundryWorld, query: Strin
     )
     .await;
 
-    // The press Mei actually makes, from the place `/` actually left her.
-    press_at(browser, SEARCH_INPUT_SELECTOR, "j").await;
+    // The way OUT of the box (UI-7's ratified cost). Pressed AT the box, which is
+    // where `/` actually left Mei — the browser consumes it and moves focus itself.
+    press_at(browser, SEARCH_INPUT_SELECTOR, "Tab").await;
+    let (after_tab, _) = focused_field(browser).await;
+    assert!(
+        !after_tab.contains("[name=q]"),
+        "`Tab` did not move focus out of the search box (focus is still on {after_tab}). The `j` \
+         below is pressed at `body`, so without this assertion a build whose `Tab` did nothing \
+         would still pass — `body` would blur the box on the way in and hand `j` to the dispatch \
+         table anyway. UI-7: `Tab` is in NATIVE_TEXT_ENTRY_KEYS, so guard 4 hands it to the field \
+         and the BROWSER performs the focus move; if this reds, that native path is broken."
+    );
+
+    // The press Mei actually makes, from the place the `Tab` actually left her.
+    press(browser, "j").await;
 
     let selected = browser
         .execute(
@@ -4113,6 +4154,59 @@ async fn modal_is_the_pointer_path_modal(world: &mut FoundryWorld) {
          search_results.html, or a client-authored dialog — is what this difference means.\n  \
          keyboard: {keyboard_markup}\n  pointer:  {pointer_markup}"
     );
+}
+
+/// UI-7's ratified cost, asserted where the USER meets it (ADR-006's precedent —
+/// "an accepted cost nobody is told about is an undocumented bug").
+///
+/// Read from the RENDERED overlay, not from the constant: the claim is that the
+/// instruction REACHES Mei, and a `SELECTION_INSTRUCTION` the template forgot to
+/// render would satisfy any assertion made against the Rust string. It is asserted
+/// through `p.kb-selection-instruction` — the element `views.rs::KeyboardHelp`
+/// binds that constant to — so the copy and its source of truth cannot drift.
+///
+/// The assertion names the three things the cost actually IS, rather than pinning
+/// the sentence byte-for-byte: `Tab`, the search box, and the results. Prose may be
+/// reworded; a rewording that drops any of the three has dropped the instruction.
+#[then(
+    regex = r"^the help overlay tells Mei to press Tab from the search box to reach the results$"
+)]
+async fn help_states_the_search_tab_cost(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("browser session");
+    browser
+        .wait()
+        .at_most(std::time::Duration::from_secs(5))
+        .for_element(Locator::Css(".keyboard-help .kb-selection-instruction"))
+        .await
+        .expect(
+            "the help overlay must render a `p.kb-selection-instruction` (views.rs::KeyboardHelp \
+             binds keyboard.rs::SELECTION_INSTRUCTION to it)",
+        );
+    let copy = browser
+        .execute(
+            "var p = document.querySelector('.keyboard-help .kb-selection-instruction');
+             return p ? p.textContent : null;",
+            Vec::new(),
+        )
+        .await
+        .expect("read the selection instruction the overlay rendered");
+    let copy = copy
+        .as_str()
+        .expect("the overlay renders a selection instruction")
+        .to_string();
+    let lowered = copy.to_lowercase();
+    for needle in ["tab", "search", "results"] {
+        assert!(
+            lowered.contains(needle),
+            "the help overlay's selection instruction never mentions {needle:?} — it reads \
+             {copy:?}. UI-7 (ratified 2026-07-16) accepted a `Tab` out of the search box as the \
+             cost of keeping ADR-002 guard 4 byte-for-byte, ON THE CONDITION that the help's own \
+             copy says so. Mei cannot guess a keystroke, and a results list that silently ignores \
+             `j` is indistinguishable from one that is not navigable at all — which is the exact \
+             failure this feature exists to close. If the copy was reworded, reword it to still \
+             name Tab, the search box and the results."
+        );
+    }
 }
 
 /// The named edge's precondition (ADR-005 §4). AUTH-9 is seeded in `cancelled`,

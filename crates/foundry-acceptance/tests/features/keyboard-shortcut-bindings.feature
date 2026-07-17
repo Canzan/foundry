@@ -382,11 +382,23 @@ Feature: The seven advertised keyboard shortcuts work in the browser
   # dispatch table. ADR-005 §3 ("with the panel open, j/k walk only li.search-result
   # rows") and ADR-002 guard 4 cannot both hold. Choosing between them amends a
   # locked ADR, which is DESIGN's call, not a crafter's — exactly UI-3's shape.
-  @pending @needs-browser @slice5 @us-06 @open @one-open-path @critical
+  @needs-browser @slice5 @us-06 @open @one-open-path @critical
   Scenario: Enter from the search results opens the same modal as clicking the board card
     Given Mei has searched the board for "AUTH-2" and selected the result with "j"
     When Mei presses "Enter"
     Then the modal that opens is the same one a pointer click on the AUTH-2 board card produces
+
+  # UI-7's ratified cost, written down where the USER can find it. `/` leaves the
+  # caret in the search box, so guard 4 correctly holds j/k/Enter until focus leaves
+  # it — `Tab` is the way out. Mei cannot GUESS that, and a results list that
+  # silently ignores `j` is indistinguishable from one that is not navigable at all,
+  # which is the exact disease this feature exists to cure. Same mechanism and same
+  # source of truth as ADR-006's board Tab (keyboard.rs SELECTION_INSTRUCTION).
+  @needs-browser @slice5 @us-06 @open @a11y @help @discoverability
+  Scenario: The help overlay says how to reach the search results
+    Given Mei is viewing the AUTH project board
+    When Mei presses "?"
+    Then the help overlay tells Mei to press Tab from the search box to reach the results
 
   # ADR-005 named edge: the board renders only {backlog,todo,in_progress,done};
   # search returns every issue. An issue in another state is findable but has NO
@@ -396,7 +408,7 @@ Feature: The seven advertised keyboard shortcuts work in the browser
   # ("AUTH-9 exists in a state the board does not display") is GREEN: AUTH-9 seeds
   # in `cancelled`, search finds it, the board renders no card for it. It is the
   # SHARED "selected the result with j" Given that cannot be reached.
-  @pending @needs-browser @slice5 @us-06 @open @edge @named-edge
+  @needs-browser @slice5 @us-06 @open @edge @named-edge
   Scenario: Enter is a no-op for a found issue that the board does not render
     Given AUTH-9 exists in a state the board does not display
     And Mei has searched the board for "AUTH-9" and selected the result with "j"

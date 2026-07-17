@@ -394,6 +394,12 @@
           return; // A newer keystroke is already in flight; this reply is stale.
         }
         results.innerHTML = markup;
+        // The rows htmx never touches, so `projectBoard`'s afterSwap hook does not
+        // cover them: this mount is a `fetch`, not a swap. Project HERE, in the same
+        // step that mounts them, for ADR-006's reason — the ring and the roles are
+        // derived together or they drift. Re-derives from `selectedKey`, so a row
+        // for the still-selected issue comes back ringed.
+        projectBoard();
       })
       .catch(function (err) {
         // A search that silently returns nothing is indistinguishable from a
@@ -536,11 +542,43 @@
   var SELECTED_CLASS = "kb-selected";
   var BOARD_SELECTOR = ".board";
   var COLUMN_SELECTOR = ".board [data-column]";
+  // The SHIPPED fragment's own rows and list (`partials/search_results.html`).
+  // `data-issue-key` is the row's own attribute — the SAME key the cards carry,
+  // which is what lets ADR-005 §4 resolve a selected row back to a board card.
+  var SEARCH_ROW_SELECTOR = "li.search-result[data-issue-key]";
+  var SEARCH_LIST_SELECTOR = "ul.search-results";
 
   function selectableCards() {
     return Array.prototype.slice.call(
       document.querySelectorAll(BOARD_CARD_SELECTOR)
     );
+  }
+
+  // The panel's result rows, in the order the SERVER ranked them. Read from the
+  // live DOM on every press for the same reason the cards are: each keystroke
+  // re-mounts this list.
+  function searchRows() {
+    var panel = searchPanel();
+    if (!panel) {
+      return [];
+    }
+    return Array.prototype.slice.call(
+      panel.querySelectorAll(SEARCH_ROW_SELECTOR)
+    );
+  }
+
+  // ADR-005 §3: navigation is MODAL. ONE predicate — the active surface is the
+  // panel if it is open, else the board — and `j`/`k` walk that surface's rows
+  // and NOTHING else. Never a merged sequence: the panel OVERLAYS the board, so a
+  // merged DOM order would walk the ring from a row Mei can see onto a card she
+  // cannot, and `scrollIntoView` would scroll a covered region.
+  //
+  // Note what this is NOT: it is not a check on the KEY. `j` and `k` are not named
+  // here, and nothing on the guard path is touched. This asks "which rows does the
+  // selection walk?", which is a question about the SURFACE, and it is answered
+  // once, below `isInert`, on the dispatch side — where naming a surface is the job.
+  function activeSurfaceRows() {
+    return searchIsOpen() ? searchRows() : selectableCards();
   }
 
   function board() {
@@ -602,6 +640,18 @@
     selectableCards().forEach(function (card) {
       card.setAttribute("role", "option");
     });
+    // The results are a listbox for exactly the reason the board is one: `j`/`k`
+    // walk them as a linear single-select, and `aria-selected` on a bare `<li>`
+    // says nothing to a reader. Applied in the SAME step as the ring (ADR-006), so
+    // a row can never be ringed without being an option.
+    var list = document.querySelector(SEARCH_LIST_SELECTOR);
+    if (list) {
+      list.setAttribute("role", "listbox");
+      list.setAttribute("aria-label", "Search results");
+    }
+    searchRows().forEach(function (row) {
+      row.setAttribute("role", "option");
+    });
   }
 
   // The ring is DERIVED from `selectedKey`, never stored (ADR-004). Applies the
@@ -612,18 +662,22 @@
   // COHERENTLY rather than leaving a dangling ring. First match wins: keys are
   // unique per project and the board renders one project (ADR-004's stated
   // assumption).
-  function projectSelection() {
-    var cards = selectableCards();
+  // Rings whichever of `elements` carries `selectedKey` and clears the rest,
+  // returning the match or null. Surface-agnostic ON PURPOSE: a board card and a
+  // result row are ringed by the same code because ADR-004 says selection identity
+  // is ONE key, and two projections would be two places for the ring to disagree
+  // with itself.
+  function projectOnto(elements) {
     var selected = null;
-    cards.forEach(function (card) {
+    elements.forEach(function (element) {
       var isSelected =
         selectedKey !== null &&
         selected === null &&
-        card.getAttribute("data-issue-key") === selectedKey;
+        element.getAttribute("data-issue-key") === selectedKey;
       if (isSelected) {
-        selected = card;
-        card.setAttribute("aria-selected", "true");
-        card.classList.add(SELECTED_CLASS);
+        selected = element;
+        element.setAttribute("aria-selected", "true");
+        element.classList.add(SELECTED_CLASS);
         return;
       }
       // "false", not absent: inside a listbox every option carries its state, so
@@ -631,10 +685,25 @@
       // being told nothing (ADR-006 — aria-selected is STATE, not a one-shot
       // announcement). The ring's CSS hook is `[aria-selected="true"]`, which is
       // unaffected either way; this is about what the accessibility tree says.
-      card.setAttribute("aria-selected", "false");
-      card.classList.remove(SELECTED_CLASS);
+      element.setAttribute("aria-selected", "false");
+      element.classList.remove(SELECTED_CLASS);
     });
-    if (selected === null) {
+    return selected;
+  }
+
+  function projectSelection() {
+    // BOTH surfaces, every time — never only the active one. ADR-005 §3: the key
+    // is SHARED, so selecting AUTH-2 in the results and pressing `Esc` must leave
+    // the ring on AUTH-2's board CARD. That continuity is not a feature written
+    // here; it falls out of projecting one key onto whatever is on screen.
+    var selected = projectOnto(selectableCards());
+    var row = projectOnto(searchRows());
+    // Cleared only when the key resolves on NEITHER surface. Asking the board
+    // alone would clear the selection of a found-but-cardless issue the instant it
+    // was made (the ADR-005 §4 named edge — AUTH-9 has a row and no card), and
+    // `Enter`'s no-op would then be true for the wrong reason: nothing selected,
+    // rather than nothing to open.
+    if (selected === null && row === null) {
       selectedKey = null;
     }
     // The ACTIVE DESCENDANT — derived from the same key, in the same step, as the
@@ -707,12 +776,12 @@
   // With nothing selected, the first press selects the FIRST visible card
   // (ADR-004). An empty board is a silent no-op — there is nothing to ring.
   function moveSelection(step) {
-    var cards = selectableCards();
-    if (cards.length === 0) {
+    var rows = activeSurfaceRows();
+    if (rows.length === 0) {
       return;
     }
-    var keys = cards.map(function (card) {
-      return card.getAttribute("data-issue-key");
+    var keys = rows.map(function (row) {
+      return row.getAttribute("data-issue-key");
     });
     var current = selectedKey === null ? -1 : keys.indexOf(selectedKey);
     var next = current + step;
@@ -722,12 +791,14 @@
       return;
     }
     selectedKey = keys[next];
-    var card = projectSelection();
-    if (card) {
-      // `nearest` so a card already on screen does not jolt the page under Mei;
-      // one below the fold is brought just into view (AC-05.3).
-      card.scrollIntoView({ block: "nearest" });
-    }
+    projectSelection();
+    // The element on the surface Mei is LOOKING AT, not `projectSelection()`'s
+    // return: that is deliberately the board card (ADR-005 §4), and scrolling the
+    // covered board while she reads the results would move the wrong thing — or
+    // nothing at all, for a row whose issue has no card.
+    // `nearest` so a row already on screen does not jolt the page under Mei; one
+    // below the fold is brought just into view (AC-05.3).
+    rows[next].scrollIntoView({ block: "nearest" });
   }
 
   // `Enter` opens the SELECTED card — the seventh and last key (AC-06.1).

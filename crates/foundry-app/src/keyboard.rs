@@ -92,9 +92,22 @@ const SHORTCUTS: &[(&str, &str)] = &[
 /// An accepted cost nobody is told about is an undocumented bug: an AT user who
 /// is never told stands on the board pressing `j` while nothing happens, which is
 /// indistinguishable from the feature being absent.
+///
+/// The SECOND sentence carries UI-7's ratified cost (Option 1's fallback, 2026-07-16),
+/// and it is here for the identical reason the first one is. `/` leaves the caret in
+/// the search box, which is a text-entry context, so ADR-002 guard 4 correctly hands
+/// `j`/`k`/`Enter` to the FIELD — they cannot reach the results until focus leaves it.
+/// `Tab` is the way out that costs no carve-out (the browser consumes it natively), but
+/// it is a keystroke Mei has no way to GUESS: a results list that silently ignores `j`
+/// is indistinguishable from a results list that is not navigable at all, which is this
+/// feature's own disease. Blur-on-results would have spent no keystroke, but measurement
+/// killed it — at a human's pace it strands the typist mid-query (see upstream-issues.md
+/// UI-7). So the cost is real, and a cost that is not written down is one the user pays
+/// twice. Asserted by a scenario, not merely intended.
 const SELECTION_INSTRUCTION: &str =
     "Screen reader or keyboard-only: press Tab to focus the board first, then j and k move the \
-     selection.";
+     selection. From the search box, press Tab to reach the results, then j and k move between \
+     them and Enter opens the selected issue.";
 
 // =========================================================================
 // GET /team/:team/project/:slug/issues/new — new-issue modal
