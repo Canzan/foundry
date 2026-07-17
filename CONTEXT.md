@@ -2,16 +2,49 @@
 
 ## Current Task
 
-**`workspace-member-invites` shipped + finalized** (`main`, not pushed). GENERALIZES the shipped first-admin `/invites/accept` to general workspace members (member role only, v1). Two surfaces: (1) ISSUANCE — an admin invites a member at `/workspace/invites` (`is_workspace_admin`-gated, CSRF, non-enumerable 404 for non-admins, reuses `insert_invite`, emits a signed link + best-effort email); (2) ACCEPTANCE — the invitee (no prior account) sets a password and the accept POST runs the NEW one-tx `Store::create_member_and_consume` (atomic: guarded-UPDATE consume + CREATE user + ADD member membership + argon2id; SQLSTATE-23505 email-collision → uniform non-enumerable refusal, NEVER a 500, invite UNCONSUMED), then auto-signs-in. ONE `/invites/accept` route serves BOTH kinds via data-derived dispatch (`is_first_admin_invite`); the shipped first-admin path is unchanged (regression-guarded). NO migration, NO new crate. 14 DES TDD steps / 30 scenarios (`3fa73a7`→`a1953d7`) + remediation `392a9e4` + mutation-hardening `c24e73a`; `@all` 334/334 scenarios / 2623/2623 steps; review APPROVED; store-scope mutation 100%; check-arch PASSED (no new LAYER-1e line). Evolution: `docs/evolution/2026-06-16-workspace-member-invites.md`.
+**`keyboard-shortcut-bindings` SHIPPED + finalized** (`main`, 32 commits `3e3aa84`→`bdb7543`, **not pushed**).
+The ask was "bind the `c` key"; investigation found **all seven advertised shortcuts were dead** — the
+client keyboard layer was never written while the server routes shipped, routed and green, and the
+port-to-port suite **could not press a key**. The absence was *decided, not missed*:
+`us-12-keyboard-nav.feature` recorded a "no-Playwright decision" putting key handling "OUT of automated
+scope" and described handlers living "in alpine.js" that never existed. KPI-1: **0/7 → 7/7**.
+Shipped: `static/js/keyboard.js` (915 lines, ONE vanilla document-delegated IIFE); a **structural** guard
+chain that names zero shortcuts (consumability is a platform fact — `key.length === 1` ||
+`NATIVE_TEXT_ENTRY_KEYS`); a DOM-derived Esc layer stack (help → modal → search → no-op); key-based
+selection (never an index) with a WCAG-AA ring + `aria-activedescendant` composite re-projected on
+`htmx:afterSwap`; and — the root-cause fix — a **real-browser lane** (fantoccini + chromedriver,
+`@needs-browser`, included in `cargo xtask ci`'s `all`). Alpine retired; `#kb-items` carrier retired
+(33 sites). Reuse over reconstruction throughout: `c`/`Enter` click the shipped `hx-get` triggers, so
+zero client CSRF, **zero new routes/endpoints/migrations** (latest remains `0014`).
+Verified: browser **38/38** (263 steps), default **514/514** (3692 steps), fmt/clippy/deny/check-arch
+clean, DES **15/15** steps complete. Archive: `docs/evolution/2026-07-17-keyboard-shortcut-bindings.md`.
 
 ## Key Decisions
 
-- **D1–D8 all IMPLEMENTED** (wave-decisions.md + adr-001..004 marked IMPLEMENTED): D3 data-derived kind dispatch (no `kind` column); D4 one-tx consume+create-user+membership+password; D5 23505 UNIQUE-catch → uniform refusal (no 500, no migration); D7 NO new LAYER-1e line (issuance resolves workspace from session); D8 NO migration (reuse `used_at`/`used_by`, `email_lower UNIQUE`, `role CHECK`). Review findings D1+D4 fixed (`392a9e4`); the 3 store survivors killed (`c24e73a`).
-- **Eleven features through the full nWave pipeline, all on trunk** (each in `docs/evolution/`): …multi-workspace-provisioning, web-provisioning-flow, invite-accept-flow, **workspace-member-invites**. All feature workspaces PRESERVED.
-- **Trunk-based**: commit to `main`, no PRs; verify full-workspace `cargo fmt --all --check` + `cargo clippy --all-targets --release -D warnings`; DES hook requires the 5-phase contract.
+- **Seven defects found by execution (UI-1..UI-7), five inside DESIGN artifacts; zero by any review.**
+  Crafters blocked **five times — every one correct**. UI-3: ADR-002 made `Esc` unable to close the modal
+  it opened, while `keyboard.rs` advertises it as literally "Close modal" (fixed by narrowing the
+  predicate's *domain*, not a carve-out). UI-4: the acceptance runner was **green over undefined steps** —
+  the instrument had the disease it was built to diagnose (fixed: `.fail_on_skipped()`). UI-7: ADR-005 §3
+  was unreachable under guard 4. Full record: `deliver/upstream-issues.md`.
+- **A green can be an artefact of the instrument.** Blur-on-arrival ran **6/6 green** while destroying a
+  human's typing — `send_keys()` batches keystrokes with no round-trip. Found only by typing at
+  150ms/char. Same lesson as UI-4, UI-6, and the feature's own origin. Two scenarios that *couldn't
+  falsify* were caught the same way and strengthened.
+- **Twelve features through the full nWave pipeline, all on trunk**, each in `docs/evolution/`; all
+  feature workspaces PRESERVED. Legacy multi-file layout; no `docs/product/` SSOT; no PRs; DES hook
+  requires the 5-phase contract; verify with full-workspace `cargo fmt --all --check` +
+  `cargo clippy --all-targets --release -- -D warnings`.
 
 ## Next Steps
 
-- Optional: `git push` (orchestrator confirms push separately — this finalize did NOT push).
-- **Direct invite increments**: admin-role member invites; bulk invites; invite revocation/resend; multi-workspace-membership-via-invite (the email-already-a-user case is currently refused non-enumerably).
-- **Carried**: close the bootstrap claim-flow enumeration oracle (`bootstrap.rs:124-139`); Prometheus `foundry_token_mutations_total` exporter; per-workspace backup (OD-5); key-rotation UX; nightly scoped mutation pass on the web adapter.
+- Optional: `git push` (this finalize did NOT push).
+- **UI-5 (open)**: guard 1 (IME) is **unfalsifiable** — deleting it leaves `@ime` green because guard 4
+  already inerts `c`. Guard 1 is correct and must stay; retarget the scenario at `Escape` (which an IME
+  uses to cancel composition). DISTILL's call.
+- **Also open**: ADR-008's trap-B mechanism is **inverted** (05-05 proved both forms red identically) —
+  needs a DESIGN correction; `#kb-search-panel` and `#kb-overlay-root` have **no CSS** at all; two lane
+  flakes (leaked postgres testcontainers → `PoolTimedOut`; the no-JS scenario ~2-3/10). A
+  `pipx upgrade nwave-ai` reverts the `des-init-log` `project_id` patch that unblocks DES subagents.
+- **Carried**: Prometheus `foundry_token_mutations_total` exporter; per-workspace backup (OD-5);
+  key-rotation UX; nightly scoped mutation pass on the web adapter.
