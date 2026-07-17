@@ -724,6 +724,360 @@ async fn selection_or_no_modal(_world: &mut FoundryWorld) {
     scaffold_pending();
 }
 
+// --- SLICE 02 / STEP 02-02: the guard chain's three edges --------------------
+//
+// All three edges were already in `isInert` when this step began (01-01 built the
+// whole chain), so the production code below is GREEN BY INHERITANCE and this
+// step's contribution is the ASSERTIONS. That is only worth anything if they are
+// FALSIFIABLE — see the per-scenario notes for what breaks each one.
+
+/// The `?` press's outcome is a full `GET /keyboard-help` round-trip into
+/// `#kb-overlay-root`. Pressing it AFTER the thing under test and waiting for the
+/// overlay is this lane's SENTINEL for a negative assertion: `openNewIssue` calls
+/// `trigger.click()` SYNCHRONOUSLY inside the keydown handler, so had a chord
+/// fired, htmx's GET would have been issued strictly BEFORE the help fetch this
+/// wait blocks on. The overlay arriving therefore means the earlier request either
+/// landed (and we would see a modal) or was never made. That is an ordering
+/// argument on one loopback origin, not a sleep — and it is what makes "no modal
+/// opened" a settled fact rather than a race we happened to win.
+async fn press_help_and_await_overlay(browser: &fantoccini::Client) {
+    browser
+        .find(Locator::Css("body"))
+        .await
+        .expect("find the document body")
+        .send_keys(browser_harness::key_chord("?"))
+        .await
+        .expect("press \"?\" as the sentinel");
+    browser
+        .wait()
+        .at_most(std::time::Duration::from_secs(10))
+        .for_element(Locator::Css(OVERLAY_SELECTOR))
+        .await
+        .expect(
+            "the sentinel \"?\" press did not open the help overlay, so the shortcut layer is not \
+             live and every negative assertion in this scenario would pass VACUOUSLY — an unbound \
+             layer opens no modal for a copy chord either. Fix the binding before reading the \
+             result below.",
+        );
+}
+
+/// Records, for every `c`-ish keydown that reaches the END of the bubble path,
+/// which modifiers carried it and whether anything called `preventDefault()`.
+///
+/// On `window`, so it runs AFTER `keyboard.js`'s `document` listener: what it sees
+/// is the event's state once our layer has had its turn. `defaultPrevented === false`
+/// is the OBSERVABLE meaning of "left for the browser to handle" — it is the
+/// difference between the layer declining the chord and the layer swallowing it.
+const INSTALL_CHORD_PROBE: &str = r#"
+window.__kbChordProbe = [];
+window.addEventListener("keydown", function (event) {
+  if (event.key !== "c" && event.key !== "C") { return; }
+  window.__kbChordProbe.push({
+    ctrl: event.ctrlKey === true,
+    meta: event.metaKey === true,
+    defaultPrevented: event.defaultPrevented === true,
+  });
+});
+return true;
+"#;
+
+/// WebDriver's code points for the modifiers this scenario asserts BOTH of.
+/// Linux CI's copy chord is Ctrl and macOS's is Meta; asserting only the local
+/// one would green here and rot on the other runner (ADR-007 honest limit 2).
+const WEBDRIVER_CTRL: char = '\u{E009}';
+const WEBDRIVER_META: char = '\u{E03D}';
+const WEBDRIVER_SHIFT: char = '\u{E008}';
+
+/// Presses `character` while `modifier` is held, as a real key-down/up sequence
+/// through the Actions API — the browser produces a genuine `KeyboardEvent` with
+/// the modifier flag set, which is the thing guard 2 reads.
+async fn press_chord(browser: &fantoccini::Client, modifier: char, character: char) {
+    use fantoccini::actions::{InputSource, KeyAction, KeyActions};
+    let actions = KeyActions::new("kb-chord".to_string())
+        .then(KeyAction::Down { value: modifier })
+        .then(KeyAction::Down { value: character })
+        .then(KeyAction::Up { value: character })
+        .then(KeyAction::Up { value: modifier });
+    browser
+        .perform_actions(actions)
+        .await
+        .unwrap_or_else(|err| panic!("press the {modifier:?}+{character:?} chord: {err}"));
+}
+
+/// AC-02.3's precondition. Selecting the text is what makes this a COPY chord
+/// rather than an arbitrary modifier press: it is the state in which a real user
+/// hits Ctrl/Cmd+C and expects the browser — not Foundry — to act.
+///
+/// The selection is ASSERTED, not assumed. A chord pressed over an empty
+/// selection is a different scenario than the one this claims to be.
+#[given(regex = r#"^Mei is viewing the AUTH board with the text "([^"]+)" selected on the page$"#)]
+async fn board_with_text_selected(world: &mut FoundryWorld, text: String) {
+    let url = board_url(world);
+    let browser = world.browser.as_ref().expect("browser session");
+    browser
+        .goto(&url)
+        .await
+        .expect("navigate to the AUTH board");
+    browser_harness::wait_for_kb_ready(browser).await;
+    // Read back from `window.getSelection()` — the DOCUMENT's live selection, not
+    // the Range object this script built — so the assertion below witnesses that
+    // the selection actually took.
+    //
+    // Via `getRangeAt(0)` rather than `Selection.toString()`: the latter is
+    // specified over the selection AS RENDERED and returns "" under headless
+    // Chrome even for a selection that is unambiguously present (rangeCount === 1,
+    // a visible node, a 56x18 client rect). Verified directly while writing this
+    // step. `getRangeAt(0)` reads the same live selection through its DOM contents
+    // instead of the paint, which is the thing this precondition is actually about.
+    let selected = browser
+        .execute(
+            "var node = document.querySelector(arguments[0]);
+             if (!node) { return '<no such element>'; }
+             var range = document.createRange();
+             range.selectNodeContents(node);
+             var selection = window.getSelection();
+             selection.removeAllRanges();
+             selection.addRange(range);
+             if (selection.rangeCount !== 1) { return '<the selection did not take>'; }
+             return selection.getRangeAt(0).toString();",
+            vec![serde_json::json!(format!("#issue-{text} .key"))],
+        )
+        .await
+        .expect("select the issue key's text on the board");
+    assert_eq!(
+        selected.as_str().unwrap_or_default(),
+        text,
+        "the board does not carry a selectable {text:?} to copy (issue_card.html:1 renders it as \
+         `#issue-{text} .key`), so this scenario would press a copy chord over an EMPTY selection \
+         — a different scenario than the one it claims to be"
+    );
+    browser
+        .execute(INSTALL_CHORD_PROBE, Vec::new())
+        .await
+        .expect("install the chord probe");
+}
+
+/// BOTH modifiers, in one press step, because the scenario asserts both (ADR-007
+/// honest limit 2): Linux CI's copy chord is Ctrl and macOS's is Meta. Asserting
+/// only the local platform's would leave the other runner's arm untested.
+#[when(regex = r"^Mei presses the copy chord with Ctrl and again with Cmd$")]
+async fn presses_copy_chord_both_modifiers(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("browser session");
+    press_chord(browser, WEBDRIVER_CTRL, 'c').await;
+    press_chord(browser, WEBDRIVER_META, 'c').await;
+    press_help_and_await_overlay(browser).await;
+}
+
+/// AC-02.3, first arm. NON-ACTIVATION — never "the text was copied", which is
+/// unassertable headless (ADR-007 honest limit 2). The chord is a browser/OS
+/// affordance; a keyboard layer that grabs it steals Copy from every user.
+#[then(regex = r"^the new-issue modal does not open for either modifier$")]
+async fn no_modal_for_either_modifier(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("browser session");
+    let modals = open_modal_count(browser).await;
+    assert_eq!(
+        modals, 0,
+        "the copy chord opened {modals} modal(s) — \"c\" fired while a modifier was held, so \
+         Ctrl+C / Cmd+C files an issue instead of copying the selection (ADR-002 guard 2)"
+    );
+}
+
+/// AC-02.3, second arm — and the one that says INERT rather than merely "did
+/// nothing". A layer could open no modal and still have swallowed the chord with
+/// `preventDefault()`; then Copy is broken and no modal-count assertion notices.
+/// `defaultPrevented === false` is the observable difference.
+#[then(regex = r"^the keydown default was not prevented for either modifier$")]
+async fn default_not_prevented_for_either_modifier(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("browser session");
+    let probe = browser
+        .execute("return window.__kbChordProbe;", Vec::new())
+        .await
+        .expect("read the chord probe");
+    let seen = probe
+        .as_array()
+        .expect("the probe records an array")
+        .clone();
+    let carried = |ctrl: bool, meta: bool| {
+        seen.iter().find(|entry| {
+            entry["ctrl"].as_bool() == Some(ctrl) && entry["meta"].as_bool() == Some(meta)
+        })
+    };
+    for (label, ctrl, meta) in [("Ctrl", true, false), ("Cmd", false, true)] {
+        let entry = carried(ctrl, meta).unwrap_or_else(|| {
+            panic!(
+                "no {label}+C keydown ever reached the end of the bubble path (the probe saw \
+                 {seen:?}). Either the chord was never delivered, or something CONSUMED the event \
+                 before it bubbled — both mean this scenario cannot speak to guard 2."
+            )
+        });
+        assert_eq!(
+            entry["defaultPrevented"].as_bool(),
+            Some(false),
+            "the {label}+C keydown came back with defaultPrevented === true — the keyboard layer \
+             swallowed the copy chord instead of leaving it to the browser. No modal opened, so a \
+             modal-count assertion alone would have called this a pass, and Copy would be broken \
+             for every user (ADR-002 guard 2)."
+        );
+    }
+}
+
+/// AC-02.4 / BR-7 — the scenario that reds on the OBVIOUS wrong implementation
+/// ("ignore any keydown with a modifier"). `?` IS Shift+/ on a US layout, so a
+/// guard that treats Shift as a suppressor makes the help key — one of the seven
+/// — STRUCTURALLY UNREACHABLE, and every other Shift-produced character with it.
+///
+/// Driven through the Actions API rather than `send_keys("?")` ON PURPOSE: this
+/// scenario's whole subject is that `shiftKey` is true on the event, and only a
+/// real Shift-down/slash/Shift-up sequence makes it so.
+#[when(regex = r#"^Mei presses "\?" which the browser produces as Shift and "/"$"#)]
+async fn presses_shift_slash(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("browser session");
+    browser_harness::wait_for_kb_ready(browser).await;
+    let observed = browser
+        .execute(
+            "window.__kbShiftProbe = null;
+             window.addEventListener('keydown', function (event) {
+               if (event.key === '?') {
+                 window.__kbShiftProbe = { shift: event.shiftKey === true, key: event.key };
+               }
+             });
+             return true;",
+            Vec::new(),
+        )
+        .await
+        .expect("install the shift probe");
+    assert_eq!(observed.as_bool(), Some(true), "shift probe installed");
+    press_chord(browser, WEBDRIVER_SHIFT, '/').await;
+    let probe = browser
+        .execute("return window.__kbShiftProbe;", Vec::new())
+        .await
+        .expect("read the shift probe");
+    assert_eq!(
+        probe["shift"].as_bool(),
+        Some(true),
+        "the Shift+/ sequence did not reach the page as a `?` keydown carrying shiftKey === true \
+         (the probe saw {probe:?}). This scenario exists to prove Shift is NOT a suppressor; \
+         without shiftKey set on the event it proves nothing at all."
+    );
+}
+
+/// The IME scenario's precondition (ADR-007 honest limit 1, restated in code
+/// because it governs how much this scenario is worth): **WebDriver `send_keys`
+/// cannot produce composition**, so the composing state is SIMULATED — a real
+/// `CompositionEvent` dispatched at the focused title field. Listeners fire for
+/// untrusted events, so our predicate IS truthfully exercised; the INPUT METHOD
+/// is not. A real-IME regression can still reach Mei, and the `@manual` scenario
+/// at the foot of the feature file carries that residual risk explicitly rather
+/// than letting this green imply it away.
+///
+/// The modal is opened by a REAL `c` press (never htmx-injected): a Given that
+/// mounted it directly would green this over a layer where `c` is not bound.
+#[given(regex = r"^Mei's Japanese IME is composing text in the title field$")]
+async fn ime_composing_in_title(world: &mut FoundryWorld) {
+    open_new_issue_modal_by_pressing_c(world).await;
+    let browser = world.browser.as_ref().expect("browser session");
+    let composing = browser
+        .execute(
+            "var field = document.querySelector(arguments[0]);
+             if (!field) { return '<no title field>'; }
+             field.focus();
+             field.dispatchEvent(new CompositionEvent('compositionstart', {
+               bubbles: true, cancelable: true, data: ''
+             }));
+             field.dispatchEvent(new CompositionEvent('compositionupdate', {
+               bubbles: true, cancelable: true, data: 'ち'
+             }));
+             return document.activeElement === field ? 'composing' : '<title field not focused>';",
+            vec![serde_json::json!(TITLE_FIELD_SELECTOR)],
+        )
+        .await
+        .expect("begin an IME composition in the title field");
+    assert_eq!(
+        composing.as_str(),
+        Some("composing"),
+        "the title field is not focused and composing, so there is no composition for the next \
+         key to arrive in the middle of"
+    );
+    assert_eq!(
+        open_modal_count(browser).await,
+        1,
+        "exactly the new-issue modal must be open before the composing key arrives — otherwise \
+         \"no ADDITIONAL modal opens\" has no baseline to be additional to"
+    );
+}
+
+/// The composing keydown. `isComposing: true` AND `keyCode: 229` together, because
+/// `isInert`'s guard 1 reads both: 229 is the legacy composition sentinel that
+/// stays reliable on IME/browser pairs where `isComposing` is unset on the
+/// composition-TERMINATING event.
+///
+/// `dispatchEvent` returns false exactly when a listener called
+/// `preventDefault()`, which is how the "left to the input method" arm below gets
+/// a real observable instead of a tautology (an untrusted keydown inserts no text
+/// either way, so asserting the field's value would assert nothing).
+#[when(regex = r#"^a "c" key arrives while composition is in progress$"#)]
+async fn composing_c_arrives(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("browser session");
+    let not_prevented = browser
+        .execute(
+            "var field = document.querySelector(arguments[0]);
+             if (!field) { return '<no title field>'; }
+             var event = new KeyboardEvent('keydown', {
+               key: 'c', code: 'KeyC', keyCode: 229, which: 229,
+               isComposing: true, bubbles: true, cancelable: true
+             });
+             window.__kbImeSurvived = field.dispatchEvent(event);
+             return window.__kbImeSurvived;",
+            vec![serde_json::json!(TITLE_FIELD_SELECTOR)],
+        )
+        .await
+        .expect("deliver a \"c\" keydown mid-composition");
+    assert!(
+        not_prevented.is_boolean(),
+        "the composing keydown was never dispatched ({not_prevented:?}) — the title field was \
+         gone, so this scenario exercised nothing"
+    );
+}
+
+/// AC-02.1's IME arm. `c` mid-composition must not file an issue — for Mei that is
+/// a modal erupting over the word she is halfway through typing.
+#[then(regex = r"^no additional modal opens$")]
+async fn no_additional_modal_opens(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("browser session");
+    let modals = open_modal_count(browser).await;
+    assert_eq!(
+        modals, 1,
+        "{modals} modals are open — a \"c\" delivered mid-composition fired the create shortcut, \
+         so composing any word beginning with \"c\" erupts a modal over Mei's half-typed text \
+         (ADR-002 guard 1)"
+    );
+    assert!(
+        !help_overlay_is_open(browser).await,
+        "the help overlay opened from a composing keystroke"
+    );
+}
+
+/// "Left to the input method" made observable: the layer did not call
+/// `preventDefault()` on the composing keydown, so the IME keeps the keystroke it
+/// is in the middle of composing with. A layer that suppressed the key would open
+/// no modal EITHER — the arm above cannot tell the two apart, which is why this
+/// one exists.
+#[then(regex = r"^the composing character is left to the input method$")]
+async fn composing_character_left_to_ime(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("browser session");
+    let survived = browser
+        .execute("return window.__kbImeSurvived;", Vec::new())
+        .await
+        .expect("read whether the composing keydown survived");
+    assert_eq!(
+        survived.as_bool(),
+        Some(true),
+        "the composing \"c\" keydown was cancelled (preventDefault) by the page — the keyboard \
+         layer took a keystroke that belongs to the input method, so Mei's composition loses the \
+         character. No modal opened, so the assertion above would have called this a pass."
+    );
+}
+
 /// FR-4: `?` is an OVERLAY, not a page transition. The shipped full-page
 /// `GET /keyboard-help` route stays reachable — this asserts the SHORTCUT did
 /// not route Mei to it (which is exactly what a naive `location.href =

@@ -150,14 +150,14 @@ Feature: The seven advertised keyboard shortcuts work in the browser
   # contents are UNASSERTABLE headless, and Linux CI's copy chord is Ctrl not Meta.
   # So assert NON-ACTIVATION (no modal) + defaultPrevented === false for BOTH
   # modifiers — never "the text was copied".
-  @pending @needs-browser @slice2 @us-02 @guard @modifier @error
+  @needs-browser @slice2 @us-02 @guard @modifier @error
   Scenario: A copy chord does not create an issue and is left for the browser to handle
     Given Mei is viewing the AUTH board with the text "AUTH-2" selected on the page
     When Mei presses the copy chord with Ctrl and again with Cmd
     Then the new-issue modal does not open for either modifier
     And the keydown default was not prevented for either modifier
 
-  @pending @needs-browser @slice2 @us-02 @guard @shift
+  @needs-browser @slice2 @us-02 @guard @shift
   Scenario: Shift is not a suppressor so the help key still fires
     Given Mei is viewing the AUTH board with no text field focused
     When Mei presses "?" which the browser produces as Shift and "/"
@@ -168,7 +168,7 @@ Feature: The seven advertised keyboard shortcuts work in the browser
   # KeyboardEvent{isComposing:true, keyCode:229} for `c` via client.execute(). It
   # exercises our predicate truthfully (listeners fire for untrusted events) but is
   # NOT a real IME — a real-IME regression could still reach Mei (see @manual).
-  @pending @needs-browser @slice2 @us-02 @guard @ime @edge
+  @needs-browser @slice2 @us-02 @guard @ime @edge
   Scenario: A key delivered mid IME composition does not fire a shortcut
     Given Mei's Japanese IME is composing text in the title field
     When a "c" key arrives while composition is in progress
