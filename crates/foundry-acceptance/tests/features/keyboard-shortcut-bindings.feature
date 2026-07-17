@@ -87,7 +87,7 @@ Feature: The seven advertised keyboard shortcuts work in the browser
   # bound == advertised (BR-1, KPI-5): both derive from SHORTCUTS. @property here
   # is an EXAMPLE-BASED invariant litmus — layer-3 browser scenario, NOT a
   # PBT-generated one (Mandate 11: layer 3+ sad paths / properties stay example-only).
-  @pending @needs-browser @slice1 @us-01 @help @property @contract
+  @needs-browser @slice1 @us-01 @help @property @contract
   Scenario: The overlay lists exactly the seven advertised shortcuts and each is bound
     Given Mei has opened the help overlay on the AUTH board
     Then it lists a description for each of "c", "/", "j", "k", "Enter", "?" and "Esc"
@@ -436,7 +436,7 @@ Feature: The seven advertised keyboard shortcuts work in the browser
   # carries no @needs-browser tag. It also guards TRAP B: projects.rs:1110's
   # `html.split("id=\"kb-items\"").next()` must be repointed at the full HTML, or
   # `each_issue_lands_in_exactly_its_state_column` passes vacuously.
-  @pending @slice5 @us-05 @kb-items-retirement @grep-litmus @real-io
+  @slice5 @us-05 @kb-items-retirement @grep-litmus @real-io
   Scenario: The hidden keyboard-navigation carrier is gone from the source tree
     Given the retirement of the "#kb-items" carrier has landed
     Then a search for "kb-items" or "kb_items" under crates returns zero hits

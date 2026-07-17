@@ -8,10 +8,9 @@
 //! - `GET /team/{team}/project/{project_slug}/search?q=...` —
 //!   filtered issue list (matches exact key or title substring).
 //! - `GET /keyboard-help` — shortcut-help overlay listing every shortcut.
-//! - `GET /team/{team}/project/{project_slug}` (existing) — must emit a
-//!   hidden `<ul id="kb-items">` carrying `data-issue-key` attributes
-//!   in ASCENDING issue-number order so the j/k handler walks the right
-//!   sequence (the visible board stays descending; see issues.rs).
+//! - `GET /team/{team}/project/{project_slug}` (existing) — must render each
+//!   card carrying a `data-issue-key` attribute, which is what the client
+//!   keyboard layer resolves a selection to (ADR-004).
 //!
 //! Background phrases are inherited from US-06/07/08 (workspace,
 //! membership, signed-in, project, issue range). Re-declaring them
@@ -22,7 +21,7 @@
 //!   Then step(s) → parse cached body with scraper-based helpers.
 
 use crate::support::harness::InProcHarness;
-use crate::support::html_assertions::{assert_has, collect_attributes};
+use crate::support::html_assertions::assert_has;
 use crate::world::FoundryWorld;
 use cucumber::{given, then, when};
 use reqwest::redirect::Policy;
@@ -328,39 +327,6 @@ async fn page_contains_data_issue_key(world: &mut FoundryWorld, prefix: String, 
     assert_has(body, &css);
 }
 
-#[then(
-    regex = r"^the data-issue-key elements appear in the document in ascending issue-number order$"
-)]
-async fn data_issue_key_ascending_order(world: &mut FoundryWorld) {
-    let body = world
-        .us_12_last_get_body
-        .as_ref()
-        .expect("body captured by When");
-    // The hidden kb-items carrier is the source of truth for the
-    // keyboard navigation order. The visible board stays descending
-    // (most-recent first); the alpine.js handler walks `#kb-items li`.
-    let keys = collect_attributes(body, "#kb-items li[data-issue-key]", "data-issue-key");
-    assert!(
-        !keys.is_empty(),
-        "expected hidden #kb-items carrier with data-issue-key entries; body was:\n{body}"
-    );
-    let numbers: Vec<i32> = keys
-        .iter()
-        .filter_map(|k| k.rsplit_once('-').and_then(|(_, n)| n.parse().ok()))
-        .collect();
-    assert_eq!(
-        numbers.len(),
-        keys.len(),
-        "every data-issue-key must parse as PREFIX-N, got {keys:?}"
-    );
-    let mut sorted = numbers.clone();
-    sorted.sort();
-    assert_eq!(
-        numbers, sorted,
-        "expected data-issue-key entries in ASCENDING issue-number order; got {numbers:?}"
-    );
-}
-
 #[then(regex = r#"^the response is an htmx fragment containing a form posting to "([^"]+)"$"#)]
 async fn fragment_contains_form_posting_to(world: &mut FoundryWorld, action: String) {
     let body = world
@@ -542,27 +508,4 @@ async fn response_describes_shortcut(world: &mut FoundryWorld, shortcut: String,
         found,
         "no <dd> sibling found after <dt data-shortcut={shortcut:?}> in body:\n{body}"
     );
-}
-
-// --- Manual scenario stubs -----------------------------------------
-//
-// The @manual scenario is excluded by the default tag filter
-// (acceptance.rs filters out `!has("manual")`), so these step bodies
-// are never invoked under the default run. They are nonetheless
-// registered so an explicit `FOUNDRY_ACCEPTANCE_TAGS=all` run reports
-// them as skipped-by-marker, not as missing-step errors.
-
-#[given(regex = r"^a human reviewer is performing the keyboard-drill checklist$")]
-async fn manual_reviewer_begins(_world: &mut FoundryWorld) {
-    // Manual scenario: see release-checklist.md (precedent: US-01).
-}
-
-#[when(regex = r"^the reviewer follows the documented steps$")]
-async fn manual_reviewer_follows(_world: &mut FoundryWorld) {
-    // Manual scenario.
-}
-
-#[then(regex = r"^the reviewer signs off on the keyboard-shortcut behaviour for this release$")]
-async fn manual_reviewer_signs_off(_world: &mut FoundryWorld) {
-    // Manual scenario.
 }

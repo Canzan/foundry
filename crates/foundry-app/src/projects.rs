@@ -791,9 +791,8 @@ fn render_error_fragment(message: &str) -> String {
 /// The render contract is selector-and-substring-identical to the previous
 /// `format!` markup (design/render-contract.md): the template (`board.html`
 /// extending `base.html`) reproduces the same columns, `data-column` slugs,
-/// `issue-card` partials, and the hidden `#kb-items` ASC carrier — and now
-/// links the vendored `/static` stylesheet + htmx script via the base
-/// layout. Data ordering (column state-filtering + the ASC keyboard carrier)
+/// `issue-card` partials — and now links the vendored `/static` stylesheet +
+/// htmx script via the base layout. Data ordering (column state-filtering)
 /// stays HERE in the handler-side builder; the template only loops.
 fn render_board(
     state: &AppState,
@@ -878,26 +877,6 @@ fn build_board_page(
         })
         .collect();
 
-    // Hidden keyboard-navigation carrier (US-12). The visible board renders
-    // most-recent-first (DESC); this hidden list is sorted ASCENDING by issue
-    // number, the intent being that `j` moves "to the next-older issue"
-    // consistently no matter which column the user is in.
-    //
-    // NOTHING WALKS IT TODAY. This comment previously claimed a j/k handler
-    // walked this list; no such handler was ever written. `j` and `k` are
-    // advertised by `keyboard.rs`'s SHORTCUTS table but stay unbound until
-    // slice 04, so the carrier's only consumer is the port-to-port assertion in
-    // `us_12_keyboard_nav.rs` that checks its ASC ordering — a data structure
-    // currently held in shape by a test of itself. ADR-008 retires it in slice
-    // 05 once j/k are bound for real. Do not build on it: it is scheduled for
-    // deletion, not extension.
-    let mut sorted_issues: Vec<&foundry_services::BoardIssue> = issues.iter().collect();
-    sorted_issues.sort_by_key(|i| i.number);
-    let kb_items = sorted_issues
-        .iter()
-        .map(|row| issue_key_string(key_prefix, row))
-        .collect();
-
     crate::views::BoardPage {
         team_name: team_name.to_string(),
         project_name: project.name.clone(),
@@ -905,7 +884,6 @@ fn build_board_page(
         project_slug,
         key_prefix: project.key_prefix.clone(),
         columns,
-        kb_items,
         nav,
     }
 }
@@ -1043,11 +1021,10 @@ mod board_render_tests {
     }
 
     /// A populated board renders, via the base layout, the vendored `/static`
-    /// asset references AND every card under its column's `data-column` slug,
-    /// with the `#kb-items` carrier sorted ASCENDING by issue number — the
-    /// selector-and-substring contract the acceptance suite reads.
+    /// asset references AND every card under its column's `data-column` slug —
+    /// the selector-and-substring contract the acceptance suite reads.
     #[test]
-    fn populated_board_renders_assets_cards_and_ascending_keyboard_carrier() {
+    fn populated_board_renders_assets_and_cards_under_their_columns() {
         let issues = vec![
             issue(3, "Revoke on password change", "backlog"),
             issue(2, "Refresh token rotation", "in_progress"),
@@ -1073,12 +1050,6 @@ mod board_render_tests {
         assert!(backlog.contains(r#"data-issue-key="AUTH-3""#));
         let in_progress = html.split(r#"data-column="in_progress""#).nth(1).unwrap();
         assert!(in_progress.contains(r#"data-issue-key="AUTH-2""#));
-
-        // Hidden carrier: AUTH-2 before AUTH-3 (ASC by number).
-        let carrier = html.split(r#"id="kb-items""#).nth(1).unwrap();
-        let pos2 = carrier.find("AUTH-2").unwrap();
-        let pos3 = carrier.find("AUTH-3").unwrap();
-        assert!(pos2 < pos3, "kb-items must list AUTH-2 before AUTH-3");
     }
 
     /// Each issue lands in EXACTLY its own state column and nowhere else.
@@ -1111,10 +1082,17 @@ mod board_render_tests {
         ];
         // Slice the HTML into per-column regions at each `data-column` marker so
         // a key found in one region is genuinely under that column, not merely
-        // somewhere on the page. The visible columns precede the hidden
-        // `#kb-items` carrier (which lists EVERY key, ASC), so we truncate each
-        // region at the carrier before bounding it at the next column.
-        let visible = html.split(r#"id="kb-items""#).next().unwrap();
+        // somewhere on the page. Each region is bounded at the NEXT column
+        // marker below, which is what makes "not in this column" checkable.
+        //
+        // This used to split the page on the hidden ASC navigation carrier's id
+        // and keep the head, to cut off a list that named every key on the page.
+        // ADR-008 retired that carrier, and the slice had to be repointed HERE,
+        // in the same change: with nothing left to split on, `.next()` silently
+        // returns the WHOLE page, the test goes on passing, and it stops being
+        // able to see a card that leaked outside its column. Green while blind
+        // is the defect this entire feature exists to end.
+        let visible = html.as_str();
         for (slug, expected_key) in placement {
             let marker = format!(r#"data-column="{slug}""#);
             let region = visible

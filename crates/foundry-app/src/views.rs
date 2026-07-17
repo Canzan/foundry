@@ -6,7 +6,7 @@
 //! compiles `templates/*.html` into the binary at build time. The render
 //! contract is **selector-and-substring-identical** to the previous `format!`
 //! markup (design/render-contract.md): same elements, CSS classes/ids,
-//! `data-column` / `data-issue-key` / `#kb-items` markers, and literal copy;
+//! `data-column` / `data-issue-key` markers, and literal copy;
 //! incidental whitespace is free because the acceptance suite parses the DOM
 //! via `scraper`.
 //!
@@ -260,10 +260,6 @@ pub struct BoardPage {
     /// The project key prefix shown in the header (e.g. `AUTH`).
     pub key_prefix: String,
     pub columns: Vec<BoardColumn>,
-    /// Hidden keyboard-navigation carrier issue keys, **sorted ASCENDING by
-    /// issue number** (US-12 / NFR-WEBB-A11Y-01). Data ordering lives in the
-    /// view-model; the template only renders the `<li>` list.
-    pub kb_items: Vec<String>,
     /// navigation-bar-linear-ui (step 02-01): the shared sidebar carrier,
     /// assembled once per page via `NavContext::home_for`. `app_shell.html`
     /// injects `partials/sidebar.html`, which reads `nav.*`.

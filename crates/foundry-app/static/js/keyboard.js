@@ -12,8 +12,24 @@
 //
 // Progressive enhancement: without this script the pages are unchanged and every
 // no-JS link/form still works. `GET /keyboard-help` is the shipped, public source
-// of the shortcut list, so the overlay's contents cannot drift from the server's
-// SHORTCUTS table (keyboard.rs:48-56) — bound == advertised, by construction.
+// of the shortcut list, so what the overlay DISPLAYS cannot drift from the
+// server's SHORTCUTS table.
+//
+// That is where "by construction" stops, and this comment used to claim more.
+// ADVERTISED is derived from SHORTCUTS; BOUND is the `dispatch` table at the
+// bottom of this file, which names each key in a hand-written `if`. Nothing
+// structural ties the two: add an eighth row to SHORTCUTS and the overlay
+// advertises a key this file silently ignores — which is EXACTLY the defect
+// this feature exists to close (the help promised seven and bound none, and
+// every reader trusted a comment just like the one this replaces).
+//
+// So the invariant is enforced by a TEST, not by construction: the @contract
+// scenario "The overlay lists exactly the seven advertised shortcuts and each
+// is bound" reads the list out of the overlay and presses every key on it
+// (BR-1, KPI-5). Deriving dispatch from SHORTCUTS would make the claim
+// structural and is the better end state; until someone does that, the test is
+// the only thing holding the promise up. Do not restore the stronger wording
+// without the stronger design.
 //
 // ADR-002: ONE guard chain (`isInert`), evaluated ONCE before `dispatch` is
 // reachable, for every key with no per-shortcut exemptions and no call-site
@@ -529,12 +545,12 @@
   var selectedKey = null;
 
   // The cards Mei can SEE, in the order she sees them. `.board` scopes this to
-  // the rendered columns, which is the point of ADR-008: the hidden `#kb-items`
-  // carrier (board.html:12) is ASC-by-number across all columns while the board
-  // is column-grouped and DESC-within-column — a DIFFERENT order. Walking the
-  // carrier would move the ring in an order that matches nothing on screen, and
-  // a `hidden aria-hidden` <li> can carry no ring and cannot be scrolled to.
-  // It is retired whole in a later step; nothing here reads it.
+  // the rendered columns: selection follows the eyes (ADR-008/D-4), so the ring
+  // walks the board's own column-grouped, DESC-within-column order and there is
+  // no second, hidden ordering anywhere to disagree with it. There used to be
+  // one — a hidden ASC-by-number list of every issue key, built for a handler
+  // nobody ever wrote — and it was retired whole rather than walked: a
+  // `hidden aria-hidden` <li> can carry no ring and cannot be scrolled to.
   //
   // Re-queried on EVERY press rather than cached: htmx swaps cards and
   // board-dnd.js reorders them, so a stored list is a list that is already wrong.

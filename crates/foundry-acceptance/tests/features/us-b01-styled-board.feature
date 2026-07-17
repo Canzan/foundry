@@ -57,14 +57,6 @@ Feature: A member opens the board and sees a styled, templated product surface
     And the board shows guidance explaining how to file the first issue
     And the board links the vendored stylesheet from the application's own static path
 
-  @real-io
-  Scenario: The board preserves the hidden keyboard-navigation order
-    Given the "Auth v2" project has issue AUTH-2 titled "Refresh token rotation" in progress
-    And the "Auth v2" project has issue AUTH-3 titled "Revoke on password change" in the backlog
-    And Mei is signed in as a Backend member
-    When Mei opens the "Auth v2" board in her browser
-    Then the board carries the keyboard-navigation list with AUTH-2 before AUTH-3
-
   @error @real-io
   Scenario: A board template that fails to render returns a clean error, not a half-page
     Given the board template is configured to fail rendering

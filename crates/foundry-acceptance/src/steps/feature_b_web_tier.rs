@@ -555,26 +555,6 @@ async fn board_empty_guidance(world: &mut FoundryWorld) {
     );
 }
 
-#[then(
-    regex = r#"^the board carries the keyboard-navigation list with (\w+)-(\d+) before (\w+)-(\d+)$"#
-)]
-async fn board_kb_order(world: &mut FoundryWorld, p1: String, n1: i32, p2: String, n2: i32) {
-    let body = board_body(world);
-    // The hidden #kb-items carrier is ASC-sorted by issue number
-    // (render-contract.md §Board); the US-12 ordering check reads
-    // [data-issue-key] in document order under it.
-    let keys =
-        html_assertions::collect_attributes(&body, "#kb-items [data-issue-key]", "data-issue-key");
-    let want1 = format!("{p1}-{n1}");
-    let want2 = format!("{p2}-{n2}");
-    let i1 = keys.iter().position(|k| k == &want1);
-    let i2 = keys.iter().position(|k| k == &want2);
-    assert!(
-        matches!((i1, i2), (Some(a), Some(b)) if a < b),
-        "keyboard-nav order wrong: expected {want1} before {want2}, got {keys:?}"
-    );
-}
-
 #[then(regex = r#"^the board responds with a clean server error$"#)]
 async fn board_clean_500(world: &mut FoundryWorld) {
     let status = world.b_last_status.expect("status captured");

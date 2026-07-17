@@ -9,6 +9,5 @@
 <section class="column" data-column="{{ column.slug }}"><h3>{{ column.label }}</h3>{% if column.cards.is_empty() %}<p class="empty">No issues yet — press <kbd>c</kbd> to file the first one.</p>{% else %}{% for card in column.cards %}{% include "partials/issue_card.html" %}{% endfor %}{% endif %}</section>
 {% endfor %}
 </div>
-<ul id="kb-items" hidden aria-hidden="true">{% for item in kb_items %}<li data-issue-key="{{ item }}"></li>{% endfor %}</ul>
 <div id="modal-root"></div>
 {% endblock %}

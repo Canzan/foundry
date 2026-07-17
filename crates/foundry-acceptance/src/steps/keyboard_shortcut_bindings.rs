@@ -43,8 +43,8 @@
 //!     defaultPrevented===false for BOTH Ctrl and Meta (clipboard is unassertable
 //!     headless). The `@grep-litmus` step is a SOURCE-TREE grep over `crates/`
 //!     (NOT the browser) — hence it carries no `@needs-browser` tag.
-//!   - Slice 05 also executes the ADR-008 13-site `#kb-items` retirement (mind
-//!     TRAP B at projects.rs:1110) and retires the us-12 `@manual` drill (ADR-007 §5).
+//!   - Slice 05 also executed the ADR-008 retirement of the hidden ASC
+//!     navigation carrier, and retired the us-12 `@manual` drill (ADR-007 §5).
 
 use crate::support::browser_harness;
 use crate::support::harness::InProcHarness;
@@ -301,28 +301,6 @@ async fn visible_card_order(browser: &fantoccini::Client) -> Vec<String> {
         .await
         .expect("read the board's cards in on-screen order");
     json_strings(&keys, "the on-screen card order")
-}
-
-/// The hidden `#kb-items` carrier's order (`board.html:12`) — ASC by issue number
-/// across every column, which is a DIFFERENT order than the visible board's
-/// column-grouped DESC (ADR-008). Read ONLY so the `@kb-items-collision` scenario
-/// can prove the two orders genuinely disagree, i.e. that walking the carrier
-/// would be observably wrong rather than accidentally right.
-///
-/// Returns empty once ADR-008's retirement lands (step 05-05 deletes the
-/// carrier); the collision arm self-retires with it — see its own note.
-async fn carrier_order(browser: &fantoccini::Client) -> Vec<String> {
-    let keys = browser
-        .execute(
-            "return Array.prototype.map.call(
-               document.querySelectorAll('#kb-items li[data-issue-key]'),
-               function (li) { return li.getAttribute('data-issue-key'); }
-             );",
-            Vec::new(),
-        )
-        .await
-        .expect("read the hidden #kb-items carrier order");
-    json_strings(&keys, "the #kb-items carrier order")
 }
 
 fn json_strings(value: &serde_json::Value, what: &str) -> Vec<String> {
@@ -1857,8 +1835,8 @@ async fn new_issue_modal_reopens(world: &mut FoundryWorld) {
 }
 
 /// AC-05.1. "FIRST VISIBLE" is resolved from the RECTS (`visible_card_order`),
-/// never from DOM order and never from the hidden `#kb-items` carrier — the
-/// whole point of the slice is that selection follows the eyes.
+/// never from DOM order — the whole point of the slice is that selection
+/// follows the eyes.
 #[then(regex = r"^the first visible card is highlighted as selected$")]
 async fn first_visible_card_selected(world: &mut FoundryWorld) {
     let browser = world.browser.as_ref().expect("browser session");
@@ -2477,11 +2455,11 @@ async fn no_keyboard_only_action(world: &mut FoundryWorld) {
 
 // --- SLICE 05 / STEP 05-01: j/k walk the VISIBLE cards (US-05, ADR-004) ------
 //
-// The one thing every step below is built to refuse: the hidden `#kb-items`
-// carrier (`board.html:12`). It is ASC-by-number across all columns; the visible
-// board is column-grouped and DESC-within-column (`projects.rs:864-879`) — a
-// DIFFERENT order. Every "which card" question here is answered from
-// `visible_card_order`'s RECTS, so an implementation that walked the carrier reds
+// The one thing every step below is built to refuse: any ordering that is not
+// the one on screen. The board is column-grouped and DESC-within-column
+// (`projects.rs`); the retired ASC-by-number carrier was a DIFFERENT order.
+// Every "which card" question here is answered from
+// `visible_card_order`'s RECTS, so an implementation that walked a hidden list reds
 // on the very first press rather than passing for the wrong reason (ADR-008).
 
 /// AC-05.1's Given. Names three of the four seeded cards; asserts they are on
@@ -2622,40 +2600,26 @@ async fn selection_moves_second_then_first(world: &mut FoundryWorld) {
     );
 }
 
-/// The `@kb-items-collision` arm, and the reason this scenario exists at all.
+/// The collision scenario's point, and the reason it exists at all.
 ///
-/// The board renders TWO orders: the visible, column-grouped DESC one Mei reads,
-/// and the hidden `#kb-items` ASC-by-number carrier whose own shipped comment
-/// once claimed to be "the source of truth for the keyboard navigation order"
-/// (`projects.rs:881-885`). They DISAGREE. This step first proves they disagree —
-/// otherwise it could not tell the two implementations apart and would be
-/// asserting nothing — and then proves `j` followed the eyes.
+/// The board once rendered TWO orders: the visible, column-grouped DESC one Mei
+/// reads, and a hidden ASC-by-number carrier whose own shipped comment claimed
+/// to be "the source of truth for the keyboard navigation order". They
+/// DISAGREED, and this step carried a second arm proving they disagreed — so
+/// that "`j` followed the eyes" could not be accidentally true.
 ///
-/// The carrier arm SELF-RETIRES: step 05-05 deletes `#kb-items` (ADR-008), after
-/// which `carrier_order` is empty and only the geometry arm below runs. That arm
-/// is the permanent one; the carrier arm is a guard for exactly as long as there
-/// is a wrong list on the page to be tempted by.
+/// That arm SELF-RETIRED as promised: step 05-05 deleted the carrier (ADR-008),
+/// so there is no longer a wrong list on the page to be tempted by, and a guard
+/// against a tempting list that no longer exists is inert code (AGENTS.md:
+/// remove it outright). What remains is the permanent claim, and it is the
+/// stronger one: `j` moves to the card Mei sees below the one she is on, proved
+/// against the RECTS. The retirement is now guarded where it belongs — by the
+/// @grep-litmus scenario, which reds if the carrier ever comes back.
 #[then(regex = r"^the selection order matches the order the cards appear on screen$")]
 async fn selection_order_matches_screen(world: &mut FoundryWorld) {
     let browser = world.browser.as_ref().expect("browser session");
     let order = visible_card_order(browser).await;
     let walk = selection_walk(browser).await;
-    let carrier = carrier_order(browser).await;
-    if !carrier.is_empty() {
-        assert_ne!(
-            carrier, order,
-            "the hidden #kb-items carrier and the visible board are rendering the SAME order — \
-             this scenario exists to prove `j` walks what Mei sees rather than the carrier, and it \
-             cannot distinguish them while they agree. Re-seed the board so the two orders differ."
-        );
-        assert_ne!(
-            walk[0], carrier[1],
-            "`j` moved to {}, which is the hidden #kb-items carrier's second entry — not the \
-             second card on screen ({}). Selection must be built from the VISIBLE cards; the \
-             carrier is `hidden aria-hidden` ASC-by-number and can carry no ring (ADR-008).",
-            walk[0], order[1]
-        );
-    }
     assert_eq!(
         walk[0], order[1],
         "`j` moved to {} but the card Mei sees below the first one is {} — the walk order must be \
@@ -4476,5 +4440,383 @@ async fn no_page_reload_was_required(world: &mut FoundryWorld) {
         survived["rest"].as_str(),
         "the browser navigated away from the board while filing, selecting and opening — every one \
          of those is an htmx swap over the SAME document (NFR-6)"
+    );
+}
+
+// --- SLICE 01 (US-01) @contract: bound == advertised ------------------------
+//
+// The feature's headline invariant (BR-1, KPI-5) and the one whose ABSENCE was
+// the bug: the help advertised seven shortcuts and bound none. It is escalated
+// out of step 01-02 to here because its middle arm needs all seven bound, which
+// only became true at 05-03.
+//
+// The list is READ FROM THE OVERLAY, never hardcoded here. That is the whole
+// point: an eighth entry added to `keyboard.rs`'s SHORTCUTS table arrives in
+// this test automatically and demands a binding. A hardcoded list would make
+// the test agree with itself.
+
+/// Every observable slot a keypress could move. Key-AGNOSTIC on purpose: the
+/// same probe judges all seven, so the test cannot quietly know more about one
+/// key than another. Boundness is "the press changed something Mei could see",
+/// which is exactly the claim the help makes and the claim that was false.
+const OBSERVABLE_UNIVERSE_PROBE: &str = "return JSON.stringify({
+     overlay: !!document.querySelector('#kb-overlay-root .keyboard-help'),
+     modal: (document.querySelector('#modal-root') || {}).innerHTML || '',
+     searchPanel: !!document.querySelector('#kb-search-panel'),
+     activeElement: (document.activeElement || {}).id || (document.activeElement || {}).tagName || '',
+     selected: (document.querySelector('.issue-card[aria-selected=\"true\"]') || {}).getAttribute
+       ? document.querySelector('.issue-card[aria-selected=\"true\"]').getAttribute('data-issue-key')
+       : null,
+     activeDescendant: (document.querySelector('.board') || {}).getAttribute
+       ? document.querySelector('.board').getAttribute('aria-activedescendant')
+       : null
+   });";
+
+/// Wait for a press to MOVE the observable world, up to `budget`.
+///
+/// Polling is not politeness here, it is correctness. `?` fetches
+/// /keyboard-help and `Enter` opens a modal through htmx — both land a network
+/// turn AFTER the keystroke returns. Sampling the state immediately reports
+/// "nothing changed" for keys that are perfectly well bound: a RED produced by
+/// the instrument rather than by the code (the same class of measurement error
+/// as a green that only the harness believes). `j`/`k`/`c`/`/` are synchronous
+/// and return on the first poll, so this costs them nothing.
+async fn changed_within(
+    browser: &fantoccini::Client,
+    before: &str,
+    budget: std::time::Duration,
+) -> bool {
+    let deadline = std::time::Instant::now() + budget;
+    loop {
+        if observable_state(browser).await != before {
+            return true;
+        }
+        if std::time::Instant::now() >= deadline {
+            return false;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+}
+
+async fn observable_state(browser: &fantoccini::Client) -> String {
+    browser
+        .execute(OBSERVABLE_UNIVERSE_PROBE, Vec::new())
+        .await
+        .expect("read the observable state")
+        .as_str()
+        .expect("the observable probe returns a JSON string")
+        .to_string()
+}
+
+/// The shortcut keys the OVERLAY advertises, in the order it lists them.
+async fn advertised_shortcuts(browser: &fantoccini::Client) -> Vec<String> {
+    let keys = browser
+        .execute(
+            "return Array.prototype.map.call(
+               document.querySelectorAll('#kb-overlay-root .keyboard-help dt[data-shortcut]'),
+               function (dt) { return dt.getAttribute('data-shortcut'); }
+             );",
+            Vec::new(),
+        )
+        .await
+        .expect("read the advertised shortcut keys");
+    json_strings(&keys, "the advertised shortcut list")
+}
+
+/// The keystroke the BROWSER produces for an advertised label. The help
+/// advertises "Esc" (what a human calls it); a `KeyboardEvent` names it
+/// "Escape". This is the only place the two vocabularies meet.
+fn keystroke_for(advertised: &str) -> &str {
+    match advertised {
+        "Esc" => "Escape",
+        other => other,
+    }
+}
+
+/// The minimal precondition that makes a key CAPABLE of acting, so a key that is
+/// bound but had nothing to do is not mistaken for one that is unbound. `Esc`
+/// needs an open layer to close; `k` needs a selection to move back from;
+/// `Enter` needs a selection to open. Nothing here binds anything — it only
+/// arranges the board so a real binding has visible work.
+async fn arrange_for(browser: &fantoccini::Client, advertised: &str) {
+    match advertised {
+        // `?` fetches the overlay: wait for it to actually be up, or "Esc closed
+        // it" is measured against an overlay that had not opened yet.
+        "Esc" => {
+            let before = observable_state(browser).await;
+            press(browser, "?").await;
+            changed_within(browser, &before, std::time::Duration::from_secs(5)).await;
+        }
+        "k" => {
+            press(browser, "j").await;
+            press(browser, "j").await;
+        }
+        "Enter" => press(browser, "j").await,
+        _ => {}
+    }
+}
+
+#[then(
+    regex = r#"^it lists a description for each of "c", "/", "j", "k", "Enter", "\?" and "Esc"$"#
+)]
+async fn overlay_lists_the_seven(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("browser session");
+    let advertised = advertised_shortcuts(browser).await;
+    let expected: Vec<String> = ["c", "/", "j", "k", "Enter", "?", "Esc"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    assert_eq!(
+        advertised, expected,
+        "the overlay advertises {advertised:?}, but the seven shortcuts this product promises are \
+         {expected:?} (BR-1). The overlay renders GET /keyboard-help, whose <dt data-shortcut> \
+         pairs come from keyboard.rs's SHORTCUTS table — so a mismatch here means the promise and \
+         the table have drifted."
+    );
+    // A key with no description is advertised in name only.
+    let descriptions = browser
+        .execute(
+            "return Array.prototype.map.call(
+               document.querySelectorAll('#kb-overlay-root .keyboard-help dt[data-shortcut]'),
+               function (dt) { return (dt.nextElementSibling || {}).textContent || ''; }
+             );",
+            Vec::new(),
+        )
+        .await
+        .expect("read the shortcut descriptions");
+    let descriptions = json_strings(&descriptions, "the shortcut descriptions");
+    for (key, description) in advertised.iter().zip(descriptions.iter()) {
+        assert!(
+            !description.trim().is_empty(),
+            "the overlay lists \"{key}\" with an empty description — a key Mei cannot read the \
+             purpose of is not advertised to her, it is merely printed"
+        );
+    }
+}
+
+/// THE invariant. For each key the overlay ADVERTISES, press it and prove the
+/// press moved the observable world. This is the assertion whose absence let a
+/// 100%-absent feature sit green for years: every scenario in this file tests
+/// one key deeply, but only this one asks "is every key you PROMISED wired at
+/// all?" — driven by the promise itself rather than by a list the author
+/// remembered to update.
+#[then(regex = r"^every shortcut it lists is bound and does something$")]
+async fn every_listed_shortcut_is_bound(world: &mut FoundryWorld) {
+    let url = board_url(world);
+    let browser = world.browser.as_ref().expect("browser session");
+    let advertised = advertised_shortcuts(browser).await;
+    assert_eq!(
+        advertised.len(),
+        7,
+        "expected the seven advertised shortcuts, got {advertised:?}"
+    );
+
+    let mut unbound: Vec<String> = Vec::new();
+    for key in &advertised {
+        // A fresh board per key: no leftover layer from the previous press can
+        // stand in for this one's effect.
+        browser.goto(&url).await.expect("load the AUTH board");
+        browser_harness::wait_for_kb_ready(browser).await;
+        arrange_for(browser, key).await;
+        let before = observable_state(browser).await;
+        press(browser, keystroke_for(key)).await;
+        if !changed_within(browser, &before, std::time::Duration::from_secs(5)).await {
+            unbound.push(key.clone());
+        }
+    }
+
+    assert!(
+        unbound.is_empty(),
+        "the help overlay advertises {advertised:?}, but pressing {unbound:?} changed NOTHING Mei \
+         could observe — those keys are advertised and unbound. This is the exact defect the \
+         feature exists to close (BR-1, KPI-5): the shortcut list is a promise, and a key on it \
+         that does nothing is a broken one."
+    );
+}
+
+/// The other half of "exactly": the layer must not bind keys it never promised.
+/// A silent extra binding is as much a surprise as a missing one — Mei's `x` is
+/// her browser's `x`, not ours (BR-2).
+#[then(regex = r"^no shortcut outside that list is bound$")]
+async fn no_unadvertised_shortcut_is_bound(world: &mut FoundryWorld) {
+    let url = board_url(world);
+    let browser = world.browser.as_ref().expect("browser session");
+    let advertised = advertised_shortcuts(browser).await;
+
+    let mut surprises: Vec<String> = Vec::new();
+    for key in ["x", "z", "g", "d", "q", "1", "n", "p"] {
+        assert!(
+            !advertised.iter().any(|a| keystroke_for(a) == key),
+            "\"{key}\" is on the advertised list, so it cannot be a probe for UNadvertised keys"
+        );
+        browser.goto(&url).await.expect("load the AUTH board");
+        browser_harness::wait_for_kb_ready(browser).await;
+        let before = observable_state(browser).await;
+        press(browser, key).await;
+        if changed_within(browser, &before, std::time::Duration::from_millis(1500)).await {
+            surprises.push(key.to_string());
+        }
+    }
+
+    assert!(
+        surprises.is_empty(),
+        "pressing {surprises:?} moved the page, but the help advertises only {advertised:?}. An \
+         unadvertised binding is a key Mei cannot discover and cannot avoid (BR-2)."
+    );
+}
+
+// --- CROSS-CUTTING @grep-litmus: the ADR-008 retirement (AC-05.6) -----------
+//
+// NOT a browser scenario. A SOURCE-TREE litmus: the carrier's absence is a fact
+// about the repository, and the only honest way to check a deletion is to look.
+//
+// TWO deliberate contortions, both load-bearing:
+//
+// 1. THE NEEDLE IS ASSEMBLED, NEVER SPELLED. Every search term below is built
+//    with `concat!` from fragments, and the step regexes match the retired id
+//    with a `.` wildcard rather than writing it out. This is the `grep -v grep`
+//    problem: a litmus that spells its own needle is a haystack, and it would
+//    red forever on itself. Assembling the needle earns this file the right to
+//    be INSIDE the search — no exclusion, no allowlist, no place to hide. Do not
+//    "tidy" these into string literals; that is how the litmus starts lying.
+//
+// 2. THE SCOPE IS CARRIER-BEARING FILES. AC-05.6 says "a search for the carrier
+//    under crates returns zero hits". Taken as a raw grep over crates/, that is
+//    UNSATISFIABLE BY CONSTRUCTION: this litmus's own scenario lives in
+//    keyboard-shortcut-bindings.feature, under crates/, and must NAME the thing
+//    it searches for in order to state itself. A test cannot be asked to delete
+//    its own subject. So the litmus reads every file under crates/ that can
+//    CARRY the carrier — Rust, HTML templates, JavaScript — and demands zero
+//    there. Gherkin is prose: it declares no field, emits no markup, queries no
+//    selector. Excluding it costs the litmus NOTHING, and that is checkable
+//    rather than asserted: put the carrier back into board.html, projects.rs,
+//    views.rs, keyboard.js or any step file and this reds. The narrowing buys
+//    the litmus the right to exist; it buys the carrier no hiding place.
+const CARRIER_BEARING_EXTENSIONS: [&str; 3] = ["rs", "html", "js"];
+
+/// The retired carrier's id, in both spellings, assembled so this file contains
+/// neither as a literal. See contortion 1 above.
+const CARRIER_NEEDLES: [&str; 2] = [concat!("kb", "-", "items"), concat!("kb", "_", "items")];
+
+fn crates_dir() -> std::path::PathBuf {
+    // CARGO_MANIFEST_DIR is .../crates/foundry-acceptance at compile time.
+    let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    manifest
+        .parent()
+        .expect("crates/foundry-acceptance has a parent")
+        .to_path_buf()
+}
+
+/// Every carrier-bearing source file under `crates/`, as (path, contents).
+fn carrier_bearing_sources() -> Vec<(std::path::PathBuf, String)> {
+    fn walk(dir: &std::path::Path, out: &mut Vec<(std::path::PathBuf, String)>) {
+        let entries =
+            std::fs::read_dir(dir).unwrap_or_else(|err| panic!("read {}: {err}", dir.display()));
+        for entry in entries {
+            let path = entry.expect("read a directory entry").path();
+            if path.is_dir() {
+                if path.file_name().is_some_and(|n| n == "target") {
+                    continue;
+                }
+                walk(&path, out);
+                continue;
+            }
+            let carries = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(|e| CARRIER_BEARING_EXTENSIONS.contains(&e));
+            if !carries {
+                continue;
+            }
+            let body = std::fs::read_to_string(&path)
+                .unwrap_or_else(|err| panic!("read {}: {err}", path.display()));
+            out.push((path, body));
+        }
+    }
+    let root = crates_dir();
+    let mut sources = Vec::new();
+    walk(&root, &mut sources);
+    // A search that looks nowhere returns zero hits for the wrong reason. This
+    // is the litmus's own vacuity guard: it must prove it read a real tree
+    // before it is allowed to report that the tree is clean.
+    assert!(
+        sources.len() > 20,
+        "the litmus found only {} carrier-bearing source file(s) under {} — it is not reading the \
+         tree it claims to read, so its verdict is worthless",
+        sources.len(),
+        root.display()
+    );
+    sources
+}
+
+/// Lines matching `predicate`, rendered as `path:line: text` for the report.
+fn source_lines_where(predicate: impl Fn(&str) -> bool) -> Vec<String> {
+    let mut hits = Vec::new();
+    for (path, body) in carrier_bearing_sources() {
+        for (index, line) in body.lines().enumerate() {
+            if predicate(line) {
+                hits.push(format!("{}:{}: {}", path.display(), index + 1, line.trim()));
+            }
+        }
+    }
+    hits
+}
+
+// `kb.items`: the `.` is a regex wildcard standing in for the `-` and `_` this
+// file must not spell (contortion 1). It matches the Gherkin verbatim.
+#[given(regex = r##"^the retirement of the "#kb.items" carrier has landed$"##)]
+async fn carrier_retirement_landed(_world: &mut FoundryWorld) {
+    // Deliberately NOT an assertion of the outcome — that is the Then's job.
+    // It proves only that the tree this litmus judges is reachable and readable
+    // from the test process, so a Then that finds nothing has genuinely found
+    // nothing rather than failed to look.
+    let root = crates_dir();
+    assert!(
+        root.join("foundry-app").join("src").is_dir(),
+        "the litmus cannot see the source tree at {} — every assertion below would pass vacuously",
+        root.display()
+    );
+}
+
+/// AC-05.6, the whole checkable statement of doneness. Zero hits, proved by
+/// looking rather than by believing — which is the point, in a feature that
+/// exists because everyone believed a comment.
+#[then(regex = r#"^a search for "kb.items" or "kb.items" under crates returns zero hits$"#)]
+async fn carrier_grep_returns_zero_hits(_world: &mut FoundryWorld) {
+    let hits = source_lines_where(|line| CARRIER_NEEDLES.iter().any(|n| line.contains(n)));
+    assert!(
+        hits.is_empty(),
+        "the hidden navigation carrier is still in the source tree at {} site(s) — ADR-008 retires \
+         it WHOLE:\n{}",
+        hits.len(),
+        hits.join("\n")
+    );
+}
+
+/// TRAP B, guarded as a first-class assertion rather than trusted as a cleanup
+/// detail. A unit test in `projects.rs` used to slice the page at the carrier's
+/// id and keep the head, to cut the carrier off before asserting column
+/// placement. Once the carrier is gone that split matches nothing, `.next()`
+/// returns THE ENTIRE PAGE, and the test KEEPS PASSING — now blind to cards
+/// leaking outside their columns.
+///
+/// That is green-while-absent: the exact pattern this feature exists to end,
+/// reproduced inside the change that ends it. Hence a named check, which reds if
+/// anyone deletes the carrier and leaves a slice behind. It is deliberately
+/// broader than the one known site — any test slicing on the retired id is the
+/// same bug wearing a different name.
+#[then(
+    regex = r#"^no test slices the board HTML on the string "id=\\"kb.items\\"" before asserting column placement$"#
+)]
+async fn no_test_slices_on_the_carrier(_world: &mut FoundryWorld) {
+    let slicers = source_lines_where(|line| {
+        line.contains("split") && CARRIER_NEEDLES.iter().any(|n| line.contains(n))
+    });
+    assert!(
+        slicers.is_empty(),
+        "a test still slices the board HTML on the retired carrier:\n{}\n\nWith the carrier gone \
+         the slice is a NO-OP that silently widens the assertion to the whole page — the test goes \
+         on passing while it stops checking. Repoint it at the full HTML.",
+        slicers.join("\n")
     );
 }
