@@ -175,16 +175,13 @@ Feature: The seven advertised keyboard shortcuts work in the browser
     Then no additional modal opens
     And the composing character is left to the input method
 
-  # BLOCKED at step 02-01 — see deliver/upstream-issues.md UI-3. Its Given needs
-  # "Esc" to close the new-issue modal so Mei LEAVES the title field, but the modal
-  # autofocuses that field (new_issue_modal.html:6) and ADR-002 guard 4 suppresses
-  # every key from a text-entry context with no exemptions — including "Esc". So
-  # the field cannot be left by the means the scenario names. The step definitions
-  # below are written and correct; they red on the Given with that exact
-  # diagnostic. Un-@pending this needs a DESIGN answer (ADR-002 vs US-07), NOT a
-  # crafter working around it — slice 02's own learning hypothesis is what is at
-  # stake here, and it names this as the disproof condition.
-  @pending @needs-browser @slice2 @us-02 @guard
+  # Unblocked by UI-3's ratification (deliver/upstream-issues.md, 2026-07-16):
+  # guard 4's DOMAIN is narrowed to the keys a text-entry context can consume, so
+  # "Esc" — which produces no character and which a text input does nothing with —
+  # is dispatched from the autofocused title field and can close the modal. Not a
+  # per-shortcut carve-out: the predicate never names "Escape", and there is still
+  # exactly one chain evaluated once before dispatch is reachable.
+  @needs-browser @slice2 @us-02 @guard
   Scenario: Leaving the text field re-enables the shortcuts immediately
     Given Mei has typed in the title field and then pressed "Esc" to leave it
     When Mei presses "c"

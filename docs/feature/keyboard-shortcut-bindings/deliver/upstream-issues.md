@@ -127,10 +127,79 @@ decision (it amends the crux ADR or an AC), not a crafter's:
 and the structural shape, and the amendment it needs is to wording that already does not match its own
 rationale. Options 2 and 3 both make the product worse to protect a sentence.
 
+### RESOLUTION — Option 1, ratified by the user 2026-07-16
+
+**Narrow guard 4's domain to text-producing keys.** `Esc` is dispatched from text-entry contexts;
+every other key remains inert there. Verified before ratifying: `keyboard.rs:75` advertises `Esc` as
+literally **"Close modal"**, and both modals autofocus a text input (`new_issue_modal.html:6`,
+`issue_edit_modal.html:6`) — so ADR-002 as written made the one key whose *advertised purpose is to
+close a modal* the one key that cannot close a modal.
+
+**ADR-002's decision stands; its *wording* was wrong.** The chain's stated rationale is
+*"let the text-entry context handle the key natively"*. That is satisfied for `c` / `/` / `j` / `k` /
+`?` (they insert characters) and for `Enter` (the browser submits the form). `Esc` inserts no
+character and has no native behaviour in a text input — Foundry's modals are `div`s, not `<dialog>`,
+so nothing else consumes it. Suppressing `Esc` therefore protects no keystroke and costs US-07
+entirely. **`Esc` is the one key for which "inert" and "let the browser handle it" are not the same
+outcome** — the rule was never really "suppress everything", it was "a text-entry context keeps the
+keys it can consume", and guard 4 simply said it imprecisely.
+
+**BR-2 amendment**: "no exemptions" now reads as *no per-shortcut exemptions and no call-site checks*.
+The predicate stays ONE structural chain evaluated ONCE before dispatch; the narrowing is a property
+of the **predicate's domain**, not a carve-out bolted onto a call site. If an implementation ends up
+with `if (key === "Escape")` scattered at dispatch sites, that is the failure mode BR-2 forbids and
+this ratification does NOT authorise it.
+
+**Unblocks**: AC-02.6 (`Leaving the text field re-enables the shortcuts immediately`, slice 02) and
+both slice-03 `Esc` scenarios (`Escape closes the new-issue modal and returns to the board`,
+`Escape closes one layer at a time`).
+
+**Process note**: this is slice 02's learning hypothesis resolving *as designed*, not an
+implementation defect. The slice named the disproof condition in advance — *"if any of the seven turns
+out to need a bespoke carve-out"* — and pre-committed the response: *"the honest response is **not** to
+ship carve-outs"*. Step 02-01 honoured that, implemented ADR-002 exactly as specified, observed the
+failure directly rather than theorising, and escalated instead of quietly greening its own scenario
+with an exemption. The hypothesis did its job.
+
 **Process note**: step 02-01 shipped the two scenarios that are genuinely achievable (the
 `@paired-assertion` guard and the typing scenario), with the guard implemented per ADR-002 and its
 revert-reds-it falsification proven. It did not force the third green, and did not touch slice 03's
 scope to do so.
+
+### Implementation note — how the narrowing was expressed (step 02-01 re-dispatch, 2026-07-16)
+
+Guard 4 became `isTextEntry(event.target) && isConsumableByTextEntry(event.key)`. The second
+conjunct IS the narrowing, and it is a question about the **key's** relationship to a text field,
+not about our shortcut list:
+
+```js
+function isConsumableByTextEntry(key) {
+  if (typeof key !== "string") return true;              // unknown ⇒ fail closed
+  return key.length === 1 || NATIVE_TEXT_ENTRY_KEYS.indexOf(key) !== -1;
+}
+```
+
+- **`key.length === 1`** — the key produces a character. Covers `c`, `/`, `j`, `k`, `?` *and every
+  character key that is not a shortcut*, which is the point: the domain is defined by the platform,
+  not by `SHORTCUTS`.
+- **`NATIVE_TEXT_ENTRY_KEYS`** — the non-character keys a text input acts on natively (`Enter`
+  submits — ADR-002's own Consequences name this; plus `Tab`, `Backspace`, `Delete`, `Insert`, the
+  four arrows, `Home`/`End`, `PageUp`/`PageDown`, which move the caret or edit the value). A list of
+  platform facts. A future binding on one of these fails CLOSED rather than stealing caret movement.
+- **`Escape` is never named.** It is dispatched from a text field because it satisfies neither arm —
+  it produces no character and a text input does nothing with it. That is the narrowing doing its
+  own work, which is what makes this a domain property rather than a carve-out. `grep '"Escape"'` on
+  the guard path returns nothing; the only `key === "Escape"` in the file is a branch of the
+  **dispatch table**, where naming keys is the entire job.
+
+The chain is still ONE function, evaluated ONCE, with `dispatch` unreachable around it.
+
+**One scope disclosure**: AC-02.6's Given requires `Esc` to actually close the new-issue modal (the
+step waits for `#modal-root:empty`) — narrowing the predicate alone leaves the scenario red, because
+`dispatch`'s `Escape` arm only closed the help overlay. So `closeTopLayer()` was added: help if open,
+else the modal. Only that much — `Esc`'s layered contract and its own scenarios remain slice 03's,
+still `@pending`, and none were touched. Per "no code without a requiring test", this test required
+it.
 
 ---
 

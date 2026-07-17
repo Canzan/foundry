@@ -16,9 +16,12 @@
 // SHORTCUTS table (keyboard.rs:48-56) — bound == advertised, by construction.
 //
 // ADR-002: ONE guard chain (`isInert`), evaluated ONCE before `dispatch` is
-// reachable, for every key with no exemptions. Falling off the end of the chain
-// is the only path to a shortcut, so a new binding is guarded by default rather
-// than by the author remembering.
+// reachable, for every key with no per-shortcut exemptions and no call-site
+// checks. Falling off the end of the chain is the only path to a shortcut, so a
+// new binding is guarded by default rather than by the author remembering.
+// Guard 4's domain is narrowed to the keys a text-entry context can CONSUME
+// (upstream-issues.md UI-3, ratified 2026-07-16) — a property of the predicate,
+// not a carve-out; it names no shortcut.
 //
 // Bound today: `?` (open help), `Esc` (close it), `c` (open the new-issue modal).
 // `/`, `j`, `k` and `Enter` are advertised by SHORTCUTS (keyboard.rs:48-56) but
@@ -27,6 +30,7 @@
   "use strict";
 
   var OVERLAY_HOST_ID = "kb-overlay-root";
+  var MODAL_HOST_ID = "modal-root";
   var HELP_URL = "/keyboard-help";
   var NEW_ISSUE_TRIGGER = "[data-action='new-issue']";
 
@@ -49,6 +53,26 @@
 
   function closeHelp() {
     var host = overlayHost();
+    if (host) {
+      host.innerHTML = "";
+    }
+  }
+
+  function modalHost() {
+    return document.getElementById(MODAL_HOST_ID);
+  }
+
+  // Esc peels the TOPMOST layer only (ADR-003: `#kb-overlay-root` sits above
+  // `#modal-root` in base.html). Slice 02 needs exactly the modal arm — AC-02.6's
+  // precondition is Mei LEAVING the autofocused title field by pressing "Esc" —
+  // so only that much is bound here. `Esc`'s full layered contract (and its own
+  // scenarios) is slice 03's; this is the dispatch point they will land on.
+  function closeTopLayer() {
+    if (helpIsOpen()) {
+      closeHelp();
+      return;
+    }
+    var host = modalHost();
     if (host) {
       host.innerHTML = "";
     }
@@ -111,6 +135,53 @@
   // cheap way to fail closed.
   var TEXT_ENTRY_ROLES = ["textbox", "searchbox", "combobox", "spinbutton"];
 
+  // Keys a text-entry context consumes NATIVELY without producing a character:
+  // the browser moves the caret, edits the value, or submits the form. These are
+  // the field's, exactly as a typed character is. This is a list of platform
+  // facts about text inputs — NOT a list of our shortcuts, and it names none of
+  // them. `Enter` earns its place from ADR-002's own Consequences ("Enter in a
+  // form submits ... as a consequence of BR-2"); the rest are the other keys a
+  // browser acts on inside a field, listed so a future binding on one of them
+  // fails CLOSED rather than silently stealing caret movement.
+  var NATIVE_TEXT_ENTRY_KEYS = [
+    "Enter",
+    "Tab",
+    "Backspace",
+    "Delete",
+    "Insert",
+    "ArrowLeft",
+    "ArrowRight",
+    "ArrowUp",
+    "ArrowDown",
+    "Home",
+    "End",
+    "PageUp",
+    "PageDown",
+  ];
+
+  // Can a text-entry context CONSUME this key? True when the key produces a
+  // character (`event.key` is a single printable char — `c`, `/`, `j`, `k`, `?`)
+  // or when the field acts on it natively (above).
+  //
+  // This is guard 4's DOMAIN, narrowed per upstream-issues.md UI-3 (ratified
+  // 2026-07-16). Guard 4's rationale was always "let the text-entry context
+  // handle the key natively" — a key the field does nothing with has no native
+  // handling to protect, so suppressing it protects no keystroke. `Escape` is
+  // such a key: it produces no character, and Foundry's modals are `div`s, not
+  // `<dialog>`, so nothing in a field consumes it. Under the old wording the one
+  // key advertised as "Close modal" (keyboard.rs:75) was the one key that could
+  // never close a modal, because every modal autofocuses its title input.
+  //
+  // The rule is "a text-entry context keeps the keys it can consume". It is a
+  // property of this predicate, evaluated once, and it names no shortcut — there
+  // is still no `key === "Escape"` test anywhere on the guard path (BR-2).
+  function isConsumableByTextEntry(key) {
+    if (typeof key !== "string") {
+      return true;
+    }
+    return key.length === 1 || NATIVE_TEXT_ENTRY_KEYS.indexOf(key) !== -1;
+  }
+
   function isTextEntry(target) {
     if (!target || target.nodeType !== 1) {
       return false;
@@ -153,11 +224,12 @@
     if (event.defaultPrevented) {
       return true;
     }
-    // 4. The character is being typed. Read from the LIVE event target, so
-    //    leaving a field re-enables the shortcuts on the very next keypress with
-    //    no state to reset — a focus flag would be a global toggle, and a global
-    //    toggle is what leaves the shortcuts dead after a field is touched.
-    return isTextEntry(event.target);
+    // 4. A text-entry context has the key and can consume it. Read from the LIVE
+    //    event target, so leaving a field re-enables the shortcuts on the very
+    //    next keypress with no state to reset — a focus flag would be a global
+    //    toggle, and a global toggle is what leaves the shortcuts dead after a
+    //    field is touched.
+    return isTextEntry(event.target) && isConsumableByTextEntry(event.key);
   }
 
   // `c` opens the new-issue modal by CLICKING the board's own shipped trigger
@@ -195,8 +267,8 @@
       openNewIssue();
       return;
     }
-    if (event.key === "Escape" && helpIsOpen()) {
-      closeHelp();
+    if (event.key === "Escape") {
+      closeTopLayer();
     }
   }
 
