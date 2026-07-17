@@ -2528,13 +2528,26 @@ async fn has_first_visible_card_selected(world: &mut FoundryWorld) {
 /// One real keystroke at `body`, through the same document-delegated listener a
 /// human's press reaches (ADR-001).
 async fn press(browser: &fantoccini::Client, key: &str) {
+    press_at(browser, "body", key).await;
+}
+
+/// One real keystroke delivered AT `selector`.
+///
+/// WebDriver's Element Send Keys focuses its target before typing, so the target
+/// is not cosmetic — it is "where the user's focus is when they press the key".
+/// `press()` types at `body`, which is right for a sighted keyboard user (no focus
+/// prerequisite; the document-delegated listener fires immediately) and WRONG for
+/// the ADR-006 composite: typing at `body` would BLUR the board this scenario just
+/// Tabbed to, and `aria-activedescendant` announces only from the focused
+/// composite. That would be the test destroying the very precondition it asserts.
+async fn press_at(browser: &fantoccini::Client, selector: &str, key: &str) {
     browser
-        .find(Locator::Css("body"))
+        .find(Locator::Css(selector))
         .await
-        .expect("find the document body")
+        .unwrap_or_else(|err| panic!("find {selector:?} to press {key:?} at it: {err}"))
         .send_keys(browser_harness::key_chord(key))
         .await
-        .unwrap_or_else(|err| panic!("press {key:?}: {err}"));
+        .unwrap_or_else(|err| panic!("press {key:?} at {selector:?}: {err}"));
 }
 
 /// Records where the ring is RIGHT NOW onto the page, building the walk the Then
@@ -2867,6 +2880,529 @@ async fn no_error_occurs(world: &mut FoundryWorld) {
         errors.is_empty(),
         "pressing \"k\" at the first card raised {errors:?} — the boundary must be a quiet no-op \
          (FR-8), not an exception Mei never sees but which kills every later press"
+    );
+}
+
+// --- SLICE 05 / STEP 05-02: drag coexistence + a11y (AC-05.8, AC-05.7) -------
+
+/// The board region itself (`board.html:7`). ADR-006 makes THIS the focusable
+/// ARIA composite: one `tabindex="0"` on ONE container, which is what keeps D-4's
+/// rejection of roving tabindex intact (it adds one tab stop, not N).
+const BOARD_SELECTOR: &str = ".board";
+
+/// Presses `j` AT `from` until the ring is on `key`. Every press is a REAL
+/// keystroke through the document-delegated listener — the selection is never
+/// mounted from JS, which would be Fixture Theater (it would green these
+/// scenarios over a build where `j` is unbound entirely).
+///
+/// The count is DERIVED from where `key` sits in the on-screen order, so this
+/// helper cannot mask a `j` that moves by the wrong step: press N+1 times and the
+/// ring must be on the (N+1)th card Mei sees, or the assertion below reds.
+async fn select_by_pressing_j(browser: &fantoccini::Client, from: &str, key: &str) {
+    let order = visible_card_order(browser).await;
+    let index = order.iter().position(|k| k == key).unwrap_or_else(|| {
+        panic!(
+            "{key} is not on the board (it shows {order:?}) — this scenario asserts what happens to \
+             {key}'s ring, so {key} must be a card Mei can see"
+        )
+    });
+    for _ in 0..=index {
+        press_at(browser, from, "j").await;
+    }
+    assert_selected_is(
+        browser,
+        key,
+        format!("{} press(es) of \"j\"", index + 1).as_str(),
+    )
+    .await;
+}
+
+/// AC-05.8's Given. The ring is put on AUTH-2 by pressing the real `j`.
+#[given(regex = r"^Mei has selected AUTH-2 on the AUTH board$")]
+async fn has_selected_auth2(world: &mut FoundryWorld) {
+    let url = board_url(world);
+    let browser = world.browser.as_ref().expect("browser session");
+    browser
+        .goto(&url)
+        .await
+        .expect("navigate to the AUTH board");
+    browser_harness::wait_for_kb_ready(browser).await;
+    // At `body`: Hiroshi is a pointer user and Mei is a sighted keyboard user —
+    // neither has Tabbed anywhere, and the document-delegated listener needs no
+    // focus prerequisite. That is the ADR-006 asymmetry this scenario relies on.
+    select_by_pressing_j(browser, "body", "AUTH-2").await;
+    // AUTH-2's on-screen position BEFORE the drag — the "old slot" the Then reads
+    // back. Stamped on `window` (the house idiom, as `__kbScrollTarget`): a
+    // navigation destroys it, so a drag that reloaded the page cannot quietly
+    // satisfy the assertion.
+    let order = visible_card_order(browser).await;
+    let index = order
+        .iter()
+        .position(|k| k == "AUTH-2")
+        .expect("AUTH-2 is on the board");
+    browser
+        .execute(
+            "window.__kbSlotBeforeDrag = arguments[0]; return null;",
+            vec![serde_json::Value::from(index as u64)],
+        )
+        .await
+        .expect("stamp AUTH-2's slot before the drag");
+}
+
+/// AC-05.8's When — and the honest limit it carries.
+///
+/// `board-dnd.js` implements NATIVE HTML5 drag-and-drop (`dragstart` / `dragover`
+/// / `drop`). WebDriver's pointer actions do NOT synthesise the native drag
+/// protocol in Chrome — a mouse-down/move/up sequence produces a text selection,
+/// never a `dragstart` — so the gesture is DISPATCHED: a real `DragEvent` with a
+/// real `DataTransfer` at each of the three stages, on the real elements, into
+/// `board-dnd.js`'s own real listeners. Same limit, same disclosure discipline as
+/// the `@ime` scenario (ADR-007 honest limit 1): the handlers under test run for
+/// real; only the input substrate is simulated. `board-dnd.js` is NOT modified —
+/// this step reaches it exactly as the browser would.
+///
+/// The drop lands in the FIRST column that is not AUTH-2's own, and the `clientY`
+/// is the column's own top, so `insertBeforeTarget` resolves against the real
+/// geometry rather than a coordinate this step invented.
+#[when(regex = r"^Hiroshi drags AUTH-2 into another column with the mouse$")]
+async fn hiroshi_drags_auth2_to_another_column(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("browser session");
+    let moved_into = browser
+        .execute(
+            r#"var card = document.querySelector(".board .issue-card[data-issue-key='AUTH-2']");
+               if (!card) { throw new Error('AUTH-2 is not on the board'); }
+               var from = card.closest('[data-column]');
+               var into = null;
+               var columns = document.querySelectorAll('.board [data-column]');
+               for (var i = 0; i < columns.length; i++) {
+                 if (columns[i] !== from) { into = columns[i]; break; }
+               }
+               if (!into) { throw new Error('the board renders only one column — nothing to drag INTO'); }
+               var transfer = new DataTransfer();
+               function fire(target, type, extra) {
+                 var event = new DragEvent(type, Object.assign({
+                   bubbles: true, cancelable: true, composed: true, dataTransfer: transfer
+                 }, extra || {}));
+                 target.dispatchEvent(event);
+                 return event;
+               }
+               var rect = into.getBoundingClientRect();
+               fire(card, 'dragstart');
+               fire(into, 'dragover', { clientY: rect.top });
+               fire(into, 'drop', { clientY: rect.top });
+               fire(card, 'dragend');
+               window.__kbDraggedInto = into.getAttribute('data-column');
+               return window.__kbDraggedInto;"#,
+            Vec::new(),
+        )
+        .await
+        .expect("drag AUTH-2 into another column")
+        .as_str()
+        .expect("the column AUTH-2 was dragged into")
+        .to_string();
+    assert!(
+        !moved_into.is_empty(),
+        "the drag reported no destination column"
+    );
+}
+
+/// NFR-8 — the drag must work exactly as it does today, with the keyboard layer
+/// loaded beside it. Both halves of "completes" are asserted:
+///   1. the card is now in the target column IN THE DOM (the optimistic move), and
+///   2. the state POST reached the server and stuck — read from the DATABASE, not
+///      from the page. A drag that moved the card optimistically and then had its
+///      POST rejected would revert, and a DOM-only assertion could race that
+///      revert and pass over a broken drag.
+/// The page is deliberately NOT reloaded: selection is ephemeral (BR-5), and a
+/// reload would destroy the very ring the next step exists to assert.
+#[then(regex = r"^the drag completes as it does today$")]
+async fn drag_completes_as_today(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("browser session");
+    let expected = browser
+        .execute(
+            "if (!window.__kbDraggedInto) { throw new Error('no drag was recorded'); }
+             return window.__kbDraggedInto;",
+            Vec::new(),
+        )
+        .await
+        .expect("read the column AUTH-2 was dragged into")
+        .as_str()
+        .expect("a column slug")
+        .to_string();
+    let landed = browser
+        .execute(
+            r#"var card = document.querySelector(".board .issue-card[data-issue-key='AUTH-2']");
+               if (!card) { return '<AUTH-2 left the board entirely>'; }
+               var column = card.closest('[data-column]');
+               return column ? column.getAttribute('data-column') : '<no column>';"#,
+            Vec::new(),
+        )
+        .await
+        .expect("read the column AUTH-2 now sits in")
+        .as_str()
+        .expect("a column slug")
+        .to_string();
+    assert_eq!(
+        landed, expected,
+        "AUTH-2 was dragged into the {expected:?} column but the board shows it in {landed:?} — the \
+         drag itself must keep working unchanged with the keyboard layer loaded beside it (NFR-8)"
+    );
+
+    let harness = world.harness.as_ref().expect("harness");
+    let pool = harness.app.state.store.pool();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let stored = loop {
+        let stored: (String,) = sqlx::query_as(
+            "SELECT state FROM issues
+              WHERE number = 2
+                AND project_id = (SELECT id FROM projects WHERE key_prefix = 'AUTH')",
+        )
+        .fetch_one(pool)
+        .await
+        .expect("read AUTH-2's stored state");
+        if stored.0 == expected || std::time::Instant::now() >= deadline {
+            break stored.0;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    };
+    assert_eq!(
+        stored, expected,
+        "the board shows AUTH-2 in {expected:?} but the server still has it in {stored:?} — the \
+         drop's state POST (board-dnd.js) never landed, so the move is an optimistic lie that the \
+         next reload undoes (NFR-8)"
+    );
+}
+
+/// THE INDEX-VS-KEY PROOF (AC-05.8, ADR-004) — the scenario the whole selection
+/// model is shaped by, and the one that must RED the moment anyone stores an index.
+///
+/// The third arm below is the one that does that work, and it is here because the
+/// obvious two arms DO NOT: verified by falsification at step 05-02, not assumed.
+/// Porting `keyboard.js` to a stored index and running arms 1-2 alone left this
+/// scenario GREEN. The reason is worth writing down, because it is exactly the
+/// kind of thing a scenario passes over:
+///
+/// **`aria-selected` rides the NODE.** The drag MOVES AUTH-2's element rather than
+/// re-rendering it, and nothing re-projects the ring afterwards — so the attribute
+/// stays on AUTH-2 whatever the model stores. A stale index is not visible in the
+/// ring at all. It is visible on the NEXT PRESS, which is precisely ADR-004's
+/// stated harm: the index "silently re-points at a DIFFERENT issue while Mei is
+/// looking away, and `Enter` then opens the wrong one". Silent is the operative
+/// word — an assertion that only reads the ring cannot see it.
+///
+/// So "coherent" (this scenario's own title) is asserted as what it means: the
+/// selection still IDENTIFIES AUTH-2, not merely that a leftover attribute sits on
+/// it. Three arms:
+///   1. the ring is on AUTH-2 — the NODE it started on, wherever that node now is;
+///   2. the card that now occupies AUTH-2's OLD on-screen position is a DIFFERENT
+///      card, and is not ringed (without this, arm 1 could pass over a board where
+///      nothing moved, and the scenario would be asserting nothing at all);
+///   3. the model still resolves to AUTH-2: `k` then `j` walks off the selection
+///      and back onto it. Key-based, `k` lands on the card now before AUTH-2 and
+///      `j` returns. Index-based, the stale slot walks from the WRONG place and
+///      the ring comes back on someone else. This is the arm that reds.
+#[allow(clippy::too_many_lines)]
+#[then(regex = r"^the ring is still on AUTH-2, not on whatever now occupies the old slot$")]
+async fn ring_still_on_auth2(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("browser session");
+    let index_before = browser
+        .execute(
+            "if (window.__kbSlotBeforeDrag === undefined) {
+               throw new Error('the Given never recorded AUTH-2 slot');
+             }
+             return window.__kbSlotBeforeDrag;",
+            Vec::new(),
+        )
+        .await
+        .expect("read AUTH-2's slot from before the drag")
+        .as_u64()
+        .expect("a slot index") as usize;
+    let order = visible_card_order(browser).await;
+    let occupant = order
+        .get(index_before)
+        .unwrap_or_else(|| panic!("the board shrank to {order:?} after the drag"))
+        .clone();
+    assert_ne!(
+        occupant, "AUTH-2",
+        "AUTH-2 is still sitting at its own old on-screen position ({index_before}) after the drag \
+         — nothing moved, so this scenario cannot tell a key-based selection from an index-based \
+         one and is asserting nothing. Re-check the drag (board-dnd.js) or the seeded columns."
+    );
+    assert_selected_is(
+        browser,
+        "AUTH-2",
+        &format!(
+            "dragging AUTH-2 into another column (the card now at its old position {index_before} \
+             is {occupant})"
+        ),
+    )
+    .await;
+
+    // Arm 3 — COHERENCE. See this step's own note: arms 1-2 are green under a
+    // stored index, because the ring rides the dragged node. The model is
+    // interrogated the only way a user can interrogate it — by pressing a key —
+    // and the oracle is computed from the board's CURRENT on-screen order, which
+    // is the order Mei's eyes now report.
+    let now_at = order
+        .iter()
+        .position(|k| k == "AUTH-2")
+        .expect("AUTH-2 is still on the board");
+    assert!(
+        now_at > 0,
+        "the drag left AUTH-2 first on screen, so `k` has nowhere to step back to and this arm \
+         cannot distinguish a key from an index — re-check which column the drag targeted"
+    );
+    let neighbour = order[now_at - 1].clone();
+    press(browser, "k").await;
+    assert_selected_is(
+        browser,
+        &neighbour,
+        &format!(
+            "\"k\" after the drag (AUTH-2 now sits at on-screen position {now_at}, so `k` must step \
+             to {neighbour} — the card Mei sees immediately before it. A selection that stored \
+             AUTH-2's OLD slot ({index_before}) steps from where AUTH-2 USED to be and lands \
+             somewhere else entirely, which is ADR-004's whole case against an index)"
+        ),
+    )
+    .await;
+    press(browser, "j").await;
+    assert_selected_is(
+        browser,
+        "AUTH-2",
+        "\"k\" and then \"j\" after the drag (the ring must walk off AUTH-2 and back onto it — the \
+         selection identifies the ISSUE by its key, so it survives the card moving; an index \
+         identifies a SLOT, and the slot now holds a different issue)",
+    )
+    .await;
+}
+
+/// AC-05.7's Given — the ADR-006 accepted cost, made executable.
+///
+/// A screen-reader user in browse mode must Tab to the board ONCE before `j`/`k`
+/// arrive at all; this step is that Tab. It presses the real `Tab` key from the
+/// top of the document until DOM focus lands on the board, and asserts it got
+/// there — so this Given REDS while the board is not a focusable composite, which
+/// is exactly what ADR-006 asks slice 05 to build. It never calls `.focus()`:
+/// focusing the board from JS would green the scenario over a board no Tab can
+/// ever reach, which is the accessibility failure the ADR is about.
+#[given(regex = r"^Mei has Tabbed to focus the AUTH board as a screen-reader user would$")]
+async fn tabbed_to_focus_the_board(world: &mut FoundryWorld) {
+    let url = board_url(world);
+    let browser = world.browser.as_ref().expect("browser session");
+    browser
+        .goto(&url)
+        .await
+        .expect("navigate to the AUTH board");
+    browser_harness::wait_for_kb_ready(browser).await;
+    let body = browser
+        .find(Locator::Css("body"))
+        .await
+        .expect("find the document body");
+    let mut focused = String::new();
+    for _ in 0..40 {
+        body.send_keys(browser_harness::key_chord("Tab"))
+            .await
+            .expect("press Tab");
+        focused = browser
+            .execute(
+                r#"var el = document.activeElement;
+                   if (!el) { return '<none>'; }
+                   return el.matches('.board') ? 'board' : (el.tagName.toLowerCase() +
+                     (el.id ? '#' + el.id : ''));"#,
+                Vec::new(),
+            )
+            .await
+            .expect("read what has focus")
+            .as_str()
+            .expect("a description of the focused element")
+            .to_string();
+        if focused == "board" {
+            return;
+        }
+    }
+    panic!(
+        "40 presses of Tab never landed focus on the board (focus is on {focused:?} instead). An \
+         AT user reaches `j`/`k` ONLY through focus mode, which their screen reader enters when \
+         focus lands on a composite widget — so a board with no tab stop is a board whose \
+         selection keys never arrive at all (ADR-006). The board must be a focusable composite: \
+         `tabindex=\"0\"` plus a composite role."
+    );
+}
+
+/// AC-05.7's When. `j` moves the ring to AUTH-2 by real presses, delivered AT the
+/// board Mei just Tabbed to — because that is the whole point of ADR-006: the
+/// keys arrive only once the composite has focus, and the press must therefore
+/// come from inside it. Typing at `body` here would blur the board and assert a
+/// path no AT user takes.
+#[when(regex = r#"^Mei presses "j" to move the selection to AUTH-2$"#)]
+async fn presses_j_to_select_auth2(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("browser session");
+    select_by_pressing_j(browser, BOARD_SELECTOR, "AUTH-2").await;
+}
+
+/// AC-05.7 / ADR-006's core mechanism. `aria-activedescendant` is read from the
+/// BOARD (the composite that has focus) and must point at AUTH-2's shipped
+/// `id="issue-AUTH-2"` (`issue_card.html:1`) — the id is the ADR's whole reason
+/// for choosing this mechanism, so the assertion names it rather than any
+/// client-invented attribute.
+///
+/// The board's ROLE is asserted beside it, because `aria-activedescendant` on an
+/// element with no composite role announces NOTHING: AT resolves the active
+/// descendant only for a widget that owns options. An attribute that is present
+/// and inert is the failure this scenario exists to prevent, and it is
+/// indistinguishable from success unless the role is checked too.
+#[then(regex = r"^the board's active descendant is the AUTH-2 card$")]
+async fn board_active_descendant_is_auth2(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("browser session");
+    let report = browser
+        .execute(
+            r#"var board = document.querySelector(arguments[0]);
+               if (!board) { throw new Error('the board region is not on the page'); }
+               var active = board.getAttribute('aria-activedescendant');
+               return {
+                 active: active,
+                 role: board.getAttribute('role'),
+                 focused: document.activeElement === board,
+                 target: active ? (document.getElementById(active)
+                   ? document.getElementById(active).getAttribute('data-issue-key') : '<no such id>')
+                   : '<unset>'
+               };"#,
+            vec![BOARD_SELECTOR.into()],
+        )
+        .await
+        .expect("read the board's active descendant");
+    assert!(
+        report["focused"].as_bool().unwrap_or(false),
+        "the board lost DOM focus during the presses — `aria-activedescendant` announces only from \
+         the focused composite, so a board that cannot HOLD focus while `j` fires exposes nothing \
+         (ADR-006)"
+    );
+    let role = report["role"].as_str().unwrap_or("<unset>");
+    assert_eq!(
+        role, "listbox",
+        "the board's role is {role:?}. `aria-activedescendant` is resolved by assistive technology \
+         only on a composite that owns options — on a plain `div` the attribute is present and \
+         inert, which reviews as accessible and is silent in use. ADR-006 chooses `listbox` \
+         specifically (not `grid`: `j`/`k` are one linear sequence with no 2D arrow navigation)"
+    );
+    let target = report["target"].as_str().unwrap_or("<unset>");
+    assert_eq!(
+        target,
+        "AUTH-2",
+        "the board's aria-activedescendant is {:?}, which resolves to {target:?} — it must be \
+         AUTH-2's own card `id=\"issue-AUTH-2\"` (issue_card.html:1). That shipped id is the \
+         prerequisite ADR-006 picked this mechanism for; pointing it anywhere else announces the \
+         wrong issue on every move (AC-05.7)",
+        report["active"].as_str().unwrap_or("<unset>")
+    );
+}
+
+/// `aria-selected` is STATE, not just an announcement (ADR-006): a screen-reader
+/// user can query what is selected, not only hear it change once. Asserted as
+/// EXACTLY-ONE — a projection that adds the state without clearing it elsewhere
+/// leaves AT reading two selected options out of one selection.
+#[then(regex = r"^the AUTH-2 card is marked selected for assistive technology$")]
+async fn auth2_marked_selected_for_at(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("browser session");
+    assert_selected_is(browser, "AUTH-2", "\"j\" moving the selection to AUTH-2").await;
+    let role = browser
+        .execute(
+            r#"var card = document.querySelector(".board .issue-card[data-issue-key='AUTH-2']");
+               if (!card) { throw new Error('AUTH-2 is not on the board'); }
+               return card.getAttribute('role') || '<unset>';"#,
+            Vec::new(),
+        )
+        .await
+        .expect("read AUTH-2's role")
+        .as_str()
+        .expect("a role")
+        .to_string();
+    assert_eq!(
+        role, "option",
+        "AUTH-2's card has role {role:?}. `aria-selected` is only meaningful on an option inside \
+         the listbox — on an `article` it is an attribute AT ignores, so the selection would be \
+         marked in the DOM and absent from the accessibility tree (ADR-006)"
+    );
+}
+
+/// NFR-7. The ring must be a SHAPE change, not a colour change: read the computed
+/// outline off the live selected card. `background: blue` — the tempting one-liner
+/// — reds here, and so does a ring that is only a colour swap, because neither
+/// survives forced-colours mode or a colour-blind reader.
+#[then(regex = r"^the selection highlight does not rely on colour alone$")]
+async fn highlight_not_colour_alone(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("browser session");
+    let report = browser
+        .execute(
+            r#"var card = document.querySelector(".board .issue-card[aria-selected='true']");
+               if (!card) { throw new Error('nothing is selected'); }
+               var style = window.getComputedStyle(card);
+               return {
+                 width: parseFloat(style.outlineWidth) || 0,
+                 style: style.outlineStyle
+               };"#,
+            Vec::new(),
+        )
+        .await
+        .expect("measure the selected card's ring");
+    let width = report["width"].as_f64().unwrap_or(0.0);
+    let outline_style = report["style"].as_str().unwrap_or("none");
+    assert!(
+        width > 0.0 && outline_style != "none",
+        "the selected card's ring is outline-width {width}px / outline-style {outline_style} — a \
+         highlight drawn with colour alone disappears in forced-colours mode and is invisible to a \
+         colour-blind reader (NFR-7). The ring must be a shape change: `outline` + `outline-offset`"
+    );
+}
+
+/// The ADR-006 RATIFICATION's own obligation on slice 05, made a test rather than
+/// a promise.
+///
+/// KPI-4 holds **conditionally** — "once the board is focused". The user ratified
+/// Option A on the condition that the qualifier travels with the claim, and that
+/// the instruction reaches the USER through the help overlay's own copy, not just
+/// the ADR. This step is the only thing standing between that condition and being
+/// quietly dropped: an accepted cost nobody is told about is an undocumented bug.
+#[then(regex = r#"^the help overlay tells the user to Tab to the board, then press "j" or "k"$"#)]
+async fn help_overlay_documents_the_tab(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("browser session");
+    press(browser, "?").await;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let copy = loop {
+        let text = browser
+            .execute(
+                "var help = document.querySelector('#kb-overlay-root .keyboard-help');
+                 return help ? help.textContent : '';",
+                Vec::new(),
+            )
+            .await
+            .expect("read the help overlay's copy")
+            .as_str()
+            .unwrap_or_default()
+            .to_string();
+        let lowered = text.to_lowercase();
+        if (lowered.contains("tab") && lowered.contains("board"))
+            || std::time::Instant::now() >= deadline
+        {
+            break text;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    };
+    let lowered = copy.to_lowercase();
+    assert!(
+        lowered.contains("tab") && lowered.contains("board"),
+        "the help overlay never tells the user to Tab to the board before pressing `j`/`k`; it \
+         reads: {copy:?}\n  ADR-006's ratification (Option A, 2026-07-15) accepts the one-time Tab \
+         as a documented cost ON THE CONDITION that the instruction reaches the user through the \
+         help overlay's own copy — the discoverability surface this whole feature is built around. \
+         An AT user who is never told stands on the board pressing `j` while nothing happens, \
+         which is indistinguishable from the feature being absent."
+    );
+    assert!(
+        lowered.contains('j') && lowered.contains('k'),
+        "the help overlay mentions Tabbing to the board but never names the keys it unlocks; it \
+         reads: {copy:?} — the ratified instruction is \"Tab to the board, then `j`/`k`\", and half \
+         of it is not an instruction"
     );
 }
 

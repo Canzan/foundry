@@ -158,6 +158,14 @@ pub struct ShortcutEntry {
 #[template(path = "partials/keyboard_help.html")]
 pub struct KeyboardHelp {
     pub entries: Vec<ShortcutEntry>,
+    /// The ADR-006 selection instruction ("Tab to focus the board first, then
+    /// j/k"), rendered as `p.kb-selection-instruction` after the shortcut list.
+    /// Its copy is `keyboard.rs::SELECTION_INSTRUCTION` — the same table that owns
+    /// `SHORTCUTS`, because it is part of what the help advertises. A field rather
+    /// than template-literal prose for the same reason the shortcut labels are:
+    /// the help's contents must not be able to drift from the server's own source
+    /// of truth (BR-1).
+    pub selection_instruction: String,
 }
 
 /// The state-change chip FRAGMENT (US-R03). A BARE htmx fragment — it MUST NOT

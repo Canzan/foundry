@@ -75,6 +75,27 @@ const SHORTCUTS: &[(&str, &str)] = &[
     ("Esc", "Close modal"),
 ];
 
+/// The ADR-006 ratification's own obligation on the help copy, and the reason it
+/// lives here beside `SHORTCUTS` rather than in a template: it is part of what the
+/// help ADVERTISES, and this table is the single source of that.
+///
+/// D-4 rejected roving tabindex, so the selection ring is not native focus. For a
+/// screen-reader user in browse mode, `j`/`k` are the reader's OWN quick-nav keys
+/// and never reach the page at all — until DOM focus lands on the board, which is
+/// an ARIA composite, and the reader switches into focus mode. So `j`/`k` work
+/// **once the board is focused**, and not before.
+///
+/// The user ratified that cost (Option A, 2026-07-15) **on the condition that the
+/// qualifier travels with every KPI-4 claim and that the instruction reaches the
+/// USER** — through the help overlay's own copy, which is the discoverability
+/// surface this whole feature exists to make honest, not merely through the ADR.
+/// An accepted cost nobody is told about is an undocumented bug: an AT user who
+/// is never told stands on the board pressing `j` while nothing happens, which is
+/// indistinguishable from the feature being absent.
+const SELECTION_INSTRUCTION: &str =
+    "Screen reader or keyboard-only: press Tab to focus the board first, then j and k move the \
+     selection.";
+
 // =========================================================================
 // GET /team/:team/project/:slug/issues/new — new-issue modal
 // =========================================================================
@@ -292,6 +313,7 @@ pub async fn show_keyboard_help() -> Response {
                 label: (*label).to_string(),
             })
             .collect(),
+        selection_instruction: SELECTION_INSTRUCTION.to_string(),
     }
     .render()
     .expect("keyboard_help partial renders from a fully-resolved, infallible view-model");

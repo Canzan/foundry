@@ -324,7 +324,7 @@ Feature: The seven advertised keyboard shortcuts work in the browser
   # ADR-004 index-vs-key proof: drag moves the same NODE; the ring rides the node
   # by key, not by slot. Reds if anyone switches selection to an index. board-dnd.js
   # is untouched (NFR-8).
-  @pending @needs-browser @slice5 @us-05 @selection @drag-coexistence @edge
+  @needs-browser @slice5 @us-05 @selection @drag-coexistence @edge
   Scenario: Dragging the selected card to another column leaves selection coherent
     Given Mei has selected AUTH-2 on the AUTH board
     When Hiroshi drags AUTH-2 into another column with the mouse
@@ -335,7 +335,7 @@ Feature: The seven advertised keyboard shortcuts work in the browser
   # ring never relies on colour alone. KPI-4 is met CONDITIONALLY — "once the board
   # is focused" (the AT user Tabs to the board once). Slice 05 also owes the help
   # copy the instruction "Tab to the board, then j/k".
-  @pending @needs-browser @slice5 @us-05 @a11y
+  @needs-browser @slice5 @us-05 @a11y
   Scenario: Once the board is focused, moving the selection is exposed to assistive technology
     Given Mei has Tabbed to focus the AUTH board as a screen-reader user would
     When Mei presses "j" to move the selection to AUTH-2

@@ -527,11 +527,74 @@
   // board-dnd.js reorders them, so a stored list is a list that is already wrong.
   var BOARD_CARD_SELECTOR = ".board .issue-card[data-issue-key]";
   var SELECTED_CLASS = "kb-selected";
+  var BOARD_SELECTOR = ".board";
+  var COLUMN_SELECTOR = ".board [data-column]";
 
   function selectableCards() {
     return Array.prototype.slice.call(
       document.querySelectorAll(BOARD_CARD_SELECTOR)
     );
+  }
+
+  function board() {
+    return document.querySelector(BOARD_SELECTOR);
+  }
+
+  // --- The ARIA composite (ADR-006) -----------------------------------------
+  //
+  // D-4 rejected roving tabindex, so the ring is NOT native focus and nothing
+  // announces it for free. The finding that decides ADR-006 is not about
+  // announcement at all: in a screen reader's BROWSE MODE, `j` and `k` are the
+  // reader's OWN quick-navigation keys, consumed before any page listener runs —
+  // so for an AT user the keys never reach this file. A live region would answer
+  // the wrong question: it would announce a selection that can never change. Keys
+  // arrive only in FOCUS MODE, which AT enters when DOM focus lands on a form
+  // control or a composite-widget role. Hence: a focusable composite, and
+  // `aria-activedescendant` — the two mechanisms that constraint admits.
+  // DO NOT "improve" this into a live region.
+  //
+  // `listbox`/`option`, NOT `grid`: the interaction IS linear single-select —
+  // `j`/`k` walk one sequence, one selection, and there is no `h`/`l`. `grid`
+  // would promise 2D arrow semantics this feature does not ship. `listbox`
+  // permits `group` children holding `option`s, which maps the columns exactly.
+  //
+  // Applied from JS, not the templates (ADR-006 accepts the cost: a reader of
+  // board.html cannot see that the board is a listbox). The mitigation is that
+  // it re-applies in the SAME projection step as the ring — the two cannot drift.
+  //
+  // `aria-selected` is state, not just announcement: an AT user can QUERY what is
+  // selected, not only hear it change once. It is also the ring's CSS hook, so
+  // the visual and the semantic cannot disagree.
+  //
+  // ONE `tabindex="0"` on ONE container is not the roving-tabindex rewrite D-4
+  // rejected: it adds one tab stop, not N; it never moves tabindex among cards;
+  // it leaves the cards' own tab order alone; and it cannot fight board-dnd.js
+  // (ARIA roles do not affect native HTML5 drag — NFR-8).
+  function markComposite() {
+    var region = board();
+    if (!region) {
+      return; // Not a board page. Nothing to compose.
+    }
+    region.setAttribute("role", "listbox");
+    region.setAttribute("aria-label", "Issues");
+    // The one tab stop. THE ACCEPTED COST (ADR-006, ratified 2026-07-15 as
+    // Option A): an AT user must Tab here ONCE before `j`/`k` arrive. KPI-4 holds
+    // "once the board is focused" — the qualifier travels with the claim, and the
+    // instruction reaches the user through the help overlay's own copy
+    // (keyboard.rs SELECTION_INSTRUCTION), not just the ADR.
+    region.setAttribute("tabindex", "0");
+    var columns = document.querySelectorAll(COLUMN_SELECTOR);
+    Array.prototype.forEach.call(columns, function (column) {
+      column.setAttribute("role", "group");
+      var heading = column.querySelector("h3");
+      if (heading) {
+        // The column's own shipped label. No invented naming.
+        column.setAttribute("aria-label", heading.textContent);
+      }
+    });
+    selectableCards().forEach(function (card) {
+      card.setAttribute("role", "option");
+    });
   }
 
   // The ring is DERIVED from `selectedKey`, never stored (ADR-004). Applies the
@@ -556,11 +619,30 @@
         card.classList.add(SELECTED_CLASS);
         return;
       }
-      card.removeAttribute("aria-selected");
+      // "false", not absent: inside a listbox every option carries its state, so
+      // an AT user querying an unselected card is told "not selected" rather than
+      // being told nothing (ADR-006 — aria-selected is STATE, not a one-shot
+      // announcement). The ring's CSS hook is `[aria-selected="true"]`, which is
+      // unaffected either way; this is about what the accessibility tree says.
+      card.setAttribute("aria-selected", "false");
       card.classList.remove(SELECTED_CLASS);
     });
     if (selected === null) {
       selectedKey = null;
+    }
+    // The ACTIVE DESCENDANT — derived from the same key, in the same step, as the
+    // ring (ADR-006). It points at the card's SHIPPED `id="issue-{key}"`
+    // (issue_card.html:1), which is this mechanism's hard prerequisite and the
+    // reason it was chosen over roving tabindex. Removed — never left stale —
+    // when nothing resolves: an activedescendant pointing at a card that has left
+    // the board announces an issue Mei cannot see.
+    var region = board();
+    if (region) {
+      if (selected) {
+        region.setAttribute("aria-activedescendant", selected.id);
+        return selected;
+      }
+      region.removeAttribute("aria-activedescendant");
     }
     return selected;
   }
@@ -645,5 +727,16 @@
   }
 
   injectSearchPanel();
+  // Applied at INIT only, deliberately. ADR-006 also calls for re-application on
+  // `htmx:afterSwap` — "the ADR-004 projection step already runs there". It does
+  // NOT run there yet: `projectSelection()` is invoked from `moveSelection` and
+  // nowhere else, so the ring and the composite share exactly one gap (a card
+  // htmx swaps in carries neither). That gap is owned by the still-@pending
+  // `@htmx-swap` scenario ("Shortcuts keep working after the page content is
+  // swapped"), which is the test that will REQUIRE the shared afterSwap hook —
+  // and it is the right place for it, because a hook added here with no test is
+  // speculative code and a hook that re-applies only HALF the projection is a
+  // ring on a card with no role. Disclosed rather than quietly deferred.
+  markComposite();
   markReady();
 })();
