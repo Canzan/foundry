@@ -374,6 +374,14 @@ Feature: The seven advertised keyboard shortcuts work in the browser
   # ADR-005 one-open-path: `/` -> AUTH-2 -> j -> Enter opens THE SAME modal a
   # pointer click on AUTH-2's board card produces. Search-result rows carry NO
   # hx-get (search_results.html:4), so Enter resolves selectedKey -> the board card.
+  #
+  # BLOCKED at step 05-04 — returned to @pending. See deliver/upstream-issues.md
+  # UI-7. Its step definitions are written, correct, and RED on the Given: `/`
+  # focuses the search box, so `j` is delivered to a TEXT-ENTRY CONTEXT and ADR-002
+  # guard 4 makes it inert — the box reads "AUTH-2j" and the press never reaches the
+  # dispatch table. ADR-005 §3 ("with the panel open, j/k walk only li.search-result
+  # rows") and ADR-002 guard 4 cannot both hold. Choosing between them amends a
+  # locked ADR, which is DESIGN's call, not a crafter's — exactly UI-3's shape.
   @pending @needs-browser @slice5 @us-06 @open @one-open-path @critical
   Scenario: Enter from the search results opens the same modal as clicking the board card
     Given Mei has searched the board for "AUTH-2" and selected the result with "j"
@@ -383,6 +391,11 @@ Feature: The seven advertised keyboard shortcuts work in the browser
   # ADR-005 named edge: the board renders only {backlog,todo,in_progress,done};
   # search returns every issue. An issue in another state is findable but has NO
   # card -> Enter is a no-op (consistent with "no selection => no-op", FR-9).
+  #
+  # BLOCKED at step 05-04 — returned to @pending, same wall (UI-7). Its own Given
+  # ("AUTH-9 exists in a state the board does not display") is GREEN: AUTH-9 seeds
+  # in `cancelled`, search finds it, the board renders no card for it. It is the
+  # SHARED "selected the result with j" Given that cannot be reached.
   @pending @needs-browser @slice5 @us-06 @open @edge @named-edge
   Scenario: Enter is a no-op for a found issue that the board does not render
     Given AUTH-9 exists in a state the board does not display
@@ -398,7 +411,7 @@ Feature: The seven advertised keyboard shortcuts work in the browser
 
   # ADR-004 key-survives-swap + document-delegation (NFR-6): filing via `c` swaps
   # #modal-root and re-renders cards; j/Enter still work with no reload.
-  @pending @needs-browser @slice5 @property @htmx-swap
+  @needs-browser @slice5 @property @htmx-swap
   Scenario: Shortcuts keep working after the page content is swapped
     Given Mei has filed an issue by pressing "c" and submitting the form
     When Mei presses "j" and then "Enter"

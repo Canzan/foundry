@@ -654,6 +654,50 @@
     return selected;
   }
 
+  // THE PROJECTION, WHOLE — the ADR-006 step that must never run by halves.
+  //
+  // `markComposite()` mints the composite over whatever cards are on the board
+  // RIGHT NOW; `projectSelection()` re-derives the ring and the activedescendant
+  // from `selectedKey` over that SAME DOM. Both read the live document and neither
+  // stores anything, so running them together is idempotent and order-independent
+  // — `markComposite` first only because `projectSelection` is what leaves the
+  // ring, and a ring is meaningless on a card that is not yet an `option`.
+  //
+  // They are ONE function because ADR-006's whole claim is that the visual and the
+  // semantic are derived in one step and therefore cannot drift. Two hooks — or a
+  // hook that called only one of them — would be exactly the drift the single step
+  // exists to prevent: a ring on a card with no role, which announces to an AT user
+  // that the issue Mei is looking at is not in the list.
+  function projectBoard() {
+    markComposite();
+    projectSelection();
+  }
+
+  // Re-project on every htmx swap (AC-X.5, NFR-6, ADR-006).
+  //
+  // `markComposite()` and the ring were applied at INIT. htmx then rewrites the
+  // board underneath us — filing an issue OOB-appends a card
+  // (`issues.rs:553`, `beforeend:[data-column='backlog']`), and a card swapped in
+  // AFTER init carries no `role="option"`: the board would be a `listbox` holding a
+  // child that is not an option, and an AT user would be told the new issue is not
+  // there. Step 05-04's `@htmx-swap` scenario REDS on exactly that
+  // (`["AUTH-5"] sit inside the board's listbox without role="option"`), which is
+  // what earned this hook — ADR-006 asked for it, step 05-02 disclosed honestly
+  // that nothing implemented it, and no code was written here until a test
+  // required it.
+  //
+  // Delegated on `document`, the board-dnd.js:67 house idiom, for the same reason
+  // the `keydown` listener is: htmx events BUBBLE, so one listener on a node htmx
+  // never replaces survives every swap. A listener bound to `.board` would die the
+  // first time something swapped it.
+  //
+  // Cheap enough to run unconditionally: both halves are DOM queries over the cards
+  // that are already on screen, and neither allocates state. Filtering by swap
+  // target would be a second place to keep in sync with the first.
+  document.addEventListener("htmx:afterSwap", function () {
+    projectBoard();
+  });
+
   // `j` is +1, `k` is -1. BOUNDED, never wrapping (FR-8): `k` on the first card
   // and `j` on the last leave the ring exactly where it is. The early returns are
   // why the boundary raises nothing — an index walk would reach for `cards[-1]`
@@ -772,16 +816,13 @@
   }
 
   injectSearchPanel();
-  // Applied at INIT only, deliberately. ADR-006 also calls for re-application on
-  // `htmx:afterSwap` — "the ADR-004 projection step already runs there". It does
-  // NOT run there yet: `projectSelection()` is invoked from `moveSelection` and
-  // nowhere else, so the ring and the composite share exactly one gap (a card
-  // htmx swaps in carries neither). That gap is owned by the still-@pending
-  // `@htmx-swap` scenario ("Shortcuts keep working after the page content is
-  // swapped"), which is the test that will REQUIRE the shared afterSwap hook —
-  // and it is the right place for it, because a hook added here with no test is
-  // speculative code and a hook that re-applies only HALF the projection is a
-  // ring on a card with no role. Disclosed rather than quietly deferred.
-  markComposite();
+  // The SAME projection the `htmx:afterSwap` hook above runs — init is just the
+  // first swap. Step 05-02 disclosed that ADR-006's "the ADR-004 projection step
+  // already runs there" was false (nothing ran on afterSwap) and deferred the fix
+  // to the test that required it; step 05-04's `@htmx-swap` scenario is that test,
+  // and `projectBoard()` is the shared hook it earned. There is now exactly ONE
+  // way the board's composite and ring are applied, and it runs at init and after
+  // every swap.
+  projectBoard();
   markReady();
 })();

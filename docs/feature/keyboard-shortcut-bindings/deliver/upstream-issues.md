@@ -369,3 +369,82 @@ discarded — the same mechanism `runSearch` already uses. One line, in the exis
 not a new special case.
 
 **Status**: assigned to step **04-03** (a repair step, added to the roadmap after the fact).
+
+---
+
+## UI-7 — ADR-005 §3's `j`/`k`-over-search-results is unreachable under ADR-002 guard 4 (found at step 05-04)
+
+**Source**: `design/adr-005-search-surface-and-enter-resolution.md` §3 (and its own §4 Probe) vs.
+`design/adr-002-guard-predicate.md` guard 4, as narrowed by UI-3.
+
+**The contradiction, stated once**: ADR-005 §3 requires that *"when the panel is open, `j`/`k` walk
+**only** `li.search-result` rows"*, and its Probe spells the flow out: *"press `/`, type `AUTH-2`,
+`j`, `Enter`"*. But `/` **focuses the search box** (ADR-005 §2, and the whole point of FR-7), so the
+`j` that follows is delivered to a **text-entry context**. Guard 4 makes any key inert there when the
+field can consume it, and `j` is a single character. **The `j` never reaches the dispatch table.**
+
+ADR-005 §2 already states the premise in its own words — *"`search` is absent from
+`NON_TEXT_INPUT_TYPES`, so this box is a text-entry context to guard 4"* — and relies on it for
+AC-04.5 (a `/` typed into the box inserts literally). The same property that makes AC-04.5 work with
+no code makes §3 unreachable. Both ADRs are individually correct; they cannot both hold.
+
+**Observed directly at 05-04's RED_ACCEPTANCE, not theorised** — the step definitions are written,
+correct, and red on the shared Given:
+
+```
+✘ Given Mei has searched the board for "AUTH-2" and selected the result with "j"
+    `j` did not move the ring onto the AUTH-2 result row (the ringed row is None, and the
+    search box now reads "AUTH-2j").
+```
+
+`"AUTH-2j"` is the whole finding: the press was consumed by the box as a character.
+
+**It is not only `j`.** Guard 4's `NATIVE_TEXT_ENTRY_KEYS` also names `Enter`, `Tab` and all four
+arrows. So from the focused search box, **no key can drive selection or open a result** — `k`, the
+arrows and `Enter` are inert there for the same reason. `Escape` alone is dispatched (UI-3's
+narrowing), and it closes the panel. ADR-005's search→select→open flow has no reachable input at all.
+
+**What it blocks** (both returned to `@pending` at 05-04, step definitions retained and red):
+- **`Enter from the search results opens the same modal as clicking the board card`** (AC-06.5,
+  `@one-open-path @critical`) — the ADR-005 §4 proof.
+- **`Enter is a no-op for a found issue that the board does not render`** (the ADR-005 §4 named edge).
+  Its *own* Given is green — AUTH-9 seeds in `cancelled` (`0001_init.sql:72` permits it,
+  `DEFAULT_COLUMNS` at `projects.rs:49` renders only the other four), search finds it, the board
+  renders no card. It is the **shared** "selected the result with `j`" Given that cannot be reached.
+
+**Not resolved here.** Choosing between these amends a locked ADR, which is DESIGN's call:
+
+1. **Blur the box once results arrive, or require a `Tab` out of it** — `Tab` is consumed natively by
+   the field, so the browser moves focus and `j` then arrives at `body`. ADR-006 has already ratified
+   exactly this shape for the board (*"an AT user must Tab here ONCE before `j`/`k` arrive"* — an
+   ACCEPTED COST, carried into the help copy via `SELECTION_INSTRUCTION`). It costs a keystroke and it
+   needs the help overlay to say so. It is a UX decision with no ADR today, which is why 05-04 did not
+   simply write it into the step definition and green its own scenario.
+2. **Narrow guard 4 further, by surface** — e.g. dispatch `j`/`k` when the search panel is open. This
+   is a **per-shortcut, per-surface carve-out on the guard path** and is precisely the BR-2 failure
+   UI-3's ratification explicitly does **not** authorise (*"if an implementation ends up with
+   `if (key === "Escape")` scattered at dispatch sites, that is the failure mode BR-2 forbids"*).
+   Recorded so the option is explicit rather than assumed away; it looks wrong.
+3. **Navigate the results with a key a text field cannot consume** — the set is essentially empty
+   after `NATIVE_TEXT_ENTRY_KEYS`; every plausible candidate is already a caret movement.
+4. **Drop `j`/`k`/`Enter` from the search surface** and let the results be pointer-only, with `Esc` to
+   leave. Honest, and it makes AC-06.5's cross-surface proof unnecessary rather than unreachable — but
+   it concedes a US-06 acceptance criterion.
+
+**Recommendation (not a decision)**: option 1. It is the only one that keeps both ADRs byte-for-byte
+— guard 4 is untouched and ADR-005 §3 becomes reachable — and the precedent for its cost is already
+ratified one ADR over. Option 2 buys the same behaviour by breaking the crux; option 4 pays for a
+sentence with a requirement.
+
+**Note for whoever resolves it**: `Enter`'s **resolution** (ADR-005 §4 — `selectedKey` → the board
+card → its own shipped `hx-get`) is **already built and green** on the board surface (step 05-03).
+Nothing in ADR-005 §4 is in doubt; only the input path that puts the ring on a result row. The
+`@one-open-path` proof's step definitions are written and comparable byte-for-byte against the
+pointer's modal — they run the keyboard path, reload, click AUTH-2's card, and assert `#modal-root`'s
+markup is identical. They should need no change once the Given is reachable.
+
+**Process note**: 05-04 shipped the one scenario that is genuinely achievable (`@htmx-swap`, with its
+shared `htmx:afterSwap` hook and its falsification proven) and did not force the other two. It did not
+add a guard carve-out to green its own scenario, and it did not quietly insert a `Tab` into the Given
+to manufacture a reachable flow — either would have been the crafter making a design decision inside a
+step definition. Same posture as 02-01 with UI-3.

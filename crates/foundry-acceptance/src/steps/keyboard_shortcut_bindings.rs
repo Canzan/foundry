@@ -3883,3 +3883,504 @@ async fn auth2_still_selected_and_j_moves_on(world: &mut FoundryWorld) {
     )
     .await;
 }
+
+// --- SLICE 05 / STEP 05-04 ---------------------------------------------------
+//
+// Three scenarios, one theme: the OPEN PATH stays single and the delegated layer
+// stays live across surfaces and across swaps.
+//
+//   1. `@one-open-path @critical` — `/` -> "AUTH-2" -> `j` -> `Enter` opens THE
+//      SAME modal a pointer click on AUTH-2's board card produces. ADR-005 §4:
+//      search-result rows carry NO `hx-get` (`search_results.html:4`), so `Enter`
+//      resolves `selectedKey` back to the board card and clicks ITS shipped
+//      affordance. Zero server delta, one path.
+//   2. `@named-edge` — the board renders only {backlog,todo,in_progress,done}
+//      while search returns EVERY issue, so an issue in `cancelled` is findable
+//      and has NO card. `Enter` is a no-op (FR-9).
+//   3. `@htmx-swap` — filing via `c` OOB-appends a card (`issues.rs:553`) and
+//      swaps `#modal-root`. `j`/`Enter` still work with no reload, and the ARIA
+//      composite still covers the card htmx just swapped in.
+
+/// The search panel's own selected row. `aria-selected`, not a client-invented
+/// marker: the row is an `option` inside the results `listbox` for exactly the
+/// reason a card is one inside the board (ADR-006 — `aria-selected` is STATE).
+const SEARCH_ROW_SELECTED_SELECTOR: &str =
+    "#kb-search-panel li.search-result[aria-selected='true']";
+
+/// The state the board does NOT render. `0001_init.sql:72` permits
+/// {backlog,todo,in_progress,done,cancelled}; `DEFAULT_COLUMNS` (projects.rs:49)
+/// renders the first four. `cancelled` is therefore the ONLY state that makes an
+/// issue findable-but-cardless — the edge ADR-005 §4 names. If a future migration
+/// widens the enum this constant still holds; if it renders a Cancelled column,
+/// the Given below reds rather than passing over an edge that no longer exists.
+const UNRENDERED_STATE: &str = "cancelled";
+
+/// Everything `#modal-root` is holding, verbatim.
+///
+/// The WHOLE markup, not a probe for a field: this is the one-open-path proof's
+/// evidence, and the claim is that two paths produce the SAME modal — not that
+/// both produce something with AUTH-2 in it somewhere. A second, client-authored
+/// modal that merely happened to name the right issue would satisfy any narrower
+/// read and is precisely the duplication AC-06.5 forbids.
+///
+/// Comparable across the two paths because the `_csrf` value is REUSED from the
+/// session's cookie rather than minted per request (`csrf.rs:56-70`
+/// `ensure_csrf_cookie` — "reuse the request's CSRF cookie if present"), so a
+/// byte-identical comparison is legitimate here and is NOT masking anything. If
+/// that ever changes, this assertion reds loudly rather than silently weakening.
+async fn modal_root_markup(browser: &fantoccini::Client) -> String {
+    let markup = browser
+        .execute(
+            "var host = document.getElementById('modal-root');
+             return host ? host.innerHTML : null;",
+            Vec::new(),
+        )
+        .await
+        .expect("read #modal-root's markup");
+    markup
+        .as_str()
+        .expect("the board carries a #modal-root to read (board.html:13)")
+        .to_string()
+}
+
+/// Reveals the panel with the REAL `/`, types `query` with REAL keystrokes, waits
+/// for the SHIPPED fragment to show exactly that issue, then moves the ring onto
+/// the result row with the REAL `j`.
+///
+/// `j` is pressed AT THE SEARCH INPUT, which is where `/` left Mei's focus — not
+/// at `body`. Pressing it anywhere else would be the test arranging a focus state
+/// the user never has, and would green a build whose `j` cannot actually be
+/// reached from the surface this scenario is about.
+///
+/// The ring is ASSERTED here rather than assumed: this is a Given, and "selected
+/// the result with j" is either true or the scenario below is measuring `Enter`
+/// against a selection that was never made.
+#[given(regex = r#"^Mei has searched the board for "([^"]+)" and selected the result with "j"$"#)]
+async fn searched_and_selected_the_result(world: &mut FoundryWorld, query: String) {
+    let url = board_url(world);
+    let browser = world.browser.as_ref().expect("browser session");
+    browser
+        .goto(&url)
+        .await
+        .expect("navigate to the AUTH board");
+    browser_harness::wait_for_kb_ready(browser).await;
+    install_error_probe(browser).await;
+    assert_eq!(
+        any_modal_count(browser).await,
+        0,
+        "a modal is already open on a freshly-loaded board — the assertions below about the modal \
+         `Enter` opens would then be true before Mei pressed anything"
+    );
+    press(browser, "/").await;
+    let (focused, _) = focused_field(browser).await;
+    assert!(
+        focused.contains("[name=q]"),
+        "pressing `/` on the board did not focus the search box (focus is on {focused} instead), \
+         so the search-surface flow this scenario is about cannot even begin"
+    );
+    browser
+        .find(Locator::Css(SEARCH_INPUT_SELECTOR))
+        .await
+        .expect("the search panel must carry an input to type into")
+        .send_keys(&query)
+        .await
+        .unwrap_or_else(|err| panic!("type {query:?} into the search box: {err}"));
+    let wanted = query.clone();
+    wait_for_results(
+        browser,
+        &format!("exactly the issue {query}"),
+        move |rows| rows.len() == 1 && rows[0].0 == wanted,
+    )
+    .await;
+
+    // The press Mei actually makes, from the place `/` actually left her.
+    press_at(browser, SEARCH_INPUT_SELECTOR, "j").await;
+
+    let selected = browser
+        .execute(
+            "var row = document.querySelector(arguments[0]);
+             var box = document.querySelector(arguments[1]);
+             return {
+               selected: row ? row.getAttribute('data-issue-key') : null,
+               query: box ? box.value : null
+             };",
+            vec![
+                SEARCH_ROW_SELECTED_SELECTOR.into(),
+                SEARCH_INPUT_SELECTOR.into(),
+            ],
+        )
+        .await
+        .expect("read the selected search result row");
+    let ringed = selected["selected"].as_str();
+    let box_value = selected["query"].as_str().unwrap_or_default();
+    assert_eq!(
+        ringed,
+        Some(query.as_str()),
+        "`j` did not move the ring onto the {query} result row (the ringed row is {ringed:?}, and \
+         the search box now reads {box_value:?}). ADR-005 §3: with the panel open, `j`/`k` walk \
+         ONLY `li.search-result` rows. If the box reads {query:?} + \"j\", the `j` was CONSUMED BY \
+         THE SEARCH BOX as a character (ADR-002 guard 4 — the box is a text-entry context and `j` \
+         is a character it can consume), and never reached the dispatch table at all."
+    );
+    capture_url_at_rest(browser).await;
+}
+
+/// The `@one-open-path` proof (AC-06.5, ADR-005 §4), and the whole reason this
+/// scenario is `@critical`.
+///
+/// It DISTINGUISHES "the pointer's modal" from "some modal" by running BOTH paths
+/// in the same session and comparing the markup byte for byte:
+///
+///   1. capture what `Enter`-from-the-search-results mounted into `#modal-root`;
+///   2. reload the board (a clean slate — no panel, no ring, no modal);
+///   3. CLICK AUTH-2's card with a real pointer;
+///   4. capture what THAT mounted;
+///   5. assert the two are identical.
+///
+/// A build that minted a second open path — reconstructing `{edit_url}`, adding an
+/// `hx-get` to the search fragment, or mounting a client-authored dialog — reds
+/// here even when its modal names AUTH-2 correctly, because the markup would
+/// differ. A build that opened the NEW-ISSUE modal, or AUTH-1's, reds twice over.
+/// "A modal appeared" is exactly the assertion this proof refuses to be.
+#[then(
+    regex = r"^the modal that opens is the same one a pointer click on the AUTH-2 board card produces$"
+)]
+async fn modal_is_the_pointer_path_modal(world: &mut FoundryWorld) {
+    let url = board_url(world);
+    let browser = world.browser.as_ref().expect("browser session");
+
+    let heading = await_issue_modal(
+        browser,
+        "pressing \"Enter\" with the AUTH-2 result selected",
+    )
+    .await;
+    assert!(
+        heading.contains("AUTH-2"),
+        "`Enter` from the AUTH-2 search result opened an issue modal showing {heading:?}. ADR-005 \
+         §4: `Enter` resolves the selected KEY back to `article.issue-card[data-issue-key=AUTH-2]` \
+         and clicks THAT card's own shipped affordance — opening any other issue means the \
+         resolution went to the wrong card."
+    );
+    let keyboard_markup = modal_root_markup(browser).await;
+    assert!(
+        !keyboard_markup.trim().is_empty(),
+        "`Enter` left #modal-root empty while an [data-modal='edit-issue'] was found — the modal \
+         is mounted somewhere other than the board's own shipped host"
+    );
+    // The board never went away: ADR-005 §4's resolution works only because the
+    // panel OVERLAYS the cards rather than replacing them.
+    let cards = visible_card_order(browser).await;
+    assert!(
+        cards.iter().any(|k| k == "AUTH-2"),
+        "the AUTH-2 modal is open but AUTH-2's card is gone from the board behind it (it shows \
+         {cards:?}). ADR-005 §4's whole premise is that the panel OVERLAYS the board, so the card \
+         `Enter` resolves to is still in the DOM."
+    );
+
+    // --- the pointer's path, on a clean board -------------------------------
+    browser
+        .goto(&url)
+        .await
+        .expect("reload the AUTH board for the pointer path");
+    browser_harness::wait_for_kb_ready(browser).await;
+    assert_eq!(
+        any_modal_count(browser).await,
+        0,
+        "the reloaded board already has a modal open, so the pointer path below would be compared \
+         against a modal nobody clicked for"
+    );
+    browser
+        .find(Locator::Css(".board .issue-card[data-issue-key='AUTH-2']"))
+        .await
+        .expect("AUTH-2's card must be on the board for Hiroshi to click")
+        .click()
+        .await
+        .expect("click AUTH-2's board card");
+    let pointer_heading = await_issue_modal(browser, "a pointer click on AUTH-2's card").await;
+    assert!(
+        pointer_heading.contains("AUTH-2"),
+        "clicking AUTH-2's own card opened {pointer_heading:?} — the POINTER path is broken, so \
+         this scenario cannot compare the keyboard's modal against it"
+    );
+    let pointer_markup = modal_root_markup(browser).await;
+
+    assert_eq!(
+        keyboard_markup, pointer_markup,
+        "`Enter` from the search results and a pointer click on AUTH-2's board card produced \
+         DIFFERENT modals. AC-06.5 requires exactly ONE open path, and ADR-005 §4 obtains it by \
+         RESOLUTION (selectedKey -> the board card -> its own shipped hx-get), never by \
+         duplication. A second path — a reconstructed {{edit_url}}, an hx-get added to \
+         search_results.html, or a client-authored dialog — is what this difference means.\n  \
+         keyboard: {keyboard_markup}\n  pointer:  {pointer_markup}"
+    );
+}
+
+/// The named edge's precondition (ADR-005 §4). AUTH-9 is seeded in `cancelled`,
+/// the one permitted state (`0001_init.sql:72`) the board does not render
+/// (`DEFAULT_COLUMNS`, projects.rs:49) — so it is findable by search
+/// (`list_issues_by_project` returns every issue) and has NO card.
+///
+/// BOTH halves are asserted, because the edge is the CONJUNCTION: an AUTH-9 that
+/// the search cannot find, or that the board DOES render, makes the no-op below
+/// true for a reason that has nothing to do with this scenario.
+#[given(regex = r"^AUTH-9 exists in a state the board does not display$")]
+async fn auth9_exists_in_an_unrendered_state(world: &mut FoundryWorld) {
+    let harness = world.harness.as_ref().expect("harness");
+    let pool = harness.app.state.store.pool();
+    let project: (uuid::Uuid, uuid::Uuid) =
+        sqlx::query_as("SELECT id, workspace_id FROM projects WHERE key_prefix = 'AUTH'")
+            .fetch_one(pool)
+            .await
+            .expect("the AUTH project the Background seeded");
+    let author: (uuid::Uuid,) = sqlx::query_as("SELECT id FROM users LIMIT 1")
+        .fetch_one(pool)
+        .await
+        .expect("fetch author");
+    sqlx::query(
+        "INSERT INTO issues (id, workspace_id, project_id, number, title, state, priority, author_id)
+              VALUES ($1, $2, $3, 9, $4, $5, 'medium', $6)",
+    )
+    .bind(uuid::Uuid::now_v7())
+    .bind(project.1)
+    .bind(project.0)
+    .bind("Cancelled cookie rotation spike")
+    .bind(UNRENDERED_STATE)
+    .bind(author.0)
+    .execute(pool)
+    .await
+    .unwrap_or_else(|err| {
+        panic!(
+            "seed AUTH-9 in the {UNRENDERED_STATE:?} state: {err}. `0001_init.sql:72` permits \
+             {{backlog,todo,in_progress,done,cancelled}} and the board renders only the first \
+             four (DEFAULT_COLUMNS, projects.rs:49) — if that CHECK constraint no longer admits \
+             {UNRENDERED_STATE:?}, the findable-but-cardless edge this scenario pins needs a new \
+             state, not a deleted assertion."
+        )
+    });
+    sqlx::query(
+        "UPDATE projects SET next_issue_number = GREATEST(next_issue_number, 10) WHERE id = $1",
+    )
+    .bind(project.0)
+    .execute(pool)
+    .await
+    .expect("advance next_issue_number past the seeded AUTH-9");
+}
+
+/// AC-X.5's Given (NFR-6). The issue is filed with the REAL `c` and the REAL form
+/// submit, so the swap this scenario is about is the one the APP performs
+/// (`issues.rs:553` answers with an out-of-band `beforeend` append into the
+/// Backlog column plus an empty primary body that clears `#modal-root`).
+///
+/// The swap is ASSERTED — the filed card must actually be on the board, and it is
+/// remembered by key — because "shortcuts keep working after the page content is
+/// swapped" over a page nothing swapped is a scenario about nothing.
+#[given(regex = r#"^Mei has filed an issue by pressing "c" and submitting the form$"#)]
+async fn has_filed_an_issue_by_pressing_c(world: &mut FoundryWorld) {
+    open_new_issue_modal_by_pressing_c(world).await;
+    let browser = world.browser.as_ref().expect("browser session");
+    install_error_probe(browser).await;
+    browser
+        .execute(
+            "window.__kbKeysBeforeFiling = Array.prototype.map.call(
+               document.querySelectorAll('.board .issue-card[data-issue-key]'),
+               function (card) { return card.getAttribute('data-issue-key'); }
+             );
+             // The RELOAD SENTINEL. A window property cannot survive a document
+             // being replaced, so its absence later IS a reload — a stronger and
+             // simpler witness than comparing URLs, which a reload leaves equal.
+             window.__kbNoReloadSentinel = 'alive';
+             return window.__kbKeysBeforeFiling.length;",
+            Vec::new(),
+        )
+        .await
+        .expect("record the board's keys before filing");
+    let active = browser
+        .active_element()
+        .await
+        .expect("read the focused element to type into");
+    active
+        .send_keys("Rotate the session secret")
+        .await
+        .expect("type the new issue's title");
+    active
+        .send_keys(browser_harness::key_chord("Enter"))
+        .await
+        .expect("submit the new-issue form");
+    browser
+        .wait()
+        .at_most(std::time::Duration::from_secs(10))
+        .for_element(Locator::Css("#modal-root:empty"))
+        .await
+        .expect(
+            "submitting the new-issue form left the modal open, so the #modal-root swap this \
+             scenario needs never happened (issues.rs:553 answers with an EMPTY primary body)",
+        );
+    let swapped_in = browser
+        .execute(
+            "var before = window.__kbKeysBeforeFiling || [];
+             var added = Array.prototype.filter.call(
+               document.querySelectorAll('.board .issue-card[data-issue-key]'),
+               function (card) { return before.indexOf(card.getAttribute('data-issue-key')) === -1; }
+             );
+             window.__kbSwappedInKey = added.length === 1
+               ? added[0].getAttribute('data-issue-key')
+               : null;
+             return window.__kbSwappedInKey;",
+            Vec::new(),
+        )
+        .await
+        .expect("identify the card htmx swapped in");
+    assert!(
+        swapped_in.as_str().is_some(),
+        "filing the issue added no new card to the board (or more than one), so the htmx swap this \
+         scenario exists to survive did not happen and every assertion below would be vacuous. The \
+         shipped POST OOB-appends into [data-column='backlog'] (issues.rs:553)."
+    );
+    capture_url_at_rest(browser).await;
+}
+
+#[when(regex = r#"^Mei presses "j" and then "Enter"$"#)]
+async fn presses_j_then_enter(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("browser session");
+    press(browser, "j").await;
+    press(browser, "Enter").await;
+}
+
+/// AC-X.5's outcome. THREE things, and all three are the same claim (NFR-6): the
+/// ONE document-delegated listener needs no re-wiring after a swap, and neither
+/// does the projection it drives.
+///
+///   1. `j` moved the ring — the delegated `keydown` still fires.
+///   2. `Enter` opened THE SELECTED issue — the ring and the open path still
+///      agree about which issue that is, over a board htmx has rewritten.
+///   3. THE ARIA COMPOSITE COVERS THE SWAPPED-IN CARD. This is the arm that
+///      requires the shared `htmx:afterSwap` hook, and it is not a bonus: ADR-006
+///      derives the ring and `role`/`aria-selected` in ONE step precisely so the
+///      visual and the semantic cannot drift. `markComposite()` ran at INIT, so a
+///      card htmx appended AFTER init carries no `role="option"` — the board would
+///      be a `listbox` holding a child that is not an `option`, and an AT user
+///      would be told the swapped-in issue is not there. A hook that re-applied
+///      only the ring would leave exactly that, which is why the assertion names
+///      both and why the hook must be shared. Ring, role and activedescendant are
+///      asserted TOGETHER because they are one projection or they are a bug.
+#[then(regex = r"^the selection moves and the selected issue opens$")]
+async fn selection_moves_and_selected_issue_opens(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("browser session");
+    let projection = browser
+        .execute(
+            r#"var cards = Array.prototype.slice.call(
+                 document.querySelectorAll('.board .issue-card[data-issue-key]')
+               );
+               var region = document.querySelector('.board');
+               var selected = cards.filter(function (c) {
+                 return c.getAttribute('aria-selected') === 'true';
+               });
+               return {
+                 ringed: cards.filter(function (c) { return c.classList.contains('kb-selected'); })
+                              .map(function (c) { return c.getAttribute('data-issue-key'); }),
+                 ariaSelected: selected.map(function (c) { return c.getAttribute('data-issue-key'); }),
+                 activeDescendant: region ? region.getAttribute('aria-activedescendant') : null,
+                 regionRole: region ? region.getAttribute('role') : null,
+                 optionless: cards.filter(function (c) { return c.getAttribute('role') !== 'option'; })
+                                  .map(function (c) { return c.getAttribute('data-issue-key'); }),
+                 swappedIn: window.__kbSwappedInKey,
+                 sentinel: window.__kbNoReloadSentinel || null
+               };"#,
+            Vec::new(),
+        )
+        .await
+        .expect("read the board's projection after the swap");
+
+    let ringed = json_strings(&projection["ringed"], "the ringed cards");
+    let aria_selected = json_strings(&projection["ariaSelected"], "the aria-selected cards");
+    let swapped_in = projection["swappedIn"]
+        .as_str()
+        .expect("the Given identified the card htmx swapped in")
+        .to_string();
+    let optionless = json_strings(&projection["optionless"], "the cards with no option role");
+
+    // 1. The delegated listener survived the swap.
+    assert_eq!(
+        ringed.len(),
+        1,
+        "after filing an issue (which swaps #modal-root and OOB-appends a card), `j` left \
+         {ringed:?} ringed — exactly one card must be selected. A handler bound to a card rather \
+         than delegated on the document would be dead here, which is the whole of NFR-6."
+    );
+    // The ring and the ARIA state are ONE projection (ADR-006) — asserted as one.
+    assert_eq!(
+        aria_selected, ringed,
+        "the ring is on {ringed:?} but `aria-selected=true` is on {aria_selected:?}. These are \
+         DERIVED IN ONE STEP by design (ADR-006) exactly so they cannot drift; a swap that \
+         re-applies one and not the other is the drift the single projection step exists to \
+         prevent."
+    );
+    assert_eq!(
+        projection["regionRole"].as_str(),
+        Some("listbox"),
+        "the board lost its `listbox` role across the htmx swap, so the composite `j`/`k` \
+         announce through no longer exists (ADR-006)"
+    );
+    assert_eq!(
+        projection["activeDescendant"].as_str(),
+        Some(format!("issue-{}", ringed[0]).as_str()),
+        "the ring is on {ringed:?} but the board's `aria-activedescendant` is {:?} — an AT user is \
+         told about a different card than the one Mei can see (ADR-006: both are derived from the \
+         same key, in the same step)",
+        projection["activeDescendant"].as_str()
+    );
+
+    // 3. The composite covers the card htmx swapped in — the afterSwap hook.
+    assert!(
+        optionless.is_empty(),
+        "{optionless:?} sit inside the board's `listbox` without `role=\"option\"` — and \
+         {swapped_in} is the card htmx OOB-appended after `keyboard.js` initialised. \
+         `markComposite()` runs at INIT; a card swapped in later is invisible to the composite \
+         unless the SAME projection re-runs on `htmx:afterSwap`. ADR-006 requires the ring and the \
+         ARIA composite be re-applied TOGETHER — a hook that restores only the ring leaves a ring \
+         on a card with no role, which is why this asserts the whole projection and not half of it."
+    );
+
+    // 2. `Enter` opened the issue the ring is actually on.
+    let heading = await_issue_modal(browser, "pressing \"j\" then \"Enter\" after the swap").await;
+    assert!(
+        heading.contains(&ringed[0]),
+        "after the swap, `j` ringed {ringed:?} but `Enter` opened {heading:?}. Selection is a KEY \
+         (ADR-004) precisely so the ring and the open path cannot disagree over a board htmx has \
+         rewritten — an index-based selection is what silently opens the wrong issue here."
+    );
+}
+
+/// The swap's defining claim (NFR-6): htmx replaced content IN PLACE. The witness
+/// is the `window` sentinel the Given stamped — a full page load would destroy the
+/// document and take it with it. Stronger than comparing URLs, which a reload
+/// leaves equal.
+#[then(regex = r"^no page reload was required$")]
+async fn no_page_reload_was_required(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("browser session");
+    let survived = browser
+        .execute(
+            "return {
+               sentinel: window.__kbNoReloadSentinel || null,
+               url: window.location.href,
+               rest: window.__kbUrlAtRest || null
+             };",
+            Vec::new(),
+        )
+        .await
+        .expect("read the reload sentinel");
+    assert_eq!(
+        survived["sentinel"].as_str(),
+        Some("alive"),
+        "the `window` sentinel stamped before filing is GONE, so the document was replaced — the \
+         page reloaded. Filing, selecting and opening are all htmx swaps into a live document \
+         (NFR-6); a reload would also re-run `keyboard.js` from scratch, which is precisely how a \
+         layer that needs re-wiring after a swap can look like one that does not."
+    );
+    assert_eq!(
+        survived["url"].as_str(),
+        survived["rest"].as_str(),
+        "the browser navigated away from the board while filing, selecting and opening — every one \
+         of those is an htmx swap over the SAME document (NFR-6)"
+    );
+}
