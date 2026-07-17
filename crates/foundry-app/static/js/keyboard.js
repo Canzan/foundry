@@ -24,9 +24,10 @@
 // not a carve-out; it names no shortcut.
 //
 // Bound today: `?` (open help), `Esc` (peel the topmost layer — help, else the
-// modal, else nothing), `c` (open the new-issue modal).
-// `/`, `j`, `k` and `Enter` are advertised by SHORTCUTS (keyboard.rs:48-56) but
-// NOT yet bound; they land in slices 04-05 through this same dispatch point.
+// modal, else the search panel), `c` (open the new-issue modal), `/` (reveal and
+// focus the board search panel), `j`/`k` (walk the VISIBLE cards, ADR-004).
+// `Enter` is advertised by SHORTCUTS (keyboard.rs:48-56) but NOT yet bound; it
+// lands in a later slice-05 step through this same dispatch point.
 (function () {
   "use strict";
 
@@ -486,6 +487,104 @@
     }
   }
 
+  // --- Selection: j/k walk the VISIBLE cards (ADR-004) ----------------------
+  //
+  // THE WHOLE STATE. A key — `"AUTH-2"` — never an index and never a node.
+  //
+  // Not an INDEX (ADR-004 rejects it as disqualifying): board-dnd.js reorders the
+  // DOM on drop, so a fixed index silently re-points at a DIFFERENT issue while
+  // Mei is looking away, and `Enter` then opens the wrong one. The bug is silent
+  // and data-losing. Not a NODE either: htmx replaces cards on swap, so the
+  // reference would ring an orphan the user cannot see.
+  //
+  // A key survives both for free: a drag moves the same node and its
+  // `data-issue-key` rides along; a re-render mints a new node carrying the same
+  // key. Ephemeral by construction (BR-5) — it is a variable, so a real
+  // navigation ends it and it can never reach the server.
+  var selectedKey = null;
+
+  // The cards Mei can SEE, in the order she sees them. `.board` scopes this to
+  // the rendered columns, which is the point of ADR-008: the hidden `#kb-items`
+  // carrier (board.html:12) is ASC-by-number across all columns while the board
+  // is column-grouped and DESC-within-column — a DIFFERENT order. Walking the
+  // carrier would move the ring in an order that matches nothing on screen, and
+  // a `hidden aria-hidden` <li> can carry no ring and cannot be scrolled to.
+  // It is retired whole in a later step; nothing here reads it.
+  //
+  // Re-queried on EVERY press rather than cached: htmx swaps cards and
+  // board-dnd.js reorders them, so a stored list is a list that is already wrong.
+  var BOARD_CARD_SELECTOR = ".board .issue-card[data-issue-key]";
+  var SELECTED_CLASS = "kb-selected";
+
+  function selectableCards() {
+    return Array.prototype.slice.call(
+      document.querySelectorAll(BOARD_CARD_SELECTOR)
+    );
+  }
+
+  // The ring is DERIVED from `selectedKey`, never stored (ADR-004). Applies the
+  // ARIA state + the ring class to the selected card and CLEARS both everywhere
+  // else, so the projection cannot leave a second ring behind.
+  //
+  // If the key no longer resolves — the issue left the board — selection clears
+  // COHERENTLY rather than leaving a dangling ring. First match wins: keys are
+  // unique per project and the board renders one project (ADR-004's stated
+  // assumption).
+  function projectSelection() {
+    var cards = selectableCards();
+    var selected = null;
+    cards.forEach(function (card) {
+      var isSelected =
+        selectedKey !== null &&
+        selected === null &&
+        card.getAttribute("data-issue-key") === selectedKey;
+      if (isSelected) {
+        selected = card;
+        card.setAttribute("aria-selected", "true");
+        card.classList.add(SELECTED_CLASS);
+        return;
+      }
+      card.removeAttribute("aria-selected");
+      card.classList.remove(SELECTED_CLASS);
+    });
+    if (selected === null) {
+      selectedKey = null;
+    }
+    return selected;
+  }
+
+  // `j` is +1, `k` is -1. BOUNDED, never wrapping (FR-8): `k` on the first card
+  // and `j` on the last leave the ring exactly where it is. The early returns are
+  // why the boundary raises nothing — an index walk would reach for `cards[-1]`
+  // and throw on `.classList` of undefined, which is the failure "no error
+  // occurs" (AC-05.4) names.
+  //
+  // With nothing selected, the first press selects the FIRST visible card
+  // (ADR-004). An empty board is a silent no-op — there is nothing to ring.
+  function moveSelection(step) {
+    var cards = selectableCards();
+    if (cards.length === 0) {
+      return;
+    }
+    var keys = cards.map(function (card) {
+      return card.getAttribute("data-issue-key");
+    });
+    var current = selectedKey === null ? -1 : keys.indexOf(selectedKey);
+    var next = current + step;
+    if (current === -1) {
+      next = 0;
+    } else if (next < 0 || next >= keys.length) {
+      return;
+    }
+    selectedKey = keys[next];
+    var card = projectSelection();
+    if (card) {
+      // `nearest` so a card already on screen does not jolt the page under Mei;
+      // one below the fold is brought just into view (AC-05.3).
+      card.scrollIntoView({ block: "nearest" });
+    }
+  }
+
   document.addEventListener("keydown", function (event) {
     if (isInert(event)) {
       return;
@@ -514,6 +613,18 @@
       // AC-04.5 needs no code and no exemption.
       event.preventDefault();
       openSearch();
+      return;
+    }
+    // `j`/`k` need no preventDefault: neither has a default action on the body,
+    // and inside a text field they never reach here at all (guard 4 — they are
+    // single characters the field consumes), which is what makes AC-02.2's "no
+    // selection moves" true with no code on this path.
+    if (event.key === "j") {
+      moveSelection(1);
+      return;
+    }
+    if (event.key === "k") {
+      moveSelection(-1);
       return;
     }
     if (event.key === "Escape") {

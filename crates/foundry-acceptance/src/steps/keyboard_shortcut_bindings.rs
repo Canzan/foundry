@@ -59,16 +59,13 @@ const MEI_PASSWORD: &str = "mei-correct-horse-battery-staple";
 const TEAM_SLUG: &str = "backend";
 const PROJECT_SLUG: &str = "auth";
 
-/// The one place the scaffold's pending-panic message lives. Assertion-class
-/// (a panic), so the Red-Gate reads an unskipped step as RED, not BROKEN.
-fn scaffold_pending() -> ! {
-    panic!(
-        "__SCAFFOLD__ keyboard-shortcut-bindings: pending DELIVER. This step's slice is not \
-         implemented yet — the @needs-browser lane (fantoccini + chromedriver, ADR-007) exists as \
-         of step 01-01, but static/js/keyboard.js does not yet bind this behaviour. \
-         See docs/feature/keyboard-shortcut-bindings/distill/test-scenarios.md for the wiring."
-    );
-}
+// The `scaffold_pending()` panic marker lived here until step 05-01 wired the
+// last step that used it (`the first visible card is highlighted as selected`).
+// Every remaining @pending scenario's steps are UNWRITTEN rather than scaffolded,
+// and `.fail_on_skipped()` (UI-4) makes an unwired step FAIL by name the moment
+// one is unskipped — a louder, more honest RED than a shared panic string, and
+// the reason the scaffold is not kept "just in case" (AGENTS.md: remove dead code
+// outright, do not leave it inert).
 
 fn now_anchor() -> time::OffsetDateTime {
     time::OffsetDateTime::parse(TEST_NOW, &time::format_description::well_known::Rfc3339)
@@ -268,6 +265,133 @@ async fn selected_card_count(browser: &fantoccini::Client) -> usize {
         .await
         .expect("count the selected cards")
         .len()
+}
+
+/// The board's cards IN THE ORDER MEI SEES THEM, derived from the RENDERED
+/// GEOMETRY (`getBoundingClientRect`), not from DOM order.
+///
+/// This is the scenario's ORACLE and it is deliberately computed a different way
+/// than any implementation would: sort by column x, then by y within the column
+/// — literally "left column top to bottom, then the next column". An assertion
+/// against `querySelectorAll` order would merely restate the implementation's own
+/// traversal and would pass for a `j` that walked a list which happened to share
+/// the DOM's order for the wrong reason. Rects are what Mei's eyes get.
+///
+/// Off-screen and zero-area cards are excluded: an element with no box is not
+/// something "visible" can mean.
+async fn visible_card_order(browser: &fantoccini::Client) -> Vec<String> {
+    let keys = browser
+        .execute(
+            r#"return Array.prototype.map.call(
+                 document.querySelectorAll('.board .issue-card[data-issue-key]'),
+                 function (card) {
+                   var r = card.getBoundingClientRect();
+                   return {
+                     key: card.getAttribute('data-issue-key'),
+                     x: Math.round(r.left + window.scrollX),
+                     y: Math.round(r.top + window.scrollY),
+                     boxed: r.width > 0 && r.height > 0
+                   };
+                 }
+               ).filter(function (c) { return c.boxed; })
+                .sort(function (a, b) { return (a.x - b.x) || (a.y - b.y); })
+                .map(function (c) { return c.key; });"#,
+            Vec::new(),
+        )
+        .await
+        .expect("read the board's cards in on-screen order");
+    json_strings(&keys, "the on-screen card order")
+}
+
+/// The hidden `#kb-items` carrier's order (`board.html:12`) — ASC by issue number
+/// across every column, which is a DIFFERENT order than the visible board's
+/// column-grouped DESC (ADR-008). Read ONLY so the `@kb-items-collision` scenario
+/// can prove the two orders genuinely disagree, i.e. that walking the carrier
+/// would be observably wrong rather than accidentally right.
+///
+/// Returns empty once ADR-008's retirement lands (step 05-05 deletes the
+/// carrier); the collision arm self-retires with it — see its own note.
+async fn carrier_order(browser: &fantoccini::Client) -> Vec<String> {
+    let keys = browser
+        .execute(
+            "return Array.prototype.map.call(
+               document.querySelectorAll('#kb-items li[data-issue-key]'),
+               function (li) { return li.getAttribute('data-issue-key'); }
+             );",
+            Vec::new(),
+        )
+        .await
+        .expect("read the hidden #kb-items carrier order");
+    json_strings(&keys, "the #kb-items carrier order")
+}
+
+fn json_strings(value: &serde_json::Value, what: &str) -> Vec<String> {
+    value
+        .as_array()
+        .unwrap_or_else(|| panic!("{what} probe returns an array"))
+        .iter()
+        .map(|key| key.as_str().unwrap_or_default().to_string())
+        .collect()
+}
+
+/// The keys of every card currently wearing the ring. A Vec, not an Option: "two
+/// cards are selected" is a real failure mode (a projection that adds without
+/// clearing) and it must be nameable rather than silently reading the first.
+async fn selected_keys(browser: &fantoccini::Client) -> Vec<String> {
+    let keys = browser
+        .execute(
+            r#"return Array.prototype.map.call(
+                 document.querySelectorAll(".board .issue-card[aria-selected='true']"),
+                 function (card) { return card.getAttribute('data-issue-key'); }
+               );"#,
+            Vec::new(),
+        )
+        .await
+        .expect("read the selected cards");
+    json_strings(&keys, "the selection")
+}
+
+/// EXACTLY `expected` is selected. `context` names the action under test so the
+/// failure reads as a sentence about the product, not about a selector.
+async fn assert_selected_is(browser: &fantoccini::Client, expected: &str, context: &str) {
+    let selected = selected_keys(browser).await;
+    assert_eq!(
+        selected,
+        vec![expected.to_string()],
+        "after {context} the ring is on {selected:?}, but Mei is looking at {expected} — \
+         selection must land on the card she sees there, and on exactly one card (ADR-004)"
+    );
+}
+
+/// Collects the errors the PAGE reports, from now on: uncaught exceptions
+/// (`window.onerror`) and `console.error` — the two channels `keyboard.js` uses
+/// for a real defect (it deliberately never swallows).
+///
+/// Installed AFTER the Given's own presses, so the count starts at zero and any
+/// entry belongs to the keystroke under test. Without this, "no error occurs"
+/// would be unfalsifiable prose: a handler that threw on every `k` at the
+/// boundary would still leave the ring where it was, and the scenario would pass
+/// over a broken build.
+async fn install_error_probe(browser: &fantoccini::Client) {
+    browser
+        .execute(
+            "window.__kbErrors = [];
+             window.addEventListener('error', function (e) {
+               window.__kbErrors.push('uncaught: ' + e.message);
+             });
+             window.addEventListener('unhandledrejection', function (e) {
+               window.__kbErrors.push('unhandled rejection: ' + e.reason);
+             });
+             var native = console.error.bind(console);
+             console.error = function () {
+               window.__kbErrors.push(Array.prototype.join.call(arguments, ' '));
+               return native.apply(console, arguments);
+             };
+             return null;",
+            Vec::new(),
+        )
+        .await
+        .expect("install the page-error probe");
 }
 
 /// Stamps the URL Mei is resting on INTO the live page, so a later "does not
@@ -1717,11 +1841,14 @@ async fn new_issue_modal_reopens(world: &mut FoundryWorld) {
         );
 }
 
-/// Still slice 05's. `no modal opens` shared this scaffold until step 03-01 gave
-/// it a real assertion (AC-03.3), so only the selection arm remains pending.
+/// AC-05.1. "FIRST VISIBLE" is resolved from the RECTS (`visible_card_order`),
+/// never from DOM order and never from the hidden `#kb-items` carrier — the
+/// whole point of the slice is that selection follows the eyes.
 #[then(regex = r"^the first visible card is highlighted as selected$")]
-async fn first_visible_card_selected(_world: &mut FoundryWorld) {
-    scaffold_pending();
+async fn first_visible_card_selected(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("browser session");
+    let order = visible_card_order(browser).await;
+    assert_selected_is(browser, &order[0], "\"j\" on a board with no selection").await;
 }
 
 // --- SLICE 02 / STEP 02-02: the guard chain's three edges --------------------
@@ -2330,6 +2457,416 @@ async fn no_keyboard_only_action(world: &mut FoundryWorld) {
         "the help lists {} shortcuts but {described} descriptions — an advertised key with no \
          label tells a no-JS reader nothing about what it does",
         keys.len()
+    );
+}
+
+// --- SLICE 05 / STEP 05-01: j/k walk the VISIBLE cards (US-05, ADR-004) ------
+//
+// The one thing every step below is built to refuse: the hidden `#kb-items`
+// carrier (`board.html:12`). It is ASC-by-number across all columns; the visible
+// board is column-grouped and DESC-within-column (`projects.rs:864-879`) — a
+// DIFFERENT order. Every "which card" question here is answered from
+// `visible_card_order`'s RECTS, so an implementation that walked the carrier reds
+// on the very first press rather than passing for the wrong reason (ADR-008).
+
+/// AC-05.1's Given. Names three of the four seeded cards; asserts they are on
+/// screen rather than trusting the Background, because "first VISIBLE card" is
+/// meaningless if nothing is visible.
+#[given(regex = r"^Mei is viewing the AUTH board showing issues AUTH-3, AUTH-2 and AUTH-1$")]
+async fn viewing_board_showing_cards(world: &mut FoundryWorld) {
+    let url = board_url(world);
+    let browser = world.browser.as_ref().expect("browser session");
+    browser
+        .goto(&url)
+        .await
+        .expect("navigate to the AUTH board");
+    browser_harness::wait_for_kb_ready(browser).await;
+    let order = visible_card_order(browser).await;
+    for key in ["AUTH-3", "AUTH-2", "AUTH-1"] {
+        assert!(
+            order.iter().any(|k| k == key),
+            "the board is not showing {key} (it shows {order:?}) — this scenario asserts which \
+             card `j` lands on, so the cards it names must be on screen"
+        );
+    }
+    assert!(
+        selected_keys(browser).await.is_empty(),
+        "a card is already selected on a freshly-loaded board — selection is ephemeral and starts \
+         empty (BR-5), and `j`'s first press would then be asserting the wrong thing"
+    );
+}
+
+/// The Given for AC-05.2 and AC-05.4: selection is established by pressing the
+/// REAL `j` and is ASSERTED, never mounted from JS. A Given that stamped
+/// `aria-selected` onto a card itself would be Fixture Theater — it would green
+/// `k`'s boundary over a build where `j` is not bound at all.
+async fn select_first_visible_card(world: &mut FoundryWorld) {
+    let url = board_url(world);
+    let browser = world.browser.as_ref().expect("browser session");
+    browser
+        .goto(&url)
+        .await
+        .expect("navigate to the AUTH board");
+    browser_harness::wait_for_kb_ready(browser).await;
+    press(browser, "j").await;
+    let order = visible_card_order(browser).await;
+    assert_selected_is(browser, &order[0], "the Given's own \"j\"").await;
+}
+
+#[given(regex = r"^Mei has selected the first visible card on the AUTH board$")]
+async fn has_selected_first_visible_card(world: &mut FoundryWorld) {
+    select_first_visible_card(world).await;
+}
+
+#[given(regex = r"^Mei has the first visible card selected$")]
+async fn has_first_visible_card_selected(world: &mut FoundryWorld) {
+    select_first_visible_card(world).await;
+    let browser = world.browser.as_ref().expect("browser session");
+    install_error_probe(browser).await;
+}
+
+/// One real keystroke at `body`, through the same document-delegated listener a
+/// human's press reaches (ADR-001).
+async fn press(browser: &fantoccini::Client, key: &str) {
+    browser
+        .find(Locator::Css("body"))
+        .await
+        .expect("find the document body")
+        .send_keys(browser_harness::key_chord(key))
+        .await
+        .unwrap_or_else(|err| panic!("press {key:?}: {err}"));
+}
+
+/// Records where the ring is RIGHT NOW onto the page, building the walk the Then
+/// reads back. Stamped on `window` (the house idiom, as `capture_url_at_rest`):
+/// a navigation would destroy it, so a `j` that navigated cannot quietly satisfy
+/// a walk assertion.
+async fn record_selection_step(browser: &fantoccini::Client) {
+    browser
+        .execute(
+            r#"window.__kbSelectionWalk = window.__kbSelectionWalk || [];
+               var el = document.querySelector(".board .issue-card[aria-selected='true']");
+               window.__kbSelectionWalk.push(el ? el.getAttribute('data-issue-key') : null);
+               return null;"#,
+            Vec::new(),
+        )
+        .await
+        .expect("record where the selection landed");
+}
+
+async fn selection_walk(browser: &fantoccini::Client) -> Vec<String> {
+    let walk = browser
+        .execute(
+            "if (!window.__kbSelectionWalk) { throw new Error('no selection walk was recorded'); }
+             return window.__kbSelectionWalk.map(function (k) { return k === null ? '<none>' : k; });",
+            Vec::new(),
+        )
+        .await
+        .expect("read the recorded selection walk");
+    json_strings(&walk, "the selection walk")
+}
+
+#[when(regex = r#"^Mei presses "j" and then "k"$"#)]
+async fn presses_j_then_k(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("browser session");
+    press(browser, "j").await;
+    record_selection_step(browser).await;
+    press(browser, "k").await;
+    record_selection_step(browser).await;
+}
+
+/// AC-05.2. Both halves of the move, against the ORDER MEI SEES.
+#[then(regex = r"^the selection moves to the second visible card and back to the first$")]
+async fn selection_moves_second_then_first(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("browser session");
+    let order = visible_card_order(browser).await;
+    assert!(
+        order.len() >= 2,
+        "the board shows {} card(s) — a scenario about moving to the SECOND card needs two",
+        order.len()
+    );
+    let walk = selection_walk(browser).await;
+    assert_eq!(
+        walk,
+        vec![order[1].clone(), order[0].clone()],
+        "`j` then `k` walked {walk:?}, but the cards Mei sees are {order:?} — `j` must move to the \
+         next card ON SCREEN and `k` must bring the ring straight back (AC-05.2)"
+    );
+}
+
+/// The `@kb-items-collision` arm, and the reason this scenario exists at all.
+///
+/// The board renders TWO orders: the visible, column-grouped DESC one Mei reads,
+/// and the hidden `#kb-items` ASC-by-number carrier whose own shipped comment
+/// once claimed to be "the source of truth for the keyboard navigation order"
+/// (`projects.rs:881-885`). They DISAGREE. This step first proves they disagree —
+/// otherwise it could not tell the two implementations apart and would be
+/// asserting nothing — and then proves `j` followed the eyes.
+///
+/// The carrier arm SELF-RETIRES: step 05-05 deletes `#kb-items` (ADR-008), after
+/// which `carrier_order` is empty and only the geometry arm below runs. That arm
+/// is the permanent one; the carrier arm is a guard for exactly as long as there
+/// is a wrong list on the page to be tempted by.
+#[then(regex = r"^the selection order matches the order the cards appear on screen$")]
+async fn selection_order_matches_screen(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("browser session");
+    let order = visible_card_order(browser).await;
+    let walk = selection_walk(browser).await;
+    let carrier = carrier_order(browser).await;
+    if !carrier.is_empty() {
+        assert_ne!(
+            carrier, order,
+            "the hidden #kb-items carrier and the visible board are rendering the SAME order — \
+             this scenario exists to prove `j` walks what Mei sees rather than the carrier, and it \
+             cannot distinguish them while they agree. Re-seed the board so the two orders differ."
+        );
+        assert_ne!(
+            walk[0], carrier[1],
+            "`j` moved to {}, which is the hidden #kb-items carrier's second entry — not the \
+             second card on screen ({}). Selection must be built from the VISIBLE cards; the \
+             carrier is `hidden aria-hidden` ASC-by-number and can carry no ring (ADR-008).",
+            walk[0], order[1]
+        );
+    }
+    assert_eq!(
+        walk[0], order[1],
+        "`j` moved to {} but the card Mei sees below the first one is {} — the walk order must be \
+         the on-screen order (rects), which is column-grouped and DESC-within-column (AC-05.1)",
+        walk[0], order[1]
+    );
+}
+
+/// AC-05.3's Given. Seeds enough cards to overflow the FIXED 1280x900 viewport
+/// (ADR-007 pins it, which is the only reason this scenario is deterministic) and
+/// then ASSERTS the overflow: a board that happens to fit would make the
+/// scrollIntoView assertion pass without anything ever scrolling.
+#[given(regex = r"^Mei is viewing the AUTH board with more cards than fit on screen$")]
+async fn board_with_more_cards_than_fit(world: &mut FoundryWorld) {
+    seed_extra_backlog_issues(world, 5..=40).await;
+    let url = board_url(world);
+    let browser = world.browser.as_ref().expect("browser session");
+    browser
+        .goto(&url)
+        .await
+        .expect("navigate to the AUTH board");
+    browser_harness::wait_for_kb_ready(browser).await;
+    let below = cards_below_the_fold(browser).await;
+    assert!(
+        below > 0,
+        "every card on the board fits inside the viewport, so nothing can be \"below the fold\" — \
+         this scenario would assert scrollIntoView over a page that never needs to scroll. Seed \
+         more cards, or the fixed window (browser_harness.rs) grew."
+    );
+}
+
+/// Seeds extra backlog issues so the board overflows. Same INSERT + counter
+/// repair as the Background's own seeding: `next_issue_number` is advanced
+/// because a direct INSERT bypasses its only writer, and a board whose next
+/// create would 500 is a database the app can never produce.
+async fn seed_extra_backlog_issues(
+    world: &mut FoundryWorld,
+    numbers: std::ops::RangeInclusive<i32>,
+) {
+    let harness = world.harness.as_ref().expect("harness");
+    let pool = harness.app.state.store.pool();
+    let project: (uuid::Uuid, uuid::Uuid) =
+        sqlx::query_as("SELECT id, workspace_id FROM projects WHERE key_prefix = 'AUTH'")
+            .fetch_one(pool)
+            .await
+            .expect("fetch the AUTH project");
+    let author: (uuid::Uuid,) = sqlx::query_as("SELECT id FROM users LIMIT 1")
+        .fetch_one(pool)
+        .await
+        .expect("fetch author");
+    let last = *numbers.end();
+    for number in numbers {
+        sqlx::query(
+            "INSERT INTO issues (id, workspace_id, project_id, number, title, state, priority, author_id)
+                  VALUES ($1, $2, $3, $4, $5, 'backlog', 'medium', $6)",
+        )
+        .bind(uuid::Uuid::now_v7())
+        .bind(project.1)
+        .bind(project.0)
+        .bind(number)
+        .bind(format!("Seeded overflow issue {number}"))
+        .bind(author.0)
+        .execute(pool)
+        .await
+        .expect("seed an overflow AUTH issue");
+    }
+    sqlx::query(
+        "UPDATE projects SET next_issue_number = GREATEST(next_issue_number, $2) WHERE id = $1",
+    )
+    .bind(project.0)
+    .bind(last + 1)
+    .execute(pool)
+    .await
+    .expect("advance next_issue_number past the overflow issues");
+}
+
+/// How many cards are NOT fully inside the viewport right now.
+async fn cards_below_the_fold(browser: &fantoccini::Client) -> usize {
+    let count = browser
+        .execute(
+            "return Array.prototype.filter.call(
+               document.querySelectorAll('.board .issue-card[data-issue-key]'),
+               function (card) { return card.getBoundingClientRect().bottom > window.innerHeight; }
+             ).length;",
+            Vec::new(),
+        )
+        .await
+        .expect("count the cards below the fold");
+    count.as_u64().expect("a count") as usize
+}
+
+/// AC-05.3. "Repeatedly until the selection passes the bottom of the viewport" is
+/// made exact: count the cards FULLY VISIBLE before any press (N), then press `j`
+/// N+1 times. The (N+1)th card in on-screen order is, by construction, one that
+/// was NOT on screen when Mei started — so the Then's claim ("it is on screen
+/// now") can only be satisfied by something having scrolled.
+///
+/// The count is taken BEFORE the first press for the obvious reason: each press
+/// may scroll, and a count taken later would be a count of a page the assertion
+/// itself moved.
+#[when(
+    regex = r#"^Mei presses "j" repeatedly until the selection passes the bottom of the viewport$"#
+)]
+async fn presses_j_past_the_fold(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("browser session");
+    let order = visible_card_order(browser).await;
+    let fully_visible = browser
+        .execute(
+            "return Array.prototype.filter.call(
+               document.querySelectorAll('.board .issue-card[data-issue-key]'),
+               function (card) {
+                 var r = card.getBoundingClientRect();
+                 return r.top >= 0 && r.bottom <= window.innerHeight;
+               }
+             ).length;",
+            Vec::new(),
+        )
+        .await
+        .expect("count the cards on screen before any press")
+        .as_u64()
+        .expect("a count") as usize;
+    assert!(
+        fully_visible < order.len(),
+        "all {} cards are already on screen — there is no card to walk PAST the fold to",
+        order.len()
+    );
+    let target = order[fully_visible].clone();
+    for _ in 0..=fully_visible {
+        press(browser, "j").await;
+    }
+    browser
+        .execute(
+            "window.__kbScrollTarget = arguments[0]; return null;",
+            vec![serde_json::Value::String(target)],
+        )
+        .await
+        .expect("stamp the below-the-fold target");
+}
+
+/// AC-05.3 + NFR-7. Three claims, each falsifiable on its own:
+///   1. the ring is on the card that was BELOW THE FOLD (so `j` really walked there);
+///   2. that card is now fully inside the viewport (so something SCROLLED — drop
+///      `scrollIntoView` from keyboard.js and this reds while 1 and 3 still pass);
+///   3. the highlight is actually rendered AND is not colour alone — a non-zero
+///      outline, which is what survives a high-contrast mode and a colour-blind
+///      reader (NFR-7). A ring implemented as `background: blue` reds here.
+#[then(regex = r"^the selected card is scrolled into view and its highlight is visible$")]
+async fn selected_card_scrolled_into_view(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("browser session");
+    let target = browser
+        .execute("return window.__kbScrollTarget || null;", Vec::new())
+        .await
+        .expect("read the below-the-fold target")
+        .as_str()
+        .expect("the When stamped a target key")
+        .to_string();
+    assert_selected_is(
+        browser,
+        &target,
+        "walking \"j\" past the bottom of the viewport",
+    )
+    .await;
+
+    let report = browser
+        .execute(
+            r#"var card = document.querySelector(".board .issue-card[aria-selected='true']");
+               if (!card) { throw new Error('nothing is selected'); }
+               var r = card.getBoundingClientRect();
+               var style = window.getComputedStyle(card);
+               return {
+                 top: Math.round(r.top),
+                 bottom: Math.round(r.bottom),
+                 viewport: window.innerHeight,
+                 displayed: style.visibility !== 'hidden' && style.display !== 'none',
+                 outline: parseFloat(style.outlineWidth) || 0,
+                 outlineStyle: style.outlineStyle
+               };"#,
+            Vec::new(),
+        )
+        .await
+        .expect("measure the selected card");
+    let top = report["top"].as_f64().expect("top");
+    let bottom = report["bottom"].as_f64().expect("bottom");
+    let viewport = report["viewport"].as_f64().expect("viewport");
+    assert!(
+        top >= 0.0 && bottom <= viewport,
+        "the selected card {target} sits at {top}..{bottom} in a {viewport}px viewport — it is \
+         still off screen, so Mei is looking at a ring she cannot see. The selection must be \
+         scrolled into view as it moves (AC-05.3)"
+    );
+    assert!(
+        report["displayed"].as_bool().unwrap_or(false),
+        "the selected card {target} is not being displayed at all"
+    );
+    let outline = report["outline"].as_f64().unwrap_or(0.0);
+    let outline_style = report["outlineStyle"].as_str().unwrap_or("none");
+    assert!(
+        outline > 0.0 && outline_style != "none",
+        "the selected card's highlight has no outline (outline-width {outline}px, style \
+         {outline_style}) — a ring drawn with colour alone is invisible to a colour-blind reader \
+         and in forced-colours mode (NFR-7)"
+    );
+}
+
+/// AC-05.4. `k` at the top is BOUNDED, not a wrap: the ring stays exactly where it
+/// was. Asserted against the on-screen first card, so a `k` that wrapped to the
+/// LAST card reds rather than "still selected something".
+#[then(regex = r"^the first card remains selected$")]
+async fn first_card_remains_selected(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("browser session");
+    let order = visible_card_order(browser).await;
+    assert_selected_is(
+        browser,
+        &order[0],
+        "\"k\" with the first card already selected",
+    )
+    .await;
+}
+
+/// The other half of AC-05.4 — and the half that is easy to write as prose and
+/// never assert. The boundary is where an index-walk throws (`items[-1]` is
+/// undefined, and `.classList` on it is a TypeError), so "no error" is a real
+/// claim about a real failure, read from the probe the Given installed.
+#[then(regex = r"^no error occurs$")]
+async fn no_error_occurs(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("browser session");
+    let errors = browser
+        .execute(
+            "if (!window.__kbErrors) { throw new Error('no error probe was installed'); }
+             return window.__kbErrors;",
+            Vec::new(),
+        )
+        .await
+        .expect("read the page-error probe");
+    let errors = json_strings(&errors, "the page errors");
+    assert!(
+        errors.is_empty(),
+        "pressing \"k\" at the first card raised {errors:?} — the boundary must be a quiet no-op \
+         (FR-8), not an exception Mei never sees but which kills every later press"
     );
 }
 

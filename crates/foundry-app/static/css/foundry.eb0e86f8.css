@@ -146,6 +146,30 @@ textarea {
   text-decoration: none;
 }
 
+/* The keyboard selection ring (keyboard-shortcut-bindings, ADR-004 / NFR-7).
+ *
+ * An OUTLINE, deliberately — not a background or a border colour swap. Three
+ * reasons, each load-bearing:
+ *   - It does NOT rely on colour alone: the ring adds a visible 2px band that is
+ *     a SHAPE change, legible to a colour-blind reader and to anyone who cannot
+ *     tell #2452c9 from #d4d9e0.
+ *   - `outline` is honoured in forced-colours / high-contrast mode, where author
+ *     backgrounds and borders are overridden; a `background: …` ring simply
+ *     vanishes there.
+ *   - It takes no layout space (unlike a border), so ringing a card cannot
+ *     reflow the column and move the very cards `j` is walking.
+ * --accent (#2452c9) on --bg (#ffffff) is ~7:1, comfortably past WCAG 2.1 AA's
+ * 3:1 for non-text contrast (1.4.11).
+ *
+ * `.issue-card` already carries `aria-selected="true"` from the same projection
+ * (keyboard.js): the class paints, the ARIA state speaks. Both are derived from
+ * `selectedKey` on every move — neither is stored.
+ */
+.issue-card.kb-selected {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .empty-state {
   color: var(--muted);
   font-style: italic;

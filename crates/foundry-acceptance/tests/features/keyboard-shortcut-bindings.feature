@@ -292,7 +292,7 @@ Feature: The seven advertised keyboard shortcuts work in the browser
   # · ADR-006 (aria-activedescendant composite) · ADR-008 (retire #kb-items).
   # ===========================================================================
 
-  @pending @needs-browser @slice5 @us-05 @selection
+  @needs-browser @slice5 @us-05 @selection
   Scenario: The next key selects the first visible card and highlights it
     Given Mei is viewing the AUTH board showing issues AUTH-3, AUTH-2 and AUTH-1
     When Mei presses "j"
@@ -300,7 +300,7 @@ Feature: The seven advertised keyboard shortcuts work in the browser
 
   # Selection follows the EYES, not the retired #kb-items ASC-by-number carrier —
   # the visible board is column-grouped and DESC-within-column (ADR-008).
-  @pending @needs-browser @slice5 @us-05 @selection @kb-items-collision
+  @needs-browser @slice5 @us-05 @selection @kb-items-collision
   Scenario: Next and previous walk the cards in the order Mei sees them
     Given Mei has selected the first visible card on the AUTH board
     When Mei presses "j" and then "k"
@@ -308,13 +308,13 @@ Feature: The seven advertised keyboard shortcuts work in the browser
     And the selection order matches the order the cards appear on screen
 
   # scrollIntoView (AC-05.3) — deterministic only under a FIXED window size (ADR-007).
-  @pending @needs-browser @slice5 @us-05 @selection @edge
+  @needs-browser @slice5 @us-05 @selection @edge
   Scenario: A selection below the fold scrolls into view
     Given Mei is viewing the AUTH board with more cards than fit on screen
     When Mei presses "j" repeatedly until the selection passes the bottom of the viewport
     Then the selected card is scrolled into view and its highlight is visible
 
-  @pending @needs-browser @slice5 @us-05 @selection @edge
+  @needs-browser @slice5 @us-05 @selection @edge
   Scenario: Moving previous from the first card stays put
     Given Mei has the first visible card selected
     When Mei presses "k"
