@@ -158,6 +158,27 @@ async fn focused_field(browser: &fantoccini::Client) -> (String, String) {
     )
 }
 
+/// The issue keys the board is rendering, in the order Mei sees them. Sorted, so
+/// the "nothing else changed" assertion speaks to WHICH cards survived an `Esc`
+/// rather than to a column ordering that belongs to another feature.
+async fn board_issue_keys(browser: &fantoccini::Client) -> Vec<String> {
+    let keys = browser
+        .execute(
+            "return Array.prototype.map.call(
+               document.querySelectorAll('.board .issue-card[data-issue-key]'),
+               function (card) { return card.getAttribute('data-issue-key'); }
+             ).sort();",
+            Vec::new(),
+        )
+        .await
+        .expect("read the board's issue keys");
+    keys.as_array()
+        .expect("the issue-key probe returns an array")
+        .iter()
+        .map(|key| key.as_str().unwrap_or_default().to_string())
+        .collect()
+}
+
 /// No card is marked as selected. Selection lands in slice 05, so today this is a
 /// standing zero — but asserting it HERE is what makes "no selection moves"
 /// falsifiable the moment `j`/`k` are bound: if the guard ever lets them through
@@ -170,6 +191,25 @@ async fn selected_card_count(browser: &fantoccini::Client) -> usize {
         .await
         .expect("count the selected cards")
         .len()
+}
+
+/// Stamps the URL Mei is resting on INTO the live page, so a later "does not
+/// navigate away" assertion can name it without this module hard-coding which
+/// page the scenario happens to be on (`c` rests on the dashboard, `Esc` on the
+/// board — same claim, two surfaces).
+///
+/// The stamp is a `window` property ON PURPOSE: a navigation destroys the
+/// document and takes it with it. So the assertion has two independent ways to
+/// red — the URL differs, or the stamp is gone — and the second one bites even
+/// if a navigation somehow lands back on the same URL.
+async fn capture_url_at_rest(browser: &fantoccini::Client) {
+    browser
+        .execute(
+            "window.__kbUrlAtRest = window.location.href; return null;",
+            Vec::new(),
+        )
+        .await
+        .expect("stamp the resting URL onto the page");
 }
 
 /// Drives the REAL `c` key on the board and waits for the modal — the shared
@@ -792,6 +832,7 @@ async fn viewing_dashboard_no_project(world: &mut FoundryWorld) {
          \"c\" is a no-op where there is NO project to create an issue in (AC-03.3). With the \
          trigger present there IS a target, and the scenario proves nothing."
     );
+    capture_url_at_rest(browser).await;
 }
 
 /// AC-03.3, first arm. Scoped to the WHOLE document, not to `#modal-root`: the
@@ -818,23 +859,289 @@ async fn no_modal_opens(world: &mut FoundryWorld) {
     );
 }
 
-/// AC-03.3, second arm — and the one with teeth. "No modal" alone would pass for
-/// an implementation that RECONSTRUCTED the URL and did `location.href = ...`:
-/// there would be no modal on the dashboard, because Mei would no longer be on the
-/// dashboard. That is the failure this arm names. It is also why `c` clicks
-/// board.html:6's own trigger instead of building a URL — with no trigger there is
-/// nothing to click, and doing nothing falls out for free (DESIGN wave-decisions).
+/// The arm with teeth, shared by AC-03.3 (`c` with no project) and AC-07.2 (`Esc`
+/// with nothing open). "No modal" alone would pass for an implementation that
+/// RECONSTRUCTED the URL and did `location.href = ...`: there would be no modal on
+/// the dashboard, because Mei would no longer be on the dashboard. That is the
+/// failure this arm names — and it is the same failure for `Esc`, where the classic
+/// bug is a shortcut that "goes back" when the stack is empty rather than popping
+/// nothing.
+///
+/// Compared against the stamp `capture_url_at_rest` planted in the Given, NOT
+/// against a URL this step recomputes: the two scenarios rest on different pages
+/// and the claim ("Mei is where she was") is the same one. A destroyed stamp is
+/// itself a navigation, so this reds even if the trip lands back on the same URL.
 #[then(regex = r"^the browser does not navigate away$")]
 async fn browser_does_not_navigate_away(world: &mut FoundryWorld) {
-    let expected = dashboard_url(world);
+    let browser = world.browser.as_ref().expect("browser session");
+    let actual = browser.current_url().await.expect("read the current URL");
+    let stamped = browser
+        .execute("return window.__kbUrlAtRest || null;", Vec::new())
+        .await
+        .expect("read back the resting-URL stamp");
+    let expected = stamped.as_str().unwrap_or_else(|| {
+        panic!(
+            "the resting-URL stamp this scenario planted on the page is GONE and Mei is now at \
+             {actual} — the document was replaced, which is exactly the navigation this step \
+             forbids. A shortcut with nothing to act on is a no-op: never a navigation, never an \
+             error (AC-03.3 / AC-07.2)."
+        )
+    });
+    assert_eq!(
+        actual.as_str().trim_end_matches('/'),
+        expected.trim_end_matches('/'),
+        "the key took Mei from {expected} to {actual}. A shortcut with no target — `c` with no \
+         project, `Esc` with an empty layer stack — is a no-op (AC-03.3 / AC-07.2). This is what \
+         reds if anyone reconstructs the new-issue URL instead of clicking the board's own shipped \
+         trigger, or lets `Esc` fall through to a history-back default."
+    );
+}
+
+// --- SLICE 03 / STEP 03-02 (US-07): the Esc layer stack (ADR-003) ------------
+//
+// The three scenarios below are where `Esc`'s LAYERED contract is exercised for
+// the first time. The binding itself (`closeTopLayer()`) arrived at step 02-01 as
+// a disclosed spillover — AC-02.6's Given required `Esc` to actually close the
+// modal — so this step's contribution is the ASSERTIONS, and the layered scenario
+// is the one that has never run. That is a legitimate outcome only because the
+// assertions are FALSIFIABLE: collapsing `#kb-overlay-root` and `#modal-root` into
+// one host, or making `Esc` clear both at once, reds the `@layered` scenario.
+// Verified by doing it, not by assuming it (see the DELIVER report for 03-02).
+
+/// AC-07.1, first arm. The DOM condition ADR-003 §2 makes canonical — the host is
+/// empty — via a bounded wait, never a sleep. Then the WHOLE-document check, which
+/// is the one that would catch a "close" that merely hid the modal or moved it out
+/// of `#modal-root` while leaving it on the page.
+#[then(regex = r"^the modal closes$")]
+async fn the_modal_closes(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("browser session");
+    browser
+        .wait()
+        .at_most(std::time::Duration::from_secs(10))
+        .for_element(Locator::Css("#modal-root:empty"))
+        .await
+        .expect(
+            "pressing \"Esc\" must clear #modal-root — the new-issue modal is still on screen. \
+             `Esc` reaches the dispatch layer from INSIDE the autofocused title field only because \
+             guard 4's domain declines the keys a text field cannot consume (upstream-issues.md \
+             UI-3): Escape produces no character and a text input does nothing with it. If that \
+             narrowing is ever reverted, this is one of the steps that reds.",
+        );
+    let modals = any_modal_count(browser).await;
+    assert_eq!(
+        modals, 0,
+        "#modal-root is empty but {modals} modal(s) are still in the document — the modal was \
+         moved or hidden rather than closed, and Mei is still looking at a dialog"
+    );
+}
+
+/// AC-07.1, second arm: "…with nothing else changed". Esc RESTORES — it does not
+/// navigate, reload, or cost Mei the board state she had. The four seeded cards
+/// are asserted BY NAME rather than by count: a board that re-rendered from a
+/// reload would also show four cards, and the point of US-07 is that Mei's page is
+/// the one she left.
+#[then(regex = r"^Mei is back on the AUTH board with nothing else changed$")]
+async fn back_on_board_nothing_changed(world: &mut FoundryWorld) {
+    let expected = board_url(world);
     let browser = world.browser.as_ref().expect("browser session");
     let actual = browser.current_url().await.expect("read the current URL");
     assert_eq!(
         actual.as_str().trim_end_matches('/'),
         expected.trim_end_matches('/'),
-        "pressing \"c\" took Mei from the dashboard to {actual}. A shortcut with no target is a \
-         no-op — never a navigation, and never an error (AC-03.3). This is what reds if anyone \
-         reconstructs the new-issue URL instead of clicking the board's own shipped trigger."
+        "\"Esc\" navigated Mei to {actual} instead of simply dismissing the modal — Esc must never \
+         navigate (FR-5). Closing a dialog is not a trip through history."
+    );
+    assert!(
+        browser
+            .find(Locator::Css(".board"))
+            .await
+            .expect("the AUTH board must still be rendered after Esc")
+            .is_displayed()
+            .await
+            .expect("board displayed?"),
+        "the board is gone after \"Esc\" — Mei did not end up where she was"
+    );
+    assert!(
+        !help_overlay_is_open(browser).await,
+        "\"Esc\" closed the modal but opened the help overlay — one press, one layer, and this \
+         press had only the modal to peel (ADR-003 §2)"
+    );
+    let cards = board_issue_keys(browser).await;
+    assert_eq!(
+        cards,
+        vec!["AUTH-1", "AUTH-2", "AUTH-3", "AUTH-4"],
+        "the board came back carrying {cards:?} instead of the four cards Mei left on it. \
+         Dismissing a modal must not cost her the board state underneath (AC-07.1)."
+    );
+}
+
+/// The `@layered` proof's precondition (ADR-003's raison d'être), driven by two
+/// REAL presses. A Given that injected the help fragment, or mounted the modal via
+/// `execute()`, would be Fixture Theater of the purest kind: it would green the
+/// layered assertion over a build where the two hosts do not exist at all.
+///
+/// The order is the order Mei lives: `c` opens the modal (which autofocuses its
+/// title), then `?` opens the help OVER it. Both waits are the anti-vacuity guard
+/// — if either layer is not genuinely up, the scenario must fail HERE, on its
+/// premise, rather than pass an Esc assertion against a stack that was never two
+/// deep.
+#[given(
+    regex = r#"^Mei has the new-issue modal open and has pressed "\?" to show the help overlay$"#
+)]
+async fn modal_open_with_help_over_it(world: &mut FoundryWorld) {
+    open_new_issue_modal_by_pressing_c(world).await;
+    let browser = world.browser.as_ref().expect("browser session");
+    press_help_and_await_overlay(browser).await;
+    assert_eq!(
+        open_modal_count(browser).await,
+        1,
+        "pressing \"?\" over the open modal DESTROYED it — the help rendered into #modal-root \
+         instead of into its own #kb-overlay-root host. This is precisely the single-shared-mount \
+         design ADR-003 rejects: with one htmx swap target, help cannot sit OVER a modal, and the \
+         layered Esc this scenario proves becomes unexpressible."
+    );
+}
+
+/// THE assertion of the `@layered` scenario, and the reason ADR-003 exists. One
+/// press peels ONE layer: the help is gone AND the modal beneath it is untouched.
+///
+/// This is the arm that reds if anyone collapses the two hosts back into one, or
+/// "simplifies" `closeTopLayer()` into clearing both. Asserted as a DOM fact about
+/// the modal's own host, plus displayed-ness — a modal still in `#modal-root` but
+/// hidden would satisfy a presence-only check while Mei stares at a closed dialog.
+#[then(regex = r"^the new-issue modal is still open$")]
+async fn new_issue_modal_still_open(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("browser session");
+    let modal = browser
+        .find_all(Locator::Css(MODAL_SELECTOR))
+        .await
+        .expect("look for the modal that must have SURVIVED the first Esc");
+    assert_eq!(
+        modal.len(),
+        1,
+        "the first \"Esc\" closed the help overlay AND took the new-issue modal with it. Esc peels \
+         the TOPMOST layer, one per press (BR-4 / ADR-003 §2): Mei pressed once to dismiss the \
+         help she had just opened, and lost the issue she was in the middle of writing. This is \
+         what reds if #kb-overlay-root and #modal-root are collapsed into one host, or if \
+         closeTopLayer() ever clears both."
+    );
+    assert!(
+        modal[0].is_displayed().await.expect("modal displayed?"),
+        "the new-issue modal is still in #modal-root but is no longer displayed — it survived the \
+         first Esc in the DOM only, which is not what \"still open\" means to Mei"
+    );
+}
+
+#[when(regex = r#"^Mei presses "Esc" a second time$"#)]
+async fn mei_presses_esc_again(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("browser session");
+    browser
+        .find(Locator::Css("body"))
+        .await
+        .expect("find the document body")
+        .send_keys(browser_harness::key_chord("Esc"))
+        .await
+        .expect("press \"Esc\" a second time");
+}
+
+/// The `@layered` scenario's closing arm: the stack is peeled to the bottom, one
+/// press at a time. Without this, "help closes and the modal stays" would be
+/// satisfied by an `Esc` that can ONLY ever close help — the modal would outlive
+/// every press, and Mei could never dismiss it at all.
+#[then(regex = r"^the new-issue modal closes$")]
+async fn new_issue_modal_closes(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("browser session");
+    browser
+        .wait()
+        .at_most(std::time::Duration::from_secs(10))
+        .for_element(Locator::Css("#modal-root:empty"))
+        .await
+        .expect(
+            "the SECOND \"Esc\" must clear #modal-root. With the help already peeled, the modal is \
+             now the topmost layer — an Esc that only ever closes the overlay would leave Mei \
+             unable to dismiss the modal by keyboard at all (ADR-003 §2).",
+        );
+}
+
+/// AC-07.2's premise, ASSERTED rather than assumed: the stack really is empty. A
+/// no-op scenario whose starting state secretly had a layer open would be testing
+/// the ordinary close path and calling it a no-op.
+#[given(regex = r"^Mei is viewing the AUTH board with no modal or overlay open$")]
+async fn viewing_board_nothing_open(world: &mut FoundryWorld) {
+    let url = board_url(world);
+    let browser = world.browser.as_ref().expect("browser session");
+    browser
+        .goto(&url)
+        .await
+        .expect("navigate to the AUTH board");
+    browser_harness::wait_for_kb_ready(browser).await;
+    assert_eq!(
+        any_modal_count(browser).await,
+        0,
+        "the board loaded with a modal already open — this scenario's whole premise is that \"Esc\" \
+         has NOTHING to close"
+    );
+    assert!(
+        !help_overlay_is_open(browser).await,
+        "the board loaded with the help overlay already open — see above: the stack must be empty \
+         for this scenario to be about an empty stack"
+    );
+    capture_url_at_rest(browser).await;
+    // The board Mei is looking at, stamped so "nothing happens" can be a
+    // comparison against what was there rather than a list of things this step
+    // remembered to check.
+    browser
+        .execute(
+            "window.__kbBoardAtRest = document.querySelector('.board').innerHTML; return null;",
+            Vec::new(),
+        )
+        .await
+        .expect("stamp the board's contents");
+}
+
+/// AC-07.2 — "nothing happens", asserted as a DIFF rather than as a checklist.
+///
+/// A checklist ("no modal, no overlay, no selection") only catches the things this
+/// step thought to name; the claim is that Mei's page is UNTOUCHED, so the board's
+/// own markup before and after is the honest witness. It is what catches an `Esc`
+/// that quietly cleared a card, collapsed a column, or dropped a highlight — the
+/// mutations nobody would have listed in advance.
+///
+/// The `?` sentinel LAST, for the reason `no_modal_opens` documents: a negative
+/// assertion needs the layer proven LIVE (an unbound layer also does nothing) and
+/// needs the Esc press to have SETTLED. `closeTopLayer()` runs synchronously inside
+/// the keydown handler, so had Esc done anything, it would have done it strictly
+/// before the help fetch this blocks on. An ordering argument on one loopback
+/// origin — not a sleep. The overlay it opens lands in `#kb-overlay-root`, which is
+/// outside `.board` and so cannot disturb the diff above it.
+#[then(regex = r"^nothing happens$")]
+async fn nothing_happens(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("browser session");
+    let unchanged = browser
+        .execute(
+            "return window.__kbBoardAtRest === document.querySelector('.board').innerHTML;",
+            Vec::new(),
+        )
+        .await
+        .expect("compare the board against its resting contents");
+    assert_eq!(
+        unchanged.as_bool(),
+        Some(true),
+        "pressing \"Esc\" with nothing open CHANGED the board. An empty layer stack pops nothing — \
+         Esc must never reach for a default when there is no layer to peel (AC-07.2). Mei pressed \
+         a key that should have done nothing and the page under her moved."
+    );
+    assert_eq!(
+        any_modal_count(browser).await,
+        0,
+        "pressing \"Esc\" with nothing open OPENED a modal"
+    );
+    press_help_and_await_overlay(browser).await;
+    assert_eq!(
+        any_modal_count(browser).await,
+        0,
+        "a modal appeared on the board after \"Esc\" — the press was a no-op only in the sense \
+         that nobody was watching when it settled"
     );
 }
 

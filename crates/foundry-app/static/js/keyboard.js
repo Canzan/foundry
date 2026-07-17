@@ -23,7 +23,8 @@
 // (upstream-issues.md UI-3, ratified 2026-07-16) — a property of the predicate,
 // not a carve-out; it names no shortcut.
 //
-// Bound today: `?` (open help), `Esc` (close it), `c` (open the new-issue modal).
+// Bound today: `?` (open help), `Esc` (peel the topmost layer — help, else the
+// modal, else nothing), `c` (open the new-issue modal).
 // `/`, `j`, `k` and `Enter` are advertised by SHORTCUTS (keyboard.rs:48-56) but
 // NOT yet bound; they land in slices 04-05 through this same dispatch point.
 (function () {
@@ -63,10 +64,22 @@
   }
 
   // Esc peels the TOPMOST layer only (ADR-003: `#kb-overlay-root` sits above
-  // `#modal-root` in base.html). Slice 02 needs exactly the modal arm — AC-02.6's
-  // precondition is Mei LEAVING the autofocused title field by pressing "Esc" —
-  // so only that much is bound here. `Esc`'s full layered contract (and its own
-  // scenarios) is slice 03's; this is the dispatch point they will land on.
+  // `#modal-root` in base.html), one layer per press (BR-4).
+  //
+  // The stack is DERIVED from the DOM on every press, never stored (ADR-003 §2):
+  // `helpIsOpen()` asks the host, so htmx replacing `#modal-root` behind our back
+  // cannot desync it. An `openLayers` array would claim a layer that is gone and
+  // turn Esc into a silent no-op while Mei stares at an open dialog.
+  //
+  // This function arrived at step 02-01 as a disclosed spillover (AC-02.6's Given
+  // needs Esc to really close the modal). Step 03-02 added NO code here: it added
+  // the ASSERTIONS, and its @layered scenario is what now HOLDS this shape — the
+  // proof, run rather than assumed:
+  //   - clear both hosts on one press  → "the new-issue modal is still open" REDS
+  //   - point the overlay at #modal-root (one shared host, the design ADR-003
+  //     rejects) → the layered scenario REDS on its own premise, and 8 more with it
+  // So the two-host split and the early return below are load-bearing, and a test
+  // says so.
   function closeTopLayer() {
     if (helpIsOpen()) {
       closeHelp();
@@ -251,8 +264,9 @@
   //   - FILING (AC-03.2) — the browser submits `new_issue_modal.html:4`'s
   //     `hx-post`; `Enter` reaches it because guard 4's domain declines the keys
   //     a field consumes natively. No client code is on that path at all.
-  // Still slice 03's, still @pending: `Esc`-closes-the-modal and the layered-Esc
-  // contract (`closeTopLayer()` above binds only slice 02's arm).
+  // Slice 03 is COMPLETE as of step 03-02: `Esc`-closes-the-modal, the layered
+  // `Esc` (help over a still-open modal), and the empty-stack no-op are all live
+  // and green — see `closeTopLayer()` above.
   function openNewIssue() {
     var trigger = document.querySelector(NEW_ISSUE_TRIGGER);
     if (!trigger) {

@@ -214,7 +214,7 @@ Feature: The seven advertised keyboard shortcuts work in the browser
     Then no modal opens
     And the browser does not navigate away
 
-  @pending @needs-browser @slice3 @us-03 @us-07 @escape
+  @needs-browser @slice3 @us-03 @us-07 @escape
   Scenario: Escape closes the new-issue modal and returns to the board
     Given Mei has opened the new-issue modal by pressing "c"
     When Mei presses "Esc"
@@ -224,7 +224,7 @@ Feature: The seven advertised keyboard shortcuts work in the browser
   # ADR-003 layered-Esc proof — the scenario that reds if anyone collapses the two
   # hosts (#kb-overlay-root over #modal-root) back into one. Help must close OVER a
   # still-open modal.
-  @pending @needs-browser @slice3 @us-07 @escape @layered @critical
+  @needs-browser @slice3 @us-07 @escape @layered @critical
   Scenario: Escape closes one layer at a time, help before the modal beneath it
     Given Mei has the new-issue modal open and has pressed "?" to show the help overlay
     When Mei presses "Esc"
@@ -233,7 +233,7 @@ Feature: The seven advertised keyboard shortcuts work in the browser
     When Mei presses "Esc" a second time
     Then the new-issue modal closes
 
-  @pending @needs-browser @slice3 @us-07 @escape @edge
+  @needs-browser @slice3 @us-07 @escape @edge
   Scenario: Escape with nothing open is a harmless no-op
     Given Mei is viewing the AUTH board with no modal or overlay open
     When Mei presses "Esc"
