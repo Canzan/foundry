@@ -7,3 +7,37 @@
 
 [alias]
 xtask = "run --quiet --release -p xtask --"
+
+# Pin the linker to the real C compiler by absolute path.
+#
+# rustc invokes the linker as bare `cc` and resolves it through PATH. `cc` has
+# meant the C compiler since Unix, but the name is not reserved, and anything
+# earlier on PATH claims it. Observed 2026-07-17: a Python CLI (an "AWS Cost
+# Calculator" installed into pyenv 3.13.7) shipped an entry point named `cc`.
+# pyenv shims it, pyenv's shims directory sits ahead of /usr/bin, and every link
+# of the `foundry` binary then failed with:
+#
+#     error: linking with `cc` failed: exit status: 2
+#     Usage: cc [OPTIONS] COMMAND [ARGS]...
+#     Error: No such command '/var/folders/.../symbols.o'.
+#
+# That is Click parsing rustc's object file as a subcommand name. The build was
+# fine; the compiler was simply not the compiler. It reproduced only in shells
+# where the shims won the PATH race, which is why CI and some terminals were
+# unaffected — the worst shape for a bug to have.
+#
+# An absolute path removes PATH from the equation entirely. macOS-only: this
+# target key applies solely to aarch64-apple-darwin, so Linux/CI resolve `cc`
+# normally.
+#
+# BOTH keys below are required, and the second is easy to miss. `linker` fixes
+# only rustc's LINK step. Build scripts that compile C (ring's curve25519.c via
+# cc-rs, here) resolve `cc` through PATH themselves and never read cargo's
+# `linker` setting — so with `linker` alone the build still failed, just earlier
+# and with a different message. cc-rs reads CC_<target> ahead of CC, so scoping
+# it to this triple leaves cross-compiles and Linux/CI untouched.
+[target.aarch64-apple-darwin]
+linker = "/usr/bin/cc"
+
+[env]
+CC_aarch64_apple_darwin = "/usr/bin/cc"
