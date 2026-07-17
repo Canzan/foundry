@@ -375,13 +375,15 @@ Feature: The seven advertised keyboard shortcuts work in the browser
   # pointer click on AUTH-2's board card produces. Search-result rows carry NO
   # hx-get (search_results.html:4), so Enter resolves selectedKey -> the board card.
   #
-  # BLOCKED at step 05-04 — returned to @pending. See deliver/upstream-issues.md
-  # UI-7. Its step definitions are written, correct, and RED on the Given: `/`
-  # focuses the search box, so `j` is delivered to a TEXT-ENTRY CONTEXT and ADR-002
-  # guard 4 makes it inert — the box reads "AUTH-2j" and the press never reaches the
-  # dispatch table. ADR-005 §3 ("with the panel open, j/k walk only li.search-result
-  # rows") and ADR-002 guard 4 cannot both hold. Choosing between them amends a
-  # locked ADR, which is DESIGN's call, not a crafter's — exactly UI-3's shape.
+  # RESOLVED (UI-7, ratified 2026-07-16). This was blocked at 05-04: `/` focuses the
+  # search box, so `j` was delivered to a TEXT-ENTRY CONTEXT and ADR-002 guard 4 made
+  # it inert — the box read "AUTH-2j" and the press never reached the dispatch table.
+  # ADR-005 §3 and guard 4 could not both hold. The resolution leaves guard 4 UNTOUCHED
+  # and reaches the results by an explicit Tab out of the box (the cost ADR-006 already
+  # ratified for the board, and which the help overlay states). Blur-on-arrival was
+  # tried first and rejected: at human typing speed it strands the query at one
+  # character — and the batched lane ran GREEN over that defect, which is why the probe
+  # now types at 150ms/char. See deliver/upstream-issues.md UI-7.
   @needs-browser @slice5 @us-06 @open @one-open-path @critical
   Scenario: Enter from the search results opens the same modal as clicking the board card
     Given Mei has searched the board for "AUTH-2" and selected the result with "j"
@@ -404,10 +406,10 @@ Feature: The seven advertised keyboard shortcuts work in the browser
   # search returns every issue. An issue in another state is findable but has NO
   # card -> Enter is a no-op (consistent with "no selection => no-op", FR-9).
   #
-  # BLOCKED at step 05-04 — returned to @pending, same wall (UI-7). Its own Given
-  # ("AUTH-9 exists in a state the board does not display") is GREEN: AUTH-9 seeds
-  # in `cancelled`, search finds it, the board renders no card for it. It is the
-  # SHARED "selected the result with j" Given that cannot be reached.
+  # RESOLVED (UI-7). Its own Given ("AUTH-9 exists in a state the board does not
+  # display") was always green: AUTH-9 seeds in `cancelled`, search finds it, the board
+  # renders no card for it. Only the SHARED "selected the result with j" Given was
+  # unreachable, which UI-7's Tab resolution fixed.
   @needs-browser @slice5 @us-06 @open @edge @named-edge
   Scenario: Enter is a no-op for a found issue that the board does not render
     Given AUTH-9 exists in a state the board does not display

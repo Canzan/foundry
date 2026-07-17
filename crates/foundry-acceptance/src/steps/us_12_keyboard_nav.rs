@@ -1,7 +1,7 @@
 //! US-12 step definitions — keyboard-nav server contracts.
 //!
 //! The 6 automated scenarios pin the data-attribute + endpoint contracts
-//! the alpine.js client handlers depend on:
+//! the client keyboard layer (`static/js/keyboard.js`) depends on:
 //!
 //! - `GET /team/{team}/project/{project_slug}/issues/new` —
 //!   modal-shaped htmx fragment when `HX-Request: true` is present.
@@ -302,8 +302,8 @@ async fn member_requests_keyboard_help(world: &mut FoundryWorld, _who: String) {
     let base = world.harness.as_ref().expect("harness").base_url();
     let http = world.http.as_ref().expect("http");
     // /keyboard-help is intentionally public (no session required) so
-    // the alpine.js bootstrap can request it before the user opens any
-    // team-scoped page.
+    // keyboard.js can fetch the overlay from any page, including the
+    // sign-in page itself, before the user opens any team-scoped page.
     let resp = http
         .get(format!("{base}/keyboard-help"))
         .send()

@@ -2,8 +2,8 @@
 # Slice: 2 (Realtime collaboration)
 # JTBD: outcome-4 (Keyboard-driven flow is *the* Linear differentiator)
 #
-# Driving ports (the server-side contracts the alpine.js handlers depend
-# on):
+# Driving ports (the server-side contracts the client keyboard layer
+# depends on):
 #   - GET  /team/{team}/project/{project}/issues/new   — htmx modal fragment
 #   - GET  /team/{team}/project/{project}/search?q=... — htmx search fragment
 #   - GET  /keyboard-help                              — shortcut overlay
@@ -29,10 +29,12 @@
 @slice2 @us-12 @keyboard
 Feature: A team member's keyboard shortcuts are backed by stable server contracts
   Linear-feel keyboard shortcuts (`c` create, `/` search, `j`/`k` navigate,
-  `Enter` open, `?` help) are implemented in alpine.js on the client. The
-  server's responsibility is to provide the endpoints those handlers call
-  and to render data attributes the handlers walk. This feature pins those
-  server contracts so the client-side wiring cannot silently rot.
+  `Enter` open, `?` help) are implemented in `static/js/keyboard.js` — one
+  vanilla document-delegated listener (ADR-001), NOT alpine.js, which was
+  retired with this feature. The server's responsibility is to provide the
+  endpoints that layer calls and to render the data attributes it walks.
+  This feature pins those server contracts; keyboard-shortcut-bindings.feature
+  presses the actual keys.
 
   Background:
     Given a workspace "Acme Eng" exists with admin "devansh@acme.com"
@@ -41,10 +43,11 @@ Feature: A team member's keyboard shortcuts are backed by stable server contract
     And the "Auth v2" project already has issues AUTH-1 through AUTH-3
     And Mei is signed in
 
-  # Server-contract scenario (NOT a walking skeleton): the alpine.js
-  # j/k handler reads `data-issue-key` from the DOM. This scenario pins
-  # that the server emits the attribute; the actual user-keyboard-to-
-  # selection journey is the @manual browser drill below (lines 83-).
+  # Server-contract scenario (NOT a walking skeleton): keyboard.js's j/k
+  # handler reads `data-issue-key` from the DOM. This scenario pins that
+  # the server emits the attribute; the actual user-keyboard-to-selection
+  # journey is asserted against a real browser in
+  # keyboard-shortcut-bindings.feature (@needs-browser).
   @real-io @driving_adapter
   Scenario: Project board markup carries the data-issue-key attribute that the j/k navigation handler walks
     When Mei opens the project board for "Auth v2"
