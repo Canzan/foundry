@@ -15,13 +15,20 @@
 // of the shortcut list, so the overlay's contents cannot drift from the server's
 // SHORTCUTS table (keyboard.rs:48-56) — bound == advertised, by construction.
 //
-// Slice 01 binds `?` (open help) and `Esc` (close it). c / / / j / k / Enter land
-// in slices 02-05 through this same dispatch point.
+// ADR-002: ONE guard chain (`isInert`), evaluated ONCE before `dispatch` is
+// reachable, for every key with no exemptions. Falling off the end of the chain
+// is the only path to a shortcut, so a new binding is guarded by default rather
+// than by the author remembering.
+//
+// Bound today: `?` (open help), `Esc` (close it), `c` (open the new-issue modal).
+// `/`, `j`, `k` and `Enter` are advertised by SHORTCUTS (keyboard.rs:48-56) but
+// NOT yet bound; they land in slices 04-05 through this same dispatch point.
 (function () {
   "use strict";
 
   var OVERLAY_HOST_ID = "kb-overlay-root";
   var HELP_URL = "/keyboard-help";
+  var NEW_ISSUE_TRIGGER = "[data-action='new-issue']";
 
   // The ADR-001 readiness marker. The @needs-browser lane waits on
   // `[data-kb-ready]` before pressing any key, and US-02's paired-assertion guard
@@ -69,15 +76,129 @@
       });
   }
 
+  // --- The guard chain (ADR-002) --------------------------------------------
+  //
+  // Every advertised shortcut is a plain printable character or a bare key —
+  // exactly what people type. Bound naively, `c` cannot be typed into an issue
+  // title, which is strictly worse than shipping nothing. So the chain below runs
+  // ONCE, here, before `dispatch` is reachable, for EVERY key: falling off the
+  // end of `isInert` is the only path to a shortcut. There is deliberately no
+  // per-shortcut check inside `dispatch` — a guard you have to remember at each
+  // of seven call sites is a guard the eighth shortcut forgets.
+
+  // INPUT types that are NOT text entry. An allow-list of non-text types, not a
+  // deny-list of text ones: `text`, `search`, `email`, `password`, `url`, `tel`,
+  // `number`, `date` — and any type this list has never heard of — are guarded by
+  // default. A deny-list fails OPEN (a new input type silently loses its guard);
+  // this fails CLOSED, the correct direction when a false negative means Mei
+  // cannot type.
+  var NON_TEXT_INPUT_TYPES = [
+    "button",
+    "submit",
+    "reset",
+    "checkbox",
+    "radio",
+    "file",
+    "image",
+    "range",
+    "color",
+    "hidden",
+  ];
+
+  // ARIA text widgets. Foundry renders none of these today; they are here because
+  // a future ARIA text widget quietly escaping the guard is precisely the
+  // regression this predicate exists to prevent, and three array entries is a
+  // cheap way to fail closed.
+  var TEXT_ENTRY_ROLES = ["textbox", "searchbox", "combobox", "spinbutton"];
+
+  function isTextEntry(target) {
+    if (!target || target.nodeType !== 1) {
+      return false;
+    }
+    if (target.tagName === "TEXTAREA" || target.tagName === "SELECT") {
+      return true;
+    }
+    if (target.tagName === "INPUT") {
+      // An absent or unknown type is "text" — both to the browser and to us.
+      var type = (target.getAttribute("type") || "text").toLowerCase();
+      return NON_TEXT_INPUT_TYPES.indexOf(type) === -1;
+    }
+    // The PROPERTY, not getAttribute("contenteditable"): the property is true for
+    // DESCENDANTS of an editable region, so typing inside a nested element in a
+    // rich-text field is guarded with no ancestor walk. It also resolves an
+    // explicit contenteditable="false" island correctly, which `closest()` would
+    // get backwards.
+    if (target.isContentEditable === true) {
+      return true;
+    }
+    var role = (target.getAttribute("role") || "").toLowerCase();
+    return TEXT_ENTRY_ROLES.indexOf(role) !== -1;
+  }
+
+  function isInert(event) {
+    // 1. IME composition. `keyCode === 229` sits beside `isComposing` because it
+    //    is the legacy composition sentinel and stays reliable on IME/browser
+    //    pairs where `isComposing` is unset on the composition-terminating event
+    //    — the exact way an IME-commit Enter gets misread as "open selected".
+    if (event.isComposing === true || event.keyCode === 229) {
+      return true;
+    }
+    // 2. Modifier chords belong to the browser and the OS: Cmd+C copies.
+    //    `shiftKey` is deliberately ABSENT — `?` IS Shift+/ on a US layout, so
+    //    suppressing Shift here would silently kill one of the seven.
+    if (event.ctrlKey || event.metaKey || event.altKey) {
+      return true;
+    }
+    // 3. Another handler already owns this key.
+    if (event.defaultPrevented) {
+      return true;
+    }
+    // 4. The character is being typed. Read from the LIVE event target, so
+    //    leaving a field re-enables the shortcuts on the very next keypress with
+    //    no state to reset — a focus flag would be a global toggle, and a global
+    //    toggle is what leaves the shortcuts dead after a field is touched.
+    return isTextEntry(event.target);
+  }
+
+  // `c` opens the new-issue modal by CLICKING the board's own shipped trigger
+  // (board.html:6) rather than reconstructing its URL. That button already
+  // carries the hx-get, the hx-target and the swap; going through it means the
+  // keyboard path and the pointer path open the same modal by the same
+  // mechanism, and this file needs no knowledge of routes or CSRF.
+  //
+  // Slice 02 binds only as much of `c` as the guard scenario requires — that a
+  // press outside a text field demonstrably fires. `c`'s full contract (focus,
+  // surface scope, Esc-to-close) belongs to slice 03.
+  function openNewIssue() {
+    var trigger = document.querySelector(NEW_ISSUE_TRIGGER);
+    if (!trigger) {
+      // No project in context — the dashboard has no such trigger. Doing nothing
+      // is the shortcut's correct behaviour where there is nothing to create.
+      return;
+    }
+    trigger.click();
+  }
+
   document.addEventListener("keydown", function (event) {
+    if (isInert(event)) {
+      return;
+    }
+    dispatch(event);
+  });
+
+  function dispatch(event) {
     if (event.key === "?") {
       openHelp();
+      return;
+    }
+    if (event.key === "c") {
+      openNewIssue();
       return;
     }
     if (event.key === "Escape" && helpIsOpen()) {
       closeHelp();
     }
-  });
+  }
 
   markReady();
 })();

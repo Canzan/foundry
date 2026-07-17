@@ -163,6 +163,34 @@
       "s": "EXECUTED",
       "d": "PASS",
       "t": "2026-07-16T17:24:47Z"
+    },
+    {
+      "sid": "02-01",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-17T00:26:47Z"
+    },
+    {
+      "sid": "02-01",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-17T00:38:05Z"
+    },
+    {
+      "sid": "02-01",
+      "p": "RED_UNIT",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: the ATs reached GREEN without unit tests, and the predicate is browser-side JS in a repo with no JS unit-test runner (no package.json/vitest/jest); adding one is outside this step's files_to_modify. The AT is the gate and its falsification is proven: removing the guard from the bound layer reds the paired assertion.",
+      "t": "2026-07-17T00:49:42Z"
+    },
+    {
+      "sid": "02-01",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-17T00:49:42Z"
     }
   ]
 }

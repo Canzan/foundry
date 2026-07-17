@@ -90,6 +90,98 @@ fn dashboard_url(world: &FoundryWorld) -> String {
 /// answer — never a stored flag that htmx could desync (ADR-003 §2).
 const OVERLAY_SELECTOR: &str = "#kb-overlay-root .keyboard-help";
 
+/// Every modal the app can mount, counted at its shipped host. `new_issue_modal.html:1`
+/// and `issue_edit_modal.html` both carry `data-modal`, and both are swapped into
+/// `#modal-root` — so "how many modals are open?" is one DOM query.
+const MODAL_SELECTOR: &str = "#modal-root [data-modal]";
+
+/// The autofocused title input the guard must protect (`new_issue_modal.html:6`).
+const TITLE_FIELD_SELECTOR: &str = "#modal-root [data-modal='new-issue'] input[name='title']";
+
+/// How many modals are mounted right now.
+async fn open_modal_count(browser: &fantoccini::Client) -> usize {
+    browser
+        .find_all(Locator::Css(MODAL_SELECTOR))
+        .await
+        .expect("count the open modals")
+        .len()
+}
+
+/// Whether the help overlay is showing. Typing `?` into a field must not open it,
+/// so this is one of the paired assertion's witnesses.
+async fn help_overlay_is_open(browser: &fantoccini::Client) -> bool {
+    !browser
+        .find_all(Locator::Css(OVERLAY_SELECTOR))
+        .await
+        .expect("look for the help overlay")
+        .is_empty()
+}
+
+/// The `name` + `value` of whatever currently has focus. The guard is a function
+/// of the LIVE focus (ADR-002), so focus is the thing these scenarios interrogate.
+async fn focused_field(browser: &fantoccini::Client) -> (String, String) {
+    let described = browser
+        .execute(
+            "var el = document.activeElement;
+             if (!el) { return ['<none>', '']; }
+             return [el.tagName + (el.name ? '[name=' + el.name + ']' : ''), el.value || ''];",
+            Vec::new(),
+        )
+        .await
+        .expect("read the focused element");
+    let parts = described.as_array().expect("focus probe returns a pair");
+    (
+        parts[0].as_str().unwrap_or_default().to_string(),
+        parts[1].as_str().unwrap_or_default().to_string(),
+    )
+}
+
+/// No card is marked as selected. Selection lands in slice 05, so today this is a
+/// standing zero — but asserting it HERE is what makes "no selection moves"
+/// falsifiable the moment `j`/`k` are bound: if the guard ever lets them through
+/// from a text field, this reds.
+async fn selected_card_count(browser: &fantoccini::Client) -> usize {
+    browser
+        .find_all(Locator::Css(
+            ".issue-card[aria-selected='true'], .issue-card[data-kb-selected]",
+        ))
+        .await
+        .expect("count the selected cards")
+        .len()
+}
+
+/// Drives the REAL `c` key on the board and waits for the modal — the shared
+/// precondition of the guard scenarios. A Given that mounted the modal via htmx
+/// or `execute()` would be Fixture Theater: it would green the guard half over a
+/// layer where `c` is not bound at all, which is the exact vacuity D15 exists to
+/// prevent.
+async fn open_new_issue_modal_by_pressing_c(world: &mut FoundryWorld) {
+    let url = board_url(world);
+    let browser = world.browser.as_ref().expect("browser session");
+    browser
+        .goto(&url)
+        .await
+        .expect("navigate to the AUTH board");
+    browser_harness::wait_for_kb_ready(browser).await;
+    browser
+        .find(Locator::Css("body"))
+        .await
+        .expect("find the document body")
+        .send_keys("c")
+        .await
+        .expect("press \"c\"");
+    browser
+        .wait()
+        .at_most(std::time::Duration::from_secs(10))
+        .for_element(Locator::Css(TITLE_FIELD_SELECTOR))
+        .await
+        .expect(
+            "pressing \"c\" on the board must open the new-issue modal — the paired assertion's \
+             first half (D15). Without this the guard half below is VACUOUS: a layer that binds \
+             nothing at all would pass it.",
+        );
+}
+
 // --- Background / navigation ------------------------------------------------
 
 /// Seeds Mei + the acme workspace + the Backend team, opens ONE browser session
@@ -295,9 +387,36 @@ async fn mei_presses_key(world: &mut FoundryWorld, key: String) {
         .unwrap_or_else(|err| panic!("press {key:?}: {err}"));
 }
 
-#[when(regex = r#"^Mei types "[^"]+" into the title field$"#)]
-async fn mei_types_into_title(_world: &mut FoundryWorld) {
-    scaffold_pending();
+/// Types into the title field the way Mei does: into the FOCUSED element, one
+/// real keystroke at a time, through the same document-delegated listener every
+/// other press in this lane goes through. `send_keys` on the element (rather
+/// than `execute`-ing a value assignment) is what makes this a guard test at all
+/// — setting `.value` from JS fires no `keydown` and would green over a layer
+/// that eats every keystroke.
+#[when(regex = r#"^Mei types "([^"]+)" into the title field$"#)]
+async fn mei_types_into_title(world: &mut FoundryWorld, text: String) {
+    type_into_title(world, &text).await;
+}
+
+/// The paired assertion's second half (D15). Same action as the step above; the
+/// feature file words it differently because here the characters ARE the point —
+/// `c`, `j`, `k`, `/` and `?` are five of the seven advertised shortcuts, so
+/// every one of them is a keystroke the unguarded layer would have swallowed.
+#[when(regex = r#"^Mei types the characters "([^"]+)" into the title field$"#)]
+async fn mei_types_characters_into_title(world: &mut FoundryWorld, text: String) {
+    type_into_title(world, &text).await;
+}
+
+async fn type_into_title(world: &mut FoundryWorld, text: &str) {
+    let browser = world.browser.as_ref().expect("browser session");
+    browser_harness::wait_for_kb_ready(browser).await;
+    browser
+        .find(Locator::Css(TITLE_FIELD_SELECTOR))
+        .await
+        .expect("the new-issue modal must carry a title field to type into")
+        .send_keys(text)
+        .await
+        .unwrap_or_else(|err| panic!("type {text:?} into the title field: {err}"));
 }
 
 #[when(regex = r#"^Mei types "[^"]+" into the search box$"#)]
@@ -391,6 +510,213 @@ async fn overlay_appears(world: &mut FoundryWorld, surface: String) {
 #[then(regex = r"^the new-issue modal opens over the board$")]
 async fn new_issue_modal_opens(_world: &mut FoundryWorld) {
     scaffold_pending();
+}
+
+// --- SLICE 02 (US-02): the guard chain (ADR-002) -----------------------------
+
+/// The paired assertion's starting state, asserted rather than assumed: the board
+/// is up, the layer is live, and nothing is focused into a text field — so a `c`
+/// pressed next reaches the dispatch layer on its merits.
+#[given(regex = r"^Mei is viewing the AUTH board with no text field focused$")]
+async fn viewing_board_nothing_focused(world: &mut FoundryWorld) {
+    let url = board_url(world);
+    let browser = world.browser.as_ref().expect("browser session");
+    browser
+        .goto(&url)
+        .await
+        .expect("navigate to the AUTH board");
+    browser_harness::wait_for_kb_ready(browser).await;
+    let (focused, _) = focused_field(browser).await;
+    assert!(
+        !focused.starts_with("INPUT") && !focused.starts_with("TEXTAREA"),
+        "the board loaded with {focused} already focused — this scenario's whole premise is that \
+         the FIRST half runs OUTSIDE a text field. With a field focused the guard would suppress \
+         \"c\" and the \"layer is live\" half would fail for the wrong reason."
+    );
+}
+
+/// The paired assertion's first half (D15) — and the reason this scenario is not
+/// vacuous. `c` fired from the board, so the layer is demonstrably BOUND. Only
+/// against that proof does the second half's "nothing fired" mean anything.
+#[then(regex = r"^the new-issue modal opens, proving the shortcut layer is live$")]
+async fn modal_opens_proving_layer_live(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("browser session");
+    browser
+        .wait()
+        .at_most(std::time::Duration::from_secs(10))
+        .for_element(Locator::Css(TITLE_FIELD_SELECTOR))
+        .await
+        .expect(
+            "pressing \"c\" outside any text field did not open the new-issue modal, so the \
+             shortcut layer is NOT live. The guard half of this scenario would now pass \
+             VACUOUSLY — which is exactly what D15 pairs these halves to prevent. Fix the \
+             binding; do NOT split this scenario.",
+        );
+    assert_eq!(
+        open_modal_count(browser).await,
+        1,
+        "expected exactly the new-issue modal to be open after pressing \"c\""
+    );
+}
+
+/// The heart of the feature (AC-02.2). Every character Mei typed landed, in order,
+/// unswallowed — including `c`, `j`, `k`, `/` and `?`, five advertised shortcuts.
+#[then(regex = r"^exactly those characters are entered into the field$")]
+async fn exactly_those_characters_entered(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("browser session");
+    let value = browser
+        .find(Locator::Css(TITLE_FIELD_SELECTOR))
+        .await
+        .expect("the title field must still be there to have received the characters")
+        .prop("value")
+        .await
+        .expect("read the title field's value")
+        .unwrap_or_default();
+    assert_eq!(
+        value, "cjk/?",
+        "Mei typed \"cjk/?\" into the title and the field holds {value:?}. The guard chain \
+         (ADR-002) is letting shortcut keys through from a text-entry context — she cannot type."
+    );
+}
+
+/// The guard half's negative witnesses, all three at once because the scenario
+/// asserts them as one outcome: her keystrokes did nothing EXCEPT enter text.
+/// `?` did not open the help, `c` did not open a second modal, `/` did not grab a
+/// search box, and `j`/`k` moved no selection.
+#[then(regex = r"^no additional modal opens, no search is focused, and no selection moves$")]
+async fn nothing_else_fired(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("browser session");
+    let modals = open_modal_count(browser).await;
+    assert_eq!(
+        modals, 1,
+        "typing into the title opened {modals} modals — \"c\" fired from inside a text field"
+    );
+    assert!(
+        !help_overlay_is_open(browser).await,
+        "typing \"?\" into the title opened the help overlay — the guard chain does not cover the \
+         title field, so Mei cannot type a question mark into an issue title"
+    );
+    let (focused, _) = focused_field(browser).await;
+    assert_eq!(
+        focused, "INPUT[name=title]",
+        "focus left the title field for {focused} while Mei was typing — a shortcut fired and \
+         moved it (\"/\" grabbing a search box is the intended reading of this assertion)"
+    );
+    let selected = selected_card_count(browser).await;
+    assert_eq!(
+        selected, 0,
+        "typing \"jk\" into the title moved the board selection ({selected} card(s) selected) — \
+         j/k fired from inside a text field"
+    );
+}
+
+/// Same precondition as the paired assertion's first half, and driven the same
+/// way — through a real `c` press — for the same anti-vacuity reason.
+#[given(regex = r"^Mei has the new-issue modal open on the AUTH board$")]
+async fn new_issue_modal_open_on_board(world: &mut FoundryWorld) {
+    open_new_issue_modal_by_pressing_c(world).await;
+}
+
+#[then(regex = r#"^the title field contains "([^"]+)"$"#)]
+async fn title_field_contains(world: &mut FoundryWorld, expected: String) {
+    let browser = world.browser.as_ref().expect("browser session");
+    let value = browser
+        .find(Locator::Css(TITLE_FIELD_SELECTOR))
+        .await
+        .expect("the title field must still be there to have received the text")
+        .prop("value")
+        .await
+        .expect("read the title field's value")
+        .unwrap_or_default();
+    assert_eq!(
+        value, expected,
+        "Mei typed {expected:?} and the title holds {value:?}. Note the \"c\", \"/\", \"k\" and \
+         \"i\" in that sentence — each is a keystroke an unguarded layer eats (ADR-002)."
+    );
+}
+
+#[then(regex = r"^no additional modal was opened$")]
+async fn no_additional_modal(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("browser session");
+    let modals = open_modal_count(browser).await;
+    assert_eq!(
+        modals, 1,
+        "{modals} modals are open — typing a \"c\" into the title fired the create shortcut"
+    );
+    assert!(
+        !help_overlay_is_open(browser).await,
+        "the help overlay opened while Mei typed into the title field"
+    );
+}
+
+#[then(regex = r"^no card selection changed$")]
+async fn no_card_selection_changed(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("browser session");
+    let selected = selected_card_count(browser).await;
+    assert_eq!(
+        selected, 0,
+        "{selected} card(s) became selected while Mei typed into the title field"
+    );
+}
+
+/// AC-02.6's precondition — and the assertion that keeps this scenario honest.
+///
+/// The guard reads the LIVE event target (ADR-002), so "the shortcuts come back"
+/// is only a claim about anything if Mei has ACTUALLY left the field. This step
+/// therefore drives the real keys and then asserts focus is out of the input. If
+/// it is not, this reds HERE with a plain diagnostic rather than at the `c` press
+/// below, where a reader would misdiagnose it as a broken guard.
+#[given(regex = r#"^Mei has typed in the title field and then pressed "Esc" to leave it$"#)]
+async fn typed_then_escaped_out_of_title(world: &mut FoundryWorld) {
+    open_new_issue_modal_by_pressing_c(world).await;
+    type_into_title(world, "cache").await;
+    let browser = world.browser.as_ref().expect("browser session");
+    let (focused, value) = focused_field(browser).await;
+    assert_eq!(
+        (focused.as_str(), value.as_str()),
+        ("INPUT[name=title]", "cache"),
+        "Mei's typing did not land in the focused title field, so this scenario is not yet in the \
+         state it describes"
+    );
+    browser
+        .find(Locator::Css(TITLE_FIELD_SELECTOR))
+        .await
+        .expect("the title field must be there to press Esc in")
+        .send_keys(browser_harness::key_chord("Esc"))
+        .await
+        .expect("press \"Esc\" in the title field");
+    browser
+        .wait()
+        .at_most(std::time::Duration::from_secs(10))
+        .for_element(Locator::Css("#modal-root:empty"))
+        .await
+        .expect(
+            "\"Esc\" pressed in the title field did not close the new-issue modal, so Mei never \
+             left the text-entry context and the re-enablement this scenario asserts (AC-02.6) \
+             cannot be exercised at all.",
+        );
+    let (after, _) = focused_field(browser).await;
+    assert!(
+        !after.starts_with("INPUT"),
+        "after \"Esc\" the focus is still in {after} — Mei has not left the text field"
+    );
+}
+
+/// AC-02.6. The guard is a function of the CURRENT focus, never a sticky flag: the
+/// press AFTER leaving the field works, with no state to reset. This is the K-E4
+/// failure mode (shortcuts stay dead after a field is touched) made falsifiable.
+#[then(regex = r"^the new-issue modal opens$")]
+async fn new_issue_modal_reopens(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("browser session");
+    browser
+        .wait()
+        .at_most(std::time::Duration::from_secs(10))
+        .for_element(Locator::Css(TITLE_FIELD_SELECTOR))
+        .await
+        .expect(
+            "\"c\" did nothing after Mei left the title field — the guard has latched. It must \
+             read the live event target, not a mode flag set on focus (ADR-002, AC-02.6).",
+        );
 }
 
 #[then(regex = r"^(?:the first visible card is highlighted as selected|no modal opens)$")]

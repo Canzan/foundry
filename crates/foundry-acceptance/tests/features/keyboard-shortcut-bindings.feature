@@ -129,7 +129,7 @@ Feature: The seven advertised keyboard shortcuts work in the browser
   # guard half is vacuously true on `main`. This is revert-reds-it: it reds when
   # the guard is removed from a BOUND layer, not when the layer is absent. The
   # [data-kb-ready] marker is the concrete "layer is live" hook. DO NOT SPLIT.
-  @pending @needs-browser @slice2 @us-02 @guard @critical @property @paired-assertion
+  @needs-browser @slice2 @us-02 @guard @critical @property @paired-assertion
   Scenario: No shortcut ever fires from a text-entry context, while still firing outside one
     Given Mei is viewing the AUTH board with no text field focused
     When Mei presses "c"
@@ -138,7 +138,7 @@ Feature: The seven advertised keyboard shortcuts work in the browser
     Then exactly those characters are entered into the field
     And no additional modal opens, no search is focused, and no selection moves
 
-  @pending @needs-browser @slice2 @us-02 @guard @edge
+  @needs-browser @slice2 @us-02 @guard @edge
   Scenario: Typing shortcut letters into a title inserts them instead of firing shortcuts
     Given Mei has the new-issue modal open on the AUTH board
     When Mei types "cache invalidation on login" into the title field
@@ -175,6 +175,15 @@ Feature: The seven advertised keyboard shortcuts work in the browser
     Then no additional modal opens
     And the composing character is left to the input method
 
+  # BLOCKED at step 02-01 — see deliver/upstream-issues.md UI-3. Its Given needs
+  # "Esc" to close the new-issue modal so Mei LEAVES the title field, but the modal
+  # autofocuses that field (new_issue_modal.html:6) and ADR-002 guard 4 suppresses
+  # every key from a text-entry context with no exemptions — including "Esc". So
+  # the field cannot be left by the means the scenario names. The step definitions
+  # below are written and correct; they red on the Given with that exact
+  # diagnostic. Un-@pending this needs a DESIGN answer (ADR-002 vs US-07), NOT a
+  # crafter working around it — slice 02's own learning hypothesis is what is at
+  # stake here, and it names this as the disproof condition.
   @pending @needs-browser @slice2 @us-02 @guard
   Scenario: Leaving the text field re-enables the shortcuts immediately
     Given Mei has typed in the title field and then pressed "Esc" to leave it
