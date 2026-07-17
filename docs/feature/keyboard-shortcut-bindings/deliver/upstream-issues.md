@@ -231,3 +231,104 @@ say so, or the derive-from-`SHORTCUTS` design must actually be built.
 **The roadmap review did not catch either issue**: it verified every scenario had a step, but
 not that each step's scenarios *could pass at that step's slice scope*. Worth adding to the
 roadmap quality gate.
+
+---
+
+## UI-4 — The acceptance runner is GREEN over undefined steps (found at step 02-02)
+
+**Source**: `crates/foundry-acceptance/tests/acceptance.rs:278` vs `design/adr-007-browser-e2e-harness.md` §4.
+
+`execution_has_failed()` counts **failed steps, parsing errors and hook errors — and nothing else**.
+cucumber-rs reports a step with no matching step definition as **skipped**, not failed. Therefore an
+un-`@pending`'d scenario whose steps are unwired **executes nothing and the run exits 0**.
+
+Observed directly at 02-02's RED_ACCEPTANCE: all three target scenarios "passed" while executing
+nothing, before their step definitions existed.
+
+**This is ADR-007 §4's own failure mode ("probe, then refuse — NEVER skip") living inside the runner
+built to prevent it.** It is the same shape as the bug this entire feature exists to close: a green
+suite over an absent thing. The instrument has the disease it was built to diagnose.
+
+**Why it is urgent rather than academic**: slices 03-05 un-`@pending` **28 more scenarios**. Any one
+of them whose steps are unwired — a regex typo is enough — passes silently. The feature's own
+`@needs-browser` lane offers no protection against this, because the lane never runs the step.
+
+**Candidate fix**: cucumber-rs exposes `.fail_on_skipped()`, which makes skipped steps fail the run;
+alternatively assert `writer.skipped_steps() == 0` beside the existing failure check. Either makes the
+runner refuse instead of skip. **Risk to assess before applying**: the change affects the shared runner
+for all 62 features / 514 scenarios. `@pending` / `@manual` scenarios are *filtered out* rather than
+skipped, so they should be unaffected — but that must be verified empirically, not assumed.
+
+**Status**: **FIXED 2026-07-16** (user-ratified: fix before slices 03-05 land 28 more scenarios).
+
+**Mechanism**: `.fail_on_skipped()` added to **all four** lane arms in `acceptance.rs`. Chosen over
+`skipped_steps() == 0` on evidence, not preference: in cucumber **0.21.1**, `Skipped` is emitted from
+exactly ONE site (`runner/basic.rs` — the "no step definition matched" arm), so **skipped ≡ undefined
+step**; a panicking step takes the `StepPanicked` branch and `emit_failed_events` emits nothing for
+`ExecutionFailure::StepSkipped`, so steps after a failure are never marked skipped. `fail_on_skipped`
+also maps `Step::Skipped` → `Step::Failed(NotFound)`, which renders the feature path, line, scenario
+and step — a bare count could not name *which* step was undefined.
+
+**Risk cleared empirically before applying**: both lanes reported **0 skipped steps**, so no
+currently-green scenario relied on skipping and the change could not alter any passing run.
+`@allow.skipped` (fail_on_skipped's own exemption tag) appears nowhere in the repo, so the fix has no
+silent escape hatch. `@pending`/`@manual`/etc. are removed by `.filter_run(...)` before events are
+generated — confirmed by the 0-skipped counts rather than assumed.
+
+**Proven, not asserted** — the same deliberate break (a step regex typo, `documents` → `docum3nts`)
+run against both runners:
+
+| Runner | Result |
+|---|---|
+| **Before the fix** | `1 scenario (1 skipped)`, `1 step (1 skipped)` — no panic, **exit 0**. The scenario executed NOTHING and the suite reported success. |
+| **After the fix** | `✘ Step doesn't match any function` / `Defined: tests/features/us-r07-completion-check.feature:35:5` → panic → **run fails**. |
+
+**No regression**: default lane **514/514 scenarios, 3695/3695 steps**; browser lane **11/11, 79/79**;
+fmt/clippy/deny clean.
+
+**Process note**: the crafter dispatched for this work **blocked correctly and was right to**. An
+active deliver session arms `SessionGuardPolicy`, which blocks subagent writes to `src/`/`tests/`
+without a DES-monitored signal; the orchestrator's `<!-- DES-ENFORCEMENT : exempt -->` marker does NOT
+grant exemption from that control (it is read only by `des_enforcement_policy.py`, which gates step-id
+Task validation — the write guard in `pre_write_handler.py` never looks at it). When one subagent write
+slipped through while an equivalent one was blocked, the crafter treated it as a racy signal leak
+rather than permission and refused to permute delegation shapes until one landed — correctly declining
+to evade the guard by trial and error. It delivered the complete API analysis and risk clearance; the
+orchestrator applied the four-line change and ran the before/after demonstration it was blocked from
+performing.
+
+---
+
+## UI-5 — Guard 1 (IME) is unfalsifiable by the entire automated suite (found at step 02-02)
+
+**Source**: `design/adr-002-guard-predicate.md` guard 1 vs the scenario
+`A key delivered mid IME composition does not fire a shortcut`.
+
+Step 02-02 ran the falsification honestly and reported the result rather than the hoped-for one:
+
+| Broken | Result |
+|---|---|
+| guard 2 + `event.shiftKey` | `@shift` **REDS** ✅ |
+| guard 2 removed | `@modifier` **REDS** ✅ |
+| **guard 1 removed entirely** | `@ime` **STAYS GREEN** ❌ — and so does the full 11-scenario lane |
+
+**Why**: the scenario sends `c` mid-composition into the **title field**. But `c` in a text field is
+already inert via **guard 4** (`isTextEntry && isConsumableByTextEntry("c")` — `c` is a character, so
+the field consumes it). The scenario therefore cannot distinguish guard 1 from guard 4. The behaviour
+it asserts is real and *is* protected — but **not by the arm the scenario names**. The crafter verified
+guard 1 was genuinely deleted (not a no-op edit) before concluding.
+
+**Guard 1 only bites for a key that guard 4 lets through mid-composition** — i.e. a key a text field
+cannot consume. After UI-3's narrowing that set is essentially **`Escape`**, which produces no
+character and which an IME uses to **cancel composition**. An `Escape` arriving mid-composition should
+cancel the composition, NOT close the modal — that is the scenario that would actually falsify guard 1.
+
+**Resolution owner**: DISTILL — changing the scenario's key is an acceptance-design decision, not a
+crafter's. Residual real-IME risk continues to be carried explicitly by the `@manual` scenario per
+ADR-007 honest limit 1 (WebDriver `send_keys` cannot produce real composition; 02-02 drives it via a
+JS-dispatched `CompositionEvent` + `KeyboardEvent{isComposing:true, keyCode:229}`, and the Gherkin
+marks it as simulated).
+
+**Status**: OPEN. Guard 1 is correct and should stay (it protects Mei's real IME); it simply has no
+automated proof. Do not delete it on the strength of "no test covers it" — that would be the wrong
+lesson from this finding.

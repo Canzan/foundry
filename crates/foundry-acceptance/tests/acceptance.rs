@@ -149,6 +149,14 @@ async fn main() {
                         }
                     })
                 })
+                // An undefined step is a FAILURE, not a skip. cucumber 0.21 emits
+                // `Skipped` from exactly one site (runner/basic.rs — the "no step
+                // definition matched" arm), so skipped ≡ undefined here; a panicking
+                // step takes the StepPanicked branch instead. Without this, an
+                // unskipped scenario whose steps are unwired executes NOTHING and the
+                // run still exits 0 — green over absent, which is the precise bug this
+                // feature exists to close (ADR-007 §4: probe, then refuse — never skip).
+                .fail_on_skipped()
                 .filter_run(features_path, |feat, _rule, scenario| {
                     let has = |t: &str| {
                         scenario.tags.iter().any(|x| x == t) || feat.tags.iter().any(|x| x == t)
@@ -179,6 +187,8 @@ async fn main() {
                         }
                     })
                 })
+                // See the default lane: an undefined step fails rather than skips.
+                .fail_on_skipped()
                 .filter_run(features_path, |feat, _rule, scenario| {
                     let has = |t: &str| {
                         scenario.tags.iter().any(|x| x == t) || feat.tags.iter().any(|x| x == t)
@@ -206,6 +216,8 @@ async fn main() {
                         }
                     })
                 })
+                // See the default lane: an undefined step fails rather than skips.
+                .fail_on_skipped()
                 .filter_run(features_path, move |feat, _rule, scenario| {
                     let has = |t: &str| {
                         scenario.tags.iter().any(|x| x == t) || feat.tags.iter().any(|x| x == t)
@@ -240,6 +252,8 @@ async fn main() {
                         }
                     })
                 })
+                // See the default lane: an undefined step fails rather than skips.
+                .fail_on_skipped()
                 .filter_run(features_path, |feat, _rule, scenario| {
                     let has = |t: &str| {
                         scenario.tags.iter().any(|x| x == t) || feat.tags.iter().any(|x| x == t)
