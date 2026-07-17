@@ -34,6 +34,8 @@
   var MODAL_HOST_ID = "modal-root";
   var HELP_URL = "/keyboard-help";
   var NEW_ISSUE_TRIGGER = "[data-action='new-issue']";
+  var SEARCH_PANEL_ID = "kb-search-panel";
+  var NEW_ISSUE_URL_SUFFIX = "/issues/new";
 
   // The ADR-001 readiness marker. The @needs-browser lane waits on
   // `[data-kb-ready]` before pressing any key, and US-02's paired-assertion guard
@@ -277,6 +279,155 @@
     trigger.click();
   }
 
+  // --- The search panel (ADR-005) -------------------------------------------
+  //
+  // Board-only, and the board is IDENTIFIED by its own shipped "New issue"
+  // trigger (board.html:6). Its `hx-get` already carries the team+project
+  // context, so `projectContext()` READS the context rather than reconstructing
+  // it from the URL — the same reason `c` clicks the trigger instead of
+  // rebuilding its URL (ADR-005 §1: `c` and the button cannot disagree). A page
+  // with no trigger has no project, so `/` is a silent no-op there (BR-3) with
+  // no surface check: the panel simply was never injected.
+  function projectContext() {
+    var trigger = document.querySelector(NEW_ISSUE_TRIGGER);
+    if (!trigger) {
+      return null;
+    }
+    var url = trigger.getAttribute("hx-get") || "";
+    if (url.slice(-NEW_ISSUE_URL_SUFFIX.length) !== NEW_ISSUE_URL_SUFFIX) {
+      // The trigger's shape changed under us. Fail LOUDLY rather than guessing a
+      // URL: a silently wrong search endpoint is a 404 Mei reads as "no results".
+      console.error(
+        "foundry: the new-issue trigger's hx-get no longer ends in " +
+          NEW_ISSUE_URL_SUFFIX +
+          "; cannot derive the search URL from it",
+        url
+      );
+      return null;
+    }
+    return url.slice(0, -NEW_ISSUE_URL_SUFFIX.length);
+  }
+
+  function searchPanel() {
+    return document.getElementById(SEARCH_PANEL_ID);
+  }
+
+  function searchInput() {
+    var panel = searchPanel();
+    return panel ? panel.querySelector("input[name='q']") : null;
+  }
+
+  // The results are the SHIPPED `GET …/search?q=` fragment, honoured as-is
+  // (ADR-005 §2). This function fetches and mounts markup; it does NOT match,
+  // rank or filter. The server already implements exact-key, case-insensitive
+  // substring and the `data-empty="true"` empty state (keyboard.rs), and a
+  // second client-side implementation of those rules is exactly the duplication
+  // ADR-005 refuses. `q` is passed through `URLSearchParams`, so a query
+  // containing `&` or `#` reaches the server intact.
+  // Monotonic request token. One fetch is in flight PER KEYSTROKE, and fetches
+  // have no delivery order: typing "AUTH-2" issues a request for "AUTH-" too,
+  // which legitimately matches NOTHING (the exact-key branch parses "" and the
+  // substring branch finds no title containing "auth-"). If that reply lands
+  // after "AUTH-2"'s, a stale empty state overwrites the right answer and Mei
+  // sees "no results" for an issue that exists.
+  //
+  // Not hypothetical: the AC-04.3 scenario RED'd on exactly this before the
+  // token existed. Last request wins — never last response.
+  var searchSequence = 0;
+
+  function runSearch(panel) {
+    var input = searchInput();
+    var results = panel.querySelector("[data-search-results]");
+    var base = panel.getAttribute("data-search-base");
+    if (!input || !results || !base) {
+      return;
+    }
+    searchSequence += 1;
+    var sequence = searchSequence;
+    var url = base + "/search?" + new URLSearchParams({ q: input.value }).toString();
+    fetch(url, { credentials: "same-origin" })
+      .then(function (response) {
+        if (!response.ok) {
+          throw new Error("search responded " + response.status);
+        }
+        return response.text();
+      })
+      .then(function (markup) {
+        if (sequence !== searchSequence) {
+          return; // A newer keystroke is already in flight; this reply is stale.
+        }
+        results.innerHTML = markup;
+      })
+      .catch(function (err) {
+        // A search that silently returns nothing is indistinguishable from a
+        // search that matched nothing — the empty state would LIE. Never quiet.
+        console.error("foundry: the issue search failed", err);
+      });
+  }
+
+  // Injected, not templated (ADR-005 §2 + its accepted cost): search has no
+  // no-JS surface today — nothing links to the route at all — so rendering the
+  // box server-side would advertise an affordance that breaks without JS, since
+  // `search_issues` returns a bare fragment with no full-page fork. Injecting it
+  // keeps the no-JS board byte-for-byte unchanged (BR-6 / NFR-4).
+  //
+  // The pointer control is NOT optional garnish: BR-6 forbids any action being
+  // reachable by keyboard alone. `/` is an ACCELERATOR for the button beside it.
+  function injectSearchPanel() {
+    var base = projectContext();
+    if (!base) {
+      return;
+    }
+    var trigger = document.querySelector(NEW_ISSUE_TRIGGER);
+    var panel = document.createElement("div");
+    panel.id = SEARCH_PANEL_ID;
+    panel.hidden = true;
+    panel.setAttribute("data-search-base", base);
+    var input = document.createElement("input");
+    // `type=search` and `name=q`: the name is the SHIPPED route's own query
+    // parameter (SearchQuery, keyboard.rs). Note `search` is absent from
+    // NON_TEXT_INPUT_TYPES, so this box is a text-entry context to guard 4 —
+    // which is what makes a `/` typed INTO it insert literally (AC-04.5) with
+    // no code here at all.
+    input.type = "search";
+    input.name = "q";
+    input.autocomplete = "off";
+    input.setAttribute("aria-label", "Search issues");
+    input.placeholder = "Search issues";
+    var results = document.createElement("div");
+    results.setAttribute("data-search-results", "");
+    panel.appendChild(input);
+    panel.appendChild(results);
+    trigger.parentNode.insertBefore(panel, trigger.nextSibling);
+
+    var control = document.createElement("button");
+    control.type = "button";
+    control.setAttribute("data-action", "search");
+    control.textContent = "Search";
+    control.addEventListener("click", function () {
+      openSearch();
+    });
+    trigger.parentNode.insertBefore(control, trigger.nextSibling);
+
+    input.addEventListener("input", function () {
+      runSearch(panel);
+    });
+  }
+
+  // `/` reveals the panel and focuses the box. The caller preventDefault()s.
+  function openSearch() {
+    var panel = searchPanel();
+    if (!panel) {
+      // No project in context — nothing to search. Silent (BR-3).
+      return;
+    }
+    panel.hidden = false;
+    var input = searchInput();
+    if (input) {
+      input.focus();
+    }
+  }
+
   document.addEventListener("keydown", function (event) {
     if (isInert(event)) {
       return;
@@ -293,10 +444,25 @@
       openNewIssue();
       return;
     }
+    if (event.key === "/") {
+      // THE CLASSIC BUG (FR-7): without this preventDefault, the very slash that
+      // opens the box is then typed INTO the box it just focused, and Mei's
+      // first search is for "/session". The focus happens synchronously above,
+      // so the default action would land in an already-focused field.
+      //
+      // This preventDefault is `/`'s OWN keypress only — a slash typed into the
+      // already-focused box never reaches here at all (guard 4: the box is a
+      // text-entry context and `/` is a character it consumes), which is why
+      // AC-04.5 needs no code and no exemption.
+      event.preventDefault();
+      openSearch();
+      return;
+    }
     if (event.key === "Escape") {
       closeTopLayer();
     }
   }
 
+  injectSearchPanel();
   markReady();
 })();

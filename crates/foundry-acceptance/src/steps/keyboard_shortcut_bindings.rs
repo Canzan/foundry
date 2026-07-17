@@ -111,6 +111,83 @@ const NEW_ISSUE_TRIGGER_SELECTOR: &str = "[data-action='new-issue']";
 /// The autofocused title input the guard must protect (`new_issue_modal.html:6`).
 const TITLE_FIELD_SELECTOR: &str = "#modal-root [data-modal='new-issue'] input[name='title']";
 
+/// The ADR-005 search panel. JS-injected by `keyboard.js` on any board page —
+/// deliberately NOT in the templates (ADR-005 accepts that cost), so this
+/// selector is the only place the lane names it.
+const SEARCH_PANEL_SELECTOR: &str = "#kb-search-panel";
+
+/// The box `/` focuses. `name='q'` is not decoration: it is the shipped route's
+/// own query parameter (`SearchQuery`, keyboard.rs), so the panel speaks the
+/// server's vocabulary rather than a client-invented one.
+const SEARCH_INPUT_SELECTOR: &str = "#kb-search-panel input[name='q']";
+
+/// The SHIPPED fragment's own markup (`partials/search_results.html:2,4`),
+/// asserted by the names the server already renders. If these scenarios matched
+/// on client-invented classes, they would pass over a client that reimplemented
+/// matching — which is exactly what ADR-005 §2 ("zero template delta", results
+/// honoured as-is) forbids.
+const SEARCH_RESULTS_SELECTOR: &str = "#kb-search-panel ul.search-results";
+const SEARCH_RESULT_ROW_SELECTOR: &str = "#kb-search-panel li.search-result[data-issue-key]";
+const SEARCH_EMPTY_SELECTOR: &str = "#kb-search-panel ul.search-results[data-empty='true']";
+
+/// The rows the results list is showing right now, as (key, title) pairs read
+/// from the shipped fragment's own `data-issue-key` + `.title`.
+async fn search_result_rows(browser: &fantoccini::Client) -> Vec<(String, String)> {
+    let rows = browser
+        .execute(
+            "return Array.prototype.map.call(
+               document.querySelectorAll(arguments[0]),
+               function (row) {
+                 var title = row.querySelector('.title');
+                 return [row.getAttribute('data-issue-key'), title ? title.textContent : ''];
+               }
+             );",
+            vec![SEARCH_RESULT_ROW_SELECTOR.into()],
+        )
+        .await
+        .expect("read the search result rows");
+    rows.as_array()
+        .expect("the search-result probe returns an array")
+        .iter()
+        .map(|pair| {
+            let pair = pair.as_array().expect("each row is a [key, title] pair");
+            (
+                pair[0].as_str().unwrap_or_default().to_string(),
+                pair[1].as_str().unwrap_or_default().to_string(),
+            )
+        })
+        .collect()
+}
+
+/// Waits until the results list settles into the state `predicate` accepts.
+///
+/// The fragment arrives over a real `fetch`, so a bare read races the network and
+/// would flake green-or-red at random. Bounded and polled: it fails with the
+/// list's ACTUAL contents rather than a timeout with no diagnosis, and it cannot
+/// pass by waiting — the predicate has to hold.
+async fn wait_for_results<F>(browser: &fantoccini::Client, what: &str, predicate: F)
+where
+    F: Fn(&[(String, String)]) -> bool,
+{
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let seen = loop {
+        let seen = search_result_rows(browser).await;
+        if predicate(&seen) {
+            return;
+        }
+        if std::time::Instant::now() >= deadline {
+            break seen;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    };
+    panic!(
+        "the search results never showed {what}.\n  showing instead: {seen:?}\n  The results are \
+         the SHIPPED `GET …/search?q=` fragment (keyboard.rs, search_results.html), honoured \
+         as-is per ADR-005 §2 — so either `/` never revealed the panel, the input never fetched, \
+         or the fragment was not mounted into {SEARCH_PANEL_SELECTOR}."
+    );
+}
+
 /// How many modals are mounted right now.
 async fn open_modal_count(browser: &fantoccini::Client) -> usize {
     browser
@@ -503,12 +580,157 @@ async fn type_into_title(world: &mut FoundryWorld, text: &str) {
         .unwrap_or_else(|err| panic!("type {text:?} into the title field: {err}"));
 }
 
-#[when(regex = r#"^Mei types "[^"]+" into the search box$"#)]
-async fn mei_types_into_search(_world: &mut FoundryWorld) {
-    scaffold_pending();
+/// Types into the search box the way Mei does: real keystrokes into the element
+/// `/` focused, through the same delegated listener. `send_keys` rather than an
+/// `execute`-d value assignment on purpose — assigning `.value` fires no `input`
+/// event, so the results fragment would never be fetched and the assertion would
+/// be about a list nothing filled.
+#[when(regex = r#"^Mei types "([^"]+)" into the search box$"#)]
+async fn mei_types_into_search(world: &mut FoundryWorld, text: String) {
+    let browser = world.browser.as_ref().expect("browser session");
+    browser
+        .find(Locator::Css(SEARCH_INPUT_SELECTOR))
+        .await
+        .expect("the search panel must carry an input to type into")
+        .send_keys(&text)
+        .await
+        .unwrap_or_else(|err| panic!("type {text:?} into the search box: {err}"));
+}
+
+/// The precondition the three finding scenarios share: the panel is open because
+/// the REAL `/` key opened it. Not `execute`-d, not clicked — a Given that
+/// revealed the panel any other way would green "Mei finds an issue" over a
+/// layer where `/` is not bound at all, which is this feature's own disease.
+#[given(regex = r#"^Mei has focused the board search box by pressing "/"$"#)]
+async fn focused_search_by_pressing_slash(world: &mut FoundryWorld) {
+    let url = board_url(world);
+    let browser = world.browser.as_ref().expect("browser session");
+    browser
+        .goto(&url)
+        .await
+        .expect("navigate to the AUTH board");
+    browser_harness::wait_for_kb_ready(browser).await;
+    browser
+        .find(Locator::Css("body"))
+        .await
+        .expect("find the document body")
+        .send_keys("/")
+        .await
+        .expect("press the search key");
+    let (focused, _) = focused_field(browser).await;
+    assert!(
+        focused.contains("[name=q]"),
+        "pressing `/` on the board did not focus the search box (focus is on {focused} instead), \
+         so the finding this scenario asserts cannot be exercised at all. ADR-005 §2: `/` reveals \
+         and focuses the JS-injected panel."
+    );
 }
 
 // --- Then: the user-visible outcomes ----------------------------------------
+
+/// FR-7 / AC-04.1, half one. Asked of the LIVE `document.activeElement`, so it
+/// speaks to where Mei's next keystroke actually lands.
+#[then(regex = r"^the search input is focused$")]
+async fn search_input_is_focused(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("browser session");
+    browser
+        .wait()
+        .at_most(std::time::Duration::from_secs(5))
+        .for_element(Locator::Css(SEARCH_INPUT_SELECTOR))
+        .await
+        .expect(
+            "pressing `/` revealed no search input. ADR-005 §2: keyboard.js injects a hidden \
+             search panel on every board page and `/` reveals + focuses it.",
+        );
+    let (focused, _) = focused_field(browser).await;
+    assert!(
+        focused.contains("[name=q]"),
+        "pressing `/` left focus on {focused}, not the search box. Revealing the panel without \
+         focusing it makes `/` an affordance Mei has to reach for with the mouse."
+    );
+}
+
+/// FR-7 / AC-04.1, half two — THE CLASSIC BUG. The handler must
+/// `preventDefault()` its own slash, or the very key that opens the box types a
+/// stray `/` into it and Mei's first search is for `/session`. This assertion is
+/// the whole regression guard: deleting the `preventDefault()` reds it here and
+/// nowhere else.
+#[then(regex = r"^the search input is empty$")]
+async fn search_input_is_empty(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("browser session");
+    let (_, value) = focused_field(browser).await;
+    assert_eq!(
+        value, "",
+        "the search box contains {value:?} after `/` opened it — the slash that opened the panel \
+         was also typed INTO it (FR-7). The `/` handler must preventDefault() its own keypress."
+    );
+}
+
+/// AC-04.2 — the substring path (`filter_matches`, keyboard.rs). Asserts on the
+/// TITLE Mei reads, not on a key, because the claim is "typing part of a title
+/// finds the issue".
+#[then(regex = r#"^the results list shows the issue "([^"]+)"$"#)]
+async fn results_show_issue_titled(world: &mut FoundryWorld, title: String) {
+    let browser = world.browser.as_ref().expect("browser session");
+    wait_for_results(browser, &format!("the issue titled {title:?}"), |rows| {
+        rows.iter().any(|(_, shown)| shown.trim() == title)
+    })
+    .await;
+}
+
+/// AC-04.3 — the exact-key path. "EXACTLY" is the assertion: a client that
+/// ignored the server's exact-key branch and substring-matched `AUTH-2` would
+/// still show AUTH-2, so `len() == 1` is what makes this scenario bite.
+#[then(regex = r"^the results list shows exactly the issue AUTH-2$")]
+async fn results_show_exactly_auth2(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("browser session");
+    wait_for_results(browser, "exactly AUTH-2 and nothing else", |rows| {
+        rows.len() == 1 && rows[0].0 == "AUTH-2"
+    })
+    .await;
+}
+
+/// AC-04.4 — the shipped `data-empty="true"` marker (`search_results.html:2`).
+/// Asserting the MARKER rather than "zero rows" is what distinguishes "nothing
+/// matched" from "no query yet" and from "the fetch never happened" — all three
+/// render zero rows, and only one of them is the outcome this scenario claims.
+#[then(regex = r"^the results list shows an empty state indicating nothing matched$")]
+async fn results_show_empty_state(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("browser session");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        let empty = !browser
+            .find_all(Locator::Css(SEARCH_EMPTY_SELECTOR))
+            .await
+            .expect("look for the empty-state marker")
+            .is_empty();
+        if empty {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "a search matching nothing never rendered the empty state. The shipped fragment \
+             returns `ul.search-results[data-empty=\"true\"]` for no matches \
+             (search_results.html:2) — so either the fragment was never fetched, or the client \
+             dropped the marker while mounting it."
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    let rows = search_result_rows(browser).await;
+    assert!(
+        rows.is_empty(),
+        "the empty state is marked, but the list still shows {rows:?} — the marker and the \
+         contents disagree."
+    );
+    assert!(
+        !browser
+            .find_all(Locator::Css(SEARCH_RESULTS_SELECTOR))
+            .await
+            .expect("look for the results list")
+            .is_empty(),
+        "no results list is mounted at all"
+    );
+}
 
 /// The ADR-001 readiness marker. Both this lane's wait condition and US-02's
 /// "the layer is live" precondition, so the anti-vacuity guard has a real hook.

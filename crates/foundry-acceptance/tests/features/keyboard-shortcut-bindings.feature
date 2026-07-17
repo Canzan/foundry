@@ -248,26 +248,26 @@ Feature: The seven advertised keyboard shortcuts work in the browser
   # ===========================================================================
 
   # The classic bug (FR-7): the field must be focused AND EMPTY — no stray "/".
-  @pending @needs-browser @slice4 @us-04 @search
+  @needs-browser @slice4 @us-04 @search
   Scenario: Pressing the search key focuses the search box without typing a slash
     Given Mei is viewing the AUTH project board
     When Mei presses "/"
     Then the search input is focused
     And the search input is empty
 
-  @pending @needs-browser @slice4 @us-04 @search
+  @needs-browser @slice4 @us-04 @search
   Scenario: Mei finds an issue by typing part of its title
     Given Mei has focused the board search box by pressing "/"
     When Mei types "session" into the search box
     Then the results list shows the issue "Session cookie not cleared on sign-out"
 
-  @pending @needs-browser @slice4 @us-04 @search @edge
+  @needs-browser @slice4 @us-04 @search @edge
   Scenario: Mei finds an issue by its exact key
     Given Mei has focused the board search box by pressing "/"
     When Mei types "AUTH-2" into the search box
     Then the results list shows exactly the issue AUTH-2
 
-  @pending @needs-browser @slice4 @us-04 @search @error
+  @needs-browser @slice4 @us-04 @search @error
   Scenario: A search that matches nothing shows the empty state
     Given Mei has focused the board search box by pressing "/"
     When Mei types "zzz" into the search box
