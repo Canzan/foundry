@@ -513,6 +513,34 @@
       "s": "EXECUTED",
       "d": "PASS",
       "t": "2026-07-17T05:56:57Z"
+    },
+    {
+      "sid": "05-03",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-17T05:59:50Z"
+    },
+    {
+      "sid": "05-03",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-17T06:10:32Z"
+    },
+    {
+      "sid": "05-03",
+      "p": "RED_UNIT",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: the four ATs drive the whole change; the binding is four lines in the browser-only dispatch table (keyboard.js) and there is no JS unit harness in the workspace. No production code is unjustified by a failing AT.",
+      "t": "2026-07-17T06:10:32Z"
+    },
+    {
+      "sid": "05-03",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-17T06:28:59Z"
     }
   ]
 }

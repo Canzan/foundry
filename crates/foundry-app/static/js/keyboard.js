@@ -23,11 +23,18 @@
 // (upstream-issues.md UI-3, ratified 2026-07-16) — a property of the predicate,
 // not a carve-out; it names no shortcut.
 //
-// Bound today: `?` (open help), `Esc` (peel the topmost layer — help, else the
-// modal, else the search panel), `c` (open the new-issue modal), `/` (reveal and
-// focus the board search panel), `j`/`k` (walk the VISIBLE cards, ADR-004).
-// `Enter` is advertised by SHORTCUTS (keyboard.rs:48-56) but NOT yet bound; it
-// lands in a later slice-05 step through this same dispatch point.
+// Bound today: ALL SEVEN. `?` (open help), `Esc` (peel the topmost layer — help,
+// else the modal, else the search panel), `c` (open the new-issue modal), `/`
+// (reveal and focus the board search panel), `j`/`k` (walk the VISIBLE cards,
+// ADR-004), and `Enter` (open the selected card, step 05-03).
+//
+// So SHORTCUTS (keyboard.rs:48-56) and this dispatch table now agree — which is
+// the first moment in this feature's life that they do. NOTE what that agreement
+// rests on: it is held by a TEST, not "by construction" as the comment above once
+// claimed (upstream-issues.md UI-2). Nothing here is derived from SHORTCUTS; each
+// key is hardcoded in `dispatch`. The bound-equals-advertised invariant (BR-1,
+// KPI-5) is enforced by the `@contract` scenario that step 05-05 unskips, and
+// until it runs, drift is prevented by nothing at all.
 (function () {
   "use strict";
 
@@ -679,6 +686,40 @@
     }
   }
 
+  // `Enter` opens the SELECTED card — the seventh and last key (AC-06.1).
+  //
+  // It CLICKS the card, exactly as `c` clicks the board's own shipped trigger.
+  // The card IS its own open affordance: `issue_card.html:1` already carries the
+  // `hx-get`, the `hx-target="#modal-root"` and the swap that a pointer click
+  // uses. So the keyboard path and the pointer path open the same modal by the
+  // same mechanism (ADR-005 §4's one-open-path), this file needs no knowledge of
+  // routes or CSRF, and a build that reconstructed the URL and navigated would red
+  // "the browser does not navigate away" and "over the board".
+  //
+  // The card is resolved through `projectSelection()` — the ADR-004 derivation
+  // step — rather than by a second `querySelector` here, so `Enter` and the ring
+  // can never disagree about which issue is selected. That is the whole reason
+  // selection is a KEY: the projection re-reads the live DOM, so `Enter` opens the
+  // card Mei is looking at even after a drag reordered the board underneath it.
+  // It also gives the no-selection no-op for free (FR-9, AC-06.2): with
+  // `selectedKey === null` nothing resolves, and a key that no longer resolves
+  // clears coherently rather than ringing an issue that has left the board — the
+  // named edge where a found issue has no card.
+  //
+  // No `preventDefault`: `Enter` has no default action on the body, and inside a
+  // text field it never reaches here at all (guard 4 — `NATIVE_TEXT_ENTRY_KEYS`
+  // names it as a key the field consumes natively, so the browser submits the
+  // form). AC-06.3 therefore needs no code and no exemption, which is ADR-002's
+  // own cited evidence that the guard is structural. An `Enter` carve-out anywhere
+  // on the guard path would be the BR-2 failure.
+  function openSelected() {
+    var card = projectSelection();
+    if (!card) {
+      return;
+    }
+    card.click();
+  }
+
   document.addEventListener("keydown", function (event) {
     if (isInert(event)) {
       return;
@@ -719,6 +760,10 @@
     }
     if (event.key === "k") {
       moveSelection(-1);
+      return;
+    }
+    if (event.key === "Enter") {
+      openSelected();
       return;
     }
     if (event.key === "Escape") {

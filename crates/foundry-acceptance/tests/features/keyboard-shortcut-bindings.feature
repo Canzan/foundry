@@ -344,27 +344,27 @@ Feature: The seven advertised keyboard shortcuts work in the browser
     And the selection highlight does not rely on colour alone
     And the help overlay tells the user to Tab to the board, then press "j" or "k"
 
-  @pending @needs-browser @slice5 @us-06 @open
+  @needs-browser @slice5 @us-06 @open
   Scenario: Pressing enter opens the selected issue
     Given Mei is viewing the AUTH board and has selected AUTH-2 with the "j" key
     When Mei presses "Enter"
     Then the issue modal for AUTH-2 opens over the board
 
-  @pending @needs-browser @slice5 @us-06 @open @edge
+  @needs-browser @slice5 @us-06 @open @edge
   Scenario: Enter with nothing selected does nothing
     Given Mei is viewing the AUTH board and has not selected any card
     When Mei presses "Enter"
     Then no modal opens
     And the browser does not navigate away
 
-  @pending @needs-browser @slice5 @us-06 @open @guard
+  @needs-browser @slice5 @us-06 @open @guard
   Scenario: Enter inside a form still submits the form
     Given Mei has the new-issue modal open with a title typed into it
     When Mei presses "Enter" in the title field
     Then the form is submitted
     And no issue card is opened behind the modal
 
-  @pending @needs-browser @slice5 @us-06 @us-07 @selection
+  @needs-browser @slice5 @us-06 @us-07 @selection
   Scenario: Closing the opened issue leaves the selection intact
     Given Mei has opened AUTH-2 by pressing "Enter"
     When Mei presses "Esc"

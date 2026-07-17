@@ -1343,8 +1343,11 @@ async fn no_modal_opens(world: &mut FoundryWorld) {
     let modals = any_modal_count(browser).await;
     assert_eq!(
         modals, 0,
-        "pressing \"c\" on a page with no project opened {modals} modal(s) — a shortcut with no \
-         target must be a no-op, never a modal for an issue that has nowhere to go (AC-03.3)"
+        "the key opened {modals} modal(s) — a shortcut with no target must be a no-op. Shared by \
+         AC-03.3 (`c` on a page with no project: no modal for an issue that has nowhere to go) and \
+         AC-06.2/FR-9 (`Enter` with nothing selected: no modal for an issue Mei never chose). The \
+         second reads on the board, where cards ARE present — so this reds for an `Enter` that \
+         falls back to opening the first card when the ring is empty."
     );
 }
 
@@ -3411,3 +3414,472 @@ async fn help_overlay_documents_the_tab(world: &mut FoundryWorld) {
 // each slice (they are inert while the scenarios are @pending). Keeping the starter
 // small avoids registering broad regexes that could later collide once real
 // per-slice steps are introduced.
+
+// --- SLICE 05 / STEP 05-03 (US-06): `Enter` opens the selected issue ---------
+//
+// The SEVENTH and last key. `Enter` reuses the pattern `c` established: the board
+// card is ITSELF the shipped open affordance (`issue_card.html:1` carries the
+// `hx-get`, the `hx-target` and the swap a pointer click already uses), so the
+// binding CLICKS it rather than reconstructing a URL — no client CSRF, and the
+// keyboard path and the pointer path open the same modal by the same mechanism.
+//
+// The `@guard` scenario below is expected to be GREEN BY INHERITANCE: `Enter` is
+// in `NATIVE_TEXT_ENTRY_KEYS`, so guard 4 makes it inert inside a text field and
+// the browser submits the form natively. ADR-002 cites exactly this as evidence
+// the guard is structural. Its assertions still have to BITE — see the falsifica-
+// tion note on `form_is_submitted`.
+
+/// The modal a board card's own `hx-get` produces (`issue_edit_modal.html:1`).
+/// NAMED, not `[data-modal]`: "a modal opened" would pass for a build where
+/// `Enter` opened the NEW-ISSUE modal, or the wrong issue's — the two failures
+/// this scenario exists to catch (ADR-004 rejects an index precisely because it
+/// opens a DIFFERENT issue silently).
+const EDIT_MODAL_SELECTOR: &str = "#modal-root [data-modal='edit-issue']";
+
+/// The issue key the open modal is showing, read from the modal's own shipped
+/// heading (`issue_edit_modal.html:3` — `<h2>Edit {{ key }}</h2>`). Asserted by
+/// the server's own markup rather than a client-invented marker, so this cannot
+/// pass over a client that mounted a modal of its own devising.
+async fn open_modal_issue_key(browser: &fantoccini::Client) -> Option<String> {
+    let heading = browser
+        .execute(
+            r##"var modal = document.querySelector("#modal-root [data-modal='edit-issue']");
+               if (!modal) { return null; }
+               var h = modal.querySelector('h2');
+               return h ? h.textContent.trim() : '<no heading>';"##,
+            Vec::new(),
+        )
+        .await
+        .expect("read the open issue modal's heading");
+    heading.as_str().map(|s| s.to_string())
+}
+
+/// Waits for the issue modal to be up and returns the key it names.
+async fn await_issue_modal(browser: &fantoccini::Client, context: &str) -> String {
+    browser
+        .wait()
+        .at_most(std::time::Duration::from_secs(10))
+        .for_element(Locator::Css(EDIT_MODAL_SELECTOR))
+        .await
+        .unwrap_or_else(|err| {
+            panic!(
+                "{context} opened no issue modal in #modal-root ({err}). The card carries its own \
+                 hx-get/hx-target/hx-swap (issue_card.html:1) — the same affordance a pointer \
+                 click uses — so `Enter` clicking the selected card is all this needs. This reds \
+                 if `Enter` is unbound, or if it reconstructs a URL and navigates instead."
+            )
+        });
+    open_modal_issue_key(browser)
+        .await
+        .expect("the issue modal is up, so its heading is readable")
+}
+
+/// AC-06.1's Given. The ring is put on AUTH-2 by pressing the REAL `j` — never
+/// mounted from JS, which would be Fixture Theater (it would green `Enter` over a
+/// build where `j` is unbound entirely). The resting URL is stamped so the sibling
+/// no-op scenarios can prove `Enter` never navigated.
+#[given(regex = r#"^Mei is viewing the AUTH board and has selected AUTH-2 with the "j" key$"#)]
+async fn viewing_board_with_auth2_selected(world: &mut FoundryWorld) {
+    let url = board_url(world);
+    let browser = world.browser.as_ref().expect("browser session");
+    browser
+        .goto(&url)
+        .await
+        .expect("navigate to the AUTH board");
+    browser_harness::wait_for_kb_ready(browser).await;
+    assert_eq!(
+        any_modal_count(browser).await,
+        0,
+        "a modal is already open on a freshly-loaded board — the assertion that `Enter` OPENS one \
+         would then be true before Mei pressed anything"
+    );
+    select_by_pressing_j(browser, "body", "AUTH-2").await;
+    capture_url_at_rest(browser).await;
+}
+
+/// AC-06.1's outcome, and the arm that makes it non-vacuous: the modal must name
+/// AUTH-2 — the card Mei's ring is on — not merely exist. A modal for AUTH-1 is
+/// the exact silent failure ADR-004's key-based model exists to prevent, and
+/// "a modal opened" would pass for it.
+#[then(regex = r"^the issue modal for AUTH-2 opens over the board$")]
+async fn issue_modal_for_auth2_opens(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("browser session");
+    let heading = await_issue_modal(browser, "pressing \"Enter\" with AUTH-2 selected").await;
+    assert!(
+        heading.contains("AUTH-2"),
+        "`Enter` opened an issue modal, but it is showing {heading:?} — Mei's ring is on AUTH-2. \
+         Opening a DIFFERENT issue than the one selected is the silent, data-losing failure \
+         ADR-004 rejects an index-based selection to prevent: she would edit the wrong issue."
+    );
+    // OVER the board, not instead of it (AC-06.1's own words). A build that
+    // navigated to the issue's full page would satisfy "a modal named AUTH-2 is
+    // on screen" nowhere — but one that replaced the board's own markup could.
+    let cards = visible_card_order(browser).await;
+    assert!(
+        cards.iter().any(|k| k == "AUTH-2"),
+        "the AUTH-2 modal is open but the board is gone from behind it (it shows {cards:?}) — \
+         `Enter` must open the modal OVER the board, never navigate away from it"
+    );
+}
+
+/// AC-06.2's Given (FR-9). Selection starts empty and is ASSERTED so, because the
+/// whole claim is "no target => no action": if a card were already ringed, the
+/// no-op below would be measuring nothing.
+#[given(regex = r"^Mei is viewing the AUTH board and has not selected any card$")]
+async fn viewing_board_with_nothing_selected(world: &mut FoundryWorld) {
+    let url = board_url(world);
+    let browser = world.browser.as_ref().expect("browser session");
+    browser
+        .goto(&url)
+        .await
+        .expect("navigate to the AUTH board");
+    browser_harness::wait_for_kb_ready(browser).await;
+    let cards = visible_card_order(browser).await;
+    assert!(
+        !cards.is_empty(),
+        "the AUTH board shows no cards at all, so \"Enter with nothing SELECTED does nothing\" \
+         would pass for the trivial reason that there is nothing to open — the scenario's claim is \
+         about the absence of a SELECTION, not the absence of issues"
+    );
+    assert!(
+        selected_keys(browser).await.is_empty(),
+        "a card is already selected on a freshly-loaded board — selection is ephemeral and starts \
+         empty (BR-5), and this scenario's entire premise is that nothing is selected"
+    );
+    capture_url_at_rest(browser).await;
+}
+
+/// AC-06.3's Given. The modal is opened by the REAL `c` and the title is typed
+/// into whatever the browser says is FOCUSED — never into an element located by
+/// CSS, which would focus the field as a side effect and green this over a modal
+/// that opened unfocused.
+///
+/// A CARD IS SELECTED FIRST, and that is what gives this scenario teeth.
+///
+/// Found at 05-03's falsification: with nothing selected, removing `Enter` from
+/// `NATIVE_TEXT_ENTRY_KEYS` — i.e. DELETING guard 4's protection of this very key
+/// — left all 33 scenarios GREEN. The scenario could not fail for the reason it
+/// names. Two independent things were hiding the defect: `dispatch` reaches
+/// `openSelected()`, which no-ops because `selectedKey` is null; and the shortcut
+/// layer never calls `preventDefault()`, so the browser submits the form anyway.
+/// The behaviour was real and protected — but NOT by the arm the scenario names.
+/// That is exactly the UI-5 shape (guard 1 is unfalsifiable because guard 4
+/// already covers its scenario's key), rediscovered on a different guard.
+///
+/// The scenario's own second arm — "no issue card is OPENED behind the modal" —
+/// presupposes a card that COULD open. With no selection there is none, so the
+/// arm is trivially true for every implementation, including one with no guard at
+/// all. Selecting a card is therefore not an embellishment of the Given: it is
+/// what the Then already claims. Same discipline as `no modal opens` scoping
+/// itself to the whole document — a negative assertion has to be able to bite.
+///
+/// The Gherkin is UNCHANGED (it is DISTILL's); this realises an underspecified
+/// Given in the only way that makes its own Then falsifiable. With it, deleting
+/// `Enter` from `NATIVE_TEXT_ENTRY_KEYS` REDS this scenario: the shortcut layer
+/// opens the ringed card's modal from inside the form — Mei's draft gone, in an
+/// unrelated issue. Verified by doing it.
+#[given(regex = r"^Mei has the new-issue modal open with a title typed into it$")]
+async fn new_issue_modal_open_with_title_typed(world: &mut FoundryWorld) {
+    let url = board_url(world);
+    let title = "Enter must submit this form";
+    let browser = world.browser.as_ref().expect("browser session");
+    browser
+        .goto(&url)
+        .await
+        .expect("navigate to the AUTH board");
+    browser_harness::wait_for_kb_ready(browser).await;
+    // The REAL `j`, so the ring is genuinely there and this precondition cannot be
+    // Fixture Theater. Pressed AFTER the navigation and stamped on `window`: the
+    // stamp is destroyed by a page load, so a submit that navigated (rather than
+    // htmx-swapping) cannot quietly satisfy the Then that reads it back.
+    press(browser, "j").await;
+    let selected = selected_keys(browser).await;
+    assert_eq!(
+        selected.len(),
+        1,
+        "the Given's own \"j\" left the ring on {selected:?} instead of exactly one card — this \
+         scenario's \"no issue card is opened behind the modal\" is only falsifiable if there IS a \
+         selected card that a mis-guarded `Enter` could open"
+    );
+    browser
+        .execute(
+            "window.__kbSelectedBeforeTyping = arguments[0]; return null;",
+            vec![serde_json::json!(selected[0])],
+        )
+        .await
+        .expect("stamp the selected key before the modal opens");
+    // The REAL `c`, on the board Mei is already looking at — the same paired
+    // assertion `open_new_issue_modal_by_pressing_c` makes (D15). Inlined rather
+    // than delegated because that helper navigates first, which would wipe both
+    // the ring and the stamp above.
+    press(browser, "c").await;
+    browser
+        .wait()
+        .at_most(std::time::Duration::from_secs(10))
+        .for_element(Locator::Css(TITLE_FIELD_SELECTOR))
+        .await
+        .expect(
+            "pressing \"c\" on the board must open the new-issue modal — the paired assertion's \
+             first half (D15). Without this the guard half below is VACUOUS: a layer that binds \
+             nothing at all would pass it.",
+        );
+    // WAIT for `autofocus` to actually land before typing. `open_new_issue_...`
+    // waits for the field to EXIST, and htmx inserts it a beat before the browser
+    // moves focus into it — so the first keystroke lands on `body` and is silently
+    // dropped. Observed directly at this step's RED: the field held
+    // "nter must submit this form".
+    //
+    // Waiting on `document.activeElement` — rather than typing into the element
+    // found by CSS, which would FOCUS it as a side effect — is what keeps this a
+    // real guard test: `find(...).send_keys(...)` would green the scenario over a
+    // modal that opened unfocused, i.e. over a build where Mei really does have to
+    // reach for the mouse.
+    browser
+        .wait()
+        .at_most(std::time::Duration::from_secs(10))
+        .for_element(Locator::Css(
+            "#modal-root [data-modal='new-issue'] input[name='title']:focus",
+        ))
+        .await
+        .expect(
+            "the new-issue modal's title field never took focus, so a keystroke typed at the \
+             focused element would land on `body` and be dropped. `new_issue_modal.html:6` carries \
+             `autofocus` — this reds if that attribute is removed (AC-03.1's own claim).",
+        );
+    browser
+        .active_element()
+        .await
+        .expect("read the focused element")
+        .send_keys(title)
+        .await
+        .expect("type the title into the focused field");
+    // The board's keys BEFORE filing + the title, so "the form is submitted" can
+    // assert the DELTA rather than a presence check. Same discipline as AC-03.2's
+    // own When: the Background already titles AUTH-2, so "a card with a title
+    // exists" is true before Mei files anything.
+    let captured = browser
+        .execute(
+            "window.__kbFiledTitle = arguments[0];
+             window.__kbKeysBeforeFiling = Array.prototype.map.call(
+               document.querySelectorAll('.board .issue-card[data-issue-key]'),
+               function (card) { return card.getAttribute('data-issue-key'); }
+             );
+             return window.__kbKeysBeforeFiling.length;",
+            vec![serde_json::json!(title)],
+        )
+        .await
+        .expect("record the board's issue keys before filing");
+    assert!(
+        captured.as_u64().unwrap_or(0) > 0,
+        "the AUTH board shows no issue cards behind the modal, so the \"a new issue appeared\" \
+         delta below would have no baseline to be new against"
+    );
+    let value = browser
+        .find(Locator::Css(TITLE_FIELD_SELECTOR))
+        .await
+        .expect("the new-issue modal must carry a title field")
+        .prop("value")
+        .await
+        .expect("read the title field's value");
+    assert_eq!(
+        value.as_deref(),
+        Some(title),
+        "the title Mei typed did not land in the field (it holds {value:?}) — this scenario's When \
+         presses Enter IN that field, so the field has to be the thing she is typing into"
+    );
+}
+
+/// AC-06.3's When. The key goes to the FOCUSED element — the title field Mei is
+/// typing in — which is the whole point: `Enter` here must be the FORM's, not the
+/// shortcut layer's.
+#[when(regex = r#"^Mei presses "Enter" in the title field$"#)]
+async fn presses_enter_in_the_title_field(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("browser session");
+    browser
+        .active_element()
+        .await
+        .expect("read the focused element")
+        .send_keys(browser_harness::key_chord("Enter"))
+        .await
+        .expect("press \"Enter\" in the title field");
+}
+
+/// AC-06.3's outcome — GREEN BY INHERITANCE, and this is the arm that proves it
+/// is not green for nothing.
+///
+/// `Enter` reaches the shipped `hx-post` (`new_issue_modal.html:4`) because guard
+/// 4 declines the keys a text-entry context consumes natively, and
+/// `NATIVE_TEXT_ENTRY_KEYS` names `Enter`. No client code is on this path at all —
+/// which is exactly ADR-002's cited evidence that the guard is structural rather
+/// than a pile of special cases. Remove `Enter` from `NATIVE_TEXT_ENTRY_KEYS` and
+/// this REDS: the shortcut layer eats the keypress, the form never submits, and
+/// `no_issue_card_opened_behind_the_modal` reds beside it. Verified by doing it.
+///
+/// Asserted as the DELTA, for AC-03.2's reason: the Background titles AUTH-2, so
+/// a presence check would be true before she filed anything.
+#[then(regex = r"^the form is submitted$")]
+async fn form_is_submitted(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("browser session");
+    browser
+        .wait()
+        .at_most(std::time::Duration::from_secs(10))
+        .for_element(Locator::Css("#modal-root:empty"))
+        .await
+        .expect(
+            "pressing \"Enter\" in the title field left the new-issue modal open — the form was \
+             never submitted. The shipped POST answers htmx with an out-of-band append and an \
+             EMPTY primary body (issues.rs:553), so `#modal-root` clearing is how the create is \
+             known to have succeeded. This is what reds if `Enter` is removed from \
+             NATIVE_TEXT_ENTRY_KEYS: the shortcut layer would eat the keypress instead of letting \
+             the field consume it (ADR-002).",
+        );
+    let described = browser
+        .execute(
+            "var before = window.__kbKeysBeforeFiling || [];
+             var cards = Array.prototype.slice.call(
+               document.querySelectorAll('.board .issue-card[data-issue-key]')
+             );
+             var added = cards.filter(function (card) {
+               return before.indexOf(card.getAttribute('data-issue-key')) === -1;
+             });
+             return {
+               added: added.map(function (card) {
+                 var titleNode = card.querySelector('.title');
+                 return {
+                   key: card.getAttribute('data-issue-key'),
+                   title: titleNode ? titleNode.textContent.trim() : '<no .title node>'
+                 };
+               }),
+               expectedTitle: window.__kbFiledTitle
+             };",
+            Vec::new(),
+        )
+        .await
+        .expect("read the board's new cards");
+    let added = described["added"]
+        .as_array()
+        .expect("the probe reports the added cards")
+        .clone();
+    let expected_title = described["expectedTitle"].as_str().unwrap_or_default();
+    assert_eq!(
+        added.len(),
+        1,
+        "Mei pressed Enter in the title field and the AUTH board gained {} new card(s) (saw \
+         {added:?}). The form submitting means exactly one issue is filed.",
+        added.len()
+    );
+    assert_eq!(
+        added[0]["title"].as_str(),
+        Some(expected_title),
+        "an issue was filed but it is titled {:?} instead of {expected_title:?} — the title Mei \
+         typed did not reach the issue the form created",
+        added[0]["title"].as_str().unwrap_or_default()
+    );
+}
+
+/// AC-06.3's second arm — the one that names the bug. A build that bound `Enter`
+/// with a per-shortcut carve-out (or with no guard at all) would open the SELECTED
+/// card's modal from inside the form: Mei types a title, presses Enter, and lands
+/// in an unrelated issue with her draft gone. Scoped to the WHOLE document, not to
+/// `#modal-root`: the submit clears that host, so a host-scoped count would be
+/// zero for any implementation and this arm would be vacuous exactly where it must
+/// bite.
+#[then(regex = r"^no issue card is opened behind the modal$")]
+async fn no_issue_card_opened_behind_the_modal(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("browser session");
+    let opened = browser
+        .find_all(Locator::Css("[data-modal='edit-issue']"))
+        .await
+        .expect("count the issue modals anywhere on the page")
+        .len();
+    let ringed = browser
+        .execute(
+            "return window.__kbSelectedBeforeTyping || null;",
+            Vec::new(),
+        )
+        .await
+        .expect("read back the key that was ringed before Mei typed");
+    let ringed = ringed
+        .as_str()
+        .expect("the Given stamped the ringed key onto the page");
+    assert_eq!(
+        opened, 0,
+        "pressing \"Enter\" in the title field submitted the form AND opened {opened} issue \
+         modal(s) — the keypress was consumed twice. {ringed} was ringed behind the modal, and a \
+         mis-guarded `Enter` opens it: Mei types a title, presses Enter, and lands in an unrelated \
+         issue with her draft gone. `Enter` inside a text-entry context belongs to the field alone \
+         (ADR-002 guard 4); a shortcut that also fires there is the carve-out BR-2 forbids. This \
+         is what reds if `Enter` is removed from NATIVE_TEXT_ENTRY_KEYS."
+    );
+    // The ring must also not have MOVED. The selection survives the form (it is a
+    // detached string — ADR-004), so it is still on the card Mei ringed; a build
+    // where the shortcut layer ran inside the field could walk it instead.
+    assert_selected_is(
+        browser,
+        ringed,
+        "typing a title and pressing \"Enter\" inside the form",
+    )
+    .await;
+}
+
+/// AC-06.4's Given. AUTH-2 is selected with the real `j` and opened with the real
+/// `Enter` — the round trip this scenario is about starts with the keyboard, so
+/// the keyboard has to drive every step of it.
+#[given(regex = r#"^Mei has opened AUTH-2 by pressing "Enter"$"#)]
+async fn has_opened_auth2_by_pressing_enter(world: &mut FoundryWorld) {
+    let url = board_url(world);
+    let browser = world.browser.as_ref().expect("browser session");
+    browser
+        .goto(&url)
+        .await
+        .expect("navigate to the AUTH board");
+    browser_harness::wait_for_kb_ready(browser).await;
+    select_by_pressing_j(browser, "body", "AUTH-2").await;
+    press(browser, "Enter").await;
+    let heading = await_issue_modal(browser, "the Given's own \"Enter\"").await;
+    assert!(
+        heading.contains("AUTH-2"),
+        "the Given pressed \"Enter\" with AUTH-2 ringed and the modal that opened shows \
+         {heading:?} — this scenario asserts what survives closing AUTH-2's modal, so AUTH-2's is \
+         the one that has to be open"
+    );
+}
+
+/// AC-06.4 / AC-07.3 — selection is not a casualty of the layer stack.
+///
+/// Two arms, and the second is the one with teeth. "AUTH-2 is still selected"
+/// alone would pass for a build that left a stale ring on a dead model; pressing
+/// `j` and requiring it to land on the card AFTER AUTH-2 proves the model itself
+/// survived — `selectedKey` still resolves and the walk resumes from where Mei
+/// left it, rather than restarting at the first card.
+///
+/// ADR-004 predicts this costs nothing: `Esc` clears CONTAINERS (ADR-003) and
+/// `selectedKey` is a detached string it never touches.
+#[then(regex = r#"^AUTH-2 is still selected so "j" moves to the next card$"#)]
+async fn auth2_still_selected_and_j_moves_on(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("browser session");
+    assert_selected_is(
+        browser,
+        "AUTH-2",
+        "opening AUTH-2 and closing it with \"Esc\"",
+    )
+    .await;
+    let order = visible_card_order(browser).await;
+    let index = order
+        .iter()
+        .position(|k| k == "AUTH-2")
+        .expect("AUTH-2 is on the board");
+    let next = order.get(index + 1).unwrap_or_else(|| {
+        panic!(
+            "AUTH-2 is the LAST card Mei can see (the board shows {order:?}), so \"j moves to the \
+             next card\" has no next card to move to and this scenario cannot assert what it says"
+        )
+    });
+    press(browser, "j").await;
+    assert_selected_is(
+        browser,
+        next,
+        "closing AUTH-2's modal with \"Esc\" and pressing \"j\"",
+    )
+    .await;
+}
