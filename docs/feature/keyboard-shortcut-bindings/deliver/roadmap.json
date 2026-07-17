@@ -2,7 +2,7 @@
   "roadmap": {
     "project_id": "keyboard-shortcut-bindings",
     "created_at": "2026-07-16T00:00:00Z",
-    "total_steps": 14
+    "total_steps": 15
   },
   "phases": [
     {
@@ -340,6 +340,28 @@
               "crates/foundry-acceptance/src/steps/",
               "crates/foundry-acceptance/tests/"
             ]
+          }
+        },
+        {
+          "id": "04-03",
+          "name": "Discard in-flight search replies on close (UI-6 repair)",
+          "criteria": [
+            "Greens the ALREADY-SHIPPED scenario \"Escape leaves search and restores the board\", which is intermittently RED on main (~2 runs in 3) \u2014 this is a REPAIR step, not new behaviour. Do NOT change the assertion; it was correct all along.",
+            "Root cause (UI-6): closeSearch() hides the panel and clears results but does NOT bump searchSequence, so an in-flight runSearch fetch still believes it is current when it lands and re-mounts results into the hidden panel.",
+            "Fix: bump searchSequence in closeSearch() so a late reply is recognised as stale and discarded \u2014 reusing the EXISTING monotonic token discipline 04-01 introduced, not adding a new special case or a flag.",
+            "Falsify: revert the bump and show the scenario reds again (it may take several runs \u2014 it is ~2-in-3, so run it enough times to be honest about the evidence rather than concluding from one green).",
+            "5-phase TDD; un-@pends NOTHING (the scenario is already live); ZERO new routes, ZERO migrations."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/keyboard-shortcut-bindings.feature",
+          "scenario_name": "Escape leaves search and restores the board",
+          "files_to_modify": [
+            "crates/foundry-app/static/js/keyboard.js"
+          ],
+          "implementation_scope": {
+            "source_directories": [
+              "crates/foundry-app/static/js/"
+            ],
+            "test_directories": []
           }
         }
       ]

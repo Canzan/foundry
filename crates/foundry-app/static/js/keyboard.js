@@ -462,6 +462,18 @@
     if (!panel) {
       return;
     }
+    // Closing INVALIDATES any in-flight reply, by the same monotonic token
+    // `runSearch` already uses (upstream-issues.md UI-6). Without this bump a
+    // fetch issued before the press still believes it is current when it lands,
+    // and re-mounts results into the panel `Esc` just hid — so the panel is
+    // closed but full of an answer to a question Mei has abandoned.
+    //
+    // A close is a request for "no results", so it takes a ticket in the same
+    // queue: last request wins, and this IS the last request. That is why this
+    // is one line in the existing discipline rather than an `isClosing` flag —
+    // a second piece of state to keep in sync with the first is how the race
+    // came back.
+    searchSequence += 1;
     panel.hidden = true;
     var input = searchInput();
     if (input) {

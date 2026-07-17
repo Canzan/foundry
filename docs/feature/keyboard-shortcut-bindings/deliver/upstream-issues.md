@@ -332,3 +332,40 @@ marks it as simulated).
 **Status**: OPEN. Guard 1 is correct and should stay (it protects Mei's real IME); it simply has no
 automated proof. Do not delete it on the strength of "no test covers it" — that would be the wrong
 lesson from this finding.
+
+---
+
+## UI-6 — `closeSearch()` does not bump `searchSequence`: a real intermittent red, not a theoretical race (found at 05-01)
+
+**Source**: `crates/foundry-app/static/js/keyboard.js` — `closeSearch()` vs `runSearch()`'s monotonic
+request token (added at 04-01 to make last-request-win).
+
+04-02's crafter flagged this as a possible edge and — correctly, under "no code without a requiring
+test" — left it, reporting it as theoretical: *"no test requires it and it never fired across many
+runs"*. The orchestrator repeated that framing to 05-01. **Both were wrong, and 05-01 proved it.**
+
+`closeSearch()` hides the panel and clears its results but does **not** bump `searchSequence`. An
+in-flight `runSearch` fetch therefore still considers itself current when it lands, and re-mounts
+results into the now-hidden panel. Slice 04's **shipped, un-`@pending`'d** scenario
+`Escape leaves search and restores the board` asserts the results are gone, so it **reds** — observed
+at roughly **2 runs in 3**:
+
+```
+`Esc` hid the panel but left its results mounted…
+  left:  <ul class="search-results"><li … data-issue-key="AUTH-2">…
+  right: ""
+```
+
+**A test did require it all along.** The assertion was already correct and already committed; only the
+window was narrow. 05-01 widened it incidentally (its overflow scenario seeds 40 issues, adding
+contention) but did not cause it — the defect shipped at 04-01/04-02.
+
+**The lesson worth keeping**: "no test requires it" was a claim about the tests, and it was not
+checked against them. This feature exists because a written claim outlived the code it described; a
+claim about coverage deserves the same scepticism as a claim about behaviour.
+
+**Fix**: bump `searchSequence` in `closeSearch()` so an in-flight reply is recognised as stale and
+discarded — the same mechanism `runSearch` already uses. One line, in the existing token discipline,
+not a new special case.
+
+**Status**: assigned to step **04-03** (a repair step, added to the roadmap after the fact).
