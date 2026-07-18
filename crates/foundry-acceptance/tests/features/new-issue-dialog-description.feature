@@ -67,7 +67,7 @@ Feature: A member writes a description while filing an issue from the dialog
     Then the created "Sandbox" issue "GEN-1" has description "" in the store
     And it renders a card showing the key "GEN-1" and the title "Just a title"
 
-  @pending @real-io @slice1 @us-01 @error
+  @real-io @slice1 @us-01 @error
   Scenario: An empty title is rejected and no issue is created, even with a typed description
     # HTTP-observable only: the 400 fragment + no row. Input SURVIVAL (htmx does not
     # swap the 400, so the modal keeps the typed description) is a browser-dogfood item.
@@ -75,7 +75,7 @@ Feature: A member writes a description while filing an issue from the dialog
     Then the response is the "Title is required" error fragment
     And no issue exists in the "Sandbox" project
 
-  @pending @real-io @slice1 @us-01 @no-js
+  @real-io @slice1 @us-01 @no-js
   Scenario: No-JS fallback — the full-page form carries the field and files with a description
     When Mei fetches the full-page new-issue form for "Sandbox"
     Then the full-page new-issue form carries a "description" textarea
@@ -83,7 +83,7 @@ Feature: A member writes a description while filing an issue from the dialog
     Then the response redirects to the "Sandbox" board
     And the created "Sandbox" issue "GEN-1" has description "typed without JS" in the store
 
-  @pending @real-io @slice1 @us-01 @security
+  @real-io @slice1 @us-01 @security
   Scenario: Requesting the new-issue dialog for a foreign project is refused non-enumerably
     Given a project "Secret" with key prefix "SEC" exists in a DIFFERENT workspace from Mei
     When Mei requests the new-issue dialog for that project's path

@@ -28,6 +28,10 @@ const TEST_NOW: &str = "2026-01-15T12:00:00Z";
 const MEMBER_PASSWORD: &str = "mei-correct-horse-battery-staple";
 const MEI_EMAIL: &str = "mei@acme.com";
 const TEAM_SLUG: &str = "backend";
+// S7 — the foreign project seeded in a DIFFERENT workspace. Fixed slugs let the
+// seed Given and the request When agree on the path without a shared world slot.
+const FOREIGN_TEAM_SLUG: &str = "rivals";
+const FOREIGN_PROJECT_SLUG: &str = "secret";
 
 fn now_anchor() -> time::OffsetDateTime {
     time::OffsetDateTime::parse(TEST_NOW, &time::format_description::well_known::Rfc3339)
@@ -81,6 +85,52 @@ async fn file_described_htmx(
     capture_create_post(world, &url, &title, &description, true).await;
 }
 
+#[when(
+    regex = r#"^Mei files a new issue with an empty title described "([^"]*)" to "([^"]+)" as an htmx request$"#
+)]
+async fn file_empty_title_described_htmx(
+    world: &mut FoundryWorld,
+    description: String,
+    project: String,
+) {
+    ensure_harness(world).await;
+    let url = format!("/team/{TEAM_SLUG}/project/{}/issues", slugify(&project));
+    capture_create_post(world, &url, "", &description, true).await;
+}
+
+#[when(regex = r#"^Mei fetches the full-page new-issue form for "([^"]+)"$"#)]
+async fn fetch_full_page_form(world: &mut FoundryWorld, project: String) {
+    ensure_harness(world).await;
+    let url = format!("/team/{TEAM_SLUG}/project/{}/issues/new", slugify(&project));
+    // No HX-Request header → the handler serves the full-page no-JS fallback,
+    // which {% include %}s the SAME shared partial as the htmx fragment.
+    capture_get(world, &url, false).await;
+}
+
+#[when(
+    regex = r#"^Mei files a new issue titled "([^"]*)" described "([^"]*)" to "([^"]+)" as a plain form$"#
+)]
+async fn file_described_plain(
+    world: &mut FoundryWorld,
+    title: String,
+    description: String,
+    project: String,
+) {
+    ensure_harness(world).await;
+    let url = format!("/team/{TEAM_SLUG}/project/{}/issues", slugify(&project));
+    capture_create_post(world, &url, &title, &description, false).await;
+}
+
+#[when(regex = r#"^Mei requests the new-issue dialog for that project's path$"#)]
+async fn request_foreign_dialog(world: &mut FoundryWorld) {
+    // The foreign project seeded by the Given lives under team slug "rivals" /
+    // project slug "secret" in a workspace Mei is not a member of. Mei's
+    // acting workspace has no "rivals" team, so this resolves to the uniform
+    // not-found refusal (tenancy path untouched).
+    let url = format!("/team/{FOREIGN_TEAM_SLUG}/project/{FOREIGN_PROJECT_SLUG}/issues/new");
+    capture_get(world, &url, true).await;
+}
+
 // ----- Given: a described issue already filed (precondition for S3) ---------
 
 #[given(regex = r#"^Mei has filed an issue titled "([^"]*)" described "([^"]*)" to "([^"]+)"$"#)]
@@ -95,6 +145,51 @@ async fn has_filed_described(
     // File through the real create endpoint (htmx) so the precondition exercises
     // the production write path, not a direct store insert.
     capture_create_post(world, &url, &title, &description, true).await;
+}
+
+// ----- Given: S7 a project in a DIFFERENT workspace (foreign tenant) ---------
+
+/// Seed a workspace/team/project Mei is not a member of, so her request for its
+/// new-issue dialog resolves to a team her acting workspace does not contain →
+/// the uniform non-enumerable refusal. Only the tenancy shape matters (no issue
+/// rows needed). Fixed slugs (`rivals`/`secret`) match the request When.
+#[given(
+    regex = r#"^a project "([^"]+)" with key prefix "([^"]+)" exists in a DIFFERENT workspace from Mei$"#
+)]
+async fn foreign_project(world: &mut FoundryWorld, project_name: String, key_prefix: String) {
+    ensure_harness(world).await;
+    let harness = world.harness.as_ref().expect("harness");
+    let pool = harness.app.state.store.pool();
+
+    let workspace_id = uuid::Uuid::now_v7();
+    let team_id = uuid::Uuid::now_v7();
+    let project_id = uuid::Uuid::now_v7();
+
+    sqlx::query("INSERT INTO workspaces (id, name) VALUES ($1, 'Rivals Inc')")
+        .bind(workspace_id)
+        .execute(pool)
+        .await
+        .expect("insert foreign workspace");
+    sqlx::query("INSERT INTO teams (id, workspace_id, name, slug) VALUES ($1, $2, 'Rivals', $3)")
+        .bind(team_id)
+        .bind(workspace_id)
+        .bind(FOREIGN_TEAM_SLUG)
+        .execute(pool)
+        .await
+        .expect("insert foreign team");
+    sqlx::query(
+        "INSERT INTO projects (id, team_id, workspace_id, name, slug, key_prefix)
+              VALUES ($1, $2, $3, $4, $5, $6)",
+    )
+    .bind(project_id)
+    .bind(team_id)
+    .bind(workspace_id)
+    .bind(&project_name)
+    .bind(FOREIGN_PROJECT_SLUG)
+    .bind(&key_prefix)
+    .execute(pool)
+    .await
+    .expect("insert foreign project");
 }
 
 // ----- Then: S1 modal carries the description textarea ----------------------
@@ -134,6 +229,50 @@ async fn modal_description_textarea_empty(world: &mut FoundryWorld) {
     );
 }
 
+// ----- Then: S6 the full-page fallback carries the description textarea ------
+
+#[then(regex = r#"^the full-page new-issue form carries a "description" textarea$"#)]
+async fn full_page_carries_description_textarea(world: &mut FoundryWorld) {
+    // Full-page fallback (extends base.html) — parse as a document, not a fragment.
+    let body = world.last_body.clone().unwrap_or_default();
+    let doc = Html::parse_document(&body);
+    let textarea_selector =
+        Selector::parse("form textarea[name='description']").expect("valid selector");
+    assert!(
+        doc.select(&textarea_selector).next().is_some(),
+        "the no-JS full-page new-issue form must carry a description textarea: {body}"
+    );
+}
+
+// ----- Then: S5 no row was created despite a typed description ---------------
+
+#[then(regex = r#"^no issue exists in the "([^"]+)" project$"#)]
+async fn no_issue_in_project(world: &mut FoundryWorld, project_name: String) {
+    let count = count_issues_in_project(world, &project_name).await;
+    assert_eq!(
+        count, 0,
+        "expected no issue rows in project {project_name:?}, found {count}"
+    );
+}
+
+// ----- Then: S7 the foreign dialog is refused non-enumerably ----------------
+
+#[then(regex = r#"^the response is the uniform not-found page$"#)]
+async fn uniform_not_found(world: &mut FoundryWorld) {
+    assert_eq!(
+        world.last_status,
+        Some(reqwest::StatusCode::NOT_FOUND),
+        "a foreign project's new-issue dialog must be refused with a 404"
+    );
+    let body = world.last_body.clone().unwrap_or_default();
+    // Non-enumerable: the refusal must not echo the foreign project's identity
+    // (its display name or key prefix), which would reveal it exists elsewhere.
+    assert!(
+        !body.contains("Secret") && !body.contains("SEC"),
+        "the refusal must not enumerate the foreign project's identity: {body}"
+    );
+}
+
 // ----- Then: S2/S4 the store persisted the typed description ----------------
 
 #[then(regex = r#"^the created "([^"]+)" issue "([^"]+)" has description "([^"]*)" in the store$"#)]
@@ -151,6 +290,21 @@ async fn created_issue_has_description(
 }
 
 // ----- internals: authenticated HTTP + DB reads -----------------------------
+
+async fn count_issues_in_project(world: &mut FoundryWorld, project_name: &str) -> i64 {
+    let harness = world.harness.as_ref().expect("harness");
+    let row: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*)
+           FROM issues i
+           JOIN projects p ON p.id = i.project_id
+          WHERE p.name = $1",
+    )
+    .bind(project_name)
+    .fetch_one(harness.app.state.store.pool())
+    .await
+    .unwrap_or_else(|e| panic!("count issues in project {project_name:?}: {e}"));
+    row.0
+}
 
 async fn read_description(world: &mut FoundryWorld, key: &str) -> String {
     let (prefix, _) = key.rsplit_once('-').expect("issue key has -N");
