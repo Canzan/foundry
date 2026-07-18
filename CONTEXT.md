@@ -2,6 +2,18 @@
 
 ## Current Task
 
+**`fix-comment-delete-csrf` FIXED + finalized** (`main`, `59c10be` + docs `673f185`, **2 ahead of BOTH
+remotes, not pushed**). Follow-up from form-error-display-contract's archive: the comment Delete button was a
+bare `hx-delete` with no CSRF token → 403'd in a real browser (broken for users), masked because HTTP-lane
+tests inject the token. Fixed with the `hx-headers` cookie→`x-csrf-token` echo (correct for a body-less
+DELETE); a `@needs-browser` regression proves a real delete removes the card + soft-deletes the row; HTTP-lane
+comment tests 10/10 green. Swept all mutating htmx triggers — **none lacks CSRF now**. Archive:
+`docs/evolution/2026-07-18-fix-comment-delete-csrf.md`. See `[[htmx-4xx-errors-invisible-form-errors-js]]`.
+
+**Prior this session** — everything below `59c10be` was PUSHED to both remotes (`github` Canzan + `origin`
+Forgejo) at `9ae65db`. The full `cargo xtask ci` was red only on a confirmed browser-lane load flake (leaked
+chromedrivers → WaitTimeout on untouched board render; 6/6 pass in isolation); pushed on that evidence.
+
 **`form-error-display-contract` SHIPPED** (bugfix→design-first→DESIGN→DISTILL→DELIVER), on `main`, 5 code
 commits `8b08487`→`80754a8` + finalize `c5795cb`, **not pushed**. htmx 2.0.4 doesn't swap 4xx bodies, so form
 validation errors (correct `400/422 + fragment`) were invisible in-browser app-wide. Shipped `form-errors.js`
