@@ -43,6 +43,8 @@ use foundry_acceptance::steps::feature_card_ranking_within_status as _feature_ca
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_dashboard_enhancements as _feature_dashboard;
 #[allow(unused_imports)]
+use foundry_acceptance::steps::feature_fix_comment_delete_csrf as _feature_fix_comment_delete_csrf;
+#[allow(unused_imports)]
 use foundry_acceptance::steps::feature_form_error_display as _feature_form_error_display;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_invite_accept as _feature_invite_accept;
