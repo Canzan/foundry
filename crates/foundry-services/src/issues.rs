@@ -29,6 +29,14 @@ pub struct IssueEditView {
 /// handler enforces.
 const TITLE_MAX_LEN: usize = 256;
 
+/// Description length cap (chars) — matches the DB CHECK
+/// `length(description_md) <= 262144` (0001_init.sql). Enforced at the app layer
+/// so an over-long description is refused CLEANLY (a validation error) before the
+/// write reaches the DB CHECK, which stays as the last line of defense. The rule
+/// counts CHARACTERS (`chars().count()`), mirroring the title rule and Postgres
+/// `length()`, so a multi-byte description at the bound is accepted.
+const DESCRIPTION_MAX_LEN: usize = 262144;
+
 /// Map the incoming state value (which may be the human label used in feature
 /// files like `"in-progress"`) to the schema-enforced enum stored in
 /// `issues.state`. MOVED here from `foundry-app/src/issues.rs` (DD10) so the
@@ -62,6 +70,13 @@ pub async fn create_issue(
         return Err(ServiceError::Validation {
             code: "title_required".to_string(),
             message: "Title is required".to_string(),
+        });
+    }
+
+    if description.chars().count() > DESCRIPTION_MAX_LEN {
+        return Err(ServiceError::Validation {
+            code: "description_too_long".to_string(),
+            message: "Description is too long".to_string(),
         });
     }
 

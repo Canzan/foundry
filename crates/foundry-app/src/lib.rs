@@ -35,7 +35,7 @@ pub mod signin;
 pub mod unsubscribe;
 pub mod views;
 
-use axum::extract::State;
+use axum::extract::{DefaultBodyLimit, State};
 use axum::http::StatusCode;
 use axum::middleware;
 use axum::response::{IntoResponse, Response};
@@ -483,9 +483,19 @@ pub fn build_router(state: AppState) -> Router {
             "/team/{team_slug}/project/{project_slug}/report",
             get(projects::show_report),
         )
+        // The issue CREATE POST carries a `description` up to
+        // DESCRIPTION_MAX_LEN (262144) chars. A 2-byte multibyte char
+        // urlencodes to 6 bytes (`%C3%A9`), so the worst-case body is ~1.6 MB
+        // plus title + `_csrf`. An EXPLICIT, SCOPED per-route DefaultBodyLimit
+        // (following the US-11 attachments precedent) sets this endpoint's
+        // ceiling to 2 MiB — matching axum's global default and the CSRF buffer
+        // cap — WITHOUT broadly loosening the rest of the form surface
+        // (sign-in etc. keep axum's default limit). The app-level length guard
+        // in `create_issue` still returns a clean 400 for anything over the
+        // char bound; this limit only bounds raw bytes for DoS safety.
         .route(
             "/team/{team_slug}/project/{project_slug}/issues",
-            post(issues::submit_create),
+            post(issues::submit_create).layer(DefaultBodyLimit::max(2 * 1024 * 1024)),
         )
         .route(
             "/team/{team_slug}/project/{project_slug}/issues/new",

@@ -62,6 +62,21 @@ fn number_of(key: &str) -> i32 {
         .unwrap_or_else(|| panic!("issue key {key:?} must end in -N"))
 }
 
+/// Build an `n`-character single-byte ASCII description (each `char` is 1 byte).
+/// Used by S10/S12 to exercise the create bound EXACTLY at 262144 (inclusive) and
+/// just OVER it at 262145.
+fn ascii_description(n: usize) -> String {
+    "a".repeat(n)
+}
+
+/// Build a description of `n` MULTI-BYTE characters ('é' = U+00E9, 2 bytes in
+/// UTF-8) so `chars().count() == n` while `len() == 2 * n`. S13 pins that the
+/// bound counts CHARACTERS, not bytes — a byte-count guard would wrongly reject
+/// this at n = 262144.
+fn multibyte_description(n: usize) -> String {
+    "é".repeat(n)
+}
+
 // ----- When: fetch the dialog / file a described issue ----------------------
 
 #[when(regex = r#"^Mei fetches the new-issue dialog for "([^"]+)"$"#)]
@@ -96,6 +111,36 @@ async fn file_empty_title_described_htmx(
     ensure_harness(world).await;
     let url = format!("/team/{TEAM_SLUG}/project/{}/issues", slugify(&project));
     capture_create_post(world, &url, "", &description, true).await;
+}
+
+// ----- When: S10/S12/S13 file with an N-character description (the bound) -----
+
+#[when(
+    regex = r#"^Mei files a new issue titled "([^"]*)" with a description of (\d+) characters to "([^"]+)" as an htmx request$"#
+)]
+async fn file_n_char_description_htmx(
+    world: &mut FoundryWorld,
+    title: String,
+    count: usize,
+    project: String,
+) {
+    ensure_harness(world).await;
+    let url = format!("/team/{TEAM_SLUG}/project/{}/issues", slugify(&project));
+    capture_create_post(world, &url, &title, &ascii_description(count), true).await;
+}
+
+#[when(
+    regex = r#"^Mei files a new issue titled "([^"]*)" with a description of (\d+) multi-byte characters to "([^"]+)" as an htmx request$"#
+)]
+async fn file_n_multibyte_description_htmx(
+    world: &mut FoundryWorld,
+    title: String,
+    count: usize,
+    project: String,
+) {
+    ensure_harness(world).await;
+    let url = format!("/team/{TEAM_SLUG}/project/{}/issues", slugify(&project));
+    capture_create_post(world, &url, &title, &multibyte_description(count), true).await;
 }
 
 #[when(regex = r#"^Mei fetches the full-page new-issue form for "([^"]+)"$"#)]
@@ -311,6 +356,43 @@ async fn created_issue_has_description(
     assert_eq!(
         stored, description,
         "stored description_md mismatch for {key}"
+    );
+}
+
+// ----- Then: S12/S13 the store persisted a description of exactly N chars ----
+
+#[then(
+    regex = r#"^the created "([^"]+)" issue "([^"]+)" has a description of (\d+) characters in the store$"#
+)]
+async fn created_issue_has_n_char_description(
+    world: &mut FoundryWorld,
+    _project: String,
+    key: String,
+    count: usize,
+) {
+    let stored = read_description(world, &key).await;
+    assert_eq!(
+        stored.chars().count(),
+        count,
+        "stored description for {key} must hold exactly {count} characters (the inclusive bound)"
+    );
+}
+
+#[then(
+    regex = r#"^the created "([^"]+)" issue "([^"]+)" is created with a (\d+)-character description$"#
+)]
+async fn created_issue_created_with_n_char_description(
+    world: &mut FoundryWorld,
+    _project: String,
+    key: String,
+    count: usize,
+) {
+    let stored = read_description(world, &key).await;
+    assert_eq!(
+        stored.chars().count(),
+        count,
+        "the multi-byte description for {key} must be accepted and stored as {count} characters \
+         (the rule counts chars, not bytes)"
     );
 }
 

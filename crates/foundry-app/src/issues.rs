@@ -124,9 +124,15 @@ pub async fn submit_create(
             }
             redirect_to(&format!("/team/{team_slug}/project/{project_slug}"))
         }
+        // The over-long description carries its own copy so the create dialog
+        // shows the specific reason; every OTHER validation (empty/oversized
+        // title) keeps the shipped byte-identical "Title is required" fragment.
+        Err(ServiceError::Validation { code, message }) if code == "description_too_long" => {
+            bad_request_fragment(&message)
+        }
         Err(ServiceError::Validation { .. }) => {
-            // Inline error fragment — htmx swap target. Same 400 for both
-            // "empty" and "too long" so the front-end has one error contract.
+            // Inline error fragment — htmx swap target. Empty/oversized title
+            // renders the shipped one-contract fragment.
             bad_request_fragment("Title is required")
         }
         Err(ServiceError::Forbidden) => non_member_page(&team_slug),

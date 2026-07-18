@@ -107,7 +107,7 @@ Feature: A member writes a description while filing an issue from the dialog
 
   # ------------------------------------------------ US-03 (bound: create + edit)
 
-  @pending @real-io @slice3 @us-03 @error
+  @real-io @slice3 @us-03 @error
   Scenario: An over-long description is refused on create and no issue is created
     When Mei files a new issue titled "Paste bomb" with a description of 262145 characters to "Sandbox" as an htmx request
     Then the response is the "Description is too long" error fragment
@@ -121,12 +121,12 @@ Feature: A member writes a description while filing an issue from the dialog
     Then the response is the "Description is too long" error fragment
     And the issue "GEN-1" still has title "Keep" and description "keep body" in the store
 
-  @pending @real-io @slice3 @us-03
+  @real-io @slice3 @us-03
   Scenario: A description exactly at the maximum is accepted
     When Mei files a new issue titled "At the bound" with a description of 262144 characters to "Sandbox" as an htmx request
     Then the created "Sandbox" issue "GEN-1" has a description of 262144 characters in the store
 
-  @pending @real-io @slice3 @us-03
+  @real-io @slice3 @us-03
   Scenario: Length is counted in characters, not bytes — multi-byte content at the bound is accepted
     When Mei files a new issue titled "Multibyte" with a description of 262144 multi-byte characters to "Sandbox" as an htmx request
     Then the created "Sandbox" issue "GEN-1" is created with a 262144-character description
