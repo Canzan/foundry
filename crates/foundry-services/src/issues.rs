@@ -37,6 +37,22 @@ const TITLE_MAX_LEN: usize = 256;
 /// `length()`, so a multi-byte description at the bound is accepted.
 const DESCRIPTION_MAX_LEN: usize = 262144;
 
+/// Enforce the description length cap (chars, `DESCRIPTION_MAX_LEN`) — the SAME
+/// bound both `create_issue` and `edit_issue_details` apply so an over-long
+/// description is refused CLEANLY (a validation error) before the write reaches
+/// the DB CHECK, which stays as the last line of defense. Counts CHARACTERS
+/// (`chars().count()`), mirroring Postgres `length()`, so a multi-byte
+/// description at the bound is accepted.
+fn validate_description(description: &str) -> Result<(), ServiceError> {
+    if description.chars().count() > DESCRIPTION_MAX_LEN {
+        return Err(ServiceError::Validation {
+            code: "description_too_long".to_string(),
+            message: "Description is too long".to_string(),
+        });
+    }
+    Ok(())
+}
+
 /// Map the incoming state value (which may be the human label used in feature
 /// files like `"in-progress"`) to the schema-enforced enum stored in
 /// `issues.state`. MOVED here from `foundry-app/src/issues.rs` (DD10) so the
@@ -73,12 +89,7 @@ pub async fn create_issue(
         });
     }
 
-    if description.chars().count() > DESCRIPTION_MAX_LEN {
-        return Err(ServiceError::Validation {
-            code: "description_too_long".to_string(),
-            message: "Description is too long".to_string(),
-        });
-    }
+    validate_description(description)?;
 
     let issue_id = uuid::Uuid::now_v7();
     let number = match store
@@ -216,12 +227,7 @@ pub async fn edit_issue_details(
     // error) and the issue is left fully untouched — never a partial write and
     // never the DB-CHECK 500 (AC-03.3). The DB CHECK stays as the last line of
     // defense; the rule counts CHARACTERS, mirroring create + Postgres `length()`.
-    if description_md.chars().count() > DESCRIPTION_MAX_LEN {
-        return Err(ServiceError::Validation {
-            code: "description_too_long".to_string(),
-            message: "Description is too long".to_string(),
-        });
-    }
+    validate_description(description_md)?;
 
     match store
         .update_issue_details(
@@ -397,4 +403,48 @@ async fn resolve_member_project(
         .map_err(|_| ServiceError::Internal)?;
 
     Ok((team, project, key_prefix))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{validate_description, DESCRIPTION_MAX_LEN};
+    use crate::ServiceError;
+
+    /// A description exactly at the cap is ACCEPTED (the bound is inclusive of
+    /// `DESCRIPTION_MAX_LEN`). Kills `>` → `>=` and `>` → `==`.
+    #[test]
+    fn description_at_the_cap_is_accepted() {
+        let at_cap = "a".repeat(DESCRIPTION_MAX_LEN);
+        assert!(validate_description(&at_cap).is_ok());
+    }
+
+    /// One char over the cap is REJECTED with the `description_too_long`
+    /// validation code. Kills `>` → `<` and `>` → `==`.
+    #[test]
+    fn description_over_the_cap_is_rejected() {
+        let over_cap = "a".repeat(DESCRIPTION_MAX_LEN + 1);
+        match validate_description(&over_cap) {
+            Err(ServiceError::Validation { code, .. }) => {
+                assert_eq!(code, "description_too_long");
+            }
+            other => panic!("expected description_too_long validation error, got {other:?}"),
+        }
+    }
+
+    /// A short/empty description is ACCEPTED — the guard must not reject
+    /// well-under-cap input. Kills `>` → `<`.
+    #[test]
+    fn short_and_empty_descriptions_are_accepted() {
+        assert!(validate_description("").is_ok());
+        assert!(validate_description("a short description").is_ok());
+    }
+
+    /// The cap counts CHARACTERS, not bytes: `DESCRIPTION_MAX_LEN` multi-byte
+    /// chars (2 bytes each in UTF-8) is at the cap and ACCEPTED, guarding
+    /// against a `chars().count()` → `len()` regression.
+    #[test]
+    fn multibyte_description_at_the_cap_is_accepted() {
+        let at_cap = "é".repeat(DESCRIPTION_MAX_LEN);
+        assert!(validate_description(&at_cap).is_ok());
+    }
 }
