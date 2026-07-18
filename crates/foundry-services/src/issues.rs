@@ -211,6 +211,18 @@ pub async fn edit_issue_details(
         });
     }
 
+    // The SAME bound `create_issue` enforces, placed BEFORE the read-old→UPDATE
+    // transaction so an over-long description is refused CLEANLY (validation
+    // error) and the issue is left fully untouched — never a partial write and
+    // never the DB-CHECK 500 (AC-03.3). The DB CHECK stays as the last line of
+    // defense; the rule counts CHARACTERS, mirroring create + Postgres `length()`.
+    if description_md.chars().count() > DESCRIPTION_MAX_LEN {
+        return Err(ServiceError::Validation {
+            code: "description_too_long".to_string(),
+            message: "Description is too long".to_string(),
+        });
+    }
+
     match store
         .update_issue_details(
             key_prefix.as_str(),

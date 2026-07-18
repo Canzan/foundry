@@ -413,6 +413,12 @@ pub async fn submit_edit(
                 redirect_to(&board)
             }
         }
+        // The over-long description carries its own copy so the edit dialog shows
+        // the specific reason (mirrors `submit_create`); every OTHER validation
+        // (empty/oversized title) keeps the shipped "Title is required" fragment.
+        Err(ServiceError::Validation { code, message }) if code == "description_too_long" => {
+            bad_request_fragment(&message)
+        }
         Err(ServiceError::Validation { .. }) => bad_request_fragment("Title is required"),
         Err(ServiceError::Forbidden) => non_member_page(&team_slug),
         Err(ServiceError::NotFound) => resource_not_found_page(),

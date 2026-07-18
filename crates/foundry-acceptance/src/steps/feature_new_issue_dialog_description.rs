@@ -143,6 +143,30 @@ async fn file_n_multibyte_description_htmx(
     capture_create_post(world, &url, &title, &multibyte_description(count), true).await;
 }
 
+// ----- When: S11 save the edit dialog with an N-char description ------------
+
+/// S11 (AC-03.3) — save the edit dialog with a 262145-char description. POSTs the
+/// edit endpoint through the SAME shared form path the shipped edit dialog uses
+/// (title + description + `_csrf`, no `state` ⇒ in-place card replace). The new
+/// `edit_issue_details` guard refuses it as a clean 400 fragment BEFORE the
+/// update transaction, so the row is never mutated.
+#[when(
+    regex = r#"^Mei saves the edit dialog for "([^"]+)" with title "([^"]*)" and a description of (\d+) characters$"#
+)]
+async fn save_edit_n_char_description(
+    world: &mut FoundryWorld,
+    key: String,
+    title: String,
+    count: usize,
+) {
+    ensure_harness(world).await;
+    let url = format!(
+        "/team/{TEAM_SLUG}/project/sandbox/issues/{}/edit",
+        number_of(&key)
+    );
+    capture_create_post(world, &url, &title, &ascii_description(count), true).await;
+}
+
 #[when(regex = r#"^Mei fetches the full-page new-issue form for "([^"]+)"$"#)]
 async fn fetch_full_page_form(world: &mut FoundryWorld, project: String) {
     ensure_harness(world).await;
@@ -201,6 +225,28 @@ async fn machine_files_described_api(
     post_issue_json(world, &project, body).await;
 }
 
+// ----- When: S14 a machine files an N-char described issue through the API ----
+
+/// S14 (AC-02.4) — the API refuses an over-long description by the SAME rule the
+/// browser enforces. Files a 262145-char body through the JSON write endpoint; the
+/// shared `create_issue` guard (03-01) rejects it before the DB, and the JSON
+/// adapter maps `ServiceError::Validation` → 422 with the shared code/message.
+/// The project defaults to "Sandbox" (only project seeded), reusing the shipped
+/// slice-2 credential grant (`world.fa_credential`).
+#[when(
+    regex = r#"^the machine files an issue titled "([^"]*)" with a description of (\d+) characters through the API$"#
+)]
+async fn machine_files_n_char_description_api(
+    world: &mut FoundryWorld,
+    title: String,
+    count: usize,
+) {
+    ensure_harness(world).await;
+    let body =
+        serde_json::json!({ "title": title, "description": ascii_description(count) }).to_string();
+    post_issue_json(world, "Sandbox", body).await;
+}
+
 // ----- Given: a described issue already filed (precondition for S3) ---------
 
 #[given(regex = r#"^Mei has filed an issue titled "([^"]*)" described "([^"]*)" to "([^"]+)"$"#)]
@@ -214,6 +260,27 @@ async fn has_filed_described(
     let url = format!("/team/{TEAM_SLUG}/project/{}/issues", slugify(&project));
     // File through the real create endpoint (htmx) so the precondition exercises
     // the production write path, not a direct store insert.
+    capture_create_post(world, &url, &title, &description, true).await;
+}
+
+// ----- Given: S11 an existing issue to edit (precondition) ------------------
+
+/// S11 (AC-03.3) precondition — an issue that already holds a short, valid
+/// title+description, so the subsequent over-long edit can be shown to leave it
+/// UNTOUCHED. Filed through the real create endpoint (the production write path),
+/// which allocates the first key `GEN-1` under `Sandbox`.
+#[given(
+    regex = r#"^a project "([^"]+)" issue "([^"]+)" titled "([^"]*)" described "([^"]*)" exists$"#
+)]
+async fn existing_issue_titled_described(
+    world: &mut FoundryWorld,
+    project: String,
+    _key: String,
+    title: String,
+    description: String,
+) {
+    ensure_harness(world).await;
+    let url = format!("/team/{TEAM_SLUG}/project/{}/issues", slugify(&project));
     capture_create_post(world, &url, &title, &description, true).await;
 }
 
@@ -393,6 +460,59 @@ async fn created_issue_created_with_n_char_description(
         count,
         "the multi-byte description for {key} must be accepted and stored as {count} characters \
          (the rule counts chars, not bytes)"
+    );
+}
+
+// ----- Then: S11 the refused edit left the issue untouched ------------------
+
+/// S11 (AC-03.3) — the over-long edit was refused BEFORE the update transaction,
+/// so BOTH title AND description remain exactly as filed (no partial write). This
+/// is the observable proof the guard runs ahead of `update_issue_details`.
+#[then(
+    regex = r#"^the issue "([^"]+)" still has title "([^"]*)" and description "([^"]*)" in the store$"#
+)]
+async fn issue_still_has_title_and_description(
+    world: &mut FoundryWorld,
+    key: String,
+    title: String,
+    description: String,
+) {
+    let (stored_title, stored_description) = read_title_and_description(world, &key).await;
+    assert_eq!(
+        stored_title, title,
+        "the refused edit must leave {key}'s title untouched"
+    );
+    assert_eq!(
+        stored_description, description,
+        "the refused edit must leave {key}'s description untouched (no partial write)"
+    );
+}
+
+// ----- Then: S14 the API refuses the over-long description by the same rule --
+
+/// S14 (AC-02.4) — the JSON adapter refuses the over-long description as 422
+/// Unprocessable, the SAME app-level rule the browser enforces (create_issue
+/// guard, 03-01).
+#[then(regex = r#"^the API write is rejected as unprocessable for a too-long description$"#)]
+async fn api_rejected_too_long(world: &mut FoundryWorld) {
+    let status = world.last_status.expect("status captured");
+    assert_eq!(
+        status.as_u16(),
+        422,
+        "the API must refuse an over-long description with 422, got {status} body {:?}",
+        world.last_body
+    );
+}
+
+/// S14 (AC-02.4 / NFR-WEB-API-CON-02) — the API rejection carries the SAME rule
+/// the browser shows ("Description is too long" / `description_too_long`), so a
+/// machine and a browser are refused by one shared rule.
+#[then(regex = r#"^the rejection reason matches the browser's "Description is too long" rule$"#)]
+async fn api_rejection_matches_description_rule(world: &mut FoundryWorld) {
+    let body = world.last_body.as_deref().unwrap_or("");
+    assert!(
+        body.contains("Description is too long") || body.contains("description_too_long"),
+        "the API rejection did not carry the UI's description rule: {body:?}"
     );
 }
 
@@ -592,6 +712,26 @@ async fn count_issues_in_project(world: &mut FoundryWorld, project_name: &str) -
     .await
     .unwrap_or_else(|e| panic!("count issues in project {project_name:?}: {e}"));
     row.0
+}
+
+/// Read `(title, description_md)` for an issue key — S11 asserts BOTH are
+/// unchanged after a refused edit.
+async fn read_title_and_description(world: &mut FoundryWorld, key: &str) -> (String, String) {
+    let (prefix, _) = key.rsplit_once('-').expect("issue key has -N");
+    let number = number_of(key);
+    let harness = world.harness.as_ref().expect("harness");
+    let row: (String, String) = sqlx::query_as(
+        "SELECT i.title, i.description_md
+           FROM issues i
+           JOIN projects p ON p.id = i.project_id
+          WHERE p.key_prefix = $1 AND i.number = $2",
+    )
+    .bind(prefix)
+    .bind(number)
+    .fetch_one(harness.app.state.store.pool())
+    .await
+    .unwrap_or_else(|e| panic!("read issue {key} title+description from store: {e}"));
+    row
 }
 
 async fn read_description(world: &mut FoundryWorld, key: &str) -> String {

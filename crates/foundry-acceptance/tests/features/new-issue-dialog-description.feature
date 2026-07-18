@@ -113,7 +113,7 @@ Feature: A member writes a description while filing an issue from the dialog
     Then the response is the "Description is too long" error fragment
     And no issue exists in the "Sandbox" project
 
-  @pending @real-io @slice3 @us-03 @error
+  @real-io @slice3 @us-03 @error
   Scenario: An over-long description is refused on edit, leaving the issue untouched
     # Today this produces a DB-CHECK 500; after slice 03 it is a clean validation refusal.
     Given a project "Sandbox" issue "GEN-1" titled "Keep" described "keep body" exists
@@ -131,9 +131,9 @@ Feature: A member writes a description while filing an issue from the dialog
     When Mei files a new issue titled "Multibyte" with a description of 262144 multi-byte characters to "Sandbox" as an htmx request
     Then the created "Sandbox" issue "GEN-1" is created with a 262144-character description
 
-  @pending @real-io @slice3 @us-03 @driving_adapter @nfr-web-api-con-02
+  @real-io @slice3 @us-03 @driving_adapter @nfr-web-api-con-02
   Scenario: The API refuses an over-long description by the same rule the browser enforces
-    Given the admin has granted Mei a machine credential with write access to "Sandbox"
+    Given the admin has granted a machine credential for "api-writer" bound to Mei with write access to "Sandbox"
     When the machine files an issue titled "API paste bomb" with a description of 262145 characters through the API
     Then the API write is rejected as unprocessable for a too-long description
     And the rejection reason matches the browser's "Description is too long" rule

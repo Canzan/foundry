@@ -515,9 +515,17 @@ pub fn build_router(state: AppState) -> Router {
         // native `method="post"` form (so POST, not PATCH). Tenancy is scoped by the
         // resolved acting workspace inside the service (ADR-002); a foreign issue
         // 404s non-enumerably (ADR-003).
+        // The issue EDIT POST carries a `description` up to DESCRIPTION_MAX_LEN
+        // (262144) chars, exactly like the CREATE POST above — so it needs the
+        // SAME explicit 2 MiB per-route ceiling (mirroring the create-route limit
+        // 03-01 added) to receive an at-bound / just-over body through the raised
+        // CSRF buffer. The app-level guard in `edit_issue_details` still returns a
+        // clean 400 for anything over the char bound; this only bounds raw bytes.
         .route(
             "/team/{team_slug}/project/{project_slug}/issues/{issue_number}/edit",
-            get(issues::show_edit_form).post(issues::submit_edit),
+            get(issues::show_edit_form)
+                .post(issues::submit_edit)
+                .layer(DefaultBodyLimit::max(2 * 1024 * 1024)),
         )
         .route(
             "/team/{team_slug}/project/{project_slug}/events",
