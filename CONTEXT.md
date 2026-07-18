@@ -2,14 +2,19 @@
 
 ## Current Task
 
-**`new-issue-dialog-description` SHIPPED via full nWave pipeline** (DISCUSS→DESIGN→DISTILL→DELIVER), on `main`,
-8 commits `ec52a7a`→`3c91c57` + finalize `621ec4c`, **not pushed**. The ask was "show the Description field in
-the new-issue dialog like edit"; execution found it was full-stack (absent at store/service/form/view/template
-+ JSON API), threaded an optional `description` through all layers keeping web/API rule-parity, and added a
-shared `validate_description` bound (262144 = the DB CHECK) on both create and edit — converting the edit
-path's DB-CHECK 500 into a clean 422/fragment. All 16 acceptance scenarios green; DES integrity exit 0;
-`validate_description` mutation 4/4 caught. ZERO new routes/endpoints/migrations (latest stays `0014`). Archive:
-`docs/evolution/2026-07-18-new-issue-dialog-description.md`. (Thirteen features now through the pipeline.)
+**`form-error-display-contract` SHIPPED** (bugfix→design-first→DESIGN→DISTILL→DELIVER), on `main`, 5 code
+commits `8b08487`→`80754a8` + finalize `c5795cb`, **not pushed**. htmx 2.0.4 doesn't swap 4xx bodies, so form
+validation errors (correct `400/422 + fragment`) were invisible in-browser app-wide. Shipped `form-errors.js`
+(an `htmx:beforeSwap` handler routing 4xx into opt-in `[data-error-slot]`s) + slots on 3 forms; 6
+`@needs-browser` DOM-oracle scenarios (S1-S6) prove it; server error path unchanged; no migration (stays
+`0014`). The browser lane caught a **real latent defect**: comment-edit shipped with NO CSRF token (403'd in a
+real browser) — fixed with a body `_csrf` like every form. Slice 03 (drag/comment-create edges, S7-S8)
+deferred. Archive: `docs/evolution/2026-07-18-form-error-display-contract.md`. See
+`[[htmx-4xx-errors-invisible-form-errors-js]]`. (Fourteen features through the pipeline.)
+
+**Prior**: `new-issue-dialog-description` SHIPPED (`ec52a7a`→`3c91c57`+`621ec4c`) — Description field on
+new-issue create, threaded through all layers, `validate_description` bound (262144 = DB CHECK) on create+edit;
+16 scenarios green. Archive: `docs/evolution/2026-07-18-new-issue-dialog-description.md`.
 
 ## Key Decisions
 
