@@ -1,5 +1,10 @@
-<form id="comment-{{ id }}" class="comment-edit-form" hx-patch="{{ patch_url }}" hx-target="#comment-{{ id }}" hx-swap="outerHTML">
+<form id="comment-{{ id }}" class="comment-edit-form" hx-patch="{{ patch_url }}" hx-target="#comment-{{ id }}" hx-swap="outerHTML" hx-headers='js:{"x-csrf-token": (document.cookie.match(/(?:^|; )foundry_csrf=([^;]+)/) || [])[1]}'>
   <textarea name="body_markdown" required>{{ body_markdown }}</textarea>
+  {# form-error-display-contract ADR-001 — the opt-in slot form-errors.js routes a
+     rejected 4xx fragment into, so the reason shows inline next to the comment
+     instead of being discarded by htmx. Empty on the 2xx success swap (that flow,
+     which replaces #comment-{id} with the re-rendered card, is untouched). #}
+  <div data-error-slot></div>
   <button type="submit" class="comment-save-button">Save</button>
   <button type="button" class="comment-cancel-button" hx-get="{{ cancel_url }}" hx-target="#comment-{{ id }}" hx-swap="outerHTML">Cancel</button>
 </form>

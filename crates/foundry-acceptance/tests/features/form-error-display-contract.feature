@@ -85,7 +85,7 @@ Feature: A member sees why a form was rejected
     And the edit dialog stays open
     And the "GEN-1" card still shows "Keep me"
 
-  @pending @needs-browser @slice2 @us-02 @error @contract
+  @needs-browser @slice2 @us-02 @error @contract
   Scenario: An invalid comment edit shows the reason inline
     Given the "Sandbox" project has an issue "GEN-1" with a comment by Mei
     And Mei is viewing the "GEN-1" issue page in a real browser

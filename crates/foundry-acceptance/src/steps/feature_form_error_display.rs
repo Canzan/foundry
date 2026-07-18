@@ -108,6 +108,42 @@ const EDIT_SAVE_BUTTON_SELECTOR: &str =
 /// resolves — the reproduction that proves the slot is load-bearing per form.
 const EDIT_ERROR_SLOT_SELECTOR: &str = "#modal-root [data-modal='edit-issue'] [data-error-slot]";
 
+// --- Slice 02 (S6): the comment-EDIT form joins the contract ----------------
+// The comment card carries an Edit button `hx-get={edit_url}` →
+// `hx-target="#comment-{id}"` (comment_card.html:4); clicking it swaps
+// comment_edit_form.html (`form.comment-edit-form`, `hx-patch={patch_url}`)
+// in place — this lane invents no URL and uses the shipped comment-edit flow.
+
+/// The seeded comment's original body — set by the seeding Given and asserted
+/// UNCHANGED in the store after the rejected edit. A single space would trim to
+/// empty (the server-empty trick), so this is deliberately a non-blank sentence.
+const ORIGINAL_COMMENT_BODY: &str = "The gateway needs a circuit breaker";
+
+/// The seeded comment's Edit button on the issue page (comment_card.html:4).
+const COMMENT_EDIT_BUTTON_SELECTOR: &str = ".comment .comment-edit-button";
+
+/// The mounted comment-edit form's textarea (comment_edit_form.html:2).
+const COMMENT_EDIT_TEXTAREA_SELECTOR: &str = ".comment-edit-form textarea[name='body_markdown']";
+
+/// The comment-edit form's Save button (comment_edit_form.html:3).
+const COMMENT_SAVE_BUTTON_SELECTOR: &str = ".comment-edit-form .comment-save-button";
+
+/// The rendered validation error INSIDE the comment-edit form. Unlike the
+/// modals (which swap `innerHTML` into #modal-root, so their `[data-error-slot]`
+/// div SURVIVES and fills), the comment-edit form carries `hx-swap="outerHTML"`
+/// (it replaces #comment-{id} with the re-rendered card on 2xx). form-errors.js
+/// re-points the swap at the form's `[data-error-slot]` but keeps that outerHTML
+/// spec, so on 4xx the slot div is REPLACED by the server's error fragment
+/// (issue_400.html → `<div class="error">…`). The opt-in slot is still
+/// load-bearing: without it the handler finds no slot, htmx 2.0.4 discards the
+/// 400, and no `.error` ever appears. So we assert on the resulting `.error`.
+const COMMENT_ERROR_SELECTOR: &str = ".comment-edit-form .error";
+
+/// The server's byte-identical validation message for an empty comment body
+/// (foundry-services comments.rs: `trimmed.is_empty()` → "Comment cannot be
+/// empty"). The oracle asserts THIS text becomes visible in the slot.
+const COMMENT_EMPTY_MESSAGE: &str = "Comment cannot be empty";
+
 const WAIT_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Parse the trailing number off an issue key like "GEN-1" → 1.
@@ -749,5 +785,197 @@ async fn card_still_shows(world: &mut FoundryWorld, key: String, title: String) 
     assert!(
         text.contains(&title),
         "the {key} card no longer shows {title:?} after the rejected edit (card text {text:?})"
+    );
+}
+
+// --- Slice 02 (S6): comment-edit form joins the contract --------------------
+
+/// S6's seed: insert issue GEN-1 into the EXISTING Sandbox project AND a comment
+/// by Mei on it, so the issue page renders a comment card with an Edit button.
+/// Runs BEFORE the browser Given, so both rows are in the DB by page load. Uses
+/// the store pool directly (like `sandbox_has_issue`) — no HTTP round-trip.
+#[given(regex = r#"^the "Sandbox" project has an issue "([^"]+)" with a comment by Mei$"#)]
+async fn sandbox_issue_with_comment(world: &mut FoundryWorld, issue_key: String) {
+    let harness = world
+        .harness
+        .as_ref()
+        .expect("the HTTP Background must have spawned harness");
+    let pool = harness.app.state.store.pool();
+    let project: (uuid::Uuid, uuid::Uuid) =
+        sqlx::query_as("SELECT id, workspace_id FROM projects WHERE key_prefix = $1")
+            .bind(PROJECT_KEY_PREFIX)
+            .fetch_one(pool)
+            .await
+            .expect("fetch the Sandbox project seeded by the Background");
+    let author: (uuid::Uuid,) = sqlx::query_as("SELECT id FROM users WHERE email_lower = $1")
+        .bind(MEI_EMAIL)
+        .fetch_one(pool)
+        .await
+        .expect("fetch Mei");
+    let issue_id = uuid::Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO issues (id, project_id, workspace_id, number, title, description_md, author_id)
+              VALUES ($1, $2, $3, $4, $5, '', $6)",
+    )
+    .bind(issue_id)
+    .bind(project.0)
+    .bind(project.1)
+    .bind(number_of(&issue_key))
+    .bind("Keep me")
+    .bind(author.0)
+    .execute(pool)
+    .await
+    .expect("insert the Sandbox issue");
+    sqlx::query(
+        "INSERT INTO comments (id, workspace_id, issue_id, author_id, body_markdown, body_html)
+              VALUES ($1, $2, $3, $4, $5, $6)",
+    )
+    .bind(uuid::Uuid::now_v7())
+    .bind(project.1)
+    .bind(issue_id)
+    .bind(author.0)
+    .bind(ORIGINAL_COMMENT_BODY)
+    .bind(format!("<p>{ORIGINAL_COMMENT_BODY}</p>"))
+    .execute(pool)
+    .await
+    .expect("insert Mei's comment on the Sandbox issue");
+}
+
+/// S6's precondition: open the browser view on the GEN-1 issue page (not the
+/// board). Same session dance as the board Given, but navigates to the issue
+/// detail URL so the seeded comment card + its Edit button render.
+#[given(regex = r#"^Mei is viewing the "([^"]+)" issue page in a real browser$"#)]
+async fn viewing_issue_page(world: &mut FoundryWorld, issue_key: String) {
+    let browser = browser_harness::new_session().await;
+    {
+        let harness = world
+            .harness
+            .as_ref()
+            .expect("the HTTP Background must have spawned harness");
+        browser_harness::sign_in_through_browser(&browser, harness, MEI_EMAIL, MEI_PASSWORD).await;
+        let url = format!(
+            "{}/team/{TEAM_SLUG}/project/{PROJECT_SLUG}/issues/{}",
+            harness.base_url(),
+            number_of(&issue_key)
+        );
+        browser
+            .goto(&url)
+            .await
+            .expect("navigate to the GEN-1 issue page");
+    }
+    world.browser = Some(browser);
+}
+
+/// S6's action: click the shipped Edit button to swap in the comment-edit form,
+/// blank the pre-filled textarea to a server-empty value, and Save. As in slice
+/// 01, "empty" is ONE SPACE: the textarea carries native `required`, so a truly
+/// cleared field would halt the POST (`validation:halted`) and no 400 would
+/// exist. One space passes `required`, htmx PATCHes, and the edit endpoint's
+/// `trim()` makes it empty → the byte-identical 400 "Comment cannot be empty"
+/// fragment routed through the beforeSwap handler.
+#[when(regex = r"^Mei edits that comment to an empty body and saves$")]
+async fn edits_comment_to_empty_and_saves(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("browser session");
+    settle_ready(browser).await;
+    browser
+        .wait()
+        .at_most(WAIT_TIMEOUT)
+        .for_element(Locator::Css(COMMENT_EDIT_BUTTON_SELECTOR))
+        .await
+        .expect("the issue page must render the seeded comment's Edit button")
+        .click()
+        .await
+        .expect("click the comment Edit button");
+    browser
+        .wait()
+        .at_most(WAIT_TIMEOUT)
+        .for_element(Locator::Css(COMMENT_EDIT_TEXTAREA_SELECTOR))
+        .await
+        .expect("clicking Edit must swap in the comment-edit form with a textarea");
+    // Blank the pre-filled body to a server-empty (whitespace) value. WebDriver
+    // clear() proved unreliable on this pre-filled <textarea> under chromedriver
+    // (it left the original text), so set the value deterministically via JS —
+    // htmx reads the live .value at submit time. The net input is ONE SPACE:
+    // browser-valid (passes native `required`), server-empty after trim() → the
+    // 400 "Comment cannot be empty" fragment.
+    browser
+        .execute(
+            "document.querySelector(\".comment-edit-form textarea[name='body_markdown']\").value = ' ';",
+            vec![],
+        )
+        .await
+        .expect("blank the comment body to a single space");
+    browser
+        .find(Locator::Css(COMMENT_SAVE_BUTTON_SELECTOR))
+        .await
+        .expect("the comment-edit form must carry a Save button")
+        .click()
+        .await
+        .expect("submit the comment-edit form");
+}
+
+/// S6 — THE ORACLE, scoped to the comment-edit form's slot. Bounded-polls until
+/// the slot both DISPLAYS and CONTAINS the server message. Against a tree where
+/// comment_edit_form.html has no `[data-error-slot]`, htmx 2.0.4 discards the
+/// 400 and this never holds — the reproduction that proves the slot is
+/// load-bearing PER FORM even though the handler is unchanged from slice 01.
+#[then(regex = r"^the validation error is visible next to the comment$")]
+async fn comment_validation_error_visible(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("browser session");
+    let deadline = Instant::now() + WAIT_TIMEOUT;
+    loop {
+        if let Ok(err) = browser.find(Locator::Css(COMMENT_ERROR_SELECTOR)).await {
+            let displayed = err.is_displayed().await.unwrap_or(false);
+            let text = err.text().await.unwrap_or_default();
+            if displayed && text.contains(COMMENT_EMPTY_MESSAGE) {
+                return;
+            }
+        }
+        if Instant::now() >= deadline {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let err_state = match browser.find(Locator::Css(COMMENT_ERROR_SELECTOR)).await {
+        Ok(err) => format!(
+            "error element present, displayed={:?}, text={:?}",
+            err.is_displayed().await.unwrap_or(false),
+            err.text().await.unwrap_or_default()
+        ),
+        Err(_) => "no error rendered in the comment-edit form at all".to_string(),
+    };
+    panic!(
+        "the validation error {COMMENT_EMPTY_MESSAGE:?} never became visible next to the comment \
+         ({err_state}). The edit endpoint returns a byte-identical 400 + \"{COMMENT_EMPTY_MESSAGE}\" \
+         fragment; without a [data-error-slot] in comment_edit_form.html the generic handler finds \
+         no slot in THIS form, htmx 2.0.4 discards the 400, and Mei sees nothing — the per-form \
+         defect this step closes."
+    );
+}
+
+/// S6 — the rejected edit persisted NOTHING. Asserted against the REAL store
+/// (the authoritative source): a bug that saved the whitespace body would show a
+/// changed row here. Because nothing was persisted, re-rendering the issue page
+/// would still show the original comment text — that is "the comment still shows
+/// its original text".
+#[then(regex = r"^the comment still shows its original text$")]
+async fn comment_still_shows_original(world: &mut FoundryWorld) {
+    let harness = world.harness.as_ref().expect("harness");
+    let pool = harness.app.state.store.pool();
+    let stored: (String,) = sqlx::query_as(
+        "SELECT c.body_markdown FROM comments c \
+           JOIN issues i ON i.id = c.issue_id \
+           JOIN projects p ON p.id = i.project_id \
+          WHERE p.key_prefix = $1",
+    )
+    .bind(PROJECT_KEY_PREFIX)
+    .fetch_one(pool)
+    .await
+    .expect("read the seeded comment from the store");
+    assert_eq!(
+        stored.0, ORIGINAL_COMMENT_BODY,
+        "the rejected comment edit still mutated the stored body to {:?} — a save that failed \
+         validation must write nothing.",
+        stored.0
     );
 }
