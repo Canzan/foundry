@@ -73,6 +73,8 @@ pub async fn create_issue(
             key_prefix.as_str(),
             principal.user_id(),
             raw_title,
+            // Step 01-01 threads the seam only; the real description arrives in 01-02.
+            "",
         )
         .await
     {

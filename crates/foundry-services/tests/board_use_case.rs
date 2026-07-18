@@ -121,6 +121,7 @@ async fn seeded_harness() -> Harness {
             "AUTH",
             admin_id,
             "First",
+            "",
         )
         .await
         .expect("seed AUTH-1");
@@ -132,6 +133,7 @@ async fn seeded_harness() -> Harness {
             "AUTH",
             admin_id,
             "Second",
+            "",
         )
         .await
         .expect("seed AUTH-2");

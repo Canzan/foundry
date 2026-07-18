@@ -1356,6 +1356,9 @@ impl Store {
     ///
     /// Returns `(issue_id, number)` so the caller can render the
     /// freshly-minted issue key in the response without a re-fetch.
+    // One positional arg per issue column the insert carries; a params struct
+    // would add ceremony without clarifying this single-call-shape seam.
+    #[allow(clippy::too_many_arguments)]
     pub async fn insert_issue_with_outbox(
         &self,
         issue_id: uuid::Uuid,
@@ -1364,6 +1367,7 @@ impl Store {
         project_key_prefix: &str,
         author_id: uuid::Uuid,
         title: &str,
+        description: &str,
     ) -> Result<i32, IssueInsertError> {
         let mut tx = self.pool.begin().await?;
 
@@ -1401,14 +1405,15 @@ impl Store {
 
         sqlx::query(
             "INSERT INTO issues
-                  (id, project_id, workspace_id, number, title, author_id, position)
-              VALUES ($1, $2, $3, $4, $5, $6, 0)",
+                  (id, project_id, workspace_id, number, title, description_md, author_id, position)
+              VALUES ($1, $2, $3, $4, $5, $6, $7, 0)",
         )
         .bind(issue_id)
         .bind(project_id)
         .bind(workspace_id)
         .bind(number)
         .bind(title)
+        .bind(description)
         .bind(author_id)
         .execute(&mut *tx)
         .await?;
