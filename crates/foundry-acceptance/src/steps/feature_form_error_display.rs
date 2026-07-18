@@ -86,7 +86,36 @@ const ANY_ERROR_SLOT_SELECTOR: &str = "[data-error-slot]";
 /// being discarded.
 const ERROR_SLOT_SELECTOR: &str = "#modal-root [data-modal='new-issue'] [data-error-slot]";
 
+// --- Slice 02 (S5): the issue EDIT dialog joins the contract ----------------
+// The card carries `hx-get={edit_url}` → `hx-target="#modal-root"`
+// (issue_card.html:1), so clicking it swaps the edit dialog
+// (issue_edit_modal.html, `data-modal='edit-issue'`) into #modal-root by the
+// shipped mechanism — this lane invents no URL.
+
+/// The mounted issue-edit dialog (issue_edit_modal.html:1).
+const EDIT_DIALOG_SELECTOR: &str = "#modal-root [data-modal='edit-issue']";
+
+/// The edit dialog's title field (issue_edit_modal.html:6).
+const EDIT_TITLE_FIELD_SELECTOR: &str = "#modal-root [data-modal='edit-issue'] input[name='title']";
+
+/// The edit dialog's Save button (issue_edit_modal.html:16).
+const EDIT_SAVE_BUTTON_SELECTOR: &str =
+    "#modal-root [data-modal='edit-issue'] button[type='submit']";
+
+/// The opt-in error slot the beforeSwap handler routes the edit endpoint's 4xx
+/// fragment INTO (issue_edit_modal.html — the div step 02-01 adds inside the
+/// form). Against a tree WITHOUT that slot the 400 is discarded and this never
+/// resolves — the reproduction that proves the slot is load-bearing per form.
+const EDIT_ERROR_SLOT_SELECTOR: &str = "#modal-root [data-modal='edit-issue'] [data-error-slot]";
+
 const WAIT_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Parse the trailing number off an issue key like "GEN-1" → 1.
+fn number_of(key: &str) -> i32 {
+    key.rsplit_once('-')
+        .and_then(|(_, n)| n.parse().ok())
+        .unwrap_or_else(|| panic!("issue key {key:?} must end in -N"))
+}
 
 /// Opens ONE browser session against the shared harness, signs Mei in through the
 /// REAL sign-in form, and navigates to the Sandbox board. Both slice-01 Givens
@@ -308,6 +337,42 @@ async fn lane_navigated_to_sandbox_board(world: &mut FoundryWorld) {
 #[given(regex = r#"^Mei is viewing the "Sandbox" board in a real browser$"#)]
 async fn viewing_sandbox_board(world: &mut FoundryWorld) {
     open_browser_on_sandbox_board(world).await;
+}
+
+/// S5's seed: insert an issue into the EXISTING Sandbox project (created by the
+/// HTTP Background) so the board renders its clickable card. Runs BEFORE the
+/// browser Given, so the card is in the DB by the time the board loads.
+#[given(regex = r#"^the "Sandbox" project has an issue "([^"]+)" titled "([^"]+)"$"#)]
+async fn sandbox_has_issue(world: &mut FoundryWorld, issue_key: String, title: String) {
+    let harness = world
+        .harness
+        .as_ref()
+        .expect("the HTTP Background must have spawned harness");
+    let pool = harness.app.state.store.pool();
+    let project: (uuid::Uuid, uuid::Uuid) =
+        sqlx::query_as("SELECT id, workspace_id FROM projects WHERE key_prefix = $1")
+            .bind(PROJECT_KEY_PREFIX)
+            .fetch_one(pool)
+            .await
+            .expect("fetch the Sandbox project seeded by the Background");
+    let author: (uuid::Uuid,) = sqlx::query_as("SELECT id FROM users WHERE email_lower = $1")
+        .bind(MEI_EMAIL)
+        .fetch_one(pool)
+        .await
+        .expect("fetch Mei");
+    sqlx::query(
+        "INSERT INTO issues (id, project_id, workspace_id, number, title, description_md, author_id)
+              VALUES ($1, $2, $3, $4, $5, '', $6)",
+    )
+    .bind(uuid::Uuid::now_v7())
+    .bind(project.0)
+    .bind(project.1)
+    .bind(number_of(&issue_key))
+    .bind(&title)
+    .bind(author.0)
+    .execute(pool)
+    .await
+    .expect("insert the Sandbox issue");
 }
 
 /// S3's precondition: reach the rejected-submit state (dialog open, error shown)
@@ -544,4 +609,145 @@ async fn no_validation_error_anywhere(world: &mut FoundryWorld) {
              beforeSwap handler must fire only on 4xx, never on the 2xx success path."
         );
     }
+}
+
+// --- Slice 02 (S5): issue-edit dialog joins the contract --------------------
+
+/// S5's action: click the shipped card to open the edit dialog, blank the
+/// pre-filled title down to a server-empty value, and Save through the shipped
+/// button. As in slice 01 (see the module header), "empty" is ONE SPACE: a
+/// truly-cleared field carries native `required`, so htmx would halt the POST
+/// (`validation:halted`) and no 400 would exist to display. A single space
+/// passes native `required`, htmx POSTs, and the edit endpoint's `title.trim()`
+/// (issues.rs:97) makes it empty → the byte-identical 400 "Title is required"
+/// fragment routed through the beforeSwap handler.
+#[when(regex = r#"^Mei opens the edit dialog for "([^"]+)", clears the title, and saves$"#)]
+async fn opens_edit_clears_and_saves(world: &mut FoundryWorld, key: String) {
+    let browser = world.browser.as_ref().expect("browser session");
+    settle_ready(browser).await;
+    let card_selector = format!(".board [data-issue-key='{key}']");
+    browser
+        .wait()
+        .at_most(WAIT_TIMEOUT)
+        .for_element(Locator::Css(card_selector.as_str()))
+        .await
+        .expect("the Sandbox board must render the seeded issue card")
+        .click()
+        .await
+        .expect("click the issue card to open its edit dialog");
+    let title = browser
+        .wait()
+        .at_most(WAIT_TIMEOUT)
+        .for_element(Locator::Css(EDIT_TITLE_FIELD_SELECTOR))
+        .await
+        .expect("clicking the card must open the edit dialog with a pre-filled title field");
+    title.clear().await.expect("clear the pre-filled title");
+    // One space: server-empty after trim(), but browser-valid so htmx POSTs it.
+    title.send_keys(" ").await.expect("type a whitespace title");
+    browser
+        .find(Locator::Css(EDIT_SAVE_BUTTON_SELECTOR))
+        .await
+        .expect("the edit dialog must carry a Save button")
+        .click()
+        .await
+        .expect("submit the edit dialog");
+}
+
+/// S5 — THE ORACLE, scoped to the EDIT dialog's slot. Bounded-polls until the
+/// slot both DISPLAYS and CONTAINS the message. Against a tree where
+/// issue_edit_modal.html has no `[data-error-slot]`, htmx 2.0.4 discards the
+/// 400 and this never holds — the reproduction that proves the slot is
+/// load-bearing PER FORM even though the handler is unchanged from slice 01.
+#[then(regex = r#"^the validation error "([^"]+)" is visible inside the edit dialog$"#)]
+async fn validation_error_visible_edit(world: &mut FoundryWorld, message: String) {
+    let browser = world.browser.as_ref().expect("browser session");
+    let deadline = Instant::now() + WAIT_TIMEOUT;
+    loop {
+        if let Ok(slot) = browser.find(Locator::Css(EDIT_ERROR_SLOT_SELECTOR)).await {
+            let displayed = slot.is_displayed().await.unwrap_or(false);
+            let text = slot.text().await.unwrap_or_default();
+            if displayed && text.contains(&message) {
+                return;
+            }
+        }
+        if Instant::now() >= deadline {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let slot_state = match browser.find(Locator::Css(EDIT_ERROR_SLOT_SELECTOR)).await {
+        Ok(slot) => format!(
+            "slot present, displayed={:?}, text={:?}",
+            slot.is_displayed().await.unwrap_or(false),
+            slot.text().await.unwrap_or_default()
+        ),
+        Err(_) => "no [data-error-slot] in the edit dialog at all".to_string(),
+    };
+    panic!(
+        "the validation error {message:?} never became visible inside the edit dialog \
+         ({slot_state}). The edit endpoint returns a byte-identical 400 + \"{message}\" fragment; \
+         without a [data-error-slot] in issue_edit_modal.html the generic handler finds no slot in \
+         THIS form, htmx 2.0.4 discards the 400, and Mei sees nothing — the per-form defect this \
+         step closes."
+    );
+}
+
+/// S5 — the edit dialog survives the rejected save. A slot-only swap leaves the
+/// form (and its `.modal-dialog`) mounted; a whole-`#modal-root` swap would take
+/// it away, matching S1's `the dialog stays open` for the create dialog.
+#[then(regex = r"^the edit dialog stays open$")]
+async fn edit_dialog_stays_open(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("browser session");
+    let dialog = browser
+        .find(Locator::Css(EDIT_DIALOG_SELECTOR))
+        .await
+        .expect(
+            "the edit dialog closed after a rejected save — the error swap must target the form's \
+             [data-error-slot], NOT replace #modal-root, so the dialog stays open.",
+        );
+    assert!(
+        dialog.is_displayed().await.expect("edit dialog displayed?"),
+        "the edit dialog is in the DOM but not displayed after the rejected save"
+    );
+}
+
+/// S5 — the rejected edit mutated NOTHING. Asserted against the REAL store (the
+/// authoritative source): a bug that persisted the whitespace title would show a
+/// changed row here. The board's card DOM is checked too, since a mis-routed OOB
+/// swap could have rewritten the card even without a store change.
+#[then(regex = r#"^the "([^"]+)" card still shows "([^"]+)"$"#)]
+async fn card_still_shows(world: &mut FoundryWorld, key: String, title: String) {
+    let harness = world.harness.as_ref().expect("harness");
+    let pool = harness.app.state.store.pool();
+    let (prefix, _) = key.rsplit_once('-').expect("issue key has -N");
+    let stored: (String,) = sqlx::query_as(
+        "SELECT i.title FROM issues i \
+           JOIN projects p ON p.id = i.project_id \
+          WHERE p.key_prefix = $1 AND i.number = $2",
+    )
+    .bind(prefix)
+    .bind(number_of(&key))
+    .fetch_one(pool)
+    .await
+    .unwrap_or_else(|e| panic!("read issue {key} from store: {e}"));
+    assert_eq!(
+        stored.0, title,
+        "the rejected edit still mutated the stored title to {:?} — a save that failed validation \
+         must write nothing.",
+        stored.0
+    );
+
+    let browser = world.browser.as_ref().expect("browser session");
+    let card_selector = format!(".board [data-issue-key='{key}']");
+    let card = browser
+        .find(Locator::Css(card_selector.as_str()))
+        .await
+        .unwrap_or_else(|_| {
+            panic!("the {key} card is gone from the board after the rejected edit")
+        });
+    let text = card.text().await.unwrap_or_default();
+    assert!(
+        text.contains(&title),
+        "the {key} card no longer shows {title:?} after the rejected edit (card text {text:?})"
+    );
 }

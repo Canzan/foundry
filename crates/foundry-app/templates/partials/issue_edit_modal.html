@@ -13,6 +13,11 @@
           <option value="done"{% if selected_state == "done" %} selected{% endif %}>Done</option>
         </select>
       </label>
+      {# form-error-display-contract ADR-001 — the opt-in slot form-errors.js
+         routes a rejected 4xx fragment into, so the reason shows inside the open
+         edit dialog instead of being discarded by htmx. Empty on the 2xx/OOB
+         card-replace success path (that flow is untouched). #}
+      <div data-error-slot></div>
       <button type="submit">Save</button>
     </form>
   </div>

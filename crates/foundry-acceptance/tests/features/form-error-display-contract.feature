@@ -76,7 +76,7 @@ Feature: A member sees why a form was rejected
 
   # ------------------------------------------------ Slice 02 — fan out to the other htmx forms
 
-  @pending @needs-browser @slice2 @us-02 @error @contract
+  @needs-browser @slice2 @us-02 @error @contract
   Scenario: An invalid issue edit shows the reason in the edit dialog
     Given the "Sandbox" project has an issue "GEN-1" titled "Keep me"
     And Mei is viewing the "Sandbox" board in a real browser
