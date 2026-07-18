@@ -55,7 +55,7 @@ Feature: A member sees why a form was rejected
     And the dialog stays open with the title field still focusable
     And no card was added to the board
 
-  @pending @needs-browser @slice1 @us-01 @error @edge
+  @needs-browser @slice1 @us-01 @error @edge
   Scenario: Fixing the error and resubmitting succeeds without a page reload
     # Proves the slot-only swap preserves the form + its _csrf (DESIGN cross-cutting): the
     # retry re-submits with a valid token and the modal closes on success.
@@ -63,9 +63,9 @@ Feature: A member sees why a form was rejected
     When Mei types a title "Rate limit the gateway" and submits the dialog again
     Then the dialog closes
     And a card "Rate limit the gateway" appears in the Backlog column
-    And the browser did not navigate away from the board
+    And the browser is still on the "Sandbox" board without a reload
 
-  @pending @needs-browser @slice1 @us-01 @error @scoped
+  @needs-browser @slice1 @us-01 @error @scoped
   Scenario: A successful create is unaffected by the error handler
     # Guards the blast radius: the beforeSwap handler must only fire on 4xx.
     Given Mei is viewing the "Sandbox" board in a real browser
