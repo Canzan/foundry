@@ -29,22 +29,28 @@ pub const CSRF_HEADER: &str = "x-csrf-token";
 pub const CSRF_HX_HEADER: &str = "hx-csrf";
 
 /// Ceiling on the urlencoded form body this middleware buffers to read the
-/// `_csrf` field. This is a GLOBAL cap: every form POST's body is buffered
-/// here before it reaches its handler, so the ceiling must cover the LARGEST
-/// legitimate form body. The issue create/edit forms carry a `description` up
-/// to `DESCRIPTION_MAX_LEN` (262144) CHARACTERS. Urlencoded, a 2-byte multibyte
-/// char ('é' → `%C3%A9`, 6 bytes) expands the description to ~1.6 MB, plus
-/// title + `_csrf` overhead. 2 MiB aligns with axum's global `DefaultBodyLimit`
-/// default and covers that worst case with margin.
+/// `_csrf` field. This is a GLOBAL cap that applies to EVERY form POST: the
+/// CSRF middleware is the OUTERMOST layer (lib.rs) and reads the body here —
+/// via `to_bytes(.., CSRF_BODY_BUFFER_MAX_BYTES)` — BEFORE any per-route
+/// `DefaultBodyLimit` or handler extractor runs. So this constant is the
+/// per-request buffering ceiling for ALL form routes (sign-in, issue create/
+/// edit, comments, …), not only the ones that need a large body.
 ///
-/// SECURITY (DoS): raising this cap lets the middleware buffer a larger body in
-/// memory per request. The write path that actually NEEDS the headroom (issue
-/// CREATE) carries its own explicit per-route `DefaultBodyLimit::max` (lib.rs)
-/// so the effective ceiling there is scoped and declared; other form routes
-/// (sign-in, etc.) keep axum's default `DefaultBodyLimit`, so a request larger
-/// than that default is rejected by the extractor BEFORE this buffer grows — a
-/// tight per-route limit is the real bound, this constant is only the buffer's
-/// upper guard.
+/// It must cover the LARGEST legitimate form body. The issue create/edit forms
+/// carry a `description` up to `DESCRIPTION_MAX_LEN` (262144) CHARACTERS;
+/// urlencoded, a 2-byte multibyte char ('é' → `%C3%A9`, 6 bytes) expands that
+/// to ~1.6 MB, plus title + `_csrf` overhead. 2 MiB covers it with margin.
+///
+/// SECURITY (DoS): this RAISED the per-form-POST buffering ceiling from the
+/// prior 64 KiB to 2 MiB for ALL form routes — a real, if bounded, increase,
+/// NOT scoped to the issue endpoints. The mitigation is that 2 MiB equals
+/// axum's default `DefaultBodyLimit`, i.e. the SAME baseline every other
+/// extractor in the app already permits (a 2 MiB body could already be sent to
+/// any JSON endpoint); it is not a ceiling beyond axum's own default. The
+/// per-route `DefaultBodyLimit::max` on issue create/edit (lib.rs) DECLARES the
+/// intended large payload there — it does NOT reduce this global buffer. A
+/// tighter future design could make this cap per-route (reading the route's own
+/// limit) to restore a small ceiling on small forms.
 const CSRF_BODY_BUFFER_MAX_BYTES: usize = 2 * 1024 * 1024;
 
 /// Generate a fresh 32-byte URL-safe CSRF token.
@@ -139,10 +145,10 @@ fn constant_time_eq(a: &str, b: &str) -> bool {
 
 /// Pull `_csrf` out of a urlencoded body without consuming the request.
 async fn extract_form_token(body: Body) -> (Option<String>, Body) {
-    // Body size cap — most forms are tiny, but the issue create/edit forms
-    // carry a description up to DESCRIPTION_MAX_LEN chars (see
-    // CSRF_BODY_BUFFER_MAX_BYTES). Per-route DefaultBodyLimit (lib.rs) keeps the
-    // effective ceiling scoped to the write path that needs it.
+    // Body size cap (CSRF_BODY_BUFFER_MAX_BYTES). GLOBAL: this middleware is the
+    // outermost layer, so EVERY form POST is buffered here up to this ceiling
+    // before any per-route DefaultBodyLimit runs. See CSRF_BODY_BUFFER_MAX_BYTES
+    // for the DoS rationale (2 MiB == axum's default body limit).
     match to_bytes(body, CSRF_BODY_BUFFER_MAX_BYTES).await {
         Ok(bytes) => {
             let token = serde_urlencoded::from_bytes::<Vec<(String, String)>>(&bytes)
