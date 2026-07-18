@@ -29,6 +29,7 @@ pub mod steps {
     pub mod feature_mwt_slice_05_migration_guarantee;
     pub mod feature_mwt_slice_06_provision_and_prove;
     pub mod feature_navigation_bar;
+    pub mod feature_new_issue_dialog_description;
     pub mod feature_notification_delivery_providers;
     pub mod feature_notification_preferences_ui;
     pub mod feature_per_workspace_backup;

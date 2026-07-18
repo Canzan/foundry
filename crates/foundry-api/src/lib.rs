@@ -382,7 +382,10 @@ async fn create_issue_handler(
     Json(request): Json<CreateIssueRequest>,
 ) -> Result<Response, ApiError> {
     let created = services
-        .create_issue(&principal, &team_slug, &project_slug, &request.title)
+        // The API description leg lands in new-issue-dialog-description slice 2
+        // (US-02); until then the JSON create stores an empty description,
+        // preserving the shipped API contract.
+        .create_issue(&principal, &team_slug, &project_slug, &request.title, "")
         .await?;
     let body = IssueJson {
         key: created.key,

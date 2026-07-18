@@ -175,6 +175,8 @@ fn render_modal_fragment(action: &str, csrf_token: &str, project_name: &str) -> 
         project_name: project_name.to_string(),
         action: action.to_string(),
         csrf: csrf_token.to_string(),
+        // A fresh dialog open carries no description (new-issue-dialog-description).
+        description: String::new(),
     }
     .render()
     .expect("new_issue_modal partial renders from a fully-resolved, infallible view-model")
@@ -196,6 +198,8 @@ fn render_modal_full_page(
         action: action.to_string(),
         csrf: csrf_token.to_string(),
         team_slug: team_slug.to_string(),
+        // A fresh full-page form open carries no description.
+        description: String::new(),
     }
     .render()
     .expect("new_issue_modal_page.html renders from a fully-resolved, infallible view-model")

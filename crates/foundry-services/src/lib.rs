@@ -60,8 +60,17 @@ impl Services {
         team_slug: &str,
         project_slug: &str,
         title: &str,
+        description: &str,
     ) -> Result<CreatedIssue, ServiceError> {
-        issues::create_issue(&self.store, principal, team_slug, project_slug, title).await
+        issues::create_issue(
+            &self.store,
+            principal,
+            team_slug,
+            project_slug,
+            title,
+            description,
+        )
+        .await
     }
 
     /// US-W05c change-state — delegates to [`issues::change_issue_state`]. The

@@ -159,6 +159,7 @@ async fn create_issue_files_with_next_key_and_backlog_state() {
         "backend",
         "auth-v2",
         "  Refresh token rotation broken  ",
+        "",
     )
     .await
     .expect("a member must be able to file an issue");
@@ -199,7 +200,7 @@ async fn create_issue_rejects_empty_title_with_no_row() {
         workspace_id: h.workspace_id,
     };
 
-    let err = create_issue(&h.store, &principal, "backend", "auth-v2", "   ")
+    let err = create_issue(&h.store, &principal, "backend", "auth-v2", "   ", "")
         .await
         .expect_err("an empty (whitespace-only) title must be rejected");
 
@@ -226,7 +227,7 @@ async fn edit_comment_by_non_author_is_forbidden() {
         workspace_id: h.workspace_id,
     };
     // Seed an issue + a comment authored by the admin.
-    let number = create_issue(&h.store, &admin, "backend", "auth-v2", "Some issue")
+    let number = create_issue(&h.store, &admin, "backend", "auth-v2", "Some issue", "")
         .await
         .expect("seed issue")
         .number;

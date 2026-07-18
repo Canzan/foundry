@@ -61,6 +61,11 @@ fn detail_url(team_slug: &str, project_slug: &str, number: i32) -> String {
 #[derive(Debug, Deserialize)]
 pub struct CreateIssueForm {
     pub title: String,
+    /// Optional markdown description (new-issue-dialog-description). Absent on a
+    /// title-only submit, so it defaults to the empty string — mirrors
+    /// `EditIssueForm::description`.
+    #[serde(default)]
+    pub description: String,
     #[serde(rename = "_csrf", default)]
     pub _csrf: Option<String>,
 }
@@ -96,6 +101,7 @@ pub async fn submit_create(
         &team_slug,
         &project_slug,
         &form.title,
+        &form.description,
     )
     .await
     {

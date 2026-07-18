@@ -52,6 +52,7 @@ pub async fn create_issue(
     team_slug: &str,
     project_slug: &str,
     title: &str,
+    description: &str,
 ) -> Result<CreatedIssue, ServiceError> {
     let (_team, project, key_prefix) =
         resolve_member_project(store, principal, team_slug, project_slug).await?;
@@ -73,8 +74,9 @@ pub async fn create_issue(
             key_prefix.as_str(),
             principal.user_id(),
             raw_title,
-            // Step 01-01 threads the seam only; the real description arrives in 01-02.
-            "",
+            // Persisted verbatim, matching `edit_issue_details` (the DB CHECK
+            // bounds its length); the app-level length bound arrives in slice 03.
+            description,
         )
         .await
     {

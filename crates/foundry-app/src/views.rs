@@ -83,6 +83,10 @@ pub struct NewIssueModal {
     pub action: String,
     /// The double-submit CSRF token, rendered into the hidden `_csrf` field.
     pub csrf: String,
+    /// The pre-filled description textarea (new-issue-dialog-description). Empty
+    /// on a normal dialog open; bound by the SHARED `new_issue_modal.html`
+    /// partial, so BOTH `NewIssueModal` and `NewIssueModalPage` must carry it.
+    pub description: String,
 }
 
 /// The no-JS new-issue FULL-PAGE fallback (US-R02). Extends `base.html`, which
@@ -105,6 +109,10 @@ pub struct NewIssueModalPage {
     pub csrf: String,
     /// Team slug shown in the full-page `<h1>` header (auto-escaped).
     pub team_slug: String,
+    /// The pre-filled description textarea (new-issue-dialog-description). Empty
+    /// on a normal open; the `{% include %}`d `new_issue_modal.html` partial
+    /// binds this same-named field, so the no-JS fallback must carry it too.
+    pub description: String,
 }
 
 /// A single keyboard search result row. The `key` is the canonical
