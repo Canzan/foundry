@@ -140,13 +140,13 @@ Feature: A member writes a description while filing an issue from the dialog
 
   # ------------------------------------------- Cross-feature: issue-change-history
 
-  @pending @real-io @slice1 @us-01 @cross-feature
+  @real-io @slice1 @us-01 @cross-feature
   Scenario: Creating an issue with a description emits no change-history event
     # issue-change-history ODD-5 "start empty": v1 records CHANGES, not creation.
     When Mei files a new issue titled "Fresh" described "created with a body" to "Sandbox" as an htmx request
     Then the change-history timeline for "GEN-1" is empty
 
-  @pending @real-io @slice1 @us-01 @cross-feature
+  @real-io @slice1 @us-01 @cross-feature
   Scenario: The first edit of a created description reports the created value as the old value
     Given Mei has filed an issue titled "Fresh" described "First" to "Sandbox"
     When Mei saves the edit dialog for "GEN-1" with title "Fresh" and description "Second"

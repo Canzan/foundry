@@ -289,7 +289,102 @@ async fn created_issue_has_description(
     );
 }
 
+// ----- Then: cross-feature issue-change-history coherence (store reads) ------
+
+/// S15 — creation records NO change event (issue-change-history ODD-5 "start
+/// empty": v1 records CHANGES, not creation). Read the append-only
+/// `issue_change_events` table directly by key (prefix + number); a freshly
+/// filed issue's timeline must have zero rows.
+#[then(regex = r#"^the change-history timeline for "([^"]+)" is empty$"#)]
+async fn change_history_timeline_empty(world: &mut FoundryWorld, key: String) {
+    let count = count_change_events(world, &key).await;
+    assert_eq!(
+        count, 0,
+        "filing an issue with a description must record NO change event for {key} \
+         (creation is not a change, ODD-5), found {count}"
+    );
+}
+
+/// S16 — the first edit of a created description reports the CREATED value as the
+/// old value. `update_issue_details` records exactly one "description" change
+/// event when description_md changes; assert its old/new against the store.
+#[then(
+    regex = r#"^a "([^"]+)" change event for "([^"]+)" records old value "([^"]*)" and new value "([^"]*)"$"#
+)]
+async fn change_event_records_old_new(
+    world: &mut FoundryWorld,
+    field: String,
+    key: String,
+    old_value: String,
+    new_value: String,
+) {
+    let events = change_events_for_field(world, &key, &field).await;
+    assert_eq!(
+        events.len(),
+        1,
+        "expected exactly one {field:?} change event for {key}, found {}",
+        events.len()
+    );
+    let (old, new) = &events[0];
+    assert_eq!(
+        old.as_deref(),
+        Some(old_value.as_str()),
+        "the first edit must report the created value as the old value for the {field:?} change of {key}"
+    );
+    assert_eq!(
+        new, &new_value,
+        "recorded new value mismatch for the {field:?} change of {key}"
+    );
+}
+
 // ----- internals: authenticated HTTP + DB reads -----------------------------
+
+/// Count the append-only change events for an issue key (prefix + number).
+async fn count_change_events(world: &mut FoundryWorld, key: &str) -> i64 {
+    let (prefix, _) = key.rsplit_once('-').expect("issue key has -N");
+    let number = number_of(key);
+    let harness = world.harness.as_ref().expect("harness");
+    let row: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*)
+           FROM issue_change_events e
+           JOIN issues   i ON i.id = e.issue_id
+           JOIN projects p ON p.id = i.project_id
+          WHERE p.key_prefix = $1 AND i.number = $2",
+    )
+    .bind(prefix)
+    .bind(number)
+    .fetch_one(harness.app.state.store.pool())
+    .await
+    .unwrap_or_else(|e| panic!("count change events for {key}: {e}"));
+    row.0
+}
+
+/// Read the `(old_value, new_value)` pairs of change events for a given field on
+/// an issue key, oldest-first — mirrors feature_issue_change_history's
+/// append-only read, scoped to one field.
+async fn change_events_for_field(
+    world: &mut FoundryWorld,
+    key: &str,
+    field: &str,
+) -> Vec<(Option<String>, String)> {
+    let (prefix, _) = key.rsplit_once('-').expect("issue key has -N");
+    let number = number_of(key);
+    let harness = world.harness.as_ref().expect("harness");
+    sqlx::query_as(
+        "SELECT e.old_value, e.new_value
+           FROM issue_change_events e
+           JOIN issues   i ON i.id = e.issue_id
+           JOIN projects p ON p.id = i.project_id
+          WHERE p.key_prefix = $1 AND i.number = $2 AND e.field = $3
+          ORDER BY e.created_at ASC, e.id ASC",
+    )
+    .bind(prefix)
+    .bind(number)
+    .bind(field)
+    .fetch_all(harness.app.state.store.pool())
+    .await
+    .unwrap_or_else(|e| panic!("read {field} change events for {key}: {e}"))
+}
 
 async fn count_issues_in_project(world: &mut FoundryWorld, project_name: &str) -> i64 {
     let harness = world.harness.as_ref().expect("harness");
