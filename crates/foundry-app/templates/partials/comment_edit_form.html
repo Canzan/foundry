@@ -1,4 +1,5 @@
-<form id="comment-{{ id }}" class="comment-edit-form" hx-patch="{{ patch_url }}" hx-target="#comment-{{ id }}" hx-swap="outerHTML" hx-headers='js:{"x-csrf-token": (document.cookie.match(/(?:^|; )foundry_csrf=([^;]+)/) || [])[1]}'>
+<form id="comment-{{ id }}" class="comment-edit-form" hx-patch="{{ patch_url }}" hx-target="#comment-{{ id }}" hx-swap="outerHTML">
+  <input type="hidden" name="_csrf" value="{{ csrf }}">
   <textarea name="body_markdown" required>{{ body_markdown }}</textarea>
   {# form-error-display-contract ADR-001 — the opt-in slot form-errors.js routes a
      rejected 4xx fragment into, so the reason shows inline next to the comment

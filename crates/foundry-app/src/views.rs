@@ -452,6 +452,11 @@ pub struct CommentEditForm {
     pub cancel_url: String,
     /// The current raw markdown, pre-filled into the `<textarea>` (auto-escaped).
     pub body_markdown: String,
+    /// The CSRF double-submit token, rendered into the hidden `_csrf` field so the
+    /// urlencoded PATCH clears `csrf_middleware` (ADR-009). Mirrors every other
+    /// write form (issue_edit_modal, new_issue_modal), replacing the interim
+    /// hx-headers cookie→header echo.
+    pub csrf: String,
 }
 
 /// A single attachment row on the issue page.

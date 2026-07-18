@@ -270,6 +270,7 @@ pub async fn show_edit_form(
         uuid::Uuid,
     )>,
     session: Session,
+    headers: HeaderMap,
 ) -> Response {
     let Some(user) = signed_in_user(&session).await else {
         return redirect_to("/sign-in");
@@ -315,15 +316,26 @@ pub async fn show_edit_form(
     let cancel_url = format!(
         "/team/{team_slug}/project/{project_slug}/issues/{issue_number}/comments/{comment_id}"
     );
+    // Mint (or reuse) the CSRF double-submit cookie the SAME way every other
+    // write-form GET does (issues.rs show_edit_form, keyboard.rs new-issue modal).
+    // The token renders into the edit form's hidden `_csrf` field so the
+    // urlencoded PATCH clears `csrf_middleware` (ADR-009), replacing the interim
+    // hx-headers cookie→header echo that shipped no server-rendered token.
+    let (csrf, set_cookie) = crate::csrf::ensure_csrf_cookie(&state, &headers);
     let body = views::CommentEditForm {
         id: comment.id.to_string(),
         patch_url: url,
         cancel_url,
         body_markdown: comment.body_markdown.clone(),
+        csrf,
     }
     .render()
     .expect("comment edit form render (infallible String buffer)");
-    (StatusCode::OK, Html(body)).into_response()
+    crate::csrf::response_with_optional_cookie(
+        StatusCode::OK,
+        Html(body).into_response(),
+        set_cookie,
+    )
 }
 
 // ---------- PATCH /…/issues/:n/comments/:id — edit submit -------------
