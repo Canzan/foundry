@@ -36,7 +36,7 @@ Feature: A member sees why a form was rejected
 
   # ------------------------------------------------ Slice 01 — contract + oracle (issue create)
 
-  @pending @needs-browser @slice1 @us-01 @lane-probe @walking_skeleton @driving_port @real-io
+  @needs-browser @slice1 @us-01 @lane-probe @walking_skeleton @driving_port @real-io
   Scenario: The browser lane can observe a rejected submit end to end
     # The instrument proof (mirrors keyboard-shortcut-bindings' lane-probe): if the browser
     # lane cannot submit an invalid form and read the resulting DOM, no other scenario here
@@ -47,7 +47,7 @@ Feature: A member sees why a form was rejected
     Then the dialog stays open
     And the validation error "Title is required" is visible inside the dialog
 
-  @pending @needs-browser @slice1 @us-01 @error @contract
+  @needs-browser @slice1 @us-01 @error @contract
   Scenario: An invalid create shows the reason and creates nothing
     Given Mei is viewing the "Sandbox" board in a real browser
     When Mei opens the new-issue dialog and submits it with an empty title

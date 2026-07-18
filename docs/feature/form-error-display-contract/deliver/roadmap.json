@@ -1,0 +1,150 @@
+{
+  "roadmap": {
+    "created_at": "2026-07-18T00:00:00Z",
+    "project_id": "form-error-display-contract",
+    "total_steps": 4
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "Slice 01 \u2014 the contract + the instrument, proven on issue create (walking skeleton): form-errors.js + the @needs-browser DOM oracle + the create-dialog slot",
+      "description": "THE WALKING SKELETON (walking-skeleton.md). The load-bearing unknown is NOT the ~20-line handler \u2014 it is whether the browser lane can prove the error is VISIBLE in the rendered DOM (RCA Root Cause B). So slice 01 ships the mechanism (form-errors.js), the instrument (the @needs-browser DOM oracle), and one form (issue create) end to end. CLIENT-SIDE + BROWSER-LANE ONLY: no server change, no new route/endpoint/migration \u2014 latest migration stays 0014; every handler keeps returning byte-identical 400/422 + bare fragment and every shipped HTTP-lane oracle stays green (ADR-001 D3). The oracle is @needs-browser (fantoccini + chromedriver) because the HTTP lane never runs JS and is therefore BLIND to a client-side swap (ADR-002).",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "The mechanism + the instrument: form-errors.js (htmx:beforeSwap \u2192 error slot), the create-dialog slot, and the @needs-browser DOM oracle observing a rejected create end to end",
+          "criteria": [
+            "Greens exactly these two scenarios: \"The browser lane can observe a rejected submit end to end\" (S1, @lane-probe @walking_skeleton) and \"An invalid create shows the reason and creates nothing\" (S2, @error @contract). Un-@pend S1 and S2.",
+            "The mechanism (ADR-001, architecture.md \u00a7Components): NEW crates/foundry-app/static/js/form-errors.js \u2014 one vanilla IIFE (\"use strict\"), a single document-delegated htmx:beforeSwap listener. Guard: act ONLY when evt.detail.xhr.status is in 400..=499 (5xx and 2xx untouched). Resolve the triggering element's error slot from evt.detail.requestConfig.elt: an explicit data-error-target=\"#sel\", else the element's closest('form') [data-error-slot]. If a slot resolves: evt.detail.shouldSwap = true; evt.detail.target = slot; evt.detail.isError = false. If no slot resolves: return \u2014 leave htmx's default (no swap) untouched. Set a readiness marker document.documentElement.dataset.formErrorsReady = \"1\" (mirrors keyboard.js's data-kb-ready) so the lane can bounded-wait on it.",
+            "The load: base.html gains one <script defer src=\".../form-errors.js\"></script> at line 10, beside the shipped board-dnd.js / csrf-upload.js / keyboard.js \u2014 same defer discipline, same load order.",
+            "The slot: partials/new_issue_modal.html gains an empty <div data-error-slot></div> INSIDE the form and inside the .modal-dialog (so the error is visible while the modal is open). Byte-additive \u2014 the 2xx/OOB success flow and #modal-root close-on-success are unchanged.",
+            "The oracle (ADR-002, the non-negotiable): NEW step glue crates/foundry-acceptance/src/steps/feature_form_error_display.rs, REGISTERED via `pub mod feature_form_error_display;` in crates/foundry-acceptance/src/lib.rs AND force-linked via `use foundry_acceptance::steps::feature_form_error_display as _feature_form_error_display;` in crates/foundry-acceptance/tests/acceptance.rs (the shipped registration+force-link pattern, mirroring keyboard_shortcut_bindings / feature_new_issue_dialog_description). Reuse the shipped @needs-browser harness (support/browser_harness.rs, world.rs fantoccini client) and the keyboard-shortcut-bindings navigation / press / DOM-read helpers. Every DOM wait uses a bounded wait().for_element condition \u2014 NEVER a sleep (matches the keyboard lane discipline).",
+            "S1 asserts the instrument end to end: the browser lane starts chromedriver, navigates to the Sandbox board, the page reports the form-error handler is ready (formErrorsReady marker), Mei opens the new-issue dialog and submits an empty title, the dialog stays open, and \"Title is required\" is VISIBLE inside the dialog (present in the rendered DOM inside the error slot). S2 additionally asserts no card was added to the board (driven port: real Postgres).",
+            "FALSIFICATION (test-scenarios.md \u00a7Falsification, walking-skeleton.md step 1): S1 and S2 MUST be shown RED against a build WITHOUT form-errors.js (or without the [data-error-slot]) \u2014 the 400 is discarded by htmx, the error stays invisible, and the \"visible inside the dialog\" assertion fails. This is the direct reproduction of the defect and the proof the oracle can see what the HTTP lane never could.",
+            "BLAST-RADIUS guard (architecture.md \u00a7Cross-cutting): the handler acts ONLY when a slot resolves from the triggering element, so it must NOT hijack the shipped 2xx/OOB success flow, board-dnd.js's revert (not htmx), or not-found/forbidden 4xx full-page responses. Opt-in slots keep the blast radius auditable (a form with no slot = no interception).",
+            "CLIENT-SIDE + BROWSER-LANE ONLY: ZERO server change, ZERO new route/endpoint/migration \u2014 latest migration stays 0014. The server keeps returning byte-identical 400 + \"Title is required\" fragment; the shipped HTTP-lane oracles (feature_board_new_issue.rs et al.) are NOT touched.",
+            "Lane operational notes carried ([[foundry-browser-lane-fantoccini]]): chromedriver 150 matches Chrome 150 so the lane runs; @needs-browser is IN the `all` lane and EXCLUDED from the fast default; fail_on_skipped stays ON so an un-@pended scenario with no step definition FAILS rather than passing silently."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/form-error-display-contract.feature",
+          "scenario_name": "The browser lane can observe a rejected submit end to end; An invalid create shows the reason and creates nothing",
+          "files_to_modify": [
+            "crates/foundry-app/static/js/form-errors.js",
+            "crates/foundry-app/templates/base.html",
+            "crates/foundry-app/templates/partials/new_issue_modal.html",
+            "crates/foundry-acceptance/src/steps/feature_form_error_display.rs",
+            "crates/foundry-acceptance/src/lib.rs",
+            "crates/foundry-acceptance/tests/acceptance.rs",
+            "crates/foundry-acceptance/tests/features/form-error-display-contract.feature"
+          ],
+          "implementation_scope": {
+            "source_directories": [
+              "crates/foundry-app/static/js/",
+              "crates/foundry-app/templates/partials/"
+            ],
+            "notes": "The whole mechanism + the instrument. NEW production: one ~20-line vanilla IIFE (form-errors.js) reusing the csrf-upload.js slot idiom + the board-dnd.js/keyboard.js delegated-listener house style, one <script defer> in base.html, one [data-error-slot] in the create modal. NEW test: the @needs-browser glue file, registered in lib.rs + force-linked in acceptance.rs. No Rust production logic \u2014 the change is JS + templates. Mutation testing has ~no Rust target here (see validation.notes). Server byte-identical; latest migration stays 0014."
+          }
+        },
+        {
+          "id": "01-02",
+          "name": "The slot-only swap holds: fix-and-resubmit preserves _csrf (dialog closes, card lands), and a valid create shows no error (blast-radius guard)",
+          "criteria": [
+            "Greens exactly these two scenarios: \"Fixing the error and resubmitting succeeds without a page reload\" (S3, @error @edge) and \"A successful create is unaffected by the error handler\" (S4, @error @scoped). Un-@pend S3 and S4.",
+            "S3 (CSRF-safe retry, architecture.md \u00a7Cross-cutting): after the empty-title error from 01-01's slot-only swap, Mei types a title \"Rate limit the gateway\" and submits again; the dialog closes, a card \"Rate limit the gateway\" appears in the Backlog column, and the browser did NOT navigate away. This proves the slot-only swap left the form and its hidden _csrf field intact so the retry re-submits a valid token.",
+            "S4 (blast-radius guard): a valid submit \"Works first time\" closes the dialog, the card appears in Backlog, and NO validation error is shown anywhere on the page \u2014 the beforeSwap handler fires only on 4xx and never perturbs the 2xx/OOB success flow.",
+            "FALSIFICATION (test-scenarios.md \u00a7Falsification): S3 MUST be shown RED against a full-#modal-root replace on error (which would drop the form + _csrf) \u2014 the resubmit would fail CSRF, no card would land, S3 fails. This proves the slot-only swap (not a whole-modal replace) is load-bearing. S4 MUST be shown RED against a handler that also fires on 2xx (an over-broad guard) \u2014 a successful create would wrongly surface an error / mis-swap, S4 fails.",
+            "NO new production code: the mechanism (form-errors.js), the load, and the create slot all ship in 01-01; this step ADDS two browser DOM-oracle scenarios and un-@pends them, pinning the two remaining contract properties (CSRF-safe retry + scoped-to-4xx) that 01-01's S1/S2 do not exercise. Reuse the board-new-issue open/submit helpers and the keyboard-lane bounded-wait DOM reads.",
+            "CLIENT-SIDE + BROWSER-LANE ONLY: ZERO server change, ZERO new route/endpoint/migration \u2014 latest migration stays 0014; the shipped HTTP-lane oracles are untouched."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/form-error-display-contract.feature",
+          "scenario_name": "Fixing the error and resubmitting succeeds without a page reload; A successful create is unaffected by the error handler",
+          "files_to_modify": [
+            "crates/foundry-acceptance/src/steps/feature_form_error_display.rs",
+            "crates/foundry-acceptance/tests/features/form-error-display-contract.feature"
+          ],
+          "implementation_scope": {
+            "source_directories": [],
+            "notes": "Green-by-inheritance from 01-01's mechanism \u2014 NO new production code, only two new @needs-browser assertions + un-@pending. These two scenarios carry the falsification that pins the design's two load-bearing choices: slot-only swap (S3, not a #modal-root replace) and fires-only-on-4xx (S4, not on 2xx). Server byte-identical; latest migration stays 0014."
+          }
+        }
+      ]
+    },
+    {
+      "id": "02",
+      "name": "Slice 02 \u2014 fan out the proven contract to the remaining broken htmx forms: issue edit and comment edit each declare a slot (depends on slice 01)",
+      "description": "Pure APPLICATION of the contract proven in slice 01 \u2014 the handler (form-errors.js) is UNCHANGED; it already routes any 4xx whose triggering element resolves a [data-error-slot]. Each remaining broken form just declares its slot and gets a @needs-browser DOM-oracle scenario. Depends on slice 01's form-errors.js + the browser oracle. CLIENT-SIDE + BROWSER-LANE ONLY: ZERO server change, ZERO new route/endpoint/migration \u2014 latest migration stays 0014; shipped HTTP-lane oracles untouched.",
+      "steps": [
+        {
+          "id": "02-01",
+          "name": "Issue edit joins the contract: issue_edit_modal.html declares a slot; an invalid edit shows the reason in the edit dialog and leaves the card unchanged",
+          "criteria": [
+            "Greens exactly this scenario: \"An invalid issue edit shows the reason in the edit dialog\" (S5, @slice2 @error @contract). Un-@pend S5.",
+            "The edit (architecture.md \u00a7Markup): partials/issue_edit_modal.html gains an empty <div data-error-slot></div> inside the form and inside the .modal-dialog \u2014 byte-additive, mirroring the create modal's slot from 01-01. NO handler change: form-errors.js already routes the 4xx into any resolved slot.",
+            "S5 asserts: given issue \"GEN-1\" titled \"Keep me\", Mei opens the edit dialog for \"GEN-1\", clears the title, and saves; the validation error \"Title is required\" is VISIBLE inside the edit dialog, the edit dialog stays open, and the \"GEN-1\" card still shows \"Keep me\" (driven port: the issue is unchanged in real Postgres). Reuse the shipped feature_issue_edit_dialog open/save helpers + the keyboard-lane bounded-wait DOM reads.",
+            "FALSIFICATION: S5 MUST be shown RED against an issue_edit_modal.html WITHOUT the [data-error-slot] \u2014 the handler finds no slot, htmx discards the 400, the error stays invisible in the edit dialog, S5 fails. (The mechanism is already green from slice 01; this proves the per-form slot is what wires each form into the contract.)",
+            "CLIENT-SIDE + BROWSER-LANE ONLY: ZERO server change, ZERO new route/endpoint/migration \u2014 latest migration stays 0014; the shipped issue-edit HTTP-lane oracle is untouched."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/form-error-display-contract.feature",
+          "scenario_name": "An invalid issue edit shows the reason in the edit dialog",
+          "files_to_modify": [
+            "crates/foundry-app/templates/partials/issue_edit_modal.html",
+            "crates/foundry-acceptance/src/steps/feature_form_error_display.rs",
+            "crates/foundry-acceptance/tests/features/form-error-display-contract.feature"
+          ],
+          "implementation_scope": {
+            "source_directories": [
+              "crates/foundry-app/templates/partials/"
+            ],
+            "notes": "One template edit (a slot) + one @needs-browser scenario. The handler is unchanged \u2014 this is the contract applied, not extended. Reuse feature_issue_edit_dialog helpers. Depends on slice 01's form-errors.js. Server byte-identical; latest migration stays 0014."
+          }
+        },
+        {
+          "id": "02-02",
+          "name": "Comment edit joins the contract: comment_edit_form.html declares a slot; an empty body shows the reason inline and keeps the original text",
+          "criteria": [
+            "Greens exactly this scenario: \"An invalid comment edit shows the reason inline\" (S6, @slice2 @error @contract). Un-@pend S6.",
+            "The edit (architecture.md \u00a7Markup): partials/comment_edit_form.html gains an empty <div data-error-slot></div> inside the form (inline, next to the comment) \u2014 byte-additive. NO handler change: form-errors.js already routes the 4xx into the resolved slot.",
+            "S6 asserts: given issue \"GEN-1\" has a comment by Mei and Mei is viewing the \"GEN-1\" issue page in a real browser, Mei edits that comment to an empty body and saves; the validation error is VISIBLE next to the comment, and the comment still shows its original text (driven port: the comment is unchanged in real Postgres). Reuse the shipped us_10_comment_edit_delete helpers + the keyboard-lane bounded-wait DOM reads.",
+            "FALSIFICATION: S6 MUST be shown RED against a comment_edit_form.html WITHOUT the [data-error-slot] \u2014 the handler finds no slot, htmx discards the 4xx, the error stays invisible next to the comment, S6 fails.",
+            "CLIENT-SIDE + BROWSER-LANE ONLY: ZERO server change, ZERO new route/endpoint/migration \u2014 latest migration stays 0014; the shipped comment-edit HTTP-lane oracle is untouched."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/form-error-display-contract.feature",
+          "scenario_name": "An invalid comment edit shows the reason inline",
+          "files_to_modify": [
+            "crates/foundry-app/templates/partials/comment_edit_form.html",
+            "crates/foundry-acceptance/src/steps/feature_form_error_display.rs",
+            "crates/foundry-acceptance/tests/features/form-error-display-contract.feature"
+          ],
+          "implementation_scope": {
+            "source_directories": [
+              "crates/foundry-app/templates/partials/"
+            ],
+            "notes": "One template edit (a slot) + one @needs-browser scenario. The handler is unchanged. Reuse us_10_comment_edit_delete helpers. Depends on slice 01's form-errors.js. Server byte-identical; latest migration stays 0014. Completes the 5 broken forms less state-move (which shares the issue-edit/create surfaces) covered by slices 01\u201302."
+          }
+        }
+      ]
+    }
+  ],
+  "implementation_scope": {
+    "source_directories": [
+      "crates/foundry-app/static/js/",
+      "crates/foundry-app/templates/",
+      "crates/foundry-app/templates/partials/"
+    ],
+    "test_directories": [
+      "crates/foundry-acceptance/src/steps/",
+      "crates/foundry-acceptance/tests/features/"
+    ],
+    "excluded_patterns": [
+      "target/**",
+      "**/*.md"
+    ]
+  },
+  "validation": {
+    "status": "approved",
+    "reviewer": "nw-software-crafter-reviewer",
+    "authored_at": "2026-07-18",
+    "notes": "SCOPE: this roadmap covers slices 01 and 02 ONLY (scenarios S1\u2013S6, the mechanism + the 5 broken htmx forms less the state-move surface, which rides the issue-edit/create dialogs). Slice 03 (S7 drag-revert OOB-toast message, S8 comment-create) is DEFERRED as a documented follow-up: those two edges remain @pending and need deterministic server-refusal fixtures (a not-allowed-to-move issue; a server-rejected new comment); design/wave-decisions.md ODD-4 and architecture.md \u00a7Slice plan explicitly permit DELIVER to trim to slices 01\u201302. fail_on_skipped stays ON, so the @pending S7/S8 are excluded from every lane and @all stays green until a future slice un-@pends them. SCENARIO\u2192STEP MAPPING (each scenario greened by exactly one step): 01-01 = S1 (lane-probe/walking-skeleton \u2014 the instrument proof) + S2 (invalid create shows the reason, no card); 01-02 = S3 (fix-and-resubmit succeeds, _csrf preserved by slot-only swap) + S4 (valid create unaffected, blast-radius guard); 02-01 = S5 (invalid issue edit shows the reason, card unchanged); 02-02 = S6 (invalid comment edit shows the reason inline, original text kept). Max scenarios per step = 2 (\u2264 4). Step IDs match ^\\d{2}-\\d{2}$. DECOMPOSITION RATIO: 4 steps / 5 distinct production files (static/js/form-errors.js, templates/base.html, partials/new_issue_modal.html, partials/issue_edit_modal.html, partials/comment_edit_form.html) = 0.8 (\u2264 2.5). Every step greens \u2265 1 scenario; no files_to_modify is empty (01-02 modifies the glue file + the feature file to add + un-@pend its two scenarios). CLIENT-SIDE + BROWSER-LANE ONLY (ADR-001 D3, architecture.md \u00a7Server unchanged): ZERO server change, ZERO new route/endpoint/migration \u2014 latest migration STAYS 0014; every handler keeps returning byte-identical 400/422 + bare fragment, so every shipped HTTP-lane oracle (feature_board_new_issue.rs, feature_issue_edit_dialog.rs, us_10_comment_edit_delete.rs, et al.) stays green and is NOT touched. THE @needs-browser ORACLE RATIONALE (ADR-002, the non-negotiable): the fix is client-side JavaScript; the HTTP acceptance lane (reqwest + scraper) never runs JS and returns a byte-identical response before and after \u2014 only the DOM differs \u2014 so it is BLIND to the swap (RCA Root Cause B, the exact hole that let the defect ship green). Every scenario therefore drives a REAL browser (fantoccini + chromedriver, the shipped keyboard-shortcut-bindings lane) and asserts the error is PRESENT AND VISIBLE in the rendered DOM. chromedriver 150 matches Chrome 150 so the lane runs; @needs-browser is IN the `all` lane, EXCLUDED from the fast default; all DOM waits use bounded wait().for_element (NEVER sleeps), matching the keyboard-lane discipline; browser-lane operational traps ([[foundry-browser-lane-fantoccini]]) \u2014 chromedriver version-match preflight, testcontainer leakage \u2192 PoolTimedOut, no-JS/timing flakes \u2014 are budgeted. FALSIFICATION (encoded per step, test-scenarios.md \u00a7Falsification): S1/S2 RED against a build WITHOUT form-errors.js or the [data-error-slot] (error invisible \u2014 the direct defect reproduction and the proof the oracle can see it); S4 RED against a handler that also fires on 2xx (over-broad guard mis-swaps a success); S3 RED against a full-#modal-root replace on error (drops _csrf \u2192 resubmit fails CSRF \u2192 no card); S5 RED against issue_edit_modal.html without a slot; S6 RED against comment_edit_form.html without a slot. STEP GLUE REGISTRATION: the new feature_form_error_display.rs is created in 01-01 and registered via `pub mod feature_form_error_display;` in crates/foundry-acceptance/src/lib.rs AND force-linked via `use ... as _feature_form_error_display;` in crates/foundry-acceptance/tests/acceptance.rs (the shipped pattern, verified against keyboard_shortcut_bindings + feature_new_issue_dialog_description). MUTATION TESTING: there is essentially NO Rust production logic in this feature \u2014 the change is a vanilla-JS handler (form-errors.js) plus template slots \u2014 so mutation testing has ~no Rust target, exactly like the keyboard-shortcut-bindings precedent. RED_UNIT is SKIPPED / NOT_APPLICABLE: the workspace ships no JS unit harness (keyboard-shortcut-bindings ADR-007), and per ADR-002 a JS unit test would be insufficient anyway \u2014 the bug is the INTEGRATION of htmx + the handler + the form markup + the real 4xx, which only the end-to-end @needs-browser drive exercises. The @needs-browser DOM oracle IS the falsifiable test for this feature.",
+    "reviewed_at": "2026-07-18",
+    "verdict": "approved \u2014 1:1 coverage S1-S6, deps 01\u219202, ADR-002 DOM oracle enforced, falsification pinned, client-side-only"
+  }
+}
