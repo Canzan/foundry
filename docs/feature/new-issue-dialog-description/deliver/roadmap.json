@@ -1,0 +1,256 @@
+{
+  "roadmap": {
+    "created_at": "2026-07-17T00:00:00Z",
+    "project_id": "new-issue-dialog-description",
+    "total_steps": 7
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "Slice 01 \u2014 the web create field: thread one optional description through the shipped create pipe (store \u2192 service \u2192 web \u2192 templates)",
+      "description": "THE WALKING SKELETON. Everything downstream depends on slice 01's service param. Bottom-up per walking-skeleton.md: the store seam reds first, then the vertical thread proves the field survives the whole round-trip (create \u2192 store \u2192 back in the edit dialog). No slice-02/03 step may start until 01's create_issue(\u2026, description) param exists. ZERO new routes, ZERO endpoints, ZERO migrations \u2014 latest migration stays 0014; description_md and its CHECK(length \u2264 262144) already ship.",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "The store seam: insert_issue_with_outbox gains a description param, INSERTs description_md, and all seven call-sites pass \"\"",
+          "criteria": [
+            "Greens exactly these store-integration cases: \"insert_issue_with_outbox persists a supplied description\", \"empty description writes \\\"\\\" (byte-identical to today)\", and \"workspace isolation unchanged by the new param\".",
+            "Observable outcome (walking-skeleton.md step 1, the FIRST failing test): a store test drives insert_issue_with_outbox with a supplied description and reads the new row back \u2014 its description_md equals the supplied value; a create passing \"\" writes description_md = \"\" byte-identically to today; a create is scoped to the acting workspace exactly as before. RED first by NOT COMPILING (no param), then RED by assertion until the existing INSERT within the same tx includes description_md = $.",
+            "The compile-forcing change (design/wave-decisions.md \u00a7DELIVER note, 7 call-sites verified 2026-07-17, RE-GREP before editing in case new callers landed): add description: &str to insert_issue_with_outbox (store/lib.rs:1359) and update every caller to pass \"\" so behavior stays byte-identical \u2014 (1) the fn definition store/lib.rs, (2) services::create_issue services/issues.rs:69 [passes \"\" HERE, gets its REAL value in 01-02], (3) services/tests/write_use_cases.rs, (4) services/tests/board_use_case.rs, (5) acceptance steps/keyboard_shortcut_bindings.rs, (6) acceptance steps/feature_mwt_slice_01_coexist.rs, (7) acceptance steps/feature_a_programmatic.rs. The compiler enforces completeness \u2014 a mechanical MEDIUM-risk task, not a hidden one.",
+            "No new query, no migration: description_md is a live column the edit path already writes; the INSERT is widened, not added. The column's DB CHECK(length \u2264 262144) remains the last line of defense; slice 03's service bound keeps it from ever firing on the app path.",
+            "Genuinely RED by MISSING: insert_issue_with_outbox has no description param today, so the store test fails to compile until the param lands and fails its assertion until the INSERT carries description_md. Bottom-up per the walking skeleton \u2014 the store seam is proven before the vertical thread rides it.",
+            "ZERO new routes, ZERO endpoints, ZERO migrations; latest migration stays 0014."
+          ],
+          "test_file": "crates/foundry-store/tests/insert_issue_with_outbox.rs",
+          "scenario_name": "insert_issue_with_outbox persists a supplied description; empty description writes \"\" byte-identically; workspace isolation unchanged by the new param",
+          "files_to_modify": [
+            "crates/foundry-store/src/lib.rs",
+            "crates/foundry-services/src/issues.rs",
+            "crates/foundry-services/tests/write_use_cases.rs",
+            "crates/foundry-services/tests/board_use_case.rs",
+            "crates/foundry-acceptance/src/steps/keyboard_shortcut_bindings.rs",
+            "crates/foundry-acceptance/src/steps/feature_mwt_slice_01_coexist.rs",
+            "crates/foundry-acceptance/src/steps/feature_a_programmatic.rs",
+            "crates/foundry-store/tests/insert_issue_with_outbox.rs"
+          ],
+          "implementation_scope": {
+            "source_directories": [
+              "crates/foundry-store/src/"
+            ],
+            "notes": "Store adapter only. The param addition is compile-forcing across 7 call-sites (all pass \"\" except services::create_issue, which threads a real value in 01-02). New store test file mirrors the sibling update_issue_details.rs. No migration \u2014 description_md ships."
+          }
+        },
+        {
+          "id": "01-02",
+          "name": "The vertical thread: description reaches the service, the form, the modal, and the partial \u2014 create persists it and it round-trips to edit",
+          "criteria": [
+            "Greens exactly these scenarios: \"The new-issue dialog offers a Description field\" (S1), \"Filing an issue with a description persists it and returns the Backlog card\" (S2, the walking-skeleton entry point), \"A filed description round-trips to the edit dialog\" (S3, the read-side persistence proof), and \"Description is optional \u2014 a title-only create stores an empty description\" (S4).",
+            "Dialog offers the field (S1, AC-01.1): fetching the new-issue dialog for the project returns a modal form carrying a description textarea beside the title input, and that textarea is empty on a normal open.",
+            "Create persists + OOB card (S2, AC-01.2/.3): filing an issue titled + described as an htmx request makes the store row's description_md equal the typed value, the response is an out-of-band fragment targeting the backlog column, and it renders a card showing the key and title. The happy-path card markup is byte-identical \u2014 render_issue_card_with_column_marker does NOT render the description.",
+            "Round-trip (S3, AC-01.4): after filing with a description, opening the edit dialog for that issue shows the description field pre-filled with the typed value \u2014 persistence proven from the read side.",
+            "Optional (S4, AC-01.5): filing with an empty description stores description_md = \"\" and still renders the card \u2014 absent/empty normalizes to empty via #[serde(default)].",
+            "The thread (architecture.md \u00a7Components, mirror the shipped edit path, invent nothing): services::create_issue(\u2026, description: &str) (issues.rs:49) + its facade (services/lib.rs:57) forward the value to insert_issue_with_outbox (now threading a REAL value, no longer \"\"); CreateIssueForm gains #[serde(default)] description: String (app/issues.rs:62) mirroring EditIssueForm; submit_create forwards form.description (app/issues.rs:70); NewIssueModal + NewIssueModalPage each gain description: String (views.rs:79,99) so both surfaces that {% include %} the single partial carry the field it reads; show_new_issue_modal + the GET renderers pass String::new() (keyboard.rs); partials/new_issue_modal.html gains <label>Description <textarea name=\"description\">{{ description }}</textarea></label> between title and submit, mirroring issue_edit_modal.html:7.",
+            "Falsification (walking-skeleton.md): S2 MUST be shown RED against a submit_create that drops form.description \u2014 the field must actually reach the store, not be silently discarded.",
+            "Genuinely RED by MISSING: today the modal has no description textarea, CreateIssueForm has no description field, and create_issue takes no description \u2014 the field cannot survive the round trip until every layer threads it. ZERO new routes, ZERO endpoints, ZERO migrations."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/new-issue-dialog-description.feature",
+          "scenario_name": "Filing an issue with a description persists it and returns the Backlog card",
+          "files_to_modify": [
+            "crates/foundry-services/src/issues.rs",
+            "crates/foundry-services/src/lib.rs",
+            "crates/foundry-app/src/issues.rs",
+            "crates/foundry-app/src/views.rs",
+            "crates/foundry-app/src/keyboard.rs",
+            "crates/foundry-app/templates/partials/new_issue_modal.html",
+            "crates/foundry-acceptance/src/steps/feature_new_issue_dialog_description.rs",
+            "crates/foundry-acceptance/tests/features/new-issue-dialog-description.feature"
+          ],
+          "implementation_scope": {
+            "source_directories": [
+              "crates/foundry-services/src/",
+              "crates/foundry-app/src/",
+              "crates/foundry-app/templates/partials/"
+            ],
+            "notes": "The core skeleton. Every edit adds a field/param to an existing struct/fn/template mirroring the shipped edit path \u2014 zero net-new components. create_issue now threads a REAL description (superseding the \"\" it passed in 01-01). The acceptance glue file feature_new_issue_dialog_description.rs is created here and registered + force-linked; reuse board-new-issue Background + issue-edit open/save helpers."
+          }
+        },
+        {
+          "id": "01-03",
+          "name": "The create-path edges: empty-title still 400 with no row, the no-JS full-page form carries the field, and a foreign dialog is refused",
+          "criteria": [
+            "Greens exactly these scenarios: \"An empty title is rejected and no issue is created, even with a typed description\" (S5), \"No-JS fallback \u2014 the full-page form carries the field and files with a description\" (S6), and \"Requesting the new-issue dialog for a foreign project is refused non-enumerably\" (S7).",
+            "Empty title rejected \u2014 HTTP-OBSERVABLE ONLY (S5, AC-01.6, the load-bearing harness caveat): filing with an empty title but a typed description as an htmx request returns the \"Title is required\" 400 error fragment and NO issue is created. The scenario asserts the HTTP RESPONSE (400 + fragment) and the absence of a row \u2014 NEVER a visible DOM message. Input survival (htmx 2.0.4 does not swap the 400, so the modal keeps the typed description) is a browser-dogfood item, not an automated assertion; the {{ description }} echo binding from 01-02 is defensive only.",
+            "No-JS fallback (S6, AC-01.7): the full-page new-issue form carries a description textarea, and a plain (non-htmx) form POST with a title + description redirects (303) to the board and stores the description. The fallback template new_issue_modal_page.html gains the textarea so the scripting-off path is not amputated.",
+            "Foreign project refused (S7, AC-01.8): requesting the new-issue dialog for a project in a different workspace returns the uniform not-found page \u2014 tenancy (resolve_member_project) is untouched; foreign project \u2192 uniform 404, non-enumerable.",
+            "Falsification (walking-skeleton.md): S6 MUST be shown RED against a new_issue_modal_page.html that lacks the textarea \u2014 a green htmx path says nothing about the fallback surface.",
+            "Genuinely RED by MISSING: the full-page fallback form has no description textarea until this step adds it; S5 and S7 exercise shipped tenancy/validation behavior but were never asserted with a description present in the create body. ZERO new routes, ZERO endpoints, ZERO migrations."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/new-issue-dialog-description.feature",
+          "scenario_name": "No-JS fallback \u2014 the full-page form carries the field and files with a description",
+          "files_to_modify": [
+            "crates/foundry-app/templates/new_issue_modal_page.html",
+            "crates/foundry-acceptance/src/steps/feature_new_issue_dialog_description.rs",
+            "crates/foundry-acceptance/tests/features/new-issue-dialog-description.feature"
+          ],
+          "implementation_scope": {
+            "source_directories": [
+              "crates/foundry-app/templates/"
+            ],
+            "notes": "S5 (error) and S7 (tenancy) green by inheritance from 01-02's threaded field plus shipped behavior \u2014 the only NEW production edit is the fallback template's textarea (S6). Error assertion is HTTP-only per the htmx-non-swap harness caveat; typed-input survival is dogfood, not asserted."
+          }
+        },
+        {
+          "id": "01-04",
+          "name": "Change-history coherence: a created description emits no event, and its first edit reports the created value as old_value",
+          "criteria": [
+            "Greens exactly these scenarios: \"Creating an issue with a description emits no change-history event\" (S15) and \"The first edit of a created description reports the created value as the old value\" (S16).",
+            "No event on create (S15, issue-change-history ODD-5 \"start empty\"): filing an issue with a description leaves the change-history timeline for that issue EMPTY \u2014 v1 records CHANGES, not creation. insert_issue_with_outbox emits IssueCreated (unchanged); creating with a description is not a timeline event.",
+            "First edit reports created value (S16): after filing with description \"First\" and saving an edit to \"Second\", a description change event records old value \"First\" and new value \"Second\" \u2014 the created value is the coherent baseline the first edit diffs against.",
+            "Genuinely RED by MISSING: these coherence invariants have never been exercised for a description supplied at CREATE time (previously descriptions could only arrive via edit). No production change is required beyond 01-02's threaded field \u2014 the assertions pin that threading a description through create does not perturb the change-history contract.",
+            "ZERO new routes, ZERO endpoints, ZERO migrations; no outbox change."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/new-issue-dialog-description.feature",
+          "scenario_name": "The first edit of a created description reports the created value as the old value",
+          "files_to_modify": [
+            "crates/foundry-acceptance/src/steps/feature_new_issue_dialog_description.rs",
+            "crates/foundry-acceptance/tests/features/new-issue-dialog-description.feature"
+          ],
+          "implementation_scope": {
+            "source_directories": [],
+            "notes": "Cross-feature coherence, greened by inheritance from 01-02's threaded field \u2014 no NEW production code, only new acceptance assertions and un-@pending. Reuse issue-change-history timeline helpers. Confirms creating-with-a-description keeps the change-history invariants (ODD-5) intact."
+          }
+        }
+      ]
+    },
+    {
+      "id": "02",
+      "name": "Slice 02 \u2014 API parity: the JSON create surface gains the same optional description, forwarded through the shared service (depends on slice 01)",
+      "description": "Rule-parity with the web surface (NFR-WEB-API-CON-02). Depends on slice 01's create_issue(\u2026, description) param. The response body is UNCHANGED \u2014 read-back equality is served by the persisted value, not by widening the create response. ZERO new routes, ZERO endpoints, ZERO migrations.",
+      "steps": [
+        {
+          "id": "02-01",
+          "name": "CreateIssueRequest gains an optional description and create_issue_handler forwards it \u2014 present or omitted, both back-compatible",
+          "criteria": [
+            "Greens exactly these scenarios: \"A machine files an issue with a description through the API\" (S8) and \"Omitting the description over the API keeps existing clients working\" (S9).",
+            "API create with description (S8, AC-02.1/.2): a machine POSTing JSON {title, description} is accepted with the next sequential key, and reading that issue back returns the supplied description \u2014 read-back equality served by the persisted value.",
+            "Omission is back-compatible (S9, AC-02.1): a machine POSTing JSON {title} with no description field is accepted and stores description_md = \"\" \u2014 existing clients are byte-compatible because CreateIssueRequest gains #[serde(default)] description: String (ADR-001 \u00a7serde): absent/null/\"\" all normalize to empty.",
+            "The edit (architecture.md \u00a7API): CreateIssueRequest { title, #[serde(default)] description: String } (api/lib.rs:85); create_issue_handler (api/lib.rs:378) passes request.description to the shared service. The response body IssueJson { key, number, title, state } is UNCHANGED \u2014 an api-contract widening explicitly avoided (D4).",
+            "Genuinely RED by MISSING: CreateIssueRequest has no description field today, so a JSON description is dropped before reaching the service until this step forwards it. ZERO new routes, ZERO endpoints, ZERO migrations."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/new-issue-dialog-description.feature",
+          "scenario_name": "A machine files an issue with a description through the API",
+          "files_to_modify": [
+            "crates/foundry-api/src/lib.rs",
+            "crates/foundry-acceptance/src/steps/feature_new_issue_dialog_description.rs",
+            "crates/foundry-acceptance/tests/features/new-issue-dialog-description.feature"
+          ],
+          "implementation_scope": {
+            "source_directories": [
+              "crates/foundry-api/src/"
+            ],
+            "notes": "One driving adapter, one field + one forward. Reuse feature_a_programmatic machine-credential + API-write helpers. Response contract unchanged (D4). Depends on slice 01's create_issue param."
+          }
+        }
+      ]
+    },
+    {
+      "id": "03",
+      "name": "Slice 03 \u2014 the shared length bound: one DESCRIPTION_MAX_LEN enforced on create AND edit, converting the edit path's DB-CHECK 500 into a clean refusal (depends on slice 01)",
+      "description": "One const DESCRIPTION_MAX_LEN = 262144 (matching the DB CHECK, ADR-002), counted in chars, enforced in BOTH create_issue and edit_issue_details. Web \u2192 bad_request_fragment (400); API \u2192 422. Converts today's edit-path DB-CHECK 500 into a clean validation refusal at the identical threshold. ZERO new routes, ZERO endpoints, ZERO migrations.",
+      "steps": [
+        {
+          "id": "03-01",
+          "name": "The bound on create: over-long refused with no row, exactly-at-bound accepted, and length counted in chars not bytes",
+          "criteria": [
+            "Greens exactly these scenarios: \"An over-long description is refused on create and no issue is created\" (S10), \"A description exactly at the maximum is accepted\" (S12), and \"Length is counted in characters, not bytes \u2014 multi-byte content at the bound is accepted\" (S13).",
+            "Over-long refused \u2014 HTTP-OBSERVABLE ONLY (S10, AC-03.2): filing a 262145-character description as an htmx request returns the \"Description is too long\" 400 error fragment and NO issue is created. Asserts the HTTP response (400 + fragment) + no row, NEVER a visible DOM message (htmx 2.0.4 does not swap the 400).",
+            "Exactly at the bound (S12, AC-03.4): a 262144-character description is accepted and the store row holds 262144 characters \u2014 the bound is inclusive.",
+            "Counted in chars (S13, AC-03.5): a 262144 multi-byte-character description is accepted \u2014 the rule is chars().count(), not byte length, mirroring the title rule.",
+            "The edit (architecture.md \u00a7Service): const DESCRIPTION_MAX_LEN: usize = 262144; beside TITLE_MAX_LEN (services/issues.rs:30), value matching the DB CHECK; create_issue validates description length after title validation and before insert; over-length \u2192 ServiceError::Validation { code: \"description_too_long\", message: \"Description is too long\" } \u2192 web bad_request_fragment (400).",
+            "Falsification (walking-skeleton.md): S12/S13 MUST be shown RED against an off-by-one (exclusive) bound AND against a byte-count (rather than char-count) implementation \u2014 both wrong bounds must be observably caught.",
+            "Genuinely RED by MISSING: no DESCRIPTION_MAX_LEN exists and create_issue does not validate description length, so an over-long description reaches the DB CHECK today; this step moves the refusal up to the service. ZERO new routes, ZERO endpoints, ZERO migrations.",
+            "ORCHESTRATOR AMENDMENT 2026-07-17: added crates/foundry-app/src/issues.rs to files_to_modify \u2014 submit_create is the arm for this step hardcode bad_request_fragment(\"Title is required\") for EVERY ServiceError::Validation, discarding the message. S10/S11 assert the \"Description is too long\" fragment, so the handler must route the description_too_long code to its own message (add a specific arm; keep the title_required fallback byte-identical so shipped \"Title is required\" tests stay green). Do NOT touch the state-move arms (:200/:386, \"Invalid issue state\").",
+            "ORCHESTRATOR AMENDMENT 2026-07-18 (user-approved): the CSRF middleware (csrf.rs:124 extract_form_token) buffers every form body at a 64KB cap via to_bytes(body, 64*1024) \u2014 a global layer (lib.rs:585) over all form POSTs \u2014 so a 262144-char description NEVER reaches submit_create/submit_edit; the request is rejected before the handler. To make the DB-matching 262144 bound reachable via WEB: raise the CSRF buffer cap to cover the max issue body AND add a per-route DefaultBodyLimit on the issue create POST (lib.rs:488) following the attachments.rs precedent. Keep the increase scoped to the issue write path \u2014 do NOT broadly expand unrelated form routes' effective ceiling (sign-in etc. stay tight via their own/axum-default limit). In S13 use a 2-BYTE multibyte char (e.g. '\u00e9') so the urlencoded 262144-char body stays under ~2MB (axum's default global limit). This TOUCHES A SECURITY/DoS CONTROL \u2014 document the rationale in code and it will be flagged for the security review. The edit route's per-route limit lands in 03-02."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/new-issue-dialog-description.feature",
+          "scenario_name": "An over-long description is refused on create and no issue is created",
+          "files_to_modify": [
+            "crates/foundry-services/src/issues.rs",
+            "crates/foundry-acceptance/src/steps/feature_new_issue_dialog_description.rs",
+            "crates/foundry-acceptance/tests/features/new-issue-dialog-description.feature",
+            "crates/foundry-app/src/issues.rs",
+            "crates/foundry-app/src/csrf.rs",
+            "crates/foundry-app/src/lib.rs"
+          ],
+          "implementation_scope": {
+            "source_directories": [
+              "crates/foundry-services/src/"
+            ],
+            "notes": "The one genuinely new line of logic in the whole feature (a char-count bound), itself a copy of the title check. Web 400 path reuses the shipped ServiceError::Validation \u2192 bad_request_fragment arm \u2014 no web-layer code. Depends on slice 01's create_issue param."
+          }
+        },
+        {
+          "id": "03-02",
+          "name": "The same bound on edit and API: the edit path's DB-CHECK 500 becomes a clean refusal that leaves the issue untouched, and the API refuses by the identical rule with 422",
+          "criteria": [
+            "Greens exactly these scenarios: \"An over-long description is refused on edit, leaving the issue untouched\" (S11) and \"The API refuses an over-long description by the same rule the browser enforces\" (S14).",
+            "Edit refused, issue untouched \u2014 the 500\u2192refusal conversion (S11, AC-03.3): saving the edit dialog with a 262145-character description returns the \"Description is too long\" 400 error fragment, and the issue STILL has its original title and description in the store \u2014 no partial write. Today this produces a DB-CHECK 500; after this step it is a clean validation refusal at the identical threshold. edit_issue_details (services/issues.rs:174) applies the SAME DESCRIPTION_MAX_LEN validation from 03-01 BEFORE the read-old \u2192 update_issue_details transaction (D2).",
+            "Falsification (walking-skeleton.md): S11 MUST be shown RED against a validate-AFTER-write ordering \u2014 the issue must be untouched on refusal, so the guard has to run before the UPDATE tx, not after. This is the ordering that distinguishes a clean refusal from the old 500-with-side-effects.",
+            "API parity (S14, AC-02.4): a machine POSTing a 262145-character description over the API is rejected as unprocessable (422) and the rejection reason matches the browser's \"Description is too long\" rule \u2014 the shared ServiceError::Validation surfaces as 422 on the API adapter and 400 on the web adapter, one rule enforced in one place (NFR-WEB-API-CON-02).",
+            "Genuinely RED by MISSING: edit_issue_details does not validate description length today (it relies on the DB CHECK, producing a 500), and the API create path has no description bound until 03-01's const is enforced through create_issue_handler's 422 mapping. Green-by-inheritance leans on 03-01's DESCRIPTION_MAX_LEN; this step applies it at the edit and API call sites rather than duplicating the constant.",
+            "ZERO new routes, ZERO endpoints, ZERO migrations.",
+            "ORCHESTRATOR AMENDMENT 2026-07-17: added crates/foundry-app/src/issues.rs to files_to_modify \u2014 submit_edit is the arm for this step hardcode bad_request_fragment(\"Title is required\") for EVERY ServiceError::Validation, discarding the message. S10/S11 assert the \"Description is too long\" fragment, so the handler must route the description_too_long code to its own message (add a specific arm; keep the title_required fallback byte-identical so shipped \"Title is required\" tests stay green). Do NOT touch the state-move arms (:200/:386, \"Invalid issue state\").",
+            "ORCHESTRATOR AMENDMENT 2026-07-18: the CSRF buffer cap is raised in 03-01 (global). THIS step adds the per-route DefaultBodyLimit on the issue EDIT POST (lib.rs:510) so submit_edit can receive a 262144-char description, mirroring the create route limit from 03-01."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/new-issue-dialog-description.feature",
+          "scenario_name": "An over-long description is refused on edit, leaving the issue untouched",
+          "files_to_modify": [
+            "crates/foundry-services/src/issues.rs",
+            "crates/foundry-api/src/lib.rs",
+            "crates/foundry-acceptance/src/steps/feature_new_issue_dialog_description.rs",
+            "crates/foundry-acceptance/tests/features/new-issue-dialog-description.feature",
+            "crates/foundry-app/src/issues.rs",
+            "crates/foundry-app/src/lib.rs"
+          ],
+          "implementation_scope": {
+            "source_directories": [
+              "crates/foundry-services/src/",
+              "crates/foundry-api/src/"
+            ],
+            "notes": "Applies 03-01's single DESCRIPTION_MAX_LEN to the two remaining call sites (edit + API). The edit change converts a DB-CHECK 500 into a clean refusal \u2014 validate BEFORE the read-old\u2192UPDATE tx so no partial write occurs. The API 422 mapping already exists for ServiceError::Validation; only the description bound feeds it."
+          }
+        }
+      ]
+    }
+  ],
+  "implementation_scope": {
+    "source_directories": [
+      "crates/foundry-store/src/",
+      "crates/foundry-services/src/",
+      "crates/foundry-app/src/",
+      "crates/foundry-app/templates/",
+      "crates/foundry-api/src/"
+    ],
+    "test_directories": [
+      "crates/foundry-store/tests/",
+      "crates/foundry-services/tests/",
+      "crates/foundry-acceptance/src/steps/",
+      "crates/foundry-acceptance/tests/features/"
+    ],
+    "excluded_patterns": [
+      "target/**",
+      "**/*.md"
+    ]
+  },
+  "validation": {
+    "status": "approved",
+    "reviewer": "nw-software-crafter-reviewer",
+    "authored_at": "2026-07-17",
+    "notes": "16 SSOT scenarios (S1\u2013S16) plus 3 store-integration cases across US-01/02/03 mapped to 7 steps in 3 phases; phase number = slice number, ordered 01\u219202\u219203, and slices 02 and 03 both depend on slice 01's create_issue(\u2026, description) service param. Scenario\u2192step mapping (each scenario greened by exactly one step): 01-01 = the 3 store-integration cases (insert persists a supplied description / empty writes \"\" / workspace isolation unchanged); 01-02 = S1 (dialog field), S2 (persist+OOB card \u2014 the walking-skeleton entry point), S3 (round-trip to edit), S4 (optional); 01-03 = S5 (empty-title 400 + no row), S6 (no-JS fallback), S7 (foreign refused); 01-04 = S15 (create emits no event), S16 (first edit reports created value as old_value); 02-01 = S8 (API create with description), S9 (API omission back-compat); 03-01 = S10 (over-long create refused), S12 (exactly-at-bound accepted), S13 (chars-not-bytes); 03-02 = S11 (over-long edit refused, issue untouched \u2014 today's DB-CHECK 500 becomes a clean refusal, validate BEFORE the read-old\u2192UPDATE tx), S14 (API 422 parity). Max scenarios per step is 4 (01-02). Step IDs match ^\\d{2}-\\d{2}$. Decomposition ratio: 7 steps / 9 distinct production files (store/lib.rs, services/issues.rs, services/lib.rs, app/issues.rs, app/views.rs, app/keyboard.rs, partials/new_issue_modal.html, new_issue_modal_page.html, api/lib.rs) = 0.78 (\u2264 2.5). ZERO new routes, ZERO endpoints, ZERO migrations \u2014 latest migration stays 0014; description_md and its CHECK(length \u2264 262144) already ship; every change is a field/param added to an existing struct/fn/template or a const beside an existing one, mirroring the shipped edit path (100% reuse of shape, zero net-new components). The insert_issue_with_outbox change (store/lib.rs:1359) is compile-forcing across 7 verified call-sites (design/wave-decisions.md \u00a7DELIVER note): the fn def, services::create_issue (the only real value, threaded in 01-02), services/tests/write_use_cases.rs, services/tests/board_use_case.rs, and acceptance steps keyboard_shortcut_bindings.rs / feature_mwt_slice_01_coexist.rs / feature_a_programmatic.rs \u2014 all pass \"\" except create_issue; the compiler enforces completeness, and DELIVER should RE-GREP before editing in case new callers landed. LOAD-BEARING HARNESS CAVEAT: the error scenarios (S5, S10, S11, S14) assert the HTTP response \u2014 400 + error fragment on web, 422 + body on API \u2014 and NEVER a visible DOM message, because vendored htmx 2.0.4 with default responseHandling does not swap a 4xx response; the modal stays open and typed input is preserved-but-invisible. S5's typed-input survival is therefore a browser-dogfood item, not an automated assertion, and the {{ description }} echo binding is defensive only. Falsification checks encoded per step: S2 red against a submit_create that drops the field, S6 red against a fallback template lacking the textarea, S12/S13 red against an off-by-one or byte-count bound, S11 red against validate-after-write. The @manual/browser-dogfood interactions (live press-c\u2192type\u2192Create\u2192reopen, field look, input survival) are carried by the dogfood checklist, not by any step.",
+    "reviewed_at": "2026-07-17",
+    "verdict": "approved \u2014 1:1 scenario coverage, deps 01\u2192{02,03}, load-bearing caveats + falsification encoded, zero testing-theater",
+    "amended_at": "2026-07-17",
+    "amendment": "03-01/03-02 files_to_modify += crates/foundry-app/src/issues.rs (validation-message routing gap)",
+    "amendment_2": "03-01 += csrf.rs,lib.rs (raise CSRF buffer + per-route create limit); 03-02 += lib.rs (per-route edit limit) \u2014 64KB form-body cap blocked the 262144 bound (user-approved 2026-07-18)"
+  }
+}
