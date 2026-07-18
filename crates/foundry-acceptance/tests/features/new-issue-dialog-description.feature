@@ -91,17 +91,17 @@ Feature: A member writes a description while filing an issue from the dialog
 
   # ---------------------------------------------------------------- US-02 (API)
 
-  @pending @real-io @slice2 @us-02 @driving_adapter @nfr-web-api-con-02
+  @real-io @slice2 @us-02 @driving_adapter @nfr-web-api-con-02
   Scenario: A machine files an issue with a description through the API
-    Given the admin has granted Mei a machine credential with write access to "Sandbox"
+    Given the admin has granted a machine credential for "api-writer" bound to Mei with write access to "Sandbox"
     When the machine files an issue titled "Rate limit" described "Return 429." to "Sandbox" through the API
     Then the write is accepted with the next sequential key
     And reading that issue back returns the description "Return 429."
 
-  @pending @real-io @slice2 @us-02 @driving_adapter
+  @real-io @slice2 @us-02 @driving_adapter
   Scenario: Omitting the description over the API keeps existing clients working
-    Given the admin has granted Mei a machine credential with write access to "Sandbox"
-    When the machine files an issue titled "No body" with no description field through the API
+    Given the admin has granted a machine credential for "api-writer" bound to Mei with write access to "Sandbox"
+    When the machine files an issue titled "No body" through the API
     Then the write is accepted with the next sequential key
     And reading that issue back returns an empty description
 

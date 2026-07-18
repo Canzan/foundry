@@ -131,6 +131,31 @@ async fn request_foreign_dialog(world: &mut FoundryWorld) {
     capture_get(world, &url, true).await;
 }
 
+// ----- When: S8 a machine files a described issue through the JSON API -------
+
+// NOTE (slice-2 reuse): the credential grant Given
+// (`the admin has granted a machine credential for "..." bound to Mei with write
+// access to "Sandbox"`) and the omit-description When
+// (`the machine files an issue titled "No body" through the API`, S9) reuse the
+// SHIPPED us-w05c API-write glue in `feature_a_programmatic.rs` verbatim — those
+// steps mint the real bearer into `world.fa_credential` and POST `{title}` only.
+// The only genuinely-new API phrase is S8's described-create below (the shipped
+// programmatic When has no `description` leg — that is exactly what US-02 adds).
+
+#[when(
+    regex = r#"^the machine files an issue titled "([^"]*)" described "([^"]*)" to "([^"]+)" through the API$"#
+)]
+async fn machine_files_described_api(
+    world: &mut FoundryWorld,
+    title: String,
+    description: String,
+    project: String,
+) {
+    ensure_harness(world).await;
+    let body = serde_json::json!({ "title": title, "description": description }).to_string();
+    post_issue_json(world, &project, body).await;
+}
+
 // ----- Given: a described issue already filed (precondition for S3) ---------
 
 #[given(regex = r#"^Mei has filed an issue titled "([^"]*)" described "([^"]*)" to "([^"]+)"$"#)]
@@ -289,6 +314,45 @@ async fn created_issue_has_description(
     );
 }
 
+// ----- Then: S8/S9 the API write is accepted and reads back its description --
+
+#[then(regex = r#"^the write is accepted with the next sequential key$"#)]
+async fn write_accepted_next_key(world: &mut FoundryWorld) {
+    let status = world.last_status.expect("status captured");
+    assert_eq!(
+        status.as_u16(),
+        201,
+        "the API create must be accepted 201, got {status} body {:?}",
+        world.last_body
+    );
+    let issue = parse_created_issue(world);
+    assert!(
+        !issue.key.is_empty(),
+        "the accepted write must return the freshly-allocated sequential key: {:?}",
+        world.last_body
+    );
+}
+
+#[then(regex = r#"^reading that issue back returns the description "([^"]*)"$"#)]
+async fn read_back_returns_description(world: &mut FoundryWorld, expected: String) {
+    let key = parse_created_issue(world).key;
+    let stored = read_description(world, &key).await;
+    assert_eq!(
+        stored, expected,
+        "reading {key} back must return the description filed through the API (NFR-WEB-API-CON-02)"
+    );
+}
+
+#[then(regex = r#"^reading that issue back returns an empty description$"#)]
+async fn read_back_returns_empty_description(world: &mut FoundryWorld) {
+    let key = parse_created_issue(world).key;
+    let stored = read_description(world, &key).await;
+    assert!(
+        stored.is_empty(),
+        "omitting the description over the API must store an empty description for {key}, got {stored:?}"
+    );
+}
+
 // ----- Then: cross-feature issue-change-history coherence (store reads) ------
 
 /// S15 — creation records NO change event (issue-change-history ODD-5 "start
@@ -338,6 +402,53 @@ async fn change_event_records_old_new(
 }
 
 // ----- internals: authenticated HTTP + DB reads -----------------------------
+
+/// The `key` off the JSON create response (`foundry_api::IssueJson`). Only the
+/// key is needed for the store read-back; the response deliberately does NOT
+/// carry `description` (the create body is unchanged — read-back equality is
+/// served by a subsequent store read, not by echoing the description).
+#[derive(serde::Deserialize)]
+struct ApiCreatedIssue {
+    key: String,
+}
+
+fn parse_created_issue(world: &FoundryWorld) -> ApiCreatedIssue {
+    let body = world.last_body.as_deref().unwrap_or("");
+    serde_json::from_str::<ApiCreatedIssue>(body).unwrap_or_else(|err| {
+        panic!(
+            "expected a JSON issue carrying a key but parse failed ({err}); status {:?}, body {:?}",
+            world.last_status, body
+        )
+    })
+}
+
+/// POST a JSON create-issue body to the `/api/v1` write endpoint, carrying the
+/// machine bearer minted by the reused programmatic grant Given
+/// (`world.fa_credential`). Mirrors feature_a_programmatic's `post_create_issue`,
+/// specialized to this feature's fixed team addressing and adding the
+/// `description` leg under test (US-02).
+async fn post_issue_json(world: &mut FoundryWorld, project: &str, json_body: String) {
+    ensure_harness(world).await;
+    let harness = world.harness.as_ref().expect("harness");
+    let http = world.http.as_ref().expect("http");
+    let url = format!(
+        "{base}/api/v1/teams/{TEAM_SLUG}/projects/{project_slug}/issues",
+        base = harness.base_url(),
+        project_slug = slugify(project),
+    );
+    let mut request = http
+        .post(url)
+        .header(reqwest::header::CONTENT_TYPE, "application/json")
+        .body(json_body);
+    if let Some(credential) = world.fa_credential.clone() {
+        request = request.header(
+            reqwest::header::AUTHORIZATION,
+            format!("Bearer {credential}"),
+        );
+    }
+    let resp = request.send().await.expect("post api create-issue");
+    store(world, resp).await;
+}
 
 /// Count the append-only change events for an issue key (prefix + number).
 async fn count_change_events(world: &mut FoundryWorld, key: &str) -> i64 {

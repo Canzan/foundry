@@ -84,6 +84,14 @@ pub struct IssueJson {
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct CreateIssueRequest {
     pub title: String,
+    /// The optional issue description (new-issue-dialog-description US-02,
+    /// NFR-WEB-API-CON-02). Mirrors the shipped title handling: `#[serde(default)]`
+    /// keeps existing clients byte-compatible — a request omitting the key
+    /// deserializes to `""`, so the JSON create stores an empty description
+    /// exactly as before. When present, it threads through the SAME shared
+    /// `create_issue` write use-case the browser handler uses (rule-parity).
+    #[serde(default)]
+    pub description: String,
 }
 
 /// `PATCH .../issues/{number}` request body — a partial state mutation
@@ -382,10 +390,18 @@ async fn create_issue_handler(
     Json(request): Json<CreateIssueRequest>,
 ) -> Result<Response, ApiError> {
     let created = services
-        // The API description leg lands in new-issue-dialog-description slice 2
-        // (US-02); until then the JSON create stores an empty description,
-        // preserving the shipped API contract.
-        .create_issue(&principal, &team_slug, &project_slug, &request.title, "")
+        // Rule-parity (NFR-WEB-API-CON-02): thread the optional description
+        // through the SAME shared `create_issue` the browser handler uses
+        // (identical validation/authz/outbox). An omitted key deserializes to
+        // "" (CreateIssueRequest `#[serde(default)]`), preserving the shipped
+        // API contract for existing clients.
+        .create_issue(
+            &principal,
+            &team_slug,
+            &project_slug,
+            &request.title,
+            &request.description,
+        )
         .await?;
     let body = IssueJson {
         key: created.key,
@@ -676,6 +692,52 @@ pub mod token_auth {
             jti: claims.jti,
             scope_team_id: active.scope_team_id,
         })
+    }
+}
+
+#[cfg(test)]
+mod create_issue_request_tests {
+    //! Port-to-port serde test for the `CreateIssueRequest` wire shape
+    //! (new-issue-dialog-description US-02). `CreateIssueRequest`'s
+    //! deserialization IS the driving port — it is how a JSON body crosses into
+    //! `create_issue_handler`. This pins the `#[serde(default)]` back-compat
+    //! contract in isolation: an omitted `description` key deserializes to `""`
+    //! (existing clients unaffected — S9), a present key is carried verbatim
+    //! (S8). It is the fast, Postgres-free complement to the `@real-io` S8/S9
+    //! acceptance scenarios (which prove the full store round-trip).
+    //!
+    //! Behaviour budget: 1 distinct behaviour ("description deserializes:
+    //! absent -> \"\", present -> value") x2 = 2. Authored: 1, table-driven over
+    //! the equivalence classes (Mandate 5). Falsifiable: dropping
+    //! `#[serde(default)]` makes the omitted-key case fail to deserialize.
+
+    use super::*;
+
+    #[test]
+    fn description_defaults_when_absent_and_is_carried_when_present() {
+        let cases: [(&str, &str, &str); 3] = [
+            // (request body, expected title, expected description)
+            (r#"{"title":"No body"}"#, "No body", ""),
+            (
+                r#"{"title":"Rate limit","description":"Return 429."}"#,
+                "Rate limit",
+                "Return 429.",
+            ),
+            (
+                r#"{"title":"Empty body","description":""}"#,
+                "Empty body",
+                "",
+            ),
+        ];
+        for (body, want_title, want_description) in cases {
+            let request: CreateIssueRequest = serde_json::from_str(body)
+                .unwrap_or_else(|err| panic!("deserialize {body:?}: {err}"));
+            assert_eq!(request.title, want_title, "title for {body:?}");
+            assert_eq!(
+                request.description, want_description,
+                "description for {body:?} must honour the serde(default) back-compat contract"
+            );
+        }
     }
 }
 
