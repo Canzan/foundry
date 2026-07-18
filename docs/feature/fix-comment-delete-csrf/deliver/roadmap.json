@@ -1,0 +1,47 @@
+{
+  "roadmap": {
+    "created_at": "2026-07-18T00:00:00Z",
+    "project_id": "fix-comment-delete-csrf",
+    "total_steps": 1
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "Comment delete carries CSRF and succeeds in a real browser",
+      "description": "Regression browser test RED (comment delete 403s today, no token) then fix GREEN (hx-headers cookie->header CSRF echo on the Delete button). Client-side + template only; no server change, no route/endpoint/migration (latest stays 0014). The @needs-browser DOM oracle is the durable fix per RCA Root Cause B — the HTTP lane cannot see it.",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "The Delete button carries CSRF; a real-browser comment delete removes the card",
+          "criteria": [
+            "Greens exactly this scenario: 'A member can delete their comment from a real browser' (@needs-browser).",
+            "RED first (the defect, reproduced in a browser): seed a comment by Mei on GEN-1, open the issue page in a real browser, click Delete, and assert the comment card is removed from the DOM. Today the hx-delete carries NO CSRF token, csrf_middleware 403s it (is_safe_method excludes DELETE; module doc csrf.rs:5), so the card STAYS -> the assertion fails. This is the direct reproduction; the HTTP-lane us_10 tests miss it because they inject the token manually.",
+            "The fix (RCA; the correct idiom for a body-less DELETE): comment_card.html Delete button gains hx-headers='js:{\"x-csrf-token\": (document.cookie.match(/(?:^|; )foundry_csrf=([^;]+)/) || [])[1]}' -- the cookie->header double-submit board-dnd.js/csrf-upload.js already use. csrf_middleware accepts the x-csrf-token header (csrf.rs:181-186). foundry_csrf is non-HttpOnly by design.",
+            "CLIENT-SIDE + TEMPLATE ONLY: ZERO server change, ZERO new route/endpoint/migration (latest stays 0014). The Edit button (hx-get, safe) and the can_delete gate are untouched. No CSRF surface weakened -- it ADDS a token to a request that had none.",
+            "The @needs-browser DOM oracle is the deliverable (RCA Root Cause B): the HTTP lane injects the token and cannot see this defect; only a real-browser delete asserting the card is removed can. Bounded wait().for_element, never sleeps; reuse the shipped browser_harness + comment-seed/issue-page helpers.",
+            "Also verify the shipped HTTP-lane comment-delete tests (comment-edit-delete / us_10) STILL pass -- adding hx-headers is byte-additive to the button and does not change the server or the delete handler."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/fix-comment-delete-csrf.feature",
+          "scenario_name": "A member can delete their comment from a real browser",
+          "files_to_modify": [
+            "crates/foundry-app/templates/partials/comment_card.html",
+            "crates/foundry-acceptance/src/steps/feature_fix_comment_delete_csrf.rs",
+            "crates/foundry-acceptance/src/lib.rs",
+            "crates/foundry-acceptance/tests/acceptance.rs",
+            "crates/foundry-acceptance/tests/features/fix-comment-delete-csrf.feature"
+          ],
+          "implementation_scope": {
+            "source_directories": ["crates/foundry-app/templates/partials/"],
+            "notes": "One-line template attribute + a new @needs-browser regression scenario. Mirrors the comment-edit CSRF idiom (interim header echo), which is correct here because a DELETE has no body for a _csrf field. RED_UNIT is NOT_APPLICABLE (browser JS/template, no JS unit harness)."
+          }
+        }
+      ]
+    }
+  ],
+  "validation": {
+    "status": "approved",
+    "reviewer": "self (single-file hotfix — architect+reviewer subagents skipped as disproportionate; RCA done directly with in-tree evidence)",
+    "authored_at": "2026-07-18",
+    "verdict": "approved — 1 step, 1 scenario, ratio 1/1; confirmed defect (comment-delete 403s in browser); client-side+template only, no server change; @needs-browser DOM oracle per ADR-002 pattern; falsification = red today (403, card stays)."
+  }
+}
