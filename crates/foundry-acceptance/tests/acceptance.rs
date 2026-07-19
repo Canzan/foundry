@@ -26,6 +26,8 @@
 use cucumber::writer::Stats as _;
 use cucumber::World;
 use foundry_acceptance::support::compose_harness;
+use foundry_acceptance::support::harness;
+use foundry_acceptance::support::pg_backup;
 use foundry_acceptance::world::FoundryWorld;
 
 // Force-link the step modules so `inventory::submit!` items are not
@@ -294,6 +296,15 @@ async fn main() {
     if runs_compose {
         compose_harness::remove_shared_image();
     }
+
+    // Remove the two process-wide testcontainers NOW, while the tokio runtime
+    // is still alive. Their `Drop` cannot do it: testcontainers defers removal
+    // to an async task, and a static drops at process exit once the runtime is
+    // gone, so the task never runs — silently leaking a container per run, with
+    // no reaper to catch it (Ryuk does not exist in testcontainers-rs). Must
+    // stay ABOVE the failure panic below so a red run cleans up too.
+    harness::shutdown_postgres().await;
+    pg_backup::shutdown_restore_target().await;
 
     // Reproduce `filter_run_and_exit`'s fail-the-process behaviour: panic (which
     // fails the test binary) if any step / parse / hook error occurred.

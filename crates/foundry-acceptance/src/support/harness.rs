@@ -5,14 +5,21 @@
 //! - Per-scenario PG schema, search_path rotated on the pool.
 //! - Per-scenario AppState with `FakeEmailSender` + `MockClock`.
 //!
-//! Container lifetime: stored in a process-wide `OnceCell` (no `Box::leak`),
-//! so testcontainers' `Drop` fires when the static drops at process exit
-//! and stops + removes the container. A previous version used `Box::leak`
-//! which prevented `Drop` from running; that pattern accumulated dozens of
-//! containers across `cargo test` invocations and saturated developer
-//! Docker daemons. Testcontainers' bundled reaper sidecar is a belt-and-
-//! braces backup — it tags every container with the test session ID and
-//! reaps any that outlive the process by more than 90 s.
+//! Container lifetime: the container is held in a process-wide slot and
+//! removed EXPLICITLY by [`shutdown_postgres`], which `tests/acceptance.rs`
+//! calls at the end of `main`. Do not rely on `Drop` here: testcontainers'
+//! `ContainerAsync::drop` defers removal to an async task
+//! (`async_drop::async_drop`), and a static drops at *process exit*, after
+//! the tokio runtime is gone — so that task never runs and the container
+//! leaks, silently. Nor is there a reaper to catch it: Ryuk is a Java
+//! testcontainers feature and does not exist in testcontainers-rs 0.23
+//! (its only cleanup knob is `TESTCONTAINERS_COMMAND=remove|keep`).
+//!
+//! An earlier version used `Box::leak`, which accumulated dozens of
+//! containers per run; switching to a static fixed that but still leaked
+//! exactly one per run, for the reason above, until the explicit shutdown
+//! was added. `pg_backup::SHARED_RESTORE_CONTAINER` has the same shape and
+//! the same explicit teardown.
 
 use crate::support::file_upload_env;
 use crate::support::heartbeat_env;
@@ -37,7 +44,10 @@ use testcontainers_modules::testcontainers::ContainerAsync;
 use testcontainers_modules::testcontainers::ImageExt;
 use tokio::sync::OnceCell as AsyncOnceCell;
 
-static PG_CONTAINER: OnceCell<ContainerAsync<Postgres>> = OnceCell::new();
+/// Keep-alive slot for the shared container. `Mutex<Option<_>>` rather than
+/// `OnceCell` so [`shutdown_postgres`] can take ownership and call the
+/// consuming `rm()`; the value is never read otherwise.
+static PG_CONTAINER: Mutex<Option<ContainerAsync<Postgres>>> = Mutex::new(None);
 static PG_CONTAINER_INIT: AsyncOnceCell<()> = AsyncOnceCell::const_new();
 static PG_BASE_URL: OnceCell<String> = OnceCell::new();
 static SCHEMA_COUNTER: Mutex<u64> = Mutex::new(0);
@@ -77,18 +87,27 @@ pub async fn ensure_postgres() -> &'static str {
             // Default testcontainers postgres user/password/db.
             let url = format!("postgres://postgres:postgres@{host}:{port}/postgres");
             PG_BASE_URL.set(url).ok();
-            // `set` returns `Err(container)` on collision; we are
-            // inside `get_or_init` so collision is impossible, but
-            // `ContainerAsync` isn't `Debug`, so we can't `.expect()`
-            // directly. Map the error to a static string for the panic
-            // path that cannot trigger.
-            PG_CONTAINER
-                .set(container)
-                .map_err(|_| "PG_CONTAINER already set — impossible inside get_or_init")
-                .expect("set PG_CONTAINER once");
+            *PG_CONTAINER.lock().expect("pg container mutex") = Some(container);
         })
         .await;
     PG_BASE_URL.get().expect("postgres base URL set").as_str()
+}
+
+/// Stop and remove the shared Postgres container.
+///
+/// Called from `tests/acceptance.rs` at the end of `main`, while the tokio
+/// runtime is still alive — see this module's header for why `Drop` cannot
+/// do this. Idempotent (the slot is emptied) and a no-op if no scenario
+/// ever booted the container. Best-effort: a removal failure is reported on
+/// stderr but does not fail the run, since the tests themselves have
+/// already finished by this point.
+pub async fn shutdown_postgres() {
+    let container = PG_CONTAINER.lock().expect("pg container mutex").take();
+    if let Some(container) = container {
+        if let Err(e) = container.rm().await {
+            eprintln!("warning: failed to remove shared postgres container: {e}");
+        }
+    }
 }
 
 /// Provision a fresh per-scenario schema, run migrations into it, and

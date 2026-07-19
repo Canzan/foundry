@@ -17,9 +17,10 @@
 //! (shared) + 1 target. With six US-03 scenarios that is six extra
 //! containers over the course of the suite, plus one ephemeral
 //! container per `foundry doctor backup-verify` invocation to host the
-//! row-count probe. The `RestoreTarget` wraps the underlying
-//! `ContainerAsync<Postgres>` and is dropped at scenario teardown so
-//! the docker daemon reaps the container promptly.
+//! row-count probe. `RestoreTarget` is a cheap clone-able handle (admin
+//! URL + serialising mutex); the container itself is process-wide and is
+//! removed by [`shutdown_restore_target`] at the end of the run, not at
+//! scenario teardown.
 
 use once_cell::sync::OnceCell;
 use std::path::{Path, PathBuf};
@@ -116,16 +117,24 @@ impl RestoreTarget {
 }
 
 static SHARED_RESTORE_TARGET: AsyncOnceCell<RestoreTarget> = AsyncOnceCell::const_new();
-static SHARED_RESTORE_CONTAINER: OnceCell<ContainerAsync<Postgres>> = OnceCell::new();
+/// Keep-alive slot for the shared restore-target container.
+/// `Mutex<Option<_>>` rather than `OnceCell` so
+/// [`shutdown_restore_target`] can take ownership and call the consuming
+/// `rm()`; the value is never read otherwise.
+/// `std::sync::Mutex`, explicitly: the bare `Mutex` in this module is
+/// `tokio::sync::Mutex`, whose `new` is not `const` and so cannot
+/// initialise a `static`. Nothing here is held across an await.
+static SHARED_RESTORE_CONTAINER: std::sync::Mutex<Option<ContainerAsync<Postgres>>> =
+    std::sync::Mutex::new(None);
 
-/// Return the process-wide restore target. The underlying container is
-/// held in a `OnceCell` (NOT `Box::leak`'d) so testcontainers can run
-/// its `Drop` impl at process exit. Static destructors aren't guaranteed
-/// by Rust, but testcontainers' bundled reaper sidecar tags every
-/// container with the test session ID and reaps any stragglers within
-/// ~90s. Mac+Colima could not sustain a fresh per-scenario second
-/// container under the slice-3 load, so we share one across all US-03
-/// scenarios and serialise with `restore_mutex`.
+/// Return the process-wide restore target. The container is removed
+/// EXPLICITLY by [`shutdown_restore_target`] at the end of
+/// `tests/acceptance.rs` main — `Drop` cannot do it, because testcontainers
+/// defers removal to an async task and a static drops after the tokio
+/// runtime is gone. See `harness`'s module header for the full rationale.
+/// Mac+Colima could not sustain a fresh per-scenario second container under
+/// the slice-3 load, so we share one across all US-03 scenarios and
+/// serialise with `restore_mutex`.
 pub async fn spawn_restore_target() -> RestoreTarget {
     SHARED_RESTORE_TARGET
         .get_or_init(|| async {
@@ -140,10 +149,9 @@ pub async fn spawn_restore_target() -> RestoreTarget {
                 .await
                 .expect("restore-target port");
             let admin_url = format!("postgres://postgres:postgres@{host}:{port}/postgres");
-            SHARED_RESTORE_CONTAINER
-                .set(container)
-                .map_err(|_| "SHARED_RESTORE_CONTAINER already set — impossible inside get_or_init")
-                .expect("set SHARED_RESTORE_CONTAINER once");
+            *SHARED_RESTORE_CONTAINER
+                .lock()
+                .expect("restore container mutex") = Some(container);
             RestoreTarget {
                 admin_url,
                 restore_mutex: Arc::new(Mutex::new(())),
@@ -151,6 +159,23 @@ pub async fn spawn_restore_target() -> RestoreTarget {
         })
         .await
         .clone()
+}
+
+/// Stop and remove the shared US-03 restore-target container.
+///
+/// Counterpart to [`harness::shutdown_postgres`]; called from
+/// `tests/acceptance.rs` at the end of `main` while the tokio runtime is
+/// still alive. Idempotent, and a no-op when no US-03 scenario ran.
+pub async fn shutdown_restore_target() {
+    let container = SHARED_RESTORE_CONTAINER
+        .lock()
+        .expect("restore container mutex")
+        .take();
+    if let Some(container) = container {
+        if let Err(e) = container.rm().await {
+            eprintln!("warning: failed to remove US-03 restore-target container: {e}");
+        }
+    }
 }
 
 /// Invoke `pg_dump -Fc` against `source_url`, restricting to objects
