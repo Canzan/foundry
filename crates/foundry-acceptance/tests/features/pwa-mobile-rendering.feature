@@ -56,7 +56,7 @@ Feature: A member uses Foundry on their phone and installs it
 
   # ---------------------------------------------- Slice 02 — responsive surfaces
 
-  @pending @needs-browser @mobile @slice2 @us-02
+  @needs-browser @mobile @slice2 @us-02
   Scenario: An opened dialog fits the phone screen and its body scrolls
     Given Mei is on the "Sandbox" board in a mobile browser at 390x844
     When she opens the new-issue dialog
@@ -64,25 +64,25 @@ Feature: A member uses Foundry on their phone and installs it
     And the page has no horizontal overflow
     And the dialog body scrolls when its content is taller than the viewport
 
-  @pending @needs-browser @mobile @slice2 @us-02
+  @needs-browser @mobile @slice2 @us-02
   Scenario: The board columns scroll within their container, not the page
     Given the "Sandbox" board has several status columns
     And Mei opens the "Sandbox" board in a mobile browser at 390x844
     Then the page has no horizontal overflow
     And the board columns container is horizontally scrollable
 
-  @pending @needs-browser @mobile @slice2 @us-02
+  @needs-browser @mobile @slice2 @us-02
   Scenario: The navigation collapses to a mobile affordance
     Given Mei opens the dashboard in a mobile browser at 390x844
     Then the full desktop sidebar rail is not shown at full width
     And a mobile navigation affordance is present
 
-  @pending @needs-browser @mobile @slice2 @us-02
+  @needs-browser @mobile @slice2 @us-02
   Scenario: Primary controls are large enough to tap
     Given Mei is on the "Sandbox" board in a mobile browser at 390x844
     Then the "New issue" control is at least 44px in its smaller dimension
 
-  @pending @needs-browser @slice2 @us-02 @desktop @scoped
+  @needs-browser @slice2 @us-02 @desktop @scoped
   Scenario: Desktop rendering is unchanged
     # Blast-radius guard: the @media rules must not leak into desktop. Uses the shipped
     # DESKTOP session (open_session), not the mobile one.

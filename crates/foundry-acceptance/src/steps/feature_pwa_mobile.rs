@@ -29,7 +29,7 @@
 
 use crate::support::browser_harness;
 use crate::world::FoundryWorld;
-use cucumber::{given, then};
+use cucumber::{given, then, when};
 use fantoccini::Locator;
 use std::time::{Duration, Instant};
 
@@ -301,5 +301,349 @@ async fn hash_consistent_across_base_and_lib(_world: &mut FoundryWorld) {
         "base.html links foundry.{base_hash}.css but lib.rs's immutable-cache assertion names \
          foundry.{lib_hash}.css — a CSS hash rotation updated one reference and not the other, so \
          either the browser pins a stale stylesheet or the unit test guards a dead URL."
+    );
+}
+
+// ---------------------------------------------------------- S3–S7 (slice 02)
+//
+// Slice 02 makes the fitted-but-still-desktop-shaped surfaces from slice 01
+// genuinely responsive: the new-issue modal becomes a full-width sheet that caps
+// at the screen and scrolls its own body (S3), the board columns scroll WITHIN
+// their container while the page never widens (S4), the sidebar rail reflows to a
+// mobile top-bar affordance (S5), primary controls grow to a ~44px thumb target
+// (S6), and — the blast-radius guard — the DESKTOP session is UNCHANGED (S7),
+// proving every new rule stayed inside the `@media (max-width:480px)` bound.
+
+/// The centered white card inside the mounted new-issue modal. S3 measures THIS
+/// element (not the full-viewport `.modal` backdrop) for the sheet behaviour.
+const MODAL_DIALOG_SELECTOR: &str = "#modal-root [data-modal='new-issue'] .modal-dialog";
+
+/// Sign Mei in on a fresh DESKTOP session and settle the redirect — the S7
+/// counterpart of [`mobile_session_signed_in`], driving the SHIPPED desktop
+/// `open_session` (fixed 1280×900 window) so the blast-radius guard measures the
+/// real desktop layout, not the emulated phone.
+async fn desktop_session_signed_in(world: &FoundryWorld) -> fantoccini::Client {
+    let browser = browser_harness::new_session().await;
+    let harness = world
+        .harness
+        .as_ref()
+        .expect("the HTTP Background must have spawned harness");
+    browser_harness::sign_in_through_browser(&browser, harness, MEI_EMAIL, MEI_PASSWORD).await;
+    let deadline = Instant::now() + WAIT_TIMEOUT;
+    loop {
+        let cur = browser
+            .current_url()
+            .await
+            .map(|u| u.to_string())
+            .unwrap_or_default();
+        if !cur.is_empty() && !cur.contains("/sign-in") {
+            break;
+        }
+        if Instant::now() >= deadline {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    browser
+}
+
+/// Open the Sandbox board in an emulated-phone session and settle on it WITHOUT
+/// opening the dialog — the S3/S6 "Mei is on the board" precondition, a leaner
+/// sibling of [`opens_surface_in_mobile`].
+async fn open_board_mobile(world: &mut FoundryWorld) {
+    let browser = mobile_session_signed_in(world).await;
+    let url = board_url(world);
+    browser.goto(&url).await.expect("navigate to the board");
+    browser
+        .wait()
+        .at_most(WAIT_TIMEOUT)
+        .for_element(Locator::Css(".app-shell"))
+        .await
+        .expect("the board must render the authed .app-shell");
+    let landed = browser
+        .current_url()
+        .await
+        .expect("read the browser's current URL")
+        .to_string();
+    assert_eq!(
+        landed, url,
+        "opening the board landed on {landed} instead of {url} — the surface redirected away."
+    );
+    world.browser = Some(browser);
+}
+
+#[given(regex = r#"^Mei is on the "Sandbox" board in a mobile browser at 390x844$"#)]
+async fn on_board_mobile(world: &mut FoundryWorld) {
+    open_board_mobile(world).await;
+}
+
+/// S4 precondition — the default Sandbox board already renders the four fixed
+/// status columns (`Backlog/Todo/In-Progress/Done`, projects.rs `DEFAULT_COLUMNS`),
+/// so this Given is narrative: nothing to arrange, the assertion reads the live
+/// board. The follow-up `Mei opens the "Sandbox" board …` Given (S1's regex) opens
+/// the session.
+#[given(regex = r#"^the "Sandbox" board has several status columns$"#)]
+async fn board_has_several_columns(_world: &mut FoundryWorld) {}
+
+/// S7 — open the Sandbox board in the SHIPPED DESKTOP session (blast-radius guard).
+#[given(regex = r#"^Mei opens the "Sandbox" board in a desktop browser$"#)]
+async fn opens_board_desktop(world: &mut FoundryWorld) {
+    let browser = desktop_session_signed_in(world).await;
+    let url = board_url(world);
+    browser.goto(&url).await.expect("navigate to the board");
+    browser
+        .wait()
+        .at_most(WAIT_TIMEOUT)
+        .for_element(Locator::Css(".app-shell"))
+        .await
+        .expect("the desktop board must render the authed .app-shell");
+    world.browser = Some(browser);
+}
+
+/// S3 — open the new-issue dialog on the current mobile board session.
+#[when(regex = r"^she opens the new-issue dialog$")]
+async fn opens_new_issue_dialog(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("mobile browser session");
+    browser
+        .wait()
+        .at_most(WAIT_TIMEOUT)
+        .for_element(Locator::Css(NEW_ISSUE_TRIGGER))
+        .await
+        .expect("the board must render the New issue trigger")
+        .click()
+        .await
+        .expect("click the New issue trigger");
+    browser
+        .wait()
+        .at_most(WAIT_TIMEOUT)
+        .for_element(Locator::Css(DIALOG_SELECTOR))
+        .await
+        .expect("clicking New issue must open the dialog");
+}
+
+/// S3 — the mounted dialog card must be no wider than the phone's layout viewport.
+#[then(regex = r"^the dialog is no wider than the viewport$")]
+async fn dialog_not_wider_than_viewport(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("mobile browser session");
+    let dims = browser
+        .execute(
+            "var d = document.querySelector(arguments[0]);\
+             if (!d) { throw new Error('no .modal-dialog mounted'); }\
+             return [d.getBoundingClientRect().width, document.documentElement.clientWidth];",
+            vec![serde_json::Value::String(MODAL_DIALOG_SELECTOR.to_string())],
+        )
+        .await
+        .expect("measure the dialog vs the layout viewport width");
+    let arr = dims.as_array().expect("[dialogWidth, clientWidth]");
+    let dialog_w = arr[0].as_f64().expect("dialog width is a number");
+    let client_w = arr[1].as_f64().expect("clientWidth is a number");
+    assert!(
+        dialog_w <= client_w + 0.5,
+        "the new-issue dialog is {dialog_w}px wide but the phone layout viewport is only \
+         {client_w}px — below the breakpoint the dialog must become a full-width sheet \
+         (width:100%) so it fits the screen."
+    );
+}
+
+/// S3 — with content taller than the viewport the dialog caps at screen height and
+/// scrolls its own body, instead of growing past the phone. Injects a tall probe
+/// node so the overflow is real, not assumed.
+#[then(regex = r"^the dialog body scrolls when its content is taller than the viewport$")]
+async fn dialog_body_scrolls(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("mobile browser session");
+    let dims = browser
+        .execute(
+            "var d = document.querySelector(arguments[0]);\
+             if (!d) { throw new Error('no .modal-dialog mounted'); }\
+             var tall = document.createElement('div');\
+             tall.style.height = '4000px';\
+             tall.setAttribute('data-probe', 'tall');\
+             d.appendChild(tall);\
+             var vh = document.documentElement.clientHeight;\
+             var r = d.getBoundingClientRect();\
+             return [r.height, d.scrollHeight, d.clientHeight, vh];",
+            vec![serde_json::Value::String(MODAL_DIALOG_SELECTOR.to_string())],
+        )
+        .await
+        .expect("inject tall content and measure the dialog");
+    let arr = dims
+        .as_array()
+        .expect("[height, scrollHeight, clientHeight, vh]");
+    let height = arr[0].as_f64().unwrap();
+    let scroll_h = arr[1].as_f64().unwrap();
+    let client_h = arr[2].as_f64().unwrap();
+    let vh = arr[3].as_f64().unwrap();
+    assert!(
+        height <= vh + 1.0,
+        "with content taller than the {vh}px viewport the dialog grew to {height}px instead of \
+         capping at the screen height — the mobile sheet must set max-height:100vh."
+    );
+    assert!(
+        scroll_h > client_h,
+        "the dialog does not scroll its overflowing body (scrollHeight {scroll_h} <= clientHeight \
+         {client_h}) — the mobile sheet must set overflow-y:auto so a tall form scrolls inside the \
+         capped dialog."
+    );
+}
+
+/// S4 — the columns overflow their container, and the container (not the page)
+/// carries the horizontal scroll.
+#[then(regex = r"^the board columns container is horizontally scrollable$")]
+async fn board_columns_scrollable(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("mobile browser session");
+    let dims = browser
+        .execute(
+            "var b = document.querySelector('.board');\
+             if (!b) { throw new Error('no .board on the page'); }\
+             return [b.scrollWidth, b.clientWidth, getComputedStyle(b).overflowX];",
+            vec![],
+        )
+        .await
+        .expect("measure the board's scroll vs client width");
+    let arr = dims.as_array().unwrap();
+    let scroll_w = arr[0].as_f64().unwrap();
+    let client_w = arr[1].as_f64().unwrap();
+    let overflow_x = arr[2].as_str().unwrap_or("");
+    assert!(
+        scroll_w > client_w,
+        "the board columns do not overflow their container (scrollWidth {scroll_w} <= clientWidth \
+         {client_w}) — the columns must keep a min-width so the strip scrolls within .board instead \
+         of collapsing to fit."
+    );
+    assert!(
+        overflow_x == "auto" || overflow_x == "scroll",
+        "the .board container is not horizontally scrollable (overflow-x: {overflow_x}) — it must \
+         be auto/scroll so the columns scroll within it, not the page."
+    );
+}
+
+/// S5 — the fixed 240px desktop rail is gone; the sidebar spans the phone as a bar.
+#[then(regex = r"^the full desktop sidebar rail is not shown at full width$")]
+async fn desktop_rail_not_shown(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("mobile browser session");
+    let dims = browser
+        .execute(
+            "var s = document.querySelector('.sidebar');\
+             if (!s) { throw new Error('no .sidebar on the page'); }\
+             return [s.getBoundingClientRect().width, document.documentElement.clientWidth];",
+            vec![],
+        )
+        .await
+        .expect("measure the sidebar width");
+    let arr = dims.as_array().unwrap();
+    let width = arr[0].as_f64().unwrap();
+    let client_w = arr[1].as_f64().unwrap();
+    assert!(
+        (width - 240.0).abs() > 2.0 && width >= client_w * 0.9,
+        "the sidebar still renders as the fixed 240px desktop rail (width {width}px, viewport \
+         {client_w}px) — below the breakpoint it must reflow to a full-width top bar, not the \
+         vertical rail."
+    );
+}
+
+/// S5 — a mobile nav affordance is present: the primary links lay out on ONE
+/// horizontal row (a top bar), not the desktop rail's stacked list.
+#[then(regex = r"^a mobile navigation affordance is present$")]
+async fn mobile_nav_affordance_present(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("mobile browser session");
+    let dims = browser
+        .execute(
+            "var links = document.querySelectorAll('.sidebar .sidebar__nav .sidebar__item');\
+             if (links.length < 2) { throw new Error('the sidebar nav has fewer than two links'); }\
+             var a = links[0].getBoundingClientRect();\
+             var b = links[1].getBoundingClientRect();\
+             return [a.top, b.top, a.height];",
+            vec![],
+        )
+        .await
+        .expect("measure the sidebar nav links");
+    let arr = dims.as_array().unwrap();
+    let a_top = arr[0].as_f64().unwrap();
+    let b_top = arr[1].as_f64().unwrap();
+    let a_height = arr[2].as_f64().unwrap();
+    assert!(
+        (a_top - b_top).abs() < a_height.max(1.0),
+        "the primary nav links are stacked vertically (tops {a_top} vs {b_top}, item height \
+         {a_height}) — the mobile affordance must lay them out as a horizontal top bar, not the \
+         desktop rail's stacked list."
+    );
+}
+
+/// S6 — the New issue control's smaller dimension is at least a ~44px thumb target.
+#[then(regex = r#"^the "New issue" control is at least 44px in its smaller dimension$"#)]
+async fn new_issue_control_tappable(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("mobile browser session");
+    let dims = browser
+        .execute(
+            "var el = document.querySelector(arguments[0]);\
+             if (!el) { throw new Error('no New issue control on the board'); }\
+             var r = el.getBoundingClientRect();\
+             return [r.width, r.height];",
+            vec![serde_json::Value::String(NEW_ISSUE_TRIGGER.to_string())],
+        )
+        .await
+        .expect("measure the New issue control");
+    let arr = dims.as_array().unwrap();
+    let w = arr[0].as_f64().unwrap();
+    let h = arr[1].as_f64().unwrap();
+    let smaller = w.min(h);
+    assert!(
+        smaller >= 44.0,
+        "the New issue control's smaller dimension is {smaller}px (w {w} × h {h}), below the ~44px \
+         thumb target — the mobile @media must grow primary controls to at least 44px."
+    );
+}
+
+/// S7 — the shipped 240px desktop rail is still shown (mobile rules stayed bounded).
+#[then(regex = r"^the desktop sidebar rail is shown$")]
+async fn desktop_rail_shown(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("desktop browser session");
+    let dims = browser
+        .execute(
+            "var s = document.querySelector('.sidebar');\
+             if (!s) { throw new Error('no .sidebar on the desktop page'); }\
+             return [s.getBoundingClientRect().width];",
+            vec![],
+        )
+        .await
+        .expect("measure the desktop sidebar width");
+    let width = dims.as_array().unwrap()[0].as_f64().unwrap();
+    assert!(
+        (width - 240.0).abs() < 2.0,
+        "the desktop sidebar is {width}px wide, not the shipped 240px rail — a mobile @media rule \
+         leaked past its max-width bound and collapsed the desktop rail."
+    );
+}
+
+/// S7 — the desktop board still fits without horizontal scroll, and the desktop
+/// document does not overflow: the mobile min-width/overflow rules stayed bounded.
+#[then(regex = r"^the board layout matches the shipped desktop behaviour$")]
+async fn desktop_board_layout_unchanged(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("desktop browser session");
+    let dims = browser
+        .execute(
+            "var b = document.querySelector('.board');\
+             if (!b) { throw new Error('no .board on the desktop page'); }\
+             return [b.scrollWidth, b.clientWidth, document.documentElement.scrollWidth, \
+              document.documentElement.clientWidth];",
+            vec![],
+        )
+        .await
+        .expect("measure the desktop board layout");
+    let arr = dims.as_array().unwrap();
+    let board_scroll = arr[0].as_f64().unwrap();
+    let board_client = arr[1].as_f64().unwrap();
+    let doc_scroll = arr[2].as_f64().unwrap();
+    let doc_client = arr[3].as_f64().unwrap();
+    assert!(
+        board_scroll <= board_client + 1.0,
+        "the desktop board scrolls horizontally (scrollWidth {board_scroll} > clientWidth \
+         {board_client}) — the columns must flex to fit the desktop width; a mobile \
+         min-width/overflow rule leaked past the breakpoint."
+    );
+    assert!(
+        doc_scroll <= doc_client + 1.0,
+        "the desktop document overflows horizontally (scrollWidth {doc_scroll} > clientWidth \
+         {doc_client}) — desktop layout changed."
     );
 }

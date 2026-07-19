@@ -540,16 +540,61 @@ textarea {
   .app-shell {
     flex-direction: column;
   }
+  /* The rail reflows to a full-width horizontal TOP BAR: nav + user links sit on
+     one row instead of the 240px vertical rail. */
   .sidebar {
     flex: 0 0 auto;
     width: auto;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
     border-right: none;
     border-bottom: 1px solid #e6e6e9;
+  }
+  .sidebar__nav {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+  .sidebar__user {
+    margin-top: 0;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    border-top: none;
+    padding: 0;
   }
   .app-shell__content {
     padding: 16px;
   }
+  /* The columns strip scrolls WITHIN its own container; the page never widens. */
   .board {
     overflow-x: auto;
+  }
+  .column {
+    min-width: 220px;
+  }
+  /* Primary controls grow to a ~44px thumb target on a phone. */
+  button,
+  .button,
+  input[type="submit"],
+  .sidebar__item,
+  .actions a,
+  .actions button {
+    min-height: 44px;
+  }
+  /* The new-issue modal becomes a full-width sheet that caps at the screen height
+     and scrolls its own body, instead of overflowing the phone. */
+  .modal {
+    padding: 0;
+    align-items: flex-start;
+  }
+  .modal-dialog {
+    width: 100%;
+    max-width: 100%;
+    max-height: 100vh;
+    overflow-y: auto;
+    border-radius: 0;
   }
 }
