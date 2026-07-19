@@ -2,6 +2,20 @@
 
 ## Current Task
 
+**`pwa-mobile-rendering` SHIPPED + finalized** (full pipeline; `main`, DELIVER `bd1ea26`→`329616e` + finalize
+`893facb`, **7 ahead of both remotes, not pushed**). Foundry was desktop-only (no viewport meta, zero @media,
+no manifest). Shipped: viewport meta + responsive @media (columns scroll, dialog sheet, sidebar top-bar
+reflow, 44px targets) + installable manifest+icons+apple/theme meta. NO service worker, NO Node, NO new
+route/migration (stays 0014). Tests use the EXISTING fantoccini lane via NEW `open_mobile_session()`
+(chromedriver mobileEmulation) — user overrode "Playwright" with "stick with fantoccini". Two green-over-
+nothing oracle traps caught: emulation-not-narrow-window (ADR-003) + assert `documentElement.clientWidth` not
+`innerWidth`. 14 @needs-browser scenarios green; review APPROVED 0 defects; DES integrity exit 0. See
+`[[fantoccini-mobile-oracle]]`. Archive: `docs/evolution/2026-07-19-pwa-mobile-rendering.md`.
+
+**Prior**: `fix-comment-delete-csrf` FIXED + finalized (pushed to both remotes at `ccf5230`). Comment-delete
+403'd in a real browser (no CSRF token); fixed with the cookie→header echo. No mutating htmx trigger lacks
+CSRF now.
+
 **`fix-comment-delete-csrf` FIXED + finalized** (`main`, `59c10be` + docs `673f185`, **2 ahead of BOTH
 remotes, not pushed**). Follow-up from form-error-display-contract's archive: the comment Delete button was a
 bare `hx-delete` with no CSRF token → 403'd in a real browser (broken for users), masked because HTTP-lane
