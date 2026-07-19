@@ -18,8 +18,11 @@
 #   FOUNDRY_PORT           app port          (default 3000)
 #   FOUNDRY_PG_HOST_PORT   Postgres host port(default 5432; change if taken)
 #   FOUNDRY_RELEASE=1      build --release   (default: debug, faster first build)
+#   FOUNDRY_KEEP_PG=1      leave Postgres running on exit (default: stop it)
 #
-# Ctrl-C stops Foundry; Postgres is left running for the next launch.
+# Ctrl-C stops Foundry and Postgres. The database itself survives in the named
+# volume, so the next launch keeps your data. Set FOUNDRY_KEEP_PG=1 to leave
+# Postgres up and skip the boot wait next time.
 
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -125,7 +128,9 @@ else
     while ! port_free "$PG_PORT"; do PG_PORT=$((PG_PORT + 1)); done
   fi
   log "creating Postgres on :${PG_PORT} ($PG_CONTAINER)"
-  docker run -d --name "$PG_CONTAINER" \
+  # --rm: stopping the container also removes it, so no stopped remnants
+  # accumulate. Safe because the data is in the named volume, not the container.
+  docker run -d --rm --name "$PG_CONTAINER" \
     -e POSTGRES_USER=foundry -e POSTGRES_PASSWORD=foundry -e POSTGRES_DB=foundry \
     -p "${PG_PORT}:5432" -v "${PG_VOLUME}:/var/lib/postgresql/data" \
     postgres:16-alpine >/dev/null
@@ -159,10 +164,19 @@ else
   APP_PID=$!
 fi
 
+# Stop Postgres on exit so a run leaves nothing behind. The container is
+# created with `--rm`, so stopping also removes it; the data lives in the
+# named volume ($PG_VOLUME), which outlives both, so nothing is lost.
+# Set FOUNDRY_KEEP_PG=1 to leave it up and skip the next run's boot wait.
 cleanup() {
   kill "$APP_PID" 2>/dev/null || true
   wait "$APP_PID" 2>/dev/null || true
-  log "Foundry stopped. Postgres left running — stop it with: docker stop $PG_CONTAINER"
+  if [ "${FOUNDRY_KEEP_PG:-0}" = "1" ]; then
+    log "Foundry stopped. Postgres left running (FOUNDRY_KEEP_PG=1) — stop it with: docker stop $PG_CONTAINER"
+  else
+    docker stop "$PG_CONTAINER" >/dev/null 2>&1 || true
+    log "Foundry stopped. Postgres ($PG_CONTAINER) stopped; data kept in volume $PG_VOLUME"
+  fi
 }
 trap cleanup EXIT
 trap 'exit 130' INT TERM
