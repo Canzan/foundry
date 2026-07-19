@@ -123,6 +123,64 @@ pub async fn new_session() -> fantoccini::Client {
     open_session(Scripting::Enabled).await
 }
 
+/// The mobile device metrics every `open_mobile_session` injects — a mid-range
+/// phone's logical viewport (iPhone-12-class: 390×844 CSS px at DPR 3). ADR-003
+/// (the load-bearing test decision): headless `--headless=new` is DESKTOP Chrome,
+/// which lays out at the OS window width regardless of the `<meta name=viewport>`
+/// tag — so a narrow-WINDOW test would be GREEN whether or not the viewport meta
+/// exists (green over nothing). chromedriver's `goog:chromeOptions.mobileEmulation`
+/// makes Chrome apply REAL mobile viewport semantics: the ~980px fallback layout
+/// when no viewport meta is declared (the no-viewport DEFECT reproduces → RED), and
+/// the device-width layout once the meta is present (the fix is measurable → GREEN).
+const MOBILE_WIDTH: u32 = 390;
+const MOBILE_HEIGHT: u32 = 844;
+const MOBILE_PIXEL_RATIO: u32 = 3;
+
+/// Open ONE headless MOBILE session against this lane's chromedriver, driving a
+/// REAL emulated 390×844 phone viewport (ADR-003). One call per scenario, the
+/// mobile counterpart to [`open_session`].
+///
+/// Unlike the desktop path it injects `mobileEmulation.deviceMetrics` into
+/// `goog:chromeOptions` and DELIBERATELY does NOT call `set_window_size`: under
+/// mobile emulation the emulated `deviceMetrics` (not the OS window) govern the
+/// layout viewport, so `window.innerWidth` reflects 390 and resizing the window
+/// would neither change it nor be honoured. This is what separates the honest
+/// mobile-viewport probe from a desktop resize that proves nothing.
+pub async fn open_mobile_session() -> fantoccini::Client {
+    let port = ensure_chromedriver();
+    let chrome_options = serde_json::json!({
+        "args": [
+            "--headless=new",
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-gpu",
+        ],
+        "mobileEmulation": {
+            "deviceMetrics": {
+                "width": MOBILE_WIDTH,
+                "height": MOBILE_HEIGHT,
+                "pixelRatio": MOBILE_PIXEL_RATIO,
+                "mobile": true,
+            }
+        }
+    });
+    let mut capabilities = serde_json::Map::new();
+    capabilities.insert("goog:chromeOptions".to_string(), chrome_options);
+    ClientBuilder::new(HttpConnector::new())
+        .capabilities(capabilities)
+        .connect(&format!("http://127.0.0.1:{port}"))
+        .await
+        .unwrap_or_else(|err| {
+            panic!(
+                "could not open a mobile chromedriver session: {err}\n  the driver's MAJOR version \
+                 must MATCH the installed Chrome's — `chromedriver --version` vs `google-chrome \
+                 --version`. `cargo xtask ci` preflights this; a `brew upgrade` that moves one and \
+                 not the other is the usual cause."
+            )
+        })
+    // NO set_window_size here: the emulated deviceMetrics own the layout viewport.
+}
+
 /// Open ONE headless session with JavaScript switched OFF at the BROWSER, for the
 /// no-JS path (NFR-4 / ODD-8).
 ///

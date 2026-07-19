@@ -1,0 +1,117 @@
+{
+  "roadmap": {
+    "created_at": "2026-07-19T00:00:00Z",
+    "project_id": "pwa-mobile-rendering",
+    "total_steps": 3
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "Slice 01 — the mobile oracle + viewport meta + no overflow (walking skeleton)",
+      "description": "Build open_mobile_session() (chromedriver mobileEmulation) + add the viewport meta so the app fits a phone; assert layout facts in a REAL mobile viewport. Client-side + test only; no server route, no migration (stays 0014).",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "open_mobile_session() + viewport meta: the board fits a 390px mobile viewport",
+          "criteria": [
+            "Greens S1 (lane-probe/walking-skeleton: viewport meta present + no overflow) and S2 (the primary surfaces outline: dashboard, board, issue page, open new-issue dialog each have documentElement.scrollWidth <= window.innerWidth at 390x844) and S11 (source guard: base.html and lib.rs reference the same foundry.<hash>.css).",
+            "THE ORACLE (ADR-003): add open_mobile_session() to crates/foundry-acceptance/src/support/browser_harness.rs — same as open_session but inject goog:chromeOptions.mobileEmulation {deviceMetrics: {width:390, height:844, pixelRatio:3, mobile:true}}, and DO NOT call set_window_size(desktop) afterward (the emulated deviceMetrics govern the layout viewport). This makes headless Chrome apply real mobile viewport semantics.",
+            "RED first (defect reproduction in a real mobile viewport): with NO viewport meta, mobile Chrome uses the ~980px fallback so the board overflows a 390 layout viewport -> scrollWidth > innerWidth -> S1/S2 red. Demonstrate this RED. Also demonstrate the ADR-003 throwaway: under a plain narrow-window session (no mobileEmulation) the same no-viewport tree PASSES, proving emulation (not resize) is required.",
+            "THE FIX: base.html <head> gains <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">. If ANY overflow remains at 390 on a primary surface, add MINIMAL CSS to contain it (e.g. box-sizing, max-width:100%, overflow-x containment on the offending element) — if CSS changes, RENAME foundry.<oldhash>.css to foundry.<newhash>.css and update the reference in BOTH base.html AND lib.rs:297 (D5, the two-place hash). If no CSS is needed, no rename.",
+            "CLIENT-SIDE + TEST ONLY: ZERO server route/endpoint/migration (latest stays 0014). The viewport meta is on every page (authed + pre-auth) and is additive; no-JS + shipped HTTP-lane + shipped DESKTOP @needs-browser scenarios stay green.",
+            "STEP GLUE: NEW crates/foundry-acceptance/src/steps/feature_pwa_mobile.rs, registered (pub mod in src/lib.rs) + force-linked (tests/acceptance.rs), mirroring feature_form_error_display.rs. Reuse sign-in/board/dialog helpers + browser_harness. Add a mobile-window helper: open the surface via open_mobile_session(), read scrollWidth/innerWidth via execute. Un-@pend S1, S2, S11. RED_UNIT NOT_APPLICABLE (browser JS/template; no JS unit harness).",
+            "Run: CARGO_INCREMENTAL=0 FOUNDRY_ACCEPTANCE_TAGS=pwa-mobile-rendering cargo test -p foundry-acceptance (auto-spawns chromedriver 150; bounded waits; pkill chromedrivers between runs). Then cargo xtask smoke green. Commit Step-ID: 01-01."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/pwa-mobile-rendering.feature",
+          "scenario_name": "A mobile browser session fits the board to the screen end to end; The primary authed surfaces fit a phone screen with no horizontal overflow",
+          "files_to_modify": [
+            "crates/foundry-acceptance/src/support/browser_harness.rs",
+            "crates/foundry-app/templates/base.html",
+            "crates/foundry-app/static/css/foundry.eb0e86f8.css",
+            "crates/foundry-app/src/lib.rs",
+            "crates/foundry-acceptance/src/steps/feature_pwa_mobile.rs",
+            "crates/foundry-acceptance/src/lib.rs",
+            "crates/foundry-acceptance/tests/acceptance.rs",
+            "crates/foundry-acceptance/tests/features/pwa-mobile-rendering.feature"
+          ],
+          "implementation_scope": {
+            "source_directories": ["crates/foundry-acceptance/src/support/", "crates/foundry-app/templates/", "crates/foundry-app/static/css/"],
+            "notes": "The oracle (mobileEmulation) is the durable deliverable. CSS may or may not change in this slice; if it does, rotate the hash in two places. RED_UNIT SKIPPED/NOT_APPLICABLE."
+          }
+        }
+      ]
+    },
+    {
+      "id": "02",
+      "name": "Slice 02 — responsive surfaces (columns, dialog sheet, nav reflow, tap targets)",
+      "description": "Additive @media rules make the board/dialog/nav usable at phone width; desktop untouched. CSS only (+ test); hash rotates in two places.",
+      "steps": [
+        {
+          "id": "02-01",
+          "name": "Responsive @media: columns scroll, dialog is a sheet, nav reflows, controls are tappable",
+          "criteria": [
+            "Greens S3 (dialog <= viewport, page no-overflow, body scrolls), S4 (page no-overflow; .board columns container horizontally scrollable), S5 (full desktop rail not shown; mobile nav affordance present), S6 (New issue control >= ~44px min dimension), and S7 (DESKTOP session via open_session: rail shown, layout matches shipped — the non-regression guard).",
+            "THE EDIT (ADR-001, additive @media in the hashed stylesheet, ROTATE hash in base.html + lib.rs:297): at <= ~640px — .board { overflow-x:auto } with .column min-width (columns strip scrolls within its container; page never overflows); .modal-dialog full-width scrollable sheet (width:100%, max-height:100vh, body scrolls); .app-shell { flex-direction:column } so the sidebar reflows to a compact top bar (CSS-ONLY, no new JS); primary controls >= ~44px. Desktop (> breakpoint) UNCHANGED.",
+            "RED first: S3/S4 red before the rules (dialog overflows / columns overflow the page). S7 (desktop) MUST be shown red against an UNBOUNDED @media (no min/max) that leaks mobile rules into desktop — the blast-radius guard; then bound it correctly. Demonstrate these REDs.",
+            "CLIENT-SIDE (CSS) ONLY: no server change, no migration. board-dnd.js must keep FUNCTIONING at mobile width (don't break drag targets; touch-DnD usability is a noted limitation, not a v1 goal). Desktop @needs-browser + HTTP-lane scenarios stay green.",
+            "Add S3-S7 step glue to feature_pwa_mobile.rs (S3-S6 via open_mobile_session; S7 via the shipped desktop open_session). Un-@pend S3-S7. RED_UNIT NOT_APPLICABLE. Run the pwa-mobile-rendering tag + cargo xtask smoke green. Commit Step-ID: 02-01."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/pwa-mobile-rendering.feature",
+          "scenario_name": "An opened dialog fits the phone screen and its body scrolls; The board columns scroll within their container, not the page; The navigation collapses to a mobile affordance; Primary controls are large enough to tap; Desktop rendering is unchanged",
+          "files_to_modify": [
+            "crates/foundry-app/static/css/foundry.eb0e86f8.css",
+            "crates/foundry-app/templates/base.html",
+            "crates/foundry-app/src/lib.rs",
+            "crates/foundry-acceptance/src/steps/feature_pwa_mobile.rs",
+            "crates/foundry-acceptance/tests/features/pwa-mobile-rendering.feature"
+          ],
+          "implementation_scope": {
+            "source_directories": ["crates/foundry-app/static/css/"],
+            "notes": "CSS-only responsive rules + the two-place hash rotation. Depends on slice 01 (viewport meta + the mobile oracle). Keep board-dnd.js working. RED_UNIT SKIPPED/NOT_APPLICABLE."
+          }
+        }
+      ]
+    },
+    {
+      "id": "03",
+      "name": "Slice 03 — installable PWA (manifest + icons + apple/theme meta, no service worker)",
+      "description": "Static manifest + icons + head meta make Foundry installable; NO service worker, NO offline (ADR-002). Static assets served by the existing ServeDir; no new route, no migration.",
+      "steps": [
+        {
+          "id": "03-01",
+          "name": "Web app manifest + icons + apple/theme meta: Foundry is installable, standalone",
+          "criteria": [
+            "Greens S8 (manifest linked + 200 + valid JSON with name, short_name, start_url, scope, display standalone, theme_color, background_color, icons incl. 192/512/maskable), S9 (each icon URL 200 + image content-type), S10 (theme-color meta + apple-mobile-web-app-capable + apple-touch-icon present; manifest display standalone).",
+            "THE EDIT (ADR-002, static assets + head tags): NEW crates/foundry-app/static/manifest.webmanifest (all required fields, display:standalone, theme_color/background_color, icons 192+512+maskable); NEW crates/foundry-app/static/icons/ (192.png, 512.png, maskable.png, apple-touch-icon.png — generate from a simple Foundry mark, ODD-4); base.html <head> gains <link rel=\"manifest\" href=\"/static/manifest.webmanifest\">, <meta name=\"theme-color\">, apple-mobile-web-app-capable + status-bar-style, <link rel=\"apple-touch-icon\">.",
+            "NO SERVICE WORKER (ADR-002): do NOT add sw.js or any registration — modern Chrome's install prompt doesn't require it and a SW risks htmx/CSRF caching. v1 has no offline goal.",
+            "VERIFY at DELIVER: ServeDir/mime_guess serves .webmanifest as application/manifest+json — if NOT, use manifest.json (browsers honor the linked manifest regardless of exact content-type); note which you used. HTTPS-for-install is a phone dogfood; the lane asserts the manifest/asset FACTS only.",
+            "STATIC ASSETS ONLY: no new route/endpoint/migration (stays 0014); no CSS change (no hash rotation needed unless the manifest references the hashed CSS — keep consistent). RED first: S8 red before the manifest exists (no rel=manifest link / invalid JSON); S9 red against a manifest referencing missing icon files. Demonstrate.",
+            "Add S8-S10 step glue to feature_pwa_mobile.rs (fetch + parse the manifest via the browser or a direct HTTP GET; assert head tags via the mobile session DOM). Un-@pend S8-S10 (all scenarios now live). RED_UNIT NOT_APPLICABLE. Run the pwa-mobile-rendering tag (S1-S11 all green together) + cargo xtask smoke green. Commit Step-ID: 03-01."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/pwa-mobile-rendering.feature",
+          "scenario_name": "The web app manifest is linked, served, and valid; The declared icons are served; The app declares standalone display, a theme color, and the apple meta",
+          "files_to_modify": [
+            "crates/foundry-app/templates/base.html",
+            "crates/foundry-app/static/manifest.webmanifest",
+            "crates/foundry-app/static/icons/icon-192.png",
+            "crates/foundry-app/static/icons/icon-512.png",
+            "crates/foundry-app/static/icons/icon-maskable-512.png",
+            "crates/foundry-app/static/icons/apple-touch-icon.png",
+            "crates/foundry-acceptance/src/steps/feature_pwa_mobile.rs",
+            "crates/foundry-acceptance/tests/features/pwa-mobile-rendering.feature"
+          ],
+          "implementation_scope": {
+            "source_directories": ["crates/foundry-app/static/", "crates/foundry-app/templates/"],
+            "notes": "Static manifest + icons + head meta; NO service worker. Depends on slice 01 (viewport). Verify .webmanifest content-type. RED_UNIT SKIPPED/NOT_APPLICABLE."
+          }
+        }
+      ]
+    }
+  ],
+  "validation": {
+    "status": "approved",
+    "reviewer": "self (continuous-flow run per user request; architect+reviewer subagents skipped as proportionate for a design-reviewed 3-slice CSS/static-asset+test feature)",
+    "authored_at": "2026-07-19",
+    "verdict": "approved — 3 steps = 3 slices, 1:1 with US-01/02/03; ratio <=2.5; @needs-browser mobile-emulation oracle (ADR-003, NOT narrow window); no server route/migration (stays 0014); no service worker (ADR-002); CSS hash two-place discipline; falsifications pinned (no-viewport red, unbounded-@media desktop red, pre-manifest red)."
+  }
+}

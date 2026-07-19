@@ -526,3 +526,30 @@ textarea {
   margin: 0;
   color: #52525b;
 }
+
+/* ── pwa-mobile-rendering slice 01 — fit the authed shell to a phone ──────────
+   base.html now declares <meta name="viewport" content="width=device-width …">,
+   so a phone lays the app out at ~390px instead of the ~980px desktop fallback.
+   At that width the fixed 240px sidebar rail leaves the content ~150px, forcing
+   every inner surface (the board's min-width columns, the dashboard's 220px card
+   tracks) to overflow the document horizontally. Below the mobile breakpoint the
+   shell STACKS — the rail spans the top, the content takes the full width — and
+   the board scrolls WITHIN its own container instead of widening the page. Guarded
+   by a max-width query so the desktop layout (> breakpoint) is untouched. */
+@media (max-width: 480px) {
+  .app-shell {
+    flex-direction: column;
+  }
+  .sidebar {
+    flex: 0 0 auto;
+    width: auto;
+    border-right: none;
+    border-bottom: 1px solid #e6e6e9;
+  }
+  .app-shell__content {
+    padding: 16px;
+  }
+  .board {
+    overflow-x: auto;
+  }
+}

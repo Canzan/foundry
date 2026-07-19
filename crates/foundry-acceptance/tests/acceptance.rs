@@ -81,6 +81,8 @@ use foundry_acceptance::steps::feature_notification_preferences_ui as _feature_n
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_per_workspace_backup as _feature_pwb;
 #[allow(unused_imports)]
+use foundry_acceptance::steps::feature_pwa_mobile as _feature_pwa_mobile;
+#[allow(unused_imports)]
 use foundry_acceptance::steps::feature_recipient_notification_preferences as _feature_recipient_unsub;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_remaining_surfaces as _feature_remaining;

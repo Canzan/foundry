@@ -34,7 +34,7 @@ Feature: A member uses Foundry on their phone and installs it
 
   # ---------------------------------------------- Slice 01 — viewport + no overflow (skeleton)
 
-  @pending @needs-browser @mobile @slice1 @us-01 @lane-probe @walking_skeleton @driving_port
+  @needs-browser @mobile @slice1 @us-01 @lane-probe @walking_skeleton @driving_port
   Scenario: A mobile browser session fits the board to the screen end to end
     # The instrument proof: if open_mobile_session() can't drive a real 390px mobile
     # viewport and read the DOM, no other scenario here is worth writing.
@@ -42,7 +42,7 @@ Feature: A member uses Foundry on their phone and installs it
     Then the page declares a mobile viewport meta
     And the page has no horizontal overflow
 
-  @pending @needs-browser @mobile @slice1 @us-01
+  @needs-browser @mobile @slice1 @us-01
   Scenario Outline: The primary authed surfaces fit a phone screen with no horizontal overflow
     Given Mei opens <surface> in a mobile browser at 390x844
     Then the page has no horizontal overflow
@@ -115,7 +115,7 @@ Feature: A member uses Foundry on their phone and installs it
 
   # ---------------------------------------------- Cross-cutting
 
-  @pending @needs-browser @mobile @slice1 @cross-feature
+  @needs-browser @mobile @slice1 @cross-feature
   Scenario: The CSS hash stays consistent across base.html and lib.rs
     # Asserted at the source level (not the browser) — a guard the DELIVER crafter runs.
     Given a CSS change has landed for this feature
