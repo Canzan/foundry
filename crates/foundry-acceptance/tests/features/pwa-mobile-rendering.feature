@@ -92,7 +92,7 @@ Feature: A member uses Foundry on their phone and installs it
 
   # ---------------------------------------------- Slice 03 — installable PWA (no service worker)
 
-  @pending @needs-browser @mobile @slice3 @us-03
+  @needs-browser @mobile @slice3 @us-03
   Scenario: The web app manifest is linked, served, and valid
     Given Mei opens the "Sandbox" board in a mobile browser at 390x844
     Then the page links a web app manifest
@@ -100,13 +100,13 @@ Feature: A member uses Foundry on their phone and installs it
     And the manifest declares name, short_name, start_url, scope, display "standalone", theme_color and background_color
     And the manifest lists icons including 192x192, 512x512 and a maskable icon
 
-  @pending @needs-browser @mobile @slice3 @us-03
+  @needs-browser @mobile @slice3 @us-03
   Scenario: The declared icons are served
     Given the manifest lists its icons
     When each icon URL is fetched
     Then it returns 200 with an image content-type
 
-  @pending @needs-browser @mobile @slice3 @us-03
+  @needs-browser @mobile @slice3 @us-03
   Scenario: The app declares standalone display, a theme color, and the apple meta
     Given Mei opens the "Sandbox" board in a mobile browser at 390x844
     Then the page contains a theme-color meta

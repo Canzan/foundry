@@ -647,3 +647,300 @@ async fn desktop_board_layout_unchanged(world: &mut FoundryWorld) {
          {doc_client}) — desktop layout changed."
     );
 }
+
+// ------------------------------------------------------------ S8–S10 (slice 03)
+//
+// Slice 03 makes Foundry INSTALLABLE (ADR-002 — a STATIC manifest + icons + head
+// meta, NO service worker). The fitted, responsive phone shell from slices 01–02
+// now advertises itself to the browser's install machinery: base.html links a web
+// app manifest, the manifest is served as valid JSON declaring the install
+// identity (name/short_name/start_url/scope/display/theme+background colours) and
+// a full icon set (192, 512, maskable), every declared icon is a real image, and
+// the apple-specific meta lets iOS treat it as a standalone home-screen app.
+//
+// These assertions are ASSET FACTS, driven port-to-port: S8/S10 read the LINKED
+// manifest + head tags from the live mobile DOM (the page as the browser sees it),
+// and every manifest/icon fetch goes through the SAME in-process origin over real
+// HTTP (`reqwest`) — proving the ServeDir static route actually serves the bytes,
+// not that a file merely exists on disk. `/static` is public (no auth), so the
+// icon-serving scenario (S9) needs no browser session, only the shared harness.
+
+/// The manifest's stable, content-typed URL on the shared origin. ServeDir +
+/// mime_guess 2.0.5 serve `.webmanifest` as `application/manifest+json` (a JSON
+/// media type the fetch+parse below accepts), so no `manifest.json` fallback was
+/// needed.
+const MANIFEST_PATH: &str = "/static/manifest.webmanifest";
+
+/// GET an absolute URL on the shared origin over real HTTP. Returns
+/// (status, content-type, body-bytes). `/static` is public, so no auth is set.
+async fn http_get(url: &str) -> (reqwest::StatusCode, String, Vec<u8>) {
+    let resp = reqwest::Client::new()
+        .get(url)
+        .send()
+        .await
+        .unwrap_or_else(|e| panic!("GET {url} failed to send: {e}"));
+    let status = resp.status();
+    let content_type = resp
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    let bytes = resp
+        .bytes()
+        .await
+        .unwrap_or_else(|e| panic!("GET {url} failed to read body: {e}"))
+        .to_vec();
+    (status, content_type, bytes)
+}
+
+/// Absolute URL for a root-relative asset path on the shared origin.
+fn origin_url(world: &FoundryWorld, path: &str) -> String {
+    let base = world.harness.as_ref().expect("harness").base_url();
+    if path.starts_with("http") {
+        path.to_string()
+    } else {
+        format!("{base}{path}")
+    }
+}
+
+/// Read the `<link rel="manifest">` href the page ACTUALLY declares (the browser's
+/// discovery surface), or panic loudly if the page links no manifest at all.
+async fn linked_manifest_href(world: &FoundryWorld) -> String {
+    let browser = world.browser.as_ref().expect("mobile browser session");
+    let href = browser
+        .execute(
+            "var l = document.querySelector('link[rel=\"manifest\"]');\
+             return l ? l.getAttribute('href') : null;",
+            vec![],
+        )
+        .await
+        .expect("read the manifest link href");
+    href.as_str()
+        .unwrap_or_else(|| {
+            panic!(
+                "the page declares NO <link rel=\"manifest\"> — the browser cannot discover a web \
+                 app manifest, so Foundry offers no install prompt. base.html must carry \
+                 <link rel=\"manifest\" href=\"/static/manifest.webmanifest\">."
+            )
+        })
+        .to_string()
+}
+
+/// Fetch + parse the manifest the PAGE links (S8/S10 path). Asserts 200 and JSON.
+async fn fetch_linked_manifest(world: &FoundryWorld) -> serde_json::Value {
+    let href = linked_manifest_href(world).await;
+    let url = origin_url(world, &href);
+    let (status, content_type, bytes) = http_get(&url).await;
+    assert_eq!(
+        status,
+        reqwest::StatusCode::OK,
+        "the linked manifest {url} did not serve 200 (got {status}) — the ServeDir static route \
+         is not serving the manifest bytes."
+    );
+    assert!(
+        content_type.contains("json"),
+        "the manifest at {url} served content-type {content_type:?}, which is not a JSON media \
+         type — browsers still honour the linked manifest, but the observed type should be JSON-ish."
+    );
+    serde_json::from_slice(&bytes)
+        .unwrap_or_else(|e| panic!("the manifest at {url} is not valid JSON: {e}"))
+}
+
+/// S8 — the page must LINK a web app manifest so the browser can discover it.
+#[then(regex = r"^the page links a web app manifest$")]
+async fn page_links_manifest(world: &mut FoundryWorld) {
+    let href = linked_manifest_href(world).await;
+    assert!(
+        href.contains("manifest"),
+        "the <link rel=\"manifest\"> points at {href:?}, which is not a manifest URL."
+    );
+}
+
+/// S8 — fetching that linked manifest over real HTTP returns 200 with valid JSON.
+#[then(regex = r"^fetching the manifest returns 200 with valid JSON$")]
+async fn fetching_manifest_returns_json(world: &mut FoundryWorld) {
+    // fetch_linked_manifest asserts 200 + JSON-parseable, which IS the outcome.
+    let _ = fetch_linked_manifest(world).await;
+}
+
+/// S8 — the manifest declares the full install identity.
+#[then(
+    regex = r#"^the manifest declares name, short_name, start_url, scope, display "standalone", theme_color and background_color$"#
+)]
+async fn manifest_declares_identity(world: &mut FoundryWorld) {
+    let m = fetch_linked_manifest(world).await;
+    for key in [
+        "name",
+        "short_name",
+        "start_url",
+        "scope",
+        "theme_color",
+        "background_color",
+    ] {
+        let v = m.get(key).and_then(|v| v.as_str()).unwrap_or("");
+        assert!(
+            !v.is_empty(),
+            "the manifest is missing a non-empty {key:?} — the install identity is incomplete \
+             (manifest = {m})."
+        );
+    }
+    assert_eq!(
+        m.get("display").and_then(|v| v.as_str()),
+        Some("standalone"),
+        "the manifest display mode is not \"standalone\" — Foundry would open in a browser tab, \
+         not as an installed standalone app (manifest = {m})."
+    );
+}
+
+/// S8 — the manifest lists a usable icon set: 192x192, 512x512, and a maskable icon.
+#[then(regex = r"^the manifest lists icons including 192x192, 512x512 and a maskable icon$")]
+async fn manifest_lists_icons(world: &mut FoundryWorld) {
+    let m = fetch_linked_manifest(world).await;
+    let icons = m
+        .get("icons")
+        .and_then(|v| v.as_array())
+        .unwrap_or_else(|| panic!("the manifest has no icons array (manifest = {m})"));
+    let has_size = |size: &str| {
+        icons.iter().any(|i| {
+            i.get("sizes")
+                .and_then(|s| s.as_str())
+                .is_some_and(|s| s.split_whitespace().any(|token| token == size))
+        })
+    };
+    assert!(
+        has_size("192x192"),
+        "the manifest lists no 192x192 icon — the home-screen icon set is incomplete."
+    );
+    assert!(
+        has_size("512x512"),
+        "the manifest lists no 512x512 icon — the splash/hi-dpi icon is missing."
+    );
+    let has_maskable = icons.iter().any(|i| {
+        i.get("purpose")
+            .and_then(|p| p.as_str())
+            .is_some_and(|p| p.split_whitespace().any(|token| token == "maskable"))
+    });
+    assert!(
+        has_maskable,
+        "the manifest lists no purpose=\"maskable\" icon — adaptive launchers would crop the \
+         square icon instead of using a safe-zone mark."
+    );
+}
+
+/// S9 precondition — narrative. The manifest + its icons are read live in the
+/// Then below (fetched over real HTTP), so nothing to arrange here.
+#[given(regex = r"^the manifest lists its icons$")]
+async fn manifest_lists_its_icons(_world: &mut FoundryWorld) {}
+
+/// S9 action — narrative. The fetch happens in the Then so it can assert per-icon.
+#[when(regex = r"^each icon URL is fetched$")]
+async fn each_icon_url_fetched(_world: &mut FoundryWorld) {}
+
+/// S9 — every icon the manifest declares is actually served as an image. Fetches
+/// the manifest directly (no browser — `/static` is public) and GETs each icon
+/// src through the same origin, asserting 200 + an image content-type.
+#[then(regex = r"^it returns 200 with an image content-type$")]
+async fn icons_served_as_images(world: &mut FoundryWorld) {
+    let manifest_url = origin_url(world, MANIFEST_PATH);
+    let (status, _ct, bytes) = http_get(&manifest_url).await;
+    assert_eq!(
+        status,
+        reqwest::StatusCode::OK,
+        "the manifest {manifest_url} did not serve 200 (got {status})."
+    );
+    let m: serde_json::Value = serde_json::from_slice(&bytes)
+        .unwrap_or_else(|e| panic!("the manifest at {manifest_url} is not valid JSON: {e}"));
+    let icons = m
+        .get("icons")
+        .and_then(|v| v.as_array())
+        .unwrap_or_else(|| panic!("the manifest has no icons array (manifest = {m})"));
+    assert!(!icons.is_empty(), "the manifest lists zero icons to fetch");
+    for icon in icons {
+        let src = icon
+            .get("src")
+            .and_then(|v| v.as_str())
+            .unwrap_or_else(|| panic!("a manifest icon entry has no src (icon = {icon})"));
+        let icon_url = origin_url(world, src);
+        let (istatus, ict, _) = http_get(&icon_url).await;
+        assert_eq!(
+            istatus,
+            reqwest::StatusCode::OK,
+            "the declared icon {icon_url} did not serve 200 (got {istatus}) — the manifest \
+             references an icon file that is not served."
+        );
+        assert!(
+            ict.starts_with("image/"),
+            "the declared icon {icon_url} served content-type {ict:?}, not an image type — it is \
+             not a real served image."
+        );
+    }
+}
+
+/// S10 — the page carries a theme-color meta (colours the OS/browser chrome).
+#[then(regex = r"^the page contains a theme-color meta$")]
+async fn page_has_theme_color_meta(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("mobile browser session");
+    let content = browser
+        .execute(
+            "var m = document.querySelector('meta[name=\"theme-color\"]');\
+             return m ? m.getAttribute('content') : null;",
+            vec![],
+        )
+        .await
+        .expect("read the theme-color meta");
+    let content = content.as_str().unwrap_or_default();
+    assert!(
+        !content.is_empty(),
+        "the page declares no <meta name=\"theme-color\"> with a colour — the installed app's \
+         status bar / browser chrome would not adopt the brand colour."
+    );
+}
+
+/// S10 — the page carries the apple standalone meta + an apple-touch-icon so iOS
+/// treats Foundry as a home-screen app with a real icon.
+#[then(regex = r"^the page contains apple-mobile-web-app-capable and an apple-touch-icon$")]
+async fn page_has_apple_meta(world: &mut FoundryWorld) {
+    let browser = world.browser.as_ref().expect("mobile browser session");
+    let dom = browser
+        .execute(
+            "var cap = document.querySelector('meta[name=\"apple-mobile-web-app-capable\"]');\
+             var ico = document.querySelector('link[rel=\"apple-touch-icon\"]');\
+             return [cap ? cap.getAttribute('content') : null, ico ? ico.getAttribute('href') : null];",
+            vec![],
+        )
+        .await
+        .expect("read the apple meta + touch icon");
+    let arr = dom.as_array().expect("[capable, touch-icon-href]");
+    let capable = arr[0].as_str().unwrap_or_default();
+    let touch_icon = arr[1].as_str().unwrap_or_default();
+    assert_eq!(
+        capable, "yes",
+        "the page's <meta name=\"apple-mobile-web-app-capable\"> is {capable:?}, not \"yes\" — \
+         iOS would open Foundry in Safari chrome, not as a standalone home-screen app."
+    );
+    assert!(
+        !touch_icon.is_empty(),
+        "the page declares no <link rel=\"apple-touch-icon\"> — iOS would fall back to a screenshot \
+         thumbnail instead of the Foundry mark."
+    );
+}
+
+/// S10 — the manifest's display mode is standalone (fetched directly, no browser).
+#[then(regex = r#"^the manifest display mode is "standalone"$"#)]
+async fn manifest_display_standalone(world: &mut FoundryWorld) {
+    let manifest_url = origin_url(world, MANIFEST_PATH);
+    let (status, _ct, bytes) = http_get(&manifest_url).await;
+    assert_eq!(
+        status,
+        reqwest::StatusCode::OK,
+        "the manifest {manifest_url} did not serve 200 (got {status})."
+    );
+    let m: serde_json::Value = serde_json::from_slice(&bytes)
+        .unwrap_or_else(|e| panic!("the manifest at {manifest_url} is not valid JSON: {e}"));
+    assert_eq!(
+        m.get("display").and_then(|v| v.as_str()),
+        Some("standalone"),
+        "the manifest display mode is not \"standalone\" (manifest = {m})."
+    );
+}
