@@ -30,11 +30,18 @@ pub const CSRF_HX_HEADER: &str = "hx-csrf";
 
 /// Ceiling on the urlencoded form body this middleware buffers to read the
 /// `_csrf` field. This is a GLOBAL cap that applies to EVERY form POST: the
-/// CSRF middleware is the OUTERMOST layer (lib.rs) and reads the body here —
-/// via `to_bytes(.., CSRF_BODY_BUFFER_MAX_BYTES)` — BEFORE any per-route
+/// CSRF middleware sits OUTSIDE the routes and their per-route
+/// `DefaultBodyLimit` (it wraps the router in lib.rs, under only the session +
+/// metrics layers), so it reads the body here — via
+/// `to_bytes(.., CSRF_BODY_BUFFER_MAX_BYTES)` — BEFORE any per-route
 /// `DefaultBodyLimit` or handler extractor runs. So this constant is the
 /// per-request buffering ceiling for ALL form routes (sign-in, issue create/
 /// edit, comments, …), not only the ones that need a large body.
+///
+/// The buffering only happens on requests that carry a CSRF cookie: a form POST
+/// with no `foundry_csrf` cookie is refused with 403 BEFORE the body is read
+/// (see `csrf_middleware`), so an unauthenticated caller cannot force a 2 MiB
+/// allocation on a doomed request.
 ///
 /// It must cover the LARGEST legitimate form body. The issue create/edit forms
 /// carry a `description` up to `DESCRIPTION_MAX_LEN` (262144) CHARACTERS;
@@ -143,12 +150,29 @@ fn constant_time_eq(a: &str, b: &str) -> bool {
     a.ct_eq(b).into()
 }
 
+/// The single fail-closed refusal. Byte-identical across every rejection branch
+/// (missing cookie, missing token, mismatch, multipart-without-header) so no
+/// response oracle can distinguish *why* CSRF failed.
+fn csrf_refusal() -> Response {
+    (
+        StatusCode::FORBIDDEN,
+        [(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("text/plain; charset=utf-8"),
+        )],
+        "CSRF token missing or mismatched",
+    )
+        .into_response()
+}
+
 /// Pull `_csrf` out of a urlencoded body without consuming the request.
 async fn extract_form_token(body: Body) -> (Option<String>, Body) {
-    // Body size cap (CSRF_BODY_BUFFER_MAX_BYTES). GLOBAL: this middleware is the
-    // outermost layer, so EVERY form POST is buffered here up to this ceiling
-    // before any per-route DefaultBodyLimit runs. See CSRF_BODY_BUFFER_MAX_BYTES
-    // for the DoS rationale (2 MiB == axum's default body limit).
+    // Body size cap (CSRF_BODY_BUFFER_MAX_BYTES). GLOBAL: this middleware wraps
+    // the router, so EVERY form POST that reaches here is buffered up to this
+    // ceiling before any per-route DefaultBodyLimit runs. Only requests that
+    // already passed the cookie-presence gate reach this point. See
+    // CSRF_BODY_BUFFER_MAX_BYTES for the DoS rationale (2 MiB == axum's default
+    // body limit).
     match to_bytes(body, CSRF_BODY_BUFFER_MAX_BYTES).await {
         Ok(bytes) => {
             let token = serde_urlencoded::from_bytes::<Vec<(String, String)>>(&bytes)
@@ -185,8 +209,21 @@ pub async fn csrf_middleware(State(_state): State<AppState>, req: Request, next:
         .and_then(|v| v.to_str().ok())
         .map(str::to_string);
 
-    // Multipart bodies skip the urlencoded form-extraction path. The
-    // existing 64 KB cap would otherwise truncate a 9 MB file upload
+    // Fail closed BEFORE buffering the body. Every valid branch below requires a
+    // non-empty CSRF cookie (double-submit), so a request without one is already
+    // a guaranteed 403 — refuse it here rather than allocate up to
+    // CSRF_BODY_BUFFER_MAX_BYTES (2 MiB) for a body that cannot change the
+    // verdict. Without this gate an UNAUTHENTICATED caller (no cookie, any path,
+    // including a non-existent one that never reaches a route) could force a
+    // 2 MiB per-request allocation. The refusal is byte-identical to the token-
+    // mismatch refusal, so no new oracle is introduced.
+    let cookie_present = cookie_value.as_deref().is_some_and(|c| !c.is_empty());
+    if !cookie_present {
+        return csrf_refusal();
+    }
+
+    // Multipart bodies skip the urlencoded form-extraction path. The CSRF
+    // buffer cap would otherwise truncate a large file upload
     // and the downstream multipart handler would see an empty body.
     // For multipart, the CSRF token MUST arrive in the `x-csrf-token`
     // (or `hx-csrf`) header — US-11's upload client sets this; a
@@ -205,15 +242,7 @@ pub async fn csrf_middleware(State(_state): State<AppState>, req: Request, next:
             _ => false,
         };
         if !valid {
-            return (
-                StatusCode::FORBIDDEN,
-                [(
-                    header::CONTENT_TYPE,
-                    HeaderValue::from_static("text/plain; charset=utf-8"),
-                )],
-                "CSRF token missing or mismatched",
-            )
-                .into_response();
+            return csrf_refusal();
         }
         return next.run(req).await;
     }
@@ -229,15 +258,7 @@ pub async fn csrf_middleware(State(_state): State<AppState>, req: Request, next:
     };
 
     if !valid {
-        return (
-            StatusCode::FORBIDDEN,
-            [(
-                header::CONTENT_TYPE,
-                HeaderValue::from_static("text/plain; charset=utf-8"),
-            )],
-            "CSRF token missing or mismatched",
-        )
-            .into_response();
+        return csrf_refusal();
     }
 
     next.run(req).await

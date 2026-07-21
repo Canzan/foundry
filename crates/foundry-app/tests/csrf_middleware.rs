@@ -129,3 +129,31 @@ async fn csrf_middleware_enforces_double_submit_contract() {
         "matching CSRF token must let the request through"
     );
 }
+
+/// F1 regression (CSRF body-buffer DoS): a form POST with NO `foundry_csrf`
+/// cookie must be refused BEFORE its body is buffered. A cookie-less request
+/// can never satisfy the double-submit check, so the middleware short-circuits
+/// to 403 instead of allocating up to the 2 MiB CSRF buffer for a body that
+/// cannot change the verdict. We can't observe the allocation directly, but we
+/// lock the fail-closed verdict for a large cookie-less body — the case that,
+/// before the gate, forced an unauthenticated 2 MiB buffer on any path
+/// (including non-existent ones).
+#[tokio::test]
+async fn csrf_middleware_refuses_cookieless_post_regardless_of_body_size() {
+    let router = build_test_router().await;
+
+    // ~3 MiB urlencoded body, no cookie. Guaranteed 403; must not error or hang.
+    let big = format!("_csrf={}", "a".repeat(3 * 1024 * 1024));
+    let req = Request::builder()
+        .method("POST")
+        .uri("/csrf-probe")
+        .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+        .body(Body::from(big))
+        .unwrap();
+    let resp = router.oneshot(req).await.unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::FORBIDDEN,
+        "cookie-less POST must fail closed (403) irrespective of body size"
+    );
+}
