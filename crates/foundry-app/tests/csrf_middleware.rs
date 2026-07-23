@@ -130,6 +130,45 @@ async fn csrf_middleware_enforces_double_submit_contract() {
     );
 }
 
+/// F2 regression (CSRF buffer undersized for multibyte): a form POST whose body
+/// is a maximum-length description written in 4-byte UTF-8 chars must pass the
+/// CSRF buffer, not be refused by it. `DESCRIPTION_MAX_LEN` is 262144 CHARACTERS
+/// (`foundry-services`, `chars().count()`); an emoji ('😀' → `%F0%9F%98%80`,
+/// 12 urlencoded bytes) expands that to ~3.0 MB. The token rides in the FORM
+/// body (not a header), so the middleware MUST buffer the whole body to read
+/// `_csrf`. Under the old 2 MiB cap `to_bytes` failed, the token read as `None`,
+/// and the caller got a misleading 403. Under the 4 MiB cap the body is buffered
+/// and the matching token passes through (200).
+#[tokio::test]
+async fn csrf_middleware_accepts_max_length_multibyte_form_body() {
+    let router = build_test_router().await;
+
+    let token = "matched-token-value";
+    // 262144 four-byte chars, urlencoded (12 bytes each) => ~3.0 MB, i.e. above
+    // the old 2 MiB cap and below the new 4 MiB cap. `_csrf` first so the parser
+    // finds it after buffering the full body.
+    let description = "%F0%9F%98%80".repeat(262_144);
+    let body = format!("_csrf={token}&description={description}");
+    assert!(
+        body.len() > 2 * 1024 * 1024 && body.len() < 4 * 1024 * 1024,
+        "test body ({} bytes) must sit between the old 2 MiB and new 4 MiB cap",
+        body.len()
+    );
+    let req = Request::builder()
+        .method("POST")
+        .uri("/csrf-probe")
+        .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+        .header(header::COOKIE, format!("foundry_csrf={token}"))
+        .body(Body::from(body))
+        .unwrap();
+    let resp = router.oneshot(req).await.unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "a max-length multibyte description must pass the CSRF buffer, not 403"
+    );
+}
+
 /// F1 regression (CSRF body-buffer DoS): a form POST with NO `foundry_csrf`
 /// cookie must be refused BEFORE its body is buffered. A cookie-less request
 /// can never satisfy the double-submit check, so the middleware short-circuits

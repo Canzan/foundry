@@ -484,18 +484,23 @@ pub fn build_router(state: AppState) -> Router {
             get(projects::show_report),
         )
         // The issue CREATE POST carries a `description` up to
-        // DESCRIPTION_MAX_LEN (262144) chars. A 2-byte multibyte char
-        // urlencodes to 6 bytes (`%C3%A9`), so the worst-case body is ~1.6 MB
-        // plus title + `_csrf`. An EXPLICIT, SCOPED per-route DefaultBodyLimit
-        // (following the US-11 attachments precedent) sets this endpoint's
-        // ceiling to 2 MiB — matching axum's global default and the CSRF buffer
-        // cap — WITHOUT broadly loosening the rest of the form surface
-        // (sign-in etc. keep axum's default limit). The app-level length guard
-        // in `create_issue` still returns a clean 400 for anything over the
-        // char bound; this limit only bounds raw bytes for DoS safety.
+        // DESCRIPTION_MAX_LEN (262144) CHARACTERS (counted with chars(), so the
+        // limit is in chars, not bytes). The worst case is the WIDEST char: a
+        // 4-byte emoji urlencodes to 12 bytes (`%F0%9F%98%80`), so an at-bound
+        // body is ~3.0 MB plus title + `_csrf`. An EXPLICIT, SCOPED per-route
+        // DefaultBodyLimit (following the US-11 attachments precedent) sets this
+        // endpoint's ceiling to 4 MiB — matching the CSRF buffer cap — WITHOUT
+        // broadly loosening the rest of the form surface (sign-in etc. keep
+        // axum's default limit). This MUST track CSRF_BODY_BUFFER_MAX_BYTES: a
+        // body that clears the outer CSRF buffer would otherwise be rejected here
+        // (413) at the `Form` extractor. The earlier 2 MiB reasoned only about
+        // 2-byte chars and truncated CJK/emoji descriptions at the char limit.
+        // The app-level length guard in `create_issue` still returns a clean 400
+        // for anything over the char bound; this limit only bounds raw bytes for
+        // DoS safety.
         .route(
             "/team/{team_slug}/project/{project_slug}/issues",
-            post(issues::submit_create).layer(DefaultBodyLimit::max(2 * 1024 * 1024)),
+            post(issues::submit_create).layer(DefaultBodyLimit::max(4 * 1024 * 1024)),
         )
         .route(
             "/team/{team_slug}/project/{project_slug}/issues/new",
@@ -517,15 +522,15 @@ pub fn build_router(state: AppState) -> Router {
         // 404s non-enumerably (ADR-003).
         // The issue EDIT POST carries a `description` up to DESCRIPTION_MAX_LEN
         // (262144) chars, exactly like the CREATE POST above — so it needs the
-        // SAME explicit 2 MiB per-route ceiling (mirroring the create-route limit
-        // 03-01 added) to receive an at-bound / just-over body through the raised
-        // CSRF buffer. The app-level guard in `edit_issue_details` still returns a
-        // clean 400 for anything over the char bound; this only bounds raw bytes.
+        // SAME explicit 4 MiB per-route ceiling (mirroring the create-route limit)
+        // to receive an at-bound 4-byte-char body through the raised CSRF buffer.
+        // The app-level guard in `edit_issue_details` still returns a clean 400
+        // for anything over the char bound; this only bounds raw bytes.
         .route(
             "/team/{team_slug}/project/{project_slug}/issues/{issue_number}/edit",
             get(issues::show_edit_form)
                 .post(issues::submit_edit)
-                .layer(DefaultBodyLimit::max(2 * 1024 * 1024)),
+                .layer(DefaultBodyLimit::max(4 * 1024 * 1024)),
         )
         .route(
             "/team/{team_slug}/project/{project_slug}/events",
