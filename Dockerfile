@@ -66,6 +66,20 @@ COPY --from=builder /usr/local/bin/foundry /app/foundry
 # Migrations are baked into the binary by `sqlx::migrate!`. No need
 # to ship the migrations directory separately.
 
+# The vendored assets are NOT baked into the binary — /static is served by
+# tower_http::ServeDir off the real filesystem, and `static_dir()` prefers the
+# cwd-relative `static` (WORKDIR is /app, so /app/static). Its fallback,
+# CARGO_MANIFEST_DIR/static, is a BUILDER-stage path this stage never inherits,
+# so without this COPY both candidates miss.
+#
+# ServeDir does not error on a missing root — it 404s every request. Omitting
+# this line therefore ships an image that passes /healthz, /readyz, and every
+# liveness probe while serving the app with no stylesheet, no htmx, no board
+# drag-and-drop, and no webmanifest. The in-process acceptance suite cannot
+# catch it either: there CARGO_MANIFEST_DIR resolves to a real directory on the
+# build host, so the /static scenarios pass green against a broken image.
+COPY --from=builder /work/crates/foundry-app/static /app/static
+
 USER nonroot:nonroot
 # 3000 = main HTTP listener (FOUNDRY_PORT); 9090 = sidecar Prometheus
 # metrics listener (METRICS_PORT). The LB should ONLY expose 3000.
