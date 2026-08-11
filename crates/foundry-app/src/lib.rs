@@ -262,14 +262,38 @@ fn static_cache_control_value(path: &str) -> &'static str {
     }
 }
 
-/// Axum middleware that stamps the path-aware `Cache-Control`
-/// ([`static_cache_control_value`]) onto every `/static` response.
+/// The `Cache-Control` for a `/static` response, given its STATUS as well as
+/// its path.
+///
+/// Only a successful asset may carry a long-lived header. `ServeDir` answers a
+/// missing root — or any missing file — with a plain 404, and stamping the
+/// path-derived `immutable, max-age=1y` onto that 404 makes every intermediary
+/// cache the error for a year at a URL that is, by design, never going to
+/// change. That is not hypothetical: a deploy whose image omitted the `static/`
+/// directory 404'd every asset, and a CDN pinned those 404s at the
+/// content-addressed CSS and vendored-lib URLs. Fixing the origin did not clear
+/// them — `cf-cache-status: HIT` kept serving the stale 404 — while the
+/// `no-cache` app JS recovered on the next revalidation.
+///
+/// `no-store` rather than `no-cache` on the error path: there is nothing here
+/// worth revalidating, and it is the one value no shared cache will retain.
+fn static_cache_control_value_for(status: axum::http::StatusCode, path: &str) -> &'static str {
+    if status.is_success() {
+        static_cache_control_value(path)
+    } else {
+        "no-store"
+    }
+}
+
+/// Axum middleware that stamps the path- and status-aware `Cache-Control`
+/// ([`static_cache_control_value_for`]) onto every `/static` response.
 async fn static_cache_control(
     req: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
-    let value = static_cache_control_value(req.uri().path());
+    let path = req.uri().path().to_owned();
     let mut resp = next.run(req).await;
+    let value = static_cache_control_value_for(resp.status(), &path);
     resp.headers_mut().insert(
         axum::http::header::CACHE_CONTROL,
         axum::http::HeaderValue::from_static(value),
@@ -297,6 +321,46 @@ mod static_cache_policy_tests {
             static_cache_control_value("/static/css/foundry.7c858984.css").contains("immutable")
         );
         assert!(static_cache_control_value("/static/vendor/htmx.min.js").contains("immutable"));
+    }
+
+    #[test]
+    fn an_error_response_is_never_cached_however_immutable_its_path_looks() {
+        use super::static_cache_control_value_for;
+        use axum::http::StatusCode;
+
+        // The bug this guards: the header was chosen from the PATH alone and
+        // stamped regardless of status, so a 404 at a content-addressed URL
+        // went out as `immutable, max-age=1y`. A deploy whose image omitted the
+        // static/ directory 404'd every asset, and a CDN pinned those 404s for
+        // a year at exactly the URLs that can never change to bust the cache.
+        // Repairing the origin did not clear them.
+        for path in [
+            "/static/css/foundry.7c858984.css",
+            "/static/vendor/htmx.min.js",
+            "/static/js/board-dnd.js",
+        ] {
+            assert_eq!(
+                static_cache_control_value_for(StatusCode::NOT_FOUND, path),
+                "no-store",
+                "a 404 at {path} must not be cacheable"
+            );
+            assert_eq!(
+                static_cache_control_value_for(StatusCode::INTERNAL_SERVER_ERROR, path),
+                "no-store",
+                "a 5xx at {path} must not be cacheable"
+            );
+        }
+
+        // A success still gets the full path-aware policy — the fix must not
+        // quietly disable immutable caching for the assets that earn it.
+        assert!(
+            static_cache_control_value_for(StatusCode::OK, "/static/css/foundry.7c858984.css")
+                .contains("immutable")
+        );
+        assert_eq!(
+            static_cache_control_value_for(StatusCode::OK, "/static/js/board-dnd.js"),
+            "no-cache"
+        );
     }
 }
 
