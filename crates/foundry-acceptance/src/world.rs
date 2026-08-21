@@ -25,6 +25,29 @@ pub struct FoundryWorld {
     pub compose_bootstrap_url: Option<String>,
     pub admin_already_claimed: bool,
 
+    // ---- keycloak-sso: federated sign-in ----
+    /// The in-process identity-provider double, alive for the scenario.
+    pub kc_issuer: Option<crate::support::oidc_issuer::OidcIssuerDouble>,
+    pub kc_issuer_url: Option<String>,
+    pub kc_provider_configured: bool,
+    pub kc_provider_reachable: bool,
+    pub kc_partial_config: bool,
+    pub kc_start_attempted: bool,
+    /// Address the provider will vouch for next.
+    pub kc_subject_email: Option<String>,
+    pub kc_account_exists: bool,
+    pub kc_has_workspace: bool,
+    /// Authorization code from the most recent completed sign-in, replayed by the
+    /// AC-3.5 scenario against the provider's single-use guarantee.
+    pub kc_last_code: Option<String>,
+    pub kc_start_status: Option<StatusCode>,
+    pub kc_first_start_headers: Option<HeaderMap>,
+    /// (status, body) per refusal branch, asserted byte-identical.
+    pub kc_refusals: Vec<(StatusCode, String)>,
+    pub kc_filed_issue: bool,
+    pub kc_password_path_used: bool,
+    pub kc_claimed_instance: bool,
+
     // ---- US-05+ in-process harness ----
     pub harness: Option<InProcHarness>,
     pub http: Option<reqwest::Client>,

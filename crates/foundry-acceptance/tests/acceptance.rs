@@ -57,6 +57,8 @@ use foundry_acceptance::steps::feature_issue_edit_dialog as _feature_issue_edit_
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_issue_status_move as _feature_issue_status_move;
 #[allow(unused_imports)]
+use foundry_acceptance::steps::feature_keycloak_sso as _kc_sso;
+#[allow(unused_imports)]
 use foundry_acceptance::steps::feature_machine_token_admin as _feature_mt;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_member_invites as _feature_member_invites;
