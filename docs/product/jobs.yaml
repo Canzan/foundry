@@ -1,0 +1,42 @@
+# Product SSOT — validated Jobs-to-be-Done.
+#
+# Bootstrapped by the keycloak-sso DISCUSS wave (2026-08-21). This repo predates
+# the SSOT model: 43 features under docs/feature/ were written in the old
+# per-feature layout, and docs/guides/migrating-to-ssot-model/ does not exist
+# here. Rather than block a feature on migrating 43 histories, this file starts
+# empty-but-real and each new feature appends the job it validates. Back-filling
+# prior features is deliberately NOT attempted — an invented job story for a
+# shipped feature is worse than no entry.
+
+jobs:
+  - id: job-sso-signin
+    title: Sign in to the issue tracker with the credentials I already use
+    job_story: >
+      When I open foundry to file or triage an issue, I want to sign in with the
+      same Keycloak identity I already use for Grafana, Portainer and ArgoCD, so
+      I can get to my board without remembering a password that exists only here.
+    dimensions:
+      functional: Reach an authenticated foundry session without a foundry-specific credential.
+      emotional: Stop feeling that foundry is the odd one out — the tool with its own password.
+      social: Present as the same person across the cluster; issues and comments carry one identity.
+    forces:
+      push: >
+        foundry is the only service on the cluster with a private password. It is
+        the one credential not in the password manager's SSO group, and the one
+        most likely to be reset-by-email at the moment it is needed.
+      pull: >
+        One click from the foundry sign-in page to a signed-in board, with the
+        same session semantics the local password path already produces.
+      anxiety: >
+        Losing access to my own issue tracker if Keycloak or LLDAP is down, or if
+        an OIDC misconfiguration locks the account out after a cluster rebuild.
+      habit: >
+        Typing a foundry-specific password. It works today, so the SSO path must
+        be strictly additive — not a migration that removes the fallback.
+    opportunity:
+      importance: high
+      satisfaction: low
+      note: >
+        Single-job feature; no comparative scoring table is produced (the skill
+        requires one only when multiple jobs compete).
+    validated_by: docs/feature/keycloak-sso/feature-delta.md
