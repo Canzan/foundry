@@ -917,6 +917,32 @@ pub struct TokenMintedPage {
     pub nav: crate::nav::NavContext,
 }
 
+/// One project row on the instance dashboard (instance-admin-project-rename
+/// 01-01) — rendered by the dashboard's per-workspace loop AND (02-02, the
+/// one-partial rule) returned verbatim as the rename-success fragment. A BARE
+/// fragment: it MUST NOT extend `base.html` (htmx swaps it into the live
+/// dashboard row; extending base double-wraps the swap). The
+/// `data-project-row` / `data-project-id` / `data-project-name` /
+/// `[data-error-slot]` markers are the acceptance scraper contract
+/// (design/component-boundaries.md). The row's rename form posts to
+/// `POST /admin/instance/projects/{project_id}/rename` and carries the hidden
+/// double-submit `_csrf` field the shipped `csrf_middleware` enforces.
+#[derive(Debug, Clone, Template)]
+#[template(path = "partials/instance_project_row.html")]
+pub struct InstanceProjectRowView {
+    /// The project id — `data-project-id` marker + the rename form's action URL.
+    pub project_id: String,
+    /// The display name (auto-escaped) — visible via `data-project-name` and
+    /// pre-filling the rename input.
+    pub name: String,
+    /// The immutable key prefix (D1) — visible in the row.
+    pub key_prefix: String,
+    /// The owning team's name (auto-escaped) — visible in the row.
+    pub team_name: String,
+    /// The double-submit CSRF token — hidden `_csrf` in the row's rename form.
+    pub csrf: String,
+}
+
 /// A single existing-workspace row on the instance dashboard
 /// (`GET /admin/instance/workspaces`, web-provisioning-flow 01-02). Carries the
 /// workspace id + name the thin `list_workspaces` read returned; both rendered
@@ -928,6 +954,11 @@ pub struct InstanceWorkspaceRow {
     pub workspace_id: String,
     /// The workspace name (auto-escaped) — visible in the row.
     pub name: String,
+    /// Every project in this workspace, ordered by name — the per-workspace
+    /// slice of the ONE instance-wide `list_projects_for_instance` read
+    /// (instance-admin-project-rename 01-01; no per-workspace N+1). Empty
+    /// renders the explicit `data-project-empty` state.
+    pub projects: Vec<InstanceProjectRowView>,
 }
 
 /// The instance super-admin DASHBOARD full page served by

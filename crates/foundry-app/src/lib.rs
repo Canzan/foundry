@@ -671,6 +671,17 @@ pub fn build_router(state: AppState) -> Router {
             "/admin/instance/super-admins",
             post(instance_admin::submit_grant),
         )
+        // instance-admin-project-rename (D5) — the per-row rename POST. Same
+        // mount (UNDER `csrf_middleware` + `session_layer`, mirroring
+        // `/admin/tokens/{jti}/revoke`'s verb-suffix shape): the rename form is
+        // an htmx mutating trigger carrying the hidden `_csrf` field. The path
+        // param is Path<String>, parsed to Uuid IN the handler so a malformed
+        // id gets the SAME uniform 404 as a non-admin (no 400 enumeration
+        // oracle). RED scaffold handler (instance_admin.rs) until DELIVER.
+        .route(
+            "/admin/instance/projects/{project_id}/rename",
+            post(instance_admin::submit_project_rename),
+        )
         .route("/", get(signin::dashboard_root))
         // Non-enumerability (ADR-002, web-provisioning-flow): a path with NO
         // route is refused with the SAME uniform `resource_not_found_page()` the

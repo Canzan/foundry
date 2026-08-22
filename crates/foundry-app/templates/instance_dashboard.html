@@ -11,7 +11,17 @@
     {% else %}
     <ul>
       {% for workspace in workspaces %}
-      <li data-workspace-row data-workspace-id="{{ workspace.workspace_id }}">{{ workspace.name }}</li>
+      <li data-workspace-row data-workspace-id="{{ workspace.workspace_id }}">{{ workspace.name }}
+        {% if workspace.projects.is_empty() %}
+        <p data-project-empty>No projects yet.</p>
+        {% else %}
+        <ul data-project-list>
+          {% for project in workspace.projects %}
+          {{ project|safe }}
+          {% endfor %}
+        </ul>
+        {% endif %}
+      </li>
       {% endfor %}
     </ul>
     {% endif %}

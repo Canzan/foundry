@@ -48,6 +48,29 @@ pub struct FoundryWorld {
     pub kc_password_path_used: bool,
     pub kc_claimed_instance: bool,
 
+    // ---- instance-admin-project-rename (iapr) ----
+    /// Seeded ids by display name, captured at Background time.
+    pub iapr_workspace_ids: HashMap<String, uuid::Uuid>,
+    pub iapr_team_ids: HashMap<String, uuid::Uuid>,
+    pub iapr_project_ids: HashMap<String, uuid::Uuid>,
+    /// STORED `(team_slug, project_slug)` per seeded project name, READ BACK
+    /// from the database at seed time (the D2 slug-capture rule: board/report
+    /// URLs asserted after a rename are never re-derived from a name).
+    pub iapr_stored_slugs: HashMap<String, (String, String)>,
+    /// `(team_slug, project_slug)` noted from the DB BEFORE a rename — the
+    /// board-survival oracle's anchor (US-IAPR-02 scenario 2).
+    pub iapr_noted_board: Option<(String, String)>,
+    /// Pre-write `projects`-row snapshot `(name, slug, key_prefix,
+    /// next_issue_number)` — the declared universe for the state-delta
+    /// assertions (only `name` may move; anything else moving fails closed).
+    pub iapr_before_row: Option<(String, String, String, i32)>,
+    /// The trimful name the last rename asked for (drives post-write deltas).
+    pub iapr_expected_name: Option<String>,
+    /// The generated boundary-length name (256/300-char scenarios).
+    pub iapr_generated_name: Option<String>,
+    /// Priya's seeded user id (issue author, membership anchor).
+    pub iapr_priya_id: Option<uuid::Uuid>,
+
     // ---- US-05+ in-process harness ----
     pub harness: Option<InProcHarness>,
     pub http: Option<reqwest::Client>,

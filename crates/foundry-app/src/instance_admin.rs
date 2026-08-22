@@ -35,8 +35,8 @@ use crate::bootstrap::{resource_not_found_page, SessionUser};
 use crate::csrf::{build_csrf_cookie, generate_token};
 use crate::session::SESSION_KEY_USER_ID;
 use crate::views::{
-    InstanceDashboardPage, InstanceGrantConfirmedFragment, InstanceProvisionedFragment,
-    InstanceWorkspaceRow,
+    InstanceDashboardPage, InstanceGrantConfirmedFragment, InstanceProjectRowView,
+    InstanceProvisionedFragment, InstanceWorkspaceRow,
 };
 use crate::AppState;
 use askama::Template;
@@ -83,12 +83,37 @@ pub async fn show_dashboard(
         return resource_not_found_page();
     };
     let (csrf, set_cookie) = ensure_csrf_cookie(&state, &headers);
+    // ONE instance-wide read for every project row (no per-workspace N+1,
+    // instance-admin-project-rename 01-01); grouped by workspace here, and the
+    // per-workspace name order falls out of the query's `ORDER BY p.name`.
+    let mut projects_by_workspace: std::collections::HashMap<
+        uuid::Uuid,
+        Vec<InstanceProjectRowView>,
+    > = std::collections::HashMap::new();
+    match state.store.list_projects_for_instance().await {
+        Ok(rows) => {
+            for row in rows {
+                projects_by_workspace
+                    .entry(row.workspace_id)
+                    .or_default()
+                    .push(InstanceProjectRowView {
+                        project_id: row.project_id.to_string(),
+                        name: row.name,
+                        key_prefix: row.key_prefix,
+                        team_name: row.team_name,
+                        csrf: csrf.clone(),
+                    });
+            }
+        }
+        Err(err) => return internal_error("list_projects_for_instance", err),
+    }
     let workspaces = match state.store.list_workspaces().await {
         Ok(rows) => rows
             .into_iter()
             .map(|(id, name)| InstanceWorkspaceRow {
                 workspace_id: id.to_string(),
                 name,
+                projects: projects_by_workspace.remove(&id).unwrap_or_default(),
             })
             .collect(),
         Err(err) => return internal_error("list_workspaces", err),
@@ -323,4 +348,62 @@ fn ensure_csrf_cookie(state: &AppState, headers: &HeaderMap) -> (String, Option<
 fn internal_error<E: std::fmt::Display>(label: &str, err: E) -> Response {
     tracing::error!(error = %err, "{label} failed");
     (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response()
+}
+
+// ===========================================================================
+// instance-admin-project-rename — RED scaffold (DISTILL, Mandate 7 / ADR-025)
+//
+// Mounted in `build_router` ALONGSIDE the other `/admin/instance/…` routes (so
+// UNDER `csrf::csrf_middleware` + `session_layer` — never the CSRF-exempt
+// `/api/v1` mount; D5). For RED the handler RETURNS a clean `501 Not
+// Implemented` carrying a `RED scaffold` marker — NOT a `panic!` (a panic
+// aborts the axum connection, surfacing at the test client as a transport
+// error that masks the assertion; a returned 501 lets the Then step capture a
+// real status and fail RED for MISSING_FUNCTIONALITY — the `admin_tokens.rs`
+// precedent).
+//
+// DELIVER replaces the body per
+// `docs/feature/instance-admin-project-rename/design/component-boundaries.md`:
+//   - `require_instance_admin` session gate → None ⇒ uniform 404 (D5).
+//   - parse `{project_id}` as Uuid IN the handler: a malformed id renders the
+//     SAME uniform 404 (no 400-vs-404 enumeration oracle — axum's default
+//     `Path<Uuid>` rejection would leak a 400).
+//   - delegate to `Services::rename_project`; map `Renamed`/`NoOp` to the 200
+//     bare row partial (`partials/instance_project_row.html`, one-partial
+//     rule), `EmptyName`/`NameTooLong`/`DuplicateName` to 422 + bare
+//     `ErrorFragment` (marker "project-rename-error", the three D4 messages
+//     verbatim), `Forbidden`/`NotFound` to the uniform 404, store errors to
+//     `internal_error`.
+//
+// SCAFFOLD: true
+// ===========================================================================
+
+/// The rename form: the new display `name`. The double-submit `_csrf` token is
+/// enforced by the surrounding `csrf_middleware` BEFORE this handler runs; the
+/// field is accepted (and ignored) here.
+#[derive(Debug, Deserialize)]
+pub struct RenameForm {
+    pub name: String,
+    #[serde(rename = "_csrf", default)]
+    _csrf: Option<String>,
+}
+
+/// `POST /admin/instance/projects/{project_id}/rename` — correct a project's
+/// display name in place (US-IAPR-02/03). Display name ONLY: slug, board and
+/// report URLs, key_prefix, and issue keys are byte-identical before and after
+/// (D1 / ADR-PROJECT-RENAME-001).
+pub async fn submit_project_rename(
+    State(state): State<AppState>,
+    axum::extract::Path(project_id): axum::extract::Path<String>,
+    session: Session,
+    headers: HeaderMap,
+    axum::extract::Form(form): axum::extract::Form<RenameForm>,
+) -> Response {
+    let _ = (state, project_id, session, headers, form);
+    (
+        StatusCode::NOT_IMPLEMENTED,
+        "instance-admin-project-rename: POST /admin/instance/projects/{project_id}/rename \
+         not yet implemented — RED scaffold",
+    )
+        .into_response()
 }

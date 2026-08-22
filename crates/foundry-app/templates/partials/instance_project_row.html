@@ -1,0 +1,10 @@
+<li data-project-row data-project-id="{{ project_id }}">
+  <span data-project-name>{{ name }}</span> ({{ key_prefix }}) — team {{ team_name }}
+  <form hx-post="/admin/instance/projects/{{ project_id }}/rename"
+        hx-target="closest [data-project-row]" hx-swap="outerHTML">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <label>Rename <input type="text" name="name" value="{{ name }}" required></label>
+    <div data-error-slot></div>
+    <button type="submit">Rename</button>
+  </form>
+</li>

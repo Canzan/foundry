@@ -49,6 +49,8 @@ use foundry_acceptance::steps::feature_fix_comment_delete_csrf as _feature_fix_c
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_form_error_display as _feature_form_error_display;
 #[allow(unused_imports)]
+use foundry_acceptance::steps::feature_instance_admin_project_rename as _feature_iapr;
+#[allow(unused_imports)]
 use foundry_acceptance::steps::feature_invite_accept as _feature_invite_accept;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_issue_change_history as _feature_issue_change_history;
