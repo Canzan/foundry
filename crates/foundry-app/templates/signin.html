@@ -9,5 +9,8 @@
   <label>Password <input type="password" name="password" required></label>
   <button type="submit">Sign in</button>
 </form>
+{% if let Some(oidc_start) = oidc_start %}
+<p class="oidc"><a class="oidc-signin" href="{{ oidc_start }}">Sign in with Keycloak</a></p>
+{% endif %}
 <p><a href="/forgot-password">Forgot password?</a></p>
 {% endblock %}

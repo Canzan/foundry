@@ -4,6 +4,7 @@ members = [
     "crates/foundry-core",
     "crates/foundry-store",
     "crates/foundry-auth",
+    "crates/foundry-oidc",
     "crates/foundry-realtime",
     # Feature A "Programmatic Foundry" (web-tier-extraction) — RED scaffold
     # crates created by DISTILL (Mandate 7). Standalone (not yet depended on by

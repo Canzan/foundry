@@ -28,6 +28,7 @@ pub mod member_invites;
 pub mod metrics_server;
 pub mod nav;
 pub mod notify;
+pub mod oidc;
 pub mod projects;
 pub mod rate_limit;
 pub mod session;
@@ -89,6 +90,12 @@ pub struct AppState {
     /// reads it directly from `State<AppState>` and passes it to
     /// `services.mint_token(signer, …)` (DD4 — confined to the mint call path).
     pub machine_token_signer: Option<Arc<foundry_auth::MachineTokenSigner>>,
+    /// keycloak-sso — the OIDC relying party, or `None` when unconfigured.
+    /// Mirrors `machine_token_signer`: absent config means the feature is simply
+    /// off (no control rendered, both routes refuse), which is how CI and a
+    /// contributor's run.sh work with no identity provider. Partial config is
+    /// refused at boot instead, in main.rs.
+    pub oidc: Option<std::sync::Arc<foundry_oidc::OidcProvider>>,
     pub session_cookie_secure: bool,
     /// Postgres schema where the `session` table lives. `"public"` in
     /// production, a per-scenario name like `"test_s17_ab12"` in the
@@ -425,6 +432,13 @@ pub fn build_router(state: AppState) -> Router {
             get(signin::show_form).post(signin::submit_signin),
         )
         .route("/sign-out", post(signin::submit_signout))
+        // keycloak-sso — the federated door. Mounted HERE beside the PUBLIC
+        // /sign-in and /bootstrap (the visitor is signed OUT), so both sit under
+        // csrf_middleware + session_layer below. The callback is a GET, so
+        // `state` — not the double-submit token — is its request-forgery
+        // defence, exactly as the OIDC spec intends.
+        .route(oidc::START_PATH, get(oidc::start))
+        .route(oidc::CALLBACK_PATH, get(oidc::callback))
         // invite-accept-flow 01-01 (ADR-001/003/004) — the PUBLIC claim-your-account
         // route pair. Mounted HERE, alongside the PUBLIC `/sign-in` + `/bootstrap`
         // (NOT behind the instance-admin gate — the invitee is signed OUT), so it

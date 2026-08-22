@@ -291,6 +291,10 @@ pub struct SigninPage {
     /// The non-enumerable error copy (`GENERIC_SIGNIN_ERROR`), shown in the
     /// `.error` slot on a failed sign-in; `None` on the initial GET.
     pub error: Option<String>,
+    /// keycloak-sso — where the federated control points, or `None` when no
+    /// identity provider is configured, in which case no control is rendered
+    /// at all (AC-5.2).
+    pub oidc_start: Option<String>,
 }
 
 /// The forgot-password page. Extends `base.html` (US-B04) — same vendored

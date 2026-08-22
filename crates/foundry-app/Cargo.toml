@@ -28,6 +28,7 @@ test-support = ["foundry-store/test-support"]
 foundry-core = { path = "../foundry-core" }
 foundry-store = { path = "../foundry-store" }
 foundry-auth = { path = "../foundry-auth" }
+foundry-oidc = { path = "../foundry-oidc" }
 foundry-services = { path = "../foundry-services" }
 foundry-api = { path = "../foundry-api" }
 foundry-realtime = { path = "../foundry-realtime" }

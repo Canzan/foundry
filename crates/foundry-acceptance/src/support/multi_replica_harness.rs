@@ -235,6 +235,7 @@ impl MultiReplicaHarness {
                 let realtime_tx = foundry_realtime::build_broadcast();
                 let store = Arc::new(Store::from_pool(pool.clone()));
                 AppState {
+                    oidc: None,
                     store,
                     session_secret: Arc::new(SecretString::new(
                         "test-only-secret-must-be-at-least-32-bytes-long-please-yes".into(),
@@ -393,6 +394,7 @@ impl MultiReplicaHarness {
             let realtime_tx = foundry_realtime::build_broadcast();
             let store = Arc::new(Store::from_pool(pool.clone()));
             let state = AppState {
+                oidc: None,
                 store,
                 session_secret: Arc::new(SecretString::new(
                     "test-only-secret-must-be-at-least-32-bytes-long-please-yes".into(),

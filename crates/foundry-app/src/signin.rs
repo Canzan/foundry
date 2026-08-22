@@ -28,7 +28,7 @@ const BRUTE_FORCE_THRESHOLD: i64 = 5;
 const BRUTE_FORCE_WINDOW_MINUTES: i64 = 15;
 const BRUTE_FORCE_DELAY: Duration = Duration::from_secs(5);
 
-const GENERIC_SIGNIN_ERROR: &str = "Invalid email or password";
+pub(crate) const GENERIC_SIGNIN_ERROR: &str = "Invalid email or password";
 
 #[derive(Debug, Deserialize)]
 pub struct SigninForm {
@@ -60,7 +60,10 @@ pub struct ChangePasswordForm {
 
 pub async fn show_form(State(state): State<AppState>, headers: HeaderMap) -> Response {
     let (token, set_cookie) = ensure_csrf_cookie(&state, &headers);
-    let body = render_signin_form(&token, None);
+    // The federated control appears only when an identity provider is actually
+    // configured. Rendering it unconditionally would offer a door that leads to
+    // a refusal, which reads as a broken deploy rather than an unconfigured one.
+    let body = render_signin_form_with_oidc(&token, None, state.oidc.is_some());
     response_with_optional_cookie(StatusCode::OK, Html(body).into_response(), set_cookie)
 }
 
@@ -148,22 +151,36 @@ pub async fn submit_signin(
     }
 
     let user = user.expect("verified implies user row found");
-    // ADR-005: the session's ACTIVE workspace is resolved by the member's
-    // `workspace_memberships`, NOT by the global `first_workspace()`. Under two
-    // coexisting workspaces (slice 1), `first_workspace()`'s unordered `LIMIT 1`
-    // would scope a member of one tenant to an arbitrary other; membership
-    // resolution scopes them to their own. A single-membership user
-    // auto-resolves to their one workspace; a user with NO membership FAILS
-    // CLOSED (we refuse — never default to a tenant they do not belong to). The
-    // multi-membership selector + switcher (step 02-05) layer onto this same
-    // seam later.
-    let workspace_id = match state.store.resolve_active_workspace(user.id).await {
+    establish_session(&state, &session, &headers, user.id).await
+}
+
+/// Turn a resolved user into a signed-in session, or the generic refusal.
+///
+/// EXTRACTED, not duplicated (DDD-6). Both doors into foundry end here: the
+/// password flow above and the federated flow in `oidc.rs`. Keeping one
+/// implementation is what guarantees the two cannot drift on the fail-closed
+/// no-workspace branch — the branch a federated sign-in is MORE likely to hit,
+/// because an identity provider will happily vouch for someone who has a foundry
+/// account but belongs to no workspace.
+///
+/// ADR-005: the session's ACTIVE workspace is resolved by the member's
+/// `workspace_memberships`, NOT by the global `first_workspace()`. Under two
+/// coexisting workspaces, `first_workspace()`'s unordered `LIMIT 1` would scope a
+/// member of one tenant to an arbitrary other; membership resolution scopes them
+/// to their own. A single-membership user auto-resolves to their one workspace; a
+/// user with NO membership FAILS CLOSED — we refuse rather than default to a
+/// tenant they do not belong to.
+pub(crate) async fn establish_session(
+    state: &AppState,
+    session: &Session,
+    headers: &HeaderMap,
+    user_id: uuid::Uuid,
+) -> Response {
+    let workspace_id = match state.store.resolve_active_workspace(user_id).await {
         Ok(Some((id, _))) => id,
         Ok(None) => {
-            // Fail closed: a verified user who belongs to no workspace cannot be
-            // given an active tenant. Refuse rather than default.
-            tracing::warn!(user_id = %user.id, "sign-in: user belongs to no workspace; refusing");
-            let (token, set_cookie) = ensure_csrf_cookie(&state, &headers);
+            tracing::warn!(user_id = %user_id, "sign-in: user belongs to no workspace; refusing");
+            let (token, set_cookie) = ensure_csrf_cookie(state, headers);
             let body = render_signin_form(&token, Some(GENERIC_SIGNIN_ERROR));
             return response_with_optional_cookie(
                 StatusCode::UNAUTHORIZED,
@@ -181,7 +198,7 @@ pub async fn submit_signin(
         .insert(
             SESSION_KEY_USER_ID,
             SessionUser {
-                user_id: user.id,
+                user_id,
                 workspace_id,
             },
         )
@@ -506,7 +523,10 @@ fn sha256(s: &str) -> Vec<u8> {
 
 /// Read the existing CSRF cookie if present; otherwise mint a fresh
 /// one. Returns `(token, optional Set-Cookie header value)`.
-fn ensure_csrf_cookie(state: &AppState, headers: &HeaderMap) -> (String, Option<String>) {
+pub(crate) fn ensure_csrf_cookie(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> (String, Option<String>) {
     let existing = headers
         .get(COOKIE)
         .and_then(|v| v.to_str().ok())
@@ -520,7 +540,7 @@ fn ensure_csrf_cookie(state: &AppState, headers: &HeaderMap) -> (String, Option<
     }
 }
 
-fn response_with_optional_cookie(
+pub(crate) fn response_with_optional_cookie(
     status: StatusCode,
     body: Response,
     set_cookie: Option<String>,
@@ -540,10 +560,23 @@ fn response_with_optional_cookie(
 /// `_csrf` field, `method="post"` `action="/sign-in"`, and the non-enumerable
 /// `GENERIC_SIGNIN_ERROR` copy in the `.error` slot — now wrapped by `base.html`
 /// so it links the vendored `/static` stylesheet. Auth logic UNCHANGED.
-fn render_signin_form(csrf_token: &str, error: Option<&str>) -> String {
+pub(crate) fn render_signin_form(csrf_token: &str, error: Option<&str>) -> String {
+    render_signin_form_with_oidc(csrf_token, error, false)
+}
+
+/// `offer_oidc` is threaded in rather than read from a global so the renderer
+/// stays a pure function of its inputs — the acceptance suite asserts BOTH the
+/// present and absent cases, and a hidden global would make the absent case
+/// untestable without process-wide state.
+pub(crate) fn render_signin_form_with_oidc(
+    csrf_token: &str,
+    error: Option<&str>,
+    offer_oidc: bool,
+) -> String {
     crate::views::SigninPage {
         csrf_token: csrf_token.to_string(),
         error: error.map(str::to_string),
+        oidc_start: offer_oidc.then(|| crate::oidc::START_PATH.to_string()),
     }
     .render()
     .expect("signin.html renders")

@@ -406,6 +406,7 @@ impl InProcHarness {
         let file_upload_max_mb =
             file_upload_env::current_file_upload_max_mb().unwrap_or(DEFAULT_FILE_UPLOAD_MAX_MB);
         let state = AppState {
+            oidc: None,
             store,
             session_secret: Arc::new(SecretString::new(
                 "test-only-secret-must-be-at-least-32-bytes-long-please-yes".into(),

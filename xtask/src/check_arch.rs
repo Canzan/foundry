@@ -58,6 +58,7 @@ pub fn run(args: Vec<String>) -> ExitCode {
     violations.extend(check_api_no_adhoc_authz(&root));
     violations.extend(check_api_no_mint_route(&root));
     violations.extend(check_jwt_alg_pin(&root));
+    violations.extend(check_oidc_alg_pin(&root));
     violations.extend(check_app_tenant_scoping(&root));
 
     // LAYER 2 — cargo-deny crate-graph dependency-direction.
@@ -66,7 +67,7 @@ pub fn run(args: Vec<String>) -> ExitCode {
     }
 
     if violations.is_empty() {
-        println!("check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA], tenant-scoping by resolved ActingWorkspace, dependency direction)");
+        println!("check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, dependency direction)");
         return ExitCode::SUCCESS;
     }
 
@@ -494,6 +495,80 @@ fn check_jwt_alg_pin(root: &Path) -> Vec<String> {
         }
     }
     violations
+}
+
+/// The SIBLING of [`check_jwt_alg_pin`], for the other credential class.
+///
+/// foundry verifies two kinds of JWT with two different algorithms: self-issued
+/// machine tokens (EdDSA, in foundry-auth) and Keycloak ID tokens (RS256, in
+/// foundry-oidc). One file-scoped rule cannot express "EdDSA here, RS256 there" —
+/// `pins_algorithms_to_eddsa` reads only the FIRST `algorithms` list in a file —
+/// so the crate boundary IS the security boundary (ADR-OIDC-001), and each side
+/// gets its own scanner that fails independently.
+///
+/// Without this, moving ID-token validation into its own crate would have bought
+/// separation at the cost of ALL algorithm pinning on the federated path: nothing
+/// would stop a later edit accepting `none` or HS256, which is the alg-confusion
+/// footgun that authenticates the wrong person and emits no signal.
+fn check_oidc_alg_pin(root: &Path) -> Vec<String> {
+    let oidc_src = root.join("crates").join("foundry-oidc").join("src");
+    let mut violations = Vec::new();
+    for file in rust_sources(&oidc_src) {
+        let Ok(contents) = std::fs::read_to_string(&file) else {
+            continue;
+        };
+        let code: String = contents
+            .lines()
+            .map(strip_comment)
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        if !(code.contains("Validation::new") || code.contains("Validation {")) {
+            continue;
+        }
+
+        if code.contains("insecure_disable_signature_validation") {
+            violations.push(format!(
+                "OIDC alg pin: {} disables signature validation (`insecure_disable_signature_validation`) — the ID-token verifier no longer pins the single allowed algorithm [RS256] (ADR-OIDC-001)",
+                rel(root, &file),
+            ));
+            continue;
+        }
+
+        if !pins_algorithms_to_rs256(&code) {
+            violations.push(format!(
+                "OIDC alg pin: {} builds a JWT `Validation` without pinning `algorithms = [RS256]` — the ID-token verifier would accept whatever default/extra alg is configured, reopening the alg-confusion footgun (ADR-OIDC-001)",
+                rel(root, &file),
+            ));
+        }
+    }
+    violations
+}
+
+/// True iff the source pins the algorithm allow-list to EXACTLY `[RS256]`.
+/// Mirrors [`pins_algorithms_to_eddsa`], with the accepted and rejected sets
+/// swapped: `EdDSA` leaking into the OIDC list is as wrong as `RS256` leaking
+/// into the machine-token one.
+fn pins_algorithms_to_rs256(code: &str) -> bool {
+    let Some(idx) = code.find("algorithms") else {
+        return false;
+    };
+    let tail = &code[idx..];
+    let Some(open) = tail.find('[') else {
+        return false;
+    };
+    let Some(close_rel) = tail[open..].find(']') else {
+        return false;
+    };
+    let inside = &tail[open + 1..open + close_rel];
+    let mentions_rs256 = inside.contains("RS256");
+    let other_alg = [
+        "EdDSA", "RS384", "RS512", "HS256", "HS384", "HS512", "ES256", "ES384", "PS256", "PS384",
+        "PS512", "none", "None",
+    ]
+    .iter()
+    .any(|alg| inside.contains(alg));
+    mentions_rs256 && !other_alg
 }
 
 /// True iff the source pins the JWT algorithm allow-list to EXACTLY `[EdDSA]`:

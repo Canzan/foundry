@@ -263,7 +263,53 @@ async fn main() -> anyhow::Result<()> {
             .with_suppression(Arc::new(foundry_app::StoreSuppression::new(store.clone()))),
     );
 
+    // keycloak-sso — SHAPE validation only (ADR-OIDC-003). Discovery and JWKS are
+    // fetched lazily on first use, so foundry starts and serves while Keycloak is
+    // down: the exact scenario the retained password door exists for. A boot-time
+    // fetch would make foundry's readiness depend on the provider it exists to
+    // outlive, and would create a first-boot ordering dependency on a cluster
+    // that has not converged.
+    //
+    // Absent config => None => the feature is off. PARTIAL config => refuse to
+    // start, naming what is missing, exactly as MACHINE_TOKEN_SIGNING_KEY does
+    // above: a half-enabled auth flow renders a control that then dies at the
+    // callback, which is the least diagnosable failure available.
+    let oidc: Option<std::sync::Arc<foundry_oidc::OidcProvider>> =
+        match foundry_oidc::OidcConfig::from_env() {
+            Ok(Some(cfg)) => match foundry_oidc::OidcProvider::new(cfg) {
+                Ok(p) => {
+                    tracing::info!(event = "oidc.configured", "federated sign-in is enabled");
+                    Some(std::sync::Arc::new(p))
+                }
+                Err(err) => {
+                    tracing::error!(
+                        event = "health.startup.refused",
+                        probe = "oidc",
+                        reason = "oidc_provider",
+                        detail = %err,
+                        "OIDC provider could not be built — refusing to start"
+                    );
+                    return Err(err.into());
+                }
+            },
+            Ok(None) => {
+                tracing::info!(event = "oidc.absent", "federated sign-in is not configured");
+                None
+            }
+            Err(err) => {
+                tracing::error!(
+                    event = "health.startup.refused",
+                    probe = "oidc",
+                    reason = "oidc_config",
+                    detail = %err,
+                    "OIDC is configured incompletely — refusing to start"
+                );
+                return Err(err.into());
+            }
+        };
+
     let state = AppState {
+        oidc,
         store: store.clone(),
         session_secret: Arc::new(SecretString::new(session_secret.into())),
         machine_token_verifier: Arc::new(machine_token_verifier),

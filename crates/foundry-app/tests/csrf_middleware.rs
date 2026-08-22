@@ -39,6 +39,7 @@ async fn build_test_router() -> Router {
         .expect("build lazy pool");
     let store = Arc::new(Store::from_pool(pool));
     let state = AppState {
+                oidc: None,
         store,
         session_secret: Arc::new(SecretString::new(
             "csrf-test-secret-please-thirty-two-bytes-yes-yes-yes-yes".into(),

@@ -100,6 +100,14 @@ wrappers = ["foundry-services", "foundry-app", "foundry-acceptance"]
 name = "foundry-api"
 wrappers = ["foundry-app"]
 
+# Rule 3 — foundry-oidc is PURE PROTOCOL (ADR-OIDC-001): claims in, validated
+# claims out. Binding an identity to a users row is tenancy logic and belongs in
+# foundry-app, so nothing else may depend on this crate. foundry-acceptance is
+# listed because the acceptance harness constructs a provider directly.
+[[bans.deny]]
+name = "foundry-oidc"
+wrappers = ["foundry-app", "foundry-acceptance"]
+
 [sources]
 unknown-registry = "deny"
 unknown-git      = "deny"

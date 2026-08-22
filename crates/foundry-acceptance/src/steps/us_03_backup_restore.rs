@@ -979,6 +979,7 @@ async fn point_replica_at_restored(world: &mut FoundryWorld) {
         file_upload_env::current_file_upload_max_mb().unwrap_or(DEFAULT_FILE_UPLOAD_MAX_MB);
     let store = Arc::new(Store::from_pool(pool));
     let state = AppState {
+        oidc: None,
         store,
         session_secret: Arc::new(SecretString::new(
             "test-only-secret-must-be-at-least-32-bytes-long-please-yes".into(),
