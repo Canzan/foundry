@@ -528,4 +528,5 @@ pub mod board {
 
 pub mod comments;
 pub mod issues;
+pub mod projects;
 pub mod tokens;

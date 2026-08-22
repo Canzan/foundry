@@ -351,31 +351,13 @@ fn internal_error<E: std::fmt::Display>(label: &str, err: E) -> Response {
 }
 
 // ===========================================================================
-// instance-admin-project-rename — RED scaffold (DISTILL, Mandate 7 / ADR-025)
+// instance-admin-project-rename — the rename write surface
+// (`docs/feature/instance-admin-project-rename/design/component-boundaries.md`).
 //
 // Mounted in `build_router` ALONGSIDE the other `/admin/instance/…` routes (so
 // UNDER `csrf::csrf_middleware` + `session_layer` — never the CSRF-exempt
-// `/api/v1` mount; D5). For RED the handler RETURNS a clean `501 Not
-// Implemented` carrying a `RED scaffold` marker — NOT a `panic!` (a panic
-// aborts the axum connection, surfacing at the test client as a transport
-// error that masks the assertion; a returned 501 lets the Then step capture a
-// real status and fail RED for MISSING_FUNCTIONALITY — the `admin_tokens.rs`
-// precedent).
-//
-// DELIVER replaces the body per
-// `docs/feature/instance-admin-project-rename/design/component-boundaries.md`:
-//   - `require_instance_admin` session gate → None ⇒ uniform 404 (D5).
-//   - parse `{project_id}` as Uuid IN the handler: a malformed id renders the
-//     SAME uniform 404 (no 400-vs-404 enumeration oracle — axum's default
-//     `Path<Uuid>` rejection would leak a 400).
-//   - delegate to `Services::rename_project`; map `Renamed`/`NoOp` to the 200
-//     bare row partial (`partials/instance_project_row.html`, one-partial
-//     rule), `EmptyName`/`NameTooLong`/`DuplicateName` to 422 + bare
-//     `ErrorFragment` (marker "project-rename-error", the three D4 messages
-//     verbatim), `Forbidden`/`NotFound` to the uniform 404, store errors to
-//     `internal_error`.
-//
-// SCAFFOLD: true
+// `/api/v1` mount; D5). The handler owns the HTTP mapping ONLY (copy +
+// status); classification is service-owned (`foundry_services::projects`).
 // ===========================================================================
 
 /// The rename form: the new display `name`. The double-submit `_csrf` token is
@@ -392,6 +374,13 @@ pub struct RenameForm {
 /// display name in place (US-IAPR-02/03). Display name ONLY: slug, board and
 /// report URLs, key_prefix, and issue keys are byte-identical before and after
 /// (D1 / ADR-PROJECT-RENAME-001).
+///
+/// The path is `Path<String>`, parsed to `Uuid` IN the handler: a malformed id
+/// renders the SAME uniform 404 as a non-admin — no 400-vs-404 enumeration
+/// oracle (axum's default `Path<Uuid>` rejection would leak a 400). Success
+/// and no-op both answer 200 with the bare row partial (one-partial rule);
+/// validation refusals answer 422 with the bare `ErrorFragment` (marker
+/// `project-rename-error`) carrying the D4 copy verbatim.
 pub async fn submit_project_rename(
     State(state): State<AppState>,
     axum::extract::Path(project_id): axum::extract::Path<String>,
@@ -399,11 +388,95 @@ pub async fn submit_project_rename(
     headers: HeaderMap,
     axum::extract::Form(form): axum::extract::Form<RenameForm>,
 ) -> Response {
-    let _ = (state, project_id, session, headers, form);
-    (
-        StatusCode::NOT_IMPLEMENTED,
-        "instance-admin-project-rename: POST /admin/instance/projects/{project_id}/rename \
-         not yet implemented — RED scaffold",
-    )
-        .into_response()
+    let Some(admin) = require_instance_admin(&state, &session).await else {
+        return resource_not_found_page();
+    };
+    let Ok(project_id) = project_id.parse::<uuid::Uuid>() else {
+        return resource_not_found_page();
+    };
+    let services = foundry_services::Services::new(state.store.clone());
+    let outcome = services
+        .rename_project(foundry_services::projects::RenameProjectRequest {
+            acting_user_id: admin.user_id,
+            project_id,
+            new_name: &form.name,
+        })
+        .await;
+    use foundry_services::projects::{RenameOutcome, RenameProjectError};
+    match outcome {
+        // Quiet no-op and real rename render the SAME re-mounted row (D4).
+        Ok(RenameOutcome::Renamed { .. }) | Ok(RenameOutcome::NoOp { .. }) => {
+            render_project_row_fragment(&state, &headers, project_id).await
+        }
+        // Defence-in-depth refusals and unknown ids collapse to the SAME
+        // uniform 404 the session gate returns (no enumeration oracle, D5).
+        Err(RenameProjectError::Forbidden) | Err(RenameProjectError::NotFound) => {
+            resource_not_found_page()
+        }
+        // Handler-owned copy, service-owned classification (D4/D6 verbatim).
+        Err(RenameProjectError::EmptyName) => {
+            rename_error_fragment("Project name must not be empty")
+        }
+        Err(RenameProjectError::NameTooLong) => {
+            rename_error_fragment("Project name must be at most 256 characters")
+        }
+        Err(RenameProjectError::DuplicateName) => {
+            rename_error_fragment("Project name must be unique within the team")
+        }
+        Err(RenameProjectError::Store(err)) => internal_error("rename_project", err),
+    }
+}
+
+/// Re-render the ONE row partial (`partials/instance_project_row.html`) as the
+/// 200 success fragment — the SAME partial the dashboard loop renders, name
+/// freshly read, form re-mounted with a `_csrf` token via `ensure_csrf_cookie`.
+/// Reuses the shipped instance-wide listing read (no new store port for a
+/// homelab-scale row lookup); a row vanished mid-flight (rename racing a
+/// delete) collapses to the uniform 404. A BARE fragment — never `base.html`
+/// (double-wrap hazard).
+async fn render_project_row_fragment(
+    state: &AppState,
+    headers: &HeaderMap,
+    project_id: uuid::Uuid,
+) -> Response {
+    let rows = match state.store.list_projects_for_instance().await {
+        Ok(rows) => rows,
+        Err(err) => return internal_error("list_projects_for_instance", err),
+    };
+    let Some(row) = rows.into_iter().find(|r| r.project_id == project_id) else {
+        return resource_not_found_page();
+    };
+    let (csrf, set_cookie) = ensure_csrf_cookie(state, headers);
+    let view = InstanceProjectRowView {
+        project_id: row.project_id.to_string(),
+        name: row.name,
+        key_prefix: row.key_prefix,
+        team_name: row.team_name,
+        csrf,
+    };
+    match view.render() {
+        Ok(html) => {
+            let mut resp = Html(html).into_response();
+            if let Some(cookie) = set_cookie {
+                if let Ok(value) = HeaderValue::from_str(&cookie) {
+                    resp.headers_mut().insert(SET_COOKIE, value);
+                }
+            }
+            resp
+        }
+        Err(err) => internal_error("render instance_project_row", err),
+    }
+}
+
+/// The 422 refusal: the SHARED bare `error_fragment.html` parameterized with
+/// the byte-stable `project-rename-error` marker (form-errors.js routes it
+/// into the submitting row's `[data-error-slot]`, D6).
+fn rename_error_fragment(message: &str) -> Response {
+    let body = crate::views::ErrorFragment {
+        fragment_marker: "project-rename-error".to_string(),
+        message: message.to_string(),
+    }
+    .render()
+    .expect("error_fragment.html renders from a fully-resolved, infallible view-model");
+    (StatusCode::UNPROCESSABLE_ENTITY, Html(body)).into_response()
 }

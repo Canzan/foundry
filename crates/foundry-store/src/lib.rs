@@ -3533,17 +3533,10 @@ pub enum CommentInsertError {
 
 // ===========================================================================
 // instance-admin-project-rename — driven-port deltas DESIGN fixed in
-// `docs/feature/instance-admin-project-rename/design/component-boundaries.md`.
-//
-// Step 01-01 delivered `list_projects_for_instance` (the instance-wide
-// listing read). The three rename-path bodies below still panic with the
-// scaffold marker so a test reaching them fails for MISSING_FUNCTIONALITY,
-// not a compile/import error — DELIVER step 02-02 replaces them with the
-// pinned SQL (data-models.md §3). `list_projects_for_workspace` is
+// `docs/feature/instance-admin-project-rename/design/component-boundaries.md`
+// (SQL pinned in data-models.md §3). `list_projects_for_workspace` is
 // deliberately left byte-untouched (shipped consumer, distinct
 // tenant-scoping contract).
-//
-// SCAFFOLD: true
 // ===========================================================================
 
 /// One row of the INSTANCE-WIDE project listing (deliberately cross-tenant:
@@ -3593,39 +3586,56 @@ impl Store {
             .collect())
     }
 
-    /// DELIVER: `SELECT team_id, name, slug FROM projects WHERE id = $1`.
-    /// `None` maps to the non-enumerable NotFound.
+    /// What the rename use-case needs to know about the target before
+    /// validating. `None` maps to the non-enumerable NotFound.
     pub async fn project_rename_context(
         &self,
         project_id: uuid::Uuid,
     ) -> Result<Option<ProjectRenameContext>, StoreError> {
-        let _ = project_id;
-        panic!("Not yet implemented -- RED scaffold (Store::project_rename_context)")
+        let row: Option<(uuid::Uuid, String, String)> =
+            sqlx::query_as("SELECT team_id, name, slug FROM projects WHERE id = $1")
+                .bind(project_id)
+                .fetch_optional(&self.pool)
+                .await?;
+        Ok(
+            row.map(|(team_id, current_name, slug)| ProjectRenameContext {
+                team_id,
+                current_name,
+                slug,
+            }),
+        )
     }
 
     /// The D4 uniqueness comparison set: `(name, slug)` of every OTHER project
     /// in the same team (self excluded in SQL). Comparison happens app-side —
     /// slug derivation is domain code (`foundry_core::slugify`), not SQL.
-    /// DELIVER: `SELECT name, slug FROM projects WHERE team_id = $1 AND id <> $2`.
     pub async fn list_team_sibling_projects(
         &self,
         team_id: uuid::Uuid,
         exclude_project_id: uuid::Uuid,
     ) -> Result<Vec<(String, String)>, StoreError> {
-        let _ = (team_id, exclude_project_id);
-        panic!("Not yet implemented -- RED scaffold (Store::list_team_sibling_projects)")
+        Ok(
+            sqlx::query_as("SELECT name, slug FROM projects WHERE team_id = $1 AND id <> $2")
+                .bind(team_id)
+                .bind(exclude_project_id)
+                .fetch_all(&self.pool)
+                .await?,
+        )
     }
 
-    /// DELIVER: `UPDATE projects SET name = $2 WHERE id = $1` — name ONLY
-    /// (D1: slug, key_prefix, next_issue_number untouched). Returns
-    /// rows_affected so the caller maps a vanished project (0) to the
-    /// non-enumerable NotFound.
+    /// `UPDATE projects SET name = $2 WHERE id = $1` — name ONLY (D1: slug,
+    /// key_prefix, next_issue_number untouched). Returns rows_affected so the
+    /// caller maps a vanished project (0) to the non-enumerable NotFound.
     pub async fn update_project_name(
         &self,
         project_id: uuid::Uuid,
         name: &str,
     ) -> Result<u64, StoreError> {
-        let _ = (project_id, name);
-        panic!("Not yet implemented -- RED scaffold (Store::update_project_name)")
+        let result = sqlx::query("UPDATE projects SET name = $2 WHERE id = $1")
+            .bind(project_id)
+            .bind(name)
+            .execute(&self.pool)
+            .await?;
+        Ok(result.rows_affected())
     }
 }

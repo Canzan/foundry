@@ -1349,6 +1349,7 @@ dependencies = [
  "foundry-auth",
  "foundry-core",
  "foundry-store",
+ "proptest",
  "secrecy",
  "sqlx",
  "testcontainers-modules",

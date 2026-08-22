@@ -74,7 +74,7 @@ Feature: Correcting a stale project name from the instance dashboard
 
   # -------------------------------------- US-IAPR-02 renaming without breaking anything
 
-  @us-iapr-02 @driving_port @real-io @pending
+  @us-iapr-02 @driving_port @real-io
   Scenario: A stale project name is corrected from the dashboard
     When Priya renames "Auth v2" to "Identity Platform"
     Then the row she gets back shows "Identity Platform" with key prefix "AUTH"
@@ -90,26 +90,26 @@ Feature: Correcting a stale project name from the instance dashboard
     And the change report at the old address shows the new name
     And the project's stored address and key prefix are byte-identical to before
 
-  @us-iapr-02 @edge @pending
+  @us-iapr-02 @edge
   Scenario: Renaming a project to its current name is a quiet success
     When Priya renames "Sandbox" to "Sandbox"
     Then the row she gets back shows "Sandbox" with key prefix "SBX" and carries no error
     And the stored project record is untouched
 
-  @us-iapr-02 @error @security @pending
+  @us-iapr-02 @error @security
   Scenario: Only the instance admin can rename a project
     Given Marco is a signed-in member who is not an instance admin
     When Marco sends the rename for "Auth v2" to "Marco's Project"
     Then the answer is byte-identical to a never-existed address
     And the project is still named "Auth v2" everywhere
 
-  @us-iapr-02 @error @security @pending
+  @us-iapr-02 @error @security
   Scenario: A rename that does not carry the dashboard's matching token is refused
     When a rename for "Auth v2" is submitted without the dashboard's matching token
     Then the rename is refused before any change is made
     And the project is still named "Auth v2" everywhere
 
-  @us-iapr-02 @error @security @pending
+  @us-iapr-02 @error @security
   Scenario: A signed-out visitor cannot rename anything
     When a signed-out visitor sends a rename for "Auth v2"
     Then the answer is byte-identical to a never-existed address
@@ -163,12 +163,12 @@ Feature: Correcting a stale project name from the instance dashboard
     Then the row she gets back shows "SANDBOX" with key prefix "SBX"
     And the project's stored address is unchanged
 
-  @us-iapr-03 @error @security @pending
+  @us-iapr-03 @error @security
   Scenario: A rename aimed at a garbled project id is answered like a missing page
     When Priya sends a rename aimed at the project id "not-a-uuid"
     Then the answer is byte-identical to a never-existed address
 
-  @us-iapr-03 @error @security @pending
+  @us-iapr-03 @error @security
   Scenario: A rename aimed at a project that does not exist is answered like a missing page
     When Priya sends a rename aimed at a project id that matches nothing
     Then the answer is byte-identical to a never-existed address

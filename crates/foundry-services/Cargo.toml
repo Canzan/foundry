@@ -31,6 +31,10 @@ time = { workspace = true }
 secrecy = { workspace = true }
 
 [dev-dependencies]
+# instance-admin-project-rename (02-02): the D4 rename classification
+# (trim/empty/length/duplicate over arbitrary sibling sets) is a pure
+# domain invariant — proptest properties pin it (TEST PARADIGM mandate).
+proptest = "1"
 # The board read use-case orchestrates the real Postgres store (authz +
 # fetch), so its tests spin a real Postgres (@real-io, single-example —
 # no domain invariant warrants proptest here).
