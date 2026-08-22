@@ -60,6 +60,7 @@ pub fn run(args: Vec<String>) -> ExitCode {
     violations.extend(check_jwt_alg_pin(&root));
     violations.extend(check_oidc_alg_pin(&root));
     violations.extend(check_app_tenant_scoping(&root));
+    violations.extend(check_app_no_slugify_definition(&root));
 
     // LAYER 2 — cargo-deny crate-graph dependency-direction.
     if let Some(dep_violation) = check_dependency_direction(&root) {
@@ -67,7 +68,7 @@ pub fn run(args: Vec<String>) -> ExitCode {
     }
 
     if violations.is_empty() {
-        println!("check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, dependency direction)");
+        println!("check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, dependency direction)");
         return ExitCode::SUCCESS;
     }
 
@@ -545,6 +546,35 @@ fn check_oidc_alg_pin(root: &Path) -> Vec<String> {
     violations
 }
 
+/// LAYER 1f — single production slugify (ADR-PROJECT-RENAME-001). `slugify`
+/// lives ONCE, in `foundry-core`; any `fn slugify(` DEFINITION under
+/// `crates/foundry-app/src` fails the build. Calling `foundry_core::slugify`
+/// is fine — growing a new private name→slug derivation is the regression
+/// class behind the D2 defect (render paths re-deriving a stored project's
+/// URL identity from its display name, so a name-only rename 404s every card
+/// action). Follows the file-scoped posture of [`check_jwt_alg_pin`]:
+/// invariants live in build-time scanners, not conventions.
+fn check_app_no_slugify_definition(root: &Path) -> Vec<String> {
+    let app_src = root.join("crates").join("foundry-app").join("src");
+    let mut violations = Vec::new();
+    for file in rust_sources(&app_src) {
+        let Ok(contents) = std::fs::read_to_string(&file) else {
+            continue;
+        };
+        let defines_slugify = contents
+            .lines()
+            .map(strip_comment)
+            .any(|line| line.contains("fn slugify("));
+        if defines_slugify {
+            violations.push(format!(
+                "single slugify: {} defines `fn slugify(` — the ONLY production slug derivation is `foundry_core::slugify`, minted once at creation time; a private re-derivation is the regression class that 404s every board card after a display-name-only rename (ADR-PROJECT-RENAME-001)",
+                rel(root, &file),
+            ));
+        }
+    }
+    violations
+}
+
 /// True iff the source pins the algorithm allow-list to EXACTLY `[RS256]`.
 /// Mirrors [`pins_algorithms_to_eddsa`], with the accepted and rejected sets
 /// swapped: `EdDSA` leaking into the OIDC list is as wrong as `RS256` leaking
@@ -928,6 +958,31 @@ mod tests {
         assert!(
             !check_jwt_alg_pin(disabled.path()).is_empty(),
             "disabling signature validation must be flagged even with an EdDSA list"
+        );
+    }
+
+    /// ADR-PROJECT-RENAME-001: USING `foundry_core::slugify` (and mentioning
+    /// `fn slugify(` in a comment) is clean; DEFINING `fn slugify(` anywhere
+    /// under crates/foundry-app/src is flagged and NAMES the file.
+    #[test]
+    fn app_slugify_definition_is_flagged_but_core_use_is_not() {
+        let clean = stage(&[(
+            "crates/foundry-app/src/projects.rs",
+            "// a doc mention of fn slugify( is fine\nlet slug = foundry_core::slugify(raw_name);\n",
+        )]);
+        assert!(
+            check_app_no_slugify_definition(clean.path()).is_empty(),
+            "calling foundry_core::slugify (or a comment mention) must NOT be flagged"
+        );
+
+        let planted = stage(&[(
+            "crates/foundry-app/src/admin_tokens.rs",
+            "fn slugify(input: &str) -> String { input.to_lowercase() }\n",
+        )]);
+        let found = check_app_no_slugify_definition(planted.path());
+        assert!(
+            !found.is_empty() && found[0].contains("admin_tokens.rs"),
+            "a private fn slugify( definition must be flagged and NAME the file: {found:?}"
         );
     }
 }

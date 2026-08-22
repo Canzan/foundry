@@ -243,3 +243,91 @@ mod project_key_tests {
         assert_eq!(format!("{key}"), "AUTH");
     }
 }
+
+// ------------------------------------------------------------------- slugify
+//
+// instance-admin-project-rename (D2 / ADR-PROJECT-RENAME-001): the SINGLE
+// production slug-derivation rule, moved verbatim from
+// `foundry-app/src/projects.rs`. The create path and
+// `admin_tokens::resolve_scope` call this; `cargo xtask check-arch` fails the
+// build if any `fn slugify(` DEFINITION reappears under
+// `crates/foundry-app/src` (use is fine; redefinition is the regression class
+// behind the render-time re-derivation defect).
+
+/// URL-safe slug derivation — minted ONCE at creation time (and used for the
+/// D4 duplicate-name collision check); NEVER re-derived from a stored name at
+/// render time (ADR-PROJECT-RENAME-001).
+///
+/// Rules (kept deliberately simple for slice 1):
+/// - lower-case ASCII letters/digits are kept verbatim
+/// - whitespace + every other run of non-alphanumeric input collapses
+///   to a single hyphen
+/// - leading/trailing hyphens are stripped
+///
+/// Examples:
+/// - `"Auth v2"` → `"auth-v2"`
+/// - `"  Hello, World!  "` → `"hello-world"`
+pub fn slugify(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut last_was_hyphen = true; // suppress leading hyphen
+    for ch in input.chars() {
+        if ch.is_ascii_alphanumeric() {
+            for c in ch.to_lowercase() {
+                out.push(c);
+            }
+            last_was_hyphen = false;
+        } else if !last_was_hyphen {
+            out.push('-');
+            last_was_hyphen = true;
+        }
+    }
+    while out.ends_with('-') {
+        out.pop();
+    }
+    out
+}
+
+#[cfg(test)]
+mod slugify_tests {
+    use super::slugify;
+    use proptest::prelude::*;
+
+    /// Migrated verbatim from `foundry-app/src/projects.rs::slug_tests`
+    /// (02-01 / ADR-PROJECT-RENAME-001) — the example pins the exact rule
+    /// the create path has always minted slugs with.
+    #[test]
+    fn slugifies_common_project_names() {
+        assert_eq!(slugify("Auth v2"), "auth-v2");
+        assert_eq!(slugify("  Hello, World!  "), "hello-world");
+        assert_eq!(slugify("Sandbox"), "sandbox");
+        assert_eq!(slugify(""), "");
+    }
+
+    proptest! {
+        // Property (a): slugify is a fixed point — re-slugifying an already
+        // minted slug never changes it. This is the invariant the whole D2
+        // fix rests on: a stored slug fed back through the derivation rule
+        // is stable, so "minted once at creation" is well-defined.
+        #[test]
+        fn slugify_is_a_fixed_point(input in ".{0,64}") {
+            let once = slugify(&input);
+            prop_assert_eq!(slugify(&once), once);
+        }
+
+        // Property (b): URL-safe charset — output contains ONLY lowercase
+        // ASCII alphanumerics and single hyphens, with no leading/trailing
+        // hyphen and no hyphen runs. Exactly what `projects.slug` (URL
+        // identity, `UNIQUE (team_id, slug)`) may contain.
+        #[test]
+        fn slugify_output_is_url_safe(input in ".{0,64}") {
+            let slug = slugify(&input);
+            prop_assert!(
+                slug.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-'),
+                "non-URL-safe char in {slug:?}"
+            );
+            prop_assert!(!slug.starts_with('-'), "leading hyphen in {slug:?}");
+            prop_assert!(!slug.ends_with('-'), "trailing hyphen in {slug:?}");
+            prop_assert!(!slug.contains("--"), "hyphen run in {slug:?}");
+        }
+    }
+}

@@ -34,7 +34,7 @@ use axum::http::header::{
 };
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
-use foundry_core::{ProjectKey, ProjectKeyError};
+use foundry_core::{slugify, ProjectKey, ProjectKeyError};
 use foundry_store::{ProjectChangeRow, ProjectInsertError, ProjectRow};
 use serde::Deserialize;
 use std::collections::BTreeMap;
@@ -333,7 +333,16 @@ pub async fn show_board(
         csrf,
     )
     .await;
-    match render_board(&state, &team.name, &project, &issues, &key_prefix, nav) {
+    match render_board(
+        &state,
+        &team.name,
+        &team_slug,
+        &project_slug,
+        &project,
+        &issues,
+        &key_prefix,
+        nav,
+    ) {
         Ok(html) => {
             response_with_optional_cookie(StatusCode::OK, Html(html).into_response(), set_cookie)
         }
@@ -794,9 +803,16 @@ fn render_error_fragment(message: &str) -> String {
 /// `issue-card` partials — and now links the vendored `/static` stylesheet +
 /// htmx script via the base layout. Data ordering (column state-filtering)
 /// stays HERE in the handler-side builder; the template only loops.
+///
+/// 8 arguments: the D2 signature deltas (ADR-PROJECT-RENAME-001) thread the
+/// two request-path slugs through this seam by design — they must arrive as
+/// separate validated values, never re-derived from the names beside them.
+#[allow(clippy::too_many_arguments)]
 fn render_board(
     state: &AppState,
     team_name: &str,
+    team_slug: &str,
+    project_slug: &str,
     project: &foundry_store::ProjectRow,
     issues: &[foundry_services::BoardIssue],
     key_prefix: &ProjectKey,
@@ -818,7 +834,16 @@ fn render_board(
         }
     }
     let _ = state;
-    build_board_page(team_name, project, issues, key_prefix, nav).render()
+    build_board_page(
+        team_name,
+        team_slug,
+        project_slug,
+        project,
+        issues,
+        key_prefix,
+        nav,
+    )
+    .render()
 }
 
 /// Map a template render failure to a CLEAN server error (US-B01 @error,
@@ -847,6 +872,8 @@ fn render_500(headers: &HeaderMap, template_name: &str, err: askama::Error) -> R
 /// running server.
 fn build_board_page(
     team_name: &str,
+    team_slug: &str,
+    project_slug: &str,
     project: &foundry_store::ProjectRow,
     issues: &[foundry_services::BoardIssue],
     key_prefix: &ProjectKey,
@@ -855,11 +882,12 @@ fn build_board_page(
     // Group issues by state. Slice 1: all newly filed issues land in
     // 'backlog'; the other columns stay empty placeholders until drag-
     // and-drop ships in slice 2.
-    // Slugs for the per-card edit-dialog `hx-get` (issue-edit-dialog, R1). The
-    // BoardPage carries these same slugs; compute them once here so the card
-    // renderer can build each `…/issues/{n}/edit` URL.
-    let team_slug = slugify(team_name);
-    let project_slug = slugify(&project.name);
+    // `team_slug`/`project_slug` come from the VALIDATED request path
+    // (ADR-PROJECT-RENAME-001): the handler resolved the project BY that slug
+    // (`WHERE slug = $2`), so they are byte-equal to the stored columns. They
+    // are NEVER re-derived from display names here — after a name-only rename
+    // `slugify(name)` diverges from the URL identity and every card action
+    // would 404 (the D2 defect).
     let columns = DEFAULT_COLUMNS
         .iter()
         .map(|col| {
@@ -867,7 +895,7 @@ fn build_board_page(
             let cards = issues
                 .iter()
                 .filter(|i| i.state == state_key)
-                .map(|row| issue_card(key_prefix, row, &team_slug, &project_slug))
+                .map(|row| issue_card(key_prefix, row, team_slug, project_slug))
                 .collect();
             crate::views::BoardColumn {
                 slug: col.to_ascii_lowercase().replace('-', "_"),
@@ -880,8 +908,8 @@ fn build_board_page(
     crate::views::BoardPage {
         team_name: team_name.to_string(),
         project_name: project.name.clone(),
-        team_slug,
-        project_slug,
+        team_slug: team_slug.to_string(),
+        project_slug: project_slug.to_string(),
         key_prefix: project.key_prefix.clone(),
         columns,
         nav,
@@ -926,49 +954,9 @@ fn column_label_to_state(label: &str) -> &'static str {
     }
 }
 
-/// Slugify a project name into a URL-safe identifier.
-///
-/// Rules (kept deliberately simple for slice 1):
-/// - lower-case ASCII letters/digits are kept verbatim
-/// - whitespace + every other run of non-alphanumeric input collapses
-///   to a single hyphen
-/// - leading/trailing hyphens are stripped
-///
-/// Examples:
-/// - `"Auth v2"` → `"auth-v2"`
-/// - `"  Hello, World!  "` → `"hello-world"`
-fn slugify(input: &str) -> String {
-    let mut out = String::with_capacity(input.len());
-    let mut last_was_hyphen = true; // suppress leading hyphen
-    for ch in input.chars() {
-        if ch.is_ascii_alphanumeric() {
-            for c in ch.to_lowercase() {
-                out.push(c);
-            }
-            last_was_hyphen = false;
-        } else if !last_was_hyphen {
-            out.push('-');
-            last_was_hyphen = true;
-        }
-    }
-    while out.ends_with('-') {
-        out.pop();
-    }
-    out
-}
-
-#[cfg(test)]
-mod slug_tests {
-    use super::slugify;
-
-    #[test]
-    fn slugifies_common_project_names() {
-        assert_eq!(slugify("Auth v2"), "auth-v2");
-        assert_eq!(slugify("  Hello, World!  "), "hello-world");
-        assert_eq!(slugify("Sandbox"), "sandbox");
-        assert_eq!(slugify(""), "");
-    }
-}
+// `slugify` lives in `foundry_core` (the SINGLE production definition,
+// ADR-PROJECT-RENAME-001); its unit + property tests moved with it. A local
+// redefinition under crates/foundry-app/src fails `cargo xtask check-arch`.
 
 #[cfg(test)]
 mod board_render_tests {
@@ -982,6 +970,8 @@ mod board_render_tests {
     /// here — it needs a live `AppState`).
     fn render_board(
         team_name: &str,
+        team_slug: &str,
+        project_slug: &str,
         project: &foundry_store::ProjectRow,
         issues: &[foundry_services::BoardIssue],
         key_prefix: &ProjectKey,
@@ -998,9 +988,17 @@ mod board_render_tests {
             crate::nav::NavSection::Home,
             "/".to_string(),
         );
-        build_board_page(team_name, project, issues, key_prefix, nav)
-            .render()
-            .expect("board template renders")
+        build_board_page(
+            team_name,
+            team_slug,
+            project_slug,
+            project,
+            issues,
+            key_prefix,
+            nav,
+        )
+        .render()
+        .expect("board template renders")
     }
 
     fn project() -> foundry_store::ProjectRow {
@@ -1031,7 +1029,14 @@ mod board_render_tests {
         ];
         let key_prefix = ProjectKey::try_new("AUTH").unwrap();
 
-        let html = render_board("Backend", &project(), &issues, &key_prefix);
+        let html = render_board(
+            "Backend",
+            "backend",
+            "auth-v2",
+            &project(),
+            &issues,
+            &key_prefix,
+        );
 
         // Base-layout vendored asset references, all /static-local. The CSS is
         // cache-busted by a content hash in its committed filename
@@ -1071,7 +1076,14 @@ mod board_render_tests {
         ];
         let key_prefix = ProjectKey::try_new("AUTH").unwrap();
 
-        let html = render_board("Backend", &project(), &issues, &key_prefix);
+        let html = render_board(
+            "Backend",
+            "backend",
+            "auth-v2",
+            &project(),
+            &issues,
+            &key_prefix,
+        );
 
         // (column slug, the key that BELONGS in it)
         let placement = [
@@ -1118,13 +1130,64 @@ mod board_render_tests {
         }
     }
 
+    /// D2 regression pin (ADR-PROJECT-RENAME-001): after a display-name-only
+    /// rename, `slugify(name)` diverges from the stored `projects.slug` — the
+    /// URL identity the request path resolved by. Every card `edit_url` /
+    /// `state_url` and the new-issue dialog URL MUST carry the stored slug,
+    /// never a render-time re-derivation from the (renamed) display name.
+    /// # bypass: exact-URL pin for the D2 regression — single-example by design
+    #[test]
+    fn renamed_project_urls_carry_stored_slug_not_name_derivation() {
+        let renamed = foundry_store::ProjectRow {
+            id: uuid::Uuid::now_v7(),
+            name: "Identity Platform".to_string(), // display name after rename
+            key_prefix: "AUTH".to_string(),
+        };
+        let issues = vec![issue(1, "Refresh token rotation", "backlog")];
+        let key_prefix = ProjectKey::try_new("AUTH").unwrap();
+
+        // "auth-v2" is the STORED slug the request path resolved the project by.
+        let html = render_board(
+            "Backend",
+            "backend",
+            "auth-v2",
+            &renamed,
+            &issues,
+            &key_prefix,
+        );
+
+        assert!(
+            html.contains(r#"hx-get="/team/backend/project/auth-v2/issues/1/edit""#),
+            "card edit_url must use the stored slug auth-v2; html was:\n{html}"
+        );
+        assert!(
+            html.contains("/team/backend/project/auth-v2/issues/1/state"),
+            "card state_url must use the stored slug auth-v2"
+        );
+        assert!(
+            html.contains(r#"hx-get="/team/backend/project/auth-v2/issues/new""#),
+            "new-issue dialog URL must use the stored slug auth-v2"
+        );
+        assert!(
+            !html.contains("identity-platform"),
+            "no URL may re-derive a slug from the renamed display name"
+        );
+    }
+
     /// An empty board renders the grown, inviting empty-state guidance in each
     /// column (US-B01 scenario 2) while still showing all four column labels.
     #[test]
     fn empty_board_renders_inviting_empty_state_guidance() {
         let key_prefix = ProjectKey::try_new("AUTH").unwrap();
 
-        let html = render_board("Backend", &project(), &[], &key_prefix);
+        let html = render_board(
+            "Backend",
+            "backend",
+            "auth-v2",
+            &project(),
+            &[],
+            &key_prefix,
+        );
 
         for label in ["Backlog", "Todo", "In-Progress", "Done"] {
             assert!(html.contains(label), "missing column label {label}");

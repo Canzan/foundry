@@ -281,36 +281,13 @@ async fn resolve_scope(state: &AppState, admin: &SessionUser, form: &MintForm) -
     }
     let resolved = state
         .store
-        .find_team_by_slug(admin.workspace_id, &slugify(raw))
+        .find_team_by_slug(admin.workspace_id, &foundry_core::slugify(raw))
         .await
         .ok()
         .flatten()
         .map(|team| team.id)
         .unwrap_or_else(uuid::Uuid::nil);
     ScopeChoice::Team(resolved)
-}
-
-/// Lowercase ASCII-alphanumeric slug (matches `projects::slugify` + the team
-/// seed): non-alphanumerics collapse to single hyphens, leading/trailing
-/// hyphens trimmed.
-fn slugify(input: &str) -> String {
-    let mut out = String::with_capacity(input.len());
-    let mut last_hyphen = true;
-    for ch in input.chars() {
-        if ch.is_ascii_alphanumeric() {
-            for lower in ch.to_lowercase() {
-                out.push(lower);
-            }
-            last_hyphen = false;
-        } else if !last_hyphen {
-            out.push('-');
-            last_hyphen = true;
-        }
-    }
-    while out.ends_with('-') {
-        out.pop();
-    }
-    out
 }
 
 /// Resolve the signed-in admin from the session. Returns `None` (→ a generic,

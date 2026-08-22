@@ -1298,6 +1298,7 @@ name = "foundry-core"
 version = "0.3.1"
 dependencies = [
  "ammonia",
+ "proptest",
  "pulldown-cmark",
  "secrecy",
  "serde",

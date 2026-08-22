@@ -23,3 +23,8 @@ secrecy = { workspace = true }
 # no I/O. foundry-core stays I/O-free.
 pulldown-cmark = { workspace = true }
 ammonia = { workspace = true }
+
+[dev-dependencies]
+# Property tests for `slugify` (instance-admin-project-rename 02-01):
+# fixed-point + URL-safe-charset invariants. Same pin as foundry-auth.
+proptest = "1"
