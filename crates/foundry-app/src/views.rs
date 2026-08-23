@@ -1194,4 +1194,76 @@ mod tests {
             "toast message:\n{html}"
         );
     }
+
+    /// The ONE board-columns builder (board-lane-management): one column per
+    /// lane in BOARD order, header = the lane's label, cards filtered by
+    /// `issue.state == lane.slug`, card URLs built from the request-path
+    /// slugs. Added at DELIVER Phase 5: mutation testing showed the builder
+    /// was only pinned through the browser lane. Kills the state-filter
+    /// `==`→`!=` inversion and the `vec![]`/`vec![Default]` replacements.
+    #[test]
+    fn board_columns_builds_one_column_per_lane_with_state_filtered_cards() {
+        let view = foundry_services::BoardView {
+            lanes: vec![
+                foundry_services::BoardLane {
+                    slug: "backlog".to_string(),
+                    label: "Backlog".to_string(),
+                },
+                foundry_services::BoardLane {
+                    slug: "done".to_string(),
+                    label: "Done".to_string(),
+                },
+            ],
+            issues: vec![
+                foundry_services::BoardIssue {
+                    key: "GEN-1".to_string(),
+                    number: 1,
+                    title: "First".to_string(),
+                    state: "backlog".to_string(),
+                },
+                foundry_services::BoardIssue {
+                    key: "GEN-2".to_string(),
+                    number: 2,
+                    title: "Second".to_string(),
+                    state: "done".to_string(),
+                },
+                foundry_services::BoardIssue {
+                    key: "GEN-3".to_string(),
+                    number: 3,
+                    title: "Third".to_string(),
+                    state: "backlog".to_string(),
+                },
+            ],
+        };
+
+        let columns = board_columns("general", "sandbox", &view);
+
+        let shape: Vec<(&str, &str, Vec<&str>)> = columns
+            .iter()
+            .map(|column| {
+                (
+                    column.slug.as_str(),
+                    column.label.as_str(),
+                    column.cards.iter().map(|card| card.key.as_str()).collect(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            shape,
+            vec![
+                ("backlog", "Backlog", vec!["GEN-1", "GEN-3"]),
+                ("done", "Done", vec!["GEN-2"]),
+            ],
+            "one column per lane in board order, cards filtered to THEIR lane"
+        );
+        let first_card = &columns[0].cards[0];
+        assert_eq!(
+            first_card.edit_url, "/team/general/project/sandbox/issues/1/edit",
+            "card edit URL is built from the REQUEST-PATH slugs"
+        );
+        assert_eq!(
+            first_card.state_url, "/team/general/project/sandbox/issues/1/state",
+            "card state URL is built from the REQUEST-PATH slugs"
+        );
+    }
 }

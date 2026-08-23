@@ -207,3 +207,59 @@ fn internal_error<E: std::fmt::Display>(label: &str, err: E) -> Response {
     tracing::error!(error = %err, "{label} failed");
     (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response()
 }
+
+#[cfg(test)]
+mod response_helper_tests {
+    //! The `instance_admin::response_helper_tests` idiom, added at DELIVER
+    //! Phase 5: mutation testing showed the pure response helpers were only
+    //! pinned through the browser lane (the @real-io trap).
+
+    use super::*;
+
+    async fn body_string(resp: Response) -> String {
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .expect("read response body");
+        String::from_utf8(bytes.to_vec()).expect("utf-8 body")
+    }
+
+    /// A lane-delete refusal is a 422 BARE fragment carrying the byte-stable
+    /// `delete-lane-error` marker (form-errors.js routes it into the open
+    /// dialog's `[data-error-slot]`) and the handler's copy verbatim.
+    #[tokio::test]
+    async fn validation_fragment_is_a_422_with_marker_and_copy() {
+        let resp = validation_fragment(LAST_LANE_MESSAGE);
+        assert_eq!(
+            resp.status(),
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "a lane-delete refusal must answer 422"
+        );
+        let body = body_string(resp).await;
+        assert!(
+            body.contains(r#"data-hx-fragment="delete-lane-error""#),
+            "the fragment must carry the byte-stable scraper marker; body was:\n{body}"
+        );
+        assert!(
+            body.contains("A board needs at least one lane"),
+            "the fragment must carry the refusal copy verbatim; body was:\n{body}"
+        );
+    }
+
+    /// The dialog's confirm form posts back to the lane-delete route built
+    /// from the REQUEST-PATH slugs (D2 — never a render-time derivation).
+    #[test]
+    fn lane_delete_action_is_the_confirm_post_route() {
+        assert_eq!(
+            lane_delete_action("general", "sandbox", "in_progress"),
+            "/team/general/project/sandbox/lanes/in_progress/delete",
+            "the confirm POST must target the lane-delete route for THESE slugs"
+        );
+    }
+
+    /// An internal failure answers 500 — never a silent 200.
+    #[tokio::test]
+    async fn internal_error_answers_500() {
+        let resp = internal_error("delete_lane", "boom");
+        assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+}
