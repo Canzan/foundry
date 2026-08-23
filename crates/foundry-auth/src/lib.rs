@@ -432,7 +432,10 @@ fn unsubscribe_payload(email_lower: &str, workspace_id: uuid::Uuid) -> String {
 }
 
 /// The minimum password length (ADR-004 / NFR-4, NIST 800-63B length-first).
-pub const MIN_PASSWORD_LENGTH: usize = 12;
+/// Operator-lowered 2026-08-22 from the original min-12 to min-6 (homelab
+/// convenience; single-operator instance). The length-first shape (no
+/// composition rules) is unchanged.
+pub const MIN_PASSWORD_LENGTH: usize = 6;
 
 /// Why a password failed [`check_password_policy`].
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -460,28 +463,29 @@ pub fn check_password_policy(password: &SecretString) -> Result<(), PolicyError>
 mod password_policy_tests {
     use super::*;
 
-    /// ADR-004 / NFR-4 — the min-12 length-first policy boundary. A pure
-    /// driving-port test on `check_password_policy`: passwords of exactly the
-    /// minimum length (12) and longer are accepted; anything shorter is rejected
-    /// with `PolicyError::TooShort`. The boundary at 12 is the observable
-    /// contract the accept POST enforces BEFORE opening the consume TX.
+    /// ADR-004 / NFR-4 — the length-first policy boundary (min-6 since the
+    /// 2026-08-22 operator lowering). A pure driving-port test on
+    /// `check_password_policy`: passwords of exactly the minimum length (6)
+    /// and longer are accepted; anything shorter is rejected with
+    /// `PolicyError::TooShort`. The boundary is the observable contract the
+    /// accept POST enforces BEFORE opening the consume TX.
     #[test]
-    fn enforces_min_twelve_length_boundary() {
-        for len in [0_usize, 1, 11] {
+    fn enforces_min_six_length_boundary() {
+        for len in [0_usize, 1, 5] {
             let pwd = SecretString::new("a".repeat(len).into());
             assert!(
                 matches!(
                     check_password_policy(&pwd),
-                    Err(PolicyError::TooShort { min: 12 })
+                    Err(PolicyError::TooShort { min: 6 })
                 ),
-                "a {len}-char password must be rejected as too short (min 12)"
+                "a {len}-char password must be rejected as too short (min 6)"
             );
         }
-        for len in [12_usize, 13, 64] {
+        for len in [6_usize, 7, 12, 64] {
             let pwd = SecretString::new("a".repeat(len).into());
             assert!(
                 check_password_policy(&pwd).is_ok(),
-                "a {len}-char password (>= 12) must satisfy the policy"
+                "a {len}-char password (>= 6) must satisfy the policy"
             );
         }
     }

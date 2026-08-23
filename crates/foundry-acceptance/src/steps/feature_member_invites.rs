@@ -50,7 +50,7 @@ use std::sync::Arc;
 /// authenticate her issuance POST (the harness keeps no cookie jar; `signed_in_post`
 /// re-authenticates per request).
 const DANA_PASSWORD: &str = "northwind-admin-secret";
-/// Sam's password — meets the min-12 length-first policy (ADR-004).
+/// Sam's password — meets the min-6 length-first policy (ADR-004).
 const SAM_PASSWORD: &str = "sam-northwind-secure-pass";
 
 fn harness(world: &FoundryWorld) -> &InProcHarness {
@@ -732,7 +732,7 @@ async fn submit_issuance(world: &mut FoundryWorld, invitee: &str) {
 /// Priya Shah's email (scenario 8) — a distinct invitee from Sam, with no
 /// pre-existing Foundry account, so her accept dispatches to the member arm.
 const PRIYA_SHAH_EMAIL: &str = "priya.shah@northwind.example";
-/// A policy-passing password (min-12, ADR-004) for the account-creating accepts.
+/// A policy-passing password (min-6, ADR-004) for the account-creating accepts.
 const MEMBER_PASSWORD: &str = "member-northwind-secure-pass";
 
 /// Seed a LIVE member invite for `invitee_email` on the named workspace, issued by
@@ -1433,7 +1433,7 @@ async fn nothing_reveals_issuance_surface(world: &mut FoundryWorld) {
 /// to her pre-existing first-admin user row (the discriminator that routes to the
 /// SHIPPED first-admin arm).
 const PRIYA_NAIR_EMAIL: &str = "priya.nair@globex.example";
-/// Priya's chosen password — meets the min-12 length-first policy (ADR-004).
+/// Priya's chosen password — meets the min-6 length-first policy (ADR-004).
 const PRIYA_NAIR_PASSWORD: &str = "globex-first-admin-pass";
 
 /// `Given a super-admin provisioned the "<workspace>" workspace and seeded Priya
@@ -3787,7 +3787,7 @@ fn parse_accept_link(body: &str) -> (uuid::Uuid, String) {
 // fragment + the holder's own GET set-password form — joined; EXCLUDED from the
 // sig-scan because they are the admin's/holder's own links round-tripped back,
 // NOT log surfaces, but STILL password-scanned). The member submits
-// `PRIYA_PASSWORD` (min-12 policy-passing) so the shared password Then — which
+// `PRIYA_PASSWORD` (min-6 policy-passing) so the shared password Then — which
 // scans for that literal — bites genuinely on this cycle.
 //
 // Example-pinned at LAYER 3 (Mandate 11): one concrete full member cycle, the
@@ -3973,7 +3973,7 @@ async fn member_no_leak_full_cycle(world: &mut FoundryWorld) {
 //
 // The member arm INHERITS the SHIPPED `submit_accept` recovery contract
 // (`invites_accept.rs`): `validate_password_inputs` runs the confirm-match check
-// THEN the min-12 `check_password_policy` BEFORE `create_member_and_consume` opens
+// THEN the min-6 `check_password_policy` BEFORE `create_member_and_consume` opens
 // — a rejected password re-renders the set-password form inline (200) and leaves
 // the invite UNTOUCHED (no account, no membership, no consume, no session). The
 // invite-accept first-admin password-recovery scenarios (03-01/02/04 in
@@ -3981,7 +3981,7 @@ async fn member_no_leak_full_cycle(world: &mut FoundryWorld) {
 // behaviour for an account-CREATING member invite (the member arm), green by
 // inheritance — NO production code added here; acceptance GLUE only.
 //
-//   26 (PRIMARY, weak password): a sub-min-12 password on a live member invite
+//   26 (PRIMARY, weak password): a sub-min-6 password on a live member invite
 //       re-renders inline with the min-length error; NO `users` row, the invite
 //       stays live (unconsumed), no `foundry_session` cookie. Falsifiability
 //       (proven at DELIVER, reverted): dropping/moving the policy check AFTER the
@@ -3997,17 +3997,17 @@ async fn member_no_leak_full_cycle(world: &mut FoundryWorld) {
 //       cookie), while the harness falls back to the member `mi_harness`, so the
 //       member invite drives them with NO duplicate regex.
 //
-//   30 (BOUNDARY, exactly-12): a confirm-matching exactly-12-character password
+//   30 (BOUNDARY, exactly-6): a confirm-matching exactly-6-character password
 //       completes the join (account + membership + consume + session) — the
-//       INCLUSIVE side of the min-12 boundary (NFR-4, "at least 12"). REUSES the
+//       INCLUSIVE side of the min-6 boundary (NFR-4, "at least 6"). REUSES the
 //       shipped `his member account is created and he is signed in on "<ws>"` Then.
 
-/// A weak member password BELOW the min-12 policy (3 chars) — rejected by
+/// A weak member password BELOW the min-6 policy (3 chars) — rejected by
 /// `check_password_policy` BEFORE the member consume TX opens.
 const MEMBER_WEAK_PASSWORD: &str = "abc";
-/// A member password EXACTLY at the min-12 boundary (12 chars) — the INCLUSIVE
+/// A member password EXACTLY at the min-6 boundary (6 chars) — the INCLUSIVE
 /// side of the `check_password_policy` length-first rule (NFR-4).
-const MEMBER_TWELVE_CHAR_PASSWORD: &str = "abcdef123456";
+const MEMBER_SIX_CHAR_PASSWORD: &str = "abc123";
 
 /// POST `/invites/accept` for the LIVE member invite under test (driven by the
 /// `mi_*` slots + the GET-minted `mi_get_csrf_cookie`) with `password` + `confirm`,
@@ -4066,7 +4066,7 @@ async fn member_accept_post_with_confirm(world: &mut FoundryWorld, password: &st
 // --- Scenario 26 (PRIMARY): a weak password is corrected inline ----------------
 
 /// `When he submits a password below the strength policy` — POST the SHIPPED member
-/// accept with a WEAK password (3 chars, below min-12) and a MATCHING confirm (so
+/// accept with a WEAK password (3 chars, below min-6) and a MATCHING confirm (so
 /// ONLY the policy fails, not the confirm match). `validate_password_inputs` rejects
 /// it via `check_password_policy` BEFORE `create_member_and_consume` opens, so the
 /// handler re-renders the form inline (200) and touches NOTHING.
@@ -4077,7 +4077,7 @@ async fn he_submits_a_weak_password(world: &mut FoundryWorld) {
 
 /// `Then he sees an inline error explaining the minimum password length` — the
 /// weak-password POST re-rendered the set-password form IN PLACE at 200 OK carrying
-/// the min-length policy copy ("at least 12 characters"), still posting back to
+/// the min-length policy copy ("at least 6 characters"), still posting back to
 /// /invites/accept (an inline correction, not a refusal or a 303 redirect). A policy
 /// check moved AFTER the consume (or dropped) would 303 instead → this REDs.
 #[then(regex = r#"^he sees an inline error explaining the minimum password length$"#)]
@@ -4095,8 +4095,8 @@ async fn he_sees_inline_min_length_error(world: &mut FoundryWorld) {
         .expect("the weak-password POST captured a re-rendered body");
     let lower = body.to_ascii_lowercase();
     assert!(
-        lower.contains("at least 12") || lower.contains("at least twelve"),
-        "the inline error must explain the MINIMUM password length (at least 12 \
+        lower.contains("at least 6") || lower.contains("at least six"),
+        "the inline error must explain the MINIMUM password length (at least 6 \
          characters); got {body:?}"
     );
     assert!(
@@ -4214,18 +4214,18 @@ async fn her_invite_still_live_and_no_account(world: &mut FoundryWorld) {
     );
 }
 
-// --- Scenario 30 (BOUNDARY): a 12-char password is accepted --------------------
+// --- Scenario 30 (BOUNDARY): a 6-char password is accepted --------------------
 
-/// `When he submits a twelve-character password and confirms it` — POST the SHIPPED
-/// member accept with a password EXACTLY at the min-12 boundary (12 chars) and a
+/// `When he submits a six-character password and confirms it` — POST the SHIPPED
+/// member accept with a password EXACTLY at the min-6 boundary (6 chars) and a
 /// MATCHING confirm. `check_password_policy` admits the inclusive boundary (NFR-4,
-/// "at least 12"), so `create_member_and_consume` runs: account + member membership
+/// "at least 6"), so `create_member_and_consume` runs: account + member membership
 /// created, invite consumed, session established, 303 → workspace. Captures the 303 +
 /// Location + session cookie via the full GET→POST dance (a fresh GET re-mints the
 /// CSRF cookie for the redirect-following success POST).
-#[when(regex = r#"^he submits a twelve-character password and confirms it$"#)]
-async fn he_submits_twelve_char_password(world: &mut FoundryWorld) {
-    accept_member_invite(world, MEMBER_TWELVE_CHAR_PASSWORD).await;
+#[when(regex = r#"^he submits a six-character password and confirms it$"#)]
+async fn he_submits_six_char_password(world: &mut FoundryWorld) {
+    accept_member_invite(world, MEMBER_SIX_CHAR_PASSWORD).await;
 }
 
 // ---------------------------------------------------------------------------
@@ -4332,7 +4332,7 @@ async fn sees_inline_blank_email_error(world: &mut FoundryWorld) {
 /// `Given Sam was shown an inline password error and his member invite is still live`
 /// — seed a LIVE member invite for Sam (two hours ago, unused), GET the accept page
 /// (rendering the set-password form + minting the `mi_get_csrf_cookie`), then drive
-/// the reused weak-password POST (3 chars, below min-12, matching confirm) which
+/// the reused weak-password POST (3 chars, below min-6, matching confirm) which
 /// re-renders inline at 200 WITHOUT consuming the invite (the policy check runs before
 /// the consume TX). Assert (DB-observable against the REAL per-scenario Postgres) the
 /// failed attempt was an INLINE error (200, no session) AND the invite is STILL live —

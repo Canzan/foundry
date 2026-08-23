@@ -84,7 +84,7 @@
 #   * the SHIPPED `foundry_auth::InviteToken::new`/`verify` (HMAC over
 #     invite_id||expires_at — issuance signs, accept re-verifies; the tamper oracle);
 #   * the SHIPPED `foundry_auth::hash_password` (argon2id, on spawn_blocking) +
-#     `check_password_policy` (min-12, NIST 800-63B, applied BEFORE any tx opens);
+#     `check_password_policy` (min-6, NIST 800-63B, applied BEFORE any tx opens);
 #   * the SHIPPED `Store::is_workspace_admin` (the issuance authz gate, GET + POST);
 #   * the SHIPPED `Store::insert_invite` (created_by = the inviting admin — the
 #     member/first-admin discriminator, D2/D3);
@@ -474,7 +474,7 @@ Feature: A workspace admin invites a teammate, who joins by creating an account 
   # INLINE RECOVERY (US-04) — correct mistakes without losing the invite.
   # ----------------------------------------------------------------------------
 
-  # 26. A WEAK password (below min-12) is corrected inline; the policy check runs
+  # 26. A WEAK password (below min-6) is corrected inline; the policy check runs
   #     BEFORE the consume tx opens, so the invite is NOT consumed and NO account is
   #     created; no session (AC-04.1, A-E5).
   @us-04 @error
@@ -513,10 +513,10 @@ Feature: A workspace admin invites a teammate, who joins by creating an account 
     Then his member account is created and he is signed in on "Northwind"
     And his invite is recorded as used exactly once
 
-  # 30. BOUNDARY — a password EXACTLY at the minimum length (12 characters) is
-  #     accepted and creates the member account (AC-04.4, NFR-4 — "at least 12").
+  # 30. BOUNDARY — a password EXACTLY at the minimum length (6 characters) is
+  #     accepted and creates the member account (AC-04.4, NFR-4 — "at least 6").
   @us-04
   Scenario: A password exactly at the minimum length is accepted
     Given Sam has opened his live member invite for "Northwind" and seen the set-password form
-    When he submits a twelve-character password and confirms it
+    When he submits a six-character password and confirms it
     Then his member account is created and he is signed in on "Northwind"

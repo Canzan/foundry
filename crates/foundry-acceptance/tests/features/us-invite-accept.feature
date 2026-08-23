@@ -52,7 +52,7 @@
 #   * the SHIPPED `hash_password` (argon2id, OWASP, on spawn_blocking);
 #   * the NEW `Store::set_first_admin_password_and_consume` one-TX guarded-UPDATE
 #     (mirrors the SHIPPED `claim_bootstrap_token` idiom — D1/D2/adr-001);
-#   * the NEW tiny `foundry_auth::check_password_policy` (min-12, length-first, NIST
+#   * the NEW tiny `foundry_auth::check_password_policy` (min-6, length-first, NIST
 #     800-63B — D5/adr-004, applied BEFORE the consume TX opens);
 #   * the SHIPPED `resolve_active_workspace` membership seam (the landing tenant).
 # The Background seeds a REAL invite by running the SHIPPED provisioning path (the
@@ -331,7 +331,7 @@ Feature: A provisioned first-admin claims her account from her invite link and i
     And no second password write occurs and the invite stays used exactly once
 
   # ----------------------------------------------------------------------------
-  # 15. RECOVERY (US-03) — a WEAK password (below the min-12 policy) is corrected
+  # 15. RECOVERY (US-03) — a WEAK password (below the min-6 policy) is corrected
   #     inline; the policy check runs BEFORE the consume TX opens, so the invite is
   #     NOT consumed and stays live; no session is created (E5; AC-03.1, FR-5/NFR-4).
   # ----------------------------------------------------------------------------
@@ -367,11 +367,11 @@ Feature: A provisioned first-admin claims her account from her invite link and i
     And the invite is recorded as used exactly once
 
   # ----------------------------------------------------------------------------
-  # 18. RECOVERY (US-03) — BOUNDARY: a password EXACTLY at the minimum length (12
-  #     characters) is accepted (the policy is "at least 12"; AC-03.3, NFR-4).
+  # 18. RECOVERY (US-03) — BOUNDARY: a password EXACTLY at the minimum length (6
+  #     characters) is accepted (the policy is "at least 6"; AC-03.3, NFR-4).
   # ----------------------------------------------------------------------------
   @us-03
   Scenario: A password exactly at the minimum length is accepted
     Given Priya has opened her live invite for "Northwind" and seen the set-password form
-    When she submits a twelve-character password and confirms it
+    When she submits a six-character password and confirms it
     Then her password is accepted and she is signed in on the "Northwind" workspace

@@ -41,7 +41,7 @@ use reqwest::StatusCode;
 use secrecy::SecretString;
 use std::sync::Arc;
 
-/// The password Priya chooses — meets the min-12 length-first policy (ADR-004).
+/// The password Priya chooses — meets the min-6 length-first policy (ADR-004).
 const PRIYA_PASSWORD: &str = "northwind-secure-pass";
 /// Priya's first-admin email (the invite's `invitee_email` / the user row).
 const PRIYA_EMAIL: &str = "priya@northwind.example";
@@ -2848,7 +2848,7 @@ async fn no_second_write_invite_used_once(world: &mut FoundryWorld) {
 }
 
 // ---------------------------------------------------------------------------
-// Scenario 15 (step 03-01) — a WEAK password (below the min-12 policy) is
+// Scenario 15 (step 03-01) — a WEAK password (below the min-6 policy) is
 // corrected INLINE; the policy check runs BEFORE the consume TX opens, so the
 // invite is NOT consumed and stays live; no session is created. (US-03; E5;
 // AC-03.1, FR-5/NFR-4.)
@@ -2858,10 +2858,10 @@ async fn no_second_write_invite_used_once(world: &mut FoundryWorld) {
 // advisory liveness/tamper re-check but BEFORE `set_first_admin_password_and_consume`
 // (the consume TX, line 173). On failure it calls `re_render_with_error`
 // (line 153 → 280) which returns 200 OK re-rendering the form inline with the
-// `PolicyError::TooShort { min: 12 }` message ("password must be at least 12
+// `PolicyError::TooShort { min: 6 }` message ("password must be at least 6
 // characters") and NEVER opens the consume TX — so the invite stays live and no
-// session cookie is issued. The min-12 boundary itself is unit-tested in
-// foundry-auth (`enforces_min_twelve_length_boundary`, lib.rs:426).
+// session cookie is issued. The min-6 boundary itself is unit-tested in
+// foundry-auth (`enforces_min_six_length_boundary`, lib.rs:426).
 //
 // Reuses scenario 2's arrival Given (the GET that renders the form + mints the
 // CSRF cookie) and scenario 5's `And her invite is still live and unconsumed`
@@ -2874,14 +2874,14 @@ async fn no_second_write_invite_used_once(world: &mut FoundryWorld) {
 // accepted (a 303 + session cookie → "inline error" and "no session" RED).
 // ---------------------------------------------------------------------------
 
-/// A weak password BELOW the min-12 policy (3 characters) — must be rejected by
+/// A weak password BELOW the min-6 policy (3 characters) — must be rejected by
 /// `check_password_policy` before the consume TX opens.
 const WEAK_PASSWORD: &str = "abc";
 
 /// `When she submits a password below the strength policy` — drive the NEW public
 /// POST `/invites/accept` over real HTTP carrying the double-submit `_csrf`
 /// (cookie + form field minted on the reused GET), the token, and a WEAK password
-/// (3 chars, below min-12) with a matching confirm (so ONLY the policy fails, not
+/// (3 chars, below min-6) with a matching confirm (so ONLY the policy fails, not
 /// the confirm match). Capture the status, the re-rendered inline body, and any
 /// session cookie so the inline-error + no-session + still-live observables are
 /// asserted port-to-port.
@@ -2939,7 +2939,7 @@ async fn she_submits_a_weak_password(world: &mut FoundryWorld) {
 
 /// `Then she sees an inline error explaining the minimum password length` — the
 /// weak-password POST re-rendered the set-password form IN PLACE at 200 OK
-/// carrying the min-length policy error ("at least 12 characters"). It is the
+/// carrying the min-length policy error ("at least 6 characters"). It is the
 /// SAME form (still posts to /invites/accept, still names the workspace) — an
 /// inline correction, not a refusal or a redirect. A policy check moved AFTER the
 /// consume (or dropped) would 303-redirect instead, RED-ing this.
@@ -2958,8 +2958,8 @@ async fn she_sees_inline_min_length_error(world: &mut FoundryWorld) {
         .expect("the weak-password POST captured a re-rendered body");
     let lower = body.to_ascii_lowercase();
     assert!(
-        lower.contains("at least 12") || lower.contains("at least twelve"),
-        "the inline error must explain the MINIMUM password length (at least 12 \
+        lower.contains("at least 6") || lower.contains("at least six"),
+        "the inline error must explain the MINIMUM password length (at least 6 \
          characters); got {body:?}"
     );
     assert!(
@@ -3012,7 +3012,7 @@ async fn no_session_is_created(world: &mut FoundryWorld) {
 /// `When her confirmation does not match her new password` — drive the NEW public
 /// POST `/invites/accept` over real HTTP carrying the double-submit `_csrf`
 /// (cookie + form field minted on the reused GET), the token, a policy-PASSING
-/// password (the same min-12 password the happy path uses, so ONLY the confirm
+/// password (the same min-6 password the happy path uses, so ONLY the confirm
 /// match fails — not the policy), and a NON-matching confirm. Capture the status,
 /// the re-rendered inline body, and any session cookie so the inline-mismatch-error
 /// + still-live observables are asserted port-to-port.
@@ -3036,7 +3036,7 @@ async fn her_confirmation_does_not_match(world: &mut FoundryWorld) {
     let client = http(world);
 
     // A policy-passing password with a NON-matching confirmation — so ONLY the
-    // confirm-match check fails (not the min-12 policy). The confirm differs by a
+    // confirm-match check fails (not the min-6 policy). The confirm differs by a
     // suffix so the mismatch is unambiguous.
     let form = [
         ("id", invite_id.to_string()),
@@ -3149,7 +3149,7 @@ async fn she_sees_inline_mismatch_error(world: &mut FoundryWorld) {
 /// `Given Priya was shown an inline password error and her invite is still live`
 /// — drive the reused GET arrival (renders the set-password form + mints the CSRF
 /// cookie into `session_cookie_header`), then the reused weak-password POST (3
-/// chars, below min-12) which re-renders inline at 200 WITHOUT consuming the
+/// chars, below min-6) which re-renders inline at 200 WITHOUT consuming the
 /// invite (the policy check runs before the consume TX). Then assert (DB-observable
 /// against the REAL per-scenario Postgres) the inline error was shown AND the
 /// invite is STILL live (`used_at` NULL, unexpired) — grounding the "shown an
@@ -3215,43 +3215,43 @@ async fn she_submits_valid_retry_on_same_invite(world: &mut FoundryWorld) {
 
 // ---------------------------------------------------------------------------
 // Scenario 18 (step 03-04) — RECOVERY/BOUNDARY (US-03): a password EXACTLY at the
-// minimum length (12 characters) is accepted end-to-end. Pins the INCLUSIVE side
-// of the min-length boundary (exactly-12 = accepted), complementing scenario 15
-// (below-12 = refused inline). The SHIPPED `check_password_policy` is length-first
-// with `chars().count() < MIN_PASSWORD_LENGTH` (strict less-than), so a 12-char
+// minimum length (6 characters) is accepted end-to-end. Pins the INCLUSIVE side
+// of the min-length boundary (exactly-6 = accepted), complementing scenario 15
+// (below-6 = refused inline). The SHIPPED `check_password_policy` is length-first
+// with `chars().count() < MIN_PASSWORD_LENGTH` (strict less-than), so a 6-char
 // password satisfies the policy: the consume guarded-UPDATE fires, the argon2id
 // hash is written, a session is established, and the handler 303-redirects.
-// Green by inheritance from the SHIPPED `>= 12 inclusive` policy boundary.
+// Green by inheritance from the SHIPPED `>= 6 inclusive` policy boundary.
 //
 // Falsifiability litmus (proven at DELIVER): tightening the policy to require
-// strictly MORE than 12 (e.g. `<= MIN_PASSWORD_LENGTH` / `>= 13`) makes a 12-char
+// strictly MORE than 6 (e.g. `<= MIN_PASSWORD_LENGTH` / `>= 7`) makes a 6-char
 // password fail the policy — the POST then re-renders inline (200) with NO
 // session and NO 303, RED-ing the success Then (no SEE_OTHER, no session cookie),
 // and the invite stays unconsumed, RED-ing the consumed-once assertion.
 // ---------------------------------------------------------------------------
 
-/// A password of EXACTLY 12 characters (the inclusive boundary of the min-12
+/// A password of EXACTLY 6 characters (the inclusive boundary of the min-6
 /// length-first policy, ADR-004) with a matching confirmation.
-const TWELVE_CHAR_PASSWORD: &str = "northwind-12";
+const SIX_CHAR_PASSWORD: &str = "nwd-06";
 
-/// `When she submits a twelve-character password and confirms it` — drive the NEW
+/// `When she submits a six-character password and confirms it` — drive the NEW
 /// public POST `/invites/accept` over real HTTP carrying the double-submit `_csrf`
 /// (cookie + form field minted on the reused GET), the token, and a password of
-/// EXACTLY 12 characters with a matching confirm. The policy admits it (length >=
+/// EXACTLY 6 characters with a matching confirm. The policy admits it (length >=
 /// 12 inclusive), the consume guarded-UPDATE fires, the hash is written, a session
 /// is established, and the handler 303-redirects. Captures the 303, Location, and
 /// auto-sign-in session cookie for the success Then.
-#[when(regex = r#"^she submits a twelve-character password and confirms it$"#)]
-async fn she_submits_a_twelve_char_password(world: &mut FoundryWorld) {
+#[when(regex = r#"^she submits a six-character password and confirms it$"#)]
+async fn she_submits_a_six_char_password(world: &mut FoundryWorld) {
     // Guard the boundary at the test level: the password under test must be
     // EXACTLY the minimum length — otherwise the scenario would not pin the
     // inclusive boundary.
     assert_eq!(
-        TWELVE_CHAR_PASSWORD.chars().count(),
+        SIX_CHAR_PASSWORD.chars().count(),
         foundry_auth::MIN_PASSWORD_LENGTH,
         "the boundary password must be EXACTLY the minimum length ({}); it is {} chars",
         foundry_auth::MIN_PASSWORD_LENGTH,
-        TWELVE_CHAR_PASSWORD.chars().count()
+        SIX_CHAR_PASSWORD.chars().count()
     );
 
     let invite_id = world.ia_invite_id.expect("invite seeded");
@@ -3274,8 +3274,8 @@ async fn she_submits_a_twelve_char_password(world: &mut FoundryWorld) {
     let form = [
         ("id", invite_id.to_string()),
         ("sig", sig),
-        ("password", TWELVE_CHAR_PASSWORD.to_string()),
-        ("confirm", TWELVE_CHAR_PASSWORD.to_string()),
+        ("password", SIX_CHAR_PASSWORD.to_string()),
+        ("confirm", SIX_CHAR_PASSWORD.to_string()),
         ("_csrf", csrf_token.clone()),
     ];
     let resp = client
@@ -3287,7 +3287,7 @@ async fn she_submits_a_twelve_char_password(world: &mut FoundryWorld) {
         .form(&form)
         .send()
         .await
-        .expect("POST /invites/accept with an exactly-12-char password");
+        .expect("POST /invites/accept with an exactly-6-char password");
     let status = resp.status();
     let location = resp
         .headers()
@@ -3309,12 +3309,12 @@ async fn she_submits_a_twelve_char_password(world: &mut FoundryWorld) {
 }
 
 /// `Then her password is accepted and she is signed in on the "Northwind"
-/// workspace` — the exactly-12-char accept succeeded end-to-end: the POST 303
+/// workspace` — the exactly-6-char accept succeeded end-to-end: the POST 303
 /// SEE_OTHER-redirected with an auto-sign-in `foundry_session` cookie (the policy
-/// ADMITTED the 12-char password — the inclusive boundary), her session's RESOLVED
+/// ADMITTED the 6-char password — the inclusive boundary), her session's RESOLVED
 /// active workspace is the provisioned tenant (DB-observable via the SHIPPED
 /// `resolve_active_workspace` seam), and the invite is recorded as used EXACTLY
-/// ONCE (the consume guard fired). Tightening the policy to require > 12 would
+/// ONCE (the consume guard fired). Tightening the policy to require > 6 would
 /// re-render inline (no 303 / no session) and leave the invite unconsumed,
 /// RED-ing every assertion here.
 #[then(regex = r#"^her password is accepted and she is signed in on the "([^"]+)" workspace$"#)]
@@ -3322,14 +3322,14 @@ async fn her_password_accepted_and_signed_in(world: &mut FoundryWorld, ws_name: 
     assert_eq!(
         world.ia_post_status,
         Some(StatusCode::SEE_OTHER),
-        "an exactly-12-char password must be ACCEPTED — the accept POST must 303 \
-         SEE_OTHER on success (the policy admits length >= 12 inclusive); got {:?}",
+        "an exactly-6-char password must be ACCEPTED — the accept POST must 303 \
+         SEE_OTHER on success (the policy admits length >= 6 inclusive); got {:?}",
         world.ia_post_status
     );
     assert!(
         world.ia_session_cookie.is_some(),
         "the accept POST must establish a session (issue a foundry_session cookie), \
-         proving the 12-char password was admitted and she was auto signed in; got none"
+         proving the 6-char password was admitted and she was auto signed in; got none"
     );
 
     let expected_ws = *world
@@ -3351,9 +3351,9 @@ async fn her_password_accepted_and_signed_in(world: &mut FoundryWorld, ws_name: 
          resolved {resolved:?}"
     );
 
-    // DB-observable: the invite was consumed EXACTLY ONCE by the 12-char accept —
+    // DB-observable: the invite was consumed EXACTLY ONCE by the 6-char accept —
     // proving the policy admitted it through to the consume TX (a policy that
-    // rejected 12 chars would leave used_at NULL and this count at 0).
+    // rejected 6 chars would leave used_at NULL and this count at 0).
     let invite_id = world.ia_invite_id.expect("invite seeded");
     let pool = harness(world).app.state.store.pool().clone();
     let (consumed_rows,): (i64,) = sqlx::query_as(
@@ -3363,10 +3363,10 @@ async fn her_password_accepted_and_signed_in(world: &mut FoundryWorld, ws_name: 
     .bind(admin_id)
     .fetch_one(&pool)
     .await
-    .expect("count the consumed invite row after the 12-char accept");
+    .expect("count the consumed invite row after the 6-char accept");
     assert_eq!(
         consumed_rows, 1,
-        "the exactly-12-char accept must consume the invite EXACTLY ONCE (used_at \
+        "the exactly-6-char accept must consume the invite EXACTLY ONCE (used_at \
          set, used_by = the first-admin); found {consumed_rows} consumed rows"
     );
 }
