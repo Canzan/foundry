@@ -1,0 +1,135 @@
+{
+  "roadmap": {
+    "created_at": "2026-08-22T00:00:00Z",
+    "project_id": "issue-edit-modal-close-icon",
+    "total_steps": 4,
+    "notes": "NO-COMMIT MODE (user decision — working tree is shared with a parallel feature): no step performs any git operation. The COMMIT phase of each TDD cycle = scoped verification green (cargo xtask smoke, or the feature's acceptance lane for browser steps) + log step completion; git commit/push happen later, outside this roadmap. Browser-lane verification per step: FOUNDRY_ACCEPTANCE_TAGS=issue-edit-modal-close-icon cargo test -p foundry-acceptance --test acceptance --release (requires version-matched chromedriver + Chrome; xtask preflight is probe-and-refuse). Every scenario waits on [data-kb-ready] before touching the × (D-15 Earned Trust). Un-@pend one scenario at a time (repo convention). RED classification (DISTILL): scenarios 1-6 and 9 = MISSING_FUNCTIONALITY (correct RED on un-@pend before the production change lands); 7, 8, 10 = REGRESSION_GUARD (expected green once steps are wired — not a suspect GREEN)."
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "Phase 01 — the control exists and closes the dialog (render, then mechanism)",
+      "description": "Wire the new step module into the acceptance crate, land the × button in the template with its CSS (D-12/D-13) and the mandatory same-changeset re-hash (D-14), then add the ONE delegated click listener in keyboard.js (D-10) so the control actually closes. Two steps, two scenarios-then-two-more green.",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "Step module wiring + rendered × (template + CSS + D-14 re-hash): the way out is visible",
+          "criteria": [
+            "Greens scenario 1 only ('The edit dialog offers a visible way out in its top right'): the rendered edit dialog header shows the close control top right, accessible name 'Close', click target >= 24x24 CSS px (AC-1.1, AC-1.6 target size).",
+            "STEP GLUE FIRST: NEW crates/foundry-acceptance/src/steps/feature_issue_edit_modal_close.rs, registered as `pub mod feature_issue_edit_modal_close;` in crates/foundry-acceptance/src/lib.rs AND force-linked in crates/foundry-acceptance/tests/acceptance.rs (`use foundry_acceptance::steps::feature_issue_edit_modal_close as _...;`), mirroring feature_pwa_mobile. Reuse the shipped Background steps (workspace/project/issue/sign-in bind globally) and wait_for_kb_ready before any interaction (D-15).",
+            "RED first (MISSING_FUNCTIONALITY): un-@pend scenario 1, run the feature lane, and demonstrate the assertion failure 'no close control in the rendered header'. Undefined-step failures (fail_on_skipped) are a test bug and block the un-@pend.",
+            "THE FIX (D-12): issue_edit_modal.html .modal-header gains <button type=\"button\" aria-label=\"Close\" data-action=\"close-modal\"> carrying a text × glyph (OD-3: text glyph preferred, no new asset/icon font), placed OUTSIDE the <form> so accidental submit is structurally impossible. new_issue_modal.html untouched (D-01).",
+            "THE STYLE (D-13): .modal-header becomes a flex row (title | full-page link | × pinned right); NEW .modal-close class with >= 24x24 px hit target and a visible :focus-visible indicator. No new CSS file, no SVG, no icon font.",
+            "D-14 SAME CHANGESET (non-negotiable): the stylesheet is content-hashed — re-hash foundry.<sha256-prefix-8>.css, rename the file, update the base.html link, the static/VENDOR.md row, and the hashed-name literals in crates/foundry-app/src/lib.rs cache tests, all in THIS step. Split across changesets, the immutable-cache tests go red.",
+            "COMMIT PHASE (no-commit mode): FOUNDRY_ACCEPTANCE_TAGS=issue-edit-modal-close-icon cargo test -p foundry-acceptance --test acceptance --release green for scenario 1 (chromedriver available), plus cargo xtask smoke green. Log completion; NO git operations."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/issue-edit-modal-close-icon.feature",
+          "scenario_name": "The edit dialog offers a visible way out in its top right",
+          "files_to_modify": [
+            "crates/foundry-acceptance/src/steps/feature_issue_edit_modal_close.rs",
+            "crates/foundry-acceptance/src/lib.rs",
+            "crates/foundry-acceptance/tests/acceptance.rs",
+            "crates/foundry-acceptance/tests/features/issue-edit-modal-close-icon.feature",
+            "crates/foundry-app/templates/partials/issue_edit_modal.html",
+            "crates/foundry-app/static/css/foundry.7c858984.css",
+            "crates/foundry-app/templates/base.html",
+            "crates/foundry-app/static/VENDOR.md",
+            "crates/foundry-app/src/lib.rs"
+          ],
+          "implementation_scope": {
+            "source_directories": [
+              "crates/foundry-acceptance/src/",
+              "crates/foundry-app/templates/",
+              "crates/foundry-app/static/"
+            ],
+            "notes": "Render-only slice: the button exists and is measurable, but nothing listens yet — that is step 01-02. The CSS edit and the full D-14 re-hash procedure (rename, base.html href, VENDOR.md row, lib.rs test literals) land together HERE. RED_UNIT NOT_APPLICABLE (template/CSS + browser-lane assertions; no Rust production logic)."
+          }
+        },
+        {
+          "id": "01-02",
+          "name": "Delegated click listener in keyboard.js: one click closes, leaving Mei exactly where Esc would",
+          "criteria": [
+            "Greens scenarios 2 ('One click on the close control returns Mei to the board') and 6 ('Closing with a click leaves Mei exactly where Esc would'): one click empties #modal-root, the board is interactive, the GEN-1 card unchanged (AC-1.2); after close, focus rests on a live element Esc-parity style (activeElement falls to body) and j/k/c still act (AC-1.5, D-11).",
+            "RED first (MISSING_FUNCTIONALITY): un-@pend scenario 2, click the rendered × — dialog still open, assertion fails. Then wire, green, un-@pend scenario 6, verify.",
+            "THE FIX (D-10, adr-modal-close-001): ONE document-delegated 'click' listener added to keyboard.js, matching [data-action=\"close-modal\"] via closest() (a glyph child still resolves), calling the EXISTING closeModal(). NO new Escape listener (BR-4/D-04: one mechanism, two triggers), no htmx attribute, no inline handler (CSP), survives #modal-root swaps by construction (document delegation).",
+            "Do NOT restore focus to the triggering card (D-11 DEFERRED — Esc parity is the contract; restore, if ever, goes inside closeModal() for BOTH triggers).",
+            "COMMIT PHASE (no-commit mode): feature lane green for scenarios 1, 2, 6 (FOUNDRY_ACCEPTANCE_TAGS=issue-edit-modal-close-icon cargo test -p foundry-acceptance --test acceptance --release, chromedriver available) + cargo xtask smoke green. Log completion; NO git operations."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/issue-edit-modal-close-icon.feature",
+          "scenario_name": "One click on the close control returns Mei to the board; Closing with a click leaves Mei exactly where Esc would",
+          "files_to_modify": [
+            "crates/foundry-app/static/js/keyboard.js",
+            "crates/foundry-acceptance/src/steps/feature_issue_edit_modal_close.rs",
+            "crates/foundry-acceptance/tests/features/issue-edit-modal-close-icon.feature"
+          ],
+          "implementation_scope": {
+            "source_directories": [
+              "crates/foundry-app/static/js/",
+              "crates/foundry-acceptance/src/steps/"
+            ],
+            "notes": "The whole production JS delta of the feature: one delegated click listener beside the existing keydown one, reusing closeModal(). keyboard.js is content-served but NOT content-hashed, so no re-hash here. data-kb-ready remains the attachment probe (D-15) — the scenarios' kb-ready wait now also proves the click listener is live. RED_UNIT NOT_APPLICABLE (vanilla-JS IIFE, no JS unit harness; the browser lane is the safety net per the DEVOPS mutation-strategy note)."
+          }
+        }
+      ]
+    },
+    {
+      "id": "02",
+      "name": "Phase 02 — nothing saves, no mouse needed, and the old exits still work",
+      "description": "Prove the dismissal semantics (zero save, store unchanged), assert the native-button keyboard freebies instead of assuming them, then wire the four regression/error guards that pin Esc, Save, the full-page link, and the error-state escape.",
+      "steps": [
+        {
+          "id": "02-01",
+          "name": "No-save oracle + keyboard activation: a discarded edit saves nothing, Enter and Space both close",
+          "criteria": [
+            "Greens scenarios 3 ('A discarded edit saves nothing'), 4 ('Mei reaches the close control with Tab and activates it with Enter'), and 5 ('Space activates the close control exactly as Enter does') — AC-1.2 zero-save, AC-1.3, AC-1.6 focus indicator.",
+            "Scenario 3 oracle asserts BOTH ways (feature-file harness note + OD-4): no save request observed while the dialog closed AND the stored title/description/status of GEN-1 unchanged, read back at the store via the shipped issue-edit-dialog testcontainers-Postgres oracle ('in the store' steps). The store read-back is the load-bearing half; browser request instrumentation is the crafter's call within OD-4.",
+            "Scenarios 4 and 5 assert the native-button freebies, never assume them (DESIGN open question 2): Tab reaches the control, a visible focus indicator shows (:focus-visible from D-13), and Enter AND Space each get their own activation proof. No production change is expected here — if any is needed, the button contract (D-12) was violated and must be fixed within D-12, not worked around in steps.",
+            "Un-@pend one at a time (3, then 4, then 5). Each was classified MISSING_FUNCTIONALITY against the pre-feature tree; after 01-01/01-02 they may go green on wiring — that is the classification playing out, not a suspect GREEN, but any failure must be at the pinned assertion, never an undefined step (fail_on_skipped).",
+            "COMMIT PHASE (no-commit mode): feature lane green for scenarios 1-6 (FOUNDRY_ACCEPTANCE_TAGS=issue-edit-modal-close-icon cargo test -p foundry-acceptance --test acceptance --release, chromedriver available) + cargo xtask smoke green. Log completion; NO git operations."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/issue-edit-modal-close-icon.feature",
+          "scenario_name": "A discarded edit saves nothing; Mei reaches the close control with Tab and activates it with Enter; Space activates the close control exactly as Enter does",
+          "files_to_modify": [
+            "crates/foundry-acceptance/src/steps/feature_issue_edit_modal_close.rs",
+            "crates/foundry-acceptance/tests/features/issue-edit-modal-close-icon.feature"
+          ],
+          "implementation_scope": {
+            "source_directories": [
+              "crates/foundry-acceptance/src/steps/"
+            ],
+            "notes": "Test-only step by design: the production surface for these ACs already landed in 01-01 (native button outside the form, focus indicator CSS) and 01-02 (listener). This step earns the trust — dirty-form typing, store read-back, Tab/Enter/Space each proven in a real browser. RED_UNIT NOT_APPLICABLE."
+          }
+        },
+        {
+          "id": "02-02",
+          "name": "Regression and error guards: Esc, Save, full-page link untouched; the × escapes the 4xx error state",
+          "criteria": [
+            "Greens scenarios 7 ('Esc still closes the dialog in a single keypress' — BR-4 guard: the click trigger added no second Escape listener), 8 ('Saving from the dialog still works with the close control present'), 9 ('The close control still works from the validation-error state' — form-errors.js routes the 400 reason into data-error-slot, the × must not trap Mei there, AC-1.4), and 10 ('The full page link beside the close control still navigates'). All AC-1.4.",
+            "Wire the remaining step phrases in feature_issue_edit_modal_close.rs (empty-title save + error-slot assertion reuses the shipped form-error-display phrasing where it binds; full-page navigation reuses the shipped issue-page assertion). ZERO production files: form-errors.js, closeTopLayer(), the layer stack, and the save route are regression surface only (DESIGN component table).",
+            "Expected colors on un-@pend, one at a time: 7, 8, 10 are REGRESSION_GUARD — green immediately once steps are wired (shipped behaviour; a RED here is a real regression and blocks the feature). 9 is MISSING_FUNCTIONALITY class but should be green after 01-02 (same click path from the error state); if 9 is red, the listener or the error-state DOM is wrong — fix production under 01-02's contract, not the scenario.",
+            "COMMIT PHASE (no-commit mode): full feature lane green — all 10 scenarios, zero @pending left (FOUNDRY_ACCEPTANCE_TAGS=issue-edit-modal-close-icon cargo test -p foundry-acceptance --test acceptance --release, chromedriver available) + cargo xtask smoke green. Log completion; NO git operations. Full cargo xtask ci is the later pre-push gate, outside this roadmap's no-commit scope."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/issue-edit-modal-close-icon.feature",
+          "scenario_name": "Esc still closes the dialog in a single keypress; Saving from the dialog still works with the close control present; The close control still works from the validation-error state; The full page link beside the close control still navigates",
+          "files_to_modify": [
+            "crates/foundry-acceptance/src/steps/feature_issue_edit_modal_close.rs",
+            "crates/foundry-acceptance/tests/features/issue-edit-modal-close-icon.feature"
+          ],
+          "implementation_scope": {
+            "source_directories": [
+              "crates/foundry-acceptance/src/steps/"
+            ],
+            "notes": "Closes the coexistence matrix: BR-4 single Escape owner (shipped @layered scenario + scenario 7), htmx swap survival, form-errors.js untouched, 'Open full page' untouched. Mutation gate is satisfied per the DEVOPS strategy (only Rust production delta is test literals in foundry-app lib.rs; template/JS/CSS safety net IS this browser lane). RED_UNIT NOT_APPLICABLE."
+          }
+        }
+      ]
+    }
+  ],
+  "validation": {
+    "status": "approved",
+    "reviewer": "nw-acceptance-designer-reviewer",
+    "authored_at": "2026-08-22",
+    "reviewed_at": "2026-08-22",
+    "verdict": "All 10 scenarios map to exactly one roadmap step with exact title matching. No step covers 8+ scenarios. Walking-skeleton claim verified: no new WS, reuses shipped edit-dialog path. Step dependency order sound: render then mechanism then semantics then regression guards. All files_to_modify align with DESIGN D-10/D-12/D-13/D-14 decomposition. No-commit mandate enforced per step. Zero blockers. APPROVED."
+  }
+}

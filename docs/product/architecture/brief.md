@@ -53,6 +53,32 @@ unreachable Keycloak refuses a sign-in attempt rather than a boot. foundry's rea
 never depends on the identity provider it exists to outlive.
 See `adr-oidc-003-lazy-discovery.md`.
 
+### Names are labels; slugs are identity
+
+A project's `name` is a mutable display label; its `slug` (and `key_prefix`,
+and every issue key minted from it) is immutable URL identity, minted exactly
+once at creation by `foundry_core::slugify` and never derived again. Render
+paths take slugs from the validated request path or stored columns — never from
+`slugify(name)` at render time (the latent defect the instance-admin-project-rename
+wave removed from `build_board_page`). Enforced in `cargo xtask check-arch`:
+defining `fn slugify(` under `crates/foundry-app/src` fails the build.
+See `adr-project-rename-001-request-slugs-not-derived.md` and
+`adr-project-rename-002-rename-write-placement.md`.
+
+### Dialog layers close by one mechanism, many declarative triggers
+
+Dialogs are `div.modal` fragments htmx-swaps into `#modal-root`; "closed" is a
+DOM-derived state — the host is empty — never a stored flag. The one close
+mechanism is `keyboard.js::closeModal()`, and `Escape` has exactly one owner,
+`closeTopLayer()` (BR-4): a second `Escape` listener anywhere would race it and
+peel two layers per press. New close affordances therefore never register
+listeners — they are attributes. Any element inside `#modal-root` carrying
+`data-action="close-modal"` is a close trigger, resolved by one
+document-delegated click listener in `keyboard.js` (delegation is the house
+idiom because it survives htmx swaps). Adding a close control to a future
+dialog is a template-only change, and BR-4 is unviolable by construction of the
+pattern. See `adr-modal-close-001-declarative-close-trigger.md`.
+
 ### Crate graph
 
 ```mermaid

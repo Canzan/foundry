@@ -1,6 +1,10 @@
 <div class="modal" role="dialog" aria-modal="true" data-modal="edit-issue">
   <div class="modal-dialog">
-    <header class="modal-header"><h2>Edit {{ key }}</h2> <a class="full-page-link" href="{{ detail_url }}">Open full page</a></header>
+    {# adr-modal-close-001 D-12: the declarative close trigger — a text × glyph
+       (OD-3, no new asset), aria-label for the accessible name, OUTSIDE the
+       <form> so it can never submit. Render-only here; the delegated
+       [data-action="close-modal"] click listener lands in keyboard.js (D-10). #}
+    <header class="modal-header"><h2>Edit {{ key }}</h2> <a class="full-page-link" href="{{ detail_url }}">Open full page</a> <button type="button" class="modal-close" aria-label="Close" data-action="close-modal">&times;</button></header>
     <form method="post" action="{{ action }}" hx-post="{{ action }}" hx-target="#modal-root" hx-swap="innerHTML">
       <input type="hidden" name="_csrf" value="{{ csrf }}">
       <label>Title <input type="text" name="title" value="{{ title }}" required autofocus></label>

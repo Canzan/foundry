@@ -1,2 +1,22 @@
 schema_version: "0.1"
-outcomes: []
+outcomes:
+  # instance-admin-project-rename (DISTILL 2026-08-22) — first entries in this
+  # registry; fields follow the nw-distill outcome-registration vocabulary
+  # (id / kind / input-shape / output-shape / keywords) since no prior row
+  # format existed to inherit.
+  - id: OUT-1
+    kind: operation
+    feature: instance-admin-project-rename
+    title: Rename a project's display name from the instance dashboard
+    input_shape: "RenameProjectRequest { acting_user_id: Uuid, project_id: Uuid, new_name: &str } via POST /admin/instance/projects/{project_id}/rename (session + double-submit _csrf)"
+    output_shape: "RenameOutcome::{Renamed,NoOp} -> 200 bare row fragment | RenameProjectError::{EmptyName,NameTooLong,DuplicateName} -> 422 bare error fragment | Forbidden/NotFound/garbled-id -> uniform non-enumerable 404"
+    invariant_note: "Display name only — projects.slug, key_prefix, board/report URLs, and issue keys are byte-identical across the rename (D1 / ADR-PROJECT-RENAME-001)."
+    keywords: [project, rename, display-name, instance-admin, slug-stable]
+  - id: OUT-2
+    kind: operation
+    feature: instance-admin-project-rename
+    title: List every project in the instance grouped by workspace
+    input_shape: "GET /admin/instance/workspaces (instance-admin session); Store::list_projects_for_instance() -> Vec<InstanceProjectRow { workspace_id, project_id, name, key_prefix, team_name }>"
+    output_shape: "Dashboard page nesting data-project-row entries (name, key prefix, team) under each data-workspace-row, name-ordered; data-project-empty 'No projects yet.' for a project-less workspace; uniform 404 for non-admins"
+    invariant_note: "Deliberately instance-wide (cross-tenant) — reachable ONLY through the LAYER-1e allow-listed instance-admin surface."
+    keywords: [project, listing, instance-wide, workspace-grouped, instance-admin]

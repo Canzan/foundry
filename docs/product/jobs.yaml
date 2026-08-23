@@ -40,3 +40,83 @@ jobs:
         Single-job feature; no comparative scoring table is produced (the skill
         requires one only when multiple jobs compete).
     validated_by: docs/feature/keycloak-sso/feature-delta.md
+
+  - id: job-instance-project-rename
+    title: Correct a stale project name from the instance dashboard, not from psql
+    job_story: >
+      When a project's purpose has drifted from the name it was created with
+      (the "Auth v2" migration project shipped and became the permanent
+      identity platform), I want to see every project across my instance and
+      correct its display name in place, so boards and reports stay legible
+      for the people using them — without opening a production database
+      session.
+    dimensions:
+      functional: Find any project in the instance and change its display name safely, with validation and authz.
+      emotional: Stop dreading that the "right" fix is a hand-typed UPDATE against production.
+      social: New team members read boards whose names describe what the project is now, not what it was during a migration.
+    forces:
+      push: >
+        The only rename path today is SQL against the live database — no
+        validation, no CSRF/authz rails, and (as code reading showed) a naive
+        name UPDATE silently breaks the board's issue-card URLs, which are
+        re-derived from the name at render time.
+      pull: >
+        One inline edit on the same instance dashboard already trusted for
+        provisioning workspaces and granting super-admin.
+      anxiety: >
+        That renaming a project breaks bookmarked board URLs, issue keys
+        (AUTH-7), or the change report. The feature answers this directly:
+        display-name-only rename, slug and keys pinned stable by acceptance
+        tests.
+      habit: >
+        SSH + psql works and is fast for a single operator. The web path must
+        be strictly safer (validation, uniqueness, non-enumerable authz), not
+        merely prettier, to displace it.
+    opportunity:
+      importance: medium
+      satisfaction: low
+      note: >
+        Single-job feature; no comparative scoring table (the skill requires
+        one only when multiple jobs compete). Importance medium — cosmetic on
+        the surface, but the current workaround is production SQL with a
+        hidden URL-breaking trap (D2), which is what makes it worth product
+        treatment.
+    validated_by: docs/feature/instance-admin-project-rename/feature-delta.md
+
+  - id: job-dismiss-edit-dialog
+    title: Back out of an issue's edit dialog without saving, the way every other app allows
+    job_story: >
+      When I open an issue's edit dialog just to read it, or start an edit I
+      decide against, I want a visible, conventional way to close it without
+      saving, so I can get back to the board without hunting for the Esc key
+      or saving a change I did not mean to make.
+    dimensions:
+      functional: Leave the edit dialog without saving, in one visible pointer action.
+      emotional: Stop feeling cornered by a dialog whose only labeled button is Save.
+      social: Anyone shown the board can close a dialog without being taught the unadvertised Esc handshake.
+    forces:
+      push: >
+        The dialog offers Save and a full-page link; the only no-save exit is
+        the Esc key, which nothing on screen advertises. A mouse user has no
+        way out at all — verified against the template and keyboard.js, where
+        Esc is the sole dismiss path and no backdrop-click close exists.
+      pull: >
+        The × every other dialog in every other tool has — one click, top
+        right, back to the board.
+      anxiety: >
+        That the × might save half-typed edits, navigate away like the
+        neighbouring "Open full page" link, or be invisible to keyboard and
+        screen-reader use.
+      habit: >
+        Keyboard users already press Esc. The × must be strictly additive:
+        Esc stays byte-identical, with its single owner in keyboard.js.
+    opportunity:
+      importance: low
+      satisfaction: low
+      note: >
+        Single-job feature; no comparative scoring table (the skill requires
+        one only when multiple jobs compete). Importance low — a small
+        conventional affordance — but the current state fails a basic
+        usability heuristic (user control and freedom: no visible escape),
+        and the fix is under half a day.
+    validated_by: docs/feature/issue-edit-modal-close-icon/feature-delta.md

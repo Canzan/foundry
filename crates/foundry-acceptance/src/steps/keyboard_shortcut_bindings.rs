@@ -631,9 +631,14 @@ async fn viewing_dashboard(world: &mut FoundryWorld) {
 
 // --- When: the key presses (the heart of every scenario) --------------------
 
-/// Presses `key` on the REAL page. The keystroke goes to `document.body` (no
-/// text field focused), which is where the ADR-001 document-delegated listener
-/// receives it — the same path a human's keypress takes.
+/// Presses `key` on the REAL page: one keystroke to whatever holds focus —
+/// `document.body` when nothing does (the shipped shortcut path, where the
+/// ADR-001 document-delegated listener receives it), or a keyboard-focused
+/// control (the issue-edit-modal-close-icon a11y path, where a focused
+/// button's NATIVE Enter/Space activation is the point). Dispatched via
+/// [`browser_harness::press_key`] (W3C key actions) because element
+/// `send_keys` on `<body>` re-focuses the body first, silently blurring a
+/// focused control — the key would land on the body every time.
 ///
 /// Named keys are mapped to their WebDriver code points: `send_keys("Esc")`
 /// would type the three characters E, s, c.
@@ -641,13 +646,7 @@ async fn viewing_dashboard(world: &mut FoundryWorld) {
 async fn mei_presses_key(world: &mut FoundryWorld, key: String) {
     let browser = world.browser.as_ref().expect("browser session");
     browser_harness::wait_for_kb_ready(browser).await;
-    browser
-        .find(Locator::Css("body"))
-        .await
-        .expect("find the document body")
-        .send_keys(browser_harness::key_chord(&key))
-        .await
-        .unwrap_or_else(|err| panic!("press {key:?}: {err}"));
+    browser_harness::press_key(browser, &key).await;
 }
 
 /// Types into the title field the way Mei does: into the FOCUSED element, one

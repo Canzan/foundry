@@ -58,6 +58,7 @@
   var MODAL_HOST_ID = "modal-root";
   var HELP_URL = "/keyboard-help";
   var NEW_ISSUE_TRIGGER = "[data-action='new-issue']";
+  var CLOSE_MODAL_TRIGGER = "[data-action='close-modal']";
   var SEARCH_PANEL_ID = "kb-search-panel";
   var NEW_ISSUE_URL_SUFFIX = "/issues/new";
 
@@ -856,6 +857,24 @@
       return;
     }
     dispatch(event);
+  });
+
+  // The edit dialog's × (issue-edit-modal-close-icon, D-10 / adr-modal-close-001).
+  // ONE document-delegated `click` listener — the exact house idiom of the
+  // `keydown` listener above — because delegation survives htmx swaps: a handler
+  // bound to the button would die with the dialog it closes, and #modal-root's
+  // contents are replaced on every open. `closest()` so a click landing on a
+  // glyph CHILD of the trigger still resolves to it. It calls the EXISTING
+  // `closeModal()` — the one close mechanism, two triggers — and registers NO
+  // Escape handling: `Esc` keeps exactly one owner, `closeTopLayer()` (BR-4).
+  document.addEventListener("click", function (event) {
+    var target = event.target;
+    if (!target || target.nodeType !== 1) {
+      return;
+    }
+    if (target.closest(CLOSE_MODAL_TRIGGER)) {
+      closeModal();
+    }
   });
 
   function dispatch(event) {

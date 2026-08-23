@@ -7,6 +7,20 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 
 ## [Unreleased]
 
+### Added
+
+- **Close (×) control on the issue edit dialog.** The edit dialog's header now
+  carries a conventional close button (accessible name "Close", ≥24×24 px
+  target, visible focus ring) so a pointer user can leave without saving —
+  previously the only no-save exit was the unadvertised Esc key. One close
+  mechanism, two triggers: the button is a declarative
+  `data-action="close-modal"` trigger resolved by a single document-delegated
+  click listener calling the existing `closeModal()`; Esc handling is
+  unchanged (single-owner, BR-4). Dismissal issues no save request; typed
+  edits are discarded, exactly as Esc does. Stylesheet content-hash rotated
+  `7c858984` → `8ce38566`. See
+  `docs/product/architecture/adr-modal-close-001-declarative-close-trigger.md`.
+
 ## [v0.3.1] - 2026-05-30
 
 Test-suite and release-pipeline hardening. **No functional/runtime changes** —

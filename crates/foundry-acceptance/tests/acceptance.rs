@@ -57,6 +57,8 @@ use foundry_acceptance::steps::feature_issue_change_history as _feature_issue_ch
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_issue_edit_dialog as _feature_issue_edit_dialog;
 #[allow(unused_imports)]
+use foundry_acceptance::steps::feature_issue_edit_modal_close as _feature_issue_edit_modal_close;
+#[allow(unused_imports)]
 use foundry_acceptance::steps::feature_issue_status_move as _feature_issue_status_move;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_keycloak_sso as _kc_sso;

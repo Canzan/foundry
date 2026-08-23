@@ -22,6 +22,7 @@ pub mod steps {
     pub mod feature_invite_accept;
     pub mod feature_issue_change_history;
     pub mod feature_issue_edit_dialog;
+    pub mod feature_issue_edit_modal_close;
     pub mod feature_issue_status_move;
     pub mod feature_keycloak_sso;
     pub mod feature_machine_token_admin;

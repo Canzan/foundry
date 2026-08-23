@@ -1,16 +1,10 @@
 //! instance-admin-project-rename step definitions
-//! (`tests/features/instance-admin-project-rename.feature`, 21 scenarios, all
-//! `@pending`).
+//! (`tests/features/instance-admin-project-rename.feature`, 21 scenarios).
 //!
-//! RED, not BROKEN (Mandate 7, this project's variant — the `admin_tokens.rs`
-//! precedent): production scaffolds pin the DESIGN port signatures
+//! The production seams these steps drive are the DESIGN port signatures
 //! (`foundry_core::slugify`, the four `foundry-store` queries,
-//! `foundry_services::projects::rename_project`, and the MOUNTED
-//! `instance_admin::submit_project_rename` handler returning a clean 501 with a
-//! `RED scaffold` body — NOT a `panic!`, which would abort the axum connection
-//! and mask the assertion). An un-pended scenario therefore fails at an
-//! ASSERTION for MISSING_FUNCTIONALITY: 501 where a 200/422/404 was expected,
-//! or an absent `data-project-row` on the dashboard.
+//! `foundry_services::projects::rename_project`, and the mounted
+//! `instance_admin::submit_project_rename` handler).
 //!
 //! THE SLUG-CAPTURE RULE (D2 / ADR-PROJECT-RENAME-001): every board/report URL
 //! asserted after a rename is built from the STORED slugs, read back from the

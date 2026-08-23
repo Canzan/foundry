@@ -14,7 +14,7 @@ this file + the hash, re-run the acceptance suite.
 | File | Version | Upstream canonical URL | Retrieved (UTC) | sha256 |
 |------|---------|------------------------|-----------------|--------|
 | `vendor/htmx.min.js` | htmx **2.0.4** (pinned latest-stable 2.0.x; step 04-01 migration) | https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js | 2026-06-04 | `e209dda5c8235479f3166defc7750e1dbcd5a5c1808b7792fc2e6733768fb447` |
-| `css/foundry.870985fc.css` | hand-authored (this repo) | — (not vendored; authored in-tree) | 2026-06-04 | `870985fc8aef09342bf108e84278d54c024cde03dcfd3f6743eecd610d746d37` |
+| `css/foundry.8ce38566.css` | hand-authored (this repo) | — (not vendored; authored in-tree) | 2026-08-22 | `8ce38566aada1b12c9eb247d0d58f9a387ba19926a567dd7ad53569bf5b0fadf` |
 
 ## Notes
 
@@ -36,15 +36,17 @@ this file + the hash, re-run the acceptance suite.
   every page load to do nothing. The client keyboard layer that replaced the
   intent is `static/js/keyboard.js` — one app-owned vanilla IIFE, no framework.
   htmx remains the only vendored runtime dependency.
-- `foundry.870985fc.css` is hand-authored and served as-authored (gzip via the
+- `foundry.8ce38566.css` is hand-authored and served as-authored (gzip via the
   `compression-gzip` tower-http feature handles the wire size); no CSS minifier
-  is introduced (DB6). **The `.870985fc.` segment is the content hash** (first 8
+  is introduced (DB6). **The `.8ce38566.` segment is the content hash** (first 8
   hex of the file's sha256) per ADR-B03 / assets.md Decision #4 option 4a: the
   hash IS the cache key, so the blanket `Cache-Control: ...immutable` on `/static`
   is safe even though the file is hand-edited — an edit changes the hash, changes
   the committed filename, changes the URL `base.html` references, and misses stale
   caches correctly. To update the CSS: edit it, recompute
   `shasum -a 256 css/foundry.<old>.css`, rename the file to the new 8-hex prefix,
-  update the `<link>` in `templates/base.html` and the row above. The acceptance
-  suite discovers the hashed name on disk, so it does not pin the literal.
+  then in the SAME commit update the `<link>` in `templates/base.html`, the row
+  above, and the hashed-name literals in the `foundry-app` cache-policy tests
+  (`src/lib.rs`) — a split commit is red on those tests. The acceptance suite
+  discovers the hashed name on disk, so it does not pin the literal.
 - Re-verify a hash with: `shasum -a 256 crates/foundry-app/static/vendor/<file>`.

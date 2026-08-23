@@ -1,0 +1,240 @@
+{
+  "roadmap": {
+    "project_id": "instance-admin-project-rename",
+    "created_at": "2026-08-22T21:25:38Z",
+    "total_steps": 6,
+    "goal": "List every project on the instance admin dashboard grouped by workspace and let the instance super-admin rename a project's display name in place, without breaking board URLs (slug, key_prefix, and issue keys immutable per D1; board card URLs fixed per D2).",
+    "sources": [
+      "docs/feature/instance-admin-project-rename/feature-delta.md",
+      "docs/feature/instance-admin-project-rename/design/architecture-design.md",
+      "docs/feature/instance-admin-project-rename/design/component-boundaries.md",
+      "crates/foundry-acceptance/tests/features/instance-admin-project-rename.feature"
+    ],
+    "scenario_ownership_invariant": "All 21 DISTILL scenarios are owned by exactly one step (01-01: 3, 02-01: 0 enabler, 02-02: 7, 02-03: 3, 03-01: 7, 03-02: 1). DELIVER un-pends a scenario only in the step that owns it. Scaffold burn-down tracked via grep -rn 'SCAFFOLD: true' crates/ --include='*.rs'."
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "Instance-wide project listing (US-IAPR-01)",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "List every project under its workspace on the instance dashboard",
+          "description": "Replace the Store::list_projects_for_instance panic scaffold with the pinned SQL from component-boundaries.md (SELECT p.workspace_id, p.id, p.name, p.key_prefix, t.name FROM projects p JOIN teams t ON p.team_id = t.id ORDER BY p.name). Add InstanceProjectRowView and the projects field on InstanceWorkspaceRow (views.rs). In instance_admin::show_dashboard, issue the one instance-wide query and group rows by workspace_id (per-workspace name order falls out of the query order). Create partials/instance_project_row.html per the DESIGN markup contract — the full row partial including the htmx rename form with hidden _csrf (posts hit the shipped 501 scaffold route until 02-02; one-partial rule so 02-02 reuses this partial verbatim as its success fragment) — and render it in the instance_dashboard.html workspace loop, with data-project-empty 'No projects yet.' when a workspace has zero projects.",
+          "criteria": [
+            "GET /admin/instance/workspaces as the instance admin shows every project nested under its workspace, ordered by name within each workspace, each data-project-row carrying display name, key prefix, and owning team name",
+            "A workspace with zero projects renders the explicit data-project-empty 'No projects yet.' state, not a blank gap",
+            "Signed-out and signed-in non-admin GETs receive the byte-identical uniform 404 a never-existed path returns (regression pin: the richer page adds no enumeration oracle)",
+            "Exactly one instance-wide query per dashboard render (no per-workspace N+1); list_projects_for_workspace left byte-untouched",
+            "Owned scenarios un-pended and green in the HTTP lane; full acceptance suite, workspace unit tests, cargo xtask check-arch, fmt, clippy all green (0 regressions)"
+          ],
+          "estimate": "0.5 day",
+          "dependencies": [],
+          "files_to_modify": [
+            "crates/foundry-store/src/lib.rs",
+            "crates/foundry-app/src/instance_admin.rs",
+            "crates/foundry-app/src/views.rs",
+            "crates/foundry-app/templates/instance_dashboard.html",
+            "crates/foundry-app/templates/partials/instance_project_row.html",
+            "crates/foundry-acceptance/tests/features/instance-admin-project-rename.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/instance-admin-project-rename.feature",
+          "scenario_name": [
+            "Every project in the instance is listed under its workspace",
+            "A workspace with no projects says so",
+            "The project list is invisible to anyone who is not the instance admin"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): unit tests for new pure logic (validate_rename_name, uniqueness predicate, slugify) MUST be property-based (proptest) with state-delta discipline where state mutates; single-example unit tests are FALLBACK only with a # bypass: comment. Acceptance scenarios are the cucumber .feature file (already authored by DISTILL — un-pend, do not re-author). Integration/browser tests stay single-example — they verify wiring. EXEMPT FROM PARADIGM: template/wiring step — compensate with property-based tests on the adjacent validation logic (03-01/02-02). Slice 01. Scenario #3 was ALREADY-GREEN in the DISTILL verified run (shipped require_instance_admin gate) — un-pend it here as the regression pin. Row markup contract (data-project-row, data-project-id, data-project-name, [data-error-slot]) is the acceptance scraper seam: copy it verbatim from component-boundaries.md."
+        }
+      ]
+    },
+    {
+      "id": "02",
+      "name": "Rename write path and board survival (US-IAPR-02 + D2 prerequisite)",
+      "steps": [
+        {
+          "id": "02-01",
+          "name": "D2 enabling refactor: request-path slugs and a single production slugify",
+          "description": "Thread team_slug/project_slug from the request path through show_board -> render_board -> build_board_page (signature deltas pinned in architecture-design.md section 4) and DELETE the two render-time derivation lines at crates/foundry-app/src/projects.rs:861-862 (slugify(team_name) / slugify(&project.name)). Replace the foundry-core pub fn slugify panic scaffold with the definition moved verbatim from foundry-app (behavior + existing unit tests); retarget the create path (projects.rs:170) and admin_tokens.rs:284,296 call sites to foundry_core::slugify and delete the app-local copies. Extend cargo xtask check-arch with the rule that fails the build if `fn slugify(` is defined anywhere under crates/foundry-app/src (use is fine; redefinition is not — ADR-PROJECT-RENAME-001).",
+          "criteria": [
+            "No `fn slugify(` definition remains under crates/foundry-app/src, and cargo xtask check-arch fails the build if one is reintroduced (rule demonstrated by a deliberate local violation, then removed)",
+            "build_board_page unit tests extended with the renamed-project case: project name 'Identity Platform', stored slug 'auth-v2' => every card edit_url/state_url and the new-issue dialog URL contain 'auth-v2'",
+            "foundry_core::slugify carries property-based tests (output is a fixed point: slugify(slugify(s)) == slugify(s); output charset/URL-safety invariants) plus the migrated unit tests",
+            "Pure enabling refactor proven behavior-preserving: ALL existing board/report/CSV acceptance scenarios and unit tests stay green with zero assertion changes; fmt, clippy, check-arch green",
+            "No scenario un-pended in this step (enabler for scenario #5, owned by 02-03)"
+          ],
+          "estimate": "0.25 day",
+          "dependencies": [],
+          "files_to_modify": [
+            "crates/foundry-core/src/lib.rs",
+            "crates/foundry-app/src/projects.rs",
+            "crates/foundry-app/src/admin_tokens.rs",
+            "xtask/src/check_arch.rs"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/instance-admin-project-rename.feature",
+          "scenario_name": [],
+          "implementation_notes": "TEST PARADIGM (mandatory): unit tests for new pure logic (validate_rename_name, uniqueness predicate, slugify) MUST be property-based (proptest) with state-delta discipline where state mutates; single-example unit tests are FALLBACK only with a # bypass: comment. Acceptance scenarios are the cucumber .feature file (already authored by DISTILL — un-pend, do not re-author). Integration/browser tests stay single-example — they verify wiring. Enabler for scenario #5 'Boards, addresses, and issue keys survive a rename' (un-pended by 02-03): scenario_name is deliberately the empty list per schema. The request slug is provably byte-equal to the stored projects.slug (show_board resolves via find_project_by_slug WHERE slug = $2), so threading it is correct by construction. The ~20 test-local slugify copies in foundry-acceptance steps are creation-time consistent and stay untouched (traced in architecture-design.md section 4.1)."
+        },
+        {
+          "id": "02-02",
+          "name": "Rename write path: store queries, rename_project use-case, submit handler, form live",
+          "description": "Replace the Store panic scaffolds project_rename_context / list_team_sibling_projects / update_project_name with the pinned SQL (component-boundaries.md). Implement foundry_services::projects::rename_project with the ordered-check contract (is_instance_admin -> context fetch -> trim -> no-op -> empty -> length (256 Unicode scalars) -> duplicate (case-insensitive sibling name match OR foundry_core::slugify(new) == sibling stored slug, self excluded by query) -> update) returning RenameOutcome::{Renamed,NoOp} / RenameProjectError. Replace the 501 submit_project_rename scaffold: Path<String> parsed to Uuid IN the handler (parse failure => uniform resource_not_found_page, no 400 oracle), Forbidden/NotFound => the same uniform 404, EmptyName/NameTooLong/DuplicateName => 422 bare ErrorFragment (marker project-rename-error) with the exact D4 copy, success and no-op => 200 bare instance_project_row.html fragment (same partial 01-01 landed, name updated, form re-mounted with _csrf via ensure_csrf_cookie, never extending base.html).",
+          "criteria": [
+            "Submitting the rename form for 'Auth v2' with 'Identity Platform' returns a 200 bare row fragment showing the new name, and reloading the dashboard still shows 'Identity Platform' (persisted)",
+            "Submitting the unchanged current name returns the identical 200 row fragment with nothing written (quiet no-op: assert_project_delta proves the row byte-identical)",
+            "Signed-in non-admin and signed-out rename POSTs receive the uniform 404 byte-identical to a never-existed path, and the name is untouched on all read surfaces",
+            "A POST without the matching _csrf cookie/field pair is refused 403 by csrf_middleware before the handler runs; with the pair, the dashboard-name propagation leg passes",
+            "A garbled (non-uuid) project id and a well-formed unknown project id both receive the same uniform 404 — no 400-vs-404 or existence oracle",
+            "On every rename only projects.name changes: state-delta assertions on (name, slug, key_prefix, next_issue_number) fail closed on any identity-column drift",
+            "Owned scenarios un-pended and green in the HTTP lane; SCAFFOLD: true markers removed from store/services/handler; full suite, check-arch, fmt, clippy green"
+          ],
+          "estimate": "0.5 day",
+          "dependencies": [
+            "01-01"
+          ],
+          "files_to_modify": [
+            "crates/foundry-store/src/lib.rs",
+            "crates/foundry-services/src/projects.rs",
+            "crates/foundry-services/src/lib.rs",
+            "crates/foundry-app/src/instance_admin.rs",
+            "crates/foundry-app/templates/partials/instance_project_row.html",
+            "crates/foundry-acceptance/tests/features/instance-admin-project-rename.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/instance-admin-project-rename.feature",
+          "scenario_name": [
+            "A stale project name is corrected from the dashboard",
+            "Renaming a project to its current name is a quiet success",
+            "Only the instance admin can rename a project",
+            "A rename that does not carry the dashboard's matching token is refused",
+            "A signed-out visitor cannot rename anything",
+            "A rename aimed at a garbled project id is answered like a missing page",
+            "A rename aimed at a project that does not exist is answered like a missing page"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): unit tests for new pure logic (validate_rename_name, uniqueness predicate, slugify) MUST be property-based (proptest) with state-delta discipline where state mutates; single-example unit tests are FALLBACK only with a # bypass: comment. Acceptance scenarios are the cucumber .feature file (already authored by DISTILL — un-pend, do not re-author). Integration/browser tests stay single-example — they verify wiring. Slice 02 plus the two 404 arms from slice 03 (#18/#19 live here because this step builds the handler's in-handler uuid parse and NotFound mapping — un-pending them later would leave the mapping unproven). Property targets: the trim/empty/length validation and the uniqueness predicate over arbitrary sibling (name, slug) sets (including the self-exclusion and slug-collision arms) as pure functions with a store double. Check-then-write TOCTOU is accepted (data-models section 4, D7 residual) — do NOT add locking. Error copy is handler-owned, classification service-owned; ordered checks pin the observable 422 precedence.",
+          "error_copy": {
+            "EmptyName": "Project name must not be empty",
+            "NameTooLong": "Project name must be at most 256 characters",
+            "DuplicateName": "Project name must be unique within the team"
+          }
+        },
+        {
+          "id": "02-03",
+          "name": "End-to-end rename proof: board survival, self-recase, browser row swap",
+          "description": "Un-pend the three end-to-end pins that require both 02-01 and 02-02: (a) board/report/issue-key survival — after renaming 'Auth v2' to 'Identity Platform', /team/backend/project/auth-v2 still serves the board retitled, issue AUTH-7 keeps its key, card edit/state actions asserted against slugs captured from the DB BEFORE the rename (no test-local slugify), the report shows the new name; (b) re-casing a project's own name is a real persisted rename, not a no-op (D4 self-exclusion through the full stack — distinguishable from #6 only once the write path exists); (c) the @needs-browser row swap — the row updates in place with no full page reload, proven by a page-lifetime JS marker that must survive the outerHTML swap. Expected to be pure assertion enablement; fix any defect these pins reveal in the 02-01/02-02 code.",
+          "criteria": [
+            "After a rename, the stored slug, board URL, report URL, key_prefix, and existing issue keys are byte-identical to before; board and report render the new name and the issue edit dialog is actually fetched successfully at the pre-rename card URL",
+            "Renaming 'sandbox' to 'Sandbox' (own name, case change) returns 200 and the new casing is persisted on dashboard, board, and report (not silently dropped as a no-op)",
+            "In the browser lane, submitting the rename swaps only the closest [data-project-row] (htmx outerHTML): the planted page-lifetime marker survives, the new name is visible, and the re-mounted form is submittable again",
+            "chromedriver preflight passes (probe-then-refuse, never a silent skip) and the @needs-browser scenario runs in the @all/CI lane",
+            "Owned scenarios un-pended and green; full suite, check-arch, fmt, clippy green"
+          ],
+          "estimate": "0.25 day",
+          "dependencies": [
+            "02-01",
+            "02-02"
+          ],
+          "files_to_modify": [
+            "crates/foundry-acceptance/tests/features/instance-admin-project-rename.feature",
+            "crates/foundry-acceptance/src/steps/feature_instance_admin_project_rename.rs"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/instance-admin-project-rename.feature",
+          "scenario_name": [
+            "Boards, addresses, and issue keys survive a rename",
+            "Re-casing a project's own name is a valid rename",
+            "The row updates in place when the rename succeeds"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): unit tests for new pure logic (validate_rename_name, uniqueness predicate, slugify) MUST be property-based (proptest) with state-delta discipline where state mutates; single-example unit tests are FALLBACK only with a # bypass: comment. Acceptance scenarios are the cucumber .feature file (already authored by DISTILL — un-pend, do not re-author). Integration/browser tests stay single-example — they verify wiring. EXEMPT FROM PARADIGM: template/wiring step — compensate with property-based tests on the adjacent validation logic (03-01/02-02). Oracle discipline (DISTILL): the survival scenario captures (team_slug, project_slug) from the per-scenario DB BEFORE the rename — a test-local slugify re-derivation from the new name would go green over the D2 bug and is banned in the step module. #17 moved here from slice 03 to respect the 7-scenario ownership cap and because it is a full-stack success pin, not a refusal arm."
+        }
+      ]
+    },
+    {
+      "id": "03",
+      "name": "Inline validation refusals (US-IAPR-03)",
+      "steps": [
+        {
+          "id": "03-01",
+          "name": "Validation refusal arms: 422 with exact copy, boundary and uniqueness edges",
+          "description": "Un-pend the seven HTTP validation scenarios. The validation logic landed in 02-02; this step is assertion enablement plus closing any gap the arms expose: empty and whitespace-only names refused with 'Project name must not be empty'; a 300-character name refused with 'Project name must be at most 256 characters' while exactly 256 Unicode scalars is accepted (boundary both sides); within-team duplicates refused with 'Project name must be unique within the team' via all three D4 arms — exact sibling name, case-insensitive sibling name ('sandbox' vs 'Sandbox'), and slug collision (slugify('Sandbox!') == sibling stored slug 'sandbox'). Every refusal returns 422 + the bare project-rename-error fragment and leaves the persisted name unchanged on dashboard, board, and report. Harden the 02-02 property suites where these arms show holes (e.g. Unicode-scalar length counting, punctuation-only slug collisions).",
+          "criteria": [
+            "Empty and whitespace-only submissions return 422 with exactly 'Project name must not be empty'; the project name is unchanged on every read surface",
+            "A 300-character name returns 422 with exactly 'Project name must be at most 256 characters'; a name of exactly 256 Unicode scalar values returns 200 and persists (both boundary sides pinned)",
+            "Exact-name, case-insensitive-name, and slugify-collision duplicates within the team all return 422 with exactly 'Project name must be unique within the team'; both projects keep their original names",
+            "All refusals are bare fragments (no base.html wrap) with marker project-rename-error; state-delta assertions confirm zero column drift on every refused rename",
+            "Property-based tests cover the length rule (chars vs bytes) and the uniqueness predicate across generated sibling sets including punctuation/case variants; owned scenarios un-pended and green; full suite, check-arch, fmt, clippy green"
+          ],
+          "estimate": "0.5 day",
+          "dependencies": [
+            "02-02"
+          ],
+          "files_to_modify": [
+            "crates/foundry-services/src/projects.rs",
+            "crates/foundry-app/src/instance_admin.rs",
+            "crates/foundry-acceptance/tests/features/instance-admin-project-rename.feature",
+            "crates/foundry-acceptance/src/steps/feature_instance_admin_project_rename.rs"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/instance-admin-project-rename.feature",
+          "scenario_name": [
+            "An empty name is refused with the reason stated",
+            "A name of only spaces counts as empty",
+            "A name past the length limit is refused with the limit stated",
+            "A name of exactly the length limit is accepted",
+            "A name another project in the team already uses is refused",
+            "Changing the letter case does not dodge the uniqueness rule",
+            "A name that collides with another project's address is refused"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): unit tests for new pure logic (validate_rename_name, uniqueness predicate, slugify) MUST be property-based (proptest) with state-delta discipline where state mutates; single-example unit tests are FALLBACK only with a # bypass: comment. Acceptance scenarios are the cucumber .feature file (already authored by DISTILL — un-pend, do not re-author). Integration/browser tests stay single-example — they verify wiring. Error copy is verbatim from architecture-design.md section 5.3 — do not reword. The 404 arms (#18/#19) and the self-recase success (#17) are owned by 02-02/02-03, not here. The 256 limit counts Unicode scalar values, mirroring the issues.title CHECK semantics (component-boundaries.md NameTooLong doc)."
+        },
+        {
+          "id": "03-02",
+          "name": "Browser lane: a refused rename explains itself inside the row being edited",
+          "description": "Un-pend the final @needs-browser scenario: in a real browser, submitting an invalid name routes the 422 fragment into the submitting row's own [data-error-slot] via the unchanged form-errors.js htmx:beforeSwap contract (closest('form') resolution disambiguates repeated per-row forms), NOT anywhere else on the page; the form stays mounted, and the recovery leg — correcting the name and resubmitting in place without a reload — succeeds, reusing the row-swap steps from scenario #20. Zero changes to static/js/form-errors.js: any needed fix belongs in the row partial markup, never the script.",
+          "criteria": [
+            "Submitting an empty name in the 'Auth v2' row shows 'Project name must not be empty' INSIDE that row's [data-error-slot] with no page reload (page-lifetime marker survives); no other row shows the message",
+            "The old name remains visible everywhere while the error is shown; the form stays mounted",
+            "Correcting the input and resubmitting from the same still-mounted form succeeds and swaps the row in place (recovery leg)",
+            "static/js/form-errors.js is byte-unchanged; chromedriver preflight passes and the scenario runs in the @all/CI lane",
+            "Owned scenario un-pended and green; zero remaining @pending tags and zero remaining SCAFFOLD: true markers for this feature; full suite, check-arch, fmt, clippy green"
+          ],
+          "estimate": "0.25 day",
+          "dependencies": [
+            "02-03",
+            "03-01"
+          ],
+          "files_to_modify": [
+            "crates/foundry-acceptance/tests/features/instance-admin-project-rename.feature",
+            "crates/foundry-acceptance/src/steps/feature_instance_admin_project_rename.rs"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/instance-admin-project-rename.feature",
+          "scenario_name": [
+            "A refused rename explains itself inside the row being edited"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): unit tests for new pure logic (validate_rename_name, uniqueness predicate, slugify) MUST be property-based (proptest) with state-delta discipline where state mutates; single-example unit tests are FALLBACK only with a # bypass: comment. Acceptance scenarios are the cucumber .feature file (already authored by DISTILL — un-pend, do not re-author). Integration/browser tests stay single-example — they verify wiring. EXEMPT FROM PARADIGM: template/wiring step — compensate with property-based tests on the adjacent validation logic (03-01/02-02). This is KPI-3's primary instrument (100% of 422s render a visible reason in the row) — the HTTP lane is byte-blind to the DOM routing (form-errors.js RCA), which is why this scenario exists at all."
+        }
+      ]
+    }
+  ],
+  "implementation_scope": {
+    "source_directories": [
+      "crates/foundry-core/src/",
+      "crates/foundry-store/src/",
+      "crates/foundry-services/src/",
+      "crates/foundry-app/src/",
+      "crates/foundry-app/templates/",
+      "xtask/src/"
+    ],
+    "test_directories": [
+      "crates/foundry-acceptance/tests/",
+      "crates/foundry-acceptance/src/steps/"
+    ],
+    "excluded_patterns": [
+      "target/**",
+      "static/js/form-errors.js",
+      "migrations/**"
+    ]
+  },
+  "validation": {
+    "status": "approved",
+    "reviewer": "nw-acceptance-designer-reviewer",
+    "approved_at": "2026-08-22T21:32:56Z"
+  }
+}

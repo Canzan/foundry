@@ -325,7 +325,7 @@ mod static_cache_policy_tests {
         // Content-hashed CSS + pinned vendored libs stay long-lived immutable
         // (their URLs are content-addressed / version-pinned).
         assert!(
-            static_cache_control_value("/static/css/foundry.7c858984.css").contains("immutable")
+            static_cache_control_value("/static/css/foundry.8ce38566.css").contains("immutable")
         );
         assert!(static_cache_control_value("/static/vendor/htmx.min.js").contains("immutable"));
     }
@@ -342,7 +342,7 @@ mod static_cache_policy_tests {
         // a year at exactly the URLs that can never change to bust the cache.
         // Repairing the origin did not clear them.
         for path in [
-            "/static/css/foundry.7c858984.css",
+            "/static/css/foundry.8ce38566.css",
             "/static/vendor/htmx.min.js",
             "/static/js/board-dnd.js",
         ] {
@@ -361,7 +361,7 @@ mod static_cache_policy_tests {
         // A success still gets the full path-aware policy — the fix must not
         // quietly disable immutable caching for the assets that earn it.
         assert!(
-            static_cache_control_value_for(StatusCode::OK, "/static/css/foundry.7c858984.css")
+            static_cache_control_value_for(StatusCode::OK, "/static/css/foundry.8ce38566.css")
                 .contains("immutable")
         );
         assert_eq!(
@@ -677,7 +677,7 @@ pub fn build_router(state: AppState) -> Router {
         // an htmx mutating trigger carrying the hidden `_csrf` field. The path
         // param is Path<String>, parsed to Uuid IN the handler so a malformed
         // id gets the SAME uniform 404 as a non-admin (no 400 enumeration
-        // oracle). RED scaffold handler (instance_admin.rs) until DELIVER.
+        // oracle).
         .route(
             "/admin/instance/projects/{project_id}/rename",
             post(instance_admin::submit_project_rename),

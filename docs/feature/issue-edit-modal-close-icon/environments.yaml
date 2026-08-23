@@ -1,0 +1,82 @@
+# issue-edit-modal-close-icon — environment matrix (DEVOPS wave, lean)
+#
+# This feature does not install into systems: no route, migration, dependency,
+# config, or infra change. The environments below are where the feature is
+# VERIFIED (its KPIs are acceptance-test-verified, not telemetry-verified) and
+# where it ships unchanged. Grounded 2026-08-22 against xtask/src/main.rs,
+# .github/workflows/ci.yml, .forgejo/workflows/*, deploy/k8s/.
+
+feature: issue-edit-modal-close-icon
+
+environments:
+  - name: dev-test
+    kind: developer-workstation
+    os: [macos, linux]
+    role: >-
+      Pre-commit `cargo xtask smoke`; pre-push `cargo xtask ci` (the full
+      gate). This is where S1-S4 first run, inside the @needs-browser
+      acceptance lane.
+    preconditions:
+      - Docker daemon reachable (testcontainers Postgres + @docker-compose group)
+      - PostgreSQL client >= 16 on PATH (pg_dump preflight)
+      - chromedriver + Chrome/Chromium on PATH with MATCHING major versions
+        (xtask preflight 3 probes and refuses; the browser lane never soft-skips)
+
+  - name: ci-github
+    kind: ci
+    workflow: .github/workflows/ci.yml
+    runner: ubuntu-latest
+    role: >-
+      Authoritative full-suite gate. ONE job runs the SAME `cargo xtask ci`
+      as dev-test (local-parity by design), with FOUNDRY_XTASK_INCLUDE_DOCKER=1
+      and a postgres:16 service. The @needs-browser lane (S1-S4) runs here.
+    preconditions:
+      - chromedriver + Chrome preinstalled version-matched on the ubuntu-latest
+        image (NOT installed by the workflow -- implicit runner-image dependency;
+        the xtask preflight fails loudly if the pair ever skews)
+
+  - name: ci-forgejo
+    kind: ci-mirror
+    workflow: .forgejo/workflows/ci.yml
+    runner: docker-backend, rust:1.85-slim container
+    role: >-
+      Mirror gate with split jobs (lint+format, build+test, acceptance all-tags,
+      cargo deny) plus weekly cargo-audit. build-and-publish.yml ships the
+      release image to zot from main.
+    caveat: >-
+      The acceptance job sets FOUNDRY_ACCEPTANCE_TAGS=all inside rust:1.85-slim,
+      which has no chromium/chromedriver, and it bypasses xtask's preflight by
+      invoking cargo test directly -- the @needs-browser scenarios cannot pass
+      there without a customized runner image. Per the workflow's own header,
+      the GitHub mirror is the authoritative full-suite gate; this feature's
+      KPI verification is anchored to dev-test and ci-github.
+
+  - name: prod
+    kind: self-hosted-k8s
+    manifests: deploy/k8s/
+    role: >-
+      Unchanged by this feature. Consumes the next image built from main by
+      .forgejo/workflows/build-and-publish.yml (zot registry, sha/main/v* tags).
+      Rollback = git revert of the single feature commit + next image build;
+      content-hashed CSS makes old/new stylesheets distinct immutable URLs.
+    preconditions: []
+
+coexistence:
+  # Things that must not break, and what holds each one.
+  - surface: keyboard.js Esc single-owner layer (BR-4, closeTopLayer())
+    held_by: D-04/D-10 (click listener only, never a second Escape listener);
+      shipped @layered scenario; S4
+  - surface: htmx swap lifecycle (#modal-root swaps; wiring survives swaps)
+    held_by: document-delegated listener idiom (D-10); existing keyboard and
+      board-dnd scenarios
+  - surface: CSS content-hash immutable-cache tests in crates/foundry-app/src/lib.rs
+    held_by: D-14 re-hash procedure executed in the SAME commit as the CSS edit
+      (rename, base.html href, static/VENDOR.md row, test literals)
+  - surface: "@needs-browser fantoccini lane (chromedriver preflight, data-kb-ready wait)"
+    held_by: xtask preflight 3 (probe-and-refuse); D-15 -- new scenarios wait on
+      [data-kb-ready] before clicking the close control
+  - surface: form-errors.js 4xx error-slot flow (close must work from error state)
+    held_by: AC-1.4 / S4; form-errors.js untouched
+  - surface: new_issue_modal.html (D1 -- untouched sibling dialog)
+    held_by: D-13 (.modal-header flex is inert for an h2-only header); existing
+      new-issue scenarios

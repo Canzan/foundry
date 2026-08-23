@@ -305,8 +305,35 @@ pub fn key_chord(key: &str) -> &str {
         "Esc" | "Escape" => "\u{E00C}",
         "Enter" => "\u{E007}",
         "Tab" => "\u{E004}",
+        "Space" => "\u{E00D}",
         other => other,
     }
+}
+
+/// Dispatch `key` as ONE real keystroke to WHATEVER currently holds focus — the
+/// W3C Actions API, the same path a human's keypress takes.
+///
+/// This exists because element `send_keys` on `<body>` CANNOT deliver a key to
+/// a focused control: WebDriver's Element Send Keys runs the focusing steps on
+/// the target element first, and focusing `<body>` silently BLURS whatever held
+/// focus, so the key lands on the body every time. Proven against Chrome 151
+/// with a focused `<button>`: send-keys-to-body yields `Enter@BODY` and no
+/// activation; a key action yields `Enter@BUTTON`, the native click fires, and
+/// focus is untouched. When nothing is focused, `document.activeElement` IS the
+/// body, so this dispatch is identical to the old one — which is what keeps
+/// every body-targeted shortcut scenario meaning exactly what it always meant.
+pub async fn press_key(client: &fantoccini::Client, key: &str) {
+    use fantoccini::actions::{InputSource, KeyAction, KeyActions};
+    let mut sequence = KeyActions::new("keyboard".to_string());
+    for value in key_chord(key).chars() {
+        sequence = sequence
+            .then(KeyAction::Down { value })
+            .then(KeyAction::Up { value });
+    }
+    client
+        .perform_actions(sequence)
+        .await
+        .unwrap_or_else(|err| panic!("press {key:?}: {err}"));
 }
 
 /// Starts counting `focus()` calls the PAGE makes on `selector`'s element, from
