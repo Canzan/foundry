@@ -918,6 +918,54 @@ fn dispatch_subcommand() -> Option<i32> {
                     let code = foundry_app::admin_cli::run_verify_export(path);
                     Some(code)
                 }
+                // Operator recovery: FORCE-reset a user's password (no
+                // reauthentication, no reset email). Reads DATABASE_URL to
+                // reach the LIVE DB. Reachable ONLY here, never the web tier.
+                "reset-password" => {
+                    let opt = |flag: &str| -> Option<String> {
+                        args.iter()
+                            .position(|a| a == flag)
+                            .and_then(|i| args.get(i + 1))
+                            .cloned()
+                    };
+                    let email = opt("--email").unwrap_or_default();
+                    if email.is_empty() {
+                        eprintln!(
+                            "foundry doctor reset-password: missing required flag. \
+                             Usage: foundry doctor reset-password --email <addr> \
+                             [--password <new>]"
+                        );
+                        return Some(2);
+                    }
+                    let code =
+                        foundry_app::admin_cli::run_reset_password(&email, opt("--password"));
+                    Some(code)
+                }
+                // Test-fixture convenience: create (or top up) a user who is a
+                // member of EVERY workspace and team. Idempotent — rerun after
+                // provisioning new tenants. Reads DATABASE_URL. NOT a
+                // super-admin grant (compose with grant-super-admin if needed).
+                "add-test-user" => {
+                    let opt = |flag: &str| -> Option<String> {
+                        args.iter()
+                            .position(|a| a == flag)
+                            .and_then(|i| args.get(i + 1))
+                            .cloned()
+                    };
+                    let email = opt("--email").unwrap_or_default();
+                    if email.is_empty() {
+                        eprintln!(
+                            "foundry doctor add-test-user: missing required flag. \
+                             Usage: foundry doctor add-test-user --email <addr> \
+                             [--password <new>] [--name <display>]"
+                        );
+                        return Some(2);
+                    }
+                    let name = opt("--name").unwrap_or_else(|| "Test User".to_string());
+                    let code =
+                        foundry_app::admin_cli::run_add_test_user(&email, opt("--password"), &name);
+                    Some(code)
+                }
                 "" => {
                     eprintln!(
                         "foundry doctor: subcommand required. \
@@ -926,7 +974,9 @@ fn dispatch_subcommand() -> Option<i32> {
                          grant-super-admin --email <addr>, \
                          list-workspaces, \
                          export-workspace <id|name> <out-path>, \
-                         verify-export <archive-path>"
+                         verify-export <archive-path>, \
+                         reset-password --email <addr> [--password <new>], \
+                         add-test-user --email <addr> [--password <new>] [--name <display>]"
                     );
                     Some(2)
                 }
@@ -938,7 +988,9 @@ fn dispatch_subcommand() -> Option<i32> {
                          grant-super-admin --email <addr>, \
                          list-workspaces, \
                          export-workspace <id|name> <out-path>, \
-                         verify-export <archive-path>"
+                         verify-export <archive-path>, \
+                         reset-password --email <addr> [--password <new>], \
+                         add-test-user --email <addr> [--password <new>] [--name <display>]"
                     );
                     Some(2)
                 }

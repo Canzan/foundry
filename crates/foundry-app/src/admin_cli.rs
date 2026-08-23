@@ -1196,6 +1196,324 @@ fn append_tar_entry<W: std::io::Write>(
     builder.append_data(&mut header, name, bytes)
 }
 
+/// Entry point invoked from `main.rs` when the CLI sees
+/// `foundry doctor reset-password --email <addr> [--password <new>]`.
+///
+/// FORCE-resets a user's password: no current-password reauthentication, no
+/// reset email — the operator's recovery path when SMTP is unconfigured or the
+/// account is simply locked out. Resolves the user by email, hashes the new
+/// credential with the SAME argon2 path sign-in verifies against, and writes it
+/// via the shipped `update_user_password`. When `--password` is omitted a
+/// 32-hex credential is generated and PRINTED — the only copy that will ever
+/// exist. A provided `--password` must satisfy the shipped min-12 policy
+/// (`foundry_auth::check_password_policy`), the same bar the in-app
+/// change-password flow enforces. Operates against the LIVE DB via
+/// `DATABASE_URL`, reusing the `run_restore_comment` scaffold (thread-isolated
+/// tokio runtime, structured exit codes).
+///
+/// Exit codes (mirroring the doctor discipline):
+///
+/// - `0` reset: stdout carries `user: <email>`, `password: <new>` (only when
+///   generated), `status: password-reset`.
+/// - `2` invalid args: missing `--email`, or a provided `--password` that
+///   fails the password policy.
+/// - `3` DB / infra fail: DATABASE_URL unreachable, hashing failure, or a
+///   DB-side failure mid-update.
+/// - `4` no such user: no `users` row matches the email.
+pub fn run_reset_password(email: &str, password: Option<String>) -> i32 {
+    if email.is_empty() {
+        eprintln!(
+            "foundry doctor reset-password: --email is required. \
+             Usage: foundry doctor reset-password --email <addr> [--password <new>]"
+        );
+        return 2;
+    }
+
+    // Policy-check a provided password BEFORE touching the DB; generate
+    // otherwise (32 hex chars ≈ 128 bits, comfortably past the min-12 bar).
+    let (password, generated) = match password {
+        Some(p) => {
+            let candidate = secrecy::SecretString::new(p.clone().into());
+            if let Err(err) = foundry_auth::check_password_policy(&candidate) {
+                eprintln!("foundry doctor reset-password: refusing weak password: {err}");
+                return 2;
+            }
+            (p, false)
+        }
+        None => (generate_provisioning_password(), true),
+    };
+
+    let database_url = match std::env::var("DATABASE_URL") {
+        Ok(v) if !v.is_empty() => v,
+        _ => {
+            eprintln!(
+                "foundry doctor reset-password: DATABASE_URL is required \
+                 to reach the live database. Set it to the same value the \
+                 foundry server uses."
+            );
+            return 3;
+        }
+    };
+
+    let email = email.to_string();
+
+    // Thread-isolated runtime (see `run_restore_comment` for why): we are
+    // dispatched from inside the outer `#[tokio::main]` runtime, so nesting a
+    // `block_on` would panic.
+    std::thread::spawn(move || {
+        let runtime = match tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        {
+            Ok(rt) => rt,
+            Err(err) => {
+                eprintln!("foundry doctor reset-password: could not build tokio runtime: {err}");
+                return 3;
+            }
+        };
+
+        runtime.block_on(async move {
+            let store = match foundry_store::Store::connect(&database_url).await {
+                Ok(s) => s,
+                Err(err) => {
+                    eprintln!(
+                        "foundry doctor reset-password: could not connect to \
+                         DATABASE_URL: {err}"
+                    );
+                    return 3;
+                }
+            };
+
+            let user_id = match store.user_id_by_email(&email.to_ascii_lowercase()).await {
+                Ok(Some(id)) => id,
+                Ok(None) => {
+                    eprintln!(
+                        "foundry doctor reset-password: no user matches {email:?} — \
+                         status: not-found"
+                    );
+                    return 4;
+                }
+                Err(err) => {
+                    eprintln!(
+                        "foundry doctor reset-password: failed to resolve user \
+                         against live DB: {err}"
+                    );
+                    return 3;
+                }
+            };
+
+            let secret = secrecy::SecretString::new(password.clone().into());
+            let hash = match foundry_auth::hash_password(&secret).await {
+                Ok(h) => h,
+                Err(err) => {
+                    eprintln!("foundry doctor reset-password: hashing failed: {err}");
+                    return 3;
+                }
+            };
+
+            match store.update_user_password(user_id, &hash).await {
+                Ok(1) => {
+                    println!("user: {email}");
+                    if generated {
+                        println!("password: {password}");
+                    }
+                    println!("status: password-reset");
+                    0
+                }
+                Ok(_) => {
+                    // The id was resolved a moment ago; a zero-row UPDATE means
+                    // the row vanished mid-flight. Operationally "not found".
+                    eprintln!(
+                        "foundry doctor reset-password: user disappeared before the \
+                         update — status: not-found"
+                    );
+                    4
+                }
+                Err(err) => {
+                    eprintln!(
+                        "foundry doctor reset-password: UPDATE against live DB \
+                         failed: {err}"
+                    );
+                    3
+                }
+            }
+        })
+    })
+    .join()
+    .unwrap_or_else(|_| {
+        eprintln!(
+            "foundry doctor reset-password: worker thread panicked; \
+             see stderr above"
+        );
+        3
+    })
+}
+
+/// Entry point invoked from `main.rs` when the CLI sees
+/// `foundry doctor add-test-user --email <addr> [--password <new>] [--name <display>]`.
+///
+/// Creates (or tops up) a TEST user who is a `member` of EVERY workspace and
+/// EVERY team — board access to every project in the instance, since board
+/// reads require team membership. Deliberately NOT an instance super-admin
+/// (use `grant-super-admin` separately if the test needs the admin surface).
+///
+/// Idempotent by design: the membership sweep is `ON CONFLICT DO NOTHING`
+/// (`Store::grant_all_memberships`), so RERUN THE COMMAND after creating new
+/// workspaces/teams to top up the delta — existing memberships (and their
+/// roles) are never touched. If the email already names a user, no credential
+/// is minted or changed (use `reset-password` for that); only the sweep runs.
+///
+/// Exit codes:
+///
+/// - `0` OK: stdout carries `user: <email>`, `created: true|false`,
+///   `password: <new>` (only when a NEW user's credential was generated),
+///   `workspaces-added: <n>`, `teams-added: <n>`, `status: OK`.
+/// - `2` invalid args: missing `--email`, or a provided `--password` failing
+///   the policy, or a `--name` outside the 1..=64 display-name bound.
+/// - `3` DB / infra fail: DATABASE_URL unreachable, hashing failure, or a
+///   DB-side failure mid-write.
+pub fn run_add_test_user(email: &str, password: Option<String>, display_name: &str) -> i32 {
+    if email.is_empty() {
+        eprintln!(
+            "foundry doctor add-test-user: --email is required. \
+             Usage: foundry doctor add-test-user --email <addr> \
+             [--password <new>] [--name <display>]"
+        );
+        return 2;
+    }
+    if display_name.is_empty() || display_name.chars().count() > 64 {
+        eprintln!(
+            "foundry doctor add-test-user: --name must be 1..=64 characters \
+             (the users.display_name bound)."
+        );
+        return 2;
+    }
+
+    let (password, generated) = match password {
+        Some(p) => {
+            let candidate = secrecy::SecretString::new(p.clone().into());
+            if let Err(err) = foundry_auth::check_password_policy(&candidate) {
+                eprintln!("foundry doctor add-test-user: refusing weak password: {err}");
+                return 2;
+            }
+            (p, false)
+        }
+        None => (generate_provisioning_password(), true),
+    };
+
+    let database_url = match std::env::var("DATABASE_URL") {
+        Ok(v) if !v.is_empty() => v,
+        _ => {
+            eprintln!(
+                "foundry doctor add-test-user: DATABASE_URL is required \
+                 to reach the live database. Set it to the same value the \
+                 foundry server uses."
+            );
+            return 3;
+        }
+    };
+
+    let email = email.to_string();
+    let display_name = display_name.to_string();
+
+    // Thread-isolated runtime (see `run_restore_comment` for why).
+    std::thread::spawn(move || {
+        let runtime = match tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        {
+            Ok(rt) => rt,
+            Err(err) => {
+                eprintln!("foundry doctor add-test-user: could not build tokio runtime: {err}");
+                return 3;
+            }
+        };
+
+        runtime.block_on(async move {
+            let store = match foundry_store::Store::connect(&database_url).await {
+                Ok(s) => s,
+                Err(err) => {
+                    eprintln!(
+                        "foundry doctor add-test-user: could not connect to \
+                         DATABASE_URL: {err}"
+                    );
+                    return 3;
+                }
+            };
+
+            let email_lower = email.to_ascii_lowercase();
+            let (user_id, created) = match store.user_id_by_email(&email_lower).await {
+                Ok(Some(id)) => {
+                    println!(
+                        "note: {email} already exists — password unchanged \
+                         (use `foundry doctor reset-password` to change it); \
+                         topping up memberships only."
+                    );
+                    (id, false)
+                }
+                Ok(None) => {
+                    let id = uuid::Uuid::now_v7();
+                    let secret = secrecy::SecretString::new(password.clone().into());
+                    let hash = match foundry_auth::hash_password(&secret).await {
+                        Ok(h) => h,
+                        Err(err) => {
+                            eprintln!("foundry doctor add-test-user: hashing failed: {err}");
+                            return 3;
+                        }
+                    };
+                    if let Err(err) = store
+                        .create_user(id, &email_lower, &email, &display_name, &hash)
+                        .await
+                    {
+                        eprintln!(
+                            "foundry doctor add-test-user: creating the user \
+                             against live DB failed: {err}"
+                        );
+                        return 3;
+                    }
+                    (id, true)
+                }
+                Err(err) => {
+                    eprintln!(
+                        "foundry doctor add-test-user: failed to resolve email \
+                         against live DB: {err}"
+                    );
+                    return 3;
+                }
+            };
+
+            match store.grant_all_memberships(user_id).await {
+                Ok((ws_added, teams_added)) => {
+                    println!("user: {email}");
+                    println!("created: {created}");
+                    if created && generated {
+                        println!("password: {password}");
+                    }
+                    println!("workspaces-added: {ws_added}");
+                    println!("teams-added: {teams_added}");
+                    println!("status: OK");
+                    0
+                }
+                Err(err) => {
+                    eprintln!(
+                        "foundry doctor add-test-user: membership sweep against \
+                         live DB failed: {err}"
+                    );
+                    3
+                }
+            }
+        })
+    })
+    .join()
+    .unwrap_or_else(|_| {
+        eprintln!(
+            "foundry doctor add-test-user: worker thread panicked; \
+             see stderr above"
+        );
+        3
+    })
+}
+
 /// Generate a high-entropy initial credential for a provisioned first admin.
 /// The operator never sees this; the first admin resets it by accepting the
 /// emitted invite link. 32 hex chars ≈ 128 bits of entropy.

@@ -2480,6 +2480,66 @@ impl Store {
         Ok(result.rows_affected())
     }
 
+    /// Insert a bare `users` row with NO memberships (`foundry doctor
+    /// add-test-user`). The caller composes it with [`grant_all_memberships`];
+    /// a duplicate `email_lower` surfaces as the underlying UNIQUE violation.
+    pub async fn create_user(
+        &self,
+        user_id: uuid::Uuid,
+        email_lower: &str,
+        email_display: &str,
+        display_name: &str,
+        password_hash: &str,
+    ) -> Result<(), StoreError> {
+        sqlx::query(
+            "INSERT INTO users (id, email_lower, email_display, display_name, password_hash)
+                  VALUES ($1, $2, $3, $4, $5)",
+        )
+        .bind(user_id)
+        .bind(email_lower)
+        .bind(email_display)
+        .bind(display_name)
+        .bind(password_hash)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Enrol a user as a `member` of EVERY workspace and EVERY team (`foundry
+    /// doctor add-test-user`). Idempotent by construction: existing memberships
+    /// are `ON CONFLICT DO NOTHING` — a rerun after new workspaces/teams appear
+    /// tops up only the missing rows and never touches an existing row's role
+    /// (an operator who is already a workspace `admin` or team `lead` stays
+    /// one). Returns `(workspaces_added, teams_added)` — the rows written by
+    /// THIS sweep, not the user's totals. One transaction so a partially
+    /// enrolled test user cannot exist.
+    pub async fn grant_all_memberships(
+        &self,
+        user_id: uuid::Uuid,
+    ) -> Result<(u64, u64), StoreError> {
+        let mut tx = self.pool.begin().await?;
+        let ws = sqlx::query(
+            "INSERT INTO workspace_memberships (workspace_id, user_id, role)
+                  SELECT id, $1, $2 FROM workspaces
+                  ON CONFLICT (workspace_id, user_id) DO NOTHING",
+        )
+        .bind(user_id)
+        .bind(ROLE_MEMBER)
+        .execute(&mut *tx)
+        .await?;
+        let teams = sqlx::query(
+            "INSERT INTO team_memberships (team_id, user_id, role)
+                  SELECT id, $1, $2 FROM teams
+                  ON CONFLICT (team_id, user_id) DO NOTHING",
+        )
+        .bind(user_id)
+        .bind(ROLE_MEMBER)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok((ws.rows_affected(), teams.rows_affected()))
+    }
+
     /// Remove a member from a workspace (notification-delivery-providers US-06 —
     /// the `member_removed` trigger). Returns the number of memberships deleted
     /// (0 ⇒ the user was not a member of that workspace).
