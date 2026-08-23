@@ -80,7 +80,7 @@ Feature: Correcting a stale project name from the instance dashboard
     Then the row she gets back shows "Identity Platform" with key prefix "AUTH"
     And reopening the instance dashboard shows "Identity Platform" and no longer "Auth v2"
 
-  @us-iapr-02 @driving_port @real-io @pending
+  @us-iapr-02 @driving_port @real-io
   Scenario: Boards, addresses, and issue keys survive a rename
     Given issue AUTH-7 "Refresh token rotation" exists on the "Auth v2" board
     And Priya has noted where the "Auth v2" board lives
@@ -157,7 +157,7 @@ Feature: Correcting a stale project name from the instance dashboard
     Then the rename is refused saying "Project name must be unique within the team"
     And both projects keep their names
 
-  @us-iapr-03 @edge @pending
+  @us-iapr-03 @edge
   Scenario: Re-casing a project's own name is a valid rename
     When Priya renames "Sandbox" to "SANDBOX"
     Then the row she gets back shows "SANDBOX" with key prefix "SBX"
@@ -178,7 +178,7 @@ Feature: Correcting a stale project name from the instance dashboard
   # the 422 fragment into the row's slot (the form-errors RCA). These two
   # scenarios drive a REAL headless Chrome against the same in-process origin.
 
-  @us-iapr-02 @needs-browser @driving_port @real-io @pending
+  @us-iapr-02 @needs-browser @driving_port @real-io
   Scenario: The row updates in place when the rename succeeds
     Given Priya has the instance dashboard open in her browser
     When she types "Identity Platform" into the "Auth v2" row and submits it
