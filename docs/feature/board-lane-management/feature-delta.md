@@ -588,3 +588,165 @@ Deliberately NOT scaffolded (behaviour-changing, DELIVER-owned): migration `0015
 | brief.md#dialog-layers (BR-4) | One close mechanism, declarative triggers only | ADR-MODAL-CLOSE-001 | Browser scenario closes via `data-action="close-modal"` and Esc through the single owner; HTTP oracle asserts the attribute is in the dialog markup |
 | Acceptance suite (keyboard-shortcut-bindings) | `UNRENDERED_STATE` premise breaks by design | n/a | Retired this wave with recorded rationale (see Re-premised section); successor coverage named |
 | 0012/0013 | Contiguous positions; append-only same-tx events | n/a | Move-fate oracle asserts append positions `C..C+N-1`, one status event + one outbox row per card; cancel asserts zero writes |
+
+## Wave: DELIVER
+
+Software crafter: nw-software-crafter | Finalized: 2026-08-23 | 6/6 roadmap
+steps DONE with complete DES traces (`des-verify-integrity` exit 0).
+Commits: `1f100bf` (01-01) → `92b5712` (01-02) → `d6d9d55` (02-01) →
+`dee4298` (03-01) → `7ea963c` (04-01) → `dbd7a05` (04-02), then refactor
+`dd5fbf1`/`2ce06a5`/`9ce3477` (L1/L2/L1), mutant-killers
+`3ab37e9`/`5f0b4ae`/`ad834a4`/`55a0a75`, mutation report `eef2182`.
+Trunk-based on `main`; **not pushed by finalize**.
+
+### [REF] Implementation summary
+
+Lanes are now per-project rows. Migration 0015 creates
+`lanes(id, project_id, workspace_id, slug, label, position)`, grandfathers
+every existing project with its four rendered lanes (Cancelled only where a
+cancelled issue exists — the one deliberate visible outcome), drops the
+static `issues_state_check` CHECK and the `DEFAULT 'backlog'`, and adds the
+composite FK `fk_issues_lane (project_id, state) → lanes (project_id, slug)`
+— "every issue has a lane" is a schema fact, not an application promise.
+Every lane surface derives from lane data: board columns render from
+`Store::list_project_lanes` through `board::board_view` and the ONE
+`views::board_columns` builder; edit-dialog Status options loop over
+`IssueEditView.lanes`; all three write surfaces (HTML dialog, dnd POST,
+`/api/v1` PATCH) validate through the single `validate_project_lane` seam
+(alias fold, then lane-set membership — DD10 preserved); report labels
+resolve live `lanes.label` with `humanize_state` fallback for dead slugs.
+`DEFAULT_COLUMNS` and `column_label_to_state` are deleted and a new
+`check-arch` no-static-lane-list rule fails any build that reintroduces a
+static lane list under `foundry-app`/`foundry-api` (two pinned exemptions).
+New projects seed exactly Backlog/In-Progress/Done in one transaction;
+issues land in the leftmost lane (resolved in-transaction, retried once on a
+concurrent leftmost delete) and `CreatedIssue.state` echoes the persisted
+slug. Lane deletion is a safe dialog GET into `#modal-root` plus a `_csrf`
+confirm POST running `classify_lane_delete` (pure heart) over
+`Store::delete_lane_with_fate` — ONE transaction: lane lock, last-lane gate,
+confirm-time membership FOR UPDATE, fate arm (move: append at destination
+bottom `C..C+N-1` + one 0013 status event + one outbox row per card; delete:
+`delete_issue_cascade` shape — no events, no tombstone), lane-row delete as
+the FK strand-guard, bounded ≤3 retry on 23503/40P01. Refusals on both lane
+verbs are the uniform non-enumerable 404; last-lane and unknown-destination
+are 422 fragments into `[data-error-slot]`.
+
+### [REF] Files modified
+
+**Production**
+
+- `crates/foundry-store/migrations/0015_project_lanes.sql` — lanes DDL, idempotent grandfather seed, CHECK/DEFAULT drop, composite FK `fk_issues_lane`
+- `crates/foundry-store/src/lanes.rs` — `LaneRow`, `list_project_lanes`, `seed_creation_lanes` (L2 one-writer), `delete_lane_with_fate` two-fate transaction, retry classifiers (`is_fate_retryable`, `is_lane_fk_violation`)
+- `crates/foundry-store/src/lib.rs` — `insert_project`/`seed_initial_workspace` lane seeding, `insert_issue_with_outbox` leftmost resolution + `InsertedIssue { number, state }`
+- `crates/foundry-services/src/lanes.rs` — `classify_lane_delete` (pure heart, `classify_rename` idiom), `delete_lane_dialog`, `delete_lane`
+- `crates/foundry-services/src/issues.rs` — `validate_project_lane` seam behind `change_issue_state`; truthful create echo (hardcoded `"backlog"` gone); `normalize_state` demoted to private alias-folding helper
+- `crates/foundry-services/src/lib.rs` — `BoardLane`, `BoardView`, `board::board_view` (shared authz gate), `From<LaneRow> for BoardLane` (L2)
+- `crates/foundry-app/src/lanes.rs` — `show_delete_lane_dialog` (safe GET, double-submit cookie mint), `submit_delete_lane` (fate parse, OOB reply, 422/404/500 helpers)
+- `crates/foundry-app/src/lib.rs` — lane routes mounted under `csrf_middleware` + `session_layer`
+- `crates/foundry-app/src/projects.rs` — board render from `BoardView.lanes`; static lane expressions deleted
+- `crates/foundry-app/src/issues.rs` — `submit_edit` pre-check removed; all validation defers to the seam
+- `crates/foundry-app/src/views.rs` — the ONE `board_columns` builder (page + OOB render byte-identical, L2)
+- `crates/foundry-app/templates/board.html`, `partials/board_columns.html` (new, shared), `partials/delete_lane_modal.html` (new), `partials/issue_edit_modal.html` (options loop), `partials/oob/board_columns_oob.html` (new)
+- `xtask/src/check_arch.rs` — no-static-lane-list rule (slugify-ban idiom) + exact `#[cfg(test)]` region masking
+
+`board-dnd.js` and `keyboard.js` untouched; `foundry-api` untouched (the 422
+arrives through the shared seam).
+
+**Tests**
+
+- `crates/foundry-acceptance/tests/features/board-lane-management.feature` — 24 scenarios, un-pended per step to zero `@pending`
+- `crates/foundry-acceptance/src/steps/feature_board_lane_management.rs` + `world.rs`/`lib.rs`/`tests/acceptance.rs` — step module, `blm_*` world fields, force-link wiring
+- FK fixture sweep (01-01): 20 acceptance step modules + `support/harness.rs` (`seed_lanes_for_project`) + 4 store test files (`insert_issue_with_outbox`, `reposition_issue`, `update_issue_details`, `export_workspace_gold`) seed lane rows / explicit state
+- `keyboard-shortcut-bindings.feature` + steps — `UNRENDERED_STATE` edge RETIRED per DISTILL (retirement note in place); `us-07-project-create.feature` — real create port now yields three columns
+- `crates/foundry-services/tests/delete_lane_use_case.rs` (NEW, @real-io) + `write_use_cases.rs` behaviour 4 — mutation-driven authz/seam kills
+- `crates/foundry-store/tests/delete_lane_with_fate.rs` (NEW) — fate arms, crossing-race gold test, persistent-failure honest error; `claim_bootstrap_and_create_workspace_store.rs` — D4 creation-seed contract
+- In-crate: `classify_lane_delete` + `resolve_lane` + leftmost proptests, `retry_classifier_tests`, `response_helper_tests`, `board_columns` test, check-arch boundary fixtures
+
+**Docs**
+
+- `docs/feature/board-lane-management/deliver/{roadmap.json, execution-log.json, mutation/mutation-report.md}` — DELIVER records
+- `docs/product/architecture/adr-board-lane-001-issues-linkage-state-fk.md`, `adr-board-lane-002-two-fate-delete-transaction.md` — ADRs (created in the permanent dir by DESIGN)
+- `docs/product/architecture/brief.md` — "Lanes are per-project data; the lane FK is the no-stranded-card invariant" section
+- `docs/product/jobs.yaml` (`job-board-lane-shaping`), `docs/product/outcomes/registry.yaml` (OUT-3/OUT-4/OUT-5), `docs/architecture/atdd-infrastructure-policy.md` (lane rows)
+
+### [REF] Scenarios green
+
+**24 of 24** (fresh post-merge runs ×2, 2026-08-23 — 137/137 steps each):
+22 HTTP/API/migration-lane scenarios + 2 `@needs-browser` (fantoccini,
+chromedriver 151.0.7922.138 against Chrome 151.0.7922.174). Zero `@pending`
+tags remain; `SCAFFOLD: true` burn-down complete (0 markers). Full default
+acceptance lane 571/571 at closeout.
+
+### [REF] DoD check (against DISCUSS DoD)
+
+| DoD item | Status | Evidence |
+|---|---|---|
+| All UAT scenarios green in the HTTP lane; dialog/dnd/error-slot scenarios green in `@needs-browser` | PASS | 24/24 fresh post-merge ×2 (137 steps); the fate dialog and dialog-close scenarios green in a real browser |
+| Migration 0015 applies cleanly to live data; boards without cancelled issues render byte-identically | PASS | Run-twice migration oracle (staged 0001..0014 → canonical, executed twice) green; `issues_state_check` name verified via `pg_constraint` on a live-data copy before the DROP; FK ADD validated every live row; byte-identical grandfather scenario is the walking skeleton and green |
+| Zero issues in a laneless state, provable by query, after every scenario run | PASS | Zero-laneless guard query runs after every mutating scenario and returns 0; `fk_issues_lane` makes a laneless INSERT structurally refused |
+| Lane delete round-trip demonstrated live: grandfathered board → delete empty Todo → delete full lane choosing Move → change report shows the bulk move | PASS | Empty-lane confirm (#12), browser move-fate round trip (#23: live count, OOB column removal, three cards appended to Backlog), change-report oracle in the move scenario (#18) |
+| `cargo xtask ci` green (check-arch, deny, mutation ≥80% on touched code); merged to main | PASS | check-arch (incl. the new no-static-lane-list rule), fmt, clippy `-D warnings`, deny green; mutation **89.1%** (gate 80%); all commits on `main` (trunk-based) |
+
+### [REF] Demo evidence
+
+The four stories' Elevator Pitch "After" actions are executed literally by
+the acceptance suite — per the DISCUSS KPI note, the suite IS the KPI
+instrument for this single-operator surface:
+
+- **US-BLM-01 After** ("board renders that project's own lanes; the invisible cancelled card surfaces") — the grandfathered-board scenarios: byte-identical render for boards without cancelled issues, and the Cancelled column holding the long-invisible card.
+- **US-BLM-02 After** ("a new project opens with exactly Backlog, In-Progress, Done; the first issue lands in Backlog") — the three-lane new-project chain drives the REAL create port, then files the first issue leftmost.
+- **US-BLM-03/04 After** ("delete on a lane opens the counted dialog; move or delete, explicitly") — both fates exercised: the move fate end-to-end in a real browser (#23 — live count in `#modal-root`, submitter name/value, OOB column removal without reload, cards appended in order) and the counted permanent delete fate in the HTTP lane (#19 — gone from board and search); dialog close leaves the board alone (#24).
+
+Evidence: the fresh post-merge 24/24 runs (137/137 steps) ×2, 2026-08-23.
+
+### [REF] Quality gates
+
+| Gate | Result |
+|---|---|
+| DES integrity | `des-verify-integrity` exit 0 — 6/6 steps with complete PREPARE→RED→GREEN→COMMIT traces (RED_UNIT NOT_APPLICABLE on 01-01 migration/wiring and 04-02 browser wiring, with recorded compensating oracles) |
+| Progressive refactor | L1 `dd5fbf1` (unused `_headers` extractor dropped), L2 `2ce06a5` (one writer per duplicated shape: `seed_creation_lanes`, `From<LaneRow>`, the ONE `board_columns` builder — retires the app-side key re-derivation and duplicate validation), L1 `9ce3477` (stale doc comment repointed). L3–L6: no-change with rationale — responsibilities already sit in the DESIGN-fixed store/services/app seams; no pattern- or architecture-level restructuring warranted |
+| Adversarial review | APPROVED — 0 defects |
+| Mutation testing | **98/110 viable mutants killed (89.1%**, gate ≥80%**)**, 12 survivors each analyzed (2 equivalent-by-design service prechecks, 9 fault-injection-only retry-envelope arithmetic, 1 opaque `ExitCode` dispatcher); 0 flakes in any kill log. Report: `deliver/mutation/mutation-report.md` |
+| Workspace hygiene | `cargo fmt --check`, `clippy --all-targets`, full workspace tests, `check-arch`, final @blm lane 24/24 all green post-mutation; all hand-mutations reverted (`grep MUTANT` clean) |
+
+### [REF] Notable findings
+
+1. **The D1 premise corrections carried all the way through.** DISCUSS
+   established that the brief's picture was wrong (four hardcoded columns,
+   not five states; `cancelled` DB-valid but rendered nowhere; no keyboard
+   state-move). Every downstream artifact built on the corrected picture:
+   the walking skeleton's demo moment IS the stranded-cancelled-card
+   surfacing, the retired `UNRENDERED_STATE` keyboard edge stayed retired
+   (its premise is now structurally unreachable), and no scenario had to be
+   re-premised mid-DELIVER.
+2. **The 04-01 hook-conduct flag and its correction.** During step 04-01
+   the DES pre-write hook logged repeated `json_parse_error` protocol
+   anomalies (control characters in the hook payload) and fell back to
+   `allow` — writes passing with degraded monitoring was flagged as a
+   hook-conduct concern. Correction: no workaround was attempted; the
+   step's writes were validated after the fact — `COMMIT_VERIFIED`, the
+   subagent-stop conduct check PASSED for 04-01, and `des-verify-integrity`
+   exit 0 confirms the full trace. The anomaly is a hook-payload encoding
+   issue, not a conduct breach; recorded for the DES maintainers.
+3. **The check-arch no-static-lane-list rule is live and was demonstrated
+   live.** A temporary `REINTRODUCED_LANES` const was planted under
+   `foundry-app/src`; the rule failed the build naming file:line; removal
+   restored green. The rule's `#[cfg(test)]` masking is mutation-hardened
+   (17 brace-counting/lookahead mutants killed, 12 by boundary fixtures +
+   5 by timeout). The two exemptions (store creation seed, `humanize_state`
+   historical fallback) are pinned per ADR-BOARD-LANE-001.
+
+### [REF] Inherited commitments
+
+| Origin | Commitment | DDD | Impact |
+|--------|------------|-----|--------|
+| DISCUSS#D2/D8 | Every lane surface derives from lane data; no static list survives | ADR-BOARD-LANE-001 | `DEFAULT_COLUMNS`/`column_label_to_state` deleted; the seven consumers (incl. the `CreatedIssue.state` echo) all read lane rows; check-arch rule makes regression a build failure |
+| DISCUSS#D4/D6 | Three-lane creation seed; leftmost landing; last-lane refusal | n/a | `seed_creation_lanes` seeds exactly 3 in-transaction; leftmost PBT (unique minimum position, any lane set); "A board needs at least one lane" 422 pinned with exact copy |
+| DISCUSS#D5 | Grandfather zero-surprise; migration never deletes | n/a | 0015 idempotent seed, zero issue-row updates; byte-identical render is the walking-skeleton gate; Cancelled granted only where a cancelled issue exists |
+| DISCUSS#D7 | Lane delete + card fate one atomic, counted operation | ADR-BOARD-LANE-002 | `delete_lane_with_fate` is ONE transaction with confirm-time membership FOR UPDATE; move writes 0012 append positions + one 0013 event + one outbox row per card; delete is the `delete_issue_cascade` shape; the mid-decision filing is included (race scenario green) |
+| DISCUSS#D10 + DESIGN refinements 3/4 | Safe-GET trigger; `_csrf` confirm POST; uniform 404 both verbs; chosen 403-vs-404 asymmetry | n/a | Marco GET+POST byte-identical to a never-existed path; tokenless POST refused pre-handler; asymmetry pinned as chosen behaviour |
+| DISCUSS#D9 | Deletion only; add/rename/reorder out of scope | n/a | No add/rename/reorder surface exists; "This cannot be undone" carried in both dialog arms; successor feature pre-registered |
+| DISTILL#Scaffolds | Burn down all `SCAFFOLD: true` markers | n/a | 0 markers remain; the 501 scaffold handlers became the real handlers at 03-01 |
+| DISTILL#Oracle-discipline | DB-derived lane oracles; state-delta fail-closed; zero-laneless guard | n/a | No test-local lane list exists; oracles survived the L2 refactor byte-identical; guard query 0 after every mutating scenario |
+| brief.md#dialog-layers (BR-4) | One close mechanism, declarative triggers only | ADR-MODAL-CLOSE-001 | Browser scenario #24: `data-action="close-modal"` click and Esc through the single Escape owner; no new listeners registered |
+| 0012/0013 | Contiguous positions; append-only same-tx events | n/a | Move fate appends `C..C+N-1` preserving order; one status event + one outbox row per moved card; cancel writes nothing (asserted) |
