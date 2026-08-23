@@ -21,7 +21,7 @@
 //! populated lane rolls back with an explicit honest error (never a silent
 //! partial apply, never a faked success).
 
-use crate::{Store, StoreError};
+use crate::{IssueInsertError, Store, StoreError};
 
 /// Creation-seed template — the documented exemption to the
 /// no-static-lane-list rule (component-boundaries.md §2): it WRITES lane rows
@@ -159,9 +159,6 @@ impl Store {
         fate: &LaneDeleteFate<'_>,
         actor_id: uuid::Uuid,
     ) -> Result<LaneDeleteOutcome, StoreError> {
-        // The actor attributes the per-card 0013 status events the move fate
-        // writes — a 04-01 concern; the zero-card arms write no events yet.
-        let _ = actor_id;
         let mut tx = self.pool().begin().await?;
 
         // 1. Lock the dying lane. Absent (incl. the double-submit race) →
@@ -200,29 +197,32 @@ impl Store {
         // 4. Fate arm. The MoveTo destination is validated inside the
         //    transaction even when there is nothing to move (a race can delete
         //    the destination between the dialog read and this confirm).
-        if let LaneDeleteFate::MoveTo { destination_slug } = fate {
-            let destination: Option<(uuid::Uuid,)> = sqlx::query_as(
-                "SELECT id FROM lanes WHERE project_id = $1 AND slug = $2 FOR UPDATE",
-            )
-            .bind(project_id)
-            .bind(destination_slug)
-            .fetch_optional(&mut *tx)
-            .await?;
-            if destination.is_none() || *destination_slug == lane_slug {
-                return Ok(LaneDeleteOutcome::DestinationNotFound);
+        let (moved, deleted) = match fate {
+            LaneDeleteFate::MoveTo { destination_slug } => {
+                let destination: Option<(uuid::Uuid,)> = sqlx::query_as(
+                    "SELECT id FROM lanes WHERE project_id = $1 AND slug = $2 FOR UPDATE",
+                )
+                .bind(project_id)
+                .bind(destination_slug)
+                .fetch_optional(&mut *tx)
+                .await?;
+                if destination.is_none() || *destination_slug == lane_slug {
+                    return Ok(LaneDeleteOutcome::DestinationNotFound);
+                }
+                let moved = self
+                    .move_cards_to_destination(
+                        &mut tx,
+                        project_id,
+                        lane_slug,
+                        destination_slug,
+                        &cards,
+                        actor_id,
+                    )
+                    .await?;
+                (moved, 0u64)
             }
-        }
-        if !cards.is_empty() {
-            // Honest not-yet path (step 04-01 owns the with-cards arms): roll
-            // back and fail loudly — NEVER a silent partial apply or a faked
-            // success over unmoved/undeleted cards.
-            return Err(StoreError::Sqlx(sqlx::Error::Protocol(
-                "delete_lane_with_fate: with-cards fate arms are not yet implemented \
-                 (board-lane-management 04-01); transaction rolled back"
-                    .into(),
-            )));
-        }
-        let (moved, deleted) = (0u64, 0u64);
+            LaneDeleteFate::DeleteCards => (0u64, delete_cards_permanently(&mut tx, &cards).await?),
+        };
 
         // 5. Delete the lane row — the composite FK is the strand-guard: a
         //    card that raced in after step 3 aborts this DELETE with an FK
@@ -235,6 +235,103 @@ impl Store {
         // 6. Commit.
         tx.commit().await?;
         Ok(LaneDeleteOutcome::Deleted { moved, deleted })
+    }
+
+    /// MOVE fate (data-models.md §3-§4): append the dying lane's cards at the
+    /// destination's bottom — positions `C..C+N-1` in the captured
+    /// `(position ASC, number DESC)` order, `C` the destination's occupied
+    /// count (0012 contiguity: occupied positions are `0..C-1`; the source
+    /// column vanishes whole, so no gap-closing pass). Per card, in the SAME
+    /// transaction: one 0013 `status` event (`old` = dying slug, `new` =
+    /// destination slug, actor = operator) via the shared
+    /// `record_issue_change` writer, plus one `IssueUpdated` outbox row
+    /// (mirrors `reposition_issue_with_outbox`) so SSE/board listeners
+    /// observe the moves. Commit-or-nothing rides the caller's `tx`.
+    async fn move_cards_to_destination(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        project_id: uuid::Uuid,
+        dying_slug: &str,
+        destination_slug: &str,
+        cards: &[(uuid::Uuid, i32)],
+        actor_id: uuid::Uuid,
+    ) -> Result<u64, StoreError> {
+        let (workspace_id, key_prefix): (uuid::Uuid, String) =
+            sqlx::query_as("SELECT workspace_id, key_prefix FROM projects WHERE id = $1")
+                .bind(project_id)
+                .fetch_one(&mut **tx)
+                .await?;
+        let (occupied,): (i64,) =
+            sqlx::query_as("SELECT count(*) FROM issues WHERE project_id = $1 AND state = $2")
+                .bind(project_id)
+                .bind(destination_slug)
+                .fetch_one(&mut **tx)
+                .await?;
+        for (index, (issue_id, number)) in cards.iter().enumerate() {
+            sqlx::query(
+                "UPDATE issues SET state = $1, position = $2, updated_at = now() WHERE id = $3",
+            )
+            .bind(destination_slug)
+            .bind(occupied as i32 + index as i32)
+            .bind(issue_id)
+            .execute(&mut **tx)
+            .await?;
+            let payload = serde_json::json!({
+                "issue_id": issue_id,
+                "project_id": project_id,
+                "workspace_id": workspace_id,
+                "number": number,
+                "key": format!("{key_prefix}-{number}"),
+                "state": destination_slug,
+                "author_id": actor_id,
+            });
+            sqlx::query("INSERT INTO outbox (event_type, payload) VALUES ('IssueUpdated', $1)")
+                .bind(payload)
+                .execute(&mut **tx)
+                .await?;
+            self.record_issue_change(
+                tx,
+                workspace_id,
+                project_id,
+                *issue_id,
+                actor_id,
+                "status",
+                Some(dying_slug),
+                destination_slug,
+            )
+            .await
+            .map_err(issue_change_error)?;
+        }
+        Ok(cards.len() as u64)
+    }
+}
+
+/// DELETE fate — the `delete_issue_cascade` shape, batched and in-transaction:
+/// one `DELETE … WHERE id = ANY($ids)`; comments, attachments and change
+/// events cascade away at the schema level (0006/0011/0013 `ON DELETE
+/// CASCADE`). No events, no outbox, no tombstone (D7 — parity with
+/// `delete_issue_cascade`, which emits nothing).
+async fn delete_cards_permanently(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    cards: &[(uuid::Uuid, i32)],
+) -> Result<u64, StoreError> {
+    if cards.is_empty() {
+        return Ok(0);
+    }
+    let ids: Vec<uuid::Uuid> = cards.iter().map(|(id, _)| *id).collect();
+    let result = sqlx::query("DELETE FROM issues WHERE id = ANY($1)")
+        .bind(&ids)
+        .execute(&mut **tx)
+        .await?;
+    Ok(result.rows_affected())
+}
+
+/// `record_issue_change` speaks `IssueInsertError`; inside the lane-fate
+/// transaction only its sqlx arm is reachable (no project resolution here).
+fn issue_change_error(err: IssueInsertError) -> StoreError {
+    match err {
+        IssueInsertError::Store(sqlx_error) => StoreError::Sqlx(sqlx_error),
+        other => StoreError::Sqlx(sqlx::Error::Protocol(other.to_string())),
     }
 }
 

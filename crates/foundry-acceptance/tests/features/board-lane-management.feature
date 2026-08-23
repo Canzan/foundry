@@ -220,7 +220,7 @@ Feature: Shaping a board's lanes to match how the work actually flows
   # US-BLM-04 — deleting a full lane asks: move the cards, or delete them
   # ========================================================================
 
-  @us-blm-04 @driving_port @real-io @pending
+  @us-blm-04 @driving_port @real-io
   Scenario: Cards move to the chosen lane and keep their order
     Given "Identity Platform" (AUTH) is a grandfathered board with its four working lanes
     And AUTH-7 sits in Backlog and AUTH-12, AUTH-15 and AUTH-18 sit in Todo top to bottom
@@ -228,7 +228,7 @@ Feature: Shaping a board's lanes to match how the work actually flows
     Then the Todo column is gone and AUTH-12, AUTH-15 and AUTH-18 sit at the bottom of Backlog in that order
     And the change report shows a move from Todo to Backlog for each of the three, attributed to Priya
 
-  @us-blm-04 @real-io @pending
+  @us-blm-04 @real-io
   Scenario: Cards are deleted only by an explicit, counted, permanent choice
     Given project "Scratch" (SCR) has lanes Backlog and Done, with SCR-2 and SCR-5 in Done
     And SCR-2 carries a comment and an attachment
@@ -236,7 +236,7 @@ Feature: Shaping a board's lanes to match how the work actually flows
     Then the lane and both cards are gone from the board and neither issue is findable in search
     And nothing of SCR-2 remains, neither its comment nor its attachment
 
-  @us-blm-04 @edge @pending
+  @us-blm-04 @edge
   Scenario: The prompt offers only surviving lanes as destinations
     Given "Identity Platform" (AUTH) is a grandfathered board with its four working lanes
     And AUTH-12, AUTH-15 and AUTH-18 sit in Todo top to bottom
@@ -244,7 +244,7 @@ Feature: Shaping a board's lanes to match how the work actually flows
     Then the dialog states the lane holds 3 issues
     And the destination picker lists exactly Backlog, In-Progress and Done with Backlog preselected
 
-  @us-blm-04 @edge @pending
+  @us-blm-04 @edge
   Scenario: Walking away from the prompt changes nothing
     Given "Identity Platform" (AUTH) is a grandfathered board with its four working lanes
     And AUTH-12, AUTH-15 and AUTH-18 sit in Todo top to bottom
@@ -252,7 +252,7 @@ Feature: Shaping a board's lanes to match how the work actually flows
     When she walks away without confirming
     Then the Todo lane, all three cards and the change history are untouched
 
-  @us-blm-04 @error @edge @real-io @pending
+  @us-blm-04 @error @edge @real-io
   Scenario: A card filed mid-decision is still accounted for
     Given "Identity Platform" (AUTH) is a grandfathered board with its four working lanes
     And AUTH-12, AUTH-15 and AUTH-18 sit in Todo top to bottom

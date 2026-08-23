@@ -1802,8 +1802,12 @@ impl Store {
     /// for a future creation-event kind; v1 field-change rows pass both. The row
     /// `id` is a time-ordered uuid v7 so `(created_at, id)` is a stable
     /// insertion order even when two rows share a `created_at`.
+    ///
+    /// `pub(crate)`: the lane-delete move fate (`lanes.rs`, board-lane-
+    /// management 04-01) writes its per-card 0013 status rows through this
+    /// SAME helper — one event shape, one writer (data-models.md §4).
     #[allow(clippy::too_many_arguments)]
-    async fn record_issue_change(
+    pub(crate) async fn record_issue_change(
         &self,
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         workspace_id: uuid::Uuid,
