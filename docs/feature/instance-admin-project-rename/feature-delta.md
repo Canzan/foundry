@@ -468,3 +468,124 @@ All carry `SCAFFOLD: true` markers; `grep -rn "SCAFFOLD: true" crates/ --include
 | DISCUSS#D7 | Create-path duplicate residual stays OUT of scope | n/a | No scenario exercises the create path; TOCTOU race deliberately untested (data-models §4 acceptance) |
 | DESIGN#component-boundaries | Port signatures for store/services/handler; malformed id parsed IN handler → 404 | ADR-PROJECT-RENAME-002 | Scaffolds pin the signatures verbatim; #18 pins 404-not-400 |
 | DISCUSS#WS-Strategy | No walking skeleton (isolated extension of shipped surface) | n/a | No `@walking_skeleton` tag; slice-ordered un-pending replaces the skeleton-first sequence |
+
+## Wave: DELIVER
+
+Software crafter: nw-software-crafter | Finalized: 2026-08-22 | 6/6 roadmap
+steps DONE with complete DES traces (`des-verify-integrity` exit 0).
+Commits: `eb244e1` (01-01) → `8e3edcc` (02-01) → `cd97471` (02-02) →
+`ad359b1` (02-03) → `cf4de86` (03-01) → `3e81d74` (03-02), then refactor
+`39890ad`/`8fb0dd0`/`70d74b1`, mutant-killers `3fa6095`, mutation report
+`f615449`. Trunk-based on `main`; **not pushed by finalize**.
+
+### [REF] Implementation summary
+
+The instance dashboard now lists every project in the instance grouped under
+its workspace (name, key prefix, team; explicit empty state), and each row
+carries an htmx rename form (`POST /admin/instance/projects/{project_id}/rename`,
+mounted under the CSRF middleware + session layer) that swaps the row in place
+on success and routes 422 refusals into the row's `[data-error-slot]`. The
+write path is a `foundry-services` use-case (`rename_project` with
+`classify_rename` enforcing D4: trim, 256-char limit, team-scoped
+case-insensitive-name OR slug-collision uniqueness, self no-op) over new
+store reads/writes that touch `projects.name` only. The D2 prerequisite landed
+as an enabling refactor: `build_board_page` stopped re-deriving slugs from
+names at render time — slugs now come from the validated request path
+(`BoardLocation`) — `slugify` moved to `foundry-core` as the single production
+definition, and a new `check-arch` rule fails the build if `fn slugify(` ever
+reappears under `crates/foundry-app/src`. Authz refusals on both listing and
+rename remain the byte-identical uniform 404.
+
+### [REF] Files modified
+
+**Production**
+
+- `crates/foundry-app/src/instance_admin.rs` — listing view-model, rename handler, row/error fragment helpers (+ helper unit tests)
+- `crates/foundry-app/src/lib.rs` — rename route mounted under `csrf_middleware` + `session_layer`
+- `crates/foundry-app/src/views.rs` — dashboard project-row view structs
+- `crates/foundry-app/src/projects.rs` — D2 fix: request-slug threading, `BoardLocation` identity clump (L4)
+- `crates/foundry-app/src/admin_tokens.rs` — local slugify deleted in favour of `foundry_core::slugify`
+- `crates/foundry-app/templates/instance_dashboard.html` — grouped project listing + empty state
+- `crates/foundry-app/templates/partials/instance_project_row.html` — row partial with rename form + `data-error-target` child-selector
+- `crates/foundry-core/src/lib.rs` (+ `Cargo.toml`) — single production `slugify` (moved from foundry-app)
+- `crates/foundry-services/src/projects.rs` (+ `lib.rs`, `Cargo.toml`) — `rename_project` use-case, `classify_rename` validation
+- `crates/foundry-store/src/lib.rs` — `list_projects_for_instance`, `project_rename_context`, `list_team_sibling_projects`, `update_project_name`
+- `xtask/src/check_arch.rs` — new rule: `fn slugify(` banned under `crates/foundry-app/src`
+
+**Tests**
+
+- `crates/foundry-acceptance/tests/features/instance-admin-project-rename.feature` — 21 scenarios, un-pended per step to zero `@pending`
+- `crates/foundry-acceptance/src/steps/feature_instance_admin_project_rename.rs` — step module (L2: extracted step-driver helpers)
+- `crates/foundry-acceptance/src/world.rs`, `src/lib.rs`, `tests/acceptance.rs` — world fields + force-link wiring
+- `crates/foundry-services/tests/rename_project_use_case.rs` — @real-io use-case tests (mutation-driven: authz-gate and race-guard inversions)
+- In-crate unit tests: `classify_rename` arms + 256/257 boundary example, `instance_admin::response_helper_tests`
+
+**Docs**
+
+- `docs/feature/instance-admin-project-rename/deliver/{roadmap.json, execution-log.json, mutation/mutation-report.md}` — DELIVER records
+- `docs/product/architecture/adr-project-rename-001-request-slugs-not-derived.md`, `adr-project-rename-002-rename-write-placement.md` — ADRs (created in the permanent dir by DESIGN)
+- `docs/product/architecture/brief.md` — "Names are labels; slugs are identity" invariant section
+- `docs/product/jobs.yaml` (`job-instance-project-rename`), `docs/product/outcomes/registry.yaml` (OUT-1/OUT-2), `CHANGELOG.md`
+
+### [REF] Scenarios green
+
+**21 of 21** (fresh post-merge run, 2026-08-22 — 132/132 steps): 19 HTTP-lane
+scenarios + 2 `@needs-browser` (fantoccini, chromedriver/Chrome pinned at 151).
+Zero `@pending` tags remain; `SCAFFOLD: true` burn-down complete (0 markers).
+
+### [REF] DoD check (against DISCUSS DoD)
+
+| DoD item | Status | Evidence |
+|---|---|---|
+| All UAT scenarios green in the HTTP lane; error-slot behavior green in `@needs-browser` | PASS | 21/21 fresh post-merge run; #20/#21 green in a real browser |
+| `check_arch.rs` tenant-scoping checks pass | PASS | `instance_admin` stem stays on the LAYER-1e allow-list; no new tenant-scoped module parses workspace ids; suite extended with the slugify-placement rule and green |
+| No new route responds differently to "exists but forbidden" vs "never existed" | PASS | #3/#7/#9/#18/#19 compare refusals byte-identical to a freshly-fetched never-existed-path answer |
+| Rename round-trip demonstrated: dashboard rename → board + report render new name at unchanged URLs | PASS | #4 (row swap + reload persistence) and #5 (board + report retitled at the pre-rename URLs; AUTH-7 key and card actions intact) |
+| Merged to main; migrations applied cleanly | PASS | All commits on `main` (trunk-based); **no migrations** — schema stays at `0014` |
+
+### [REF] Demo evidence
+
+The three stories' Elevator Pitch "After" actions are executed literally by
+the acceptance suite — per the DISCUSS KPI note, the acceptance suite IS the
+KPI instrument for this single-operator surface:
+
+- **US-IAPR-01 After** ("opening the dashboard shows each workspace's projects") — scenario #1, HTTP lane against the real dashboard render.
+- **US-IAPR-02 After** ("clicking Rename swaps the row, board still loads retitled") — scenario #4 (HTTP) and #20 (real browser: row swaps in place, page-lifetime JS marker survives — no reload).
+- **US-IAPR-03 After** ("empty name shows the reason inside the row's error slot") — scenario #21 (real browser: message inside the submitting row's `[data-error-slot]`, then correct-and-resubmit recovery).
+
+Evidence: the fresh post-merge 21/21 run (132/132 steps), 2026-08-22.
+
+### [REF] Quality gates
+
+| Gate | Result |
+|---|---|
+| DES integrity | `des-verify-integrity` exit 0 — 6/6 steps with complete PREPARE→RED→GREEN→COMMIT traces (RED_UNIT NOT_APPLICABLE on 01-01/02-03/03-02 with recorded rationale) |
+| Progressive refactor | L1 `39890ad` (stale RED-scaffold commentary retired), L2 `8fb0dd0` (duplicated row-view, cookie-attach, step-driver helpers extracted), L4 `70d74b1` (`BoardLocation` groups the request-path identity clump). L3/L5/L6: no-change with rationale — responsibilities already sit in the right crates (store/services/app seams fixed by DESIGN), and no pattern- or architecture-level restructuring is warranted for a surface this size |
+| Adversarial review | APPROVED — 0 findings |
+| Mutation testing | **24/24 viable mutants killed (100%)**, 0 missed, 0 timeouts. Found and killed a real 256-boundary off-by-one blind spot (`>` → `>=` survived the `1..400` proptest sampling; killed by an exact-boundary example). Report: `deliver/mutation/mutation-report.md` |
+| Workspace hygiene | `cargo fmt --check`, `clippy --all-targets`, full unit suite, `check-arch` all green post-mutation |
+
+### [REF] Notable defect caught by the browser lane (03-02)
+
+The HTTP lane was byte-blind to it: the row's rename form inherited htmx
+`hx-swap="outerHTML"`, so the first 422 error swap **consumed the
+`[data-error-slot]` element itself** — the message appeared once, then the
+slot was gone and every subsequent refusal vanished silently (the exact
+"form does nothing" failure class this feature exists to prevent). Fixed in
+the row partial (`instance_project_row.html`) by targeting the slot's child
+via a `data-error-target` child-selector so the swap replaces the slot's
+*contents*, never the slot. `static/js/form-errors.js` is byte-unchanged —
+the contract held; the consumer's markup was wrong.
+
+### [REF] Inherited commitments
+
+| Origin | Commitment | DDD | Impact |
+|--------|------------|-----|--------|
+| DISCUSS#D1 | Rename writes display name only; slug/key_prefix/issue keys immutable | n/a | `update_project_name` sets `name` alone; `assert_project_delta` green on #4–#17; #5 proves URLs/keys byte-stable |
+| DISCUSS#D2 | Board interactions survive a rename | ADR-PROJECT-RENAME-001 | `build_board_page` threads request-path slugs (`BoardLocation`); `slugify` single-sourced in `foundry-core`; new check-arch rule makes regression a build failure; #5 green |
+| DISCUSS#D4 | Trim; ≤256; team-scoped uniqueness (case-insensitive name OR slug collision); self no-op | ADR-PROJECT-RENAME-002 | `classify_rename` implements every arm; both boundary sides green (#12/#13); mutation-hardened at the exact 256 boundary |
+| DISCUSS#D5 | Uniform non-enumerable 404 + mandatory `_csrf` on the htmx POST | n/a | Route mounted under CSRF middleware + session layer; #3/#7/#8/#9/#18/#19 green byte-identical |
+| DISCUSS#D6 | 422 + bare fragment into the row's `[data-error-slot]`; form stays mounted | n/a | #10–#16 (HTTP) + #21 (browser) green; `data-error-target` fix preserves the slot across repeated refusals |
+| DISCUSS#D7 | Create-path duplicate residual stays out of scope | n/a | Create path untouched by every DELIVER commit |
+| DISTILL#Scaffolds | Burn down all `SCAFFOLD: true` markers | n/a | 0 markers remain; the 501 scaffold handler became the real handler at 02-02 |
+| DISTILL#Oracle-discipline | No test-local slugify; state-delta assertions fail closed | n/a | Step module still bans local slugify; delta assertions retained through L2 refactor |
