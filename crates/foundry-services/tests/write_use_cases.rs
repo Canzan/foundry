@@ -10,8 +10,8 @@
 //! so an API write and a browser write accept/reject identically and store
 //! identical bytes.
 //!
-//! Test budget: 3 distinct behaviours named in the step criteria
-//! (budget = 2 × 3 = 6; 3 written):
+//! Test budget: 4 distinct behaviours named in the step criteria
+//! (budget = 2 × 4 = 8; 4 written):
 //!   1. create_issue happy path — a member files an issue, gets the next
 //!      sequential key + backlog state, persisted with the SAME validation
 //!      the browser enforces (trimmed, non-empty, ≤256).
@@ -19,6 +19,12 @@
 //!      refused with the SAME rule the browser uses (Validation), no row.
 //!   3. edit_comment non-author → Forbidden — author-or-admin authz is
 //!      decided in the service, never the adapter.
+//!   4. change_issue_state per-project seam (board-lane-management 01-02) —
+//!      the accepted value is the project's OWN canonical lane slug (echoed
+//!      AND persisted); a lane the project's board lacks is refused
+//!      `invalid_state`. Added at DELIVER Phase 5: mutation testing showed
+//!      `validate_project_lane` → `Ok("xyzzy")`/`Ok("")` survived when
+//!      covered only by the acceptance lane (the @real-io trap).
 
 use foundry_services::comments::edit_comment;
 use foundry_services::issues::create_issue;
@@ -262,5 +268,55 @@ async fn edit_comment_by_non_author_is_forbidden() {
     assert!(
         matches!(err, ServiceError::Forbidden),
         "non-author edit must be Forbidden, got {err:?}"
+    );
+}
+
+/// Behaviour 4 — change_issue_state validates against the PROJECT'S OWN lane
+/// set and echoes + persists the canonical member slug (the DD10 per-project
+/// seam, board-lane-management 01-02). A fresh project's board has
+/// backlog/in_progress/done: "done" is accepted with the truthful echo;
+/// "todo" — canonical in the closed universe but ABSENT from this board — is
+/// refused `invalid_state`. Kills `validate_project_lane` → `Ok("xyzzy")` /
+/// `Ok("")` (either would break the write with a lane-FK store error or
+/// persist a lane the board does not have).
+#[tokio::test]
+async fn change_state_accepts_only_the_projects_own_lanes_and_echoes_the_canonical_slug() {
+    let h = seeded_harness().await;
+    let mei = Principal::Human {
+        user_id: h.member_id,
+        workspace_id: h.workspace_id,
+    };
+    let number = create_issue(&h.store, &mei, "backend", "auth-v2", "Ship it", "")
+        .await
+        .expect("seed issue through the driving port")
+        .number;
+
+    let moved = foundry_services::issues::change_issue_state(
+        &h.store, &mei, "backend", "auth-v2", number, "done", None,
+    )
+    .await
+    .expect("a lane the project's board has must be accepted");
+    assert_eq!(
+        moved.state, "done",
+        "the echo must be the canonical lane slug actually accepted"
+    );
+    let persisted: String =
+        sqlx::query_scalar("SELECT state FROM issues WHERE project_id = $1 AND number = $2")
+            .bind(h.project_id)
+            .bind(number)
+            .fetch_one(h.store.pool())
+            .await
+            .expect("read persisted state");
+    assert_eq!(persisted, "done", "the persisted state must match the echo");
+
+    // "todo" folds cleanly in the closed universe but is NOT on this board.
+    let err = foundry_services::issues::change_issue_state(
+        &h.store, &mei, "backend", "auth-v2", number, "todo", None,
+    )
+    .await
+    .expect_err("a lane the project's board lacks must be refused");
+    assert!(
+        matches!(&err, ServiceError::Validation { code, .. } if code == "invalid_state"),
+        "the refusal must be the invalid_state validation error; got {err:?}"
     );
 }
