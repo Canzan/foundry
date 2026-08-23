@@ -371,3 +371,109 @@ fn is_fate_retryable(err: &sqlx::Error) -> bool {
         .map(|code| code == "23503" || code == "40P01")
         .unwrap_or(false)
 }
+
+#[cfg(test)]
+mod retry_classifier_tests {
+    //! The retry gates' PURE hearts — `is_fate_retryable` (this module) and
+    //! `crate::is_lane_fk_violation` (the insert envelope) — pinned over a
+    //! fake `DatabaseError` carrying arbitrary SQLSTATE/constraint pairs.
+    //! Their signatures ARE the driving ports (pure single-output
+    //! classifiers, state-delta exempt category). Added at DELIVER Phase 5:
+    //! mutation testing showed every code/constraint comparison survived —
+    //! the retry path only fires under a non-deterministic race, so the
+    //! classifiers must be killed at the fast unit level.
+
+    use super::is_fate_retryable;
+    use crate::is_lane_fk_violation;
+    use std::borrow::Cow;
+
+    #[derive(Debug)]
+    struct FakeDbError {
+        code: Option<&'static str>,
+        constraint: Option<&'static str>,
+    }
+
+    impl std::fmt::Display for FakeDbError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "fake database error")
+        }
+    }
+
+    impl std::error::Error for FakeDbError {}
+
+    impl sqlx::error::DatabaseError for FakeDbError {
+        fn message(&self) -> &str {
+            "fake database error"
+        }
+        fn code(&self) -> Option<Cow<'_, str>> {
+            self.code.map(Cow::Borrowed)
+        }
+        fn constraint(&self) -> Option<&str> {
+            self.constraint
+        }
+        fn kind(&self) -> sqlx::error::ErrorKind {
+            sqlx::error::ErrorKind::Other
+        }
+        fn as_error(&self) -> &(dyn std::error::Error + Send + Sync + 'static) {
+            self
+        }
+        fn as_error_mut(&mut self) -> &mut (dyn std::error::Error + Send + Sync + 'static) {
+            self
+        }
+        fn into_error(self: Box<Self>) -> Box<dyn std::error::Error + Send + Sync + 'static> {
+            self
+        }
+    }
+
+    fn db_error(code: Option<&'static str>, constraint: Option<&'static str>) -> sqlx::Error {
+        sqlx::Error::Database(Box::new(FakeDbError { code, constraint }))
+    }
+
+    /// A fate attempt retries on EXACTLY foreign_key_violation (23503) or
+    /// deadlock_detected (40P01) — never on other SQLSTATEs, a codeless
+    /// database error, or a non-database error.
+    #[test]
+    fn fate_retry_fires_only_on_fk_violation_or_deadlock() {
+        for (code, expected) in [
+            (Some("23503"), true),
+            (Some("40P01"), true),
+            (Some("23505"), false), // unique_violation is NOT worth retrying
+            (Some("42P01"), false), // undefined_table is a bug, not a race
+            (None, false),
+        ] {
+            assert_eq!(
+                is_fate_retryable(&db_error(code, None)),
+                expected,
+                "SQLSTATE {code:?} retryability"
+            );
+        }
+        assert!(
+            !is_fate_retryable(&sqlx::Error::RowNotFound),
+            "a non-database error is never a retryable race"
+        );
+    }
+
+    /// The insert envelope's single re-resolve retry fires on EXACTLY the
+    /// `fk_issues_lane` strand-guard: 23503 AND that constraint — never on
+    /// another constraint, another SQLSTATE, or a non-database error.
+    #[test]
+    fn insert_retry_fires_only_on_the_lane_strand_guard() {
+        for (code, constraint, expected) in [
+            (Some("23503"), Some("fk_issues_lane"), true),
+            (Some("23503"), Some("fk_comments_issue"), false),
+            (Some("23505"), Some("fk_issues_lane"), false),
+            (Some("23503"), None, false),
+            (None, Some("fk_issues_lane"), false),
+        ] {
+            assert_eq!(
+                is_lane_fk_violation(&db_error(code, constraint)),
+                expected,
+                "SQLSTATE {code:?} / constraint {constraint:?}"
+            );
+        }
+        assert!(
+            !is_lane_fk_violation(&sqlx::Error::RowNotFound),
+            "a non-database error is never the strand-guard"
+        );
+    }
+}

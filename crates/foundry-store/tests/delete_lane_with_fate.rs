@@ -12,8 +12,13 @@
 //! (testcontainers, @real-io): `FOR UPDATE` ordering, the composite-FK
 //! strand-guard, and deadlock detection cannot be faked in memory.
 //!
-//! Test budget: this is 1 integration test for the concurrency behaviour of
-//! AC-5; the five acceptance scenarios own the remaining behaviours.
+//! Test budget: 1 integration test for the concurrency behaviour of AC-5;
+//! the five acceptance scenarios own the remaining behaviours. Three adapter
+//! integration tests added at DELIVER Phase 5 (Mandate 4 — adapters are
+//! tested against real infrastructure): mutation testing showed the
+//! delete-fate batch DELETE, the move-fate position append math, and the
+//! bounded-retry envelope were unreachable from the acceptance lane's
+//! observable surface (the @real-io trap).
 
 use foundry_store::{LaneDeleteFate, LaneDeleteOutcome, Store};
 use sqlx::postgres::PgPoolOptions;
@@ -227,5 +232,171 @@ async fn crossing_concurrent_lane_deletes_resolve_cleanly_never_partially() {
     assert_eq!(
         dead_lanes, 1,
         "exactly one of the two contested lanes must remain"
+    );
+}
+
+/// Delete fate at the store boundary: the batch `DELETE … WHERE id = ANY`
+/// really removes the captured members (the lane-row delete would otherwise
+/// abort on the composite-FK strand-guard), and the outcome reports the TRUE
+/// deleted count. Kills `delete_cards_permanently` → `Ok(0)`/`Ok(1)` (with
+/// the batch DELETE gone, the transaction can only fail or lie about counts).
+#[tokio::test]
+async fn delete_fate_removes_the_captured_cards_and_reports_the_true_count() {
+    let (base, _guard) = fresh_postgres().await;
+    let store = migrated_store(&base).await;
+    let (project, operator) = seed_project(&store).await;
+    seed_issue_at(&store, project, operator, 10, "todo", 0).await;
+    seed_issue_at(&store, project, operator, 20, "todo", 1).await;
+    seed_issue_at(&store, project, operator, 30, "done", 0).await;
+
+    let outcome = store
+        .delete_lane_with_fate(project, "todo", LaneDeleteFate::DeleteCards, operator)
+        .await
+        .expect("a delete-fate confirm on a populated lane must not be a store error");
+
+    assert!(
+        matches!(
+            outcome,
+            LaneDeleteOutcome::Deleted {
+                moved: 0,
+                deleted: 2
+            }
+        ),
+        "the outcome must report 0 moved / 2 deleted; got {outcome:?}"
+    );
+    let survivors: Vec<(i32, String)> =
+        sqlx::query_as("SELECT number, state FROM issues WHERE project_id = $1 ORDER BY number")
+            .bind(project)
+            .fetch_all(store.pool())
+            .await
+            .expect("read issues");
+    assert_eq!(
+        survivors,
+        vec![(30, "done".to_string())],
+        "the dying lane's cards must be gone; other lanes' cards untouched"
+    );
+    let (lane_rows,): (i64,) =
+        sqlx::query_as("SELECT count(*) FROM lanes WHERE project_id = $1 AND slug = 'todo'")
+            .bind(project)
+            .fetch_one(store.pool())
+            .await
+            .expect("count dying lane");
+    assert_eq!(lane_rows, 0, "the lane row itself must be deleted");
+}
+
+/// Move fate position math (data-models.md §3-§4): the dying lane's cards
+/// append at the destination's BOTTOM — positions `C..C+N-1` in the captured
+/// `(position ASC, number DESC)` order, `C` the destination's occupied count —
+/// with one outbox row per moved card. Kills the `occupied + index` → `-`/`*`
+/// arithmetic mutants (either collides with the destination's own card at
+/// position 0, breaking the 0012 contiguity permutation).
+#[tokio::test]
+async fn move_fate_appends_at_the_destination_bottom_in_captured_order() {
+    let (base, _guard) = fresh_postgres().await;
+    let store = migrated_store(&base).await;
+    let (project, operator) = seed_project(&store).await;
+    // Destination already occupied: in_progress holds GEN-30 at position 0.
+    seed_issue_at(&store, project, operator, 30, "in_progress", 0).await;
+    // Dying lane todo: captured order (position ASC, number DESC) = 10, 20.
+    seed_issue_at(&store, project, operator, 10, "todo", 0).await;
+    seed_issue_at(&store, project, operator, 20, "todo", 1).await;
+
+    let outcome = store
+        .delete_lane_with_fate(
+            project,
+            "todo",
+            LaneDeleteFate::MoveTo {
+                destination_slug: "in_progress",
+            },
+            operator,
+        )
+        .await
+        .expect("a move-fate confirm to a live destination must not be a store error");
+
+    assert!(
+        matches!(
+            outcome,
+            LaneDeleteOutcome::Deleted {
+                moved: 2,
+                deleted: 0
+            }
+        ),
+        "the outcome must report 2 moved / 0 deleted; got {outcome:?}"
+    );
+    let placed: Vec<(i32, String, i32)> = sqlx::query_as(
+        "SELECT number, state, position FROM issues WHERE project_id = $1 ORDER BY number",
+    )
+    .bind(project)
+    .fetch_all(store.pool())
+    .await
+    .expect("read issues");
+    assert_eq!(
+        placed,
+        vec![
+            (10, "in_progress".to_string(), 1),
+            (20, "in_progress".to_string(), 2),
+            (30, "in_progress".to_string(), 0),
+        ],
+        "moved cards must APPEND at the destination bottom (positions C..C+N-1 \
+         in captured order) below the destination's own card at position 0"
+    );
+    let (outbox_rows,): (i64,) =
+        sqlx::query_as("SELECT count(*) FROM outbox WHERE event_type = 'IssueUpdated'")
+            .fetch_one(store.pool())
+            .await
+            .expect("count outbox rows");
+    assert_eq!(outbox_rows, 2, "one IssueUpdated outbox row per MOVED card");
+}
+
+/// The bounded-retry envelope's honest-error arm: a PERSISTENT store failure
+/// (modelled as the issues table vanishing) surfaces promptly as an error —
+/// never an endless retry, never a fabricated outcome. Kills the retry-guard
+/// → `true` mutant (which retries every error forever; under it this test
+/// hangs into the mutation timeout).
+#[tokio::test]
+async fn persistent_store_failure_is_an_honest_error_not_an_endless_retry() {
+    let (base, _guard) = fresh_postgres().await;
+    let store = migrated_store(&base).await;
+    let (project, operator) = seed_project(&store).await;
+    sqlx::query("DROP TABLE issues CASCADE")
+        .execute(store.pool())
+        .await
+        .expect("model a persistent store failure");
+
+    let outcome = store
+        .delete_lane_with_fate(project, "todo", LaneDeleteFate::DeleteCards, operator)
+        .await;
+
+    assert!(
+        outcome.is_err(),
+        "a persistent failure must surface as an honest store error; got {outcome:?}"
+    );
+}
+
+/// The dialog's advisory-count read at the store boundary: the LIVE count of
+/// the cards a lane holds — 2 for the seeded lane, 0 for an empty one (never
+/// a canned value). Added at DELIVER Phase 5: the services-layer killer for
+/// `count_issues_in_lane` cannot run for foundry-store mutants (cargo-mutants
+/// 25.3.1 tests the mutated package only).
+#[tokio::test]
+async fn count_issues_in_lane_reports_the_live_per_lane_count() {
+    let (base, _guard) = fresh_postgres().await;
+    let store = migrated_store(&base).await;
+    let (project, operator) = seed_project(&store).await;
+    seed_issue_at(&store, project, operator, 10, "todo", 0).await;
+    seed_issue_at(&store, project, operator, 20, "todo", 1).await;
+
+    let todo = store
+        .count_issues_in_lane(project, "todo")
+        .await
+        .expect("count a populated lane");
+    let done = store
+        .count_issues_in_lane(project, "done")
+        .await
+        .expect("count an empty lane");
+    assert_eq!(
+        (todo, done),
+        (2, 0),
+        "the advisory count must be the LIVE per-lane card count"
     );
 }

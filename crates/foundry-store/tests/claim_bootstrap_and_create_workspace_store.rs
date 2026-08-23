@@ -312,3 +312,51 @@ async fn claim_propagates_non_23505_error_as_store_error() {
         ),
     }
 }
+
+/// board-lane-management D4: the claim-seeded project carries EXACTLY the
+/// three creation lanes — Backlog, In-Progress, Done, in that board order —
+/// written in the SAME transaction (post-0015 a laneless project would strand
+/// every issue INSERT on the composite FK). Added at DELIVER Phase 5: kills
+/// `seed_creation_lanes` → `Ok(())` and pins `seed_initial_workspace` really
+/// seeding the project the lanes hang off.
+#[tokio::test]
+async fn claim_seeds_the_projects_three_creation_lanes_in_board_order() {
+    let (base, _guard) = fresh_postgres().await;
+    let store = migrated_store(&base).await;
+    let now = time::OffsetDateTime::now_utc();
+    let hash = token_hash(7);
+    mint_token(&store, &hash, now).await;
+
+    claim(
+        &store,
+        hash.as_slice(),
+        now,
+        "ops@acme.com",
+        "Ops",
+        "Acme Eng",
+    )
+    .await
+    .expect("a live token + fresh email must not error");
+
+    let (project_id,): (uuid::Uuid,) =
+        sqlx::query_as("SELECT id FROM projects WHERE slug = 'sandbox'")
+            .fetch_one(store.pool())
+            .await
+            .expect("the claim must seed the Sandbox project");
+    let lanes: Vec<(String, String, i32)> = store
+        .list_project_lanes(project_id)
+        .await
+        .expect("list the seeded project's lanes")
+        .into_iter()
+        .map(|lane| (lane.slug, lane.label, lane.position))
+        .collect();
+    assert_eq!(
+        lanes,
+        vec![
+            ("backlog".to_string(), "Backlog".to_string(), 0),
+            ("in_progress".to_string(), "In-Progress".to_string(), 1),
+            ("done".to_string(), "Done".to_string(), 2),
+        ],
+        "a freshly-created project starts with EXACTLY the three creation lanes in board order"
+    );
+}
