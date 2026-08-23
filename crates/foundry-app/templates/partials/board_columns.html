@@ -1,0 +1,11 @@
+{# The board's columns — the project's own lane rows in board order
+   (board-lane-management D8). Shared by board.html (full page) and
+   partials/oob/board_columns_oob.html (the lane-delete confirm's out-of-band
+   refresh), so both render byte-identical columns. Context: `columns`,
+   `team_slug`, `project_slug`. Column marker unchanged:
+   section.column[data-column] > h3 (dnd + keyboard nav contract). The
+   per-column delete affordance is the [data-lane-delete] button
+   (component-boundaries.md §4). #}
+{% for column in columns %}
+<section class="column" data-column="{{ column.slug }}"><h3>{{ column.label }}</h3><button type="button" class="lane-delete" data-lane-delete="{{ column.slug }}" aria-label="Delete lane {{ column.label }}" hx-get="/team/{{ team_slug }}/project/{{ project_slug }}/lanes/{{ column.slug }}/delete" hx-target="#modal-root" hx-swap="innerHTML">&times;</button>{% if column.cards.is_empty() %}<p class="empty">No issues yet — press <kbd>c</kbd> to file the first one.</p>{% else %}{% for card in column.cards %}{% include "partials/issue_card.html" %}{% endfor %}{% endif %}</section>
+{% endfor %}

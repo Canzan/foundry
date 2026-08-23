@@ -245,6 +245,44 @@ pub struct IssueEditModal {
     pub detail_url: String,
 }
 
+/// The lane-delete confirm dialog FRAGMENT (board-lane-management US-BLM-03/04,
+/// component-boundaries.md §4). A BARE htmx fragment swapped into `#modal-root`
+/// — MUST NOT extend `base.html`. Scraper markers pinned by DESIGN:
+/// `[data-modal="delete-lane"]`, `[data-lane]`, `[data-lane-count]`,
+/// `select[name="destination"]` (survivors in board order, leftmost
+/// preselected), `button[name="fate"][value="move"|"delete"]`,
+/// `[data-action="close-modal"]` (BR-4: attribute-only close, no new
+/// listener), `[data-error-slot]` (form-errors.js contract).
+#[derive(Debug, Clone, Template)]
+#[template(path = "partials/delete_lane_modal.html")]
+pub struct DeleteLaneModal {
+    /// `/team/{slug}/project/{slug}/lanes/{slug}/delete` — the confirm POST.
+    pub action: String,
+    /// The double-submit CSRF token, rendered into the hidden `_csrf` field
+    /// (the confirm POST is the mutating leg; the dialog GET carries none).
+    pub csrf: String,
+    /// The dying lane's immutable slug identity (D9).
+    pub lane_slug: String,
+    /// The dying lane's display label (auto-escaped).
+    pub lane_label: String,
+    /// LIVE advisory card count (the fate binds at confirm time — D7).
+    pub card_count: i64,
+    /// Surviving lanes in board order; `[0]` is the picker preselect.
+    pub survivors: Vec<foundry_services::BoardLane>,
+}
+
+/// The out-of-band board-columns refresh the successful lane-delete confirm
+/// carries (`hx-swap-oob="true"` on `#board-columns` — the house OOB idiom).
+/// The primary `#modal-root` innerHTML swap receives the EMPTY remainder, so
+/// the dialog closes while the columns update in place (no full reload).
+#[derive(Debug, Clone, Template)]
+#[template(path = "partials/oob/board_columns_oob.html")]
+pub struct BoardColumnsOob {
+    pub team_slug: String,
+    pub project_slug: String,
+    pub columns: Vec<BoardColumn>,
+}
+
 /// A board column with its (already state-filtered) cards in display order.
 #[derive(Debug, Clone)]
 pub struct BoardColumn {

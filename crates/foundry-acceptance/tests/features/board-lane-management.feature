@@ -167,7 +167,7 @@ Feature: Shaping a board's lanes to match how the work actually flows
   # US-BLM-03 — delete an empty lane (slice 03)
   # ========================================================================
 
-  @us-blm-03 @driving_port @real-io @pending
+  @us-blm-03 @driving_port @real-io
   Scenario: An empty lane disappears after an explicit confirm
     Given "Homelab Ops" (OPS) is a grandfathered board whose Todo lane holds no issues
     When Priya asks to delete the Todo lane and confirms in the dialog
@@ -177,20 +177,20 @@ Feature: Shaping a board's lanes to match how the work actually flows
   # DESIGN refinement 2 pinned: the delete TRIGGER is a safe read — fetching
   # the dialog mutates nothing at all. The state-delta here declares the full
   # board universe with every entry unchanged.
-  @us-blm-03 @edge @pending
+  @us-blm-03 @edge
   Scenario: Asking for the confirm dialog changes nothing by itself
     Given "Homelab Ops" (OPS) is a grandfathered board whose Todo lane holds no issues
     When Priya opens the delete dialog for the Todo lane
     Then the dialog states the lane holds no issues and that this cannot be undone
     And the board, its lanes and every card are untouched
 
-  @us-blm-03 @error @pending
+  @us-blm-03 @error
   Scenario: The last lane cannot be deleted
     Given project "Scratch" (SCR) has exactly one lane, Done
     When Priya asks to delete Done and confirms
     Then she is refused with the reason "A board needs at least one lane" and the lane remains
 
-  @us-blm-03 @edge @pending
+  @us-blm-03 @edge
   Scenario: New issues follow the leftmost surviving lane
     Given the fresh "Reading List" board
     And Priya deleted the empty Backlog lane, leaving In-Progress and Done
@@ -200,7 +200,7 @@ Feature: Shaping a board's lanes to match how the work actually flows
   # The 404-vs-403 asymmetry is DELIBERATE (DESIGN refinement 4): the board
   # page maps a same-workspace non-member to a 403 page; the lane routes map
   # the SAME principal to the uniform non-enumerable 404, on BOTH verbs.
-  @us-blm-03 @error @security @pending
+  @us-blm-03 @error @security
   Scenario: Only team members can delete a lane
     Given "Homelab Ops" (OPS) is a grandfathered board whose Todo lane holds no issues
     And Marco is signed in to Canzan Labs but is not a member of team Backend
@@ -209,7 +209,7 @@ Feature: Shaping a board's lanes to match how the work actually flows
     And Marco asking for the delete dialog is answered identically
     And the Todo lane is still on the board
 
-  @us-blm-03 @error @security @pending
+  @us-blm-03 @error @security
   Scenario: A delete that does not carry the board's matching token is refused
     Given "Homelab Ops" (OPS) is a grandfathered board whose Todo lane holds no issues
     When a lane-delete confirm for Todo is submitted without the board's matching token

@@ -4,10 +4,12 @@
 <header><h1>{{ project_name }}</h1><p class="key">Key prefix: {{ key_prefix }}</p></header>
 <nav class="board-actions"><a class="report-link" href="/team/{{ team_slug }}/project/{{ project_slug }}/report">Change report</a></nav>
 <button type="button" data-action="new-issue" hx-get="/team/{{ team_slug }}/project/{{ project_slug }}/issues/new" hx-target="#modal-root" hx-swap="innerHTML">New issue</button>
-<div class="board">
-{% for column in columns %}
-<section class="column" data-column="{{ column.slug }}"><h3>{{ column.label }}</h3>{% if column.cards.is_empty() %}<p class="empty">No issues yet — press <kbd>c</kbd> to file the first one.</p>{% else %}{% for card in column.cards %}{% include "partials/issue_card.html" %}{% endfor %}{% endif %}</section>
-{% endfor %}
+{# id="board-columns": the lane-delete confirm's out-of-band swap target
+   (board-lane-management, architecture-design.md §5.3). The columns loop
+   lives in the shared partial so the OOB refresh renders byte-identical
+   markup. #}
+<div class="board" id="board-columns">
+{% include "partials/board_columns.html" %}
 </div>
 <div id="modal-root"></div>
 {% endblock %}

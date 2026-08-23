@@ -1,0 +1,30 @@
+{# board-lane-management delete-lane dialog (component-boundaries.md §4,
+   markup contract pinned by DESIGN). BARE fragment htmx-swaps into
+   #modal-root. Close is the declarative [data-action="close-modal"] trigger
+   ONLY — no new Escape/click listener (BR-4, ADR-MODAL-CLOSE-001). The
+   card_count is the LIVE advisory read; the fate binds at confirm time (D7). #}
+<div class="modal" role="dialog" aria-modal="true" data-modal="delete-lane" data-lane="{{ lane_slug }}" data-lane-count="{{ card_count }}">
+  <div class="modal-dialog">
+    <header class="modal-header">
+      <h2>Delete lane &ldquo;{{ lane_label }}&rdquo;</h2>
+      <button type="button" class="modal-close" aria-label="Close" data-action="close-modal">&times;</button>
+    </header>
+    <form method="post" action="{{ action }}" hx-post="{{ action }}" hx-target="#modal-root" hx-swap="innerHTML">
+      <input type="hidden" name="_csrf" value="{{ csrf }}">
+      {% if card_count == 0 %}
+      <p>It holds no issues. This cannot be undone.</p>
+      <button type="submit" name="fate" value="delete">Delete lane</button>
+      {% else %}
+      <p>It holds {{ card_count }} issue{% if card_count != 1 %}s{% endif %}.</p>
+      <label>Move all {{ card_count }} to
+        <select name="destination">
+          {% for lane in survivors %}<option value="{{ lane.slug }}"{% if loop.first %} selected{% endif %}>{{ lane.label }}</option>{% endfor %}
+        </select>
+      </label>
+      <button type="submit" name="fate" value="move">Move all {{ card_count }}</button>
+      <button type="submit" name="fate" value="delete">Delete all {{ card_count }} permanently &mdash; this cannot be undone</button>
+      {% endif %}
+      <div data-error-slot></div>
+    </form>
+  </div>
+</div>

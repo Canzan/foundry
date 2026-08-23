@@ -1,0 +1,8 @@
+{# The lane-delete confirm's success body (board-lane-management,
+   architecture-design.md §5.3): the refreshed columns as an out-of-band
+   #board-columns replace (house OOB idiom). htmx extracts this envelope; the
+   EMPTY remainder becomes the primary #modal-root innerHTML swap, closing the
+   dialog. No full reload; a reload re-renders from lane data (persisted). #}
+<div class="board" id="board-columns" hx-swap-oob="true">
+{% include "partials/board_columns.html" %}
+</div>
