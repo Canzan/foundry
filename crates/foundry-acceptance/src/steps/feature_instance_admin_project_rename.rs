@@ -87,6 +87,23 @@ fn pool(world: &FoundryWorld) -> PgPool {
     harness(world).app.state.store.pool().clone()
 }
 
+fn http(world: &FoundryWorld) -> reqwest::Client {
+    world.http.as_ref().expect("http client").clone()
+}
+
+/// Priya's (or any signed-in persona's) dashboard GET — the read every listing
+/// and propagation oracle starts from.
+async fn dashboard_get_as(world: &FoundryWorld, email: &str, password: &str) -> PostOutcome {
+    signed_in_get(
+        harness(world),
+        &http(world),
+        email,
+        password,
+        DASHBOARD_PATH,
+    )
+    .await
+}
+
 async fn record_outcome(world: &mut FoundryWorld, outcome: PostOutcome) {
     world.last_status = Some(outcome.status);
     world.last_headers = Some(outcome.headers);
@@ -452,29 +469,13 @@ async fn note_where_board_lives(world: &mut FoundryWorld, project_name: String) 
 
 #[when(regex = r"^Priya opens the instance dashboard$")]
 async fn priya_opens_dashboard(world: &mut FoundryWorld) {
-    let http = world.http.as_ref().expect("http client").clone();
-    let outcome = signed_in_get(
-        harness(world),
-        &http,
-        PRIYA_EMAIL,
-        PRIYA_PASSWORD,
-        DASHBOARD_PATH,
-    )
-    .await;
+    let outcome = dashboard_get_as(world, PRIYA_EMAIL, PRIYA_PASSWORD).await;
     record_outcome(world, outcome).await;
 }
 
 #[when(regex = r"^Marco requests the instance dashboard$")]
 async fn marco_requests_dashboard(world: &mut FoundryWorld) {
-    let http = world.http.as_ref().expect("http client").clone();
-    let outcome = signed_in_get(
-        harness(world),
-        &http,
-        MARCO_EMAIL,
-        MARCO_PASSWORD,
-        DASHBOARD_PATH,
-    )
-    .await;
+    let outcome = dashboard_get_as(world, MARCO_EMAIL, MARCO_PASSWORD).await;
     record_outcome(world, outcome).await;
 }
 
@@ -482,23 +483,33 @@ async fn marco_requests_dashboard(world: &mut FoundryWorld) {
 // When — renames
 // ===========================================================================
 
-/// Snapshot the target row, then drive the rename POST as Priya (real session
-/// cookie + fresh double-submit `_csrf` via `signed_in_post`).
-async fn priya_renames_project(world: &mut FoundryWorld, project_name: &str, new_name: &str) {
+/// Snapshot the target row, then drive the rename POST as the given signed-in
+/// persona (real session cookie + fresh double-submit `_csrf` via
+/// `signed_in_post`).
+async fn send_rename_as(
+    world: &mut FoundryWorld,
+    email: &str,
+    password: &str,
+    project_name: &str,
+    new_name: &str,
+) {
     let project_id = project_id_of(world, project_name);
     world.iapr_before_row = Some(snapshot_project(world, project_id).await);
-    world.iapr_expected_name = Some(new_name.to_string());
-    let http = world.http.as_ref().expect("http client").clone();
     let outcome = signed_in_post(
         harness(world),
-        &http,
-        PRIYA_EMAIL,
-        PRIYA_PASSWORD,
+        &http(world),
+        email,
+        password,
         &rename_url(&project_id.to_string()),
         &[("name", new_name)],
     )
     .await;
     record_outcome(world, outcome).await;
+}
+
+async fn priya_renames_project(world: &mut FoundryWorld, project_name: &str, new_name: &str) {
+    world.iapr_expected_name = Some(new_name.to_string());
+    send_rename_as(world, PRIYA_EMAIL, PRIYA_PASSWORD, project_name, new_name).await;
 }
 
 #[when(regex = r#"^Priya renames "([^"]*)" to "([^"]*)"$"#)]
@@ -515,19 +526,7 @@ async fn priya_renames_generated(world: &mut FoundryWorld, project_name: String,
 
 #[when(regex = r#"^Marco sends the rename for "([^"]+)" to "([^"]+)"$"#)]
 async fn marco_sends_rename(world: &mut FoundryWorld, project_name: String, new_name: String) {
-    let project_id = project_id_of(world, &project_name);
-    world.iapr_before_row = Some(snapshot_project(world, project_id).await);
-    let http = world.http.as_ref().expect("http client").clone();
-    let outcome = signed_in_post(
-        harness(world),
-        &http,
-        MARCO_EMAIL,
-        MARCO_PASSWORD,
-        &rename_url(&project_id.to_string()),
-        &[("name", &new_name)],
-    )
-    .await;
-    record_outcome(world, outcome).await;
+    send_rename_as(world, MARCO_EMAIL, MARCO_PASSWORD, &project_name, &new_name).await;
 }
 
 /// A POST from Priya's real session but WITHOUT the `_csrf` field/cookie pair —
@@ -536,7 +535,7 @@ async fn marco_sends_rename(world: &mut FoundryWorld, project_name: String, new_
 async fn rename_without_csrf(world: &mut FoundryWorld, project_name: String) {
     let project_id = project_id_of(world, &project_name);
     world.iapr_before_row = Some(snapshot_project(world, project_id).await);
-    let http = world.http.as_ref().expect("http client").clone();
+    let http = http(world);
     let session_pair = establish_session(harness(world), &http, PRIYA_EMAIL, PRIYA_PASSWORD).await;
     let outcome = post_with_cookie(
         harness(world),
@@ -555,7 +554,7 @@ async fn rename_without_csrf(world: &mut FoundryWorld, project_name: String) {
 async fn signed_out_rename(world: &mut FoundryWorld, project_name: String) {
     let project_id = project_id_of(world, &project_name);
     world.iapr_before_row = Some(snapshot_project(world, project_id).await);
-    let http = world.http.as_ref().expect("http client").clone();
+    let http = http(world);
     let base = harness(world).base_url();
     // Mint a real CSRF pair from the public sign-in page (no session involved).
     let signin_get = http
@@ -586,7 +585,7 @@ async fn signed_out_rename(world: &mut FoundryWorld, project_name: String) {
 
 #[when(regex = r#"^Priya sends a rename aimed at the project id "([^"]+)"$"#)]
 async fn rename_garbled_id(world: &mut FoundryWorld, raw_id: String) {
-    let http = world.http.as_ref().expect("http client").clone();
+    let http = http(world);
     let outcome = signed_in_post(
         harness(world),
         &http,
@@ -602,7 +601,7 @@ async fn rename_garbled_id(world: &mut FoundryWorld, raw_id: String) {
 #[when(regex = r"^Priya sends a rename aimed at a project id that matches nothing$")]
 async fn rename_unknown_id(world: &mut FoundryWorld) {
     let unknown = uuid::Uuid::now_v7().to_string();
-    let http = world.http.as_ref().expect("http client").clone();
+    let http = http(world);
     let outcome = signed_in_post(
         harness(world),
         &http,
@@ -734,7 +733,7 @@ async fn section_says_no_projects(world: &mut FoundryWorld, ws_name: String) {
 /// route has ever served. The fallback and every instance-admin refusal must be
 /// byte-identical (ADR-002 idiom, D5).
 async fn never_existed_answer(world: &mut FoundryWorld) -> (StatusCode, String) {
-    let http = world.http.as_ref().expect("http client").clone();
+    let http = http(world);
     let base = harness(world).base_url();
     let resp = http
         .get(format!("{base}/never-existed-{}", uuid::Uuid::now_v7()))
@@ -765,7 +764,7 @@ async fn answer_is_uniform_404(world: &mut FoundryWorld) {
 
 #[then(regex = r"^a signed-out visitor requesting the instance dashboard is answered identically$")]
 async fn signed_out_dashboard_identical(world: &mut FoundryWorld) {
-    let http = world.http.as_ref().expect("http client").clone();
+    let http = http(world);
     let base = harness(world).base_url();
     let resp = http
         .get(format!("{base}{DASHBOARD_PATH}"))
@@ -848,15 +847,7 @@ async fn row_shows_generated_name(world: &mut FoundryWorld) {
 
 #[then(regex = r#"^reopening the instance dashboard shows "([^"]+)" and no longer "([^"]+)"$"#)]
 async fn reopened_dashboard_shows(world: &mut FoundryWorld, new_name: String, old_name: String) {
-    let http = world.http.as_ref().expect("http client").clone();
-    let outcome = signed_in_get(
-        harness(world),
-        &http,
-        PRIYA_EMAIL,
-        PRIYA_PASSWORD,
-        DASHBOARD_PATH,
-    )
-    .await;
+    let outcome = dashboard_get_as(world, PRIYA_EMAIL, PRIYA_PASSWORD).await;
     assert_eq!(outcome.status, StatusCode::OK, "dashboard must render");
     assert!(
         outcome.body.contains(&new_name),
@@ -874,7 +865,7 @@ async fn board_survives_at_old_address(world: &mut FoundryWorld, new_name: Strin
         .iapr_noted_board
         .clone()
         .expect("the board address was noted BEFORE the rename");
-    let http = world.http.as_ref().expect("http client").clone();
+    let http = http(world);
     let outcome = signed_in_get(
         harness(world),
         &http,
@@ -924,7 +915,7 @@ async fn issue_card_actions_survive(world: &mut FoundryWorld, prefix: String, nu
         "the card's state action must still point at the OLD address {state_url:?} (D2)"
     );
     // And the old address must actually ANSWER — not merely be printed.
-    let http = world.http.as_ref().expect("http client").clone();
+    let http = http(world);
     let outcome = signed_in_get(
         harness(world),
         &http,
@@ -950,7 +941,7 @@ async fn report_shows_new_name(world: &mut FoundryWorld) {
         .iapr_expected_name
         .clone()
         .expect("a rename was submitted");
-    let http = world.http.as_ref().expect("http client").clone();
+    let http = http(world);
     let outcome = signed_in_get(
         harness(world),
         &http,
@@ -1029,15 +1020,7 @@ async fn still_named_everywhere(world: &mut FoundryWorld, name: String) {
         .expect("project row");
     assert_eq!(stored_name, name, "the persisted name must be unchanged");
     // The dashboard.
-    let http = world.http.as_ref().expect("http client").clone();
-    let dashboard = signed_in_get(
-        harness(world),
-        &http,
-        PRIYA_EMAIL,
-        PRIYA_PASSWORD,
-        DASHBOARD_PATH,
-    )
-    .await;
+    let dashboard = dashboard_get_as(world, PRIYA_EMAIL, PRIYA_PASSWORD).await;
     assert!(
         dashboard.body.contains(&name),
         "the dashboard must still show {name:?}"
@@ -1048,8 +1031,14 @@ async fn still_named_everywhere(world: &mut FoundryWorld, name: String) {
         format!("/team/{team_slug}/project/{project_slug}"),
         format!("/team/{team_slug}/project/{project_slug}/report"),
     ] {
-        let outcome =
-            signed_in_get(harness(world), &http, PRIYA_EMAIL, PRIYA_PASSWORD, &path).await;
+        let outcome = signed_in_get(
+            harness(world),
+            &http(world),
+            PRIYA_EMAIL,
+            PRIYA_PASSWORD,
+            &path,
+        )
+        .await;
         assert_eq!(outcome.status, StatusCode::OK, "{path} must still serve");
         assert!(
             outcome.body.contains(&name),

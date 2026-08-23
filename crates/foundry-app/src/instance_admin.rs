@@ -83,30 +83,10 @@ pub async fn show_dashboard(
         return resource_not_found_page();
     };
     let (csrf, set_cookie) = ensure_csrf_cookie(&state, &headers);
-    // ONE instance-wide read for every project row (no per-workspace N+1,
-    // instance-admin-project-rename 01-01); grouped by workspace here, and the
-    // per-workspace name order falls out of the query's `ORDER BY p.name`.
-    let mut projects_by_workspace: std::collections::HashMap<
-        uuid::Uuid,
-        Vec<InstanceProjectRowView>,
-    > = std::collections::HashMap::new();
-    match state.store.list_projects_for_instance().await {
-        Ok(rows) => {
-            for row in rows {
-                projects_by_workspace
-                    .entry(row.workspace_id)
-                    .or_default()
-                    .push(InstanceProjectRowView {
-                        project_id: row.project_id.to_string(),
-                        name: row.name,
-                        key_prefix: row.key_prefix,
-                        team_name: row.team_name,
-                        csrf: csrf.clone(),
-                    });
-            }
-        }
+    let mut projects_by_workspace = match state.store.list_projects_for_instance().await {
+        Ok(rows) => group_project_rows_by_workspace(rows, &csrf),
         Err(err) => return internal_error("list_projects_for_instance", err),
-    }
+    };
     let workspaces = match state.store.list_workspaces().await {
         Ok(rows) => rows
             .into_iter()
@@ -136,17 +116,56 @@ pub async fn show_dashboard(
         nav,
     };
     match page.render() {
-        Ok(html) => {
-            let mut resp = Html(html).into_response();
-            if let Some(cookie) = set_cookie {
-                if let Ok(value) = HeaderValue::from_str(&cookie) {
-                    resp.headers_mut().insert(SET_COOKIE, value);
-                }
-            }
-            resp
-        }
+        Ok(html) => html_with_optional_cookie(html, set_cookie),
         Err(err) => internal_error("render instance_dashboard", err),
     }
+}
+
+/// Group the ONE instance-wide project read by workspace (no per-workspace
+/// N+1, instance-admin-project-rename 01-01); the per-workspace name order
+/// falls out of the query's `ORDER BY p.name`.
+fn group_project_rows_by_workspace(
+    rows: Vec<foundry_store::InstanceProjectRow>,
+    csrf: &str,
+) -> std::collections::HashMap<uuid::Uuid, Vec<InstanceProjectRowView>> {
+    let mut by_workspace: std::collections::HashMap<uuid::Uuid, Vec<InstanceProjectRowView>> =
+        std::collections::HashMap::new();
+    for row in rows {
+        let workspace_id = row.workspace_id;
+        by_workspace
+            .entry(workspace_id)
+            .or_default()
+            .push(project_row_view(row, csrf.to_string()));
+    }
+    by_workspace
+}
+
+/// Adapt one store row + the request's CSRF token into the row partial's
+/// view-model — the SAME shape whether rendered by the dashboard loop or
+/// returned verbatim as the rename-success fragment (the one-partial rule).
+fn project_row_view(
+    row: foundry_store::InstanceProjectRow,
+    csrf: String,
+) -> InstanceProjectRowView {
+    InstanceProjectRowView {
+        project_id: row.project_id.to_string(),
+        name: row.name,
+        key_prefix: row.key_prefix,
+        team_name: row.team_name,
+        csrf,
+    }
+}
+
+/// Assemble the 200 HTML response, attaching the freshly-minted double-submit
+/// CSRF cookie when `ensure_csrf_cookie` produced one.
+fn html_with_optional_cookie(html: String, set_cookie: Option<String>) -> Response {
+    let mut resp = Html(html).into_response();
+    if let Some(cookie) = set_cookie {
+        if let Ok(value) = HeaderValue::from_str(&cookie) {
+            resp.headers_mut().insert(SET_COOKIE, value);
+        }
+    }
+    resp
 }
 
 /// `POST /admin/instance/workspaces` — provision a NEW isolated workspace + first
@@ -447,23 +466,8 @@ async fn render_project_row_fragment(
         return resource_not_found_page();
     };
     let (csrf, set_cookie) = ensure_csrf_cookie(state, headers);
-    let view = InstanceProjectRowView {
-        project_id: row.project_id.to_string(),
-        name: row.name,
-        key_prefix: row.key_prefix,
-        team_name: row.team_name,
-        csrf,
-    };
-    match view.render() {
-        Ok(html) => {
-            let mut resp = Html(html).into_response();
-            if let Some(cookie) = set_cookie {
-                if let Ok(value) = HeaderValue::from_str(&cookie) {
-                    resp.headers_mut().insert(SET_COOKIE, value);
-                }
-            }
-            resp
-        }
+    match project_row_view(row, csrf).render() {
+        Ok(html) => html_with_optional_cookie(html, set_cookie),
         Err(err) => internal_error("render instance_project_row", err),
     }
 }
