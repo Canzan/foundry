@@ -25,12 +25,12 @@
 # so two @needs-browser scenarios use a real headless Chrome as the oracle for
 # the in-place row swap and the inline error.
 #
-# EVERY scenario is @pending, PER-SCENARIO (the repo convention): @pending is
-# excluded from every lane, DELIVER un-pends one scenario at a time. RED, not
-# BROKEN: production scaffolds (foundry-core::slugify, the four foundry-store
-# queries, foundry_services::projects::rename_project, the mounted
-# submit_project_rename handler returning 501) pin the DESIGN port signatures so
-# an un-pended scenario fails at an ASSERTION for MISSING_FUNCTIONALITY.
+# DELIVER COMPLETE: every scenario has been un-pended, one at a time (the repo
+# convention: pending scenarios are excluded from every lane; DELIVER removes
+# the tag as each lands). The DISTILL-era production scaffolds
+# (foundry-core::slugify, the four foundry-store queries,
+# foundry_services::projects::rename_project, the mounted
+# submit_project_rename handler) are all live production code now.
 #
 # Grounding SSOT: docs/feature/instance-admin-project-rename/feature-delta.md
 # (DISCUSS D1-D7 + US-IAPR-01..03; DESIGN component-boundaries.md port
@@ -184,7 +184,7 @@ Feature: Correcting a stale project name from the instance dashboard
     When she types "Identity Platform" into the "Auth v2" row and submits it
     Then that row shows "Identity Platform" without the page reloading
 
-  @us-iapr-03 @needs-browser @error @real-io @pending
+  @us-iapr-03 @needs-browser @error @real-io
   Scenario: A refused rename explains itself inside the row being edited
     Given Priya has the instance dashboard open in her browser
     When she blanks the name in the "Auth v2" row and submits it

@@ -1,10 +1,20 @@
+{# The rename form needs hx-swap="outerHTML" for the success row swap, and    #}
+{# form-errors.js inherits that swap style when it routes a 422 into the      #}
+{# error slot — an outerHTML swap of the slot ITSELF would delete             #}
+{# [data-error-slot] (the 03-02 browser-lane defect). So the form uses the    #}
+{# script's EXPLICIT data-error-target rule to aim the swap at the slot's     #}
+{# current CHILD: the swap consumes the child, the slot survives around the   #}
+{# message, and the "> *" selector keeps consecutive refusals routable (the   #}
+{# swapped-in fragment is the next target). Per-row id disambiguates the      #}
+{# repeated per-row forms document-wide.                                      #}
 <li data-project-row data-project-id="{{ project_id }}">
   <span data-project-name>{{ name }}</span> ({{ key_prefix }}) — team {{ team_name }}
   <form hx-post="/admin/instance/projects/{{ project_id }}/rename"
-        hx-target="closest [data-project-row]" hx-swap="outerHTML">
+        hx-target="closest [data-project-row]" hx-swap="outerHTML"
+        data-error-target="#rename-error-{{ project_id }} > *">
     <input type="hidden" name="_csrf" value="{{ csrf }}">
     <label>Rename <input type="text" name="name" value="{{ name }}" required></label>
-    <div data-error-slot></div>
+    <div data-error-slot id="rename-error-{{ project_id }}"><span data-error-anchor></span></div>
     <button type="submit">Rename</button>
   </form>
 </li>
