@@ -186,10 +186,7 @@ async fn list_lanes(
         .await
         .map_err(|_| DeleteLaneError::Internal)?
         .into_iter()
-        .map(|lane| BoardLane {
-            slug: lane.slug,
-            label: lane.label,
-        })
+        .map(BoardLane::from)
         .collect())
 }
 

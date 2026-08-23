@@ -335,10 +335,7 @@ pub async fn edit_issue_form(
         .await
         .map_err(|_| ServiceError::Internal)?
         .into_iter()
-        .map(|lane| crate::BoardLane {
-            slug: lane.slug,
-            label: lane.label,
-        })
+        .map(crate::BoardLane::from)
         .collect();
 
     let key = foundry_core::IssueKey::try_new(&key_prefix, number as u32)

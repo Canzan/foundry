@@ -380,6 +380,17 @@ pub struct BoardLane {
     pub label: String,
 }
 
+/// The ONE store-row → neutral-lane mapping every lane read shares
+/// (`board::board_view`, `issues::edit_issue_form`, `lanes::list_lanes`).
+impl From<foundry_store::LaneRow> for BoardLane {
+    fn from(lane: foundry_store::LaneRow) -> Self {
+        BoardLane {
+            slug: lane.slug,
+            label: lane.label,
+        }
+    }
+}
+
 /// The HTML board read's view: the project's lanes in board order plus the
 /// same issue rows [`board::list_board_issues`] returns.
 #[derive(Debug, Clone)]
@@ -479,10 +490,7 @@ pub mod board {
             .await
             .map_err(|_| ServiceError::Internal)?
             .into_iter()
-            .map(|lane| BoardLane {
-                slug: lane.slug,
-                label: lane.label,
-            })
+            .map(BoardLane::from)
             .collect();
 
         let issues = fetch_board_issues(store, project.id, &key_prefix).await?;

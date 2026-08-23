@@ -283,6 +283,48 @@ pub struct BoardColumnsOob {
     pub columns: Vec<BoardColumn>,
 }
 
+/// The board's columns from a [`foundry_services::BoardView`] — the ONE
+/// builder both the full board page (`projects::build_board_page`) and the
+/// lane-delete out-of-band refresh (`lanes::oob_columns_response`) materialize
+/// from, so the OOB fragment and the next full render stay byte-identical
+/// (board-lane-management, architecture-design.md §5.3).
+///
+/// Column slug = `lane.slug`, header = `lane.label`, card filter
+/// `issue.state == lane.slug` (D8). Card URLs are built from the request-path
+/// slugs — never a render-time name derivation (D2). `BoardIssue.key` is
+/// already the canonical `{PREFIX}-{N}` string the services layer derived, so
+/// no key re-derivation here.
+pub(crate) fn board_columns(
+    team_slug: &str,
+    project_slug: &str,
+    view: &foundry_services::BoardView,
+) -> Vec<BoardColumn> {
+    view.lanes
+        .iter()
+        .map(|lane| BoardColumn {
+            slug: lane.slug.clone(),
+            label: lane.label.clone(),
+            cards: view
+                .issues
+                .iter()
+                .filter(|issue| issue.state == lane.slug)
+                .map(|issue| IssueCard {
+                    key: issue.key.clone(),
+                    title: issue.title.clone(),
+                    edit_url: format!(
+                        "/team/{team_slug}/project/{project_slug}/issues/{}/edit",
+                        issue.number
+                    ),
+                    state_url: format!(
+                        "/team/{team_slug}/project/{project_slug}/issues/{}/state",
+                        issue.number
+                    ),
+                })
+                .collect(),
+        })
+        .collect()
+}
+
 /// A board column with its (already state-filtered) cards in display order.
 #[derive(Debug, Clone)]
 pub struct BoardColumn {

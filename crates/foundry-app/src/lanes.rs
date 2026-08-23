@@ -172,46 +172,11 @@ async fn oob_columns_response(
     let body = crate::views::BoardColumnsOob {
         team_slug: team_slug.to_string(),
         project_slug: project_slug.to_string(),
-        columns: columns_from_view(team_slug, project_slug, &view),
+        columns: crate::views::board_columns(team_slug, project_slug, &view),
     }
     .render()
     .expect("board_columns_oob partial renders from a fully-resolved, infallible view-model");
     (StatusCode::OK, Html(body)).into_response()
-}
-
-/// Materialize the shared [`crate::views::BoardColumn`] list from a
-/// [`foundry_services::BoardView`] — the same column/card shape
-/// `projects::build_board_page` renders (`BoardIssue.key` is already the
-/// canonical `{PREFIX}-{N}` string, so no key re-derivation here).
-fn columns_from_view(
-    team_slug: &str,
-    project_slug: &str,
-    view: &foundry_services::BoardView,
-) -> Vec<crate::views::BoardColumn> {
-    view.lanes
-        .iter()
-        .map(|lane| crate::views::BoardColumn {
-            slug: lane.slug.clone(),
-            label: lane.label.clone(),
-            cards: view
-                .issues
-                .iter()
-                .filter(|issue| issue.state == lane.slug)
-                .map(|issue| crate::views::IssueCard {
-                    key: issue.key.clone(),
-                    title: issue.title.clone(),
-                    edit_url: format!(
-                        "/team/{team_slug}/project/{project_slug}/issues/{}/edit",
-                        issue.number
-                    ),
-                    state_url: format!(
-                        "/team/{team_slug}/project/{project_slug}/issues/{}/state",
-                        issue.number
-                    ),
-                })
-                .collect(),
-        })
-        .collect()
 }
 
 fn lane_delete_action(team_slug: &str, project_slug: &str, lane_slug: &str) -> String {

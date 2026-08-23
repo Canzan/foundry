@@ -308,10 +308,6 @@ pub async fn show_board(
         Err(foundry_services::ServiceError::Forbidden) => return non_member_page(&team_slug),
         Err(err) => return internal_error("board_view", err),
     };
-    let key_prefix = match ProjectKey::try_new(&project.key_prefix) {
-        Ok(k) => k,
-        Err(err) => return internal_error("project_key_prefix invalid", err),
-    };
     // Render-failure → clean 500 seam (US-B01 @error,
     // error-and-observability.md §"Render-error handling"). The board view
     // renders to a complete String BEFORE any bytes hit the response, so a
@@ -342,15 +338,7 @@ pub async fn show_board(
         team_slug: &team_slug,
         project_slug: &project_slug,
     };
-    match render_board(
-        &state,
-        &location,
-        &project,
-        &board.lanes,
-        &board.issues,
-        &key_prefix,
-        nav,
-    ) {
+    match render_board(&state, &location, &project, &board, nav) {
         Ok(html) => {
             response_with_optional_cookie(StatusCode::OK, Html(html).into_response(), set_cookie)
         }
@@ -848,14 +836,11 @@ struct BoardLocation<'a> {
 /// `issue-card` partials — and now links the vendored `/static` stylesheet +
 /// htmx script via the base layout. Data ordering (column state-filtering)
 /// stays HERE in the handler-side builder; the template only loops.
-#[allow(clippy::too_many_arguments)]
 fn render_board(
     state: &AppState,
     location: &BoardLocation<'_>,
     project: &foundry_store::ProjectRow,
-    lanes: &[foundry_services::BoardLane],
-    issues: &[foundry_services::BoardIssue],
-    key_prefix: &ProjectKey,
+    board: &foundry_services::BoardView,
     nav: crate::nav::NavContext,
 ) -> Result<String, askama::Error> {
     // Test-only render-injection: when the harness has flipped the
@@ -874,7 +859,7 @@ fn render_board(
         }
     }
     let _ = state;
-    build_board_page(location, project, lanes, issues, key_prefix, nav).render()
+    build_board_page(location, project, board, nav).render()
 }
 
 /// Map a template render failure to a CLEAN server error (US-B01 @error,
@@ -904,31 +889,14 @@ fn render_500(headers: &HeaderMap, template_name: &str, err: askama::Error) -> R
 fn build_board_page(
     location: &BoardLocation<'_>,
     project: &foundry_store::ProjectRow,
-    lanes: &[foundry_services::BoardLane],
-    issues: &[foundry_services::BoardIssue],
-    key_prefix: &ProjectKey,
+    board: &foundry_services::BoardView,
     nav: crate::nav::NavContext,
 ) -> crate::views::BoardPage {
     // The columns are the project's own lane rows in board order
-    // (board-lane-management D8): column slug = lane.slug, header =
-    // lane.label, card filter `issue.state == lane.slug`. Every card URL is
-    // built from the [`BoardLocation`] slugs — the request-path identity,
-    // never a render-time name derivation (D2).
-    let columns = lanes
-        .iter()
-        .map(|lane| {
-            let cards = issues
-                .iter()
-                .filter(|i| i.state == lane.slug)
-                .map(|row| issue_card(key_prefix, row, location.team_slug, location.project_slug))
-                .collect();
-            crate::views::BoardColumn {
-                slug: lane.slug.clone(),
-                label: lane.label.clone(),
-                cards,
-            }
-        })
-        .collect();
+    // (board-lane-management D8), materialized by the SHARED
+    // `views::board_columns` builder — the same one the lane-delete OOB
+    // refresh renders from, so fragment and page stay byte-identical.
+    let columns = crate::views::board_columns(location.team_slug, location.project_slug, board);
 
     crate::views::BoardPage {
         team_name: location.team_name.to_string(),
@@ -939,32 +907,6 @@ fn build_board_page(
         columns,
         nav,
     }
-}
-
-fn issue_card(
-    key_prefix: &ProjectKey,
-    row: &foundry_services::BoardIssue,
-    team_slug: &str,
-    project_slug: &str,
-) -> crate::views::IssueCard {
-    crate::views::IssueCard {
-        key: issue_key_string(key_prefix, row),
-        title: row.title.clone(),
-        edit_url: format!(
-            "/team/{team_slug}/project/{project_slug}/issues/{number}/edit",
-            number = row.number
-        ),
-        state_url: format!(
-            "/team/{team_slug}/project/{project_slug}/issues/{number}/state",
-            number = row.number
-        ),
-    }
-}
-
-fn issue_key_string(key_prefix: &ProjectKey, row: &foundry_services::BoardIssue) -> String {
-    foundry_core::IssueKey::try_new(key_prefix, row.number as u32)
-        .expect("number >= 1 - allocator guarantees")
-        .to_string()
 }
 
 // `slugify` lives in `foundry_core` (the SINGLE production definition,
@@ -1013,7 +955,6 @@ mod report_label_tests {
 mod board_render_tests {
     use super::{build_board_page, BoardLocation};
     use askama::Template;
-    use foundry_core::ProjectKey;
 
     /// The four grandfathered lanes as migration 0015 seeds them — what
     /// `board_view` returns for a pre-existing board. A test-local fixture
@@ -1044,7 +985,6 @@ mod board_render_tests {
         project_slug: &str,
         project: &foundry_store::ProjectRow,
         issues: &[foundry_services::BoardIssue],
-        key_prefix: &ProjectKey,
     ) -> String {
         // The board now renders inside the shared `app_shell.html`, so the
         // builder needs a nav carrier. Board-family active-state lands in 02-02;
@@ -1063,16 +1003,13 @@ mod board_render_tests {
             team_slug,
             project_slug,
         };
-        build_board_page(
-            &location,
-            project,
-            &grandfather_lanes(),
-            issues,
-            key_prefix,
-            nav,
-        )
-        .render()
-        .expect("board template renders")
+        let board = foundry_services::BoardView {
+            lanes: grandfather_lanes(),
+            issues: issues.to_vec(),
+        };
+        build_board_page(&location, project, &board, nav)
+            .render()
+            .expect("board template renders")
     }
 
     fn project() -> foundry_store::ProjectRow {
@@ -1101,16 +1038,8 @@ mod board_render_tests {
             issue(3, "Revoke on password change", "backlog"),
             issue(2, "Refresh token rotation", "in_progress"),
         ];
-        let key_prefix = ProjectKey::try_new("AUTH").unwrap();
 
-        let html = render_board(
-            "Backend",
-            "backend",
-            "auth-v2",
-            &project(),
-            &issues,
-            &key_prefix,
-        );
+        let html = render_board("Backend", "backend", "auth-v2", &project(), &issues);
 
         // Base-layout vendored asset references, all /static-local. The CSS is
         // cache-busted by a content hash in its committed filename
@@ -1148,16 +1077,8 @@ mod board_render_tests {
             issue(3, "Doing", "in_progress"),
             issue(4, "Shipped", "done"),
         ];
-        let key_prefix = ProjectKey::try_new("AUTH").unwrap();
 
-        let html = render_board(
-            "Backend",
-            "backend",
-            "auth-v2",
-            &project(),
-            &issues,
-            &key_prefix,
-        );
+        let html = render_board("Backend", "backend", "auth-v2", &project(), &issues);
 
         // (column slug, the key that BELONGS in it)
         let placement = [
@@ -1218,17 +1139,9 @@ mod board_render_tests {
             key_prefix: "AUTH".to_string(),
         };
         let issues = vec![issue(1, "Refresh token rotation", "backlog")];
-        let key_prefix = ProjectKey::try_new("AUTH").unwrap();
 
         // "auth-v2" is the STORED slug the request path resolved the project by.
-        let html = render_board(
-            "Backend",
-            "backend",
-            "auth-v2",
-            &renamed,
-            &issues,
-            &key_prefix,
-        );
+        let html = render_board("Backend", "backend", "auth-v2", &renamed, &issues);
 
         assert!(
             html.contains(r#"hx-get="/team/backend/project/auth-v2/issues/1/edit""#),
@@ -1252,16 +1165,7 @@ mod board_render_tests {
     /// column (US-B01 scenario 2) while still showing all four column labels.
     #[test]
     fn empty_board_renders_inviting_empty_state_guidance() {
-        let key_prefix = ProjectKey::try_new("AUTH").unwrap();
-
-        let html = render_board(
-            "Backend",
-            "backend",
-            "auth-v2",
-            &project(),
-            &[],
-            &key_prefix,
-        );
+        let html = render_board("Backend", "backend", "auth-v2", &project(), &[]);
 
         for label in ["Backlog", "Todo", "In-Progress", "Done"] {
             assert!(html.contains(label), "missing column label {label}");

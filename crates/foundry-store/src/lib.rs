@@ -1308,21 +1308,9 @@ impl Store {
         .await;
         match result {
             Ok(_) => {
-                for (lane_slug, label, position) in crate::lanes::CREATION_LANE_SEED {
-                    sqlx::query(
-                        "INSERT INTO lanes (id, project_id, workspace_id, slug, label, position)
-                              VALUES ($1, $2, $3, $4, $5, $6)",
-                    )
-                    .bind(uuid::Uuid::now_v7())
-                    .bind(project_id)
-                    .bind(workspace_id)
-                    .bind(lane_slug)
-                    .bind(label)
-                    .bind(position)
-                    .execute(&mut *tx)
+                crate::lanes::seed_creation_lanes(&mut tx, project_id, workspace_id)
                     .await
                     .map_err(|err| ProjectInsertError::Other(StoreError::Sqlx(err)))?;
-                }
                 tx.commit()
                     .await
                     .map_err(|err| ProjectInsertError::Other(StoreError::Sqlx(err)))?;
@@ -3183,21 +3171,8 @@ async fn seed_initial_workspace(
     // Every created project carries its lane rows in the SAME transaction
     // (board-lane-management): post-0015 the composite FK `fk_issues_lane`
     // refuses any issue INSERT into a laneless project. Same creation seed
-    // as `insert_project` (`lanes::CREATION_LANE_SEED`).
-    for (lane_slug, label, position) in crate::lanes::CREATION_LANE_SEED {
-        sqlx::query(
-            "INSERT INTO lanes (id, project_id, workspace_id, slug, label, position)
-                  VALUES ($1, $2, $3, $4, $5, $6)",
-        )
-        .bind(uuid::Uuid::now_v7())
-        .bind(project_id)
-        .bind(workspace_id)
-        .bind(lane_slug)
-        .bind(label)
-        .bind(position)
-        .execute(&mut **tx)
-        .await?;
-    }
+    // as `insert_project` (`lanes::seed_creation_lanes`).
+    crate::lanes::seed_creation_lanes(tx, project_id, workspace_id).await?;
     // The bootstrap CLAIM also seeds the claiming operator as the FIRST instance
     // super-admin (ADR-001 / D1), in the SAME atomic transaction: a fresh instance
     // never exists with a workspace 1 but no provisioning authority. The operator is

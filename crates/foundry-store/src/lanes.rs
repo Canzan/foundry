@@ -31,11 +31,38 @@ use crate::{IssueInsertError, Store, StoreError};
 /// exactly Backlog, In-Progress, Done, in that order. Grandfathered EXISTING
 /// projects keep the four lanes migration 0015 seeded — the migration seed is
 /// deliberately NOT this constant.
-pub(crate) const CREATION_LANE_SEED: &[(&str, &str, i32)] = &[
+const CREATION_LANE_SEED: &[(&str, &str, i32)] = &[
     ("backlog", "Backlog", 0),
     ("in_progress", "In-Progress", 1),
     ("done", "Done", 2),
 ];
+
+/// Write the creation-seed lane rows for a freshly-inserted project — the ONE
+/// writer both creation paths (`insert_project`, `seed_initial_workspace`)
+/// call, inside THEIR transaction, so a committed project can never exist
+/// laneless (post-0015 the composite FK `fk_issues_lane` would strand every
+/// subsequent issue INSERT).
+pub(crate) async fn seed_creation_lanes(
+    conn: &mut sqlx::PgConnection,
+    project_id: uuid::Uuid,
+    workspace_id: uuid::Uuid,
+) -> Result<(), sqlx::Error> {
+    for (lane_slug, label, position) in CREATION_LANE_SEED {
+        sqlx::query(
+            "INSERT INTO lanes (id, project_id, workspace_id, slug, label, position)
+                  VALUES ($1, $2, $3, $4, $5, $6)",
+        )
+        .bind(uuid::Uuid::now_v7())
+        .bind(project_id)
+        .bind(workspace_id)
+        .bind(lane_slug)
+        .bind(label)
+        .bind(position)
+        .execute(&mut *conn)
+        .await?;
+    }
+    Ok(())
+}
 
 /// The freshly-inserted issue: its allocated per-project `number` plus the
 /// PERSISTED landing `state` — the project's leftmost lane at insert time
