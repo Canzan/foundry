@@ -259,12 +259,22 @@ mod classify_rename_properties {
         }
 
         /// Behaviour 4 — the D4 duplicate rule over arbitrary sibling sets:
-        /// a case-mangled sibling NAME and a punctuation-mangled name whose
-        /// SLUG collides with a sibling's stored slug are both refused.
+        /// a case-mangled sibling NAME, and a punctuation-mangled name whose
+        /// derived SLUG collides with a sibling's STORED slug, are both
+        /// refused. Slug arm hardened at 03-01: punctuation in ANY position —
+        /// leading, trailing, and replacing every space — with the letter
+        /// case flipped on top, not just the single trailing-'!' shape.
+        /// `slugify` collapses each non-alphanumeric run to one '-' and
+        /// strips the ends, so every such mangle derives the sibling's stored
+        /// slug byte-for-byte, while the punctuation guarantees the NAME arm
+        /// cannot be the one firing (sibling names carry none).
         #[test]
         fn sibling_name_or_slug_collision_is_duplicate(
             sibs in siblings(),
             pick in any::<proptest::sample::Index>(),
+            lead in "[!?.,;:*#@&+=]{0,2}",
+            sep in "[!?.,;:*#@&+=]{1,3}",
+            trail in "[!?.,;:*#@&+=]{1,2}",
         ) {
             prop_assume!(!sibs.is_empty());
             let (target_name, _) = &sibs[pick.index(sibs.len())];
@@ -277,8 +287,13 @@ mod classify_rename_properties {
                 ),
                 "{case_mangled:?} case-matches sibling {target_name:?} and must be refused"
             );
-            // Slug arm: different name, colliding derived slug ('!' slugs away).
-            let slug_mangled = format!("{target_name}!");
+            // Slug arm: a name sharing no case-insensitive byte-identity with
+            // any sibling (trail is non-empty, so at least one punctuation
+            // char is always present) whose derived slug IS a sibling's.
+            let slug_mangled = format!(
+                "{lead}{}{trail}",
+                flip_case(target_name).replace(' ', &sep)
+            );
             prop_assert!(
                 matches!(
                     classify_rename(&slug_mangled, CURRENT, &sibs),

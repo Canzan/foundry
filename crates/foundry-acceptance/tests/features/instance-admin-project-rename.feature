@@ -117,41 +117,41 @@ Feature: Correcting a stale project name from the instance dashboard
 
   # -------------------------------------------- US-IAPR-03 refusals explain themselves
 
-  @us-iapr-03 @error @pending
+  @us-iapr-03 @error
   Scenario: An empty name is refused with the reason stated
     When Priya renames "Auth v2" to ""
     Then the rename is refused saying "Project name must not be empty"
     And the project is still named "Auth v2" everywhere
 
-  @us-iapr-03 @error @edge @pending
+  @us-iapr-03 @error @edge
   Scenario: A name of only spaces counts as empty
     When Priya renames "Auth v2" to "   "
     Then the rename is refused saying "Project name must not be empty"
 
-  @us-iapr-03 @error @pending
+  @us-iapr-03 @error
   Scenario: A name past the length limit is refused with the limit stated
     When Priya renames "Auth v2" to a 300-character name
     Then the rename is refused saying "Project name must be at most 256 characters"
     And the project is still named "Auth v2" everywhere
 
-  @us-iapr-03 @edge @pending
+  @us-iapr-03 @edge
   Scenario: A name of exactly the length limit is accepted
     When Priya renames "Auth v2" to a 256-character name
     Then the row she gets back shows that exact name
 
-  @us-iapr-03 @error @pending
+  @us-iapr-03 @error
   Scenario: A name another project in the team already uses is refused
     When Priya renames "Auth v2" to "Sandbox"
     Then the rename is refused saying "Project name must be unique within the team"
     And both projects keep their names
 
-  @us-iapr-03 @error @pending
+  @us-iapr-03 @error
   Scenario: Changing the letter case does not dodge the uniqueness rule
     When Priya renames "Auth v2" to "sandbox"
     Then the rename is refused saying "Project name must be unique within the team"
     And both projects keep their names
 
-  @us-iapr-03 @error @pending
+  @us-iapr-03 @error
   Scenario: A name that collides with another project's address is refused
     When Priya renames "Auth v2" to "Sandbox!"
     Then the rename is refused saying "Project name must be unique within the team"
