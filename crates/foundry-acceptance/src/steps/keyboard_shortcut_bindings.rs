@@ -522,6 +522,8 @@ async fn project_exists_with_issues(world: &mut FoundryWorld, project: String) {
     .execute(pool)
     .await
     .expect("insert AUTH project");
+    // board-lane-management sweep: raw-SQL projects need their lane rows.
+    crate::support::harness::seed_lanes_for_project(pool, project_id).await;
     for number in 1..=4 {
         sqlx::query(
             "INSERT INTO issues (id, workspace_id, project_id, number, title, state, priority, author_id)
@@ -3882,13 +3884,12 @@ async fn auth2_still_selected_and_j_moves_on(world: &mut FoundryWorld) {
 const SEARCH_ROW_SELECTED_SELECTOR: &str =
     "#kb-search-panel li.search-result[aria-selected='true']";
 
-/// The state the board does NOT render. `0001_init.sql:72` permits
-/// {backlog,todo,in_progress,done,cancelled}; `DEFAULT_COLUMNS` (projects.rs:49)
-/// renders the first four. `cancelled` is therefore the ONLY state that makes an
-/// issue findable-but-cardless — the edge ADR-005 §4 names. If a future migration
-/// widens the enum this constant still holds; if it renders a Cancelled column,
-/// the Given below reds rather than passing over an edge that no longer exists.
-const UNRENDERED_STATE: &str = "cancelled";
+// UNRENDERED_STATE ("cancelled") and its scenario were RETIRED by the
+// board-lane-management DISTILL wave (2026-08-22): after slice 01 every state
+// has a rendered lane and the composite FK makes a findable-but-cardless
+// issue structurally unreachable — see the retirement note in
+// keyboard-shortcut-bindings.feature and the rationale in
+// docs/feature/board-lane-management/feature-delta.md (Wave: DISTILL).
 
 /// Everything `#modal-root` is holding, verbatim.
 ///
@@ -4172,56 +4173,10 @@ async fn help_states_the_search_tab_cost(world: &mut FoundryWorld) {
     }
 }
 
-/// The named edge's precondition (ADR-005 §4). AUTH-9 is seeded in `cancelled`,
-/// the one permitted state (`0001_init.sql:72`) the board does not render
-/// (`DEFAULT_COLUMNS`, projects.rs:49) — so it is findable by search
-/// (`list_issues_by_project` returns every issue) and has NO card.
-///
-/// BOTH halves are asserted, because the edge is the CONJUNCTION: an AUTH-9 that
-/// the search cannot find, or that the board DOES render, makes the no-op below
-/// true for a reason that has nothing to do with this scenario.
-#[given(regex = r"^AUTH-9 exists in a state the board does not display$")]
-async fn auth9_exists_in_an_unrendered_state(world: &mut FoundryWorld) {
-    let harness = world.harness.as_ref().expect("harness");
-    let pool = harness.app.state.store.pool();
-    let project: (uuid::Uuid, uuid::Uuid) =
-        sqlx::query_as("SELECT id, workspace_id FROM projects WHERE key_prefix = 'AUTH'")
-            .fetch_one(pool)
-            .await
-            .expect("the AUTH project the Background seeded");
-    let author: (uuid::Uuid,) = sqlx::query_as("SELECT id FROM users LIMIT 1")
-        .fetch_one(pool)
-        .await
-        .expect("fetch author");
-    sqlx::query(
-        "INSERT INTO issues (id, workspace_id, project_id, number, title, state, priority, author_id)
-              VALUES ($1, $2, $3, 9, $4, $5, 'medium', $6)",
-    )
-    .bind(uuid::Uuid::now_v7())
-    .bind(project.1)
-    .bind(project.0)
-    .bind("Cancelled cookie rotation spike")
-    .bind(UNRENDERED_STATE)
-    .bind(author.0)
-    .execute(pool)
-    .await
-    .unwrap_or_else(|err| {
-        panic!(
-            "seed AUTH-9 in the {UNRENDERED_STATE:?} state: {err}. `0001_init.sql:72` permits \
-             {{backlog,todo,in_progress,done,cancelled}} and the board renders only the first \
-             four (DEFAULT_COLUMNS, projects.rs:49) — if that CHECK constraint no longer admits \
-             {UNRENDERED_STATE:?}, the findable-but-cardless edge this scenario pins needs a new \
-             state, not a deleted assertion."
-        )
-    });
-    sqlx::query(
-        "UPDATE projects SET next_issue_number = GREATEST(next_issue_number, 10) WHERE id = $1",
-    )
-    .bind(project.0)
-    .execute(pool)
-    .await
-    .expect("advance next_issue_number past the seeded AUTH-9");
-}
+// The "AUTH-9 exists in a state the board does not display" Given was retired
+// with its scenario (see the retirement comment above modal_root_markup): the
+// board-lane-management feature makes an unrendered state structurally
+// unreachable, so the seed itself would be refused post-0015.
 
 /// AC-X.5's Given (NFR-6). The issue is filed with the REAL `c` and the REAL form
 /// submit, so the swap this scenario is about is the one the APP performs

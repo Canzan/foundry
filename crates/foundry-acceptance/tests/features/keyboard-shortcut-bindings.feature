@@ -402,21 +402,20 @@ Feature: The seven advertised keyboard shortcuts work in the browser
     When Mei presses "?"
     Then the help overlay tells Mei to press Tab from the search box to reach the results
 
-  # ADR-005 named edge: the board renders only {backlog,todo,in_progress,done};
-  # search returns every issue. An issue in another state is findable but has NO
-  # card -> Enter is a no-op (consistent with "no selection => no-op", FR-9).
-  #
-  # RESOLVED (UI-7). Its own Given ("AUTH-9 exists in a state the board does not
-  # display") was always green: AUTH-9 seeds in `cancelled`, search finds it, the board
-  # renders no card for it. Only the SHARED "selected the result with j" Given was
-  # unreachable, which UI-7's Tab resolution fixed.
-  @needs-browser @slice5 @us-06 @open @edge @named-edge
-  Scenario: Enter is a no-op for a found issue that the board does not render
-    Given AUTH-9 exists in a state the board does not display
-    And Mei has searched the board for "AUTH-9" and selected the result with "j"
-    When Mei presses "Enter"
-    Then no modal opens
-    And the browser does not navigate away
+  # RETIRED (board-lane-management DISTILL, 2026-08-22) — the ADR-005 named
+  # edge "Enter is a no-op for a found issue that the board does not render".
+  # Its premise (an issue findable-but-cardless because `cancelled` renders on
+  # no column — UNRENDERED_STATE) is destroyed BY DESIGN by that feature's
+  # slice 01: lanes become per-project data, every state gets a rendered lane,
+  # and the composite FK (ADR-BOARD-LANE-001) makes a cardless state
+  # structurally unreachable (KPI 2: zero invisible issues, permanently).
+  # Post-0015 the Given's INSERT itself would be refused by the FK, so the
+  # scenario could only falsely fail DELIVER. Successor coverage: the
+  # board-lane-management scenario "A long-invisible cancelled issue gets a
+  # visible lane" pins the transformed premise (the card now EXISTS and is
+  # interactable), and FR-9's "no selection => no-op" guard survives in the
+  # remaining no-op scenarios above. Rationale recorded in
+  # docs/feature/board-lane-management/feature-delta.md, Wave: DISTILL.
 
   # ===========================================================================
   # CROSS-CUTTING — delegation survives htmx swaps (AC-X.5), and the #kb-items

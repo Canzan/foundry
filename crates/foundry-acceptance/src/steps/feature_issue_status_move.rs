@@ -109,6 +109,8 @@ async fn project_with_issue_in_state(
     .execute(pool)
     .await
     .expect("insert project");
+    // board-lane-management sweep: raw-SQL projects need their lane rows.
+    crate::support::harness::seed_lanes_for_project(pool, project_id).await;
 
     let state = normalize_column(&column);
     sqlx::query(

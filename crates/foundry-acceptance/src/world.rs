@@ -71,6 +71,51 @@ pub struct FoundryWorld {
     /// Priya's seeded user id (issue author, membership anchor).
     pub iapr_priya_id: Option<uuid::Uuid>,
 
+    // ---- board-lane-management (blm) ----
+    /// Seeded ids, captured at Given time.
+    pub blm_workspace_id: Option<uuid::Uuid>,
+    pub blm_team_id: Option<uuid::Uuid>,
+    pub blm_priya_id: Option<uuid::Uuid>,
+    pub blm_marco_id: Option<uuid::Uuid>,
+    pub blm_project_ids: HashMap<String, uuid::Uuid>,
+    /// STORED `(team_slug, project_slug)` per seeded project name, READ BACK
+    /// from the database at seed time (the slug-capture rule — board/dialog
+    /// URLs are never re-derived from a name).
+    pub blm_project_slugs: HashMap<String, (String, String)>,
+    /// The board a chained Given/When last put in front of Priya (project
+    /// name) — lets "she opens its board" / "the fresh … board" compose.
+    pub blm_current_project: Option<String>,
+    /// Pre-write board-universe snapshot, the declared state-delta universe
+    /// (oracle discipline, feature-file header): lane rows `(slug, label,
+    /// position)` in board order; issue rows `(key, state, position)` in key
+    /// order; change-event and outbox row counts.
+    pub blm_lanes_before: Option<Vec<(String, String, i32)>>,
+    pub blm_issues_before: Option<Vec<(String, String, i32)>>,
+    pub blm_events_before: Option<i64>,
+    pub blm_outbox_before: Option<i64>,
+    /// Destination lane's card order captured BEFORE a move fate — the
+    /// append-at-bottom ordering oracle's anchor.
+    pub blm_dest_order_before: Option<Vec<String>>,
+    /// The lane whose delete dialog the scenario has open: (project name,
+    /// lane slug).
+    pub blm_dialog: Option<(String, String)>,
+    /// `(status, body)` of the FIRST machine move in the two-move scenario
+    /// (the second lands in `last_status`/`last_body`).
+    pub blm_first_move: Option<(StatusCode, String)>,
+    /// `(key, state)` echoed by the machine filing reply (7th-consumer
+    /// refinement: the reply names the ACTUAL landing lane).
+    pub blm_machine_created: Option<(String, String)>,
+    /// Migration-oracle scratch: dedicated schema + pool (staged 0001..0014,
+    /// then the canonical dir twice), and the staged pre-feature dir.
+    pub blm_mig_pool: Option<sqlx::PgPool>,
+    pub blm_mig_schema: Option<String>,
+    pub blm_mig_staged: Option<TestMigrationsDir>,
+    /// Project name → id inside the migration-oracle schema.
+    pub blm_mig_project_ids: HashMap<String, uuid::Uuid>,
+    /// Issue rows `(key, state, position)` snapshotted BEFORE the upgrade —
+    /// the zero-shuffle oracle (no issue row rewritten).
+    pub blm_mig_issues_before: Option<Vec<(String, String, i32)>>,
+
     // ---- US-05+ in-process harness ----
     pub harness: Option<InProcHarness>,
     pub http: Option<reqwest::Client>,

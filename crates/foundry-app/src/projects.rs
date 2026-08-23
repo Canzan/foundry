@@ -43,9 +43,12 @@ use tower_sessions::Session;
 
 const HX_REQUEST_HEADER: &str = "hx-request";
 
-/// Default state columns rendered on the empty board. Fixed in slice 1
-/// per AC ("Default states ... not editable in MVP"). Order matches the
-/// US-07 happy-path scenario assertion verbatim.
+/// Default state columns rendered on the empty board — RETIRED as a render
+/// source by board-lane-management 01-01 (columns now derive from the
+/// project's lane ROWS via `board_view`). Still referenced by the render
+/// tests as the grandfather lane shape; 01-02 deletes it (with
+/// `column_label_to_state`) and adds the check-arch no-static-lane-list rule.
+#[allow(dead_code)]
 const DEFAULT_COLUMNS: &[&str] = &["Backlog", "Todo", "In-Progress", "Done"];
 
 #[derive(Debug, Deserialize)]
@@ -292,7 +295,10 @@ pub async fn show_board(
         user_id: user.user_id,
         workspace_id: user.workspace_id,
     };
-    let issues = match foundry_services::board::list_board_issues(
+    // ONE authz gate for lanes + issues (board-lane-management D8): the board's
+    // columns are the project's own lane ROWS (`Store::list_project_lanes` via
+    // the shared `board_view` use-case), never a static list.
+    let board = match foundry_services::board::board_view(
         &state.store,
         &principal,
         &team_slug,
@@ -300,9 +306,9 @@ pub async fn show_board(
     )
     .await
     {
-        Ok(rows) => rows,
+        Ok(view) => view,
         Err(foundry_services::ServiceError::Forbidden) => return non_member_page(&team_slug),
-        Err(err) => return internal_error("list_board_issues", err),
+        Err(err) => return internal_error("board_view", err),
     };
     let key_prefix = match ProjectKey::try_new(&project.key_prefix) {
         Ok(k) => k,
@@ -338,7 +344,15 @@ pub async fn show_board(
         team_slug: &team_slug,
         project_slug: &project_slug,
     };
-    match render_board(&state, &location, &project, &issues, &key_prefix, nav) {
+    match render_board(
+        &state,
+        &location,
+        &project,
+        &board.lanes,
+        &board.issues,
+        &key_prefix,
+        nav,
+    ) {
         Ok(html) => {
             response_with_optional_cookie(StatusCode::OK, Html(html).into_response(), set_cookie)
         }
@@ -812,10 +826,12 @@ struct BoardLocation<'a> {
 /// `issue-card` partials — and now links the vendored `/static` stylesheet +
 /// htmx script via the base layout. Data ordering (column state-filtering)
 /// stays HERE in the handler-side builder; the template only loops.
+#[allow(clippy::too_many_arguments)]
 fn render_board(
     state: &AppState,
     location: &BoardLocation<'_>,
     project: &foundry_store::ProjectRow,
+    lanes: &[foundry_services::BoardLane],
     issues: &[foundry_services::BoardIssue],
     key_prefix: &ProjectKey,
     nav: crate::nav::NavContext,
@@ -836,7 +852,7 @@ fn render_board(
         }
     }
     let _ = state;
-    build_board_page(location, project, issues, key_prefix, nav).render()
+    build_board_page(location, project, lanes, issues, key_prefix, nav).render()
 }
 
 /// Map a template render failure to a CLEAN server error (US-B01 @error,
@@ -866,27 +882,27 @@ fn render_500(headers: &HeaderMap, template_name: &str, err: askama::Error) -> R
 fn build_board_page(
     location: &BoardLocation<'_>,
     project: &foundry_store::ProjectRow,
+    lanes: &[foundry_services::BoardLane],
     issues: &[foundry_services::BoardIssue],
     key_prefix: &ProjectKey,
     nav: crate::nav::NavContext,
 ) -> crate::views::BoardPage {
-    // Group issues by state. Slice 1: all newly filed issues land in
-    // 'backlog'; the other columns stay empty placeholders until drag-
-    // and-drop ships in slice 2. Every card URL is built from the
-    // [`BoardLocation`] slugs — the request-path identity, never a
-    // render-time name derivation (D2).
-    let columns = DEFAULT_COLUMNS
+    // The columns are the project's own lane rows in board order
+    // (board-lane-management D8): column slug = lane.slug, header =
+    // lane.label, card filter `issue.state == lane.slug`. Every card URL is
+    // built from the [`BoardLocation`] slugs — the request-path identity,
+    // never a render-time name derivation (D2).
+    let columns = lanes
         .iter()
-        .map(|col| {
-            let state_key = column_label_to_state(col);
+        .map(|lane| {
             let cards = issues
                 .iter()
-                .filter(|i| i.state == state_key)
+                .filter(|i| i.state == lane.slug)
                 .map(|row| issue_card(key_prefix, row, location.team_slug, location.project_slug))
                 .collect();
             crate::views::BoardColumn {
-                slug: col.to_ascii_lowercase().replace('-', "_"),
-                label: col.to_string(),
+                slug: lane.slug.clone(),
+                label: lane.label.clone(),
                 cards,
             }
         })
@@ -930,7 +946,10 @@ fn issue_key_string(key_prefix: &ProjectKey, row: &foundry_services::BoardIssue)
 }
 
 /// Map a column label ("Backlog", "Todo", "In-Progress", "Done") to the
-/// `issues.state` enum value persisted in Postgres.
+/// `issues.state` enum value persisted in Postgres. RETIRED from the render
+/// path by board-lane-management 01-01 (lane rows carry slug + label); kept
+/// only for the render tests' grandfather-lane fixture until 01-02 deletes it.
+#[allow(dead_code)]
 fn column_label_to_state(label: &str) -> &'static str {
     match label {
         "Backlog" => "backlog",
@@ -947,9 +966,23 @@ fn column_label_to_state(label: &str) -> &'static str {
 
 #[cfg(test)]
 mod board_render_tests {
-    use super::{build_board_page, BoardLocation};
+    use super::{build_board_page, column_label_to_state, BoardLocation, DEFAULT_COLUMNS};
     use askama::Template;
     use foundry_core::ProjectKey;
+
+    /// The four grandfathered lanes as migration 0015 seeds them — what
+    /// `board_view` returns for a pre-existing board. Built from the retired
+    /// render constants so the fixture stays byte-equal to the old headers
+    /// until 01-02 deletes both.
+    fn grandfather_lanes() -> Vec<foundry_services::BoardLane> {
+        DEFAULT_COLUMNS
+            .iter()
+            .map(|label| foundry_services::BoardLane {
+                slug: column_label_to_state(label).to_string(),
+                label: label.to_string(),
+            })
+            .collect()
+    }
 
     /// Render the board page through the same builder + `Template::render`
     /// path the handler uses on the success arm (the test-only flag-injection
@@ -980,9 +1013,16 @@ mod board_render_tests {
             team_slug,
             project_slug,
         };
-        build_board_page(&location, project, issues, key_prefix, nav)
-            .render()
-            .expect("board template renders")
+        build_board_page(
+            &location,
+            project,
+            &grandfather_lanes(),
+            issues,
+            key_prefix,
+            nav,
+        )
+        .render()
+        .expect("board template renders")
     }
 
     fn project() -> foundry_store::ProjectRow {

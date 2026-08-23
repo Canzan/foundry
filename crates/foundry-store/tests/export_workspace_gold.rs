@@ -130,12 +130,27 @@ async fn plant_one_row_per_tenant_table(
     .execute(pool)
     .await
     .expect("plant project");
+    // board-lane-management sweep: lane rows + explicit state (0015 dropped
+    // the CHECK/DEFAULT and added fk_issues_lane).
+    sqlx::query(
+        "INSERT INTO lanes (id, project_id, workspace_id, slug, label, position)
+         SELECT gen_random_uuid(), $1, $2, v.slug, v.label, v.position
+           FROM (VALUES ('backlog', 'Backlog', 0), ('todo', 'Todo', 1),
+                        ('in_progress', 'In-Progress', 2), ('done', 'Done', 3))
+                AS v (slug, label, position)
+             ON CONFLICT (project_id, slug) DO NOTHING",
+    )
+    .bind(project_id)
+    .bind(workspace_id)
+    .execute(pool)
+    .await
+    .expect("seed lanes for raw-SQL project fixture");
 
     // 7. issues
     let issue_id = uuid::Uuid::now_v7();
     sqlx::query(
-        "INSERT INTO issues (id, project_id, workspace_id, number, title, author_id)
-              VALUES ($1, $2, $3, 1, 'Gold issue', $4)",
+        "INSERT INTO issues (id, project_id, workspace_id, number, title, state, author_id)
+              VALUES ($1, $2, $3, 1, 'Gold issue', 'backlog', $4)",
     )
     .bind(issue_id)
     .bind(project_id)

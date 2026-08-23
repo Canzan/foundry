@@ -106,9 +106,10 @@ async fn seed_sandbox_issue(world: &FoundryWorld) {
         .fetch_one(pool)
         .await
         .expect("fetch Mei");
+    // board-lane-management sweep: 0015 dropped the state DEFAULT — INSERT it.
     sqlx::query(
-        "INSERT INTO issues (id, project_id, workspace_id, number, title, description_md, author_id)
-              VALUES ($1, $2, $3, 1, 'Fits a phone', '', $4)",
+        "INSERT INTO issues (id, project_id, workspace_id, number, title, description_md, state, author_id)
+              VALUES ($1, $2, $3, 1, 'Fits a phone', '', 'backlog', $4)",
     )
     .bind(uuid::Uuid::now_v7())
     .bind(project.0)

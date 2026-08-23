@@ -370,6 +370,8 @@ async fn project_already_exists(
     .execute(pool)
     .await
     .expect("seed existing project");
+    // board-lane-management sweep: raw-SQL projects need their lane rows.
+    crate::support::harness::seed_lanes_for_project(pool, project_id).await;
 }
 
 #[when(

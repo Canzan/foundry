@@ -194,10 +194,12 @@ async fn workspace_has_member_with_issues(
     .execute(&pool)
     .await
     .expect("insert project");
+    // board-lane-management sweep: lane rows + explicit state (0015).
+    crate::support::harness::seed_lanes_for_project(&pool, project_id).await;
     let issue_id = uuid::Uuid::now_v7();
     sqlx::query(
-        "INSERT INTO issues (id, project_id, workspace_id, number, title, author_id)
-              VALUES ($1, $2, $3, 1, 'Existing issue', $4)",
+        "INSERT INTO issues (id, project_id, workspace_id, number, title, state, author_id)
+              VALUES ($1, $2, $3, 1, 'Existing issue', 'backlog', $4)",
     )
     .bind(issue_id)
     .bind(project_id)
@@ -657,10 +659,12 @@ async fn provisioned_workspace_has_own_issues(
     .execute(&pool)
     .await
     .expect("insert provisioned-tenant project");
+    // board-lane-management sweep: lane rows + explicit state (0015).
+    crate::support::harness::seed_lanes_for_project(&pool, project_id).await;
     let issue_id = uuid::Uuid::now_v7();
     sqlx::query(
-        "INSERT INTO issues (id, project_id, workspace_id, number, title, author_id)
-              VALUES ($1, $2, $3, 1, 'Globex-only issue', $4)",
+        "INSERT INTO issues (id, project_id, workspace_id, number, title, state, author_id)
+              VALUES ($1, $2, $3, 1, 'Globex-only issue', 'backlog', $4)",
     )
     .bind(issue_id)
     .bind(project_id)
@@ -1186,6 +1190,8 @@ async fn an_issue_belongs_to(world: &mut FoundryWorld, ws_name: String) {
     .execute(&pool)
     .await
     .expect("insert provisioned-tenant project");
+    // board-lane-management sweep: raw-SQL projects need their lane rows.
+    crate::support::harness::seed_lanes_for_project(&pool, project_id).await;
     // Resolve any member of the provisioned workspace as the issue author.
     let author_id: uuid::Uuid = sqlx::query_scalar(
         "SELECT user_id FROM workspace_memberships WHERE workspace_id = $1 LIMIT 1",
@@ -1196,8 +1202,8 @@ async fn an_issue_belongs_to(world: &mut FoundryWorld, ws_name: String) {
     .expect("provisioned workspace has at least its first admin as a member");
     let issue_id = uuid::Uuid::now_v7();
     sqlx::query(
-        "INSERT INTO issues (id, project_id, workspace_id, number, title, author_id)
-              VALUES ($1, $2, $3, 1, 'Globex-secret issue', $4)",
+        "INSERT INTO issues (id, project_id, workspace_id, number, title, state, author_id)
+              VALUES ($1, $2, $3, 1, 'Globex-secret issue', 'backlog', $4)",
     )
     .bind(issue_id)
     .bind(project_id)

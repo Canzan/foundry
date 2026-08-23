@@ -396,9 +396,10 @@ async fn sandbox_has_issue(world: &mut FoundryWorld, issue_key: String, title: S
         .fetch_one(pool)
         .await
         .expect("fetch Mei");
+    // board-lane-management sweep: 0015 dropped the state DEFAULT — INSERT it.
     sqlx::query(
-        "INSERT INTO issues (id, project_id, workspace_id, number, title, description_md, author_id)
-              VALUES ($1, $2, $3, $4, $5, '', $6)",
+        "INSERT INTO issues (id, project_id, workspace_id, number, title, description_md, state, author_id)
+              VALUES ($1, $2, $3, $4, $5, '', 'backlog', $6)",
     )
     .bind(uuid::Uuid::now_v7())
     .bind(project.0)
@@ -813,9 +814,10 @@ async fn sandbox_issue_with_comment(world: &mut FoundryWorld, issue_key: String)
         .await
         .expect("fetch Mei");
     let issue_id = uuid::Uuid::now_v7();
+    // board-lane-management sweep: 0015 dropped the state DEFAULT — INSERT it.
     sqlx::query(
-        "INSERT INTO issues (id, project_id, workspace_id, number, title, description_md, author_id)
-              VALUES ($1, $2, $3, $4, $5, '', $6)",
+        "INSERT INTO issues (id, project_id, workspace_id, number, title, description_md, state, author_id)
+              VALUES ($1, $2, $3, $4, $5, '', 'backlog', $6)",
     )
     .bind(issue_id)
     .bind(project.0)

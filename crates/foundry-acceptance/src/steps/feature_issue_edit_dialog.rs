@@ -109,10 +109,13 @@ async fn project_with_issue(
     .execute(pool)
     .await
     .expect("insert project");
+    // board-lane-management sweep: raw-SQL projects need their lane rows.
+    crate::support::harness::seed_lanes_for_project(pool, project_id).await;
 
+    // board-lane-management sweep: 0015 dropped the state DEFAULT — INSERT it.
     sqlx::query(
-        "INSERT INTO issues (id, project_id, workspace_id, number, title, description_md, author_id)
-              VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        "INSERT INTO issues (id, project_id, workspace_id, number, title, description_md, state, author_id)
+              VALUES ($1, $2, $3, $4, $5, $6, 'backlog', $7)",
     )
     .bind(uuid::Uuid::now_v7())
     .bind(project_id)
@@ -175,9 +178,11 @@ async fn foreign_issue(world: &mut FoundryWorld, issue_key: String) {
     .execute(pool)
     .await
     .expect("insert foreign project");
+    // board-lane-management sweep: lane rows + explicit state (0015).
+    crate::support::harness::seed_lanes_for_project(pool, project_id).await;
     sqlx::query(
-        "INSERT INTO issues (id, project_id, workspace_id, number, title, description_md, author_id)
-              VALUES ($1, $2, $3, $4, $5, 'foreign body', $6)",
+        "INSERT INTO issues (id, project_id, workspace_id, number, title, description_md, state, author_id)
+              VALUES ($1, $2, $3, $4, $5, 'foreign body', 'backlog', $6)",
     )
     .bind(uuid::Uuid::now_v7())
     .bind(project_id)

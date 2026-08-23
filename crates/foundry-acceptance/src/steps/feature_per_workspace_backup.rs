@@ -170,10 +170,12 @@ async fn seed_tenant_data(pool: &PgPool, workspace_id: uuid::Uuid, ws_name: &str
     .execute(pool)
     .await
     .expect("insert project");
+    // board-lane-management sweep: lane rows + explicit state (0015).
+    crate::support::harness::seed_lanes_for_project(pool, project_id).await;
     let issue_id = uuid::Uuid::now_v7();
     sqlx::query(
-        "INSERT INTO issues (id, project_id, workspace_id, number, title, author_id)
-              VALUES ($1, $2, $3, 1, 'An issue', $4)",
+        "INSERT INTO issues (id, project_id, workspace_id, number, title, state, author_id)
+              VALUES ($1, $2, $3, 1, 'An issue', 'backlog', $4)",
     )
     .bind(issue_id)
     .bind(project_id)

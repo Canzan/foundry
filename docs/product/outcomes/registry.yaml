@@ -20,3 +20,28 @@ outcomes:
     output_shape: "Dashboard page nesting data-project-row entries (name, key prefix, team) under each data-workspace-row, name-ordered; data-project-empty 'No projects yet.' for a project-less workspace; uniform 404 for non-admins"
     invariant_note: "Deliberately instance-wide (cross-tenant) — reachable ONLY through the LAYER-1e allow-listed instance-admin surface."
     keywords: [project, listing, instance-wide, workspace-grouped, instance-admin]
+  # board-lane-management (DISTILL 2026-08-22) — lanes become per-project data.
+  - id: OUT-3
+    kind: operation
+    feature: board-lane-management
+    title: Read a project's board as its own lane list plus its cards
+    input_shape: "board_view(store, principal, team_slug, project_slug) via GET /team/{team_slug}/project/{project_slug} (session); BoardView { lanes: Vec<BoardLane { slug, label }>, issues: Vec<BoardIssue> }, lanes ORDER BY position"
+    output_shape: "Board page whose section.column[data-column={lane.slug}] set derives from lanes rows (never a static list — D2/D8); edit-dialog Status options, dnd targets, /api/v1 state validation and report labels all consume the same lane set; non-member -> existing board-page refusal (403 page; the LANE routes 404 — deliberate asymmetry, DESIGN refinement 4)"
+    invariant_note: "No adapter may hold a static lane list (check-arch rule; exemptions: store creation seed, humanize_state historical fallback). Grandfather migration 0015 is zero-shuffle; a Cancelled lane exists only where >=1 cancelled issue existed (D5)."
+    keywords: [board, lanes, per-project, data-driven-columns, grandfather]
+  - id: OUT-4
+    kind: operation
+    feature: board-lane-management
+    title: Delete a lane, settling the fate of its cards in one atomic operation
+    input_shape: "GET+POST /team/{team_slug}/project/{project_slug}/lanes/{lane_slug}/delete (session + double-submit _csrf on POST; fate=move|delete, destination iff move); Store::delete_lane_with_fate(project_id, lane_slug, LaneDeleteFate, actor_id) -> LaneDeleteOutcome"
+    output_shape: "Deleted{moved,deleted} -> OOB #board-columns refresh + cleared #modal-root | LastLane -> 422 'A board needs at least one lane' fragment (delete-lane-error) into [data-error-slot] | DestinationNotFound -> 422 | LaneNotFound/non-member/signed-out -> uniform non-enumerable 404 (BOTH verbs)"
+    invariant_note: "One transaction (ADR-BOARD-LANE-002): fate binds to CONFIRM-time membership (dialog count is advisory); move appends at destination bottom preserving order (0012) + one same-tx 0013 status event + one outbox row per card; delete is the hard delete_issue_cascade shape; the composite FK is the strand-guard (bounded retry <=3); cancel writes nothing."
+    keywords: [lane, delete, two-fate, move-all, delete-all, atomic, confirm-time]
+  - id: OUT-5
+    kind: invariant
+    feature: board-lane-management
+    title: A board always keeps at least one lane, and no issue is ever laneless
+    input_shape: "Every path that writes issues.state or removes lanes rows (HTML dialog save, dnd POST, /api/v1 PATCH, lane delete, issue create)"
+    output_shape: "delete of the sole lane -> refused 422 before any write (D6); any state write outside the project's lane set -> 422 invalid_state through the single validate_project_lane seam (DD10); new issues land in the leftmost lane (position ASC LIMIT 1), so a lane always exists to land in"
+    invariant_note: "Schema-enforced, not convention: composite FK (project_id, state) -> lanes (project_id, slug) (ADR-BOARD-LANE-001) makes a laneless issue unreachable in any committed state — the KPI 2 guard query must return 0 permanently."
+    keywords: [invariant, last-lane, laneless, composite-fk, leftmost-landing, validate_project_lane]

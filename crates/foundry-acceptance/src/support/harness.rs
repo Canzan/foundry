@@ -782,3 +782,29 @@ pub async fn signed_in_get(
         body,
     }
 }
+
+/// Seed the four grandfathered lanes for a RAW-SQL-inserted project
+/// (board-lane-management sweep). Fixtures that `INSERT INTO projects`
+/// directly bypass `Store::insert_project`'s creation-seed transaction, so
+/// post-0015 their issues would violate `fk_issues_lane` and their boards
+/// would render zero columns. Idempotent (`ON CONFLICT (project_id, slug)
+/// DO NOTHING`) — mirrors migration 0015's grandfather shape exactly.
+pub async fn seed_lanes_for_project(pool: &PgPool, project_id: uuid::Uuid) {
+    sqlx::query(
+        "INSERT INTO lanes (id, project_id, workspace_id, slug, label, position)
+         SELECT gen_random_uuid(), p.id, p.workspace_id, seed.slug, seed.label, seed.position
+           FROM projects p
+          CROSS JOIN (VALUES
+                 ('backlog',     'Backlog',     0),
+                 ('todo',        'Todo',        1),
+                 ('in_progress', 'In-Progress', 2),
+                 ('done',        'Done',        3)
+               ) AS seed (slug, label, position)
+          WHERE p.id = $1
+             ON CONFLICT (project_id, slug) DO NOTHING",
+    )
+    .bind(project_id)
+    .execute(pool)
+    .await
+    .expect("seed grandfather lanes for raw-SQL project fixture");
+}

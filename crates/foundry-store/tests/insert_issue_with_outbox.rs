@@ -98,7 +98,26 @@ async fn seed_project(
     .execute(store.pool())
     .await
     .expect("insert project");
+    seed_lanes(store, project_id, workspace_id).await;
     (workspace_id, project_id, user_id)
+}
+
+/// board-lane-management sweep: raw-SQL project fixtures need lane rows —
+/// post-0015 the composite FK `fk_issues_lane` refuses a laneless landing.
+async fn seed_lanes(store: &Store, project_id: uuid::Uuid, workspace_id: uuid::Uuid) {
+    sqlx::query(
+        "INSERT INTO lanes (id, project_id, workspace_id, slug, label, position)
+         SELECT gen_random_uuid(), $1, $2, v.slug, v.label, v.position
+           FROM (VALUES ('backlog', 'Backlog', 0), ('todo', 'Todo', 1),
+                        ('in_progress', 'In-Progress', 2), ('done', 'Done', 3))
+                AS v (slug, label, position)
+             ON CONFLICT (project_id, slug) DO NOTHING",
+    )
+    .bind(project_id)
+    .bind(workspace_id)
+    .execute(store.pool())
+    .await
+    .expect("seed lanes for raw-SQL project fixture");
 }
 
 async fn read_description(store: &Store, project_id: uuid::Uuid, number: i32) -> String {

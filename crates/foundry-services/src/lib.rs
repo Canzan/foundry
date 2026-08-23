@@ -371,6 +371,23 @@ pub struct BoardIssue {
     pub state: String,
 }
 
+/// One board lane as the neutral core returns it — never HTML, never JSON
+/// (board-lane-management, component-boundaries.md §3). `slug` is immutable
+/// identity (the value `issues.state` carries), `label` the display value.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BoardLane {
+    pub slug: String,
+    pub label: String,
+}
+
+/// The HTML board read's view: the project's lanes in board order plus the
+/// same issue rows [`board::list_board_issues`] returns.
+#[derive(Debug, Clone)]
+pub struct BoardView {
+    pub lanes: Vec<BoardLane>,
+    pub issues: Vec<BoardIssue>,
+}
+
 /// The freshly-created issue a write use-case returns.
 #[derive(Debug, Clone)]
 pub struct CreatedIssue {
@@ -441,6 +458,38 @@ pub mod board {
     use super::*;
     use foundry_store::Store;
 
+    /// Board read for the HTML adapter (board-lane-management): ONE
+    /// `resolve_member_project`-style gate ([`resolve_board_project`], shared
+    /// with [`list_board_issues`]), then the project's lanes (board order,
+    /// `Store::list_project_lanes`) + the same issue rows
+    /// [`list_board_issues`] returns. `list_board_issues` itself is unchanged
+    /// (the JSON list endpoint keeps it). `build_board_page` consumes
+    /// `BoardView.lanes`; the `DEFAULT_COLUMNS` const dies in 01-02 (D8).
+    pub async fn board_view(
+        store: &Store,
+        principal: &Principal,
+        team_slug: &str,
+        project_slug: &str,
+    ) -> Result<BoardView, ServiceError> {
+        let (project, key_prefix) =
+            resolve_board_project(store, principal, team_slug, project_slug).await?;
+
+        let lanes = store
+            .list_project_lanes(project.id)
+            .await
+            .map_err(|_| ServiceError::Internal)?
+            .into_iter()
+            .map(|lane| BoardLane {
+                slug: lane.slug,
+                label: lane.label,
+            })
+            .collect();
+
+        let issues = fetch_board_issues(store, project.id, &key_prefix).await?;
+
+        Ok(BoardView { lanes, issues })
+    }
+
     /// US-W05a / Feature B board read. The SAME function the JSON board
     /// endpoint and (Feature B) the HTML board call — the literal proof of
     /// core neutrality (NFR-WEB-BND-05).
@@ -455,6 +504,21 @@ pub mod board {
         team_slug: &str,
         project_slug: &str,
     ) -> Result<Vec<BoardIssue>, ServiceError> {
+        let (project, key_prefix) =
+            resolve_board_project(store, principal, team_slug, project_slug).await?;
+        fetch_board_issues(store, project.id, &key_prefix).await
+    }
+
+    /// THE board-read authz gate, shared by [`list_board_issues`] and
+    /// [`board_view`] so lanes and issues sit behind ONE
+    /// `resolve_member_project`-style resolution (board-lane-management,
+    /// component-boundaries.md §3).
+    async fn resolve_board_project(
+        store: &Store,
+        principal: &Principal,
+        team_slug: &str,
+        project_slug: &str,
+    ) -> Result<(foundry_store::ProjectRow, foundry_core::ProjectKey), ServiceError> {
         let team = store
             .find_team_by_slug(principal.workspace_id(), team_slug)
             .await
@@ -495,15 +559,25 @@ pub mod board {
         let key_prefix = foundry_core::ProjectKey::try_new(&project.key_prefix)
             .map_err(|_| ServiceError::Internal)?;
 
+        Ok((project, key_prefix))
+    }
+
+    /// The neutral issue rows for a resolved project — the SAME mapping both
+    /// board reads return.
+    async fn fetch_board_issues(
+        store: &Store,
+        project_id: uuid::Uuid,
+        key_prefix: &foundry_core::ProjectKey,
+    ) -> Result<Vec<BoardIssue>, ServiceError> {
         let rows = store
-            .list_issues_by_project(project.id)
+            .list_issues_by_project(project_id)
             .await
             .map_err(|_| ServiceError::Internal)?;
 
         Ok(rows
             .into_iter()
             .map(|row| BoardIssue {
-                key: issue_key(&key_prefix, row.number),
+                key: issue_key(key_prefix, row.number),
                 number: row.number,
                 title: row.title,
                 state: row.state,
@@ -528,5 +602,6 @@ pub mod board {
 
 pub mod comments;
 pub mod issues;
+pub mod lanes;
 pub mod projects;
 pub mod tokens;

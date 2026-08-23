@@ -1,0 +1,237 @@
+{
+  "roadmap": {
+    "project_id": "board-lane-management",
+    "created_at": "2026-08-23T05:13:35Z",
+    "total_steps": 6
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "Walking skeleton — lanes become per-project data (US-BLM-01)",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "Migration 0015 + lane-driven board render (grandfather, cancelled surfacing)",
+          "description": "Land migration 0015_project_lanes.sql (lanes DDL, idempotent grandfather seed incl. conditional Cancelled, drop CHECK + DEFAULT, add composite FK fk_issues_lane — forward-only, zero issue-row updates per data-models.md). Make Store::list_project_lanes and services board::board_view real; switch board render from DEFAULT_COLUMNS iteration to lane rows (const not yet deleted — 01-02). Sweep other acceptance step modules that seed projects/issues via raw SQL so their fixtures satisfy the new FK.",
+          "criteria": [
+            "Migration 0015 creates lanes, seeds four grandfathered lanes per project (Cancelled only where a cancelled issue exists), swaps CHECK/DEFAULT for composite FK fk_issues_lane; idempotent seed, zero issue-row updates.",
+            "Boards without cancelled issues render byte-identically after upgrade; a project holding cancelled issues gains a Cancelled column after Done, showing the previously invisible card.",
+            "Board columns derive from Store::list_project_lanes through services board_view (one authz gate); acceptance oracles read lane rows back from the DB, never a static list.",
+            "Zero-laneless guard query returns 0 after migration and after every scenario; migration oracle passes staged 0001..0014 then canonical run, executed twice.",
+            "Existing suites that seed projects/issues via raw SQL are swept to seed lane rows; full workspace (check, clippy, check-arch, acceptance default lane) stays green."
+          ],
+          "estimate": "0.5 day",
+          "dependencies": [],
+          "files_to_modify": [
+            "crates/foundry-store/migrations/0015_project_lanes.sql",
+            "crates/foundry-store/src/lanes.rs",
+            "crates/foundry-services/src/lib.rs",
+            "crates/foundry-app/src/projects.rs",
+            "crates/foundry-app/templates/board.html",
+            "crates/foundry-acceptance/tests/features/board-lane-management.feature",
+            "crates/foundry-acceptance/src/steps/"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/board-lane-management.feature",
+          "scenario_name": [
+            "The upgrade grandfathers every existing board and can run twice safely",
+            "Existing boards render unchanged when lanes become data",
+            "A long-invisible cancelled issue gets a visible lane"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): PBT (proptest) for new pure logic (classify_lane_delete, leftmost selection, lane validation predicate); single-example only with a # bypass: comment; acceptance = un-pend the DISTILL feature file, never re-author; browser/integration single-example. THIS STEP: EXEMPT — migration SQL, query pass-throughs and template wiring introduce no new pure logic; compensating properties are the run-twice migration oracle (stage_subset(14) + run_migrations_from_dir, executed twice), the FK ADD validating every live row (the migration's built-in probe, architecture-design.md §4), and DB-derived lane oracles. Earned Trust: verify the issues_state_check auto-generated constraint name via pg_constraint on a live-data copy BEFORE relying on the DROP (DISTILL pre-req 1). Seed ids via gen_random_uuid(); labels byte-equal to today's headers (backlog/Backlog/0, todo/Todo/1, in_progress/In-Progress/2, done/Done/3, conditional cancelled/Cancelled/4). Un-pend order: walking-skeleton scenario first."
+        },
+        {
+          "id": "01-02",
+          "name": "Per-project lane validation live; static lane expressions deleted; check-arch rule",
+          "description": "Make validate_project_lane real (alias fold then per-project membership — the DD10 single seam) and swap it into change_issue_state so HTML dialog, dnd POST and /api/v1 PATCH accept/refuse identically. Edit-dialog Status options become a loop over IssueEditView.lanes. Delete the now-dead static lane expressions (DEFAULT_COLUMNS, column_label_to_state, hardcoded option list); wire report status labels to live lanes.label with humanize_state fallback for dead slugs. Add the check-arch no-static-lane-list rule (architecture-design.md §8).",
+          "criteria": [
+            "Edit-dialog Status options loop over IssueEditView.lanes in board order; a board with a Cancelled lane offers exactly five options, one without offers four.",
+            "validate_project_lane (alias fold, then lane-set membership) sits behind change_issue_state; an unknown lane on HTML dialog, dnd POST or API PATCH is refused 422 invalid_state.",
+            "DEFAULT_COLUMNS, column_label_to_state and the hardcoded option list are deleted; report status labels resolve live lanes.label with humanize_state fallback for dead slugs.",
+            "cargo xtask check-arch fails any build reintroducing a static lane-slug list under crates/foundry-app/src or crates/foundry-api/src outside #[cfg(test)]; exemptions: store creation seed, humanize_state fallback.",
+            "Drag-and-drop lands cards exactly where dropped, persists on reload, and records the status change event — unchanged behavior over data-driven lanes; board-dnd.js and keyboard.js untouched."
+          ],
+          "estimate": "0.5 day",
+          "dependencies": [
+            "01-01"
+          ],
+          "files_to_modify": [
+            "crates/foundry-services/src/issues.rs",
+            "crates/foundry-app/src/projects.rs",
+            "crates/foundry-app/templates/partials/issue_edit_modal.html",
+            "xtask/src/check_arch.rs",
+            "crates/foundry-acceptance/tests/features/board-lane-management.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/board-lane-management.feature",
+          "scenario_name": [
+            "The edit dialog offers exactly the board's lanes",
+            "A write to a lane the board does not have is refused",
+            "Drag-and-drop still lands cards exactly where they are dropped"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): PBT (proptest) for new pure logic (classify_lane_delete, leftmost selection, lane validation predicate); single-example only with a # bypass: comment; acceptance = un-pend the DISTILL feature file, never re-author; browser/integration single-example. PBT TARGET here: the lane-validation predicate — property: for any lane set and any input, validate accepts iff normalized input is a member; alias folding (in-progress→in_progress, canceled→cancelled) is preserved. normalize_state is demoted to a private helper, never removed from the alias-folding role. The check-arch rule follows the slugify-ban idiom; its two exemptions (store creation seed, humanize_state historical fallback) are pinned by architecture-design.md §8 / ADR-BOARD-LANE-001 and must be documented in the rule."
+        }
+      ]
+    },
+    {
+      "id": "02",
+      "name": "New-project defaults and leftmost landing (US-BLM-02)",
+      "steps": [
+        {
+          "id": "02-01",
+          "name": "Three-lane creation seed; leftmost-lane issue landing; truthful create echo",
+          "description": "insert_project becomes a transaction that also seeds exactly Backlog, In-Progress, Done (the creation-seed constant lives in foundry-store::lanes — documented exemption). insert_issue_with_outbox resolves the project's leftmost lane inside its transaction, inserts state explicitly (column DEFAULT is gone), and returns InsertedIssue { number, state }; CreatedIssue.state echoes the actual landing slug, replacing the hardcoded \"backlog\".",
+          "criteria": [
+            "insert_project transactionally seeds exactly backlog/Backlog/0, in_progress/In-Progress/1, done/Done/2; a freshly created board renders exactly those three columns in that order.",
+            "insert_issue_with_outbox resolves the leftmost lane (ORDER BY position ASC LIMIT 1) inside its transaction, inserts state explicitly, and returns InsertedIssue carrying the persisted landing slug.",
+            "CreatedIssue.state echoes the actual landing slug through the API create reply — the hardcoded \"backlog\" echo at services/issues.rs:124 is gone.",
+            "A new project's edit dialog offers exactly Backlog, In-Progress, Done; the API accepts \"in_progress\" (200, card moves) and refuses \"todo\" (422, card unchanged).",
+            "If the resolved leftmost lane is deleted concurrently, the insert retries once re-resolving leftmost; a second failure maps to an honest store error, fully rolled back."
+          ],
+          "estimate": "0.5 day",
+          "dependencies": [
+            "01-02"
+          ],
+          "files_to_modify": [
+            "crates/foundry-store/src/lib.rs",
+            "crates/foundry-store/src/lanes.rs",
+            "crates/foundry-services/src/issues.rs",
+            "crates/foundry-acceptance/tests/features/board-lane-management.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/board-lane-management.feature",
+          "scenario_name": [
+            "A new project's board opens with the three default lanes",
+            "The first issue lands in the leftmost lane",
+            "The filing reply names the lane the issue actually landed in",
+            "The edit dialog of a new project offers exactly the three lanes",
+            "The board's lanes bound what any client may set"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): PBT (proptest) for new pure logic (classify_lane_delete, leftmost selection, lane validation predicate); single-example only with a # bypass: comment; acceptance = un-pend the DISTILL feature file, never re-author; browser/integration single-example. PBT TARGET here: leftmost selection — property: for any non-empty lane set, the landing lane is the unique minimum position, independent of insertion order and slugs. Acceptance oracles already derive 'leftmost' from lane rows (position ASC LIMIT 1) — do not weaken them. Three-defaults chain drives the REAL create port (POST /team/{t}/projects), not SQL seeding. The InsertedIssue return-type change ripples to every insert_issue_with_outbox caller; the store creation-seed constant is one of the two check-arch exemptions."
+        }
+      ]
+    },
+    {
+      "id": "03",
+      "name": "Empty-lane deletion behind a confirm dialog (US-BLM-03)",
+      "steps": [
+        {
+          "id": "03-01",
+          "name": "Delete-lane dialog GET + confirm POST: empty-lane path, last-lane refusal, authz, CSRF",
+          "description": "Make the lane routes real: safe GET renders partials/delete_lane_modal.html into #modal-root (empty-lane confirm-only arm); confirm POST executes the empty-lane delete through services delete_lane / classify_lane_delete and the delete_lane_with_fate transaction skeleton (lock lane, last-lane gate, lane-row delete — fate arms trivial for zero cards). Board gains the per-column delete affordance and id=\"board-columns\"; success responds with the OOB column refresh. Last-lane 422 into [data-error-slot]; uniform 404 on both verbs for non-members; CSRF leg on the POST.",
+          "criteria": [
+            "GET lanes/{slug}/delete is a safe read (no _csrf, no writes) rendering the dialog into #modal-root; empty-lane copy: \"It holds no issues. This cannot be undone.\"",
+            "Confirmed empty-lane delete removes the lane from board render, dialog options, dnd targets and API validation via the OOB #board-columns swap without full reload; persists across reloads.",
+            "Deleting the sole remaining lane returns 422 with exact copy \"A board needs at least one lane\" routed into [data-error-slot]; the lane survives.",
+            "After the leftmost lane is deleted, new issues land in the new leftmost lane.",
+            "Non-member GET and POST return the uniform 404 byte-identical to a never-existed path; a tokenless POST is refused by the CSRF middleware; nothing is written."
+          ],
+          "estimate": "1 day",
+          "dependencies": [
+            "02-01"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/src/lanes.rs",
+            "crates/foundry-services/src/lanes.rs",
+            "crates/foundry-store/src/lanes.rs",
+            "crates/foundry-app/templates/partials/delete_lane_modal.html",
+            "crates/foundry-app/templates/board.html",
+            "crates/foundry-acceptance/tests/features/board-lane-management.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/board-lane-management.feature",
+          "scenario_name": [
+            "An empty lane disappears after an explicit confirm",
+            "Asking for the confirm dialog changes nothing by itself",
+            "The last lane cannot be deleted",
+            "New issues follow the leftmost surviving lane",
+            "Only team members can delete a lane",
+            "A delete that does not carry the board's matching token is refused"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): PBT (proptest) for new pure logic (classify_lane_delete, leftmost selection, lane validation predicate); single-example only with a # bypass: comment; acceptance = un-pend the DISTILL feature file, never re-author; browser/integration single-example. PBT TARGET here: classify_lane_delete partial arms — properties: lane_count==1 always LastLane; lane absent always NotFound; never Proceed when either holds. VERBATIM COPY PINNED (component-boundaries.md §4): last-lane 422 fragment \"A board needs at least one lane\"; empty-lane dialog \"It holds no issues. This cannot be undone.\"; close is button.modal-close[data-action=\"close-modal\"] ONLY — no new Escape/click listener (BR-4, ADR-MODAL-CLOSE-001). Refusals on lane routes are the uniform resource_not_found_page on BOTH verbs; the lane-route-404 vs board-page-403 asymmetry is chosen (architecture-design.md §10.4). Scraper markers must match component-boundaries §4 exactly (data-modal, data-lane, data-lane-count, data-lane-delete, data-error-slot). The related @needs-browser modal-close scenario is owned by 04-02, keeping this step at 6 scenarios."
+        }
+      ]
+    },
+    {
+      "id": "04",
+      "name": "Two-fate deletion of a populated lane (US-BLM-04)",
+      "steps": [
+        {
+          "id": "04-01",
+          "name": "The two-fate write path: move-all / delete-all in one guarded transaction",
+          "description": "Complete Store::delete_lane_with_fate per ADR-BOARD-LANE-002: one transaction — lock dying lane, last-lane gate, lock destination (move), confirm-time membership FOR UPDATE (position ASC, number DESC), fate arm (move: append positions + one 0013 status event + one IssueUpdated outbox row per card; delete: DELETE WHERE id = ANY(ids), delete_issue_cascade shape), lane-row delete as FK strand-guard, bounded retry (≤3) on foreign_key_violation/deadlock. Complete classify_lane_delete (UnknownDestination arm) and the populated-lane dialog arm (count copy, survivor picker, two fate buttons).",
+          "criteria": [
+            "delete_lane_with_fate is one transaction: lane lock, last-lane gate, confirm-time membership FOR UPDATE, fate arm, lane delete; FK strand-guard with bounded retry (max 3) re-resolving membership.",
+            "Move fate appends cards at destination positions C..C+N-1 preserving relative order, writing one 0013 status event (old=dying, new=destination, actor=operator) plus one outbox row per card, same transaction.",
+            "Delete fate removes cards permanently via the delete_issue_cascade shape — gone from board and search; no events, no outbox, no tombstone.",
+            "Dialog for N>=1 cards states \"It holds {N} issues.\" and offers exactly two fates plus cancel; picker lists survivors in board order, leftmost preselected; cancel leaves everything byte-identical.",
+            "A card committed into the dying lane mid-decision is included in the fate at confirm time; zero-laneless guard holds after commit; retry exhaustion returns 500, fully rolled back."
+          ],
+          "estimate": "0.75 day",
+          "dependencies": [
+            "03-01"
+          ],
+          "files_to_modify": [
+            "crates/foundry-store/src/lanes.rs",
+            "crates/foundry-services/src/lanes.rs",
+            "crates/foundry-app/src/lanes.rs",
+            "crates/foundry-app/templates/partials/delete_lane_modal.html",
+            "crates/foundry-acceptance/tests/features/board-lane-management.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/board-lane-management.feature",
+          "scenario_name": [
+            "Cards move to the chosen lane and keep their order",
+            "Cards are deleted only by an explicit, counted, permanent choice",
+            "The prompt offers only surviving lanes as destinations",
+            "Walking away from the prompt changes nothing",
+            "A card filed mid-decision is still accounted for"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): PBT (proptest) for new pure logic (classify_lane_delete, leftmost selection, lane validation predicate); single-example only with a # bypass: comment; acceptance = un-pend the DISTILL feature file, never re-author; browser/integration single-example. PBT TARGET here: classify_lane_delete complete — properties: Proceed{Move} iff lane exists, count>1, destination in survivors and != dying; destination==dying or absent => UnknownDestination; decision is pure in its inputs. VERBATIM COPY PINNED (component-boundaries.md §4): \"It holds {N} issues.\", buttons \"Move all {N} to …\" (fate=move) and \"Delete all {N} permanently — this cannot be undone\" (fate=delete); 422 fragments (UnknownDestination) route into [data-error-slot]; double-submit race => uniform 404. Earned Trust gold tests (architecture-design.md §8, ADR-BOARD-LANE-002): (1) file an issue into the dying lane between dialog GET and confirm POST, assert zero-laneless guard; (2) crossing A<->B concurrent deletes resolve cleanly — both succeed or one fails cleanly, never partial. The narrower mid-transaction window is documented untestable in-lane (DISTILL oracle discipline #7); a store-level pause-seam test is optional. Mutation >=80% on touched code."
+        },
+        {
+          "id": "04-02",
+          "name": "Browser lane: fate dialog end-to-end and dialog close, feature closeout",
+          "description": "Un-pend the two @needs-browser scenarios and drive them green in the fantoccini lane: the full counted fate decision in #modal-root (htmx submitter name/value verified empirically per the Earned Trust table), and dialog close via the declarative data-action mechanism leaving the board alone. Close out the feature: zero @pending remaining, mutation and DoD gates.",
+          "criteria": [
+            "Browser: clicking delete on a populated lane opens the fate dialog in #modal-root showing lane name and live count; each fate button submits its name=value and produces the observable outcome.",
+            "Browser: the dialog closes via data-action=\"close-modal\" and Esc through the single Escape owner; the board is untouched after close; no new listeners registered (BR-4).",
+            "Both @needs-browser scenarios green in the fantoccini lane (chromedriver probe-then-refuse harness).",
+            "Zero @pending scenarios remain in board-lane-management.feature; all 24 green; per-feature mutation >=80% on touched code; cargo xtask ci green."
+          ],
+          "estimate": "0.25 day",
+          "dependencies": [
+            "04-01"
+          ],
+          "files_to_modify": [
+            "crates/foundry-acceptance/tests/features/board-lane-management.feature",
+            "crates/foundry-acceptance/src/steps/feature_board_lane_management.rs",
+            "crates/foundry-app/templates/partials/delete_lane_modal.html"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/board-lane-management.feature",
+          "scenario_name": [
+            "Deleting a full lane from the board is one visible, counted decision",
+            "The delete dialog closes like every other dialog, leaving the board alone"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): PBT (proptest) for new pure logic (classify_lane_delete, leftmost selection, lane validation predicate); single-example only with a # bypass: comment; acceptance = un-pend the DISTILL feature file, never re-author; browser/integration single-example. THIS STEP: EXEMPT — no new pure logic; browser scenarios are single-example by directive. Compensating property: the markup contract these scenarios exercise (data-modal, fate buttons, data-action close, data-error-slot) is already pinned by the HTTP-lane oracles of 03-01/04-01; the browser lane adds only what HTTP cannot prove — htmx submitter name/value inclusion and the single-Escape-owner close (Earned Trust table rows 4 and BR-4). Template edits here are permitted only if the browser run reveals a markup gap; behavior changes belong to 04-01. DoD closeout: live round-trip demo (grandfathered board -> delete empty Todo -> delete full lane choosing Move -> change report shows the bulk move)."
+        }
+      ]
+    }
+  ],
+  "implementation_scope": {
+    "source_directories": [
+      "crates/foundry-store/",
+      "crates/foundry-services/",
+      "crates/foundry-app/",
+      "crates/foundry-api/",
+      "xtask/"
+    ],
+    "test_directories": [
+      "crates/foundry-acceptance/"
+    ],
+    "excluded_patterns": [
+      "target/**",
+      "node_modules/**"
+    ]
+  },
+  "validation": {
+    "status": "approved",
+    "reviewer": "nw-acceptance-designer-reviewer",
+    "approved_at": "2026-08-23T05:20:44Z"
+  }
+}

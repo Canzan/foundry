@@ -1254,10 +1254,12 @@ async fn seed_board(
     .execute(pool)
     .await
     .expect("seed project");
+    // board-lane-management sweep: lane rows + explicit state (0015).
+    crate::support::harness::seed_lanes_for_project(pool, project_id).await;
     let author = team_member.unwrap_or(project_id);
     sqlx::query(
-        "INSERT INTO issues (id, project_id, workspace_id, number, title, author_id)
-              VALUES ($1, $2, $3, 1, $4, $5)",
+        "INSERT INTO issues (id, project_id, workspace_id, number, title, state, author_id)
+              VALUES ($1, $2, $3, 1, $4, 'backlog', $5)",
     )
     .bind(uuid::Uuid::now_v7())
     .bind(project_id)

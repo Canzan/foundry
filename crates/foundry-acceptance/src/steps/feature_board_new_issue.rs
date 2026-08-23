@@ -131,11 +131,12 @@ async fn project_exists_under(
             .fetch_one(pool)
             .await
             .expect("fetch team");
+    let project_id = uuid::Uuid::now_v7();
     sqlx::query(
         "INSERT INTO projects (id, team_id, workspace_id, name, slug, key_prefix)
               VALUES ($1, $2, $3, $4, $5, $6)",
     )
-    .bind(uuid::Uuid::now_v7())
+    .bind(project_id)
     .bind(team_row.0)
     .bind(ws.0)
     .bind(&project)
@@ -144,6 +145,8 @@ async fn project_exists_under(
     .execute(pool)
     .await
     .expect("insert project");
+    // board-lane-management sweep: raw-SQL projects need their lane rows.
+    crate::support::harness::seed_lanes_for_project(pool, project_id).await;
 }
 
 // ----- When: fetch the board / modal, post an issue ------------------------

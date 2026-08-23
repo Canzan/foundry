@@ -53,6 +53,25 @@ fn validate_description(description: &str) -> Result<(), ServiceError> {
     Ok(())
 }
 
+/// DD10 single seam, PER-PROJECT (board-lane-management, RED scaffold —
+/// DISTILL Mandate 7 / ADR-025, SCAFFOLD: true): fold aliases (the
+/// `normalize_state` folding survives as a private helper of this seam), then
+/// require membership in the PROJECT'S lane set (`Store::list_project_lanes`).
+/// Every write path — HTML dialog save, dnd POST, JSON PATCH — calls THIS;
+/// unknown lane → `ServiceError::Validation { code: "invalid_state" }` (D8).
+/// Returns the canonical lane slug actually accepted. DELIVER replaces the
+/// body and swaps `change_issue_state`'s `normalize_state` call for this seam
+/// (it already holds `project` from `resolve_member_project`).
+pub async fn validate_project_lane(
+    _store: &foundry_store::Store,
+    _project_id: uuid::Uuid,
+    _input: &str,
+) -> Result<String, ServiceError> {
+    panic!(
+        "issues::validate_project_lane not yet implemented — RED scaffold (board-lane-management)"
+    )
+}
+
 /// Map the incoming state value (which may be the human label used in feature
 /// files like `"in-progress"`) to the schema-enforced enum stored in
 /// `issues.state`. MOVED here from `foundry-app/src/issues.rs` (DD10) so the

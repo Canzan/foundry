@@ -119,6 +119,8 @@ async fn project_with_issues(
     .execute(pool)
     .await
     .expect("insert project");
+    // board-lane-management sweep: raw-SQL projects need their lane rows.
+    crate::support::harness::seed_lanes_for_project(pool, project_id).await;
 
     // Seed each issue with the DEFAULT position (0). The ordered read
     // (`position ASC, number DESC`) then yields number-DESC per column with no
@@ -185,6 +187,8 @@ async fn foreign_issue_exists(world: &mut FoundryWorld, key: String) {
     .execute(pool)
     .await
     .expect("insert foreign project");
+    // board-lane-management sweep: raw-SQL projects need their lane rows.
+    crate::support::harness::seed_lanes_for_project(pool, project_id).await;
     sqlx::query(
         "INSERT INTO issues (id, project_id, workspace_id, number, title, description_md, state, author_id)
               VALUES ($1, $2, $3, $4, 'Foreign issue', '', 'todo', $5)",

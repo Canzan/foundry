@@ -2028,4 +2028,8 @@ async fn seed_team_with_project(
     .execute(pool)
     .await
     .expect("seed other-team project");
+    // board-lane-management sweep: raw-SQL projects need their lane rows
+    // (no-op when the ON CONFLICT arm skipped the insert — the existing
+    // project already carries its lanes).
+    crate::support::harness::seed_lanes_for_project(pool, project_id).await;
 }

@@ -120,3 +120,47 @@ jobs:
         usability heuristic (user control and freedom: no visible escape),
         and the fix is under half a day.
     validated_by: docs/feature/issue-edit-modal-close-icon/feature-delta.md
+
+  - id: job-board-lane-shaping
+    title: Shape a project's board lanes to match how the work actually flows
+    job_story: >
+      When my board renders lanes my workflow never uses (Todo sits empty
+      between Backlog and In-Progress on every project I create), I want new
+      boards to start with just Backlog, In-Progress and Done and the power to
+      delete a lane — deciding on the spot whether its cards move to another
+      lane or are deleted — so each board reads as my actual process, not the
+      tool's default.
+    dimensions:
+      functional: Start projects with three lanes and remove any lane, with an explicit, counted choice about the fate of its cards.
+      emotional: Stop scanning past dead columns; the board is mine, not a template I tolerate.
+      social: Anyone shown the board sees only stages that mean something — no "what goes in Todo vs Backlog?" tour.
+    forces:
+      push: >
+        Every project renders the same four hardcoded columns — the lane set
+        lives in a DB CHECK constraint and a Rust const — and a fifth state,
+        cancelled, renders on no board at all, so cancelled issues are
+        invisible outside search. The only "fix" today is ignoring the dead
+        column forever.
+      pull: >
+        A delete control on the column itself, with the same confirm-dialog
+        care the rest of the app shows — and new projects that start lean.
+      anxiety: >
+        That deleting a lane silently eats the cards inside it, or strands
+        them invisible the way cancelled issues are stranded today. The
+        prompt answers this directly: every card is explicitly moved or
+        explicitly deleted, never dropped.
+      habit: >
+        Four columns is what every board has looked like since slice 1.
+        Existing boards must render identically until the operator chooses
+        otherwise — the new defaults apply to NEW projects only; migration
+        never deletes a lane.
+    opportunity:
+      importance: medium
+      satisfaction: low
+      note: >
+        Single-job feature; no comparative scoring table (the skill requires
+        one only when multiple jobs compete). Importance medium — cosmetic at
+        a glance, but the current state hides a real defect (cancelled issues
+        render on no board) and blocks every workflow that is not the
+        hardcoded one.
+    validated_by: docs/feature/board-lane-management/feature-delta.md

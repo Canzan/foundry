@@ -327,6 +327,8 @@ async fn foreign_project(world: &mut FoundryWorld, project_name: String, key_pre
     .execute(pool)
     .await
     .expect("insert foreign project");
+    // board-lane-management sweep: raw-SQL projects need their lane rows.
+    crate::support::harness::seed_lanes_for_project(pool, project_id).await;
 }
 
 // ----- Then: S1 modal carries the description textarea ----------------------

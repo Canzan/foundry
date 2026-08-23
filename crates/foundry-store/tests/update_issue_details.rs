@@ -97,6 +97,21 @@ async fn seed_project(
     .execute(store.pool())
     .await
     .expect("insert project");
+    // board-lane-management sweep: raw-SQL project fixtures need lane rows
+    // (post-0015 fk_issues_lane refuses a laneless issue INSERT).
+    sqlx::query(
+        "INSERT INTO lanes (id, project_id, workspace_id, slug, label, position)
+         SELECT gen_random_uuid(), $1, $2, v.slug, v.label, v.position
+           FROM (VALUES ('backlog', 'Backlog', 0), ('todo', 'Todo', 1),
+                        ('in_progress', 'In-Progress', 2), ('done', 'Done', 3))
+                AS v (slug, label, position)
+             ON CONFLICT (project_id, slug) DO NOTHING",
+    )
+    .bind(project_id)
+    .bind(workspace_id)
+    .execute(store.pool())
+    .await
+    .expect("seed lanes for raw-SQL project fixture");
     (project_id, user_id)
 }
 
@@ -115,9 +130,10 @@ async fn seed_issue(
             .fetch_one(store.pool())
             .await
             .expect("fetch project workspace");
+    // board-lane-management sweep: 0015 dropped the state DEFAULT — INSERT it.
     sqlx::query(
-        "INSERT INTO issues (id, project_id, workspace_id, number, title, description_md, author_id)
-              VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        "INSERT INTO issues (id, project_id, workspace_id, number, title, description_md, state, author_id)
+              VALUES ($1, $2, $3, $4, $5, $6, 'backlog', $7)",
     )
     .bind(uuid::Uuid::now_v7())
     .bind(project_id)

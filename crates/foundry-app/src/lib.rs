@@ -24,6 +24,7 @@ pub mod instance_admin;
 pub mod invites_accept;
 pub mod issues;
 pub mod keyboard;
+pub mod lanes;
 pub mod member_invites;
 pub mod metrics_server;
 pub mod nav;
@@ -591,6 +592,19 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/team/{team_slug}/project/{project_slug}/issues/{issue_number}/state",
             post(issues::submit_state_change),
+        )
+        // board-lane-management (D7/D10) — the lane-delete dialog GET (a SAFE
+        // read, no `_csrf`) + the mutating confirm POST (form `_csrf`; the
+        // CSRF middleware pre-handler refuses a tokenless POST). Mounted HERE,
+        // UNDER `csrf::csrf_middleware` + `session_layer`, like every board
+        // surface. Refusals on BOTH verbs are the uniform non-enumerable 404
+        // (deliberate 404-vs-403 asymmetry vs `show_board` — DESIGN
+        // refinement 4). Lane slugs in the path are immutable identity (D9);
+        // handlers resolve them against stored rows, never derive them.
+        // RED scaffold handlers (lanes.rs, ADR-025).
+        .route(
+            "/team/{team_slug}/project/{project_slug}/lanes/{lane_slug}/delete",
+            get(lanes::show_delete_lane_dialog).post(lanes::submit_delete_lane),
         )
         // issue-edit-dialog (ADR-001) — GET the pre-filled edit dialog, POST the
         // save. Same shared layer (UNDER `csrf_middleware` + `session_layer`): the

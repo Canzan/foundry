@@ -213,6 +213,8 @@ async fn project_exists_in_workspace(
     .execute(pool)
     .await
     .expect("insert project");
+    // board-lane-management sweep: raw-SQL projects need their lane rows.
+    crate::support::harness::seed_lanes_for_project(pool, project_id).await;
 
     // navigation-bar-linear-ui (step 02-01): the presence-sweep navigates INTO
     // this project's board (`/team/general/project/sandbox` + `.../report`),

@@ -832,9 +832,10 @@ async fn seed_issue_range(world: &mut FoundryWorld, prefix: &str, lo: i32, hi: i
             .expect("mei lookup");
     for n in lo..=hi {
         let issue_id = uuid::Uuid::now_v7();
+        // board-lane-management sweep: 0015 dropped the state DEFAULT.
         sqlx::query(
-            "INSERT INTO issues (id, project_id, workspace_id, number, title, author_id)
-                  VALUES ($1, $2, $3, $4, $5, $6)
+            "INSERT INTO issues (id, project_id, workspace_id, number, title, state, author_id)
+                  VALUES ($1, $2, $3, $4, $5, 'backlog', $6)
                   ON CONFLICT DO NOTHING",
         )
         .bind(issue_id)

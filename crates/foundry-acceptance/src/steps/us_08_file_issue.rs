@@ -89,6 +89,9 @@ async fn project_exists_in_team(
     .execute(pool)
     .await
     .expect("insert project");
+    // board-lane-management sweep: raw-SQL projects need their lane rows
+    // (no-op when ON CONFLICT skipped the insert).
+    crate::support::harness::seed_lanes_for_project(pool, project_id).await;
 }
 
 // ----- Pre-seed existing issues -----------------------------------------
@@ -139,9 +142,10 @@ async fn seed_issues_in_project(
 
     for n in first_n..=last_n {
         let issue_id = uuid::Uuid::now_v7();
+        // board-lane-management sweep: 0015 dropped the state DEFAULT.
         sqlx::query(
-            "INSERT INTO issues (id, project_id, workspace_id, number, title, author_id)
-                  VALUES ($1, $2, $3, $4, $5, $6)",
+            "INSERT INTO issues (id, project_id, workspace_id, number, title, state, author_id)
+                  VALUES ($1, $2, $3, $4, $5, 'backlog', $6)",
         )
         .bind(issue_id)
         .bind(project_id)

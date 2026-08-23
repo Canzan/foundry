@@ -286,6 +286,8 @@ async fn seed_project(
     .execute(&pool(world))
     .await
     .expect("insert project");
+    // board-lane-management sweep: raw-SQL projects need their lane rows.
+    crate::support::harness::seed_lanes_for_project(&pool(world), id).await;
     world.iapr_project_ids.insert(name.to_string(), id);
     let (stored_project_slug, stored_team_slug): (String, String) = sqlx::query_as(
         "SELECT p.slug, t.slug FROM projects p JOIN teams t ON p.team_id = t.id WHERE p.id = $1",
@@ -427,9 +429,10 @@ async fn issue_exists_on_board(
             .expect("project row");
     assert_eq!(stored_prefix, prefix, "seeded key prefix mismatch");
     let author = world.iapr_priya_id.expect("Priya seeded");
+    // board-lane-management sweep: 0015 dropped the state DEFAULT — INSERT it.
     sqlx::query(
-        "INSERT INTO issues (id, project_id, workspace_id, number, title, author_id)
-              VALUES ($1, $2, $3, $4, $5, $6)",
+        "INSERT INTO issues (id, project_id, workspace_id, number, title, state, author_id)
+              VALUES ($1, $2, $3, $4, $5, 'backlog', $6)",
     )
     .bind(uuid::Uuid::now_v7())
     .bind(project_id)

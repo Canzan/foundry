@@ -79,6 +79,25 @@ idiom because it survives htmx swaps). Adding a close control to a future
 dialog is a template-only change, and BR-4 is unviolable by construction of the
 pattern. See `adr-modal-close-001-declarative-close-trigger.md`.
 
+### Lanes are per-project data; the lane FK is the no-stranded-card invariant
+
+Board lanes are rows (`lanes`: per-project `slug`, `label`, `position`), not
+constants; `issues.state` holds the lane slug and a composite FK
+`(project_id, state) → lanes(project_id, slug)` makes "every issue has a lane
+its board renders" a schema fact, not a test assertion. Consequences every
+future feature inherits: any path that writes `issues.state` must name one of
+the project's lanes (validated through the single
+`foundry_services::issues::validate_project_lane` seam — the DD10 property);
+any operation that removes a lane must settle the fate of its cards in the
+same transaction, because the FK blocks the lane delete while cards reference
+it; a feature moving issues across projects must move lane membership in the
+same statement. Lane slugs are immutable identity, labels mutable display —
+the names-are-labels invariant extends to lanes. No adapter may hold a static
+lane list (`cargo xtask check-arch` rule; exemptions: the store creation seed
+and the `humanize_state` historical-label fallback).
+See `adr-board-lane-001-issues-linkage-state-fk.md` and
+`adr-board-lane-002-two-fate-delete-transaction.md`.
+
 ### Crate graph
 
 ```mermaid

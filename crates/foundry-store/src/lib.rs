@@ -8,9 +8,11 @@
 #![deny(clippy::all)]
 
 pub mod attachments;
+pub mod lanes;
 pub mod verify_export;
 
 pub use attachments::{AttachmentInsertError, AttachmentRow, AttachmentSummary};
+pub use lanes::{LaneDeleteFate, LaneDeleteOutcome, LaneRow};
 pub use verify_export::{verify_workspace_export, ArchiveContents, ArchivedTable, VerifyReport};
 
 use sqlx::postgres::PgPoolOptions;
@@ -1284,6 +1286,14 @@ impl Store {
         slug: &str,
         key_prefix: &str,
     ) -> Result<(), ProjectInsertError> {
+        // ONE transaction: the project row + its creation-seed lanes commit or
+        // vanish together (board-lane-management; a committed project with zero
+        // lanes would strand every subsequent issue INSERT on fk_issues_lane).
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|err| ProjectInsertError::Other(StoreError::Sqlx(err)))?;
         let result = sqlx::query(
             "INSERT INTO projects (id, team_id, workspace_id, name, slug, key_prefix)
                   VALUES ($1, $2, $3, $4, $5, $6)",
@@ -1294,10 +1304,30 @@ impl Store {
         .bind(name)
         .bind(slug)
         .bind(key_prefix)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await;
         match result {
-            Ok(_) => Ok(()),
+            Ok(_) => {
+                for (lane_slug, label, position) in crate::lanes::CREATION_LANE_SEED {
+                    sqlx::query(
+                        "INSERT INTO lanes (id, project_id, workspace_id, slug, label, position)
+                              VALUES ($1, $2, $3, $4, $5, $6)",
+                    )
+                    .bind(uuid::Uuid::now_v7())
+                    .bind(project_id)
+                    .bind(workspace_id)
+                    .bind(lane_slug)
+                    .bind(label)
+                    .bind(position)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|err| ProjectInsertError::Other(StoreError::Sqlx(err)))?;
+                }
+                tx.commit()
+                    .await
+                    .map_err(|err| ProjectInsertError::Other(StoreError::Sqlx(err)))?;
+                Ok(())
+            }
             Err(sqlx::Error::Database(db_err)) => {
                 // PostgreSQL "23505" = unique_violation. Constraint name
                 // tells us *which* uniqueness was violated; we mapped
@@ -1421,10 +1451,15 @@ impl Store {
         .execute(&mut *tx)
         .await?;
 
+        // `state` is INSERTed explicitly: 0015 dropped the column DEFAULT so a
+        // state-less INSERT fails loudly (D6). The 'backlog' landing literal is
+        // the 01-01 bridge — 02-01 replaces it with the leftmost-lane
+        // resolution (`ORDER BY position ASC LIMIT 1`) and grows the return
+        // type to echo the actual landing slug (ripple surface 6).
         sqlx::query(
             "INSERT INTO issues
-                  (id, project_id, workspace_id, number, title, description_md, author_id, position)
-              VALUES ($1, $2, $3, $4, $5, $6, $7, 0)",
+                  (id, project_id, workspace_id, number, title, description_md, state, author_id, position)
+              VALUES ($1, $2, $3, $4, $5, $6, 'backlog', $7, 0)",
         )
         .bind(issue_id)
         .bind(project_id)
@@ -3064,6 +3099,24 @@ async fn seed_initial_workspace(
     .bind(project_key_prefix)
     .execute(&mut **tx)
     .await?;
+    // Every created project carries its lane rows in the SAME transaction
+    // (board-lane-management): post-0015 the composite FK `fk_issues_lane`
+    // refuses any issue INSERT into a laneless project. Same creation seed
+    // as `insert_project` (`lanes::CREATION_LANE_SEED`).
+    for (lane_slug, label, position) in crate::lanes::CREATION_LANE_SEED {
+        sqlx::query(
+            "INSERT INTO lanes (id, project_id, workspace_id, slug, label, position)
+                  VALUES ($1, $2, $3, $4, $5, $6)",
+        )
+        .bind(uuid::Uuid::now_v7())
+        .bind(project_id)
+        .bind(workspace_id)
+        .bind(lane_slug)
+        .bind(label)
+        .bind(position)
+        .execute(&mut **tx)
+        .await?;
+    }
     // The bootstrap CLAIM also seeds the claiming operator as the FIRST instance
     // super-admin (ADR-001 / D1), in the SAME atomic transaction: a fresh instance
     // never exists with a workspace 1 but no provisioning authority. The operator is

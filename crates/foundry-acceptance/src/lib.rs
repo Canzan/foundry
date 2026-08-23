@@ -12,6 +12,7 @@ pub mod world;
 pub mod steps {
     pub mod feature_a_programmatic;
     pub mod feature_b_web_tier;
+    pub mod feature_board_lane_management;
     pub mod feature_board_new_issue;
     pub mod feature_bootstrap_enum_oracle;
     pub mod feature_card_ranking_within_status;

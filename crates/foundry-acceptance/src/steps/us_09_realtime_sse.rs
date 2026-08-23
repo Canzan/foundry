@@ -277,6 +277,8 @@ async fn reseed_backend_workspace_with_mei_and_auth_v2(world: &mut FoundryWorld)
     .execute(pool)
     .await
     .expect("seed project");
+    // board-lane-management sweep: raw-SQL projects need their lane rows.
+    crate::support::harness::seed_lanes_for_project(pool, project_id).await;
 }
 
 // ---- When: open subscription ----------------------------------------

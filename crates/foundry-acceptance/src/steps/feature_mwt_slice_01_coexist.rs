@@ -263,6 +263,9 @@ pub async fn workspace_has_member_team_project(
     .execute(&pool)
     .await
     .expect("insert project");
+    // board-lane-management sweep: raw-SQL projects need their lane rows
+    // (no-op when ON CONFLICT skipped the insert).
+    crate::support::harness::seed_lanes_for_project(&pool, project_id).await;
 
     world
         .mwt_project_route
@@ -320,9 +323,10 @@ async fn project_has_two_issues(
             .and_then(|n| n.parse().ok())
             .unwrap_or_else(|| panic!("issue key {key:?} must end in -<n>"));
         max_number = max_number.max(number);
+        // board-lane-management sweep: 0015 dropped the state DEFAULT.
         sqlx::query(
-            "INSERT INTO issues (id, project_id, workspace_id, number, title, author_id)
-                  VALUES ($1, $2, $3, $4, $5, $6)",
+            "INSERT INTO issues (id, project_id, workspace_id, number, title, state, author_id)
+                  VALUES ($1, $2, $3, $4, $5, 'backlog', $6)",
         )
         .bind(uuid::Uuid::now_v7())
         .bind(project_id)
