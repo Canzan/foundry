@@ -1062,8 +1062,8 @@ mod board_render_tests {
 
     /// Each issue lands in EXACTLY its own state column and nowhere else.
     ///
-    /// This pins the state→column mapping (`column_label_to_state`) and the
-    /// `i.state == state_key` filter in `build_board_page`. With one issue per
+    /// This pins the lane→column mapping and the `issue.state == lane.slug`
+    /// filter in the shared `views::board_columns` builder. With one issue per
     /// state we can assert both directions: every column contains its own key
     /// (kills arm-deletions / constant-replacements that would route an issue
     /// to the wrong — or no — column) AND contains none of the other three
