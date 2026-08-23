@@ -1178,6 +1178,85 @@ mod tests {
         );
     }
 
+    /// The `#[cfg(test)]` region-skip must end EXACTLY at the block close
+    /// (added at DELIVER Phase 5: mutation testing showed the brace-counting
+    /// arithmetic in `block_end`/`lane_scan_mask` survived the coarse
+    /// exemption fixture above). Four boundary fixtures:
+    ///   1. a static lane list AFTER a long `#[cfg(test)]` mod IS flagged —
+    ///      the mask may not overrun the closing brace;
+    ///   2. a lane enumeration DEEP inside a `#[cfg(test)]` mod (beyond the
+    ///      bare-attribute lookahead) and ON the block-closing line is NOT
+    ///      flagged — the mask covers the whole block through its last line;
+    ///   3. a single-line `#[cfg(test)]` item masks only itself and the scan
+    ///      resumes on the very next line, where a planted list IS flagged;
+    ///   4. a bare `#[cfg(test)]` attribute that never opens a block masks
+    ///      the conservative 4-line lookahead — a lane list on the last
+    ///      looked-ahead line is NOT flagged.
+    #[test]
+    fn cfg_test_masking_ends_exactly_at_the_block_close() {
+        // 1. The mask may not overrun: production list after a LONG test mod.
+        let after_long_mod = stage(&[(
+            "crates/foundry-app/src/projects.rs",
+            "#[cfg(test)]\n\
+             mod tests {\n\
+             fn a() { let x = 1; }\n\
+             fn b() { let y = 2; }\n\
+             fn c() { let z = 3; }\n\
+             fn d() { let w = 4; }\n\
+             }\n\
+             const COLS: &[&str] = &[\"Backlog\", \"Todo\", \"Done\"];\n",
+        )]);
+        let found = check_no_static_lane_list(after_long_mod.path());
+        assert!(
+            !found.is_empty(),
+            "a lane list AFTER the #[cfg(test)] block must be flagged (the mask may not overrun to EOF): {found:?}"
+        );
+
+        // 2. The mask covers the whole block: lane fixture deep inside the
+        //    mod, enumerated on the block-CLOSING line itself.
+        let deep_fixture = stage(&[(
+            "crates/foundry-app/src/projects.rs",
+            "#[cfg(test)]\n\
+             mod tests {\n\
+             fn setup() { let a = 1; }\n\
+             fn more() { let b = 2; }\n\
+             fn lanes() -> Vec<(&'static str, &'static str)> {\n\
+             vec![(\"backlog\", \"Backlog\"), (\"todo\", \"Todo\"), (\"done\", \"Done\")] } }\n",
+        )]);
+        assert!(
+            check_no_static_lane_list(deep_fixture.path()).is_empty(),
+            "a lane fixture on the deep block-closing line must be masked: {:?}",
+            check_no_static_lane_list(deep_fixture.path())
+        );
+
+        // 3. Single-line #[cfg(test)] item: the scan resumes on the NEXT line.
+        let single_line = stage(&[(
+            "crates/foundry-app/src/projects.rs",
+            "#[cfg(test)] mod t { fn x() {} }\n\
+             const COLS: &[&str] = &[\"Backlog\", \"Todo\", \"Done\"];\n",
+        )]);
+        assert!(
+            !check_no_static_lane_list(single_line.path()).is_empty(),
+            "a lane list right after a SINGLE-LINE test item must be flagged"
+        );
+
+        // 4. Bare attribute, no block: the conservative lookahead masks
+        //    exactly 4 following lines (the documented stop-after-lookahead).
+        let bare_attribute = stage(&[(
+            "crates/foundry-app/src/projects.rs",
+            "#[cfg(test)]\n\
+             use a;\n\
+             use b;\n\
+             use c;\n\
+             const COLS: &[&str] = &[\"Backlog\", \"Todo\", \"Done\"];\n",
+        )]);
+        assert!(
+            check_no_static_lane_list(bare_attribute.path()).is_empty(),
+            "the bare-attribute lookahead must mask its 4-line window: {:?}",
+            check_no_static_lane_list(bare_attribute.path())
+        );
+    }
+
     /// ADR-PROJECT-RENAME-001: USING `foundry_core::slugify` (and mentioning
     /// `fn slugify(` in a comment) is clean; DEFINING `fn slugify(` anywhere
     /// under crates/foundry-app/src is flagged and NAMES the file.
