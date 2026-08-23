@@ -10,11 +10,10 @@
       <label>Title <input type="text" name="title" value="{{ title }}" required autofocus></label>
       <label>Description <textarea name="description">{{ description }}</textarea></label>
       <label>Status
+        {# board-lane-management D8: the options are the project's OWN lane
+           rows in board order (IssueEditView.lanes) — never a static list. #}
         <select name="state">
-          <option value="backlog"{% if selected_state == "backlog" %} selected{% endif %}>Backlog</option>
-          <option value="todo"{% if selected_state == "todo" %} selected{% endif %}>Todo</option>
-          <option value="in_progress"{% if selected_state == "in_progress" %} selected{% endif %}>In-Progress</option>
-          <option value="done"{% if selected_state == "done" %} selected{% endif %}>Done</option>
+          {% for lane in lanes %}<option value="{{ lane.slug }}"{% if selected_state == lane.slug %} selected{% endif %}>{{ lane.label }}</option>{% endfor %}
         </select>
       </label>
       {# form-error-display-contract ADR-001 — the opt-in slot form-errors.js

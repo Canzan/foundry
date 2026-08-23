@@ -262,6 +262,7 @@ pub async fn show_edit_form(
         title: view.title,
         description: view.description_md,
         selected_state: view.state,
+        lanes: view.lanes,
         detail_url: detail,
     }
     .render()
@@ -311,14 +312,19 @@ pub async fn submit_edit(
         workspace_id: user.workspace_id,
     };
 
-    // A submitted status only counts as a real move when it NORMALIZES to a
-    // valid slug that DIFFERS from the stored one. The issue-edit-dialog path
-    // posts no `state`, so this stays `None` and the in-place card replace is
-    // preserved. We read the current state through the SAME authz-gated read the
-    // dialog pre-fill uses, so a foreign/missing issue is still refused
-    // non-enumerably (ADR-003) exactly as before.
-    let submitted_state = issue_service::normalize_state(&form.state);
-    let relocate_to = if let Some(new_state) = submitted_state {
+    // A submitted status only counts as a real move when it DIFFERS from the
+    // stored slug. The issue-edit-dialog path posts no `state`, so this stays
+    // `None` and the in-place card replace is preserved. The dialog's options
+    // are the project's OWN lane slugs (board-lane-management D8), so the
+    // value is compared verbatim; VALIDATION of the lane (alias fold + per-
+    // project membership) happens in the ONE `change_issue_state` seam below —
+    // never a duplicate per-surface check here. We read the current state
+    // through the SAME authz-gated read the dialog pre-fill uses, so a
+    // foreign/missing issue is still refused non-enumerably (ADR-003).
+    let submitted_state = form.state.trim().to_string();
+    let relocate_to = if submitted_state.is_empty() {
+        None
+    } else {
         match issue_service::edit_issue_form(
             &state.store,
             &principal,
@@ -328,14 +334,12 @@ pub async fn submit_edit(
         )
         .await
         {
-            Ok(view) if view.state != new_state => Some(new_state),
+            Ok(view) if view.state != submitted_state => Some(submitted_state),
             Ok(_) => None,
             Err(ServiceError::Forbidden) => return non_member_page(&team_slug),
             Err(ServiceError::NotFound) => return resource_not_found_page(),
             Err(_) => return internal_error("edit_issue_form", "service error"),
         }
-    } else {
-        None
     };
 
     match issue_service::edit_issue_details(
@@ -374,28 +378,31 @@ pub async fn submit_edit(
             };
 
             // Persist the state change through the SHIPPED path (fires the
-            // outbox → SSE, ODD-4). Reuses `change_issue_state`; no new write.
-            match issue_service::change_issue_state(
+            // outbox → SSE, ODD-4). Reuses `change_issue_state` — the ONE
+            // seam that validates the lane per-project (D8); no new write.
+            let landed_state = match issue_service::change_issue_state(
                 &state.store,
                 &principal,
                 &team_slug,
                 &project_slug,
                 issue_number,
-                new_state,
+                &new_state,
                 // The edit-dialog status change carries no board slot; the card
                 // lands at the top of the target column.
                 None,
             )
             .await
             {
-                Ok(_) => {}
+                // The CANONICAL slug the seam accepted — the target column's
+                // `data-column` selector for the relocation render.
+                Ok(moved) => moved.state,
                 Err(ServiceError::Validation { .. }) => {
                     return bad_request_fragment("Invalid issue state")
                 }
                 Err(ServiceError::Forbidden) => return non_member_page(&team_slug),
                 Err(ServiceError::NotFound) => return resource_not_found_page(),
                 Err(_) => return internal_error("change_issue_state", "service error"),
-            }
+            };
 
             if is_htmx(&headers) {
                 (
@@ -405,7 +412,7 @@ pub async fn submit_edit(
                         &updated.title,
                         &edit,
                         &state_post,
-                        new_state,
+                        &landed_state,
                     )),
                 )
                     .into_response()

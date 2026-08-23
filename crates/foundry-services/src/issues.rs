@@ -20,9 +20,13 @@ pub struct IssueEditView {
     pub number: i32,
     pub title: String,
     pub description_md: String,
-    /// The issue's current state slug (`backlog`, `todo`, `in_progress`, `done`)
-    /// — pre-selects the edit-dialog status control (issue-status-move).
+    /// The issue's current state slug — pre-selects the edit-dialog status
+    /// control (issue-status-move).
     pub state: String,
+    /// The project's lanes in board order — the Status `<select>` options
+    /// (board-lane-management D8): the dialog offers exactly the board's own
+    /// lanes, never a static list.
+    pub lanes: Vec<crate::BoardLane>,
 }
 
 /// Title length cap (chars, after trimming) — the SAME bound the browser
@@ -53,30 +57,51 @@ fn validate_description(description: &str) -> Result<(), ServiceError> {
     Ok(())
 }
 
-/// DD10 single seam, PER-PROJECT (board-lane-management, RED scaffold —
-/// DISTILL Mandate 7 / ADR-025, SCAFFOLD: true): fold aliases (the
-/// `normalize_state` folding survives as a private helper of this seam), then
-/// require membership in the PROJECT'S lane set (`Store::list_project_lanes`).
-/// Every write path — HTML dialog save, dnd POST, JSON PATCH — calls THIS;
-/// unknown lane → `ServiceError::Validation { code: "invalid_state" }` (D8).
-/// Returns the canonical lane slug actually accepted. DELIVER replaces the
-/// body and swaps `change_issue_state`'s `normalize_state` call for this seam
-/// (it already holds `project` from `resolve_member_project`).
+/// DD10 single seam, PER-PROJECT (board-lane-management 01-02): fold aliases
+/// (the `normalize_state` folding survives as a private helper of this seam),
+/// then require membership in the PROJECT'S lane set
+/// (`Store::list_project_lanes`). Every write path — HTML dialog save, dnd
+/// POST, JSON PATCH — calls THIS through [`change_issue_state`]; unknown lane
+/// → `ServiceError::Validation { code: "invalid_state" }` (D8). Returns the
+/// canonical lane slug actually accepted.
 pub async fn validate_project_lane(
-    _store: &foundry_store::Store,
-    _project_id: uuid::Uuid,
-    _input: &str,
+    store: &foundry_store::Store,
+    project_id: uuid::Uuid,
+    input: &str,
 ) -> Result<String, ServiceError> {
-    panic!(
-        "issues::validate_project_lane not yet implemented — RED scaffold (board-lane-management)"
-    )
+    let lane_slugs: Vec<String> = store
+        .list_project_lanes(project_id)
+        .await
+        .map_err(|_| ServiceError::Internal)?
+        .into_iter()
+        .map(|lane| lane.slug)
+        .collect();
+    resolve_lane(input, &lane_slugs).ok_or_else(|| ServiceError::Validation {
+        code: "invalid_state".to_string(),
+        message: "Invalid issue state".to_string(),
+    })
 }
 
-/// Map the incoming state value (which may be the human label used in feature
-/// files like `"in-progress"`) to the schema-enforced enum stored in
-/// `issues.state`. MOVED here from `foundry-app/src/issues.rs` (DD10) so the
-/// HTML and JSON adapters share one normalisation.
-pub fn normalize_state(input: &str) -> Option<&'static str> {
+/// PURE heart of [`validate_project_lane`] (the `classify_rename` idiom —
+/// property-testable without a store): fold aliases (`normalize_state`'s
+/// alias-folding role), then require membership in the PROJECT'S lane-slug
+/// set. Returns the canonical member slug actually accepted, `None` for an
+/// unfoldable input or a folded slug the project's board does not have.
+fn resolve_lane(input: &str, lane_slugs: &[String]) -> Option<String> {
+    let folded = normalize_state(input)?;
+    lane_slugs
+        .iter()
+        .find(|slug| slug.as_str() == folded)
+        .cloned()
+}
+
+/// Alias-folding helper of [`validate_project_lane`] (board-lane-management
+/// 01-02: DEMOTED from the public validation seam to a private fold — the
+/// per-project membership check above is the ONLY validation authority now).
+/// Maps the incoming state value (which may be the human label used in feature
+/// files like `"in-progress"`) onto the closed, unmintable canonical slug set
+/// (D9). Never removed from the alias-folding role.
+fn normalize_state(input: &str) -> Option<&'static str> {
     match input.trim().to_ascii_lowercase().as_str() {
         "backlog" => Some("backlog"),
         "todo" => Some("todo"),
@@ -161,13 +186,14 @@ pub async fn change_issue_state(
     new_state: &str,
     after: Option<&str>,
 ) -> Result<BoardIssue, ServiceError> {
-    let (_team, _project, key_prefix) =
+    let (_team, project, key_prefix) =
         resolve_member_project(store, principal, team_slug, project_slug).await?;
 
-    let normalized = normalize_state(new_state).ok_or_else(|| ServiceError::Validation {
-        code: "invalid_state".to_string(),
-        message: "Invalid issue state".to_string(),
-    })?;
+    // The DD10 single seam, per-project (board-lane-management 01-02): fold
+    // aliases, then require membership in THIS project's lane set. HTML
+    // dialog, dnd POST and JSON PATCH all pass through here, so the three
+    // surfaces accept or refuse identically (D8).
+    let normalized = validate_project_lane(store, project.id, new_state).await?;
 
     // Resolve the `after` neighbour key → its issue number within THIS project.
     // Absent/empty ⇒ top of column. An unparseable key is a stale-client mistake
@@ -187,7 +213,7 @@ pub async fn change_issue_state(
         .reposition_issue_with_outbox(
             key_prefix.as_str(),
             number,
-            normalized,
+            &normalized,
             after_number,
             principal.user_id(),
         )
@@ -201,7 +227,7 @@ pub async fn change_issue_state(
                 key,
                 number,
                 title: String::new(),
-                state: normalized.to_string(),
+                state: normalized,
             })
         }
         // Missing issue AND unresolvable neighbour BOTH refuse identically.
@@ -291,7 +317,7 @@ pub async fn edit_issue_form(
     project_slug: &str,
     number: i32,
 ) -> Result<IssueEditView, ServiceError> {
-    let (_team, _project, key_prefix) =
+    let (_team, project, key_prefix) =
         resolve_member_project(store, principal, team_slug, project_slug).await?;
 
     let row = store
@@ -299,6 +325,18 @@ pub async fn edit_issue_form(
         .await
         .map_err(|_| ServiceError::Internal)?
         .ok_or(ServiceError::NotFound)?;
+
+    // The project's lane rows, board order — the dialog's Status options (D8).
+    let lanes = store
+        .list_project_lanes(project.id)
+        .await
+        .map_err(|_| ServiceError::Internal)?
+        .into_iter()
+        .map(|lane| crate::BoardLane {
+            slug: lane.slug,
+            label: lane.label,
+        })
+        .collect();
 
     let key = foundry_core::IssueKey::try_new(&key_prefix, number as u32)
         .map(|k| k.to_string())
@@ -309,6 +347,7 @@ pub async fn edit_issue_form(
         title: row.title,
         description_md: row.description_md,
         state: row.state,
+        lanes,
     })
 }
 
@@ -426,8 +465,82 @@ async fn resolve_member_project(
 
 #[cfg(test)]
 mod tests {
-    use super::{validate_description, DESCRIPTION_MAX_LEN};
+    use super::{resolve_lane, validate_description, DESCRIPTION_MAX_LEN};
     use crate::ServiceError;
+    use proptest::prelude::*;
+
+    /// The closed, unmintable lane-slug universe (D9) — the specification's
+    /// own table, restated here as the test oracle's fold reference
+    /// (component-boundaries.md §3: aliases `in-progress`→`in_progress`,
+    /// `canceled`→`cancelled` survive the demotion of `normalize_state`).
+    const LANE_UNIVERSE: [&str; 5] = ["backlog", "todo", "in_progress", "done", "cancelled"];
+
+    /// SPEC-pinned fold reference (not a copy of production internals): the
+    /// D9 closed set + its two documented aliases, applied to the trimmed,
+    /// case-insensitive input.
+    fn spec_fold(input: &str) -> Option<&'static str> {
+        match input.trim().to_ascii_lowercase().as_str() {
+            "backlog" => Some("backlog"),
+            "todo" => Some("todo"),
+            "in-progress" | "in_progress" => Some("in_progress"),
+            "done" => Some("done"),
+            "cancelled" | "canceled" => Some("cancelled"),
+            _ => None,
+        }
+    }
+
+    /// Inputs a write surface may carry: canonical slugs, the documented
+    /// aliases, and arbitrary garbage — each optionally noised with padding
+    /// and case flips (the folding must absorb both).
+    fn lane_input() -> impl Strategy<Value = String> {
+        prop_oneof![
+            proptest::sample::select(vec![
+                "backlog",
+                "todo",
+                "in_progress",
+                "in-progress",
+                "done",
+                "cancelled",
+                "canceled",
+            ])
+            .prop_map(str::to_string),
+            "[a-zA-Z_ -]{0,12}",
+        ]
+    }
+
+    proptest! {
+        /// board-lane-management 01-02, the DD10 per-project seam's pure
+        /// heart: for ANY lane set and ANY input, the input is accepted IFF
+        /// its alias-folded canonical form is a member of the lane set — and
+        /// the accepted value IS that canonical member. Alias folding
+        /// (`in-progress`→`in_progress`, `canceled`→`cancelled`) preserved;
+        /// garbage and folded-but-absent lanes refuse identically (D8).
+        #[test]
+        fn lane_accepted_iff_folded_input_is_a_member(
+            lanes in proptest::sample::subsequence(LANE_UNIVERSE.to_vec(), 0..=5),
+            input in lane_input(),
+            pad in "[ \t]{0,2}",
+            shout in any::<bool>(),
+        ) {
+            let noisy = {
+                let cased = if shout { input.to_ascii_uppercase() } else { input.clone() };
+                format!("{pad}{cased}{pad}")
+            };
+            let lane_slugs: Vec<String> = lanes.iter().map(|s| s.to_string()).collect();
+
+            let expected = spec_fold(&noisy)
+                .filter(|folded| lanes.contains(folded))
+                .map(str::to_string);
+
+            prop_assert_eq!(
+                resolve_lane(&noisy, &lane_slugs),
+                expected,
+                "resolve_lane({:?}, {:?}) must accept iff the folded input is a lane member",
+                noisy,
+                lane_slugs
+            );
+        }
+    }
 
     /// A description exactly at the cap is ACCEPTED (the bound is inclusive of
     /// `DESCRIPTION_MAX_LEN`). Kills `>` → `>=` and `>` → `==`.

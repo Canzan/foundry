@@ -43,13 +43,11 @@ use tower_sessions::Session;
 
 const HX_REQUEST_HEADER: &str = "hx-request";
 
-/// Default state columns rendered on the empty board — RETIRED as a render
-/// source by board-lane-management 01-01 (columns now derive from the
-/// project's lane ROWS via `board_view`). Still referenced by the render
-/// tests as the grandfather lane shape; 01-02 deletes it (with
-/// `column_label_to_state`) and adds the check-arch no-static-lane-list rule.
-#[allow(dead_code)]
-const DEFAULT_COLUMNS: &[&str] = &["Backlog", "Todo", "In-Progress", "Done"];
+// `DEFAULT_COLUMNS` + `column_label_to_state` are DELETED (board-lane-
+// management 01-02, D8): columns derive from the project's lane ROWS via
+// `board_view`, and `cargo xtask check-arch` fails any build that
+// reintroduces a static lane list under crates/foundry-app/src or
+// crates/foundry-api/src outside #[cfg(test)].
 
 #[derive(Debug, Deserialize)]
 pub struct CreateProjectForm {
@@ -422,6 +420,15 @@ pub async fn show_report(
         return csv_response(&project_slug, &changes);
     }
 
+    // The project's LIVE lanes (board-lane-management D8): status labels
+    // resolve to `lanes.label`, with `humanize_state` as the fallback for
+    // dead/historical slugs (architecture-design.md §6.5). CSV above stays
+    // raw slugs (column contract unchanged).
+    let lanes = match state.store.list_project_lanes(project.id).await {
+        Ok(rows) => rows,
+        Err(err) => return internal_error("list_project_lanes", err),
+    };
+
     // Board family (project change report) — Board is the current primary item
     // (02-02 deterministic active rule), same as the board it belongs to. Mint (or
     // reuse) the CSRF cookie for the rail footer sign-out form (04-03 D1 — the report
@@ -443,6 +450,7 @@ pub async fn show_report(
         &team_slug,
         &project_slug,
         &changes,
+        &lanes,
         nav,
     )
     .render()
@@ -464,6 +472,7 @@ fn build_report_page(
     team_slug: &str,
     project_slug: &str,
     changes: &[ProjectChangeRow],
+    lanes: &[foundry_store::LaneRow],
     nav: crate::nav::NavContext,
 ) -> crate::views::ReportPage {
     let events = changes
@@ -471,8 +480,8 @@ fn build_report_page(
         .map(|row| crate::views::ReportEvent {
             issue_key: row.issue_key.clone(),
             field: row.field.clone(),
-            old_display: display_value(&row.field, row.old_value.as_deref().unwrap_or("")),
-            new_display: display_value(&row.field, &row.new_value),
+            old_display: display_value(&row.field, row.old_value.as_deref().unwrap_or(""), lanes),
+            new_display: display_value(&row.field, &row.new_value, lanes),
             actor: row.actor_name.clone(),
             when: row.created_at.format(&Rfc3339).unwrap_or_default(),
         })
@@ -481,8 +490,8 @@ fn build_report_page(
     // Status-flow transition counts: only `status` events carry a state old→new.
     let mut transition_tally: BTreeMap<String, u32> = BTreeMap::new();
     for row in changes.iter().filter(|row| row.field == "status") {
-        let old = crate::comments::humanize_state(row.old_value.as_deref().unwrap_or(""));
-        let new = crate::comments::humanize_state(&row.new_value);
+        let old = status_label(lanes, row.old_value.as_deref().unwrap_or(""));
+        let new = status_label(lanes, &row.new_value);
         *transition_tally
             .entry(format!("{old} → {new}"))
             .or_insert(0) += 1;
@@ -515,14 +524,27 @@ fn build_report_page(
     }
 }
 
-/// Humanize a value for the report table: status slugs read as `In Progress`
-/// (shared with the timeline); other fields render verbatim.
-fn display_value(field: &str, value: &str) -> String {
+/// Humanize a value for the report table: status slugs resolve to the
+/// project's LIVE lane label ([`status_label`]); other fields render verbatim.
+fn display_value(field: &str, value: &str, lanes: &[foundry_store::LaneRow]) -> String {
     if field == "status" {
-        crate::comments::humanize_state(value)
+        status_label(lanes, value)
     } else {
         value.to_string()
     }
+}
+
+/// Resolve a status slug to its report display label (board-lane-management
+/// D8 / architecture-design.md §6.5): the project's LIVE `lanes.label` when
+/// the slug is a current lane; `humanize_state` fallback for a dead/
+/// historical slug (a lane deleted after the event was recorded), so old
+/// report rows never blank.
+fn status_label(lanes: &[foundry_store::LaneRow], slug: &str) -> String {
+    lanes
+        .iter()
+        .find(|lane| lane.slug == slug)
+        .map(|lane| lane.label.clone())
+        .unwrap_or_else(|| crate::comments::humanize_state(slug))
 }
 
 /// Serialize the change events as a CSV attachment (issue-change-history ADR-002
@@ -945,43 +967,71 @@ fn issue_key_string(key_prefix: &ProjectKey, row: &foundry_services::BoardIssue)
         .to_string()
 }
 
-/// Map a column label ("Backlog", "Todo", "In-Progress", "Done") to the
-/// `issues.state` enum value persisted in Postgres. RETIRED from the render
-/// path by board-lane-management 01-01 (lane rows carry slug + label); kept
-/// only for the render tests' grandfather-lane fixture until 01-02 deletes it.
-#[allow(dead_code)]
-fn column_label_to_state(label: &str) -> &'static str {
-    match label {
-        "Backlog" => "backlog",
-        "Todo" => "todo",
-        "In-Progress" => "in_progress",
-        "Done" => "done",
-        _ => "",
-    }
-}
-
 // `slugify` lives in `foundry_core` (the SINGLE production definition,
 // ADR-PROJECT-RENAME-001); its unit + property tests moved with it. A local
 // redefinition under crates/foundry-app/src fails `cargo xtask check-arch`.
 
 #[cfg(test)]
+mod report_label_tests {
+    use super::status_label;
+
+    fn lane(slug: &str, label: &str, position: i32) -> foundry_store::LaneRow {
+        foundry_store::LaneRow {
+            id: uuid::Uuid::now_v7(),
+            project_id: uuid::Uuid::now_v7(),
+            slug: slug.to_string(),
+            label: label.to_string(),
+            position,
+        }
+    }
+
+    /// board-lane-management D8 / §6.5: a status slug resolves to the
+    /// project's LIVE lane label when the lane exists; a dead/historical slug
+    /// falls back to `humanize_state` (known slug → its humanized form,
+    /// unknown slug → verbatim) so old report rows never blank.
+    #[test]
+    fn status_labels_resolve_live_lane_label_with_humanize_fallback() {
+        // Live lane label DIFFERS from the humanized form on purpose — the
+        // live label must win, proving the row (not the fallback) resolved it.
+        let lanes = vec![lane("in_progress", "Doing", 0), lane("done", "Done", 1)];
+        for (slug, expected) in [
+            ("in_progress", "Doing"),     // live lane row label wins
+            ("done", "Done"),             // live lane row label
+            ("cancelled", "Cancelled"),   // dead-but-known slug → humanize_state
+            ("triage_old", "triage_old"), // unknown historical slug → verbatim
+        ] {
+            assert_eq!(
+                status_label(&lanes, slug),
+                expected,
+                "status label for {slug:?}"
+            );
+        }
+    }
+}
+
+#[cfg(test)]
 mod board_render_tests {
-    use super::{build_board_page, column_label_to_state, BoardLocation, DEFAULT_COLUMNS};
+    use super::{build_board_page, BoardLocation};
     use askama::Template;
     use foundry_core::ProjectKey;
 
     /// The four grandfathered lanes as migration 0015 seeds them — what
-    /// `board_view` returns for a pre-existing board. Built from the retired
-    /// render constants so the fixture stays byte-equal to the old headers
-    /// until 01-02 deletes both.
+    /// `board_view` returns for a pre-existing board. A test-local fixture
+    /// (the production static lane expressions are DELETED in 01-02; the
+    /// check-arch no-static-lane-list rule exempts `#[cfg(test)]`).
     fn grandfather_lanes() -> Vec<foundry_services::BoardLane> {
-        DEFAULT_COLUMNS
-            .iter()
-            .map(|label| foundry_services::BoardLane {
-                slug: column_label_to_state(label).to_string(),
-                label: label.to_string(),
-            })
-            .collect()
+        [
+            ("backlog", "Backlog"),
+            ("todo", "Todo"),
+            ("in_progress", "In-Progress"),
+            ("done", "Done"),
+        ]
+        .iter()
+        .map(|(slug, label)| foundry_services::BoardLane {
+            slug: slug.to_string(),
+            label: label.to_string(),
+        })
+        .collect()
     }
 
     /// Render the board page through the same builder + `Template::render`

@@ -10,6 +10,7 @@
 //! a `RED scaffold` marker so the acceptance suite classifies failures as
 //! MISSING_FUNCTIONALITY (RED), never as an import/wiring error (BROKEN):
 //!   - [`Store::delete_lane_with_fate`] (slice 03/04);
+//!
 //! and DELIVER later steps own:
 //!   - lane seeding inside `insert_project` (slice 02; the creation seed
 //!     constant lives HERE, the documented exemption to the

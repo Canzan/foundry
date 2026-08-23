@@ -95,13 +95,13 @@ Feature: Shaping a board's lanes to match how the work actually flows
     When Priya opens the "Homelab Ops" board
     Then a Cancelled column renders after Done, holding OPS-9
 
-  @us-blm-01 @pending
+  @us-blm-01
   Scenario: The edit dialog offers exactly the board's lanes
     Given "Homelab Ops" (OPS) is a grandfathered board granted a Cancelled lane, holding OPS-9 "Replace UPS battery" in Cancelled
     When Priya opens the edit dialog for OPS-9
     Then the Status options are exactly the board's five lanes, in board order
 
-  @us-blm-01 @error @pending
+  @us-blm-01 @error
   Scenario: A write to a lane the board does not have is refused
     Given "Identity Platform" (AUTH) is a grandfathered board with its four working lanes
     And AUTH-7 sits in Backlog
@@ -109,7 +109,7 @@ Feature: Shaping a board's lanes to match how the work actually flows
     Then the move is refused as invalid and AUTH-7 has not moved
     And no issue on any board is without a lane
 
-  @us-blm-01 @real-io @pending
+  @us-blm-01 @real-io
   Scenario: Drag-and-drop still lands cards exactly where they are dropped
     Given "Identity Platform" (AUTH) is a grandfathered board with its four working lanes
     And AUTH-12 sits in Todo and AUTH-3 sits in In-Progress

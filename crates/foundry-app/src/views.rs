@@ -232,10 +232,12 @@ pub struct IssueEditModal {
     /// The current markdown description, pre-filled into the textarea
     /// (auto-escaped).
     pub description: String,
-    /// The issue's current state slug (`backlog`, `todo`, `in_progress`, `done`)
-    /// — the status `<select>` pre-selects the matching option
-    /// (issue-status-move slice 01).
+    /// The issue's current state slug — the status `<select>` pre-selects the
+    /// matching option (issue-status-move slice 01).
     pub selected_state: String,
+    /// The project's lanes in board order (board-lane-management D8) — the
+    /// Status `<select>` renders one option per lane row, never a static list.
+    pub lanes: Vec<foundry_services::BoardLane>,
     /// `GET …/issues/{n}` — the full issue-detail page. Rendered as an explicit
     /// "open full page" link in the dialog (issue-change-history ADR-002 §1): the
     /// board card itself no longer navigates, so this is the recipient's route

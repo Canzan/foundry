@@ -61,6 +61,7 @@ pub fn run(args: Vec<String>) -> ExitCode {
     violations.extend(check_oidc_alg_pin(&root));
     violations.extend(check_app_tenant_scoping(&root));
     violations.extend(check_app_no_slugify_definition(&root));
+    violations.extend(check_no_static_lane_list(&root));
 
     // LAYER 2 — cargo-deny crate-graph dependency-direction.
     if let Some(dep_violation) = check_dependency_direction(&root) {
@@ -68,7 +69,7 @@ pub fn run(args: Vec<String>) -> ExitCode {
     }
 
     if violations.is_empty() {
-        println!("check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, dependency direction)");
+        println!("check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, dependency direction)");
         return ExitCode::SUCCESS;
     }
 
@@ -575,6 +576,151 @@ fn check_app_no_slugify_definition(root: &Path) -> Vec<String> {
     violations
 }
 
+/// LAYER 1g — no static lane list (board-lane-management, architecture-
+/// design.md §8 / ADR-BOARD-LANE-001). A board's lanes are the project's OWN
+/// rows (`Store::list_project_lanes`); the render/validation adapters must
+/// never re-acquire a static enumeration of lane slugs. The rule follows the
+/// `slugify`-ban idiom: fail the build if a static array/match enumerating
+/// lane slugs (`"backlog"`, `"todo"`, …) reappears under
+/// `crates/foundry-app/src` or `crates/foundry-api/src` outside `#[cfg(test)]`.
+///
+/// Matcher shape: within any window of 6 consecutive comment-stripped code
+/// lines, string literals naming ≥ 3 DISTINCT lanes of the closed set
+/// (slug or label form: backlog/Backlog, todo/Todo, in_progress/in-progress/
+/// In-Progress/In Progress, done/Done, cancelled/canceled/Cancelled) flag the
+/// window — a genuine lane list enumerates several lanes close together,
+/// while a single hardcoded slug (e.g. one OOB column selector) does not.
+///
+/// The TWO documented exemptions (design contract):
+///   * the store creation-seed template (`CREATION_LANE_SEED`,
+///     foundry-store/src/lanes.rs) — it WRITES lane rows at project creation
+///     and never renders or validates; it lives OUTSIDE the scanned dirs.
+///   * `humanize_state`'s historical fallback (foundry-app/src/comments.rs) —
+///     the display fallback for DEAD slugs in old change events; its function
+///     body is region-skipped below.
+///
+/// `#[cfg(test)]` blocks are region-skipped (test fixtures may enumerate).
+fn check_no_static_lane_list(root: &Path) -> Vec<String> {
+    /// `(lane identity, the quoted literal forms that name it)`.
+    const LANE_TOKENS: &[(&str, &[&str])] = &[
+        ("backlog", &["\"backlog\"", "\"Backlog\""]),
+        ("todo", &["\"todo\"", "\"Todo\""]),
+        (
+            "in_progress",
+            &[
+                "\"in_progress\"",
+                "\"in-progress\"",
+                "\"In-Progress\"",
+                "\"In Progress\"",
+            ],
+        ),
+        ("done", &["\"done\"", "\"Done\""]),
+        (
+            "cancelled",
+            &["\"cancelled\"", "\"canceled\"", "\"Cancelled\""],
+        ),
+    ];
+    const WINDOW: usize = 6;
+    const DISTINCT_LANES_THRESHOLD: usize = 3;
+
+    let mut violations = Vec::new();
+    for crate_dir in ["foundry-app", "foundry-api"] {
+        let src = root.join("crates").join(crate_dir).join("src");
+        for file in rust_sources(&src) {
+            let Ok(contents) = std::fs::read_to_string(&file) else {
+                continue;
+            };
+            let stripped: Vec<String> = contents.lines().map(strip_comment).collect();
+            let scan = lane_scan_mask(&stripped);
+
+            // Per-line distinct-lane sets, zeroed on skipped lines.
+            let lanes_per_line: Vec<Vec<&str>> = stripped
+                .iter()
+                .enumerate()
+                .map(|(idx, line)| {
+                    if !scan[idx] {
+                        return Vec::new();
+                    }
+                    LANE_TOKENS
+                        .iter()
+                        .filter(|(_, forms)| forms.iter().any(|form| line.contains(form)))
+                        .map(|(lane, _)| *lane)
+                        .collect()
+                })
+                .collect();
+
+            for start in 0..stripped.len() {
+                let end = (start + WINDOW).min(stripped.len());
+                let mut distinct: Vec<&str> = lanes_per_line[start..end].concat();
+                distinct.sort_unstable();
+                distinct.dedup();
+                if distinct.len() >= DISTINCT_LANES_THRESHOLD {
+                    violations.push(format!(
+                        "no-static-lane-list: {} enumerates {} lane slugs ({}) near {}:{} — a board's lanes are the project's OWN rows (Store::list_project_lanes); a static lane list in a render/validation adapter is the regression class D8 exists to end (architecture-design.md §8 / ADR-BOARD-LANE-001; exemptions: the store creation seed, humanize_state's historical fallback)",
+                        handler_label(&file).replace("foundry-api", crate_dir),
+                        distinct.len(),
+                        distinct.join(", "),
+                        rel(root, &file),
+                        start + 1,
+                    ));
+                    break; // one violation per file names it well enough
+                }
+            }
+        }
+    }
+    violations
+}
+
+/// The scan mask for [`check_no_static_lane_list`]: `false` on lines inside a
+/// `#[cfg(test)]` item block or inside `fn humanize_state(`'s body (the
+/// documented display-fallback exemption). Blocks are skipped by brace
+/// counting from the marker line to the line where its depth returns to zero.
+fn lane_scan_mask(stripped: &[String]) -> Vec<bool> {
+    let mut scan = vec![true; stripped.len()];
+    let mut idx = 0;
+    while idx < stripped.len() {
+        let line = &stripped[idx];
+        if line.contains("#[cfg(test)]") || line.contains("fn humanize_state(") {
+            let end = block_end(stripped, idx);
+            for masked in scan.iter_mut().take(end + 1).skip(idx) {
+                *masked = false;
+            }
+            idx = end + 1;
+        } else {
+            idx += 1;
+        }
+    }
+    scan
+}
+
+/// The index of the line on which the item block starting at/after
+/// `start` closes: brace depth counted from the FIRST `{` at or after
+/// `start`, returning when it drops back to zero. If no brace opens within
+/// the next few lines (a bare attribute on a non-block item), returns `start`.
+fn block_end(stripped: &[String], start: usize) -> usize {
+    let mut depth: i32 = 0;
+    let mut started = false;
+    for (offset, line) in stripped[start..].iter().enumerate() {
+        for ch in line.chars() {
+            if ch == '{' {
+                depth += 1;
+                started = true;
+            } else if ch == '}' {
+                depth -= 1;
+            }
+            if started && depth == 0 {
+                return start + offset;
+            }
+        }
+        // A `#[cfg(test)]` attribute whose item never opens a block within a
+        // conservative lookahead: stop masking after that lookahead.
+        if !started && offset > 3 {
+            return start + offset;
+        }
+    }
+    stripped.len().saturating_sub(1)
+}
+
 /// True iff the source pins the algorithm allow-list to EXACTLY `[RS256]`.
 /// Mirrors [`pins_algorithms_to_eddsa`], with the accepted and rejected sets
 /// swapped: `EdDSA` leaking into the OIDC list is as wrong as `RS256` leaking
@@ -958,6 +1104,77 @@ mod tests {
         assert!(
             !check_jwt_alg_pin(disabled.path()).is_empty(),
             "disabling signature validation must be flagged even with an EdDSA list"
+        );
+    }
+
+    /// board-lane-management D8 (architecture-design.md §8): a static
+    /// array/match enumerating lane slugs under foundry-app/foundry-api src
+    /// is flagged; a lone hardcoded slug, the `humanize_state` fallback body,
+    /// and `#[cfg(test)]` fixtures are NOT.
+    #[test]
+    fn static_lane_list_is_flagged_but_exemptions_are_not() {
+        // CLEAN: a single column selector literal + lane-row-driven render.
+        let clean = stage(&[(
+            "crates/foundry-app/src/issues.rs",
+            "let oob = format!(\"beforeend:[data-column='backlog']\");\n\
+             for lane in board.lanes { render(lane.slug, lane.label); }\n",
+        )]);
+        assert!(
+            check_no_static_lane_list(clean.path()).is_empty(),
+            "lane-row-driven render with one hardcoded selector must NOT be flagged: {:?}",
+            check_no_static_lane_list(clean.path())
+        );
+
+        // PLANTED: a reintroduced static lane array (the DEFAULT_COLUMNS shape).
+        let array = stage(&[(
+            "crates/foundry-app/src/projects.rs",
+            "const COLS: &[&str] = &[\"Backlog\", \"Todo\", \"In-Progress\", \"Done\"];\n",
+        )]);
+        let found = check_no_static_lane_list(array.path());
+        assert!(
+            !found.is_empty() && found[0].contains("projects.rs:1"),
+            "a static lane array must be flagged and NAME file:line: {found:?}"
+        );
+
+        // PLANTED: a reintroduced label→slug match (the column_label_to_state
+        // shape) in foundry-api, arms on separate lines.
+        let arms = stage(&[(
+            "crates/foundry-api/src/lib.rs",
+            "fn to_state(label: &str) -> &str {\n\
+             match label {\n\
+             \"Backlog\" => \"backlog\",\n\
+             \"Todo\" => \"todo\",\n\
+             \"Done\" => \"done\",\n\
+             _ => \"\",\n\
+             }\n}\n",
+        )]);
+        assert!(
+            !check_no_static_lane_list(arms.path()).is_empty(),
+            "a multi-line lane match must be flagged: {:?}",
+            check_no_static_lane_list(arms.path())
+        );
+
+        // EXEMPT: humanize_state's historical fallback body (comments.rs) and
+        // a #[cfg(test)] fixture enumerating grandfather lanes.
+        let exempt = stage(&[(
+            "crates/foundry-app/src/comments.rs",
+            "pub(crate) fn humanize_state(slug: &str) -> String {\n\
+             match slug {\n\
+             \"backlog\" => \"Backlog\".to_string(),\n\
+             \"todo\" => \"Todo\".to_string(),\n\
+             \"done\" => \"Done\".to_string(),\n\
+             other => other.to_string(),\n\
+             }\n}\n\
+             #[cfg(test)]\n\
+             mod tests {\n\
+             fn lanes() -> Vec<(&'static str, &'static str)> {\n\
+             vec![(\"backlog\", \"Backlog\"), (\"todo\", \"Todo\"), (\"done\", \"Done\")]\n\
+             }\n}\n",
+        )]);
+        assert!(
+            check_no_static_lane_list(exempt.path()).is_empty(),
+            "the humanize_state fallback and #[cfg(test)] fixtures must NOT be flagged: {:?}",
+            check_no_static_lane_list(exempt.path())
         );
     }
 
