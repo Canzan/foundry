@@ -3,8 +3,9 @@
 # from the board, and deleting a lane that holds cards asks the operator — in a
 # dialog — whether to move those cards to another lane or delete them.
 #
-# SCAFFOLDED RED (DISTILL, ADR-025): every scenario below carries @pending.
-# DELIVER un-pends one at a time; it never re-authors. The production scaffolds
+# SCAFFOLDED RED (DISTILL, ADR-025): every scenario below was scaffolded
+# pending; DELIVER un-pended one at a time (04-02 closed the feature out —
+# zero pending remain). It never re-authors. The production scaffolds
 # this suite drives are the DESIGN port signatures (component-boundaries.md):
 # foundry-store::lanes (list_project_lanes, delete_lane_with_fate),
 # foundry-services::lanes (delete_lane_dialog, delete_lane, classify_lane_delete),
@@ -269,7 +270,7 @@ Feature: Shaping a board's lanes to match how the work actually flows
   # headless Chrome against the same in-process origin.
   # ========================================================================
 
-  @us-blm-04 @needs-browser @driving_port @real-io @pending
+  @us-blm-04 @needs-browser @driving_port @real-io
   Scenario: Deleting a full lane from the board is one visible, counted decision
     Given "Identity Platform" (AUTH) is a grandfathered board with its four working lanes
     And AUTH-7 sits in Backlog and AUTH-12, AUTH-15 and AUTH-18 sit in Todo top to bottom
@@ -283,7 +284,7 @@ Feature: Shaping a board's lanes to match how the work actually flows
   # ADR-MODAL-CLOSE-001 pinned: the dialog closes through the declarative
   # data-action="close-modal" trigger and the single Escape owner — template-
   # only wiring, no new listeners.
-  @us-blm-03 @needs-browser @edge @real-io @pending
+  @us-blm-03 @needs-browser @edge @real-io
   Scenario: The delete dialog closes like every other dialog, leaving the board alone
     Given "Homelab Ops" (OPS) is a grandfathered board whose Todo lane holds no issues
     And Priya has the "Homelab Ops" board open in her browser
