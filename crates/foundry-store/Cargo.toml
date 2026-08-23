@@ -38,3 +38,6 @@ metrics = { workspace = true }
 # information_schema + current_schema(), which can't be faked). `tokio` is
 # already a runtime dep with the `full` feature set (incl. the test macros).
 testcontainers-modules = { workspace = true }
+# The D6 leftmost-landing rule is a domain invariant over arbitrary lane
+# sets — proptest pins it at the store driving port (TEST PARADIGM mandate).
+proptest = "1"

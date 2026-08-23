@@ -284,18 +284,12 @@ async fn response_redirects_url(world: &mut FoundryWorld, expected: String) {
     );
 }
 
-#[then(
-    regex = r#"^the response body lists the columns "([^"]+)", "([^"]+)", "([^"]+)", "([^"]+)"$"#
-)]
-async fn body_lists_columns(
-    world: &mut FoundryWorld,
-    c1: String,
-    c2: String,
-    c3: String,
-    c4: String,
-) {
+// board-lane-management 02-01: a freshly created project seeds the THREE
+// defaults (D4) — the walking-skeleton assertion narrows from four columns.
+#[then(regex = r#"^the response body lists the columns "([^"]+)", "([^"]+)", "([^"]+)"$"#)]
+async fn body_lists_columns(world: &mut FoundryWorld, c1: String, c2: String, c3: String) {
     let body = fetch_redirected_board_body(world).await;
-    for col in [&c1, &c2, &c3, &c4] {
+    for col in [&c1, &c2, &c3] {
         assert!(
             body.contains(col.as_str()),
             "board body missing column {col:?}: {body}"

@@ -1366,6 +1366,7 @@ dependencies = [
  "async-trait",
  "foundry-core",
  "metrics",
+ "proptest",
  "serde",
  "serde_json",
  "sqlx",

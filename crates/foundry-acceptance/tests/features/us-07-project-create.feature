@@ -12,8 +12,8 @@
 @slice1 @us-07 @driving_port
 Feature: A team member creates a project and reaches its empty board
   A workspace member who belongs to a team can create a project under that
-  team, immediately navigate to its board, and see the four default state
-  columns. Project names are unique within a team; project keys are unique
+  team, immediately navigate to its board, and see the three default state
+  columns (board-lane-management D4: Backlog, In-Progress, Done). Project names are unique within a team; project keys are unique
   within a workspace and match the agreed shape.
 
   Background:
@@ -25,7 +25,7 @@ Feature: A team member creates a project and reaches its empty board
   Scenario: Member creates a project under their team and lands on its empty board
     When Mei creates a project under "Backend" with name "Auth v2" and key prefix "AUTH"
     Then the response redirects to "/team/backend/project/auth-v2"
-    And the response body lists the columns "Backlog", "Todo", "In-Progress", "Done"
+    And the response body lists the columns "Backlog", "In-Progress", "Done"
     And the response body contains "New issue"
     And the project "Auth v2" is recorded in the "Backend" team with key prefix "AUTH"
 

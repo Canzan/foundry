@@ -130,33 +130,33 @@ Feature: Shaping a board's lanes to match how the work actually flows
   # US-BLM-02 — new projects start with Backlog, In-Progress, Done (slice 02)
   # ========================================================================
 
-  @us-blm-02 @driving_port @real-io @pending
+  @us-blm-02 @driving_port @real-io
   Scenario: A new project's board opens with the three default lanes
     Given Priya creates project "Reading List" in team Backend
     When she opens the "Reading List" board
     Then the columns are exactly Backlog, In-Progress and Done, in that order
 
-  @us-blm-02 @pending
+  @us-blm-02
   Scenario: The first issue lands in the leftmost lane
     Given the fresh "Reading List" board
     When Priya files READ-1 "Dune"
     Then READ-1 appears as a card in Backlog
 
-  @us-blm-02 @edge @pending
+  @us-blm-02 @edge
   Scenario: The filing reply names the lane the issue actually landed in
     Given the fresh "Reading List" board
     When a machine client files "Children of Time" into "Reading List"
     Then the reply says the new issue landed in Backlog
     And the board shows it there
 
-  @us-blm-02 @pending
+  @us-blm-02
   Scenario: The edit dialog of a new project offers exactly the three lanes
     Given the fresh "Reading List" board
     And Priya files READ-1 "Dune"
     When Priya opens the edit dialog for READ-1
     Then the Status options are exactly Backlog, In-Progress and Done
 
-  @us-blm-02 @error @pending
+  @us-blm-02 @error
   Scenario: The board's lanes bound what any client may set
     Given the fresh "Reading List" board
     And Priya files READ-1 "Dune"

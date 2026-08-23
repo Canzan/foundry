@@ -136,7 +136,7 @@ pub async fn create_issue(
     validate_description(description)?;
 
     let issue_id = uuid::Uuid::now_v7();
-    let number = match store
+    let inserted = match store
         .insert_issue_with_outbox(
             issue_id,
             principal.workspace_id(),
@@ -150,10 +150,11 @@ pub async fn create_issue(
         )
         .await
     {
-        Ok(n) => n,
+        Ok(inserted) => inserted,
         Err(IssueInsertError::ProjectNotFound) => return Err(ServiceError::NotFound),
         Err(IssueInsertError::Store(_)) => return Err(ServiceError::Internal),
     };
+    let number = inserted.number;
 
     let key = foundry_core::IssueKey::try_new(&key_prefix, number as u32)
         .map(|k| k.to_string())
@@ -165,7 +166,9 @@ pub async fn create_issue(
         // The TRIMMED title is what `insert_issue_with_outbox` persisted, so the
         // returned representation matches a subsequent read (NFR-WEB-API-CON-02).
         title: raw_title.to_string(),
-        state: "backlog".to_string(),
+        // The ACTUAL landing slug the store persisted — the project's leftmost
+        // lane (D6, board-lane-management 02-01) — never a hardcoded literal.
+        state: inserted.state,
     })
 }
 

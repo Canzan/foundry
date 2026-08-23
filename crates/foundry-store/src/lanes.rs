@@ -35,16 +35,26 @@ use crate::{Store, StoreError};
 /// no-static-lane-list rule (component-boundaries.md §2): it WRITES lane rows
 /// at project creation; it never renders or validates against them.
 ///
-/// 01-01 bridge shape: the four grandfathered lanes, so every pre-BLM suite
-/// (us-07's four-column board, us-08's Backlog landing) stays byte-green while
-/// boards render from lane ROWS. 02-01 narrows this to the D4 three
-/// (backlog, in_progress, done) together with its own @us-blm-02 scenarios.
+/// The D4 three defaults (02-01): every FRESHLY CREATED project starts with
+/// exactly Backlog, In-Progress, Done, in that order. Grandfathered EXISTING
+/// projects keep the four lanes migration 0015 seeded — the migration seed is
+/// deliberately NOT this constant.
 pub(crate) const CREATION_LANE_SEED: &[(&str, &str, i32)] = &[
     ("backlog", "Backlog", 0),
-    ("todo", "Todo", 1),
-    ("in_progress", "In-Progress", 2),
-    ("done", "Done", 3),
+    ("in_progress", "In-Progress", 1),
+    ("done", "Done", 2),
 ];
+
+/// The freshly-inserted issue: its allocated per-project `number` plus the
+/// PERSISTED landing `state` — the project's leftmost lane at insert time
+/// (D6, component-boundaries.md §2). Carrying the actual landing slug lets
+/// every caller echo the truth instead of a hardcoded `"backlog"`
+/// (board-lane-management 02-01, ripple surface 6).
+#[derive(Debug, Clone)]
+pub struct InsertedIssue {
+    pub number: i32,
+    pub state: String,
+}
 
 /// One lane row, board order by `position` (component-boundaries.md §2).
 #[derive(Debug, Clone)]

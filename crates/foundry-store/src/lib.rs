@@ -12,7 +12,7 @@ pub mod lanes;
 pub mod verify_export;
 
 pub use attachments::{AttachmentInsertError, AttachmentRow, AttachmentSummary};
-pub use lanes::{LaneDeleteFate, LaneDeleteOutcome, LaneRow};
+pub use lanes::{InsertedIssue, LaneDeleteFate, LaneDeleteOutcome, LaneRow};
 pub use verify_export::{verify_workspace_export, ArchiveContents, ArchivedTable, VerifyReport};
 
 use sqlx::postgres::PgPoolOptions;
@@ -1402,8 +1402,10 @@ impl Store {
     /// once the issue itself is committed. The realtime crate's
     /// publisher hook (slice 2) consumes the row.
     ///
-    /// Returns `(issue_id, number)` so the caller can render the
-    /// freshly-minted issue key in the response without a re-fetch.
+    /// Returns [`InsertedIssue`] — the allocated `number` plus the PERSISTED
+    /// landing `state` (the project's leftmost lane, D6) — so the caller can
+    /// render the freshly-minted issue key AND echo the truthful landing lane
+    /// in the response without a re-fetch (board-lane-management 02-01).
     // One positional arg per issue column the insert carries; a params struct
     // would add ceremony without clarifying this single-call-shape seam.
     #[allow(clippy::too_many_arguments)]
@@ -1416,7 +1418,55 @@ impl Store {
         author_id: uuid::Uuid,
         title: &str,
         description: &str,
-    ) -> Result<i32, IssueInsertError> {
+    ) -> Result<InsertedIssue, IssueInsertError> {
+        // Bounded retry (architecture-design.md, ADR-BOARD-LANE-001): the
+        // leftmost lane is resolved INSIDE the transaction, but a concurrent
+        // lane delete can still race the INSERT (the `fk_issues_lane` FK is
+        // the strand-guard). On exactly that violation, retry ONCE with a
+        // fresh transaction re-resolving the leftmost; a second failure
+        // surfaces as an honest store error, fully rolled back.
+        match self
+            .insert_issue_attempt(
+                issue_id,
+                workspace_id,
+                project_id,
+                project_key_prefix,
+                author_id,
+                title,
+                description,
+            )
+            .await
+        {
+            Err(IssueInsertError::Store(err)) if is_lane_fk_violation(&err) => {
+                self.insert_issue_attempt(
+                    issue_id,
+                    workspace_id,
+                    project_id,
+                    project_key_prefix,
+                    author_id,
+                    title,
+                    description,
+                )
+                .await
+            }
+            outcome => outcome,
+        }
+    }
+
+    /// ONE attempt of the issue insert: number allocation, leftmost-lane
+    /// resolution, INSERT, outbox — one transaction. See
+    /// [`Store::insert_issue_with_outbox`] for the retry envelope.
+    #[allow(clippy::too_many_arguments)]
+    async fn insert_issue_attempt(
+        &self,
+        issue_id: uuid::Uuid,
+        workspace_id: uuid::Uuid,
+        project_id: uuid::Uuid,
+        project_key_prefix: &str,
+        author_id: uuid::Uuid,
+        title: &str,
+        description: &str,
+    ) -> Result<InsertedIssue, IssueInsertError> {
         let mut tx = self.pool.begin().await?;
 
         // Allocate the next per-project number. Row-level lock prevents
@@ -1440,26 +1490,39 @@ impl Store {
             None => return Err(IssueInsertError::ProjectNotFound),
         };
 
-        // New-issue slot (card-ranking-within-status, ADR-001 / watch-item R4):
-        // land the card at the TOP of Backlog (position 0) and shift the
-        // existing Backlog column +1 IN THE SAME TX, preserving the newest-first
-        // feel while keeping the column a contiguous 0..N permutation.
-        sqlx::query(
-            "UPDATE issues SET position = position + 1 WHERE project_id = $1 AND state = 'backlog'",
+        // The D6 landing rule: the new issue lands in the project's LEFTMOST
+        // lane, resolved from the lane ROWS inside this very transaction. A
+        // laneless project (unreachable for a live board — creation seeds
+        // three, delete refuses the last) is an honest store error.
+        let state: Option<String> = sqlx::query_scalar(
+            "SELECT slug FROM lanes WHERE project_id = $1 ORDER BY position ASC LIMIT 1",
         )
         .bind(project_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let state = match state {
+            Some(slug) => slug,
+            None => return Err(IssueInsertError::Store(sqlx::Error::RowNotFound)),
+        };
+
+        // New-issue slot (card-ranking-within-status, ADR-001 / watch-item R4):
+        // land the card at the TOP of the landing lane (position 0) and shift
+        // that column +1 IN THE SAME TX, preserving the newest-first feel
+        // while keeping the column a contiguous 0..N permutation.
+        sqlx::query(
+            "UPDATE issues SET position = position + 1 WHERE project_id = $1 AND state = $2",
+        )
+        .bind(project_id)
+        .bind(&state)
         .execute(&mut *tx)
         .await?;
 
         // `state` is INSERTed explicitly: 0015 dropped the column DEFAULT so a
-        // state-less INSERT fails loudly (D6). The 'backlog' landing literal is
-        // the 01-01 bridge — 02-01 replaces it with the leftmost-lane
-        // resolution (`ORDER BY position ASC LIMIT 1`) and grows the return
-        // type to echo the actual landing slug (ripple surface 6).
+        // state-less INSERT fails loudly (D6).
         sqlx::query(
             "INSERT INTO issues
                   (id, project_id, workspace_id, number, title, description_md, state, author_id, position)
-              VALUES ($1, $2, $3, $4, $5, $6, 'backlog', $7, 0)",
+              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0)",
         )
         .bind(issue_id)
         .bind(project_id)
@@ -1467,6 +1530,7 @@ impl Store {
         .bind(number)
         .bind(title)
         .bind(description)
+        .bind(&state)
         .bind(author_id)
         .execute(&mut *tx)
         .await?;
@@ -1489,7 +1553,7 @@ impl Store {
             .await?;
 
         tx.commit().await?;
-        Ok(number)
+        Ok(InsertedIssue { number, state })
     }
 
     /// List issues in a project ordered by the persisted per-`(project, state)`
@@ -2997,6 +3061,19 @@ pub enum IssueInsertError {
     ProjectNotFound,
     #[error(transparent)]
     Store(#[from] sqlx::Error),
+}
+
+/// TRUE iff the error is the `fk_issues_lane` strand-guard firing: the
+/// resolved landing lane was deleted concurrently between resolution and
+/// INSERT (SQLSTATE 23503). Gates the single re-resolve retry in
+/// [`Store::insert_issue_with_outbox`].
+fn is_lane_fk_violation(err: &sqlx::Error) -> bool {
+    match err {
+        sqlx::Error::Database(db) => {
+            db.code().as_deref() == Some("23503") && db.constraint() == Some("fk_issues_lane")
+        }
+        _ => false,
+    }
 }
 
 /// Errors specific to project insert. Splits the uniqueness violations
