@@ -484,3 +484,78 @@ fn rename_error_fragment(message: &str) -> Response {
     .expect("error_fragment.html renders from a fully-resolved, infallible view-model");
     (StatusCode::UNPROCESSABLE_ENTITY, Html(body)).into_response()
 }
+
+/// In-crate unit tests for the two PURE response-assembly helpers (the
+/// `board_render_tests` precedent — no `AppState`, no store). Added by DELIVER
+/// Phase 5 mutation testing: both helpers' no-op `Default::default()` mutants
+/// survived the unit layer because their contracts (the 422 fragment shape and
+/// the cookie-attach rule) were pinned only by the slow acceptance lane — the
+/// @real-io trap. The full HTTP mapping stays acceptance-pinned (@iapr).
+#[cfg(test)]
+mod response_helper_tests {
+    use super::*;
+
+    async fn body_string(resp: Response) -> String {
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .expect("read response body");
+        String::from_utf8(bytes.to_vec()).expect("utf-8 body")
+    }
+
+    /// The rename refusal is a 422 BARE fragment carrying the byte-stable
+    /// `project-rename-error` marker (form-errors.js routes it into the row's
+    /// `[data-error-slot]`, D6) and the exact copy the handler chose.
+    #[tokio::test]
+    async fn rename_error_fragment_is_a_422_with_marker_and_copy() {
+        let resp = rename_error_fragment("Project name must not be empty");
+        assert_eq!(
+            resp.status(),
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "a validation refusal must answer 422"
+        );
+        let body = body_string(resp).await;
+        assert!(
+            body.contains(r#"data-hx-fragment="project-rename-error""#),
+            "the fragment must carry the byte-stable scraper marker; body was:\n{body}"
+        );
+        assert!(
+            body.contains("Project name must not be empty"),
+            "the fragment must carry the handler's copy verbatim; body was:\n{body}"
+        );
+    }
+
+    /// The 200 assembly carries the rendered html and attaches SET_COOKIE
+    /// exactly when `ensure_csrf_cookie` minted one.
+    #[tokio::test]
+    async fn html_with_optional_cookie_carries_html_and_attaches_cookie_iff_minted() {
+        let minted = html_with_optional_cookie(
+            "<div data-project-row>row</div>".to_string(),
+            Some("foundry_csrf=abc; Path=/".to_string()),
+        );
+        assert_eq!(minted.status(), StatusCode::OK);
+        assert_eq!(
+            minted
+                .headers()
+                .get(SET_COOKIE)
+                .and_then(|v| v.to_str().ok()),
+            Some("foundry_csrf=abc; Path=/"),
+            "a freshly-minted CSRF cookie must be attached"
+        );
+        assert!(
+            body_string(minted)
+                .await
+                .contains("<div data-project-row>row</div>"),
+            "the response body must be the rendered html"
+        );
+
+        let reused = html_with_optional_cookie("<div>row</div>".to_string(), None);
+        assert!(
+            reused.headers().get(SET_COOKIE).is_none(),
+            "no cookie was minted, so none may be attached"
+        );
+        assert!(
+            body_string(reused).await.contains("<div>row</div>"),
+            "the response body must still be the rendered html"
+        );
+    }
+}

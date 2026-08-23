@@ -335,4 +335,30 @@ mod classify_rename_properties {
             }
         }
     }
+
+    /// Exact-boundary pin for the length gate (behaviour 2's edge): EXACTLY
+    /// 256 scalars is the last ACCEPTED length, 257 the first refusal.
+    /// Mutation testing (DELIVER Phase 5) showed the `1usize..400` proptest
+    /// range is not guaranteed to sample 256 itself, letting a `>` → `>=`
+    /// mutant survive; this example makes the off-by-one kill deterministic.
+    /// # bypass: exact boundary pin — single-example by design
+    #[test]
+    fn exactly_256_scalars_accepted_257_refused() {
+        let at_cap = "a".repeat(256);
+        match classify_rename(&at_cap, CURRENT, &[]) {
+            Ok(RenameDecision::Write { name }) => assert_eq!(
+                name, at_cap,
+                "256 scalars sit AT the cap and must be written verbatim"
+            ),
+            _ => panic!("a 256-scalar name must be accepted (the cap is inclusive)"),
+        }
+        let over_cap = "a".repeat(257);
+        assert!(
+            matches!(
+                classify_rename(&over_cap, CURRENT, &[]),
+                Err(RenameProjectError::NameTooLong)
+            ),
+            "257 scalars must classify NameTooLong"
+        );
+    }
 }
