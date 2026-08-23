@@ -889,6 +889,13 @@ fn dispatch_subcommand() -> Option<i32> {
                     let code = foundry_app::admin_cli::run_list_workspaces();
                     Some(code)
                 }
+                // Operator roster: print every user (id, email, display name,
+                // super-admin flag) so reset-password / grant-super-admin have
+                // discoverable targets. Reads DATABASE_URL.
+                "list-users" => {
+                    let code = foundry_app::admin_cli::run_list_users();
+                    Some(code)
+                }
                 "export-workspace" => {
                     let Some(selector) = args.get(3) else {
                         eprintln!(
@@ -972,7 +979,7 @@ fn dispatch_subcommand() -> Option<i32> {
                          Available: backup-verify <file>, restore-comment <comment-uuid>, \
                          provision-workspace --name <name> --admin-email <addr> --as <addr>, \
                          grant-super-admin --email <addr>, \
-                         list-workspaces, \
+                         list-workspaces, list-users, \
                          export-workspace <id|name> <out-path>, \
                          verify-export <archive-path>, \
                          reset-password --email <addr> [--password <new>], \
@@ -986,7 +993,7 @@ fn dispatch_subcommand() -> Option<i32> {
                          Available: backup-verify <file>, restore-comment <comment-uuid>, \
                          provision-workspace --name <name> --admin-email <addr> --as <addr>, \
                          grant-super-admin --email <addr>, \
-                         list-workspaces, \
+                         list-workspaces, list-users, \
                          export-workspace <id|name> <out-path>, \
                          verify-export <archive-path>, \
                          reset-password --email <addr> [--password <new>], \

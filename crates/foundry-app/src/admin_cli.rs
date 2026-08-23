@@ -755,6 +755,92 @@ pub fn run_list_workspaces() -> i32 {
     })
 }
 
+/// Entry point invoked from `main.rs` when the CLI sees
+/// `foundry doctor list-users`.
+///
+/// Prints every user on the instance — id, email, display name, and whether
+/// they hold an `instance_admins` row — so the operator can pick targets for
+/// `reset-password` / `grant-super-admin` without a psql session. Mirrors
+/// `list-workspaces`: LIVE DB via `DATABASE_URL`, thread-isolated tokio
+/// runtime, structured `key: value` + `status:` stdout.
+///
+/// Output shape: per user, `user-id:` / `user-email:` / `user-name:` /
+/// `super-admin: true|false` lines, then a trailing `status: OK`.
+///
+/// Exit codes (mirroring `run_list_workspaces`):
+///
+/// - `0` OK: the roster was listed; stdout ends with `status: OK`.
+/// - `3` DB unreachable / list-read error.
+pub fn run_list_users() -> i32 {
+    let database_url = match std::env::var("DATABASE_URL") {
+        Ok(v) if !v.is_empty() => v,
+        _ => {
+            eprintln!(
+                "foundry doctor list-users: DATABASE_URL is required \
+                 to reach the live database. Set it to the same value the \
+                 foundry server uses."
+            );
+            return 3;
+        }
+    };
+
+    // Thread-isolated runtime (see `run_restore_comment`): dispatched from inside
+    // the outer `#[tokio::main]` runtime, so a nested `block_on` would panic.
+    std::thread::spawn(move || {
+        let runtime = match tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        {
+            Ok(rt) => rt,
+            Err(err) => {
+                eprintln!("foundry doctor list-users: could not build tokio runtime: {err}");
+                return 3;
+            }
+        };
+
+        runtime.block_on(async move {
+            let store = match foundry_store::Store::connect(&database_url).await {
+                Ok(s) => s,
+                Err(err) => {
+                    eprintln!(
+                        "foundry doctor list-users: could not connect to \
+                         DATABASE_URL: {err}"
+                    );
+                    return 3;
+                }
+            };
+
+            let users = match store.list_users().await {
+                Ok(u) => u,
+                Err(err) => {
+                    eprintln!(
+                        "foundry doctor list-users: failed to list users \
+                         against live DB: {err}"
+                    );
+                    return 3;
+                }
+            };
+
+            for (id, email, name, super_admin) in &users {
+                println!("user-id: {id}");
+                println!("user-email: {email}");
+                println!("user-name: {name}");
+                println!("super-admin: {super_admin}");
+            }
+            println!("status: OK");
+            0
+        })
+    })
+    .join()
+    .unwrap_or_else(|_| {
+        eprintln!(
+            "foundry doctor list-users: worker thread panicked; \
+             see stderr above"
+        );
+        3
+    })
+}
+
 /// per-workspace-backup (US-PWB-01, ADR-002/003/005) — entry point invoked from
 /// `main.rs` when the CLI sees `foundry doctor export-workspace <id|name> <out>`.
 ///

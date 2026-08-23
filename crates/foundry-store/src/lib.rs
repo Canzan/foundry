@@ -699,6 +699,24 @@ impl Store {
         Ok(rows)
     }
 
+    /// List every user on the instance for the operator CLI (`foundry doctor
+    /// list-users`): `(id, email_lower, display_name, is_super_admin)` ordered
+    /// by email. Instance-scoped on purpose, like [`list_workspaces`] — the
+    /// operator surveys ALL tenants' users; reachable only from the CLI
+    /// adapter, never the web tier.
+    pub async fn list_users(&self) -> Result<Vec<(uuid::Uuid, String, String, bool)>, StoreError> {
+        let rows: Vec<(uuid::Uuid, String, String, bool)> = sqlx::query_as(
+            "SELECT u.id, u.email_lower, u.display_name,
+                    (ia.user_id IS NOT NULL) AS is_super_admin
+               FROM users u
+               LEFT JOIN instance_admins ia ON ia.user_id = u.id
+              ORDER BY u.email_lower",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
     /// List every project in one workspace for the dashboard project index,
     /// as `(team_slug, project_slug, name, key_prefix)` ordered by name.
     ///

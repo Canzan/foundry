@@ -187,6 +187,64 @@ async fn grant_all_memberships_leaves_existing_roles_untouched() {
     assert_eq!(role, "admin", "the sweep never demotes an existing role");
 }
 
+/// `foundry doctor list-users` — the roster read: every user listed, ordered
+/// by email, with the super-admin flag distinguishing the bootstrap operator
+/// from a plain user.
+#[tokio::test]
+async fn list_users_orders_by_email_and_flags_super_admins() {
+    let (base, _guard) = fresh_postgres().await;
+    let store = migrated_store(&base).await;
+
+    // The bootstrap operator (ops@acme.com) is seeded as the first super-admin.
+    let operator_id = uuid::Uuid::now_v7();
+    store
+        .create_initial_workspace(
+            uuid::Uuid::now_v7(),
+            "Acme",
+            operator_id,
+            "ops@acme.com",
+            "ops@acme.com",
+            "Ops",
+            "phc$dummy",
+            uuid::Uuid::now_v7(),
+            "General",
+            "general",
+            uuid::Uuid::now_v7(),
+            "Sandbox",
+            "sandbox",
+            "GEN",
+        )
+        .await
+        .expect("seed workspace with operator");
+
+    // A plain user with an email that sorts BEFORE the operator's.
+    let tester_id = uuid::Uuid::now_v7();
+    store
+        .create_user(
+            tester_id,
+            "a-tester@example.com",
+            "a-tester@example.com",
+            "Test User",
+            "phc$dummy",
+        )
+        .await
+        .expect("create plain user");
+
+    let users = store.list_users().await.expect("list users");
+    let summary: Vec<(uuid::Uuid, &str, bool)> = users
+        .iter()
+        .map(|(id, email, _name, admin)| (*id, email.as_str(), *admin))
+        .collect();
+    assert_eq!(
+        summary,
+        vec![
+            (tester_id, "a-tester@example.com", false),
+            (operator_id, "ops@acme.com", true),
+        ],
+        "email-ordered roster with the super-admin flag on exactly the operator"
+    );
+}
+
 /// The by-email force-reset path: resolve, update, and the old hash is gone.
 /// (`update_user_password` is shipped; this pins the CLI's compose of it.)
 #[tokio::test]
