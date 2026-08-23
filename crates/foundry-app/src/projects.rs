@@ -333,16 +333,12 @@ pub async fn show_board(
         csrf,
     )
     .await;
-    match render_board(
-        &state,
-        &team.name,
-        &team_slug,
-        &project_slug,
-        &project,
-        &issues,
-        &key_prefix,
-        nav,
-    ) {
+    let location = BoardLocation {
+        team_name: &team.name,
+        team_slug: &team_slug,
+        project_slug: &project_slug,
+    };
+    match render_board(&state, &location, &project, &issues, &key_prefix, nav) {
         Ok(html) => {
             response_with_optional_cookie(StatusCode::OK, Html(html).into_response(), set_cookie)
         }
@@ -795,6 +791,19 @@ fn render_error_fragment(message: &str) -> String {
     .expect("error_fragment.html renders from a fully-resolved, infallible view-model")
 }
 
+/// Where the board lives, as the VALIDATED request path resolved it — the D2
+/// seam (ADR-PROJECT-RENAME-001). The two slugs arrive from the request path
+/// the handler resolved the project BY (`WHERE slug = $2`), so they are
+/// byte-equal to the stored columns; they are NEVER re-derived from the
+/// display names travelling beside them (after a name-only rename
+/// `slugify(name)` diverges from the URL identity and every card action
+/// would 404 — the D2 defect).
+struct BoardLocation<'a> {
+    team_name: &'a str,
+    team_slug: &'a str,
+    project_slug: &'a str,
+}
+
 /// Build the typed board view-model and render it via Askama.
 ///
 /// The render contract is selector-and-substring-identical to the previous
@@ -803,16 +812,9 @@ fn render_error_fragment(message: &str) -> String {
 /// `issue-card` partials — and now links the vendored `/static` stylesheet +
 /// htmx script via the base layout. Data ordering (column state-filtering)
 /// stays HERE in the handler-side builder; the template only loops.
-///
-/// 8 arguments: the D2 signature deltas (ADR-PROJECT-RENAME-001) thread the
-/// two request-path slugs through this seam by design — they must arrive as
-/// separate validated values, never re-derived from the names beside them.
-#[allow(clippy::too_many_arguments)]
 fn render_board(
     state: &AppState,
-    team_name: &str,
-    team_slug: &str,
-    project_slug: &str,
+    location: &BoardLocation<'_>,
     project: &foundry_store::ProjectRow,
     issues: &[foundry_services::BoardIssue],
     key_prefix: &ProjectKey,
@@ -834,16 +836,7 @@ fn render_board(
         }
     }
     let _ = state;
-    build_board_page(
-        team_name,
-        team_slug,
-        project_slug,
-        project,
-        issues,
-        key_prefix,
-        nav,
-    )
-    .render()
+    build_board_page(location, project, issues, key_prefix, nav).render()
 }
 
 /// Map a template render failure to a CLEAN server error (US-B01 @error,
@@ -871,9 +864,7 @@ fn render_500(headers: &HeaderMap, template_name: &str, err: askama::Error) -> R
 /// service rows. Kept separate from rendering so it is unit-testable without a
 /// running server.
 fn build_board_page(
-    team_name: &str,
-    team_slug: &str,
-    project_slug: &str,
+    location: &BoardLocation<'_>,
     project: &foundry_store::ProjectRow,
     issues: &[foundry_services::BoardIssue],
     key_prefix: &ProjectKey,
@@ -881,13 +872,9 @@ fn build_board_page(
 ) -> crate::views::BoardPage {
     // Group issues by state. Slice 1: all newly filed issues land in
     // 'backlog'; the other columns stay empty placeholders until drag-
-    // and-drop ships in slice 2.
-    // `team_slug`/`project_slug` come from the VALIDATED request path
-    // (ADR-PROJECT-RENAME-001): the handler resolved the project BY that slug
-    // (`WHERE slug = $2`), so they are byte-equal to the stored columns. They
-    // are NEVER re-derived from display names here — after a name-only rename
-    // `slugify(name)` diverges from the URL identity and every card action
-    // would 404 (the D2 defect).
+    // and-drop ships in slice 2. Every card URL is built from the
+    // [`BoardLocation`] slugs — the request-path identity, never a
+    // render-time name derivation (D2).
     let columns = DEFAULT_COLUMNS
         .iter()
         .map(|col| {
@@ -895,7 +882,7 @@ fn build_board_page(
             let cards = issues
                 .iter()
                 .filter(|i| i.state == state_key)
-                .map(|row| issue_card(key_prefix, row, team_slug, project_slug))
+                .map(|row| issue_card(key_prefix, row, location.team_slug, location.project_slug))
                 .collect();
             crate::views::BoardColumn {
                 slug: col.to_ascii_lowercase().replace('-', "_"),
@@ -906,10 +893,10 @@ fn build_board_page(
         .collect();
 
     crate::views::BoardPage {
-        team_name: team_name.to_string(),
+        team_name: location.team_name.to_string(),
         project_name: project.name.clone(),
-        team_slug: team_slug.to_string(),
-        project_slug: project_slug.to_string(),
+        team_slug: location.team_slug.to_string(),
+        project_slug: location.project_slug.to_string(),
         key_prefix: project.key_prefix.clone(),
         columns,
         nav,
@@ -960,7 +947,7 @@ fn column_label_to_state(label: &str) -> &'static str {
 
 #[cfg(test)]
 mod board_render_tests {
-    use super::build_board_page;
+    use super::{build_board_page, BoardLocation};
     use askama::Template;
     use foundry_core::ProjectKey;
 
@@ -988,17 +975,14 @@ mod board_render_tests {
             crate::nav::NavSection::Home,
             "/".to_string(),
         );
-        build_board_page(
+        let location = BoardLocation {
             team_name,
             team_slug,
             project_slug,
-            project,
-            issues,
-            key_prefix,
-            nav,
-        )
-        .render()
-        .expect("board template renders")
+        };
+        build_board_page(&location, project, issues, key_prefix, nav)
+            .render()
+            .expect("board template renders")
     }
 
     fn project() -> foundry_store::ProjectRow {
