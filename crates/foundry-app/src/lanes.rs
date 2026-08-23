@@ -111,7 +111,6 @@ pub struct DeleteLaneForm {
 pub async fn submit_delete_lane(
     State(state): State<AppState>,
     session: Session,
-    _headers: HeaderMap,
     Path((team_slug, project_slug, lane_slug)): Path<(String, String, String)>,
     Form(form): Form<DeleteLaneForm>,
 ) -> Response {
