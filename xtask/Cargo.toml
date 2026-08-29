@@ -15,6 +15,11 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow = { workspace = true }
+# check-arch R2/R3 recompute blob sha256 in-process. `sha2` is already a
+# workspace dependency (Cargo.toml:63), so this is a new EDGE, not a new
+# crate: `cargo deny check bans` is unaffected. Shelling out to
+# `shasum`/`sha256sum` was rejected as platform-dependent.
+sha2 = { workspace = true }
 
 [dev-dependencies]
 # check-arch's AST detectors are unit-tested against staged fixture trees.

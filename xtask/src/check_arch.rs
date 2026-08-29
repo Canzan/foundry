@@ -62,6 +62,7 @@ pub fn run(args: Vec<String>) -> ExitCode {
     violations.extend(check_app_tenant_scoping(&root));
     violations.extend(check_app_no_slugify_definition(&root));
     violations.extend(check_no_static_lane_list(&root));
+    violations.extend(check_static_asset_integrity(&root));
 
     // LAYER 2 — cargo-deny crate-graph dependency-direction.
     if let Some(dep_violation) = check_dependency_direction(&root) {
@@ -69,7 +70,7 @@ pub fn run(args: Vec<String>) -> ExitCode {
     }
 
     if violations.is_empty() {
-        println!("check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, dependency direction)");
+        println!("check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, dependency direction)");
         return ExitCode::SUCCESS;
     }
 
@@ -809,6 +810,275 @@ fn check_dependency_direction(root: &Path) -> Option<String> {
     }
 }
 
+/// LAYER 1i — static-asset integrity (ADR-CANZAN-THEME-003). Three assertions
+/// over `crates/foundry-app`, keeping `assets.md:115-126`'s eight-month-old
+/// promise of an asset-resolution probe:
+///
+///   * **R1 — every reference resolves.** Every `/static/<path>` token in the
+///     app's Rust sources, askama templates, stylesheets and
+///     `manifest.webmanifest` names a file that exists under
+///     `crates/foundry-app/static/`. Catches *renamed but not re-referenced*.
+///   * **R2 — every content-hashed filename is honest.** Every file named
+///     `<stem>.<8 lowercase hex>.<ext>` hashes to that 8-hex prefix. Catches
+///     *edited but not renamed* — the failure R1 structurally cannot see,
+///     which pins a stale byte at an `immutable` URL for a year.
+///   * **R3 — every `VENDOR.md` row is true.** Every provenance table row's
+///     recorded sha256 recomputes (Tier 1 of ADR-CANZAN-THEME-002).
+///
+/// The scan set is DERIVED, never enumerated: adding a blob and referencing it
+/// enrols it automatically, so the guard cannot itself go stale.
+///
+/// Three scope exclusions, each forced by evidence in the tree (ADR-003
+/// Decision, scoping rules 1-3):
+///   1. `crates/foundry-acceptance/` is NOT scanned — it holds deliberate
+///      non-resolving fixtures (`feature_b_web_tier.rs:486`
+///      `/static/css/does-not-exist.css` expecting 404, and `:495`
+///      `/static/../Cargo.toml` probing path traversal). Scanning it would
+///      make the guard permanently red.
+///   2. `#[cfg(test)]` blocks are NOT region-skipped — a deliberate departure
+///      from `check_no_static_lane_list`'s posture, because the three stale-hash
+///      literals this rule exists to protect live INSIDE
+///      `#[cfg(test)] mod static_cache_policy_tests` (`lib.rs:312-373`). A rule
+///      that skipped test blocks would miss its entire reason for existing.
+///   3. An extracted path must carry a file extension — `projects.rs:1048`
+///      holds the deliberate hash-agnostic PREFIX literal
+///      `href="/static/css/foundry.`. Requiring a trailing `.<2-12 alphanumerics>`
+///      skips prefixes and format templates without an allowlist. (ADR-003
+///      writes `2-5`; widened to 12 here so `manifest.webmanifest` — a real
+///      reference in `base.html:10` — is checked rather than skipped.)
+///      Documented limit: a typo that also drops the extension escapes R1.
+fn check_static_asset_integrity(root: &Path) -> Vec<String> {
+    let app = root.join("crates").join("foundry-app");
+    let static_dir = app.join("static");
+    let mut violations = Vec::new();
+    violations.extend(check_static_references_resolve(root, &app, &static_dir));
+    violations.extend(check_hashed_filenames_are_honest(root, &static_dir));
+    violations.extend(check_vendor_rows_recompute(root, &static_dir));
+    violations
+}
+
+/// R1 — every `/static/<path>` reference in `foundry-app` resolves on disk.
+fn check_static_references_resolve(root: &Path, app: &Path, static_dir: &Path) -> Vec<String> {
+    let mut sources = files_with_extensions(&app.join("src"), &["rs"]);
+    sources.extend(files_with_extensions(&app.join("templates"), &["html"]));
+    sources.extend(files_with_extensions(static_dir, &["css", "webmanifest"]));
+    sources.sort();
+
+    let mut violations = Vec::new();
+    for file in sources {
+        let Ok(contents) = std::fs::read_to_string(&file) else {
+            continue;
+        };
+        for (index, line) in contents.lines().enumerate() {
+            for reference in static_references(line) {
+                if static_dir.join(&reference).is_file() {
+                    continue;
+                }
+                violations.push(format!(
+                    "asset-reference: {}:{} references /static/{reference} — no such file under crates/foundry-app/static/ (a renamed or deleted blob left this reference dangling; assets.md:93-94 / ADR-CANZAN-THEME-003 R1)",
+                    rel(root, &file),
+                    index + 1
+                ));
+            }
+        }
+    }
+    violations
+}
+
+/// Extract every `/static/<path>` token on `line` that carries a file
+/// extension. A path runs over `[A-Za-z0-9._/-]` and stops at the first other
+/// byte, so a quote, `)`, `#` or whitespace terminates it.
+fn static_references(line: &str) -> Vec<String> {
+    const MARKER: &str = "/static/";
+    let mut out = Vec::new();
+    let bytes = line.as_bytes();
+    let mut cursor = 0;
+    while let Some(found) = line[cursor..].find(MARKER) {
+        let start = cursor + found + MARKER.len();
+        let mut end = start;
+        while end < bytes.len() && is_path_byte(bytes[end]) {
+            end += 1;
+        }
+        cursor = start.max(cursor + found + 1);
+        let candidate = &line[start..end];
+        if has_file_extension(candidate) {
+            out.push(candidate.to_string());
+        }
+    }
+    out
+}
+
+fn is_path_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-' | b'/')
+}
+
+/// True when the final path segment ends in `.<2-12 alphanumerics>`. Rejects
+/// the deliberate prefix literal `css/foundry.` and any path with no dot.
+fn has_file_extension(candidate: &str) -> bool {
+    let Some(segment) = candidate.rsplit('/').next() else {
+        return false;
+    };
+    let Some((stem, extension)) = segment.rsplit_once('.') else {
+        return false;
+    };
+    !stem.is_empty()
+        && (2..=12).contains(&extension.len())
+        && extension.chars().all(|c| c.is_ascii_alphanumeric())
+}
+
+/// R2 — every `<stem>.<8 lowercase hex>.<ext>` file hashes to its own name.
+fn check_hashed_filenames_are_honest(root: &Path, static_dir: &Path) -> Vec<String> {
+    let mut violations = Vec::new();
+    for file in files_with_extensions(static_dir, &[]) {
+        let Some(name) = file.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        let Some(claimed) = content_hash_segment(name) else {
+            continue;
+        };
+        let Ok(bytes) = std::fs::read(&file) else {
+            continue;
+        };
+        let actual = sha256_hex(&bytes);
+        if actual.starts_with(&claimed) {
+            continue;
+        }
+        violations.push(format!(
+            "asset-hash: {} claims content hash `{claimed}` but its bytes hash to `{}` — the blob was edited without being renamed, so every browser holding the old bytes at this `Cache-Control: immutable` URL is pinned stale (ADR-CANZAN-THEME-003 R2)",
+            rel(root, &file),
+            &actual[..8]
+        ));
+    }
+    violations
+}
+
+/// The middle `<8 lowercase hex>` segment of `<stem>.<hash>.<ext>`, if any.
+fn content_hash_segment(name: &str) -> Option<String> {
+    let parts: Vec<&str> = name.split('.').collect();
+    if parts.len() < 3 {
+        return None;
+    }
+    let candidate = parts[parts.len() - 2];
+    let is_hash = candidate.len() == 8
+        && candidate
+            .chars()
+            .all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c));
+    is_hash.then(|| candidate.to_string())
+}
+
+/// R3 — every `VENDOR.md` provenance row's recorded sha256 recomputes.
+///
+/// Parses only pipe-delimited TABLE rows whose first cell is a backticked path
+/// with a file extension and whose last cell is a backticked 64-hex digest.
+/// Header, separator and prose lines carry neither and are skipped; so are
+/// ADR-CANZAN-THEME-002's per-blob derived-recipe blocks, which record input
+/// and intermediate hashes for artefacts that are NOT committed files.
+fn check_vendor_rows_recompute(root: &Path, static_dir: &Path) -> Vec<String> {
+    let vendor_md = static_dir.join("VENDOR.md");
+    let Ok(contents) = std::fs::read_to_string(&vendor_md) else {
+        return Vec::new();
+    };
+    let label = rel(root, &vendor_md);
+    let mut violations = Vec::new();
+    for (index, line) in contents.lines().enumerate() {
+        let Some((asset, recorded)) = vendor_row(line) else {
+            continue;
+        };
+        let blob = static_dir.join(&asset);
+        let Ok(bytes) = std::fs::read(&blob) else {
+            violations.push(format!(
+                "asset-provenance: {label}:{} records a sha256 for `{asset}`, but no such file exists under crates/foundry-app/static/ (ADR-CANZAN-THEME-003 R3)",
+                index + 1
+            ));
+            continue;
+        };
+        let actual = sha256_hex(&bytes);
+        if actual == recorded {
+            continue;
+        }
+        violations.push(format!(
+            "asset-provenance: {label}:{} records sha256 `{recorded}` for `{asset}`, but the committed bytes hash to `{actual}` — VENDOR.md's Tier 1 integrity claim is false for this row (ADR-CANZAN-THEME-002 / ADR-CANZAN-THEME-003 R3)",
+            index + 1
+        ));
+    }
+    violations
+}
+
+/// `(asset path relative to static/, recorded lowercase sha256)` for a
+/// provenance table row; `None` for headers, separators and prose.
+fn vendor_row(line: &str) -> Option<(String, String)> {
+    let trimmed = line.trim();
+    if !trimmed.starts_with('|') {
+        return None;
+    }
+    let cells: Vec<&str> = trimmed
+        .trim_matches('|')
+        .split('|')
+        .map(str::trim)
+        .collect();
+    if cells.len() < 2 {
+        return None;
+    }
+    let asset = backticked(cells[0]).filter(|cell| has_file_extension(cell))?;
+    let recorded = cells
+        .iter()
+        .rev()
+        .find_map(|cell| backticked(cell).filter(|value| is_sha256_hex(value)))?;
+    Some((asset, recorded))
+}
+
+/// The contents of a cell that is exactly one backtick-quoted token.
+fn backticked(cell: &str) -> Option<String> {
+    let inner = cell.strip_prefix('`')?.strip_suffix('`')?;
+    (!inner.is_empty() && !inner.contains('`')).then(|| inner.to_string())
+}
+
+fn is_sha256_hex(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .chars()
+            .all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c))
+}
+
+/// Lowercase hex sha256 of `bytes`.
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(bytes);
+    digest.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+/// Enumerate files under `dir` (recursively) whose extension is in
+/// `extensions`; an EMPTY `extensions` means every file. `rust_sources` walks
+/// `*.rs` only, so R1's `.html` / `.css` / `.webmanifest` scan and R2's
+/// walk-everything need this generalised form.
+fn files_with_extensions(dir: &Path, extensions: &[&str]) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(current) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&current) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            let matches = extensions.is_empty()
+                || path
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .map(|e| extensions.contains(&e))
+                    .unwrap_or(false);
+            if matches {
+                out.push(path);
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
 /// Enumerate `*.rs` files under `dir` (recursively). Empty if `dir` is absent.
 fn rust_sources(dir: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
@@ -1279,6 +1549,143 @@ mod tests {
         assert!(
             !found.is_empty() && found[0].contains("admin_tokens.rs"),
             "a private fn slugify( definition must be flagged and NAME the file: {found:?}"
+        );
+    }
+
+    // ---- static-asset integrity gold tests (R1/R2/R3, ADR-CANZAN-THEME-003) --
+    //
+    // Behaviour budget: 3 distinct behaviours (R1 dangling reference, R2
+    // dishonest content-hash filename, R3 false VENDOR.md row) x 2 = 6 unit
+    // tests permitted; 3 authored, each pairing a planted violation with the
+    // clean-tree silence assertion.
+    //
+    // The two expected sha256 values below are INDEPENDENT ORACLES computed
+    // with `shasum -a 256`, not with this module's hasher — so a wrong hash
+    // algorithm or a wrong digest encoding fails these tests instead of
+    // cancelling out (no circular verification).
+
+    /// sha256 of `CLEAN_CSS` per `printf ':root{--canzan-x:1}\n' | shasum -a 256`.
+    const CLEAN_CSS: &str = ":root{--canzan-x:1}\n";
+    const CLEAN_CSS_SHA256: &str =
+        "6fdd04abc6afc02c4f52d1d907d0df36b44d8071d7f3ee24b266123bdc9ab8a6";
+    /// sha256 of `CLEAN_VENDOR_JS` per `printf 'vendored-bytes\n' | shasum -a 256`.
+    const CLEAN_VENDOR_JS: &str = "vendored-bytes\n";
+    const CLEAN_VENDOR_SHA256: &str =
+        "2e36225b221d824141b90691558311a740f71b87df408be08d897d9ba27b8e8c";
+
+    /// A tree that satisfies R1, R2 and R3. Deliberately includes a
+    /// `#[cfg(test)]` region naming the hashed stylesheet (ADR-003 scope rule
+    /// 2 — test blocks are NOT region-skipped) and a hash-agnostic prefix
+    /// literal (scope rule 3 — no extension, therefore not checked).
+    fn clean_asset_tree() -> tempfile::TempDir {
+        stage(&[
+            (
+                "crates/foundry-app/templates/base.html",
+                "<link rel=\"stylesheet\" href=\"/static/css/foundry.6fdd04ab.css\">\n\
+                 <link rel=\"manifest\" href=\"/static/manifest.webmanifest\">\n\
+                 <script src=\"/static/vendor/htmx.min.js\" defer></script>\n",
+            ),
+            ("crates/foundry-app/static/css/foundry.6fdd04ab.css", CLEAN_CSS),
+            ("crates/foundry-app/static/vendor/htmx.min.js", CLEAN_VENDOR_JS),
+            (
+                "crates/foundry-app/static/manifest.webmanifest",
+                "{ \"icons\": [{ \"src\": \"/static/icons/icon-192.png\" }] }\n",
+            ),
+            ("crates/foundry-app/static/icons/icon-192.png", "not-really-a-png\n"),
+            (
+                "crates/foundry-app/src/lib.rs",
+                "#[cfg(test)]\nmod static_cache_policy_tests {\n    \
+                 const CSS: &str = \"/static/css/foundry.6fdd04ab.css\";\n}\n",
+            ),
+            (
+                "crates/foundry-app/src/projects.rs",
+                "let css_link = r#\"href=\"/static/css/foundry.\"#;\n",
+            ),
+            (
+                "crates/foundry-app/static/VENDOR.md",
+                &format!(
+                    "| File | Version | Upstream | Retrieved | sha256 |\n\
+                     |------|---------|----------|-----------|--------|\n\
+                     | `vendor/htmx.min.js` | 2.0.4 | https://example.invalid | 2026-06-04 | `{CLEAN_VENDOR_SHA256}` |\n\
+                     | `css/foundry.6fdd04ab.css` | hand-authored | — | 2026-08-22 | `{CLEAN_CSS_SHA256}` |\n\
+                     \n- Re-verify with `shasum -a 256 crates/foundry-app/static/vendor/<file>`.\n"
+                ),
+            ),
+        ])
+    }
+
+    #[test]
+    fn clean_asset_tree_is_silent() {
+        let clean = clean_asset_tree();
+        assert!(
+            check_static_asset_integrity(clean.path()).is_empty(),
+            "a tree whose references resolve, whose hashed name is honest and whose \
+             VENDOR rows recompute must produce NO violations: {:?}",
+            check_static_asset_integrity(clean.path())
+        );
+    }
+
+    #[test]
+    fn r1_flags_a_reference_left_dangling_by_a_rename() {
+        let tree = clean_asset_tree();
+        std::fs::rename(
+            tree.path()
+                .join("crates/foundry-app/static/css/foundry.6fdd04ab.css"),
+            tree.path()
+                .join("crates/foundry-app/static/css/foundry.deadbeef.css"),
+        )
+        .expect("rename the hashed stylesheet");
+
+        let found = check_static_asset_integrity(tree.path());
+        assert!(
+            found.iter().any(|violation| {
+                violation.contains("asset-reference")
+                    && violation.contains("base.html")
+                    && violation.contains("/static/css/foundry.6fdd04ab.css")
+            }),
+            "R1 must fire on the rename and NAME base.html plus the dangling path: {found:?}"
+        );
+    }
+
+    #[test]
+    fn r2_flags_a_hashed_blob_edited_without_being_renamed() {
+        let tree = clean_asset_tree();
+        let css = tree
+            .path()
+            .join("crates/foundry-app/static/css/foundry.6fdd04ab.css");
+        std::fs::write(&css, format!("{CLEAN_CSS}!")).expect("append a byte");
+
+        let found = check_static_asset_integrity(tree.path());
+        assert!(
+            found.iter().any(|violation| {
+                violation.contains("asset-hash") && violation.contains("css/foundry.6fdd04ab.css")
+            }),
+            "R2 must fire when a content-hashed blob's bytes change without a rename \
+             and NAME the file: {found:?}"
+        );
+    }
+
+    #[test]
+    fn r3_flags_a_vendor_row_whose_recorded_sha256_no_longer_recomputes() {
+        let tree = clean_asset_tree();
+        let vendor_md = tree.path().join("crates/foundry-app/static/VENDOR.md");
+        let doctored = std::fs::read_to_string(&vendor_md)
+            .expect("read VENDOR.md")
+            .replace(
+                CLEAN_VENDOR_SHA256,
+                "0000000000000000000000000000000000000000000000000000000000000000",
+            );
+        std::fs::write(&vendor_md, doctored).expect("plant a wrong sha256");
+
+        let found = check_static_asset_integrity(tree.path());
+        assert!(
+            found.iter().any(|violation| {
+                violation.contains("asset-provenance")
+                    && violation.contains("vendor/htmx.min.js")
+                    && violation.contains("0000000000000000")
+            }),
+            "R3 must fire on a VENDOR.md row whose recorded sha256 no longer recomputes \
+             and NAME the row: {found:?}"
         );
     }
 }
