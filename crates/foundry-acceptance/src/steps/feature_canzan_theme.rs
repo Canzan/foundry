@@ -165,6 +165,7 @@
 //! one app — the same choice `feature_pwa_mobile.rs` made.
 
 use crate::support::browser_harness;
+use crate::support::harness::signed_in_get;
 use crate::world::FoundryWorld;
 use cucumber::{given, then, when};
 use fantoccini::Locator;
@@ -442,28 +443,262 @@ async fn then_every_issue_card_still_declares_which_issue_it_is(world: &mut Foun
     assert_every_marker_present(browser_of(world), ".issue-card", "data-issue-key").await;
 }
 
+// ---------------------------------------------------------------------------
+// BRAND CHROME — the HTTP lane. The ONE scenario in this feature with no browser.
+//
+// The three literals this scenario governs live OUTSIDE the stylesheet and
+// outside the `--cz-*` contract: `base.html`'s `theme-color` meta and the
+// manifest's `theme_color` / `background_color`. They are MARKUP FACTS, present
+// in the bytes foundry serves, so a fantoccini session would add a chromedriver
+// dependency and buy nothing.
+//
+// The oracle for "a canzan contract value" is READ FROM THE SERVED STYLESHEET,
+// never enumerated here. Hard-coding `#fbfbf9` / `#0a0c0b` into these steps
+// would let the markup and the token seam drift apart while both halves of the
+// suite stayed green — the test would pin the literal instead of the contract.
+// Fetching the stylesheet the page actually links, and demanding the meta values
+// BE `--cz-bg` bindings, is the assertion the criterion asks for.
+// ---------------------------------------------------------------------------
+
+/// The board page over real HTTP, signed in as Mei. Stored in `last_body`, the
+/// shared HTTP-lane slot every other feature's Then-steps read.
 #[given(regex = r#"^the operator requests the "Sandbox" board page$"#)]
-async fn given_the_operator_requests_the_sandbox_board_page(_world: &mut FoundryWorld) {
-    scaffold("the operator requests the \"Sandbox\" board page");
+async fn given_the_operator_requests_the_sandbox_board_page(world: &mut FoundryWorld) {
+    let outcome = {
+        let harness = world.harness.as_ref().expect("harness");
+        let http = world.http.as_ref().expect("http");
+        signed_in_get(
+            harness,
+            http,
+            MEI_EMAIL,
+            MEI_PASSWORD,
+            &format!("/team/{TEAM_SLUG}/project/{PROJECT_SLUG}"),
+        )
+        .await
+    };
+    assert_eq!(
+        outcome.status,
+        reqwest::StatusCode::OK,
+        "requesting the Sandbox board page returned {} instead of 200 — nothing below can read \
+         the served markup",
+        outcome.status
+    );
+    world.last_body = Some(outcome.body);
 }
 
 #[then(regex = r"^the page states one brand colour for a light device and another for a dark one$")]
-async fn then_the_page_states_one_brand_colour_for_a_light(_world: &mut FoundryWorld) {
-    scaffold("the page states one brand colour for a light device and another for a dark one");
+async fn then_the_page_states_one_brand_colour_for_a_light(world: &mut FoundryWorld) {
+    let metas = theme_color_metas(served_page(world));
+    assert_eq!(
+        metas.len(),
+        2,
+        "the page declares {} theme-color meta(s), not the light/dark pair: {metas:?}. A single \
+         meta paints ONE brand colour on every device, which is the off-contract literal this \
+         step retires.",
+        metas.len()
+    );
+    let light = media_scoped(&metas, "light");
+    let dark = media_scoped(&metas, "dark");
+    assert_ne!(
+        light, dark,
+        "both theme-color metas carry {light} — the pair is media-scoped but states one colour \
+         twice, so the browser chrome cannot follow the device"
+    );
 }
 
 #[then(regex = r"^both brand colours are canzan contract values$")]
-async fn then_both_brand_colours_are_canzan_contract_values(_world: &mut FoundryWorld) {
-    scaffold("both brand colours are canzan contract values");
+async fn then_both_brand_colours_are_canzan_contract_values(world: &mut FoundryWorld) {
+    let metas = theme_color_metas(served_page(world));
+    let light = media_scoped(&metas, "light");
+    let dark = media_scoped(&metas, "dark");
+    let bindings = cz_bg_bindings(&served_stylesheet(world).await);
+    assert_eq!(
+        light, bindings.light,
+        "the light theme-color meta states {light}, but the token seam binds --cz-bg to {} in \
+         :root — the browser chrome and the page it frames would paint different colours",
+        bindings.light
+    );
+    assert!(
+        bindings.dark.contains(&dark),
+        "the dark theme-color meta states {dark}, which no dark region of the stylesheet binds \
+         --cz-bg to ({:?}) — it is off the canzan contract",
+        bindings.dark
+    );
 }
 
 #[then(
     regex = r"^the installable app description still declares its brand and background colours$"
 )]
 async fn then_the_installable_app_description_still_declares_its_brand_and(
-    _world: &mut FoundryWorld,
+    world: &mut FoundryWorld,
 ) {
-    scaffold("the installable app description still declares its brand and background colours");
+    let manifest = served_manifest(world).await;
+    let bindings = cz_bg_bindings(&served_stylesheet(world).await);
+    let on_contract = bindings.all();
+    // The KEYS are load-bearing beyond this feature: pwa-mobile-rendering asserts
+    // their presence, so the values may move and the keys may not (D-07).
+    for key in ["theme_color", "background_color"] {
+        let declared = manifest
+            .get(key)
+            .and_then(|v| v.as_str())
+            .map(normalise_colour)
+            .unwrap_or_else(|| {
+                panic!(
+                    "the web app manifest no longer declares `{key}` — pwa-mobile-rendering \
+                     asserts both keys are present. Move the VALUE onto the contract; never drop \
+                     the key."
+                )
+            });
+        assert!(
+            on_contract.contains(&declared),
+            "the manifest declares `{key}: {declared}`, which no region of the stylesheet binds \
+             --cz-bg to ({on_contract:?}) — the installed app's brand colour is off the canzan \
+             contract"
+        );
+    }
+}
+
+fn served_page(world: &FoundryWorld) -> &str {
+    world
+        .last_body
+        .as_deref()
+        .expect("the board page must have been requested first")
+}
+
+/// Every `<meta name="theme-color">` the served page declares, as
+/// `(media attribute, normalised content)`, in document order.
+fn theme_color_metas(body: &str) -> Vec<(String, String)> {
+    let doc = scraper::Html::parse_document(body);
+    let selector = scraper::Selector::parse(r#"meta[name="theme-color"]"#).expect("valid selector");
+    doc.select(&selector)
+        .map(|el| {
+            (
+                el.value().attr("media").unwrap_or_default().to_string(),
+                normalise_colour(el.value().attr("content").unwrap_or_default()),
+            )
+        })
+        .collect()
+}
+
+/// The single meta scoped to `prefers-color-scheme: <scheme>`, or a loud failure
+/// naming what the page declares instead.
+fn media_scoped(metas: &[(String, String)], scheme: &str) -> String {
+    let needle = format!("prefers-color-scheme: {scheme}");
+    let compact = needle.replace(' ', "");
+    let matched: Vec<&(String, String)> = metas
+        .iter()
+        .filter(|(media, _)| {
+            let flat = media.replace(' ', "");
+            flat.contains(&compact)
+        })
+        .collect();
+    assert_eq!(
+        matched.len(),
+        1,
+        "the page declares {} theme-color meta(s) scoped to `{needle}`, not exactly one: \
+         {metas:?}",
+        matched.len()
+    );
+    matched[0].1.clone()
+}
+
+/// The `--cz-bg` bindings the served stylesheet actually carries, split into the
+/// `:root` (light) one and the dark-region ones. `--cz-bg-2` is a DIFFERENT
+/// token and is excluded by matching the colon.
+struct CzBackgrounds {
+    light: String,
+    dark: Vec<String>,
+}
+
+impl CzBackgrounds {
+    fn all(&self) -> Vec<String> {
+        let mut all = vec![self.light.clone()];
+        all.extend(self.dark.iter().cloned());
+        all
+    }
+}
+
+fn cz_bg_bindings(css: &str) -> CzBackgrounds {
+    let mut values: Vec<(usize, String)> = Vec::new();
+    let mut cursor = 0usize;
+    while let Some(offset) = css[cursor..].find("--cz-bg:") {
+        let at = cursor + offset;
+        let rest = &css[at + "--cz-bg:".len()..];
+        let end = rest
+            .find(';')
+            .expect("a custom property ends in a semicolon");
+        values.push((at, normalise_colour(&rest[..end])));
+        cursor = at + "--cz-bg:".len();
+    }
+    assert!(
+        values.len() >= 2,
+        "the stylesheet binds --cz-bg {} time(s); the token seam binds it in a light region and \
+         at least one dark region, so there is nothing to check the brand chrome against",
+        values.len()
+    );
+    // The seam's :root region comes first, before any dark block — assert that
+    // rather than assume it, so a reordered stylesheet fails loudly instead of
+    // silently swapping the two arms of this scenario.
+    let first_dark_region = css
+        .find("prefers-color-scheme: dark")
+        .expect("the stylesheet must carry a device-driven dark region");
+    assert!(
+        values[0].0 < first_dark_region,
+        "the first --cz-bg binding sits inside a dark region — the light arm of the brand chrome \
+         would be checked against a dark value"
+    );
+    CzBackgrounds {
+        light: values[0].1.clone(),
+        dark: values[1..].iter().map(|(_, v)| v.clone()).collect(),
+    }
+}
+
+/// The stylesheet the served page ACTUALLY links, fetched over HTTP — so a
+/// re-hash never touches this glue and the bytes checked are the bytes shipped.
+async fn served_stylesheet(world: &FoundryWorld) -> String {
+    let href = linked_href(served_page(world), "link[rel=\"stylesheet\"]");
+    fetch_text(world, &href).await
+}
+
+/// The web app manifest the served page ACTUALLY links, parsed as JSON.
+async fn served_manifest(world: &FoundryWorld) -> serde_json::Value {
+    let href = linked_href(served_page(world), "link[rel=\"manifest\"]");
+    let body = fetch_text(world, &href).await;
+    serde_json::from_str(&body)
+        .unwrap_or_else(|e| panic!("the served web app manifest at {href} is not valid JSON: {e}"))
+}
+
+fn linked_href(body: &str, css_selector: &str) -> String {
+    let doc = scraper::Html::parse_document(body);
+    let selector = scraper::Selector::parse(css_selector).expect("valid selector");
+    doc.select(&selector)
+        .next()
+        .and_then(|el| el.value().attr("href"))
+        .unwrap_or_else(|| panic!("the served page declares no `{css_selector}`"))
+        .to_string()
+}
+
+async fn fetch_text(world: &FoundryWorld, path: &str) -> String {
+    let base = world.harness.as_ref().expect("harness").base_url();
+    let http = world.http.as_ref().expect("http");
+    let resp = http
+        .get(format!("{base}{path}"))
+        .send()
+        .await
+        .unwrap_or_else(|e| panic!("GET {path} failed to send: {e}"));
+    assert_eq!(
+        resp.status(),
+        reqwest::StatusCode::OK,
+        "GET {path} returned {} instead of 200",
+        resp.status()
+    );
+    resp.text().await.unwrap_or_default()
+}
+
+/// Colours are compared as normalised text: trimmed and lower-cased, so
+/// `#FBFBF9` and `#fbfbf9` are the same contract value.
+fn normalise_colour(raw: &str) -> String {
+    raw.trim().to_ascii_lowercase()
 }
 
 #[when(regex = r"^the operator opens the keyboard shortcut list$")]

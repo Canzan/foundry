@@ -163,6 +163,34 @@
       "s": "EXECUTED",
       "d": "PASS",
       "t": "2026-08-29T21:41:04Z"
+    },
+    {
+      "sid": "02-02",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-08-29T21:57:32Z"
+    },
+    {
+      "sid": "02-02",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-08-29T22:24:36Z"
+    },
+    {
+      "sid": "02-02",
+      "p": "RED_UNIT",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: three markup literals asserted in the HTTP lane, no pure logic; compensating property is R1's scan over every /static reference including the manifest link",
+      "t": "2026-08-29T22:24:36Z"
+    },
+    {
+      "sid": "02-02",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-08-29T23:08:35Z"
     }
   ]
 }

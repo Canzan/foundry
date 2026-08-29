@@ -167,7 +167,7 @@ Feature: foundry follows the light the operator's environment asks for
     And every lane column still declares which lane it is
     And every issue card still declares which issue it is
 
-  @real-io @slice1 @us-cts-01 @pending
+  @real-io @slice1 @us-cts-01
   Scenario: The installed app's brand colours come from the canzan contract
     # HTTP lane — a markup fact, no browser needed. RED-trigger: the off-contract
     # brand literals survive, or a manifest key is dropped while its value moves.

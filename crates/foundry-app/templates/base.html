@@ -5,10 +5,22 @@
 <title>{% block title %}Foundry{% endblock %}</title>
 <link rel="stylesheet" href="/static/css/foundry.23228365.css">
 {# pwa-mobile-rendering slice 03 (ADR-002) — installable PWA via a STATIC manifest
-   + icons + apple/theme meta; NO service worker. theme-color matches the manifest
-   theme_color (#1c1c22, the brand dark) so the OS/browser chrome adopts the brand. #}
+   + icons + apple/theme meta; NO service worker.
+
+   canzan-theme-system D-07 — the brand chrome follows the DEVICE. The pair below
+   carries the two `--cz-bg` bindings of the token seam (light #fbfbf9 from :root,
+   dark #0a0c0b from the dark regions), so the OS/browser chrome paints the same
+   surface as the page it frames, in whichever light the device asks for.
+
+   ACCEPTED LIMITATION, user-confirmed: an EXPLICIT theme choice does not update
+   this pair. `media` is declarative and reads the device only, and theme.js is a
+   byte-identical port from canzan-lift — the basis of the future shared module —
+   so teaching it to rewrite these metas is exactly the divergence the port exists
+   to avoid. Visible only in the override case, only in browser chrome. Do not
+   "fix" it here; it lands in both apps at once when the shared module exists. #}
 <link rel="manifest" href="/static/manifest.webmanifest">
-<meta name="theme-color" content="#1c1c22">
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#fbfbf9">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0a0c0b">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
