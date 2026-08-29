@@ -120,7 +120,48 @@ fn wait_for_driver_ready(port: u16) {
 /// Open ONE headless session against this lane's chromedriver, sized to a fixed
 /// viewport. One call per scenario.
 pub async fn new_session() -> fantoccini::Client {
-    open_session(Scripting::Enabled).await
+    open_session(Scripting::Enabled, ColorScheme::Unstated).await
+}
+
+/// Open ONE headless session whose DEVICE states a dark colour preference, so
+/// `@media (prefers-color-scheme: dark)` actually applies (ADR-003's trap, one
+/// layer over).
+///
+/// A "dark mode" scenario that drives dark by stamping an explicit theme choice
+/// on the document leaves the media block GREEN WHETHER OR NOT IT EXISTS — the
+/// attribute selector alone satisfies the assertion — and the media path is the
+/// DEFAULT state most operators get. This constructor is what makes the default
+/// path measurable. See [`ColorScheme`] for the flag and why it is that flag.
+pub async fn new_dark_session() -> fantoccini::Client {
+    open_session(Scripting::Enabled, ColorScheme::Dark).await
+}
+
+/// A dark DEVICE with scripting switched off at the browser — the no-JS × dark
+/// corner (NFR-4 × the device-driven default). Combines the two mechanisms
+/// [`new_dark_session`] and [`new_session_without_scripting`] each establish.
+pub async fn new_dark_session_without_scripting() -> fantoccini::Client {
+    open_session(Scripting::Disabled, ColorScheme::Dark).await
+}
+
+/// THE ANTI-VACUITY PROBE: what the BROWSER says its device prefers, read from
+/// `window.matchMedia('(prefers-color-scheme: dark)').matches`.
+///
+/// The baseline is `false`, so this discriminates: a dark session reports `true`
+/// and a session with no stated preference reports `false`. Every dark-by-device
+/// `Given` asserts it BEFORE asserting anything about foundry's own rendering, so
+/// if the capability ever stops taking effect the lane fails LOUDLY instead of
+/// silently measuring the light palette twice.
+pub async fn device_prefers_dark(client: &fantoccini::Client) -> bool {
+    let matches = client
+        .execute(
+            "return window.matchMedia('(prefers-color-scheme: dark)').matches;",
+            Vec::new(),
+        )
+        .await
+        .expect("read the device colour preference");
+    matches
+        .as_bool()
+        .expect("matchMedia().matches is a boolean")
 }
 
 /// The mobile device metrics every `open_mobile_session` injects — a mid-range
@@ -190,7 +231,7 @@ pub async fn open_mobile_session() -> fantoccini::Client {
 /// — without it, a session that quietly kept scripting ON would let the scenario
 /// pass while proving nothing about the scripting-off path.
 pub async fn new_session_without_scripting() -> fantoccini::Client {
-    open_session(Scripting::Disabled).await
+    open_session(Scripting::Disabled, ColorScheme::Unstated).await
 }
 
 /// Whether a session's browser runs page scripts. The no-JS path is a first-class
@@ -201,17 +242,61 @@ enum Scripting {
     Disabled,
 }
 
-async fn open_session(scripting: Scripting) -> fantoccini::Client {
+/// What a session's DEVICE says it prefers — the peer of [`Scripting`], and the
+/// reason the dark-by-device path is testable at all.
+///
+/// `Unstated` is the shipped baseline: no flag, `matchMedia` reports `false`, the
+/// computed palette resolves LIGHT. `Dark` injects `--force-dark-mode` into
+/// `goog:chromeOptions.args` at SESSION CREATION — the same idiom
+/// `open_mobile_session` establishes for `mobileEmulation.deviceMetrics`.
+///
+/// EMPIRICALLY MEASURED, twice (raw headless Chrome via `--dump-dom`, and
+/// chromedriver 151.0.7922.138 over W3C `POST /session` + `execute/sync`):
+///
+/// ```text
+///   flags: <none>                                  matchMedia=false  cssvar=LIGHT
+///   flags: --force-dark-mode                       matchMedia=true   cssvar=DARK
+///   flags: --enable-features=WebContentsForceDark  matchMedia=false  cssvar=LIGHT
+/// ```
+///
+/// BOTH `matchMedia` AND the computed custom property flip under
+/// `--force-dark-mode`, so the media block genuinely applies — this is not merely
+/// the JS API reporting a preference.
+///
+/// DO NOT "FIX" THIS TO `--enable-features=WebContentsForceDark`. That is Chrome's
+/// AUTO-DARKENING feature, a different thing; it measurably flips neither the
+/// `matchMedia` result nor the computed custom property, and substituting it would
+/// silently return this lane to green-over-nothing.
+///
+/// NOT CDP. `POST /session/{id}/goog/cdp/execute` was considered and rejected.
+/// fantoccini 0.21.5 does expose `Client::issue_cmd` (`session.rs:338`) and
+/// `session_id` (`client.rs:110`), so CDP WAS reachable — recorded so nobody
+/// reopens this as a discovery. The rejection is on DETERMINISM, not availability:
+/// a runtime call can race page load where a session capability cannot, and the
+/// capability needs no side-channel HTTP client and no new dependency.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ColorScheme {
+    /// No stated preference — the shipped baseline (`matchMedia` -> false).
+    Unstated,
+    /// The device prefers dark (`matchMedia` -> true).
+    Dark,
+}
+
+async fn open_session(scripting: Scripting, color_scheme: ColorScheme) -> fantoccini::Client {
     let port = ensure_chromedriver();
-    let mut chrome_options = serde_json::json!({
-        "args": [
-            "--headless=new",
-            "--no-sandbox",
-            "--disable-dev-shm-usage",
-            "--disable-gpu",
-            format!("--window-size={WINDOW_WIDTH},{WINDOW_HEIGHT}"),
-        ]
-    });
+    let mut args = vec![
+        "--headless=new".to_string(),
+        "--no-sandbox".to_string(),
+        "--disable-dev-shm-usage".to_string(),
+        "--disable-gpu".to_string(),
+        format!("--window-size={WINDOW_WIDTH},{WINDOW_HEIGHT}"),
+    ];
+    if color_scheme == ColorScheme::Dark {
+        // See ColorScheme::Dark — measured, and NOT interchangeable with
+        // --enable-features=WebContentsForceDark.
+        args.push("--force-dark-mode".to_string());
+    }
+    let mut chrome_options = serde_json::json!({ "args": args });
     if scripting == Scripting::Disabled {
         // Chrome's own JavaScript content setting: 2 == block. Applied as a
         // profile preference so it covers the whole session, every origin.

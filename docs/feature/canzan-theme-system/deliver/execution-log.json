@@ -1,0 +1,126 @@
+{
+  "schema_version": "3.0",
+  "project_id": "canzan-theme-system",
+  "feature_id": "canzan-theme-system",
+  "events": [
+    {
+      "sid": "01-01",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-08-29T19:44:50Z"
+    },
+    {
+      "sid": "01-01",
+      "p": "RED_ACCEPTANCE",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: infrastructure guard \u2014 gold tests are xtask unit tests per ADR-CANZAN-THEME-003; DISTILL Decision 4 placed check-arch outside acceptance scope",
+      "t": "2026-08-29T19:44:54Z"
+    },
+    {
+      "sid": "01-01",
+      "p": "RED_UNIT",
+      "s": "EXECUTED",
+      "d": "PASS \u2014 3 gold tests fail on assertion (rule body Vec::new(), ADR-003 litmus satisfied); budget 3 behaviours x2=6, 3 authored",
+      "t": "2026-08-29T19:46:18Z"
+    },
+    {
+      "sid": "01-01",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS \u2014 12/12 xtask tests green; cargo xtask smoke all gates green; check-arch PASSED on unmodified tree; planted-violation probe on a real-tree copy confirms R1 names base.html:6 + lib.rs:329/346/365 (cfg(test) not skipped), R2 names the drifted blob, R3 names the row",
+      "t": "2026-08-29T19:52:03Z"
+    },
+    {
+      "sid": "01-01",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS \u2014 b9b9bc3, Step-ID trailer present, 3 files (check_arch.rs, xtask/Cargo.toml, Cargo.lock); foundry-acceptance DISTILL artifacts deliberately left unstaged",
+      "t": "2026-08-29T19:52:25Z"
+    },
+    {
+      "sid": "01-01",
+      "p": "RED_UNIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-08-29T19:53:46Z"
+    },
+    {
+      "sid": "01-01",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-08-29T19:53:46Z"
+    },
+    {
+      "sid": "01-01",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-08-29T19:53:46Z"
+    },
+    {
+      "sid": "01-02",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-08-29T19:58:54Z"
+    },
+    {
+      "sid": "01-02",
+      "p": "RED_ACCEPTANCE",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: infrastructure guard \u2014 gold tests are xtask unit tests per ADR-CANZAN-THEME-004; DISTILL Decision 4 placed check-arch outside acceptance scope",
+      "t": "2026-08-29T19:58:58Z"
+    },
+    {
+      "sid": "01-02",
+      "p": "RED_UNIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-08-29T20:01:24Z"
+    },
+    {
+      "sid": "01-02",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-08-29T20:04:11Z"
+    },
+    {
+      "sid": "01-02",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-08-29T20:04:42Z"
+    },
+    {
+      "sid": "01-03",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-08-29T20:07:58Z"
+    },
+    {
+      "sid": "01-03",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-08-29T20:09:05Z"
+    },
+    {
+      "sid": "01-03",
+      "p": "RED_UNIT",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: browser-harness wiring, not pure logic; two-armed oracle probe is the compensating discrimination test per implementation_notes",
+      "t": "2026-08-29T20:09:05Z"
+    },
+    {
+      "sid": "01-03",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-08-29T20:20:38Z"
+    }
+  ]
+}
