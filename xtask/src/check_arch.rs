@@ -1131,6 +1131,414 @@ fn rel(root: &Path, file: &Path) -> String {
         .to_string()
 }
 
+// ---- check_stylesheet_token_seam — S1/S2 (ADR-CANZAN-THEME-004) ------------
+//
+// NOT ARMED IN `run()` YET, DELIBERATELY. Both rules below are called only
+// from this module's `#[cfg(test)]` gold tests in the commit that introduces
+// them, and that is the correct state:
+//
+//   * S2 (`check_stylesheet_dark_block_parity`) is armed at step 02-01 — the
+//     step that creates the two dark regions. Today the stylesheet has NO dark
+//     blocks at all, and S2 treats a missing region as a violation (it must, or
+//     it would pass vacuously on exactly the file it exists to police), so
+//     arming it here would red every commit until 02-01 lands.
+//   * S1 (`check_stylesheet_colour_seam`) is armed at step 03-01 — the step
+//     that removes the last of the 46 colour literals now sitting across 30
+//     rules below the seam. Arming it here would red every commit until 03-01.
+//
+// A rule armed against a subject that cannot yet satisfy it is a broken build,
+// not a guard. The gold tests are NOT deferred with the arming: they call these
+// functions directly against staged planted-violation trees, so both rules are
+// SHOWN to bite in this commit rather than claimed to.
+
+/// The three regions in which a colour value may appear — the `:root` token
+/// block and the two dark blocks D-03 requires be written separately (a media
+/// query and an attribute selector cannot express "either" in CSS).
+///
+/// Hardcoded per ADR-004 consequence (c): changing one of these selectors IS
+/// changing the theming mechanism and should not be a quiet edit.
+const SEAM_REGION_SELECTORS: [&str; 3] = [
+    ":root",
+    ":root:not([data-theme=\"light\"])",
+    ":root[data-theme=\"dark\"]",
+];
+
+/// A `selector { … }` block located by brace matching, with byte offsets.
+struct CssRegion {
+    selector: String,
+    /// Byte offset of the opening `{`.
+    open: usize,
+    /// Byte offset of the matching `}`.
+    close: usize,
+}
+
+/// S1 — no colour beneath the seam (ADR-CANZAN-THEME-004).
+///
+/// After stripping `/* … */` block comments, reports every `#rgb` / `#rgba` /
+/// `#rrggbb` / `#rrggbbaa` literal and every `rgb(` / `rgba(` / `hsl(` /
+/// `hsla(` functional notation that lies outside the three token regions,
+/// NAMING `file:line`.
+///
+/// Comment stripping is not optional: D-04 requires the six measured contrast
+/// ratios recorded inline beside the tokens, so the file is dense with
+/// comments and a scanner that ignored them would produce false positives on
+/// the very discipline this feature introduces. Stripping preserves newlines,
+/// so reported line numbers stay true to the original file.
+///
+/// Regions are located by their normalised selector text and delimited by
+/// brace matching following the `block_end` IDIOM — deliberately WITHOUT
+/// calling `block_end`, whose `!started && offset > 3` escape hatch exists for
+/// a Rust `#[cfg(test)]` attribute on a non-block item and would silently
+/// truncate a CSS region whose selector list runs more than three lines before
+/// its `{`. `strip_comment` is likewise unusable: it strips `//` to
+/// end-of-line, and CSS block comments span lines.
+///
+/// Four stated limits — this is a scanner, not a CSS parser (ADR-004
+/// consequence):
+///   (a) CSS NAMED colours (`white`, `rebeccapurple`) are not detected; a
+///       blocklist of ~148 names is the staleness this design avoids
+///       elsewhere, and the hole is covered downstream by the rendered sweep.
+///       `transparent` / `currentColor` / `inherit` are intentionally allowed.
+///   (b) Brace matching is textual and would be confused by a brace inside a
+///       string or `content:` value; the file contains none, and unbalanced
+///       braces are reported LOUDLY rather than swallowed.
+///   (c) The three selectors are hardcoded (see [`SEAM_REGION_SELECTORS`]).
+///   (d) An ID selector whose name is 3, 4, 6 or 8 hex characters (`#abc {`)
+///       would be a false positive. The stylesheet uses none — it is styled
+///       entirely by class and element — and a false positive fails loudly at
+///       the author's next commit rather than hiding a colour.
+#[allow(dead_code)] // armed in `run()` at step 03-01; see the module note above
+fn check_stylesheet_colour_seam(root: &Path) -> Vec<String> {
+    let mut violations = Vec::new();
+    for path in served_stylesheets(root) {
+        let Ok(source) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let file = rel(root, &path);
+        let stripped = strip_css_block_comments(&source);
+        let (regions, balanced) = css_regions(&stripped);
+        if !balanced {
+            violations.push(format!(
+                "token-seam S1: {file} — unbalanced braces; the seam regions cannot be \
+                 delimited, so the colour scan is not trustworthy (ADR-CANZAN-THEME-004)"
+            ));
+            continue;
+        }
+        let seam: Vec<&CssRegion> = regions
+            .iter()
+            .filter(|region| SEAM_REGION_SELECTORS.contains(&region.selector.as_str()))
+            .collect();
+        let starts = line_starts(&stripped);
+        for (offset, literal) in colour_literals(&stripped) {
+            let inside_seam = seam
+                .iter()
+                .any(|region| offset > region.open && offset < region.close);
+            if inside_seam {
+                continue;
+            }
+            let line = line_of(&starts, offset);
+            violations.push(format!(
+                "token-seam S1: {file}:{line} — colour literal `{literal}` outside the \
+                 token seam; name a --cz-* token instead (ADR-CANZAN-THEME-004 S1)"
+            ));
+        }
+    }
+    violations
+}
+
+/// S2 — the three token regions declare an identical colour-token set
+/// (ADR-CANZAN-THEME-004).
+///
+/// D-03's duplication is mandatory and its failure mode is nasty: add a token
+/// to `:root` and to `:root[data-theme="dark"]` but forget the media block, and
+/// dark-by-toggle works perfectly while dark-by-device silently renders one
+/// surface in the light value — invisible to the author, visible only to
+/// system-dark operators, the persona the feature exists for. The blocks may
+/// differ in VALUES and never in NAMES.
+///
+/// SCOPE (ADR-004 amendment of 2026-08-29): S2 compares the **colour-token
+/// subset**, not every `--*` name. `component-boundaries.md` C1 gives `:root`
+/// sole ownership of `--radius`, `--cz-gutter` and the three type tokens, which
+/// the dark regions have no reason to redeclare; demanding `--radius: 6px`
+/// verbatim in all three would be duplication with no failure mode behind it.
+/// The reference set is therefore the names whose `:root` binding matches S1's
+/// own colour detector; a dark region counts a name if it is in that reference
+/// set OR is itself bound to a colour there (so a colour token introduced in a
+/// dark block alone is still reported).
+///
+/// A stylesheet in which fewer than three regions are found is itself a
+/// violation: without that, S2 would pass vacuously against a file that has no
+/// dark blocks yet — which is exactly today's file.
+#[allow(dead_code)] // armed in `run()` at step 02-01; see the module note above
+fn check_stylesheet_dark_block_parity(root: &Path) -> Vec<String> {
+    let mut violations = Vec::new();
+    for path in served_stylesheets(root) {
+        let Ok(source) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let file = rel(root, &path);
+        let stripped = strip_css_block_comments(&source);
+        let (regions, balanced) = css_regions(&stripped);
+        if !balanced {
+            violations.push(format!(
+                "token-seam S2: {file} — unbalanced braces; the three token regions \
+                 cannot be delimited (ADR-CANZAN-THEME-004)"
+            ));
+            continue;
+        }
+
+        let mut located = Vec::new();
+        for selector in SEAM_REGION_SELECTORS {
+            match regions.iter().find(|region| region.selector == selector) {
+                Some(region) => located.push(region),
+                None => violations.push(format!(
+                    "token-seam S2: {file} — token region `{selector}` not found; the \
+                     colour palette must be bound in all three regions \
+                     (ADR-CANZAN-THEME-004 S2)"
+                )),
+            }
+        }
+        if located.len() != SEAM_REGION_SELECTORS.len() {
+            continue;
+        }
+
+        let reference = colour_token_names(&stripped, located[0]);
+        for region in &located[1..] {
+            let declared = declared_names(&stripped, region);
+            let colours = colour_token_names(&stripped, region);
+            let selector = &region.selector;
+            for token in &reference {
+                if declared.contains(token) {
+                    continue;
+                }
+                violations.push(format!(
+                    "token-seam S2: {file} — colour token `{token}` is bound in `:root` \
+                     but MISSING from `{selector}`; that surface renders its light value \
+                     on that path only (ADR-CANZAN-THEME-004 S2)"
+                ));
+            }
+            for token in &colours {
+                if reference.contains(token) {
+                    continue;
+                }
+                violations.push(format!(
+                    "token-seam S2: {file} — colour token `{token}` is bound in \
+                     `{selector}` but NOT in `:root`; every colour token is declared at \
+                     the seam first (ADR-CANZAN-THEME-004 S2)"
+                ));
+            }
+        }
+    }
+    violations
+}
+
+/// The hand-authored stylesheets served from `foundry-app` — the subject of
+/// S1/S2. There is no build step (VENDOR.md DB6), so these are the real files.
+fn served_stylesheets(root: &Path) -> Vec<PathBuf> {
+    let css_dir = root
+        .join("crates")
+        .join("foundry-app")
+        .join("static")
+        .join("css");
+    files_with_extensions(&css_dir, &["css"])
+}
+
+/// Replace every `/* … */` block comment with equivalent whitespace, PRESERVING
+/// newlines so byte offsets and line numbers still map onto the original file.
+/// Unlike [`strip_comment`], which handles `//` to end-of-line only, this
+/// spans lines — which is what CSS needs. An unterminated comment runs to EOF.
+fn strip_css_block_comments(source: &str) -> String {
+    let bytes = source.as_bytes();
+    let mut out = String::with_capacity(source.len());
+    let mut idx = 0usize;
+    let mut in_comment = false;
+    while idx < bytes.len() {
+        if !in_comment && bytes[idx] == b'/' && bytes.get(idx + 1) == Some(&b'*') {
+            in_comment = true;
+            out.push_str("  ");
+            idx += 2;
+            continue;
+        }
+        if in_comment && bytes[idx] == b'*' && bytes.get(idx + 1) == Some(&b'/') {
+            in_comment = false;
+            out.push_str("  ");
+            idx += 2;
+            continue;
+        }
+        let ch = bytes[idx] as char;
+        match (in_comment, ch) {
+            (true, '\n') => out.push('\n'),
+            (true, _) => out.push(' '),
+            (false, _) => out.push(ch),
+        }
+        idx += 1;
+    }
+    out
+}
+
+/// Every `selector { … }` block in `stripped`, nested blocks included, with the
+/// selector text normalised (whitespace collapsed, `'` folded to `"`). The
+/// boolean is `false` when the braces do not balance — S1/S2 then report
+/// loudly rather than scanning a tree they cannot delimit.
+///
+/// Brace matching follows the `block_end` idiom and NOT the function: its
+/// `!started && offset > 3` lookahead escape is a Rust `#[cfg(test)]`
+/// heuristic that would truncate a CSS region whose selector list runs more
+/// than three lines before its `{`.
+fn css_regions(stripped: &str) -> (Vec<CssRegion>, bool) {
+    let bytes = stripped.as_bytes();
+    let mut regions = Vec::new();
+    let mut boundary = 0usize;
+    let mut depth: i32 = 0;
+    for idx in 0..bytes.len() {
+        match bytes[idx] {
+            b'{' => {
+                depth += 1;
+                if let Some(close) = matching_brace(bytes, idx) {
+                    regions.push(CssRegion {
+                        selector: normalize_selector(&stripped[boundary..idx]),
+                        open: idx,
+                        close,
+                    });
+                }
+                boundary = idx + 1;
+            }
+            b'}' => {
+                depth -= 1;
+                boundary = idx + 1;
+            }
+            b';' => boundary = idx + 1,
+            _ => {}
+        }
+        if depth < 0 {
+            return (regions, false);
+        }
+    }
+    (regions, depth == 0)
+}
+
+/// The offset of the `}` closing the `{` at `open`, or `None` if it never does.
+fn matching_brace(bytes: &[u8], open: usize) -> Option<usize> {
+    let mut depth: i32 = 0;
+    for (offset, byte) in bytes[open..].iter().enumerate() {
+        match byte {
+            b'{' => depth += 1,
+            b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(open + offset);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Collapse whitespace runs to one space, fold `'` to `"`, trim — so a
+/// selector split across lines still matches [`SEAM_REGION_SELECTORS`].
+fn normalize_selector(raw: &str) -> String {
+    let folded: String = raw
+        .chars()
+        .map(|ch| if ch == '\'' { '"' } else { ch })
+        .collect();
+    folded.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Every colour literal in `css` as `(byte offset, text)`: `#` followed by
+/// exactly 3, 4, 6 or 8 hex digits (and no further identifier character), or a
+/// `rgb(` / `rgba(` / `hsl(` / `hsla(` opener not preceded by an identifier
+/// character. Function names are matched case-insensitively; CSS is.
+fn colour_literals(css: &str) -> Vec<(usize, String)> {
+    const FUNCTIONS: [&str; 4] = ["rgba", "hsla", "rgb", "hsl"];
+    let bytes = css.as_bytes();
+    let lower = css.to_ascii_lowercase();
+    let lower_bytes = lower.as_bytes();
+    let mut out = Vec::new();
+    let mut idx = 0usize;
+    while idx < bytes.len() {
+        if bytes[idx] == b'#' {
+            let start = idx + 1;
+            let mut end = start;
+            while end < bytes.len() && bytes[end].is_ascii_hexdigit() {
+                end += 1;
+            }
+            let width = end - start;
+            let trailing_identifier = bytes.get(end).is_some_and(|byte| is_identifier_byte(*byte));
+            if matches!(width, 3 | 4 | 6 | 8) && !trailing_identifier {
+                out.push((idx, css[idx..end].to_string()));
+            }
+            idx = end.max(idx + 1);
+            continue;
+        }
+        let preceded_by_identifier = idx > 0 && is_identifier_byte(bytes[idx - 1]);
+        if !preceded_by_identifier {
+            let opener = FUNCTIONS.iter().find(|name| {
+                let end = idx + name.len();
+                lower_bytes.get(idx..end) == Some(name.as_bytes())
+                    && lower_bytes.get(end) == Some(&b'(')
+            });
+            if let Some(name) = opener {
+                out.push((idx, format!("{name}(")));
+                idx += name.len();
+                continue;
+            }
+        }
+        idx += 1;
+    }
+    out
+}
+
+fn is_identifier_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_'
+}
+
+/// The `--*` custom-property names bound directly in `region`'s body.
+///
+/// Declarations are split on `;` and on the FIRST `:` — adequate because the
+/// three seam regions contain value bindings only, never nested blocks.
+fn declared_names(stripped: &str, region: &CssRegion) -> Vec<String> {
+    stripped[region.open + 1..region.close]
+        .split(';')
+        .filter_map(|declaration| {
+            let (name, _) = declaration.split_once(':')?;
+            let name = name.trim();
+            name.starts_with("--").then(|| name.to_string())
+        })
+        .collect()
+}
+
+/// The subset of [`declared_names`] whose VALUE is a colour literal — S2's
+/// scope per the ADR-004 amendment.
+fn colour_token_names(stripped: &str, region: &CssRegion) -> Vec<String> {
+    stripped[region.open + 1..region.close]
+        .split(';')
+        .filter_map(|declaration| {
+            let (name, value) = declaration.split_once(':')?;
+            let name = name.trim();
+            let is_colour = !colour_literals(value).is_empty();
+            (name.starts_with("--") && is_colour).then(|| name.to_string())
+        })
+        .collect()
+}
+
+/// Byte offsets at which each line of `text` starts.
+fn line_starts(text: &str) -> Vec<usize> {
+    let mut starts = vec![0usize];
+    starts.extend(
+        text.bytes()
+            .enumerate()
+            .filter(|(_, byte)| *byte == b'\n')
+            .map(|(idx, _)| idx + 1),
+    );
+    starts
+}
+
+/// The 1-based line number containing byte `offset`.
+fn line_of(starts: &[usize], offset: usize) -> usize {
+    starts.partition_point(|start| *start <= offset)
+}
+
 #[cfg(test)]
 mod tests {
     //! Port-to-port unit tests for the AST detectors. Each detector's public
@@ -1687,5 +2095,340 @@ mod tests {
             "R3 must fire on a VENDOR.md row whose recorded sha256 no longer recomputes \
              and NAME the row: {found:?}"
         );
+    }
+
+    // ---- token-seam gold tests (S1/S2, ADR-CANZAN-THEME-004) ---------------
+    //
+    // Behaviour budget: 3 distinct behaviours — (1) S1 reports colour literals
+    // outside the seam and only those (comments stripped first), (2) S2 reports
+    // colour-token parity breaks across the three regions by name AND region,
+    // (3) S2 refuses to pass vacuously on a stylesheet with fewer than three
+    // regions — x2 = 6 unit tests permitted; 4 authored (2 injected-violation
+    // gold tests + 2 exhaustively-generated properties).
+    //
+    // PROPERTY PARADIGM NOTE (`// bypass:` for the tool, not the paradigm):
+    // the workspace vendors no `proptest`/`quickcheck` dependency and this step
+    // may only touch `check_arch.rs`, so the two properties below are
+    // EXHAUSTIVE over their generated space rather than randomly sampled —
+    // 399 comment/literal interleavings and all 512 three-set combinations.
+    // Exhaustion over a small space is a strictly stronger oracle than
+    // sampling it, and needs no new crate.
+
+    const THEME_CSS_REL: &str = "crates/foundry-app/static/css/foundry.abcd1234.css";
+    const THEME_CSS_NAME: &str = "foundry.abcd1234.css";
+    const MEDIA_REGION: &str = ":root:not([data-theme=\"light\"])";
+    const ATTR_REGION: &str = ":root[data-theme=\"dark\"]";
+
+    /// A stylesheet that satisfies S1 and S2. Deliberately dense with the
+    /// comments D-04 mandates — an inline measured-contrast note BESIDE a token
+    /// and, critically, a second one BELOW the seam plus a multi-line block
+    /// comment naming a retired literal. A scanner that did not strip `/* … */`
+    /// first would fire on all three; that is what makes comment-stripping
+    /// exercised here rather than assumed.
+    ///
+    /// `--radius` lives in `:root` only (component-boundaries C1), and
+    /// `--cz-accent` is bound with different NOTATION in the two dark regions:
+    /// S2 compares names, never values.
+    const CLEAN_THEME_CSS: &str = r#":root {
+  --cz-surface: #fbfbf9;
+  --cz-ink: #1a1a18;            /* body copy — 4.57:1 on #fbfbf9 */
+  --cz-accent: rgb(36 82 201);
+  --radius: 6px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --cz-surface: #14161a;
+    --cz-ink: #f2f2ef;
+    --cz-accent: rgb(140 170 255);
+  }
+}
+
+:root[data-theme="dark"] {
+  --cz-surface: #14161a;
+  --cz-ink: #f2f2ef;
+  --cz-accent: #8caaff;
+}
+
+/*
+ * The seam ends here. Every rule below names a token.
+ * Historical note: this block once hardcoded #5b5bd6.
+ */
+.card {
+  background: var(--cz-surface);
+  color: var(--cz-ink);         /* 4.57:1 on #fbfbf9 */
+  border-radius: var(--radius);
+}
+"#;
+
+    fn stage_stylesheet(css: &str) -> tempfile::TempDir {
+        stage(&[(THEME_CSS_REL, css)])
+    }
+
+    /// The 1-based line numbers S1 named, parsed back out of its messages, so
+    /// the property can assert an EXACT line set rather than a count.
+    fn reported_lines(violations: &[String]) -> Vec<usize> {
+        let needle = format!("{THEME_CSS_NAME}:");
+        let mut lines: Vec<usize> = violations
+            .iter()
+            .filter_map(|violation| {
+                let idx = violation.find(&needle)? + needle.len();
+                let digits: String = violation[idx..]
+                    .chars()
+                    .take_while(char::is_ascii_digit)
+                    .collect();
+                digits.parse().ok()
+            })
+            .collect();
+        lines.sort_unstable();
+        lines
+    }
+
+    /// GOLD (S1): a `color: #ff0000` planted in a rule BELOW the seam fires and
+    /// names `file:line`; the clean tree — comments and all — stays silent.
+    #[test]
+    fn s1_flags_a_colour_literal_planted_below_the_seam_and_names_file_line() {
+        let clean = stage_stylesheet(CLEAN_THEME_CSS);
+        assert!(
+            check_stylesheet_colour_seam(clean.path()).is_empty(),
+            "a stylesheet whose only colour literals are inside the three token \
+             regions (plus measured-contrast comments below the seam) must produce \
+             NO violations: {:?}",
+            check_stylesheet_colour_seam(clean.path())
+        );
+
+        // PLANTED: a literal in `.card`, below the seam.
+        let planted = CLEAN_THEME_CSS.replace(
+            "  border-radius: var(--radius);\n",
+            "  border-radius: var(--radius);\n  color: #ff0000;\n",
+        );
+        assert!(planted != CLEAN_THEME_CSS, "the plant must actually apply");
+        let expected_line = planted
+            .lines()
+            .position(|line| line.contains("#ff0000"))
+            .expect("planted line")
+            + 1;
+        let tree = stage_stylesheet(&planted);
+
+        let found = check_stylesheet_colour_seam(tree.path());
+        assert!(
+            found.iter().any(|violation| {
+                violation.contains(&format!("{THEME_CSS_NAME}:{expected_line}"))
+                    && violation.contains("#ff0000")
+            }),
+            "S1 must fire on a colour literal below the seam and NAME file:line \
+             ({THEME_CSS_NAME}:{expected_line}): {found:?}"
+        );
+        assert_eq!(
+            reported_lines(&found),
+            vec![expected_line],
+            "S1 must report the planted literal and NOTHING else — the four \
+             measured-contrast / historical-note comments are not violations: {found:?}"
+        );
+    }
+
+    /// GOLD (S2): deleting one colour token from the dark-BY-DEVICE region only
+    /// — the defect an author testing with the toggle never sees — fires and
+    /// names the token AND the region. Deleting the region outright fires too,
+    /// so S2 cannot pass vacuously against a stylesheet with no dark blocks.
+    #[test]
+    fn s2_flags_a_token_deleted_from_the_dark_by_device_region_only() {
+        let clean = stage_stylesheet(CLEAN_THEME_CSS);
+        assert!(
+            check_stylesheet_dark_block_parity(clean.path()).is_empty(),
+            "three regions binding the same colour-token names (in different \
+             notations, with `--radius` in `:root` alone per C1) must produce NO \
+             violations: {:?}",
+            check_stylesheet_dark_block_parity(clean.path())
+        );
+
+        // PLANTED: drop `--cz-accent` from the media block ONLY — the attribute
+        // block keeps it, so dark-by-toggle looks perfect.
+        let media_selector_line = CLEAN_THEME_CSS
+            .lines()
+            .position(|line| line.contains(MEDIA_REGION))
+            .expect("media region");
+        let deleted_line = CLEAN_THEME_CSS
+            .lines()
+            .enumerate()
+            .position(|(index, line)| index > media_selector_line && line.contains("--cz-accent:"))
+            .expect("the media block's accent binding");
+        let doctored: String = CLEAN_THEME_CSS
+            .lines()
+            .enumerate()
+            .filter(|(index, _)| *index != deleted_line)
+            .map(|(_, line)| format!("{line}\n"))
+            .collect();
+        assert!(
+            doctored.matches("--cz-accent").count() == 2,
+            "exactly one of the three `--cz-accent` bindings must be deleted"
+        );
+        let tree = stage_stylesheet(&doctored);
+
+        let found = check_stylesheet_dark_block_parity(tree.path());
+        assert!(
+            found.iter().any(|violation| {
+                violation.contains("--cz-accent") && violation.contains(MEDIA_REGION)
+            }),
+            "S2 must fire on a token present in `:root` and in the attribute block \
+             but missing from the media block, NAMING the token and the region: {found:?}"
+        );
+        assert!(
+            !found
+                .iter()
+                .any(|violation| violation.contains(ATTR_REGION)),
+            "S2 must not implicate the region that is still correct: {found:?}"
+        );
+
+        // A stylesheet with no dark-by-device region at all is itself a
+        // violation — S2 may not pass vacuously on today's stylesheet.
+        let no_dark_block = CLEAN_THEME_CSS
+            .split("@media")
+            .next()
+            .expect("prefix")
+            .to_string();
+        let vacuous = stage_stylesheet(&no_dark_block);
+        let found = check_stylesheet_dark_block_parity(vacuous.path());
+        assert!(
+            found
+                .iter()
+                .any(|violation| violation.contains(MEDIA_REGION)),
+            "a stylesheet in which fewer than three regions are found is itself an \
+             S2 violation, NAMING the missing region: {found:?}"
+        );
+    }
+
+    /// PROPERTY (S1): for ANY interleaving of colour literals and block
+    /// comments below the seam, strip-then-match reports EXACTLY the literals
+    /// that lie outside comments — never one inside a comment, never one fewer.
+    /// Exhaustive over all 1-, 2- and 3-piece sequences of seven segment kinds
+    /// (7 + 49 + 343 = 399 documents).
+    #[test]
+    fn s1_reports_exactly_the_literals_outside_block_comments() {
+        const SEAM: &str = ":root { --cz-ink: #1a1a18; }\n\
+                            @media (prefers-color-scheme: dark) { :root:not([data-theme=\"light\"]) { --cz-ink: #f2f2ef; } }\n\
+                            :root[data-theme=\"dark\"] { --cz-ink: #f2f2ef; }\n\
+                            .probe {\n";
+        /// (segment body, line offsets within the segment that MUST be reported)
+        const PIECES: [(&str, &[usize]); 7] = [
+            ("  color: #ff0000;\n", &[0]),
+            ("  background: rgba(0, 0, 0, 0.5);\n", &[0]),
+            ("  color: var(--cz-ink); /* was #ff0000 */\n", &[]),
+            ("  /* rgb(1, 2, 3) lived here */\n", &[]),
+            ("  /* multi\n   line #abc\n   comment */\n", &[]),
+            ("  border: 1px solid var(--cz-ink);\n", &[]),
+            ("  /* a */ color: #123456; /* b rgb( */\n", &[0]),
+        ];
+
+        let tree = tempfile::tempdir().expect("tempdir");
+        let css_path = tree.path().join(THEME_CSS_REL);
+        std::fs::create_dir_all(css_path.parent().unwrap()).expect("mkdir");
+
+        let mut cases = 0usize;
+        for length in 1..=3usize {
+            let space = PIECES.len().pow(length as u32);
+            for encoded in 0..space {
+                // decode `encoded` as a base-PIECES.len() numeral of `length` digits
+                let sequence: Vec<usize> = (0..length)
+                    .map(|digit| encoded / PIECES.len().pow(digit as u32) % PIECES.len())
+                    .collect();
+
+                let mut document = String::from(SEAM);
+                let mut line = SEAM.lines().count(); // lines already emitted
+                let mut expected: Vec<usize> = Vec::new();
+                for &choice in &sequence {
+                    let (body, offsets) = PIECES[choice];
+                    for offset in offsets {
+                        expected.push(line + offset + 1);
+                    }
+                    line += body.lines().count();
+                    document.push_str(body);
+                }
+                document.push_str("}\n");
+
+                std::fs::write(&css_path, &document).expect("write");
+                let found = check_stylesheet_colour_seam(tree.path());
+                assert_eq!(
+                    reported_lines(&found),
+                    expected,
+                    "S1 must report exactly the literals outside comments for \
+                     sequence {sequence:?}\n--- document ---\n{document}--- got ---\n{found:?}"
+                );
+                cases += 1;
+            }
+        }
+        assert_eq!(cases, 7 + 49 + 343, "the generated space must be exhausted");
+    }
+
+    /// PROPERTY (S2): for ANY three colour-token name sets over a fixed
+    /// universe, the rule is silent IFF the three sets are equal, and every
+    /// element of a symmetric difference is reported by name AND by region.
+    /// `--radius` is bound in `:root` and in the media block throughout and may
+    /// NEVER be reported — S2 is scoped to the colour-token subset (ADR-004
+    /// amendment, component-boundaries C1). Exhaustive over all 8x8x8 = 512
+    /// combinations.
+    #[test]
+    fn s2_is_silent_iff_the_three_colour_token_sets_are_equal() {
+        const TOKENS: [&str; 3] = ["--cz-surface", "--cz-ink", "--cz-accent"];
+        const VALUES: [&str; 3] = ["#fbfbf9", "rgb(36 82 201)", "hsl(50 20% 96%)"];
+
+        fn bindings(mask: usize, indent: &str) -> String {
+            (0..TOKENS.len())
+                .filter(|index| mask >> index & 1 == 1)
+                .map(|index| format!("{indent}{}: {};\n", TOKENS[index], VALUES[index]))
+                .collect()
+        }
+
+        let tree = tempfile::tempdir().expect("tempdir");
+        let css_path = tree.path().join(THEME_CSS_REL);
+        std::fs::create_dir_all(css_path.parent().unwrap()).expect("mkdir");
+
+        for root_mask in 0..8usize {
+            for media_mask in 0..8usize {
+                for attr_mask in 0..8usize {
+                    let document = format!(
+                        ":root {{\n{}  --radius: 6px;\n}}\n\
+                         @media (prefers-color-scheme: dark) {{\n  \
+                         :root:not([data-theme=\"light\"]) {{\n{}    --radius: 6px;\n  }}\n}}\n\
+                         :root[data-theme=\"dark\"] {{\n{}}}\n",
+                        bindings(root_mask, "  "),
+                        bindings(media_mask, "    "),
+                        bindings(attr_mask, "  "),
+                    );
+                    std::fs::write(&css_path, &document).expect("write");
+                    let found = check_stylesheet_dark_block_parity(tree.path());
+
+                    let equal = media_mask == root_mask && attr_mask == root_mask;
+                    assert_eq!(
+                        found.is_empty(),
+                        equal,
+                        "S2 must be silent IFF the three colour-token sets are equal \
+                         (root={root_mask:03b} media={media_mask:03b} attr={attr_mask:03b}): {found:?}"
+                    );
+                    assert!(
+                        !found.iter().any(|violation| violation.contains("--radius")),
+                        "`--radius` is `:root`-owned (C1) and outside S2's colour-token \
+                         scope; it may never be reported: {found:?}"
+                    );
+
+                    for (mask, region) in [(media_mask, MEDIA_REGION), (attr_mask, ATTR_REGION)] {
+                        for (index, token) in TOKENS.iter().enumerate() {
+                            if root_mask >> index & 1 == mask >> index & 1 {
+                                continue;
+                            }
+                            assert!(
+                                found.iter().any(|violation| {
+                                    violation.contains(token) && violation.contains(region)
+                                }),
+                                "every symmetric-difference element must be reported by \
+                                 NAME ({token}) and by REGION ({region}) — \
+                                 root={root_mask:03b} media={media_mask:03b} \
+                                 attr={attr_mask:03b}: {found:?}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
     }
 }
