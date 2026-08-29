@@ -1,0 +1,382 @@
+{
+  "roadmap": {
+    "project_id": "canzan-theme-system",
+    "created_at": "2026-08-29T00:00:00Z",
+    "total_steps": 10
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "Obligation #0 \u2014 the guards and the instrument, before any slice",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "Asset-integrity guard R1/R2/R3 in check-arch, with three injected-violation gold tests",
+          "description": "Add check_static_asset_integrity to xtask/src/check_arch.rs in the existing fn(&Path) -> Vec<String> shape and ARM it in the violations vec at :56-64 \u2014 R1 every /static/... reference in crates/foundry-app resolves on disk, R2 every <stem>.<8hex>.<ext> filename equals its own sha256 prefix, R3 every VENDOR.md row's recorded sha256 recomputes. xtask gains sha2 = { workspace = true } (already a workspace dependency at Cargo.toml:63 \u2014 a new edge, not a new crate; shelling to shasum/sha256sum was rejected as platform-dependent). Three gold tests land in the SAME commit. This lands first because the feature re-hashes the stylesheet across five hand-maintained sites (the filename, base.html:6, the VENDOR.md row, and three literals at foundry-app/src/lib.rs:329,346,365) once per CSS-touching step, and today zero automated guards watch any of them \u2014 R2 is what catches a missed re-hash, and shipping it after the slices would leave every re-hash event unguarded.",
+          "criteria": [
+            "R1 scans crates/foundry-app (Rust source, askama templates, the stylesheet, the manifest) for /static/... references and reports every one that does not resolve on disk, naming the referrer file:line and the dangling path; the input set is DERIVED by scanning, never enumerated, so adding a blob and referencing it enrols it automatically and no hand-maintained allowlist exists.",
+            "R2 recomputes the sha256 of every <stem>.<8hex>.<ext> file under crates/foundry-app/static/ and reports any whose 8-hex filename segment is not its own hash prefix, naming the file; R3 recomputes the sha256 recorded in every crates/foundry-app/static/VENDOR.md row and reports any that no longer matches, naming the row.",
+            "The three scope exclusions are implemented and their evidence recorded in the rule's doc comment: crates/foundry-acceptance/ is NOT scanned (it holds deliberate non-resolving fixtures at feature_b_web_tier.rs:486 and :495); #[cfg(test)] is NOT region-skipped (the three protected hash literals live inside it at lib.rs:312-373) \u2014 an explicit departure from check_no_static_lane_list's posture at check_arch.rs:602; an extracted path must carry a file extension (projects.rs:1048 holds a deliberate hash-agnostic prefix).",
+            "Three injected-violation gold tests land in this same commit in the #[cfg(test)] module beside the rule, each staging a temp tree with the existing tempfile dev-dependency, calling the rule function DIRECTLY, asserting it fires and names the offender, and asserting it stays silent on a clean tree: R1 renames the hashed CSS and must name base.html plus the dangling path; R2 appends a byte without renaming and must name the file; R3 plants a wrong sha256 in a VENDOR row and must name the row.",
+            "cargo xtask check-arch passes on the unmodified tree with the three new rules named in its PASSED line; both cargo xtask ci (gate 3, main.rs:191-195) and cargo xtask smoke (main.rs:270-308) exercise them, so they bite on the fast pre-commit loop and not only in CI; cargo deny check bans is unaffected."
+          ],
+          "estimate": "0.5 day",
+          "dependencies": [],
+          "files_to_modify": [
+            "xtask/src/check_arch.rs",
+            "xtask/Cargo.toml",
+            "xtask/src/main.rs"
+          ],
+          "test_file": "xtask/src/check_arch.rs",
+          "scenario_name": [
+            "gold: R1 fires on a renamed hashed stylesheet and names base.html plus the dangling path",
+            "gold: R2 fires on an appended byte without a rename and names the file",
+            "gold: R3 fires on a VENDOR.md row whose sha256 no longer recomputes and names the row"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): PBT (proptest) for new pure logic in the xtask guard; single-example only with a `// bypass:` comment; acceptance = un-pend the DISTILL feature file, NEVER re-author it; browser and integration tests stay single-example. This repo is Rust/cucumber-rs \u2014 there is no pytest, no Hypothesis, no pipenv and no Python test lane; acceptance runs via `cargo test -p foundry-acceptance` and the full gate is `cargo xtask ci`. PBT TARGET here: R2's filename-grammar predicate \u2014 property: for any byte string and any stem/ext, is_hash_honest(name, bytes) is true iff the name's 8-hex segment equals the first 8 lowercase hex of sha256(bytes); round-trips for any generated content. R1's path extraction and R3's row parsing stay single-example against staged trees (they are I/O shape, not logic). THIS IS DELIVER OBLIGATION #0 AND IT IS NOT DEFERRABLE (ADR-CANZAN-THEME-003 Consequences): a rule shipped without its gold test is a claim, not a check. R1/R2/R3 are green on today's unmodified tree \u2014 foundry.8ce38566.css hashes to 8ce38566aada..., the VENDOR.md rows recompute, every /static reference resolves \u2014 so they can be armed immediately, which is the whole point: they are armed BEFORE the first re-hash rather than after the last. Existing partial guard for context (data-models.md \u00a74): feature_pwa_mobile.rs:266-306 compares base.html and lib.rs to EACH OTHER and never stats the file, so both can name the same wrong hash and pass. R1 is the first check that touches the disk; R2 the first that touches the bytes. Mutation testing: this is new Rust with real branching and falls inside the repo's >=80% per-feature gate \u2014 report the kill rate honestly (architecture-design.md \u00a79)."
+        },
+        {
+          "id": "01-02",
+          "name": "Token-seam guard S1/S2 in check-arch, with two injected-violation gold tests",
+          "description": "Add check_stylesheet_token_seam to xtask/src/check_arch.rs \u2014 S1 (no colour literal outside the three token regions, block comments stripped first) and S2 (the three regions declare an identical colour-token name set). Both rule functions AND both gold tests land in this commit, so neither rule is ever a claim. The rules are ARMED into check_arch::run()'s violations vec at the step that earns each: S2 at 02-01 (the step that creates the three regions), S1 at 03-01 (the step that removes the last of the 46 literals). Arming later is not deferring the gold test \u2014 the gold tests call the rule functions directly and prove they bite here, in this commit.",
+          "criteria": [
+            "S1 strips /* ... */ block comments BEFORE matching, then reports any #rgb / #rrggbb / #rrggbbaa literal or rgb( / rgba( / hsl( / hsla( notation outside the three token regions, naming file:line. Comment stripping is not optional: D-04 requires the six measured contrast ratios recorded inline beside the tokens, so the file will be dense with comments and a scanner that ignored them would produce false positives on the very discipline this feature introduces.",
+            "Regions are located by selector text and delimited by brace matching following the check_arch.rs:700-722 idiom WITHOUT calling block_end \u2014 its `!started && offset > 3` escape hatch is a Rust #[cfg(test)] heuristic that would silently truncate a CSS region whose selector list runs more than three lines before its brace.",
+            "S2 collects the set of --* names bound to a colour value in :root and asserts the two dark regions bind the same set, reporting each difference by token name AND by region. A stylesheet in which fewer than three regions are found is itself a violation, so S2 cannot pass vacuously against a file that has no dark blocks yet.",
+            "Two injected-violation gold tests land in this same commit, calling the rule functions directly on staged temp trees and asserting each stays silent on a clean tree: S1 plants `color: #ff0000` in a rule below the seam and must fire naming file:line, with the clean tree carrying an inline `/* 4.57:1 on #fbfbf9 */` comment so comment-stripping is exercised rather than assumed; S2 deletes one token from the dark-by-device region only and must fire naming the token and the region.",
+            "Neither rule is added to check_arch::run() in this step, and the doc comment names the exact steps that arm them (S2 at 02-01, S1 at 03-01) with the reason: today's stylesheet carries 46 colour literals across 30 rules and has no dark blocks at all, so arming here would red every commit until S02 completes. A rule armed against a subject that cannot yet satisfy it is a broken build, not a guard.",
+            "cargo xtask check-arch, cargo xtask ci and cargo xtask smoke all stay green on the unmodified tree, and the two new gold tests pass in the fast unit lane (no Postgres, no chromedriver)."
+          ],
+          "estimate": "0.5 day",
+          "dependencies": [
+            "01-01"
+          ],
+          "files_to_modify": [
+            "xtask/src/check_arch.rs"
+          ],
+          "test_file": "xtask/src/check_arch.rs",
+          "scenario_name": [
+            "gold: S1 fires on a colour literal below the seam and names file:line",
+            "gold: S2 fires on a token deleted from the dark-by-device region only and names the token and the region"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): PBT (proptest) for new pure logic in the xtask guard; single-example only with a `// bypass:` comment; acceptance = un-pend the DISTILL feature file, NEVER re-author it; browser and integration tests stay single-example. No pytest / Hypothesis / Python lane exists in this repo. PBT TARGET here: the comment-stripped literal detector \u2014 property: for any interleaving of colour literals and block comments, strip_then_match reports exactly the literals outside comments, and a literal wholly inside a comment is never reported. S2's set comparison is a second natural property: for any three name sets, the rule is silent iff the sets are equal, and its report names every element of the symmetric difference with its region. SCOPING CLARIFICATION \u2014 DESIGN AMBIGUITY RESOLVED HERE, RECORDED NOT ABSORBED: ADR-CANZAN-THEME-004 states S2 compares the set of `--*` names across the three regions, but component-boundaries.md C1 gives :root sole ownership of --radius, --cz-gutter and the three type tokens, which the dark regions have no reason to re-declare. Taken literally the two documents contradict. S2 is therefore scoped to the COLOUR-token subset \u2014 names whose :root binding matches S1's own colour detector \u2014 because S2's entire failure mode (a token missing from a block only system-dark operators reveal) is a colour failure, and forcing the dark blocks to re-declare `--radius: 6px` verbatim would be duplication with no failure mode behind it. Record this scoping in the rule's doc comment and as an amendment note on ADR-CANZAN-THEME-004; do not leave the next reader to rediscover it. S1's three stated limits (it is a scanner, not a CSS parser) go in the doc comment per ADR-004. Mutation testing: new Rust with real branching, inside the >=80% per-feature gate."
+        },
+        {
+          "id": "01-03",
+          "name": "The device-preference oracle: dark-device sessions, the anti-vacuity probe, and step-module registration",
+          "description": "support/browser_harness.rs today has NO way to give a session a device colour preference, and without one every dark-mode scenario could only drive dark by stamping an explicit choice on the document \u2014 leaving the @media (prefers-color-scheme: dark) block green whether or not it exists, on the DEFAULT path most operators get. Add a ColorScheme peer to the existing Scripting enum and let open_session take both, yielding new_dark_session(), new_dark_session_without_scripting() and device_prefers_dark() alongside the two shipped constructors. Register the step module (crates/foundry-acceptance/src/lib.rs +1, tests/acceptance.rs +2). Un-pend scenario 1 FIRST and confirm both arms: if the instrument cannot prove a dark device, nothing below it is worth running.",
+          "criteria": [
+            "A dark device is produced by injecting --force-dark-mode into goog:chromeOptions.args at SESSION CREATION, the same idiom open_mobile_session already uses for mobileEmulation.deviceMetrics. --enable-features=WebContentsForceDark is NOT used and is named in a comment as the thing not to 'fix' this to: it is Chrome's auto-darkening feature, measurably flips neither matchMedia nor the computed custom property, and substituting it would silently return this lane to green-over-nothing.",
+            "The mechanism is a session capability, not CDP: no POST /session/{id}/goog/cdp/execute call is introduced. fantoccini 0.21.5 does expose Client::issue_cmd, so CDP was reachable \u2014 the rejection is on determinism (a runtime call can race page load where a capability cannot), and that reasoning is recorded so nobody reopens it as a discovery.",
+            "device_prefers_dark(&client) reads window.matchMedia('(prefers-color-scheme: dark)').matches and returns it; the @oracle-probe scenario asserts BOTH arms \u2014 a dark session reports true AND a session with no stated preference reports false \u2014 so the probe itself cannot pass vacuously against a baseline that is already false/LIGHT.",
+            "The `Given a browser session whose device preference is dark` step INTERNALLY calls device_prefers_dark() and fails the scenario before staging anything if it returns false. Nine scenarios (6, 7, 8, 10, 11, 12, 14, 20, 26) carry no explicit Then-step guard and rely entirely on this; omitting it makes all nine pass while rendering light.",
+            "Scenario 1 is un-pended and green in the @needs-browser fantoccini lane against chromedriver 151.0.7922.138 (the version cargo xtask ci preflights); every other scenario in canzan-theme-system.feature stays @pending and the whole suite stays green.",
+            "The diff to pre-existing files under crates/foundry-acceptance/ is exactly the three structurally-required registration lines plus the new harness constructors: no existing scenario and no existing assertion is changed (the corrected form of D-11 / KPI 4, per feature-delta Divergence 1)."
+          ],
+          "estimate": "0.5 day",
+          "dependencies": [],
+          "files_to_modify": [
+            "crates/foundry-acceptance/src/support/browser_harness.rs",
+            "crates/foundry-acceptance/src/lib.rs",
+            "crates/foundry-acceptance/tests/acceptance.rs",
+            "crates/foundry-acceptance/src/steps/feature_canzan_theme.rs",
+            "crates/foundry-acceptance/tests/features/canzan-theme-system.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/canzan-theme-system.feature",
+          "scenario_name": [
+            "The browser under test can be given a device that prefers dark"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): PBT (proptest) for new pure logic; single-example only with a `// bypass:` comment; acceptance = un-pend the DISTILL feature file, NEVER re-author it; browser and integration tests stay single-example. THIS STEP: EXEMPT FROM PARADIGM \u2014 it adds a session-capability constructor and one boolean probe, which are wiring over a real browser, not pure logic; the mandates themselves place layer 4-6 tests outside PBT. Compensating property: the oracle probe is itself the two-armed discrimination test (true for a dark session, false for a default one), which is the strongest check available for an instrument. This step is INDEPENDENT of 01-01 and 01-02 and may run in parallel with them, but must complete before 02-01. Measured mechanism, verified twice (raw headless Chrome --dump-dom and chromedriver 151.0.7922.138 over W3C POST /session + execute/sync): no flags -> matchMedia=false, cssvar=LIGHT; --force-dark-mode -> matchMedia=true, cssvar=DARK; --enable-features=WebContentsForceDark -> matchMedia=false, cssvar=LIGHT. BOTH matchMedia and the computed custom property flip under --force-dark-mode, so the media block genuinely applies \u2014 this is not merely the JS API reporting a preference. The storage-refused session (DELIVER obligation 2) is deliberately NOT built here: it is used by exactly one scenario in S04 and lands in 05-03 with it, rather than sitting unused for four steps. The Background lines are the SHIPPED HTTP-lane seed steps from feature_board_new_issue.rs (Acme / Mei / Backend / Sandbox) \u2014 reuse them, do not duplicate fixture setup. RED classification was already executed at DISTILL against real infrastructure and returned MISSING_FUNCTIONALITY; the scaffold panics with __SCAFFOLD__, and fail_on_skipped() is on, so an undefined step FAILS rather than skips."
+        }
+      ]
+    },
+    {
+      "id": "02",
+      "name": "S01 \u2014 the board and its rail wear canzan's palette (US-CTS-01)",
+      "steps": [
+        {
+          "id": "02-01",
+          "name": "The token seam, both dark blocks, and every board and rail surface re-pointed; S2 armed; re-hash #1",
+          "description": "Author the :root token block (the 11 canzan colour tokens plus --radius and --cz-gutter) and BOTH dark blocks \u2014 @media (prefers-color-scheme: dark) { :root:not([data-theme=\"light\"]) } and :root[data-theme=\"dark\"] \u2014 each setting color-scheme: dark. Re-point every base and board/rail rule onto tokens: body, a, :focus-visible, button/.button/input[type=submit], label, text inputs and textarea, .board, .column, .column h2, .issue-card, .issue-card.kb-selected, .empty-state, .comment*, .app-shell*, .sidebar* (all 15 rail literals) and the @media (max-width: 480px) rail override. Retire the eight foundry colour tokens rather than aliasing them (D-02). Delete the dead .site-header / .site-header .brand rules (foundry.8ce38566.css:56-69, zero matches across all 32 templates \u2014 the real chrome is aside.sidebar). Rewrite the file header comment, which currently claims the file is 'NOT a design system, theming, or dark mode' \u2014 all three become false. Arm S2. This is re-authoring, not a rename: 46 colour literals across 30 rules sit outside :root, the rail block uses zero tokens today, and three competing accent hues collapse into one.",
+          "criteria": [
+            "Colour values appear only in the three token regions; the two dark blocks are written out separately and never merged (CSS cannot express 'either' across a media query and an attribute selector); --cz-faint is bound to #6e756f light and #78807b dark, and all six tier ratios (light 17.62 / 5.89 / 4.57, dark 16.32 / 6.38 / 4.83) are recorded as inline comments beside the tokens that produced them.",
+            "On a device that prefers dark, the page frame, the rail, the lane columns and every issue card resolve to dark-palette values and no surface on the board resolves to a light-palette value; on a light device the page resolves to canzan's paper background with the jade accent and none of the three retired hues (#2452c9, #5b5bd6/#3a3ad1, #4f46e5) appears anywhere on screen.",
+            "data-theme=\"dark\" produces the dark palette on a light device, and data-theme=\"light\" produces the light palette on a DARK device \u2014 the :not([data-theme=\"light\"]) guard on the media block is the only thing in the system that makes the second true, and it is one mechanism written in two files.",
+            "The keyboard selection ring is an outline, not a background fill or a border swap, and is present in both palettes; its stale inline comment citing '#2452c9 on #ffffff ~= 7:1' is updated to jade's measured 5.08:1 on paper and 9.74:1 on ink.",
+            "Every body-size text pair on the board and rail COMPUTES at least 4.5:1 and every large-text and control-boundary pair at least 3:1, in both palettes, from colours resolved in the live browser via getComputedStyle with an ancestor walk for the effective background \u2014 never compared against the six ratios recorded in the token comments.",
+            "Every semantic surface the board is built from is still present, every lane column still declares which lane it is and every issue card still declares which issue it is: .column, .issue-card, .comment*, .sidebar*, and the data-* markers are the acceptance suite's selector set and see zero churn.",
+            "S2 is armed in check_arch::run() and green; the stylesheet is renamed to its new content hash and ALL FIVE sites \u2014 the committed filename, templates/base.html:6, the VENDOR.md row, and the three literals at foundry-app/src/lib.rs:329, 346, 365 \u2014 are updated in THIS SAME COMMIT, with cargo xtask check-arch (R1+R2+R3+S2) green."
+          ],
+          "estimate": "1 day",
+          "dependencies": [
+            "01-01",
+            "01-02",
+            "01-03"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/static/css/foundry.8ce38566.css",
+            "crates/foundry-app/templates/base.html",
+            "crates/foundry-app/static/VENDOR.md",
+            "crates/foundry-app/src/lib.rs",
+            "xtask/src/check_arch.rs",
+            "crates/foundry-acceptance/src/steps/feature_canzan_theme.rs",
+            "crates/foundry-acceptance/tests/features/canzan-theme-system.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/canzan-theme-system.feature",
+          "scenario_name": [
+            "A dark-preferring operator's whole board is dark, rail included",
+            "A light-preferring operator sees canzan's paper-and-jade palette",
+            "An explicit dark choice overrules a light device",
+            "An explicit light choice overrules a dark device",
+            "The keyboard selection ring reads as a shape, not only a colour",
+            "Board and rail text stays legible in both palettes",
+            "Everything the operator already selects on is still on the page"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): PBT (proptest) for new pure logic; single-example only with a `// bypass:` comment; acceptance = un-pend the DISTILL feature file, NEVER re-author it; browser and integration tests stay single-example. THIS STEP: EXEMPT FROM PARADIGM \u2014 it is CSS re-authoring and browser-lane assertions; it introduces no Rust pure logic. Compensating properties are the two orthogonal guard layers landed in phase 01 (S2's token-set parity is a set-equality property over the file; R2's hash honesty is a property over the bytes), plus the computed-contrast oracle. CONTRAST IS COMPUTED, NEVER RESTATED (review-gate obligation 3): resolve the foreground, walk ancestors for the first non-transparent background, convert to relative luminance, compare. Asserting the six figures a human typed into the token comments asserts that human's arithmetic against itself; KPI 3 explicitly requires re-verification in DELIVER. THE DARK-DEVICE GIVEN MUST GUARD ITSELF (review-gate obligation 1): scenarios 6, 7 and 8 in this step carry no explicit Then-step guard and depend entirely on device_prefers_dark() being called inside the Given (landed in 01-03). SEVEN SCENARIOS IN ONE STEP IS DELIBERATE: scenario 2 asserts 'no surface on the screen renders in a light-palette colour' across frame, rail, columns and cards at once, so a partial re-point ships a white stripe down the left of a dark app and fails it; the rail's 15 literals cannot be a later step. THE 12TH TOKEN (S01's learning hypothesis, expected falsifier .sidebar__item--active): canzan.net is a marketing site with no selected nav item, no keyboard selection ring and no hover state, and its only tinted surface --cz-jade-soft is translucent and barred by D-05 from carrying text alone. If a 12th token is needed it is a PROPOSED EXTENSION TO THE CANZAN CONTRACT, not a foundry local: --cz- prefix, named for its role not its use site (--cz-jade-tint, not --cz-sidebar-active-bg), bound in ALL THREE regions (S2 makes that structural rather than remembered), and recorded in the DELIVER notes as an extension canzan-lift's eventual migration inherits. A hardcoded opaque hex is the tempting shortcut and S1 exists to forbid it. Also check by eye that muted and faint still read as different tiers after the rebind; if they do not, the rebind bought accessibility at the cost of the hierarchy and needs re-tuning, not acceptance. .site-header is dead CSS \u2014 zero matches across all 32 templates (D-10) \u2014 delete it rather than restyling it."
+        },
+        {
+          "id": "02-02",
+          "name": "Brand chrome moves off its three off-contract literals onto the canzan contract",
+          "description": "templates/base.html:11's single <meta name=\"theme-color\" content=\"#1c1c22\"> becomes a media-scoped pair (light #fbfbf9, dark #0a0c0b), and manifest.webmanifest's theme_color (#1c1c22) and background_color (#ffffff) move onto canzan contract values. These three literals live outside the stylesheet and outside the --cz-* contract, and they belong to S01 and NOT to S04: they are device-following markup that ships with the palette, and the toggle explicitly does not touch them (D-07). HTTP lane \u2014 a markup fact, no browser needed. The stylesheet is not touched, so no re-hash is required.",
+          "criteria": [
+            "The board page declares TWO <meta name=\"theme-color\"> elements \u2014 one media=\"(prefers-color-scheme: light)\" carrying #fbfbf9 and one media=\"(prefers-color-scheme: dark)\" carrying #0a0c0b \u2014 and both values are on the canzan token contract.",
+            "manifest.webmanifest still DECLARES both theme_color and background_color, and both carry canzan contract values: pwa-mobile-rendering.feature:100 asserts the keys are present, so values may move and keys may not.",
+            "The shipped pwa-mobile-rendering scenario stays green unchanged: feature_pwa_mobile.rs:883 uses document.querySelector('meta[name=\"theme-color\"]'), which returns the FIRST match and checks only that its content is non-empty, so a media pair is safe and D-11's zero-churn commitment is not violated.",
+            "The meta pair follows the DEVICE only; no behaviour is added to theme.js or anywhere else to make browser chrome track an explicit toggle choice. This is D-07, a user-confirmed accepted limitation visible only in the override case and only in browser chrome \u2014 record it in the DELIVER notes rather than 'fixing' it, because making the meta follow an override is the third divergence and byte-identity is the entire basis of the future shared module.",
+            "cargo xtask check-arch (R1+R2+R3+S2) stays green and the stylesheet's content hash is unchanged, because this step touches no CSS."
+          ],
+          "estimate": "0.25 day",
+          "dependencies": [
+            "02-01"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/templates/base.html",
+            "crates/foundry-app/static/manifest.webmanifest",
+            "crates/foundry-acceptance/src/steps/feature_canzan_theme.rs",
+            "crates/foundry-acceptance/tests/features/canzan-theme-system.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/canzan-theme-system.feature",
+          "scenario_name": [
+            "The installed app's brand colours come from the canzan contract"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): PBT (proptest) for new pure logic; single-example only with a `// bypass:` comment; acceptance = un-pend the DISTILL feature file, NEVER re-author it; browser and integration tests stay single-example. THIS STEP: EXEMPT FROM PARADIGM \u2014 it changes three markup literals and asserts them in the HTTP lane; there is no logic to quantify over. Compensating property: R1 (armed in 01-01) is a scanning property over every /static reference in the tree, including the manifest link this step's markup depends on. This is the ONE scenario in the feature that runs without a browser \u2014 it is a markup fact read from the served HTML and the served manifest, so it needs no fantoccini session and no chromedriver. Do not disturb the lenient first-match assertion at feature_pwa_mobile.rs:883; the whole reason the media pair is safe is that querySelector is lenient there, and a stricter re-write of that shipped assertion would be exactly the existing-assertion change D-11 forbids."
+        }
+      ]
+    },
+    {
+      "id": "03",
+      "name": "S02 \u2014 every remaining screen matches (US-CTS-02)",
+      "steps": [
+        {
+          "id": "03-01",
+          "name": "Dashboard, dialog, overlay and chrome-less screens onto the seam; --cz-shadow bound; S1 armed; re-hash #2",
+          "description": "Retire the remaining literals in the four surface groups S01 deliberately left alone, because none of them ever used a token: the dashboard (.dash, .dash__welcome/workspace/section/empty, .card a, .card a:hover, .card__key, .actions a, .actions button and hovers \u2014 21 literals), the dialog (.modal backdrop, .modal-dialog shadow, .modal-close hover), the keyboard-help overlay (#kb-overlay-root:not(:empty) scrim, .keyboard-help, dt, dd \u2014 6 literals), and the 15 chrome-less templates that extend base.html directly and own no rules at all. Bind --cz-shadow in all three regions and use it on .card a:hover and .modal-dialog. After this step the file contains colour values ONLY inside the token block and the two dark blocks \u2014 this is the slice that earns S1, so S1 is armed here.",
+          "criteria": [
+            "The dashboard's 21 literals are gone: project cards, section labels and action controls all resolve to dark-palette values on a dark device, and .card__key declares an OPAQUE background-color beneath any jade tint (D-05) \u2014 a translucent tint resolves to its unblended colour under the contrast algorithm's ancestor walk and would read as a failure on a perfectly legible page.",
+            "The shortcut overlay \u2014 the highest-visibility surface in the slice, opened by reflex \u2014 resolves entirely to dark-palette values over a dark board with no white card in a grey haze, and the shortcut text and the keycap text each COMPUTE at least 4.5:1 against the surface behind them.",
+            "The new-issue dialog, its label, its text field and the layer behind it all resolve to dark-palette values, and text the operator types is legible without selecting the field because both dark regions set color-scheme: dark \u2014 verified rather than assumed, and not papered over with per-property caret/placeholder overrides.",
+            "A sign-in screen with no rail and no theme control honours an explicit dark choice made on a light device, because the attribute is stamped on the document and body is tokenised; no theme control is present on it, and that is correct rather than accidental (D-08).",
+            "Walking every element on the board, the dashboard, an issue, the shortcut list and the sign-in screen in the dark palette finds NO element resolving to a light-palette colour \u2014 the sweep that catches the single rule an audit missed.",
+            "--cz-shadow is bound in all three regions with the dark layer deliberately deeper and wider (a shadow tuned for paper vanishes on ink) and S2 stays green over the added name.",
+            "S1 is armed in check_arch::run() and green: no colour literal appears anywhere in the stylesheet outside the three token regions, provable by the guard rather than by grep habit. Re-hash #2 lands across the same five sites in THIS SAME COMMIT, with cargo xtask check-arch (R1+R2+R3+S1+S2) green."
+          ],
+          "estimate": "0.75 day",
+          "dependencies": [
+            "02-01"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/static/css/foundry.<hash>.css",
+            "crates/foundry-app/templates/base.html",
+            "crates/foundry-app/static/VENDOR.md",
+            "crates/foundry-app/src/lib.rs",
+            "xtask/src/check_arch.rs",
+            "crates/foundry-acceptance/src/steps/feature_canzan_theme.rs",
+            "crates/foundry-acceptance/tests/features/canzan-theme-system.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/canzan-theme-system.feature",
+          "scenario_name": [
+            "The shortcut overlay is legible over a dark board",
+            "The signed-in dashboard matches the board",
+            "The new-issue dialog and the layer behind it are dark",
+            "A screen with no chrome still honours the chosen theme",
+            "No surface anywhere is left light-only"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): PBT (proptest) for new pure logic; single-example only with a `// bypass:` comment; acceptance = un-pend the DISTILL feature file, NEVER re-author it; browser and integration tests stay single-example. THIS STEP: EXEMPT FROM PARADIGM \u2014 CSS substitution plus browser-lane sweeps, no Rust logic. Compensating property: S1, armed here, is a universally-quantified property over every line of the stylesheet ('no colour literal outside the seam'), which is strictly stronger than any scenario can be \u2014 the sweep catches a light rectangle an operator can see, S1 catches a literal in a rule nothing has rendered yet, and neither subsumes the other. CONTRAST IS COMPUTED, NEVER RESTATED (review-gate obligation 3) \u2014 same ancestor-walk algorithm as 02-01, and the .card__key opaque-surface rule exists precisely BECAUSE of that algorithm. THE DARK-DEVICE GIVEN MUST GUARD ITSELF (review-gate obligation 1): scenarios 10, 11, 12 and 14 in this step carry no explicit Then-step guard and depend entirely on device_prefers_dark() inside the Given. --cz-shadow values are already in hand: light `0 1px 2px rgba(18,22,20,.04), 0 8px 24px rgba(18,22,20,.05)`, dark `0 1px 2px rgba(0,0,0,.4), 0 12px 32px rgba(0,0,0,.32)`. .dash carries its own duplicate font-family stack \u2014 it is removed in 04-01 with the other two ad-hoc stacks, NOT here; exactly one step touches it. The two scrims are translucent black over an already-dark page and may need a different alpha rather than a different colour; if either needs a value S01 did not bind, that raises the count of tokens the canzan contract is missing above one and strengthens the case for treating the extension at contract level rather than as a local patch."
+        }
+      ]
+    },
+    {
+      "id": "04",
+      "name": "S03 \u2014 foundry reads in canzan's voice (US-CTS-03)",
+      "steps": [
+        {
+          "id": "04-01",
+          "name": "Three derived OFL faces vendored with seven-field provenance, and the type tokens that make them visible; re-hash #3",
+          "description": "Ship three self-hosted woff2 families AND the rules that make them visible, in one step \u2014 a step that vendored three blobs and wrote three VENDOR.md rows would change nothing a user could see and would fail the slice-composition gate as infrastructure-only (D-13). Land tools/fonts/derive-fonts.sh + requirements.txt outside the cargo workspace and outside static/; REPRODUCE the already-completed measurement rather than re-deriving the decision; commit three content-hashed blobs and three OFL texts; write three VENDOR.md rows in the new derived shape; bind and apply the three type tokens; retire the three ad-hoc stacks; apply the canzan eyebrow idiom. Re-hash #3.",
+          "criteria": [
+            "The recipe is REPRODUCED AND RECORDED, not re-decided: running tools/fonts/derive-fonts.sh verbatim against the pinned upstream refs (ateliertriay/bricolage@84745e5b96261ae5f8c6c856e262fe78d1d6efdd, uswds/public-sans@v2.001, JetBrains/JetBrainsMono@v2.304) with fonttools 4.63.0 + brotli on Python 3.14.7 in a venv reproduces Bricolage at opsz=24 wdth=100 wght=600:700 = 29,964 B, Public Sans wght=400:700 roman-only = 20,696 B, JetBrains Mono wght=400:500 = 25,768 B, total 76,428 B against KPI 7's 150 KB. The opsz=24 ceiling of 32,768 B holds with 2,804 B of headroom, NO fallback rung is taken, and the measured figures are written into VENDOR.md beside each row so the next reader knows the extrapolation held.",
+            "Three VENDOR.md rows land in the NEW derived shape carrying all seven fields \u2014 family + licence + in-tree OFL path, pinned immutable ref, input sha256 as downloaded, exact tool versions, the verbatim command line including the full unicode-range, the intermediate instanced+subset TTF sha256 (the brotli-independent stable anchor), and the committed woff2 sha256 whose first 8 hex are the filename \u2014 and the VENDOR.md preamble states that three row shapes now exist with three different audit procedures.",
+            "The reproducibility assumption is PROBED, not assumed: derive-fonts.sh is re-run in a materially different environment (a python:3.14-slim container is sufficient and expected \u2014 the variable under test is the compiled brotli, not the host) and whether steps 2 and 3 reproduced byte-for-byte is written into VENDOR.md as measured fact. A varying step 3 is a compressor difference and is merely recorded; a varying step 2 invalidates the stable-anchor model and stops the step.",
+            "Three @font-face declarations use ABSOLUTE /static/fonts/... src URLs (relative URLs would defeat R1's uniform matcher and leave the fonts unguarded) and each carries font-display: swap; three OFL texts ship as static/fonts/OFL-<family>.txt, satisfying OFL-1.1 clause 2. R1 and R3 go green over the new blobs and rows with NO change to the guard, because its input set is derived by scanning.",
+            "--cz-display, --cz-body and --cz-mono are bound with system fallback stacks and applied; the three ad-hoc stacks are retired (--font, .dash's duplicate system stack, and the two bare ui-monospace uses at .card__key and .keyboard-help dt); no rule requests a weight outside a shipped range (display 600/700, body 400-700, mono 400/500 \u2014 anything else is silently synthesised). The canzan display, body and mono faces all REPORT AS LOADED, and the project heading, the card titles and the issue key each resolve to their intended family.",
+            "Every typeface the board and the dashboard request is served by foundry itself and no request made by either page leaves foundry's own origin \u2014 zero requests to fonts.gstatic.com or any other host, which VENDOR.md:4 prohibits outright rather than merely discourages.",
+            "The eyebrow idiom \u2014 mono, .6875rem, .18em tracking, uppercase, --cz-faint at S01's rebound value \u2014 is applied to .column h2 and .dash__section h2, and each lane header COMPUTES at least 4.5:1 against the surface behind it in both palettes.",
+            "Every canzan typeface is declared to swap in rather than hold the text back, every string on the board occupies space from the first frame, and the lane columns and issue cards occupy the same positions with the canzan faces applied as with the fallback stack forced. Re-hash #3 lands across the five sites in THIS SAME COMMIT, with cargo xtask check-arch (R1+R2+R3+S1+S2) green."
+          ],
+          "estimate": "1 day",
+          "dependencies": [
+            "02-01"
+          ],
+          "files_to_modify": [
+            "tools/fonts/derive-fonts.sh",
+            "tools/fonts/requirements.txt",
+            "crates/foundry-app/static/fonts/bricolage-grotesque.<hash>.woff2",
+            "crates/foundry-app/static/fonts/public-sans.<hash>.woff2",
+            "crates/foundry-app/static/fonts/jetbrains-mono.<hash>.woff2",
+            "crates/foundry-app/static/fonts/OFL-BricolageGrotesque.txt",
+            "crates/foundry-app/static/fonts/OFL-PublicSans.txt",
+            "crates/foundry-app/static/fonts/OFL-JetBrainsMono.txt",
+            "crates/foundry-app/static/css/foundry.<hash>.css",
+            "crates/foundry-app/templates/base.html",
+            "crates/foundry-app/static/VENDOR.md",
+            "crates/foundry-app/src/lib.rs",
+            "crates/foundry-acceptance/src/steps/feature_canzan_theme.rs",
+            "crates/foundry-acceptance/tests/features/canzan-theme-system.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/canzan-theme-system.feature",
+          "scenario_name": [
+            "Headings, body text and keys each carry their intended typeface",
+            "No request for a typeface ever leaves foundry's own origin",
+            "Column and section labels are legible at label size",
+            "A typeface that has not arrived costs a typeface, never a word",
+            "The board does not move when the typefaces arrive"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): PBT (proptest) for new pure logic; single-example only with a `// bypass:` comment; acceptance = un-pend the DISTILL feature file, NEVER re-author it; browser and integration tests stay single-example. THIS STEP: EXEMPT FROM PARADIGM \u2014 offline asset derivation, three @font-face declarations and browser-lane assertions; no Rust logic is added. Compensating property: R2's hash-honesty property and R3's row-recompute property (both landed in 01-01) quantify over every blob and every row this step commits, so the integrity claim is machine-checked rather than reviewed. THE MEASUREMENT IS ALREADY DONE \u2014 DO NOT RE-DERIVE IT. All three families were measured with the ADR recipe against the pinned upstream refs and the results are recorded at the end of adr-canzan-theme-001 ('Measured at the specified configuration'). ADR-001's pre-authorised fallback ladder (opsz=20, then opsz=14) is NOT entered: the ceiling holds. This step reproduces and records; it does not reopen the decision. ENVIRONMENT: fonttools 4.63.0 + brotli on Python 3.14.7 reproduces the recipe, and a VENV IS REQUIRED \u2014 fontTools is not installed system-wide (`python3 -m venv venv && ./venv/bin/pip install -r tools/fonts/requirements.txt`). varLib.instancer emits a benign OTLOffsetOverflowError warning on range instancing and repairs it internally; the outputs are valid woff2 \u2014 recorded so it is not mistaken for a failure. brotli MUST be pinned in requirements.txt, because woff2 output is compressor-dependent: the same recipe on a second machine already produced 29,612 B where the first produced 29,764 B at opsz=14, a 152 B (0.5%) difference, which is exactly what ADR-002 predicts and exactly why the Tier-2 audit anchors on the INTERMEDIATE TTF sha256 rather than the woff2 output. Both previously-unverified facts are already verified: all three fonts/variable/... paths resolve at their pinned refs, and all three OFL texts were read directly from the authoritative upstreams with NO 'Reserved Font Name' clause in any of them, so the derived subsets may keep the upstream family names. The script never runs from cargo build or any CI job \u2014 instancing is maintenance-time only, and static/ must not hold a shell script. LEARNING HYPOTHESIS, HONESTLY EXPECTED TO BE THE ONE THAT FAILS: the system fallback stack may not be metrically close enough to avoid reflow. If falsified, size-adjust / ascent-override descriptors go into the @font-face blocks tuned per family AND are recorded in VENDOR.md beside the row, because they are coupled to that exact derived blob and must be re-tuned whenever a version is bumped. The reflow scenario compares canzan faces against a FORCED fallback stack \u2014 a within-run comparison, deterministic rather than a race against loading."
+        }
+      ]
+    },
+    {
+      "id": "05",
+      "name": "S04 \u2014 one control, three states (US-CTS-04)",
+      "steps": [
+        {
+          "id": "05-01",
+          "name": "theme.js ported byte-identical, loaded render-blocking before first paint",
+          "description": "Port canzan-lift's control to crates/foundry-app/static/js/theme.js with its logic byte-identical and exactly two values changed, both hoisted to named constants at the top of the IIFE so a future shared module takes them as parameters (D-06). Add a plain render-blocking <script> in base.html's head with a comment saying why it differs from its five neighbours, and a js/theme.js row in VENDOR.md in the AUTHORED-IN-TREE shape. This step ships the mechanism; 05-02 ships the control's appearance. The toggle goes LAST in the feature because a toggle over an incomplete dark palette makes the incompleteness interactive \u2014 the operator presses a button and is shown the gaps. The stylesheet is not touched here, so no re-hash is required.",
+          "criteria": [
+            "theme.js is byte-identical to /Users/jeffbailey/Projects/canzan/canzan-lift/src/ui/assets/theme.js except EXACTLY TWO values \u2014 STORAGE_KEY = \"foundry.theme\" and the mount selector \".sidebar__user\" \u2014 and a reviewable `diff` of the two files is attached to this step showing exactly two differing lines. This diff is the ONLY protection for the write guard, which has no acceptance scenario and cannot have one (feature-delta Divergence 4): blocking site data also blocks the session cookie, and the control mounts only inside the rail, which renders only on signed-in screens, so 'storage is refused' and 'the control exists' are mutually exclusive by construction.",
+            "The <script src=\"/static/js/theme.js\"> tag sits in base.html's <head> and carries NO defer, async or type=\"module\" \u2014 the only one of six head scripts that must not, where the other five all correctly do \u2014 with a comment at the tag stating why it differs. Copying the surrounding lines is the single most likely mistake in the whole feature and it fails silently.",
+            "Flash assertion (a) INSPECTS THE SERVED HTML for a <script> in <head> referencing theme.js with none of those three attributes \u2014 a source-level fact, NOT inferred from timing. Implemented as timing it becomes indistinguishable from assertion (b) and the only deterministic guard against the named regression is lost. Assertion (b), that the script's fetch completed before first contentful paint, is recorded as a SUPPORTING measurement that can pass by luck on a fast loopback; it is never promoted to load-bearing and (a) is never deleted in its favour.",
+            "'System' REMOVES the data-theme attribute rather than writing a third value: an operator who has never used the control has no theme choice recorded on the document at all and her dark device still produces a dark board, and a stored value the vocabulary does not recognise normalises to 'system' (ORDER.indexOf(value) === -1) and likewise leaves the attribute absent. Absence is what hands the decision back to the device, and it is the mechanism the stylesheet's :not([data-theme=\"light\"]) guard depends on.",
+            "A choice held on the origin survives navigation and reload: an operator who chose dark while her device prefers light gets the dark palette on the change report, on the dashboard and after a reload.",
+            "Every localStorage access is try/catch-guarded exactly as canzan-lift's source has it, and the script registers NO document-level listener \u2014 Escape has exactly one owner, keyboard.js::closeTopLayer() (brief.md BR-4); this script listens on its own button only.",
+            "A js/theme.js row lands in VENDOR.md in the authored-in-tree shape (not the vendored-blob shape and not the derived shape) and R1 + R3 are green over it. theme.js stays UNHASHED under /static/js/, taking no-cache like the four existing IIFEs, which costs one conditional GET before paint \u2014 a latency cost, not a flash risk, since the browser blocks rather than paints."
+          ],
+          "estimate": "0.5 day",
+          "dependencies": [
+            "02-01"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/static/js/theme.js",
+            "crates/foundry-app/templates/base.html",
+            "crates/foundry-app/static/VENDOR.md",
+            "crates/foundry-acceptance/src/steps/feature_canzan_theme.rs",
+            "crates/foundry-acceptance/tests/features/canzan-theme-system.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/canzan-theme-system.feature",
+          "scenario_name": [
+            "An operator who has never chosen a theme is not given one",
+            "A chosen theme survives navigation and reload",
+            "A chosen dark screen never flashes light",
+            "A stored choice that means nothing is treated as no choice at all"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): PBT (proptest) for new pure logic; single-example only with a `// bypass:` comment; acceptance = un-pend the DISTILL feature file, NEVER re-author it; browser and integration tests stay single-example. THIS STEP: EXEMPT FROM PARADIGM \u2014 the script is a byte-identical port whose logic must NOT be re-derived, so writing new tests over its internals would invite exactly the divergence the port exists to prevent; no Rust logic is added. Compensating control: the two-line cross-repo diff is a code-review gate (Eclipse's review-gate item, and feature-delta Divergence 3 \u2014 cross-repo file comparison is not a property of the running system and has no driving port). MAKE THE DIFF A REVIEWABLE ARTEFACT, not an assertion in the suite. IF A THIRD DIVERGENCE PROVES NECESSARY, ESCALATE \u2014 DO NOT ABSORB. The named candidate is the mount: canzan-lift appends to a horizontal nav.top-nav where margin-left: auto pushes the control to the strip's end, while foundry's rail is a vertical <aside> where that property does nothing. The design's position is that CSS must absorb this (.sidebar__user is already margin-top: auto, so the rail's far end already exists) \u2014 see 05-02. If CSS genuinely cannot, STOP and decide whether the future shared module takes a layout parameter or whether both apps converge on one chrome shape, and record that decision. Quietly adding a third constant is the one forbidden outcome: byte-identity is the entire basis of intake D2's shared module, so spending it silently costs the thing the port exists to buy. Scenarios 22 and 23 have Givens ('the operator has chosen dark while her device prefers light') that are stageable by writing the stored choice directly, so neither needs the control to be styled; scenario 20's Given is the absence of any stored value. A WRONG MOUNT SELECTOR YIELDS NO CONTROL, SILENTLY, because the ported script returns early when the mount is absent \u2014 nothing on screen says the feature shipped. The intake originally named .site-header, which exists in NO template (D-01a) and whose dead rules 02-01 deletes."
+        },
+        {
+          "id": "05-02",
+          "name": "The control's three states, honest accessible name and hittable target; re-hash #4",
+          "description": "Style the control the ported script builds: .theme-toggle, .theme-toggle__glyph and .theme-toggle__mode in both palettes, a focus indicator that is visible in each, and the control added to the mobile >=44 px touch-target selector list. These are the ONLY new selectors this feature adds. Mount is inside .sidebar__user at the foot of the rail (D-09) \u2014 canzan-lift's own rationale, that the control belongs away from navigation because it changes how the desk LOOKS and never where she is. Re-hash #4 across the five sites.",
+          "criteria": [
+            ".theme-toggle, .theme-toggle__glyph and .theme-toggle__mode are styled from tokens in both palettes and are the only new selectors the feature adds; no existing render-contract selector is renamed, removed or newly required, and S1 stays green over the new colour-bearing rules.",
+            "Activating the control from 'following the device' moves it to light, then to dark, then back to following the device, and on each step the page repaints to the palette the control names \u2014 three states, not two, because a two-state toggle can never hand the decision back to the device, which is the setting this operator wants most of the time.",
+            "The control's accessible name states which theme is active AND names the theme the next press will select, and it updates after each press; it is not a bare glyph, which would leave an operator using assistive technology unable to tell what it does or what pressing it will do.",
+            "The control is reachable in reading order with a focus indicator that is visible in BOTH palettes; its target is at least 24x24 at desktop width and at least 44x44 at phone width, having joined the existing mobile touch-target selector list rather than acquiring a rule of its own.",
+            "The vertical rail absorbs canzan-lift's horizontal-layout assumption in CSS: .sidebar__user is already margin-top: auto, so the rail's far end already exists and the control simply appends into it. If CSS genuinely cannot absorb it, the response is to stop and decide (shared module takes a layout parameter, or both apps converge on one chrome shape) and record the decision \u2014 never to add a third constant to theme.js.",
+            "Re-hash #4 lands across the five sites in THIS SAME COMMIT, with cargo xtask check-arch (R1+R2+R3+S1+S2) green."
+          ],
+          "estimate": "0.25 day",
+          "dependencies": [
+            "05-01"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/static/css/foundry.<hash>.css",
+            "crates/foundry-app/templates/base.html",
+            "crates/foundry-app/static/VENDOR.md",
+            "crates/foundry-app/src/lib.rs",
+            "crates/foundry-acceptance/src/steps/feature_canzan_theme.rs",
+            "crates/foundry-acceptance/tests/features/canzan-theme-system.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/canzan-theme-system.feature",
+          "scenario_name": [
+            "The control cycles through following the device, light, dark, and back",
+            "The control says which theme is active and which the next press will select",
+            "The control is reachable and large enough to hit"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): PBT (proptest) for new pure logic; single-example only with a `// bypass:` comment; acceptance = un-pend the DISTILL feature file, NEVER re-author it; browser and integration tests stay single-example. THIS STEP: EXEMPT FROM PARADIGM \u2014 three CSS rule blocks and browser-lane interaction assertions; no Rust logic. Compensating properties: S1 (armed at 03-01) quantifies over the new rules to forbid a literal creeping in with them, and S2 forbids a token added to one region only. THE ACCESSIBLE NAME AND THE CYCLE ARE THE PORTED SCRIPT'S BEHAVIOUR, NOT NEW BEHAVIOUR \u2014 if a scenario here reveals a gap, the fix is in CSS or in the markup the script emits verbatim from canzan-lift; a behavioural change to theme.js is a third divergence and escalates per 05-01. This step exists separately from 05-01 because it is the only remaining CSS commit and it carries the fourth and final re-hash: keeping the script commit and the stylesheet commit apart means the byte-identical diff of 05-01 is reviewable without stylesheet noise. The control is ABSENT from the 15 chrome-less screens and that is correct (D-08) \u2014 they still honour an explicit choice, because the attribute is stamped from origin-wide storage on every document."
+        },
+        {
+          "id": "05-03",
+          "name": "The degraded lanes: scripting off, storage refused; feature closeout",
+          "description": "Build the storage-refused session with the measured pref (DELIVER obligation 2) and compose the scripting-disabled dark session from the ColorScheme peer added in 01-03, then drive the feature's two degradation scenarios. Close the feature out: zero @pending remaining, all 28 green, the guard's mutation kill rate reported, cargo xtask ci green end to end, and the two accepted limitations written into the DELIVER notes rather than left for the next reader to rediscover as bugs.",
+          "criteria": [
+            "The storage-refused session is built with profile.default_content_setting_values.cookies = 2 applied through goog:chromeOptions.prefs \u2014 the measured mechanism under which BOTH reading and writing stored state throw SecurityError against a real http:// origin under chromedriver 151 (baseline with no prefs: both succeed). No throwing storage accessor is stubbed by script injection (it would test the stub, not the browser, and would be the only assertion in this lane not exercising a real substrate) and no quota-filling workaround is used (real exception, but platform-varying semantics and a flaky oracle).",
+            "With site storage refused on a dark device, the sign-in screen renders in the dark palette and NOTHING is reported to the operator: the stored-choice read throws, its catch returns 'follow the device', and the page themes from the device. An unhandled-error recorder installed before navigation records nothing. The scenario is driven on the sign-in screen by necessity, not preference \u2014 blocking site data also blocks the session cookie, so no signed-in screen is reachable under this condition.",
+            "With scripting disabled on a DARK device the board renders in the dark palette and no theme control is present anywhere on the screen \u2014 the control is built in JS, so it is absent rather than present-but-dead, which would be worse. The dark device is what makes this discriminate: a light-device session would pass whether or not the device-driven palette works.",
+            "new_dark_session_without_scripting() composes the shipped Scripting enum with the ColorScheme peer from 01-03 rather than duplicating session-creation logic; this is foundry's SECOND scripting-disabled scenario and it assumes no blanket no-JS guarantee, which foundry has not made (D-01b).",
+            "Zero @pending scenarios remain in crates/foundry-acceptance/tests/features/canzan-theme-system.feature; all 28 are green in their lanes; `grep -r \"SCAFFOLD: true\" crates/foundry-acceptance/src/steps/` returns nothing; the diff to pre-existing acceptance files across the whole feature is the three registration lines and no changed scenario or assertion.",
+            "Per-feature mutation testing runs on the touched Rust and clears the >=80% gate: check_static_asset_integrity and check_stylesheet_token_seam are new code with real branching, so the feature is NOT recorded as unmutatable; the kill rate is reported honestly.",
+            "cargo xtask ci is green end to end, and the DELIVER notes record the two accepted limitations plainly: theme-color does not follow an explicit toggle choice, only the device (D-07), and the localStorage write guard has no acceptance scenario by construction (Divergence 4), protected instead by 05-01's two-line cross-repo diff."
+          ],
+          "estimate": "0.5 day",
+          "dependencies": [
+            "05-02"
+          ],
+          "files_to_modify": [
+            "crates/foundry-acceptance/src/support/browser_harness.rs",
+            "crates/foundry-acceptance/src/steps/feature_canzan_theme.rs",
+            "crates/foundry-acceptance/tests/features/canzan-theme-system.feature",
+            "docs/feature/canzan-theme-system/feature-delta.md"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/canzan-theme-system.feature",
+          "scenario_name": [
+            "With scripting disabled the control does not exist and the device decides",
+            "With site storage refused the screen still themes and nothing is reported"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): PBT (proptest) for new pure logic; single-example only with a `// bypass:` comment; acceptance = un-pend the DISTILL feature file, NEVER re-author it; browser and integration tests stay single-example. THIS STEP: EXEMPT FROM PARADIGM \u2014 two session-capability constructors and two single-example degradation scenarios; degradation lanes verify wiring against a real substrate, which the mandates place outside PBT. Compensating property: the storage-refused pref was MEASURED, not assumed (no prefs: READ=ok WRITE=ok; cookies=2: READ=SecurityError WRITE=SecurityError; cookies=2 + block_third_party_cookies: same), so there is no fallback to take and none is documented because none is needed. THE READ GUARD IS THE ONE WITH A REAL CONSEQUENCE \u2014 if the first read of the stored choice is unguarded the script dies at parse time, taking the device-driven palette down on EVERY screen. The write guard's only symptom is an uncaught error in a console no operator reads, which is why its absence from the suite is acceptable and why the byte-identical port is its protection. THE DARK-DEVICE GIVEN MUST GUARD ITSELF (review-gate obligation 1) in both scenarios here. OPEN PRODUCT QUESTION, FLAGGED NOT DECIDED, AND NOT FOR DELIVER TO SETTLE: a signed-out visitor gets no theme control at all \u2014 the 15 chrome-less screens honour an explicit choice but offer no way to make one. Closing that would also make the write guard drivable. It is a D-09 change and belongs to DISCUSS/DESIGN; record it in the DELIVER notes and leave it there. DoD closeout demo: OS on Light -> open the board -> the rail's foot reads the follow-the-device state -> click to Light, click to Dark, board repaints to ink -> navigate to the change report, to the dashboard, reload: all ink, no white frame anywhere -> click back to following the device, back to paper. Then a scripting-disabled profile: no control at all, page follows the OS. Then a blocked-storage profile on the sign-in screen: themes from the device, says nothing."
+        }
+      ]
+    }
+  ],
+  "implementation_scope": {
+    "source_directories": [
+      "crates/foundry-app/",
+      "xtask/",
+      "tools/fonts/"
+    ],
+    "test_directories": [
+      "crates/foundry-acceptance/",
+      "xtask/src/"
+    ],
+    "excluded_patterns": [
+      "target/**",
+      "node_modules/**",
+      "venv/**"
+    ]
+  },
+  "validation": {
+    "status": "approved",
+    "reviewer": "nw-acceptance-designer-reviewer",
+    "approved_at": "2026-08-29T19:41:49Z",
+    "findings": "28/28 scenarios mapped exactly once; 6/6 obligations as binding criteria; 5 declared deviations sound"
+  }
+}
