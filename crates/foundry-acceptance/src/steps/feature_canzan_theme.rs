@@ -701,84 +701,407 @@ fn normalise_colour(raw: &str) -> String {
     raw.trim().to_ascii_lowercase()
 }
 
+// ===========================================================================
+// S02 — the remaining surfaces (US-CTS-02)
+//
+// Four surface groups S01 deliberately left alone BECAUSE none of them used a
+// token: the dashboard (21 literals), the dialog (2), the shortcut overlay (7)
+// and the fifteen chrome-less templates, which own no rules at all and are
+// therefore proved by `body` being tokenised rather than by anything of their
+// own. Every assertion below reads the LIVE browser; every ratio is COMPUTED
+// from resolved colours (DELIVER obligation 3), never restated.
+// ===========================================================================
+
+/// The shortcut overlay, in the ADR-003 host that is DISTINCT from `#modal-root`.
+const OVERLAY_SELECTOR: &str = "#kb-overlay-root .keyboard-help";
+/// The new-issue dialog's raised card, and the scrim it floats on.
+const DIALOG_SELECTOR: &str = "#modal-root [data-modal='new-issue'] .modal-dialog";
+const DIALOG_SCRIM_SELECTOR: &str = "#modal-root [data-modal='new-issue']";
+const DIALOG_TITLE_FIELD: &str = "#modal-root [data-modal='new-issue'] input[name='title']";
+
+/// `?` — the shipped binding — rather than injecting the fragment, so an
+/// overlay that stopped opening fails HERE instead of being simulated into
+/// existence and then measured.
 #[when(regex = r"^the operator opens the keyboard shortcut list$")]
-async fn when_the_operator_opens_the_keyboard_shortcut_list(_world: &mut FoundryWorld) {
-    scaffold("the operator opens the keyboard shortcut list");
+async fn when_the_operator_opens_the_keyboard_shortcut_list(world: &mut FoundryWorld) {
+    let browser = browser_of(world);
+    browser_harness::wait_for_kb_ready(browser).await;
+    browser_harness::press_key(browser, "?").await;
+    browser
+        .wait()
+        .at_most(WAIT_TIMEOUT)
+        .for_element(Locator::Css(OVERLAY_SELECTOR))
+        .await
+        .expect("pressing `?` must render GET /keyboard-help into #kb-overlay-root");
 }
 
 #[then(regex = r"^the list, its keycaps and the layer behind it all render in the dark palette$")]
-async fn then_the_list_its_keycaps_and_the_layer_behind_it(_world: &mut FoundryWorld) {
-    scaffold("the list, its keycaps and the layer behind it all render in the dark palette");
+async fn then_the_list_its_keycaps_and_the_layer_behind_it(world: &mut FoundryWorld) {
+    let browser = browser_of(world);
+    assert_resolved_colours(
+        browser,
+        DARK,
+        &[
+            (OVERLAY_SELECTOR, "background-color", DARK.surface),
+            (OVERLAY_SELECTOR, "color", DARK.text),
+            (OVERLAY_SELECTOR, "border-top-color", DARK.line),
+            (
+                "#kb-overlay-root .keyboard-help dt",
+                "background-color",
+                DARK.bg_2,
+            ),
+            (
+                "#kb-overlay-root .keyboard-help dt",
+                "border-top-color",
+                DARK.line,
+            ),
+            ("#kb-overlay-root .keyboard-help dd", "color", DARK.muted),
+        ],
+    )
+    .await;
+    assert_scrim_deepens(browser, "#kb-overlay-root", DARK, "the shortcut overlay").await;
 }
 
 #[then(
     regex = r"^the shortcut text and the keycap text each reach at least 4\.5 to 1 against the surface behind them$"
 )]
-async fn then_the_shortcut_text_and_the_keycap_text_each_reach(_world: &mut FoundryWorld) {
-    scaffold("the shortcut text and the keycap text each reach at least 4.5 to 1 against the surface behind them");
+async fn then_the_shortcut_text_and_the_keycap_text_each_reach(world: &mut FoundryWorld) {
+    let browser = browser_of(world);
+    // At least three body-size pairs: the heading, a keycap `dt` and its `dd`.
+    assert_text_contrast_within(browser, OVERLAY_SELECTOR, "dark", true, 3).await;
+    assert_text_contrast_within(browser, OVERLAY_SELECTOR, "dark", false, 0).await;
 }
 
+/// The signed-in landing "/". The Background already seeded the Sandbox project,
+/// so the card grid the scenario measures is real data rather than staged
+/// markup.
 #[when(regex = r"^the operator opens the dashboard$")]
-async fn when_the_operator_opens_the_dashboard(_world: &mut FoundryWorld) {
-    scaffold("the operator opens the dashboard");
+async fn when_the_operator_opens_the_dashboard(world: &mut FoundryWorld) {
+    let browser = world
+        .browser
+        .take()
+        .expect("a browser session must have been opened before the dashboard");
+    land_on_dashboard(&browser, world).await;
+    world.browser = Some(browser);
 }
 
 #[then(
     regex = r"^the project cards, the section labels and the action controls render in the dark palette$"
 )]
-async fn then_the_project_cards_the_section_labels_and_the_action(_world: &mut FoundryWorld) {
-    scaffold(
-        "the project cards, the section labels and the action controls render in the dark palette",
-    );
+async fn then_the_project_cards_the_section_labels_and_the_action(world: &mut FoundryWorld) {
+    assert_resolved_colours(
+        browser_of(world),
+        DARK,
+        &[
+            (".dash", "color", DARK.text),
+            (".dash__welcome", "color", DARK.muted),
+            (".dash__workspace", "color", DARK.muted),
+            (".dash__section h2", "color", DARK.muted),
+            (".card a", "background-color", DARK.surface),
+            (".card a", "border-top-color", DARK.line),
+            (".card a", "color", DARK.text),
+            (".actions a", "background-color", DARK.surface),
+            (".actions a", "border-top-color", DARK.muted),
+            (".actions a", "color", DARK.text),
+            (".actions button", "background-color", DARK.surface),
+            (".actions button", "border-top-color", DARK.muted),
+            (".actions button", "color", DARK.text),
+        ],
+    )
+    .await;
 }
 
+/// D-05, asserted where the contrast algorithm makes it matter. The oracle's
+/// ancestor walk stops at the first FULLY OPAQUE background, so a chip carrying
+/// a translucent jade tint would resolve to its unblended colour and read as a
+/// failure on a perfectly legible page. The chip therefore declares an opaque
+/// `background-color` — and its own text is measured against exactly that
+/// surface, so the assertion is the algorithm's own question, not a proxy.
 #[then(regex = r"^the project key chip sits on an opaque surface, not a translucent one$")]
-async fn then_the_project_key_chip_sits_on_an_opaque_surface(_world: &mut FoundryWorld) {
-    scaffold("the project key chip sits on an opaque surface, not a translucent one");
+async fn then_the_project_key_chip_sits_on_an_opaque_surface(world: &mut FoundryWorld) {
+    let browser = browser_of(world);
+    let surfaces = resolve_all(browser, ".card__key", "background-color").await;
+    let inks = resolve_all(browser, ".card__key", "color").await;
+    assert!(
+        !surfaces.is_empty(),
+        "no `.card__key` is on the dashboard, so D-05's opaque-surface rule cannot be asserted — \
+         the render contract has to be PRESENT for this scenario to mean anything"
+    );
+    for (index, (raw_surface, raw_ink)) in surfaces.iter().zip(inks.iter()).enumerate() {
+        let (surface, alpha) = parse_colour(raw_surface)
+            .unwrap_or_else(|| panic!("`.card__key` #{index} reported {raw_surface:?}"));
+        assert!(
+            (alpha - 1.0).abs() < f64::EPSILON,
+            "`.card__key` #{index} sits on {raw_surface:?}, which is TRANSLUCENT. The contrast \
+             oracle walks ancestors for the first fully-opaque background, so a translucent tint \
+             resolves to its unblended colour and reads as a failure on a legible page (D-05). \
+             Declare an opaque background-color."
+        );
+        let (ink, _) = parse_colour(raw_ink)
+            .unwrap_or_else(|| panic!("`.card__key` #{index} reported colour {raw_ink:?}"));
+        let ratio = contrast_ratio(ink, surface);
+        assert!(
+            ratio >= 4.5,
+            "`.card__key` #{index} computes {ratio:.2}:1 — {} on {} — below the 4.5:1 the key \
+             glyph owes at label size (WCAG 1.4.3), measured in the live browser",
+            hex(ink),
+            hex(surface)
+        );
+    }
 }
 
+/// `c` — the shipped binding — which clicks the board's own `[data-action='new-issue']`
+/// trigger, so the htmx swap that really ships is the one under measurement.
 #[when(regex = r"^the operator opens the new-issue dialog$")]
-async fn when_the_operator_opens_the_new_issue_dialog(_world: &mut FoundryWorld) {
-    scaffold("the operator opens the new-issue dialog");
+async fn when_the_operator_opens_the_new_issue_dialog(world: &mut FoundryWorld) {
+    let browser = browser_of(world);
+    browser_harness::wait_for_kb_ready(browser).await;
+    browser_harness::press_key(browser, "c").await;
+    browser
+        .wait()
+        .at_most(WAIT_TIMEOUT)
+        .for_element(Locator::Css(DIALOG_TITLE_FIELD))
+        .await
+        .expect("pressing `c` must swap the new-issue dialog into #modal-root");
 }
 
 #[then(
     regex = r"^the dialog, its label, its text field and the layer behind it all render in the dark palette$"
 )]
-async fn then_the_dialog_its_label_its_text_field_and_the(_world: &mut FoundryWorld) {
-    scaffold("the dialog, its label, its text field and the layer behind it all render in the dark palette");
+async fn then_the_dialog_its_label_its_text_field_and_the(world: &mut FoundryWorld) {
+    let browser = browser_of(world);
+    assert_resolved_colours(
+        browser,
+        DARK,
+        &[
+            (DIALOG_SELECTOR, "background-color", DARK.surface),
+            (DIALOG_SELECTOR, "border-top-color", DARK.line),
+            (".modal-dialog label", "color", DARK.text),
+            (DIALOG_TITLE_FIELD, "background-color", DARK.surface),
+            (DIALOG_TITLE_FIELD, "color", DARK.text),
+            (DIALOG_TITLE_FIELD, "border-top-color", DARK.muted),
+        ],
+    )
+    .await;
+    assert_scrim_deepens(browser, DIALOG_SCRIM_SELECTOR, DARK, "the dialog backdrop").await;
 }
 
+/// The MECHANISM is `color-scheme: dark`, declared in both dark regions — it is
+/// what makes the UA paint the caret and the selection highlight in the dark
+/// scheme, so text is readable as it is typed rather than only once selected.
+///
+/// Verified three ways, and the third is the one that stops this passing for the
+/// wrong reason: the root really computes `dark`; the typed text really reaches
+/// 4.5:1 against the field it sits in; and the stylesheet declares NO
+/// `caret-color` and NO `::placeholder` rule — because papering the symptom over
+/// per-property would satisfy the first two while leaving `color-scheme` broken
+/// for every UA affordance nobody thought to override.
 #[then(regex = r"^the text the operator types is legible without selecting the field$")]
-async fn then_the_text_the_operator_types_is_legible_without_selecting(_world: &mut FoundryWorld) {
-    scaffold("the text the operator types is legible without selecting the field");
+async fn then_the_text_the_operator_types_is_legible_without_selecting(world: &mut FoundryWorld) {
+    let browser = browser_of(world);
+
+    let scheme = resolve_all(browser, ":root", "color-scheme").await;
+    assert_eq!(
+        scheme.first().map(String::as_str),
+        Some("dark"),
+        "the document root computes color-scheme {scheme:?} rather than `dark`, so the UA paints \
+         the caret and the selection highlight in the LIGHT scheme — an operator types invisible \
+         text into a dark field and only sees it by selecting it"
+    );
+
+    let field = browser
+        .find(Locator::Css(DIALOG_TITLE_FIELD))
+        .await
+        .expect("the dialog's title field");
+    field
+        .send_keys("Wears the canzan palette")
+        .await
+        .expect("type into the dialog's title field");
+    let typed = field.prop("value").await.expect("read back what was typed");
+    assert_eq!(
+        typed.as_deref(),
+        Some("Wears the canzan palette"),
+        "the field did not take the text, so nothing about its legibility was measured"
+    );
+
+    let raw_ink = resolve_all(browser, DIALOG_TITLE_FIELD, "color").await;
+    let raw_field = resolve_all(browser, DIALOG_TITLE_FIELD, "background-color").await;
+    let (ink, _) = parse_colour(raw_ink.first().map(String::as_str).unwrap_or_default())
+        .expect("the field resolves a foreground");
+    let (surface, _) = parse_colour(raw_field.first().map(String::as_str).unwrap_or_default())
+        .expect("the field resolves a background");
+    let ratio = contrast_ratio(ink, surface);
+    assert!(
+        ratio >= 4.5,
+        "the text the operator just typed computes {ratio:.2}:1 — {} on {} — below 4.5:1",
+        hex(ink),
+        hex(surface)
+    );
+
+    let css = served_stylesheet_text(browser).await;
+    for paper_over in [
+        "caret-color",
+        "::placeholder",
+        "::-webkit-input-placeholder",
+    ] {
+        assert!(
+            !css.contains(paper_over),
+            "the stylesheet declares `{paper_over}`. The dark caret and the dark selection are \
+             `color-scheme: dark`'s job, declared once in each dark region; a per-property \
+             override papers over the symptom for the ONE affordance somebody remembered and \
+             leaves every other UA-painted affordance in the light scheme."
+        );
+    }
 }
 
+/// One of the fifteen templates that extend `base.html` directly: no rail, no
+/// theme control, and no rules of its own. Everything it renders comes from the
+/// tokenised element rules, which is precisely what makes it the right witness
+/// for "the theme is stamped on the DOCUMENT, not mounted in the chrome".
 #[when(regex = r"^the operator opens the sign-in screen, which has no rail and no theme control$")]
-async fn when_the_operator_opens_the_sign_in_screen_which_has(_world: &mut FoundryWorld) {
-    scaffold("the operator opens the sign-in screen, which has no rail and no theme control");
+async fn when_the_operator_opens_the_sign_in_screen_which_has(world: &mut FoundryWorld) {
+    let browser = world
+        .browser
+        .take()
+        .expect("a browser session must have been opened first");
+    land_on_sign_in(&browser, world).await;
+    world.browser = Some(browser);
 }
 
 #[then(regex = r"^the sign-in screen renders in the dark palette$")]
-async fn then_the_sign_in_screen_renders_in_the_dark_palette(_world: &mut FoundryWorld) {
-    scaffold("the sign-in screen renders in the dark palette");
+async fn then_the_sign_in_screen_renders_in_the_dark_palette(world: &mut FoundryWorld) {
+    assert_resolved_colours(
+        browser_of(world),
+        DARK,
+        &[
+            ("html", "background-color", DARK.bg),
+            ("html", "color", DARK.text),
+            ("body", "background-color", DARK.bg),
+            ("h1", "color", DARK.text),
+            ("label", "color", DARK.muted),
+            ("input[type=\"email\"]", "background-color", DARK.surface),
+            ("input[type=\"email\"]", "color", DARK.text),
+            ("input[type=\"email\"]", "border-top-color", DARK.muted),
+            ("input[type=\"password\"]", "background-color", DARK.surface),
+            ("button[type=\"submit\"]", "background-color", DARK.jade),
+            ("button[type=\"submit\"]", "color", DARK.bg),
+            ("a", "color", DARK.jade),
+        ],
+    )
+    .await;
 }
 
+/// D-08: the control appears on the eleven app-shell screens and nowhere else.
+/// That is DELIBERATE, so it is asserted rather than merely true. The rail is
+/// the load-bearing witness — the toggle's only mount point is
+/// `.sidebar__user` — and the accessible-name sweep is the arm that would catch
+/// a control mounted somewhere new.
 #[then(regex = r"^no theme control is present on it$")]
-async fn then_no_theme_control_is_present_on_it(_world: &mut FoundryWorld) {
-    scaffold("no theme control is present on it");
+async fn then_no_theme_control_is_present_on_it(world: &mut FoundryWorld) {
+    let browser = browser_of(world);
+    assert_eq!(
+        count_of(browser, ".sidebar").await,
+        0,
+        "the sign-in screen grew a rail — the fifteen chrome-less templates extend base.html and \
+         must not pick up app_shell.html's sidebar (D-08)"
+    );
+    for selector in [
+        "[data-theme-control]",
+        ".theme-toggle",
+        "[data-action='cycle-theme']",
+    ] {
+        assert_eq!(
+            count_of(browser, selector).await,
+            0,
+            "`{selector}` is present on the sign-in screen — the theme control mounts on the \
+             eleven app-shell screens only (D-08)"
+        );
+    }
+    let named = browser
+        .execute(
+            "var hits = [];
+             var nodes = document.querySelectorAll('button, a, [role=button], input');
+             for (var i = 0; i < nodes.length; i++) {
+               var name = ((nodes[i].getAttribute('aria-label') || '') + ' ' + nodes[i].textContent).toLowerCase();
+               if (name.indexOf('theme') !== -1) { hits.push(name.trim().slice(0, 60)); }
+             }
+             return hits;",
+            Vec::new(),
+        )
+        .await
+        .expect("sweep the sign-in screen for a theme-named control");
+    let named = named.as_array().expect("the sweep returns an array");
+    assert!(
+        named.is_empty(),
+        "the sign-in screen carries {} control(s) whose accessible name names the theme: {:?} — \
+         the control belongs to the app shell only (D-08)",
+        named.len(),
+        named
+    );
 }
 
+/// The sweep's WHEN: prove all five surfaces are REACHABLE and rendered in this
+/// session before anything measures them. Without that, a surface that 404'd or
+/// redirected away would contribute no colours and the sweep would pass by
+/// having looked at nothing.
 #[when(
     regex = r"^the operator visits the board, the dashboard, an issue, the shortcut list and the sign-in screen$"
 )]
-async fn when_the_operator_visits_the_board_the_dashboard_an_issue(_world: &mut FoundryWorld) {
-    scaffold("the operator visits the board, the dashboard, an issue, the shortcut list and the sign-in screen");
+async fn when_the_operator_visits_the_board_the_dashboard_an_issue(world: &mut FoundryWorld) {
+    seed_sandbox_issue(world).await;
+    let browser = world
+        .browser
+        .take()
+        .expect("a browser session must have been opened first");
+    sign_in_and_settle(&browser, world).await;
+    walk_every_surface(&browser, world).await;
+    world.browser = Some(browser);
 }
 
+/// The backstop, and the oracle for "a light-palette colour" is COMPUTED rather
+/// than enumerated — the same argument as US-CTS-01's single-screen sweep, over
+/// all five surface groups at once. Render every surface on a LIGHT device,
+/// collect every opaque colour, and assert the dark render shares NONE of them.
+///
+/// Enumerating the light values by hand would only catch the ones the author
+/// remembered, and the defect this exists to catch is precisely the rule the
+/// author FORGOT. Any rule left un-re-pointed paints the same colour on both
+/// devices, so it lands in the intersection whether or not anyone anticipated
+/// it — which is why leaving ANY ONE of the four surface groups un-retired
+/// fails here.
 #[then(regex = r"^no element on any of those screens renders in a light-palette colour$")]
-async fn then_no_element_on_any_of_those_screens_renders_in(_world: &mut FoundryWorld) {
-    scaffold("no element on any of those screens renders in a light-palette colour");
+async fn then_no_element_on_any_of_those_screens_renders_in(world: &mut FoundryWorld) {
+    let dark_paint = walk_every_surface(browser_of(world), world).await;
+
+    let light = browser_harness::new_session().await;
+    assert!(
+        !browser_harness::device_prefers_dark(&light).await,
+        "the light arm of the sweep reports a dark device preference — the oracle no longer \
+         discriminates and the comparison would be dark against dark"
+    );
+    sign_in_and_settle(&light, world).await;
+    let light_paint = walk_every_surface(&light, world).await;
+    light.close().await.ok();
+
+    let shared: Vec<String> = dark_paint
+        .iter()
+        .filter(|(colour, _)| light_paint.contains_key(*colour))
+        .map(|(colour, where_)| {
+            format!(
+                "{} at `{where_}` (the light walk paints it at `{}`)",
+                hex(*colour),
+                light_paint[colour]
+            )
+        })
+        .collect();
+    assert!(
+        shared.is_empty(),
+        "walking the board, the dashboard, an issue, the shortcut list and the sign-in screen \
+         finds {} colour(s) the DARK walk and the LIGHT walk both paint, so those surfaces never \
+         moved onto the token seam — the light rectangle in a dark app:\n  - {}",
+        shared.len(),
+        shared.join("\n  - ")
+    );
 }
 
 #[then(regex = r"^the canzan display, body and mono typefaces all report as loaded$")]
@@ -1094,8 +1417,9 @@ for (var i = 0; i < nodes.length; i++) {
 return out;
 "#;
 
-/// Every text-bearing element inside the app shell (the rail AND the board),
-/// with its resolved foreground and the EFFECTIVE background found by walking
+/// Every text-bearing element inside `arguments[0]` — the app shell for the
+/// board and rail, the overlay or the dialog for the surfaces S02 adds — with
+/// its resolved foreground and the EFFECTIVE background found by walking
 /// ancestors to the first fully-opaque one. The ancestor walk is why D-05 bars
 /// a translucent tint from carrying text on its own: such a surface resolves to
 /// its unblended colour and reads as a failure on a legible page.
@@ -1110,7 +1434,7 @@ function opaqueBackgroundOf(node) {
   return window.getComputedStyle(document.documentElement).backgroundColor;
 }
 var out = [];
-var shell = document.querySelector('.app-shell');
+var shell = document.querySelector(arguments[0]);
 if (!shell) { return out; }
 var nodes = shell.querySelectorAll('*');
 for (var i = 0; i < nodes.length; i++) {
@@ -1275,12 +1599,24 @@ async fn assert_renders_in(client: &fantoccini::Client, palette: Palette) {
         ),
         (".sidebar__item--active", "color", palette.jade),
     ];
+    assert_resolved_colours(client, palette, &expectations).await;
+}
+
+/// Every `(selector, property, expected)` triple resolves to `expected` for
+/// EVERY matching element, and at least one element matches each selector — the
+/// anti-vacuity half, without which a renamed surface would pass by matching
+/// nothing.
+async fn assert_resolved_colours(
+    client: &fantoccini::Client,
+    palette: Palette,
+    expectations: &[(&str, &str, Rgb)],
+) {
     for (selector, property, expected) in expectations {
         let resolved = resolve_all(client, selector, property).await;
         assert!(
             !resolved.is_empty(),
-            "no element matched `{selector}` on the board — the {} palette assertion would be \
-             vacuous. The render contract must still be on the page.",
+            "no element matched `{selector}` — the {} palette assertion would be vacuous. The \
+             render contract must still be on the page.",
             palette.name
         );
         for (index, raw) in resolved.iter().enumerate() {
@@ -1288,16 +1624,83 @@ async fn assert_renders_in(client: &fantoccini::Client, palette: Palette) {
                 .unwrap_or_else(|| panic!("`{selector}` #{index} reported {property} as {raw:?}"));
             assert_eq!(
                 colour,
-                expected,
+                *expected,
                 "`{selector}` #{index} resolved {property} to {} — the {} palette binds it to {}. \
                  A surface still painting its other-palette value is the light stripe down a dark \
                  app this scenario exists to catch.",
                 hex(colour),
                 palette.name,
-                hex(expected)
+                hex(*expected)
             );
         }
     }
+}
+
+/// A scrim DEEPENS the page it covers; it never hazes it. Two facts, and both
+/// are needed: it is TRANSLUCENT (so the board stays visible behind it — an
+/// opaque backdrop is a different design, not a themed one), and its own colour
+/// is no lighter than the page, so over ink it darkens rather than lifting a
+/// grey veil over the surface it is meant to recede.
+///
+/// This is the assertion that discriminates: the retired literals
+/// `rgba(28, 28, 34, .45)` and `rgba(17, 17, 26, .45)` are both LIGHTER than
+/// the dark page, so both fail here.
+async fn assert_scrim_deepens(
+    client: &fantoccini::Client,
+    selector: &str,
+    palette: Palette,
+    what: &str,
+) {
+    let resolved = resolve_all(client, selector, "background-color").await;
+    assert!(
+        !resolved.is_empty(),
+        "no element matched `{selector}`, so {what}'s scrim was never measured"
+    );
+    for (index, raw) in resolved.iter().enumerate() {
+        let (colour, alpha) = parse_colour(raw)
+            .unwrap_or_else(|| panic!("{what} #{index} reported a scrim of {raw:?}"));
+        assert!(
+            alpha > 0.0 && alpha < 1.0,
+            "{what} #{index} paints an OPAQUE scrim ({raw}) — the page it covers has to stay \
+             visible behind it"
+        );
+        assert!(
+            relative_luminance(colour) <= relative_luminance(palette.bg),
+            "{what} #{index} lays {} over the {} page ({}) — a scrim lighter than the surface it \
+             covers is the grey haze a white card used to float in, not a layer that recedes",
+            hex(colour),
+            palette.name,
+            hex(palette.bg)
+        );
+    }
+}
+
+/// The stylesheet AS THE BROWSER PARSED IT, read back out of the CSSOM rather
+/// than off disk: the subject of the assertion is what foundry SERVES over the
+/// link `base.html` carries, not a file a test happened to open.
+async fn served_stylesheet_text(client: &fantoccini::Client) -> String {
+    let text = client
+        .execute(
+            "var out = [];
+             for (var i = 0; i < document.styleSheets.length; i++) {
+               var rules;
+               try { rules = document.styleSheets[i].cssRules; } catch (err) { continue; }
+               if (!rules) { continue; }
+               for (var r = 0; r < rules.length; r++) { out.push(rules[r].cssText); }
+             }
+             return out.join('\\n');",
+            Vec::new(),
+        )
+        .await
+        .expect("read the served stylesheet back out of the CSSOM");
+    let text = text.as_str().unwrap_or_default().to_string();
+    assert!(
+        text.contains("--cz-bg"),
+        "the CSSOM read back {} characters and none of the token seam — the stylesheet the page \
+         links did not load, so anything asserted about its text would be vacuous",
+        text.len()
+    );
+    text
 }
 
 /// The resolved value of `property` for EVERY element matching `selector`.
@@ -1469,6 +1872,143 @@ async fn open_the_board(world: &mut FoundryWorld) {
     world.browser = Some(browser);
 }
 
+/// The signed-in landing "/", with any stored choice re-applied. The Background
+/// already seeded the Sandbox project, so `.card a` is real data — waiting for
+/// it is what stops the dashboard assertions passing over an empty grid.
+async fn land_on_dashboard(browser: &fantoccini::Client, world: &FoundryWorld) {
+    sign_in_and_settle(browser, world).await;
+    let base = world
+        .harness
+        .as_ref()
+        .expect("harness")
+        .base_url()
+        .to_string();
+    browser
+        .goto(&format!("{base}/"))
+        .await
+        .expect("navigate to the dashboard");
+    browser
+        .wait()
+        .at_most(WAIT_TIMEOUT)
+        .for_element(Locator::Css(".dash .card-grid .card a"))
+        .await
+        .expect("the dashboard must render the project card the Background seeded");
+    apply_stored_theme_choice(browser).await;
+}
+
+/// The sign-in screen — one of the fifteen templates extending `base.html`
+/// directly. Public, so no session is needed and none is assumed.
+async fn land_on_sign_in(browser: &fantoccini::Client, world: &FoundryWorld) {
+    let base = world
+        .harness
+        .as_ref()
+        .expect("harness")
+        .base_url()
+        .to_string();
+    browser
+        .goto(&format!("{base}/sign-in"))
+        .await
+        .expect("navigate to the sign-in screen");
+    browser
+        .wait()
+        .at_most(WAIT_TIMEOUT)
+        .for_element(Locator::Css(
+            "form[action='/sign-in'] input[type='password']",
+        ))
+        .await
+        .expect("the sign-in screen must render its form");
+    apply_stored_theme_choice(browser).await;
+}
+
+/// Walk all five surface groups in ONE session and return every opaque colour
+/// they paint, labelled by the surface that painted it.
+///
+/// Each surface waits on a WITNESS selector before anything is collected, so a
+/// screen that 404'd or redirected away fails HERE rather than contributing no
+/// colours and letting the sweep pass by having looked at nothing. The sign-in
+/// screen is walked LAST because it is the only one that does not need the
+/// session.
+async fn walk_every_surface(
+    browser: &fantoccini::Client,
+    world: &FoundryWorld,
+) -> BTreeMap<Rgb, String> {
+    let base = world
+        .harness
+        .as_ref()
+        .expect("harness")
+        .base_url()
+        .to_string();
+    let mut painted: BTreeMap<Rgb, String> = BTreeMap::new();
+
+    let board = format!("{base}/team/{TEAM_SLUG}/project/{PROJECT_SLUG}");
+    let surfaces = [
+        ("the board", board.clone(), ".app-shell .board .column"),
+        (
+            "the dashboard",
+            format!("{base}/"),
+            ".dash .card-grid .card a",
+        ),
+        (
+            "an issue",
+            format!("{base}/team/{TEAM_SLUG}/project/{PROJECT_SLUG}/issues/1"),
+            ".app-shell",
+        ),
+        (
+            "the sign-in screen",
+            format!("{base}/sign-in"),
+            "form[action='/sign-in'] input[type='password']",
+        ),
+    ];
+
+    for (surface, url, witness) in surfaces {
+        browser
+            .goto(&url)
+            .await
+            .unwrap_or_else(|err| panic!("navigate to {surface} ({url}): {err}"));
+        browser
+            .wait()
+            .at_most(WAIT_TIMEOUT)
+            .for_element(Locator::Css(witness))
+            .await
+            .unwrap_or_else(|err| {
+                panic!(
+                    "{surface} never rendered `{witness}` — the sweep would have measured nothing \
+                     there and passed over a surface it never saw: {err}"
+                )
+            });
+        apply_stored_theme_choice(browser).await;
+        merge_painted(&mut painted, surface, painted_opaque_colours(browser).await);
+
+        // The shortcut list is not a URL: it is the overlay `?` lays over the
+        // board, so it is collected while the board is the page underneath.
+        if surface == "the board" {
+            browser_harness::wait_for_kb_ready(browser).await;
+            browser_harness::press_key(browser, "?").await;
+            browser
+                .wait()
+                .at_most(WAIT_TIMEOUT)
+                .for_element(Locator::Css(OVERLAY_SELECTOR))
+                .await
+                .expect("pressing `?` must render the shortcut list over the board");
+            merge_painted(
+                &mut painted,
+                "the shortcut list",
+                painted_opaque_colours(browser).await,
+            );
+        }
+    }
+    painted
+}
+
+/// Fold one surface's paint into the walk, keeping the FIRST place each colour
+/// was seen so the failure message names a real element on a real screen.
+fn merge_painted(into: &mut BTreeMap<Rgb, String>, surface: &str, observed: BTreeMap<Rgb, String>) {
+    for (colour, where_) in observed {
+        into.entry(colour)
+            .or_insert_with(|| format!("{surface}: {where_}"));
+    }
+}
+
 /// A SECOND session on a LIGHT device, on the same board — the "and the same
 /// holds in the other palette" arm. Opened fresh rather than re-themed, because
 /// the device preference is a session capability and cannot be changed on a
@@ -1494,10 +2034,29 @@ fn browser_of(world: &FoundryWorld) -> &fantoccini::Client {
 /// COMPUTE every text pair's ratio from the live browser and assert the tier it
 /// owes. `body_size` selects which half of WCAG 1.4.3 is being asserted.
 async fn assert_text_contrast(client: &fantoccini::Client, palette_name: &str, body_size: bool) {
+    let floor_pairs = if body_size { 8 } else { 0 };
+    assert_text_contrast_within(client, ".app-shell", palette_name, body_size, floor_pairs).await;
+}
+
+/// The same computation, SCOPED to one root — the overlay and the dialog are
+/// siblings of `.app-shell`, not descendants of it, so a shell-scoped probe
+/// would silently measure nothing on them. `min_pairs` is the anti-vacuity
+/// floor: it fails when the probe saw fewer text pairs than the surface
+/// certainly has, rather than passing over an empty measurement.
+async fn assert_text_contrast_within(
+    client: &fantoccini::Client,
+    root: &str,
+    palette_name: &str,
+    body_size: bool,
+    min_pairs: usize,
+) {
     let pairs = client
-        .execute(TEXT_PAIR_PROBE, Vec::new())
+        .execute(
+            TEXT_PAIR_PROBE,
+            vec![serde_json::Value::String(root.to_string())],
+        )
         .await
-        .expect("measure every text pair on the board and rail");
+        .expect("measure every text pair under the scoped root");
     let pairs = pairs.as_array().expect("the probe returns an array");
     let mut measured = 0usize;
     for pair in pairs {
@@ -1529,13 +2088,12 @@ async fn assert_text_contrast(client: &fantoccini::Client, palette_name: &str, b
         );
         measured += 1;
     }
-    if body_size {
-        assert!(
-            measured >= 8,
-            "only {measured} body-size text pairs were measured on the {palette_name} board — the \
-             probe is not seeing the page and the assertion would be vacuous"
-        );
-    }
+    assert!(
+        measured >= min_pairs,
+        "only {measured} text pair(s) were measured under `{root}` on the {palette_name} \
+         surface, below the {min_pairs} it certainly has — the probe is not seeing the page and \
+         the assertion would be vacuous"
+    );
 }
 
 /// COMPUTE each control's identifying contrast against the surface it sits on

@@ -61,6 +61,19 @@
   --cz-jade-soft: rgba(26, 122, 94, 0.1);
   --cz-jade-line: rgba(26, 122, 94, 0.32);
 
+  /* Elevation, and it is NOT one value re-used: a shadow tuned for paper is a
+     faint darkening that vanishes entirely on ink, so the dark binding below is
+     deliberately DEEPER (0.4/0.32 alpha against 0.04/0.05) and WIDER (12/32px
+     against 8/24px). A raised surface has to read as raised in both palettes. */
+  --cz-shadow: 0 1px 2px rgba(18, 22, 20, 0.04), 0 8px 24px rgba(18, 22, 20, 0.05);
+
+  /* The layer a dialog or the shortcut overlay lays over the page. TRANSLUCENT
+     by design — the board must stay visible behind it — and DARKER than the
+     surface it covers in BOTH palettes, so it deepens the page rather than
+     hazing it grey. Being translucent it also carries no text: D-05's opaque
+     rule applies to whatever floats ON it, never to the scrim itself. */
+  --cz-scrim: rgba(18, 22, 20, 0.45);
+
   /* Geometry — `:root` owns these SOLELY (component-boundaries.md C1), which
      is why S2 is scoped to the colour-token subset and does not ask the dark
      regions to redeclare them. */
@@ -102,6 +115,9 @@
     --cz-jade: #62c9a6;
     --cz-jade-soft: rgba(98, 201, 166, 0.11);
     --cz-jade-line: rgba(98, 201, 166, 0.34);
+
+    --cz-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.32);
+    --cz-scrim: rgba(0, 0, 0, 0.62);
   }
 }
 
@@ -129,6 +145,9 @@
   --cz-jade: #62c9a6;
   --cz-jade-soft: rgba(98, 201, 166, 0.11);
   --cz-jade-line: rgba(98, 201, 166, 0.34);
+
+  --cz-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.32);
+  --cz-scrim: rgba(0, 0, 0, 0.62);
 }
 
 * {
@@ -190,7 +209,9 @@ input[type="submit"] {
 /* A secondary control has no fill to identify it, so its BORDER carries the
    1.4.11 obligation — which is why it takes `--cz-muted` (5.89:1 light,
    6.38:1 dark against the page) and not the `--cz-line-strong` hairline
-   canzan.net uses for its ghost button (1.49:1 — a divider, not a boundary). */
+   canzan.net uses for its ghost button (1.49:1 — a divider, not a boundary).
+   The dashboard's `.actions a` / `.actions button` are the same shape and take
+   the same binding for the same reason. */
 button.secondary,
 .button.secondary {
   background: var(--cz-surface);
@@ -323,13 +344,22 @@ textarea {
 
 /* Dashboard (signed-in landing "/") — promoted from the inline <style> that
  * shipped in dashboard_root.html (US-04). Semantic classes double as the
- * acceptance render contract (.dash, .card, .actions). */
+ * acceptance render contract (.dash, .card, .actions).
+ *
+ * S01 left this block alone BECAUSE it used no token at all: it carried
+ * twenty-one raw colour values and re-pointing "the already-tokenised rules"
+ * would not have touched one of them. All twenty-one move here, and with them
+ * the last of the card-key indigo (#4f46e5/#eef2ff) that D-02 retires.
+ *
+ * The duplicate `font-family` stack below is deliberate leftover, NOT an
+ * oversight: typography is 04-01's subject and this step touches only what
+ * colour requires. */
 .dash {
   max-width: 880px;
   margin: 0 auto;
   padding: 2.5rem 1.5rem;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  color: #1a1a22;
+  color: var(--cz-text);
 }
 
 .dash h1 {
@@ -337,14 +367,16 @@ textarea {
   margin: 0 0 0.25rem;
 }
 
-/* The greeting + workspace lines read as one muted pair above the sections. */
+/* The greeting + workspace lines read as one muted pair above the sections.
+   `--cz-muted`, not `--cz-faint`: the dashboard sits directly on the page
+   surface `--cz-bg`, where muted measures 5.89:1 light and 6.38:1 dark. */
 .dash__welcome {
-  color: #6b7280;
+  color: var(--cz-muted);
   margin: 0;
 }
 
 .dash__workspace {
-  color: #6b7280;
+  color: var(--cz-muted);
   margin: 0 0 2.25rem;
 }
 
@@ -356,7 +388,7 @@ textarea {
   font-size: 0.8rem;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: #6b7280;
+  color: var(--cz-muted);
   margin: 0 0 0.9rem;
 }
 
@@ -374,24 +406,36 @@ textarea {
   align-items: center;
   gap: 0.75rem;
   padding: 0.9rem 1rem;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--cz-line);
   border-radius: 10px;
   text-decoration: none;
   color: inherit;
-  background: #fff;
+  background: var(--cz-surface);
   transition: border-color 0.12s, box-shadow 0.12s, transform 0.12s;
 }
 
+/* Hover reaches for the ACCENT, not a darker hairline: `--cz-line-strong` is
+   the 1.49:1 divider the token comments already disqualify as a boundary, and
+   an affordance that only an operator with good contrast perception can see is
+   not an affordance. Jade measures 5.08:1 light and 9.74:1 dark on the page. */
 .card a:hover {
-  border-color: #c7cbd1;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  border-color: var(--cz-jade);
+  box-shadow: var(--cz-shadow);
   transform: translateY(-1px);
 }
 
+/* The project key chip — and it is OPAQUE, for the same measured reason
+   `.sidebar__item--active` is (D-05). A `--cz-jade-soft` tint over this chip
+   was measured and REJECTED: the contrast oracle walks ancestors for the first
+   fully-opaque background, so a translucent tint resolves to its UNBLENDED
+   colour, and the real blended surface (#dde8e2 light) puts jade at 4.19:1 —
+   under the floor at this 0.72rem size. The recessed tier carries it instead:
+   jade on `--cz-bg-2` measures 4.77:1 light and 9.29:1 dark, opaque and
+   measurable, and it retires the last of the indigo. */
 .card__key {
   font: 600 0.72rem/1 ui-monospace, SFMono-Regular, Menlo, monospace;
-  color: #4f46e5;
-  background: #eef2ff;
+  color: var(--cz-jade);
+  background-color: var(--cz-bg-2);
   padding: 0.35rem 0.5rem;
   border-radius: 6px;
   letter-spacing: 0.02em;
@@ -402,7 +446,7 @@ textarea {
 }
 
 .dash__empty {
-  color: #6b7280;
+  color: var(--cz-muted);
 }
 
 .actions {
@@ -414,30 +458,36 @@ textarea {
   gap: 0.6rem;
 }
 
+/* Quick actions are SECONDARY controls: no fill identifies them, so the border
+   carries 1.4.11 and takes `--cz-muted` (5.89:1 light, 6.38:1 dark on the page)
+   — the same binding, and the same measured argument, as `button.secondary`.
+   `.actions button` must also OVERRIDE the primary `button` rule above, which
+   would otherwise fill it jade; that is why the three properties are restated
+   here rather than inherited. */
 .actions a {
   display: inline-block;
   padding: 0.55rem 0.95rem;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--cz-muted);
   border-radius: 8px;
   text-decoration: none;
-  color: #374151;
-  background: #fff;
+  color: var(--cz-text);
+  background: var(--cz-surface);
   font-size: 0.92rem;
   transition: border-color 0.12s, background 0.12s;
 }
 
 .actions a:hover {
-  border-color: #c7cbd1;
-  background: #f9fafb;
+  border-color: var(--cz-jade);
+  background: var(--cz-bg-2);
 }
 
 .actions button {
   display: inline-block;
   padding: 0.55rem 0.95rem;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--cz-muted);
   border-radius: 8px;
-  color: #374151;
-  background: #fff;
+  color: var(--cz-text);
+  background: var(--cz-surface);
   font-size: 0.92rem;
   cursor: pointer;
   font-family: inherit;
@@ -445,19 +495,20 @@ textarea {
 }
 
 .actions button:hover {
-  border-color: #c7cbd1;
-  background: #f9fafb;
+  border-color: var(--cz-jade);
+  background: var(--cz-bg-2);
 }
 
 .actions form {
   margin: 0;
 }
 
-/* The modal's own colour LITERALS (the backdrop scrim, the two box-shadows)
-   belong to slice 02, not here. Its seven `var(--fg)` / `var(--bg)` / … token
-   REFERENCES do belong here: retiring the eight foundry tokens rather than
-   aliasing them (D-02) leaves every reference to them dangling, and a dangling
-   `var()` in a shorthand drops the whole declaration — which is how
+/* The modal's own colour LITERALS — the backdrop scrim and the dialog's
+   box-shadow — retire HERE, onto `--cz-scrim` and `--cz-shadow`. Its token
+   REFERENCES moved at 02-01, and the lesson recorded there still governs any
+   edit below: retiring the eight foundry tokens rather than aliasing them
+   (D-02) left every reference to them dangling, and a dangling `var()` in a
+   SHORTHAND drops the whole declaration — which is how
    `.modal-close:focus-visible` lost its ring entirely (outline `none`) rather
    than merely losing its colour. Retiring a name means moving its consumers in
    the same commit.
@@ -475,7 +526,7 @@ textarea {
   align-items: center;
   justify-content: center;
   padding: 1rem;
-  background: rgba(17, 17, 26, 0.45);
+  background: var(--cz-scrim);
 }
 
 .modal-dialog {
@@ -484,7 +535,7 @@ textarea {
   background: var(--cz-surface);
   border: 1px solid var(--cz-line);
   border-radius: 10px;
-  box-shadow: 0 12px 40px rgba(17, 17, 26, 0.25);
+  box-shadow: var(--cz-shadow);
 }
 
 /* issue-edit-modal-close-icon D-13: the header becomes a flex row —
@@ -671,13 +722,17 @@ textarea {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(28, 28, 34, 0.45);
+  background: var(--cz-scrim);
 }
+/* The highest-visibility surface in the slice — an operator opens it by reflex,
+   so a white card in a grey haze over an ink board is the most visible defect
+   this feature could ship. It is the RAISED tier, like any other card. */
 #kb-overlay-root .keyboard-help {
-  background: #ffffff;
-  color: #1c1c22;
+  background: var(--cz-surface);
+  color: var(--cz-text);
+  border: 1px solid var(--cz-line);
   border-radius: 8px;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.25);
+  box-shadow: var(--cz-shadow);
   padding: 20px 24px;
   min-width: 320px;
   max-height: 80vh;
@@ -694,17 +749,22 @@ textarea {
   margin: 0;
   font-size: 13px;
 }
+/* The keycap sits ON the raised card, so it is the RECESSED tier — the same
+   inversion `.card__key` uses. Its glyph inherits `--cz-text` from the card:
+   16.53:1 light, 15.58:1 dark on `--cz-bg-2`. */
 #kb-overlay-root .keyboard-help dt {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  background: #f0f0f3;
-  border: 1px solid #e6e6e9;
+  background: var(--cz-bg-2);
+  border: 1px solid var(--cz-line);
   border-radius: 4px;
   padding: 1px 6px;
   justify-self: start;
 }
+/* The shortcut's description, muted against the card: 6.10:1 light, 5.83:1
+   dark on `--cz-surface`. */
 #kb-overlay-root .keyboard-help dd {
   margin: 0;
-  color: #52525b;
+  color: var(--cz-muted);
 }
 
 /* ── pwa-mobile-rendering slice 01 — fit the authed shell to a phone ──────────

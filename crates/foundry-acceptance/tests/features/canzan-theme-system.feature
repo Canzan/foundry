@@ -180,7 +180,7 @@ Feature: foundry follows the light the operator's environment asks for
   # S02 — every remaining screen matches  (US-CTS-02)
   # ==========================================================================
 
-  @needs-browser @real-io @slice2 @us-cts-02 @kpi @pending
+  @needs-browser @real-io @slice2 @us-cts-02 @kpi
   Scenario: The shortcut overlay is legible over a dark board
     # RED-trigger: the overlay block keeps its own colour values instead of taking
     # tokens — a white card floating over an ink board, the most visible defect
@@ -191,7 +191,7 @@ Feature: foundry follows the light the operator's environment asks for
     Then the list, its keycaps and the layer behind it all render in the dark palette
     And the shortcut text and the keycap text each reach at least 4.5 to 1 against the surface behind them
 
-  @needs-browser @real-io @slice2 @us-cts-02 @pending
+  @needs-browser @real-io @slice2 @us-cts-02
   Scenario: The signed-in dashboard matches the board
     # RED-trigger: the dashboard block keeps its 21 colour values; or the project
     # key chip takes a translucent tint with no opaque surface beneath it, which
@@ -201,7 +201,7 @@ Feature: foundry follows the light the operator's environment asks for
     Then the project cards, the section labels and the action controls render in the dark palette
     And the project key chip sits on an opaque surface, not a translucent one
 
-  @needs-browser @real-io @slice2 @us-cts-02 @pending
+  @needs-browser @real-io @slice2 @us-cts-02
   Scenario: The new-issue dialog and the layer behind it are dark
     # RED-trigger: the dialog and its backdrop keep their own values, so opening a
     # dialog on a dark board flashes a white card over a dark scrim.
@@ -211,7 +211,7 @@ Feature: foundry follows the light the operator's environment asks for
     Then the dialog, its label, its text field and the layer behind it all render in the dark palette
     And the text the operator types is legible without selecting the field
 
-  @needs-browser @real-io @slice2 @us-cts-02 @error @pending
+  @needs-browser @real-io @slice2 @us-cts-02 @error
   Scenario: A screen with no chrome still honours the chosen theme
     # RED-trigger: the theme is applied from the rail's own chrome rather than from
     # the document, so the 15 screens that have no rail stay light for an operator
@@ -222,7 +222,7 @@ Feature: foundry follows the light the operator's environment asks for
     Then the sign-in screen renders in the dark palette
     And no theme control is present on it
 
-  @needs-browser @real-io @slice2 @us-cts-02 @error @pending
+  @needs-browser @real-io @slice2 @us-cts-02 @error
   Scenario: No surface anywhere is left light-only
     # The sweep. Walks every element on all five surface groups in the dark palette
     # and asserts none resolves to a light-palette value. RED-trigger: any single

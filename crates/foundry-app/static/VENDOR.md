@@ -14,7 +14,7 @@ this file + the hash, re-run the acceptance suite.
 | File | Version | Upstream canonical URL | Retrieved (UTC) | sha256 |
 |------|---------|------------------------|-----------------|--------|
 | `vendor/htmx.min.js` | htmx **2.0.4** (pinned latest-stable 2.0.x; step 04-01 migration) | https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js | 2026-06-04 | `e209dda5c8235479f3166defc7750e1dbcd5a5c1808b7792fc2e6733768fb447` |
-| `css/foundry.23228365.css` | hand-authored (this repo) | — (not vendored; authored in-tree) | 2026-08-29 | `23228365f1c99f0e1d5ee7202482eb979228cdbf3318bfc2a4f949bd59d6a2b2` |
+| `css/foundry.e2faa717.css` | hand-authored (this repo) | — (not vendored; authored in-tree) | 2026-08-29 | `e2faa717708deeb78d60571c69a2e5c0422088aae0417861f7417c5d82e5606e` |
 
 ## Notes
 
@@ -36,9 +36,9 @@ this file + the hash, re-run the acceptance suite.
   every page load to do nothing. The client keyboard layer that replaced the
   intent is `static/js/keyboard.js` — one app-owned vanilla IIFE, no framework.
   htmx remains the only vendored runtime dependency.
-- `foundry.23228365.css` is hand-authored and served as-authored (gzip via the
+- `foundry.e2faa717.css` is hand-authored and served as-authored (gzip via the
   `compression-gzip` tower-http feature handles the wire size); no CSS minifier
-  is introduced (DB6). **The `.23228365.` segment is the content hash** (first 8
+  is introduced (DB6). **The `.e2faa717.` segment is the content hash** (first 8
   hex of the file's sha256) per ADR-B03 / assets.md Decision #4 option 4a: the
   hash IS the cache key, so the blanket `Cache-Control: ...immutable` on `/static`
   is safe even though the file is hand-edited — an edit changes the hash, changes

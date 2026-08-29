@@ -63,6 +63,7 @@ pub fn run(args: Vec<String>) -> ExitCode {
     violations.extend(check_app_no_slugify_definition(&root));
     violations.extend(check_no_static_lane_list(&root));
     violations.extend(check_static_asset_integrity(&root));
+    violations.extend(check_stylesheet_colour_seam(&root));
     violations.extend(check_stylesheet_dark_block_parity(&root));
 
     // LAYER 2 — cargo-deny crate-graph dependency-direction.
@@ -71,7 +72,7 @@ pub fn run(args: Vec<String>) -> ExitCode {
     }
 
     if violations.is_empty() {
-        println!("check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, the three stylesheet token regions declare the identical colour-token set, dependency direction)");
+        println!("check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, no colour literal outside the three stylesheet token regions, the three stylesheet token regions declare the identical colour-token set, dependency direction)");
         return ExitCode::SUCCESS;
     }
 
@@ -1142,9 +1143,11 @@ fn rel(root: &Path, file: &Path) -> String {
 //     a violation (it must, or it would pass vacuously on exactly the file it
 //     exists to police), which is why it could not be armed before the regions
 //     existed.
-//   * S1 (`check_stylesheet_colour_seam`) is armed at step 03-01 — the step
-//     that removes the last of the 46 colour literals now sitting across 30
-//     rules below the seam. Arming it here would red every commit until 03-01.
+//   * S1 (`check_stylesheet_colour_seam`) IS ARMED as of step 03-01 — the step
+//     that retired the last of the 46 colour literals that sat across 30 rules
+//     below the seam (the dashboard's 21, the dialog's 2, the shortcut
+//     overlay's 7, and the rail/board set 02-01 had already moved). Arming it
+//     any earlier would have redded every commit in between.
 //
 // The gold tests are NOT deferred with the arming: they call these functions
 // directly against staged planted-violation trees, so both rules are SHOWN to
@@ -1206,7 +1209,6 @@ struct CssRegion {
 ///       would be a false positive. The stylesheet uses none — it is styled
 ///       entirely by class and element — and a false positive fails loudly at
 ///       the author's next commit rather than hiding a colour.
-#[allow(dead_code)] // armed in `run()` at step 03-01; see the module note above
 fn check_stylesheet_colour_seam(root: &Path) -> Vec<String> {
     let mut violations = Vec::new();
     for path in served_stylesheets(root) {
