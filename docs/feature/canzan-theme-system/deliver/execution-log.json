@@ -128,6 +128,34 @@
       "s": "EXECUTED",
       "d": "PASS",
       "t": "2026-08-29T20:21:08Z"
+    },
+    {
+      "sid": "02-01",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-08-29T20:37:24Z"
+    },
+    {
+      "sid": "02-01",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-08-29T20:43:22Z"
+    },
+    {
+      "sid": "02-01",
+      "p": "RED_UNIT",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: CSS re-authoring and browser-lane assertions, no Rust pure logic; compensating properties are S2 token-set parity, R2 hash honesty, and the computed-contrast oracle",
+      "t": "2026-08-29T20:43:22Z"
+    },
+    {
+      "sid": "02-01",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-08-29T21:40:16Z"
     }
   ]
 }

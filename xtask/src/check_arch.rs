@@ -63,6 +63,7 @@ pub fn run(args: Vec<String>) -> ExitCode {
     violations.extend(check_app_no_slugify_definition(&root));
     violations.extend(check_no_static_lane_list(&root));
     violations.extend(check_static_asset_integrity(&root));
+    violations.extend(check_stylesheet_dark_block_parity(&root));
 
     // LAYER 2 — cargo-deny crate-graph dependency-direction.
     if let Some(dep_violation) = check_dependency_direction(&root) {
@@ -70,7 +71,7 @@ pub fn run(args: Vec<String>) -> ExitCode {
     }
 
     if violations.is_empty() {
-        println!("check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, dependency direction)");
+        println!("check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, the three stylesheet token regions declare the identical colour-token set, dependency direction)");
         return ExitCode::SUCCESS;
     }
 
@@ -1133,23 +1134,21 @@ fn rel(root: &Path, file: &Path) -> String {
 
 // ---- check_stylesheet_token_seam — S1/S2 (ADR-CANZAN-THEME-004) ------------
 //
-// NOT ARMED IN `run()` YET, DELIBERATELY. Both rules below are called only
-// from this module's `#[cfg(test)]` gold tests in the commit that introduces
-// them, and that is the correct state:
+// ARMED IN TWO STEPS, DELIBERATELY. A rule armed against a subject that cannot
+// yet satisfy it is a broken build, not a guard:
 //
-//   * S2 (`check_stylesheet_dark_block_parity`) is armed at step 02-01 — the
-//     step that creates the two dark regions. Today the stylesheet has NO dark
-//     blocks at all, and S2 treats a missing region as a violation (it must, or
-//     it would pass vacuously on exactly the file it exists to police), so
-//     arming it here would red every commit until 02-01 lands.
+//   * S2 (`check_stylesheet_dark_block_parity`) IS ARMED as of step 02-01 —
+//     the step that created the two dark regions. It treats a missing region as
+//     a violation (it must, or it would pass vacuously on exactly the file it
+//     exists to police), which is why it could not be armed before the regions
+//     existed.
 //   * S1 (`check_stylesheet_colour_seam`) is armed at step 03-01 — the step
 //     that removes the last of the 46 colour literals now sitting across 30
 //     rules below the seam. Arming it here would red every commit until 03-01.
 //
-// A rule armed against a subject that cannot yet satisfy it is a broken build,
-// not a guard. The gold tests are NOT deferred with the arming: they call these
-// functions directly against staged planted-violation trees, so both rules are
-// SHOWN to bite in this commit rather than claimed to.
+// The gold tests are NOT deferred with the arming: they call these functions
+// directly against staged planted-violation trees, so both rules are SHOWN to
+// bite in the commit that introduced them rather than claimed to.
 
 /// The three regions in which a colour value may appear — the `:root` token
 /// block and the two dark blocks D-03 requires be written separately (a media
@@ -1269,7 +1268,6 @@ fn check_stylesheet_colour_seam(root: &Path) -> Vec<String> {
 /// A stylesheet in which fewer than three regions are found is itself a
 /// violation: without that, S2 would pass vacuously against a file that has no
 /// dark blocks yet — which is exactly today's file.
-#[allow(dead_code)] // armed in `run()` at step 02-01; see the module note above
 fn check_stylesheet_dark_block_parity(root: &Path) -> Vec<String> {
     let mut violations = Vec::new();
     for path in served_stylesheets(root) {

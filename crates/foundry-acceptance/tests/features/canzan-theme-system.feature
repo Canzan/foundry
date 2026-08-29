@@ -94,7 +94,7 @@ Feature: foundry follows the light the operator's environment asks for
   # S01 — the board and its rail wear canzan's palette  (US-CTS-01)
   # ==========================================================================
 
-  @needs-browser @real-io @slice1 @us-cts-01 @pending
+  @needs-browser @real-io @slice1 @us-cts-01
   Scenario: A dark-preferring operator's whole board is dark, rail included
     # RED-trigger: the device-driven dark block is absent or its guard is wrong —
     # the board keeps painting paper on a dark device.
@@ -104,7 +104,7 @@ Feature: foundry follows the light the operator's environment asks for
     Then the page frame, the rail, the lane columns and every issue card render in the dark palette
     And no surface on the screen renders in a light-palette colour
 
-  @needs-browser @real-io @slice1 @us-cts-01 @pending
+  @needs-browser @real-io @slice1 @us-cts-01
   Scenario: A light-preferring operator sees canzan's paper-and-jade palette
     # RED-trigger: the canzan tokens were not adopted, or one of foundry's three
     # retired accent hues survives somewhere on the board.
@@ -113,7 +113,7 @@ Feature: foundry follows the light the operator's environment asks for
     Then the page renders on canzan's paper background with canzan's jade accent
     And foundry's former blue and indigo accents appear nowhere on the screen
 
-  @needs-browser @real-io @slice1 @us-cts-01 @error @pending
+  @needs-browser @real-io @slice1 @us-cts-01 @error
   Scenario: An explicit dark choice overrules a light device
     # RED-trigger: the explicit-choice dark block is missing, so only the device
     # can produce dark and the operator's own choice is inert.
@@ -122,7 +122,7 @@ Feature: foundry follows the light the operator's environment asks for
     When the operator opens the "Sandbox" board
     Then the board renders in the dark palette
 
-  @needs-browser @real-io @slice1 @us-cts-01 @error @pending
+  @needs-browser @real-io @slice1 @us-cts-01 @error
   Scenario: An explicit light choice overrules a dark device
     # The scenario that earns the guard. RED-trigger: the device-driven dark block
     # is written without the "unless the operator chose light" exception, so a dark
@@ -134,7 +134,7 @@ Feature: foundry follows the light the operator's environment asks for
     When the operator opens the "Sandbox" board
     Then the board renders in the light palette
 
-  @needs-browser @real-io @slice1 @us-cts-01 @error @pending
+  @needs-browser @real-io @slice1 @us-cts-01 @error
   Scenario: The keyboard selection ring reads as a shape, not only a colour
     # RED-trigger: the ring is restyled as a background fill or a border swap while
     # picking up the jade palette. Both would look right and both would break
@@ -145,7 +145,7 @@ Feature: foundry follows the light the operator's environment asks for
     Then the selected card carries the selection ring as an outline
     And the ring is present in the light palette as well as the dark one
 
-  @needs-browser @real-io @slice1 @us-cts-01 @kpi @pending
+  @needs-browser @real-io @slice1 @us-cts-01 @kpi
   Scenario: Board and rail text stays legible in both palettes
     # KPI 3. Ratios are COMPUTED from the resolved colours in the live browser, not
     # restated from the six figures a human typed into the token comments.
@@ -157,7 +157,7 @@ Feature: foundry follows the light the operator's environment asks for
     And every large-text and control-boundary pair reaches at least 3 to 1
     And the same holds when the device preference is light
 
-  @needs-browser @real-io @slice1 @us-cts-01 @error @pending
+  @needs-browser @real-io @slice1 @us-cts-01 @error
   Scenario: Everything the operator already selects on is still on the page
     # KPI 4's render-contract half, asserted rather than asserted-about. RED-trigger:
     # any semantic class or data marker renamed or dropped by the restyle.

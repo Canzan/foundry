@@ -1,102 +1,207 @@
 /* Foundry web tier — hand-authored stylesheet (no toolchain, no build step).
  *
- * Scope (design/assets.md §CSS strategy): a small, semantic, accessible
- * stylesheet — NOT a design system, theming, or dark mode. Markup classes are
- * semantic (.column, .issue-card, .comment) so they double as the render
- * contract the acceptance suite selects on.
+ * Scope (design/assets.md §CSS strategy, canzan-theme-system): a small,
+ * semantic, accessible stylesheet that IS foundry's design system — one token
+ * seam, two palettes, and a three-state theme choice (system / light / dark).
+ * Markup classes stay semantic (.column, .issue-card, .comment, .sidebar*) so
+ * they keep doubling as the render contract the acceptance suite selects on;
+ * the theme changes what those surfaces are PAINTED with and never what they
+ * are CALLED.
+ *
+ * THE SEAM (ADR-CANZAN-THEME-004). Colour values appear in exactly three
+ * regions of this file — `:root`, the dark-by-device block and the
+ * dark-by-choice block — and nowhere else. Every other rule names a `--cz-*`
+ * token. The two dark blocks are DUPLICATED DELIBERATELY and may never be
+ * merged: CSS cannot express "either" across a media query and an attribute
+ * selector. They may differ in VALUES; they may never differ in NAMES.
+ * `cargo xtask check-arch` enforces both halves — S1 (no colour literal below
+ * the seam) and S2 (the three regions declare the identical colour-token set).
  *
  * a11y obligations (NFR-WEBB-A11Y-02): contrast >= 4.5:1 (3:1 large), visible
  * :focus-visible indicators, interactive targets >= 24x24px, labelled inputs.
+ * The ratios recorded beside the tokens below are the AUTHOR'S measurement of
+ * the token pairs; they are NOT the gate. The gate is the acceptance suite,
+ * which resolves the real foreground and the real ancestor background in a
+ * live browser and computes the ratio there, in both palettes.
  */
 
+/* ── REGION 1 of 3 — the light palette, and the seam's only non-colour tokens ──
+   canzan.net's contract (`docs/feature/canzan-theme-system/intake.md`), adopted
+   verbatim EXCEPT `--cz-faint`: canzan's own faint tier measures 3.24:1 light
+   and 3.52:1 dark, which is legible for a marketing site's decorative eyebrow
+   and NOT legible for a label an operator has to read (D-04). foundry rebinds
+   the tier rather than abandoning it. */
 :root {
-  --bg: #ffffff;
-  --fg: #1a1d23;
-  --muted: #5a6472;
-  --border: #d4d9e0;
-  --surface: #f6f8fa;
-  --accent: #2452c9;
-  --accent-contrast: #ffffff;
-  --danger: #b3261e;
+  color-scheme: light;
+
+  /* Surfaces, page outward: the page, a recessed lane, a raised card. */
+  --cz-bg: #fbfbf9;
+  --cz-bg-2: #f3f4f1;
+  --cz-surface: #ffffff;
+
+  /* Hairlines. `--cz-line-strong` is a divider, never a control boundary:
+     it measures 1.49:1 against the page, below 1.4.11's 3:1, so the controls
+     below take `--cz-muted` for their boundary instead. */
+  --cz-line: #e3e5e0;
+  --cz-line-strong: #cdd1cb;
+
+  /* The three text tiers, measured against `--cz-bg`:
+       --cz-text   17.62:1
+       --cz-muted   5.89:1
+       --cz-faint   4.57:1   (canzan's #878e89 measures 3.24:1 — rebound, D-04) */
+  --cz-text: #121614;
+  --cz-muted: #5c645f;
+  --cz-faint: #6e756f;
+
+  /* The one accent. It replaces THREE competing hues foundry had accumulated:
+     #2452c9, the rail's #5b5bd6/#3a3ad1, and the card-key #4f46e5.
+     Jade measures 5.08:1 on `--cz-bg` — past 4.5:1 as link text and past
+     1.4.11's 3:1 as a control boundary or a selection ring. */
+  --cz-jade: #1a7a5e;
+  --cz-jade-soft: rgba(26, 122, 94, 0.1);
+  --cz-jade-line: rgba(26, 122, 94, 0.32);
+
+  /* Geometry — `:root` owns these SOLELY (component-boundaries.md C1), which
+     is why S2 is scoped to the colour-token subset and does not ask the dark
+     regions to redeclare them. */
   --radius: 6px;
   --gap: 12px;
+  --cz-gutter: clamp(20px, 5vw, 40px);
   --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica,
     Arial, sans-serif;
+}
+
+/* ── REGION 2 of 3 — dark BY DEVICE (the default nobody has to ask for) ───────
+   `:not([data-theme="light"])` is the whole reason an operator on a dark device
+   can still choose light for this one app. It is the single mechanism written
+   in two files (here and theme.js), and the acceptance scenario "An explicit
+   light choice overrules a dark device" is the only thing that catches its
+   removal. Do not simplify it away.
+
+   Measured against `--cz-bg` = #0a0c0b:
+       --cz-text   16.33:1   (DISCUSS recorded 16.32 — same tier, last-decimal
+                              rounding; this is the re-measured figure)
+       --cz-muted   6.38:1
+       --cz-faint   4.83:1   (canzan's #626a66 measures 3.52:1 — rebound, D-04)
+   Jade measures 9.74:1 on ink. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+
+    --cz-bg: #0a0c0b;
+    --cz-bg-2: #0f1312;
+    --cz-surface: #131817;
+
+    --cz-line: #1f2523;
+    --cz-line-strong: #2e3733;
+
+    --cz-text: #e8ebe8;
+    --cz-muted: #8d958f;
+    --cz-faint: #78807b;
+
+    --cz-jade: #62c9a6;
+    --cz-jade-soft: rgba(98, 201, 166, 0.11);
+    --cz-jade-line: rgba(98, 201, 166, 0.34);
+  }
+}
+
+/* ── REGION 3 of 3 — dark BY CHOICE (the same palette, the other path) ────────
+   Byte-for-byte the same NAMES and the same VALUES as region 2. The duplication
+   is a property of CSS, not a decision: a media query and an attribute selector
+   cannot be combined into one rule meaning "either" (D-03). check-arch's S2 is
+   the parity guard — add a colour token to one region and forget the other and
+   the build reds, instead of one surface silently rendering its light value to
+   whichever operators take that one path. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --cz-bg: #0a0c0b;
+  --cz-bg-2: #0f1312;
+  --cz-surface: #131817;
+
+  --cz-line: #1f2523;
+  --cz-line-strong: #2e3733;
+
+  --cz-text: #e8ebe8;
+  --cz-muted: #8d958f;
+  --cz-faint: #78807b;
+
+  --cz-jade: #62c9a6;
+  --cz-jade-soft: rgba(98, 201, 166, 0.11);
+  --cz-jade-line: rgba(98, 201, 166, 0.34);
 }
 
 * {
   box-sizing: border-box;
 }
 
+/* `color` is bound on the ROOT element, not only on `<body>`: under
+   `color-scheme: dark` an unbound root inherits the UA's CanvasText (white),
+   which is a light-palette value sitting on a dark page. */
 html,
 body {
   margin: 0;
   padding: 0;
+  color: var(--cz-text);
+  background: var(--cz-bg);
 }
 
 body {
   font-family: var(--font);
   font-size: 15px;
   line-height: 1.5;
-  color: var(--fg);
-  background: var(--bg);
 }
 
 a {
-  color: var(--accent);
+  color: var(--cz-jade);
 }
 
 /* Visible focus for keyboard users (a11y). */
 :focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--cz-jade);
   outline-offset: 2px;
-}
-
-/* Header chrome. */
-.site-header {
-  display: flex;
-  align-items: center;
-  gap: var(--gap);
-  padding: 12px 20px;
-  border-bottom: 1px solid var(--border);
-  background: var(--surface);
-}
-
-.site-header .brand {
-  font-weight: 700;
-  color: var(--fg);
-  text-decoration: none;
 }
 
 main {
   padding: 20px;
 }
 
-/* Interactive targets >= 24x24px. */
+/* Interactive targets >= 24x24px.
+ *
+ * The FILL is the control's boundary here: jade against the page measures
+ * 5.08:1 light and 9.74:1 dark, both past 1.4.11's 3:1, so the control is
+ * identifiable without relying on its hairline. `--cz-bg` as the label colour
+ * (rather than a fixed white) is what makes one declaration correct in both
+ * palettes: paper on jade light, ink on jade dark. */
 button,
 .button,
 input[type="submit"] {
   min-height: 32px;
   min-width: 24px;
   padding: 6px 12px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--cz-jade);
   border-radius: var(--radius);
-  background: var(--accent);
-  color: var(--accent-contrast);
+  background: var(--cz-jade);
+  color: var(--cz-bg);
   font: inherit;
   cursor: pointer;
 }
 
+/* A secondary control has no fill to identify it, so its BORDER carries the
+   1.4.11 obligation — which is why it takes `--cz-muted` (5.89:1 light,
+   6.38:1 dark against the page) and not the `--cz-line-strong` hairline
+   canzan.net uses for its ghost button (1.49:1 — a divider, not a boundary). */
 button.secondary,
 .button.secondary {
-  background: var(--surface);
-  color: var(--fg);
+  background: var(--cz-surface);
+  color: var(--cz-text);
+  border-color: var(--cz-muted);
 }
 
 label {
   display: block;
   margin-bottom: 4px;
-  color: var(--muted);
+  color: var(--cz-muted);
 }
 
 input[type="text"],
@@ -106,8 +211,10 @@ textarea {
   width: 100%;
   min-height: 32px;
   padding: 6px 10px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--cz-muted);
   border-radius: var(--radius);
+  background: var(--cz-surface);
+  color: var(--cz-text);
   font: inherit;
 }
 
@@ -118,31 +225,41 @@ textarea {
   align-items: flex-start;
 }
 
+/* The elevation ladder, and it reads the same way in both palettes: the page is
+   `--cz-bg`, a lane is RECESSED onto `--cz-bg-2`, a card is RAISED onto
+   `--cz-surface`. */
 .column {
   flex: 1 1 0;
   min-width: 200px;
   padding: 12px;
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: var(--cz-bg-2);
+  border: 1px solid var(--cz-line);
   border-radius: var(--radius);
 }
 
+/* `--cz-muted`, NOT `--cz-faint`, and the reason is a measurement: a lane sits
+   on `--cz-bg-2`, and the faint tier measures 4.29:1 there in the light palette
+   — below 4.5:1 at this 13px label size. Muted measures 5.52:1 light and 6.08:1
+   dark on the same surface. The faint tier survives (it is the recorded
+   4.57 / 4.83 pair) on surfaces that are `--cz-bg`, e.g. .comment-edited-marker.
+   S01's design note put the lane header on faint; the computed ratio overruled
+   it, which is what the acceptance suite's contrast oracle is for. */
 .column h2 {
   margin: 0 0 8px;
   font-size: 13px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: var(--muted);
+  color: var(--cz-muted);
 }
 
 .issue-card {
   display: block;
   margin-bottom: 8px;
   padding: 10px 12px;
-  background: var(--bg);
-  border: 1px solid var(--border);
+  background: var(--cz-surface);
+  border: 1px solid var(--cz-line);
   border-radius: var(--radius);
-  color: var(--fg);
+  color: var(--cz-text);
   text-decoration: none;
 }
 
@@ -152,41 +269,46 @@ textarea {
  * reasons, each load-bearing:
  *   - It does NOT rely on colour alone: the ring adds a visible 2px band that is
  *     a SHAPE change, legible to a colour-blind reader and to anyone who cannot
- *     tell #2452c9 from #d4d9e0.
+ *     tell the accent from the hairline.
  *   - `outline` is honoured in forced-colours / high-contrast mode, where author
  *     backgrounds and borders are overridden; a `background: …` ring simply
  *     vanishes there.
  *   - It takes no layout space (unlike a border), so ringing a card cannot
  *     reflow the column and move the very cards `j` is walking.
- * --accent (#2452c9) on --bg (#ffffff) is ~7:1, comfortably past WCAG 2.1 AA's
- * 3:1 for non-text contrast (1.4.11).
+ * --cz-jade measures 5.08:1 on paper and 9.74:1 on ink, both comfortably past
+ * WCAG 2.1 AA's 3:1 for non-text contrast (1.4.11). (This line previously read
+ * "#2452c9 on #ffffff ~= 7:1"; the colour moved, so the number moved with it.)
  *
  * `.issue-card` already carries `aria-selected="true"` from the same projection
  * (keyboard.js): the class paints, the ARIA state speaks. Both are derived from
  * `selectedKey` on every move — neither is stored.
  */
 .issue-card.kb-selected {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--cz-jade);
   outline-offset: 2px;
 }
 
+/* Inside a lane, so `--cz-bg-2` is the surface behind it — muted, for the same
+   measured reason as `.column h2`. */
 .empty-state {
-  color: var(--muted);
+  color: var(--cz-muted);
   font-style: italic;
 }
 
 /* Comments. */
 .comment {
   padding: 12px 0;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--cz-line);
 }
 
 .comment-author {
   font-weight: 600;
 }
 
+/* The faint tier's live use: an aside on the page surface `--cz-bg`, which is
+   the pair the recorded 4.57:1 / 4.83:1 ratios were measured against. */
 .comment-edited-marker {
-  color: var(--muted);
+  color: var(--cz-faint);
   font-size: 0.85em;
 }
 
@@ -331,7 +453,16 @@ textarea {
   margin: 0;
 }
 
-/* New-issue modal — centered overlay dialog (board-new-issue). The outer
+/* The modal's own colour LITERALS (the backdrop scrim, the two box-shadows)
+   belong to slice 02, not here. Its seven `var(--fg)` / `var(--bg)` / … token
+   REFERENCES do belong here: retiring the eight foundry tokens rather than
+   aliasing them (D-02) leaves every reference to them dangling, and a dangling
+   `var()` in a shorthand drops the whole declaration — which is how
+   `.modal-close:focus-visible` lost its ring entirely (outline `none`) rather
+   than merely losing its colour. Retiring a name means moving its consumers in
+   the same commit.
+
+   New-issue modal — centered overlay dialog (board-new-issue). The outer
  * .modal is the full-viewport backdrop; .modal-dialog is the centered white
  * card. Semantic classes double as the render contract the acceptance suite
  * selects on; the htmx swap drops this fragment into #modal-root and the
@@ -350,8 +481,8 @@ textarea {
 .modal-dialog {
   width: min(30rem, 92vw);
   padding: 1.5rem;
-  background: var(--bg);
-  border: 1px solid var(--border);
+  background: var(--cz-surface);
+  border: 1px solid var(--cz-line);
   border-radius: 10px;
   box-shadow: 0 12px 40px rgba(17, 17, 26, 0.25);
 }
@@ -386,19 +517,19 @@ textarea {
   background: none;
   border: 0;
   border-radius: var(--radius);
-  color: var(--muted);
+  color: var(--cz-muted);
   font-size: 1.35rem;
   line-height: 1;
   cursor: pointer;
 }
 
 .modal-close:hover {
-  color: var(--fg);
-  background: var(--surface);
+  color: var(--cz-text);
+  background: var(--cz-bg-2);
 }
 
 .modal-close:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--cz-jade);
   outline-offset: 2px;
 }
 
@@ -409,7 +540,7 @@ textarea {
 }
 
 .modal-dialog label {
-  color: var(--fg);
+  color: var(--cz-text);
 }
 
 .modal-dialog input[type="text"] {
@@ -435,6 +566,10 @@ textarea {
   min-width: 0;
   padding: 24px 32px;
 }
+/* The rail carried FIFTEEN colour literals and zero tokens, which is why it had
+   to move in the same step as the board: re-pointing only the already-tokenised
+   rules would have shipped a white stripe down the left of a dark app. It is a
+   recessed surface, the same tier as a lane. */
 .sidebar {
   flex: 0 0 240px;
   width: 240px;
@@ -442,8 +577,8 @@ textarea {
   flex-direction: column;
   gap: 12px;
   padding: 16px 12px;
-  border-right: 1px solid #e6e6e9;
-  background: #fbfbfc;
+  border-right: 1px solid var(--cz-line);
+  background: var(--cz-bg-2);
 }
 .sidebar__brand {
   display: flex;
@@ -459,14 +594,14 @@ textarea {
   width: 26px;
   height: 26px;
   border-radius: 6px;
-  background: #5b5bd6;
-  color: #fff;
+  background: var(--cz-jade);
+  color: var(--cz-bg);
   font-size: 13px;
   font-weight: 700;
 }
 .sidebar__workspace {
   font-size: 14px;
-  color: #1c1c22;
+  color: var(--cz-text);
 }
 .sidebar__nav {
   display: flex;
@@ -479,17 +614,25 @@ textarea {
   gap: 8px;
   padding: 7px 10px;
   border-radius: 6px;
-  color: #52525b;
+  color: var(--cz-muted);
   text-decoration: none;
   font-size: 14px;
 }
 .sidebar__item:hover {
-  background: #f0f0f3;
-  color: #1c1c22;
+  background: var(--cz-line);
+  color: var(--cz-text);
 }
+/* The one surface the eleven-token contract had to be asked a hard question by
+   (S01's learning hypothesis): canzan.net has no navigation rail, so it has no
+   "active item" tint. Its only tinted surface is `--cz-jade-soft`, which is
+   TRANSLUCENT and therefore barred from carrying text on its own (D-05) — a
+   contrast walk resolves a translucent surface to its unblended colour and
+   reads a perfectly legible page as a failure. The answer needed no twelfth
+   token: the active item is the RAISED tier, `--cz-surface`, with jade text
+   (5.26:1 light, 8.90:1 dark) and weight. Opaque, measurable, on contract. */
 .sidebar__item--active {
-  background: #ecedff;
-  color: #3a3ad1;
+  background: var(--cz-surface);
+  color: var(--cz-jade);
   font-weight: 600;
 }
 .sidebar__user {
@@ -498,22 +641,22 @@ textarea {
   flex-direction: column;
   gap: 4px;
   padding: 8px;
-  border-top: 1px solid #e6e6e9;
+  border-top: 1px solid var(--cz-line);
   font-size: 13px;
 }
 .sidebar__user a {
-  color: #52525b;
+  color: var(--cz-muted);
   text-decoration: none;
   padding: 4px 6px;
   border-radius: 5px;
 }
 .sidebar__user a:hover {
-  background: #f0f0f3;
-  color: #1c1c22;
+  background: var(--cz-line);
+  color: var(--cz-text);
 }
 .sidebar :focus-visible,
 .sidebar__user :focus-visible {
-  outline: 2px solid #5b5bd6;
+  outline: 2px solid var(--cz-jade);
   outline-offset: 2px;
 }
 
@@ -588,7 +731,7 @@ textarea {
     gap: 8px;
     padding: 8px 12px;
     border-right: none;
-    border-bottom: 1px solid #e6e6e9;
+    border-bottom: 1px solid var(--cz-line);
   }
   .sidebar__nav {
     flex-direction: row;
