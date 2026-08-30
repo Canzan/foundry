@@ -236,7 +236,7 @@ Feature: foundry follows the light the operator's environment asks for
   # S03 — foundry reads in canzan's voice  (US-CTS-03)
   # ==========================================================================
 
-  @needs-browser @real-io @slice3 @us-cts-03 @pending
+  @needs-browser @real-io @slice3 @us-cts-03
   Scenario: Headings, body text and keys each carry their intended typeface
     # RED-trigger: the typeface declarations exist but no blob is served, so nothing
     # actually loads. Asserting only that the declarations exist would be green over
@@ -249,7 +249,7 @@ Feature: foundry follows the light the operator's environment asks for
     And the card titles are set in the canzan body typeface
     And the issue key is set in the canzan mono typeface
 
-  @needs-browser @real-io @slice3 @us-cts-03 @kpi @pending
+  @needs-browser @real-io @slice3 @us-cts-03 @kpi
   Scenario: No request for a typeface ever leaves foundry's own origin
     # KPI 7 asserts zero cross-origin requests. RED-trigger: a typeface pulled from
     # an external host — which the vendoring policy forbids outright, and which an
@@ -259,7 +259,7 @@ Feature: foundry follows the light the operator's environment asks for
     Then every typeface the pages requested was served by foundry itself
     And no request made by either page left foundry's own origin
 
-  @needs-browser @real-io @slice3 @us-cts-03 @kpi @pending
+  @needs-browser @real-io @slice3 @us-cts-03 @kpi
   Scenario: Column and section labels are legible at label size
     # The eyebrow idiom is the reason the faint tier had to move. RED-trigger: the
     # faint tier reverts, and the lane headers fail at label size in both palettes.
@@ -268,7 +268,7 @@ Feature: foundry follows the light the operator's environment asks for
     Then each lane header reaches at least 4.5 to 1 against the surface behind it
     And the same holds when the device preference is light
 
-  @needs-browser @real-io @slice3 @us-cts-03 @error @pending
+  @needs-browser @real-io @slice3 @us-cts-03 @error
   Scenario: A typeface that has not arrived costs a typeface, never a word
     # RED-trigger: a typeface declared without a swap policy. The browser's default
     # is a blocking period during which the text is INVISIBLE — a blank board rather
@@ -278,7 +278,7 @@ Feature: foundry follows the light the operator's environment asks for
     Then every canzan typeface is declared to swap in rather than hold the text back
     And every string on the board occupies space from the first frame
 
-  @needs-browser @real-io @slice3 @us-cts-03 @error @pending
+  @needs-browser @real-io @slice3 @us-cts-03 @error
   Scenario: The board does not move when the typefaces arrive
     # Compares the board's geometry with the canzan faces applied against the same
     # board forced onto its fallback stack, so the comparison is deterministic

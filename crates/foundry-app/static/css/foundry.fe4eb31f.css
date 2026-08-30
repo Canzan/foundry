@@ -25,6 +25,51 @@
  * live browser and computes the ratio there, in both palettes.
  */
 
+/* ── The three canzan faces, self-hosted (ADR-CANZAN-THEME-001 / -002) ────────
+ * Derived blobs: each is instanced to the axes foundry uses and subset to
+ * latin, offline, by `tools/fonts/derive-fonts.sh`. NEVER a build step, NEVER a
+ * CDN — `static/VENDOR.md:4` prohibits an external font host outright, and an
+ * air-gapped operator would experience one as missing type.
+ *
+ * ABSOLUTE `/static/fonts/...` src URLs, deliberately. `cargo xtask check-arch`
+ * R1 scans this file for `/static/<path>` tokens and proves each resolves on
+ * disk; a relative `url(../fonts/…)` would be invisible to that matcher and
+ * would leave three blobs unguarded — the one way to make R1 vacuous over new
+ * assets. The `.<8hex>.` segment is the content hash R2 recomputes.
+ *
+ * `font-display: swap` on all three, and it is the whole of D-14: the browser's
+ * DEFAULT is a block period during which the text is INVISIBLE. A blank board
+ * is a worse failure than an unstyled one, so a face that has not arrived costs
+ * a typeface, never a word.
+ *
+ * `font-weight` is a RANGE because the blob is a narrowed variable font, and
+ * the range is the shipped one. A rule requesting a weight outside it is
+ * silently SYNTHESISED into a smeared faux-bold — display 600/700, body
+ * 400–700, mono 400/500 (ADR-001 § Weight discipline). */
+@font-face {
+  font-family: "Bricolage Grotesque";
+  src: url("/static/fonts/bricolage-grotesque.3bd3b180.woff2") format("woff2");
+  font-weight: 600 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Public Sans";
+  src: url("/static/fonts/public-sans.a2bd64e2.woff2") format("woff2");
+  font-weight: 400 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("/static/fonts/jetbrains-mono.4e194fb3.woff2") format("woff2");
+  font-weight: 400 500;
+  font-style: normal;
+  font-display: swap;
+}
+
 /* ── REGION 1 of 3 — the light palette, and the seam's only non-colour tokens ──
    canzan.net's contract (`docs/feature/canzan-theme-system/intake.md`), adopted
    verbatim EXCEPT `--cz-faint`: canzan's own faint tier measures 3.24:1 light
@@ -80,8 +125,23 @@
   --radius: 6px;
   --gap: 12px;
   --cz-gutter: clamp(20px, 5vw, 40px);
-  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica,
-    Arial, sans-serif;
+  /* The three type tokens. They REPLACE three ad-hoc stacks foundry had
+     accumulated — `--font`, `.dash`'s duplicate system stack, and the bare
+     `ui-monospace` at `.card__key` and the keyboard-help keycap — so a face is
+     named in one place and applied by role, not restated per surface.
+
+     Every stack keeps a SYSTEM FALLBACK behind the canzan face. That is not
+     politeness: the blobs are latin-only, so a Cyrillic workspace name or a CJK
+     issue title falls through to the system stack for those glyphs, and with
+     `font-display: swap` the fallback is also what paints the first frame.
+     `--cz-display` falls back to `--cz-body`'s face first, which is canzan.net's
+     own degradation and keeps the headings on a related grotesque. */
+  --cz-display: "Bricolage Grotesque", "Public Sans", system-ui, -apple-system,
+    BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --cz-body: "Public Sans", system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --cz-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas,
+    monospace;
 }
 
 /* ── REGION 2 of 3 — dark BY DEVICE (the default nobody has to ask for) ───────
@@ -166,9 +226,24 @@ body {
 }
 
 body {
-  font-family: var(--font);
+  font-family: var(--cz-body);
   font-size: 15px;
   line-height: 1.5;
+}
+
+/* Headings take the display face. `font-weight: 700` is stated rather than left
+   to the UA default because the display blob ships `wght` 600:700 and nothing
+   else — the default happens to be 700 today, and an unstated dependency on a
+   UA default is how a future reset silently lands on a synthesised weight.
+
+   The two LABEL headings — the lane header and the dashboard section header —
+   are not display type at all; they are the mono eyebrow, and they override
+   this rule from their own class selectors below. */
+h1,
+h2,
+h3 {
+  font-family: var(--cz-display);
+  font-weight: 700;
 }
 
 a {
@@ -258,19 +333,56 @@ textarea {
   border-radius: var(--radius);
 }
 
-/* `--cz-muted`, NOT `--cz-faint`, and the reason is a measurement: a lane sits
-   on `--cz-bg-2`, and the faint tier measures 4.29:1 there in the light palette
-   — below 4.5:1 at this 13px label size. Muted measures 5.52:1 light and 6.08:1
-   dark on the same surface. The faint tier survives (it is the recorded
-   4.57 / 4.83 pair) on surfaces that are `--cz-bg`, e.g. .comment-edited-marker.
-   S01's design note put the lane header on faint; the computed ratio overruled
-   it, which is what the acceptance suite's contrast oracle is for. */
-.column h2 {
+/* THE EYEBROW IDIOM — canzan.net's label voice: mono, small, widely tracked,
+   uppercase. It is what a lane header and a dashboard section header ARE, so
+   both take it (`.dash__section h2` below carries the identical block).
+
+   THE SELECTOR IS `h3`, AND THAT IS A CORRECTION, NOT A CHOICE. The board
+   renders `section.column > h3` (partials/board_columns.html), so the
+   `.column h2` rule this replaces matched NOTHING — a dead rule that 02-01
+   restyled in good faith and that no test could catch, because the real header
+   inherited `--cz-text` and cleared every contrast floor by accident. Styling
+   `h2` here would have been green over an element that does not exist. Removed
+   the same way 02-01 removed `.site-header`, rather than left as a second
+   corpse in a feature that made a point of clearing the first.
+
+   `--cz-muted`, NOT `--cz-faint`, and the reason is a measurement that has now
+   survived two slices: a lane sits on `--cz-bg-2`, where the faint tier
+   computes 4.29:1 in the light palette — below 4.5:1 at any label size. Muted
+   computes 5.52:1 light and 6.08:1 dark on the same surface. The faint tier is
+   correct where the surface is `--cz-bg` (its recorded 4.57 / 4.83 pair) and is
+   taken there by `.dash__section h2`. S01's design note put BOTH headers on
+   faint; the computed ratio overruled it for the lane only, which is exactly
+   what the acceptance suite's contrast oracle is for.
+
+   Mono at 500 — a shipped weight. 600 would be silently synthesised (ADR-001 §
+   Weight discipline), the mono blob carrying 400:500 and nothing else. */
+.column h3 {
   margin: 0 0 8px;
-  font-size: 13px;
+  font-family: var(--cz-mono);
+  font-weight: 500;
+  font-size: 0.6875rem;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.18em;
   color: var(--cz-muted);
+}
+
+/* An issue key is a machine token, so it is mono wherever it is shown — on a
+   card, and in the search results that render the same `.key` span. This is the
+   board's counterpart to `.card__key` on the dashboard; the two are the same
+   datum in two places and now read as the same thing.
+
+   No weight is stated: `dt` and this both inherit 400, a shipped mono weight. */
+.issue-card .key,
+.search-result .key {
+  font-family: var(--cz-mono);
+}
+
+/* `kbd` is the FOURTH ad-hoc mono stack this step retires, and the least
+   visible: it was never written down anywhere: it is the UA default, a bare
+   `monospace` with no fallback list of its own behind it. */
+kbd {
+  font-family: var(--cz-mono);
 }
 
 .issue-card {
@@ -351,14 +463,13 @@ textarea {
  * would not have touched one of them. All twenty-one move here, and with them
  * the last of the card-key indigo (#4f46e5/#eef2ff) that D-02 retires.
  *
- * The duplicate `font-family` stack below is deliberate leftover, NOT an
- * oversight: typography is 04-01's subject and this step touches only what
- * colour requires. */
+ * The duplicate `font-family` stack 02-01 left here on purpose is RETIRED at
+ * 04-01, as that note anticipated: the dashboard now inherits `--cz-body` from
+ * `body` like every other surface. One face, named once, applied by role. */
 .dash {
   max-width: 880px;
   margin: 0 auto;
   padding: 2.5rem 1.5rem;
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   color: var(--cz-text);
 }
 
@@ -384,10 +495,23 @@ textarea {
   margin-bottom: 2.5rem;
 }
 
+/* The eyebrow idiom's other home — identical typography to `.column h3`.
+
+   THE COLOUR STAYS `--cz-muted`, and the reason is worth recording because the
+   design note asked for `--cz-faint` on both headers and NEITHER can take it.
+   The lane header cannot on a MEASUREMENT (faint computes 4.29:1 on `--cz-bg-2`
+   — see `.column h3`). This one cannot on a SHIPPED TEST: 02-01's palette
+   scenario binds `.dash__section h2` to `--cz-muted` in both palettes, and that
+   scenario is green. Faint would measure fine here (4.57:1 light / 4.83:1 dark
+   on `--cz-bg`), so this is not a legibility failure — it is a live contract,
+   and typography does not get to quietly repaint a surface a colour slice
+   asserted. The faint tier keeps its live use at `.comment-edited-marker`. */
 .dash__section h2 {
-  font-size: 0.8rem;
+  font-family: var(--cz-mono);
+  font-weight: 500;
+  font-size: 0.6875rem;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.18em;
   color: var(--cz-muted);
   margin: 0 0 0.9rem;
 }
@@ -433,7 +557,12 @@ textarea {
    jade on `--cz-bg-2` measures 4.77:1 light and 9.29:1 dark, opaque and
    measurable, and it retires the last of the indigo. */
 .card__key {
-  font: 600 0.72rem/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* 500, not 600: the mono blob ships `wght` 400:500 and a browser SYNTHESISES
+     anything outside it into a smeared faux-bold that looks like a rendering
+     bug and has no test (ADR-001 § Weight discipline). 500 is also canzan.net's
+     own mono weight, so this is a correction toward the reference, not a
+     concession to the subset. */
+  font: 500 0.72rem/1 var(--cz-mono);
   color: var(--cz-jade);
   background-color: var(--cz-bg-2);
   padding: 0.35rem 0.5rem;
@@ -753,7 +882,7 @@ textarea {
    inversion `.card__key` uses. Its glyph inherits `--cz-text` from the card:
    16.53:1 light, 15.58:1 dark on `--cz-bg-2`. */
 #kb-overlay-root .keyboard-help dt {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--cz-mono);
   background: var(--cz-bg-2);
   border: 1px solid var(--cz-line);
   border-radius: 4px;

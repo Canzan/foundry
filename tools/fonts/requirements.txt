@@ -1,0 +1,13 @@
+# Maintenance-time font toolchain — NEVER a build or CI dependency.
+#
+# ADR-CANZAN-THEME-001 / ADR-CANZAN-THEME-002. woff2 output is
+# compressor-dependent, so `brotli` is pinned as tightly as `fonttools`: a
+# recipe without a pinned compressor is not a recipe. `fonttools` is pinned
+# because ADR-002's Tier-2 audit rests on a STATED DEPENDENCY — that
+# `--flavor=woff2` changes only compression and never font content. That holds
+# for 4.63.0; the pin is what stops it drifting underneath the model.
+#
+# Install into a venv, never system-wide:
+#   python3 -m venv venv && ./venv/bin/pip install -r tools/fonts/requirements.txt
+fonttools==4.63.0
+brotli==1.1.0

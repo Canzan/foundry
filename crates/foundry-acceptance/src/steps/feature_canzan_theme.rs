@@ -1104,69 +1104,309 @@ async fn then_no_element_on_any_of_those_screens_renders_in(world: &mut FoundryW
     );
 }
 
+/// LOADED, not merely DECLARED. `document.fonts` holds one `FontFace` per
+/// `@font-face` rule, and its `status` is the browser's own report of whether
+/// the blob was fetched and PARSED. A face whose `src` 404s, or whose bytes are
+/// not valid woff2, sits at `unloaded`/`error` forever — so this is the
+/// assertion that cannot be satisfied by a declaration alone, which is the
+/// green-over-nothing the scenario's RED-trigger names.
+///
+/// Faces load lazily, on first use, so this polls rather than sampling once.
 #[then(regex = r"^the canzan display, body and mono typefaces all report as loaded$")]
-async fn then_the_canzan_display_body_and_mono_typefaces_all_report(_world: &mut FoundryWorld) {
-    scaffold("the canzan display, body and mono typefaces all report as loaded");
+async fn then_the_canzan_display_body_and_mono_typefaces_all_report(world: &mut FoundryWorld) {
+    let browser = browser_of(world);
+    let deadline = Instant::now() + WAIT_TIMEOUT;
+    let mut observed;
+    loop {
+        observed = declared_faces(browser).await;
+        let all_loaded = CANZAN_FACES
+            .iter()
+            .all(|(family, _)| observed.get(*family).map(String::as_str) == Some("loaded"));
+        if all_loaded || Instant::now() >= deadline {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    for (family, role) in CANZAN_FACES {
+        match observed.get(family).map(String::as_str) {
+            Some("loaded") => {}
+            Some(status) => panic!(
+                "the canzan {role} face `{family}` is declared but reports status `{status}` — \
+                 the blob was not fetched or did not parse, so every surface bound to it is \
+                 silently rendering the fallback stack. Declared faces: {observed:?}"
+            ),
+            None => panic!(
+                "no `@font-face` for the canzan {role} face `{family}` reached the browser at \
+                 all. Declared faces: {observed:?}"
+            ),
+        }
+    }
 }
 
 #[then(regex = r"^the project heading is set in the canzan display typeface$")]
-async fn then_the_project_heading_is_set_in_the_canzan_display(_world: &mut FoundryWorld) {
-    scaffold("the project heading is set in the canzan display typeface");
+async fn then_the_project_heading_is_set_in_the_canzan_display(world: &mut FoundryWorld) {
+    assert_face_resolves(
+        browser_of(world),
+        "h1",
+        "Bricolage Grotesque",
+        "the project heading",
+    )
+    .await;
 }
 
 #[then(regex = r"^the card titles are set in the canzan body typeface$")]
-async fn then_the_card_titles_are_set_in_the_canzan_body(_world: &mut FoundryWorld) {
-    scaffold("the card titles are set in the canzan body typeface");
+async fn then_the_card_titles_are_set_in_the_canzan_body(world: &mut FoundryWorld) {
+    assert_face_resolves(
+        browser_of(world),
+        ".issue-card .title",
+        "Public Sans",
+        "the issue card titles",
+    )
+    .await;
 }
 
 #[then(regex = r"^the issue key is set in the canzan mono typeface$")]
-async fn then_the_issue_key_is_set_in_the_canzan_mono(_world: &mut FoundryWorld) {
-    scaffold("the issue key is set in the canzan mono typeface");
+async fn then_the_issue_key_is_set_in_the_canzan_mono(world: &mut FoundryWorld) {
+    assert_face_resolves(
+        browser_of(world),
+        ".issue-card .key",
+        "JetBrains Mono",
+        "the issue key",
+    )
+    .await;
 }
 
+/// Walk both pages, stashing each one's resource timings in `sessionStorage`
+/// before navigating away — the entries are per-document and would be lost
+/// otherwise, and `sessionStorage` survives a same-origin navigation.
 #[when(regex = r"^the operator opens the board and then the dashboard$")]
-async fn when_the_operator_opens_the_board_and_then_the_dashboard(_world: &mut FoundryWorld) {
-    scaffold("the operator opens the board and then the dashboard");
+async fn when_the_operator_opens_the_board_and_then_the_dashboard(world: &mut FoundryWorld) {
+    seed_sandbox_issue(world).await;
+    let browser = world
+        .browser
+        .take()
+        .expect("a browser session must have been opened first");
+    land_on_board(&browser, world).await;
+    settle_fonts(&browser).await;
+    stash_requests(&browser, "the board").await;
+    land_on_dashboard(&browser, world).await;
+    settle_fonts(&browser).await;
+    stash_requests(&browser, "the dashboard").await;
+    world.browser = Some(browser);
 }
 
+/// Every typeface the two pages FETCHED came from foundry. The oracle is the
+/// browser's own resource timing, not the stylesheet: a `@font-face` pointing at
+/// Google would be invisible to a source-level check the moment it moved into a
+/// media query or a second sheet, and an air-gapped operator experiences the
+/// fetch, not the declaration.
 #[then(regex = r"^every typeface the pages requested was served by foundry itself$")]
-async fn then_every_typeface_the_pages_requested_was_served_by_foundry(_world: &mut FoundryWorld) {
-    scaffold("every typeface the pages requested was served by foundry itself");
+async fn then_every_typeface_the_pages_requested_was_served_by_foundry(world: &mut FoundryWorld) {
+    let browser = browser_of(world);
+    let origin = page_origin(browser).await;
+    let requests = stashed_requests(browser).await;
+
+    let fonts: Vec<&(String, String)> = requests
+        .iter()
+        .filter(|(url, _)| url.contains(".woff2") || url.contains(".woff") || url.contains(".ttf"))
+        .collect();
+    assert!(
+        fonts.len() >= CANZAN_FACES.len(),
+        "the two pages fetched only {} typeface(s) ({fonts:?}) — fewer than the {} canzan faces \
+         they are built from, so this assertion would be passing over pages that requested no \
+         type at all",
+        fonts.len(),
+        CANZAN_FACES.len()
+    );
+    for (url, surface) in fonts {
+        assert!(
+            url.starts_with(&origin),
+            "{surface} fetched the typeface `{url}` from outside foundry's own origin \
+             ({origin}). `VENDOR.md:4` prohibits a runtime CDN outright rather than \
+             discouraging it, and an air-gapped operator sees this as missing type."
+        );
+    }
 }
 
+/// The stronger half: NOTHING either page fetched left the origin — not a font,
+/// not a stylesheet, not a script, not an icon.
 #[then(regex = r"^no request made by either page left foundry's own origin$")]
-async fn then_no_request_made_by_either_page_left_foundry_s(_world: &mut FoundryWorld) {
-    scaffold("no request made by either page left foundry's own origin");
+async fn then_no_request_made_by_either_page_left_foundry_s(world: &mut FoundryWorld) {
+    let browser = browser_of(world);
+    let origin = page_origin(browser).await;
+    let requests = stashed_requests(browser).await;
+    assert!(
+        requests.len() >= 5,
+        "only {} subresource request(s) were observed across both pages — the probe is not \
+         seeing the network and a 'nothing left the origin' claim built on it would be vacuous",
+        requests.len()
+    );
+    let strayed: Vec<String> = requests
+        .iter()
+        .filter(|(url, _)| !url.starts_with(&origin))
+        .map(|(url, surface)| format!("{surface} -> {url}"))
+        .collect();
+    assert!(
+        strayed.is_empty(),
+        "{} request(s) left foundry's own origin ({origin}):\n  - {}",
+        strayed.len(),
+        strayed.join("\n  - ")
+    );
 }
 
+/// The eyebrow is the reason the faint tier had to be argued about, so its
+/// legibility is COMPUTED here from the live browser — foreground resolved on
+/// the real lane header, background resolved by walking to the first opaque
+/// ancestor — never restated from the ratios in the stylesheet's comments.
+///
+/// The selector is `h3` AND `h2`: the board renders `section.column > h3`, and
+/// asserting only `h2` would measure an element that is not on the page.
 #[then(regex = r"^each lane header reaches at least 4\.5 to 1 against the surface behind it$")]
-async fn then_each_lane_header_reaches_at_least_4_5_to(_world: &mut FoundryWorld) {
-    scaffold("each lane header reaches at least 4.5 to 1 against the surface behind it");
+async fn then_each_lane_header_reaches_at_least_4_5_to(world: &mut FoundryWorld) {
+    assert_lane_headers_legible(browser_of(world), "dark").await;
 }
 
+/// D-14, and the assertion is on the DECLARATION because the failure it guards
+/// is a declaration: the browser's default `font-display` is a block period
+/// during which the text is INVISIBLE. A blank board is a worse failure than an
+/// unstyled one.
 #[then(regex = r"^every canzan typeface is declared to swap in rather than hold the text back$")]
-async fn then_every_canzan_typeface_is_declared_to_swap_in_rather(_world: &mut FoundryWorld) {
-    scaffold("every canzan typeface is declared to swap in rather than hold the text back");
+async fn then_every_canzan_typeface_is_declared_to_swap_in_rather(world: &mut FoundryWorld) {
+    let declared = font_face_display_policies(browser_of(world)).await;
+    assert_eq!(
+        declared.len(),
+        CANZAN_FACES.len(),
+        "the CSSOM carries {} `@font-face` rule(s), not the {} canzan faces — the swap assertion \
+         would be measuring the wrong set. Found: {declared:?}",
+        declared.len(),
+        CANZAN_FACES.len()
+    );
+    for (family, policy) in &declared {
+        assert_eq!(
+            policy, "swap",
+            "`{family}` is declared with `font-display: {policy}` — anything but `swap` gives the \
+             browser a block period in which this face's text is INVISIBLE, so a face that has \
+             not arrived costs a WORD rather than a typeface (D-14)"
+        );
+    }
 }
 
+/// The other half of D-14, and it is about the FALLBACK: text occupies space
+/// from the first frame only if the stack it swaps out of is a real one. So
+/// every canzan face must sit in front of a fallback, and every string the board
+/// paints must have a non-empty box.
 #[then(regex = r"^every string on the board occupies space from the first frame$")]
-async fn then_every_string_on_the_board_occupies_space_from_the(_world: &mut FoundryWorld) {
-    scaffold("every string on the board occupies space from the first frame");
+async fn then_every_string_on_the_board_occupies_space_from_the(world: &mut FoundryWorld) {
+    let browser = browser_of(world);
+    let observed = browser
+        .execute(FIRST_FRAME_PROBE, Vec::new())
+        .await
+        .expect("measure every string on the board against its fallback stack");
+    let rows = observed.as_array().expect("the probe returns an array");
+    assert!(
+        rows.len() >= 8,
+        "only {} string(s) were measured on the board — the probe is not seeing the page",
+        rows.len()
+    );
+    for row in rows {
+        let where_ = row["where"].as_str().unwrap_or_default();
+        let text = row["text"].as_str().unwrap_or_default();
+        let families = row["families"].as_u64().unwrap_or(0);
+        let width = row["width"].as_f64().unwrap_or(0.0);
+        let height = row["height"].as_f64().unwrap_or(0.0);
+        assert!(
+            families >= 2,
+            "`{where_}` ({text:?}) names {families} font family and no fallback behind it — while \
+             the canzan face is in flight there is nothing to paint this string with, so it holds \
+             no space until the blob lands"
+        );
+        assert!(
+            width > 0.0 && height > 0.0,
+            "`{where_}` ({text:?}) occupies {width}x{height} — the string is not taking up space"
+        );
+    }
 }
 
+/// This scenario states no device preference — it is about METRICS, not
+/// palette — so it opens its own session rather than assuming an earlier Given
+/// left one.
 #[given(regex = r#"^the operator opens the "Sandbox" board in the canzan typefaces$"#)]
-async fn given_the_operator_opens_the_sandbox_board_in_the_canzan(_world: &mut FoundryWorld) {
-    scaffold("the operator opens the \"Sandbox\" board in the canzan typefaces");
+async fn given_the_operator_opens_the_sandbox_board_in_the_canzan(world: &mut FoundryWorld) {
+    if world.browser.is_none() {
+        world.browser = Some(browser_harness::new_session().await);
+    }
+    open_the_board(world).await;
+    let browser = browser_of(world);
+    settle_fonts(browser).await;
+    let canzan = board_geometry(browser).await;
+    stash(browser, GEOMETRY_KEY, &canzan).await;
 }
 
+/// FORCE the fallback rather than race the real faces: overriding the three
+/// tokens with their own fallback tails is deterministic, where waiting to
+/// sample "before the fonts arrive" is a race that would flake on a loopback.
 #[when(regex = r"^the same board is rendered in the fallback typefaces instead$")]
-async fn when_the_same_board_is_rendered_in_the_fallback_typefaces(_world: &mut FoundryWorld) {
-    scaffold("the same board is rendered in the fallback typefaces instead");
+async fn when_the_same_board_is_rendered_in_the_fallback_typefaces(world: &mut FoundryWorld) {
+    let browser = browser_of(world);
+    let applied = browser
+        .execute(FORCE_FALLBACK_SCRIPT, Vec::new())
+        .await
+        .expect("force the board onto its fallback stacks");
+    assert_eq!(
+        applied.as_bool(),
+        Some(true),
+        "the fallback override did not take effect, so the comparison would be canzan against \
+         canzan and could not fail"
+    );
 }
 
 #[then(regex = r"^the lane columns and the issue cards occupy the same positions in both$")]
-async fn then_the_lane_columns_and_the_issue_cards_occupy_the(_world: &mut FoundryWorld) {
-    scaffold("the lane columns and the issue cards occupy the same positions in both");
+async fn then_the_lane_columns_and_the_issue_cards_occupy_the(world: &mut FoundryWorld) {
+    let browser = browser_of(world);
+    let fallback = board_geometry(browser).await;
+    let canzan = unstash(browser, GEOMETRY_KEY).await;
+
+    let canzan = canzan.as_array().expect("the stashed geometry is an array");
+    let fallback = fallback
+        .as_array()
+        .expect("the measured geometry is an array");
+    assert!(
+        canzan.len() >= 2,
+        "only {} lane/card box(es) were measured — the comparison would be vacuous",
+        canzan.len()
+    );
+    assert_eq!(
+        canzan.len(),
+        fallback.len(),
+        "the board renders {} boxes in the canzan faces and {} in the fallback — a surface \
+         appeared or vanished with the typeface, which is a bigger move than any shift",
+        canzan.len(),
+        fallback.len()
+    );
+
+    let mut shifted = Vec::new();
+    for (before, after) in canzan.iter().zip(fallback.iter()) {
+        let where_ = before["where"].as_str().unwrap_or_default();
+        for axis in ["x", "y", "width"] {
+            let one = before[axis].as_f64().unwrap_or_default();
+            let other = after[axis].as_f64().unwrap_or_default();
+            if (one - other).abs() > POSITION_TOLERANCE_PX {
+                shifted.push(format!(
+                    "`{where_}` {axis}: {one:.2} in the canzan faces, {other:.2} in the fallback \
+                     ({:.2}px)",
+                    (one - other).abs()
+                ));
+            }
+        }
+    }
+    assert!(
+        shifted.is_empty(),
+        "{} lane/card position(s) move when the typefaces arrive, past the {POSITION_TOLERANCE_PX}px \
+         tolerance — the fallback stack's metrics are far enough off that the board reflows under \
+         the operator:\n  - {}",
+        shifted.len(),
+        shifted.join("\n  - ")
+    );
 }
 
 #[given(regex = r"^the operator has never used the theme control$")]
@@ -2287,3 +2527,420 @@ async fn assert_every_marker_present(client: &fantoccini::Client, selector: &str
         );
     }
 }
+
+// ============================================================================
+// THE TYPE ORACLE — faces that LOADED, and metrics that actually changed
+// ============================================================================
+//
+// The trap this section is built to avoid is named in the feature file: a test
+// asserting that an `@font-face` rule EXISTS is green over nothing, because a
+// declaration whose blob 404s renders exactly like no declaration at all. So
+// nothing below reads the stylesheet's text for its verdict. It asks the
+// browser three questions with three different failure modes:
+//
+//   * did the face LOAD?          `document.fonts` status — catches a bad path,
+//                                 a corrupt blob, a wrong `format()`.
+//   * did the element ASK for it? the computed `font-family`'s first entry.
+//   * did it actually RENDER in    the advance width of the element's own text
+//     it?                          measured in the resolved face versus the
+//                                  fallback tail. This is the falsifiable one:
+//                                  delete the three `@font-face` rules and the
+//                                  two widths collapse to equal.
+
+/// The three faces and the role each plays, in the order a reader meets them.
+const CANZAN_FACES: [(&str, &str); 3] = [
+    ("Bricolage Grotesque", "display"),
+    ("Public Sans", "body"),
+    ("JetBrains Mono", "mono"),
+];
+
+/// Where the cross-page observations are stashed. `sessionStorage` survives a
+/// same-origin navigation, which is what lets a Then-step assert over resources
+/// fetched by a page the browser has already left.
+const REQUESTS_KEY: &str = "foundry.acceptance.requests";
+const GEOMETRY_KEY: &str = "foundry.acceptance.geometry";
+
+/// Sub-pixel layout differences are normal; a REFLOW is not. One CSS pixel is
+/// tight enough to catch a column or card actually moving and loose enough not
+/// to fail on a rounding difference in a flex track.
+const POSITION_TOLERANCE_PX: f64 = 1.0;
+
+/// Every `@font-face` the browser parsed, as `family -> status`.
+async fn declared_faces(client: &fantoccini::Client) -> BTreeMap<String, String> {
+    let observed = client
+        .execute(
+            "var out = [];
+             document.fonts.forEach(function (face) { out.push([face.family, face.status]); });
+             return out;",
+            Vec::new(),
+        )
+        .await
+        .expect("read the document's font faces");
+    observed
+        .as_array()
+        .expect("the probe returns an array")
+        .iter()
+        .filter_map(|row| {
+            let row = row.as_array()?;
+            Some((row[0].as_str()?.to_string(), row[1].as_str()?.to_string()))
+        })
+        .collect()
+}
+
+/// Wait for every declared face to settle, so a measurement is not taken mid-swap.
+async fn settle_fonts(client: &fantoccini::Client) {
+    let deadline = Instant::now() + WAIT_TIMEOUT;
+    loop {
+        let faces = declared_faces(client).await;
+        let settled = !faces.is_empty() && faces.values().all(|status| status == "loaded");
+        if settled || Instant::now() >= deadline {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+/// `selector` renders in `family` — asked three ways, because each alone has a
+/// way of being true while the operator still sees the fallback.
+async fn assert_face_resolves(
+    client: &fantoccini::Client,
+    selector: &str,
+    family: &str,
+    what: &str,
+) {
+    let probe = client
+        .execute(
+            FACE_RESOLUTION_PROBE,
+            vec![
+                serde_json::Value::String(selector.to_string()),
+                serde_json::Value::String(family.to_string()),
+            ],
+        )
+        .await
+        .unwrap_or_else(|err| panic!("measure the face rendering {what}: {err}"));
+
+    assert_eq!(
+        probe["found"].as_bool(),
+        Some(true),
+        "no element matched `{selector}`, so the claim that {what} is set in `{family}` would be \
+         vacuous — the render contract has to be on the page for this to mean anything"
+    );
+    let requested = probe["requested"].as_str().unwrap_or_default();
+    assert_eq!(
+        requested, family,
+        "{what} (`{selector}`) asks for `{requested}` first — the rule was never re-pointed at \
+         the canzan {family} face"
+    );
+    assert_eq!(
+        probe["loaded"].as_bool(),
+        Some(true),
+        "{what} asks for `{family}`, but that face is not loaded in this document — the element \
+         is painting the fallback stack while the rule claims otherwise"
+    );
+    let with_face = probe["withFace"].as_f64().unwrap_or_default();
+    let without_face = probe["withoutFace"].as_f64().unwrap_or_default();
+    assert!(
+        with_face > 0.0 && without_face > 0.0,
+        "{what}'s text could not be measured ({with_face} / {without_face}) — the width oracle \
+         saw nothing, so it could not have discriminated"
+    );
+    assert!(
+        (with_face - without_face).abs() > 0.5,
+        "{what}'s own text measures {with_face:.2}px in `{family}` and {without_face:.2}px in a \
+         family that does not exist — identical advance widths mean `{family}` ALSO resolved to \
+         the browser default, i.e. the blob never arrived and the element is not rendering the \
+         canzan face whatever the declaration says. This is the assertion that goes red if the \
+         three `@font-face` rules are deleted."
+    );
+}
+
+/// Resolve `selector`'s first requested family, whether that face is loaded, and
+/// the advance width of the element's OWN text in the face versus in the
+/// fallback tail. Canvas `measureText` performs the same font matching the
+/// layout engine does, so an unavailable face silently yields the fallback
+/// width — which is exactly the collapse this compares against.
+const FACE_RESOLUTION_PROBE: &str = r#"
+var el = document.querySelector(arguments[0]);
+if (!el) { return { found: false }; }
+var family = arguments[1];
+var cs = window.getComputedStyle(el);
+var stack = cs.fontFamily.split(',').map(function (name) {
+  return name.trim().replace(/^["']|["']$/g, '');
+});
+var text = (el.textContent || '').trim().slice(0, 60) || 'Hamburgefonstiv';
+var canvas = document.createElement('canvas');
+var ctx = canvas.getContext('2d');
+var size = cs.fontWeight + ' ' + cs.fontSize + ' ';
+// The named face ALONE, against a family that cannot exist. A missing face
+// falls back to the browser default -- which is exactly what the sentinel
+// resolves to -- so the two widths COLLAPSE TO EQUAL when the blob is absent.
+// Comparing against the stack's own fallback tail instead would be a weaker
+// question and, for mono, a meaningless one: two monospace faces agree on
+// advance width BY CONSTRUCTION (measured: 45.00 vs 45.15px for an issue key).
+ctx.font = size + '"' + family + '"';
+var withFace = ctx.measureText(text).width;
+ctx.font = size + '"__foundry_no_such_face__"';
+var withoutFace = ctx.measureText(text).width;
+return {
+  found: true,
+  requested: stack[0],
+  loaded: document.fonts.check(size + '"' + family + '"'),
+  withFace: withFace,
+  withoutFace: withoutFace
+};
+"#;
+
+/// Every `@font-face` rule in the CSSOM as `family -> font-display`.
+async fn font_face_display_policies(client: &fantoccini::Client) -> Vec<(String, String)> {
+    let observed = client
+        .execute(
+            "var out = [];
+             for (var i = 0; i < document.styleSheets.length; i++) {
+               var rules;
+               try { rules = document.styleSheets[i].cssRules; } catch (err) { continue; }
+               if (!rules) { continue; }
+               for (var r = 0; r < rules.length; r++) {
+                 var rule = rules[r];
+                 if (rule.type === CSSRule.FONT_FACE_RULE) {
+                   out.push([
+                     rule.style.getPropertyValue('font-family').replace(/^[\"']|[\"']$/g, ''),
+                     rule.style.getPropertyValue('font-display') || 'auto'
+                   ]);
+                 }
+               }
+             }
+             return out;",
+            Vec::new(),
+        )
+        .await
+        .expect("read every @font-face rule out of the CSSOM");
+    observed
+        .as_array()
+        .expect("the probe returns an array")
+        .iter()
+        .filter_map(|row| {
+            let row = row.as_array()?;
+            Some((
+                row[0].as_str()?.trim().to_string(),
+                row[1].as_str()?.trim().to_string(),
+            ))
+        })
+        .collect()
+}
+
+/// Every string the board paints, with how many families back it and the box it
+/// occupies.
+const FIRST_FRAME_PROBE: &str = r#"
+var out = [];
+var shell = document.querySelector('.app-shell');
+if (!shell) { return out; }
+var nodes = shell.querySelectorAll('*');
+for (var i = 0; i < nodes.length; i++) {
+  var el = nodes[i];
+  var rects = el.getClientRects();
+  if (!rects.length) { continue; }
+  var owns = false;
+  for (var c = 0; c < el.childNodes.length; c++) {
+    var child = el.childNodes[c];
+    if (child.nodeType === 3 && child.textContent.trim().length) { owns = true; }
+  }
+  if (!owns) { continue; }
+  var cs = window.getComputedStyle(el);
+  out.push({
+    where: el.tagName.toLowerCase() + (el.className && typeof el.className === 'string' ? '.' + el.className.trim().split(/\s+/).join('.') : ''),
+    text: el.textContent.trim().slice(0, 40),
+    families: cs.fontFamily.split(',').length,
+    width: rects[0].width,
+    height: rects[0].height
+  });
+}
+return out;
+"#;
+
+/// Re-point the three type tokens at their own fallback tails. Returns `false`
+/// if a token was not found, so a silently-ineffective override fails the step
+/// instead of producing a comparison that cannot fail.
+const FORCE_FALLBACK_SCRIPT: &str = r#"
+var root = document.documentElement;
+var applied = 0;
+['--cz-display', '--cz-body', '--cz-mono'].forEach(function (token) {
+  var stack = window.getComputedStyle(root).getPropertyValue(token).trim();
+  if (!stack) { return; }
+  var tail = stack.split(',').filter(function (name) {
+    var bare = name.trim().replace(/^["']|["']$/g, '');
+    return bare !== 'Bricolage Grotesque' && bare !== 'Public Sans' && bare !== 'JetBrains Mono';
+  }).join(', ');
+  if (!tail) { return; }
+  root.style.setProperty(token, tail);
+  applied += 1;
+});
+document.documentElement.getBoundingClientRect();
+return applied === 3;
+"#;
+
+/// The board's lane and card boxes, in document order.
+async fn board_geometry(client: &fantoccini::Client) -> serde_json::Value {
+    client
+        .execute(
+            "var out = [];
+             ['.column', '.issue-card'].forEach(function (selector) {
+               var nodes = document.querySelectorAll(selector);
+               for (var i = 0; i < nodes.length; i++) {
+                 var box = nodes[i].getBoundingClientRect();
+                 out.push({
+                   where: selector + ' #' + i,
+                   x: box.x, y: box.y, width: box.width, height: box.height
+                 });
+               }
+             });
+             return out;",
+            Vec::new(),
+        )
+        .await
+        .expect("measure the board's lane and card boxes")
+}
+
+/// The origin the page was served from, as the browser reports it.
+async fn page_origin(client: &fantoccini::Client) -> String {
+    let origin = client
+        .execute("return window.location.origin;", Vec::new())
+        .await
+        .expect("read the page's own origin");
+    let origin = origin.as_str().unwrap_or_default().to_string();
+    assert!(
+        origin.starts_with("http"),
+        "the page reports its origin as {origin:?} — a cross-origin assertion against that would \
+         be meaningless"
+    );
+    origin
+}
+
+/// Append this document's subresource requests to the cross-page stash.
+async fn stash_requests(client: &fantoccini::Client, surface: &str) {
+    client
+        .execute(
+            "var key = arguments[0];
+             var surface = arguments[1];
+             var seen = [];
+             try { seen = JSON.parse(window.sessionStorage.getItem(key) || '[]'); } catch (e) {}
+             performance.getEntriesByType('resource').forEach(function (entry) {
+               seen.push([entry.name, surface]);
+             });
+             window.sessionStorage.setItem(key, JSON.stringify(seen));
+             return seen.length;",
+            vec![
+                serde_json::Value::String(REQUESTS_KEY.to_string()),
+                serde_json::Value::String(surface.to_string()),
+            ],
+        )
+        .await
+        .unwrap_or_else(|err| panic!("stash {surface}'s resource timings: {err}"));
+}
+
+/// Every `(url, surface)` observed across the walk.
+async fn stashed_requests(client: &fantoccini::Client) -> Vec<(String, String)> {
+    let raw = unstash(client, REQUESTS_KEY).await;
+    raw.as_array()
+        .expect("the stash holds an array")
+        .iter()
+        .filter_map(|row| {
+            let row = row.as_array()?;
+            Some((row[0].as_str()?.to_string(), row[1].as_str()?.to_string()))
+        })
+        .collect()
+}
+
+async fn stash(client: &fantoccini::Client, key: &str, value: &serde_json::Value) {
+    client
+        .execute(
+            "window.sessionStorage.setItem(arguments[0], JSON.stringify(arguments[1]));
+             return true;",
+            vec![serde_json::Value::String(key.to_string()), value.clone()],
+        )
+        .await
+        .unwrap_or_else(|err| panic!("stash {key}: {err}"));
+}
+
+async fn unstash(client: &fantoccini::Client, key: &str) -> serde_json::Value {
+    let raw = client
+        .execute(
+            "return JSON.parse(window.sessionStorage.getItem(arguments[0]) || 'null');",
+            vec![serde_json::Value::String(key.to_string())],
+        )
+        .await
+        .unwrap_or_else(|err| panic!("read the {key} stash: {err}"));
+    assert!(
+        !raw.is_null(),
+        "nothing was stashed under `{key}` — the earlier step in this scenario did not run, so \
+         the comparison would be against nothing"
+    );
+    raw
+}
+
+/// COMPUTE each lane header's ratio against the first opaque surface behind it.
+/// Both `h2` and `h3` are collected: the board renders `section.column > h3`,
+/// and a probe that looked only for `h2` would measure an element that is not
+/// there and pass by having measured nothing.
+async fn assert_lane_headers_legible(client: &fantoccini::Client, palette_name: &str) {
+    let headers = client
+        .execute(LANE_HEADER_PROBE, Vec::new())
+        .await
+        .expect("measure every lane header against the surface behind it");
+    let headers = headers.as_array().expect("the probe returns an array");
+    assert!(
+        !headers.is_empty(),
+        "no lane header was found on the {palette_name} board — `.column` renders its label as \
+         `h3`, so a claim about lane-header legibility here would be vacuous"
+    );
+    for header in headers {
+        let where_ = header["where"].as_str().unwrap_or_default();
+        let text = header["text"].as_str().unwrap_or_default();
+        let size = header["fontSize"].as_f64().unwrap_or_default();
+        let Some((foreground, _)) = parse_colour(header["foreground"].as_str().unwrap_or_default())
+        else {
+            continue;
+        };
+        let Some((background, _)) = parse_colour(header["background"].as_str().unwrap_or_default())
+        else {
+            continue;
+        };
+        let ratio = contrast_ratio(foreground, background);
+        assert!(
+            ratio >= 4.5,
+            "{palette_name} palette: the lane header `{where_}` ({text:?}, {size}px) computes \
+             {ratio:.2}:1 — {} on {} — below the 4.5:1 an eyebrow at label size owes (WCAG \
+             1.4.3). Computed in the live browser from the resolved foreground and the first \
+             opaque ancestor, NOT restated from the stylesheet's token comments.",
+            hex(foreground),
+            hex(background)
+        );
+    }
+}
+
+/// Every lane header with its resolved foreground and effective background.
+const LANE_HEADER_PROBE: &str = r#"
+function opaqueBackgroundOf(node) {
+  while (node) {
+    var value = window.getComputedStyle(node).backgroundColor;
+    var parts = value.match(/[\d.]+/g);
+    if (parts && (parts.length < 4 || parseFloat(parts[3]) === 1)) { return value; }
+    node = node.parentElement;
+  }
+  return window.getComputedStyle(document.documentElement).backgroundColor;
+}
+var out = [];
+var nodes = document.querySelectorAll('.column h2, .column h3');
+for (var i = 0; i < nodes.length; i++) {
+  var el = nodes[i];
+  if (!el.getClientRects().length) { continue; }
+  var cs = window.getComputedStyle(el);
+  out.push({
+    where: '.column ' + el.tagName.toLowerCase(),
+    text: el.textContent.trim().slice(0, 40),
+    foreground: cs.color,
+    background: opaqueBackgroundOf(el),
+    fontSize: parseFloat(cs.fontSize)
+  });
+}
+return out;
+"#;
