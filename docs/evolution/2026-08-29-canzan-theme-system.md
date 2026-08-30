@@ -240,7 +240,20 @@ to do.
   overlay layer canzan.net has no equivalent of; it is `--cz-`-prefixed, named for its role,
   bound in all three regions, and is inherited by canzan-lift's eventual migration.
   (The 12th-token falsifier the roadmap predicted was `.sidebar__item--active`; the actual
-  one was the scrim.)
+  one was the scrim.) Symmetrically, one reference token is **not adopted**: `--cz-glass`,
+  canzan.net's translucent header backdrop, has no use-site in foundry and D-05 forbids a
+  translucent token sole-carrying text, so binding it would have shipped a dead token.
+  Both palettes' hue sets therefore hold 12 tokens, 11 of them shared.
+
+  *Amended 2026-08-30 (post-finalize).* `feature-delta.md` still carried the
+  contradicted DISCUSS wording and the 11-token undercount; it now states the same
+  figures as this record, plus the counting rule that makes 11 and 12 unambiguous
+  (`--cz-shadow` is a colour token by check-arch S2's rule and is byte-identical to the
+  reference, but is not a hue and so sits outside both counts) and a reproducible
+  `diff` whose entire delta is three tokens — `--cz-faint`, `--cz-glass`, `--cz-scrim` —
+  eight lines, each token in both palettes.
+  The `--cz-glass` non-adoption above was added in the same pass — it had been recorded
+  nowhere.
 - **KPI 7 — Guardrail** (≤150 KB added static payload; 0 cross-origin requests):
   **76,416 B measured** across all three blobs — `bricolage-grotesque.3bd3b180.woff2`
   29,788 B + `public-sans.a2bd64e2.woff2` 20,672 B + `jetbrains-mono.4e194fb3.woff2`

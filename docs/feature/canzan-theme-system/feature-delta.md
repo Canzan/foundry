@@ -702,8 +702,60 @@ nothing she already knows how to do moves.
 | 3 | Every text/background and control-boundary pair in foundry | Meet NFR-WEBB-A11Y-02 in **both** palettes | 100 % of body pairs ≥4.5:1; large text and control boundaries ≥3:1 | Light: presumed-pass, never re-measured against a new palette. Dark: **0 %** — no dark palette | Ratios computed and recorded inline beside each token; re-verified per slice; `--cz-faint` rebound to a passing value per D-04, with the three-tier separation preserved | Guardrail |
 | 4 | The acceptance suite | Pass with no existing step or feature file edited | 0 existing files changed under `crates/foundry-acceptance/` | n/a | `git diff --stat crates/foundry-acceptance/` shows additions only | Guardrail |
 | 5 | Operators on a light-set device | Get a dark foundry without changing the operating system | Reachable in ≤2 activations of one visible control, from any app-shell screen | **0** — impossible; the only route is an OS-wide change | US-CTS-04 S1 + Priya's report | Leading |
-| 6 | Anyone shown foundry beside canzan.net | Read them as one product | 11 of 11 colour tokens identical in value to the pinned reference; 3 of 3 type families present; 1 accent hue, not 3 | 0 of 11 tokens; 0 of 3 families; **3** competing accents | Diff the `:root` block against `canzan-net-reference.css`; grep `@font-face`; grep for non-token colour literals | Leading |
+| 6 | Anyone shown foundry beside canzan.net | Read them as one product | 11 of 11 shared colour tokens adopted **by name**; 10 of 11 **identical in value** in both palettes, with the single divergence measured, reasoned and referenced; ≤1 documented extension and ≤1 documented non-adoption, each with its reason; 3 of 3 type families present; 1 accent hue, not 3 | 0 of 11 tokens; 0 of 3 families; **3** competing accents; 0 divergences documented | The token diff below — a **three-token** delta (8 lines, each token in both palettes), every one accounted for; grep `@font-face`; grep for non-token colour literals (check-arch S1 enforces the last one continuously) | Leading |
 | 7 | Cold first paint of the board | Not get slower because of the restyle | Added static payload ≤150 KB across all new blobs; **0** cross-origin requests | 0 KB of fonts, 0 cross-origin (nothing to regress — which is why this is a guardrail, not a target) | Sum the referenced blobs from a cold board load; assert no request leaves the origin (US-CTS-03 S2) | Guardrail |
+
+**KPI 6 — counting rule and measurement.** Amended 2026-08-30, post-finalize. As
+written at DISCUSS this KPI said *"11 of 11 colour tokens identical in value to
+the pinned reference"*, and it was wrong on both halves from birth. **D-04 —
+decided in the same DISCUSS wave — rebinds `--cz-faint`**, so "identical in
+value" contradicted a locked decision of its own wave and was never achievable.
+And the shipped set is **12** tokens, not 11: `--cz-scrim` is a foundry
+extension that no artefact recorded. Restated here to measure what shipped and
+what the KPI actually meant to guarantee — *name adoption, with every divergence
+measured, reasoned and referenced.*
+
+A **colour token** is a `--cz-` custom property bound in a token region whose
+value is a colour. `--cz-shadow` is included by that rule (its value carries
+`rgba(…)`), which is also how check-arch S2 counts, and it is byte-identical to
+the reference in both palettes; the `11` / `12` figures below are the **hue**
+tokens, i.e. that set minus `--cz-shadow`. Stating the rule is half the fix: the
+original had none, which is why "11" and "12" could both look right.
+
+By that rule the pinned reference declares **12** hue tokens and foundry
+declares **12**; **11** are shared. Measured:
+
+```sh
+cz() { grep -oE -- '--cz-[a-z0-9-]+ *: *[^;}]+' "$1" | tr -d ' ' \
+         | grep -Ei '#[0-9a-f]{3,8}|rgba?\(' | sort -u; }
+diff <(cz docs/feature/canzan-theme-system/canzan-net-reference.css) \
+     <(cz crates/foundry-app/static/css/foundry.*.css)
+```
+
+The delta is **three tokens**, and every one is accounted for:
+
+- **Adopted by name: 11 of 11 shared** — `--cz-bg`, `--cz-bg-2`, `--cz-surface`,
+  `--cz-line`, `--cz-line-strong`, `--cz-text`, `--cz-muted`, `--cz-faint`,
+  `--cz-jade`, `--cz-jade-soft`, `--cz-jade-line`.
+- **Identical in value: 10 of 11**, in *both* palettes — every shared token but
+  one comes through byte-for-byte, light and dark.
+- **1 measured divergence — `--cz-faint`, per D-04.** canzan's `#878e89` /
+  `#626a66` measure **3.24:1 / 3.52:1**, which fails NFR-WEBB-A11Y-02 at body
+  size. foundry rebinds to `#6e756f` / `#78807b`, measured **4.57:1 / 4.83:1**
+  in a live browser (KPI 3). The *value* moves and the *structure* does not, so
+  canzan-lift's eventual migration inherits an unchanged shape.
+- **1 extension — `--cz-scrim`** (`rgba(18,22,20,0.45)` / `rgba(0,0,0,0.62)`),
+  for the dialog and overlay layer canzan.net has no equivalent of, being a
+  marketing site with no such surface. It obeys every rule set for an extension:
+  `--cz-`-prefixed, named for its role rather than its use-site, bound in all
+  three token regions, and enforced there by check-arch S2. The roadmap
+  predicted S01's falsifier would be `.sidebar__item--active`; that prediction
+  was wrong and `--cz-scrim` was the actual case.
+- **1 non-adoption — `--cz-glass`** (`rgba(251,251,249,0.72)` /
+  `rgba(10,12,11,0.72)`), canzan.net's translucent header backdrop. foundry has
+  no translucent chrome to bind it to, and D-05 forbids a translucent token
+  sole-carrying text, so adopting it would have shipped a token with no
+  use-site. The mirror image of the scrim, and recorded for the same reason.
 
 **Metric hierarchy** — North Star: KPI 1. Leading: 5, 6. Guardrails: 2, 3, 4, 7.
 
