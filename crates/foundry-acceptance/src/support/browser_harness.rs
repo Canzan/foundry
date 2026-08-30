@@ -13,7 +13,9 @@
 //!
 //! LIFECYCLE (ADR-007 §4)
 //! - ONE chromedriver **process** per lane (per test binary), started lazily and
-//!   reaped when the process exits.
+//!   reaped EXPLICITLY by [`shutdown_chromedriver`], which `tests/acceptance.rs`
+//!   calls after the cucumber run returns. Nothing reaps it implicitly — see
+//!   [`CHROMEDRIVER_PROC`] for why, and for what this still does not cover.
 //! - ONE **session** per scenario, `--headless=new`, FIXED window size so a later
 //!   `scrollIntoView` assertion (AC-05.3) is deterministic rather than dependent
 //!   on the runner's screen.
@@ -36,7 +38,7 @@ use crate::support::harness::InProcHarness;
 use fantoccini::{ClientBuilder, Locator};
 use hyper_util::client::legacy::connect::HttpConnector;
 use once_cell::sync::OnceCell;
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -55,11 +57,55 @@ const READY_TIMEOUT: Duration = Duration::from_secs(10);
 pub const KB_READY_SELECTOR: &str = "[data-kb-ready]";
 
 /// ONE chromedriver process per lane. `OnceCell` so the Nth scenario reuses the
-/// 1st scenario's driver; the `Child` is parked in a `Mutex` for the lifetime of
-/// the test binary (the OS reaps it on exit — the same contract the shared
-/// Postgres testcontainer has).
+/// 1st scenario's driver; the `Child` is parked in a `Mutex` so the lane can
+/// reach it again at teardown.
+///
+/// NOTHING REAPS THIS CHILD IMPLICITLY, and the comment that used to sit here
+/// claimed the opposite ("the OS reaps it on exit — the same contract the
+/// shared Postgres testcontainer has"). Both halves were false:
+///
+///   * `std::process::Child` explicitly does NOT kill on drop, and a `static`'s
+///     `Drop` never runs at process exit anyway. On Unix the driver is
+///     reparented to init and outlives the run. Measured 2026-08-30 on a dev
+///     machine: chromedriver processes with PPID 1, accumulated across runs.
+///   * The testcontainer analogy inverted the actual contract. Testcontainers
+///     is reaped DELIBERATELY, by `harness::shutdown_postgres()` in
+///     `tests/acceptance.rs`, precisely because its `Drop` cannot do the job
+///     either. A raw `Command::spawn` has no reaper at all.
+///
+/// So the lane reaps it the same way: [`shutdown_chromedriver`], called from
+/// `tests/acceptance.rs` beside `shutdown_postgres`.
+///
+/// WHAT THIS DOES NOT COVER — clean exits only. An interrupted run (Ctrl-C, a
+/// harness timeout kill, a panic that aborts rather than unwinds) still orphans
+/// the driver, because there is no portable way to bind a child's lifetime to
+/// its parent on macOS: Linux has `prctl(PR_SET_PDEATHSIG)`, Darwin has no
+/// equivalent. Strays from interrupted runs are reaped by hand
+/// (`pkill -f chromedriver`). Overstating a fix is what put the wrong comment
+/// here in the first place, so this one states its limit.
 static CHROMEDRIVER: OnceCell<u16> = OnceCell::new();
 static CHROMEDRIVER_PROC: Mutex<Option<Child>> = Mutex::new(None);
+
+/// Reap this lane's chromedriver: kill it and WAIT for it, so no orphan and no
+/// zombie survives the run. Returns the status waited for, or `None` when the
+/// lane never started a driver — every lane calls this, including those that
+/// filter `@needs-browser` out.
+///
+/// Call it AFTER the cucumber run returns, next to `harness::shutdown_postgres`.
+/// See [`CHROMEDRIVER_PROC`] for the interrupted-run case this cannot cover.
+///
+/// The `wait` is the load-bearing half: `kill` alone leaves a zombie in this
+/// process's child table, which is a smaller leak than an orphan but still a
+/// leak. Taking the child OUT of the slot first makes a second call a no-op, so
+/// a teardown that runs twice cannot wait on an already-reaped pid.
+pub fn shutdown_chromedriver() -> Option<ExitStatus> {
+    let mut child = CHROMEDRIVER_PROC
+        .lock()
+        .expect("chromedriver proc lock")
+        .take()?;
+    let _ = child.kill();
+    child.wait().ok()
+}
 
 /// Ask the OS for a free port, then release it. chromedriver has no
 /// "bind :0 and tell me the port" mode, so this bind-and-drop is the shipped
@@ -646,4 +692,92 @@ pub async fn wait_for_kb_ready(client: &fantoccini::Client) {
                  base.html, or it threw before init completed."
             )
         });
+}
+
+#[cfg(test)]
+mod tests {
+    //! Reaping test for the lane's chromedriver lifecycle.
+    //!
+    //! Drives the SHIPPED entry point against the SHIPPED static, parking a
+    //! `sleep` child in it rather than a real chromedriver. The behaviour under
+    //! test is process lifecycle — kill the parked child AND wait for it — which
+    //! has nothing to do with WebDriver, and requiring chromedriver here would
+    //! put a host prerequisite on the DEFAULT `cargo test -p foundry-acceptance`
+    //! lane, which is exactly what `@needs-browser` exists to keep out of it.
+    //!
+    //! This is the only test in the binary that touches `CHROMEDRIVER_PROC`, and
+    //! the lib test binary never starts a real driver, so parking a stand-in
+    //! there races with nothing.
+    //!
+    //! Behaviour budget: 1 behaviour (reap the parked driver) x 2 = 2 permitted;
+    //! 1 authored, covering the empty slot, the parked child and the repeat call
+    //! as states of that one behaviour.
+
+    use super::*;
+
+    /// True while the OS still has an entry for `pid`. `kill -0` succeeds on a
+    /// ZOMBIE too, which is precisely why it is the right oracle here: killing
+    /// without waiting leaves a zombie and this still reports the pid alive, so
+    /// the assertion below cannot be satisfied by a `kill` with no `wait`.
+    fn pid_exists(pid: u32) -> bool {
+        Command::new("kill")
+            .args(["-0", &pid.to_string()])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false)
+    }
+
+    #[test]
+    fn shutdown_kills_and_waits_for_the_parked_driver() {
+        // A lane that filtered `@needs-browser` out still calls this. Silence,
+        // not a panic on an empty slot.
+        assert!(
+            shutdown_chromedriver().is_none(),
+            "a lane that started no driver has nothing to reap"
+        );
+
+        let child = Command::new("sleep")
+            .arg("600")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn a long-lived stand-in for chromedriver");
+        let pid = child.id();
+        *CHROMEDRIVER_PROC.lock().expect("chromedriver proc lock") = Some(child);
+
+        assert!(
+            pid_exists(pid),
+            "precondition: the parked child must be running before teardown, or \
+             this test proves nothing"
+        );
+
+        assert!(
+            shutdown_chromedriver().is_some(),
+            "reaping a parked driver reports the status it waited for"
+        );
+        assert!(
+            CHROMEDRIVER_PROC
+                .lock()
+                .expect("chromedriver proc lock")
+                .is_none(),
+            "the slot must be EMPTIED, so a second teardown cannot wait on a pid \
+             this process has already reaped"
+        );
+        assert!(
+            !pid_exists(pid),
+            "the child must be killed AND waited for. Before 2026-08-30 nothing \
+             did either — `Child` does not kill on drop and a `static`'s `Drop` \
+             never runs at exit, so the driver was reparented to init and \
+             survived the run. A `kill` with no `wait` would trade that orphan \
+             for a zombie, which `kill -0` still finds, which is what makes this \
+             assertion the one that separates reaping from signalling"
+        );
+
+        assert!(
+            shutdown_chromedriver().is_none(),
+            "reaping an empty slot is a no-op: teardown may run twice"
+        );
+    }
 }

@@ -25,6 +25,7 @@
 
 use cucumber::writer::Stats as _;
 use cucumber::World;
+use foundry_acceptance::support::browser_harness;
 use foundry_acceptance::support::compose_harness;
 use foundry_acceptance::support::harness;
 use foundry_acceptance::support::pg_backup;
@@ -315,6 +316,15 @@ async fn main() {
     // stay ABOVE the failure panic below so a red run cleans up too.
     harness::shutdown_postgres().await;
     pg_backup::shutdown_restore_target().await;
+
+    // Same reasoning, one layer down: the `@needs-browser` lane's chromedriver
+    // is a raw `Command::spawn` child, and `std::process::Child` does NOT kill
+    // on drop (nor does a `static`'s `Drop` ever run at process exit), so
+    // nothing reaps it implicitly — it is reparented to init and outlives the
+    // run. Called on EVERY lane, not just the browser one: it is a no-op when
+    // no driver was started. Covers clean exits only; see
+    // `browser_harness::CHROMEDRIVER_PROC` for the interrupted-run limit.
+    browser_harness::shutdown_chromedriver();
 
     // Reproduce `filter_run_and_exit`'s fail-the-process behaviour: panic (which
     // fails the test binary) if any step / parse / hook error occurred.
