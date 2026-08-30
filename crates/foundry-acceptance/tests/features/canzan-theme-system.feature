@@ -46,10 +46,12 @@
 # suite silently testing light twice.
 #
 # ---------------------------------------------------------------------------
-# EVERY scenario is @pending. acceptance.rs `filter_run` excludes @pending from
-# every lane, so @all (including @needs-browser) stays green until DELIVER
-# un-pends them ONE AT A TIME, in slice order. Scenario 1 is un-pended FIRST:
-# if the instrument cannot prove a dark device, nothing below it is worth running.
+# ALL 28 SCENARIOS ARE LIVE. Zero @pending tags remain (closed out at step 05-03).
+# During DISTILL every scenario carried @pending — acceptance.rs `filter_run`
+# excludes @pending from every lane — and DELIVER un-pended them ONE AT A TIME, in
+# slice order, starting with scenario 1: if the instrument cannot prove a dark
+# device, nothing below it is worth running. That ordering is history now, but it
+# is the reason scenario 1 is first in the file and must stay first.
 #
 # Background reuses the SHIPPED HTTP-lane seed steps (feature_board_new_issue.rs)
 # — Acme / Mei / Backend / Sandbox — rather than duplicating fixture setup, the

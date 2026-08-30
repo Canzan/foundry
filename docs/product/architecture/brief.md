@@ -142,7 +142,12 @@ different strength: integrity (the committed blob matches its recorded hash —
 unconditional, machine-checked by R3) and provenance (re-derivation from the pinned
 input with the pinned toolchain — expected, explicitly **not** guaranteed
 byte-for-byte, with a compressor-independent intermediate hash as the stable audit
-anchor). See `adr-canzan-theme-001-font-axis-instancing-and-subsetting.md`,
+anchor). The recipe itself lives at `tools/fonts/derive-fonts.sh` and is run
+**offline, by hand, never as a build step** (DB6 stands): it is hermetic
+(`SOURCE_DATE_EPOCH` + `--no-recalc-timestamp` + `--no-optimize`) and reproduces
+byte-for-byte across host and container for all three families. Removing either
+determinism flag silently breaks the audit while every test stays green.
+See `adr-canzan-theme-001-font-axis-instancing-and-subsetting.md`,
 `adr-canzan-theme-002-derived-asset-provenance-model.md`,
 `adr-canzan-theme-003-asset-integrity-guard-in-check-arch.md` and
 `adr-canzan-theme-004-token-seam-and-dark-block-parity.md`.
