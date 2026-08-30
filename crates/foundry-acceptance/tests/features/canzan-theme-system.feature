@@ -306,7 +306,7 @@ Feature: foundry follows the light the operator's environment asks for
     Then the document records no theme choice at all
     And the board renders in the dark palette
 
-  @needs-browser @real-io @slice4 @us-cts-04 @pending
+  @needs-browser @real-io @slice4 @us-cts-04
   Scenario: The control cycles through following the device, light, dark, and back
     # RED-trigger: a two-state toggle, which can never hand the decision back to the
     # device — the setting this operator wants most of the time.
@@ -391,7 +391,7 @@ Feature: foundry follows the light the operator's environment asks for
     Then the document records no theme choice at all
     And the board renders in the dark palette
 
-  @needs-browser @real-io @slice4 @us-cts-04 @pending
+  @needs-browser @real-io @slice4 @us-cts-04
   Scenario: The control says which theme is active and which the next press will select
     # RED-trigger: the control is labelled with a bare glyph, so an operator using
     # assistive technology cannot tell what it does or what pressing it will do.
@@ -401,7 +401,7 @@ Feature: foundry follows the light the operator's environment asks for
     Then it states that foundry is following the device and names the theme the next press selects
     And after each press the name describes the new state and the next one
 
-  @needs-browser @real-io @slice4 @us-cts-04 @pending
+  @needs-browser @real-io @slice4 @us-cts-04
   Scenario: The control is reachable and large enough to hit
     # RED-trigger: the control ships without joining the mobile touch-target rule,
     # or with no visible focus indicator in one of the two palettes.

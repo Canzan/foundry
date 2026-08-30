@@ -1447,23 +1447,80 @@ async fn then_the_document_records_no_theme_choice_at_all(world: &mut FoundryWor
 }
 
 #[given(regex = r"^the control shows that foundry is following her device$")]
-async fn given_the_control_shows_that_foundry_is_following_her_device(_world: &mut FoundryWorld) {
-    scaffold("the control shows that foundry is following her device");
+async fn given_the_control_shows_that_foundry_is_following_her_device(world: &mut FoundryWorld) {
+    assert_control_follows_the_device(browser_of(world)).await;
 }
 
+/// Three REAL activations of the REAL control, each followed by a full reading
+/// of what the operator can observe: the recorded choice, the word the control
+/// shows, its accessible name, and the colours seven surfaces resolve to.
+///
+/// The colours are the load-bearing half and they are captured HERE, per press,
+/// rather than re-read at the end: a cycle test that kept only the labels would
+/// stay green with the stylesheet's dark block deleted — the control would say
+/// "Dark" over a white board and nothing in the suite would notice.
 #[when(regex = r"^she activates it once, then again, then a third time$")]
-async fn when_she_activates_it_once_then_again_then_a_third(_world: &mut FoundryWorld) {
-    scaffold("she activates it once, then again, then a third time");
+async fn when_she_activates_it_once_then_again_then_a_third(world: &mut FoundryWorld) {
+    let browser = browser_of(world);
+    let mut readings = Vec::new();
+    for press in 1..=3 {
+        press_the_theme_control(browser, press).await;
+        readings.push(read_theme_control(browser).await);
+    }
+    stash(browser, CYCLE_KEY, &serde_json::Value::Array(readings)).await;
 }
 
+/// THREE states, not two. The third press is the one a two-state toggle can
+/// never make: it hands the decision back to the device by REMOVING the
+/// attribute, which is why the expectation for it is an absence rather than a
+/// third written value.
 #[then(regex = r"^it moves to light, then to dark, then back to following her device$")]
-async fn then_it_moves_to_light_then_to_dark_then_back(_world: &mut FoundryWorld) {
-    scaffold("it moves to light, then to dark, then back to following her device");
+async fn then_it_moves_to_light_then_to_dark_then_back(world: &mut FoundryWorld) {
+    let readings = unstash(browser_of(world), CYCLE_KEY).await;
+    let readings = readings
+        .as_array()
+        .expect("the cycle stash is an array")
+        .clone();
+    assert_eq!(
+        readings.len(),
+        CYCLE.len(),
+        "the cycle recorded {} press(es) instead of {} — the When step did not run to completion",
+        readings.len(),
+        CYCLE.len()
+    );
+    for (index, mode) in CYCLE.iter().enumerate() {
+        assert_control_shows(
+            &readings[index],
+            *mode,
+            &format!("after press {}", index + 1),
+        );
+    }
 }
 
+/// The arm that makes the scenario worth running. The device in this scenario
+/// prefers LIGHT, so the palette each press owes is light, then dark, then light
+/// again — and the middle one can only come from the stylesheet's dark block
+/// being reachable by an explicit choice. Assert the LABEL alone and this passes
+/// with every dark rule deleted.
 #[then(regex = r"^on each step the page repaints to the palette the control names$")]
-async fn then_on_each_step_the_page_repaints_to_the_palette(_world: &mut FoundryWorld) {
-    scaffold("on each step the page repaints to the palette the control names");
+async fn then_on_each_step_the_page_repaints_to_the_palette(world: &mut FoundryWorld) {
+    let readings = unstash(browser_of(world), CYCLE_KEY).await;
+    let readings = readings
+        .as_array()
+        .expect("the cycle stash is an array")
+        .clone();
+    let owed: [Palette; 3] = [LIGHT, DARK, LIGHT];
+    for (index, palette) in owed.iter().enumerate() {
+        assert_repaints_to(
+            &readings[index],
+            *palette,
+            &format!(
+                "after press {} the control shows `{}`",
+                index + 1,
+                readings[index]["word"].as_str().unwrap_or("?")
+            ),
+        );
+    }
 }
 
 /// A LIGHT device plus a stored dark choice — the combination that makes both
@@ -1706,47 +1763,139 @@ async fn given_the_stored_theme_choice_is_a_value_foundry_does(world: &mut Found
 }
 
 #[given(regex = r"^the control shows that foundry is following the device$")]
-async fn given_the_control_shows_that_foundry_is_following_the_device(_world: &mut FoundryWorld) {
-    scaffold("the control shows that foundry is following the device");
+async fn given_the_control_shows_that_foundry_is_following_the_device(world: &mut FoundryWorld) {
+    assert_control_follows_the_device(browser_of(world)).await;
 }
 
 #[when(regex = r"^its accessible name is read$")]
-async fn when_its_accessible_name_is_read(_world: &mut FoundryWorld) {
-    scaffold("its accessible name is read");
+async fn when_its_accessible_name_is_read(world: &mut FoundryWorld) {
+    let browser = browser_of(world);
+    let reading = read_theme_control(browser).await;
+    stash(browser, NAME_KEY, &reading).await;
 }
 
+/// STATE PLUS NEXT ACTION, and asserted as two separate obligations because a
+/// name that carries only one of them is the defect: "Theme: dark" leaves an
+/// operator unable to predict the press, and "Switch to light" leaves her unable
+/// to tell where she already is.
 #[then(
     regex = r"^it states that foundry is following the device and names the theme the next press selects$"
 )]
-async fn then_it_states_that_foundry_is_following_the_device_and(_world: &mut FoundryWorld) {
-    scaffold(
-        "it states that foundry is following the device and names the theme the next press selects",
+async fn then_it_states_that_foundry_is_following_the_device_and(world: &mut FoundryWorld) {
+    let reading = unstash(browser_of(world), NAME_KEY).await;
+    assert_accessible_name(
+        &reading,
+        SYSTEM_MODE,
+        "while the control follows the device",
     );
 }
 
+/// The name is not written once: it is re-derived on every press. Each reading
+/// is asserted against the state it should now describe AND against the previous
+/// name, so a control that computed its name once at build time — the shape that
+/// looks right on first render and lies forever after — goes red on press one.
 #[then(regex = r"^after each press the name describes the new state and the next one$")]
-async fn then_after_each_press_the_name_describes_the_new_state(_world: &mut FoundryWorld) {
-    scaffold("after each press the name describes the new state and the next one");
+async fn then_after_each_press_the_name_describes_the_new_state(world: &mut FoundryWorld) {
+    let browser = browser_of(world);
+    let mut previous = accessible_name_of(&unstash(browser, NAME_KEY).await);
+    for (index, mode) in CYCLE.iter().enumerate() {
+        press_the_theme_control(browser, index + 1).await;
+        let reading = read_theme_control(browser).await;
+        let when = format!("after press {}", index + 1);
+        assert_accessible_name(&reading, *mode, &when);
+        let name = accessible_name_of(&reading);
+        assert_ne!(
+            name, previous,
+            "the accessible name is still `{previous}` {when} — it is written once and never \
+             re-derived, so it describes the state the control USED to be in"
+        );
+        previous = name;
+    }
 }
 
+/// REACHABLE IN READING ORDER means exactly that: walked to with the Tab key
+/// from a cleared focus, in document order, with no positive `tabindex` bending
+/// the sequence. The walk is recorded so a failure names every stop it did make.
 #[then(regex = r"^the theme control is reachable in reading order with a visible focus indicator$")]
-async fn then_the_theme_control_is_reachable_in_reading_order_with(_world: &mut FoundryWorld) {
-    scaffold("the theme control is reachable in reading order with a visible focus indicator");
+async fn then_the_theme_control_is_reachable_in_reading_order_with(world: &mut FoundryWorld) {
+    let browser = browser_of(world);
+    wait_for(browser, THEME_TOGGLE, "the rail").await;
+    assert_no_positive_tabindex(browser).await;
+    tab_until_the_control_is_focused(browser).await;
+    assert_focus_ring(browser, LIGHT, "on paper").await;
 }
 
+/// BOTH palettes, in ONE session, driven through production code: the control
+/// already holds keyboard focus from the previous step, so two `Enter` presses
+/// walk it system -> light -> dark while `:focus-visible` stays armed and the
+/// page repaints underneath the ring.
+///
+/// The last assertion is the one that catches a hard-coded indicator: a literal
+/// resolves to the SAME colour on paper and on ink, and would satisfy every
+/// other assertion here while being a fixed hue the dark palette never chose.
 #[then(regex = r"^its focus indicator is visible in both palettes$")]
-async fn then_its_focus_indicator_is_visible_in_both_palettes(_world: &mut FoundryWorld) {
-    scaffold("its focus indicator is visible in both palettes");
+async fn then_its_focus_indicator_is_visible_in_both_palettes(world: &mut FoundryWorld) {
+    let browser = browser_of(world);
+    let on_paper = assert_focus_ring(browser, LIGHT, "on paper").await;
+    for _ in 0..2 {
+        browser_harness::press_key(browser, "Enter").await;
+    }
+    let reading = read_theme_control(browser).await;
+    assert_eq!(
+        reading["choice"].as_str(),
+        Some("dark"),
+        "two presses from the keyboard did not reach the dark theme — the focused control is not \
+         being activated by Enter, so the second half of this assertion would measure paper twice"
+    );
+    let on_ink = assert_focus_ring(browser, DARK, "on ink").await;
+    assert_ne!(
+        on_paper,
+        on_ink,
+        "the focus indicator resolves to {} in BOTH palettes — it is a literal rather than a \
+         token, so one of the two palettes is wearing the other's ring",
+        hex(on_paper)
+    );
 }
 
 #[then(regex = r"^its target is at least 24 by 24 at desktop width$")]
-async fn then_its_target_is_at_least_24_by_24_at(_world: &mut FoundryWorld) {
-    scaffold("its target is at least 24 by 24 at desktop width");
+async fn then_its_target_is_at_least_24_by_24_at(world: &mut FoundryWorld) {
+    let (width, height, viewport) = theme_control_target(browser_of(world)).await;
+    assert!(
+        viewport > MOBILE_BREAKPOINT_PX,
+        "this session lays out at {viewport}px, at or below the {MOBILE_BREAKPOINT_PX}px mobile \
+         breakpoint — the DESKTOP floor would be measured against the phone rule and prove nothing"
+    );
+    assert!(
+        width >= 24.0 && height >= 24.0,
+        "the theme control measures {width}x{height} at {viewport}px — under WCAG 2.5.8's 24x24 \
+         floor (NFR-WEBB-A11Y-02)"
+    );
 }
 
+/// The phone arm needs a REAL emulated phone viewport, not a narrow window:
+/// headless Chrome lays out at the OS window width regardless of the viewport
+/// meta, so a resized desktop session would measure the desktop rule and pass
+/// whether or not the control ever joined the mobile touch-target list (ADR-003).
 #[then(regex = r"^its target is at least 44 by 44 at phone width$")]
-async fn then_its_target_is_at_least_44_by_44_at(_world: &mut FoundryWorld) {
-    scaffold("its target is at least 44 by 44 at phone width");
+async fn then_its_target_is_at_least_44_by_44_at(world: &mut FoundryWorld) {
+    let phone = browser_harness::open_mobile_session().await;
+    land_on_board(&phone, world).await;
+    wait_for(&phone, THEME_TOGGLE, "the rail on a phone").await;
+    let (width, height, viewport) = theme_control_target(&phone).await;
+    phone.close().await.ok();
+    assert!(
+        viewport <= MOBILE_BREAKPOINT_PX,
+        "the emulated phone lays out at {viewport}px, above the {MOBILE_BREAKPOINT_PX}px \
+         breakpoint — the mobile block never applied, so the 44px floor would be measured against \
+         the desktop rule"
+    );
+    assert!(
+        width >= 44.0 && height >= 44.0,
+        "the theme control measures {width}x{height} at {viewport}px — under the 44px thumb target \
+         `pwa-mobile-rendering` established. It has not joined the mobile touch-target selector \
+         list, and `button` alone cannot carry it: `.theme-toggle`'s own `min-height` outranks a \
+         bare element selector inside the media query as much as outside it"
+    );
 }
 
 // ============================================================================
@@ -2456,15 +2605,31 @@ async fn land_on_board(browser: &fantoccini::Client, world: &FoundryWorld) {
     );
 }
 
-/// The board, opened in the session the scenario's Given already created.
+/// The board, opened in the session the scenario's Given already created — or,
+/// for the two scenarios that state NO device preference (the accessible-name
+/// and reachability ones, which are about the control rather than about the
+/// palette), in a fresh session with none stated. The oracle is asserted on that
+/// path too: a session that silently reported dark would put those scenarios in
+/// the other palette from the one their assertions name.
 async fn open_the_board(world: &mut FoundryWorld) {
     seed_sandbox_issue(world).await;
-    let browser = world
-        .browser
-        .take()
-        .expect("a browser session must have been opened before the board");
+    let browser = match world.browser.take() {
+        Some(browser) => browser,
+        None => session_with_no_stated_device_preference().await,
+    };
     land_on_board(&browser, world).await;
     world.browser = Some(browser);
+}
+
+async fn session_with_no_stated_device_preference() -> fantoccini::Client {
+    let browser = browser_harness::new_session().await;
+    assert!(
+        !browser_harness::device_prefers_dark(&browser).await,
+        "a session with NO stated device preference reports it prefers dark — the oracle no \
+         longer discriminates, so a scenario that names the light palette would be measuring the \
+         dark one"
+    );
+    browser
 }
 
 /// The signed-in landing "/", with any stored choice re-applied. The Background
@@ -3296,3 +3461,388 @@ for (var i = 0; i < nodes.length; i++) {
 }
 return out;
 "#;
+
+// ============================================================================
+// THE THREE-STATE CONTROL — what an operator can observe of it
+// ============================================================================
+//
+// Everything here reads the control `static/js/theme.js` BUILDS and appends into
+// `.sidebar__user`. Nothing here writes markup, writes `data-theme`, or knows
+// the script's internals: a reading is the recorded choice, the word and glyph
+// the control shows, its accessible name, and the colours the page resolves to.
+// That is the whole observable surface, and it is deliberately captured as ONE
+// reading per press so a label assertion and a repaint assertion can never drift
+// apart into two different moments.
+
+const THEME_TOGGLE: &str = ".theme-toggle";
+
+/// Where the cycle scenario keeps its per-press readings between the When and
+/// its two Thens, and where the accessible-name scenario keeps its first
+/// reading. `sessionStorage`, so it cannot collide with the `localStorage` key
+/// the production script owns.
+const CYCLE_KEY: &str = "foundry.acceptance.theme-cycle";
+const NAME_KEY: &str = "foundry.acceptance.theme-name";
+
+/// The mobile breakpoint the stylesheet's touch-target block is guarded by. Used
+/// to prove each size assertion is measured on the side of the breakpoint it
+/// claims to be about — without which the desktop floor and the phone floor
+/// could both be read off the same layout.
+const MOBILE_BREAKPOINT_PX: f64 = 480.0;
+
+/// One of the control's three states, in terms of what it OWES the operator:
+/// the attribute the document must carry (an absence, for "follow the device"),
+/// the word the control shows, the phrase its accessible name must use for this
+/// state, and the theme the next press selects.
+#[derive(Clone, Copy)]
+struct ThemeMode {
+    attribute: Option<&'static str>,
+    word: &'static str,
+    states: &'static str,
+    next: &'static str,
+}
+
+const SYSTEM_MODE: ThemeMode = ThemeMode {
+    attribute: None,
+    word: "System",
+    states: "following your device",
+    next: "light",
+};
+const LIGHT_MODE: ThemeMode = ThemeMode {
+    attribute: Some("light"),
+    word: "Light",
+    states: "theme: light",
+    next: "dark",
+};
+const DARK_MODE: ThemeMode = ThemeMode {
+    attribute: Some("dark"),
+    word: "Dark",
+    states: "theme: dark",
+    next: "system",
+};
+
+/// What three presses from "following the device" must produce, in order. The
+/// third entry is the state a two-state toggle cannot express.
+const CYCLE: [ThemeMode; 3] = [LIGHT_MODE, DARK_MODE, SYSTEM_MODE];
+
+/// Every observable the control and the page expose at one instant.
+const CONTROL_PROBE: &str = r#"
+var button = document.querySelector('.theme-toggle');
+if (!button) {
+  throw new Error('the theme control is not mounted in `.sidebar__user`');
+}
+var glyph = button.querySelector('.theme-toggle__glyph');
+var word = button.querySelector('.theme-toggle__mode');
+function resolved(selector, property) {
+  var el = document.querySelector(selector);
+  return el ? window.getComputedStyle(el).getPropertyValue(property) : null;
+}
+return {
+  choice: document.documentElement.getAttribute('data-theme'),
+  word: word ? word.textContent.trim() : null,
+  glyph: glyph ? glyph.textContent.trim() : null,
+  glyphHidden: glyph ? glyph.getAttribute('aria-hidden') : null,
+  wordVisible: word ? (window.getComputedStyle(word).display !== 'none'
+                       && word.getBoundingClientRect().width > 0) : false,
+  name: button.getAttribute('aria-label'),
+  paint: {
+    'html background-color': resolved('html', 'background-color'),
+    'html color': resolved('html', 'color'),
+    'body background-color': resolved('body', 'background-color'),
+    '.sidebar background-color': resolved('.sidebar', 'background-color'),
+    '.column background-color': resolved('.column', 'background-color'),
+    '.issue-card background-color': resolved('.issue-card', 'background-color'),
+    '.theme-toggle background-color': resolved('.theme-toggle', 'background-color')
+  }
+};
+"#;
+
+async fn read_theme_control(client: &fantoccini::Client) -> serde_json::Value {
+    client
+        .execute(CONTROL_PROBE, Vec::new())
+        .await
+        .expect("read the theme control and the palette it sits over")
+}
+
+/// One real activation of the real control, through a real click.
+async fn press_the_theme_control(client: &fantoccini::Client, press: usize) {
+    client
+        .find(Locator::Css(THEME_TOGGLE))
+        .await
+        .unwrap_or_else(|err| {
+            panic!("press {press}: the theme control is not mounted in `.sidebar__user`: {err}")
+        })
+        .click()
+        .await
+        .unwrap_or_else(|err| {
+            panic!("press {press}: the theme control could not be activated: {err}")
+        });
+}
+
+fn accessible_name_of(reading: &serde_json::Value) -> String {
+    reading["name"].as_str().unwrap_or_default().to_string()
+}
+
+/// The control's opening state, asserted as an ABSENCE plus a visible word. The
+/// absence is what re-arms the media block; the visible word is what stops the
+/// control being the bare glyph AC-3 exists to refuse.
+async fn assert_control_follows_the_device(client: &fantoccini::Client) {
+    wait_for(client, THEME_TOGGLE, "the rail").await;
+    let reading = read_theme_control(client).await;
+    assert_control_shows(&reading, SYSTEM_MODE, "before the operator touches it");
+    assert!(
+        reading["wordVisible"].as_bool().unwrap_or(false),
+        "the control renders no visible `.theme-toggle__mode` — it is a bare glyph on screen, so \
+         the state it is in has to be decoded from a symbol"
+    );
+}
+
+/// A reading shows `mode`: the recorded choice, the word, and the name.
+fn assert_control_shows(reading: &serde_json::Value, mode: ThemeMode, when: &str) {
+    assert_eq!(
+        reading["choice"].as_str(),
+        mode.attribute,
+        "{when} the document carries data-theme={:?} instead of {:?}. Following the device is the \
+         ABSENCE of the attribute — a third written value looks right in the control while \
+         breaking dark-by-device for every operator who never touched it",
+        reading["choice"].as_str(),
+        mode.attribute
+    );
+    assert_eq!(
+        reading["word"].as_str(),
+        Some(mode.word),
+        "{when} the control shows `{:?}` instead of `{}`",
+        reading["word"].as_str(),
+        mode.word
+    );
+    assert_accessible_name(reading, mode, when);
+}
+
+/// STATE plus NEXT ACTION, asserted separately, and neither of them satisfied by
+/// the glyph: the glyph is `aria-hidden`, so the name is the ONLY thing an
+/// operator using assistive technology has.
+fn assert_accessible_name(reading: &serde_json::Value, mode: ThemeMode, when: &str) {
+    let name = accessible_name_of(reading);
+    let glyph = reading["glyph"]
+        .as_str()
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    assert!(
+        !name.trim().is_empty(),
+        "{when} the control has NO accessible name — an operator using assistive technology hears \
+         a nameless button and can tell neither what it does nor what pressing it will do"
+    );
+    assert_ne!(
+        name.trim(),
+        glyph,
+        "{when} the control's accessible name IS its glyph (`{glyph}`) — a symbol is not a name"
+    );
+    assert_eq!(
+        reading["glyphHidden"].as_str(),
+        Some("true"),
+        "{when} the glyph is not `aria-hidden` — it is announced alongside the name, so the \
+         control reads as a symbol followed by a sentence"
+    );
+    let lowered = name.to_lowercase();
+    assert!(
+        lowered.contains(mode.states),
+        "{when} the accessible name `{name}` does not say which theme is ACTIVE (expected it to \
+         carry `{}`)",
+        mode.states
+    );
+    let selects = format!("switch to {}", mode.next);
+    assert!(
+        lowered.contains(&selects),
+        "{when} the accessible name `{name}` does not name the theme the NEXT press selects \
+         (expected it to carry `{selects}`) — the operator can tell where she is but not where \
+         one press would take her"
+    );
+}
+
+/// The page in `reading` resolves to `palette` on every surface the reading
+/// sampled — including the control's own fill, which is what makes these three
+/// new rules token-bound rather than a pair of hand-written light and dark
+/// blocks.
+fn assert_repaints_to(reading: &serde_json::Value, palette: Palette, when: &str) {
+    let owed: [(&str, Rgb); 7] = [
+        ("html background-color", palette.bg),
+        ("html color", palette.text),
+        ("body background-color", palette.bg),
+        (".sidebar background-color", palette.bg_2),
+        (".column background-color", palette.bg_2),
+        (".issue-card background-color", palette.surface),
+        (".theme-toggle background-color", palette.bg_2),
+    ];
+    for (slot, expected) in owed {
+        let raw = reading["paint"][slot].as_str().unwrap_or_else(|| {
+            panic!("{when}: the probe resolved nothing for `{slot}` — the surface is not on screen")
+        });
+        let (resolved, _) = parse_colour(raw).unwrap_or_else(|| {
+            panic!("{when}: `{slot}` resolved to `{raw}`, which is not a colour")
+        });
+        assert_eq!(
+            resolved,
+            expected,
+            "{when}, `{slot}` paints {} but the {} palette owes {} — the page did not repaint to \
+             the theme the control names, so the control is renaming itself over a stylesheet that \
+             never moved",
+            hex(resolved),
+            palette.name,
+            hex(expected)
+        );
+    }
+}
+
+/// The control takes its place in DOCUMENT order. A positive `tabindex` would
+/// satisfy "reachable" while jumping the operator out of the reading order the
+/// rest of the rail establishes.
+async fn assert_no_positive_tabindex(client: &fantoccini::Client) {
+    let declared = client
+        .execute(
+            "var el = document.querySelector('.theme-toggle');
+             return el ? el.getAttribute('tabindex') : null;",
+            Vec::new(),
+        )
+        .await
+        .expect("read the theme control's tabindex");
+    let declared = declared.as_str().unwrap_or("0");
+    assert!(
+        declared == "0" || declared == "-1" || declared.is_empty(),
+        "the theme control declares tabindex=`{declared}` — a positive tabindex lifts it out of \
+         the reading order the rest of the rail sits in"
+    );
+}
+
+/// Walk the Tab key from a cleared focus until the control holds it. Returns the
+/// stops made on the way, so a failure names the order that DID happen.
+async fn tab_until_the_control_is_focused(client: &fantoccini::Client) -> Vec<String> {
+    client
+        .execute(
+            "if (document.activeElement && document.activeElement.blur) {
+               document.activeElement.blur();
+             }
+             return true;",
+            Vec::new(),
+        )
+        .await
+        .expect("clear focus before walking the reading order");
+    let mut walked: Vec<String> = Vec::new();
+    for _ in 0..MAX_TAB_STOPS {
+        browser_harness::press_key(client, "Tab").await;
+        let focused = client
+            .execute(
+                "var el = document.activeElement;
+                 if (!el) { return ['', false]; }
+                 var name = el.tagName.toLowerCase();
+                 if (el.className && typeof el.className === 'string' && el.className.trim()) {
+                   name += '.' + el.className.trim().split(/\\s+/).join('.');
+                 }
+                 return [name, el.classList ? el.classList.contains('theme-toggle') : false];",
+                Vec::new(),
+            )
+            .await
+            .expect("read the focused element");
+        let stop = focused.as_array().expect("the focus probe returns a pair");
+        walked.push(stop[0].as_str().unwrap_or_default().to_string());
+        if stop[1].as_bool().unwrap_or(false) {
+            return walked;
+        }
+    }
+    panic!(
+        "the theme control was never reached in {MAX_TAB_STOPS} Tab presses — it is not in the \
+         reading order. The walk stopped at: {walked:?}"
+    );
+}
+
+const MAX_TAB_STOPS: usize = 40;
+
+/// The focused control wears a ring that is a SHAPE (an outline, >= 2px), in
+/// this palette's accent, and that CLEARS 3:1 against the surface it is drawn
+/// over — the measure of "visible", computed from the live browser rather than
+/// asserted by the presence of a declaration. Returns the ring's colour.
+async fn assert_focus_ring(client: &fantoccini::Client, palette: Palette, when: &str) -> Rgb {
+    let probe = client
+        .execute(
+            "var el = document.querySelector('.theme-toggle');
+             if (!el) { throw new Error('the theme control is not mounted'); }
+             if (document.activeElement !== el) {
+               throw new Error('the theme control does not hold focus; '
+                               + 'the focused element is '
+                               + (document.activeElement ? document.activeElement.tagName : 'nothing'));
+             }
+             var cs = window.getComputedStyle(el);
+             var behind = el.parentElement
+               ? window.getComputedStyle(el.parentElement).backgroundColor
+               : null;
+             return {
+               style: cs.outlineStyle,
+               width: cs.outlineWidth,
+               colour: cs.outlineColor,
+               behind: behind
+             };",
+            Vec::new(),
+        )
+        .await
+        .unwrap_or_else(|err| panic!("read the focus indicator {when}: {err}"));
+
+    assert_ne!(
+        probe["style"].as_str().unwrap_or("none"),
+        "none",
+        "{when} the focused theme control draws NO outline — an operator navigating by keyboard \
+         cannot see where she is (NFR-WEBB-A11Y-02)"
+    );
+    let width: f64 = probe["width"]
+        .as_str()
+        .unwrap_or_default()
+        .trim_end_matches("px")
+        .parse()
+        .unwrap_or(0.0);
+    assert!(
+        width >= 2.0,
+        "{when} the focus ring is {width}px — too thin to read as an indicator"
+    );
+    let (ring, _) = parse_colour(probe["colour"].as_str().unwrap_or_default())
+        .unwrap_or_else(|| panic!("{when} the focus ring has no resolved colour"));
+    assert_eq!(
+        ring,
+        palette.jade,
+        "{when} the focus ring resolves to {} instead of the {} palette's accent {}",
+        hex(ring),
+        palette.name,
+        hex(palette.jade)
+    );
+    let (behind, _) =
+        parse_colour(probe["behind"].as_str().unwrap_or_default()).unwrap_or_else(|| {
+            panic!("{when} the surface behind the focus ring has no resolved colour")
+        });
+    let ratio = contrast_ratio(ring, behind);
+    assert!(
+        ratio >= 3.0,
+        "{when} the focus ring measures {ratio:.2}:1 against the {} it is drawn over — under \
+         WCAG 1.4.11's 3:1, so the indicator is present but not visible",
+        hex(behind)
+    );
+    ring
+}
+
+/// The control's hit target and the layout viewport it was measured in. The
+/// viewport travels with the measurement so neither size assertion can be taken
+/// on the wrong side of the mobile breakpoint.
+async fn theme_control_target(client: &fantoccini::Client) -> (f64, f64, f64) {
+    let probe = client
+        .execute(
+            "var el = document.querySelector('.theme-toggle');
+             if (!el) { throw new Error('the theme control is not mounted in `.sidebar__user`'); }
+             var rect = el.getBoundingClientRect();
+             return [rect.width, rect.height, window.innerWidth];",
+            Vec::new(),
+        )
+        .await
+        .expect("measure the theme control's hit target");
+    let row = probe.as_array().expect("the target probe returns a triple");
+    (
+        row[0].as_f64().unwrap_or_default(),
+        row[1].as_f64().unwrap_or_default(),
+        row[2].as_f64().unwrap_or_default(),
+    )
+}
