@@ -41,49 +41,110 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
-/// Run the boundary guard. `args` is everything after `check-arch`.
-pub fn run(args: Vec<String>) -> ExitCode {
-    let root = match parse_root(&args) {
-        Ok(root) => root,
-        Err(message) => {
-            eprintln!("check-arch: {message}");
-            return ExitCode::from(2);
+/// The guard's decision, decoupled from the process-exit encoding of it.
+///
+/// SEAM (2026-08-30). `run` used to fold argument parsing, the eleven LAYER 1
+/// rules, the LAYER 2 delegation, the reporting and the exit code into one
+/// body — and nothing drove it: every gold test calls a rule function directly.
+/// `cargo mutants` found the hole, reporting `run -> ExitCode` replaced by
+/// `Default::default()` as a survivor. `ExitCode::default()` IS
+/// `ExitCode::SUCCESS`, so that mutant makes `cargo xtask check-arch` pass
+/// unconditionally while all eleven rules still collect their violations into a
+/// vec nobody acts on, with the whole suite green.
+///
+/// So the decision moved out to where a test can assert on it: `ExitCode`
+/// implements neither `PartialEq` nor any accessor, but `Verdict` is a plain
+/// value. `run` is now a thin shell — [`verdict`], report, `ExitCode::from`.
+/// The extraction is not itself the new blind spot: [`source_violations`],
+/// [`verdict_with`] and [`Verdict::exit_code`] each carry tests, and `run`
+/// keeps its own falsifiability assertions.
+#[derive(Debug, PartialEq, Eq)]
+enum Verdict {
+    Passed,
+    Violations(Vec<String>),
+    UnparseableArguments(String),
+}
+
+impl Verdict {
+    /// The process exit code this verdict encodes, and the contract
+    /// `cargo xtask ci` reads: 0 clean, 1 violations, 2 unusable arguments.
+    fn exit_code(&self) -> u8 {
+        match self {
+            Verdict::Passed => 0,
+            Verdict::Violations(_) => 1,
+            Verdict::UnparseableArguments(_) => 2,
         }
+    }
+}
+
+/// LAYER 1 — every AST / source rule, aggregated in the order `check-arch`
+/// reports them. Hermetic: it reads the tree and starts no subprocess, so a
+/// test can drive the whole rule set against a staged fixture.
+fn source_violations(root: &Path) -> Vec<String> {
+    let mut violations: Vec<String> = Vec::new();
+    violations.extend(check_api_no_html(root));
+    violations.extend(check_api_no_adhoc_authz(root));
+    violations.extend(check_api_no_mint_route(root));
+    violations.extend(check_jwt_alg_pin(root));
+    violations.extend(check_oidc_alg_pin(root));
+    violations.extend(check_app_tenant_scoping(root));
+    violations.extend(check_app_no_slugify_definition(root));
+    violations.extend(check_no_static_lane_list(root));
+    violations.extend(check_static_asset_integrity(root));
+    violations.extend(check_stylesheet_colour_seam(root));
+    violations.extend(check_stylesheet_dark_block_parity(root));
+    violations
+}
+
+/// The guard's decision over both layers, as shipped.
+fn verdict(args: &[String]) -> Verdict {
+    verdict_with(args, check_dependency_direction)
+}
+
+/// The guard's decision with LAYER 2 supplied. `dependency_direction` shells
+/// out to `cargo deny`, so it is the one driven adapter in this module and the
+/// one place a test double belongs: a staged fixture tree has no `Cargo.toml`,
+/// which means the `Passed` branch is unreachable in a test unless LAYER 2 can
+/// be stubbed at that boundary.
+fn verdict_with(args: &[String], dependency_direction: fn(&Path) -> Option<String>) -> Verdict {
+    let root = match parse_root(args) {
+        Ok(root) => root,
+        Err(message) => return Verdict::UnparseableArguments(message),
     };
 
-    let mut violations: Vec<String> = Vec::new();
-
-    // LAYER 1 — AST / source walk.
-    violations.extend(check_api_no_html(&root));
-    violations.extend(check_api_no_adhoc_authz(&root));
-    violations.extend(check_api_no_mint_route(&root));
-    violations.extend(check_jwt_alg_pin(&root));
-    violations.extend(check_oidc_alg_pin(&root));
-    violations.extend(check_app_tenant_scoping(&root));
-    violations.extend(check_app_no_slugify_definition(&root));
-    violations.extend(check_no_static_lane_list(&root));
-    violations.extend(check_static_asset_integrity(&root));
-    violations.extend(check_stylesheet_colour_seam(&root));
-    violations.extend(check_stylesheet_dark_block_parity(&root));
-
-    // LAYER 2 — cargo-deny crate-graph dependency-direction.
-    if let Some(dep_violation) = check_dependency_direction(&root) {
-        violations.push(dep_violation);
-    }
+    let mut violations = source_violations(&root);
+    violations.extend(dependency_direction(&root));
 
     if violations.is_empty() {
-        println!("check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, no colour literal outside the three stylesheet token regions, the three stylesheet token regions declare the identical colour-token set, dependency direction)");
-        return ExitCode::SUCCESS;
+        return Verdict::Passed;
     }
+    Verdict::Violations(violations)
+}
 
-    eprintln!(
-        "check-arch: boundary guard FAILED — {} violation(s):",
-        violations.len()
-    );
-    for violation in &violations {
-        eprintln!("  - {violation}");
+/// Run the boundary guard. `args` is everything after `check-arch`.
+///
+/// A thin shell over [`verdict`]: decide, report, encode. Reporting stays
+/// inlined here on purpose — hoisting it into its own `fn report(&Verdict)`
+/// would create exactly the untested unit this extraction exists to remove,
+/// since no test asserts on stdout.
+pub fn run(args: Vec<String>) -> ExitCode {
+    let verdict = verdict(&args);
+    match &verdict {
+        Verdict::Passed => println!(
+            "check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, no colour literal outside the three stylesheet token regions, the three stylesheet token regions declare the identical colour-token set, dependency direction)"
+        ),
+        Verdict::UnparseableArguments(message) => eprintln!("check-arch: {message}"),
+        Verdict::Violations(violations) => {
+            eprintln!(
+                "check-arch: boundary guard FAILED — {} violation(s):",
+                violations.len()
+            );
+            for violation in violations {
+                eprintln!("  - {violation}");
+            }
+        }
     }
-    ExitCode::from(1)
+    ExitCode::from(verdict.exit_code())
 }
 
 /// Parse `[--root <DIR>]`, defaulting to the workspace root.
@@ -2430,5 +2491,246 @@ mod tests {
                 }
             }
         }
+    }
+
+    // ---- the guard's own entry point ---------------------------------------
+    //
+    // WHY THESE EXIST. Until 2026-08-30 nothing in this suite called `run`.
+    // `cargo mutants` reported `run -> ExitCode` replaced by
+    // `Default::default()` as a SURVIVOR, and `ExitCode::default()` IS
+    // `ExitCode::SUCCESS` — so the guard over eleven invariants could be
+    // disarmed at its top level while every gold test stayed green, because
+    // they all call the rule functions directly. Only a full `cargo xtask ci`
+    // would have noticed.
+    //
+    // Behaviour budget: 3 distinct behaviours — (1) LAYER 1 aggregates EVERY
+    // rule, (2) the verdict maps arguments and both layers onto a decision,
+    // (3) `run` encodes that decision as the process exit code — x2 = 6 unit
+    // tests permitted; 4 authored.
+
+    /// `ExitCode` is opaque: it implements neither `PartialEq` nor any
+    /// accessor, so the only way to observe what `run` actually returned is to
+    /// compare its `Debug` rendering with that of a reference `ExitCode` built
+    /// here. This compares rendering to rendering and never to a hardcoded
+    /// string, so it survives any change to std's `Debug` format — provided
+    /// distinct codes still render distinctly, which
+    /// `exit_code_rendering_distinguishes_the_codes_the_guard_returns` asserts
+    /// directly so this helper cannot go quietly vacuous.
+    fn same_exit_code(actual: ExitCode, expected: ExitCode) -> bool {
+        format!("{actual:?}") == format!("{expected:?}")
+    }
+
+    /// The helper above is only a real oracle while `Debug` separates the three
+    /// codes `run` returns. Asserted, not assumed.
+    #[test]
+    fn exit_code_rendering_distinguishes_the_codes_the_guard_returns() {
+        assert!(
+            same_exit_code(ExitCode::default(), ExitCode::SUCCESS),
+            "the survivor this file's `run` tests exist to kill is \
+             `Default::default()`, which is only dangerous because it IS \
+             SUCCESS — if that ever stops holding, those tests need rewriting"
+        );
+        for (left, right) in [(0u8, 1u8), (0, 2), (1, 2)] {
+            assert!(
+                !same_exit_code(ExitCode::from(left), ExitCode::from(right)),
+                "exit codes {left} and {right} must render differently, or \
+                 `same_exit_code` silently passes everything"
+            );
+        }
+    }
+
+    /// `run` is not a constant. Two argument shapes drive it to two DIFFERENT
+    /// exit codes, neither of them SUCCESS, so no constant-returning body —
+    /// `Default::default()` included — can satisfy both.
+    ///
+    /// The success branch is deliberately absent: `run` runs LAYER 2, which
+    /// shells out to `cargo deny` against the target tree's `Cargo.toml`, and a
+    /// staged fixture tree has none, so a "clean" tempdir cannot reach
+    /// `Verdict::Passed`. That branch is covered hermetically at the `verdict`
+    /// seam below, with LAYER 2 stubbed at its subprocess boundary. Stating the
+    /// gap beats faking it.
+    #[test]
+    fn run_returns_a_different_exit_code_for_each_failure_it_reports() {
+        assert!(
+            same_exit_code(run(vec!["--root".to_string()]), ExitCode::from(2)),
+            "`--root` with no directory argument is unusable input, which the \
+             `cargo xtask ci` contract distinguishes from a violation: it must \
+             exit 2"
+        );
+
+        let planted = every_layer_1_rule_violated_tree();
+        assert!(
+            same_exit_code(
+                run(vec![
+                    "--root".to_string(),
+                    planted.path().display().to_string(),
+                ]),
+                ExitCode::from(1),
+            ),
+            "a tree carrying planted violations must exit 1 — a guard that \
+             returns SUCCESS here is disarmed"
+        );
+    }
+
+    /// One marker per LAYER 1 rule, in `run`'s call order. Every message a rule
+    /// emits is prefixed with its own name, so a marker absent from the
+    /// aggregate's output means that rule is no longer wired into the guard —
+    /// the silent-disarm failure this whole block exists for.
+    const LAYER_1_RULE_MARKERS: [&str; 11] = [
+        "api≠HTML:",
+        "api≠ad-hoc-authz:",
+        "api≠mint:",
+        "JWT alg pin:",
+        "OIDC alg pin:",
+        "tenant-scoping:",
+        "single slugify:",
+        "no-static-lane-list:",
+        "asset-reference:",
+        "token-seam S1:",
+        "token-seam S2:",
+    ];
+
+    /// A tree that breaks every LAYER 1 rule at once. Each fixture body is the
+    /// planted violation from that rule's own gold test above, so this tree
+    /// tests AGGREGATION — that `run` still calls all eleven — and never
+    /// re-tests detection.
+    fn every_layer_1_rule_violated_tree() -> tempfile::TempDir {
+        stage(&[
+            (
+                "crates/foundry-api/src/issues.rs",
+                "pub fn h() -> Html<String> { Html(\"<p>nope</p>\".into()) }\n",
+            ),
+            (
+                "crates/foundry-api/src/authz.rs",
+                "async fn h(s: &S) { let _ = s.is_team_member(t, u).await; }\n",
+            ),
+            (
+                "crates/foundry-api/src/tokens.rs",
+                "async fn mint_handler(s: State<Services>) { let _ = s.mint_token(&signer, &p, input).await; }\n",
+            ),
+            (
+                "crates/foundry-auth/src/lib.rs",
+                "let v = Validation::new(JwtAlgorithm::EdDSA);\n",
+            ),
+            (
+                "crates/foundry-oidc/src/lib.rs",
+                "let v = Validation::new(JwtAlgorithm::RS256);\n",
+            ),
+            (
+                "crates/foundry-app/src/evil.rs",
+                "let ws = uuid::Uuid::parse_str(&params.workspace_id).unwrap();\n\
+                 let row = state.store.find_attachment_in_workspace(id, ws).await;\n",
+            ),
+            (
+                "crates/foundry-app/src/admin_tokens.rs",
+                "fn slugify(input: &str) -> String { input.to_lowercase() }\n",
+            ),
+            (
+                "crates/foundry-app/src/projects.rs",
+                "const COLS: &[&str] = &[\"Backlog\", \"Todo\", \"In-Progress\", \"Done\"];\n",
+            ),
+            (
+                "crates/foundry-app/templates/base.html",
+                "<link rel=\"stylesheet\" href=\"/static/css/deleted-by-a-rename.css\">\n",
+            ),
+            (
+                "crates/foundry-app/static/css/planted.css",
+                ".card { color: #ff0000; }\n",
+            ),
+        ])
+    }
+
+    /// LAYER 1 aggregates EVERY rule. A rule dropped from `source_violations`
+    /// disarms exactly as much of the guard as the `Default::default()`
+    /// survivor did, just more quietly — the eleven per-rule gold tests above
+    /// would all still pass.
+    #[test]
+    fn layer_1_aggregates_every_rule() {
+        let planted = every_layer_1_rule_violated_tree();
+        let found = source_violations(planted.path());
+        let unwired: Vec<&str> = LAYER_1_RULE_MARKERS
+            .into_iter()
+            .filter(|marker| !found.iter().any(|violation| violation.contains(marker)))
+            .collect();
+        assert!(
+            unwired.is_empty(),
+            "these LAYER 1 rules are no longer wired into the guard: {unwired:?} \
+             (reported: {found:?})"
+        );
+
+        let root = workspace_root();
+        assert!(
+            root.join("crates").join("foundry-app").join("src").is_dir(),
+            "ANTI-VACUITY. Every rule below scans a subdirectory of the root, so \
+             a root resolving to nothing makes all eleven silently pass — the \
+             same disarm as the `Default::default()` survivor, reached from the \
+             other end. The clean assertion that follows only means something \
+             once the root is known to hold the tree: {root:?}"
+        );
+        assert!(
+            source_violations(&root).is_empty(),
+            "the shipped tree must satisfy every LAYER 1 rule — the guard is \
+             self-applied (Principle 12c): {:?}",
+            source_violations(&root)
+        );
+    }
+
+    /// The verdict maps arguments plus BOTH layers onto a decision, and each
+    /// decision names its exit code. LAYER 2 is stubbed at its subprocess
+    /// boundary (`cargo deny`) — the one driven adapter here — which is what
+    /// makes the `Passed` branch reachable in a test at all.
+    #[test]
+    fn the_verdict_folds_both_layers_and_the_arguments_into_an_exit_code() {
+        fn layer_2_silent(_: &Path) -> Option<String> {
+            None
+        }
+        fn layer_2_rejects(_: &Path) -> Option<String> {
+            Some("dependency-direction: cargo-deny rejected the crate graph".to_string())
+        }
+
+        let clean = tempfile::tempdir().expect("tempdir");
+        let clean_args = vec!["--root".to_string(), clean.path().display().to_string()];
+        let planted = every_layer_1_rule_violated_tree();
+        let planted_args = vec!["--root".to_string(), planted.path().display().to_string()];
+
+        assert_eq!(
+            verdict_with(&clean_args, layer_2_silent),
+            Verdict::Passed,
+            "a tree that breaks no rule in either layer passes"
+        );
+        assert_eq!(
+            verdict_with(&clean_args, layer_2_silent).exit_code(),
+            0,
+            "a pass exits 0"
+        );
+
+        let layer_1 = verdict_with(&planted_args, layer_2_silent);
+        assert!(
+            matches!(&layer_1, Verdict::Violations(found) if !found.is_empty()),
+            "LAYER 1 violations reach the verdict: {layer_1:?}"
+        );
+        assert_eq!(layer_1.exit_code(), 1, "a violation exits 1");
+
+        let layer_2 = verdict_with(&clean_args, layer_2_rejects);
+        assert!(
+            matches!(&layer_2, Verdict::Violations(found)
+                if found.iter().any(|v| v.contains("cargo-deny rejected"))),
+            "LAYER 2's verdict must reach the exit code too — it is the half of \
+             the guard that no gold test can stage: {layer_2:?}"
+        );
+        assert_eq!(layer_2.exit_code(), 1, "a LAYER 2 violation also exits 1");
+
+        let unusable = verdict_with(&["--root".to_string()], layer_2_silent);
+        assert!(
+            matches!(&unusable, Verdict::UnparseableArguments(message)
+                if message.contains("--root requires a directory argument")),
+            "unusable arguments are their own verdict, not a violation: {unusable:?}"
+        );
+        assert_eq!(
+            unusable.exit_code(),
+            2,
+            "unusable input exits 2, so `cargo xtask ci` can tell a misinvoked \
+             guard from a failing one"
+        );
     }
 }
