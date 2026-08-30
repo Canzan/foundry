@@ -20,12 +20,31 @@
 //!   `scrollIntoView` assertion (AC-05.3) is deterministic rather than dependent
 //!   on the runner's screen.
 //!
-//! WAITS ARE CONDITIONS, NEVER SLEEPS. The only bounded wait exposed here is
-//! `wait_for_kb_ready`, a `wait().at_most()` on the `[data-kb-ready]` readiness
-//! marker (ADR-001). The one `sleep` in this file is in `wait_for_driver_ready`,
-//! which polls chromedriver's OWN `/status` endpoint — that is a poll interval on
-//! an explicit readiness condition for an external PROCESS, not a timing
-//! assumption about the app under test.
+//! WAITS ARE CONDITIONS, NEVER SLEEPS — AND THE CONDITION MUST MEAN WHAT THE
+//! CALLER NEEDS. Two families of bounded wait live here:
+//!
+//!   * `wait_for_kb_ready` — the `[data-kb-ready]` marker (ADR-001). It proves
+//!     THE KEYBOARD LAYER IS LIVE, and nothing else. `keyboard.js` loads from
+//!     `base.html`, which every template extends, so this marker is true on the
+//!     sign-in page too. Use it before pressing a key; never as a stand-in for
+//!     "we are on page X".
+//!   * `wait_for_page` / `wait_for_board_ready` — a marker that identifies ONE
+//!     page, panicking through `describe_wrong_page` with the URL, the document
+//!     title and whether a sign-in form is showing.
+//!
+//! The split is the fix for a real defect (2026-08-30). Step definitions had been
+//! using `wait_for_kb_ready` as a "the board has loaded" precondition. Because it
+//! passes everywhere, a sign-in whose trailing redirect clobbered the board
+//! navigation surfaced pages later as "the board must render the GEN-1 card" — a
+//! message naming a cause nobody had measured. Every failure mode told the same
+//! wrong story, so the browser lane was written off as an environmental flake for
+//! two features running. A test that cannot say why it failed costs more than it
+//! saves.
+//!
+//! The one `sleep` in this file is in `wait_for_driver_ready`, which polls
+//! chromedriver's OWN `/status` endpoint — that is a poll interval on an explicit
+//! readiness condition for an external PROCESS, not a timing assumption about the
+//! app under test.
 //!
 //! PROBE, THEN REFUSE — NEVER SKIP. A missing or version-skewed chromedriver
 //! makes this harness PANIC with an actionable diagnostic; it never `#[ignore]`s
@@ -581,6 +600,35 @@ pub async fn sign_in_through_browser(
         .click()
         .await
         .expect("submit the sign-in form");
+    // WAIT FOR THE SIGN-IN TO LAND — do not assume the click completed it.
+    //
+    // `submit_signin` answers 303 → `/`, and `dashboard_root` renders the
+    // authenticated shell. WebDriver's Element Click does NOT reliably block
+    // until that chain finishes: chromedriver returns once the click is
+    // dispatched and its navigation tracking has expired, so this function used
+    // to return with the POST still in flight. Every caller then immediately
+    // `goto`s a board — and the sign-in's own trailing redirect to `/` LANDS ON
+    // TOP of that board navigation, leaving the browser parked on the dashboard.
+    //
+    // Measured 2026-08-30 on `us-close-modal` with a page-specific oracle in
+    // place: 6 of 10 scenarios stranded at `http://127.0.0.1:PORT/`, title
+    // "Foundry", sign-in form ABSENT. The session was authenticated the whole
+    // time — the failure was never a bounce to /sign-in, it was this race, which
+    // reported itself as "the board must render the GEN-1 card" because the
+    // readiness wait in between (`[data-kb-ready]`) is true on every page.
+    //
+    // Waiting for `.app-shell` is the honest post-condition: only templates that
+    // require a session extend `app_shell.html` (`signin.html` extends
+    // `base.html` directly), so it appears exactly when the redirect chain has
+    // finished AND the app accepted the credentials. A refused sign-in re-renders
+    // the form, this wait expires, and `describe_wrong_page` says so outright
+    // instead of leaving a later step to misreport it.
+    wait_for_page(
+        client,
+        "the signed-in application shell",
+        Locator::Css(APP_SHELL_SELECTOR),
+    )
+    .await;
 }
 
 /// Translate a shortcut's HUMAN name — the name the help overlay advertises and
@@ -676,8 +724,153 @@ pub async fn focus_grabs(client: &fantoccini::Client) -> u64 {
         .expect("the focus-grab probe returns a count")
 }
 
+/// Where the browser ACTUALLY was when a page-specific wait expired — the three
+/// facts that separate "the page loaded but the feature is broken" from "we are
+/// not on that page at all".
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct WrongPage {
+    url: String,
+    title: String,
+    shows_sign_in_form: bool,
+}
+
+/// The panic text a page-specific wait carries. Kept a PURE function so the
+/// wording is under test without a browser: an oracle that cannot say WHY it
+/// failed is what let `[data-kb-ready]` mask a redirect-to-sign-in for two
+/// features running, and a wording regression would silently restore that.
+fn describe_wrong_page(
+    page_name: &str,
+    selector: &str,
+    timeout: Duration,
+    actual: &WrongPage,
+) -> String {
+    let cause = if actual.shows_sign_in_form {
+        "the page IS the sign-in form, so this session was NOT authenticated when the navigation \
+         ran and the app bounced it to /sign-in. Suspect the sign-in helper returning before the \
+         session cookie was set — not the page under test."
+    } else {
+        "no sign-in form is present, so the session WAS authenticated and the browser is on some \
+         other authenticated page than the expected one. Suspect the URL the step built, or a \
+         render that failed after auth."
+    };
+    format!(
+        "{page_name} never rendered: {selector} did not appear within {timeout:?}.\n  \
+         actually at url: {url}\n  \
+         actually showing title: {title}\n  \
+         sign-in form present: {shows_sign_in_form}\n  \
+         {cause}",
+        url = actual.url,
+        title = actual.title,
+        shows_sign_in_form = actual.shows_sign_in_form,
+    )
+}
+
+/// Read back the three facts [`describe_wrong_page`] reports. Best-effort by
+/// design: this only ever runs on a path that is already failing, so a WebDriver
+/// error here must not replace the diagnostic with a second, worse one.
+async fn capture_wrong_page(client: &fantoccini::Client) -> WrongPage {
+    WrongPage {
+        url: client
+            .current_url()
+            .await
+            .map(|u| u.to_string())
+            .unwrap_or_else(|err| format!("<could not read the current url: {err}>")),
+        title: client
+            .title()
+            .await
+            .unwrap_or_else(|err| format!("<could not read the document title: {err}>")),
+        // The sign-in form, not merely the path: a URL can be rewritten, and the
+        // rendered form is what actually proves the app refused the session.
+        shows_sign_in_form: client
+            .find(Locator::Css(SIGN_IN_FORM_SELECTOR))
+            .await
+            .is_ok(),
+    }
+}
+
+/// The shipped sign-in form (`signin.html:6`). The one DOM fact that separates
+/// "this session was never authenticated" from every other failure.
+const SIGN_IN_FORM_SELECTOR: &str = "form[action='/sign-in'] input[name='password']";
+
+/// The BOARD's own render-contract container: `board.html:11` emits
+/// `<div class="board" id="board-columns">`.
+///
+/// WHY NOT `[data-kb-ready]`, which the step definitions used as a "the board
+/// loaded" precondition until 2026-08-30: `keyboard.js` is loaded from
+/// `base.html:51`, which EVERY template extends — sign-in, forgot-password,
+/// invite-accept, the error pages — and it sets `dataset.kbReady`
+/// unconditionally at init. The marker is therefore true on every page in the
+/// app. Its ADR-001 contract, "the keyboard layer is live", is exactly right and
+/// stays; it simply never said anything about WHICH page, so a navigation that
+/// landed on the sign-in form satisfied it and the failure surfaced pages later
+/// as "the board must render the GEN-1 card".
+///
+/// WHY NOT `[data-column]`: a column is a LANE, emitted once per row of
+/// `columns` by `partials/board_columns.html`. board-lane-management ships lane
+/// deletion, so a board can legitimately render zero lanes — `[data-column]`
+/// would then time out on a board that loaded perfectly. `#board-columns` is
+/// emitted unconditionally by `board.html` and by no other template in the
+/// repository, so it is present exactly when the browser is on a board.
+pub const BOARD_READY_SELECTOR: &str = ".board#board-columns";
+
+/// The signed-in application shell (`app_shell.html:3`). Only templates that
+/// require a session extend it — `signin.html` extends `base.html` directly — so
+/// its presence is the app's own answer to "is this browser authenticated?".
+pub const APP_SHELL_SELECTOR: &str = ".app-shell";
+
+/// Bounded wait for a marker that identifies ONE page, panicking with
+/// [`describe_wrong_page`] — which names the URL, the title and whether a
+/// sign-in form is showing — when it never appears.
+///
+/// The diagnostic is the point. A wait whose failure message asserts a cause it
+/// never measured costs more than it saves.
+///
+/// Takes a `Locator` rather than a CSS string because not every page HAS a
+/// structural marker of its own: `bootstrap_dashboard.html` extends `base.html`
+/// with nothing but an `<h1>`, so its only honest marker is that heading's TEXT,
+/// which is XPath's job and CSS cannot express.
+pub async fn wait_for_page(client: &fantoccini::Client, page_name: &str, marker: Locator<'_>) {
+    if client
+        .wait()
+        .at_most(READY_TIMEOUT)
+        .for_element(marker)
+        .await
+        .is_ok()
+    {
+        return;
+    }
+    let described = match marker {
+        Locator::Css(selector) => format!("css {selector}"),
+        Locator::Id(id) => format!("id {id}"),
+        Locator::LinkText(text) => format!("link text {text:?}"),
+        Locator::XPath(path) => format!("xpath {path}"),
+    };
+    let actual = capture_wrong_page(client).await;
+    panic!(
+        "{}",
+        describe_wrong_page(page_name, &described, READY_TIMEOUT, &actual)
+    );
+}
+
+/// "We are on a project board, and it has rendered." The precondition every step
+/// that then looks for a card actually needs. See [`BOARD_READY_SELECTOR`].
+pub async fn wait_for_board_ready(client: &fantoccini::Client) {
+    wait_for_page(
+        client,
+        "the project board",
+        Locator::Css(BOARD_READY_SELECTOR),
+    )
+    .await;
+}
+
 /// Bounded wait on the ADR-001 `[data-kb-ready]` marker. The condition that says
 /// "the keyboard layer initialised" — pressed keys before this are a race.
+///
+/// NOTE what this does and does not prove. It proves the keyboard layer is live,
+/// which is its ADR-001 contract and is true on EVERY page in the app, sign-in
+/// included. It does NOT prove which page the browser is on. Steps that need
+/// "the board has loaded" want [`wait_for_board_ready`]; steps that are about to
+/// press a key want this.
 pub async fn wait_for_kb_ready(client: &fantoccini::Client) {
     client
         .wait()
@@ -712,6 +905,14 @@ mod tests {
     //! Behaviour budget: 1 behaviour (reap the parked driver) x 2 = 2 permitted;
     //! 1 authored, covering the empty slot, the parked child and the repeat call
     //! as states of that one behaviour.
+    //!
+    //! Plus the WRONG-PAGE DIAGNOSTIC (2026-08-30). `describe_wrong_page` is a
+    //! pure function and therefore its own driving port, so these are
+    //! port-to-port at domain scope with no browser in sight. Behaviour budget:
+    //! 2 behaviours (report where the browser actually was; attribute the cause
+    //! from the sign-in-form state) x 2 = 4 permitted; 2 authored, each
+    //! table-driven across BOTH sign-in states so neither arm is an untested
+    //! branch.
 
     use super::*;
 
@@ -778,6 +979,109 @@ mod tests {
         assert!(
             shutdown_chromedriver().is_none(),
             "reaping an empty slot is a no-op: teardown may run twice"
+        );
+    }
+
+    /// Both sign-in states, so the observable is the REPORTING, not one branch.
+    fn wrong_pages() -> [WrongPage; 2] {
+        [
+            WrongPage {
+                url: "http://127.0.0.1:53511/sign-in".to_string(),
+                title: "Sign in to Foundry".to_string(),
+                shows_sign_in_form: true,
+            },
+            WrongPage {
+                url: "http://127.0.0.1:53511/team/backend/project/sandbox".to_string(),
+                title: "Sandbox - Backend".to_string(),
+                shows_sign_in_form: false,
+            },
+        ]
+    }
+
+    /// BEHAVIOUR 1 — the diagnostic names WHERE the browser actually was.
+    ///
+    /// This is the whole defect. The wait that expired said only "the board must
+    /// render the GEN-1 card", which names a cause the evidence never supported
+    /// and reads identically whichever page the browser was stranded on. A
+    /// message that cannot be told apart between "the card is missing from the
+    /// board" and "we are looking at the sign-in form" is why this was filed as
+    /// an environmental flake for two features running.
+    #[test]
+    fn the_diagnostic_names_the_page_the_browser_was_actually_on() {
+        for actual in wrong_pages() {
+            let message = describe_wrong_page(
+                "the project board",
+                ".board#board-columns",
+                Duration::from_secs(10),
+                &actual,
+            );
+            assert!(
+                message.contains(&actual.url),
+                "the diagnostic must quote the URL the browser was actually at, \
+                 or the reader cannot tell a stranded navigation from a broken \
+                 render. got: {message}"
+            );
+            assert!(
+                message.contains(&actual.title),
+                "the diagnostic must quote the document title actually showing — \
+                 the one fact that names the page in the reader's own words. \
+                 got: {message}"
+            );
+            assert!(
+                message.contains("the project board") && message.contains(".board#board-columns"),
+                "the diagnostic must say what it was waiting FOR as well as what \
+                 it got. got: {message}"
+            );
+        }
+    }
+
+    /// BEHAVIOUR 2 — the diagnostic attributes the CAUSE from the sign-in state,
+    /// and the two attributions are different.
+    ///
+    /// A sign-in form on the page means the session was not authenticated when
+    /// the navigation ran; no sign-in form means it was, and the fault lies
+    /// elsewhere. Reporting the same sentence for both would be the original bug
+    /// with more words.
+    #[test]
+    fn the_diagnostic_attributes_the_cause_from_the_sign_in_state() {
+        let [stranded_on_sign_in, on_another_authenticated_page] = wrong_pages();
+        let bounced = describe_wrong_page(
+            "the project board",
+            ".board#board-columns",
+            Duration::from_secs(10),
+            &stranded_on_sign_in,
+        );
+        let authenticated = describe_wrong_page(
+            "the project board",
+            ".board#board-columns",
+            Duration::from_secs(10),
+            &on_another_authenticated_page,
+        );
+
+        assert!(
+            bounced.contains("sign-in form present: true"),
+            "the sign-in probe's answer must be stated outright, not left to be \
+             inferred from the URL. got: {bounced}"
+        );
+        assert!(
+            authenticated.contains("sign-in form present: false"),
+            "and stated in the negative case too, so its absence is evidence \
+             rather than an omission. got: {authenticated}"
+        );
+        assert_ne!(
+            bounced, authenticated,
+            "the two states must produce DIFFERENT readings. One message for \
+             every failure mode is exactly the vacuity being fixed"
+        );
+        assert!(
+            bounced.contains("NOT authenticated"),
+            "a sign-in form on the page has one meaning — the session was not \
+             authenticated — and the diagnostic must commit to it. got: {bounced}"
+        );
+        assert!(
+            !authenticated.contains("NOT authenticated"),
+            "and must NOT claim it when no sign-in form is present, or the \
+             attribution is noise. got: {authenticated}"
         );
     }
 }

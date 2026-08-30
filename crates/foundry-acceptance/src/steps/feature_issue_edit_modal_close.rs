@@ -73,6 +73,7 @@ async fn ensure_edit_dialog_open_in_browser(world: &mut FoundryWorld, issue_key:
     {
         return;
     }
+    browser_harness::wait_for_board_ready(browser).await;
     browser_harness::wait_for_kb_ready(browser).await;
     let card_selector = format!("[data-issue-key='{issue_key}']");
     browser

@@ -403,6 +403,11 @@ async fn open_new_issue_modal_by_pressing_c(world: &mut FoundryWorld) {
         .goto(&url)
         .await
         .expect("navigate to the AUTH board");
+    // The BOARD arrived, then the keyboard layer came up on it. Order
+    // matters: `[data-kb-ready]` is set on every page in the app, so on its
+    // own it cannot tell this board from the dashboard the sign-in redirect
+    // lands on.
+    browser_harness::wait_for_board_ready(browser).await;
     browser_harness::wait_for_kb_ready(browser).await;
     browser
         .find(Locator::Css("body"))
@@ -615,10 +620,18 @@ async fn viewing_dashboard(world: &mut FoundryWorld) {
     let url = dashboard_url(world);
     let browser = world.browser.as_ref().expect("browser session");
     browser.goto(&url).await.expect("navigate to the dashboard");
-    browser
-        .find(Locator::Css("h1"))
-        .await
-        .expect("the dashboard must render for a signed-in Mei");
+    // THIS page's own heading text, not "an `h1` exists" — `signin.html`
+    // renders an `h1` too, so the old check passed on the very page that means
+    // the navigation FAILED. `bootstrap_dashboard.html` extends `base.html`
+    // with nothing structural to match on (no `.app-shell`: it is deliberately
+    // outside the signed-in shell, which is the whole point of the no-modal-
+    // mount scenario), so its heading TEXT is the only honest marker it has.
+    browser_harness::wait_for_page(
+        browser,
+        "the bootstrap workspace dashboard",
+        Locator::XPath("//h1[normalize-space()='Workspace dashboard']"),
+    )
+    .await;
     assert!(
         browser
             .find_all(Locator::Css("#modal-root"))
@@ -724,6 +737,11 @@ async fn focused_search_by_pressing_slash(world: &mut FoundryWorld) {
         .goto(&url)
         .await
         .expect("navigate to the AUTH board");
+    // The BOARD arrived, then the keyboard layer came up on it. Order
+    // matters: `[data-kb-ready]` is set on every page in the app, so on its
+    // own it cannot tell this board from the dashboard the sign-in redirect
+    // lands on.
+    browser_harness::wait_for_board_ready(browser).await;
     browser_harness::wait_for_kb_ready(browser).await;
     browser
         .find(Locator::Css("body"))
@@ -1297,10 +1315,18 @@ async fn viewing_dashboard_no_project(world: &mut FoundryWorld) {
     let url = dashboard_url(world);
     let browser = world.browser.as_ref().expect("browser session");
     browser.goto(&url).await.expect("navigate to the dashboard");
-    browser
-        .find(Locator::Css("h1"))
-        .await
-        .expect("the dashboard must render for a signed-in Mei");
+    // THIS page's own heading text, not "an `h1` exists" — `signin.html`
+    // renders an `h1` too, so the old check passed on the very page that means
+    // the navigation FAILED. `bootstrap_dashboard.html` extends `base.html`
+    // with nothing structural to match on (no `.app-shell`: it is deliberately
+    // outside the signed-in shell, which is the whole point of the no-modal-
+    // mount scenario), so its heading TEXT is the only honest marker it has.
+    browser_harness::wait_for_page(
+        browser,
+        "the bootstrap workspace dashboard",
+        Locator::XPath("//h1[normalize-space()='Workspace dashboard']"),
+    )
+    .await;
     browser_harness::wait_for_kb_ready(browser).await;
     assert!(
         browser
@@ -1557,6 +1583,11 @@ async fn viewing_board_nothing_open(world: &mut FoundryWorld) {
         .goto(&url)
         .await
         .expect("navigate to the AUTH board");
+    // The BOARD arrived, then the keyboard layer came up on it. Order
+    // matters: `[data-kb-ready]` is set on every page in the app, so on its
+    // own it cannot tell this board from the dashboard the sign-in redirect
+    // lands on.
+    browser_harness::wait_for_board_ready(browser).await;
     browser_harness::wait_for_kb_ready(browser).await;
     assert_eq!(
         any_modal_count(browser).await,
@@ -1641,6 +1672,11 @@ async fn viewing_board_nothing_focused(world: &mut FoundryWorld) {
         .goto(&url)
         .await
         .expect("navigate to the AUTH board");
+    // The BOARD arrived, then the keyboard layer came up on it. Order
+    // matters: `[data-kb-ready]` is set on every page in the app, so on its
+    // own it cannot tell this board from the dashboard the sign-in redirect
+    // lands on.
+    browser_harness::wait_for_board_ready(browser).await;
     browser_harness::wait_for_kb_ready(browser).await;
     let (focused, _) = focused_field(browser).await;
     assert!(
@@ -1939,6 +1975,11 @@ async fn board_with_text_selected(world: &mut FoundryWorld, text: String) {
         .goto(&url)
         .await
         .expect("navigate to the AUTH board");
+    // The BOARD arrived, then the keyboard layer came up on it. Order
+    // matters: `[data-kb-ready]` is set on every page in the app, so on its
+    // own it cannot tell this board from the dashboard the sign-in redirect
+    // lands on.
+    browser_harness::wait_for_board_ready(browser).await;
     browser_harness::wait_for_kb_ready(browser).await;
     // Read back from `window.getSelection()` — the DOCUMENT's live selection, not
     // the Range object this script built — so the assertion below witnesses that
@@ -2249,6 +2290,11 @@ async fn help_overlay_open_over_board(world: &mut FoundryWorld) {
         .goto(&url)
         .await
         .expect("navigate to the AUTH board");
+    // The BOARD arrived, then the keyboard layer came up on it. Order
+    // matters: `[data-kb-ready]` is set on every page in the app, so on its
+    // own it cannot tell this board from the dashboard the sign-in redirect
+    // lands on.
+    browser_harness::wait_for_board_ready(browser).await;
     browser_harness::wait_for_kb_ready(browser).await;
     browser
         .find(Locator::Css("body"))
@@ -2474,6 +2520,11 @@ async fn viewing_board_showing_cards(world: &mut FoundryWorld) {
         .goto(&url)
         .await
         .expect("navigate to the AUTH board");
+    // The BOARD arrived, then the keyboard layer came up on it. Order
+    // matters: `[data-kb-ready]` is set on every page in the app, so on its
+    // own it cannot tell this board from the dashboard the sign-in redirect
+    // lands on.
+    browser_harness::wait_for_board_ready(browser).await;
     browser_harness::wait_for_kb_ready(browser).await;
     let order = visible_card_order(browser).await;
     for key in ["AUTH-3", "AUTH-2", "AUTH-1"] {
@@ -2501,6 +2552,11 @@ async fn select_first_visible_card(world: &mut FoundryWorld) {
         .goto(&url)
         .await
         .expect("navigate to the AUTH board");
+    // The BOARD arrived, then the keyboard layer came up on it. Order
+    // matters: `[data-kb-ready]` is set on every page in the app, so on its
+    // own it cannot tell this board from the dashboard the sign-in redirect
+    // lands on.
+    browser_harness::wait_for_board_ready(browser).await;
     browser_harness::wait_for_kb_ready(browser).await;
     press(browser, "j").await;
     let order = visible_card_order(browser).await;
@@ -2642,6 +2698,11 @@ async fn board_with_more_cards_than_fit(world: &mut FoundryWorld) {
         .goto(&url)
         .await
         .expect("navigate to the AUTH board");
+    // The BOARD arrived, then the keyboard layer came up on it. Order
+    // matters: `[data-kb-ready]` is set on every page in the app, so on its
+    // own it cannot tell this board from the dashboard the sign-in redirect
+    // lands on.
+    browser_harness::wait_for_board_ready(browser).await;
     browser_harness::wait_for_kb_ready(browser).await;
     let below = cards_below_the_fold(browser).await;
     assert!(
@@ -2906,6 +2967,11 @@ async fn has_selected_auth2(world: &mut FoundryWorld) {
         .goto(&url)
         .await
         .expect("navigate to the AUTH board");
+    // The BOARD arrived, then the keyboard layer came up on it. Order
+    // matters: `[data-kb-ready]` is set on every page in the app, so on its
+    // own it cannot tell this board from the dashboard the sign-in redirect
+    // lands on.
+    browser_harness::wait_for_board_ready(browser).await;
     browser_harness::wait_for_kb_ready(browser).await;
     // At `body`: Hiroshi is a pointer user and Mei is a sighted keyboard user —
     // neither has Tabbed anywhere, and the document-delegated listener needs no
@@ -3173,6 +3239,11 @@ async fn tabbed_to_focus_the_board(world: &mut FoundryWorld) {
         .goto(&url)
         .await
         .expect("navigate to the AUTH board");
+    // The BOARD arrived, then the keyboard layer came up on it. Order
+    // matters: `[data-kb-ready]` is set on every page in the app, so on its
+    // own it cannot tell this board from the dashboard the sign-in redirect
+    // lands on.
+    browser_harness::wait_for_board_ready(browser).await;
     browser_harness::wait_for_kb_ready(browser).await;
     let body = browser
         .find(Locator::Css("body"))
@@ -3463,6 +3534,11 @@ async fn viewing_board_with_auth2_selected(world: &mut FoundryWorld) {
         .goto(&url)
         .await
         .expect("navigate to the AUTH board");
+    // The BOARD arrived, then the keyboard layer came up on it. Order
+    // matters: `[data-kb-ready]` is set on every page in the app, so on its
+    // own it cannot tell this board from the dashboard the sign-in redirect
+    // lands on.
+    browser_harness::wait_for_board_ready(browser).await;
     browser_harness::wait_for_kb_ready(browser).await;
     assert_eq!(
         any_modal_count(browser).await,
@@ -3510,6 +3586,11 @@ async fn viewing_board_with_nothing_selected(world: &mut FoundryWorld) {
         .goto(&url)
         .await
         .expect("navigate to the AUTH board");
+    // The BOARD arrived, then the keyboard layer came up on it. Order
+    // matters: `[data-kb-ready]` is set on every page in the app, so on its
+    // own it cannot tell this board from the dashboard the sign-in redirect
+    // lands on.
+    browser_harness::wait_for_board_ready(browser).await;
     browser_harness::wait_for_kb_ready(browser).await;
     let cards = visible_card_order(browser).await;
     assert!(
@@ -3564,6 +3645,11 @@ async fn new_issue_modal_open_with_title_typed(world: &mut FoundryWorld) {
         .goto(&url)
         .await
         .expect("navigate to the AUTH board");
+    // The BOARD arrived, then the keyboard layer came up on it. Order
+    // matters: `[data-kb-ready]` is set on every page in the app, so on its
+    // own it cannot tell this board from the dashboard the sign-in redirect
+    // lands on.
+    browser_harness::wait_for_board_ready(browser).await;
     browser_harness::wait_for_kb_ready(browser).await;
     // The REAL `j`, so the ring is genuinely there and this precondition cannot be
     // Fixture Theater. Pressed AFTER the navigation and stamped on `window`: the
@@ -3810,6 +3896,11 @@ async fn has_opened_auth2_by_pressing_enter(world: &mut FoundryWorld) {
         .goto(&url)
         .await
         .expect("navigate to the AUTH board");
+    // The BOARD arrived, then the keyboard layer came up on it. Order
+    // matters: `[data-kb-ready]` is set on every page in the app, so on its
+    // own it cannot tell this board from the dashboard the sign-in redirect
+    // lands on.
+    browser_harness::wait_for_board_ready(browser).await;
     browser_harness::wait_for_kb_ready(browser).await;
     select_by_pressing_j(browser, "body", "AUTH-2").await;
     press(browser, "Enter").await;
@@ -3955,6 +4046,11 @@ async fn searched_and_selected_the_result(world: &mut FoundryWorld, query: Strin
         .goto(&url)
         .await
         .expect("navigate to the AUTH board");
+    // The BOARD arrived, then the keyboard layer came up on it. Order
+    // matters: `[data-kb-ready]` is set on every page in the app, so on its
+    // own it cannot tell this board from the dashboard the sign-in redirect
+    // lands on.
+    browser_harness::wait_for_board_ready(browser).await;
     browser_harness::wait_for_kb_ready(browser).await;
     install_error_probe(browser).await;
     assert_eq!(
@@ -4087,6 +4183,7 @@ async fn modal_is_the_pointer_path_modal(world: &mut FoundryWorld) {
         .goto(&url)
         .await
         .expect("reload the AUTH board for the pointer path");
+    browser_harness::wait_for_board_ready(browser).await;
     browser_harness::wait_for_kb_ready(browser).await;
     assert_eq!(
         any_modal_count(browser).await,
@@ -4570,6 +4667,7 @@ async fn every_listed_shortcut_is_bound(world: &mut FoundryWorld) {
         // A fresh board per key: no leftover layer from the previous press can
         // stand in for this one's effect.
         browser.goto(&url).await.expect("load the AUTH board");
+        browser_harness::wait_for_board_ready(browser).await;
         browser_harness::wait_for_kb_ready(browser).await;
         arrange_for(browser, key).await;
         let before = observable_state(browser).await;
@@ -4604,6 +4702,7 @@ async fn no_unadvertised_shortcut_is_bound(world: &mut FoundryWorld) {
             "\"{key}\" is on the advertised list, so it cannot be a probe for UNadvertised keys"
         );
         browser.goto(&url).await.expect("load the AUTH board");
+        browser_harness::wait_for_board_ready(browser).await;
         browser_harness::wait_for_kb_ready(browser).await;
         let before = observable_state(browser).await;
         press(browser, key).await;
