@@ -373,6 +373,20 @@
       "s": "SKIPPED",
       "d": "NOT_APPLICABLE: session-capability constructors and degradation scenarios against a real substrate, no Rust pure logic; the storage-refused mechanism was measured rather than assumed",
       "t": "2026-08-30T01:27:49Z"
+    },
+    {
+      "sid": "05-03",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-08-30T02:04:53Z"
+    },
+    {
+      "sid": "05-03",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-08-30T02:05:35Z"
     }
   ]
 }
