@@ -16,7 +16,7 @@ like tampering.**
 | Shape | Rows | What "verify" means |
 |---|---|---|
 | **Upstream-verbatim** | `vendor/htmx.min.js` | Re-download the pinned release, re-hash, compare. The blob IS the upstream artifact. |
-| **Authored-in-tree** | `css/foundry.<hash>.css` | Re-hash and compare with the filename — the hash IS the name. There is no upstream. |
+| **Authored-in-tree** | `css/foundry.<hash>.css`, `js/theme.js` | Re-hash and compare with the value recorded in the table. There is no upstream release to re-download. (For the CSS the hash is ALSO the filename; `theme.js` is unhashed, so the table row is the only record.) |
 | **Derived** (NEW, 04-01) | the three `fonts/*.woff2` | Two SEPARATE claims of different strength — see § Derived assets below. The blob is derived from a named upstream and is **not byte-identical to it**; re-hashing against an upstream digest fails BY DESIGN. |
 
 An auditor (or an air-gapped operator) can verify any row's committed bytes with
@@ -31,6 +31,7 @@ hash, re-run the acceptance suite. For a derived asset, re-run the recipe.
 |------|---------|------------------------|-----------------|--------|
 | `vendor/htmx.min.js` | htmx **2.0.4** (pinned latest-stable 2.0.x; step 04-01 migration) | https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js | 2026-06-04 | `e209dda5c8235479f3166defc7750e1dbcd5a5c1808b7792fc2e6733768fb447` |
 | `css/foundry.fe4eb31f.css` | hand-authored (this repo) | — (not vendored; authored in-tree) | 2026-08-29 | `fe4eb31f83b657da66383feeafce681c41ac47cb87c135fd1e1fae36fa4824ca` |
+| `js/theme.js` | hand-authored (this repo) — a two-value PORT of canzan-lift `src/ui/assets/theme.js`, NOT vendored from a release | — (not vendored; authored in-tree) | 2026-08-29 | `95a7ffdd0f97d75332fc988dc3a87d53ea758131eff31de48bde6000043e8813` |
 | `fonts/bricolage-grotesque.3bd3b180.woff2` | **derived** — `ateliertriay/bricolage@84745e5b` | github.com/ateliertriay/bricolage (OFL-1.1) | 2026-08-29 | `3bd3b180978a3c167fe394da73b34a5dca88b1107d8cb426b7e544a924e2a597` |
 | `fonts/public-sans.a2bd64e2.woff2` | **derived** — `uswds/public-sans@v2.001` | github.com/uswds/public-sans (OFL-1.1) | 2026-08-29 | `a2bd64e2c7420ec38a2c794be957e51347858940fd6f652c2fad7212c4caa7a2` |
 | `fonts/jetbrains-mono.4e194fb3.woff2` | **derived** — `JetBrains/JetBrainsMono@v2.304` | github.com/JetBrains/JetBrainsMono (OFL-1.1) | 2026-08-29 | `4e194fb3b563af1df4eac36952711cd30ad491e2c6122df81a370f6fc5d6266f` |
@@ -71,6 +72,26 @@ hash, re-run the acceptance suite. For a derived asset, re-run the recipe.
   above, and the hashed-name literals in the `foundry-app` cache-policy tests
   (`src/lib.rs`) — a split commit is red on those tests. The acceptance suite
   discovers the hashed name on disk, so it does not pin the literal.
+- **`js/theme.js` is AUTHORED-IN-TREE, not vendored and not derived** — do not
+  run the upstream-verbatim procedure on it, there is no release to re-download.
+  It is a PORT of canzan-lift's `src/ui/assets/theme.js` in which **exactly two
+  values differ**: `STORAGE_KEY` (`"foundry.theme"` rather than
+  `"canzan-lift.theme"`) and the mount selector (`.sidebar__user`, foundry's
+  vertical rail, rather than `nav.top-nav`, canzan-lift's horizontal strip).
+  Nothing else — not a comment, not a space. That two-line identity is the whole
+  basis of the future shared module (canzan-theme-system D-06): a third
+  divergence and the two files can never be merged into one parameterised
+  module. **Verify it, do not assume it**, with
+  `diff canzan-lift/src/ui/assets/theme.js crates/foundry-app/static/js/theme.js`
+  — the expected output is two changed lines and nothing else. A change to this
+  file that is not also made in canzan-lift is a review-blocking divergence.
+- `theme.js` stays **UNHASHED** under `/static/js/`, like the four other
+  app-owned IIFEs, and therefore takes `no-cache` (revalidate) rather than the
+  immutable policy the hashed CSS gets. That costs ONE conditional GET before
+  first paint — a latency cost, never a flash risk, because the tag is
+  render-blocking and the browser blocks rather than paints. It is also the only
+  head script in `base.html` with no `defer`/`async`/`type="module"`; see the
+  comment above the tag, and the acceptance scenario that asserts its shape.
 - Re-verify a hash with: `shasum -a 256 crates/foundry-app/static/vendor/<file>`.
 
 ## Derived assets — the three canzan typefaces (ADR-CANZAN-THEME-001 / -002)

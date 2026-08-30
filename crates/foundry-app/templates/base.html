@@ -24,6 +24,27 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
+{# canzan-theme-system 05-01 — THE ONE SCRIPT IN THIS HEAD THAT MUST NOT DEFER.
+   Read this before you touch the line below it.
+
+   `theme.js` stamps `data-theme` on <html> from the operator's stored choice.
+   That has to happen BEFORE the first paint, or an operator who chose dark sees
+   a white flash on every single navigation. A plain external <script> in <head>
+   is render-blocking by specification, which is exactly the property being used
+   here: the browser BLOCKS rather than paints, so the attribute is always on the
+   document before the body is painted.
+
+   `defer`, `async` and `type="module"` all defer execution past parsing — each
+   one reintroduces the flash, and each one does so SILENTLY: every test that
+   looks at the settled page still passes. Copying the five neighbouring tags is
+   therefore the single most likely mistake in this file, which is why the
+   acceptance suite asserts this tag's SHAPE in the served HTML (scenario
+   "A chosen dark screen never flashes light", assertion (a)) rather than trying
+   to infer it from timing.
+
+   The other five below are correct as they are: they act on the settled DOM and
+   have nothing to say before paint. Do not make this one match them. #}
+<script src="/static/js/theme.js"></script>
 <script src="/static/vendor/htmx.min.js" defer></script>
 <script src="/static/js/board-dnd.js" defer></script>
 <script src="/static/js/csrf-upload.js" defer></script>

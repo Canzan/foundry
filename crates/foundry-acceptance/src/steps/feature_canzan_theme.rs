@@ -1409,14 +1409,41 @@ async fn then_the_lane_columns_and_the_issue_cards_occupy_the(world: &mut Foundr
     );
 }
 
+/// A PRECONDITION, asserted rather than assumed. A fresh session starts with an
+/// empty origin, but "starts empty" is exactly the kind of thing that quietly
+/// stops being true (a reused profile, a shared user-data-dir); if it ever did,
+/// this scenario would be measuring the stored-choice path while claiming to
+/// measure the never-chosen one. The origin has to be reached before
+/// `localStorage` exists at all, hence the navigation.
 #[given(regex = r"^the operator has never used the theme control$")]
-async fn given_the_operator_has_never_used_the_theme_control(_world: &mut FoundryWorld) {
-    scaffold("the operator has never used the theme control");
+async fn given_the_operator_has_never_used_the_theme_control(world: &mut FoundryWorld) {
+    let stored = read_stored_choice_at_the_origin(world).await;
+    assert!(
+        stored.is_none(),
+        "the origin already holds the theme choice {stored:?} before the operator has touched \
+         the control, so this scenario would exercise the stored-choice path instead of the \
+         never-chosen one it is written for"
+    );
 }
 
+/// THE assertion this scenario exists for. "Following the device" must be the
+/// ABSENCE of `data-theme`, not a third written value: the stylesheet's dark
+/// block is `@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) }`,
+/// so a document carrying `data-theme="system"` would still match it TODAY and
+/// look correct — while `:root[data-theme="light"]` would silently stop being
+/// reachable the day anyone tightened the guard. Absence is the mechanism, so
+/// absence is what is asserted.
 #[then(regex = r"^the document records no theme choice at all$")]
-async fn then_the_document_records_no_theme_choice_at_all(_world: &mut FoundryWorld) {
-    scaffold("the document records no theme choice at all");
+async fn then_the_document_records_no_theme_choice_at_all(world: &mut FoundryWorld) {
+    let recorded = document_theme_choice(browser_of(world)).await;
+    assert!(
+        recorded.is_none(),
+        "the document carries data-theme={recorded:?}. Following the device has to be the ABSENCE \
+         of the attribute — that absence is what re-arms the stylesheet's \
+         `@media (prefers-color-scheme: dark)` block, and a third written value looks right in \
+         the control while breaking dark-by-device for every operator who never touched it \
+         (theme.js `apply()`)"
+    );
 }
 
 #[given(regex = r"^the control shows that foundry is following her device$")]
@@ -1439,34 +1466,196 @@ async fn then_on_each_step_the_page_repaints_to_the_palette(_world: &mut Foundry
     scaffold("on each step the page repaints to the palette the control names");
 }
 
+/// A LIGHT device plus a stored dark choice — the combination that makes both
+/// scenarios discriminate. On a dark device the media block alone would paint
+/// ink and the assertions would hold whether or not the stored choice was ever
+/// read, so the light baseline is re-asserted here for the same reason the
+/// oracle probe exists.
 #[given(regex = r"^the operator has chosen dark while her device prefers light$")]
-async fn given_the_operator_has_chosen_dark_while_her_device_prefers(_world: &mut FoundryWorld) {
-    scaffold("the operator has chosen dark while her device prefers light");
+async fn given_the_operator_has_chosen_dark_while_her_device_prefers(world: &mut FoundryWorld) {
+    let browser = browser_harness::new_session().await;
+    assert!(
+        !browser_harness::device_prefers_dark(&browser).await,
+        "a session with NO stated device preference reports that it prefers dark — this scenario \
+         means to drive a LIGHT device, and on a dark one the media block would paint ink whether \
+         or not the operator's stored choice was ever read"
+    );
+    world.browser = Some(browser);
+    store_theme_choice(world, "dark").await;
+    let stored = read_stored_choice_at_the_origin(world).await;
+    assert_eq!(
+        stored.as_deref(),
+        Some("dark"),
+        "the dark choice did not survive being written to the origin, so nothing below would be \
+         measuring persistence"
+    );
 }
 
+/// Three real navigations on one session: a template that is NOT the board, the
+/// signed-in landing, and a full reload. Each is a fresh document, so each one
+/// re-runs `theme.js` from `<head>` against the choice held on the origin — the
+/// point being that nothing carries the theme between them except localStorage.
 #[when(regex = r"^she opens the change report, then the dashboard, then reloads$")]
-async fn when_she_opens_the_change_report_then_the_dashboard_then(_world: &mut FoundryWorld) {
-    scaffold("she opens the change report, then the dashboard, then reloads");
+async fn when_she_opens_the_change_report_then_the_dashboard_then(world: &mut FoundryWorld) {
+    let browser = world
+        .browser
+        .take()
+        .expect("a browser session must have been opened first");
+    sign_in_and_settle(&browser, world).await;
+    open_the_change_report(&browser, world).await;
+    open_the_signed_in_dashboard(&browser, world).await;
+    browser.refresh().await.expect("reload the dashboard");
+    wait_for(&browser, DASHBOARD_WITNESS, "the reloaded dashboard").await;
+    world.browser = Some(browser);
 }
 
+/// The reloaded dashboard is measured LIVE, exactly as the `When` left it — that
+/// is the reload arm. The change report is then re-opened and measured in its
+/// own right rather than remembered from the `When`, which is sound precisely
+/// because the claim under test is that the choice lives on the ORIGIN: every
+/// load of every screen is independent and must reach the same answer.
 #[then(regex = r"^every one of those screens renders in the dark palette$")]
-async fn then_every_one_of_those_screens_renders_in_the_dark(_world: &mut FoundryWorld) {
-    scaffold("every one of those screens renders in the dark palette");
+async fn then_every_one_of_those_screens_renders_in_the_dark(world: &mut FoundryWorld) {
+    let browser = browser_of(world);
+    assert_document_renders_in(browser, DARK, "the dashboard after a reload").await;
+    open_the_change_report(browser, world).await;
+    assert_document_renders_in(browser, DARK, "the change report").await;
 }
 
 #[when(regex = r"^she navigates to any foundry screen$")]
-async fn when_she_navigates_to_any_foundry_screen(_world: &mut FoundryWorld) {
-    scaffold("she navigates to any foundry screen");
+async fn when_she_navigates_to_any_foundry_screen(world: &mut FoundryWorld) {
+    let browser = world
+        .browser
+        .take()
+        .expect("a browser session must have been opened first");
+    sign_in_and_settle(&browser, world).await;
+    open_the_signed_in_dashboard(&browser, world).await;
+    world.browser = Some(browser);
 }
 
+/// ASSERTION (a) — THE LOAD-BEARING ONE, AND IT IS A SOURCE-LEVEL FACT.
+///
+/// It reads the SERVED HTML and asserts the shape of the tag: a `<script>` in
+/// `<head>` pointing at `theme.js`, carrying none of `defer`, `async`,
+/// `type="module"`. Every one of those three defers execution past parsing;
+/// every one of them reintroduces the flash; and every one of them does so
+/// while leaving the settled page — and therefore every other assertion in this
+/// suite — completely green. DISCUSS named copying the five neighbouring tags
+/// as the single most likely regression in this feature.
+///
+/// It is deliberately NOT written as a timing measurement. Implemented that way
+/// it would be indistinguishable from assertion (b) below, and the only
+/// DETERMINISTIC guard against that regression would be gone: (b) passes by luck
+/// on a fast loopback even with a deferred script. Do not "unify" the two.
+///
+/// The five neighbours are asserted too, in the opposite direction. Without that
+/// arm this would still pass on a head where NOTHING defers — which is a
+/// different bug, and would leave "the only one of six that must not" as a claim
+/// nothing checks.
 #[then(regex = r"^the theme is settled before the browser is permitted to paint$")]
-async fn then_the_theme_is_settled_before_the_browser_is_permitted(_world: &mut FoundryWorld) {
-    scaffold("the theme is settled before the browser is permitted to paint");
+async fn then_the_theme_is_settled_before_the_browser_is_permitted(world: &mut FoundryWorld) {
+    let served = served_dashboard_html(world).await;
+    let head_scripts = head_scripts(&served);
+    assert!(
+        head_scripts.len() >= 2,
+        "the served page declares {} script(s) in <head> — the parse is not seeing the document \
+         shell, so anything asserted about the theme tag would be vacuous",
+        head_scripts.len()
+    );
+
+    let (src, deferring_attributes) = head_scripts
+        .iter()
+        .find(|(src, _)| src.ends_with(THEME_SCRIPT_PATH))
+        .unwrap_or_else(|| {
+            panic!(
+                "no <script> in <head> references {THEME_SCRIPT_PATH}. The theme attribute has to \
+                 be stamped on <html> BEFORE first paint, which is what a render-blocking tag in \
+                 the head buys; moved to the foot of the body it lands after the page is already \
+                 painted and a dark-preferring operator sees a white flash on every navigation. \
+                 Head scripts found: {head_scripts:?}"
+            )
+        });
+    assert!(
+        deferring_attributes.is_empty(),
+        "the `{src}` tag carries {deferring_attributes:?} — each of those defers execution past \
+         parsing, so the attribute lands AFTER the browser has painted and the flash this \
+         scenario exists to forbid is back. It is the ONE script in this head that must not have \
+         them; the comment above the tag in base.html says why. Do not copy its neighbours."
+    );
+
+    let deferred_neighbours = head_scripts
+        .iter()
+        .filter(|(src, attrs)| !src.ends_with(THEME_SCRIPT_PATH) && !attrs.is_empty())
+        .count();
+    assert_eq!(
+        deferred_neighbours,
+        head_scripts.len() - 1,
+        "{} of the {} other head script(s) do not defer. The claim under test is that theme.js is \
+         the ONE exception; on a head where nothing defers, the assertion above would hold for the \
+         wrong reason. Head scripts found: {head_scripts:?}",
+        head_scripts.len() - 1 - deferred_neighbours,
+        head_scripts.len() - 1
+    );
+
+    let recorded = document_theme_choice(browser_of(world)).await;
+    assert_eq!(
+        recorded.as_deref(),
+        Some("dark"),
+        "the served tag is right but the document does not carry the operator's dark choice, so \
+         the script is in the head and doing nothing"
+    );
 }
 
+/// ASSERTION (b) — A SUPPORTING MEASUREMENT, AND IT STAYS ONE.
+///
+/// Reads the browser's own resource timing and paint timing: the theme script's
+/// `responseEnd` against the `first-contentful-paint` entry. HONEST LIMIT: on a
+/// loopback origin this can pass BY LUCK even with a deferred script, so it can
+/// produce a false GREEN. It cannot produce a false RED, which is why it is
+/// worth having — but it is never promoted to load-bearing, and assertion (a)
+/// above is never deleted in its favour. See feature-delta
+/// § Flash-of-wrong-theme oracle: the first-frame gap is recorded, not papered
+/// over.
 #[then(regex = r"^the theme script finished loading before the screen first painted$")]
-async fn then_the_theme_script_finished_loading_before_the_screen_first(_world: &mut FoundryWorld) {
-    scaffold("the theme script finished loading before the screen first painted");
+async fn then_the_theme_script_finished_loading_before_the_screen_first(world: &mut FoundryWorld) {
+    let timings = browser_of(world)
+        .execute(
+            "var needle = arguments[0];
+             var script = performance.getEntriesByType('resource').filter(function (entry) {
+               return entry.name.indexOf(needle) !== -1;
+             });
+             var paint = performance.getEntriesByType('paint').filter(function (entry) {
+               return entry.name === 'first-contentful-paint';
+             });
+             return [
+               script.length ? script[0].responseEnd : null,
+               paint.length ? paint[0].startTime : null
+             ];",
+            vec![serde_json::Value::String(THEME_SCRIPT_PATH.to_string())],
+        )
+        .await
+        .expect("read the browser's resource and paint timing");
+    let row = timings.as_array().expect("the probe returns a pair");
+    let fetched = row[0].as_f64().unwrap_or_else(|| {
+        panic!(
+            "the browser recorded no resource-timing entry for {THEME_SCRIPT_PATH} — the script \
+             was never fetched on this navigation, so it cannot have settled the theme"
+        )
+    });
+    let painted = row[1].as_f64().unwrap_or_else(|| {
+        panic!(
+            "the browser recorded no first-contentful-paint entry, so this supporting measurement \
+             could not be taken at all"
+        )
+    });
+    assert!(
+        fetched <= painted,
+        "the theme script finished at {fetched:.1}ms but the screen first painted at \
+         {painted:.1}ms — it arrived {:.1}ms too late, so the operator saw a frame in the wrong \
+         palette. (Supporting measurement; the deterministic guard is the served-tag shape \
+         asserted above.)",
+        fetched - painted
+    );
 }
 
 #[given(regex = r"^a browser session with scripting disabled whose device preference is dark$")]
@@ -1500,9 +1689,20 @@ async fn then_nothing_is_reported_to_the_operator(_world: &mut FoundryWorld) {
     scaffold("nothing is reported to the operator");
 }
 
+/// A value outside the three-word vocabulary — the shape a stale release, a
+/// hand-edited origin or a future rename would leave behind. Read back after
+/// writing: if the write had silently failed the origin would hold nothing, and
+/// the scenario would collapse into the never-chosen one while still passing.
 #[given(regex = r"^the stored theme choice is a value foundry does not recognise$")]
-async fn given_the_stored_theme_choice_is_a_value_foundry_does(_world: &mut FoundryWorld) {
-    scaffold("the stored theme choice is a value foundry does not recognise");
+async fn given_the_stored_theme_choice_is_a_value_foundry_does(world: &mut FoundryWorld) {
+    store_theme_choice(world, UNRECOGNISED_THEME_CHOICE).await;
+    let stored = read_stored_choice_at_the_origin(world).await;
+    assert_eq!(
+        stored.as_deref(),
+        Some(UNRECOGNISED_THEME_CHOICE),
+        "the unrecognised choice is not on the origin, so this scenario would be exercising the \
+         never-chosen path and asserting nothing about normalisation"
+    );
 }
 
 #[given(regex = r"^the control shows that foundry is following the device$")]
@@ -1572,12 +1772,14 @@ const PROJECT_SLUG: &str = "sandbox";
 const PROJECT_KEY_PREFIX: &str = "GEN";
 const WAIT_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// The storage key `theme.js` will read when the three-state control ships at
-/// slice 04. Until then the choice is carried across the sign-in navigation by
-/// [`apply_stored_theme_choice`], a HARNESS SHIM — the production carrier does
-/// not exist yet, and this slice's subject is the stylesheet's two dark blocks,
-/// not the persistence. Delete the shim at 04-01, when theme.js does this for
-/// real before first paint.
+/// The key `static/js/theme.js` reads and writes — one of the TWO values that
+/// differ between foundry's copy and canzan-lift's (D-06). Every step below
+/// writes the operator's choice through this key and then lets the PRODUCTION
+/// script apply it: the harness shim that used to re-stamp `data-theme` after
+/// each navigation was DELETED at 05-01, when theme.js started doing it for
+/// real from `<head>` before first paint. Nothing in this module writes the
+/// attribute any more, so "the document records a theme choice" is an outcome
+/// of production code rather than of the test.
 const THEME_STORAGE_KEY: &str = "foundry.theme";
 
 /// The canzan token contract (`docs/feature/canzan-theme-system/intake.md`),
@@ -2029,29 +2231,6 @@ async fn sign_in_and_settle(browser: &fantoccini::Client, world: &FoundryWorld) 
     }
 }
 
-/// HARNESS SHIM (see [`THEME_STORAGE_KEY`]). Re-stamp the operator's stored
-/// choice onto the document after a navigation, because the production carrier
-/// — `theme.js`, which does this from `<head>` before first paint — ships at
-/// slice 04. What is under test here is the stylesheet's `[data-theme]` block
-/// and the `:not([data-theme="light"])` guard on the media block; the attribute
-/// is the PRECONDITION those rules react to, never the outcome asserted.
-async fn apply_stored_theme_choice(browser: &fantoccini::Client) {
-    browser
-        .execute(
-            "var choice = null;
-             try { choice = window.localStorage.getItem(arguments[0]); } catch (err) { choice = null; }
-             if (choice === 'dark' || choice === 'light') {
-               document.documentElement.setAttribute('data-theme', choice);
-             } else {
-               document.documentElement.removeAttribute('data-theme');
-             }
-             return choice;",
-            vec![serde_json::Value::String(THEME_STORAGE_KEY.to_string())],
-        )
-        .await
-        .expect("re-apply the stored theme choice after navigation");
-}
-
 /// Record the operator's explicit choice on the origin, before she navigates.
 async fn store_theme_choice(world: &mut FoundryWorld, choice: &str) {
     let browser = world
@@ -2077,6 +2256,183 @@ async fn store_theme_choice(world: &mut FoundryWorld, choice: &str) {
     world.browser = Some(browser);
 }
 
+/// The served path of the theme control, as `base.html` references it. The tag
+/// carrying it is the one head script that must stay render-blocking.
+const THEME_SCRIPT_PATH: &str = "/static/js/theme.js";
+
+/// A stored value outside `theme.js`'s three-word vocabulary
+/// (`system` / `light` / `dark`), which `ORDER.indexOf(value) === -1`
+/// normalises back to "system".
+const UNRECOGNISED_THEME_CHOICE: &str = "midnight-neon";
+
+/// The witness each screen is waited on before anything is measured, so a
+/// navigation that 404'd or redirected away fails HERE rather than contributing
+/// a blank document to a palette assertion.
+const DASHBOARD_WITNESS: &str = ".dash .card-grid .card a";
+const REPORT_WITNESS: &str = "section.change-report[data-change-report]";
+
+/// The project change report — a template that is NOT the board and NOT the
+/// dashboard, which is the whole reason the persistence scenario visits it.
+fn report_url(world: &FoundryWorld) -> String {
+    format!("{}/report", board_url(world))
+}
+
+async fn wait_for(browser: &fantoccini::Client, selector: &str, what: &str) {
+    browser
+        .wait()
+        .at_most(WAIT_TIMEOUT)
+        .for_element(Locator::Css(selector))
+        .await
+        .unwrap_or_else(|err| panic!("{what} never rendered `{selector}`: {err}"));
+}
+
+async fn open_the_change_report(browser: &fantoccini::Client, world: &FoundryWorld) {
+    let url = report_url(world);
+    browser
+        .goto(&url)
+        .await
+        .expect("navigate to the project change report");
+    wait_for(browser, REPORT_WITNESS, "the change report").await;
+}
+
+/// The signed-in landing, for a session that is ALREADY signed in — unlike
+/// [`land_on_dashboard`], which signs in first.
+async fn open_the_signed_in_dashboard(browser: &fantoccini::Client, world: &FoundryWorld) {
+    let base = world
+        .harness
+        .as_ref()
+        .expect("harness")
+        .base_url()
+        .to_string();
+    browser
+        .goto(&format!("{base}/"))
+        .await
+        .expect("navigate to the dashboard");
+    wait_for(browser, DASHBOARD_WITNESS, "the dashboard").await;
+}
+
+/// The choice `theme.js` will read on the next navigation, read back out of the
+/// origin's own storage. Reaches the origin first when the session is not on it
+/// — `localStorage` does not exist before a document does.
+async fn read_stored_choice_at_the_origin(world: &FoundryWorld) -> Option<String> {
+    let browser = world
+        .browser
+        .as_ref()
+        .expect("a browser session must have been opened first");
+    let base = world
+        .harness
+        .as_ref()
+        .expect("harness")
+        .base_url()
+        .to_string();
+    let here = browser
+        .current_url()
+        .await
+        .map(|url| url.to_string())
+        .unwrap_or_default();
+    if !here.starts_with(&base) {
+        browser
+            .goto(&format!("{base}/sign-in"))
+            .await
+            .expect("reach the origin before reading the storage bound to it");
+    }
+    let value = browser
+        .execute(
+            "try { return window.localStorage.getItem(arguments[0]); } catch (err) { return null; }",
+            vec![serde_json::Value::String(THEME_STORAGE_KEY.to_string())],
+        )
+        .await
+        .expect("read the stored theme choice");
+    value.as_str().map(str::to_string)
+}
+
+/// What the DOCUMENT says the operator chose — `None` when the attribute is
+/// absent, which is `theme.js`'s "follow the device" state and the thing the
+/// stylesheet's `:not([data-theme="light"])` guard is written against.
+async fn document_theme_choice(client: &fantoccini::Client) -> Option<String> {
+    let value = client
+        .execute(
+            "return document.documentElement.getAttribute('data-theme');",
+            Vec::new(),
+        )
+        .await
+        .expect("read data-theme off the document");
+    value.as_str().map(str::to_string)
+}
+
+/// The palette assertion for a screen that has no rail and no lanes: the
+/// DOCUMENT frame, which every one of foundry's templates shares. Asserts the
+/// recorded choice as well as the resolved colours — on its own, "the page is
+/// dark" would also hold for a dark DEVICE, and these scenarios drive a light
+/// one precisely so the stored choice is the only thing that can explain it.
+async fn assert_document_renders_in(client: &fantoccini::Client, palette: Palette, what: &str) {
+    let recorded = document_theme_choice(client).await;
+    assert_eq!(
+        recorded.as_deref(),
+        Some(palette.name),
+        "{what} carries data-theme={recorded:?} instead of the {} the operator chose — the choice \
+         is being held in the page rather than on the origin, so it evaporates on the first \
+         navigation",
+        palette.name
+    );
+    assert_resolved_colours(
+        client,
+        palette,
+        &[
+            ("html", "background-color", palette.bg),
+            ("html", "color", palette.text),
+            ("body", "background-color", palette.bg),
+        ],
+    )
+    .await;
+}
+
+/// The dashboard AS SERVED, over HTTP — raw markup, not the browser's
+/// serialisation of it. Assertion (a) is a claim about what foundry SENDS.
+async fn served_dashboard_html(world: &FoundryWorld) -> String {
+    let outcome = {
+        let harness = world.harness.as_ref().expect("harness");
+        let http = world.http.as_ref().expect("http");
+        signed_in_get(harness, http, MEI_EMAIL, MEI_PASSWORD, "/").await
+    };
+    assert_eq!(
+        outcome.status,
+        reqwest::StatusCode::OK,
+        "requesting the signed-in dashboard returned {} instead of 200 — nothing below can read \
+         the served markup",
+        outcome.status
+    );
+    outcome.body
+}
+
+/// Every `<script src>` in the served `<head>`, paired with the attributes that
+/// would DEFER its execution past parsing. All three defeat the render-blocking
+/// property the theme tag depends on, so all three are collected together.
+fn head_scripts(body: &str) -> Vec<(String, Vec<String>)> {
+    let doc = scraper::Html::parse_document(body);
+    let selector = scraper::Selector::parse("head script[src]").expect("valid selector");
+    doc.select(&selector)
+        .map(|el| {
+            let src = el.value().attr("src").unwrap_or_default().to_string();
+            let mut deferring = Vec::new();
+            if el.value().attr("defer").is_some() {
+                deferring.push("defer".to_string());
+            }
+            if el.value().attr("async").is_some() {
+                deferring.push("async".to_string());
+            }
+            if el
+                .value()
+                .attr("type")
+                .is_some_and(|value| value.eq_ignore_ascii_case("module"))
+            {
+                deferring.push("type=\"module\"".to_string());
+            }
+            (src, deferring)
+        })
+        .collect()
+}
+
 /// Sign in and land on the Sandbox board in `browser`, with any stored choice
 /// re-applied.
 async fn land_on_board(browser: &fantoccini::Client, world: &FoundryWorld) {
@@ -2098,7 +2454,6 @@ async fn land_on_board(browser: &fantoccini::Client, world: &FoundryWorld) {
         landed.starts_with(&url),
         "opening the board landed on {landed} instead of {url} — the surface redirected away."
     );
-    apply_stored_theme_choice(browser).await;
 }
 
 /// The board, opened in the session the scenario's Given already created.
@@ -2133,7 +2488,6 @@ async fn land_on_dashboard(browser: &fantoccini::Client, world: &FoundryWorld) {
         .for_element(Locator::Css(".dash .card-grid .card a"))
         .await
         .expect("the dashboard must render the project card the Background seeded");
-    apply_stored_theme_choice(browser).await;
 }
 
 /// The sign-in screen — one of the fifteen templates extending `base.html`
@@ -2157,7 +2511,6 @@ async fn land_on_sign_in(browser: &fantoccini::Client, world: &FoundryWorld) {
         ))
         .await
         .expect("the sign-in screen must render its form");
-    apply_stored_theme_choice(browser).await;
 }
 
 /// Walk all five surface groups in ONE session and return every opaque colour
@@ -2216,7 +2569,6 @@ async fn walk_every_surface(
                      there and passed over a surface it never saw: {err}"
                 )
             });
-        apply_stored_theme_choice(browser).await;
         merge_painted(&mut painted, surface, painted_opaque_colours(browser).await);
 
         // The shortcut list is not a URL: it is the overlay `?` lays over the

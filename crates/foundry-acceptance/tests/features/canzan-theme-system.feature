@@ -293,7 +293,7 @@ Feature: foundry follows the light the operator's environment asks for
   # S04 — one control, three states  (US-CTS-04)
   # ==========================================================================
 
-  @needs-browser @real-io @slice4 @us-cts-04 @pending
+  @needs-browser @real-io @slice4 @us-cts-04
   Scenario: An operator who has never chosen a theme is not given one
     # The mechanism written in two files. "Following the device" must be the ABSENCE
     # of a choice on the document, not a third written value — the stylesheet's
@@ -317,7 +317,7 @@ Feature: foundry follows the light the operator's environment asks for
     Then it moves to light, then to dark, then back to following her device
     And on each step the page repaints to the palette the control names
 
-  @needs-browser @real-io @slice4 @us-cts-04 @pending
+  @needs-browser @real-io @slice4 @us-cts-04
   Scenario: A chosen theme survives navigation and reload
     # Chains directly onto the cycle above: the operator is left on dark-by-choice.
     # RED-trigger: the choice is held in the page rather than on the origin, so it
@@ -326,7 +326,7 @@ Feature: foundry follows the light the operator's environment asks for
     When she opens the change report, then the dashboard, then reloads
     Then every one of those screens renders in the dark palette
 
-  @needs-browser @real-io @slice4 @us-cts-04 @kpi @pending
+  @needs-browser @real-io @slice4 @us-cts-04 @kpi
   Scenario: A chosen dark screen never flashes light
     # KPI 2. TWO assertions, deliberately: the first is the deterministic backstop,
     # the second the outcome measurement.
@@ -380,7 +380,7 @@ Feature: foundry follows the light the operator's environment asks for
     Then the sign-in screen renders in the dark palette
     And nothing is reported to the operator
 
-  @needs-browser @real-io @slice4 @us-cts-04 @error @pending
+  @needs-browser @real-io @slice4 @us-cts-04 @error
   Scenario: A stored choice that means nothing is treated as no choice at all
     # RED-trigger: an unrecognised stored value is applied verbatim, leaving the
     # document in a state no palette matches — a screen with no theme rather than
