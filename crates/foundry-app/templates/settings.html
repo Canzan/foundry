@@ -1,21 +1,6 @@
 {% extends "app_shell.html" %}
 {% block title %}Notification settings{% endblock %}
 {% block app_content %}
-<style>
-  /* On-page notification (toast) — the action feedback surface, distinct from the
-     per-workspace mute state below. Empty until an htmx mute/resubscribe fills it. */
-  #toast:empty { display: none; }
-  .toast { display: flex; align-items: center; gap: .75rem; margin: 0 0 1rem;
-           padding: .6rem .9rem; border: 1px solid #b6d4c2; border-radius: 6px;
-           background: #eafaf1; color: #14532d; }
-  .toast__msg { margin: 0; }
-  .toast__close { margin-left: auto; border: 0; background: transparent; cursor: pointer;
-                  font-size: 1.25rem; line-height: 1; color: inherit; }
-  #settings-rows { list-style: none; padding: 0; }
-  #settings-rows li { display: flex; align-items: center; gap: .75rem;
-                      padding: .4rem 0; }
-  .settings-row__form { margin: 0 0 0 auto; }
-</style>
 <main>
 <h1>Notification settings</h1>
 <div id="toast" role="status" aria-live="polite"></div>

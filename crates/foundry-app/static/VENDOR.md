@@ -30,7 +30,7 @@ hash, re-run the acceptance suite. For a derived asset, re-run the recipe.
 | File | Version | Upstream canonical URL | Retrieved (UTC) | sha256 |
 |------|---------|------------------------|-----------------|--------|
 | `vendor/htmx.min.js` | htmx **2.0.4** (pinned latest-stable 2.0.x; step 04-01 migration) | https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js | 2026-06-04 | `e209dda5c8235479f3166defc7750e1dbcd5a5c1808b7792fc2e6733768fb447` |
-| `css/foundry.64398394.css` | hand-authored (this repo) | — (not vendored; authored in-tree) | 2026-08-29 | `64398394a48e051b63ff50bb20e8de2afca29d8c3c5b2772514b0cee6e738865` |
+| `css/foundry.6296815a.css` | hand-authored (this repo) | — (not vendored; authored in-tree) | 2026-08-30 | `6296815a6b668801290e36c8e90452a6c39b19d2e1dc66c0a2122d6b7f128445` |
 | `js/theme.js` | hand-authored (this repo) — a two-value PORT of canzan-lift `src/ui/assets/theme.js`, NOT vendored from a release | — (not vendored; authored in-tree) | 2026-08-29 | `95a7ffdd0f97d75332fc988dc3a87d53ea758131eff31de48bde6000043e8813` |
 | `fonts/bricolage-grotesque.3bd3b180.woff2` | **derived** — `ateliertriay/bricolage@84745e5b` | github.com/ateliertriay/bricolage (OFL-1.1) | 2026-08-29 | `3bd3b180978a3c167fe394da73b34a5dca88b1107d8cb426b7e544a924e2a597` |
 | `fonts/public-sans.a2bd64e2.woff2` | **derived** — `uswds/public-sans@v2.001` | github.com/uswds/public-sans (OFL-1.1) | 2026-08-29 | `a2bd64e2c7420ec38a2c794be957e51347858940fd6f652c2fad7212c4caa7a2` |
@@ -59,9 +59,9 @@ hash, re-run the acceptance suite. For a derived asset, re-run the recipe.
   every page load to do nothing. The client keyboard layer that replaced the
   intent is `static/js/keyboard.js` — one app-owned vanilla IIFE, no framework.
   htmx remains the only vendored runtime dependency.
-- `foundry.64398394.css` is hand-authored and served as-authored (gzip via the
+- `foundry.6296815a.css` is hand-authored and served as-authored (gzip via the
   `compression-gzip` tower-http feature handles the wire size); no CSS minifier
-  is introduced (DB6). **The `.64398394.` segment is the content hash** (first 8
+  is introduced (DB6). **The `.6296815a.` segment is the content hash** (first 8
   hex of the file's sha256) per ADR-B03 / assets.md Decision #4 option 4a: the
   hash IS the cache key, so the blanket `Cache-Control: ...immutable` on `/static`
   is safe even though the file is hand-edited — an edit changes the hash, changes

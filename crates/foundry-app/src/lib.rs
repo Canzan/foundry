@@ -326,7 +326,7 @@ mod static_cache_policy_tests {
         // Content-hashed CSS + pinned vendored libs stay long-lived immutable
         // (their URLs are content-addressed / version-pinned).
         assert!(
-            static_cache_control_value("/static/css/foundry.64398394.css").contains("immutable")
+            static_cache_control_value("/static/css/foundry.6296815a.css").contains("immutable")
         );
         assert!(static_cache_control_value("/static/vendor/htmx.min.js").contains("immutable"));
     }
@@ -343,7 +343,7 @@ mod static_cache_policy_tests {
         // a year at exactly the URLs that can never change to bust the cache.
         // Repairing the origin did not clear them.
         for path in [
-            "/static/css/foundry.64398394.css",
+            "/static/css/foundry.6296815a.css",
             "/static/vendor/htmx.min.js",
             "/static/js/board-dnd.js",
         ] {
@@ -362,7 +362,7 @@ mod static_cache_policy_tests {
         // A success still gets the full path-aware policy — the fix must not
         // quietly disable immutable caching for the assets that earn it.
         assert!(
-            static_cache_control_value_for(StatusCode::OK, "/static/css/foundry.64398394.css")
+            static_cache_control_value_for(StatusCode::OK, "/static/css/foundry.6296815a.css")
                 .contains("immutable")
         );
         assert_eq!(

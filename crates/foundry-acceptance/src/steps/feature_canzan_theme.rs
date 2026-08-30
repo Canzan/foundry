@@ -1,17 +1,20 @@
 //! canzan-theme-system — the theme lane's step definitions.
 //!
-//! SCAFFOLD: true
+//! FULLY IMPLEMENTED as of step 05-03. DISTILL authored the scenarios and left
+//! every step standing on a `scaffold()` panic behind an `@pending` tag, which
+//! `acceptance.rs::filter_run` excludes from EVERY lane; DELIVER un-pended them
+//! ONE AT A TIME, in slice order, starting with the oracle probe. The last two
+//! (the degraded lanes) went green in 05-03, the `@pending` tags are gone, and
+//! the `scaffold()` helper is gone with them — its removal is the compiler's own
+//! proof that no step is still standing on it.
 //!
-//! RED-READY SCAFFOLD, authored by DISTILL. Every step below panics with an
-//! actionable message naming the step it stands for. Every scenario in
-//! `tests/features/canzan-theme-system.feature` carries `@pending`, and
-//! `acceptance.rs::filter_run` excludes `@pending` from EVERY lane — so this
-//! module compiles and links but executes nothing until DELIVER un-pends a
-//! scenario. Un-pend ONE AT A TIME, in slice order, starting with the oracle
-//! probe. When a scenario is un-pended its steps must be RED (a panic from a
-//! real assertion), never BROKEN (an undefined step). `fail_on_skipped()` is on:
-//! an undefined step FAILS the run rather than silently skipping, which is the
-//! property that stops this lane going green over nothing.
+//! `fail_on_skipped()` is on, so an undefined step FAILS the run rather than
+//! silently skipping. That is the property that stops this lane going green over
+//! nothing, and it stays on.
+//!
+//! The DISTILL obligations below are kept as the record of WHY the three
+//! instruments are built the way they are — each one names a way this lane could
+//! have gone green while measuring nothing.
 //!
 //! ==========================================================================
 //! DELIVER OBLIGATION 1 — THE DEVICE-PREFERENCE ORACLE (blocking, do first)
@@ -171,23 +174,6 @@ use cucumber::{given, then, when};
 use fantoccini::Locator;
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
-
-/// RED-scaffold marker. Panics — which the runner classifies as RED (the
-/// implementation is missing), not BROKEN (the test is). Every step below stands
-/// on this until DELIVER replaces it with a real assertion.
-///
-/// Panicking rather than returning is deliberate: a step that quietly returns
-/// would let an un-pended scenario pass while asserting nothing, which is the
-/// failure mode this whole lane is built to refuse.
-fn scaffold(step: &str) -> ! {
-    panic!(
-        "__SCAFFOLD__ canzan-theme-system: step not yet implemented -- {step}\n  \
-         DISTILL authored this scenario; DELIVER implements the step and un-pends \
-         the scenario. See the module header for the three DELIVER obligations \
-         (device-preference oracle, storage-refused session, computed contrast) \
-         and the recorded first-frame gap."
-    )
-}
 
 /// Open a DARK-DEVICE session and REFUSE to continue unless the browser agrees.
 ///
@@ -1715,35 +1701,208 @@ async fn then_the_theme_script_finished_loading_before_the_screen_first(world: &
     );
 }
 
+/// The no-JS × dark corner. The DARK half is what makes the scenario
+/// discriminate at all: with a light device it would pass whether or not the
+/// device-driven palette works, because the light palette is what an unthemed
+/// page renders anyway.
+///
+/// Both capabilities are PROBED, not believed, and the two probes fail for
+/// different reasons on purpose. `device_prefers_dark` is the oracle guard every
+/// dark-by-device Given carries. The scripting guard is asserted on the page
+/// itself in the Then, where `[data-kb-ready]` can be looked for — asserting it
+/// here would need a navigation the When owns.
 #[given(regex = r"^a browser session with scripting disabled whose device preference is dark$")]
 async fn given_a_browser_session_with_scripting_disabled_whose_device_preference(
-    _world: &mut FoundryWorld,
+    world: &mut FoundryWorld,
 ) {
-    scaffold("a browser session with scripting disabled whose device preference is dark");
+    let browser = browser_harness::new_dark_session_without_scripting().await;
+    assert!(
+        browser_harness::device_prefers_dark(&browser).await,
+        "a scripting-disabled session opened with --force-dark-mode reports \
+         window.matchMedia('(prefers-color-scheme: dark)').matches == false. The two capabilities \
+         must COMPOSE: without the dark half this scenario would render the light palette and \
+         pass anyway, since an unthemed page is light. Do NOT weaken this assertion. See \
+         support/browser_harness.rs::ColorScheme."
+    );
+    world.browser = Some(browser);
 }
 
+/// The control is built in JS (`static/js/theme.js:100` creates the button and
+/// mounts it at `.sidebar__user`), so with scripting off it is ABSENT rather than
+/// present-but-dead — which would be the worse outcome, an affordance that looks
+/// live and does nothing.
+///
+/// Two anti-vacuity guards, because "no control" is trivially satisfiable by a
+/// screen that failed to render. The rail must be PRESENT (the shell is
+/// server-rendered and does not depend on script to exist, NFR-4), and
+/// `[data-kb-ready]` must be ABSENT (`keyboard.js` never ran, so scripting is
+/// really off). Without the second, a session that silently kept scripting on
+/// would fail here loudly instead of greening a no-JS claim it never tested.
+///
+/// D-01b: this is foundry's SECOND scripting-disabled scenario. It asserts what
+/// this screen does, not a blanket no-JS guarantee the project has never made.
 #[then(regex = r"^no theme control is present anywhere on the screen$")]
-async fn then_no_theme_control_is_present_anywhere_on_the_screen(_world: &mut FoundryWorld) {
-    scaffold("no theme control is present anywhere on the screen");
-}
-
-#[given(
-    regex = r"^a browser session that refuses access to site storage, whose device preference is dark$"
-)]
-async fn given_a_browser_session_that_refuses_access_to_site_storage(_world: &mut FoundryWorld) {
-    scaffold(
-        "a browser session that refuses access to site storage, whose device preference is dark",
+async fn then_no_theme_control_is_present_anywhere_on_the_screen(world: &mut FoundryWorld) {
+    let browser = browser_of(world);
+    assert!(
+        count_of(browser, ".sidebar__user").await > 0,
+        "the rail did not render, so `no theme control` would hold over a screen that has no \
+         chrome at all — the app shell is server-rendered and must exist with scripting off (NFR-4)"
+    );
+    assert_eq!(
+        count_of(browser, browser_harness::KB_READY_SELECTOR).await,
+        0,
+        "{} is present with scripting disabled — the browser ran keyboard.js, so scripting is NOT \
+         actually off and this scenario would prove nothing about the no-JS path",
+        browser_harness::KB_READY_SELECTOR
+    );
+    for selector in [
+        ".theme-toggle",
+        "[data-theme-control]",
+        "[data-action='cycle-theme']",
+    ] {
+        assert_eq!(
+            count_of(browser, selector).await,
+            0,
+            "`{selector}` is present with scripting disabled — the control is built in JS and \
+             mounted at `.sidebar__user`, so switching scripting off must leave it ABSENT. A \
+             server-rendered control would sit there looking live and do nothing, which is worse \
+             than not being there."
+        );
+    }
+    let named = browser
+        .execute(
+            "var hits = [];
+             var nodes = document.querySelectorAll('button, a, [role=button], input');
+             for (var i = 0; i < nodes.length; i++) {
+               var name = ((nodes[i].getAttribute('aria-label') || '') + ' ' + nodes[i].textContent).toLowerCase();
+               if (name.indexOf('theme') !== -1) { hits.push(name.trim().slice(0, 60)); }
+             }
+             return hits;",
+            Vec::new(),
+        )
+        .await
+        .expect("sweep the no-JS board for a theme-named control");
+    let named = named.as_array().expect("the sweep returns an array");
+    assert!(
+        named.is_empty(),
+        "the no-JS board carries {} control(s) whose accessible name names the theme: {:?} — the \
+         selector sweep above would have missed a control mounted under a different class",
+        named.len(),
+        named
     );
 }
 
-#[when(regex = r"^the operator opens the sign-in screen$")]
-async fn when_the_operator_opens_the_sign_in_screen(_world: &mut FoundryWorld) {
-    scaffold("the operator opens the sign-in screen");
+/// The storage-refused session: scripting stays ON so `theme.js` genuinely runs
+/// and its stored-choice READ genuinely throws. That read is the guard with a
+/// real consequence — unguarded, the script dies where it stands and takes the
+/// device-driven palette down on EVERY page for that operator.
+///
+/// THE REFUSAL IS PROBED AGAINST THE REAL ORIGIN, and it has to be: Chrome's
+/// site-data setting is per-origin, so a probe on `about:blank` would exercise no
+/// content setting at all and report success. Hence the navigation here — without
+/// this guard the scenario degrades into a second copy of the plain dark sign-in
+/// scenario, passing whether or not storage is refused.
+#[given(
+    regex = r"^a browser session that refuses access to site storage, whose device preference is dark$"
+)]
+async fn given_a_browser_session_that_refuses_access_to_site_storage(world: &mut FoundryWorld) {
+    let browser = browser_harness::new_dark_session_refusing_site_storage().await;
+    assert!(
+        browser_harness::device_prefers_dark(&browser).await,
+        "a storage-refused session opened with --force-dark-mode reports \
+         window.matchMedia('(prefers-color-scheme: dark)').matches == false. The two capabilities \
+         must COMPOSE — measured together, they do. See support/browser_harness.rs::SiteStorage."
+    );
+    let base = world
+        .harness
+        .as_ref()
+        .expect("the HTTP Background must have spawned the harness")
+        .base_url()
+        .to_string();
+    browser
+        .goto(&format!("{base}/sign-in"))
+        .await
+        .expect("navigate to the origin so the site-data content setting is in force");
+    let outcome = browser
+        .execute(
+            "try { localStorage.getItem('probe'); return 'READ_OK'; }
+             catch (err) { return 'THREW:' + err.name; }",
+            Vec::new(),
+        )
+        .await
+        .expect("probe stored-state access at the real origin");
+    assert_eq!(
+        outcome.as_str(),
+        Some("THREW:SecurityError"),
+        "reading stored state at the origin returned {outcome:?} instead of throwing \
+         SecurityError, so site storage is NOT actually refused and this scenario would be a \
+         second copy of the plain dark sign-in one — green whether or not the read guard exists. \
+         The pref is `profile.default_content_setting_values.cookies = 2`, measured under \
+         chromedriver 151 against a real http:// origin."
+    );
+    world.browser = Some(browser);
 }
 
+/// The sign-in screen, reached BY NECESSITY: refusing site data also refuses the
+/// session cookie, so no signed-in screen exists under this capability. That is
+/// the same construction that leaves the WRITE guard with no scenario at all —
+/// the control mounts only inside the rail, the rail renders only when signed in.
+/// See the feature-delta § Divergences.
+#[when(regex = r"^the operator opens the sign-in screen$")]
+async fn when_the_operator_opens_the_sign_in_screen(world: &mut FoundryWorld) {
+    let browser = world
+        .browser
+        .take()
+        .expect("a browser session must have been opened first");
+    land_on_sign_in(&browser, world).await;
+    world.browser = Some(browser);
+}
+
+/// "Nothing is reported" — asserted against the browser's OWN record of unhandled
+/// script errors, armed as a session capability before the first navigation so it
+/// sees an error thrown while `theme.js` is still being parsed.
+///
+/// THEN THE RECORDER IS PROVED TO WORK, on this very session, right after the
+/// assertion it just satisfied. "No errors were recorded" is exactly what a
+/// recorder that records nothing at all would say, so a deliberate uncaught throw
+/// follows and must come back. Without that second arm this Then is the emptiest
+/// kind of green.
 #[then(regex = r"^nothing is reported to the operator$")]
-async fn then_nothing_is_reported_to_the_operator(_world: &mut FoundryWorld) {
-    scaffold("nothing is reported to the operator");
+async fn then_nothing_is_reported_to_the_operator(world: &mut FoundryWorld) {
+    let browser = browser_of(world);
+    let reported = browser_harness::unhandled_script_errors(browser).await;
+    assert!(
+        reported.is_empty(),
+        "the browser recorded {} unhandled script error(s) while the storage-refused screen \
+         loaded:\n  - {}\nThe stored-choice read is supposed to be guarded: it throws, the catch \
+         returns \"follow the device\", and nothing surfaces. An unguarded read kills the script \
+         where it stands and takes the device-driven palette down on every page for this operator.",
+        reported.len(),
+        reported.join("\n  - ")
+    );
+
+    browser
+        .execute(
+            "setTimeout(function () { throw new Error('__RECORDER_PROBE__'); }, 0); return null;",
+            Vec::new(),
+        )
+        .await
+        .expect("fire a deliberate uncaught error at the recorder");
+    let deadline = Instant::now() + WAIT_TIMEOUT;
+    let mut seen: Vec<String> = Vec::new();
+    while Instant::now() < deadline {
+        seen.extend(browser_harness::unhandled_script_errors(browser).await);
+        if seen.iter().any(|line| line.contains("__RECORDER_PROBE__")) {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    panic!(
+        "a deliberate uncaught error was thrown and the recorder did not report it, so the \
+         assertion above passed over an instrument that records NOTHING — `nothing was reported` \
+         would hold on a page that reported everything. Recorded instead: {seen:?}"
+    );
 }
 
 /// A value outside the three-word vocabulary — the shape a stale release, a

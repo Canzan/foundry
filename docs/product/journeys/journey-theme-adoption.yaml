@@ -1,0 +1,386 @@
+# Product SSOT — journeys.
+#
+# Bootstrapped by the canzan-theme-system DISCUSS wave (2026-08-29). This
+# directory did not exist before; board-lane-management's Prior Wave
+# Consultation table records it as absent. Shape follows what jobs.yaml
+# established: one YAML file, a provenance comment that says what is real and
+# what is not, ids that other artifacts can reference, and a `validated_by`
+# pointer back to the feature-delta that produced it.
+#
+# Prior features are deliberately NOT retro-journeyed. This file starts with
+# the one journey this wave actually mapped.
+
+schema_version: "0.1"
+
+journeys:
+  - id: journey-theme-adoption
+    title: Work a late triage session in the light the room needs
+    persona: persona-instance-operator
+    job: job-canzan-theme
+    platform: web
+    validated_by: docs/feature/canzan-theme-system/feature-delta.md
+
+    goal: >
+      Open foundry, read and act on the board, and move between its screens —
+      all of it rendered at a light level that suits the room, in canzan's own
+      palette and typography, without the operator having to think about theme
+      at all unless she wants to.
+
+    emotional_arc:
+      pattern: Problem Relief
+      start: >
+        Braced. She knows what the click will produce — a #ffffff page at
+        23:40 — and she has pre-flinched for it every night for months. Low
+        expectation, mild resentment: this is the tool that was never
+        finished.
+      middle: >
+        Surprised, then curious. The page arrives dark without her asking. She
+        notices the rail is dark too — the thing half-done dark modes always
+        get wrong — and starts looking for what else changed. Curiosity, not
+        vigilance.
+      end: >
+        At home, and in control. The board is legible, foundry looks like
+        canzan, and the one decision she might still want to make (overrule
+        the device tonight) has a visible control that can also hand the
+        decision back.
+      transition_rules:
+        - No jarring step. Every step either preserves the previous palette or
+          changes it in direct response to a press she just made.
+        - The single positive-to-negative risk in the whole journey is a
+          light flash at step 4 (navigation). It is designed out, not warned
+          about, because a warning is not available on a repaint.
+        - Confidence builds by surface count: board, then rail, then dialog,
+          then overlay, then dashboard. Each screen that is already correct
+          when she arrives raises the expectation for the next.
+
+    steps:
+      - id: 1
+        name: Arrive
+        action: >
+          Priya opens https://foundry.internal/team/backend/project/identity-platform
+          at 23:40 on a machine whose OS is set to Dark.
+        mockup: |
+          +-- browser -------------------------------------------------------+
+          | ####  Canzan Labs        Backlog        In-Progress      Done     |
+          | ####  ------------                                                |
+          | ####  Home              +-------------+  +-------------+          |
+          | ####  Board  <-active   | AUTH-7      |  | AUTH-3      |          |
+          | ####                    | Rotate JWKS |  | LLDAP sync  |          |
+          | ####  ------------      +-------------+  +-------------+          |
+          | ####  Priya Raman       +-------------+                           |
+          | ####  Notifications     | AUTH-12     |                           |
+          | ####  Keyboard shortcuts| Token audit |                           |
+          | ####  [Sign out]        +-------------+                           |
+          | ####  ${theme-control}  <-- step 3 adds this; absent until then   |
+          +-------------------------------------------------------------------+
+          #### = the rail. Today it paints #fbfbfc regardless of the OS.
+          After US-CTS-01 the whole frame paints on ${cz-bg} = #0a0c0b.
+        emotional_state:
+          entry: Braced for glare
+          exit: Surprised; the flinch was unnecessary
+        shared_artifacts:
+          - cz-token-contract
+          - css-content-hash
+        integration_checkpoint: >
+          The rail, the board and the cards all resolve their colours from the
+          same token block. A surface that paints light here is not "a rule we
+          missed" — it is a rule that never used a token at all (46 such
+          literals exist today).
+        failure_modes:
+          - The rail stays #fbfbfc beside a #0a0c0b content area — a white
+            stripe down the left of a dark app. This is the default outcome if
+            only the already-tokenised rules are re-pointed.
+          - A pair passes by eye and fails by measurement (--cz-faint at body
+            size fails 4.5:1 in both palettes; see feature-delta D-04).
+
+      - id: 2
+        name: Read and act
+        action: >
+          She presses `j` twice to walk to AUTH-12, presses Enter to open it,
+          reads it, presses Esc, then presses `?` for the shortcut list.
+        mockup: |
+          +-- board, dark, AUTH-12 selected ---------------------------------+
+          |  +=============+   <-- 2px jade outline, offset 2px              |
+          |  # AUTH-12     #       ${cz-jade} #62c9a6 on ${cz-bg} #0a0c0b    |
+          |  # Token audit #       = 9.74:1. A SHAPE change, not a fill —    |
+          |  +=============+       survives forced-colours mode.             |
+          +-------------------------------------------------------------------+
+          +-- ? overlay, over the dark board --------------------------------+
+          |  Keyboard shortcuts                                              |
+          |   [j] next card      [k] previous card                           |
+          |   [?] this list      [c] new issue                               |
+          |  keycaps: JetBrains Mono on ${cz-line} #1f2523                   |
+          +-------------------------------------------------------------------+
+        emotional_state:
+          entry: Curious
+          exit: Trusting — the selection ring is still the thing she knows
+        shared_artifacts:
+          - render-contract
+          - cz-token-contract
+        integration_checkpoint: >
+          Geometry is unchanged. `j`/`k` still walk `[data-column] article.issue-card`
+          in the same order; the ring is still an outline (never a background),
+          so it still costs no layout space and still reads without colour.
+        failure_modes:
+          - The overlay paints #ffffff over a dark board — the classic
+            half-done dark mode, and the single most visible one because `?`
+            is a reflex.
+          - The ring's contrast is re-derived from the wrong pair. Its
+            existing rationale in the stylesheet cites #2452c9 on #ffffff at
+            ~7:1; jade on paper is 5.08:1 and jade on ink is 9.74:1. The
+            comment becomes false unless rewritten.
+
+      - id: 3
+        name: Overrule the device
+        action: >
+          On a different night her OS is on Light (her design tooling needs
+          it). She presses the control at the foot of the rail three times.
+        mockup: |
+          press 0        press 1        press 2        press 3
+          +----------+   +----------+   +----------+   +----------+
+          | ◐ System |-> | ☀ Light  |-> | ☾ Dark   |-> | ◐ System |
+          +----------+   +----------+   +----------+   +----------+
+           no attribute   data-theme=    data-theme=    no attribute
+           OS decides     "light"        "dark"         OS decides
+           page: light    page: light    page: DARK     page: light
+
+          accessible name at press 2:
+            "Theme: dark. Switch to system."
+          accessible name at press 3:
+            "Theme: following your device. Switch to light."
+        emotional_state:
+          entry: Mildly annoyed (the device is answering the wrong question)
+          exit: In control — including the control to stop controlling it
+        shared_artifacts:
+          - data-theme-attribute
+          - theme-storage-key
+          - theme-state-vocabulary
+          - toggle-mount-selector
+        integration_checkpoint: >
+          "system" REMOVES the attribute rather than writing a third value.
+          That is one mechanism with the stylesheet's
+          `:root:not([data-theme="light"])` guard inside the media query —
+          absence is what hands the decision back to the device. Changing
+          either half alone silently breaks system-follow.
+        failure_modes:
+          - A two-state toggle ships instead of three; once pressed, the
+            device can never be handed the decision back.
+          - The mount selector does not match, so the script returns early and
+            no control appears — silently, by design. Nothing on screen says
+            the feature shipped.
+          - The control renders on the 11 app-shell screens and not on the 15
+            that extend base.html directly. Deliberate (see feature-delta
+            D-08) but must be stated, not discovered.
+
+      - id: 4
+        name: Move through the app
+        action: >
+          Still on Dark-by-choice with a Light OS, she clicks "Change report",
+          then Home, then reloads.
+        mockup: |
+          nav 1: /report        nav 2: /  (dashboard)     reload
+          +------------------+  +---------------------+  +------------------+
+          | ink, jade rules  |  | ink cards, AUTH in  |  | ink, unchanged   |
+          | mono timestamps  |  | jade mono keycap    |  | choice survived  |
+          +------------------+  +---------------------+  +------------------+
+             ^ zero frames of light in any of the three
+        emotional_state:
+          entry: Expectant
+          exit: Settled — she stops thinking about theme entirely
+        shared_artifacts:
+          - data-theme-attribute
+          - theme-storage-key
+          - brand-chrome-colour
+        integration_checkpoint: >
+          THE critical checkpoint of this journey. `theme.js` is a plain
+          render-blocking <script> in <head> — no defer, no async, no module —
+          so `data-theme` is on <html> before the body is painted. Any change
+          that makes it non-blocking converts every navigation into a white
+          flash for exactly the operators the feature exists for.
+        failure_modes:
+          - The tag acquires `defer` (matching the five existing <head>
+            scripts, all of which correctly carry it) and the flash returns.
+            This is the likeliest regression in the whole feature, because the
+            surrounding lines all look like the thing to copy.
+          - localStorage throws (site data blocked). The mode must still apply
+            for the session; only persistence is lost.
+
+      - id: 5
+        name: Come back without scripting
+        action: >
+          She opens the same board from a hardened profile with JavaScript
+          disabled.
+        mockup: |
+          +-- board, scripting disabled -------------------------------------+
+          | rail, board, cards: painted by prefers-color-scheme alone        |
+          | (no data-theme is ever stamped)                                  |
+          |                                                                  |
+          | foot of rail: (nothing)   <-- the control does not exist,        |
+          |                               rather than existing dead          |
+          +-------------------------------------------------------------------+
+        emotional_state:
+          entry: Resigned to a degraded page
+          exit: Unbothered — nothing is broken, only absent
+        shared_artifacts:
+          - toggle-mount-selector
+        integration_checkpoint: >
+          The button is built in JS, never server-rendered. The affordance
+          therefore exists exactly when something can service it. This is what
+          makes the degradation free rather than conditional — no template
+          branch, no lane-specific markup.
+        failure_modes:
+          - A server-rendered toggle ships instead, giving a dead control on a
+            scriptless page — worse than no control.
+          - Nobody adds a scripting-disabled scenario, so the guarantee is a
+            claim rather than a test. foundry has exactly ONE such scenario
+            today (keyboard-shortcut-bindings.feature:113); this feature must
+            add its own.
+
+    shared_artifacts:
+      cz-token-contract:
+        source_of_truth: >
+          docs/feature/canzan-theme-system/canzan-net-reference.css
+          (verbatim canzan.net production stylesheet, sha256 44ad42b5…),
+          transcribed into the :root block of crates/foundry-app/static/css/foundry.<hash>.css
+        consumers:
+          - every rule in foundry.css
+          - canzan-lift's future migration onto the same names (D4 follow-up)
+        owner: canzan.net (foundry is the first adopter, not the author)
+        integration_risk: >
+          HIGH — a transcription typo makes foundry silently off-brand and
+          makes the "one theme everywhere" claim false without any test
+          noticing.
+        validation: Token values diffed against the pinned reference stylesheet.
+
+      css-content-hash:
+        source_of_truth: The stylesheet's own sha256, first 8 hex, in its committed filename
+        consumers:
+          - crates/foundry-app/templates/base.html (the <link>)
+          - crates/foundry-app/static/VENDOR.md (the provenance row)
+          - crates/foundry-app/src/lib.rs cache-policy tests (4 literal sites)
+        owner: whoever edits the stylesheet
+        integration_risk: >
+          HIGH — four call sites, no automated guard. `cargo xtask check-arch`
+          has no asset rule; the design document's promised "asset-resolution
+          probe" does not exist in the tree. A split commit is red on the
+          cache-policy tests and ships a stale immutable-cached URL.
+        validation: >
+          shasum -a 256 the file; grep the old 8-hex prefix repo-wide and
+          expect zero hits after the rename.
+
+      render-contract:
+        source_of_truth: >
+          The semantic class + data-* set asserted by foundry-acceptance
+          selector constants; declared in the foundry.css header comment.
+        consumers: every acceptance step file under crates/foundry-acceptance/src/steps/
+        owner: the acceptance suite
+        integration_risk: >
+          HIGH — this is the restyle's hard boundary. Renaming or removing any
+          selected class converts a visual change into a suite-wide failure.
+        validation: >
+          Zero lines changed under crates/foundry-acceptance/ across the whole
+          feature. Measurable by git diff --stat.
+
+      data-theme-attribute:
+        source_of_truth: theme.js, at <head> parse time, seeded from localStorage
+        consumers:
+          - the `:root[data-theme="dark"]` block
+          - the `:root:not([data-theme="light"])` guard inside the media query
+          - every screen
+        owner: theme.js
+        integration_risk: >
+          HIGH — if it lands after first paint, every navigation flashes light
+          for the dark-preferring operator.
+        validation: >
+          The <script> tag carries no defer/async/type=module and precedes
+          <body>; a scenario asserts the correct palette is already resolved
+          in the first DOM snapshot after navigation.
+
+      theme-storage-key:
+        source_of_truth: theme.js STORAGE_KEY = "foundry.theme"
+        consumers: localStorage only
+        owner: theme.js
+        integration_risk: >
+          MEDIUM — must differ from canzan-lift's "canzan-lift.theme". A
+          future shared module has to take it as a parameter, which is why it
+          is a named constant rather than an inline literal.
+        validation: Reload after each of the three states.
+
+      theme-state-vocabulary:
+        source_of_truth: theme.js ORDER = ["system", "light", "dark"]
+        consumers:
+          - the data-theme attribute values
+          - the stylesheet's :not([data-theme="light"]) guard
+          - the button's glyph, word and accessible name
+        owner: theme.js (shared with canzan-lift byte-for-byte)
+        integration_risk: >
+          HIGH — "system means remove the attribute" and the stylesheet's
+          :not() guard are ONE mechanism expressed in two files.
+        validation: Cycle all three states and confirm the OS regains control at "system".
+
+      toggle-mount-selector:
+        source_of_truth: theme.js MOUNT constant
+        consumers: the 11 templates extending app_shell.html
+        owner: theme.js
+        integration_risk: >
+          MEDIUM — a wrong selector yields no control at all, silently, because
+          the ported script returns early when the mount is absent. The intake's
+          stated target (`.site-header`) does not exist in any template; it is
+          dead CSS.
+        validation: The control is present on the board and absent on /signin.
+
+      brand-chrome-colour:
+        source_of_truth: >
+          <meta name="theme-color"> pair in base.html, plus the static
+          theme_color / background_color in static/manifest.webmanifest
+        consumers: OS and browser chrome, PWA splash screen
+        owner: base.html + the manifest
+        integration_risk: >
+          MEDIUM — the manifest is static JSON and cannot follow a runtime
+          theme choice; and the pwa-mobile-rendering acceptance scenario
+          asserts "the head contains a theme-color meta", which a second
+          media-scoped tag may or may not satisfy depending on how it selects.
+        validation: Re-run the pwa-mobile-rendering scenarios unchanged.
+
+      font-provenance:
+        source_of_truth: crates/foundry-app/static/VENDOR.md rows
+        consumers: the @font-face src paths; any auditor or air-gapped operator
+        owner: whoever vendors the blob
+        integration_risk: >
+          HIGH — VENDOR.md's entire purpose is that every served blob is
+          hash-verifiable against a named upstream release. An unrecorded font
+          blob breaks that audit silently.
+        validation: shasum -a 256 each blob against its recorded row.
+
+    integration_validation:
+      - artifact: cz-token-contract
+        must_match_across: [1, 2, 3, 4, 5]
+        failure_message: >
+          A surface resolving its colour from anything other than the token
+          block will paint light in dark mode. There are 46 such literals in
+          the shipped stylesheet today.
+      - artifact: data-theme-attribute
+        must_match_across: [3, 4]
+        failure_message: >
+          The attribute must be stamped before first paint on EVERY
+          navigation, not only on the press that set it.
+      - artifact: render-contract
+        must_match_across: [1, 2, 3, 4, 5]
+        failure_message: >
+          A renamed or removed selector turns a colour change into an
+          acceptance-suite failure across unrelated features.
+      - artifact: css-content-hash
+        must_match_across: [1, 2, 3, 4, 5]
+        failure_message: >
+          base.html, VENDOR.md and four literals in foundry-app/src/lib.rs must
+          change in the SAME commit as the stylesheet.
+
+    changelog:
+      - date: "2026-08-29"
+        feature: canzan-theme-system
+        change: >
+          Journey created. Bootstraps docs/product/journeys/. Five steps,
+          Problem Relief arc, nine shared artifacts. Corrects two intake
+          premises: the toggle mount is aside.sidebar (not .site-header, which
+          is dead CSS in no template), and foundry does NOT carry canzan-lift's
+          D5 blanket no-JS guarantee — it has one scripting-disabled scenario.

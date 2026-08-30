@@ -1,0 +1,97 @@
+# Product SSOT — personas.
+#
+# Bootstrapped by the canzan-theme-system DISCUSS wave (2026-08-29). This
+# directory did not exist before: four prior feature-deltas (keycloak-sso,
+# instance-admin-project-rename, issue-edit-modal-close-icon,
+# board-lane-management) each referenced the persona id
+# `persona-instance-operator` inline and each noted "no separate personas file
+# exists in this repo". This file back-declares that id.
+#
+# Everything below is transcribed from, or directly consistent with, those four
+# feature-deltas plus code reading. Nothing is invented to fill the shape: where
+# a prior wave did not establish a characteristic, the field says so rather than
+# guessing. An invented persona detail is worse than a missing one — the same
+# rule jobs.yaml states for back-filling shipped features.
+
+schema_version: "0.1"
+
+personas:
+  - id: persona-instance-operator
+    name: Priya Raman
+    role: Self-hosting operator, instance super-admin, and team member on her own boards
+    established_by: docs/feature/instance-admin-project-rename/feature-delta.md
+    also_referenced_by:
+      - docs/feature/keycloak-sso/feature-delta.md
+      - docs/feature/issue-edit-modal-close-icon/feature-delta.md
+      - docs/feature/board-lane-management/feature-delta.md
+      - docs/feature/canzan-theme-system/feature-delta.md
+
+    situation: >
+      Runs foundry on her own cluster alongside Grafana, Portainer, ArgoCD and
+      Element, all federated through one Keycloak realm (itself federated from
+      LLDAP). Holds an `instance_admins` row; provisioned the workspaces
+      herself through /admin/instance/workspaces. Member of team Backend in
+      workspace Canzan Labs, where the "Identity Platform" project (AUTH)
+      lives; creates small boards ("Reading List" / READ, "Homelab Ops" / OPS)
+      for everything else.
+
+    characteristics:
+      - Comfortable in a terminal — which is why she resents it when the
+        terminal is the ONLY route to a fix (the project-rename job).
+      - Works the board daily with both mouse and the shipped keyboard
+        bindings (`j` / `k` / `Enter` / `Esc` / `?` / `c`).
+      - Opens issue cards as often to READ as to edit.
+      - Her workflow has three stages — might do, doing, done.
+      - Reads "sign in" as "the button the other services have": she measures
+        foundry against the rest of her cluster, not against issue trackers.
+      - Single-digit-operator instance. There is no analytics tooling and no
+        second user to average over; every product measurement on this persona
+        is either a store query, an acceptance assertion, or her own report.
+
+    environments:
+      # Added by canzan-theme-system (2026-08-29). Prior waves never needed to
+      # state where or when she works; the theme job is entirely about that.
+      - id: env-night-triage
+        description: >
+          Late-evening triage from a dark room, on a machine whose OS is set to
+          Dark. Every other service on the cluster has already gone dark.
+          foundry has not.
+        served_by_default: true   # OS preference alone is enough here
+      - id: env-light-os-dark-room
+        description: >
+          The same machine kept on a LIGHT OS during the day because her design
+          tooling needs it, used for a late review anyway. The device
+          preference is the wrong answer for this one app at this one hour.
+        served_by_default: false  # needs a per-app override
+      - id: env-hardened-profile
+        description: >
+          A browser profile with scripting disabled and/or site data blocked,
+          used when opening foundry from a machine she does not own. foundry
+          already has a scripting-disabled acceptance lane exercising exactly
+          this.
+        served_by_default: partial
+
+    pains_addressed_to_date:
+      - job-sso-signin
+      - job-instance-project-rename
+      - job-dismiss-edit-dialog
+      - job-board-lane-shaping
+      - job-canzan-theme
+
+  - id: persona-team-member-foil
+    name: Marco
+    role: Signed-in foundry user who is NOT a member of the team under test
+    established_by: docs/feature/board-lane-management/feature-delta.md
+    situation: >
+      A second real account on the same instance. Used across features as the
+      authorization foil: every board mutation must give him the uniform
+      non-enumerable 404, never a 401/403 that would confirm the resource
+      exists.
+    characteristics:
+      - Signed in, valid session, wrong team.
+      - Prior waves establish nothing about his environment or devices.
+    note: >
+      Deliberately thin. Marco exists to be refused; inventing preferences,
+      devices or a workflow for him would be fabrication. Features needing a
+      constrained-browser actor should use persona-instance-operator's
+      env-hardened-profile rather than dressing Marco up as one.

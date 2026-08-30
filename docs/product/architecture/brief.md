@@ -98,6 +98,55 @@ and the `humanize_state` historical-label fallback).
 See `adr-board-lane-001-issues-linkage-state-fk.md` and
 `adr-board-lane-002-two-fate-delete-transaction.md`.
 
+### Colour enters the stylesheet at one seam; assets are hash-honest by construction
+
+foundry's presentation tier is one hand-authored stylesheet with no build step, and
+until the canzan-theme-system wave nothing watched it. 46 colour literals had
+accumulated across 30 rules outside the token block, three unrelated accent hues
+coexisted, and `.site-header` survived 43 features as dead CSS with no markup behind
+it. The response is structural, not editorial: **colour values appear in exactly
+three regions of `foundry.<hash>.css` — `:root`, and the two dark blocks — and
+nowhere else.** Every other rule names a `--cz-*` token, so a palette is a
+re-binding of names rather than a second stylesheet to keep in sync. The two dark
+blocks (`@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) }`
+and `:root[data-theme="dark"]`) are duplicated because CSS cannot express "either"
+across a media query and an attribute selector; they may differ in values and never
+in the *set of names* they declare, since divergence breaks dark-by-device only —
+invisible to whoever introduced it. Theme state is device-local (`localStorage`,
+`data-theme` stamped on `<html>` before first paint); nothing is persisted
+server-side and no schema carries a preference.
+
+The same wave closed a promise outstanding since the htmx-web-tier design:
+`assets.md` Decision #4a chose content-hashed filenames as the cache key and
+accepted its one failure mode — a forgotten rename — on the strength of an
+"asset-resolution probe" that was never built, and was re-requested by two later
+features. `cargo xtask check-arch` therefore gains five rules, all deriving their
+input set by scanning rather than from any maintained list, so the guard cannot
+itself go stale: **R1** every `/static/…` reference in `crates/foundry-app` resolves
+on disk; **R2** every `<stem>.<8hex>.<ext>` filename equals its own sha256 prefix
+(the check that makes `Cache-Control: immutable` honest — it catches a file edited
+without being renamed, which R1 cannot see); **R3** every `VENDOR.md` row's recorded
+sha256 recomputes; **S1** no colour literal outside the three token regions; **S2**
+those three regions declare identical name sets. Each carries an injected-violation
+gold test, so the guards are shown to bite rather than assumed to.
+
+Consequences every future feature inherits: a new served asset is enrolled in the
+guard the moment something references it, and needs no registration; a re-hash that
+updates four of its five sites reds the fast pre-commit loop rather than shipping a
+stale immutable URL; a new colour must be a token or it does not build. And
+`VENDOR.md` now carries **three** row shapes, not one — vendored-verbatim,
+authored-in-tree, and **derived**, for assets that come from a named upstream but
+are not byte-identical to it (the axis-instanced, subset webfonts). A derived row
+records a reproducible *recipe* as its provenance and separates two claims of
+different strength: integrity (the committed blob matches its recorded hash —
+unconditional, machine-checked by R3) and provenance (re-derivation from the pinned
+input with the pinned toolchain — expected, explicitly **not** guaranteed
+byte-for-byte, with a compressor-independent intermediate hash as the stable audit
+anchor). See `adr-canzan-theme-001-font-axis-instancing-and-subsetting.md`,
+`adr-canzan-theme-002-derived-asset-provenance-model.md`,
+`adr-canzan-theme-003-asset-integrity-guard-in-check-arch.md` and
+`adr-canzan-theme-004-token-seam-and-dark-block-parity.md`.
+
 ### Crate graph
 
 ```mermaid

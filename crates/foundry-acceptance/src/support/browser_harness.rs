@@ -120,7 +120,12 @@ fn wait_for_driver_ready(port: u16) {
 /// Open ONE headless session against this lane's chromedriver, sized to a fixed
 /// viewport. One call per scenario.
 pub async fn new_session() -> fantoccini::Client {
-    open_session(Scripting::Enabled, ColorScheme::Unstated).await
+    open_session(
+        Scripting::Enabled,
+        ColorScheme::Unstated,
+        SiteStorage::Permitted,
+    )
+    .await
 }
 
 /// Open ONE headless session whose DEVICE states a dark colour preference, so
@@ -133,14 +138,33 @@ pub async fn new_session() -> fantoccini::Client {
 /// DEFAULT state most operators get. This constructor is what makes the default
 /// path measurable. See [`ColorScheme`] for the flag and why it is that flag.
 pub async fn new_dark_session() -> fantoccini::Client {
-    open_session(Scripting::Enabled, ColorScheme::Dark).await
+    open_session(
+        Scripting::Enabled,
+        ColorScheme::Dark,
+        SiteStorage::Permitted,
+    )
+    .await
 }
 
 /// A dark DEVICE with scripting switched off at the browser — the no-JS × dark
 /// corner (NFR-4 × the device-driven default). Combines the two mechanisms
 /// [`new_dark_session`] and [`new_session_without_scripting`] each establish.
 pub async fn new_dark_session_without_scripting() -> fantoccini::Client {
-    open_session(Scripting::Disabled, ColorScheme::Dark).await
+    open_session(
+        Scripting::Disabled,
+        ColorScheme::Dark,
+        SiteStorage::Permitted,
+    )
+    .await
+}
+
+/// A dark DEVICE whose browser REFUSES this origin access to stored state — the
+/// storage-refused corner. Scripting stays ON: the whole point is that the theme
+/// script RUNS and its stored-choice read THROWS, so the guard's catch is the
+/// thing under test. Composes [`ColorScheme::Dark`] with [`SiteStorage::Refused`];
+/// see the latter for the measurement.
+pub async fn new_dark_session_refusing_site_storage() -> fantoccini::Client {
+    open_session(Scripting::Enabled, ColorScheme::Dark, SiteStorage::Refused).await
 }
 
 /// THE ANTI-VACUITY PROBE: what the BROWSER says its device prefers, read from
@@ -162,6 +186,60 @@ pub async fn device_prefers_dark(client: &fantoccini::Client) -> bool {
     matches
         .as_bool()
         .expect("matchMedia().matches is a boolean")
+}
+
+/// Drain everything the browser has recorded and return only the UNHANDLED
+/// SCRIPT ERRORS — the entries Chrome files under `source: "javascript"`.
+///
+/// The recorder itself is the `goog:loggingPrefs` capability set in
+/// [`open_session`], so it is armed BEFORE the first navigation and catches an
+/// error thrown while a `<head>` script is still being parsed. An in-page
+/// `window.onerror` cannot do that: it would have to be installed by a script
+/// that runs after the one it is meant to watch, and it would be destroyed by the
+/// navigation it is meant to observe.
+///
+/// FILTERED TO `source == "javascript"` ON PURPOSE, and this is the one judgement
+/// call here. The same log also carries `source: "network"` entries — a headless
+/// Chrome asking for a favicon the test origin does not serve files a SEVERE
+/// network 404 on every single navigation. That is an artefact of the harness's
+/// own substrate, not something foundry reports to an operator, and folding it in
+/// would make "nothing was reported" unsatisfiable for reasons having nothing to
+/// do with the code under test.
+///
+/// DESTRUCTIVE: chromedriver hands back the entries accumulated since the last
+/// call and clears them, so each call reads a window, not a running total.
+///
+/// Reached by a direct HTTP call rather than through fantoccini because `/log` is
+/// a chromedriver endpoint, not a W3C one, and fantoccini wraps only the latter.
+/// Plain HTTP on loopback — the same reasoning that keeps a TLS stack out of this
+/// file.
+pub async fn unhandled_script_errors(client: &fantoccini::Client) -> Vec<String> {
+    let port = ensure_chromedriver();
+    let session_id = client
+        .session_id()
+        .await
+        .expect("read the WebDriver session id")
+        .expect("the session must still be open to read its log");
+    let body: serde_json::Value = reqwest::Client::new()
+        .post(format!("http://127.0.0.1:{port}/session/{session_id}/log"))
+        .json(&serde_json::json!({ "type": "browser" }))
+        .send()
+        .await
+        .expect("ask chromedriver for the browser log")
+        .json()
+        .await
+        .expect("chromedriver's browser log must be JSON");
+    let entries = body["value"].as_array().unwrap_or_else(|| {
+        panic!(
+            "chromedriver returned no browser-log array, so the unhandled-error recorder is not \
+             armed and `nothing was reported` would hold vacuously. Response: {body}"
+        )
+    });
+    entries
+        .iter()
+        .filter(|entry| entry["source"].as_str() == Some("javascript"))
+        .map(|entry| entry["message"].as_str().unwrap_or_default().to_string())
+        .collect()
 }
 
 /// The mobile device metrics every `open_mobile_session` injects — a mid-range
@@ -231,7 +309,12 @@ pub async fn open_mobile_session() -> fantoccini::Client {
 /// — without it, a session that quietly kept scripting ON would let the scenario
 /// pass while proving nothing about the scripting-off path.
 pub async fn new_session_without_scripting() -> fantoccini::Client {
-    open_session(Scripting::Disabled, ColorScheme::Unstated).await
+    open_session(
+        Scripting::Disabled,
+        ColorScheme::Unstated,
+        SiteStorage::Permitted,
+    )
+    .await
 }
 
 /// Whether a session's browser runs page scripts. The no-JS path is a first-class
@@ -282,7 +365,59 @@ enum ColorScheme {
     Dark,
 }
 
-async fn open_session(scripting: Scripting, color_scheme: ColorScheme) -> fantoccini::Client {
+/// Whether a session's browser lets this origin touch stored state — the third
+/// peer of [`Scripting`] and [`ColorScheme`], and the mechanism behind the
+/// storage-refused degradation lane.
+///
+/// `Permitted` is the shipped baseline: no pref, both reading and writing
+/// succeed. `Refused` sets Chrome's SITE-DATA content setting
+/// (`profile.default_content_setting_values.cookies = 2`) through
+/// `goog:chromeOptions.prefs` at SESSION CREATION — the same capability idiom
+/// [`ColorScheme::Dark`] and `open_mobile_session` establish.
+///
+/// EMPIRICALLY MEASURED against a real `http://` origin under chromedriver
+/// 151.0.7922.138 over W3C `POST /session` + `execute/sync` (a `file://` origin
+/// would not have exercised content settings at all):
+///
+/// ```text
+///   prefs: <none>                                READ=ok             WRITE=ok
+///   prefs: cookies=2                             READ=SecurityError  WRITE=SecurityError
+///   prefs: cookies=2 + block_third_party_cookies READ=SecurityError  WRITE=SecurityError
+/// ```
+///
+/// BOTH arms throw, not just the write — which is what makes the READ guard in
+/// `theme.js` observable: the stored-choice read throws, the catch returns
+/// "follow the device", and the page themes from the device. Composing this with
+/// `--force-dark-mode` was measured too: `matchMedia` still reports dark, so the
+/// two capabilities do not interfere.
+///
+/// DO NOT REPLACE THIS WITH A SCRIPT-INJECTED THROWING ACCESSOR. Stubbing
+/// `localStorage` from the test would assert against the stub rather than the
+/// browser, and it would be the only assertion in this lane not exercising a real
+/// substrate. Filling storage to its quota was also rejected: a real exception,
+/// but quota semantics vary by platform and a short value overwriting an existing
+/// short key may not throw at all — a flaky oracle.
+///
+/// KNOWN, DELIBERATE CONSEQUENCE: blocking site data also blocks the SESSION
+/// COOKIE, so no signed-in screen is reachable under this capability. The
+/// storage-refused scenario is therefore driven on the sign-in screen by
+/// NECESSITY, not preference — and the write guard has no scenario at all,
+/// because "storage is refused" and "the theme control exists" are mutually
+/// exclusive by construction (the control mounts only inside the rail, and the
+/// rail renders only on signed-in screens).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SiteStorage {
+    /// The origin may read and write stored state — the shipped baseline.
+    Permitted,
+    /// The origin may not: both reads and writes throw `SecurityError`.
+    Refused,
+}
+
+async fn open_session(
+    scripting: Scripting,
+    color_scheme: ColorScheme,
+    site_storage: SiteStorage,
+) -> fantoccini::Client {
     let port = ensure_chromedriver();
     let mut args = vec![
         "--headless=new".to_string(),
@@ -296,16 +431,41 @@ async fn open_session(scripting: Scripting, color_scheme: ColorScheme) -> fantoc
         // --enable-features=WebContentsForceDark.
         args.push("--force-dark-mode".to_string());
     }
-    let mut chrome_options = serde_json::json!({ "args": args });
+    let mut prefs = serde_json::Map::new();
     if scripting == Scripting::Disabled {
         // Chrome's own JavaScript content setting: 2 == block. Applied as a
         // profile preference so it covers the whole session, every origin.
-        chrome_options["prefs"] = serde_json::json!({
-            "profile.managed_default_content_settings.javascript": 2,
-        });
+        prefs.insert(
+            "profile.managed_default_content_settings.javascript".to_string(),
+            serde_json::json!(2),
+        );
+    }
+    if site_storage == SiteStorage::Refused {
+        // Chrome's SITE-DATA content setting: 2 == block. See SiteStorage for the
+        // measurement — under this pref BOTH reading and writing stored state
+        // throw SecurityError against a real http:// origin.
+        prefs.insert(
+            "profile.default_content_setting_values.cookies".to_string(),
+            serde_json::json!(2),
+        );
+    }
+    let mut chrome_options = serde_json::json!({ "args": args });
+    if !prefs.is_empty() {
+        chrome_options["prefs"] = serde_json::Value::Object(prefs);
     }
     let mut capabilities = serde_json::Map::new();
     capabilities.insert("goog:chromeOptions".to_string(), chrome_options);
+    // THE UNHANDLED-ERROR RECORDER, installed as a SESSION CAPABILITY — i.e.
+    // before any navigation, so it cannot miss an error thrown while the very
+    // first script is being parsed. That timing is the whole point: the failure
+    // the storage-refused scenario guards against is `theme.js` dying at parse
+    // time, which an in-page `window.onerror` installed after navigation would
+    // arrive too late to see (and which no in-page recorder can survive a
+    // navigation to observe at all). See `unhandled_script_errors`.
+    capabilities.insert(
+        "goog:loggingPrefs".to_string(),
+        serde_json::json!({ "browser": "ALL" }),
+    );
     // A bare HttpConnector: the WebDriver endpoint is plain HTTP on loopback, so
     // there is no TLS to configure — and no second TLS stack to make rustls'
     // process-level CryptoProvider ambiguous beside reqwest's.

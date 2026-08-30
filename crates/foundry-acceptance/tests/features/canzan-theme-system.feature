@@ -346,7 +346,7 @@ Feature: foundry follows the light the operator's environment asks for
     Then the theme is settled before the browser is permitted to paint
     And the theme script finished loading before the screen first painted
 
-  @needs-browser @real-io @slice4 @us-cts-04 @error @pending
+  @needs-browser @real-io @slice4 @us-cts-04 @error
   Scenario: With scripting disabled the control does not exist and the device decides
     # foundry's SECOND scripting-disabled scenario — it does not assume a blanket
     # no-JS guarantee, which DISCUSS established foundry does not have. Driven with
@@ -359,7 +359,7 @@ Feature: foundry follows the light the operator's environment asks for
     Then the board renders in the dark palette
     And no theme control is present anywhere on the screen
 
-  @needs-browser @real-io @slice4 @us-cts-04 @error @pending
+  @needs-browser @real-io @slice4 @us-cts-04 @error
   Scenario: With site storage refused the screen still themes and nothing is reported
     # The READ guard. MEASURED, not assumed: with Chrome's site-data content setting
     # blocking the origin, BOTH reading and writing stored state throw SecurityError

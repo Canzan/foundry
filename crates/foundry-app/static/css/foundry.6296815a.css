@@ -943,6 +943,64 @@ kbd {
   color: var(--cz-muted);
 }
 
+/* ── canzan-theme-system — the notification-settings surfaces ─────────────────
+   MOVED HERE from an inline <style> in templates/settings.html, which carried
+   three LIGHT-ONLY literals on `.toast` (border #b6d4c2, background #eafaf1,
+   colour #14532d). On a dark device that painted a bright green card on an ink
+   page — a genuinely unthemed surface this feature's own dark mode had missed.
+
+   It was missed because it was UNREACHABLE by both instruments: S1 scans served
+   stylesheets and never sees a template <style> block, and the rendered sweep
+   walks the board, the dashboard, an issue, the shortcut list and the sign-in
+   screen — not settings. Moving the rules here is what puts them under S1 rather
+   than merely tokenising them out of sight; settings.html was the ONLY template
+   in the repo carrying an inline <style>, so the gap closes with it.
+
+   The affirmative reading survives the move as the JADE hairline, and the card
+   is deliberately OPAQUE (`--cz-surface`, not the translucent `--cz-jade-soft`)
+   because it carries text: D-05's opaque rule applies to any surface a reader
+   has to read off. `--cz-text` on `--cz-surface` is the ordinary body pairing —
+   17.62:1 light, 16.33:1 dark. */
+#toast:empty {
+  display: none;
+}
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0 0 1rem;
+  padding: 0.6rem 0.9rem;
+  border: 1px solid var(--cz-jade-line);
+  border-radius: var(--radius);
+  background: var(--cz-surface);
+  color: var(--cz-text);
+}
+.toast__msg {
+  margin: 0;
+}
+.toast__close {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font-size: 1.25rem;
+  line-height: 1;
+  color: inherit;
+}
+#settings-rows {
+  list-style: none;
+  padding: 0;
+}
+#settings-rows li {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.4rem 0;
+}
+.settings-row__form {
+  margin: 0 0 0 auto;
+}
+
 /* ── pwa-mobile-rendering slice 01 — fit the authed shell to a phone ──────────
    base.html now declares <meta name="viewport" content="width=device-width …">,
    so a phone lays the app out at ~390px instead of the ~980px desktop fallback.

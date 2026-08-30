@@ -164,3 +164,65 @@ jobs:
         render on no board) and blocks every workflow that is not the
         hardcoded one.
     validated_by: docs/feature/board-lane-management/feature-delta.md
+
+  - id: job-canzan-theme
+    title: Read my board in the light my room needs, in an app that wears the canzan face
+    job_story: >
+      When I open foundry late — after Grafana, Portainer and ArgoCD have all
+      quietly gone dark because my machine asked them to — I want foundry to
+      follow that same preference, and to let me overrule it for this one app
+      when my device is set the other way, so I can work a long triage session
+      without glare and without foundry looking like the one tool that was
+      never finished.
+    dimensions:
+      functional: >
+        Render every foundry screen in the light level the operator's
+        environment demands — the device's preference by default, an explicit
+        per-app choice when the device is set the other way — and do it in
+        canzan's own palette and typography rather than a private one.
+      emotional: >
+        Stop bracing for the white page at 23:40. Stop reading foundry as the
+        prototype in a cluster of finished tools.
+      social: >
+        Show foundry beside canzan.net and canzan-lift and have the three read
+        as one product with one visual identity, not three side projects.
+    forces:
+      push: >
+        foundry has no dark mode at all — the stylesheet's own header states
+        the scope as "NOT a design system, theming, or dark mode", and all 637
+        lines were authored light-only. Forty-six colour literals sit outside
+        the token block, so even the parts that look tokenised are not. The
+        only recourse today is dimming the monitor or a contrast extension
+        that mangles the board layout. foundry also carries a second, private
+        accent set (blue #2452c9 in the base rules, indigo #5b5bd6/#4f46e5 in
+        the rail and dashboard) that appears nowhere else in canzan.
+      pull: >
+        canzan.net already publishes a complete two-palette token contract,
+        and canzan-lift already ships a working three-state control that has
+        survived a release. Adopting both is cheaper than inventing either,
+        and it is the only route to "one theme everywhere".
+      anxiety: >
+        That a restyle silently breaks the acceptance suite — foundry's
+        semantic classes ARE the render contract the suite selects on; that
+        dark mode ships with unreadable pairs because the palette was trusted
+        rather than measured (it does not survive measurement unamended:
+        --cz-faint fails 4.5:1 in BOTH palettes at body size); and that the
+        toggle introduces a white flash on every navigation, trading one
+        irritation for a worse one.
+      habit: >
+        The board's geometry is muscle memory — column positions, card shape,
+        the keyboard selection ring, j/k/?. The restyle must change colour and
+        type and nothing else; a layout that moved would cost more than the
+        glare it fixed. Equally, an operator who has never touched a theme
+        control must keep getting exactly what the device says.
+    opportunity:
+      importance: medium
+      satisfaction: low
+      note: >
+        Single-job feature; no comparative scoring table (the skill requires
+        one only when multiple jobs compete). Importance medium — appearance
+        rather than capability, but the current state is a real comfort and
+        accessibility gap (no dark palette exists at all for a dark-preferring
+        operator), and it is the feature that makes "one canzan" true or false
+        across three shipped applications.
+    validated_by: docs/feature/canzan-theme-system/feature-delta.md
