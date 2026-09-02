@@ -98,13 +98,38 @@
   --cz-muted: #5c645f;
   --cz-faint: #6e756f;
 
-  /* The one accent. It replaces THREE competing hues foundry had accumulated:
-     #2452c9, the rail's #5b5bd6/#3a3ad1, and the card-key #4f46e5.
-     Jade measures 5.08:1 on `--cz-bg` — past 4.5:1 as link text and past
-     1.4.11's 3:1 as a control boundary or a selection ring. */
-  --cz-jade: #1a7a5e;
-  --cz-jade-soft: rgba(26, 122, 94, 0.1);
-  --cz-jade-line: rgba(26, 122, 94, 0.32);
+  /* The one accent, and it INVERTS. `--cz-black` is the maximum-contrast
+     neutral against whatever the page currently is: ink on paper, paper on ink.
+     A literal black in BOTH palettes was measured and rejected — on the dark
+     page (`#0a0c0b`) a `#121614` fill measures 1.07:1, so the control keeps a
+     crisp label while having no visible edge at all, failing 1.4.11's 3:1 for
+     non-text boundaries. Inverting measures 14.70:1 light and 12.66:1 dark.
+
+     THE DARK VALUE IS ALSO canzan-lift's, AND FOR A REASON foundry CANNOT SEE.
+     A plain light grey (`#ced0cf`) passes every check in THIS repo, and fails in
+     canzan-lift: its `canceled` state is a light blue-grey (#a9b6c2), so a
+     neutral accent measures 9.7847 dE00 from it against a 15.1813 floor — a
+     control a hair from reading as a canceled row. #e9f2ee carries a faint cast
+     away from that blue. foundry has no state ramp and would have shipped the
+     grey happily; it takes the value that survives BOTH desks.
+
+     THE VALUE IS canzan-lift's, NOT foundry's own. `#242625` is the DARKEST
+     accent that still satisfies that repo's derived pressed-step contract
+     (8.9274 dE00 darker on the light desk); a literal `#121614` has L* 6.80 and
+     cannot darken more than 5.07 dE00, so it cannot carry a pressed state at
+     all. foundry has no pressed token and would not have discovered this on its
+     own — the two apps share the value so they share one accent, which is the
+     whole point of adopting the contract rather than a colour.
+     It replaces the jade that replaced THREE competing hues (#2452c9, the
+     rail's #5b5bd6/#3a3ad1, the card-key #4f46e5).
+
+     `--cz-on-black` is its paired foreground. It is bound EXPLICITLY rather
+     than left as `var(--cz-bg)` — the two happen to be equal today, and a
+     later move of the page background would silently drag every control label
+     with it. The name says which surface it is legible on. */
+  --cz-black: #242625;
+  --cz-on-black: #ffffff;
+  --cz-black-line: rgba(36, 38, 37, 0.32);
 
   /* Elevation, and it is NOT one value re-used: a shadow tuned for paper is a
      faint darkening that vanishes entirely on ink, so the dark binding below is
@@ -156,7 +181,7 @@
                               rounding; this is the re-measured figure)
        --cz-muted   6.38:1
        --cz-faint   4.83:1   (canzan's #626a66 measures 3.52:1 — rebound, D-04)
-   Jade measures 9.74:1 on ink. */
+   The accent measures 17.19:1 on ink. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
@@ -172,9 +197,9 @@
     --cz-muted: #8d958f;
     --cz-faint: #78807b;
 
-    --cz-jade: #62c9a6;
-    --cz-jade-soft: rgba(98, 201, 166, 0.11);
-    --cz-jade-line: rgba(98, 201, 166, 0.34);
+    --cz-black: #e9f2ee;
+    --cz-on-black: #0a0c0b;
+    --cz-black-line: rgba(233, 242, 238, 0.34);
 
     --cz-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.32);
     --cz-scrim: rgba(0, 0, 0, 0.62);
@@ -202,9 +227,9 @@
   --cz-muted: #8d958f;
   --cz-faint: #78807b;
 
-  --cz-jade: #62c9a6;
-  --cz-jade-soft: rgba(98, 201, 166, 0.11);
-  --cz-jade-line: rgba(98, 201, 166, 0.34);
+  --cz-black: #e9f2ee;
+  --cz-on-black: #0a0c0b;
+  --cz-black-line: rgba(233, 242, 238, 0.34);
 
   --cz-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.32);
   --cz-scrim: rgba(0, 0, 0, 0.62);
@@ -247,12 +272,12 @@ h3 {
 }
 
 a {
-  color: var(--cz-jade);
+  color: var(--cz-black);
 }
 
 /* Visible focus for keyboard users (a11y). */
 :focus-visible {
-  outline: 2px solid var(--cz-jade);
+  outline: 2px solid var(--cz-black);
   outline-offset: 2px;
 }
 
@@ -262,21 +287,24 @@ main {
 
 /* Interactive targets >= 24x24px.
  *
- * The FILL is the control's boundary here: jade against the page measures
- * 5.08:1 light and 9.74:1 dark, both past 1.4.11's 3:1, so the control is
- * identifiable without relying on its hairline. `--cz-bg` as the label colour
- * (rather than a fixed white) is what makes one declaration correct in both
- * palettes: paper on jade light, ink on jade dark. */
+ * The FILL is the control's boundary here: `--cz-black` against the page
+ * measures 14.70:1 light and 17.19:1 dark, both far past 1.4.11's 3:1, so the
+ * control is identifiable without relying on its hairline. The accent INVERTS
+ * (ink on paper, paper on ink), which is what keeps that second figure honest:
+ * a literal black held in both palettes measures 1.07:1 on the dark page and
+ * would leave this button with no visible edge at all. `--cz-on-black` is its
+ * paired label, bound explicitly so a later move of the page background cannot
+ * silently drag every control label with it. */
 button,
 .button,
 input[type="submit"] {
   min-height: 32px;
   min-width: 24px;
   padding: 6px 12px;
-  border: 1px solid var(--cz-jade);
+  border: 1px solid var(--cz-black);
   border-radius: var(--radius);
-  background: var(--cz-jade);
-  color: var(--cz-bg);
+  background: var(--cz-black);
+  color: var(--cz-on-black);
   font: inherit;
   cursor: pointer;
 }
@@ -408,16 +436,17 @@ kbd {
  *     vanishes there.
  *   - It takes no layout space (unlike a border), so ringing a card cannot
  *     reflow the column and move the very cards `j` is walking.
- * --cz-jade measures 5.08:1 on paper and 9.74:1 on ink, both comfortably past
- * WCAG 2.1 AA's 3:1 for non-text contrast (1.4.11). (This line previously read
- * "#2452c9 on #ffffff ~= 7:1"; the colour moved, so the number moved with it.)
+ * --cz-black measures 14.70:1 on paper and 17.19:1 on ink, both comfortably
+ * past WCAG 2.1 AA's 3:1 for non-text contrast (1.4.11). (This line has now
+ * been re-measured twice: it first read "#2452c9 on #ffffff ~= 7:1", then jade's
+ * 5.08/9.74. The colour moved twice; the number moved with it both times.)
  *
  * `.issue-card` already carries `aria-selected="true"` from the same projection
  * (keyboard.js): the class paints, the ARIA state speaks. Both are derived from
  * `selectedKey` on every move — neither is stored.
  */
 .issue-card.kb-selected {
-  outline: 2px solid var(--cz-jade);
+  outline: 2px solid var(--cz-black);
   outline-offset: 2px;
 }
 
@@ -541,21 +570,22 @@ kbd {
 /* Hover reaches for the ACCENT, not a darker hairline: `--cz-line-strong` is
    the 1.49:1 divider the token comments already disqualify as a boundary, and
    an affordance that only an operator with good contrast perception can see is
-   not an affordance. Jade measures 5.08:1 light and 9.74:1 dark on the page. */
+   not an affordance. `--cz-black` measures 13.79:1 light and 16.40:1 dark. */
 .card a:hover {
-  border-color: var(--cz-jade);
+  border-color: var(--cz-black);
   box-shadow: var(--cz-shadow);
   transform: translateY(-1px);
 }
 
 /* The project key chip — and it is OPAQUE, for the same measured reason
-   `.sidebar__item--active` is (D-05). A `--cz-jade-soft` tint over this chip
-   was measured and REJECTED: the contrast oracle walks ancestors for the first
-   fully-opaque background, so a translucent tint resolves to its UNBLENDED
-   colour, and the real blended surface (#dde8e2 light) puts jade at 4.19:1 —
-   under the floor at this 0.72rem size. The recessed tier carries it instead:
-   jade on `--cz-bg-2` measures 4.77:1 light and 9.29:1 dark, opaque and
-   measurable, and it retires the last of the indigo. */
+   `.sidebar__item--active` is (D-05). A translucent accent tint over this chip
+   was measured and REJECTED back when the accent was jade: the contrast oracle
+   walks ancestors for the first fully-opaque background, so a translucent tint
+   resolves to its UNBLENDED colour and read 4.19:1 — under the floor at this
+   0.72rem size. The recessed tier carries it instead: `--cz-black` on
+   `--cz-bg-2` measures 13.79:1 light and 16.40:1 dark, opaque and measurable.
+   The rejection still stands on its own reasoning, which was never about the
+   hue — no translucent accent token remains in the seam to retry it with. */
 .card__key {
   /* 500, not 600: the mono blob ships `wght` 400:500 and a browser SYNTHESISES
      anything outside it into a smeared faux-bold that looks like a rendering
@@ -563,7 +593,7 @@ kbd {
      own mono weight, so this is a correction toward the reference, not a
      concession to the subset. */
   font: 500 0.72rem/1 var(--cz-mono);
-  color: var(--cz-jade);
+  color: var(--cz-black);
   background-color: var(--cz-bg-2);
   padding: 0.35rem 0.5rem;
   border-radius: 6px;
@@ -591,7 +621,7 @@ kbd {
    carries 1.4.11 and takes `--cz-muted` (5.89:1 light, 6.38:1 dark on the page)
    — the same binding, and the same measured argument, as `button.secondary`.
    `.actions button` must also OVERRIDE the primary `button` rule above, which
-   would otherwise fill it jade; that is why the three properties are restated
+   would otherwise fill it `--cz-black`; that is why the three are restated
    here rather than inherited. */
 .actions a {
   display: inline-block;
@@ -606,7 +636,7 @@ kbd {
 }
 
 .actions a:hover {
-  border-color: var(--cz-jade);
+  border-color: var(--cz-black);
   background: var(--cz-bg-2);
 }
 
@@ -624,7 +654,7 @@ kbd {
 }
 
 .actions button:hover {
-  border-color: var(--cz-jade);
+  border-color: var(--cz-black);
   background: var(--cz-bg-2);
 }
 
@@ -709,7 +739,7 @@ kbd {
 }
 
 .modal-close:focus-visible {
-  outline: 2px solid var(--cz-jade);
+  outline: 2px solid var(--cz-black);
   outline-offset: 2px;
 }
 
@@ -774,8 +804,8 @@ kbd {
   width: 26px;
   height: 26px;
   border-radius: 6px;
-  background: var(--cz-jade);
-  color: var(--cz-bg);
+  background: var(--cz-black);
+  color: var(--cz-on-black);
   font-size: 13px;
   font-weight: 700;
 }
@@ -804,15 +834,15 @@ kbd {
 }
 /* The one surface the eleven-token contract had to be asked a hard question by
    (S01's learning hypothesis): canzan.net has no navigation rail, so it has no
-   "active item" tint. Its only tinted surface is `--cz-jade-soft`, which is
-   TRANSLUCENT and therefore barred from carrying text on its own (D-05) — a
-   contrast walk resolves a translucent surface to its unblended colour and
-   reads a perfectly legible page as a failure. The answer needed no twelfth
-   token: the active item is the RAISED tier, `--cz-surface`, with jade text
-   (5.26:1 light, 8.90:1 dark) and weight. Opaque, measurable, on contract. */
+   "active item" tint. Its only tinted surface was a TRANSLUCENT accent wash,
+   barred from carrying text on its own (D-05) — a contrast walk resolves a
+   translucent surface to its unblended colour and reads a perfectly legible
+   page as a failure. The answer needed no extra token: the active item is the
+   RAISED tier, `--cz-surface`, with `--cz-black` text (15.23:1 light, 15.72:1
+   dark) and weight. Opaque, measurable, on contract. */
 .sidebar__item--active {
   background: var(--cz-surface);
-  color: var(--cz-jade);
+  color: var(--cz-black);
   font-weight: 600;
 }
 .sidebar__user {
@@ -836,7 +866,7 @@ kbd {
 }
 .sidebar :focus-visible,
 .sidebar__user :focus-visible {
-  outline: 2px solid var(--cz-jade);
+  outline: 2px solid var(--cz-black);
   outline-offset: 2px;
 }
 
@@ -857,13 +887,14 @@ kbd {
  * along with everything else — which is what the cycle scenario measures.
  *
  * NO FOCUS RULE OF ITS OWN. The control mounts inside `.sidebar__user`, which
- * already outlines its focused descendants in `--cz-jade` — jade resolves per
- * palette, so the indicator is visible on paper and on ink from one declaration.
+ * already outlines its focused descendants in `--cz-black` — the accent resolves
+ * per palette, so the indicator is visible on paper and on ink from one
+ * declaration.
  *
  * It is a SECONDARY control: its fill is the rail's own `--cz-bg-2`, so the fill
  * cannot identify it, and the BORDER carries WCAG 1.4.11 in `--cz-muted` for
  * exactly the reason `button.secondary` does. Without these three rules the
- * global `button` fill would paint a jade slab at the foot of the rail. */
+ * global `button` fill would paint a black slab at the foot of the rail. */
 .theme-toggle {
   display: flex;
   align-items: center;
@@ -879,7 +910,7 @@ kbd {
   text-align: left;
 }
 .theme-toggle__glyph {
-  color: var(--cz-jade);
+  color: var(--cz-black);
   font-size: 14px;
   line-height: 1;
 }
@@ -956,8 +987,9 @@ kbd {
    than merely tokenising them out of sight; settings.html was the ONLY template
    in the repo carrying an inline <style>, so the gap closes with it.
 
-   The affirmative reading survives the move as the JADE hairline, and the card
-   is deliberately OPAQUE (`--cz-surface`, not the translucent `--cz-jade-soft`)
+   The affirmative reading survives the move as the ACCENT hairline
+   (`--cz-black-line`), and the card is deliberately OPAQUE (`--cz-surface`,
+   never a translucent wash)
    because it carries text: D-05's opaque rule applies to any surface a reader
    has to read off. `--cz-text` on `--cz-surface` is the ordinary body pairing —
    17.62:1 light, 16.33:1 dark. */
@@ -970,7 +1002,7 @@ kbd {
   gap: 0.75rem;
   margin: 0 0 1rem;
   padding: 0.6rem 0.9rem;
-  border: 1px solid var(--cz-jade-line);
+  border: 1px solid var(--cz-black-line);
   border-radius: var(--radius);
   background: var(--cz-surface);
   color: var(--cz-text);

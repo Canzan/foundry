@@ -298,16 +298,16 @@ async fn given_a_browser_session_whose_device_preference_is_light(world: &mut Fo
     world.browser = Some(browser);
 }
 
-#[then(regex = r"^the page renders on canzan's paper background with canzan's jade accent$")]
+#[then(regex = r"^the page renders on canzan's paper background with canzan's black accent$")]
 async fn then_the_page_renders_on_canzan_s_paper_background_with(world: &mut FoundryWorld) {
     let browser = browser_of(world);
     assert_renders_in(browser, LIGHT).await;
     let painted = painted_opaque_colours(browser).await;
     assert!(
-        painted.contains_key(&LIGHT.jade),
-        "canzan's jade ({}) is painted nowhere on the light board — the accent was retired \
+        painted.contains_key(&LIGHT.black),
+        "canzan's black accent ({}) is painted nowhere on the light board — it was retired \
          without a replacement reaching the screen. Painted: {:?}",
-        hex(LIGHT.jade),
+        hex(LIGHT.black),
         painted.values().collect::<Vec<_>>()
     );
 }
@@ -319,7 +319,7 @@ async fn then_foundry_s_former_blue_and_indigo_accents_appear_nowhere(world: &mu
         assert!(
             !painted.contains_key(&retired),
             "the retired accent {label} still paints `{}` on the light board — three competing \
-             hues were supposed to collapse into one jade (D-02)",
+             hues were supposed to collapse into one accent (D-02)",
             painted[&retired]
         );
     }
@@ -799,7 +799,7 @@ async fn then_the_project_cards_the_section_labels_and_the_action(world: &mut Fo
 
 /// D-05, asserted where the contrast algorithm makes it matter. The oracle's
 /// ancestor walk stops at the first FULLY OPAQUE background, so a chip carrying
-/// a translucent jade tint would resolve to its unblended colour and read as a
+/// a translucent accent tint would resolve to its unblended colour and read as a
 /// failure on a perfectly legible page. The chip therefore declares an opaque
 /// `background-color` — and its own text is measured against exactly that
 /// surface, so the assertion is the algorithm's own question, not a proxy.
@@ -969,9 +969,9 @@ async fn then_the_sign_in_screen_renders_in_the_dark_palette(world: &mut Foundry
             ("input[type=\"email\"]", "color", DARK.text),
             ("input[type=\"email\"]", "border-top-color", DARK.muted),
             ("input[type=\"password\"]", "background-color", DARK.surface),
-            ("button[type=\"submit\"]", "background-color", DARK.jade),
+            ("button[type=\"submit\"]", "background-color", DARK.black),
             ("button[type=\"submit\"]", "color", DARK.bg),
-            ("a", "color", DARK.jade),
+            ("a", "color", DARK.black),
         ],
     )
     .await;
@@ -2103,7 +2103,7 @@ struct Palette {
     line: Rgb,
     text: Rgb,
     muted: Rgb,
-    jade: Rgb,
+    black: Rgb,
 }
 
 type Rgb = (u8, u8, u8);
@@ -2116,7 +2116,7 @@ const LIGHT: Palette = Palette {
     line: (0xe3, 0xe5, 0xe0),
     text: (0x12, 0x16, 0x14),
     muted: (0x5c, 0x64, 0x5f),
-    jade: (0x1a, 0x7a, 0x5e),
+    black: (0x24, 0x26, 0x25),
 };
 
 const DARK: Palette = Palette {
@@ -2127,7 +2127,7 @@ const DARK: Palette = Palette {
     line: (0x1f, 0x25, 0x23),
     text: (0xe8, 0xeb, 0xe8),
     muted: (0x8d, 0x95, 0x8f),
-    jade: (0x62, 0xc9, 0xa6),
+    black: (0xe9, 0xf2, 0xee),
 };
 
 /// The three accent hues this feature retires (D-02) and the two tinted
@@ -2309,6 +2309,10 @@ async fn painted_opaque_colours(client: &fantoccini::Client) -> BTreeMap<Rgb, St
         .await
         .expect("sweep every painted colour on the page");
     let mut painted = BTreeMap::new();
+    let observed = observations
+        .as_array()
+        .expect("the probe returns an array")
+        .len();
     for entry in observations.as_array().expect("the probe returns an array") {
         let row = entry.as_array().expect("each observation is a triple");
         let where_ = row[0].as_str().unwrap_or_default();
@@ -2322,11 +2326,44 @@ async fn painted_opaque_colours(client: &fantoccini::Client) -> BTreeMap<Rgb, St
             }
         }
     }
+    // ANTI-VACUITY, anchored on the PROBE rather than on the palette.
+    //
+    // This floor used to read `painted.len() >= 5`, which silently made probe
+    // health a function of how many hues the palette happened to carry: when the
+    // accent was rebound from jade to the ink it already uses for text, the page
+    // painted four distinct opaque colours instead of five and a perfectly
+    // healthy sweep reported that it "is not seeing the page". A count of
+    // distinct colours cannot tell a blind probe from a monochrome design.
+    //
+    // What the assertion downstream actually needs is that the sweep REACHED the
+    // document and resolved real values, so checks it: a page's worth of
+    // observations, the body's own resolved text colour among them, and some
+    // opaque ground for the page to be drawn on. All three are true of any
+    // rendered page and none of them is true of a probe that saw nothing.
     assert!(
-        painted.len() >= 5,
-        "the paint sweep resolved only {} opaque colours — the probe is not seeing the page, so \
-         any 'no light colour here' assertion built on it would be vacuous",
-        painted.len()
+        observed >= 20,
+        "the paint sweep returned only {observed} observations — the probe is not seeing the \
+         page, so any 'no light colour here' assertion built on it would be vacuous"
+    );
+    let body_text = client
+        .execute(
+            "return window.getComputedStyle(document.body).color;",
+            Vec::new(),
+        )
+        .await
+        .ok()
+        .and_then(|v| v.as_str().and_then(parse_colour).map(|(c, _)| c));
+    if let Some(body_text) = body_text {
+        assert!(
+            painted.contains_key(&body_text),
+            "the paint sweep never observed the body's own text colour {} — it did not reach the \
+             document, so any assertion built on it would be vacuous",
+            hex(body_text)
+        );
+    }
+    assert!(
+        !painted.is_empty(),
+        "the paint sweep resolved no opaque colour at all — the page has no ground to be drawn on"
     );
     painted
 }
@@ -2347,7 +2384,7 @@ async fn assert_renders_in(client: &fantoccini::Client, palette: Palette) {
             "color",
             palette.muted,
         ),
-        (".sidebar__item--active", "color", palette.jade),
+        (".sidebar__item--active", "color", palette.black),
     ];
     assert_resolved_colours(client, palette, &expectations).await;
 }
@@ -3124,11 +3161,11 @@ async fn assert_selection_ring_is_an_outline(client: &fantoccini::Client, palett
         .expect("the ring has a resolved outline colour");
     assert_eq!(
         ring_colour,
-        palette.jade,
+        palette.black,
         "the {} selection ring resolves to {} rather than the palette's accent {}",
         palette.name,
         hex(ring_colour),
-        hex(palette.jade)
+        hex(palette.black)
     );
     let ratio = contrast_ratio(ring_colour, palette.surface);
     assert!(
@@ -3930,9 +3967,25 @@ async fn assert_focus_ring(client: &fantoccini::Client, palette: Palette, when: 
                                + (document.activeElement ? document.activeElement.tagName : 'nothing'));
              }
              var cs = window.getComputedStyle(el);
-             var behind = el.parentElement
-               ? window.getComputedStyle(el.parentElement).backgroundColor
-               : null;
+             // WALK for the first FULLY-OPAQUE ancestor background. Reading the
+             // immediate parent alone was wrong: `.sidebar__user` paints no
+             // background, so it computed to `rgba(0, 0, 0, 0)` and the ratio was
+             // taken against PURE BLACK — a surface that is nowhere on the light
+             // page. Jade cleared that phantom by 3.99:1 and the assertion passed
+             // for a reason unrelated to what an operator can see; against the
+             // real surface it measures 4.77:1. The same walk the dark-mode
+             // contrast oracle already performs, for the same reason.
+             var behind = null;
+             for (var node = el.parentElement; node; node = node.parentElement) {
+               var candidate = window.getComputedStyle(node).backgroundColor;
+               var parts = candidate.match(/[0-9.]+/g);
+               if (!parts) { continue; }
+               var alpha = parts.length > 3 ? parseFloat(parts[3]) : 1;
+               if (alpha === 1) { behind = candidate; break; }
+             }
+             if (!behind) {
+               throw new Error('no opaque ancestor background behind the focus ring');
+             }
              return {
                style: cs.outlineStyle,
                width: cs.outlineWidth,
@@ -3964,11 +4017,11 @@ async fn assert_focus_ring(client: &fantoccini::Client, palette: Palette, when: 
         .unwrap_or_else(|| panic!("{when} the focus ring has no resolved colour"));
     assert_eq!(
         ring,
-        palette.jade,
+        palette.black,
         "{when} the focus ring resolves to {} instead of the {} palette's accent {}",
         hex(ring),
         palette.name,
-        hex(palette.jade)
+        hex(palette.black)
     );
     let (behind, _) =
         parse_colour(probe["behind"].as_str().unwrap_or_default()).unwrap_or_else(|| {

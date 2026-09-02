@@ -107,12 +107,12 @@ Feature: foundry follows the light the operator's environment asks for
     And no surface on the screen renders in a light-palette colour
 
   @needs-browser @real-io @slice1 @us-cts-01
-  Scenario: A light-preferring operator sees canzan's paper-and-jade palette
+  Scenario: A light-preferring operator sees canzan's paper-and-black palette
     # RED-trigger: the canzan tokens were not adopted, or one of foundry's three
     # retired accent hues survives somewhere on the board.
     Given a browser session whose device preference is light
     When the operator opens the "Sandbox" board
-    Then the page renders on canzan's paper background with canzan's jade accent
+    Then the page renders on canzan's paper background with canzan's black accent
     And foundry's former blue and indigo accents appear nowhere on the screen
 
   @needs-browser @real-io @slice1 @us-cts-01 @error
@@ -139,7 +139,7 @@ Feature: foundry follows the light the operator's environment asks for
   @needs-browser @real-io @slice1 @us-cts-01 @error
   Scenario: The keyboard selection ring reads as a shape, not only a colour
     # RED-trigger: the ring is restyled as a background fill or a border swap while
-    # picking up the jade palette. Both would look right and both would break
+    # picking up the dark palette. Both would look right and both would break
     # forced-colours mode and cost layout space.
     Given a browser session whose device preference is dark
     And the operator opens the "Sandbox" board
