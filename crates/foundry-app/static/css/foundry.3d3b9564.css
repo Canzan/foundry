@@ -1165,7 +1165,14 @@ kbd {
   width: 32px;
   height: 32px;
   padding: 0;
-  border: 1px solid var(--cz-line);
+  /* `--cz-muted`, NOT a hairline. WCAG 1.4.11 wants 3:1 for the boundary that
+     identifies a control, and the hairlines cannot reach it against either
+     column background — MEASURED: `--cz-line` 1.15:1 light / 1.20:1 dark, and
+     `--cz-line-strong` only 1.40:1 / 1.52:1, so "use the stronger hairline" is
+     not a fix. `--cz-muted` measures 5.52:1 light and 6.08:1 dark. This is the
+     rule the palette states at `--cz-line-strong`'s own definition: a divider
+     is never a control boundary; controls take `--cz-muted`. */
+  border: 1px solid var(--cz-muted);
   border-radius: var(--radius);
   background: var(--cz-surface);
   color: var(--cz-muted);
@@ -1183,7 +1190,10 @@ kbd {
 
 .lane-menu-trigger:hover,
 .lane-menu-trigger:focus-visible {
-  border-color: var(--cz-line-strong);
+  /* Hover/focus must strengthen the boundary, never weaken it — the previous
+     `--cz-line-strong` here measured 1.40:1, below the 3:1 the resting state
+     now meets. */
+  border-color: var(--cz-text);
   color: var(--cz-text);
 }
 
