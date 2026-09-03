@@ -477,3 +477,312 @@ mod retry_classifier_tests {
         );
     }
 }
+
+// ===========================================================================
+// board-lane-overflow-menu — shape-in-place write ports (DISTILL scaffolds)
+//
+// SCAFFOLD: true (ADR-025). Bodies panic; the SIGNATURES are the DESIGN
+// contract (component-boundaries.md §4). DELIVER slices 02/03 replace them.
+// ===========================================================================
+
+/// Which side of the anchor lane a new lane lands on (`insert_lane_at`).
+///
+/// An unrecognised side never reaches here: the adapter answers the uniform
+/// non-enumerable 404, so "insert after a lane that does not exist" and
+/// "insert sideways" are indistinguishable to a prober (DD6).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LaneSide {
+    Before,
+    After,
+}
+
+/// Why an insert was refused. Every arm returns BEFORE any write.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LaneInsertOutcome {
+    Inserted {
+        position: i32,
+    },
+    /// The anchor lane is absent → uniform 404 at the adapter.
+    AnchorNotFound,
+    /// The minted slug already exists on this project. Pre-checked INSIDE the
+    /// transaction's lock so the operator sees D7's refusal copy rather than a
+    /// raw `duplicate key value violates unique constraint
+    /// "lanes_project_id_slug_key"` — which is what surfaces otherwise
+    /// (measured, adr-board-lane-003).
+    SlugTaken,
+}
+
+impl Store {
+    /// SCAFFOLD: true — rename a lane's LABEL. DELIVER slice 02.
+    ///
+    /// Label-only by inherited invariant, not by choice: `issues.state` holds
+    /// the lane **slug** under composite FK `fk_issues_lane`, and `brief.md`
+    /// §lanes pins "lane slugs are immutable identity, labels mutable display".
+    /// This statement must therefore touch `label` and nothing else — verified
+    /// against a real Postgres: `slug`, `position` and every `issues.state`
+    /// are unchanged by it.
+    ///
+    /// No transaction and no lock (DD7): last-write-wins on a display label is
+    /// acceptable, and no invariant depends on the ordering of two renames.
+    pub async fn rename_lane(
+        &self,
+        project_id: uuid::Uuid,
+        lane_slug: &str,
+        new_label: &str,
+    ) -> Result<bool, StoreError> {
+        // `SET label` and NOTHING else. The column list here is the whole
+        // guarantee: `slug` is identity under composite FK `fk_issues_lane`,
+        // so touching it would rewrite every issue in the lane; `position`
+        // belongs to the insert path. Verified against a real Postgres — after
+        // this statement, slug, position and every issues.state are unchanged.
+        let affected =
+            sqlx::query("UPDATE lanes SET label = $3 WHERE project_id = $1 AND slug = $2")
+                .bind(project_id)
+                .bind(lane_slug)
+                .bind(new_label)
+                .execute(self.pool())
+                .await?
+                .rows_affected();
+        Ok(affected == 1)
+    }
+
+    /// SCAFFOLD: true — insert a lane beside an anchor. DELIVER slice 03.
+    ///
+    /// ONE transaction, in this exact order (ADR-BOARD-LANE-003, every step
+    /// measured against a real Postgres 16 during the DESIGN spike):
+    ///
+    /// 1. `SELECT … FOR UPDATE` on **this project's lane rows** — the house
+    ///    idiom `delete_lane_with_fate` already uses. Without it, two
+    ///    concurrent inserts at one anchor hand the loser a raw
+    ///    `duplicate key` error; with it, both commit cleanly.
+    /// 2. Resolve the anchor by **identity** (slug), inside the lock. NEVER
+    ///    from a position captured when the dialog was rendered — "insert
+    ///    before Done" must keep meaning *before Done* if another operator
+    ///    inserts meanwhile (the D7 "count is advisory" shape).
+    /// 3. Capture the target position BEFORE any shift (`+1` for `After`).
+    ///    Reading the anchor back after shifting is the trap that made the
+    ///    first spike attempt fail — twice.
+    /// 4. Pre-check the minted slug for collision → `SlugTaken`.
+    /// 5. `UPDATE lanes SET position = position + 1 WHERE position >= at`.
+    ///    Safe with **no** `SET CONSTRAINTS` call: the shipped constraint is
+    ///    `UNIQUE (project_id, position) DEFERRABLE INITIALLY IMMEDIATE`, and
+    ///    DEFERRABLE means checked at end-of-**statement**, not per row. The
+    ///    identical statement against a non-deferrable constraint FAILS — so
+    ///    that keyword is load-bearing for this function (adr-board-lane-003).
+    /// 6. Insert at the captured slot.
+    ///
+    /// Writes ZERO issue rows and ZERO 0013 change events (AC-3.3).
+    pub async fn insert_lane_at(
+        &self,
+        project_id: uuid::Uuid,
+        anchor_slug: &str,
+        side: LaneSide,
+        new_slug: &str,
+        new_label: &str,
+    ) -> Result<LaneInsertOutcome, StoreError> {
+        let mut tx = self.pool().begin().await?;
+
+        // 1. Serialize on THIS project's lane rows. Without this, two
+        //    concurrent inserts at one anchor hand the loser a raw
+        //    `duplicate key` error — measured, not hypothesised. The same
+        //    `FOR UPDATE` idiom `delete_lane_with_fate` uses.
+        sqlx::query("SELECT 1 FROM lanes WHERE project_id = $1 ORDER BY position FOR UPDATE")
+            .bind(project_id)
+            .fetch_all(&mut *tx)
+            .await?;
+
+        // 2. Resolve the anchor by IDENTITY, inside the lock — never from a
+        //    position captured when the dialog was rendered. "Insert before
+        //    Done" must keep meaning *before Done* if another operator inserts
+        //    meanwhile (the D7 "the count is advisory" shape).
+        let anchor: Option<(i32,)> =
+            sqlx::query_as("SELECT position FROM lanes WHERE project_id = $1 AND slug = $2")
+                .bind(project_id)
+                .bind(anchor_slug)
+                .fetch_optional(&mut *tx)
+                .await?;
+        let Some((anchor_position,)) = anchor else {
+            return Ok(LaneInsertOutcome::AnchorNotFound);
+        };
+
+        // 3. Capture the target slot BEFORE any shift. Reading the anchor back
+        //    AFTER shifting is the trap that made the DESIGN spike's first
+        //    attempt fail — twice.
+        let at = match side {
+            LaneSide::Before => anchor_position,
+            LaneSide::After => anchor_position + 1,
+        };
+
+        // 4. Pre-check the slug INSIDE the lock, so the operator gets the D7
+        //    refusal copy instead of a raw
+        //    `duplicate key value violates unique constraint
+        //     "lanes_project_id_slug_key"`.
+        let taken: Option<(i32,)> =
+            sqlx::query_as("SELECT 1 FROM lanes WHERE project_id = $1 AND slug = $2")
+                .bind(project_id)
+                .bind(new_slug)
+                .fetch_optional(&mut *tx)
+                .await?;
+        if taken.is_some() {
+            return Ok(LaneInsertOutcome::SlugTaken);
+        }
+
+        // 5. The shift. NO `SET CONSTRAINTS` call is needed and none is made:
+        //    `UNIQUE (project_id, position) DEFERRABLE INITIALLY IMMEDIATE`
+        //    (0015:22) checks at end-of-STATEMENT, not per row, so the bulk
+        //    increment is already safe. The identical statement against a
+        //    non-deferrable constraint FAILS — that keyword is load-bearing
+        //    for this function (ADR-BOARD-LANE-003).
+        sqlx::query(
+            "UPDATE lanes SET position = position + 1 WHERE project_id = $1 AND position >= $2",
+        )
+        .bind(project_id)
+        .bind(at)
+        .execute(&mut *tx)
+        .await?;
+
+        // 6. Land at the captured slot. Zero issue rows and zero 0013 change
+        //    events are written anywhere in this transaction: inserting a lane
+        //    is a lane-set operation only (AC-3.3).
+        let workspace_id: (uuid::Uuid,) =
+            sqlx::query_as("SELECT workspace_id FROM projects WHERE id = $1")
+                .bind(project_id)
+                .fetch_one(&mut *tx)
+                .await?;
+        sqlx::query(
+            "INSERT INTO lanes (id, project_id, workspace_id, slug, label, position)
+                  VALUES ($1, $2, $3, $4, $5, $6)",
+        )
+        .bind(uuid::Uuid::now_v7())
+        .bind(project_id)
+        .bind(workspace_id.0)
+        .bind(new_slug)
+        .bind(new_label)
+        .bind(at)
+        .execute(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+        Ok(LaneInsertOutcome::Inserted { position: at })
+    }
+
+    /// Relocate a lane so it sits immediately before `before_slug`, or last when
+    /// `before_slug` is `None` (D7). Both ends are resolved by IDENTITY inside
+    /// the lock, never from a position captured when the drag began.
+    ///
+    /// ONE `UPDATE … SET position = CASE …` statement applies the whole
+    /// permutation (ADR-BOARD-LANE-006). `insert_lane_at`'s two-statement
+    /// shuffle CANNOT be reused: insert is safe only because its bulk `+1`
+    /// VACATES the target slot, and a move has no vacancy — the intervening
+    /// shift collides with the mover still occupying its old position, and
+    /// `DEFERRABLE INITIALLY IMMEDIATE` (end-of-STATEMENT) does not save it.
+    /// Measured against postgres:16-alpine, not reasoned about.
+    ///
+    /// The `FOR UPDATE` is load-bearing for a subtler reason than it was for
+    /// insert: the unlocked insert race raises a duplicate-key error, but the
+    /// unlocked MOVE race raises NOTHING — it keeps contiguity, keeps
+    /// uniqueness, and still leaves a lane nobody mentioned shoved past
+    /// another (ADR-BOARD-LANE-006 Finding 4).
+    pub async fn move_lane_before(
+        &self,
+        project_id: uuid::Uuid,
+        mover_slug: &str,
+        before_slug: Option<&str>,
+    ) -> Result<LaneMoveOutcome, StoreError> {
+        let mut tx = self.pool().begin().await?;
+
+        // 1. Serialize on THIS project's lane rows — the same idiom
+        //    `insert_lane_at` and `delete_lane_with_fate` use.
+        sqlx::query("SELECT 1 FROM lanes WHERE project_id = $1 ORDER BY position FOR UPDATE")
+            .bind(project_id)
+            .fetch_all(&mut *tx)
+            .await?;
+
+        // 2. Resolve the mover by IDENTITY, inside the lock.
+        let mover: Option<(i32,)> =
+            sqlx::query_as("SELECT position FROM lanes WHERE project_id = $1 AND slug = $2")
+                .bind(project_id)
+                .bind(mover_slug)
+                .fetch_optional(&mut *tx)
+                .await?;
+        let Some((from,)) = mover else {
+            return Ok(LaneMoveOutcome::MoverNotFound);
+        };
+
+        // 3. Resolve the destination, also by identity inside the lock. An
+        //    absent `before_slug` means "place last".
+        let to = match before_slug {
+            None => {
+                let (max,): (i32,) =
+                    sqlx::query_as("SELECT max(position) FROM lanes WHERE project_id = $1")
+                        .bind(project_id)
+                        .fetch_one(&mut *tx)
+                        .await?;
+                max
+            }
+            Some(slug) => {
+                let neighbour: Option<(i32,)> = sqlx::query_as(
+                    "SELECT position FROM lanes WHERE project_id = $1 AND slug = $2",
+                )
+                .bind(project_id)
+                .bind(slug)
+                .fetch_optional(&mut *tx)
+                .await?;
+                let Some((at,)) = neighbour else {
+                    return Ok(LaneMoveOutcome::NeighbourNotFound);
+                };
+                // Lifting the mover out shifts every later lane left by one, so
+                // landing "before" a neighbour to our RIGHT means landing at
+                // its position minus one.
+                if at > from {
+                    at - 1
+                } else {
+                    at
+                }
+            }
+        };
+
+        if to == from {
+            // Nothing to do, and nothing written (DDD-7). A drag that lands
+            // where it started costs no write.
+            return Ok(LaneMoveOutcome::NoOp);
+        }
+
+        // 4. The whole permutation, in ONE statement. Two statements would end
+        //    the first one with a duplicate position — see the doc comment.
+        sqlx::query(
+            "UPDATE lanes SET position = CASE
+                    WHEN slug = $2                                          THEN $4
+                    WHEN $4 < $3 AND position >= $4 AND position <  $3      THEN position + 1
+                    WHEN $4 > $3 AND position >  $3 AND position <= $4      THEN position - 1
+                    ELSE position END
+               WHERE project_id = $1",
+        )
+        .bind(project_id)
+        .bind(mover_slug)
+        .bind(from)
+        .bind(to)
+        .execute(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+        Ok(LaneMoveOutcome::Moved { from, to })
+    }
+}
+
+/// Why a move was refused, or what it did. Every refusal arm returns BEFORE any
+/// write. `MoverNotFound` and `NeighbourNotFound` BOTH map to the uniform
+/// non-enumerable 404 at the adapter and must stay indistinguishable there
+/// (DDD-6) — they are separate arms here only so the store's own tests can tell
+/// which lookup failed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LaneMoveOutcome {
+    Moved {
+        from: i32,
+        to: i32,
+    },
+    /// Destination equals the lane's current position — commits nothing (DDD-7).
+    NoOp,
+    MoverNotFound,
+    NeighbourNotFound,
+}

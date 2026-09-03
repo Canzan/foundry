@@ -29,7 +29,9 @@ use askama::Template;
 use axum::extract::{Form, Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{Html, IntoResponse, Response};
-use foundry_services::lanes::{DeleteLaneError, LaneFate};
+use foundry_services::lanes::{
+    DeleteLaneError, InsertLaneError, LaneFate, MoveLaneError, RenameLaneError,
+};
 use foundry_services::Principal;
 use serde::Deserialize;
 use tower_sessions::Session;
@@ -261,5 +263,286 @@ mod response_helper_tests {
     async fn internal_error_answers_500() {
         let resp = internal_error("delete_lane", "boom");
         assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+}
+
+// ===========================================================================
+// board-lane-overflow-menu — edit + insert web surface (DISTILL scaffolds)
+//
+// SCAFFOLD: true (ADR-025). Each handler answers a clean 501 rather than
+// panicking: a panic aborts the axum connection and MASKS the assertion the
+// scenario is making (the `admin_tokens` precedent). Mounting the routes now
+// also keeps the authz scenarios honest — an unrouted path would answer the
+// exact uniform 404 they assert, and would pass for the wrong reason.
+//
+// The refusal contract is inherited verbatim from the delete surface above:
+// foreign, absent, non-member and signed-out all answer the uniform
+// non-enumerable 404 on BOTH verbs. An unrecognised insert `{side}` joins
+// that set — it must be indistinguishable from an unknown lane, never a 400
+// (DD6), or the pair becomes an enumeration oracle for which lanes exist.
+// ===========================================================================
+
+/// The refusal copy, pinned here so the fragment and the acceptance oracle
+/// cannot drift apart.
+const LABEL_BLANK_MESSAGE: &str = "Enter a name using letters or numbers";
+const LABEL_TOO_LONG_MESSAGE: &str = "Use 64 characters or fewer";
+
+fn lane_edit_action(team_slug: &str, project_slug: &str, lane_slug: &str) -> String {
+    format!("/team/{team_slug}/project/{project_slug}/lanes/{lane_slug}/edit")
+}
+
+fn lane_insert_action(team_slug: &str, project_slug: &str, lane_slug: &str, side: &str) -> String {
+    format!("/team/{team_slug}/project/{project_slug}/lanes/{lane_slug}/insert/{side}")
+}
+
+/// The signed-in principal, or `None` → the uniform 404. Shared by all four
+/// handlers so the signed-out arm cannot diverge between them.
+async fn lane_principal(session: &Session) -> Option<Principal> {
+    signed_in_user(session).await.map(|user| Principal::Human {
+        user_id: user.user_id,
+        workspace_id: user.workspace_id,
+    })
+}
+
+/// The `{side}` path segment. Anything but `before`/`after` resolves to
+/// `None`, which the handlers answer with the uniform 404 (DD6).
+pub fn parse_lane_side(raw: &str) -> Option<foundry_services::lanes::LaneSideView> {
+    match raw {
+        "before" => Some(foundry_services::lanes::LaneSideView::Before),
+        "after" => Some(foundry_services::lanes::LaneSideView::After),
+        _ => None,
+    }
+}
+
+/// The rename confirm's form. `_csrf` rides as a body field like every other
+/// mutating form in this app (the double-submit idiom).
+#[derive(Debug, Deserialize)]
+pub struct EditLaneForm {
+    #[serde(default)]
+    pub label: String,
+    #[serde(rename = "_csrf", default)]
+    pub _csrf: Option<String>,
+}
+
+/// The insert confirm's form.
+#[derive(Debug, Deserialize)]
+pub struct InsertLaneForm {
+    #[serde(default)]
+    pub label: String,
+    #[serde(rename = "_csrf", default)]
+    pub _csrf: Option<String>,
+}
+
+/// `GET …/lanes/{lane}/edit` — the SAFE dialog read (no `_csrf`; nothing
+/// written), pre-filled with the lane's current label.
+pub async fn show_edit_lane_dialog(
+    State(state): State<AppState>,
+    session: Session,
+    headers: HeaderMap,
+    Path((team_slug, project_slug, lane_slug)): Path<(String, String, String)>,
+) -> Response {
+    let Some(principal) = lane_principal(&session).await else {
+        return resource_not_found_page();
+    };
+    let view = match foundry_services::lanes::edit_lane_dialog(
+        &state.store,
+        &principal,
+        &team_slug,
+        &project_slug,
+        &lane_slug,
+    )
+    .await
+    {
+        Ok(view) => view,
+        Err(RenameLaneError::NotFound) => return resource_not_found_page(),
+        Err(err) => return internal_error("edit_lane_dialog", format!("{err:?}")),
+    };
+    let (csrf, set_cookie) = crate::csrf::ensure_csrf_cookie(&state, &headers);
+    let body = crate::views::EditLaneModal {
+        action: lane_edit_action(&team_slug, &project_slug, &lane_slug),
+        csrf,
+        lane_slug: view.lane_slug,
+        lane_label: view.lane_label,
+    }
+    .render()
+    .expect("edit_lane_modal partial renders from a fully-resolved, infallible view-model");
+    crate::csrf::response_with_optional_cookie(
+        StatusCode::OK,
+        Html(body).into_response(),
+        set_cookie,
+    )
+}
+
+/// `POST …/lanes/{lane}/edit` — the rename confirm (the CSRF middleware
+/// refuses a tokenless POST before this runs).
+pub async fn submit_edit_lane(
+    State(state): State<AppState>,
+    session: Session,
+    Path((team_slug, project_slug, lane_slug)): Path<(String, String, String)>,
+    Form(form): Form<EditLaneForm>,
+) -> Response {
+    let Some(principal) = lane_principal(&session).await else {
+        return resource_not_found_page();
+    };
+    match foundry_services::lanes::rename_lane(
+        &state.store,
+        &principal,
+        &team_slug,
+        &project_slug,
+        &lane_slug,
+        &form.label,
+    )
+    .await
+    {
+        Ok(()) => oob_columns_response(&state, &principal, &team_slug, &project_slug).await,
+        Err(RenameLaneError::NotFound) => resource_not_found_page(),
+        Err(RenameLaneError::LabelBlank) => validation_fragment(LABEL_BLANK_MESSAGE),
+        Err(RenameLaneError::LabelTooLong) => validation_fragment(LABEL_TOO_LONG_MESSAGE),
+        Err(err) => internal_error("rename_lane", format!("{err:?}")),
+    }
+}
+
+/// `GET …/lanes/{lane}/insert/{side}` — the SAFE dialog read.
+///
+/// An unrecognised `{side}` takes the SAME uniform 404 an unknown lane takes.
+/// That is deliberate and load-bearing: a 400 here would tell a prober that the
+/// lane exists and only the side was wrong, turning the pair into an
+/// enumeration oracle for a project's lane set (DD6).
+pub async fn show_insert_lane_dialog(
+    State(state): State<AppState>,
+    session: Session,
+    headers: HeaderMap,
+    Path((team_slug, project_slug, lane_slug, side)): Path<(String, String, String, String)>,
+) -> Response {
+    let Some(principal) = lane_principal(&session).await else {
+        return resource_not_found_page();
+    };
+    let Some(side_view) = parse_lane_side(&side) else {
+        return resource_not_found_page();
+    };
+    let view = match foundry_services::lanes::insert_lane_dialog(
+        &state.store,
+        &principal,
+        &team_slug,
+        &project_slug,
+        &lane_slug,
+        side_view,
+    )
+    .await
+    {
+        Ok(view) => view,
+        Err(InsertLaneError::NotFound) => return resource_not_found_page(),
+        Err(err) => return internal_error("insert_lane_dialog", format!("{err:?}")),
+    };
+    let (csrf, set_cookie) = crate::csrf::ensure_csrf_cookie(&state, &headers);
+    let body = crate::views::InsertLaneModal {
+        action: lane_insert_action(&team_slug, &project_slug, &lane_slug, &side),
+        csrf,
+        anchor_slug: view.anchor_slug,
+        anchor_label: view.anchor_label,
+        side: side.clone(),
+    }
+    .render()
+    .expect("insert_lane_modal partial renders from a fully-resolved, infallible view-model");
+    crate::csrf::response_with_optional_cookie(
+        StatusCode::OK,
+        Html(body).into_response(),
+        set_cookie,
+    )
+}
+
+/// The move confirm's form. `before` names the lane the mover lands
+/// immediately before; ABSENT or empty means "place last" (D7). Deliberately a
+/// neighbour SLUG and never a numeric index — an index captured when the drag
+/// began is stale the instant another operator inserts or deletes a lane
+/// (ADR-BOARD-LANE-006).
+#[derive(Debug, Deserialize)]
+pub struct MoveLaneForm {
+    #[serde(default)]
+    pub before: String,
+    #[serde(rename = "_csrf", default)]
+    pub _csrf: Option<String>,
+}
+
+/// `POST …/lanes/{lane}/move` — the move confirm (the CSRF middleware refuses a
+/// tokenless POST before this runs).
+///
+/// Both callers land here: the `⋯` menu's two Move items (`hx-post`) and the
+/// column-header drag (`fetch` + `x-csrf-token`). There is deliberately no GET
+/// counterpart — a move needs no dialog (D12).
+pub async fn submit_move_lane(
+    State(state): State<AppState>,
+    session: Session,
+    Path((team_slug, project_slug, lane_slug)): Path<(String, String, String)>,
+    Form(form): Form<MoveLaneForm>,
+) -> Response {
+    let Some(principal) = lane_principal(&session).await else {
+        return resource_not_found_page();
+    };
+    // An absent or empty `before` means "place last" (D7) — an empty form field
+    // and an omitted one must mean the same thing, since a browser sends the
+    // former and a script may send either.
+    let before = form.before.trim();
+    let before = if before.is_empty() {
+        None
+    } else {
+        Some(before)
+    };
+    match foundry_services::lanes::move_lane(
+        &state.store,
+        &principal,
+        &team_slug,
+        &project_slug,
+        &lane_slug,
+        before,
+    )
+    .await
+    {
+        Ok(()) => oob_columns_response(&state, &principal, &team_slug, &project_slug).await,
+        Err(MoveLaneError::NotFound) => resource_not_found_page(),
+        Err(err) => internal_error("move_lane", format!("{err:?}")),
+    }
+}
+
+/// `POST …/lanes/{lane}/insert/{side}` — the insert confirm (the CSRF
+/// middleware refuses a tokenless POST before this runs).
+pub async fn submit_insert_lane(
+    State(state): State<AppState>,
+    session: Session,
+    Path((team_slug, project_slug, lane_slug, side)): Path<(String, String, String, String)>,
+    Form(form): Form<InsertLaneForm>,
+) -> Response {
+    let Some(principal) = lane_principal(&session).await else {
+        return resource_not_found_page();
+    };
+    let Some(side_view) = parse_lane_side(&side) else {
+        return resource_not_found_page();
+    };
+    match foundry_services::lanes::insert_lane(
+        &state.store,
+        &principal,
+        &team_slug,
+        &project_slug,
+        &lane_slug,
+        side_view,
+        &form.label,
+    )
+    .await
+    {
+        Ok(()) => oob_columns_response(&state, &principal, &team_slug, &project_slug).await,
+        Err(InsertLaneError::NotFound) => resource_not_found_page(),
+        Err(InsertLaneError::LabelBlank) => validation_fragment(LABEL_BLANK_MESSAGE),
+        Err(InsertLaneError::LabelTooLong) => validation_fragment(LABEL_TOO_LONG_MESSAGE),
+        // The name held no letters or digits ("...", "!!!"). The copy asks for
+        // what IS usable rather than reporting that a slug came out empty —
+        // the operator never sees slugs.
+        Err(InsertLaneError::SlugEmpty) => validation_fragment(LABEL_BLANK_MESSAGE),
+        // Names the conflict. Never auto-suffixed: a silent `done_2` would be
+        // permanent identity drifting from its label forever (D7).
+        Err(InsertLaneError::SlugTaken) => validation_fragment(&format!(
+            "A lane called {} already exists",
+            form.label.trim()
+        )),
+        Err(err) => internal_error("insert_lane", format!("{err:?}")),
     }
 }

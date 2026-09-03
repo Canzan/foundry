@@ -1,0 +1,49 @@
+{
+  "schema_version": "3.0",
+  "project_id": "fix-lane-menu-clipped-mobile",
+  "feature_id": "fix-lane-menu-clipped-mobile",
+  "events": [
+    {
+      "sid": "01-01",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS: RCA proved .board{overflow-x:auto} clips the absolutely-positioned menu; position:fixed escapes it (no transform/filter/contain ancestor)",
+      "t": "2026-09-03T12:45:52Z"
+    },
+    {
+      "sid": "01-01",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "PASS: 2 regression scenarios red \u2014 3 of 4 menu items unreachable at 390px (Insert before/after, Delete list); trigger 32x44 and transparent at rest",
+      "t": "2026-09-03T13:08:00Z"
+    },
+    {
+      "sid": "01-01",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS: 25/25 blo scenarios green; menu position:fixed escapes the .board overflow clip; chip 44x44 visible at rest, no card overlap",
+      "t": "2026-09-03T13:08:00Z"
+    },
+    {
+      "sid": "01-02",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS: cascade-order and byte-identity defects found by the GREEN run",
+      "t": "2026-09-03T13:08:00Z"
+    },
+    {
+      "sid": "01-02",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "PASS: chip returned 32x44 (mobile override sat ~200 lines ABOVE the base rule it overrode); style residue broke the byte-identity oracle",
+      "t": "2026-09-03T13:08:00Z"
+    },
+    {
+      "sid": "01-02",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS: mobile block moved after the base rules; oracle rewritten with a regex-free normaliser + 3 unit tests",
+      "t": "2026-09-03T13:08:01Z"
+    }
+  ]
+}

@@ -1108,3 +1108,216 @@ kbd {
     border-radius: 0;
   }
 }
+
+/* THE LANE ⋯ MENU (board-lane-overflow-menu, ADR-BOARD-LANE-005).
+
+   REWORKED by fix-lane-menu-clipped-mobile. Two defects, both reproduced by
+   measurement before a line of this changed:
+
+   1. The menu was `position: absolute` inside the column, so `.board`'s
+      `overflow-x: auto` (line ~1079, below the 480px breakpoint) CLIPPED it —
+      an element with non-visible overflow clips its absolutely-positioned
+      descendants. On a phone three of the four items were rendered but not
+      touchable. `position: fixed` escapes that clip entirely; keyboard.js sets
+      the coordinates from the trigger's rect on open. Verified there is no
+      `transform` / `filter` / `contain: paint` ancestor, which would have
+      re-trapped a fixed element in exactly the same way.
+
+   2. The trigger was invisible at rest — transparent border, transparent
+      background, revealed only on `:hover`. A phone has no hover, so the one
+      control the operator needs was indistinguishable from the label until
+      tapped. It was also 27x32, under the 44px thumb target this stylesheet
+      gives every other control, and it overlapped the first card.
+
+   THE TRIGGER JOINS THE HEADER'S VOICE. It takes `.column h3`'s exact eyebrow
+   treatment — mono, tracked, small — so it reads as punctuation belonging to
+   the lane label rather than a control bolted beside it. What makes it legible
+   at rest is ELEVATION, not weight or colour: this stylesheet's ladder is page
+   `--cz-bg` / lane `--cz-bg-2` (recessed) / card `--cz-surface` (raised), and a
+   thing you can press belongs to the raised tier. So the chip carries the card's
+   surface and hairline at rest, and only DEEPENS on hover/focus. That is the
+   whole visual idea, and it costs no new token. */
+.column {
+  position: relative;
+}
+
+/* The header is a BAND, not a line: it reserves the trigger's own space so an
+   absolutely-positioned control can never sit on top of the first card. The
+   padding-right is the trigger's width plus its inset — the reason the heading
+   text stops short of the chip instead of running under it. */
+.column h3 {
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+  padding-right: 40px;
+}
+
+.lane-menu-wrap {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+}
+
+.lane-menu-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--cz-line);
+  border-radius: var(--radius);
+  background: var(--cz-surface);
+  color: var(--cz-muted);
+  /* The eyebrow idiom, same as `.column h3` above. The tracking is what makes
+     three dots read as a considered mark rather than an ellipsis typo. */
+  font-family: var(--cz-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.18em;
+  /* The tracking adds a trailing gap after the last dot; pull it back so the
+     mark sits optically centred in the chip. */
+  text-indent: 0.18em;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.lane-menu-trigger:hover,
+.lane-menu-trigger:focus-visible {
+  border-color: var(--cz-line-strong);
+  color: var(--cz-text);
+}
+
+/* `position: fixed` is the whole fix for defect 1: it takes the menu out of
+   every ancestor's overflow clip. keyboard.js writes `top`/`left` from the
+   trigger's rect when opening, and closes the menu on scroll rather than
+   tracking it — a menu that follows a scrolling board is more machinery than
+   this control is worth.
+
+   `[hidden]` must keep winning: the base rule never sets `display`, because the
+   attribute IS the open/closed state (ADR-BOARD-LANE-005 rule 2). */
+.lane-menu {
+  position: fixed;
+  z-index: 60;
+  min-width: 184px;
+  padding: 4px;
+  background: var(--cz-surface);
+  border: 1px solid var(--cz-line);
+  border-radius: var(--radius);
+  box-shadow: var(--cz-shadow);
+}
+
+.lane-menu[hidden] {
+  display: none;
+}
+
+.lane-menu [role="menuitem"] {
+  /* flex, not block: the mobile rule below gives every button a 44px floor, and
+     a block button would hang its label at the top of that box. */
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--cz-text);
+  font-family: var(--cz-body);
+  font-size: 0.8125rem;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+/* THE ONE PIECE OF DECORATION, AND IT ENCODES SOMETHING TRUE: three
+   constructive operations, then the destructive one. A hairline says that
+   without inventing a danger colour — this palette has no danger token, and
+   adding one would mean editing all three token regions to keep check-arch's
+   parity rule satisfied, for a distinction a rule already makes clearly. */
+.lane-menu [role="menuitem"]:last-child {
+  margin-top: 4px;
+  border-top: 1px solid var(--cz-line);
+  border-radius: 0 0 var(--radius) var(--radius);
+  padding-top: 8px;
+}
+
+.lane-menu [role="menuitem"]:hover,
+.lane-menu [role="menuitem"]:focus-visible {
+  background: var(--cz-bg-2);
+}
+
+/* THE LANE CHIP ON A PHONE — and this block sits HERE, at the end, on purpose.
+   The main `@media (max-width: 480px)` block is ~200 lines above the lane-menu
+   rules it would be overriding, so a `width: 44px` written up there loses to the
+   base `width: 32px` written down here: equal specificity, later wins. Putting
+   the override after the rule it overrides is the only thing that makes it take
+   effect. (Measured, not assumed — the chip came back 32x44 the first time.) */
+@media (max-width: 480px) {
+  /* The chip joins the 44px thumb-target list the block above gives every other
+     control. It needs an explicit rule because the bare `button` selector sets
+     only `min-height`, which would leave the chip 44 tall and 32 wide — a target
+     only half fixed. */
+  .lane-menu-trigger {
+    width: 44px;
+    height: 44px;
+  }
+  /* The band and its padding grow with the chip, which is what keeps it off the
+     first card at this width. It overlapped by 18px before. */
+  .column h3 {
+    min-height: 44px;
+    padding-right: 52px;
+  }
+  .lane-menu {
+    min-width: 200px;
+  }
+}
+
+/* board-lane-reorder — the column header is the drag surface (D2), and the two
+   Move menu items are disabled at the board's ends (D5).
+
+   Every value here is a token or a geometry constant: check-arch rule S1 fails
+   the build on a colour literal outside `:root` and the two dark blocks, so a
+   drag affordance that "just needs a grey" is a build error, not a nit. */
+
+/* The header advertises that it can be grabbed. `grab` rather than `move`
+   because the lane travels on one axis only. */
+[data-lane-drag] {
+  cursor: grab;
+  /* The gesture is horizontal; let the browser keep vertical panning so a
+     touch drag on the header does not trap the page scroll. Without this the
+     board's own `touch-action` default swallows the pointermove stream on
+     touch and the drag never passes its threshold. */
+  touch-action: pan-y;
+  user-select: none;
+}
+
+/* While a lane is travelling: lifted, semi-transparent, above its neighbours,
+   and no longer a pointer target so the drop calculation reads the columns
+   underneath it. */
+.column.lane-dragging {
+  opacity: 0.72;
+  cursor: grabbing;
+  z-index: 2;
+  box-shadow: var(--cz-shadow);
+  pointer-events: none;
+}
+
+/* Where the lane will land. A rule between columns rather than a ghost column,
+   so the board's own geometry does not shift while the pointer moves. */
+.lane-drop-indicator {
+  flex: 0 0 3px;
+  align-self: stretch;
+  border-radius: var(--radius);
+  background: var(--cz-line-strong);
+}
+
+/* A Move item at the board's end is rendered, not omitted (D5) — so it must
+   READ as unavailable rather than merely be inert. */
+.lane-menu [role="menuitem"][disabled] {
+  color: var(--cz-faint);
+  cursor: not-allowed;
+}
+
+.lane-menu [role="menuitem"][disabled]:hover,
+.lane-menu [role="menuitem"][disabled]:focus-visible {
+  background: transparent;
+}

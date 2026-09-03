@@ -1,0 +1,270 @@
+{
+  "roadmap": {
+    "project_id": "board-lane-overflow-menu",
+    "created_at": "2026-09-03T10:24:00Z",
+    "total_steps": 8
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "slice-01-overflow-menu \u2014 The \u22ef menu replaces the armed \u00d7; Delete list reaches the shipped dialog unchanged.",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "Render the \u22ef trigger and the four-item menu per column in the shared board_columns",
+          "description": "Render the \u22ef trigger and the four-item menu per column in the shared board_columns.html partial, remove the [data-lane-delete] \u00d7 , and carry the four action URLs on BoardColumn.",
+          "criteria": [
+            "Every rendered column carries exactly one button[data-action=toggle-lane-menu][data-lane={slug}].",
+            "No [data-lane-delete] marker appears anywhere in either render path.",
+            "The menu container [data-lane-menu={slug}] holds Edit list, Insert list before, Insert list after, Delete list in that order.",
+            "Action URLs are built in views::board_columns from validated path slugs, never slugify(name).",
+            "Scenarios green: 'The column header offers a menu, not an armed delete', 'The menu lists exactly the four lane operations'."
+          ],
+          "estimate": "0.5 day",
+          "dependencies": [],
+          "files_to_modify": [
+            "crates/foundry-app/templates/partials/board_columns.html",
+            "crates/foundry-app/src/views.rs"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/board-lane-overflow-menu.feature",
+          "scenario_name": [
+            "The column header offers a menu, not an armed delete",
+            "The menu lists exactly the four lane operations"
+          ],
+          "implementation_notes": "Render the \u22ef trigger and the four-item menu per column in the shared board_columns.html partial, remove the [data-lane-delete] \u00d7 , and carry the four action URLs on BoardColumn."
+        },
+        {
+          "id": "01-02",
+          "name": "Add the menu as the fourth arm of keyboard",
+          "description": "Add the menu as the fourth arm of keyboard.js::closeTopLayer(), with DOM-derived open state, two branches on the existing delegated click listener, focus return, and menu CSS re-hashed into the stylesheet.",
+          "criteria": [
+            "keyboard.js registers NO new Escape listener and NO second document click listener (BR-4).",
+            "menuIsOpen() queries the DOM; no module-level open-menu variable exists.",
+            "Escape closes the menu and returns focus to its \u22ef trigger; the board is otherwise unchanged.",
+            "One Escape peels exactly one layer with help open above a menu.",
+            "A menu open across an out-of-band #board-columns refresh does not leave Escape a silent no-op.",
+            "Stylesheet re-hashed and static/VENDOR.md row updated in the same change; check-arch R2/R3 pass.",
+            "Browser scenarios green: Delete-list-reaches-dialog, Escape-closes-and-returns-focus, keyboard-operable, menu-survives-OOB, Escape-peels-one-layer."
+          ],
+          "estimate": "0.5 day",
+          "dependencies": [
+            "01-01"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/static/js/keyboard.js",
+            "crates/foundry-app/static/css/foundry.<hash>.css",
+            "crates/foundry-app/templates/base.html",
+            "crates/foundry-app/static/VENDOR.md"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/board-lane-overflow-menu.feature",
+          "scenario_name": [
+            "Delete list reaches the shipped dialog unchanged",
+            "Escape closes the menu and returns focus, changing nothing",
+            "The menu is reachable and operable without a pointer",
+            "The menu survives the board refreshing underneath it",
+            "Escape peels one layer at a time with a menu open"
+          ],
+          "implementation_notes": "Add the menu as the fourth arm of keyboard.js::closeTopLayer(), with DOM-derived open state, two branches on the existing delegated click listener, focus return, and menu CSS re-hashed into the stylesheet."
+        },
+        {
+          "id": "01-03",
+          "name": "Re-premise the two shipped board-lane-management browser scenarios that click button[data-lane-delete] directly so they ",
+          "description": "Re-premise the two shipped board-lane-management browser scenarios that click button[data-lane-delete] directly so they open the menu first.",
+          "criteria": [
+            "feature_board_lane_management.rs no longer selects [data-lane-delete].",
+            "Both re-premised scenarios are green in the browser lane.",
+            "No board-lane-management scenario was deleted or weakened to accommodate the change."
+          ],
+          "estimate": "0.25 day",
+          "dependencies": [
+            "01-02"
+          ],
+          "files_to_modify": [
+            "crates/foundry-acceptance/src/steps/feature_board_lane_management.rs"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/board-lane-overflow-menu.feature",
+          "scenario_name": [
+            "Deleting a full lane from the board is one visible, counted decision",
+            "The delete dialog closes like every other dialog, leaving the board alone"
+          ],
+          "implementation_notes": "Re-premise the two shipped board-lane-management browser scenarios that click button[data-lane-delete] directly so they open the menu first."
+        }
+      ]
+    },
+    {
+      "id": "02",
+      "name": "slice-02-edit-lane \u2014 Edit list renames a lane's label and touches nothing else.",
+      "steps": [
+        {
+          "id": "02-01",
+          "name": "Implement the lane-name validation seam plus Store::rename_lane and the services rename use case, replacing the DISTILL ",
+          "description": "Implement the lane-name validation seam plus Store::rename_lane and the services rename use case, replacing the DISTILL scaffolds.",
+          "criteria": [
+            "One validation seam serves rename and (later) insert: trimmed non-blank, <= 64 chars, enforced below the adapter rather than only by the DB CHECK.",
+            "Store::rename_lane updates label only; slug, position and every issues.state are provably unchanged.",
+            "Absent lane / non-member / signed-out resolve to NotFound.",
+            "Unit tests cover the validation seam boundaries (0, 1, 64, 65 chars, whitespace-only)."
+          ],
+          "estimate": "0.5 day",
+          "dependencies": [],
+          "files_to_modify": [
+            "crates/foundry-store/src/lanes.rs",
+            "crates/foundry-services/src/lanes.rs"
+          ],
+          "test_file": "crates/foundry-services/src/lanes.rs",
+          "scenario_name": [],
+          "implementation_notes": "Implement the lane-name validation seam plus Store::rename_lane and the services rename use case, replacing the DISTILL scaffolds."
+        },
+        {
+          "id": "02-02",
+          "name": "Wire the edit dialog GET and rename confirm POST handlers plus the edit-lane modal template, replacing the 501 scaffolds",
+          "description": "Wire the edit dialog GET and rename confirm POST handlers plus the edit-lane modal template, replacing the 501 scaffolds.",
+          "criteria": [
+            "GET renders the dialog pre-filled with the lane's current label, carrying _csrf and data-action=close-modal.",
+            "POST success answers the OOB #board-columns refresh; validation failure is a 422 fragment into [data-error-slot].",
+            "Non-member GET and POST are both byte-identical to a never-existed path.",
+            "Duplicate labels are permitted; only slugs are unique.",
+            "All six US-BLO-02 scenarios green."
+          ],
+          "estimate": "0.5 day",
+          "dependencies": [
+            "01-01",
+            "02-01"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/src/lanes.rs",
+            "crates/foundry-app/src/views.rs",
+            "crates/foundry-app/templates/partials/edit_lane_modal.html"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/board-lane-overflow-menu.feature",
+          "scenario_name": [
+            "Renaming a lane changes the header and nothing else",
+            "A rename never touches lane identity",
+            "The edit dialog opens showing the lane's current name",
+            "An empty or over-long lane name is refused inline",
+            "A rename is refused without the board's token and accepted with it",
+            "Two lanes may carry the same label because labels are not identity"
+          ],
+          "implementation_notes": "Wire the edit dialog GET and rename confirm POST handlers plus the edit-lane modal template, replacing the 501 scaffolds."
+        }
+      ]
+    },
+    {
+      "id": "03",
+      "name": "slice-03-insert-lane \u2014 Insert list before/after places a working lane exactly where asked, under one locked transaction.",
+      "steps": [
+        {
+          "id": "03-01",
+          "name": "Implement foundry_core::lane_slug with unit and property tests",
+          "description": "Implement foundry_core::lane_slug with unit and property tests.",
+          "criteria": [
+            "Underscore separator, letter-anchored, lane_ prefix on a digit-leading result, empty on no usable characters.",
+            "Table tests cover Staging, In Progress, Code Review!!, 2024 Review, ..., blank.",
+            "Property: output is a fixed point, and always either satisfies ^[a-z][a-z0-9_]*$ or is empty.",
+            "lane_slug lives in foundry-core; check-arch single-slugify rule still passes."
+          ],
+          "estimate": "0.25 day",
+          "dependencies": [],
+          "files_to_modify": [
+            "crates/foundry-core/src/lib.rs"
+          ],
+          "test_file": "crates/foundry-core/src/lib.rs",
+          "scenario_name": [],
+          "implementation_notes": "Implement foundry_core::lane_slug with unit and property tests."
+        },
+        {
+          "id": "03-02",
+          "name": "Implement Store::insert_lane_at as one locked transaction: FOR UPDATE, anchor by identity, capture position before the s",
+          "description": "Implement Store::insert_lane_at as one locked transaction: FOR UPDATE, anchor by identity, capture position before the shift, slug pre-check, plain UPDATE shift, insert.",
+          "criteria": [
+            "No SET CONSTRAINTS call and no new migration; the counter stays at 0015.",
+            "Concurrent inserts at one anchor both commit; neither surfaces a raw duplicate-key error.",
+            "Positions stay contiguous from zero and unique after every insert.",
+            "Zero issue rows and zero change events written.",
+            "Store-level integration test covers the concurrent case."
+          ],
+          "estimate": "0.5 day",
+          "dependencies": [
+            "03-01"
+          ],
+          "files_to_modify": [
+            "crates/foundry-store/src/lanes.rs"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/board-lane-overflow-menu.feature",
+          "scenario_name": [
+            "Two operators inserting at the same anchor both land"
+          ],
+          "implementation_notes": "Implement Store::insert_lane_at as one locked transaction: FOR UPDATE, anchor by identity, capture position before the shift, slug pre-check, plain UPDATE shift, insert."
+        },
+        {
+          "id": "03-03",
+          "name": "Wire the insert services use case, the two insert handlers, and the insert dialog template",
+          "description": "Wire the insert services use case, the two insert handlers, and the insert dialog template.",
+          "criteria": [
+            "Unrecognised {side} answers the uniform non-enumerable 404, never a 400.",
+            "Slug collision is a 422 naming the conflict; empty normalisation is a 422 asking for letters or numbers.",
+            "An inserted lane is immediately first-class on board render, dnd, edit-dialog options and /api/v1 validation.",
+            "All nine US-BLO-03 scenarios green, including the concurrency scenario."
+          ],
+          "estimate": "0.5 day",
+          "dependencies": [
+            "01-01",
+            "03-01",
+            "03-02"
+          ],
+          "files_to_modify": [
+            "crates/foundry-services/src/lanes.rs",
+            "crates/foundry-app/src/lanes.rs",
+            "crates/foundry-app/src/views.rs",
+            "crates/foundry-app/templates/partials/insert_lane_modal.html"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/board-lane-overflow-menu.feature",
+          "scenario_name": [
+            "Inserting before a lane places the new lane immediately to its left",
+            "Inserting after the last lane appends at the far right",
+            "An inserted lane is a fully working lane immediately",
+            "A name whose slug collides with an existing lane is refused inline",
+            "A name with no usable characters is refused inline",
+            "A lane name that cannot start a slug still becomes a working lane",
+            "An unrecognised insert side is indistinguishable from an unknown lane",
+            "A non-member cannot insert a lane",
+            "A non-member reaching the lane routes gets the uniform not-found"
+          ],
+          "implementation_notes": "Wire the insert services use case, the two insert handlers, and the insert dialog template."
+        }
+      ]
+    }
+  ],
+  "implementation_scope": {
+    "source_directories": [
+      "crates/foundry-core/",
+      "crates/foundry-store/",
+      "crates/foundry-services/",
+      "crates/foundry-app/"
+    ],
+    "test_directories": [
+      "crates/foundry-acceptance/"
+    ],
+    "excluded_patterns": [
+      "target/**",
+      "node_modules/**"
+    ]
+  },
+  "goal": "Replace the board's per-column armed \u00d7 with a \u22ef overflow menu carrying Edit list, Insert list before, Insert list after and Delete list; add label-only lane rename and anchored lane insert.",
+  "grounding": [
+    "docs/feature/board-lane-overflow-menu/feature-delta.md",
+    "docs/feature/board-lane-overflow-menu/design/architecture-design.md",
+    "docs/feature/board-lane-overflow-menu/design/component-boundaries.md",
+    "docs/product/architecture/adr-board-lane-003-deferrable-position-shuffle.md",
+    "docs/product/architecture/adr-board-lane-004-lane-slug-mint.md",
+    "docs/product/architecture/adr-board-lane-005-overflow-menu-as-layer-arm.md"
+  ],
+  "paradigm": "object-oriented",
+  "mutation_strategy": "per-feature",
+  "validation": {
+    "status": "approved",
+    "reviewer": "orchestrator-inline-quality-gate",
+    "approved_at": "2026-09-03T10:24:00Z",
+    "note": "Quality gate run inline: no AC references a private method; steps/files ratio 8/17 = 0.47 (<2.5); no 3+ identical AC patterns; every step has files_to_modify; all step IDs match ^\\d{2}-\\d{2}$."
+  }
+}

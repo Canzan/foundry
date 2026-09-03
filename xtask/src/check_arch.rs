@@ -90,6 +90,7 @@ fn source_violations(root: &Path) -> Vec<String> {
     violations.extend(check_app_tenant_scoping(root));
     violations.extend(check_app_no_slugify_definition(root));
     violations.extend(check_no_static_lane_list(root));
+    violations.extend(check_lane_position_deferrable(root));
     violations.extend(check_static_asset_integrity(root));
     violations.extend(check_stylesheet_colour_seam(root));
     violations.extend(check_stylesheet_dark_block_parity(root));
@@ -131,7 +132,7 @@ pub fn run(args: Vec<String>) -> ExitCode {
     let verdict = verdict(&args);
     match &verdict {
         Verdict::Passed => println!(
-            "check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, no colour literal outside the three stylesheet token regions, the three stylesheet token regions declare the identical colour-token set, dependency direction)"
+            "check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, the lanes position constraint is still DEFERRABLE, every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, no colour literal outside the three stylesheet token regions, the three stylesheet token regions declare the identical colour-token set, dependency direction)"
         ),
         Verdict::UnparseableArguments(message) => eprintln!("check-arch: {message}"),
         Verdict::Violations(violations) => {
@@ -843,6 +844,77 @@ fn pins_algorithms_to_eddsa(code: &str) -> bool {
 /// LAYER 2 — delegate the crate-graph dependency-direction check to cargo-deny
 /// against the target tree's manifest. Returns `Some(violation)` if cargo-deny
 /// reports a banned edge (NAMING the forbidden crate), `None` if clean.
+/// The `UNIQUE (project_id, position)` constraint on `lanes` must stay
+/// `DEFERRABLE`.
+///
+/// This rule exists because the keyword is load-bearing and its removal is
+/// SILENT. `DEFERRABLE INITIALLY IMMEDIATE` makes the constraint checked at
+/// end-of-STATEMENT rather than per row, and that is the only reason two
+/// shipped operations work:
+///
+///   * lane INSERT shifts later positions with a plain bulk `UPDATE`
+///     (ADR-BOARD-LANE-003), and
+///   * lane MOVE applies a whole permutation in one `CASE` statement
+///     (ADR-BOARD-LANE-006).
+///
+/// Both were MEASURED to fail against a non-deferrable twin — insert and all
+/// three candidate move shapes, the last with
+/// `constraint "…" is not deferrable`. Nothing in the existing test suite
+/// notices the keyword's absence until a runtime insert or move fails, because
+/// no test asserts the constraint's definition. ADR-BOARD-LANE-003 recommended
+/// this guard and left it unimplemented; board-lane-reorder made it a DoD item
+/// once the keyword was carrying two operations by four routes.
+fn check_lane_position_deferrable(root: &Path) -> Vec<String> {
+    let migration = root
+        .join("crates")
+        .join("foundry-store")
+        .join("migrations")
+        .join("0015_project_lanes.sql");
+    let Ok(contents) = std::fs::read_to_string(&migration) else {
+        return vec![format!(
+            "check-arch: cannot read {} — the lanes position constraint could not be verified. \
+             That constraint's DEFERRABLE keyword is load-bearing for lane insert \
+             (ADR-BOARD-LANE-003) and lane move (ADR-BOARD-LANE-006).",
+            migration.display()
+        )];
+    };
+    // SQL comments are `--`, not `//` — `strip_comment` is the Rust stripper and
+    // would leave a commented-out constraint looking live. The gold test
+    // `a_commented_out_deferrable_does_not_satisfy_the_rule` failed on exactly
+    // that before this line existed.
+    let stripped: String = contents
+        .lines()
+        .map(|line| match line.find("--") {
+            Some(idx) => &line[..idx],
+            None => line,
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    let flat = stripped.split_whitespace().collect::<Vec<_>>().join(" ");
+    let declares_position_unique = flat.contains("UNIQUE (project_id, position)");
+    if !declares_position_unique {
+        return vec![format!(
+            "check-arch: {} no longer declares `UNIQUE (project_id, position)` on `lanes`. \
+             That constraint is the only DB-level guard against two lanes sharing a slot, and \
+             lane insert + lane move both depend on its DEFERRABLE end-of-statement semantics \
+             (ADR-BOARD-LANE-003 / -006).",
+            migration.display()
+        )];
+    }
+    let deferrable = flat.contains("UNIQUE (project_id, position) DEFERRABLE");
+    if deferrable {
+        return Vec::new();
+    }
+    vec![format!(
+        "check-arch: `UNIQUE (project_id, position)` in {} is no longer DEFERRABLE. This breaks \
+         lane INSERT (the bulk position shift, ADR-BOARD-LANE-003) and lane MOVE (the CASE \
+         permutation, ADR-BOARD-LANE-006) at RUNTIME while every existing test stays green — \
+         both were measured to fail with `duplicate key` against a non-deferrable constraint. \
+         Restore the keyword, or change both store operations and their ADRs together.",
+        migration.display()
+    )]
+}
+
 fn check_dependency_direction(root: &Path) -> Option<String> {
     let manifest = root.join("Cargo.toml");
     let output = Command::new("cargo")
@@ -1621,6 +1693,101 @@ mod tests {
             std::fs::write(&path, body).expect("write fixture");
         }
         dir
+    }
+
+    /// The shipped 0015 shape — DEFERRABLE present. Must NOT be flagged.
+    const LANES_MIGRATION_DEFERRABLE: &str = "CREATE TABLE lanes (\n\
+    id UUID PRIMARY KEY,\n\
+    position INTEGER NOT NULL CHECK (position >= 0),\n\
+    UNIQUE (project_id, slug),\n\
+    UNIQUE (project_id, position) DEFERRABLE INITIALLY IMMEDIATE\n);\n";
+
+    fn stage_lanes_migration(sql: &str) -> tempfile::TempDir {
+        stage(&[(
+            "crates/foundry-store/migrations/0015_project_lanes.sql",
+            sql,
+        )])
+    }
+
+    #[test]
+    fn deferrable_position_constraint_is_accepted() {
+        let tree = stage_lanes_migration(LANES_MIGRATION_DEFERRABLE);
+        assert!(
+            check_lane_position_deferrable(tree.path()).is_empty(),
+            "the shipped 0015 shape declares DEFERRABLE and must not be flagged"
+        );
+    }
+
+    #[test]
+    fn dropping_deferrable_is_flagged() {
+        // The exact silent regression this rule exists for: a "tidy-up"
+        // migration that drops one keyword. Lane insert (ADR-BOARD-LANE-003)
+        // and lane move (ADR-BOARD-LANE-006) both break at RUNTIME while every
+        // other test stays green.
+        let tree = stage_lanes_migration(
+            &LANES_MIGRATION_DEFERRABLE.replace(" DEFERRABLE INITIALLY IMMEDIATE", ""),
+        );
+        let violations = check_lane_position_deferrable(tree.path());
+        assert_eq!(violations.len(), 1, "dropping DEFERRABLE must be flagged");
+        assert!(
+            violations[0].contains("no longer DEFERRABLE"),
+            "the message must name what broke: {}",
+            violations[0]
+        );
+    }
+
+    #[test]
+    fn dropping_the_position_constraint_entirely_is_flagged() {
+        let tree = stage_lanes_migration(
+            // NB: the const uses `\` line continuations, so Rust has already
+            // stripped the leading indentation — match without it.
+            &LANES_MIGRATION_DEFERRABLE.replace(
+                "UNIQUE (project_id, position) DEFERRABLE INITIALLY IMMEDIATE\n",
+                "",
+            ),
+        );
+        let violations = check_lane_position_deferrable(tree.path());
+        assert_eq!(violations.len(), 1);
+        assert!(
+            violations[0].contains("no longer declares"),
+            "{}",
+            violations[0]
+        );
+    }
+
+    #[test]
+    fn a_commented_out_deferrable_does_not_satisfy_the_rule() {
+        // Comments are stripped before matching, so a keyword surviving only
+        // inside a comment must NOT count as present.
+        let tree = stage_lanes_migration(
+            "CREATE TABLE lanes (\n\
+             -- UNIQUE (project_id, position) DEFERRABLE INITIALLY IMMEDIATE\n\
+             UNIQUE (project_id, position)\n);\n",
+        );
+        let violations = check_lane_position_deferrable(tree.path());
+        assert_eq!(
+            violations.len(),
+            1,
+            "a commented-out keyword is not a live one"
+        );
+        assert!(
+            violations[0].contains("no longer DEFERRABLE"),
+            "{}",
+            violations[0]
+        );
+    }
+
+    #[test]
+    fn a_missing_migration_is_flagged_rather_than_silently_passing() {
+        let tree = stage(&[(
+            "crates/foundry-store/migrations/0001_init.sql",
+            "SELECT 1;\n",
+        )]);
+        assert_eq!(
+            check_lane_position_deferrable(tree.path()).len(),
+            1,
+            "an unreadable 0015 must FAIL the guard, never pass it vacuously"
+        );
     }
 
     #[test]
@@ -2688,7 +2855,16 @@ mod tests {
             Some("dependency-direction: cargo-deny rejected the crate graph".to_string())
         }
 
-        let clean = tempfile::tempdir().expect("tempdir");
+        // The "clean" tree must satisfy every rule, and one of them
+        // (`check_lane_position_deferrable`) is deliberately FAIL-CLOSED on an
+        // unreadable 0015: a guard that goes quiet when its subject is missing
+        // is a guard that cannot be trusted, and
+        // `a_missing_migration_is_flagged_rather_than_silently_passing` pins
+        // that. So a clean tree carries a valid migration rather than none.
+        let clean = stage(&[(
+            "crates/foundry-store/migrations/0015_project_lanes.sql",
+            "CREATE TABLE lanes (\n  UNIQUE (project_id, position) DEFERRABLE INITIALLY IMMEDIATE\n);\n",
+        )]);
         let clean_args = vec!["--root".to_string(), clean.path().display().to_string()];
         let planted = every_layer_1_rule_violated_tree();
         let planted_args = vec!["--root".to_string(), planted.path().display().to_string()];

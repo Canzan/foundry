@@ -287,6 +287,212 @@ pub fn slugify(input: &str) -> String {
     out
 }
 
+/// SCAFFOLD: true — board-lane-overflow-menu DISTILL (ADR-025). DELIVER
+/// (slice 03) replaces the body; the SIGNATURE is the DESIGN contract
+/// (`adr-board-lane-004-lane-slug-mint.md`, component-boundaries.md §5).
+///
+/// Lane slug derivation — the LANE sibling of [`slugify`], and NOT
+/// interchangeable with it. `lanes.slug` is constrained
+/// `CHECK (slug ~ '^[a-z][a-z0-9_]*$')`: **underscores, letter-anchored**.
+/// `slugify` emits HYPHENS, so its output is rejected outright by the schema —
+/// measured against a real Postgres 16, not assumed:
+///
+/// ```text
+/// ERROR:  new row for relation "lanes" violates check constraint "lanes_slug_check"
+/// DETAIL:  Failing row contains (…, in-progress, Hyphen, 99).
+/// ```
+///
+/// Rules:
+/// - lower-case ASCII letters/digits kept verbatim
+/// - every run of other characters collapses to a single `_`
+/// - leading/trailing `_` stripped
+/// - a **digit-leading** result takes a `lane_` prefix (the `^[a-z]` anchor).
+///   This is normalisation to satisfy a CHECK, not D7 collision-suffixing: the
+///   label is preserved verbatim and the slug is never shown to the operator.
+/// - **empty** result means "no usable characters" — the caller REFUSES inline
+///   (D7); this function never invents a slug from nothing.
+///
+/// Examples:
+/// - `"Staging"` → `"staging"`
+/// - `"In Progress"` → `"in_progress"` (byte-equal to the shipped seed)
+/// - `"Code Review!!"` → `"code_review"`
+/// - `"2024 Review"` → `"lane_2024_review"`
+/// - `"..."` → `""` (refused by the caller)
+pub fn lane_slug(input: &str) -> String {
+    let mut out = String::with_capacity(input.len() + LANE_SLUG_PREFIX.len());
+    let mut last_was_sep = true; // suppress a leading separator
+    for ch in input.chars() {
+        if ch.is_ascii_alphanumeric() {
+            for c in ch.to_lowercase() {
+                out.push(c);
+            }
+            last_was_sep = false;
+        } else if !last_was_sep {
+            out.push('_');
+            last_was_sep = true;
+        }
+    }
+    while out.ends_with('_') {
+        out.pop();
+    }
+    // No usable characters: return empty and let the CALLER refuse (D7). This
+    // function never invents a slug from nothing — a generated identity the
+    // operator did not ask for is permanent, because slugs are immutable.
+    if out.is_empty() {
+        return out;
+    }
+    // The `^[a-z]` anchor. A digit-leading name ("2024 Review") is a perfectly
+    // good LABEL; the prefix exists only so its slug satisfies the CHECK. The
+    // label is preserved verbatim and the slug is never shown, which is why
+    // this is normalisation rather than the D7 collision-suffixing that is
+    // forbidden.
+    if !out.starts_with(|c: char| c.is_ascii_lowercase()) {
+        let mut prefixed = String::with_capacity(LANE_SLUG_PREFIX.len() + out.len());
+        prefixed.push_str(LANE_SLUG_PREFIX);
+        prefixed.push_str(&out);
+        return prefixed;
+    }
+    out
+}
+
+/// Applied only when normalisation leaves a digit-leading slug.
+const LANE_SLUG_PREFIX: &str = "lane_";
+
+/// Does this string satisfy `lanes.slug`'s CHECK, `^[a-z][a-z0-9_]*$`? Kept
+/// beside the minter so the rule has ONE statement in the codebase, and so the
+/// property test below asserts the real constraint rather than a paraphrase.
+pub fn is_valid_lane_slug(slug: &str) -> bool {
+    let mut chars = slug.chars();
+    match chars.next() {
+        Some(first) if first.is_ascii_lowercase() => {}
+        _ => return false,
+    }
+    chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+}
+
+#[cfg(test)]
+mod lane_slug_tests {
+    use super::{is_valid_lane_slug, lane_slug, slugify};
+    use proptest::prelude::*;
+
+    #[test]
+    fn mints_the_documented_examples() {
+        assert_eq!(lane_slug("Staging"), "staging");
+        assert_eq!(lane_slug("In Progress"), "in_progress");
+        assert_eq!(lane_slug("Code Review!!"), "code_review");
+        assert_eq!(lane_slug("2024 Review"), "lane_2024_review");
+        assert_eq!(lane_slug("  Archive Box  "), "archive_box");
+    }
+
+    /// `is_valid_lane_slug` IS this codebase's statement of the DB CHECK
+    /// `^[a-z][a-z0-9_]*$`, so its anchor needs testing directly — not only
+    /// through `lane_slug`, which by construction never emits a bad first
+    /// character. Mutation testing caught exactly that hole: replacing the
+    /// first-character guard with `true` survived every other test here.
+    #[test]
+    fn validity_requires_a_lowercase_letter_first() {
+        assert!(is_valid_lane_slug("staging"));
+        assert!(is_valid_lane_slug("a"));
+        assert!(is_valid_lane_slug("lane_2024_review"));
+
+        assert!(
+            !is_valid_lane_slug("2024_review"),
+            "digit-leading is INVALID"
+        );
+        assert!(
+            !is_valid_lane_slug("_leading"),
+            "underscore-leading is INVALID"
+        );
+        assert!(
+            !is_valid_lane_slug("Staging"),
+            "uppercase-leading is INVALID"
+        );
+        assert!(!is_valid_lane_slug(""), "empty is INVALID");
+    }
+
+    /// The tail alphabet, tested for the same reason: it is the other half of
+    /// the CHECK, and nothing else asserts what it excludes.
+    #[test]
+    fn validity_rejects_characters_the_check_forbids_after_the_first() {
+        assert!(
+            !is_valid_lane_slug("in-progress"),
+            "hyphens are INVALID — this is why slugify cannot mint lane slugs"
+        );
+        assert!(!is_valid_lane_slug("in progress"), "spaces are INVALID");
+        assert!(
+            !is_valid_lane_slug("inProgress"),
+            "uppercase is INVALID anywhere"
+        );
+        assert!(
+            is_valid_lane_slug("in_progress_2"),
+            "digits and underscores are fine after the first char"
+        );
+    }
+
+    #[test]
+    fn no_usable_characters_yields_empty_for_the_caller_to_refuse() {
+        assert_eq!(lane_slug("..."), "");
+        assert_eq!(lane_slug("!!!"), "");
+        assert_eq!(lane_slug("   "), "");
+        assert_eq!(lane_slug(""), "");
+    }
+
+    /// The reason this function exists at all. `slugify` is the PROJECT slug
+    /// minter and emits hyphens, which `lanes_slug_check` rejects outright —
+    /// verified against a real Postgres during DESIGN. If someone ever "tidies
+    /// up" by pointing lane creation at `slugify`, this test says why not.
+    #[test]
+    fn is_not_interchangeable_with_slugify() {
+        assert_eq!(slugify("In Progress"), "in-progress");
+        assert_eq!(lane_slug("In Progress"), "in_progress");
+        assert!(!is_valid_lane_slug(&slugify("In Progress")));
+        assert!(is_valid_lane_slug(&lane_slug("In Progress")));
+    }
+
+    #[test]
+    fn the_seeded_lane_slugs_round_trip_from_their_shipped_labels() {
+        // The 0015 seed pairs. If minting ever drifted from them, an inserted
+        // "In-Progress" would collide-or-not against the grandfathered lane
+        // unpredictably.
+        assert_eq!(lane_slug("Backlog"), "backlog");
+        assert_eq!(lane_slug("Todo"), "todo");
+        assert_eq!(lane_slug("In-Progress"), "in_progress");
+        assert_eq!(lane_slug("Done"), "done");
+        assert_eq!(lane_slug("Cancelled"), "cancelled");
+    }
+
+    proptest! {
+        /// Output is always storable: either empty (the caller refuses) or a
+        /// value the DB CHECK accepts. There is no third outcome, which is what
+        /// makes "mint then insert" safe without a second validation.
+        #[test]
+        fn output_is_empty_or_a_valid_lane_slug(input in ".{0,80}") {
+            let out = lane_slug(&input);
+            prop_assert!(out.is_empty() || is_valid_lane_slug(&out));
+        }
+
+        /// A fixed point — mirroring `slugify_is_a_fixed_point`. Re-minting a
+        /// slug must not mutate it, or a lane's identity could drift if any
+        /// path ever minted twice.
+        #[test]
+        fn lane_slug_is_a_fixed_point(input in ".{0,80}") {
+            let once = lane_slug(&input);
+            prop_assume!(!once.is_empty());
+            prop_assert_eq!(lane_slug(&once), once);
+        }
+
+        /// Never underscore-leading, never underscore-trailing, never doubled —
+        /// the separator rules, stated as a property rather than by example.
+        #[test]
+        fn separators_are_single_and_interior(input in ".{0,80}") {
+            let out = lane_slug(&input);
+            prop_assume!(!out.is_empty());
+            prop_assert!(!out.ends_with('_'));
+            prop_assert!(!out.contains("__"));
+        }
+    }
+}
+
 #[cfg(test)]
 mod slugify_tests {
     use super::slugify;

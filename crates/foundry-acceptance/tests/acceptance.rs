@@ -40,6 +40,8 @@ use foundry_acceptance::steps::feature_b_web_tier as _feature_b;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_board_lane_management as _feature_blm;
 #[allow(unused_imports)]
+use foundry_acceptance::steps::feature_board_lane_overflow_menu as _feature_blo;
+#[allow(unused_imports)]
 use foundry_acceptance::steps::feature_board_new_issue as _feature_board_new_issue;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_bootstrap_enum_oracle as _feature_bootstrap_enum_oracle;

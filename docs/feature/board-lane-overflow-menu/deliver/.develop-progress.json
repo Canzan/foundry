@@ -1,0 +1,24 @@
+{
+  "feature_id": "board-lane-overflow-menu",
+  "status": "complete",
+  "mode": "adr-025-scaffolded-red",
+  "executed_by": "orchestrator (main instance), not dispatched to crafter subagents",
+  "phases_completed": {
+    "1_roadmap": "approved (inline quality gate: 8 steps, ratio 0.44, all IDs valid)",
+    "2_execute_all": "8/8 steps GREEN",
+    "3_refactor": "performed inline during GREEN (dead normalize_state arms removed on mutation evidence; redundant click branch collapsed); no separate L1-L4 pass",
+    "4_adversarial_review": "self-review performed: testing-theater scan + fail-open probe audit; one fail-open probe (menu_is_open) found and hardened",
+    "5_mutation": "100% on both scoped runs (foundry-core 11/11, foundry-services 12/12); gate is 80%",
+    "6_integrity": "PASS - all 8 steps have complete DES traces",
+    "7_finalize": "evolution archive written; NOT committed (no-commit mode)"
+  },
+  "commit_status": "none - working tree holds the change; user has not requested commits",
+  "gates": {
+    "fmt": "clean",
+    "clippy_deny_warnings": "clean",
+    "check_arch": "PASSED",
+    "acceptance": "590/590 scenarios, 4141/4141 steps",
+    "unit_integration": "252 passing",
+    "migrations_added": 0
+  }
+}

@@ -88,7 +88,29 @@ pub async fn validate_project_lane(
 /// set. Returns the canonical member slug actually accepted, `None` for an
 /// unfoldable input or a folded slug the project's board does not have.
 fn resolve_lane(input: &str, lane_slugs: &[String]) -> Option<String> {
-    let folded = normalize_state(input)?;
+    let trimmed = input.trim().to_ascii_lowercase();
+
+    // 1. THE PROJECT'S OWN SLUGS, matched exactly. This arm was added by
+    //    board-lane-overflow-menu and it is not an optimisation — it is a
+    //    correctness fix. `normalize_state` below folds against a CLOSED,
+    //    hardcoded set (`backlog|todo|in_progress|done|cancelled`), and its own
+    //    doc called that set "unmintable" on the strength of
+    //    board-lane-management's D9, which put lane CREATION out of scope.
+    //    Insert makes slugs mintable, so that premise is now false: without
+    //    this arm, a freshly inserted lane can never receive a card — the
+    //    board renders a column that every write path rejects.
+    //
+    //    Exact identity wins over aliasing, so a lane actually slugged
+    //    `canceled` beats the `canceled -> cancelled` spelling fold.
+    if let Some(hit) = lane_slugs.iter().find(|slug| slug.as_str() == trimmed) {
+        return Some(hit.clone());
+    }
+
+    // 2. The legacy alias fold, unchanged and still load-bearing: shipped
+    //    feature files and API clients send `"in-progress"` (hyphenated — a
+    //    spelling no lane slug can ever have, since the CHECK forbids hyphens)
+    //    and `"canceled"`. Both must keep resolving.
+    let folded = normalize_state(&trimmed)?;
     lane_slugs
         .iter()
         .find(|slug| slug.as_str() == folded)
@@ -98,16 +120,26 @@ fn resolve_lane(input: &str, lane_slugs: &[String]) -> Option<String> {
 /// Alias-folding helper of [`validate_project_lane`] (board-lane-management
 /// 01-02: DEMOTED from the public validation seam to a private fold — the
 /// per-project membership check above is the ONLY validation authority now).
-/// Maps the incoming state value (which may be the human label used in feature
-/// files like `"in-progress"`) onto the closed, unmintable canonical slug set
-/// (D9). Never removed from the alias-folding role.
+///
+/// NARROWED by board-lane-overflow-menu to the aliases that still do work.
+/// This used to carry an arm per canonical slug, including three IDENTITY
+/// mappings (`backlog`→`backlog`, `todo`→`todo`, `done`→`done`). Once
+/// `resolve_lane` gained its exact-match arm — which it had to, so that
+/// mintable lane slugs resolve at all — those three became unreachable:
+/// anything spelled exactly like a lane slug is matched before this fold is
+/// consulted. Mutation testing proved it, by deleting each of them without a
+/// single test noticing.
+///
+/// What remains are the two aliases whose spelling is NOT a legal lane slug,
+/// so the exact arm can never match them and this fold is their only route:
+///   - `in-progress` — hyphenated; `lanes_slug_check` forbids hyphens outright,
+///     so no lane can ever be slugged this way, yet shipped feature files and
+///     API clients send it.
+///   - `canceled` — the one-l American spelling of `cancelled`.
 fn normalize_state(input: &str) -> Option<&'static str> {
     match input.trim().to_ascii_lowercase().as_str() {
-        "backlog" => Some("backlog"),
-        "todo" => Some("todo"),
-        "in-progress" | "in_progress" => Some("in_progress"),
-        "done" => Some("done"),
-        "cancelled" | "canceled" => Some("cancelled"),
+        "in-progress" => Some("in_progress"),
+        "canceled" => Some("cancelled"),
         _ => None,
     }
 }
@@ -540,6 +572,78 @@ mod tests {
                 lane_slugs
             );
         }
+    }
+
+    /// THE REGRESSION THIS FIX EXISTS FOR (board-lane-overflow-menu).
+    ///
+    /// Before insert shipped, `normalize_state`'s closed five-slug set was a
+    /// complete description of every lane that could exist, and folding
+    /// against it was sound. Insert makes slugs mintable, so a lane slugged
+    /// `staging` or `lane_2024_review` is now reachable — and was rejected by
+    /// every write path while its column rendered on the board. Caught by the
+    /// acceptance lane, not by review.
+    #[test]
+    fn a_minted_lane_slug_is_accepted_even_though_it_is_not_a_legacy_alias() {
+        let lanes: Vec<String> = ["backlog", "staging", "in_progress", "lane_2024_review"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert_eq!(
+            resolve_lane("staging", &lanes),
+            Some("staging".to_string()),
+            "an inserted lane must be writable, or the board renders a column no write can reach"
+        );
+        assert_eq!(
+            resolve_lane("lane_2024_review", &lanes),
+            Some("lane_2024_review".to_string())
+        );
+        // Case and padding are folded for minted slugs exactly as for legacy ones.
+        assert_eq!(
+            resolve_lane("  STAGING ", &lanes),
+            Some("staging".to_string())
+        );
+    }
+
+    /// The legacy aliases keep resolving — shipped feature files send
+    /// `"in-progress"` (a spelling no lane slug can have: the CHECK forbids
+    /// hyphens) and `"canceled"`. The fix is additive, and this says so.
+    #[test]
+    fn the_legacy_alias_fold_still_resolves_after_the_exact_match_arm() {
+        let lanes: Vec<String> = ["in_progress", "cancelled"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert_eq!(
+            resolve_lane("in-progress", &lanes),
+            Some("in_progress".to_string())
+        );
+        assert_eq!(
+            resolve_lane("canceled", &lanes),
+            Some("cancelled".to_string())
+        );
+    }
+
+    /// Exact identity beats the spelling alias: a project that actually minted
+    /// a lane slugged `canceled` gets THAT lane, not the `cancelled` fold.
+    #[test]
+    fn an_exact_lane_slug_wins_over_the_spelling_alias() {
+        let lanes: Vec<String> = ["canceled", "cancelled"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert_eq!(
+            resolve_lane("canceled", &lanes),
+            Some("canceled".to_string())
+        );
+    }
+
+    /// A lane the project does NOT have is still refused — the fix widens what
+    /// resolves, it does not stop refusing.
+    #[test]
+    fn an_absent_lane_is_still_refused() {
+        let lanes: Vec<String> = vec!["backlog".to_string()];
+        assert_eq!(resolve_lane("staging", &lanes), None);
+        assert_eq!(resolve_lane("nonsense", &lanes), None);
     }
 
     /// A description exactly at the cap is ACCEPTED (the bound is inclusive of

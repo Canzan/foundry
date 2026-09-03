@@ -2402,24 +2402,47 @@ async fn board_open_in_browser(world: &mut FoundryWorld, project_name: String) {
     world.browser = Some(browser);
 }
 
+/// RE-PREMISED by board-lane-overflow-menu (D3/D13, step 01-03).
+///
+/// The armed `×` this used to click is GONE: the destructive action now lives
+/// behind the per-column `⋯` overflow menu, so reaching the delete dialog costs
+/// one more interaction. The SCENARIOS are unchanged and still assert exactly
+/// what they asserted before — that a delete dialog opens for this lane and
+/// behaves as it did. Only the route to the control moved, which is the whole
+/// point of the successor feature.
+///
+/// This premise break was pre-registered in board-lane-overflow-menu's DISCUSS
+/// wave (D13) and is deliberate, not a regression.
 async fn click_lane_delete(world: &mut FoundryWorld, lane_slug: &str) {
     let browser = world.browser.as_ref().expect("browser session");
-    let selector = format!("button[data-lane-delete=\"{lane_slug}\"]");
-    let control = browser
+    let trigger_selector =
+        format!("button[data-action=\"toggle-lane-menu\"][data-lane=\"{lane_slug}\"]");
+    let trigger = browser
         .wait()
         .at_most(Duration::from_secs(10))
-        .for_element(Locator::Css(&selector))
+        .for_element(Locator::Css(&trigger_selector))
         .await
         .unwrap_or_else(|err| {
             panic!(
-                "every rendered lane header must carry its delete control \
-                 ([data-lane-delete={lane_slug:?}], component-boundaries.md §4): {err}"
+                "every rendered lane header must carry its ⋯ menu trigger \
+                 ([data-action=toggle-lane-menu][data-lane={lane_slug:?}], \
+                 board-lane-overflow-menu component-boundaries.md §1.1): {err}"
             )
         });
-    control
-        .click()
+    trigger.click().await.expect("open the lane ⋯ menu");
+    // Scoped to the OPEN menu: every column renders a "Delete list" item, and
+    // an unscoped match returns the leftmost column's hidden one.
+    let item = browser
+        .wait()
+        .at_most(Duration::from_secs(10))
+        .for_element(Locator::XPath(
+            "//*[@data-lane-menu and not(@hidden)]//*[normalize-space(text())='Delete list']",
+        ))
         .await
-        .expect("click the lane delete control");
+        .unwrap_or_else(|err| {
+            panic!("the open {lane_slug:?} menu must offer a Delete list item: {err}")
+        });
+    item.click().await.expect("choose Delete list");
 }
 
 #[when(regex = r"^she clicks the delete control on the Todo column$")]

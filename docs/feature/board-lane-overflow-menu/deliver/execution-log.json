@@ -1,0 +1,196 @@
+{
+  "schema_version": "3.0",
+  "project_id": "board-lane-overflow-menu",
+  "feature_id": "board-lane-overflow-menu",
+  "events": [
+    {
+      "sid": "01-01",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS: read board_columns.html (shared with oob partial), views.rs board_columns/BoardColumn, lanes routes",
+      "t": "2026-09-03T09:45:59Z"
+    },
+    {
+      "sid": "01-01",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "PASS: 2/2 scenarios red, MISSING_FUNCTIONALITY(markup)",
+      "t": "2026-09-03T09:46:46Z"
+    },
+    {
+      "sid": "01-01",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS: 2/2 scenarios green (menu trigger per column, four items in order, no [data-lane-delete])",
+      "t": "2026-09-03T09:48:55Z"
+    },
+    {
+      "sid": "01-02",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS: read keyboard.js layer machinery (closeTopLayer arms, delegated click at :870, helpIsOpen/modalIsOpen DOM-derived)",
+      "t": "2026-09-03T09:48:55Z"
+    },
+    {
+      "sid": "01-02",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS: 7/7 blo scenarios green; menu arm added to closeTopLayer, no new listeners; CSS re-hashed 41b3395b -> 78a05f58; check-arch PASSED",
+      "t": "2026-09-03T09:53:22Z"
+    },
+    {
+      "sid": "01-03",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS: located click_lane_delete at feature_board_lane_management.rs:2405, used at :2427 and :2565",
+      "t": "2026-09-03T09:53:22Z"
+    },
+    {
+      "sid": "01-03",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS: blm suite 24/24 green through the menu; zero [data-lane-delete] selectors remain",
+      "t": "2026-09-03T09:54:49Z"
+    },
+    {
+      "sid": "02-01",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS: read services::lanes::delete_lane authz shape + resolve_lane_project",
+      "t": "2026-09-03T09:54:49Z"
+    },
+    {
+      "sid": "02-01",
+      "p": "RED_UNIT",
+      "s": "EXECUTED",
+      "d": "PASS: 6 unit tests on the shared label seam (trim, blank, 64/65 boundary, char-not-byte counting)",
+      "t": "2026-09-03T09:57:00Z"
+    },
+    {
+      "sid": "02-01",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS: 6/6 unit tests green; Store::rename_lane + services::rename_lane implemented",
+      "t": "2026-09-03T09:57:00Z"
+    },
+    {
+      "sid": "02-02",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS: read delete_lane_modal.html + show_delete_lane_dialog for the dialog idiom",
+      "t": "2026-09-03T09:57:01Z"
+    },
+    {
+      "sid": "02-02",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS: 13/13 blo scenarios green (slice 01 + all six US-BLO-02)",
+      "t": "2026-09-03T09:59:49Z"
+    },
+    {
+      "sid": "03-01",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS: read foundry_core::slugify + its property tests as the shape to mirror",
+      "t": "2026-09-03T09:59:49Z"
+    },
+    {
+      "sid": "03-01",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS: 7/7 (4 example + 3 property) lane_slug tests green",
+      "t": "2026-09-03T10:00:30Z"
+    },
+    {
+      "sid": "03-02",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS: transaction shape taken from adr-board-lane-003, measured during the DESIGN spike",
+      "t": "2026-09-03T10:00:30Z"
+    },
+    {
+      "sid": "03-02",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS: 23/23 blo scenarios green",
+      "t": "2026-09-03T10:10:54Z"
+    },
+    {
+      "sid": "03-03",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS: 23/23 blo scenarios green",
+      "t": "2026-09-03T10:10:54Z"
+    },
+    {
+      "sid": "03-02",
+      "p": "RED_UNIT",
+      "s": "EXECUTED",
+      "d": "PASS: resolve_lane regression suite (minted slug accepted, legacy aliases preserved, exact beats alias, absent still refused)",
+      "t": "2026-09-03T10:10:54Z"
+    },
+    {
+      "sid": "03-03",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS: read delete-dialog handler idiom (csrf cookie, oob refresh, validation_fragment) as the shape to mirror for insert",
+      "t": "2026-09-03T10:25:29Z"
+    },
+    {
+      "sid": "01-02",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "PASS: red observed in the DISTILL classification run (5 browser scenarios, MISSING_FUNCTIONALITY(markup)); 2 further failures observed this session on the first post-implementation run (ElementNotInteractable, keyboard-reachability) and fixed",
+      "t": "2026-09-03T10:25:29Z"
+    },
+    {
+      "sid": "01-03",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "PASS: red is STRUCTURAL and pre-registered (D13) \u2014 removing [data-lane-delete] in 01-01 breaks the blm selector by construction. Red was not separately observed before the fix; the blm suite was verified 24/24 green after re-premising",
+      "t": "2026-09-03T10:25:29Z"
+    },
+    {
+      "sid": "02-01",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "PASS: red observed in the DISTILL classification run (6 US-BLO-02 scenarios); this step is unit-level, its own red is the RED_UNIT entry",
+      "t": "2026-09-03T10:25:29Z"
+    },
+    {
+      "sid": "02-02",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "PASS: red observed in the DISTILL classification run (6 US-BLO-02 scenarios, MF(port-501)/MF(behaviour) against the clean-501 scaffolds)",
+      "t": "2026-09-03T10:25:29Z"
+    },
+    {
+      "sid": "03-01",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "PASS: red via the panicking foundry_core::lane_slug scaffold; unit-level step, its own red is the RED_UNIT entry",
+      "t": "2026-09-03T10:25:29Z"
+    },
+    {
+      "sid": "03-02",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "PASS: red observed in the DISTILL classification run (the @concurrency scenario, MF(port-501))",
+      "t": "2026-09-03T10:25:29Z"
+    },
+    {
+      "sid": "03-03",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "PASS: red observed in the DISTILL classification run (9 US-BLO-03 scenarios); 3 further real failures observed this session, incl. the resolve_lane defect",
+      "t": "2026-09-03T10:25:29Z"
+    },
+    {
+      "sid": "03-03",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS: 23/23 blo scenarios green; full suite 590/590",
+      "t": "2026-09-03T10:25:29Z"
+    }
+  ]
+}

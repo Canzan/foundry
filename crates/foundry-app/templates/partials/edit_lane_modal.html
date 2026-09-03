@@ -1,0 +1,24 @@
+{# board-lane-overflow-menu — the Edit list dialog (component-boundaries.md §2.2).
+   BARE fragment htmx-swaps into #modal-root, exactly like delete_lane_modal.html.
+   Close is the declarative [data-action="close-modal"] trigger ONLY — no new
+   Escape or click listener (BR-4, ADR-MODAL-CLOSE-001).
+
+   The field is pre-filled with the lane's CURRENT label. The lane is addressed
+   by its SLUG in the form action; the slug is identity and this dialog cannot
+   change it (brief.md §lanes) — only the label moves. #}
+<div class="modal" role="dialog" aria-modal="true" data-modal="edit-lane" data-lane="{{ lane_slug }}">
+  <div class="modal-dialog">
+    <header class="modal-header">
+      <h2>Rename lane</h2>
+      <button type="button" class="modal-close" aria-label="Close" data-action="close-modal">&times;</button>
+    </header>
+    <form method="post" action="{{ action }}" hx-post="{{ action }}" hx-target="#modal-root" hx-swap="innerHTML">
+      <input type="hidden" name="_csrf" value="{{ csrf }}">
+      <label>Name
+        <input type="text" name="label" value="{{ lane_label }}" maxlength="64" autocomplete="off" required>
+      </label>
+      <button type="submit">Save</button>
+      <div data-error-slot></div>
+    </form>
+  </div>
+</div>

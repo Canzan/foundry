@@ -326,7 +326,7 @@ mod static_cache_policy_tests {
         // Content-hashed CSS + pinned vendored libs stay long-lived immutable
         // (their URLs are content-addressed / version-pinned).
         assert!(
-            static_cache_control_value("/static/css/foundry.41b3395b.css").contains("immutable")
+            static_cache_control_value("/static/css/foundry.f4ab141f.css").contains("immutable")
         );
         assert!(static_cache_control_value("/static/vendor/htmx.min.js").contains("immutable"));
     }
@@ -343,7 +343,7 @@ mod static_cache_policy_tests {
         // a year at exactly the URLs that can never change to bust the cache.
         // Repairing the origin did not clear them.
         for path in [
-            "/static/css/foundry.41b3395b.css",
+            "/static/css/foundry.f4ab141f.css",
             "/static/vendor/htmx.min.js",
             "/static/js/board-dnd.js",
         ] {
@@ -362,7 +362,7 @@ mod static_cache_policy_tests {
         // A success still gets the full path-aware policy — the fix must not
         // quietly disable immutable caching for the assets that earn it.
         assert!(
-            static_cache_control_value_for(StatusCode::OK, "/static/css/foundry.41b3395b.css")
+            static_cache_control_value_for(StatusCode::OK, "/static/css/foundry.f4ab141f.css")
                 .contains("immutable")
         );
         assert_eq!(
@@ -605,6 +605,40 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/team/{team_slug}/project/{project_slug}/lanes/{lane_slug}/delete",
             get(lanes::show_delete_lane_dialog).post(lanes::submit_delete_lane),
+        )
+        // board-lane-overflow-menu — the ⋯ menu's other three items reach here
+        // (adr-board-lane-003/-004/-005). Mounted on the SAME layer as the
+        // delete route above (UNDER `csrf::csrf_middleware` + `session_layer`):
+        // the dialog GETs are safe reads carrying no `_csrf`; the confirm POSTs
+        // are mutating htmx forms whose tokenless case the middleware refuses
+        // BEFORE these handlers run. Refusals on BOTH verbs are the uniform
+        // non-enumerable 404, including an unrecognised `{side}` — which must
+        // be indistinguishable from an unknown lane, never a 400, or the pair
+        // becomes an enumeration oracle for which lanes a project has (DD6).
+        //
+        // Mounted at DISTILL as clean-501 RED scaffolds (ADR-025). They are
+        // mounted NOW, rather than at DELIVER, precisely so the authz scenarios
+        // stay honest: an unrouted path answers the exact uniform 404 those
+        // scenarios assert, and would pass for the wrong reason.
+        .route(
+            "/team/{team_slug}/project/{project_slug}/lanes/{lane_slug}/edit",
+            get(lanes::show_edit_lane_dialog).post(lanes::submit_edit_lane),
+        )
+        .route(
+            "/team/{team_slug}/project/{project_slug}/lanes/{lane_slug}/insert/{side}",
+            get(lanes::show_insert_lane_dialog).post(lanes::submit_insert_lane),
+        )
+        // board-lane-reorder — the move confirm. POST-only: a move needs no
+        // dialog (D12), so there is deliberately no GET counterpart. Both
+        // callers land here — the ⋯ menu's two Move items (hx-post) and the
+        // column-header drag (fetch + x-csrf-token) — because one write seam
+        // with two callers cannot drift (DDD-8). The destination is named by
+        // NEIGHBOUR SLUG in the body, never a numeric position
+        // (ADR-BOARD-LANE-006/D7). Mounted at DISTILL as a clean-501 RED
+        // scaffold, for the same honesty reason as the two routes above.
+        .route(
+            "/team/{team_slug}/project/{project_slug}/lanes/{lane_slug}/move",
+            post(lanes::submit_move_lane),
         )
         // issue-edit-dialog (ADR-001) — GET the pre-filled edit dialog, POST the
         // save. Same shared layer (UNDER `csrf_middleware` + `session_layer`): the

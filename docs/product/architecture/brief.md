@@ -77,7 +77,14 @@ listeners — they are attributes. Any element inside `#modal-root` carrying
 document-delegated click listener in `keyboard.js` (delegation is the house
 idiom because it survives htmx swaps). Adding a close control to a future
 dialog is a template-only change, and BR-4 is unviolable by construction of the
-pattern. See `adr-modal-close-001-declarative-close-trigger.md`.
+pattern. The same discipline extends beyond dialogs: the board's per-column
+overflow menu is an *arm* of `closeTopLayer()`, not a component with listeners of
+its own, and its open state is derived from the DOM rather than stored — a stored
+handle would be left detached by the out-of-band `#board-columns` refresh and
+turn `Escape` into a silent no-op. `keyboard.js` holds exactly one document
+`keydown` and one document `click` listener; more than that is a violation.
+See `adr-modal-close-001-declarative-close-trigger.md` and
+`adr-board-lane-005-overflow-menu-as-layer-arm.md`.
 
 ### Lanes are per-project data; the lane FK is the no-stranded-card invariant
 
@@ -95,8 +102,48 @@ same statement. Lane slugs are immutable identity, labels mutable display —
 the names-are-labels invariant extends to lanes. No adapter may hold a static
 lane list (`cargo xtask check-arch` rule; exemptions: the store creation seed
 and the `humanize_state` historical-label fallback).
-See `adr-board-lane-001-issues-linkage-state-fk.md` and
-`adr-board-lane-002-two-fate-delete-transaction.md`.
+Lanes are also *shaped in place*: a lane's label is renameable, a lane may be
+inserted at any position, and a lane may be **moved** to any other position.
+Three further consequences follow.
+
+**The `DEFERRABLE` keyword on `UNIQUE (project_id, position)` is a precondition
+for lane arrangement, not a convenience.** It makes the constraint checked at
+end-of-*statement*, which is the only reason a mid-board insert can shift later
+positions with a plain `UPDATE` and no migration. For a *move* the dependence is
+stronger still: all three shapes a reasonable engineer would write — a single
+`CASE` permutation, a sentinel park, or `SET CONSTRAINTS … DEFERRED` — fail
+against a non-deferrable constraint, the last with `constraint "…" is not
+deferrable` (all measured). **Any migration that drops that keyword silently
+breaks lane insert and lane move, by four routes, while every existing test
+stays green.** Until the `check-arch` rule pinning it exists, ADR-BOARD-LANE-003
+and -006 are the only guards.
+
+**Insert's shuffle does not generalise to a move.** Insert shifts safely because
+it *vacates* the target slot; a move has no vacancy, so the intervening shift
+collides with the mover still occupying its old slot. A move is therefore one
+`UPDATE … SET position = CASE …` statement applying the whole permutation, inside
+a `FOR UPDATE` transaction that resolves both the mover and its destination
+neighbour by identity. Without that lock the race is **silent** — no error, every
+invariant intact, and a board arranged as nobody asked (measured); this is a
+worse failure than insert's loud duplicate-key, and is why the move's concurrency
+oracle must assert the resulting *order*, never merely the absence of an error.
+
+And lane slugs are minted by `foundry_core::lane_slug`, never by `slugify` — the
+latter emits hyphens, which `lanes_slug_check` (`^[a-z][a-z0-9_]*$`) rejects.
+Lane *arrangement* writes zero issue rows and zero change events in every form:
+rename, insert and move are all lane-set operations only.
+See `adr-board-lane-001-issues-linkage-state-fk.md`,
+`adr-board-lane-002-two-fate-delete-transaction.md`,
+`adr-board-lane-003-deferrable-position-shuffle.md`,
+`adr-board-lane-004-lane-slug-mint.md` and
+`adr-board-lane-006-lane-move-permutation.md`.
+
+The board carries **two drag mechanisms by deliberate choice**: lanes drag on
+Pointer Events (so the gesture exists on touch at all), cards keep native HTML5
+drag-and-drop. The boundary is origin-based and absolute — a gesture beginning on
+`.issue-card` is a card move, one beginning on a column header is a lane move —
+and the shipped card-drag scenarios passing *unmodified* are its standing proof.
+See `adr-board-lane-007-pointer-events-lane-drag.md`.
 
 ### Colour enters the stylesheet at one seam; assets are hash-honest by construction
 

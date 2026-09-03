@@ -2,67 +2,40 @@
 
 ## Current Task
 
-**`pwa-mobile-rendering` SHIPPED + finalized** (full pipeline; `main`, DELIVER `bd1ea26`→`329616e` + finalize
-`893facb`, **7 ahead of both remotes, not pushed**). Foundry was desktop-only (no viewport meta, zero @media,
-no manifest). Shipped: viewport meta + responsive @media (columns scroll, dialog sheet, sidebar top-bar
-reflow, 44px targets) + installable manifest+icons+apple/theme meta. NO service worker, NO Node, NO new
-route/migration (stays 0014). Tests use the EXISTING fantoccini lane via NEW `open_mobile_session()`
-(chromedriver mobileEmulation) — user overrode "Playwright" with "stick with fantoccini". Two green-over-
-nothing oracle traps caught: emulation-not-narrow-window (ADR-003) + assert `documentElement.clientWidth` not
-`innerWidth`. 14 @needs-browser scenarios green; review APPROVED 0 defects; DES integrity exit 0. See
-`[[fantoccini-mobile-oracle]]`. Archive: `docs/evolution/2026-07-19-pwa-mobile-rendering.md`.
-
-**Prior**: `fix-comment-delete-csrf` FIXED + finalized (pushed to both remotes at `ccf5230`). Comment-delete
-403'd in a real browser (no CSRF token); fixed with the cookie→header echo. No mutating htmx trigger lacks
-CSRF now.
-
-**`fix-comment-delete-csrf` FIXED + finalized** (`main`, `59c10be` + docs `673f185`, **2 ahead of BOTH
-remotes, not pushed**). Follow-up from form-error-display-contract's archive: the comment Delete button was a
-bare `hx-delete` with no CSRF token → 403'd in a real browser (broken for users), masked because HTTP-lane
-tests inject the token. Fixed with the `hx-headers` cookie→`x-csrf-token` echo (correct for a body-less
-DELETE); a `@needs-browser` regression proves a real delete removes the card + soft-deletes the row; HTTP-lane
-comment tests 10/10 green. Swept all mutating htmx triggers — **none lacks CSRF now**. Archive:
-`docs/evolution/2026-07-18-fix-comment-delete-csrf.md`. See `[[htmx-4xx-errors-invisible-form-errors-js]]`.
-
-**Prior this session** — everything below `59c10be` was PUSHED to both remotes (`github` Canzan + `origin`
-Forgejo) at `9ae65db`. The full `cargo xtask ci` was red only on a confirmed browser-lane load flake (leaked
-chromedrivers → WaitTimeout on untouched board render; 6/6 pass in isolation); pushed on that evidence.
-
-**`form-error-display-contract` SHIPPED** (bugfix→design-first→DESIGN→DISTILL→DELIVER), on `main`, 5 code
-commits `8b08487`→`80754a8` + finalize `c5795cb`, **not pushed**. htmx 2.0.4 doesn't swap 4xx bodies, so form
-validation errors (correct `400/422 + fragment`) were invisible in-browser app-wide. Shipped `form-errors.js`
-(an `htmx:beforeSwap` handler routing 4xx into opt-in `[data-error-slot]`s) + slots on 3 forms; 6
-`@needs-browser` DOM-oracle scenarios (S1-S6) prove it; server error path unchanged; no migration (stays
-`0014`). The browser lane caught a **real latent defect**: comment-edit shipped with NO CSRF token (403'd in a
-real browser) — fixed with a body `_csrf` like every form. Slice 03 (drag/comment-create edges, S7-S8)
-deferred. Archive: `docs/evolution/2026-07-18-form-error-display-contract.md`. See
-`[[htmx-4xx-errors-invisible-form-errors-js]]`. (Fourteen features through the pipeline.)
-
-**Prior**: `new-issue-dialog-description` SHIPPED (`ec52a7a`→`3c91c57`+`621ec4c`) — Description field on
-new-issue create, threaded through all layers, `validate_description` bound (262144 = DB CHECK) on create+edit;
-16 scenarios green. Archive: `docs/evolution/2026-07-18-new-issue-dialog-description.md`.
+**`board-lane-reorder`** — full pipeline DISCUSS→DESIGN→DISTILL→DELIVER run in one session, on top of
+the still-uncommitted `board-lane-overflow-menu` + `fix-lane-menu-clipped-mobile` work.
+**NOTHING IS COMMITTED.** A lane's order is now changeable: drag its column header (Pointer Events,
+works on touch) or pick **Move list left / Move list right** from the same `⋯` menu — which grows
+from four items to six. A move writes `lanes.position` only: zero issue rows, zero change events,
+zero slug/label mutations. **No migration — still 0015.**
 
 ## Key Decisions
 
-- **Two DISCUSS premises corrected by reading code**: description was NOT unbounded (DB `CHECK ≤ 262144`,
-  over-long surfaced as a 500); and the modal is NOT destroyed on a validation error — htmx 2.0.4 doesn't swap
-  the 4xx, so input is preserved but the error message is **invisible in-browser** (app-wide pre-existing
-  defect, deferred to its own `/nw:root-why`). Error scenarios assert HTTP, never the DOM.
-- **CSRF 64KB form-body cap blocked the 262144 bound over the web** (`csrf.rs`) — user-approved raise to 2 MiB +
-  per-route `DefaultBodyLimit` on issue create/edit POSTs. Security-sensitive; flagged for security review. See
-  `[[csrf-form-body-64kb-cap]]`. A slice-03 crafter correctly BLOCKED rather than modify the CSRF control
-  unscoped.
-- **Mutation found a real gap = the `@real-io` trap**: the bound was acceptance-only-covered so mutants falsely
-  survived (5/6 missed); fixed by extracting the pure `validate_description` + fast unit tests (also the
-  reviewer's dedup) → 4/4 caught.
+- **Insert's shuffle does NOT generalise to a move.** Insert is safe only because its bulk `+1`
+  *vacates* the target slot; a move has no vacancy, so the shift collides with the mover still in its
+  old slot. A move is therefore ONE `UPDATE … SET position = CASE …` statement. All three candidate
+  shapes were measured against a real postgres:16-alpine, and **all three fail against a
+  non-deferrable constraint** — `DEFERRABLE` is a *precondition* for lane reordering, not a
+  convenience. See `adr-board-lane-006`.
+- **The unlocked move race is SILENT** — no error, contiguity intact, uniqueness intact, and a lane
+  nobody mentioned shoved past another (5/5 measured). So the concurrency oracle asserts the resulting
+  **order**, never "no error raised" — the natural assertion passes on the corrupt case.
+- **Two drag mechanisms on one board, deliberately** (`adr-board-lane-007`): lanes on Pointer Events
+  (HTML5 drag emits nothing on touch), cards still on HTML5 DnD. Boundary is origin-based; the shipped
+  card-drag scenarios passing *unmodified* are its standing proof.
+- **`check-arch` now pins the `DEFERRABLE` keyword** (5 gold tests, one of which caught that the rule
+  originally accepted a *commented-out* keyword — SQL uses `--`, not `//`).
 
 ## Next Steps
 
-- Optional: `git push` (finalize did NOT push, per trunk pattern). Pre-push gate is full `cargo xtask ci`.
-- **Deferred bugfix**: app-wide invisible in-browser htmx validation errors (`board-new-issue` D3 is false under
-  htmx 2.0.4). When fixed, this feature's `description_too_long`/`title_required` copy becomes visible for free.
-- **Security review** of the CSRF body-cap raise; a `csrf.rs` comment overstates "scoped" (buffer ceiling is
-  global, matches axum default — no new DoS surface).
-- **Carried from keyboard-shortcut-bindings**: UI-5 IME scenario retarget; ADR-008 trap-B inversion;
-  `#kb-search-panel`/`#kb-overlay-root` have no CSS; lane flakes (PoolTimedOut, no-JS ~2-3/10). Prometheus
-  `foundry_token_mutations_total` exporter; per-workspace backup (OD-5); key-rotation UX.
+- **Commit** when wanted (nothing staged). Pre-commit gate is the full `cargo xtask ci`.
+- **Full gate run done**: fmt/clippy/check-arch/build/deny/workspace-tests (44 binaries) all PASS;
+  acceptance `all` lane
+  **726/734**. The 8 failures are NOT from this feature — 6 are `pg_dump 14.24` vs a 16 server
+  (install `postgresql@16`), 2 are a **real WCAG 1.4.11 contrast failure on `.lane-menu-trigger`
+  (1.20:1 / 1.15:1 vs 3:1)** from the uncommitted `fix-lane-menu-clipped-mobile` work — fix before
+  committing that.
+- Still not run: **mutation testing**, and the DISTILL consolidated 4-wave reviewer gate (Agent
+  dispatch is disabled by user instruction).
+- Successors: converge card drag onto Pointer Events (would give cards a touch drag too); undo a lane
+  delete; "Sort by".

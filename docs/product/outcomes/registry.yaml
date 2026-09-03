@@ -45,3 +45,54 @@ outcomes:
     output_shape: "delete of the sole lane -> refused 422 before any write (D6); any state write outside the project's lane set -> 422 invalid_state through the single validate_project_lane seam (DD10); new issues land in the leftmost lane (position ASC LIMIT 1), so a lane always exists to land in"
     invariant_note: "Schema-enforced, not convention: composite FK (project_id, state) -> lanes (project_id, slug) (ADR-BOARD-LANE-001) makes a laneless issue unreachable in any committed state — the KPI 2 guard query must return 0 permanently."
     keywords: [invariant, last-lane, laneless, composite-fk, leftmost-landing, validate_project_lane]
+  # board-lane-overflow-menu (DISTILL 2026-09-02) — shape a board's lanes in place.
+  - id: OUT-6
+    kind: operation
+    feature: board-lane-overflow-menu
+    title: Reach every lane operation from one per-column overflow menu
+    input_shape: "GET /team/{team_slug}/project/{project_slug} (session) renders, per column, one button[data-action=toggle-lane-menu][data-lane={slug}] plus a [data-lane-menu={slug}] container holding, in that order, from the project's lane rows: Edit list, Insert list before, Insert list after, Move list left, Move list right, Delete list — SIX items (AMENDED 2026-09-03 by board-lane-reorder D5, which added the two Move items; this row read 'exactly ... four' until then), with the two Move items RENDERED-BUT-DISABLED at the board's ends rather than omitted, so no menu's item count varies with a lane's position"
+    output_shape: "Menu opens/closes CLIENT-SIDE ONLY (no request); the four dialog items hx-get their dialog into #modal-root, the two Move items hx-post the move and swap the OOB #board-columns refresh; the armed × ([data-lane-delete]) is GONE from both render paths (full page and the OOB #board-columns refresh, which share partials/board_columns.html)"
+    invariant_note: "The menu is an ARM of keyboard.js::closeTopLayer(), never a component with listeners of its own (ADR-BOARD-LANE-005): Escape keeps exactly ONE owner (BR-4), open-state is DOM-DERIVED (a stored handle is left detached by the OOB swap and Escape then no-ops with a menu on screen), and keyboard.js keeps exactly one document keydown and one document click listener."
+    keywords: [board, lane, overflow-menu, layer, escape, br-4, dom-derived]
+    related: [OUT-9]
+  - id: OUT-7
+    kind: operation
+    feature: board-lane-overflow-menu
+    title: Rename a lane's label without touching its identity
+    input_shape: "GET+POST /team/{team_slug}/project/{project_slug}/lanes/{lane_slug}/edit (session + double-submit _csrf on POST; label field); Store::rename_lane(project_id, lane_slug, new_label)"
+    output_shape: "Success -> OOB #board-columns refresh, header reads the new label | blank/over-64 label -> 422 fragment into [data-error-slot] | non-member/absent/signed-out -> uniform non-enumerable 404 (BOTH verbs)"
+    invariant_note: "Label-only by inherited invariant, not by choice: issues.state holds the lane SLUG under composite FK fk_issues_lane, and brief.md §lanes pins slugs as identity, labels as display. A rename writes ZERO issue rows and ZERO 0013 change events. Duplicate LABELS are permitted (two lanes may both read Doing); only slugs are unique."
+    keywords: [lane, rename, label-only, slug-immutable, names-are-labels]
+  - id: OUT-8
+    kind: operation
+    feature: board-lane-overflow-menu
+    title: Insert a lane beside an anchor, making lane deletion no longer one-way
+    input_shape: "GET+POST /team/{team_slug}/project/{project_slug}/lanes/{lane_slug}/insert/{side} where side ∈ before|after (session + _csrf on POST; label field); Store::insert_lane_at(project_id, anchor_slug, LaneSide, new_slug, new_label) -> LaneInsertOutcome"
+    output_shape: "Inserted -> OOB #board-columns refresh, new EMPTY lane at the asked position | SlugTaken -> 422 naming the conflict | slug normalises empty -> 422 asking for letters or numbers | AnchorNotFound OR unrecognised side -> uniform non-enumerable 404 (an unrecognised side must be INDISTINGUISHABLE from an unknown lane, never a 400, or the pair enumerates which lanes exist)"
+    invariant_note: "ONE transaction (ADR-BOARD-LANE-003): FOR UPDATE on the project's lanes -> resolve anchor by IDENTITY inside the lock -> capture position BEFORE the shift -> pre-check slug -> plain UPDATE shift -> insert. NO migration and NO SET CONSTRAINTS: UNIQUE(project_id, position) DEFERRABLE INITIALLY IMMEDIATE checks at end-of-STATEMENT. That DEFERRABLE keyword is LOAD-BEARING — the identical statement against a non-deferrable constraint fails with duplicate key (measured). Slugs are minted by foundry_core::lane_slug (underscores), never slugify (hyphens, rejected by lanes_slug_check). Writes ZERO issue rows and ZERO change events."
+    keywords: [lane, insert, position-shuffle, deferrable, for-update, lane-slug, concurrency]
+    related: [OUT-9]
+  # board-lane-reorder (DISTILL 2026-09-03) — lane ORDER becomes changeable, closing
+  # the last verb board-lane-management D9 deferred. Written by hand in the row
+  # shape above: `nwave-ai outcomes register` emits a DIFFERENT schema
+  # (summary / inputs[].shape / feature: unknown) AND rewrites the whole file as a
+  # plain yaml.dump, which strips every provenance comment here. The CLI was run,
+  # its rows were re-expressed in this shape, and the file was restored by hand.
+  - id: OUT-9
+    kind: operation
+    feature: board-lane-reorder
+    title: Move a lane to a new position without touching its identity or its cards
+    input_shape: "POST /team/{team_slug}/project/{project_slug}/lanes/{lane_slug}/move (session + double-submit _csrf; body before=<neighbour slug>, omitted => place last — a NEIGHBOUR SLUG, never a numeric index, because an index captured at drag-start is stale the instant another operator inserts or deletes a lane, D7); Store::move_lane_before(project_id, mover_slug, Option<&str>) -> LaneMoveOutcome. ONE write seam, TWO callers: the ⋯ menu's Move items (hx-post) and the column-header drag (fetch + x-csrf-token)."
+    output_shape: "Moved{from,to} | NoOp (destination == current position; commits nothing) -> 200 OOB #board-columns refresh | MoverNotFound / NeighbourNotFound / non-member / signed-out -> uniform non-enumerable 404, all four INDISTINGUISHABLE"
+    invariant_note: "ONE transaction (ADR-BOARD-LANE-006): FOR UPDATE on the project's lanes -> BOTH ends resolved by IDENTITY inside the lock -> ONE `UPDATE ... SET position = CASE ...` statement applying the whole permutation. OUT-8's two-statement shuffle CANNOT be reused: insert is safe only because its bulk +1 VACATES the target slot, and a move has no vacancy, so the shift collides with the mover still in its old slot (measured: duplicate key). DEFERRABLE is a PRECONDITION for every candidate shape, not a convenience of one. Writes ZERO issue rows, ZERO change events, ZERO outbox rows."
+    keywords: [lane, move, reorder, position-permutation, case-statement, neighbour-named, silent-race]
+    related: [OUT-3, OUT-6, OUT-8]
+  - id: OUT-10
+    kind: invariant
+    feature: board-lane-reorder
+    title: Lane order is always a contiguous permutation, and arranging lanes never touches a card
+    input_shape: "Every path that writes lanes.position — the move write port, and the shipped insert shuffle"
+    output_shape: "positions remain a contiguous duplicate-free permutation 0..n-1; every lane's (slug, label) byte-identical across a move; ZERO issues rows, ZERO issue_change_events and ZERO outbox rows written"
+    invariant_note: "Contiguity is a CONVENTION with no DB constraint — Postgres enforces uniqueness only, so a gap is invisible to the schema and merely cosmetic to ORDER BY position; the acceptance oracles are its only enforcement. The concurrency oracle asserts the resulting ORDER, never the absence of an error: two unlocked concurrent moves raise NO error and keep every invariant intact while leaving the board arranged as nobody asked (measured 5/5, ADR-BOARD-LANE-006 Finding 4)."
+    keywords: [invariant, lane-order, contiguity, identity-stable, zero-issue-writes, order-not-error-oracle]
+    related: [OUT-5]

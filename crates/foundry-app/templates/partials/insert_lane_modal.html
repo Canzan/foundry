@@ -1,0 +1,25 @@
+{# board-lane-overflow-menu — the Insert list before/after dialog
+   (component-boundaries.md §2.2). Same frame as the edit and delete dialogs:
+   bare fragment into #modal-root, declarative close only, `_csrf` on the
+   confirm, refusals into [data-error-slot].
+
+   The heading names the ANCHOR lane and the side, because "Insert list before"
+   from a menu is unambiguous but a dialog on its own is not. The new lane's
+   SLUG is minted server-side from this name (foundry_core::lane_slug) and is
+   never asked of the operator — identity is not their concern. #}
+<div class="modal" role="dialog" aria-modal="true" data-modal="insert-lane" data-anchor="{{ anchor_slug }}" data-side="{{ side }}">
+  <div class="modal-dialog">
+    <header class="modal-header">
+      <h2>Insert list {{ side }} &ldquo;{{ anchor_label }}&rdquo;</h2>
+      <button type="button" class="modal-close" aria-label="Close" data-action="close-modal">&times;</button>
+    </header>
+    <form method="post" action="{{ action }}" hx-post="{{ action }}" hx-target="#modal-root" hx-swap="innerHTML">
+      <input type="hidden" name="_csrf" value="{{ csrf }}">
+      <label>Name
+        <input type="text" name="label" value="" maxlength="64" autocomplete="off" required>
+      </label>
+      <button type="submit">Create list</button>
+      <div data-error-slot></div>
+    </form>
+  </div>
+</div>

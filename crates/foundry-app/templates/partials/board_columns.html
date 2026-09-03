@@ -3,9 +3,38 @@
    partials/oob/board_columns_oob.html (the lane-delete confirm's out-of-band
    refresh), so both render byte-identical columns. Context: `columns`,
    `team_slug`, `project_slug`. Column marker unchanged:
-   section.column[data-column] > h3 (dnd + keyboard nav contract). The
-   per-column delete affordance is the [data-lane-delete] button
-   (component-boundaries.md §4). #}
+   section.column[data-column] > h3 (dnd + keyboard nav contract).
+
+   board-lane-overflow-menu: the per-column affordance is now ONE ⋯ menu
+   trigger, [data-action="toggle-lane-menu"], plus a [data-lane-menu] container
+   holding the four operations in contract order (component-boundaries.md §1.1).
+   The armed × ([data-lane-delete]) is GONE (D3) — the destructive action is no
+   longer one misclick from the header. All four items are plain hx-get dialog
+   triggers into #modal-root, exactly as the old × was; Delete list reaches the
+   SHIPPED delete dialog unchanged.
+
+   board-lane-reorder: the menu now carries SIX items — Move list left and
+   Move list right sit between the Insert pair and Delete list (D5), and are
+   RENDERED-BUT-DISABLED at the board's ends rather than omitted, so every
+   column's menu has the same items at the same indices. Unlike the other four
+   they are not dialog triggers: a move needs no confirmation (D12). They are
+   also NOT htmx triggers — they carry `data-lane-move-url`/`data-lane-move-before`
+   and board-lane-dnd.js POSTs them through the SAME fetch the drag uses, so
+   both surfaces share one client path as well as one server seam (DDD-8).
+   htmx's `hx-headers='js:...'` was tried first and measurably did not deliver
+   the CSRF token in this app's configuration (the request went out and was
+   refused, silently); the drag's cookie->header fetch was already proven.
+   `is_first`/`is_last` and the destination neighbour slugs are computed per
+   render in views.rs from the lane rows — never cached, never a static list.
+   The `<h3>` carries `data-lane-drag`: the header band is the drag surface
+   (D2), and `.lane-menu-wrap` is absolutely positioned so the ⋯ stays a
+   sibling on top and keeps its own click.
+
+   The menu is hidden by the `hidden` attribute and toggled by keyboard.js,
+   which treats it as the fourth arm of closeTopLayer() rather than as a
+   component with listeners of its own (ADR-BOARD-LANE-005). Nothing here
+   stores open-state: `hidden` on the container IS the state, so the
+   out-of-band #board-columns refresh cannot desync it. #}
 {% for column in columns %}
-<section class="column" data-column="{{ column.slug }}"><h3>{{ column.label }}</h3><button type="button" class="lane-delete" data-lane-delete="{{ column.slug }}" aria-label="Delete lane {{ column.label }}" hx-get="/team/{{ team_slug }}/project/{{ project_slug }}/lanes/{{ column.slug }}/delete" hx-target="#modal-root" hx-swap="innerHTML">&times;</button>{% if column.cards.is_empty() %}<p class="empty">No issues yet — press <kbd>c</kbd> to file the first one.</p>{% else %}{% for card in column.cards %}{% include "partials/issue_card.html" %}{% endfor %}{% endif %}</section>
+<section class="column" data-column="{{ column.slug }}" data-lane-move-url="{{ column.move_url }}"><h3 data-lane-drag="{{ column.slug }}">{{ column.label }}</h3><div class="lane-menu-wrap"><button type="button" class="lane-menu-trigger" data-action="toggle-lane-menu" data-lane="{{ column.slug }}" aria-haspopup="menu" aria-expanded="false" aria-label="Lane actions for {{ column.label }}">&hellip;</button><div class="lane-menu" data-lane-menu="{{ column.slug }}" role="menu" hidden><button type="button" role="menuitem" hx-get="{{ column.edit_url }}" hx-target="#modal-root" hx-swap="innerHTML">Edit list</button><button type="button" role="menuitem" hx-get="{{ column.insert_before_url }}" hx-target="#modal-root" hx-swap="innerHTML">Insert list before</button><button type="button" role="menuitem" hx-get="{{ column.insert_after_url }}" hx-target="#modal-root" hx-swap="innerHTML">Insert list after</button>{% if column.is_first %}<button type="button" role="menuitem" data-action="move-lane-left" disabled aria-disabled="true">Move list left</button>{% else %}<button type="button" role="menuitem" data-action="move-lane-left" data-lane-move-url="{{ column.move_url }}" data-lane-move-before="{{ column.move_left_before.as_deref().unwrap_or("") }}">Move list left</button>{% endif %}{% if column.is_last %}<button type="button" role="menuitem" data-action="move-lane-right" disabled aria-disabled="true">Move list right</button>{% else %}<button type="button" role="menuitem" data-action="move-lane-right" data-lane-move-url="{{ column.move_url }}" data-lane-move-before="{{ column.move_right_before.as_deref().unwrap_or("") }}">Move list right</button>{% endif %}<button type="button" role="menuitem" hx-get="{{ column.delete_url }}" hx-target="#modal-root" hx-swap="innerHTML">Delete list</button></div></div>{% if column.cards.is_empty() %}<p class="empty">No issues yet — press <kbd>c</kbd> to file the first one.</p>{% else %}{% for card in column.cards %}{% include "partials/issue_card.html" %}{% endfor %}{% endif %}</section>
 {% endfor %}

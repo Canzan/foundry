@@ -59,6 +59,13 @@
   var HELP_URL = "/keyboard-help";
   var NEW_ISSUE_TRIGGER = "[data-action='new-issue']";
   var CLOSE_MODAL_TRIGGER = "[data-action='close-modal']";
+  // board-lane-overflow-menu (ADR-BOARD-LANE-005). The board's per-column ⋯
+  // menu is an ARM of closeTopLayer(), never a component with listeners of its
+  // own: it adds NO Escape handler (BR-4 — closeTopLayer is the single owner)
+  // and NO second document click listener (the two branches below ride the
+  // existing delegated one).
+  var LANE_MENU_TRIGGER = "[data-action='toggle-lane-menu']";
+  var LANE_MENU = "[data-lane-menu]";
   var SEARCH_PANEL_ID = "kb-search-panel";
   var NEW_ISSUE_URL_SUFFIX = "/issues/new";
 
@@ -108,6 +115,132 @@
     }
   }
 
+  // THE OPEN LANE MENU, DERIVED FROM THE DOM — never stored (ADR-003 §2, and
+  // ADR-BOARD-LANE-005 rule 2 makes it load-bearing here specifically).
+  // `#board-columns` is replaced WHOLESALE by the lane-delete confirm's
+  // out-of-band swap, so a module-level `var openMenu` would survive as a
+  // DETACHED node: Escape would then no-op while a menu sat on screen. Asking
+  // the document, every time, cannot desync. The `hidden` attribute IS the
+  // state — there is no parallel flag to disagree with it.
+  function openLaneMenu() {
+    return document.querySelector(LANE_MENU + ":not([hidden])");
+  }
+
+  function laneMenuIsOpen() {
+    return !!openLaneMenu();
+  }
+
+  function laneMenuTriggerFor(menu) {
+    var lane = menu.getAttribute("data-lane-menu");
+    if (!lane) {
+      return null;
+    }
+    // Attribute-equality selector, so a lane slug is matched exactly rather
+    // than by prefix. Lane slugs are `^[a-z][a-z0-9_]*$`, so no escaping is
+    // needed for the value.
+    return document.querySelector(
+      LANE_MENU_TRIGGER + '[data-lane="' + lane + '"]'
+    );
+  }
+
+  // Close + RETURN FOCUS to the trigger the menu was opened from (D10). The
+  // trigger is resolved from the menu's own `data-lane-menu`, so this works on
+  // whatever menu is actually open rather than on one we remembered opening.
+  function closeLaneMenu() {
+    var menu = openLaneMenu();
+    if (!menu) {
+      return;
+    }
+    menu.hidden = true;
+    // Remove the whole attribute, not just the two properties. Clearing them
+    // individually leaves an empty `style=""` behind, and the board is then no
+    // longer byte-identical to how it rendered before the menu was opened —
+    // which a scenario asserts, and which caught exactly this.
+    menu.removeAttribute("style");
+    var trigger = laneMenuTriggerFor(menu);
+    if (trigger) {
+      trigger.setAttribute("aria-expanded", "false");
+      trigger.focus();
+    }
+  }
+
+  // Exactly one menu is ever open: opening one closes any other, so the arm
+  // below never has to choose between two.
+  function toggleLaneMenu(trigger) {
+    var lane = trigger.getAttribute("data-lane");
+    var menu = lane
+      ? document.querySelector(LANE_MENU + '[data-lane-menu="' + lane + '"]')
+      : null;
+    if (!menu) {
+      return;
+    }
+    var wasOpen = !menu.hidden;
+    closeLaneMenu();
+    if (wasOpen) {
+      return; // A second click on the same trigger closes it.
+    }
+    menu.hidden = false;
+    trigger.setAttribute("aria-expanded", "true");
+    positionLaneMenu(menu, trigger);
+    // Focus moves INTO the menu (D10 — full menu semantics), which is what
+    // makes the Escape leg's focus-return observable rather than vacuous.
+    var first = menu.querySelector("[role='menuitem']");
+    if (first) {
+      first.focus();
+    }
+  }
+
+  // The menu is `position: fixed` (fix-lane-menu-clipped-mobile), so it must be
+  // told where to go. That is not a styling preference — it is the fix. As an
+  // absolutely-positioned element it was CLIPPED by `.board`'s `overflow-x: auto`
+  // below the 480px breakpoint, and three of its four items were rendered but
+  // untouchable on a phone. `fixed` takes it out of every ancestor's overflow
+  // box; the cost is these few lines of arithmetic.
+  //
+  // Right-aligned to the trigger (the menu grows leftward from the control that
+  // opened it), then clamped into the viewport so a lane at the right edge of a
+  // scrolled board cannot push it off screen. Flips above the trigger when there
+  // is no room below.
+  function positionLaneMenu(menu, trigger) {
+    var GAP = 4;
+    var EDGE = 8;
+    var t = trigger.getBoundingClientRect();
+    var m = menu.getBoundingClientRect();
+    var left = t.right - m.width;
+    var maxLeft = document.documentElement.clientWidth - m.width - EDGE;
+    if (left > maxLeft) {
+      left = maxLeft;
+    }
+    if (left < EDGE) {
+      left = EDGE;
+    }
+    var top = t.bottom + GAP;
+    if (top + m.height > document.documentElement.clientHeight - EDGE) {
+      var above = t.top - m.height - GAP;
+      if (above >= EDGE) {
+        top = above;
+      }
+    }
+    menu.style.left = Math.round(left) + "px";
+    menu.style.top = Math.round(top) + "px";
+  }
+
+  // A fixed menu does not travel with a scrolling board, so it would otherwise
+  // sit still while the column it belongs to slides away. Closing is the honest
+  // answer and it is what the platform's own menus do; re-positioning on every
+  // scroll frame is more machinery than this control earns. Passive + capture so
+  // it sees the board's own scroll, not just the document's.
+  function dismissLaneMenuOnScroll() {
+    if (laneMenuIsOpen()) {
+      closeLaneMenu();
+    }
+  }
+  document.addEventListener("scroll", dismissLaneMenuOnScroll, {
+    capture: true,
+    passive: true,
+  });
+  window.addEventListener("resize", dismissLaneMenuOnScroll, { passive: true });
+
   // Esc peels the TOPMOST layer only (ADR-003: `#kb-overlay-root` sits above
   // `#modal-root` in base.html), one layer per press (BR-4).
   //
@@ -138,6 +271,30 @@
     }
     if (modalIsOpen()) {
       closeModal();
+      return;
+    }
+    // ARM 3 — an in-flight lane drag (board-lane-reorder, ADR-BOARD-LANE-007).
+    // ABOVE the menu because a drag under the pointer is the most immediate
+    // layer on screen. Found by its DOM MARKER, not a stored handle, for the
+    // same reason the menu's open state is DOM-derived: the out-of-band
+    // #board-columns swap detaches anything we cached. The drag module has NO
+    // keydown listener of its own — a second one would race this for the same
+    // press and peel two layers, which is BR-4's failure.
+    var dragging = document.querySelector("[data-lane-dragging]");
+    if (dragging) {
+      dragging.dispatchEvent(
+        new CustomEvent("foundry:cancel-lane-drag", { bubbles: true })
+      );
+      return;
+    }
+    // ARM 4 — the board's ⋯ lane menu (ADR-BOARD-LANE-005). Below the modal
+    // because a dialog opened FROM the menu is the more modal layer; above the
+    // search panel because the menu sits on the board the panel overlays. The
+    // two are mutually exclusive in practice (choosing an item closes the menu
+    // and htmx swaps a dialog in), so the ordering is defensive — but it is
+    // deterministic, and the @layered scenario holds it.
+    if (laneMenuIsOpen()) {
+      closeLaneMenu();
       return;
     }
     if (searchIsOpen()) {
@@ -874,6 +1031,22 @@
     }
     if (target.closest(CLOSE_MODAL_TRIGGER)) {
       closeModal();
+      return;
+    }
+    // board-lane-overflow-menu: BOTH menu click behaviours ride THIS listener.
+    // A second document click listener would be the same class of mistake a
+    // second Escape listener is — two handlers racing for one event.
+    var trigger = target.closest(LANE_MENU_TRIGGER);
+    if (trigger) {
+      toggleLaneMenu(trigger);
+      return;
+    }
+    // Any other click closes an open menu — outside it (dismiss) or on one of
+    // its items (the item's own hx-get still runs; this event has already been
+    // dispatched to it). Both cases want the same thing, so there is one
+    // branch rather than two that happen to agree.
+    if (laneMenuIsOpen()) {
+      closeLaneMenu();
     }
   });
 

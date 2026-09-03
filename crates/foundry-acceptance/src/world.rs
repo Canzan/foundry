@@ -116,6 +116,81 @@ pub struct FoundryWorld {
     /// the zero-shuffle oracle (no issue row rewritten).
     pub blm_mig_issues_before: Option<Vec<(String, String, i32)>>,
 
+    // ---- board-lane-overflow-menu (the ⋯ menu: edit / insert / delete) ----
+    pub blo_workspace_id: Option<uuid::Uuid>,
+    pub blo_team_id: Option<uuid::Uuid>,
+    pub blo_priya_id: Option<uuid::Uuid>,
+    pub blo_marco_id: Option<uuid::Uuid>,
+    pub blo_project_ids: HashMap<String, uuid::Uuid>,
+    /// STORED `(team_slug, project_slug)` read back at seed time — never
+    /// re-derived from a name (the slug-capture rule, ADR-PROJECT-RENAME-001).
+    pub blo_project_slugs: HashMap<String, (String, String)>,
+    pub blo_current_project: Option<String>,
+
+    /// State-delta discipline: the declared universe captured BEFORE a write.
+    /// Lane rows `(slug, label, position)`, issue rows `(key, lane, position)`,
+    /// change-event count, outbox count. A rename and an insert must each move
+    /// ZERO issue rows and write ZERO change events — asserted, not assumed.
+    pub blo_lanes_before: Option<Vec<(String, String, i32)>>,
+    pub blo_issues_before: Option<Vec<(String, String, i32)>>,
+    pub blo_events_before: Option<i64>,
+    pub blo_outbox_before: Option<i64>,
+
+    /// The rendered board captured BEFORE the menu was opened — the oracle for
+    /// "the board renders exactly as it did before" (US-BLO-01 Escape).
+    pub blo_board_before: Option<String>,
+
+    /// The last dialog fetched `(status, body)`.
+    pub blo_dialog: Option<(reqwest::StatusCode, String)>,
+
+    /// Outcomes of a multi-submission step (the three-bad-names legs), so the
+    /// Then can assert every one of them rather than only the last.
+    pub blo_refusals: Vec<(reqwest::StatusCode, String)>,
+
+    /// Both arms of the concurrent-insert scenario `(status, body)` — the
+    /// oracle that NEITHER operator saw a raw database error.
+    pub blo_concurrent: Vec<(reqwest::StatusCode, String)>,
+
+    // ---- board-lane-reorder (US-BLR-01..03) ----
+    pub blr_workspace_id: Option<uuid::Uuid>,
+    pub blr_team_id: Option<uuid::Uuid>,
+    pub blr_priya_id: Option<uuid::Uuid>,
+    pub blr_marco_id: Option<uuid::Uuid>,
+    pub blr_project_ids: HashMap<String, uuid::Uuid>,
+    /// STORED team/project slugs, read back at seed time — never re-derived.
+    pub blr_project_slugs: HashMap<String, (String, String)>,
+    pub blr_current_project: Option<String>,
+
+    /// The state-delta universe, snapshotted before every mutating move.
+    pub blr_lanes_before: Option<Vec<(String, String, i32)>>,
+    pub blr_issues_before: Option<Vec<(String, String, i32)>>,
+    pub blr_events_before: Option<i64>,
+    pub blr_outbox_before: Option<i64>,
+
+    /// Lane (slug, label) pairs captured before a move — the identity oracle.
+    /// A move must leave BOTH byte-identical for every lane; only `position`
+    /// may differ.
+    pub blr_identity_before: Option<Vec<(String, String)>>,
+
+    /// The last move's `(status, body)`, and every refusal collected for the
+    /// byte-identical non-enumerability comparison.
+    pub blr_last_move: Option<(reqwest::StatusCode, String)>,
+    pub blr_refusals: Vec<(reqwest::StatusCode, String)>,
+
+    /// Both arms of the @concurrency scenario. Kept so the oracle can report
+    /// what each operator asked for when the ORDER assertion fails — the
+    /// unlocked race raises no error, so the status codes alone prove nothing
+    /// (ADR-BOARD-LANE-006 Finding 4).
+    pub blr_concurrent: Vec<(reqwest::StatusCode, String)>,
+
+    /// Column order read off the rendered board before a browser drag, so a
+    /// revert can be asserted against the exact origin.
+    pub blr_screen_before: Option<Vec<String>>,
+    /// Set by the "the next move will be refused" Given.
+    pub blr_force_refusal: bool,
+    /// Board scrollLeft captured during the auto-scroll scenarios.
+    pub blr_scroll_before: Option<f64>,
+
     // ---- US-05+ in-process harness ----
     pub harness: Option<InProcHarness>,
     pub http: Option<reqwest::Client>,

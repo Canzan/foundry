@@ -271,6 +271,35 @@ pub struct DeleteLaneModal {
     pub survivors: Vec<foundry_services::BoardLane>,
 }
 
+/// board-lane-overflow-menu — the Edit list dialog. Same frame as
+/// [`DeleteLaneModal`]: bare fragment into `#modal-root`, declarative close,
+/// `_csrf` on the confirm, refusals into `[data-error-slot]`.
+#[derive(Debug, Clone, Template)]
+#[template(path = "partials/edit_lane_modal.html")]
+pub struct EditLaneModal {
+    /// `/team/{slug}/project/{slug}/lanes/{slug}/edit` — the confirm POST.
+    pub action: String,
+    pub csrf: String,
+    /// The lane's immutable slug identity — addressed, never changed.
+    pub lane_slug: String,
+    /// Current label, pre-filled into the name field (auto-escaped).
+    pub lane_label: String,
+}
+
+/// board-lane-overflow-menu — the Insert list before/after dialog.
+#[derive(Debug, Clone, Template)]
+#[template(path = "partials/insert_lane_modal.html")]
+pub struct InsertLaneModal {
+    /// `/team/{slug}/project/{slug}/lanes/{slug}/insert/{side}` — the confirm.
+    pub action: String,
+    pub csrf: String,
+    /// The lane the new one lands beside, by identity.
+    pub anchor_slug: String,
+    pub anchor_label: String,
+    /// `before` | `after`, rendered into the heading.
+    pub side: String,
+}
+
 /// The out-of-band board-columns refresh the successful lane-delete confirm
 /// carries (`hx-swap-oob="true"` on `#board-columns` — the house OOB idiom).
 /// The primary `#modal-root` innerHTML swap receives the EMPTY remainder, so
@@ -299,11 +328,43 @@ pub(crate) fn board_columns(
     project_slug: &str,
     view: &foundry_services::BoardView,
 ) -> Vec<BoardColumn> {
+    let last_index = view.lanes.len().saturating_sub(1);
     view.lanes
         .iter()
-        .map(|lane| BoardColumn {
+        .enumerate()
+        .map(|(index, lane)| BoardColumn {
             slug: lane.slug.clone(),
             label: lane.label.clone(),
+            move_url: format!(
+                "/team/{team_slug}/project/{project_slug}/lanes/{}/move",
+                lane.slug
+            ),
+            // "Move left" lands immediately before the lane to our left.
+            move_left_before: index
+                .checked_sub(1)
+                .and_then(|i| view.lanes.get(i))
+                .map(|l| l.slug.clone()),
+            // "Move right" lands immediately before the lane TWO to our right —
+            // or last, when the lane to our right is already the final one.
+            move_right_before: view.lanes.get(index + 2).map(|l| l.slug.clone()),
+            is_first: index == 0,
+            is_last: index == last_index,
+            edit_url: format!(
+                "/team/{team_slug}/project/{project_slug}/lanes/{}/edit",
+                lane.slug
+            ),
+            insert_before_url: format!(
+                "/team/{team_slug}/project/{project_slug}/lanes/{}/insert/before",
+                lane.slug
+            ),
+            insert_after_url: format!(
+                "/team/{team_slug}/project/{project_slug}/lanes/{}/insert/after",
+                lane.slug
+            ),
+            delete_url: format!(
+                "/team/{team_slug}/project/{project_slug}/lanes/{}/delete",
+                lane.slug
+            ),
             cards: view
                 .issues
                 .iter()
@@ -334,6 +395,31 @@ pub struct BoardColumn {
     /// Visible heading text: `Backlog`, `Todo`, `In-Progress`, `Done`.
     pub label: String,
     pub cards: Vec<IssueCard>,
+    /// board-lane-overflow-menu: the four ⋯ menu destinations, built ONCE here
+    /// from the VALIDATED request-path slugs — never a render-time
+    /// `slugify(name)` derivation (ADR-PROJECT-RENAME-001; `fn slugify(` under
+    /// `crates/foundry-app/src` is a check-arch build failure). Same idiom as
+    /// `IssueCard::edit_url` above.
+    pub edit_url: String,
+    pub insert_before_url: String,
+    pub insert_after_url: String,
+    pub delete_url: String,
+    /// board-lane-reorder: the move confirm's POST target. One route, two
+    /// callers — the ⋯ menu's Move items and the column-header drag (DDD-8).
+    pub move_url: String,
+    /// The neighbour slug each Move item names as its destination, resolved
+    /// HERE from the lane list rather than in the template, so the "before
+    /// which lane" addressing (D7) has exactly one implementation. `None` on
+    /// the item that is disabled, and on a right-move that lands last.
+    pub move_left_before: Option<String>,
+    pub move_right_before: Option<String>,
+    /// Whether this lane sits at a board end. Computed per render from the
+    /// lane rows already read — never cached, never a static list (D5 + the
+    /// check-arch no-static-lane-list rule). The end items are RENDERED and
+    /// DISABLED rather than omitted, so every column's menu has the same six
+    /// items at the same indices.
+    pub is_first: bool,
+    pub is_last: bool,
 }
 
 /// The full board page. Extends `base.html`, which links the vendored

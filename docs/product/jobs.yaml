@@ -124,26 +124,36 @@ jobs:
   - id: job-board-lane-shaping
     title: Shape a project's board lanes to match how the work actually flows
     job_story: >
-      When my board renders lanes my workflow never uses (Todo sits empty
-      between Backlog and In-Progress on every project I create), I want new
-      boards to start with just Backlog, In-Progress and Done and the power to
-      delete a lane — deciding on the spot whether its cards move to another
-      lane or are deleted — so each board reads as my actual process, not the
-      tool's default.
+      When my board's lanes have drifted from how the work actually flows —
+      lanes I never use, a name the team stopped saying, a stage the board
+      cannot represent, a lane that is right but in the wrong place — I want
+      to start new boards lean and then shape them in place: rename a lane,
+      insert one where it belongs, move one left or right, and delete one
+      (deciding on the spot whether its cards move or go), all from the same
+      unobtrusive control, so each board reads as my actual process — in the
+      direction the work actually travels — rather than the tool's default or
+      a shape I can only ever tighten.
     dimensions:
-      functional: Start projects with three lanes and remove any lane, with an explicit, counted choice about the fate of its cards.
-      emotional: Stop scanning past dead columns; the board is mine, not a template I tolerate.
-      social: Anyone shown the board sees only stages that mean something — no "what goes in Todo vs Backlog?" tour.
+      functional: Start projects with three lanes, and rename, insert, reorder or remove any lane in place — reordering costing no card and no lane identity, removal carrying an explicit, counted choice about the fate of its cards.
+      emotional: Stop scanning past dead columns, and stop working beside a header that keeps a destructive control permanently armed; the board is mine, not a template I tolerate.
+      social: Anyone shown the board sees only stages that mean something, under the names the team actually says — no "what goes in Todo vs Backlog?" tour.
     forces:
       push: >
         Every project renders the same four hardcoded columns — the lane set
         lives in a DB CHECK constraint and a Rust const — and a fifth state,
         cancelled, renders on no board at all, so cancelled issues are
         invisible outside search. The only "fix" today is ignoring the dead
-        column forever.
+        column forever. A lane's POSITION is likewise fixed at the moment it is
+        created: moving one means deleting it and inserting a replacement,
+        which forces an irreversible decision about every card inside it, and
+        mints a new slug — paying with the lane's identity for a cosmetic
+        change.
       pull: >
         A delete control on the column itself, with the same confirm-dialog
-        care the rest of the app shows — and new projects that start lean.
+        care the rest of the app shows — and new projects that start lean. For
+        position specifically: grab the column and slide it, the way every
+        board tool works, or ask the same menu that already renames and
+        inserts.
       anxiety: >
         That deleting a lane silently eats the cards inside it, or strands
         them invisible the way cancelled issues are stranded today. The
@@ -153,17 +163,62 @@ jobs:
         Four columns is what every board has looked like since slice 1.
         Existing boards must render identically until the operator chooses
         otherwise — the new defaults apply to NEW projects only; migration
-        never deletes a lane.
+        never deletes a lane. Cards are dragged already; lanes dragging by a
+        different mechanism must still feel the same to the hand, and must
+        never steal the card gesture.
     opportunity:
-      importance: medium
+      importance: high
       satisfaction: low
       note: >
         Single-job feature; no comparative scoring table (the skill requires
-        one only when multiple jobs compete). Importance medium — cosmetic at
-        a glance, but the current state hides a real defect (cancelled issues
-        render on no board) and blocks every workflow that is not the
-        hardcoded one.
-    validated_by: docs/feature/board-lane-management/feature-delta.md
+        one only when multiple jobs compete). Importance was medium at first
+        validation — cosmetic at a glance, but the current state hid a real
+        defect (cancelled issues rendered on no board) and blocked every
+        workflow that was not the hardcoded one. Re-scored on extension (2026-09-02): unchanged at
+        medium/low — the board-lane-overflow-menu extension widens the job
+        from delete-only to full shaping, which raises satisfaction only once
+        it ships. Re-scored again on the reorder extension (2026-09-03):
+        importance RAISED to high, satisfaction unchanged at low. Importance
+        rises because the workaround for a mis-positioned lane is uniquely
+        expensive — delete-and-reinsert destroys the lane's identity and forces
+        a card-fate decision to achieve a cosmetic change — and because
+        reordering is the last verb standing between this job and the shaping
+        it names.
+    validated_by:
+      - docs/feature/board-lane-management/feature-delta.md
+      - docs/feature/board-lane-overflow-menu/feature-delta.md
+      - docs/feature/board-lane-reorder/feature-delta.md
+    scope_history:
+      - date: 2026-08-2x
+        by: docs/feature/board-lane-management/feature-delta.md
+        change: >
+          Job validated and first satisfied for DELETE only. That feature's D9
+          explicitly deferred add, rename and reorder, and pre-registered the
+          successor feature.
+      - date: 2026-09-02
+        by: docs/feature/board-lane-overflow-menu/feature-delta.md
+        change: >
+          Job WIDENED from delete-only to shaping — rename and insert added,
+          all three verbs moved behind one per-column overflow menu so the
+          column header no longer arms a destructive control by default.
+          Archive was offered and DECLINED (that feature's D1): foundry has no
+          archive concept, and adding one would create a second way for a card
+          to be invisible — the exact failure board-lane-management D1(b)
+          removed. Reordering lanes remains deferred.
+      - date: 2026-09-03
+        by: docs/feature/board-lane-reorder/feature-delta.md
+        change: >
+          Job WIDENED a third time — REORDER added, closing the last verb
+          board-lane-management D9 deferred. Two surfaces, one write port: a
+          Pointer Events drag on the column header (chosen over the card
+          drag's HTML5 mechanism, which emits nothing on touch — D3), and Move
+          list left / Move list right in the same overflow menu, which is the
+          keyboard and assistive-technology path (D4). A move is position-only:
+          zero issue rows, zero change events, zero slug or label mutations
+          (D1). The insert shuffle's two-statement shape does NOT generalise —
+          a move has no vacated slot to shift into — so the permutation must
+          commit in one statement (D8), this feature's highest-uncertainty
+          point.
 
   - id: job-canzan-theme
     title: Read my board in the light my room needs, in an app that wears the canzan face
