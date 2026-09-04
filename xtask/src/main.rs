@@ -114,25 +114,16 @@ fn run_ci() -> ExitCode {
         }
     }
 
-    // Preflight 2 — PostgreSQL 16 client. The @needs-pgclient acceptance lane
-    // (US-03 backup/restore) shells out to pg_dump/pg_restore against a
-    // postgres:16 server; pg_dump refuses a server newer than itself, so the
-    // client must be >= 16. CI installs postgresql-client-16 explicitly. Fail
-    // here with actionable guidance rather than letting the lane die mid-run
-    // with a cryptic "pg_dump: not found" / version-mismatch error.
-    if include_docker {
-        if let Err(msg) = pg_dump_at_least_16() {
-            eprintln!(
-                "xtask ci :: PostgreSQL 16+ client required for the US-03 backup lane: {msg}"
-            );
-            eprintln!(
-                "  install it:  macOS -> `brew install postgresql@16` \
-                 (then add its bin to PATH);  Debian/Ubuntu -> \
-                 `sudo apt-get install -y postgresql-client-16`"
-            );
-            return ExitCode::from(1);
-        }
-    }
+    // Preflight 2 — RETIRED. The US-03 backup lane used to shell out to the
+    // HOST's pg_dump/pg_restore, so this refused to start when they were
+    // missing or older than the server. They now run from the pinned
+    // `postgres:16-alpine` client image instead (see
+    // foundry-acceptance/src/support/pg_backup.rs), which removes the
+    // contributor prerequisite AND the whole class of version skew: the
+    // client image tag is the same one the server containers use, so a
+    // Homebrew Postgres 14 on PATH can no longer refuse a 16.14 server. The
+    // docker-daemon check that replaces it is the `include_docker` detection
+    // above, which already gates this entire group.
 
     // Preflight 3 — chromedriver + a MAJOR-VERSION-MATCHED browser. The
     // @needs-browser acceptance lane (keyboard-shortcut-bindings, ADR-007) drives
@@ -392,34 +383,6 @@ fn ensure_env_file() -> std::io::Result<()> {
     }
     println!("xtask ci :: .env missing, seeding it from .env.example");
     std::fs::copy(example, env).map(|_| ())
-}
-
-/// Verify a `pg_dump` on PATH whose major version is >= 16 (the @needs-pgclient
-/// US-03 lane dumps a postgres:16 server, and pg_dump refuses a server newer
-/// than itself). Returns `Err(reason)` if `pg_dump` is absent or too old.
-fn pg_dump_at_least_16() -> Result<(), String> {
-    let out = Command::new("pg_dump")
-        .arg("--version")
-        .output()
-        .map_err(|_| "pg_dump not found on PATH".to_string())?;
-    if !out.status.success() {
-        return Err("`pg_dump --version` did not succeed".to_string());
-    }
-    // Output looks like "pg_dump (PostgreSQL) 16.14" or, on Homebrew,
-    // "pg_dump (PostgreSQL) 16.14 (Homebrew)". Find the first token that
-    // starts with a digit (the version) and take its major component — do NOT
-    // assume the version is the last whitespace token.
-    let text = String::from_utf8_lossy(&out.stdout);
-    let major = text
-        .split_whitespace()
-        .find(|tok| tok.chars().next().is_some_and(|c| c.is_ascii_digit()))
-        .and_then(|v| v.split('.').next())
-        .and_then(|m| m.parse::<u32>().ok())
-        .ok_or_else(|| format!("could not parse pg_dump version from {text:?}"))?;
-    if major < 16 {
-        return Err(format!("found pg_dump {major}.x, need >= 16"));
-    }
-    Ok(())
 }
 
 /// Parse the MAJOR version out of a `--version` line. The version is the first

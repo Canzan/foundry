@@ -27,8 +27,8 @@ use crate::support::file_upload_env;
 use crate::support::harness::InProcHarness;
 use crate::support::notify_recorder::{notifier_from_recorder, DeliveryRecorder};
 use crate::support::pg_backup::{
-    dump_schema_to_file, fresh_dump_path, restore_file_to_schema, spawn_restore_target,
-    truncate_dump,
+    dump_schema_to_file, fresh_dump_path, pg_restore_shim, restore_file_to_schema,
+    spawn_restore_target, truncate_dump,
 };
 use crate::world::FoundryWorld;
 use assert_cmd::Command as AssertCommand;
@@ -457,6 +457,11 @@ async fn operator_runs_doctor_backup_verify(world: &mut FoundryWorld) {
         AssertCommand::cargo_bin("foundry")
             .expect("cargo-bin foundry")
             .env("FOUNDRY_DOCTOR_PROBE_URL", probe_url)
+            // The CLI's REAL `pg_restore` calls are the point of these
+            // scenarios, so they are not stubbed — only relocated into the
+            // pinned client container, so the host needs no Postgres tooling
+            // and the client can never be older than the server.
+            .env("FOUNDRY_PG_RESTORE", pg_restore_shim())
             .args(["doctor", "backup-verify"])
             .arg(&path_clone)
             .output()

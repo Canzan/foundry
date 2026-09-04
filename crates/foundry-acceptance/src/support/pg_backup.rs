@@ -4,9 +4,15 @@
 //!
 //! Per `distill/driver.md` §2c and `wave-decisions.md` §US-03:
 //!
-//! - The system `pg_dump` and `pg_restore` binaries MUST be on PATH;
-//!   missing tools panic at first call with a contributor-friendly
-//!   message (F-004 anti-flake — no silent skip).
+//! - `pg_dump` and `pg_restore` run IN A CONTAINER (`postgres:16-alpine`),
+//!   never from the host PATH. Two reasons, one of them measured: the
+//!   client must never be OLDER than the server (a Homebrew `pg_dump 14`
+//!   refuses a 16.14 server outright, which took this entire lane down),
+//!   and a contributor should not need Postgres installed to run a suite
+//!   for which Docker is already a hard prerequisite. The image tag is the
+//!   SAME one the server containers use, so client and server cannot drift
+//!   apart. A missing Docker daemon panics at first call with a
+//!   contributor-friendly message (F-004 anti-flake — no silent skip).
 //! - The slice-1 shared Postgres container is the dump SOURCE; the
 //!   per-scenario second container is the restore TARGET. Restore is
 //!   destructive, so the target cannot be shared across scenarios.
@@ -34,40 +40,127 @@ use tokio::sync::{Mutex, OnceCell as AsyncOnceCell};
 
 static PG_TOOLS_PROBE: OnceCell<()> = OnceCell::new();
 
-/// Probe `pg_dump --version` and `pg_restore --version` once per
-/// process. Panics with a clear contributor-facing message if either
-/// is missing. The wave-decisions doc requires no silent skip
-/// (F-004 anti-flake); contributors must install the Postgres client
-/// tooling to run the US-03 lane.
+/// The client image. Deliberately the SAME tag the server containers run,
+/// so `pg_dump` can never be older than the server it dumps — the exact
+/// failure that took this lane down when the host carried Postgres 14
+/// client tools against a 16.14 server.
+const PG_CLIENT_IMAGE: &str = "postgres:16-alpine";
+
+/// Rewrite a loopback host into the address a SIBLING container uses to
+/// reach the host's published ports. The source and target Postgres are
+/// testcontainers with ports published on the host, so a bare `127.0.0.1`
+/// inside the client container would mean the client container itself.
+fn url_for_client_container(url: &str) -> String {
+    url.replace("@127.0.0.1:", "@host.docker.internal:")
+        .replace("@localhost:", "@host.docker.internal:")
+}
+
+/// `uid:gid` of the invoking user, resolved once. Without `--user` the
+/// container writes ROOT-OWNED dump files, which the host-side
+/// [`truncate_dump`] then cannot open — the corrupt-archive scenario would
+/// fail for a permissions reason that looks nothing like its subject. No
+/// `libc` dependency is added for this: `id` is on PATH anywhere Docker is.
+fn host_uid_gid() -> String {
+    static IDS: OnceCell<String> = OnceCell::new();
+    IDS.get_or_init(|| {
+        let read = |flag: &str| -> String {
+            Command::new("id")
+                .arg(flag)
+                .output()
+                .ok()
+                .filter(|o| o.status.success())
+                .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+                .unwrap_or_default()
+        };
+        let (u, g) = (read("-u"), read("-g"));
+        if u.is_empty() || g.is_empty() {
+            "0:0".to_string()
+        } else {
+            format!("{u}:{g}")
+        }
+    })
+    .clone()
+}
+
+/// A `docker run` of the pinned client image with `dir` mounted at
+/// `/backup`, so dump files land on the HOST filesystem where the scenario
+/// — and the `foundry doctor backup-verify` subprocess — can read them.
+fn pg_client_command(dir: &Path) -> Command {
+    let mut cmd = Command::new("docker");
+    cmd.arg("run")
+        .arg("--rm")
+        // Reach the host's published testcontainer ports from inside.
+        .arg("--add-host=host.docker.internal:host-gateway")
+        .arg("--user")
+        .arg(host_uid_gid())
+        .arg("-v")
+        .arg(format!("{}:/backup", dir.display()))
+        // Fail-fast guards, carried INTO the container. A `Command::env` here
+        // would only reach the `docker` CLI, not the client: `lock_timeout`
+        // makes a blocked `--clean` DROP error in 30s instead of hanging at
+        // 0% CPU, and `PGCONNECT_TIMEOUT` bounds a stuck TCP connect.
+        .arg("-e")
+        .arg("PGOPTIONS=-c lock_timeout=30000")
+        .arg("-e")
+        .arg("PGCONNECT_TIMEOUT=30")
+        .arg(PG_CLIENT_IMAGE);
+    cmd
+}
+
+/// The in-container path of a dump file whose parent is mounted at `/backup`.
+fn in_container_path(path: &Path) -> String {
+    let name = path
+        .file_name()
+        .expect("dump path has a file name")
+        .to_string_lossy();
+    format!("/backup/{name}")
+}
+
+fn dump_dir_of(path: &Path) -> PathBuf {
+    path.parent()
+        .expect("dump path has a parent directory")
+        .to_path_buf()
+}
+
+/// Probe that Docker is usable and the client image is present, once per
+/// process. Panics rather than skipping — a backup lane that silently skips
+/// is indistinguishable from a backup feature that does not work (F-004).
 pub fn probe_pg_tools_on_path() {
     PG_TOOLS_PROBE.get_or_init(|| {
-        for tool in ["pg_dump", "pg_restore"] {
-            let out = Command::new(tool)
-                .arg("--version")
+        let daemon = Command::new("docker")
+            .arg("version")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+        if !matches!(daemon, Ok(st) if st.success()) {
+            panic!(
+                "US-03 runs `pg_dump`/`pg_restore` from the `{PG_CLIENT_IMAGE}` \
+                 container, so a reachable Docker daemon is required. Start \
+                 Colima/OrbStack/Docker Desktop, or skip the lane with \
+                 `--tags 'not @us-03'`. Postgres client tools are deliberately \
+                 NOT required on the host."
+            );
+        }
+        let present = Command::new("docker")
+            .args(["image", "inspect", PG_CLIENT_IMAGE])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+        if !matches!(present, Ok(st) if st.success()) {
+            // Pull up front so the first scenario does not pay for it mid
+            // assertion, and so a pull failure reports as a pull failure.
+            match Command::new("docker")
+                .args(["pull", PG_CLIENT_IMAGE])
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
-                .output();
-            match out {
+                .output()
+            {
                 Ok(o) if o.status.success() => {}
                 Ok(o) => panic!(
-                    "US-03 requires `{tool}` on PATH but `{tool} --version` exited \
-                     non-zero (status={status}, stderr={stderr}). \
-                     Install the Postgres client tooling (macOS: `brew install \
-                     libpq && brew link --force libpq`; Debian/Ubuntu: \
-                     `apt-get install postgresql-client-16`) or skip the US-03 \
-                     lane with `--tags 'not @us-03'`.",
-                    tool = tool,
-                    status = o.status,
-                    stderr = String::from_utf8_lossy(&o.stderr),
+                    "US-03 could not pull `{PG_CLIENT_IMAGE}`: {}",
+                    String::from_utf8_lossy(&o.stderr)
                 ),
-                Err(err) => panic!(
-                    "US-03 requires `{tool}` on PATH but spawning it failed: {err}. \
-                     Install the Postgres client tooling (macOS: `brew install \
-                     libpq && brew link --force libpq`; Debian/Ubuntu: \
-                     `apt-get install postgresql-client-16`) or skip the US-03 \
-                     lane with `--tags 'not @us-03'`.",
-                    tool = tool,
-                ),
+                Err(err) => panic!("US-03 could not pull `{PG_CLIENT_IMAGE}`: {err}"),
             }
         }
     });
@@ -197,15 +290,17 @@ pub async fn dump_schema_to_file(
     let owned_schema = schema.to_string();
     let owned_out = out_path.to_path_buf();
     tokio::task::spawn_blocking(move || {
-        let out = Command::new("pg_dump")
+        let dir = dump_dir_of(&owned_out);
+        let out = pg_client_command(&dir)
+            .arg("pg_dump")
             .arg("-Fc")
             .arg("--schema")
             .arg(&owned_schema)
             .arg("--no-owner")
             .arg("--no-privileges")
             .arg("-f")
-            .arg(&owned_out)
-            .arg(&owned_source)
+            .arg(in_container_path(&owned_out))
+            .arg(url_for_client_container(&owned_source))
             // Defensive: a future password/tty prompt must not block on
             // an inherited stdin. The password is in the URL today, so
             // this is permanent hardening, not the current fix.
@@ -243,14 +338,16 @@ pub async fn restore_file_to_schema(target_url: &str, dump_file: &Path) -> anyho
     let owned_target = target_url.to_string();
     let owned_file = dump_file.to_path_buf();
     tokio::task::spawn_blocking(move || {
-        let out = Command::new("pg_restore")
+        let dir = dump_dir_of(&owned_file);
+        let out = pg_client_command(&dir)
+            .arg("pg_restore")
             .arg("--clean")
             .arg("--if-exists")
             .arg("--no-owner")
             .arg("--no-privileges")
             .arg("-d")
-            .arg(&owned_target)
-            .arg(&owned_file)
+            .arg(url_for_client_container(&owned_target))
+            .arg(in_container_path(&owned_file))
             // Fail-fast lock guard: if a sibling scenario still holds a
             // connection (relation lock) against the shared restore
             // target, the `--clean` DROP TABLE would otherwise block
@@ -260,8 +357,6 @@ pub async fn restore_file_to_schema(target_url: &str, dump_file: &Path) -> anyho
             // calling step panics fast and the lane FAILS VISIBLY in
             // ≤30s instead of hanging at 0% CPU. `PGCONNECT_TIMEOUT`
             // bounds a stuck TCP connect for the same fail-fast reason.
-            .env("PGOPTIONS", "-c lock_timeout=30000")
-            .env("PGCONNECT_TIMEOUT", "30")
             // Defensive: never block on an inherited stdin (see pg_dump).
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -301,6 +396,63 @@ pub fn truncate_dump(path: &Path, keep_bytes: u64) -> anyhow::Result<()> {
 /// have stable paths inside one cargo-test invocation, and the OS
 /// reaps the dir at process exit. Per-scenario uniqueness is provided
 /// by [`fresh_dump_path`].
+/// A `pg_restore` shim for the SHIPPED `foundry doctor backup-verify`
+/// subprocess, written once per process into the scratch dir and handed to
+/// it via `FOUNDRY_PG_RESTORE`.
+///
+/// The CLI legitimately shells out to `pg_restore` (twice: `--list` for
+/// structural readability, then a real restore for row counts). Those calls
+/// are production behaviour and must NOT be stubbed — the scenarios exist to
+/// prove the real round-trip. But the binary must not learn about Docker
+/// either: its runtime image is distroless, and a server shelling out to a
+/// container daemon is a bigger dependency than the one it removes. So the
+/// program is resolved through one seam and the TEST points that seam at
+/// this shim.
+///
+/// The shim does the two translations a container needs and nothing else:
+/// a host dump path under the scratch dir becomes `/backup/<name>`, and a
+/// loopback connection URL becomes `host.docker.internal`. Every other
+/// argument is forwarded untouched, so the CLI's real flags still decide
+/// what `pg_restore` does.
+pub fn pg_restore_shim() -> PathBuf {
+    static SHIM: OnceCell<PathBuf> = OnceCell::new();
+    SHIM.get_or_init(|| {
+        probe_pg_tools_on_path();
+        let dir = dump_scratch_dir();
+        let path = dir.join("pg_restore_in_container.sh");
+        let script = format!(
+            r#"#!/bin/sh
+# Generated by foundry-acceptance (support/pg_backup.rs). Runs pg_restore
+# from {image} so the host needs no Postgres client tooling, and so the
+# client is never older than the server it reads.
+set -eu
+args=""
+for a in "$@"; do
+  case "$a" in
+    {dir}/*) a="/backup/$(basename "$a")" ;;
+    *@127.0.0.1:*) a=$(printf '%s' "$a" | sed 's|@127\.0\.0\.1:|@host.docker.internal:|') ;;
+    *@localhost:*) a=$(printf '%s' "$a" | sed 's|@localhost:|@host.docker.internal:|') ;;
+  esac
+  args="$args '$a'"
+done
+eval exec docker run --rm   --add-host=host.docker.internal:host-gateway   --user {uid}   -v '{dir}':/backup   -e PGCONNECT_TIMEOUT=30   {image} pg_restore $args
+"#,
+            image = PG_CLIENT_IMAGE,
+            dir = dir.display(),
+            uid = host_uid_gid(),
+        );
+        std::fs::write(&path, script).expect("write pg_restore shim");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
+                .expect("chmod pg_restore shim");
+        }
+        path
+    })
+    .clone()
+}
+
 pub fn dump_scratch_dir() -> PathBuf {
     static DIR: OnceCell<PathBuf> = OnceCell::new();
     DIR.get_or_init(|| {

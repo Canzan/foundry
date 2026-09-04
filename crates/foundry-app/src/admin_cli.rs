@@ -48,6 +48,24 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::str::FromStr;
 
+/// Which `pg_restore` to invoke.
+///
+/// Defaults to `pg_restore` on PATH — what an operator running this
+/// subcommand on a host with the Postgres client tooling gets, and the only
+/// behaviour that ships. `FOUNDRY_PG_RESTORE` overrides the program so a
+/// caller WITHOUT the client tooling on PATH — notably the acceptance lane,
+/// which runs the client from a `postgres:16-alpine` container so
+/// contributors need no local Postgres — can point this at a wrapper,
+/// without this binary ever learning about Docker.
+///
+/// Putting a container runtime in the shipped server would be the wrong
+/// fix: the runtime image is distroless and carries no docker client, and a
+/// server that shells out to a daemon to read a file has taken on a far
+/// larger dependency than the one it removed.
+fn pg_restore_program() -> String {
+    std::env::var("FOUNDRY_PG_RESTORE").unwrap_or_else(|_| "pg_restore".to_string())
+}
+
 /// Entry point invoked from `main.rs` when the CLI sees
 /// `foundry doctor backup-verify <file>`.
 ///
@@ -67,7 +85,7 @@ pub fn run_backup_verify(dump_path: &Path) -> i32 {
 
     // Step 1: structural readability via `pg_restore --list`. A
     // truncated dump returns non-zero with a readable diagnostic.
-    let list_output = match Command::new("pg_restore")
+    let list_output = match Command::new(pg_restore_program())
         .arg("--list")
         .arg(dump_path)
         .stdout(Stdio::piped())
@@ -111,7 +129,7 @@ pub fn run_backup_verify(dump_path: &Path) -> i32 {
 
     // pg_restore --clean --if-exists is idempotent so back-to-back
     // invocations against the same probe DB stay green.
-    let restore_output = match Command::new("pg_restore")
+    let restore_output = match Command::new(pg_restore_program())
         .arg("--clean")
         .arg("--if-exists")
         .arg("--no-owner")

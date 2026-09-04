@@ -31,10 +31,10 @@ zero slug/label mutations. **No migration — still 0015.**
 - **Commit** when wanted (nothing staged). Pre-commit gate is the full `cargo xtask ci`.
 - **Full gate run done**: fmt/clippy/check-arch/build/deny/workspace-tests (44 binaries) all PASS;
   acceptance `all` lane
-  **726/734**. The 8 failures are NOT from this feature — 6 are `pg_dump 14.24` vs a 16 server
-  (install `postgresql@16`), 2 are a **real WCAG 1.4.11 contrast failure on `.lane-menu-trigger`
-  (1.20:1 / 1.15:1 vs 3:1)** from the uncommitted `fix-lane-menu-clipped-mobile` work — fix before
-  committing that.
+  **726/734** at the time; both causes since FIXED — the WCAG contrast defect on
+  `.lane-menu-trigger`, and the six `pg_dump` failures (the Postgres CLIENT now runs from
+  `postgres:16-alpine` instead of the host, so version skew is structurally impossible). US-03
+  lane: **63/63**.
 - **Mutation testing done**: check-arch rule 4/4; `board_columns` 50% -> **100%** after 5 new unit
   tests. The survivors were real — `index + 2` (move-right neighbour) and both end flags were
   unpinned, and getting the arithmetic wrong is a SILENT no-op (200, board unchanged).
