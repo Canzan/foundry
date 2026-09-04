@@ -26,6 +26,13 @@ zero slug/label mutations. **No migration — still 0015.**
 - **`check-arch` now pins the `DEFERRABLE` keyword** (5 gold tests, one of which caught that the rule
   originally accepted a *commented-out* keyword — SQL uses `--`, not `//`).
 
+## Host prerequisites removed (2026-09-04)
+
+Postgres client tools AND chromedriver/Chrome now run from containers pinned to the same image the
+thing they talk to uses, so version skew is impossible rather than merely detected. `cargo xtask ci`
+preflights 2 and 3 are retired with the host dependencies they guarded. **Acceptance `all` lane:
+734/734.**
+
 ## Next Steps
 
 - **Commit** when wanted (nothing staged). Pre-commit gate is the full `cargo xtask ci`.

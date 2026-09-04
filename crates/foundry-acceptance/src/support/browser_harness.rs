@@ -158,6 +158,11 @@ fn free_port() -> u16 {
 /// as pinning the Postgres client image to the server's tag.
 const BROWSER_IMAGE: &str = "selenium/standalone-chrome:latest";
 
+/// Concurrent browser sessions the node will serve. MUST stay >= the suite's
+/// `max_concurrent_scenarios(6)`; the headroom absorbs a scenario whose
+/// session has not been dropped yet when the next one asks.
+const BROWSER_MAX_SESSIONS: u32 = 8;
+
 /// Chrome inside the container must reach the app, which listens on the HOST.
 /// `TestApp::spawn_app` binds `0.0.0.0` and reports `127.0.0.1:<port>`, and
 /// this rule makes the container's Chrome resolve that same literal to the
@@ -201,6 +206,21 @@ fn ensure_chromedriver() -> u16 {
             // Chrome will exhaust the default 64MB /dev/shm and crash tabs
             // mid-scenario; the Selenium images document this as required.
             .arg("--shm-size=2g")
+            // A Selenium NODE caps concurrent sessions (default 1) and queues
+            // the rest; a bare chromedriver had no such cap. The suite runs
+            // `max_concurrent_scenarios(6)`, each wanting its own session, so
+            // the default turns five of every six into
+            // "New session request timed out" — measured: 24 browser scenarios
+            // failed that way before this. Sized above the suite's concurrency,
+            // with the override because the node otherwise clamps to CPU count.
+            .args([
+                "-e",
+                &format!("SE_NODE_MAX_SESSIONS={BROWSER_MAX_SESSIONS}"),
+            ])
+            .args(["-e", "SE_NODE_OVERRIDE_MAX_SESSIONS=true"])
+            // Queue a little longer than a cold Chrome start, so a brief burst
+            // waits instead of failing.
+            .args(["-e", "SE_SESSION_REQUEST_TIMEOUT=120"])
             .arg(BROWSER_IMAGE)
             .stdout(Stdio::null())
             .stderr(Stdio::null())
