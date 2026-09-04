@@ -1352,4 +1352,117 @@ mod tests {
             "card state URL is built from the REQUEST-PATH slugs"
         );
     }
+
+    /// A four-lane board in the DISCUSS journey's exact wrong order.
+    fn wrong_order_board() -> foundry_services::BoardView {
+        foundry_services::BoardView {
+            lanes: ["backlog", "done", "staging", "in_progress"]
+                .iter()
+                .map(|s| foundry_services::BoardLane {
+                    slug: (*s).to_string(),
+                    label: (*s).to_string(),
+                })
+                .collect(),
+            issues: Vec::new(),
+        }
+    }
+
+    /// board-lane-reorder D5. Mutation testing found `is_first` unpinned:
+    /// flipping `index == 0` to `!=` survived the whole suite, because the only
+    /// coverage was end-to-end. `is_first` decides whether "Move list left"
+    /// renders DISABLED, so an inverted flag arms the one control that must not
+    /// be armed and disables every one that must be.
+    #[test]
+    fn only_the_leftmost_lane_is_first_and_only_the_rightmost_is_last() {
+        let cols = board_columns("general", "sandbox", &wrong_order_board());
+        assert_eq!(cols.len(), 4);
+        let firsts: Vec<bool> = cols.iter().map(|c| c.is_first).collect();
+        let lasts: Vec<bool> = cols.iter().map(|c| c.is_last).collect();
+        assert_eq!(
+            firsts,
+            vec![true, false, false, false],
+            "exactly the leftmost lane is first"
+        );
+        assert_eq!(
+            lasts,
+            vec![false, false, false, true],
+            "exactly the rightmost lane is last"
+        );
+    }
+
+    /// A one-lane board is BOTH ends at once — the degenerate case where both
+    /// Move items must be disabled, and the one an off-by-one is likeliest to
+    /// get wrong.
+    #[test]
+    fn a_sole_lane_is_both_the_first_and_the_last() {
+        let view = foundry_services::BoardView {
+            lanes: vec![foundry_services::BoardLane {
+                slug: "backlog".to_string(),
+                label: "Backlog".to_string(),
+            }],
+            issues: Vec::new(),
+        };
+        let cols = board_columns("general", "sandbox", &view);
+        assert!(cols[0].is_first && cols[0].is_last);
+        assert_eq!(cols[0].move_left_before, None, "nowhere to the left");
+        assert_eq!(cols[0].move_right_before, None, "nowhere to the right");
+    }
+
+    /// The move-right neighbour arithmetic (`index + 2`), which mutation
+    /// testing found unpinned — `+` swapped for `*` survived.
+    ///
+    /// This is the highest-consequence arithmetic in the feature and its
+    /// failure is SILENT: "move right" means landing immediately BEFORE the
+    /// lane two to the right, because lifting the mover out shifts everything
+    /// after it left by one. Naming the lane ONE to the right instead asks the
+    /// store to put the lane exactly where it already is — a NoOp, HTTP 200,
+    /// board unchanged, no error anywhere. That exact bug reached the browser
+    /// lane during DELIVER (a drag posted `before=staging` for Staging's own
+    /// left neighbour) and only a board-order oracle caught it.
+    #[test]
+    fn move_right_names_the_lane_two_to_the_right_not_one() {
+        let cols = board_columns("general", "sandbox", &wrong_order_board());
+        // backlog(0) done(1) staging(2) in_progress(3)
+        assert_eq!(
+            cols[0].move_right_before.as_deref(),
+            Some("staging"),
+            "backlog moving right lands before staging, NOT before done —              before-done would leave it exactly where it is"
+        );
+        assert_eq!(
+            cols[1].move_right_before.as_deref(),
+            Some("in_progress"),
+            "done moving right lands before in_progress"
+        );
+        assert_eq!(
+            cols[2].move_right_before, None,
+            "staging moving right becomes LAST, so it names no neighbour"
+        );
+        assert_eq!(
+            cols[3].move_right_before, None,
+            "the rightmost lane has nowhere to go; the item renders disabled"
+        );
+    }
+
+    /// The mirror direction. "Move left" lands immediately before the lane one
+    /// to the left — no adjustment, because removing the mover does not shift
+    /// anything to ITS left.
+    #[test]
+    fn move_left_names_the_immediate_left_neighbour() {
+        let cols = board_columns("general", "sandbox", &wrong_order_board());
+        assert_eq!(cols[0].move_left_before, None, "the leftmost has none");
+        assert_eq!(cols[1].move_left_before.as_deref(), Some("backlog"));
+        assert_eq!(cols[2].move_left_before.as_deref(), Some("done"));
+        assert_eq!(cols[3].move_left_before.as_deref(), Some("staging"));
+    }
+
+    /// The move URL is built from the REQUEST-PATH slugs, like every other
+    /// board URL — never re-derived from a name (ADR-PROJECT-RENAME-001).
+    #[test]
+    fn the_move_url_is_built_from_request_path_slugs() {
+        let cols = board_columns("general", "sandbox", &wrong_order_board());
+        assert_eq!(
+            cols[1].move_url, "/team/general/project/sandbox/lanes/done/move",
+            "POST-only move route, addressed by the lane's own slug"
+        );
+    }
 }

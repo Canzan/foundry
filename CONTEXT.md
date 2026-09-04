@@ -35,7 +35,10 @@ zero slug/label mutations. **No migration — still 0015.**
   (install `postgresql@16`), 2 are a **real WCAG 1.4.11 contrast failure on `.lane-menu-trigger`
   (1.20:1 / 1.15:1 vs 3:1)** from the uncommitted `fix-lane-menu-clipped-mobile` work — fix before
   committing that.
-- Still not run: **mutation testing**, and the DISTILL consolidated 4-wave reviewer gate (Agent
-  dispatch is disabled by user instruction).
+- **Mutation testing done**: check-arch rule 4/4; `board_columns` 50% -> **100%** after 5 new unit
+  tests. The survivors were real — `index + 2` (move-right neighbour) and both end flags were
+  unpinned, and getting the arithmetic wrong is a SILENT no-op (200, board unchanged).
+  `move_lane_before`/`move_lane` remain unmeasured (acceptance-only).
+- Still not run: the DISTILL consolidated 4-wave reviewer gate (Agent dispatch is disabled).
 - Successors: converge card drag onto Pointer Events (would give cards a touch drag too); undo a lane
   delete; "Sort by".

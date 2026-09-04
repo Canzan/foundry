@@ -1041,9 +1041,50 @@ One flake, confirmed as such: `foundry-store::list_projects_for_workspace` faile
 `PortNotExposed { port: Tcp(5432) }` under nine concurrent Postgres containers, and passes 2/2 in
 isolation.
 
+### [REF] What mutation testing changed
+
+| Scope | First run | After acting |
+|---|---|---|
+| `xtask::check_lane_position_deferrable` | **4/4 caught (100%)** | — |
+| `views::board_columns` | **3 missed, 3 caught, 1 unviable — 50%** | **6/6 viable caught (100%)** |
+
+The `check-arch` rule needed nothing: its five gold tests already kill every
+mutant, including the one that replaces the whole rule with an empty result —
+so the `DEFERRABLE` guard cannot be silently neutered without a test going red.
+
+`board_columns` failed the ≥80% gate on the first run, and all three survivors
+were this feature's own logic, every one of them hidden behind end-to-end
+coverage:
+
+1. **`index + 2` → `index * 2` survived** (the move-right neighbour). This is
+   the highest-consequence arithmetic in the feature and its failure mode is
+   SILENT. "Move right" must name the lane **two** to the right, because lifting
+   the mover out shifts everything after it left by one; naming the lane *one* to
+   the right asks the store to put the lane exactly where it already is — a
+   `NoOp`, HTTP 200, board unchanged, no error raised anywhere. That is not
+   hypothetical: the identical bug reached the browser lane during DELIVER, when
+   a drag posted `before=staging` for Staging's own left neighbour, and only a
+   board-ORDER oracle caught it. Nothing at the unit level pinned it.
+2. **`is_first: index == 0` → `!=` survived.** An inverted flag arms "Move list
+   left" on the one lane where it must be disabled, and disables it everywhere
+   it must work.
+3. **`is_last: index == last_index` → `!=` survived**, the mirror of the same.
+
+Five unit tests now pin both end flags, both directions of neighbour resolution,
+the one-lane board where a lane is BOTH ends at once, and the move URL's
+request-path-slug provenance. Re-run: 6/6 viable caught, zero survivors.
+
+**Honest scope note.** `Store::move_lane_before` and
+`foundry_services::lanes::move_lane` are NOT included in either figure. Their
+only coverage is the acceptance lane, and mutation-testing them means standing
+up a Postgres-backed suite per mutant. They are unmeasured, not proven — the
+same posture `board-lane-overflow-menu` recorded for `resolve_lane_project`.
+Their behaviour is measured instead by ADR-BOARD-LANE-006's spike and the 25
+acceptance scenarios, including the order-asserting concurrency oracle.
+
 ### [REF] Carried forward
 
-1. **Mutation testing has not run** for this feature. The project's strategy is `per-feature` with an ≥80% kill-rate gate.
+1. ~~Mutation testing has not run~~ — **DONE**, see `[REF] What mutation testing changed` below.
 2. **Eight acceptance failures remain, none of them from this feature** — attributed, not assumed:
    - **Six US-03 backup scenarios** fail on the environment: `pg_dump version: 14.24 (Homebrew)` against a 16.14 server. `cargo xtask ci` has a preflight that refuses to run in this state (`pg_dump_at_least_16`); the hand-run gate chain bypassed it. Fix: `brew install postgresql@16` and put its `bin` on PATH.
    - **Two `canzan-theme` contrast scenarios** flag `.lane-menu-trigger` at 1.20:1 (dark) and 1.15:1 (light) against WCAG 1.4.11's 3:1. **Verified not from this feature**: `.lane-menu-trigger` does not exist in the last committed stylesheet at all, and this feature's appended CSS never references it. It is a real accessibility defect in the *uncommitted* `fix-lane-menu-clipped-mobile` work, which made the trigger a chip with a hairline border — worth fixing before that work is committed, but a separate defect.
