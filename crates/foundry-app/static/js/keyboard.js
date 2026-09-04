@@ -661,11 +661,23 @@
     // a second piece of state to keep in sync with the first is how the race
     // came back.
     searchSequence += 1;
-    panel.hidden = true;
+    // Blur BEFORE hiding, and blur EXPLICITLY. ADR-005 §2 asks `Esc` to restore
+    // the board, and a caret left in the box does not restore it: the panel is
+    // gone, so Mei types into a field she cannot see, and guard 4 (ADR-002 — the
+    // box is a text-entry context) holds every board shortcut inert behind it.
+    //
+    // Hiding alone LOOKS sufficient, because the browser runs its own focus
+    // fixup once the focused element stops being rendered — but that is a
+    // lifecycle-update side effect, not a guarantee this function makes, and it
+    // lands whenever the next update lands rather than before the next
+    // keystroke. That is exactly how it surfaced: the acceptance lane is green
+    // in isolation and red under contention, which reads as flake and is not.
     var input = searchInput();
     if (input) {
+      input.blur();
       input.value = "";
     }
+    panel.hidden = true;
     var results = panel.querySelector("[data-search-results]");
     if (results) {
       results.innerHTML = "";
