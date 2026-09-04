@@ -2,50 +2,31 @@
 
 ## Current Task
 
-**`board-lane-reorder`** — full pipeline DISCUSS→DESIGN→DISTILL→DELIVER run in one session, on top of
-the still-uncommitted `board-lane-overflow-menu` + `fix-lane-menu-clipped-mobile` work.
-**NOTHING IS COMMITTED.** A lane's order is now changeable: drag its column header (Pointer Events,
-works on touch) or pick **Move list left / Move list right** from the same `⋯` menu — which grows
-from four items to six. A move writes `lanes.position` only: zero issue rows, zero change events,
-zero slug/label mutations. **No migration — still 0015.**
+**`board-lane-reorder` SHIPPED** on branch `board-lane-shaping` — 7 commits, clean tree, **NOT
+PUSHED**. A board's lane order is changeable: drag a column header (Pointer Events, works on
+touch) or pick **Move list left / right** from the `⋯` menu, now six items with disabled ends.
+A move writes `lanes.position` only — zero issue rows, zero change events, zero identity
+mutations. **No migration; still 0015.** The commit also carries the previously-uncommitted
+`board-lane-overflow-menu` and `fix-lane-menu-clipped-mobile` work (entangled via one stylesheet
+hash chain, so a per-feature split was not reconstructable).
 
 ## Key Decisions
 
-- **Insert's shuffle does NOT generalise to a move.** Insert is safe only because its bulk `+1`
-  *vacates* the target slot; a move has no vacancy, so the shift collides with the mover still in its
-  old slot. A move is therefore ONE `UPDATE … SET position = CASE …` statement. All three candidate
-  shapes were measured against a real postgres:16-alpine, and **all three fail against a
-  non-deferrable constraint** — `DEFERRABLE` is a *precondition* for lane reordering, not a
-  convenience. See `adr-board-lane-006`.
-- **The unlocked move race is SILENT** — no error, contiguity intact, uniqueness intact, and a lane
-  nobody mentioned shoved past another (5/5 measured). So the concurrency oracle asserts the resulting
-  **order**, never "no error raised" — the natural assertion passes on the corrupt case.
-- **Two drag mechanisms on one board, deliberately** (`adr-board-lane-007`): lanes on Pointer Events
-  (HTML5 drag emits nothing on touch), cards still on HTML5 DnD. Boundary is origin-based; the shipped
-  card-drag scenarios passing *unmodified* are its standing proof.
-- **`check-arch` now pins the `DEFERRABLE` keyword** (5 gold tests, one of which caught that the rule
-  originally accepted a *commented-out* keyword — SQL uses `--`, not `//`).
-
-## Host prerequisites removed (2026-09-04)
-
-Postgres client tools AND chromedriver/Chrome now run from containers pinned to the same image the
-thing they talk to uses, so version skew is impossible rather than merely detected. `cargo xtask ci`
-preflights 2 and 3 are retired with the host dependencies they guarded. **Acceptance `all` lane:
-734/734.**
+- **Insert's shuffle does NOT generalise to a move** — insert *vacates* the target slot, a move
+  has no vacancy. One `UPDATE … SET position = CASE …` statement. All three candidate shapes
+  fail against a non-deferrable constraint, so `DEFERRABLE` is a **precondition**, now pinned by
+  a `check-arch` rule with 5 gold tests (`adr-board-lane-006`).
+- **The unlocked move race is SILENT** — no error, invariants intact, board arranged as nobody
+  asked. So the concurrency oracle asserts resulting **order**, never "no error raised".
+- **Host tool dependencies removed**: `pg_dump`/`pg_restore` and chromedriver/Chrome now run from
+  containers pinned to the server's own image tag, so version skew is impossible rather than
+  detected. `xtask ci` preflights 2 and 3 retired with them.
 
 ## Next Steps
 
-- **Commit** when wanted (nothing staged). Pre-commit gate is the full `cargo xtask ci`.
-- **Full gate run done**: fmt/clippy/check-arch/build/deny/workspace-tests (44 binaries) all PASS;
-  acceptance `all` lane
-  **726/734** at the time; both causes since FIXED — the WCAG contrast defect on
-  `.lane-menu-trigger`, and the six `pg_dump` failures (the Postgres CLIENT now runs from
-  `postgres:16-alpine` instead of the host, so version skew is structurally impossible). US-03
-  lane: **63/63**.
-- **Mutation testing done**: check-arch rule 4/4; `board_columns` 50% -> **100%** after 5 new unit
-  tests. The survivors were real — `index + 2` (move-right neighbour) and both end flags were
-  unpinned, and getting the arithmetic wrong is a SILENT no-op (200, board unchanged).
-  `move_lane_before`/`move_lane` remain unmeasured (acceptance-only).
-- Still not run: the DISTILL consolidated 4-wave reviewer gate (Agent dispatch is disabled).
-- Successors: converge card drag onto Pointer Events (would give cards a touch drag too); undo a lane
-  delete; "Sort by".
+- **Push** when wanted. NB `8b79448` on this branch came from another session, not this work.
+- **Re-run the full `all` lane**: last measured 734/734 BEFORE the two review-driven scenarios
+  landed. `blr` is 26/26; the full number is expected-but-unverified at 736.
+- **Reap 5 orphaned testcontainers** (21–29h old) — the likely cause of three `foundry-store`
+  tests flaking under load, each passing in isolation. Left alone; another session may own them.
+- Still running: foundry on your tailnet — `kill 72826 && docker rm -f foundry-dev-pg`.
