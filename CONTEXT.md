@@ -2,8 +2,10 @@
 
 ## Current Task
 
-**`board-lane-reorder` SHIPPED** on branch `board-lane-shaping` — 7 commits, clean tree, **NOT
-PUSHED**. A board's lane order is changeable: drag a column header (Pointer Events, works on
+**`board-lane-reorder` SHIPPED and PUSHED to `main`** — 8 commits, clean tree. (Work began on
+branch `board-lane-shaping`, but that branch was fast-forward merged into `main` mid-session, so
+the later commits landed directly on `main`; the branch pointer is stale at `8b79448` and is fully
+contained in `main`.) A board's lane order is changeable: drag a column header (Pointer Events, works on
 touch) or pick **Move list left / right** from the `⋯` menu, now six items with disabled ends.
 A move writes `lanes.position` only — zero issue rows, zero change events, zero identity
 mutations. **No migration; still 0015.** The commit also carries the previously-uncommitted
@@ -24,7 +26,8 @@ hash chain, so a per-feature split was not reconstructable).
 
 ## Next Steps
 
-- **Push** when wanted. NB `8b79448` on this branch came from another session, not this work.
+- NB `8b79448` is not from this work — it was committed elsewhere and fast-forward merged into
+  `main` mid-session; it is now published along with everything else.
 - **Re-run the full `all` lane**: last measured 734/734 BEFORE the two review-driven scenarios
   landed. `blr` is 26/26; the full number is expected-but-unverified at 736.
 - **Reap 5 orphaned testcontainers** (21–29h old) — the likely cause of three `foundry-store`
