@@ -70,6 +70,21 @@ const WINDOW_HEIGHT: u32 = 900;
 /// the lane promptly rather than hanging it.
 const READY_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// Bound on the DRIVER's boot, which is a different order of magnitude from the
+/// in-page conditions [`READY_TIMEOUT`] covers and must not share its budget.
+///
+/// 10s was right when this lane ran a bare `chromedriver` binary on the host: it
+/// listens in milliseconds. The lane now boots `selenium/standalone-chrome`, a
+/// container starting a JVM and a browser — measured at 8s on an idle machine
+/// here, i.e. inside the old budget with no margin at all, and over it the moment
+/// the suite's own startup competes for the box. That is not a slow machine; it
+/// is a constant that was not revisited when the thing it bounds changed.
+///
+/// Generous on purpose: this costs nothing when the driver is quick (the poll
+/// returns the instant `/status` answers) and the alternative is the cascade
+/// described on `CHROMEDRIVER`.
+const DRIVER_READY_TIMEOUT: Duration = Duration::from_secs(90);
+
 /// The ADR-001 readiness marker: `keyboard.js` sets it at init. It is both this
 /// lane's wait condition AND US-02's "the layer is live" precondition, so the
 /// anti-vacuity guard has a real hook.
@@ -147,9 +162,44 @@ pub fn shutdown_chromedriver() -> Option<ExitStatus> {
 /// Ask the OS for a free port, then release it. chromedriver has no
 /// "bind :0 and tell me the port" mode, so this bind-and-drop is the shipped
 /// idiom for handing an external process an ephemeral port.
-fn free_port() -> u16 {
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind ephemeral port");
-    listener.local_addr().expect("local_addr").port()
+/// The host port Docker published for the container's 4444, read back FROM DOCKER.
+///
+/// Replaces a bind-then-release `free_port()` helper, which was a race with a
+/// visible failure. It bound `127.0.0.1:0`, took the port the OS offered, dropped
+/// the listener, and only then passed that number to `docker run -p PORT:4444`.
+/// Between the drop and the publish the port is free, and this suite asks Docker
+/// for other ephemeral ports constantly (every Postgres testcontainer). When the
+/// two collided, a `sqlx` pool aimed at "its" Postgres reached the BROWSER
+/// container instead and died on `unexpected response from SSLRequest: 0x48`.
+///
+/// `0x48` is `H` — the first byte of Selenium's `HTTP/1.1` reply. The failure
+/// surfaced in `foundry-services`, a crate with no idea a browser exists.
+///
+/// Letting Docker allocate and then asking it what it chose removes the window
+/// rather than narrowing it: the port is never unclaimed between decision and use.
+fn published_port(name: &str) -> u16 {
+    let deadline = std::time::Instant::now() + DRIVER_READY_TIMEOUT;
+    while std::time::Instant::now() < deadline {
+        if let Ok(out) = Command::new("docker").args(["port", name, "4444"]).output() {
+            // `docker port` prints one line per published binding, e.g.
+            // `0.0.0.0:53569` and possibly a second `[::]:53569`. Any of them
+            // names the same host port; take the first that parses.
+            if let Some(port) = String::from_utf8_lossy(&out.stdout)
+                .lines()
+                .filter_map(|line| line.rsplit(':').next())
+                .filter_map(|port| port.trim().parse::<u16>().ok())
+                .find(|port| *port != 0)
+            {
+                return port;
+            }
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    panic!(
+        "the browser container `{name}` never reported a published port for 4444 within \
+         {DRIVER_READY_TIMEOUT:?} — `docker ps -a` and `docker logs {name}` will say why it did \
+         not start"
+    );
 }
 
 /// The browser image. It bundles a chromedriver and a Chrome of the SAME
@@ -175,6 +225,10 @@ pub(crate) const HOST_RESOLVER_RULE: &str =
 /// browser lane that skips is indistinguishable from the bug it exists to
 /// prevent. Only the prerequisite moved — from "a chromedriver whose major
 /// matches your Chrome" to "the Docker daemon this suite already requires".
+/// Distinguishes the container of one `ensure_chromedriver` attempt from the next;
+/// see the naming comment inside it.
+static BROWSER_CONTAINER_SEQ: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
 fn ensure_chromedriver() -> u16 {
     *CHROMEDRIVER.get_or_init(|| {
         let daemon = Command::new("docker")
@@ -191,16 +245,42 @@ fn ensure_chromedriver() -> u16 {
                  used to refuse on cannot occur."
             );
         }
-        let port = free_port();
-        let name = format!("foundry-acceptance-chrome-{}", std::process::id());
+        // Unique per ATTEMPT, not merely per process. A panic in `wait_for_driver_ready`
+        // leaves the `OnceCell` empty, so the next scenario runs this block again — and
+        // with a fixed per-PID name every one of those `docker run --name` calls collided
+        // with the container the first attempt had already created. The retries could
+        // therefore never succeed, which is how one slow boot became a whole red lane.
+        let name = format!(
+            "foundry-acceptance-chrome-{}-{}",
+            std::process::id(),
+            BROWSER_CONTAINER_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+        );
         let child = Command::new("docker")
             .args(["run", "--rm", "--name", &name])
-            .args(["-p", &format!("{port}:4444")])
+            // Docker picks the host port; `published_port` reads it back. See there
+            // for why we no longer pick one ourselves.
+            .args(["-p", "4444"])
             // Reach the host's ephemeral app ports from inside the container.
             .arg("--add-host=host.docker.internal:host-gateway")
             // Chrome will exhaust the default 64MB /dev/shm and crash tabs
             // mid-scenario; the Selenium images document this as required.
             .arg("--shm-size=2g")
+            // Match the node's session capacity to the lane's concurrency.
+            // A Selenium node offers ONE slot by default and clamps concurrent
+            // sessions of the SAME browser to that, so the lane's six scenarios
+            // queued behind a single slot and the router failed them with
+            // "New session request timed out" — a limit invisible in the old
+            // design, where one host `chromedriver` served every session. The
+            // OVERRIDE flag is not optional: without it the node silently
+            // re-clamps to its own computed maximum and MAX_SESSIONS is ignored.
+            .args([
+                "-e",
+                &format!(
+                    "SE_NODE_MAX_SESSIONS={}",
+                    crate::support::MAX_CONCURRENT_SCENARIOS
+                ),
+            ])
+            .args(["-e", "SE_NODE_OVERRIDE_MAX_SESSIONS=true"])
             .arg(BROWSER_IMAGE)
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -209,7 +289,8 @@ fn ensure_chromedriver() -> u16 {
                 panic!("could not start the `{BROWSER_IMAGE}` browser container: {err}")
             });
         *CHROMEDRIVER_PROC.lock().expect("chromedriver proc lock") = Some(child);
-        *BROWSER_CONTAINER.lock().expect("browser container lock") = Some(name);
+        *BROWSER_CONTAINER.lock().expect("browser container lock") = Some(name.clone());
+        let port = published_port(&name);
         wait_for_driver_ready(port);
         port
     })
@@ -218,7 +299,7 @@ fn ensure_chromedriver() -> u16 {
 /// Poll chromedriver's own `/status` until it reports ready. A condition on an
 /// external process's readiness endpoint — not a sleep-and-hope.
 fn wait_for_driver_ready(port: u16) {
-    let deadline = std::time::Instant::now() + READY_TIMEOUT;
+    let deadline = std::time::Instant::now() + DRIVER_READY_TIMEOUT;
     let url = format!("http://127.0.0.1:{port}/status");
     while std::time::Instant::now() < deadline {
         let responded = std::process::Command::new("curl")
@@ -231,7 +312,66 @@ fn wait_for_driver_ready(port: u16) {
         }
         std::thread::sleep(Duration::from_millis(50));
     }
-    panic!("chromedriver did not report ready on 127.0.0.1:{port} within {READY_TIMEOUT:?}");
+    panic!(
+        "the browser container did not report ready on 127.0.0.1:{port} within \
+         {DRIVER_READY_TIMEOUT:?}.\n  NOTE: this failure repeats PER SCENARIO — a panic inside \
+         `OnceCell::get_or_init` leaves the cell empty, so every later scenario starts its own \
+         container and fails the same way. A lane reporting N of these is reporting ONE problem \
+         N times, not N problems.\n  `docker logs` the container, or run the image by hand, \
+         before believing the app is involved."
+    );
+}
+
+/// Open a WebDriver session against this lane's driver, retrying the OPEN.
+///
+/// ONE writer for both session shapes (desktop and mobile-emulation): they had
+/// the same unguarded `.connect()` and the same panic text, so a fix applied to
+/// one silently left the other alone.
+///
+/// The retry is on the OPEN and nothing else. Chrome is a process launch, and
+/// the lane starts up to `max_concurrent_scenarios` of them at once: a Chrome
+/// that loses that race dies before writing its DevToolsActivePort file, and the
+/// driver reports `session not created: DevToolsActivePort file doesn't exist` —
+/// a startup failure that says nothing about foundry, and that the next attempt
+/// a moment later does not hit. This weakens no assertion: a scenario still gets
+/// a real browser or the lane still fails, but it now fails for a reason that is
+/// actually about the app.
+///
+/// A version-skewed driver fails IDENTICALLY on every attempt, so the retry costs
+/// a bounded pause and the panic still names that cause — and, unlike the text it
+/// replaces, tells the two apart instead of blaming skew for both.
+async fn connect_session(
+    port: u16,
+    capabilities: serde_json::Map<String, serde_json::Value>,
+    what: &str,
+) -> fantoccini::Client {
+    const SESSION_ATTEMPTS: u32 = 3;
+    let mut last_err = None;
+    for attempt in 1..=SESSION_ATTEMPTS {
+        match ClientBuilder::new(HttpConnector::new())
+            .capabilities(capabilities.clone())
+            .connect(&format!("http://127.0.0.1:{port}"))
+            .await
+        {
+            Ok(client) => return client,
+            Err(err) => {
+                last_err = Some(err);
+                if attempt < SESSION_ATTEMPTS {
+                    tokio::time::sleep(Duration::from_millis(500 * u64::from(attempt))).await;
+                }
+            }
+        }
+    }
+    let err = last_err.expect("a failed open records its error");
+    panic!(
+        "could not open a {what} session after {SESSION_ATTEMPTS} attempts: {err}\n  `session \
+         not created: DevToolsActivePort file doesn\'t exist` means Chrome itself failed to \
+         launch — usually too many concurrent launches, or too little memory; lower \
+         `max_concurrent_scenarios` or tag the scenario `@serial`.\n  Any other error is usually \
+         version skew: the driver\'s MAJOR version must MATCH the installed Chrome\'s — \
+         `chromedriver --version` vs `google-chrome --version`. `cargo xtask ci` preflights this; \
+         a `brew upgrade` that moves one and not the other is the usual cause."
+    )
 }
 
 /// Open ONE headless session against this lane's chromedriver, sized to a fixed
@@ -414,18 +554,7 @@ pub async fn open_mobile_session() -> fantoccini::Client {
         serde_json::Value::String("chrome".to_string()),
     );
     capabilities.insert("goog:chromeOptions".to_string(), chrome_options);
-    ClientBuilder::new(HttpConnector::new())
-        .capabilities(capabilities)
-        .connect(&format!("http://127.0.0.1:{port}"))
-        .await
-        .unwrap_or_else(|err| {
-            panic!(
-                "could not open a mobile chromedriver session: {err}\n  the driver's MAJOR version \
-                 must MATCH the installed Chrome's — `chromedriver --version` vs `google-chrome \
-                 --version`. `cargo xtask ci` preflights this; a `brew upgrade` that moves one and \
-                 not the other is the usual cause."
-            )
-        })
+    connect_session(port, capabilities, "mobile chromedriver").await
     // NO set_window_size here: the emulated deviceMetrics own the layout viewport.
 }
 
@@ -610,18 +739,7 @@ async fn open_session(
     // A bare HttpConnector: the WebDriver endpoint is plain HTTP on loopback, so
     // there is no TLS to configure — and no second TLS stack to make rustls'
     // process-level CryptoProvider ambiguous beside reqwest's.
-    let client = ClientBuilder::new(HttpConnector::new())
-        .capabilities(capabilities)
-        .connect(&format!("http://127.0.0.1:{port}"))
-        .await
-        .unwrap_or_else(|err| {
-            panic!(
-                "could not open a chromedriver session: {err}\n  the driver's MAJOR version must \
-                 MATCH the installed Chrome's — `chromedriver --version` vs `google-chrome \
-                 --version`. `cargo xtask ci` preflights this; a `brew upgrade` that moves one \
-                 and not the other is the usual cause."
-            )
-        });
+    let client = connect_session(port, capabilities, "chromedriver").await;
     client
         .set_window_size(WINDOW_WIDTH, WINDOW_HEIGHT)
         .await

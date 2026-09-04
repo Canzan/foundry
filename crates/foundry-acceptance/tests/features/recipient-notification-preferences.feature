@@ -225,7 +225,19 @@ Feature: A recipient silences a workspace's invitation emails without losing sec
 
   # ── Slice 07 — US-07: PII-free suppression observability on the /metrics sidecar ─────────
 
-  @us-07 @real-io
+  @us-07 @real-io @serial
+  # @serial: this is the one us-07 scenario that asserts an EXACT count, and the
+  # gate it counts is specified to FAIL OPEN. notify.rs bounds the suppression
+  # point-read with `suppression_timeout` and delivers on `Err`/timeout (ADR-003
+  # — an unreachable store must never stall the originating request). Run
+  # alongside five other scenarios on the ONE shared Postgres container, that
+  # timeout is reachable: an observed run scraped
+  #   suppressions{event="member_invite"} 2
+  #   deliveries{event="member_invite",outcome="delivered"} 1
+  # — all three emits fired, one lost the read and was delivered exactly as
+  # designed. So the assertion was measuring pool queueing, not the gate.
+  # De-contending restores "exactly 3" as a statement about the gate. The
+  # fail-open policy itself is deliberate and is NOT what this tag changes.
   Scenario: Suppressed deliveries are visible as a count on the metrics endpoint
     Given several suppressible deliveries to unsubscribed recipients have been suppressed
     When Olivia scrapes the metrics endpoint

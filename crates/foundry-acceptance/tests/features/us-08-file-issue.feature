@@ -63,11 +63,21 @@ Feature: A team member files an issue and sees it in the project board
     Then the response status is 403 Forbidden
     And no issue is created in "Auth v2"
 
-  @nfr-perf-01 @real-io
+  @nfr-perf-01 @real-io @serial
   Scenario: Sequential issue creation has P95 latency under 200ms
     # NFR-PERF-01: P95 server-render latency <= 200ms (the measurable ceiling;
-    # 50ms is documented as internal stretch only). Budget 200ms per F-004
-    # guidance (flake-tolerant under parallel CI load).
+    # 50ms is documented as internal stretch only).
+    #
+    # @serial, for the same reason the instrumentation and GC lanes carry it:
+    # the default lane runs at max_concurrent_scenarios(6) against ONE shared
+    # Postgres container, so 100 timed requests issued alongside five unrelated
+    # scenarios measure the harness's own contention, not the server render.
+    # This scenario passes alone and fails in the full suite — reliably, on an
+    # idle machine — which reads as flake and is not. Widening the budget to
+    # absorb that (the earlier "flake-tolerant under parallel CI load" note) is
+    # the wrong lever: it weakens the ceiling AND still flakes, because the
+    # contention it tolerates is unbounded. De-contending restores 200ms as a
+    # statement about the product.
     When Mei files 100 issues against "Auth v2" sequentially, each with a unique title
     Then all 100 issues are persisted with sequential keys AUTH-1 through AUTH-100
     And the P95 server-side response time across those 100 requests is at most 200 milliseconds
