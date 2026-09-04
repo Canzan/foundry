@@ -125,35 +125,20 @@ fn run_ci() -> ExitCode {
     // docker-daemon check that replaces it is the `include_docker` detection
     // above, which already gates this entire group.
 
-    // Preflight 3 — chromedriver + a MAJOR-VERSION-MATCHED browser. The
-    // @needs-browser acceptance lane (keyboard-shortcut-bindings, ADR-007) drives
-    // a real headless Chrome against InProcHarness's real origin; chromedriver
-    // REFUSES a browser whose major differs ("session not created: This version of
-    // ChromeDriver only supports Chrome version N"), which a mere presence check
-    // would miss — a `brew upgrade` that moves one and not the other is the usual
-    // cause. This PROBES, then REFUSES: it never soft-skips. A browser lane that
-    // silently skips is indistinguishable from the bug the lane exists to prevent
-    // (a green suite over an absent capability — exactly how seven advertised
-    // shortcuts shipped unbound). Same contract pg_dump already has.
-    if include_docker {
-        if let Err(msg) = chromedriver_matches_browser() {
-            eprintln!(
-                "xtask ci :: a version-matched chromedriver + Chrome is required for the \
-                 @needs-browser lane: {msg}"
-            );
-            eprintln!(
-                "  install it:  macOS -> `brew install --cask chromedriver` \
-                 (and keep Chrome on the same major);  Debian/Ubuntu -> \
-                 `sudo apt-get install -y chromium-driver chromium`"
-            );
-            eprintln!(
-                "  the lane is NOT optional and is NOT skipped: it runs in `all`, because a gate \
-                 that is green without ever pressing a key is the state this feature exists to \
-                 make impossible (ADR-007 §4)."
-            );
-            return ExitCode::from(1);
-        }
-    }
+    // Preflight 3 — RETIRED, like preflight 2, and for the same reason: the
+    // dependency it guarded no longer lives on the host. The @needs-browser
+    // lane drives Chrome from `selenium/standalone-chrome`, which bundles a
+    // chromedriver and a Chrome of the SAME build — so the major-version skew
+    // this preflight existed to catch cannot occur. There is no host
+    // chromedriver left to drift from a host Chrome.
+    //
+    // ADR-007 §4's rule is unchanged and still enforced, one layer down: the
+    // lane PROBES and REFUSES rather than skipping (see
+    // browser_harness::ensure_chromedriver, which panics when the Docker
+    // daemon is unreachable). A browser lane that silently skips remains
+    // indistinguishable from the bug it exists to prevent; only the
+    // prerequisite moved, from a version-matched host toolchain to the Docker
+    // daemon this suite already requires.
 
     let sqlx_offline_cache_present = std::path::Path::new(".sqlx").is_dir();
 
@@ -383,77 +368,6 @@ fn ensure_env_file() -> std::io::Result<()> {
     }
     println!("xtask ci :: .env missing, seeding it from .env.example");
     std::fs::copy(example, env).map(|_| ())
-}
-
-/// Parse the MAJOR version out of a `--version` line. The version is the first
-/// whitespace token STARTING with a digit — do NOT assume it is the last token
-/// ("ChromeDriver 150.0.7871.124 (9261fd0a... refs/branch-heads/...)" ends in a
-/// build ref, and Homebrew's pg_dump ends in "(Homebrew)"). Mirrors
-/// `pg_dump_at_least_16`'s parser in shape.
-fn major_version_from(text: &str) -> Option<u32> {
-    text.split_whitespace()
-        .find(|tok| tok.chars().next().is_some_and(|c| c.is_ascii_digit()))
-        .and_then(|v| v.split('.').next())
-        .and_then(|m| m.parse::<u32>().ok())
-}
-
-/// First `--version` output among `candidates` that runs and exits 0. The browser
-/// binary's name varies by platform (google-chrome / chromium / the macOS .app),
-/// so probe the known set rather than hardcoding one.
-fn first_version_output(candidates: &[&str]) -> Option<(String, String)> {
-    for bin in candidates {
-        if let Ok(out) = Command::new(bin).arg("--version").output() {
-            if out.status.success() {
-                return Some((
-                    (*bin).to_string(),
-                    String::from_utf8_lossy(&out.stdout).to_string(),
-                ));
-            }
-        }
-    }
-    None
-}
-
-/// Verify chromedriver AND a browser are present and their MAJOR versions MATCH
-/// (ADR-007 §4). Returns `Err(reason)` describing which half failed — presence is
-/// not enough: chromedriver 151 refuses Chrome 150 outright.
-fn chromedriver_matches_browser() -> Result<(), String> {
-    let out = Command::new("chromedriver")
-        .arg("--version")
-        .output()
-        .map_err(|_| "chromedriver not found on PATH".to_string())?;
-    if !out.status.success() {
-        return Err("`chromedriver --version` did not succeed".to_string());
-    }
-    let driver_text = String::from_utf8_lossy(&out.stdout).to_string();
-    let driver_major = major_version_from(&driver_text)
-        .ok_or_else(|| format!("could not parse chromedriver version from {driver_text:?}"))?;
-
-    let (browser_bin, browser_text) = first_version_output(&[
-        "google-chrome",
-        "google-chrome-stable",
-        "chromium",
-        "chromium-browser",
-        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-        "/Applications/Chromium.app/Contents/MacOS/Chromium",
-    ])
-    .ok_or_else(|| {
-        "no Chrome/Chromium browser found (tried google-chrome, google-chrome-stable, chromium, \
-         chromium-browser, and the macOS .app bundles)"
-            .to_string()
-    })?;
-    let browser_major = major_version_from(&browser_text)
-        .ok_or_else(|| format!("could not parse browser version from {browser_text:?}"))?;
-
-    if driver_major != browser_major {
-        return Err(format!(
-            "version SKEW: chromedriver is {driver_major}.x but {browser_bin} is \
-             {browser_major}.x. chromedriver refuses a browser on a different major, so the lane \
-             would die at session creation. Align them (both to {browser_major}.x is usually the \
-             quicker fix)."
-        ));
-    }
-    Ok(())
 }
 
 /// `docker info` round-trips through the daemon, so a 0-exit means

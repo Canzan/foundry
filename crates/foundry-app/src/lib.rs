@@ -882,11 +882,30 @@ pub mod test_support {
         }
     }
 
-    /// Spin up the slice-1 router on an ephemeral port bound to 127.0.0.1.
+    /// Spin up the slice-1 router on an ephemeral port.
+    ///
+    /// Bound to `0.0.0.0`, not `127.0.0.1`, so the `@needs-browser` lane's
+    /// CONTAINERISED Chrome can reach it: the browser runs in
+    /// `selenium/standalone-chrome` (which bundles a matched chromedriver, so
+    /// host version skew is impossible by construction) and reaches the host
+    /// through `--host-resolver-rules=MAP 127.0.0.1 host.docker.internal`. A
+    /// listener on loopback would refuse that connection.
+    ///
+    /// `addr` is still reported as `127.0.0.1:<port>` below, so every existing
+    /// `base_url()` caller — 216 of them, plus 46 browser navigations — is
+    /// untouched: the host reaches it on loopback, the container reaches the
+    /// same string via the resolver rule.
+    ///
+    /// This is TEST-SUPPORT code (`spawn_app` is only reachable from the
+    /// acceptance harness and foundry-app's own tests); the shipped server
+    /// binds from `FOUNDRY_HOST` and is unaffected.
     pub async fn spawn_app(state: AppState) -> anyhow::Result<TestApp> {
         let router = build_router(state.clone());
-        let listener = TcpListener::bind("127.0.0.1:0").await?;
-        let addr = listener.local_addr()?;
+        let listener = TcpListener::bind("0.0.0.0:0").await?;
+        let port = listener.local_addr()?.port();
+        // Report loopback: host-side reqwest keeps talking to 127.0.0.1, and
+        // the browser container maps that name to the host gateway.
+        let addr: std::net::SocketAddr = ([127, 0, 0, 1], port).into();
         let (tx, rx) = tokio::sync::oneshot::channel::<()>();
         tokio::spawn(async move {
             axum::serve(listener, router)

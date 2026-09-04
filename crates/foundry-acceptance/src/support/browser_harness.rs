@@ -104,6 +104,9 @@ pub const KB_READY_SELECTOR: &str = "[data-kb-ready]";
 /// here in the first place, so this one states its limit.
 static CHROMEDRIVER: OnceCell<u16> = OnceCell::new();
 static CHROMEDRIVER_PROC: Mutex<Option<Child>> = Mutex::new(None);
+/// Name of this lane's browser container, so teardown can `docker rm -f` it.
+/// Killing the `docker run` client alone does NOT stop the container.
+static BROWSER_CONTAINER: Mutex<Option<String>> = Mutex::new(None);
 
 /// Reap this lane's chromedriver: kill it and WAIT for it, so no orphan and no
 /// zombie survives the run. Returns the status waited for, or `None` when the
@@ -123,7 +126,22 @@ pub fn shutdown_chromedriver() -> Option<ExitStatus> {
         .expect("chromedriver proc lock")
         .take()?;
     let _ = child.kill();
-    child.wait().ok()
+    let status = child.wait().ok();
+    // `--rm` only fires when the container STOPS, and killing the `docker run`
+    // client does not stop it. Remove it by name, or every interrupted run
+    // leaves a 2GB-shm Chrome container behind.
+    if let Some(name) = BROWSER_CONTAINER
+        .lock()
+        .expect("browser container lock")
+        .take()
+    {
+        let _ = Command::new("docker")
+            .args(["rm", "-f", &name])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+    status
 }
 
 /// Ask the OS for a free port, then release it. chromedriver has no
@@ -134,30 +152,64 @@ fn free_port() -> u16 {
     listener.local_addr().expect("local_addr").port()
 }
 
-/// Start chromedriver once for this lane and return its port.
+/// The browser image. It bundles a chromedriver and a Chrome of the SAME
+/// build, so the version skew this lane used to preflight for cannot happen:
+/// there is no host chromedriver to drift from a host Chrome. Same reasoning
+/// as pinning the Postgres client image to the server's tag.
+const BROWSER_IMAGE: &str = "selenium/standalone-chrome:latest";
+
+/// Chrome inside the container must reach the app, which listens on the HOST.
+/// `TestApp::spawn_app` binds `0.0.0.0` and reports `127.0.0.1:<port>`, and
+/// this rule makes the container's Chrome resolve that same literal to the
+/// host gateway — so all 216 `base_url()` callers and 46 navigations keep
+/// working unchanged. Rewriting them instead would have been a large edit to
+/// a lane that currently passes 100%.
+pub(crate) const HOST_RESOLVER_RULE: &str =
+    "--host-resolver-rules=MAP 127.0.0.1 host.docker.internal";
+
+/// Start the browser container once for this lane and return the host port its
+/// WebDriver endpoint is published on.
 ///
-/// PANICS with an install hint when chromedriver is absent. This is the refusal
-/// half of "probe, then refuse" (ADR-007 §4): a browser lane that skips is
-/// indistinguishable from the bug it exists to prevent.
+/// PANICS with an actionable message when Docker is unreachable. This is the
+/// refusal half of "probe, then refuse" (ADR-007 §4), unchanged in spirit: a
+/// browser lane that skips is indistinguishable from the bug it exists to
+/// prevent. Only the prerequisite moved — from "a chromedriver whose major
+/// matches your Chrome" to "the Docker daemon this suite already requires".
 fn ensure_chromedriver() -> u16 {
     *CHROMEDRIVER.get_or_init(|| {
+        let daemon = Command::new("docker")
+            .arg("version")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+        if !matches!(daemon, Ok(st) if st.success()) {
+            panic!(
+                "the @needs-browser lane drives Chrome from the `{BROWSER_IMAGE}` container, \
+                 so a reachable Docker daemon is required. Start Colima/OrbStack/Docker \
+                 Desktop. Neither chromedriver nor Chrome is needed on the host — that is \
+                 the point: the image bundles a MATCHED pair, so the version skew this lane \
+                 used to refuse on cannot occur."
+            );
+        }
         let port = free_port();
-        let child = Command::new("chromedriver")
-            .arg(format!("--port={port}"))
-            .arg("--silent")
+        let name = format!("foundry-acceptance-chrome-{}", std::process::id());
+        let child = Command::new("docker")
+            .args(["run", "--rm", "--name", &name])
+            .args(["-p", &format!("{port}:4444")])
+            // Reach the host's ephemeral app ports from inside the container.
+            .arg("--add-host=host.docker.internal:host-gateway")
+            // Chrome will exhaust the default 64MB /dev/shm and crash tabs
+            // mid-scenario; the Selenium images document this as required.
+            .arg("--shm-size=2g")
+            .arg(BROWSER_IMAGE)
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
             .unwrap_or_else(|err| {
-                panic!(
-                    "the @needs-browser lane requires chromedriver on PATH, and it could not be \
-                     started: {err}\n  install it:  macOS -> `brew install --cask chromedriver`;  \
-                     Debian/Ubuntu -> `sudo apt-get install -y chromium-driver`\n  the driver's \
-                     MAJOR version must MATCH the installed Chrome's (chromedriver refuses a \
-                     mismatched browser). `cargo xtask ci` preflights this."
-                )
+                panic!("could not start the `{BROWSER_IMAGE}` browser container: {err}")
             });
         *CHROMEDRIVER_PROC.lock().expect("chromedriver proc lock") = Some(child);
+        *BROWSER_CONTAINER.lock().expect("browser container lock") = Some(name);
         wait_for_driver_ready(port);
         port
     })
@@ -338,6 +390,9 @@ pub async fn open_mobile_session() -> fantoccini::Client {
             "--no-sandbox",
             "--disable-dev-shm-usage",
             "--disable-gpu",
+            // Chrome runs in a container; the app listens on the host. Without
+            // this every navigation to 127.0.0.1 would hit the container.
+            HOST_RESOLVER_RULE,
         ],
         "mobileEmulation": {
             "deviceMetrics": {
@@ -349,6 +404,15 @@ pub async fn open_mobile_session() -> fantoccini::Client {
         }
     });
     let mut capabilities = serde_json::Map::new();
+    // REQUIRED once the driver is the Selenium standalone router rather than a
+    // bare chromedriver: chromedriver defaults to Chrome when `browserName` is
+    // absent, the router does not — it has to pick a node, and an absent
+    // `browserName` gives it nothing to match, so session creation fails with a
+    // bare "session not created". Bisected against a live container.
+    capabilities.insert(
+        "browserName".to_string(),
+        serde_json::Value::String("chrome".to_string()),
+    );
     capabilities.insert("goog:chromeOptions".to_string(), chrome_options);
     ClientBuilder::new(HttpConnector::new())
         .capabilities(capabilities)
@@ -490,6 +554,9 @@ async fn open_session(
         "--disable-dev-shm-usage".to_string(),
         "--disable-gpu".to_string(),
         format!("--window-size={WINDOW_WIDTH},{WINDOW_HEIGHT}"),
+        // Chrome runs in a container; the app listens on the host. Without
+        // this every navigation to 127.0.0.1 would hit the container itself.
+        HOST_RESOLVER_RULE.to_string(),
     ];
     if color_scheme == ColorScheme::Dark {
         // See ColorScheme::Dark — measured, and NOT interchangeable with
@@ -519,6 +586,15 @@ async fn open_session(
         chrome_options["prefs"] = serde_json::Value::Object(prefs);
     }
     let mut capabilities = serde_json::Map::new();
+    // REQUIRED once the driver is the Selenium standalone router rather than a
+    // bare chromedriver: chromedriver defaults to Chrome when `browserName` is
+    // absent, the router does not — it has to pick a node, and an absent
+    // `browserName` gives it nothing to match, so session creation fails with a
+    // bare "session not created". Bisected against a live container.
+    capabilities.insert(
+        "browserName".to_string(),
+        serde_json::Value::String("chrome".to_string()),
+    );
     capabilities.insert("goog:chromeOptions".to_string(), chrome_options);
     // THE UNHANDLED-ERROR RECORDER, installed as a SESSION CAPABILITY — i.e.
     // before any navigation, so it cannot miss an error thrown while the very
