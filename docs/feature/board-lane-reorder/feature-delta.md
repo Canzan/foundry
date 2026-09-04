@@ -283,7 +283,7 @@ can be off-screen.
 - Drag CSS lands in the content-hashed stylesheet using `--cz-*` tokens only; the re-hash procedure and `static/VENDOR.md` row must be updated together.
 - Migrations are forward-only; the next number would be 0016, but D8 expects none.
 - Test lanes: HTTP acceptance lane for status/persistence/refusals; fantoccini `@needs-browser` lane for the drag itself, `Escape` cancel and CSRF-in-the-browser; `@mobile` for the touch drag and auto-scroll. Per-feature mutation testing ≥80%.
-- `assert_lane_labels_in_order` (`feature_board_lane_overflow_menu.rs:1630`) already exists as a lane-order oracle and should be reused rather than re-implemented.
+- `assert_lane_labels_in_order` (`feature_board_lane_overflow_menu.rs:1630`) already exists as a lane-order oracle. **DELIVER did NOT reuse it** — this module implements its own `lane_labels_in_order`, reading labels from the `lanes` rows. Recording the divergence rather than the intention: reuse would have meant first moving the predecessor's private helper into `support/`, and the two now sit as near-duplicates in two step modules. Sharing them is carried forward, and was independently flagged by the DESIGN reviewer.
 - The default acceptance lane **excludes** `@needs-browser`; the drag scenarios run only in the `all` lane, which is what `cargo xtask ci` runs.
 
 ### [REF] Outcome KPIs
@@ -1081,6 +1081,48 @@ up a Postgres-backed suite per mutant. They are unmeasured, not proven — the
 same posture `board-lane-overflow-menu` recorded for `resolve_lane_project`.
 Their behaviour is measured instead by ADR-BOARD-LANE-006's spike and the 25
 acceptance scenarios, including the order-asserting concurrency oracle.
+
+### [REF] Consolidated four-wave review
+
+Dispatched at the end of DISTILL, per the mandatory gate. THREE reviewers, not
+four: Forge reviews the DEVOPS wave and this feature never ran one, so there is
+no `## Wave: DEVOPS` section for it to read. Sending it to review nothing would
+have produced a verdict that looked like coverage without being any.
+
+| Reviewer | Wave | Verdict |
+|---|---|---|
+| Eclipse (`nw-product-owner-reviewer`) | DISCUSS | **approved** — 0 blockers, 9/9 DoR, 0 antipatterns |
+| Architect (`nw-solution-architect-reviewer`) | DESIGN | **approved** — 0 critical, 2 high (both ADR documentation) |
+| Sentinel (`nw-acceptance-designer-reviewer`) | DISTILL | **rejected_pending_revisions** — 1 blocker, 1 high |
+
+**Sentinel was right on both counts, and the second finding is the one that
+matters.**
+
+1. **BLOCKER — `pointercancel` untested.** D10 requires a system gesture stealing the pointer to revert IDENTICALLY to Escape. Only Escape had a scenario. Added.
+2. **HIGH — the drop-indicator assertion was vacuous.** `no drop indicator remains on the board` counts elements and asserts zero, which is trivially true if the indicator is NEVER CREATED. A regression that stopped rendering it entirely would have passed. This is the same vacuity class the RED-classification run caught five of — one survived into the shipped suite, in a scenario written after that lesson. The scenario now asserts the indicator EXISTS and has non-zero area first, so the pair is discriminating.
+
+Sentinel independently re-derived the concurrency oracle's soundness: it traced
+both serialisations to the same expected order and checked that against
+ADR-BOARD-LANE-006 Finding 4's measured corrupt result, confirming the oracle is
+deterministic AND discriminating.
+
+**Architect's two high findings were both "asserted, not shown", and both were
+fixed in the ADRs:**
+
+1. ADR-006's shown SQL elided the place-last branch. The `IF t > f THEN t := t - 1` adjustment applies ONLY when a neighbour is named; applying it to `max(position)` as well lands the lane one slot short of the end — a silent off-by-one, not an error. Both branches are now spelled out with that trap named.
+2. ADR-007 asserted the drag boundary "is origin-based and absolute" without saying how it holds. It now documents the three independent mechanisms (different event families; origin checks on elements that are not nested; the movement threshold) and names what would break each.
+
+**One finding was about this document's own honesty.** Architect noticed the
+DISTILL section claimed `assert_lane_labels_in_order` "should be reused rather
+than re-implemented" — and DELIVER re-implemented it. That was an intention
+recorded as if it were an outcome. Corrected in place to state what shipped, why,
+and that sharing the two near-duplicates is carried forward.
+
+Eclipse's one note — no `story-map.md` — is superseded by the lean v3.14 output
+contract, under which that content lives in `feature-delta.md` by design.
+
+Post-review: `blr` lane **26/26, 141 steps**, with both new assertions confirmed
+executing rather than skipped.
 
 ### [REF] Carried forward
 

@@ -54,7 +54,22 @@ BEGIN;
 COMMIT;
 ```
 
-`$before` omitted means "place last" (`t := max(position)`).
+`$before` omitted means "place last". That branch is NOT a variation of the
+statement above — it skips the neighbour lookup and the `t > f` adjustment
+entirely, because there is no neighbour to resolve and nothing shifts left of a
+lane that is going to the end:
+
+```sql
+  -- $before absent: place last. No neighbour resolve, no adjustment.
+  SELECT max(position) INTO t FROM lanes WHERE project_id = $1;
+```
+
+The adjustment `IF t > f THEN t := t - 1` applies ONLY to the `$before`-present
+branch. Spelling both out because the elided form invites the reader to assume
+`max(position)` also needs decrementing — it does not, and an implementation
+that "helpfully" applies the adjustment there lands the lane one slot short of
+the end, which is a silent off-by-one rather than an error. Flagged in review as
+a place where the shown SQL under-specified the real shape.
 
 ### Finding 1 — the insert shape does NOT generalise (the central claim, confirmed)
 

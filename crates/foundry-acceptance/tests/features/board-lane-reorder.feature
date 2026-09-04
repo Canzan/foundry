@@ -255,5 +255,17 @@ Feature: Putting a board's lanes in the order the work travels
   Scenario: The drop indicator never outlives the drag
     Given "Homelab Ops" (OPS) is a board with lanes Backlog, Done, Staging and In-Progress
     And Priya has begun dragging the Done column
+    And a drop indicator marks where the lane will land
     When Priya presses Escape to cancel the drag
     Then no drop indicator remains on the board
+
+  @us-blr-02 @needs-browser @error
+  Scenario: A system gesture taking the pointer away reverts the drag
+    Given "Homelab Ops" (OPS) is a board with lanes Backlog, Done, Staging and In-Progress
+    And Priya has begun dragging the Done column
+    And a drop indicator marks where the lane will land
+    When the system takes the pointer away from Priya
+    Then the board on screen reads Backlog, Done, Staging, In-Progress
+    And the board reads Backlog, Done, Staging, In-Progress
+    And no drop indicator remains on the board
+    And no change event and no outbox row was written

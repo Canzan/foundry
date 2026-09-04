@@ -36,6 +36,32 @@ delegating from the column header, and:
 - cancels on `Escape` through a new arm of `keyboard.js::closeTopLayer()`, never its own `keydown` listener (D10, BR-4);
 - commits through the same use case the `⋯` menu's Move items call — one write seam, two surfaces (Driving Port 3).
 
+### How the boundary actually holds
+
+Asserting the boundary is "origin-based and absolute" is not an argument, so
+here is the mechanism. Three independent things keep the two drags apart, and
+any ONE of them failing would still leave the other two:
+
+1. **Different event families.** `board-lane-dnd.js` listens for
+   `pointerdown`/`pointermove`/`pointerup`; `board-dnd.js` listens for
+   `dragstart`/`dragover`/`drop`. A card drag never emits a `pointerdown` the
+   lane module acts on, because of (2).
+2. **Different origin elements, checked on every event.** The lane module
+   ignores any `pointerdown` whose `event.target.closest("[data-lane-drag]")`
+   is null — that attribute is on the column's `<h3>` only. The card module
+   ignores any `dragstart` whose target is not `.issue-card`. Neither element
+   is inside the other: `.lane-menu-wrap` is absolutely positioned and the
+   header is a sibling of the card list, not an ancestor.
+3. **The movement threshold.** A pointer that never travels past it produces no
+   lane drag at all, so a press on the header that was meant for the `⋯` button
+   resolves as a click (D2).
+
+The standing proof is empirical rather than argued: the shipped card-drag
+scenarios pass UNMODIFIED, and one scenario in this feature asserts the boundary
+from the lane side (drag a card, assert the card moved and the lane did not).
+If a future change makes the header an ancestor of the card list, (2) breaks and
+that scenario is what fails.
+
 ### Why not converge now
 
 Migrating `board-dnd.js` onto Pointer Events would remove the inconsistency and

@@ -1525,6 +1525,67 @@ async fn page_did_not_scroll(world: &mut FoundryWorld) {
     );
 }
 
+/// The POSITIVE half of the drop-indicator contract, and the reason the
+/// negative half is worth anything.
+///
+/// `no drop indicator remains` counts elements and asserts zero — which is
+/// trivially true if the indicator is NEVER created. Asserting it exists first
+/// is what makes the pair discriminating: a regression that stops rendering the
+/// indicator entirely now fails HERE instead of passing the cleanup check.
+/// Found by the DISTILL reviewer gate; it is the same vacuity class the
+/// RED-classification run caught five of.
+// Registered for BOTH step types: it reads as a Given when it establishes that
+// a drag is showing its indicator, and as a Then when a scenario asserts the
+// indicator appeared. Cucumber matches on step KIND, and an `And` following a
+// `Given` IS a Given — registering only `then` made it unmatched.
+#[given(regex = r"^a drop indicator marks where the lane will land$")]
+#[then(regex = r"^a drop indicator marks where the lane will land$")]
+async fn indicator_present(world: &mut FoundryWorld) {
+    let script = format!(
+        "var els = document.querySelectorAll('{DROP_INDICATOR}'); \
+         if (els.length === 0) {{ return 0; }} \
+         var r = els[0].getBoundingClientRect(); \
+         return (r.width > 0 && r.height > 0) ? els.length : 0;"
+    );
+    let visible = browser(world)
+        .execute(&script, vec![])
+        .await
+        .expect("probe drop indicator")
+        .as_f64()
+        .unwrap_or(0.0);
+    assert!(
+        visible > 0.0,
+        "AC-3.3: a drag in flight must show a VISIBLE indicator of the slot the lane will take. \
+         None was rendered (or it had zero area), so the cleanup assertion that follows would \
+         pass over an indicator that never existed."
+    );
+}
+
+/// `pointercancel` — the system taking the pointer away mid-drag (an incoming
+/// call, a gesture the OS claims). D10 requires it revert IDENTICALLY to
+/// Escape; only Escape was covered until the reviewer gate flagged it.
+#[when(regex = r"^the system takes the pointer away from Priya$")]
+async fn system_cancels_pointer(world: &mut FoundryWorld) {
+    let ok = browser(world)
+        .execute(
+            "var col = document.querySelector('[data-lane-dragging]'); \
+             if (!col) { return false; } \
+             col.dispatchEvent(new PointerEvent('pointercancel', \
+               { bubbles: true, pointerId: 1, pointerType: 'mouse' })); \
+             return true;",
+            vec![],
+        )
+        .await
+        .expect("dispatch pointercancel")
+        .as_bool()
+        .unwrap_or(false);
+    assert!(
+        ok,
+        "no drag was in flight to cancel — the Given must leave a column marked \
+         [data-lane-dragging]"
+    );
+}
+
 #[then(regex = r"^no drop indicator remains on the board$")]
 async fn no_indicator(world: &mut FoundryWorld) {
     let script = format!("return document.querySelectorAll('{DROP_INDICATOR}').length;");
