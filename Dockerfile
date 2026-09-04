@@ -42,7 +42,15 @@ ENV CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=x86_64-linux-gnu-gcc \
     SQLX_OFFLINE=true
 
 # Copy the workspace and build only the release binary.
-COPY Cargo.toml rust-toolchain.toml rustfmt.toml ./
+#
+# `Cargo.lock` is COPIED and the build below is `--locked`, so the image is
+# built from the SAME dependency graph the host and CI resolve. Without both,
+# cargo re-resolves inside the container and silently drifts to newer
+# semver-compatible versions — which is not hypothetical: this build broke on a
+# freshly-resolved `tinyvec 1.13.0` (the lockfile pins 1.11.0) the first time a
+# source edit invalidated the layer cache. A non-reproducible image build fails
+# for whoever next busts the cache, not for whoever caused the drift.
+COPY Cargo.toml Cargo.lock rust-toolchain.toml rustfmt.toml ./
 COPY crates ./crates
 COPY xtask  ./xtask
 
@@ -53,7 +61,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,id=cargo-registry-${TARG
     --mount=type=cache,target=/work/target,id=cargo-target-${TARGETARCH} \
     triple="$(cat /rust-target)" \
     && rustup target add "$triple" \
-    && cargo build --release --target "$triple" -p foundry-app --bin foundry \
+    && cargo build --locked --release --target "$triple" -p foundry-app --bin foundry \
     && cp "/work/target/$triple/release/foundry" /usr/local/bin/foundry
 
 FROM gcr.io/distroless/cc-debian12 AS runtime
