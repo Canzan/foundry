@@ -18,6 +18,7 @@
 use async_trait::async_trait;
 use hmac::{Hmac, Mac};
 use lettre::transport::smtp::authentication::Credentials;
+use lettre::transport::smtp::client::{Tls, TlsParameters};
 use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
 use secrecy::{ExposeSecret, SecretString};
 use sha2::Sha256;
@@ -529,14 +530,36 @@ impl NotificationProvider for LogProvider {
 pub struct SmtpConfig {
     host: String,
     port: u16,
+    /// `None` for a relay that takes no credentials.
+    ///
+    /// Submission relays on a private network commonly authorise by source
+    /// address instead of by login — Postfix's `mynetworks` is the usual
+    /// mechanism — and advertise no AUTH at all. Against one of those, sending
+    /// credentials is not merely unnecessary: there is no mechanism to send them
+    /// with, so a client that insists on them cannot deliver at all.
+    credentials: Option<SmtpCredentials>,
+    from: String,
+    /// Verify the relay's TLS certificate. Default `true`.
+    ///
+    /// `false` keeps STARTTLS — the hop is still encrypted — and skips only the
+    /// certificate check, which is what an internal relay presenting a
+    /// self-signed cert requires. Deliberately NOT inferred from the host
+    /// looking private: "is this address internal" is not a judgement this code
+    /// can make correctly, and guessing it wrong silently downgrades a hop that
+    /// was meant to be verified. The operator states it.
+    tls_verify: bool,
+}
+
+/// A username/password pair for an authenticating relay.
+struct SmtpCredentials {
     username: String,
     password: SecretString,
-    from: String,
 }
 
 impl SmtpConfig {
     /// Parse from the process environment: `SMTP_HOST`, `SMTP_PORT` (default
-    /// [`SMTP_DEFAULT_PORT`]), `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM`.
+    /// [`SMTP_DEFAULT_PORT`]), `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM`,
+    /// `SMTP_TLS_VERIFY` (default `true`).
     pub fn from_env() -> anyhow::Result<Self> {
         Self::from_lookup(|key| std::env::var(key).ok())
     }
@@ -552,10 +575,46 @@ impl SmtpConfig {
                 _ => anyhow::bail!("provider 'smtp' is missing required setting '{key}'"),
             }
         };
+        let present =
+            |key: &str| -> Option<String> { get(key).filter(|value| !value.trim().is_empty()) };
         let host = required("SMTP_HOST")?;
-        let username = required("SMTP_USERNAME")?;
-        let password = SecretString::new(required("SMTP_PASSWORD")?.into());
         let from = required("SMTP_FROM")?;
+
+        // Credentials are OPTIONAL, but both-or-neither. Half a pair is always a
+        // mistake, and the dangerous reading of it is silent: dropping to an
+        // unauthenticated connection because one key was misspelled would be a
+        // security downgrade nobody asked for. Absent BOTH is a deliberate
+        // configuration — a relay that authorises by source address.
+        let credentials = match (present("SMTP_USERNAME"), present("SMTP_PASSWORD")) {
+            (Some(username), Some(password)) => Some(SmtpCredentials {
+                username,
+                password: SecretString::new(password.into()),
+            }),
+            (None, None) => None,
+            (Some(_), None) => anyhow::bail!(
+                "provider 'smtp' has 'SMTP_USERNAME' but no 'SMTP_PASSWORD' — set both to \
+                 authenticate, or neither for a relay that takes no credentials"
+            ),
+            (None, Some(_)) => anyhow::bail!(
+                "provider 'smtp' has 'SMTP_PASSWORD' but no 'SMTP_USERNAME' — set both to \
+                 authenticate, or neither for a relay that takes no credentials"
+            ),
+        };
+
+        // Anything other than an explicit "false" verifies. An unparseable value
+        // is an error rather than a silent fallback: both readings of a typo are
+        // wrong, and the one that fails closed still fails a deployment that
+        // expected mail to flow.
+        let tls_verify = match present("SMTP_TLS_VERIFY") {
+            None => true,
+            Some(raw) => match raw.trim().to_ascii_lowercase().as_str() {
+                "true" => true,
+                "false" => false,
+                _ => anyhow::bail!(
+                    "provider 'smtp' setting 'SMTP_TLS_VERIFY' must be 'true' or 'false'"
+                ),
+            },
+        };
         let port = match get("SMTP_PORT") {
             Some(raw) if !raw.trim().is_empty() => raw.trim().parse::<u16>().map_err(|_| {
                 // Secret-free: SMTP_PORT is not a secret, so echoing it is safe.
@@ -566,9 +625,9 @@ impl SmtpConfig {
         Ok(Self {
             host,
             port,
-            username,
-            password,
+            credentials,
             from,
+            tls_verify,
         })
     }
 }
@@ -588,17 +647,41 @@ impl SmtpProvider {
     /// exposed exactly ONCE here (credential construction) and thereafter lives
     /// only inside lettre's transport — never surfaced again on any path.
     pub fn new(config: SmtpConfig) -> Result<Self, DeliveryError> {
-        let credentials = Credentials::new(
-            config.username.clone(),
-            config.password.expose_secret().to_string(),
-        );
-        let transport = AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(&config.host)
+        let mut builder = AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(&config.host)
             .map_err(|_| {
                 DeliveryError::Permanent("smtp relay transport could not be built".to_string())
             })?
-            .port(config.port)
-            .credentials(credentials)
-            .build();
+            .port(config.port);
+
+        // Credentials only when configured. `.credentials()` is what makes lettre
+        // negotiate AUTH, and a relay that advertises none rejects the attempt —
+        // so passing an empty pair is not a harmless default, it is a guaranteed
+        // delivery failure against exactly the relays this branch exists for.
+        if let Some(credentials) = &config.credentials {
+            builder = builder.credentials(Credentials::new(
+                credentials.username.clone(),
+                credentials.password.expose_secret().to_string(),
+            ));
+        }
+
+        // STARTTLS stays REQUIRED either way — this switch drops the certificate
+        // check, never the encryption. `starttls_relay` already demands the
+        // upgrade, so a relay that stopped offering STARTTLS still fails here
+        // rather than quietly sending in the clear.
+        if !config.tls_verify {
+            let parameters = TlsParameters::builder(config.host.clone())
+                .dangerous_accept_invalid_certs(true)
+                .dangerous_accept_invalid_hostnames(true)
+                .build()
+                .map_err(|_| {
+                    DeliveryError::Permanent(
+                        "smtp relay tls parameters could not be built".to_string(),
+                    )
+                })?;
+            builder = builder.tls(Tls::Required(parameters));
+        }
+
+        let transport = builder.build();
         Ok(Self {
             transport,
             from: config.from,
@@ -1230,7 +1313,14 @@ mod tests {
         let defaulted =
             SmtpConfig::from_lookup(smtp_env("hunter2", None)).expect("valid smtp config parses");
         assert_eq!(defaulted.host, "relay.acme.example");
-        assert_eq!(defaulted.username, "mailer");
+        assert_eq!(
+            defaulted
+                .credentials
+                .as_ref()
+                .expect("a username and password parse into credentials")
+                .username,
+            "mailer"
+        );
         assert_eq!(defaulted.from, "noreply@acme.example");
         assert_eq!(defaulted.port, SMTP_DEFAULT_PORT);
 
@@ -1268,6 +1358,93 @@ mod tests {
         );
     }
 
+    #[test]
+    fn smtp_config_without_credentials_parses_for_a_relay_that_takes_none() {
+        // A submission relay on a private network commonly authorises by source
+        // address and advertises NO AUTH mechanism at all. Requiring credentials
+        // made such a relay unusable: the provider failed its boot check on
+        // SMTP_USERNAME, so naming the channel crash-looped the process rather
+        // than sending mail.
+        let get = |key: &str| match key {
+            "SMTP_HOST" => Some("smtp-relay.internal".to_string()),
+            "SMTP_FROM" => Some("noreply@acme.example".to_string()),
+            _ => None,
+        };
+        let config = SmtpConfig::from_lookup(get).expect("an unauthenticated relay is valid");
+        assert!(
+            config.credentials.is_none(),
+            "no username and no password must parse as 'do not authenticate'"
+        );
+        assert!(
+            config.tls_verify,
+            "verification must stay on unless it is explicitly turned off"
+        );
+        SmtpProvider::new(config).expect("an unauthenticated provider builds");
+    }
+
+    #[test]
+    fn smtp_config_rejects_half_a_credential_pair_naming_the_missing_key() {
+        // Both-or-neither. The dangerous reading of half a pair is the SILENT
+        // one — dropping to an unauthenticated connection because a key was
+        // misspelled is a downgrade nobody asked for — so this fails fast, and
+        // without echoing the secret that IS present (ADR-006).
+        let get = |key: &str| match key {
+            "SMTP_HOST" => Some("relay.acme.example".to_string()),
+            "SMTP_FROM" => Some("noreply@acme.example".to_string()),
+            "SMTP_PASSWORD" => Some(SMTP_PASSWORD_SENTINEL.to_string()),
+            _ => None,
+        };
+        let Err(err) = SmtpConfig::from_lookup(get) else {
+            panic!("a password with no username must fail fast");
+        };
+        let message = format!("{err:#}");
+        assert!(
+            message.contains("SMTP_USERNAME"),
+            "error must name the missing key: {message}"
+        );
+        assert!(
+            !message.contains(SMTP_PASSWORD_SENTINEL),
+            "the error must carry no secret value: {message}"
+        );
+    }
+
+    #[test]
+    fn smtp_tls_verify_is_opt_out_and_rejects_anything_but_a_boolean() {
+        // An internal relay presenting a self-signed certificate needs the check
+        // off while the hop stays encrypted. A typo must not read as either
+        // boolean: silently verifying breaks a deployment that expected mail,
+        // silently skipping downgrades one that expected verification.
+        let with = |value: Option<&'static str>| {
+            move |key: &str| match key {
+                "SMTP_HOST" => Some("smtp-relay.internal".to_string()),
+                "SMTP_FROM" => Some("noreply@acme.example".to_string()),
+                "SMTP_TLS_VERIFY" => value.map(str::to_string),
+                _ => None,
+            }
+        };
+        assert!(
+            !SmtpConfig::from_lookup(with(Some("false")))
+                .expect("false parses")
+                .tls_verify
+        );
+        assert!(
+            SmtpConfig::from_lookup(with(Some("TRUE")))
+                .expect("true parses, case-insensitively")
+                .tls_verify
+        );
+        let Err(err) = SmtpConfig::from_lookup(with(Some("no"))) else {
+            panic!("a non-boolean SMTP_TLS_VERIFY must fail fast");
+        };
+        assert!(
+            format!("{err:#}").contains("SMTP_TLS_VERIFY"),
+            "the error must name the offending setting"
+        );
+        SmtpProvider::new(
+            SmtpConfig::from_lookup(with(Some("false"))).expect("unverified config parses"),
+        )
+        .expect("an unverified provider builds");
+    }
+
     #[tokio::test]
     async fn smtp_password_never_appears_in_debug_output_or_a_delivery_error() {
         // The five-layer no-leak litmus at unit scope (ADR-006): the password is
@@ -1275,7 +1452,14 @@ mod tests {
         // and a real DeliveryError from a closed relay is hand-built + secret-free.
         let config = SmtpConfig::from_lookup(smtp_env(SMTP_PASSWORD_SENTINEL, Some("1")))
             .expect("sentinel smtp config parses");
-        let secret_debug = format!("{:?}", config.password);
+        let secret_debug = format!(
+            "{:?}",
+            config
+                .credentials
+                .as_ref()
+                .expect("the sentinel config carries credentials")
+                .password
+        );
         assert!(
             !secret_debug.contains(SMTP_PASSWORD_SENTINEL),
             "SecretString must redact the password on Debug: {secret_debug}"
