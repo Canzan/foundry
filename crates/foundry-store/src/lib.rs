@@ -1094,6 +1094,90 @@ impl Store {
         Ok(())
     }
 
+    /// Is there a LIVE reset token for this hash — unused and unexpired?
+    ///
+    /// NON-COMMITTAL: no mutation, so a GET that merely renders the form cannot
+    /// burn the token. The authoritative single-use guard is the UPDATE inside
+    /// [`Store::reset_password_and_consume`]; this is the advisory read that
+    /// decides whether to show a form or the refusal page.
+    pub async fn find_live_reset_token(
+        &self,
+        token_hash: &[u8],
+        now: time::OffsetDateTime,
+    ) -> Result<Option<uuid::Uuid>, StoreError> {
+        let row: Option<(uuid::Uuid,)> = sqlx::query_as(
+            "SELECT user_id
+               FROM reset_tokens
+              WHERE token_hash = $1
+                AND used_at IS NULL
+                AND expires_at > $2",
+        )
+        .bind(token_hash)
+        .bind(now)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|(user_id,)| user_id))
+    }
+
+    /// Consume a live reset token and write the new password hash, in ONE tx.
+    ///
+    /// The consuming `UPDATE` is the authoritative single-use guard: it matches
+    /// only a row that is still unused and unexpired, so two requests racing the
+    /// same token produce exactly one `Consumed` — the loser sees 0 rows and is
+    /// refused, no matter how close the interleaving. Checking first and updating
+    /// second would let both pass the check.
+    ///
+    /// Every other outstanding token for the user is burned in the same tx. A
+    /// password change invalidates the requests that preceded it: leaving older
+    /// links live would mean an attacker who triggered a reset earlier still holds
+    /// a working one after the legitimate owner has recovered the account.
+    pub async fn reset_password_and_consume(
+        &self,
+        token_hash: &[u8],
+        password_hash: &str,
+        now: time::OffsetDateTime,
+    ) -> Result<ResetOutcome, StoreError> {
+        let mut tx = self.pool.begin().await?;
+
+        let row: Option<(uuid::Uuid,)> = sqlx::query_as(
+            "UPDATE reset_tokens
+                SET used_at = $2
+              WHERE token_hash = $1
+                AND used_at IS NULL
+                AND expires_at > $2
+              RETURNING user_id",
+        )
+        .bind(token_hash)
+        .bind(now)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        let Some((user_id,)) = row else {
+            tx.rollback().await?;
+            return Ok(ResetOutcome::Refused);
+        };
+
+        sqlx::query("UPDATE users SET password_hash = $2 WHERE id = $1")
+            .bind(user_id)
+            .bind(password_hash)
+            .execute(&mut *tx)
+            .await?;
+
+        sqlx::query(
+            "UPDATE reset_tokens
+                SET used_at = $2
+              WHERE user_id = $1
+                AND used_at IS NULL",
+        )
+        .bind(user_id)
+        .bind(now)
+        .execute(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+        Ok(ResetOutcome::Consumed { user_id })
+    }
+
     /// Does a tower-sessions `session` row exist? Used by US-06's
     /// sign-out scenario to assert server-side invalidation, not just
     /// cookie clearing.
@@ -3261,6 +3345,15 @@ pub enum ConsumeOutcome {
         workspace_id: uuid::Uuid,
         user_id: uuid::Uuid,
     },
+    Refused,
+}
+
+/// What [`Store::reset_password_and_consume`] did. `Refused` collapses every
+/// dead-link reason — unknown, already-used, expired, or lost the race — into one
+/// outcome, so no caller can turn it back into an oracle for which it was.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResetOutcome {
+    Consumed { user_id: uuid::Uuid },
     Refused,
 }
 
