@@ -1472,23 +1472,34 @@ async fn then_asked_to_confirm(world: &mut FoundryWorld, key: String) {
 
 #[then(regex = r"^the confirmation says its three comments and one attachment go with it$")]
 async fn then_counts_children(world: &mut FoundryWorld) {
+    // The EXACT sentence the dialog renders, not three unscoped substring probes.
+    // `body.contains('3')` was vacuous: this scenario takes the PAGE carrier, whose
+    // <head> links `foundry.3d3b9564.css` — the digit is satisfied by the stylesheet
+    // filename alone, so the old oracle passed even if the dialog said "0 comments
+    // and 0 attachments". Asserting the rendered sentence is scoped by construction
+    // and fails on a wrong count, a dropped plural, or a moved clause.
     let body = last_body(world);
+    let expected = "It has 3 comments and 1 attachment. This cannot be undone.";
     assert!(
-        body.contains('3') && body.to_lowercase().contains("comment"),
-        "the confirm must COUNT what goes with the issue, not merely warn (D3/D13)"
-    );
-    assert!(
-        body.to_lowercase().contains("attachment"),
-        "the confirm must name the attachment that goes with the issue"
+        body.contains(expected),
+        "the confirm must COUNT what goes with the issue, not merely warn (D3/D13) — \
+         expected the sentence {expected:?}; got {} bytes without it",
+        body.len()
     );
 }
 
 #[then(regex = r"^the confirmation says nothing else goes with it$")]
 async fn then_no_children_copy(world: &mut FoundryWorld) {
-    let body = last_body(world).to_lowercase();
+    // Same tightening as `then_counts_children`: the exact zero-consequence
+    // sentence, not an unscoped disjunction that any page mentioning "nothing
+    // else" would satisfy.
+    let body = last_body(world);
+    let expected = "Nothing else goes with it. This cannot be undone.";
     assert!(
-        body.contains("no comments") || body.contains("nothing else"),
-        "with zero children the confirm must say so, as delete_lane_modal does for an empty lane"
+        body.contains(expected),
+        "with zero children the confirm must say so, as delete_lane_modal does for an \
+         empty lane — expected {expected:?}; got {} bytes without it",
+        body.len()
     );
 }
 

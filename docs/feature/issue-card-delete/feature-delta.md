@@ -182,6 +182,8 @@ Right-sized after the split: ~3 stories, ~2.5 days total.
 
 #### US-ICD-01: Delete an issue from its full page
 
+`job_id: job-issue-card-delete`
+
 ##### Elevator Pitch
 
 - **Before:** an issue that should not exist can only be removed by deleting the entire lane it sits in and choosing the delete-all fate — destroying every other card in that lane — or by opening psql against production.
@@ -210,7 +212,7 @@ clearest and where success needs no board reconciliation.
 - **AC-1.9** A POST without a valid CSRF token is refused by the middleware before the handler runs, and writes nothing.
 - **AC-1.10** A second POST for the same issue (double-submit, or a concurrent delete) returns the uniform 404 and writes nothing — the first delete stands, no error surfaces to the operator beyond the 404 page.
 - **AC-1.11** The whole path works with scripting disabled: the header Delete is a plain link to the dialog route, and the dialog is a plain `<form method="post">` (D4, D6).
-- **AC-1.12** No migration is added — the schema head remains `0015` (D1).
+- **AC-1.12** Deleting an issue requires no schema change: the cascade is carried by the FKs already declared in `0004`/`0005`/`0013`, so the delete works against the shipped schema unaltered (D1). *Reclassified after the DISTILL review gate: the earlier wording ("no migration is added — the schema head remains 0015") was a build assertion, not an observable behaviour, and no UAT scenario could verify it. The build constraint it expressed is retained in* §System Constraints *and asserted in the DoD.*
 
 ##### UAT Scenarios
 
@@ -227,6 +229,8 @@ clearest and where success needs no board reconciliation.
 ---
 
 #### US-ICD-02: Delete an issue from the edit popup, and watch the board lose the card
+
+`job_id: job-issue-card-delete`
 
 ##### Elevator Pitch
 
@@ -269,6 +273,8 @@ mostly to read.
 ---
 
 #### US-ICD-03: A deleted card disappears from every open board
+
+`job_id: job-issue-card-delete`
 
 ##### Elevator Pitch
 
@@ -593,7 +599,7 @@ before scenarios.
 | `board_columns_oob.html` | `templates/partials/oob/` | OOB `#board-columns` refresh | **REUSE VERBATIM** | Unchanged. The popup success path renders the shipped fragment. |
 | `EventPayload` | `foundry-realtime/src/lib.rs:67` | Realtime event envelope | **REUSE VERBATIM** | DDD-12 — zero field changes. |
 | `csrf_middleware` / `ensure_csrf_cookie` | `foundry-app/src/csrf.rs` | Double-submit CSRF | **REUSE VERBATIM** | Layer-wide; the new POST is covered by registration, with no per-route work (ADR-009). |
-| `keyboard.js::closeTopLayer` | `static/js/keyboard.js` | Escape/close handling | **REUSE VERBATIM** | The new controls are attributes (`data-action="close-modal"`) and `hx-get`s. **No JavaScript is written by this feature at all.** |
+| `keyboard.js::closeTopLayer` | `static/js/keyboard.js` | Escape/close handling | **REUSE VERBATIM** | The new controls are attributes (`data-action="close-modal"`) and `hx-get`s. **No JavaScript is written by this feature at all.** ⚠ **FALSIFIED IN DELIVER** — see §DELIVER *Upstream Issues* item 3. This claim held only because DESIGN never asked who consumes `IssueDeleted`. foundry had no client-side SSE consumer, so AC-3.4 was unbuildable; step 03-02 shipped `static/js/board-live.js` (125 lines). The claim is left here as the record of what DESIGN believed, not as a statement of fact. |
 
 **CREATE NEW count: 3** — `issue_delete.rs`, `delete_issue_modal.html`,
 `delete_issue_modal_page.html`. Each is a new *artifact kind* (a store module for
