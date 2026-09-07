@@ -176,16 +176,4 @@ impl Store {
                 .await?;
         Ok(row.0)
     }
-
-    /// Find the issue id for an issue by `(team_id, project_slug,
-    /// issue_number)`. Wrapper around `find_issue_by_team_project_number`
-    /// that returns just the issue_id + workspace_id pair the upload
-    /// handler needs.
-    pub async fn delete_issue_cascade(&self, issue_id: uuid::Uuid) -> Result<u64, StoreError> {
-        let result = sqlx::query("DELETE FROM issues WHERE id = $1")
-            .bind(issue_id)
-            .execute(self.pool())
-            .await?;
-        Ok(result.rows_affected())
-    }
 }

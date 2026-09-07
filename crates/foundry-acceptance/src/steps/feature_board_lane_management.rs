@@ -2072,7 +2072,7 @@ async fn lane_and_cards_gone(world: &mut FoundryWorld) {
 async fn scr2_cascade_gone(world: &mut FoundryWorld) {
     // Per-scenario schema isolation: the seeded comment + attachment were the
     // only rows in this schema, so zero totals prove the hard cascade
-    // (delete_issue_cascade shape, D7 — no tombstone).
+    // (the shared issue_delete primitive's shape, D7 — no tombstone).
     let pool = pool(world);
     assert_eq!(
         count_of(&pool, "comments").await,

@@ -1,0 +1,361 @@
+# Product SSOT — journeys.
+#
+# Created by the issue-card-delete DISCUSS wave (2026-09-05). Second journey in
+# this directory; shape follows journey-theme-adoption.yaml, which established
+# it. Only the journey this wave actually mapped is recorded — prior features
+# are still deliberately not retro-journeyed.
+
+schema_version: "0.1"
+
+journeys:
+  - id: journey-issue-card-delete
+    title: Remove a card that should not be on the board
+    persona: persona-instance-operator
+    job: job-issue-card-delete
+    platform: web
+    validated_by: docs/feature/issue-card-delete/feature-delta.md
+
+    goal: >
+      Remove one card that should not exist, from whichever of the two surfaces
+      already has it open, knowing before committing exactly what goes with it —
+      and see the board agree, in this tab and in every other one.
+
+    emotional_arc:
+      pattern: Problem Relief
+      start: >
+        Low-grade irritation, gone chronic. The duplicate has sat in Backlog
+        for a week. She has already decided twice not to deal with it, because
+        dealing with it means deleting the lane and choosing the delete-all
+        fate — destroying three cards she wants in order to remove one she does
+        not. So she looks past it, and has trained herself to file less.
+      middle: >
+        Wariness, then informedness. Finding a Delete raises the question the
+        anxiety force names — "is this going to ask me, or is it just going to
+        do it?" The dialog answers it in one sentence by naming the issue,
+        counting its comments and attachments, and saying it cannot be undone.
+        The wariness resolves rather than being carried into the click.
+      end: >
+        Confidence, then trust. Confidence because she watched the board lose
+        the card rather than being told it happened; trust because the board on
+        her second monitor agrees without being asked. The board becomes
+        something she can correct, which is what makes it safe to file
+        speculatively again.
+      transition_rules:
+        - Confidence rises monotonically from step 4 and never dips. The one
+          wariness spike is at step 3 (finding a destructive control) and is
+          resolved at step 4, not deferred past the commit.
+        - No step may make the irreversible thing easier to reach than the
+          reversible one. Delete is always at least two deliberate actions
+          away, and never adjacent to Save.
+        - Success is always SHOWN, never merely reported. The popup path
+          re-renders the board; the full-page path lands on the board. Neither
+          renders a page for a thing that no longer exists.
+
+    steps:
+      - id: 1
+        name: Notice
+        action: >
+          Priya sees AUTH-42 in Backlog on the Backend/auth board — a duplicate
+          of AUTH-38, filed from her laptop after she had already filed it from
+          her desktop.
+        mockup: |
+          +-- board ---------------------------------------------------------+
+          |  Backlog            In-Progress        Done                       |
+          |  +-------------+    +-------------+    +-------------+            |
+          |  | AUTH-38     |    | AUTH-3      |    | AUTH-7      |            |
+          |  | Rotate JWKS |    | LLDAP sync  |    | Token audit |            |
+          |  +-------------+    +-------------+    +-------------+            |
+          |  +-------------+                                                  |
+          |  | AUTH-42     |  <-- the duplicate. One week old.                |
+          |  | Rotate JWKS |      Removing it today costs AUTH-38 too.        |
+          |  +-------------+                                                  |
+          +-------------------------------------------------------------------+
+        emotional_state:
+          entry: Irritation, chronic and mild
+          exit: Unchanged — she has looked past it before
+        shared_artifacts: []
+        integration_checkpoint: >
+          Nothing on the card or the column offers a card-level removal, and
+          nothing should (feature-delta D12). The card is already a drag handle
+          and an edit trigger; a third gesture on two lines of text is the
+          armed-destructive-control failure board-lane-overflow-menu D3 removed
+          from the column header.
+        failure_modes:
+          - A delete affordance is added to the card "for convenience" and
+            becomes a misclick surface on the app's densest control.
+
+      - id: 2
+        name: Open it
+        action: >
+          She clicks the card — which htmx-swaps the edit popup into
+          #modal-root — or, arriving from a link, lands on the full issue page.
+        mockup: |
+          POPUP (issue_edit_modal.html)        FULL PAGE (issue.html)
+          +---------------------------+        +---------------------------+
+          | Edit AUTH-42   [full] [x] |        | AUTH-42                   |
+          |---------------------------|        |---------------------------|
+          | Title    [Rotate JWKS   ] |        | Attachments: keys.json    |
+          | Descr.   [             ] |        | [Attach a file] [Upload]  |
+          | Status   [Backlog      v] |        | Timeline: 2 changes       |
+          |                  [ Save ] |        | Comments (3)              |
+          +---------------------------+        +---------------------------+
+          Both surfaces open the same issue. Neither can remove it today.
+        emotional_state:
+          entry: Neutral
+          exit: Neutral — her most familiar action in the app
+        shared_artifacts:
+          - issue-route-triple
+          - issue-key
+        integration_checkpoint: >
+          Both surfaces resolve the same {team_slug, project_slug, number}
+          triple through the same resolve_member_project authz gate. The delete
+          routes must gate identically, or the delete becomes the one route
+          that answers a question the rest of the app refuses to answer.
+        failure_modes:
+          - The popup and the page resolve the issue by different paths, so a
+            refusal differs between them and becomes an enumeration oracle.
+
+      - id: 3
+        name: Find Delete
+        action: >
+          In the popup, Delete sits in the header beside the ×, outside the
+          <form>. On the full page it sits in the header beside the key.
+        mockup: |
+          POPUP header                          FULL PAGE header
+          +-------------------------------+     +------------------------+
+          | Edit AUTH-42  [full] [Del][x] |     | AUTH-42       [Delete] |
+          +-------------------------------+     +------------------------+
+                          ^^^^^ ^^^                          ^^^^^^^^
+            Delete and x are BOTH outside the form.   First action affordance
+            Save is inside it, far from both.         on this page. Away from
+            (adr-modal-close-001 D-12, inherited)     upload/comment submits.
+        emotional_state:
+          entry: Relief that it exists
+          exit: Wariness — "is this going to ask me?"
+        shared_artifacts:
+          - modal-root
+          - issue-key
+        integration_checkpoint: >
+          THE structural checkpoint of this journey. Delete must render OUTSIDE
+          the edit <form> element — a markup property, asserted as markup, not
+          a styling choice. Inside the form it can submit the form; beside Save
+          it is a misclick farm on the control she uses most. The × is already
+          outside the form for exactly this reason; Delete inherits the
+          protection rather than re-earning it.
+        failure_modes:
+          - Delete is placed inside the form next to Save. Visually fine,
+            structurally a trap, and only detectable by markup assertion.
+          - Delete is styled destructive but placed by CSS order rather than
+            DOM order, so the keyboard tab sequence reaches it before Save.
+
+      - id: 4
+        name: Read the confirm
+        action: >
+          Activating Delete hx-gets the confirm dialog into #modal-root — in
+          the popup path it REPLACES the edit dialog. Without scripting, the
+          header Delete is a plain link to the same route.
+        mockup: |
+          +-- delete_issue_modal.html (bare fragment into #modal-root) -------+
+          | Delete AUTH-42?                                            [x]    |
+          |-------------------------------------------------------------------|
+          | Its 3 comments and 1 attachment go with it.                       |
+          | This cannot be undone.                                            |
+          |                                                                   |
+          |                        [ Delete AUTH-42 permanently ]             |
+          | ${data-error-slot}                                                |
+          +-------------------------------------------------------------------+
+          Mirrors delete_lane_modal.html's contract exactly: bare fragment,
+          [data-action="close-modal"] as the only close, hidden _csrf,
+          [data-error-slot], and the shipped "cannot be undone" sentence.
+        emotional_state:
+          entry: Wariness
+          exit: Informed — the cost is stated and counted, not implied
+        shared_artifacts:
+          - modal-root
+          - csrf-token
+          - consequence-counts
+          - issue-key
+        integration_checkpoint: >
+          The counts are ADVISORY (feature-delta D13, inherited from
+          board-lane-management D7). They are read at GET time; the delete
+          binds whatever exists at POST time. A comment added between the two
+          goes with the issue and the count she read was one stale — which is
+          not surprising, because the copy says comments go with it. The counts
+          inform; they never gate.
+        failure_modes:
+          - The counts are treated as a precondition, so a racing comment turns
+            a legitimate delete into an error the operator cannot act on.
+          - hx-confirm is used instead of a real dialog — unstyled, invisible
+            to the scripting-disabled profile, and unable to count anything.
+
+      - id: 5
+        name: Commit
+        action: >
+          One click on the destructive button. The POST carries the
+          double-submit CSRF token and clears the unchanged csrf_middleware.
+        mockup: |
+          POST /team/backend/project/auth/issues/42/delete
+            _csrf=<double-submit token>
+          -> one transaction:
+               DELETE FROM issues WHERE id = $1
+                 |- CASCADE comments            (0004)
+                 |- CASCADE issue_attachments   (0005)
+                 |- CASCADE issue_change_events (0013)
+               INSERT INTO outbox ('IssueDeleted', {...})
+             commit
+          The cascade is the SCHEMA's, not the application's. No handler
+          re-implements it; a second cascade could drift from the first.
+        emotional_state:
+          entry: Commitment — deliberate, not anxious
+          exit: Expectant
+        shared_artifacts:
+          - csrf-token
+          - issue-route-triple
+          - issue-deleted-event
+        integration_checkpoint: >
+          The outbox row is written INSIDE the delete's transaction, so a
+          committed delete can never fail to announce itself and a rolled-back
+          one announces nothing. The payload's key must be composed from
+          key_prefix + number BEFORE or DURING the delete — after it, the row
+          describing it is gone.
+        failure_modes:
+          - The emit lands outside the transaction, so a delete can commit
+            silently or an announcement can outlive a rollback.
+          - CSRF is proven only by HTTP-lane token injection, masking a real
+            browser 403 (the fix-comment-delete-csrf lesson).
+
+      - id: 6
+        name: See it gone
+        action: >
+          Popup path — the dialog closes and the board behind it re-renders
+          without the card. Page path — she lands on the board.
+        mockup: |
+          POPUP PATH: cleared #modal-root + OOB #board-columns refresh
+          +-- board, same paint ---------------------------------------------+
+          |  Backlog            In-Progress        Done                       |
+          |  +-------------+    +-------------+    +-------------+            |
+          |  | AUTH-38     |    | AUTH-3      |    | AUTH-7      |            |
+          |  +-------------+    +-------------+    +-------------+            |
+          |     ^ AUTH-42 is gone. Everything else is where it was.          |
+          +-------------------------------------------------------------------+
+
+          PAGE PATH: 302 -> /team/backend/project/auth  (the same board)
+          NOT a tombstone page. A page for a thing that is gone is the
+          invisible-card failure in another guise.
+        emotional_state:
+          entry: Expectant
+          exit: Confidence — she watched it happen
+        shared_artifacts:
+          - board-columns-oob
+          - board-url
+        integration_checkpoint: >
+          The OOB refresh renders through the shipped board_columns_oob.html
+          and board_columns.html, which must stay byte-identical across both
+          render paths (board-lane-overflow-menu D14). After the refresh the
+          lane menu still renders six items in contract order, and nothing
+          stores open-state outside the `hidden` attribute — so the refresh
+          cannot desync it.
+        failure_modes:
+          - The refresh re-renders columns but drops card drag bindings or
+            resets the lane menu, trading a delete for a broken board.
+          - The full-page path re-renders the issue page as a tombstone instead
+            of redirecting, re-creating the invisible-card state.
+
+      - id: 7
+        name: Check the other tab
+        action: >
+          She glances at the board open on her second monitor. It has already
+          dropped the card.
+        mockup: |
+          tab A (acting)                    tab B (passive, no reload)
+          +---------------------+           +---------------------+
+          | AUTH-42 deleted     |  outbox   | AUTH-42 removed     |
+          | board re-rendered   | --LISTEN->| other cards intact  |
+          +---------------------+   SSE     +---------------------+
+          event: { event_type: "IssueDeleted", key: "AUTH-42",
+                   project_id: ..., issue_id: ..., number: 42,
+                   deleted: true, schema_version: 1 }
+          Zero new EventPayload fields. schema_version stays 1.
+        emotional_state:
+          entry: Mild doubt (a reflex to refresh)
+          exit: Trust — the tool agrees with itself
+        shared_artifacts:
+          - issue-deleted-event
+        integration_checkpoint: >
+          EventPayload already declares project_id, issue_id, number, key and
+          deleted. This is a zero-field addition per realtime-roadmap invariant
+          4; schema_version stays 1 and no existing subscriber breaks on the
+          new event_type. Subscribers on other projects receive nothing — the
+          payload's project_id is the tenancy filter.
+        failure_modes:
+          - A field is added or renamed and schema_version is not considered,
+            breaking the forward-compatibility invariant for every consumer.
+          - The event leaks to subscribers of another project in the same
+            workspace.
+
+    error_paths:
+      - id: already-deleted
+        trigger: Someone else deleted it first, or she double-submitted.
+        response: >
+          Uniform non-enumerable 404. No error copy naming the issue — that
+          would be the enumeration oracle ADR-003 closes. The first delete
+          stands; nothing further is written; no outbox row is emitted.
+        recovery: >
+          The board she returns to is correct, and correct is what she wanted.
+      - id: non-member
+        trigger: Marco (signed in, not a member of team Backend) GETs or POSTs.
+        response: >
+          The same uniform 404 on BOTH verbs, byte-identical to a project that
+          never existed. Never 401, never 403, never an echoed key.
+        recovery: n/a — the refusal is the correct terminal state.
+      - id: csrf-absent
+        trigger: The POST arrives without a valid double-submit token.
+        response: >
+          Refused by the unchanged csrf_middleware before the handler runs.
+          Nothing is written; the dialog's [data-error-slot] shows the refusal
+          inside the still-open dialog (form-error-display-contract ADR-001).
+        recovery: Re-open the dialog; the token is re-minted by ensure_csrf_cookie.
+      - id: racing-comment
+        trigger: A comment is added between the dialog GET and the confirm POST.
+        response: >
+          The delete proceeds and takes the new comment with it (D13 — counts
+          advise, the confirm binds).
+        recovery: >
+          None needed. The count she read was one stale, but the outcome is not
+          surprising: the copy says comments go with it.
+      - id: scripting-disabled
+        trigger: She opens foundry from a hardened browser profile (env-hardened-profile).
+        response: >
+          The header Delete is a plain link to the dialog route; the dialog is
+          a plain <form method="post">. The POST redirects to the board instead
+          of returning an OOB refresh.
+        recovery: >
+          None needed — the whole path works, minus the in-place board repaint.
+          This is why the route pair is GET+POST rather than the DELETE verb
+          comment-edit-delete uses (feature-delta D4).
+
+    shared_artifacts_registry:
+      - id: issue-route-triple
+        source: The URL path, resolved once per request through resolve_member_project
+        consumed_by: [both verbs, dialog form action, redirect target]
+      - id: issue-key
+        source: store row `number` + project `key_prefix`, composed as parse_issue_key already does
+        consumed_by: [dialog heading, log lines, IssueDeleted payload `key`]
+      - id: csrf-token
+        source: crate::csrf::ensure_csrf_cookie
+        consumed_by: [dialog hidden _csrf, csrf_middleware validation]
+      - id: consequence-counts
+        source: live store reads at GET time only — advisory, never gating
+        consumed_by: [dialog copy]
+      - id: modal-root
+        source: the shipped #modal-root element and closeTopLayer()
+        consumed_by: [edit dialog, confirm dialog, cleared on success]
+      - id: board-columns-oob
+        source: partials/oob/board_columns_oob.html (unchanged, shared with lane delete)
+        consumed_by: [popup-path success response]
+      - id: board-url
+        source: composed from the same route triple
+        consumed_by: [full-page redirect, OOB refresh target]
+      - id: issue-deleted-event
+        source: the single outbox row written inside the delete transaction
+        consumed_by: [spawn_pg_listener, broadcast, SSE subscribers]

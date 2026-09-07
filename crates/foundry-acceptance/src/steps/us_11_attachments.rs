@@ -406,13 +406,19 @@ async fn body_mentions_limit_mb(world: &mut FoundryWorld, mb: u32) {
     );
 }
 
-#[then(regex = r"^the upload is refused as forbidden \(HTTP 403\)$")]
-async fn upload_refused_403(world: &mut FoundryWorld) {
+/// A workspace member who is not on the issue's team must be refused as if the
+/// issue never existed (ADR-003, step 04-01). The prior 403 named the team and
+/// so separated "this team exists but is not yours" from "no such team" — that
+/// status/body pair WAS the enumeration oracle. The status is still pinned
+/// exactly; only the value it is pinned to changed, from 403 to the uniform
+/// non-enumerable 404.
+#[then(regex = r"^the upload is refused as if it never existed$")]
+async fn upload_refused_not_found(world: &mut FoundryWorld) {
     let status = world.us_11_last_upload_status.expect("upload status");
     assert_eq!(
         status,
-        StatusCode::FORBIDDEN,
-        "expected 403, got {status} body={body}",
+        StatusCode::NOT_FOUND,
+        "expected the uniform non-enumerable 404, got {status} body={body}",
         body = world.us_11_last_upload_body.as_deref().unwrap_or(""),
     );
 }
@@ -430,10 +436,16 @@ async fn upload_refused_401(world: &mut FoundryWorld) {
 
 // ----- Then: download outcomes ----------------------------------------
 
-#[then(regex = r"^the download is refused as forbidden \(HTTP 403\)$")]
-async fn download_refused_403(world: &mut FoundryWorld) {
+/// Download counterpart of `upload_refused_not_found` — same ADR-003 rule, same
+/// exact status pinning, converged on 404 in step 04-01.
+#[then(regex = r"^the download is refused as if it never existed$")]
+async fn download_refused_not_found(world: &mut FoundryWorld) {
     let status = world.us_11_last_download_status.expect("download status");
-    assert_eq!(status, StatusCode::FORBIDDEN, "expected 403, got {status}",);
+    assert_eq!(
+        status,
+        StatusCode::NOT_FOUND,
+        "expected the uniform non-enumerable 404, got {status}",
+    );
 }
 
 #[then(regex = r"^the downloaded file is byte-identical to the file Mei uploaded$")]

@@ -79,7 +79,7 @@ pub async fn show_create_form(
     };
     match state.store.is_team_member(team.id, user.user_id).await {
         Ok(true) => {}
-        Ok(false) => return non_member_page(&team_slug),
+        Ok(false) => return resource_not_found_page(),
         Err(err) => return internal_error("is_team_member", err),
     }
     let (csrf, set_cookie) = ensure_csrf_cookie(&state, &headers);
@@ -122,7 +122,7 @@ pub async fn submit_create(
     };
     match state.store.is_team_member(team.id, user.user_id).await {
         Ok(true) => {}
-        Ok(false) => return non_member_page(&team_slug),
+        Ok(false) => return resource_not_found_page(),
         Err(err) => return internal_error("is_team_member", err),
     }
 
@@ -305,7 +305,7 @@ pub async fn show_board(
     .await
     {
         Ok(view) => view,
-        Err(foundry_services::ServiceError::Forbidden) => return non_member_page(&team_slug),
+        Err(foundry_services::ServiceError::Forbidden) => return resource_not_found_page(),
         Err(err) => return internal_error("board_view", err),
     };
     // Render-failure → clean 500 seam (US-B01 @error,
@@ -386,7 +386,7 @@ pub async fn show_report(
     };
     match state.store.is_team_member(team.id, user.user_id).await {
         Ok(true) => {}
-        Ok(false) => return non_member_page(&team_slug),
+        Ok(false) => return resource_not_found_page(),
         Err(err) => return internal_error("is_team_member", err),
     }
     let project = match state
@@ -632,16 +632,6 @@ fn team_not_found_page(team_slug: &str) -> Response {
         StatusCode::NOT_FOUND,
         "Team not found",
         &format!("No team with slug {team_slug:?} exists in this workspace."),
-    )
-}
-
-fn non_member_page(team_slug: &str) -> Response {
-    invalid_page(
-        StatusCode::FORBIDDEN,
-        "Not a team member",
-        &format!(
-            "You are not a member of the {team_slug:?} team and cannot create projects in it."
-        ),
     )
 }
 

@@ -42,7 +42,7 @@ personas:
         bindings (`j` / `k` / `Enter` / `Esc` / `?` / `c`).
       - Opens issue cards as often to READ as to edit.
       - Her workflow has three stages — might do, doing, done.
-      - Reads "sign in" as "the button the other services have": she measures
+      - Reads "sign in" as "the button the other services have" — she measures
         foundry against the rest of her cluster, not against issue trackers.
       - Single-digit-operator instance. There is no analytics tooling and no
         second user to average over; every product measurement on this persona
@@ -77,6 +77,7 @@ personas:
       - job-dismiss-edit-dialog
       - job-board-lane-shaping
       - job-canzan-theme
+      - job-issue-card-delete
 
   - id: persona-team-member-foil
     name: Marco

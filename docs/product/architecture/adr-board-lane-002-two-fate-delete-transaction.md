@@ -4,6 +4,15 @@
 
 Accepted (board-lane-management DESIGN wave, 2026-08-22)
 
+**Amended 2026-09-05 by `adr-issue-delete-001-one-hard-delete-primitive.md`** —
+one clause only. The `DeleteCards` arm's "No events, no outbox, no tombstone"
+no longer holds: that arm now routes through the shared
+`issue_delete::delete_issues_with_outbox` primitive and emits one `IssueDeleted`
+outbox row per destroyed card, in this same transaction. The parity it cited
+(`delete_issue_cascade`, "which emits nothing") is exactly what changed. The
+transaction shape, statement order, last-lane gate, confirm-time membership
+binding, FK strand-guard and ≤3 bounded retry described below are **unchanged**.
+
 ## Context
 
 Deleting a lane holding N ≥ 1 cards applies an operator-chosen fate — move-all

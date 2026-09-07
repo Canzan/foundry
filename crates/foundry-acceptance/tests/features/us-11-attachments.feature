@@ -75,7 +75,7 @@ Feature: A member attaches a file to an issue and other members download it byte
     Given a member "rita@partners.acme.com" belongs to the team "Partners"
     And Rita is signed in
     When Rita attempts to attach a 100-kilobyte file named "leak.txt" with content-type "text/plain" to "AUTH-1"
-    Then the upload is refused as forbidden (HTTP 403)
+    Then the upload is refused as if it never existed
     And the AUTH-1 issue page lists no attachments
 
   @real-io @error @nfr-sec-06
@@ -84,7 +84,7 @@ Feature: A member attaches a file to an issue and other members download it byte
     And Mei has attached a 256-kilobyte image named "screenshot.png" to "AUTH-1"
     And Rita is signed in
     When Rita attempts to download the attachment "screenshot.png" from "AUTH-1"
-    Then the download is refused as forbidden (HTTP 403)
+    Then the download is refused as if it never existed
 
   @real-io @error
   Scenario: An unauthenticated request to upload an attachment is refused

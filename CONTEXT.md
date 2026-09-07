@@ -2,34 +2,21 @@
 
 ## Current Task
 
-**`board-lane-reorder` SHIPPED and PUSHED to `main`** — 8 commits, clean tree. (Work began on
-branch `board-lane-shaping`, but that branch was fast-forward merged into `main` mid-session, so
-the later commits landed directly on `main`; the branch pointer is stale at `8b79448` and is fully
-contained in `main`.) A board's lane order is changeable: drag a column header (Pointer Events, works on
-touch) or pick **Move list left / right** from the `⋯` menu, now six items with disabled ends.
-A move writes `lanes.position` only — zero issue rows, zero change events, zero identity
-mutations. **No migration; still 0015.** The commit also carries the previously-uncommitted
-`board-lane-overflow-menu` and `fix-lane-menu-clipped-mobile` work (entangled via one stylesheet
-hash chain, so a per-feature split was not reconstructable).
+**`issue-card-delete` is CODE-COMPLETE and UNCOMMITTED** (HEAD still `d3c87ca`). All
+waves ran; DELIVER finished 12 steps + phases 3-7. Delete works from the edit popup
+and the full page, with or without JS; every authz refusal in the HTML adapter is now
+the uniform non-enumerable 404; a second open board drops the card live via
+`board-live.js`, foundry's first browser-side live-update surface. **No migration —
+head still 0015.** Full lane 632/632.
 
 ## Key Decisions
 
-- **Insert's shuffle does NOT generalise to a move** — insert *vacates* the target slot, a move
-  has no vacancy. One `UPDATE … SET position = CASE …` statement. All three candidate shapes
-  fail against a non-deferrable constraint, so `DEFERRABLE` is a **precondition**, now pinned by
-  a `check-arch` rule with 5 gold tests (`adr-board-lane-006`).
-- **The unlocked move race is SILENT** — no error, invariants intact, board arranged as nobody
-  asked. So the concurrency oracle asserts resulting **order**, never "no error raised".
-- **Host tool dependencies removed**: `pg_dump`/`pg_restore` and chromedriver/Chrome now run from
-  containers pinned to the server's own image tag, so version skew is impossible rather than
-  detected. `xtask ci` preflights 2 and 3 retired with them.
+- **Hard delete, not the requested tombstone** — issues already hard-deleted via the lane fate, and D1 of `board-lane-overflow-menu` had declined archive. One primitive now serves both callers; ADR-BOARD-LANE-002 amended in one clause.
+- **Refusals converged upward** (user call): 20 `non_member_page` sites → uniform 404, leaking helper deleted. CSRF and author-only 403s untouched.
+- **DISCUSS assumed a capability that never existed** — no browser had ever consumed SSE. Built as step 03-02, scoped to `IssueDeleted` only.
 
 ## Next Steps
 
-- NB `8b79448` is not from this work — it was committed elsewhere and fast-forward merged into
-  `main` mid-session; it is now published along with everything else.
-- **Re-run the full `all` lane**: last measured 734/734 BEFORE the two review-driven scenarios
-  landed. `blr` is 26/26; the full number is expected-but-unverified at 736.
-- **Reap 5 orphaned testcontainers** (21–29h old) — the likely cause of three `foundry-store`
-  tests flaking under load, each passing in isolation. Left alone; another session may own them.
-- Still running: foundry on your tailnet — `kill 72826 && docker rm -f foundry-dev-pg`.
+- **Commit needs explicit `git add` of 11 untracked paths** — `git commit -a` misses the whole `@icd` lane and leaves the tree green but hollow.
+- **The four-reviewer DISTILL gate never ran**; the one Phase 4 reviewer returned "0 defects" while misquoting the oracle it was told to attack. A real vacuous-assertion defect (D8's redirect target) was found by hand and fixed in Phase 3.
+- **App-handler mutation layer unmeasured** (13 mutants, ~15 min each). Store+services measured 7/7 killed.

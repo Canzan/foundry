@@ -83,3 +83,15 @@ Keep `CONTEXT.md` under 20 lines total. Do NOT summarize the full conversation �
 ## Mutation Testing Strategy
 
 This project uses **per-feature** mutation testing. Runs after refactoring during each delivery, scoped to modified files. Kill rate gate: >= 80%.
+
+## Development Paradigm
+
+This project follows the **object-oriented** paradigm. Use @nw-software-crafter for implementation.
+
+Recorded by the `issue-card-delete` DELIVER wave (2026-09-05). It reflects what
+the codebase already is — structs with `impl` blocks, trait-injected effects
+(`Arc<dyn Clock>`, `Notifier`, `Store`), a composition root in
+`foundry-app/src/main.rs` — and what every prior feature used. Example-based
+tests are the default; property-based tests are used where an invariant is
+genuinely quantifiable (as in `board-lane-reorder`'s position-permutation suite),
+not as a blanket policy.

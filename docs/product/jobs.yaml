@@ -281,3 +281,71 @@ jobs:
         operator), and it is the feature that makes "one canzan" true or false
         across three shipped applications.
     validated_by: docs/feature/canzan-theme-system/feature-delta.md
+
+  - id: job-issue-card-delete
+    title: Remove a card that should not exist, without destroying the lane it sits in
+    job_story: >
+      When a card on my board should not exist — a duplicate I filed twice from
+      two machines, a title I typo'd into the key, a note that belongs on
+      another board, a test card from the day I was proving the board worked —
+      I want to remove it from wherever I am already looking at it, and know
+      exactly what goes with it before I commit, so my board only shows work
+      that is real, without destroying the lane it happens to sit in.
+    dimensions:
+      functional: >
+        Remove one issue, and everything hanging off it, from either surface
+        that already opens it — the edit popup and the full issue page — in a
+        bounded number of deliberate actions, with the consequence stated and
+        counted before it happens.
+      emotional: >
+        Stop treating the board as append-only. Stop feeling that a misfiled
+        card is permanent furniture, and stop weighing "is this duplicate worth
+        nuking the whole lane for?"
+      social: >
+        Anyone shown the board reads only work that is real — no "ignore that
+        one, it's a duplicate" tour, the same tour job-board-lane-shaping
+        removed for dead columns.
+    forces:
+      push: >
+        There is no card delete at any granularity below a lane. The only
+        in-app removal is delete_lane_with_fate(..., DeleteCards), whose blast
+        radius is every card in the lane; the alternative is SQL against the
+        live database. A board therefore only ever grows, and the operator
+        learns not to file speculatively — which costs more than the clutter.
+      pull: >
+        A Delete on the card she already has open, with the same confirm-dialog
+        care the lane delete shows: it names the issue, counts what goes with
+        it, and says it cannot be undone.
+      anxiety: >
+        That deleting an issue quietly takes comments, attachments and history
+        with it without saying so; that it can be triggered by a misclick next
+        to Save on the dialog she opens mostly to READ; that it half-succeeds
+        and leaves orphaned rows; and that the board keeps showing the card
+        afterwards, so she cannot tell whether it worked.
+      habit: >
+        The board is append-only today, and the edit popup's only buttons are
+        Save and the close ×. Delete must not move, restyle or endanger either
+        — the popup must stay safe to open, read and dismiss, which is what the
+        operator mostly does with it (the persona records that she "opens issue
+        cards as often to READ as to edit").
+    opportunity:
+      importance: high
+      satisfaction: low
+      note: >
+        Single-job feature; no comparative scoring table (the skill requires
+        one only when multiple jobs compete). Importance high because the
+        workaround is not merely inconvenient but disproportionate to the point
+        of being unusable — destroying an entire lane's cards to remove one —
+        so in practice the capability is absent rather than awkward.
+    validated_by: docs/feature/issue-card-delete/feature-delta.md
+    relates_to:
+      - job: job-board-lane-shaping
+        relation: >
+          Sibling, not overlap. That job owns the LANE verbs (rename, insert,
+          move, delete) and, as a fate of lane delete, the bulk destruction of
+          a lane's cards. This job owns the CARD verb at single-card
+          granularity. Its D1 (archive declined — "adding one would create a
+          second way for a card to be invisible") is inherited here as the
+          binding reason issue delete is a HARD delete rather than a tombstone:
+          see docs/feature/issue-card-delete/feature-delta.md D1 and its
+          Changed Assumptions section.

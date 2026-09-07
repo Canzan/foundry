@@ -1,0 +1,30 @@
+{# issue-card-delete confirm dialog (feature-delta DDD-5/DDD-6,
+   adr-issue-delete-002). A BARE fragment htmx swaps into #modal-root — it must
+   NOT extend base.html; `delete_issue_modal_page.html` includes THIS SAME
+   partial for a direct navigation, so the popup and the page can never
+   disagree. Close is the declarative [data-action="close-modal"] trigger ONLY —
+   no new Escape/click listener (BR-4, ADR-MODAL-CLOSE-001), and this feature
+   ships no JavaScript at all.
+
+   The counts are COPY, read once at GET time (D13, inherited from
+   board-lane-management D7): they say what goes with the issue, they are never
+   a precondition. The confirm binds whatever exists when it is submitted, so a
+   comment filed while this dialog is open goes with the issue. #}
+<div class="modal" role="dialog" aria-modal="true" data-modal="delete-issue">
+  <div class="modal-dialog">
+    <header class="modal-header">
+      <h2>Delete {{ key }}</h2>
+      <button type="button" class="modal-close" aria-label="Close" data-action="close-modal">&times;</button>
+    </header>
+    <form method="post" action="{{ action }}" hx-post="{{ action }}" hx-target="#modal-root" hx-swap="innerHTML">
+      <input type="hidden" name="_csrf" value="{{ csrf }}">
+      {% if comment_count == 0 && attachment_count == 0 %}
+      <p>Nothing else goes with it. This cannot be undone.</p>
+      {% else %}
+      <p>It has {{ comment_count }} comment{% if comment_count != 1 %}s{% endif %} and {{ attachment_count }} attachment{% if attachment_count != 1 %}s{% endif %}. This cannot be undone.</p>
+      {% endif %}
+      <div data-error-slot></div>
+      <button type="submit">Delete {{ key }} permanently</button>
+    </form>
+  </div>
+</div>

@@ -49,7 +49,7 @@ Feature: A team member creates a project and reaches its empty board
     Given Hiroshi is a workspace member but not a member of the "Backend" team
     And Hiroshi is signed in
     When Hiroshi attempts to create a project under "Backend" with name "Sneaky" and key prefix "SNK"
-    Then the response status is 403 Forbidden
+    Then the response status is 404 Not Found
     And no project named "Sneaky" exists in any team
 
   @property @real-io

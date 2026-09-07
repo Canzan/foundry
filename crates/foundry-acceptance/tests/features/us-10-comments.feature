@@ -92,5 +92,5 @@ Feature: A team member discusses an issue inline with markdown that other viewer
     Given a member "rita@partners.acme.com" belongs to the team "Partners"
     And Rita is signed in
     When Rita comments on "AUTH-3" with body "I have a thought."
-    Then the response status is 403
+    Then the response status is 404 Not Found
     And no comment is recorded on "AUTH-3"

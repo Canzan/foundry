@@ -658,6 +658,16 @@ pub fn build_router(state: AppState) -> Router {
                 .post(issues::submit_edit)
                 .layer(DefaultBodyLimit::max(4 * 1024 * 1024)),
         )
+        // issue-card-delete (DISTILL scaffold, ADR-025): the GET+POST confirm
+        // pair — deliberately NOT the DELETE verb, so the whole path works with
+        // scripting disabled (ADR-ISSUE-DELETE-002). Mounted now so a request
+        // reaches a handler rather than the 404 fallback; the handlers answer
+        // 501 until DELIVER. Covered by the layer-wide csrf_middleware exactly
+        // like the edit pair above, with no per-route work.
+        .route(
+            "/team/{team_slug}/project/{project_slug}/issues/{issue_number}/delete",
+            get(issues::show_delete_form).post(issues::submit_delete),
+        )
         .route(
             "/team/{team_slug}/project/{project_slug}/events",
             get(events::sse_stream),

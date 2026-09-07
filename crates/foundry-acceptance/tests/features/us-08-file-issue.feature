@@ -60,7 +60,7 @@ Feature: A team member files an issue and sees it in the project board
     Given Hiroshi is a workspace member but not a member of the "Backend" team
     And Hiroshi is signed in
     When Hiroshi files an issue against "Auth v2" with title "Unauthorized attempt"
-    Then the response status is 403 Forbidden
+    Then the response status is 404 Not Found
     And no issue is created in "Auth v2"
 
   @nfr-perf-01 @real-io

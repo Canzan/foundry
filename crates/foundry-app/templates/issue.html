@@ -1,7 +1,16 @@
 {% extends "app_shell.html" %}
 {% block title %}{{ issue_key }} - {{ project_slug }}{% endblock %}
 {% block app_content %}
-<header><h1>{{ issue_key }}</h1></header>
+<header><h1>{{ issue_key }}</h1>
+{# An ANCHOR, not a button, and the `href` is the point (D6, AC-1.11,
+   adr-issue-delete-002). With scripting ON, htmx claims the click via `hx-get`
+   and swaps the bare confirm fragment into #modal-root — the href is never
+   followed. With scripting OFF, htmx is not there to claim it, and the browser
+   simply follows the href to the same route, which answers the base.html
+   carrier instead of the fragment. A <button type="button"> cannot do the
+   second half: with scripting off it is inert, which is exactly how the no-JS
+   path failed before this. #}
+<a href="{{ delete_url }}" data-action="delete-issue" hx-get="{{ delete_url }}" hx-target="#modal-root" hx-swap="innerHTML">Delete</a></header>
 {% if attachments.is_empty() %}<section class="attachments" data-attachment-list>
   <p class="attachments-empty">No attachments yet.</p>
 </section>{% else %}<section class="attachments">

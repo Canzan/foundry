@@ -26,7 +26,7 @@
 //! contract is "round-trip preserves what the user uploaded", not
 //! "we re-derive a canonical type".
 
-use crate::bootstrap::{invalid_page, resource_not_found_page, SessionUser};
+use crate::bootstrap::{resource_not_found_page, SessionUser};
 use crate::session::SESSION_KEY_USER_ID;
 use crate::views::{AttachmentRow, ErrorFragment, PayloadTooLarge};
 use crate::AppState;
@@ -96,10 +96,8 @@ pub async fn submit_upload(
     // project slug, no team-vs-issue body-shape difference), so a foreign upload
     // is byte-identical to a never-existed upload and leaks nothing about the
     // foreign issue's existence (matching `download_attachment`, fixed in 04-02).
-    // The intra-workspace membership failure keeps its shipped 403 `non_member_page`
-    // (ADR-003 boundary clause — a member reaching their OWN workspace's team is
-    // not a cross-tenant concern; a cross-tenant reach 404s at the team layer
-    // above and never reaches it).
+    // The intra-workspace membership failure converged on the SAME uniform 404
+    // in step 04-01, so a non-member reach is byte-identical to a foreign one.
     let team = match state
         .store
         .find_team_by_slug(user.workspace_id, &team_slug)
@@ -111,7 +109,7 @@ pub async fn submit_upload(
     };
     match state.store.is_team_member(team.id, user.user_id).await {
         Ok(true) => {}
-        Ok(false) => return non_member_page(&team_slug),
+        Ok(false) => return resource_not_found_page(),
         Err(err) => return internal_error("is_team_member", err),
     }
     let issue = match state
@@ -224,7 +222,7 @@ pub async fn download_attachment(
         // boundary clause): a member reaching their OWN workspace's team they do
         // not belong to is NOT a cross-tenant concern. A cross-tenant reach never
         // reaches this branch — the foreign team already 404'd above.
-        Ok(false) => return non_member_page(&team_slug),
+        Ok(false) => return resource_not_found_page(),
         Err(err) => return internal_error("is_team_member", err),
     }
     // Defensive lookup — confirms the issue still exists in the targeted
@@ -341,16 +339,6 @@ fn redirect_to(location: &str) -> Response {
         hdrs.insert(LOCATION, v);
     }
     (StatusCode::SEE_OTHER, hdrs, "").into_response()
-}
-
-fn non_member_page(team_slug: &str) -> Response {
-    invalid_page(
-        StatusCode::FORBIDDEN,
-        "Not a team member",
-        &format!(
-            "You are not a member of the {team_slug:?} team and cannot attach files to its issues."
-        ),
-    )
 }
 
 fn payload_too_large(limit_mb: u64) -> Response {

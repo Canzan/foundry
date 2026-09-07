@@ -48,7 +48,7 @@
 //! signed-in user must belong to the project's team. Non-members get
 //! 403; unknown teams/projects get 404.
 
-use crate::bootstrap::{invalid_page, SessionUser};
+use crate::bootstrap::{invalid_page, resource_not_found_page, SessionUser};
 use crate::session::SESSION_KEY_USER_ID;
 use crate::AppState;
 use askama::Template;
@@ -133,7 +133,7 @@ pub async fn show_new_issue_modal(
     };
     match state.store.is_team_member(team.id, user.user_id).await {
         Ok(true) => {}
-        Ok(false) => return non_member_page(&team_slug),
+        Ok(false) => return resource_not_found_page(),
         Err(err) => return internal_error("is_team_member", err),
     }
     let project = match state
@@ -235,7 +235,7 @@ pub async fn search_issues(
     };
     match state.store.is_team_member(team.id, user.user_id).await {
         Ok(true) => {}
-        Ok(false) => return non_member_page(&team_slug),
+        Ok(false) => return resource_not_found_page(),
         Err(err) => return internal_error("is_team_member", err),
     }
     let project = match state
@@ -370,16 +370,6 @@ fn team_not_found_page(team_slug: &str) -> Response {
         StatusCode::NOT_FOUND,
         "Team not found",
         &format!("No team with slug {team_slug:?} exists in this workspace."),
-    )
-}
-
-fn non_member_page(team_slug: &str) -> Response {
-    invalid_page(
-        StatusCode::FORBIDDEN,
-        "Not a team member",
-        &format!(
-            "You are not a member of the {team_slug:?} team and cannot view its keyboard endpoints."
-        ),
     )
 }
 

@@ -414,14 +414,8 @@ pub async fn list_issue_change_history(
     project_slug: &str,
     number: i32,
 ) -> Result<Vec<IssueChangeHistoryEntry>, ServiceError> {
-    let (team, _project, _key_prefix) =
-        resolve_member_project(store, principal, team_slug, project_slug).await?;
-
-    let issue = store
-        .find_issue_by_team_project_number(team.id, project_slug, number)
-        .await
-        .map_err(|_| ServiceError::Internal)?
-        .ok_or(ServiceError::NotFound)?;
+    let (_key_prefix, issue) =
+        resolve_member_issue(store, principal, team_slug, project_slug, number).await?;
 
     let rows = store
         .list_issue_changes(issue.issue_id)
@@ -440,6 +434,124 @@ pub async fn list_issue_change_history(
             at: row.created_at,
         })
         .collect())
+}
+
+/// The delete-confirm dialog's view (issue-card-delete DDD-7). The counts are
+/// ADVISORY copy read at GET time; the delete binds whatever exists at POST
+/// time (D13, inherited from board-lane-management D7).
+#[derive(Debug, Clone)]
+pub struct IssueDeleteView {
+    pub key: String,
+    pub number: i32,
+    pub comment_count: i64,
+    pub attachment_count: i64,
+}
+
+/// issue-card-delete — the confirm dialog's read, behind the SAME
+/// `resolve_member_project` gate every other issue use case runs. A
+/// foreign/missing issue is refused with the uniform non-enumerable `NotFound`
+/// (ADR-003) and no key is ever echoed.
+///
+/// The two counts are read HERE and only here. They are copy for the dialog
+/// (D13) — [`delete_issue`] never re-reads or compares them, so a comment filed
+/// between the GET and the POST goes with the issue rather than blocking it.
+pub async fn delete_issue_dialog(
+    store: &Store,
+    principal: &Principal,
+    team_slug: &str,
+    project_slug: &str,
+    number: i32,
+) -> Result<IssueDeleteView, ServiceError> {
+    let (key_prefix, issue) =
+        resolve_member_issue(store, principal, team_slug, project_slug, number).await?;
+
+    let comment_count = store
+        .count_comments_for_issue(issue.issue_id)
+        .await
+        .map_err(|_| ServiceError::Internal)?;
+    let attachment_count = store
+        .count_attachments_for_issue(issue.issue_id)
+        .await
+        .map_err(|_| ServiceError::Internal)?;
+
+    let key = foundry_core::IssueKey::try_new(&key_prefix, number as u32)
+        .map(|k| k.to_string())
+        .unwrap_or_else(|_| format!("{}-{}", key_prefix.as_str(), number));
+    Ok(IssueDeleteView {
+        key,
+        number,
+        comment_count,
+        attachment_count,
+    })
+}
+
+/// issue-card-delete — the write. ONE use case behind BOTH surfaces (Driving
+/// Port 3): the full page and the edit popup differ only in how their handler
+/// renders success, never in what they call.
+///
+/// Membership, not authorship, is the gate (D2). `Ok(())` means the issue was
+/// deleted; `NotFound` covers the foreign, absent, and already-deleted cases
+/// alike (DDD-10) and writes nothing — no row, no outbox entry.
+///
+/// The lookup that resolves the issue hands back exactly the four fields the
+/// delete primitive's context needs (DDD-3), so no second read is taken. The
+/// dialog's advisory counts are NOT consulted here (D13).
+pub async fn delete_issue(
+    store: &Store,
+    principal: &Principal,
+    team_slug: &str,
+    project_slug: &str,
+    number: i32,
+) -> Result<(), ServiceError> {
+    let (_key_prefix, issue) =
+        resolve_member_issue(store, principal, team_slug, project_slug, number).await?;
+
+    let context = foundry_store::issue_delete::IssueDeleteContext {
+        workspace_id: issue.workspace_id,
+        project_id: issue.project_id,
+        key_prefix: issue.project_key_prefix,
+    };
+
+    match store
+        .delete_issue_with_outbox(&context, issue.issue_id, number)
+        .await
+    {
+        // Deleted between the resolve above and the write — the same uniform
+        // non-enumerable refusal an absent issue gets (DDD-10).
+        Ok(0) => Err(ServiceError::NotFound),
+        Ok(_) => Ok(()),
+        Err(_) => Err(ServiceError::Internal),
+    }
+}
+
+/// Resolve ONE issue by `(team, project_slug, number)` behind the membership
+/// gate, returning it with the project's key prefix. The shared preamble of
+/// every per-issue use case that addresses an issue by NUMBER:
+/// [`list_issue_change_history`], [`delete_issue_dialog`] and [`delete_issue`].
+///
+/// It lives here rather than being spelt out per use case because the refusal
+/// is the point: a foreign, absent or already-deleted issue must be
+/// indistinguishable from a never-existed one, on EVERY verb (DDD-9, ADR-003).
+/// Three copies of "map the store error to `Internal`, map `None` to
+/// `NotFound`" are three chances for one of them to leak a different answer;
+/// this is one.
+async fn resolve_member_issue(
+    store: &Store,
+    principal: &Principal,
+    team_slug: &str,
+    project_slug: &str,
+    number: i32,
+) -> Result<(foundry_core::ProjectKey, foundry_store::IssueLookupRow), ServiceError> {
+    let (team, _project, key_prefix) =
+        resolve_member_project(store, principal, team_slug, project_slug).await?;
+
+    let issue = store
+        .find_issue_by_team_project_number(team.id, project_slug, number)
+        .await
+        .map_err(|_| ServiceError::Internal)?
+        .ok_or(ServiceError::NotFound)?;
+
+    Ok((key_prefix, issue))
 }
 
 /// Resolve `(team, project, key_prefix)` after the SAME membership authz the

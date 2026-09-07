@@ -8,6 +8,7 @@
 #![deny(clippy::all)]
 
 pub mod attachments;
+pub mod issue_delete;
 pub mod lanes;
 pub mod verify_export;
 

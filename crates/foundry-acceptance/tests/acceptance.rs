@@ -60,6 +60,8 @@ use foundry_acceptance::steps::feature_instance_admin_project_rename as _feature
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_invite_accept as _feature_invite_accept;
 #[allow(unused_imports)]
+use foundry_acceptance::steps::feature_issue_card_delete as _feature_icd;
+#[allow(unused_imports)]
 use foundry_acceptance::steps::feature_issue_change_history as _feature_issue_change_history;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_issue_edit_dialog as _feature_issue_edit_dialog;

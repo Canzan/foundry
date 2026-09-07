@@ -1,0 +1,308 @@
+{
+  "roadmap": {
+    "created_at": "2026-09-05T00:00:00Z",
+    "project_id": "issue-card-delete",
+    "total_steps": 12
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "Slice 01 \u2014 delete from the full page: the whole write path on the surface with no board reconciliation",
+      "description": "Ships the delete PRIMITIVE and the entire vertical behind it, on the surface whose success is a redirect. Bottom-up: the store primitive reds first (it is the seam both other slices consume), then the service use cases, then the handlers and templates. No slice-02 or slice-03 step may start until 01's issue_delete::delete_issues_with_outbox signature exists. ZERO migrations \u2014 the schema head stays 0015 (DDD-11); the cascade FKs (0004/0005/0013) and the outbox table already ship. Slice 01 leaves lanes.rs untouched: rewiring the lane fate is slice 03 (DDD-2).",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "The store primitive: issue_delete::delete_issues_with_outbox deletes by id set on the caller's transaction, and Store::delete_issue_with_outbox owns a transaction for one card",
+          "criteria": [
+            "Replaces the panicking scaffold in crates/foundry-store/src/issue_delete.rs with a real implementation carrying the same signature \u2014 the signature is DESIGN-pinned (DDD-1/DDD-4) and MUST NOT change: the batch arm takes &mut Transaction so slice 03's lane caller can ride its own.",
+            "Performs ZERO lookups: consumes the caller-supplied IssueDeleteContext { workspace_id, project_id, key_prefix } (DDD-3).",
+            "Deletes with one DELETE ... WHERE id = ANY($1); comments, attachments and change events go via the schema's ON DELETE CASCADE \u2014 NO application-level child delete is written (DDD-11).",
+            "Returns rows_affected. Ok(0) is the not-there case and MUST write no outbox row (DDD-10).",
+            "The outbox emit is DEFERRED to slice 03: this step writes the DELETE and the return contract only. Emitting here would make slice 03's regression scenarios untestable as a delta.",
+            "Removes the SCAFFOLD marker from crates/foundry-store/src/issue_delete.rs.",
+            "Removes the dead Store::delete_issue_cascade from crates/foundry-store/src/attachments.rs (zero production callers, verified by grep).",
+            "Store-integration coverage: a single delete removes exactly one issues row; its comments/attachments/change events are gone; sibling issues are byte-identical; deleting a non-existent id returns 0 and writes nothing."
+          ],
+          "test_file": "crates/foundry-store/tests/issue_delete.rs",
+          "scenario_name": "delete_issues_with_outbox removes exactly the named rows and cascades their children; a vanished id returns 0 and writes nothing; siblings are untouched",
+          "files_to_modify": [
+            "crates/foundry-store/src/issue_delete.rs",
+            "crates/foundry-store/src/attachments.rs",
+            "crates/foundry-store/tests/issue_delete.rs"
+          ],
+          "implementation_notes": "Unit/integration only \u2014 no acceptance scenario is un-pended by this step. It exists because it is the seam slices 02 and 03 consume, and slice 01's learning hypothesis is precisely whether one &mut Transaction-taking primitive serves both owners."
+        },
+        {
+          "id": "01-02",
+          "name": "The service use cases: delete_issue_dialog reads the advisory counts, delete_issue writes \u2014 both behind resolve_member_project",
+          "criteria": [
+            "Replaces the panicking scaffolds in crates/foundry-services/src/issues.rs with real implementations, keeping the DESIGN-pinned signatures (DDD-7).",
+            "Both gate on the SHIPPED resolve_member_project \u2014 no new authz code is written anywhere in this feature.",
+            "Membership, not authorship, is the gate (D2): a member who did not file the issue may delete it.",
+            "delete_issue maps a rows_affected of 0 to ServiceError::NotFound so the handler renders the uniform 404 (DDD-10); Forbidden stays Forbidden.",
+            "delete_issue_dialog returns IssueDeleteView { key, number, comment_count, attachment_count }. Counts are ADVISORY (D13) \u2014 they are read here and never gate the write.",
+            "Reuses Store::count_comments_for_issue verbatim; the attachment count is the DESIGN open question 1 \u2014 add the symmetric one-line store method rather than counting a list read.",
+            "Removes the SCAFFOLD markers from both functions.",
+            "CORRECTED DURING DELIVERY: an earlier draft of this criterion said to ADD Store::count_attachments_for_issue. It already ships at crates/foundry-store/src/attachments.rs:168 (slice 3, commit b2475f6) with exactly the symmetric body described. Adding it would have been a duplicate inherent-impl method and would not have compiled. Reuse it verbatim. This step therefore adds ZERO new store surface and leaves crates/foundry-store/src/lib.rs untouched \u2014 DESIGN open question 1 is answered by reuse, not by a new method."
+          ],
+          "test_file": "crates/foundry-services/tests/write_use_cases.rs",
+          "scenario_name": "delete_issue refuses a non-member with Forbidden and a vanished issue with NotFound; a member who is not the author succeeds; delete_issue_dialog returns live advisory counts",
+          "files_to_modify": [
+            "crates/foundry-services/src/issues.rs",
+            "crates/foundry-services/tests/write_use_cases.rs"
+          ],
+          "implementation_notes": "The attachment-count store method is the only NEW store surface here; everything else reuses shipped reads."
+        },
+        {
+          "id": "01-03",
+          "name": "The confirm dialog and its two carriers: delete_issue_modal.html plus the delete_issue_modal_page.html no-JS wrapper",
+          "criteria": [
+            "Creates crates/foundry-app/templates/partials/delete_issue_modal.html mirroring delete_lane_modal.html's contract: bare fragment for #modal-root, data-modal=\"delete-issue\", [data-action=\"close-modal\"] as the ONLY close, hidden _csrf, [data-error-slot], and the shipped 'this cannot be undone' sentence (D3).",
+            "The copy COUNTS consequences rather than warning: it names the issue key and states how many comments and attachments go with it; it branches for the zero-consequence case exactly as delete_lane_modal.html branches on card_count == 0 (DESIGN open question 3).",
+            "Creates crates/foundry-app/templates/delete_issue_modal_page.html which {% extends \"base.html\" %} and {% include %}s that SAME partial \u2014 one body, two carriers, so the fragment and the page can never disagree (DDD-6).",
+            "Adds IssueDeleteModal and IssueDeleteModalPage view models to crates/foundry-app/src/views.rs.",
+            "Any new CSS lands in the content-hashed stylesheet using --cz-* tokens only, with static/VENDOR.md updated in the SAME commit; `cargo xtask check-arch` must stay green."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/issue-card-delete.feature",
+          "scenario_name": "The confirm names the issue and counts what goes with it; The confirm says so when nothing goes with the issue",
+          "files_to_modify": [
+            "crates/foundry-app/templates/partials/delete_issue_modal.html",
+            "crates/foundry-app/templates/delete_issue_modal_page.html",
+            "crates/foundry-app/src/views.rs"
+          ]
+        },
+        {
+          "id": "01-04",
+          "name": "The handlers and the full-page Delete control: the happy path \u2014 a card is removed and its children go with it",
+          "criteria": [
+            "Replaces the 501 scaffolds in crates/foundry-app/src/issues.rs with real handlers and removes the __SCAFFOLD__ markers from their bodies.",
+            "show_delete_form serves the bare fragment for #modal-root on the htmx path, minting/reusing the CSRF cookie exactly as show_edit_form does. The direct-navigation carrier is step 01-06.",
+            "submit_delete answers 303 to the board on the non-htmx path (D8) \u2014 never a re-render of a page for a resource that no longer exists.",
+            "Adds the Delete control to crates/foundry-app/templates/issue.html beside the <h1> as an hx-get into #modal-root.",
+            "Membership, not authorship, is the gate (D2) \u2014 a card filed by another member deletes cleanly.",
+            "The advisory counts do not gate: a comment filed between the dialog GET and the confirm POST goes with the issue (D13).",
+            "Un-pends the 6 happy-path @us-icd-01 scenarios one at a time; each must be GREEN before the next is un-pended."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/issue-card-delete.feature",
+          "scenario_name": "Confirming removes the card and returns her to the board; Everything hanging off the card goes with it; The cards beside it are untouched; Deleting a card is not a change to the board's lanes; A card filed by someone else can be deleted by any team member; A comment filed while the confirmation is open goes with the issue",
+          "files_to_modify": [
+            "crates/foundry-app/src/issues.rs",
+            "crates/foundry-app/templates/issue.html",
+            "crates/foundry-acceptance/tests/features/issue-card-delete.feature"
+          ],
+          "implementation_notes": "The routes are ALREADY mounted by the DISTILL scaffold \u2014 this step changes handler bodies, not the route table. Do not re-register."
+        },
+        {
+          "id": "01-05",
+          "name": "The refusal surface: every way to be told no is byte-identical to a card that never existed",
+          "criteria": [
+            "Refusals on BOTH verbs map through the shipped idiom: Forbidden -> non_member_page, NotFound -> resource_not_found_page. No key is echoed in ANY branch (DDD-9).",
+            "A non-member, a signed-out caller, an already-deleted card and a never-filed card all receive the SAME uniform non-enumerable 404 \u2014 a refusal must not be distinguishable by status OR by body (ADR-003).",
+            "The double-submit race collapses into the same path: rows_affected of 0 -> NotFound, and NO outbox row (DDD-10).",
+            "A POST without a valid token is refused by the SHIPPED csrf_middleware before the handler runs \u2014 by route registration alone, with no per-route work (ADR-009).",
+            "Un-pends the 6 refusal @us-icd-01 scenarios. The signed-out and tokenless ones are already GREEN against the scaffold (see distill/red-classification.md) and must STAY green \u2014 they are regression guards, not new assertions."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/issue-card-delete.feature",
+          "scenario_name": "Deleting a card on a board she is not a member of is refused indistinguishably; A non-member is refused at the confirmation as well as at the delete; A signed-out delete is refused the same way; Deleting a card that is already gone is refused indistinguishably; Deleting a card that never existed is refused the same way; A delete that carries no token is refused before anything is written",
+          "files_to_modify": [
+            "crates/foundry-app/src/issues.rs",
+            "crates/foundry-acceptance/tests/features/issue-card-delete.feature"
+          ],
+          "implementation_notes": "The refusal oracle asserts the uniform 404 AND byte-identity against a verb-matched never-existed path. Byte-identity alone was vacuous at RED (both sides returned the same scaffold 501) \u2014 see distill/red-classification.md."
+        },
+        {
+          "id": "01-06",
+          "name": "The scripting-disabled path: the no-JS carrier and the plain href fallback",
+          "criteria": [
+            "show_delete_form branches on is_htmx: a DIRECT navigation renders delete_issue_modal_page (the base.html carrier from 01-03), not the bare fragment (DDD-6).",
+            "The issue.html Delete control carries a plain href alongside its hx-get, so it is followable with scripting off (D6, AC-1.11).",
+            "The confirm page's form is a plain <form method=\"post\">; its POST redirects to the board.",
+            "Asserting the route merely answers 200 is NOT sufficient \u2014 the browser scenario follows a real <a href> and asserts a real page with the site's own chrome, because a 200 would pass over exactly the bare floating fragment ADR-ISSUE-DELETE-002 rejected.",
+            "Un-pends the two @needs-browser scripting-disabled scenarios."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/issue-card-delete.feature",
+          "scenario_name": "The whole path works with scripting switched off; The confirmation is a readable page when scripting is switched off",
+          "files_to_modify": [
+            "crates/foundry-app/src/issues.rs",
+            "crates/foundry-app/templates/issue.html",
+            "crates/foundry-acceptance/tests/features/issue-card-delete.feature"
+          ],
+          "implementation_notes": "Runs in the @needs-browser lane, which the DEFAULT lane excludes \u2014 verify with the `all` lane or FOUNDRY_ACCEPTANCE_TAGS=icd, never the default lane alone."
+        }
+      ]
+    },
+    {
+      "id": "02",
+      "name": "Slice 02 \u2014 delete from the popup, board refreshes in place",
+      "description": "Pure adapter work on slice 01's proven port. Adds the popup control and the out-of-band #board-columns success response. Depends on slice 01's delete_issue use case; adds no store or service surface.",
+      "steps": [
+        {
+          "id": "02-01",
+          "name": "The popup's Delete control, rendered OUTSIDE the edit form",
+          "criteria": [
+            "Adds a Delete control to crates/foundry-app/templates/partials/issue_edit_modal.html placed OUTSIDE the <form> element, beside the \u00d7, carrying data-action=\"delete-issue\" and an hx-get of the confirm route into #modal-root (D5).",
+            "Placement is a MARKUP contract asserted as DOM containment, not styling \u2014 the control must not be a descendant of the edit form, inheriting the protection adr-modal-close-001 D-12 established for the close trigger.",
+            "Writes NO JavaScript: the control is attributes only, resolved by the existing delegated listeners, so keyboard.js keeps its exactly-one-keydown / exactly-one-click budget and BR-4 holds by construction.",
+            "The shipped edit-and-save path is unchanged \u2014 its regression scenario stays green.",
+            "The AC-2.8 regression scenario 'Saving an edit from the card's dialog still works exactly as before' is green BEFORE and AFTER this step \u2014 it is the guard that the new control did not disturb the shipped save path."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/issue-card-delete.feature",
+          "scenario_name": "The card's own dialog offers Delete where it cannot be mistaken for Save; Choosing Delete asks before it acts; Choosing Delete does not save a half-typed edit; Saving an edit from the card's dialog still works exactly as before (regression guard: adding a control outside the form must not disturb the form)",
+          "files_to_modify": [
+            "crates/foundry-app/templates/partials/issue_edit_modal.html",
+            "crates/foundry-acceptance/tests/features/issue-card-delete.feature"
+          ]
+        },
+        {
+          "id": "02-02",
+          "name": "The htmx success response: cleared #modal-root plus the out-of-band #board-columns refresh",
+          "criteria": [
+            "submit_delete's htmx arm returns the cleared #modal-root plus the OOB #board-columns refresh through the SHIPPED partials/oob/board_columns_oob.html (D7) \u2014 the exact shape lane-delete success already returns.",
+            "Both arms call the SAME issue_service::delete_issue: one use case, two renderings (AC-2.9).",
+            "After the refresh the board renders every surviving card in its original lane and order, and each column still offers all six lane operations \u2014 the OOB refresh must not desync the \u22ef menu (AC-2.5).",
+            "Un-pends the remaining @us-icd-02 scenarios, including the @needs-browser real-browser CSRF one (AC-2.7 \u2014 proven in a browser, never only over HTTP).",
+            "A non-member deleting from the board receives the uniform non-enumerable 404, byte-identical to a card that never existed \u2014 the popup path must not become the enumeration oracle the full-page path closed (DDD-9).",
+            "BLOCKED THEN CORRECTED (DELIVER, 2026-09-07): two defects in the DISTILL step module, both authored by the orchestrator, stopped this step. (1) `when_deletes_from_page` calls `support::harness::signed_in_post`, which sends COOKIE but NO `HX-Request` header \u2014 so both HTTP-lane popup scenarios drove the NON-htmx path while `then_still_on_that_board` and `then_six_lane_ops` asserted an htmx response. The panic text (\"the htmx success path must carry...\") shows the author believed otherwise. Other step modules build the request manually with `.header(\"HX-Request\", \"true\")` (feature_issue_edit_dialog.rs:449); this module did not. (2) `when_browser_delete` uses bare `client.find(...)` after two htmx swaps with no wait; fantoccini's `find` does not poll, so the CSRF guard races and cannot reliably reach the submit it exists to click. The house idiom is `client.wait().at_most(...).for_element(...)`.",
+            "The crafter was RIGHT to refuse the available workaround: returning the OOB body unconditionally would have greened both scenarios while breaking D8/DDD-6 \u2014 the no-JS scenario would then render a bare unstyled fragment and STILL pass, because `then_looking_at_board` accepts any body containing `data-issue-key`. That is exactly the outcome ADR-ISSUE-DELETE-002 rejects, arrived at silently."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/issue-card-delete.feature",
+          "scenario_name": "Confirming from the board removes the card without leaving the board; The refreshed board keeps every other card and every lane operation; Backing out of the confirmation leaves the card alone; A real browser carries the delete through; A non-member deleting from the board is refused indistinguishably",
+          "files_to_modify": [
+            "crates/foundry-app/src/issues.rs",
+            "crates/foundry-acceptance/tests/features/issue-card-delete.feature",
+            "crates/foundry-acceptance/src/steps/feature_issue_card_delete.rs"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "03",
+      "name": "Slice 03 \u2014 a deleted card leaves every open board, and lane delete stops being silent",
+      "description": "Adds the outbox emit to the shared primitive and rewires lanes.rs onto it (DDD-2). This CHANGES SHIPPED BEHAVIOUR: lane delete with fate=delete goes from announcing nothing to announcing N. ADR-BOARD-LANE-002 is amended in ONE clause; this slice is what proves it is one. Slice 02 is NOT a dependency \u2014 03 may land before or after it.",
+      "steps": [
+        {
+          "id": "03-01",
+          "name": "The outbox emit inside the primitive's transaction",
+          "criteria": [
+            "delete_issues_with_outbox writes one IssueDeleted outbox row per row ACTUALLY deleted (rows_affected), never one per card requested (DDD-3), inside the caller's transaction so a committed delete can never fail to announce itself and a rolled-back one announces nothing (AC-3.1).",
+            "The payload carries project_id, workspace_id, issue_id, number, key and deleted: true, using ONLY fields EventPayload already declares; schema_version stays 1 and NO field is added to crates/foundry-realtime/src/lib.rs (DDD-12, AC-3.2).",
+            "key is composed from key_prefix + number BEFORE or DURING the delete \u2014 after it there is no row left to compose from. This is slice 03's named risk.",
+            "Every refusal path writes ZERO outbox rows (AC-3.7)."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/issue-card-delete.feature",
+          "scenario_name": "The announcement names the card that went; A deleted card leaves a board someone else is looking at; Another project's board hears nothing; A refused delete announces nothing; Comments on other cards still arrive alongside",
+          "files_to_modify": [
+            "crates/foundry-store/src/issue_delete.rs",
+            "crates/foundry-store/tests/issue_delete.rs",
+            "crates/foundry-acceptance/tests/features/issue-card-delete.feature"
+          ]
+        },
+        {
+          "id": "03-02",
+          "name": "The board's first live-updating surface: a client-side SSE consumer that drops deleted cards",
+          "criteria": [
+            "NEW CAPABILITY, discovered during step 03-01: foundry ships NO client-side SSE consumer. The /events endpoint, the outbox->LISTEN->broadcast->SSE topology and its server-side subscribers are all shipped and green (us-09 8/8), but nothing in static/js/ opens an EventSource and no browser in foundry live-updates anything. The two @needs-browser fan-out scenarios assert behaviour the application cannot produce. The user chose to BUILD it (2026-09-07).",
+            "Create crates/foundry-app/static/js/board-live.js \u2014 one app-owned vanilla IIFE, matching the house idiom of the five siblings (board-dnd.js, board-lane-dnd.js, csrf-upload.js, keyboard.js, form-errors.js). It opens an EventSource on the board's /team/{team}/project/{project}/events endpoint and, on an IssueDeleted event, removes the matching article.issue-card[data-issue-key] node from the board.",
+            "Load it from crates/foundry-app/templates/base.html with `<script src=\"/static/js/board-live.js\" defer></script>`, beside its siblings. App-owned JS is UNHASHED under /static/js/ (only css/foundry.<hash>.css is content-hashed), and takes NO VENDOR.md row \u2014 only theme.js has one, because it is a port from canzan-lift and its provenance is the point. Adding a spurious VENDOR row would make check-arch's 'every VENDOR.md sha256 recomputes' rule police a file that needs no provenance claim.",
+            "It must no-op safely off the board: base.html serves every page, so the script must find its endpoint from the DOM (or exit early when the board markup is absent) rather than assuming a board context. A thrown exception on the sign-in page would be a regression across the whole app.",
+            "It must survive the out-of-band #board-columns refresh. That refresh REPLACES the #board-columns subtree, so anything holding a node reference to a card is left detached \u2014 the same class of failure ADR-BOARD-LANE-005 records for the lane menu, which is why that menu stores its open-state in the DOM rather than in a handle. Re-query on each event; do not cache card nodes.",
+            "Scope it to IssueDeleted only. The stream already carries CommentAdded, CommentEdited, CommentDeleted and IssueUpdated; this step does not consume them, and must not break on receiving them.",
+            "Zero new dependencies, no framework, no bundler \u2014 DB6: NO Node, NO package.json, NO minifier, NO CDN at runtime.",
+            "Un-pend and green the TWO @needs-browser fan-out scenarios: 'A deleted card leaves a board someone else is looking at' (already un-pended and red from step 03-01 \u2014 leave it un-pended) and 'A second board loses every card of a lane that was deleted' (currently @pending; it also needs step 03-03's lane rewiring, so if it cannot green here, re-@pend it and hand it to 03-03 explicitly rather than leaving it red)."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/issue-card-delete.feature",
+          "scenario_name": "A deleted card leaves a board someone else is looking at; A second board loses every card of a lane that was deleted",
+          "files_to_modify": [
+            "crates/foundry-app/static/js/board-live.js",
+            "crates/foundry-app/templates/base.html",
+            "crates/foundry-acceptance/tests/features/issue-card-delete.feature"
+          ],
+          "implementation_notes": "This is foundry's FIRST browser-side live-update surface. It is a genuine new capability that arrived through a delete feature because DISCUSS AC-3.4 assumed it existed. It is deliberately scoped to the single event this feature needs; a general live-board is a separate feature and must not be attempted here. Ordered BEFORE 03-03 because the lane rewiring's second-board scenario depends on this consumer existing."
+        },
+        {
+          "id": "03-03",
+          "name": "Rewire the lane DeleteCards fate onto the shared primitive",
+          "criteria": [
+            "Replaces lanes.rs::delete_cards_permanently's body with a call to issue_delete::delete_issues_with_outbox on the fate's EXISTING transaction, then deletes the now-empty helper (DDD-2).",
+            "ADR-BOARD-LANE-002's transaction shape, statement order, last-lane gate, confirm-time membership binding, FK strand-guard and <=3 bounded retry must all come through UNCHANGED. If the rewiring turns out to require restructuring delete_lane_with_fate, that is a finding to RAISE, not work to absorb.",
+            "fate=delete on N cards emits exactly N IssueDeleted (AC-3.8).",
+            "fate=move still emits exactly N IssueUpdated and ZERO IssueDeleted, and still writes one 0013 status event per card (AC-3.9) \u2014 this is what keeps the ADR amendment to one clause.",
+            "The shipped board-lane-management and board-lane-overflow-menu scenarios stay green and unmodified (AC-3.10).",
+            "Amends docs/product/architecture/adr-board-lane-002 only if DELIVER's measurement contradicts the amendment already recorded there.",
+            "Fixes the four comments left stale by step 01-01, which removed Store::delete_issue_cascade while the boundary rules kept 01-01 out of these files: lanes.rs:13, :336 and :340, plus feature_board_lane_management.rs:2075. All four name a function that no longer exists. Three sit in the very block this step rewrites. While there, correct lanes.rs:337-339, which cites migrations 0006/0011/0013 for the cascade FKs \u2014 the actual ON DELETE CASCADE declarations are 0004_comments.sql:22, 0005_issue_attachments.sql:19 and 0013_issue_change_events.sql:21 (pre-existing error, surfaced by 01-01)."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/issue-card-delete.feature",
+          "scenario_name": "Emptying a lane by deleting it announces every card that went; Moving a lane's cards still announces them as moved, never as deleted; A lane delete that is refused still announces nothing; A second board loses every card of a lane that was deleted",
+          "files_to_modify": [
+            "crates/foundry-store/src/lanes.rs",
+            "crates/foundry-acceptance/tests/features/issue-card-delete.feature",
+            "crates/foundry-acceptance/src/steps/feature_board_lane_management.rs"
+          ],
+          "implementation_notes": "Highest-risk step in the feature: it is the only one that edits shipped, working code. Run the full board-lane-management and board-lane-overflow-menu tags before and after."
+        }
+      ]
+    },
+    {
+      "id": "04",
+      "name": "Slice 04 \u2014 converge the refusal surface: every authz refusal is the uniform non-enumerable 404",
+      "description": "USER DECISION (2026-09-06): delete and edit must be equally strict, converging UPWARD. Step 01-05 collapsed the two delete verbs to the uniform 404 because DISCUSS AC-1.8 required it; that left delete stricter than the other 20 authz refusals in the HTML adapter. This phase raises the rest to match. It CHANGES SHIPPED BEHAVIOUR across 5 modules and rewrites two shipped @nfr-sec-06 scenarios, so it is its own phase with its own regression pass.",
+      "steps": [
+        {
+          "id": "04-01",
+          "name": "Every non_member_page authz refusal becomes the uniform non-enumerable 404",
+          "criteria": [
+            "Replace every `non_member_page(...)` call site with `resource_not_found_page()` across crates/foundry-app/src/: issues.rs (6 remaining), comments.rs (6), projects.rs (4), attachments.rs (2), keyboard.rs (2). The two delete verbs already converged in step 01-05.",
+            "CRITICAL DISTINCTION \u2014 do NOT touch CSRF 403s. `csrf_middleware` legitimately answers 403 for a missing/invalid double-submit token, and that is a DIFFERENT refusal from an authz refusal. Shipped scenarios assert it (feature_board_lane_management.rs:1866, feature_b_web_tier.rs:874, and board-lane-reorder's tokenless arm). Every one of those must stay green and unmodified. Conflating the two would be the single worst outcome of this step.",
+            "Do NOT touch foundry-api's 403 JSON envelope (`code = \"forbidden\"`, feature_a_programmatic.rs). The API surface has its own non-enumerability contract and its own author-only authz; it is out of scope.",
+            "Update the two shipped @nfr-sec-06 scenarios that assert the OLD behaviour: us-07-project-create.feature 'A workspace member who is not on the team cannot create a project there' and us-08-file-issue.feature 'A workspace member not on the team cannot file an issue against that team's project'. Both currently assert 'the response status is 403 Forbidden'. NFR-SEC-06 requires that the auth check EXISTS and refuses (docs/feature/foundry-backend-mvp/design/auth.md:215, default-deny); the 403 was its exemplar observable, not the requirement. Converging to 404 keeps default-deny and adds non-enumerability. Change the assertion, not the scenario's intent, and keep its @nfr-sec-06 tag.",
+            "The whole default acceptance lane must be green afterwards, and the count must be unchanged at 618 \u2014 this step un-pends nothing and adds no scenario.",
+            "CORRECTED DURING DELIVERY (1): `non_member_page` is NOT one shared helper \u2014 it is FIVE module-private copies, one each in issues.rs, comments.rs, projects.rs, attachments.rs and keyboard.rs. All five are deleted once their callers are converted.",
+            "CORRECTED DURING DELIVERY (2): the orchestrator's phrase check was incomplete. It grepped only the exact string `the response status is 403 Forbidden` and missed three sibling phrasings, each a non-member authz refusal that must also converge: us-10-comments.feature:95 `Then the response status is 403`; us-11-attachments.feature:78 `Then the upload is refused as forbidden (HTTP 403)`; us-11-attachments.feature:87 `Then the download is refused as forbidden (HTTP 403)`. The us-11 phrases hardcode 403 in the step TEXT, so both the feature text and the step regex change.",
+            "NOT converging (verified distinct): us-10-comment-edit-delete.feature:96 stays 403 \u2014 it is the author-only edit refusal via `forbidden_fragment`, an authorship rule rather than a membership one, and it leaks no team identity. Every CSRF 403 likewise stays."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-07-project-create.feature",
+          "scenario_name": "A workspace member who is not on the team cannot create a project there; A workspace member not on the team cannot file an issue against that team's project",
+          "files_to_modify": [
+            "crates/foundry-app/src/issues.rs",
+            "crates/foundry-app/src/comments.rs",
+            "crates/foundry-app/src/projects.rs",
+            "crates/foundry-app/src/attachments.rs",
+            "crates/foundry-app/src/keyboard.rs",
+            "crates/foundry-acceptance/tests/features/us-07-project-create.feature",
+            "crates/foundry-acceptance/tests/features/us-08-file-issue.feature",
+            "crates/foundry-acceptance/src/steps/us_07_project_create.rs",
+            "crates/foundry-acceptance/tests/features/us-10-comments.feature",
+            "crates/foundry-acceptance/tests/features/us-11-attachments.feature",
+            "crates/foundry-acceptance/src/steps/us_10_comments.rs",
+            "crates/foundry-acceptance/src/steps/us_11_attachments.rs"
+          ],
+          "implementation_notes": "BOUNDARY WIDENED after the first dispatch stopped correctly at it. Step-definition files us_07_project_create.rs, us_10_comments.rs and us_11_attachments.rs may be modified ONLY for the 403->404 assertion. Everything else under crates/foundry-acceptance/src/steps/ remains off-limits. Production work (20/20 call sites, 5 helpers deleted) is already COMPLETE from the first dispatch; this re-dispatch finishes the three scenarios it could not reach."
+        }
+      ]
+    }
+  ],
+  "implementation_scope": {
+    "source_directories": [
+      "crates/foundry-store/src/",
+      "crates/foundry-services/src/",
+      "crates/foundry-app/src/",
+      "crates/foundry-app/templates/"
+    ],
+    "test_directories": [
+      "crates/foundry-store/tests/",
+      "crates/foundry-services/tests/",
+      "crates/foundry-acceptance/src/steps/",
+      "crates/foundry-acceptance/tests/features/"
+    ],
+    "excluded_patterns": [
+      "target/**",
+      "**/*.md"
+    ]
+  },
+  "validation": {
+    "status": "pending_review",
+    "reviewer": null,
+    "authored_at": "2026-09-05",
+    "notes": "34 DISTILL scenarios (all @pending, classified 29 RED / 5 expected-GREEN / 0 BROKEN) mapped to 10 steps in 3 phases; phase number = slice number, ordered 01 -> 02 -> 03. Slices 02 and 03 both depend on slice 01's issue_delete primitive; 02 and 03 are independent of each other. Steps 01-01 and 01-02 un-pend no acceptance scenario \u2014 they carry store/service integration tests only \u2014 because slice 01's learning hypothesis is about the primitive's transaction shape, which no acceptance scenario can isolate. Every one of the 34 scenarios is claimed by exactly one step; zero orphans. No migration: the schema head stays 0015. AUTOMATED GATE: PASS \u2014 step-id format, no validation-only steps, DISTILL linkage on every step, no AC coupling to private methods, decomposition ratio 0.71 (<2.5), no step covering 8+ scenarios (01-04 was split twice to clear the flag: happy path / refusals / no-JS). COVERAGE GATE: PASS \u2014 all 34 scenarios claimed by exactly one step, zero orphans, zero multi-claims. des-verify-integrity --roadmap-only exits 0. REVIEWER: not dispatched \u2014 the session forbids spawning agents; the automated gates above and a self-review stand in for @nw-acceptance-designer-reviewer, which is weaker than the wave specifies. Status stays pending_review rather than approved to keep that honest."
+  }
+}
