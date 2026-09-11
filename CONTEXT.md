@@ -2,21 +2,21 @@
 
 ## Current Task
 
-**`issue-card-delete` is CODE-COMPLETE and UNCOMMITTED** (HEAD still `d3c87ca`). All
-waves ran; DELIVER finished 12 steps + phases 3-7. Delete works from the edit popup
-and the full page, with or without JS; every authz refusal in the HTML adapter is now
-the uniform non-enumerable 404; a second open board drops the card live via
-`board-live.js`, foundry's first browser-side live-update surface. **No migration —
-head still 0015.** Full lane 632/632.
+`issue-card-delete` is COMMITTED and green at `1d91ad8` (branch `issue-card-delete`,
+**unpushed**). Latest commit is a bugfix: `#modal-root` is declared in `board.html`
+alone, so on the full issue page the confirm's × was dead and the Delete link was
+inert (`htmx:targetError`) — the page could not delete at all with scripting on. Both
+repaired, plus the scripting-ON browser lane that surface never had. CSS re-hashed
+`3d3b9564` → `52ad52fa`. Full lane 771/771; no migration, head still 0015.
 
 ## Key Decisions
 
-- **Hard delete, not the requested tombstone** — issues already hard-deleted via the lane fate, and D1 of `board-lane-overflow-menu` had declined archive. One primitive now serves both callers; ADR-BOARD-LANE-002 amended in one clause.
-- **Refusals converged upward** (user call): 20 `non_member_page` sites → uniform 404, leaking helper deleted. CSRF and author-only 403s untouched.
-- **DISCUSS assumed a capability that never existed** — no browser had ever consumed SSE. Built as step 03-02, scoped to `IssueDeleted` only.
+- **The full page navigates, it does not popup** — Delete is a plain link to the confirm page. Adding `#modal-root` to the shell was rejected: DDD-5's htmx success arm refreshes `#board-columns`, which that page has not got, so confirming would strand her on a deleted issue.
+- **`close_href` selects the close ELEMENT** — empty keeps the popup's `[data-action="close-modal"]` button; non-empty renders an anchor back to the issue. One partial, one carrier-specific control.
+- **Hard delete, not a tombstone** (carried) — one store primitive serves both the single-card path and the lane fate; ADR-BOARD-LANE-002 amended in one clause.
 
 ## Next Steps
 
-- **Commit needs explicit `git add` of 11 untracked paths** — `git commit -a` misses the whole `@icd` lane and leaves the tree green but hollow.
-- **The four-reviewer DISTILL gate never ran**; the one Phase 4 reviewer returned "0 defects" while misquoting the oracle it was told to attack. A real vacuous-assertion defect (D8's redirect target) was found by hand and fixed in Phase 3.
-- **App-handler mutation layer unmeasured** (13 mutants, ~15 min each). Store+services measured 7/7 killed.
+- **Push the branch** — `1d91ad8` and the two commits before it are local only.
+- **App-handler mutation layer unmeasured** (~13 mutants, ~15 min each); `show_delete_form` just gained a branch. Store+services measured 7/7 killed.
+- **The four-reviewer DISTILL gate never ran** — the one Phase 4 reviewer returned "0 defects" while misquoting the oracle it was told to attack.
