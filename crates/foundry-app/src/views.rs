@@ -291,6 +291,14 @@ pub struct DeleteLaneModal {
 #[derive(Debug, Clone, Template)]
 #[template(path = "partials/delete_issue_modal.html")]
 pub struct IssueDeleteModal {
+    /// EMPTY on this carrier, and that is what selects the popup's close
+    /// control: the partial renders the shipped
+    /// `[data-action="close-modal"]` button, whose mechanism —
+    /// `keyboard.js::closeModal()` emptying `#modal-root` — is exactly right
+    /// here, because this fragment IS what `#modal-root` is holding. See
+    /// [`IssueDeleteModalPage::close_href`] for why the page carrier cannot
+    /// use it.
+    pub close_href: String,
     /// `/team/{slug}/project/{slug}/issues/{n}/delete` — the confirm POST.
     pub action: String,
     /// The double-submit CSRF token, rendered into the hidden `_csrf` field.
@@ -320,6 +328,21 @@ pub struct IssueDeleteModal {
 #[derive(Debug, Clone, Template)]
 #[template(path = "delete_issue_modal_page.html")]
 pub struct IssueDeleteModalPage {
+    /// `/team/{slug}/project/{slug}/issues/{n}` — the issue's own page, and the
+    /// ONLY field on which this carrier differs from [`IssueDeleteModal`].
+    ///
+    /// NON-EMPTY selects an ANCHOR as the dialog's close control instead of the
+    /// popup's button, and it must stay non-empty. This page has no
+    /// `#modal-root`; that host is declared in `board.html` alone. The button's
+    /// `[data-action="close-modal"]` names ONE mechanism — empty `#modal-root`
+    /// — so rendering it here produced a × that fired the listener, found a
+    /// null host, and did nothing at all. A destructive dialog whose only exit
+    /// was the browser Back button.
+    ///
+    /// An anchor also keeps the carrier's whole reason for existing intact: it
+    /// is the scripting-OFF path, where a button is inert and an `href` is the
+    /// only thing a browser can follow on its own.
+    pub close_href: String,
     /// `/team/{slug}/project/{slug}/issues/{n}/delete` — the confirm POST.
     pub action: String,
     /// The double-submit CSRF token, rendered into the hidden `_csrf` field.

@@ -211,6 +211,45 @@ Feature: Removing a card that should not be on the board
     Then she is looking at a full page asking her to confirm deleting AUTH-42
     And the page carries the site's own heading and navigation
 
+  # ---------------------------------------------------------------- REGRESSION
+  # The full page with scripting ON. Until these existed, EVERY full-page
+  # scenario above was either HTTP-lane (reqwest, which never executes htmx or
+  # keyboard.js and so cannot observe either defect) or `@needs-browser` with
+  # scripting switched OFF (where htmx is absent by construction, the plain
+  # `href` is followed, and the confirm's close control is inert by design and
+  # unasserted). That left the surface an operator actually uses — a real
+  # browser, scripting on — covered by nothing, and two defects shipped green
+  # through 632 passing tests:
+  #
+  #   1. `issue.html`'s Delete carried `hx-target="#modal-root"`, but
+  #      `#modal-root` is declared ONLY in `board.html`. htmx claimed the click,
+  #      failed to resolve the target (`htmx:targetError`), and never followed
+  #      the href — so the full page could not delete at all.
+  #   2. `delete_issue_modal_page.html` includes the SAME partial the popup
+  #      renders (DDD-6), whose only close affordance is the popup-only
+  #      `[data-action="close-modal"]` trigger — `closeModal()` empties
+  #      `#modal-root`, which that page does not have. The x rendered and did
+  #      nothing; Back was the only way out of a destructive dialog.
+  #
+  # Both are the SAME root cause: a board-scoped host behind an affordance on a
+  # non-board surface. The oracles below are therefore deliberately about
+  # ARRIVAL, not markup — "she got somewhere" is the one thing neither defect
+  # could fake.
+
+  @us-icd-01 @needs-browser @real-io @regression @icd-page-js
+  Scenario: Delete on the full page reaches the confirmation with scripting on
+    Given "Identity Platform" (AUTH) is a board holding AUTH-41, AUTH-42 and AUTH-43
+    When Priya clicks Delete on AUTH-42's page in a real browser
+    Then she is looking at a full page asking her to confirm deleting AUTH-42
+    And AUTH-42 is still on the board
+
+  @us-icd-01 @needs-browser @real-io @regression @icd-page-js
+  Scenario: The confirmation's close control is a way out with scripting on
+    Given "Identity Platform" (AUTH) is a board holding AUTH-41, AUTH-42 and AUTH-43
+    When Priya clicks Delete on AUTH-42's page in a real browser and closes the confirmation
+    Then she is looking at AUTH-42's own page
+    And AUTH-42 is still on the board
+
   # ========================================================================
   # US-ICD-02 — delete from the popup, board updates in place (slice 02)
   # ========================================================================

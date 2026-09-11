@@ -356,8 +356,16 @@ pub async fn show_delete_form(
     let (csrf, set_cookie) = crate::csrf::ensure_csrf_cookie(&state, &headers);
     let action = delete_url(&team_slug, &project_slug, issue_number);
     let rendered = "delete confirm renders from a fully-resolved, infallible view-model";
+    // The ONE field that distinguishes the two carriers of the same partial.
+    // The popup is held BY `#modal-root`, so the shipped close button (empty
+    // `close_href`) is correct there. The page is not — it has no `#modal-root`
+    // at all — so its close is an anchor back to the issue she decided not to
+    // delete. Rendering the popup's button on the page shipped a × that fired
+    // the listener, found a null host and did nothing; see
+    // `views::IssueDeleteModalPage::close_href`.
     let body = if is_htmx(&headers) {
         crate::views::IssueDeleteModal {
+            close_href: String::new(),
             action,
             csrf,
             key: view.key,
@@ -368,6 +376,7 @@ pub async fn show_delete_form(
         .expect(rendered)
     } else {
         crate::views::IssueDeleteModalPage {
+            close_href: detail_url(&team_slug, &project_slug, issue_number),
             action,
             csrf,
             key: view.key,

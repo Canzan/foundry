@@ -1163,6 +1163,100 @@ async fn when_nojs_dialog_only(world: &mut FoundryWorld, key: String) {
     record_browser_page(world, &client, landed).await;
 }
 
+/// REGRESSION (the full page with scripting ON). The mirror of
+/// `follow_delete_link_without_scripting`, and the ONLY difference is the one
+/// that matters: this session runs JavaScript, so htmx is loaded and gets first
+/// refusal on the click. That is precisely the configuration under which the
+/// shipped `hx-target="#modal-root"` on `issue.html` died — the host is
+/// declared only in `board.html`, htmx raised `htmx:targetError`, and having
+/// claimed the click it never followed the `href`. Nothing happened at all.
+///
+/// So this waits on `[data-kb-ready]` first. The marker means the delegated
+/// listeners are LIVE (ADR-001) — without it the click could land before the
+/// scripting layer attaches, and the scenario would pass for the wrong reason:
+/// it would prove only that a plain anchor works, which the no-JS lane already
+/// proves.
+///
+/// THE ORACLE IS ARRIVAL, not markup. A click that does nothing never settles
+/// anywhere and fails HERE, in the wait, with the diagnosis attached.
+async fn click_delete_on_page_with_scripting(
+    world: &mut FoundryWorld,
+    key: &str,
+) -> (fantoccini::Client, String) {
+    let project = current_project(world);
+    let base = harness(world).base_url();
+    let page = format!("{base}{}", issue_page_path(world, &project, number_of(key)));
+    let client = match world.browser.as_ref() {
+        Some(c) => c.clone(),
+        None => {
+            let c = browser_harness::new_session().await;
+            world.browser = Some(c.clone());
+            c
+        }
+    };
+    browser_harness::sign_in_through_browser(&client, harness(world), PRIYA_EMAIL, PRIYA_PASSWORD)
+        .await;
+    client.goto(&page).await.expect("issue page");
+    browser_harness::wait_for_kb_ready(&client).await;
+    client
+        .find(Locator::Css(&format!("[{PAGE_DELETE}]")))
+        .await
+        .expect("the issue page must offer a Delete control (D6)")
+        .click()
+        .await
+        .expect("click Delete");
+    let landed = wait_for_navigation(
+        &client,
+        |path| path.ends_with("/delete"),
+        "with scripting ON, Delete on the full issue page did not reach the confirm route. \
+         The control is claimed by htmx and targets #modal-root, a host declared only in \
+         board.html — htmx raises htmx:targetError and, having claimed the click, never \
+         follows the href. The full page cannot delete an issue at all (D6, AC-1.11).",
+    )
+    .await;
+    (client, landed)
+}
+
+#[when(regex = r"^Priya clicks Delete on (\w+-\d+)'s page in a real browser$")]
+async fn when_page_delete_with_scripting(world: &mut FoundryWorld, key: String) {
+    let (client, landed) = click_delete_on_page_with_scripting(world, &key).await;
+    record_browser_page(world, &client, landed).await;
+}
+
+/// REGRESSION (the dead ×). `.modal-close` rather than
+/// `[data-action="close-modal"]` is the whole point: that attribute NAMES the
+/// popup mechanism ("empty #modal-root"), and on this carrier there is no
+/// #modal-root to empty — selecting on it would pin the very coupling that IS
+/// the defect. The scenario asks the surface-neutral question the operator
+/// asks — "is there a way out of this destructive dialog, and does it work?" —
+/// and `.modal-close` is the class BOTH carriers already render (D-13).
+#[when(
+    regex = r"^Priya clicks Delete on (\w+-\d+)'s page in a real browser and closes the confirmation$"
+)]
+async fn when_page_delete_then_close(world: &mut FoundryWorld, key: String) {
+    let (client, confirm_path) = click_delete_on_page_with_scripting(world, &key).await;
+    client
+        .find(Locator::Css(&format!("[{DELETE_MODAL}] .modal-close")))
+        .await
+        .expect(
+            "the confirm must render a close control — a destructive dialog whose only exit \
+             is the browser Back button is the outcome adr-modal-close-001 exists to prevent",
+        )
+        .click()
+        .await
+        .expect("click the close control");
+    let landed = wait_for_navigation(
+        &client,
+        |path| path != confirm_path,
+        "the confirm's close control did nothing. On this carrier the dialog is NOT inside \
+         #modal-root (the page has none), so keyboard.js::closeModal() finds a null host and \
+         returns — the × renders and cannot close. Priya is trapped in a destructive dialog \
+         with no way out but the Back button.",
+    )
+    .await;
+    record_browser_page(world, &client, landed).await;
+}
+
 #[when(regex = r"^Priya opens (\w+-\d+) from the board$")]
 async fn when_opens_popup(world: &mut FoundryWorld, key: String) {
     let project = current_project(world);
@@ -1474,7 +1568,7 @@ async fn then_asked_to_confirm(world: &mut FoundryWorld, key: String) {
 async fn then_counts_children(world: &mut FoundryWorld) {
     // The EXACT sentence the dialog renders, not three unscoped substring probes.
     // `body.contains('3')` was vacuous: this scenario takes the PAGE carrier, whose
-    // <head> links `foundry.3d3b9564.css` — the digit is satisfied by the stylesheet
+    // <head> links `foundry.52ad52fa.css` — the digit is satisfied by the stylesheet
     // filename alone, so the old oracle passed even if the dialog said "0 comments
     // and 0 attachments". Asserting the rendered sentence is scoped by construction
     // and fails on a wrong count, a dropped plural, or a moved clause.
@@ -2095,6 +2189,34 @@ async fn then_full_confirm_page(world: &mut FoundryWorld, key: String) {
         body.contains(DELETE_MODAL),
         "the no-JS page must include the SAME confirm partial the htmx path swaps \
          (DDD-6), so the two can never disagree"
+    );
+}
+
+/// REGRESSION oracle for the close control: she is back on the issue's OWN
+/// page, not merely "somewhere else". A close that landed on the board, on
+/// `/sign-in`, or on a 404 would satisfy "left the confirm route" and is still
+/// not a way out of a dialog — cancelling a delete returns you to the thing you
+/// decided not to delete.
+#[then(regex = r"^she is looking at (\w+-\d+)'s own page$")]
+async fn then_looking_at_issue_page(world: &mut FoundryWorld, key: String) {
+    let project = current_project(world);
+    let expected = issue_page_path(world, &project, number_of(&key));
+    let landed = world
+        .icd_last_location
+        .clone()
+        .expect("a browser When must record the path it settled on");
+    assert_eq!(
+        landed, expected,
+        "cancelling the delete must return her to {key}'s own page"
+    );
+    let body = last_body(world);
+    assert!(
+        body.contains(&key),
+        "the page she landed on must be {key}'s; it does not name the issue"
+    );
+    assert!(
+        !body.contains(DELETE_MODAL),
+        "the confirm dialog must be GONE after the close, not merely navigated past"
     );
 }
 

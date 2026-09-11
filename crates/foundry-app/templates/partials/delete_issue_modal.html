@@ -2,9 +2,10 @@
    adr-issue-delete-002). A BARE fragment htmx swaps into #modal-root — it must
    NOT extend base.html; `delete_issue_modal_page.html` includes THIS SAME
    partial for a direct navigation, so the popup and the page can never
-   disagree. Close is the declarative [data-action="close-modal"] trigger ONLY —
-   no new Escape/click listener (BR-4, ADR-MODAL-CLOSE-001), and this feature
-   ships no JavaScript at all.
+   disagree — EXCEPT for the close control, which is carrier-specific and
+   explained at the header below. Neither carrier adds an Escape or click
+   listener (BR-4, ADR-MODAL-CLOSE-001); this feature ships no JavaScript at
+   all, and the popup's close rides the one shipped delegated listener.
 
    The counts are COPY, read once at GET time (D13, inherited from
    board-lane-management D7): they say what goes with the issue, they are never
@@ -12,9 +13,27 @@
    comment filed while this dialog is open goes with the issue. #}
 <div class="modal" role="dialog" aria-modal="true" data-modal="delete-issue">
   <div class="modal-dialog">
+    {# THE CLOSE CONTROL IS THE ONE THING THE TWO CARRIERS CANNOT SHARE, and it
+       shipped shared and DEAD on one of them. `[data-action="close-modal"]`
+       does not mean "close"; it names ONE mechanism — keyboard.js::closeModal()
+       empties `#modal-root` (D-10, adr-modal-close-001). In the popup that IS
+       the close, because the popup lives in that host. On
+       `delete_issue_modal_page.html` there is no `#modal-root` at all, so the
+       listener fired, found a null host, returned, and the x rendered while
+       doing nothing — Priya's only way out of a destructive dialog was the
+       browser Back button.
+
+       So `close_href` decides the ELEMENT, and it is the only thing that
+       differs: empty on the popup (the button, the shipped mechanism,
+       untouched), set on the page (an anchor back to the issue — cancelling a
+       delete returns you to the thing you decided not to delete). Both are
+       `.modal-close`, so D-13's target-size and focus-ring rules and the
+       acceptance selector cover both without knowing which carrier rendered.
+       The one-partial rule (DDD-6) holds: the COPY, the counts, the confirm
+       form and the undo warning still cannot disagree between the two. #}
     <header class="modal-header">
       <h2>Delete {{ key }}</h2>
-      <button type="button" class="modal-close" aria-label="Close" data-action="close-modal">&times;</button>
+      {% if close_href.is_empty() %}<button type="button" class="modal-close" aria-label="Close" data-action="close-modal">&times;</button>{% else %}<a class="modal-close" aria-label="Close" href="{{ close_href }}">&times;</a>{% endif %}
     </header>
     <form method="post" action="{{ action }}" hx-post="{{ action }}" hx-target="#modal-root" hx-swap="innerHTML">
       <input type="hidden" name="_csrf" value="{{ csrf }}">
