@@ -41,3 +41,6 @@ testcontainers-modules = { workspace = true }
 # The D6 leftmost-landing rule is a domain invariant over arbitrary lane
 # sets — proptest pins it at the store driving port (TEST PARADIGM mandate).
 proptest = "1"
+# The reset-token contract is defined over the SHA-256 of the raw token — the
+# store only ever sees the hash — so its test has to compute the same digest.
+sha2 = { workspace = true }

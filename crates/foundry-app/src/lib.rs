@@ -32,6 +32,7 @@ pub mod notify;
 pub mod oidc;
 pub mod projects;
 pub mod rate_limit;
+pub mod reset_password;
 pub mod session;
 pub mod signin;
 pub mod unsubscribe;
@@ -498,6 +499,16 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/forgot-password",
             get(signin::show_forgot_form).post(signin::submit_forgot),
+        )
+        // The other half of that flow. `submit_forgot` has always emailed
+        // `{public_url}/reset-password?token=…`; until this route existed the link
+        // 404'd, so the feature ended at the inbox. PUBLIC (the user is signed
+        // out by definition) and on the same shared layer as `/sign-in` and
+        // `/invites/accept`: `csrf_middleware` + `session_layer` apply, so the
+        // POST needs the double-submit `_csrf` like every other form.
+        .route(
+            "/reset-password",
+            get(reset_password::show_reset_form).post(reset_password::submit_reset),
         )
         // notification-delivery-providers 06-01 (US-06) — the signed-in
         // account-owner password-change trigger. Same shared layer (UNDER

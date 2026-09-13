@@ -84,12 +84,20 @@ Feature: A team member sees teammates' issue changes appear on the project board
     Then within 2000 milliseconds Mei observes an "IssueUpdated" event for "AUTH-1" on "Auth v2"
     And the event payload reports state "in-progress"
 
-  @real-io @nfr-perf-03
+  @real-io @nfr-perf-03 @serial
   Scenario: Sequential issue creations all fan out within the NFR-PERF-03 budget
     # NFR-PERF-03 ceiling: P99 <= 2 seconds, median <= 1 second. We assert
     # each of 10 events arrives within 2000ms (P99), and that the median
-    # arrival time across the 10 is <= 1500ms (median + safety margin per
-    # F-004 to avoid flake under parallel CI load).
+    # arrival time across the 10 is <= 1500ms.
+    #
+    # @serial for the same reason as us-08's P95 scenario: arrival latency is
+    # measured end-to-end through a `LISTEN issue_events` listener on the ONE
+    # shared Postgres container, and the default lane runs six scenarios at a
+    # time against it. Under that the budget measures queueing behind five
+    # other scenarios' listeners. It passes alone and fails in the full suite
+    # on an idle machine. The 1500ms median is still 500ms above the stated
+    # NFR-PERF-03 median of 1s; that margin predates this tag and is left
+    # alone here rather than re-tightened in a change about contention.
     Given Mei has an open subscription to events on "Auth v2"
     When Hiroshi files 10 issues against "Auth v2" sequentially, each with a unique title, pausing 100 milliseconds between
     Then Mei receives 10 "IssueCreated" events whose keys are "AUTH-1" through "AUTH-10"

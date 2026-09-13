@@ -202,7 +202,7 @@ async fn main() {
             // default-lane cap restores the invariant that `@all` =
             // "default lane + the @slow + @docker-compose scenarios".
             FoundryWorld::cucumber()
-                .max_concurrent_scenarios(6)
+                .max_concurrent_scenarios(foundry_acceptance::support::MAX_CONCURRENT_SCENARIOS)
                 .after(|_f, _r, _s, _ev, world| {
                     Box::pin(async move {
                         if let Some(w) = world {
@@ -231,7 +231,7 @@ async fn main() {
             // over one slice without spinning the whole default lane.
             let wanted = tag.to_string();
             FoundryWorld::cucumber()
-                .max_concurrent_scenarios(6)
+                .max_concurrent_scenarios(foundry_acceptance::support::MAX_CONCURRENT_SCENARIOS)
                 .after(|_f, _r, _s, _ev, world| {
                     Box::pin(async move {
                         if let Some(w) = world {
@@ -267,7 +267,7 @@ async fn main() {
             // ran at 8; slice 3 dropped to 6 to amortise the new
             // contention.
             FoundryWorld::cucumber()
-                .max_concurrent_scenarios(6)
+                .max_concurrent_scenarios(foundry_acceptance::support::MAX_CONCURRENT_SCENARIOS)
                 .after(|_f, _r, _s, _ev, world| {
                     Box::pin(async move {
                         if let Some(w) = world {

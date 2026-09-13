@@ -476,6 +476,26 @@ pub struct ForgotPage {
     pub csrf_token: String,
 }
 
+/// The password-reset set-password page. Extends `base.html`. Rendered for a
+/// LIVE reset token only: carries the hidden `_csrf` (double-submit) plus the
+/// raw `token` so the POST re-verifies the same link, and the password + confirm
+/// inputs. The optional `.error` slot shows the inline recovery message (weak /
+/// mismatch) on re-render, matching `InviteAcceptPage`'s contract.
+///
+/// The token is echoed into a hidden field rather than carried in the POST's
+/// query string: a form action keeps it out of the referrer and out of any
+/// access log that records query strings.
+#[derive(Debug, Clone, Template)]
+#[template(path = "reset_password.html")]
+pub struct ResetPasswordPage {
+    /// The double-submit CSRF token, rendered into the hidden `_csrf` field.
+    pub csrf_token: String,
+    /// The raw reset token, echoed into the hidden `token` field for the POST.
+    pub token: String,
+    /// Inline recovery copy (weak / mismatch); `None` on the initial GET render.
+    pub error: Option<String>,
+}
+
 /// The invite-accept set-password page (invite-accept-flow, ADR-001/003/004).
 /// Extends `base.html`. Renders for a LIVE invite only: names the workspace,
 /// carries the hidden `_csrf` (double-submit) + `id` + `sig` so the POST

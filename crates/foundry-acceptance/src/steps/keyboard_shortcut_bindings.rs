@@ -3995,7 +3995,39 @@ const SEARCH_ROW_SELECTED_SELECTOR: &str =
 /// `ensure_csrf_cookie` — "reuse the request's CSRF cookie if present"), so a
 /// byte-identical comparison is legitimate here and is NOT masking anything. If
 /// that ever changes, this assertion reds loudly rather than silently weakening.
+///
+/// Read only once htmx has SETTLED. htmx stamps freshly swapped nodes with
+/// `htmx-added` (2.0.4 config `addedClass`) and strips it in the settle step, a
+/// `defaultSettleDelay` of 20ms later — so an `innerHTML` read inside that window
+/// carries a class the shipped template never wrote. The two paths do not race
+/// that window equally: the pointer path reloads the board and waits on two
+/// readiness markers before it captures, so it always lands after settle, while
+/// the keyboard path captures the instant the modal appears. On a loaded machine
+/// the comparison therefore reduces to `class="modal htmx-added"` versus
+/// `class="modal"` — byte-identical everywhere else, `_csrf` included — and
+/// reports htmx's own bookkeeping as the second open path this proof exists to
+/// catch. Waiting rather than stripping the class keeps the comparison
+/// byte-for-byte over the SHIPPED markup, and still reds if a swap never settles.
 async fn modal_root_markup(browser: &fantoccini::Client) -> String {
+    const TRANSIENT_SWAP_CLASSES: &str =
+        "#modal-root .htmx-added, #modal-root .htmx-settling, #modal-root .htmx-swapping";
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        let in_flight = browser
+            .find_all(Locator::Css(TRANSIENT_SWAP_CLASSES))
+            .await
+            .expect("look for htmx's transient swap classes under #modal-root");
+        if in_flight.is_empty() {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "#modal-root still carries htmx's transient swap classes after 5s, so the swap \
+             never settled and its markup is not yet the shipped modal"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+
     let markup = browser
         .execute(
             "var host = document.getElementById('modal-root');
