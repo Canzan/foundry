@@ -320,3 +320,196 @@ async fn change_state_accepts_only_the_projects_own_lanes_and_echoes_the_canonic
         "the refusal must be the invalid_state validation error; got {err:?}"
     );
 }
+
+// ----- issue-card-delete (slice 01, step 01-02) --------------------------
+//
+// Test budget: 4 distinct behaviours in the step criteria
+// (budget = 2 × 4 = 8; 3 written — the two refusal behaviours share one test
+// because they assert the same observable outcome shape: a refusal AND an
+// intact issue row):
+//   5. delete_issue refuses a non-member with Forbidden, and an absent issue
+//      with the uniform non-enumerable NotFound — neither deletes anything.
+//   6. delete_issue by a member who is NOT the author succeeds (D2:
+//      membership, not authorship, is the gate).
+//   7. delete_issue_dialog returns the issue key/number plus the LIVE
+//      advisory comment + attachment counts (D13), behind the same authz gate.
+
+/// Seed a workspace user who is deliberately NOT a member of the Backend
+/// team — the `resolve_member_project` Forbidden case.
+async fn seed_outsider(store: &Store, workspace_id: uuid::Uuid) -> uuid::Uuid {
+    let outsider_id = uuid::Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO users (id, email_lower, email_display, display_name, password_hash)
+              VALUES ($1, $2, $3, $4, $5)",
+    )
+    .bind(outsider_id)
+    .bind("kwame@acme.com")
+    .bind("kwame@acme.com")
+    .bind("Kwame")
+    .bind("x")
+    .execute(store.pool())
+    .await
+    .expect("seed outsider user");
+    sqlx::query(
+        "INSERT INTO workspace_memberships (workspace_id, user_id, role) VALUES ($1, $2, 'member')",
+    )
+    .bind(workspace_id)
+    .bind(outsider_id)
+    .execute(store.pool())
+    .await
+    .expect("seed outsider workspace membership");
+    outsider_id
+}
+
+/// Behaviour 5 — delete_issue refuses. A workspace user who is not a member of
+/// the owning team is refused `Forbidden`; a member asking for an issue number
+/// that does not exist is refused the uniform non-enumerable `NotFound`
+/// (DDD-10). Neither refusal removes a row: the issue survives both.
+#[tokio::test]
+async fn delete_issue_refuses_non_member_forbidden_and_absent_issue_not_found() {
+    let h = seeded_harness().await;
+    let mei = Principal::Human {
+        user_id: h.member_id,
+        workspace_id: h.workspace_id,
+    };
+    let number = create_issue(&h.store, &mei, "backend", "auth-v2", "Keep me", "")
+        .await
+        .expect("seed issue through the driving port")
+        .number;
+
+    let outsider = Principal::Human {
+        user_id: seed_outsider(&h.store, h.workspace_id).await,
+        workspace_id: h.workspace_id,
+    };
+    let forbidden =
+        foundry_services::issues::delete_issue(&h.store, &outsider, "backend", "auth-v2", number)
+            .await
+            .expect_err("a non-member must not be able to delete a team's issue");
+    assert!(
+        matches!(forbidden, ServiceError::Forbidden),
+        "a non-member delete must be Forbidden, got {forbidden:?}"
+    );
+
+    let missing = foundry_services::issues::delete_issue(
+        &h.store,
+        &mei,
+        "backend",
+        "auth-v2",
+        number + 9_999,
+    )
+    .await
+    .expect_err("an issue that is not there must be refused");
+    assert!(
+        matches!(missing, ServiceError::NotFound),
+        "a vanished issue must be the non-enumerable NotFound, got {missing:?}"
+    );
+
+    assert_eq!(
+        h.store
+            .count_issues_in_project(h.project_id)
+            .await
+            .expect("count after both refusals"),
+        1,
+        "a refused delete must leave the issue row intact"
+    );
+}
+
+/// Behaviour 6 — membership, not authorship, is the gate (D2). Devansh files
+/// the issue; Mei — a team member who did NOT file it — deletes it, and the row
+/// is gone. There is deliberately no author check.
+#[tokio::test]
+async fn delete_issue_by_a_member_who_is_not_the_author_removes_the_row() {
+    let h = seeded_harness().await;
+    let devansh = Principal::Human {
+        user_id: h.admin_id,
+        workspace_id: h.workspace_id,
+    };
+    let number = create_issue(
+        &h.store,
+        &devansh,
+        "backend",
+        "auth-v2",
+        "Filed by Devansh",
+        "",
+    )
+    .await
+    .expect("seed issue authored by devansh")
+    .number;
+
+    let mei = Principal::Human {
+        user_id: h.member_id,
+        workspace_id: h.workspace_id,
+    };
+    foundry_services::issues::delete_issue(&h.store, &mei, "backend", "auth-v2", number)
+        .await
+        .expect("a member who is not the author must be able to delete the issue");
+
+    assert_eq!(
+        h.store
+            .count_issues_in_project(h.project_id)
+            .await
+            .expect("count after delete"),
+        0,
+        "the delete must remove the issue row"
+    );
+}
+
+/// Behaviour 7 — the confirm dialog's read returns the issue key + number plus
+/// the LIVE advisory counts (D13): two comments and one attachment are counted
+/// as they actually stand at GET time, never a stale or hardcoded figure.
+#[tokio::test]
+async fn delete_issue_dialog_returns_the_live_advisory_counts() {
+    let h = seeded_harness().await;
+    let mei = Principal::Human {
+        user_id: h.member_id,
+        workspace_id: h.workspace_id,
+    };
+    let number = create_issue(&h.store, &mei, "backend", "auth-v2", "Has children", "")
+        .await
+        .expect("seed issue")
+        .number;
+
+    for body in ["first", "second"] {
+        foundry_services::comments::create_comment(
+            &h.store, &mei, "backend", "auth-v2", number, body,
+        )
+        .await
+        .expect("seed comment");
+    }
+    let issue_id: uuid::Uuid =
+        sqlx::query_scalar("SELECT id FROM issues WHERE project_id = $1 AND number = $2")
+            .bind(h.project_id)
+            .bind(number)
+            .fetch_one(h.store.pool())
+            .await
+            .expect("resolve seeded issue id");
+    h.store
+        .insert_attachment(
+            uuid::Uuid::now_v7(),
+            issue_id,
+            h.workspace_id,
+            h.member_id,
+            "trace.log",
+            "text/plain",
+            &"a".repeat(64),
+            b"boom",
+        )
+        .await
+        .expect("seed attachment");
+
+    let view =
+        foundry_services::issues::delete_issue_dialog(&h.store, &mei, "backend", "auth-v2", number)
+            .await
+            .expect("a member must be able to open the delete-confirm dialog");
+
+    assert_eq!(
+        (
+            view.key.as_str(),
+            view.number,
+            view.comment_count,
+            view.attachment_count
+        ),
+        ("AUTH-1", number, 2, 1),
+        "the dialog must report the issue key + number and the LIVE advisory counts"
+    );
+}

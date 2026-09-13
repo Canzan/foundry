@@ -9,18 +9,19 @@
 //! `delete_lane_with_fate` contract (ADR-BOARD-LANE-002): ONE transaction —
 //! lock lane (`FOR UPDATE`) → last-lane gate → confirm-time membership
 //! (`FOR UPDATE`, `position ASC, number DESC`) → fate arm (move: state+position
-//! updates + one 0013 `status` event + one outbox row per card; delete:
-//! `DELETE … WHERE id = ANY(ids)`, the `delete_issue_cascade` shape) → delete
-//! the lane row (the composite FK is the strand-guard) → commit. Bounded
-//! internal retry (≤3) on foreign_key_violation / deadlock, re-resolving
-//! membership each attempt. Full TOCTOU analysis: data-models.md §5.
+//! updates + one 0013 `status` event + one outbox row per card; delete: the
+//! shared `issue_delete::delete_issues_with_outbox` primitive on THIS
+//! transaction) → delete the lane row (the composite FK is the strand-guard) →
+//! commit. Bounded internal retry (≤3) on foreign_key_violation / deadlock,
+//! re-resolving membership each attempt. Full TOCTOU analysis: data-models.md §5.
 //!
-//! Step 03-01 implements the transaction skeleton (lock → last-lane gate →
-//! membership → lane-row delete) with the fate arms trivial for ZERO cards.
-//! The WITH-CARDS fate arms are step 04-01's: until then a confirm reaching a
-//! populated lane rolls back with an explicit honest error (never a silent
-//! partial apply, never a faked success).
+//! BOTH fate arms carry cards. A confirm reaching a POPULATED lane moves its
+//! cards to the chosen destination, or deletes them outright — it does not
+//! refuse. (Board-lane-management shipped that; the earlier "step 04-01 will
+//! do it, until then a populated lane rolls back with an honest error" note
+//! described a scaffold that no longer exists.)
 
+use crate::issue_delete::IssueDeleteContext;
 use crate::{IssueInsertError, Store, StoreError};
 
 /// Creation-seed template — the documented exemption to the
@@ -248,7 +249,21 @@ impl Store {
                     .await?;
                 (moved, 0u64)
             }
-            LaneDeleteFate::DeleteCards => (0u64, delete_cards_permanently(&mut tx, &cards).await?),
+            // DELETE fate (DDD-2, ADR-ISSUE-DELETE-001): the ONE issue-delete
+            // primitive, on THIS transaction — so the cards go and their N
+            // `IssueDeleted` announcements are written commit-or-nothing with
+            // the lane row. Comments, attachments and change events cascade
+            // away at the schema level (`0004_comments.sql:22`,
+            // `0005_issue_attachments.sql:19`,
+            // `0013_issue_change_events.sql:21` — `ON DELETE CASCADE`). The
+            // count is rows RETURNING-removed, not `rows_affected()`, so
+            // `Deleted { deleted }` keeps its meaning.
+            LaneDeleteFate::DeleteCards => {
+                let ctx = issue_delete_context(&mut tx, project_id).await?;
+                let deleted =
+                    crate::issue_delete::delete_issues_with_outbox(&mut tx, &ctx, &cards).await?;
+                (0u64, deleted)
+            }
         };
 
         // 5. Delete the lane row — the composite FK is the strand-guard: a
@@ -333,24 +348,25 @@ impl Store {
     }
 }
 
-/// DELETE fate — the `delete_issue_cascade` shape, batched and in-transaction:
-/// one `DELETE … WHERE id = ANY($ids)`; comments, attachments and change
-/// events cascade away at the schema level (0006/0011/0013 `ON DELETE
-/// CASCADE`). No events, no outbox, no tombstone (D7 — parity with
-/// `delete_issue_cascade`, which emits nothing).
-async fn delete_cards_permanently(
+/// Everything `issue_delete::delete_issues_with_outbox` needs to compose its
+/// `IssueDeleted` payloads, read inside the fate's OWN transaction — the same
+/// `SELECT workspace_id, key_prefix FROM projects` (and the same
+/// `{key_prefix}-{number}` key composition) `move_cards_to_destination` uses,
+/// so both fate arms name a card identically.
+async fn issue_delete_context(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    cards: &[(uuid::Uuid, i32)],
-) -> Result<u64, StoreError> {
-    if cards.is_empty() {
-        return Ok(0);
-    }
-    let ids: Vec<uuid::Uuid> = cards.iter().map(|(id, _)| *id).collect();
-    let result = sqlx::query("DELETE FROM issues WHERE id = ANY($1)")
-        .bind(&ids)
-        .execute(&mut **tx)
-        .await?;
-    Ok(result.rows_affected())
+    project_id: uuid::Uuid,
+) -> Result<IssueDeleteContext, StoreError> {
+    let (workspace_id, key_prefix): (uuid::Uuid, String) =
+        sqlx::query_as("SELECT workspace_id, key_prefix FROM projects WHERE id = $1")
+            .bind(project_id)
+            .fetch_one(&mut **tx)
+            .await?;
+    Ok(IssueDeleteContext {
+        workspace_id,
+        project_id,
+        key_prefix,
+    })
 }
 
 /// `record_issue_change` speaks `IssueInsertError`; inside the lane-fate
@@ -479,10 +495,10 @@ mod retry_classifier_tests {
 }
 
 // ===========================================================================
-// board-lane-overflow-menu — shape-in-place write ports (DISTILL scaffolds)
+// board-lane-overflow-menu — shape-in-place write ports.
 //
-// SCAFFOLD: true (ADR-025). Bodies panic; the SIGNATURES are the DESIGN
-// contract (component-boundaries.md §4). DELIVER slices 02/03 replace them.
+// Scaffolded by DISTILL (ADR-025) and delivered by slices 02/03; the signatures
+// are still the DESIGN contract (component-boundaries.md §4).
 // ===========================================================================
 
 /// Which side of the anchor lane a new lane lands on (`insert_lane_at`).
@@ -513,7 +529,7 @@ pub enum LaneInsertOutcome {
 }
 
 impl Store {
-    /// SCAFFOLD: true — rename a lane's LABEL. DELIVER slice 02.
+    /// Rename a lane's LABEL (board-lane-overflow-menu slice 02).
     ///
     /// Label-only by inherited invariant, not by choice: `issues.state` holds
     /// the lane **slug** under composite FK `fk_issues_lane`, and `brief.md`
@@ -546,7 +562,7 @@ impl Store {
         Ok(affected == 1)
     }
 
-    /// SCAFFOLD: true — insert a lane beside an anchor. DELIVER slice 03.
+    /// Insert a lane beside an anchor (board-lane-overflow-menu slice 03).
     ///
     /// ONE transaction, in this exact order (ADR-BOARD-LANE-003, every step
     /// measured against a real Postgres 16 during the DESIGN spike):

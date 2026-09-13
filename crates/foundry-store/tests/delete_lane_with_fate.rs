@@ -400,3 +400,169 @@ async fn count_issues_in_lane_reports_the_live_per_lane_count() {
         "the advisory count must be the LIVE per-lane card count"
     );
 }
+
+/// issue-card-delete 03-03 (DDD-2, AC-3.8): the `DeleteCards` fate now routes
+/// through the ONE delete primitive, so it ANNOUNCES. Exactly one
+/// `IssueDeleted` outbox row per card the fate destroyed — named by `key`, so
+/// a mutant that emits the wrong card (or emits per card REQUESTED rather than
+/// per row RETURNING-removed) dies — and none for cards in other lanes. The
+/// acceptance lane can see the SSE frames but not that the rows are written on
+/// the fate's own transaction; this is the store-boundary pin.
+#[tokio::test]
+async fn delete_fate_announces_exactly_one_deletion_per_card_it_destroyed() {
+    let (base, _guard) = fresh_postgres().await;
+    let store = migrated_store(&base).await;
+    let (project, operator) = seed_project(&store).await;
+    seed_issue_at(&store, project, operator, 10, "todo", 0).await;
+    seed_issue_at(&store, project, operator, 20, "todo", 1).await;
+    seed_issue_at(&store, project, operator, 30, "done", 0).await;
+
+    let outcome = store
+        .delete_lane_with_fate(project, "todo", LaneDeleteFate::DeleteCards, operator)
+        .await
+        .expect("a delete-fate confirm on a populated lane must not be a store error");
+
+    assert!(
+        matches!(
+            outcome,
+            LaneDeleteOutcome::Deleted {
+                moved: 0,
+                deleted: 2
+            }
+        ),
+        "the reported count must still be the TRUE deleted count; got {outcome:?}"
+    );
+    let announced: Vec<(String,)> = sqlx::query_as(
+        "SELECT payload ->> 'key' FROM outbox
+          WHERE event_type = 'IssueDeleted' ORDER BY payload ->> 'key'",
+    )
+    .fetch_all(store.pool())
+    .await
+    .expect("read IssueDeleted rows");
+    assert_eq!(
+        announced,
+        vec![("GEN-10".to_string(),), ("GEN-20".to_string(),)],
+        "the fate must announce exactly the two cards it destroyed, and only those"
+    );
+    let (updated,): (i64,) =
+        sqlx::query_as("SELECT count(*) FROM outbox WHERE event_type = 'IssueUpdated'")
+            .fetch_one(store.pool())
+            .await
+            .expect("count IssueUpdated rows");
+    assert_eq!(
+        updated, 0,
+        "a destroyed card was never updated — the delete arm must not emit IssueUpdated"
+    );
+}
+
+/// The other half of the DDD-2 amendment's ONE clause (AC-3.9): rewiring the
+/// delete arm must NOT give the move arm a delete event. A moved card is
+/// updated, never deleted — N `IssueUpdated`, ZERO `IssueDeleted`, and still
+/// one 0013 `status` change event per card.
+#[tokio::test]
+async fn move_fate_announces_updates_only_and_never_a_deletion() {
+    let (base, _guard) = fresh_postgres().await;
+    let store = migrated_store(&base).await;
+    let (project, operator) = seed_project(&store).await;
+    seed_issue_at(&store, project, operator, 10, "todo", 0).await;
+    seed_issue_at(&store, project, operator, 20, "todo", 1).await;
+
+    store
+        .delete_lane_with_fate(
+            project,
+            "todo",
+            LaneDeleteFate::MoveTo {
+                destination_slug: "in_progress",
+            },
+            operator,
+        )
+        .await
+        .expect("a move-fate confirm to a live destination must not be a store error");
+
+    let (updated,): (i64,) =
+        sqlx::query_as("SELECT count(*) FROM outbox WHERE event_type = 'IssueUpdated'")
+            .fetch_one(store.pool())
+            .await
+            .expect("count IssueUpdated rows");
+    let (deleted,): (i64,) =
+        sqlx::query_as("SELECT count(*) FROM outbox WHERE event_type = 'IssueDeleted'")
+            .fetch_one(store.pool())
+            .await
+            .expect("count IssueDeleted rows");
+    let (status_events,): (i64,) =
+        sqlx::query_as("SELECT count(*) FROM issue_change_events WHERE field = 'status'")
+            .fetch_one(store.pool())
+            .await
+            .expect("count 0013 status events");
+    assert_eq!(
+        (updated, deleted, status_events),
+        (2, 0, 2),
+        "a moved card is announced as UPDATED (one per card) and never as deleted, \
+         and still writes its one 0013 status event"
+    );
+}
+
+/// The retry property the DESIGN_CONTEXT asks to verify rather than assume: an
+/// attempt that aborts leaves NO events behind for its successor to duplicate.
+/// Driven deterministically by blocking the final `DELETE FROM lanes` with a
+/// foreign key from an outside table — the same 23503 the composite-FK
+/// strand-guard raises, so `is_fate_retryable` fires, all three attempts roll
+/// back, and the loop surfaces an honest error. The observable proof: the
+/// cards are still there and the outbox is EMPTY, so no abandoned attempt's
+/// announcement survived its rollback.
+#[tokio::test]
+async fn an_aborted_delete_fate_attempt_leaves_no_announcement_behind() {
+    let (base, _guard) = fresh_postgres().await;
+    let store = migrated_store(&base).await;
+    let (project, operator) = seed_project(&store).await;
+    seed_issue_at(&store, project, operator, 10, "todo", 0).await;
+    seed_issue_at(&store, project, operator, 20, "todo", 1).await;
+    // A NO ACTION reference onto the dying lane row: the fate arm runs and
+    // emits, then step 5's lane-row DELETE raises 23503 exactly as a card
+    // racing into the dying lane would, and the whole attempt rolls back.
+    sqlx::query(
+        "CREATE TABLE lane_delete_blocker (
+             lane_id UUID PRIMARY KEY REFERENCES lanes (id) ON DELETE NO ACTION)",
+    )
+    .execute(store.pool())
+    .await
+    .expect("create the strand-guard stand-in");
+    sqlx::query(
+        "INSERT INTO lane_delete_blocker (lane_id)
+              SELECT id FROM lanes WHERE project_id = $1 AND slug = 'todo'",
+    )
+    .bind(project)
+    .execute(store.pool())
+    .await
+    .expect("block the lane-row delete");
+
+    let outcome = store
+        .delete_lane_with_fate(project, "todo", LaneDeleteFate::DeleteCards, operator)
+        .await;
+
+    assert!(
+        outcome.is_err(),
+        "a lane-row DELETE that keeps hitting 23503 must surface an honest error \
+         after the bounded retry, never a fabricated success; got {outcome:?}"
+    );
+    let (announced,): (i64,) =
+        sqlx::query_as("SELECT count(*) FROM outbox WHERE event_type = 'IssueDeleted'")
+            .fetch_one(store.pool())
+            .await
+            .expect("count IssueDeleted rows");
+    assert_eq!(
+        announced, 0,
+        "a rolled-back attempt takes its outbox rows with it — an abandoned \
+         predecessor may never leave an announcement for a retry to duplicate"
+    );
+    let (surviving,): (i64,) =
+        sqlx::query_as("SELECT count(*) FROM issues WHERE project_id = $1 AND state = 'todo'")
+            .bind(project)
+            .fetch_one(store.pool())
+            .await
+            .expect("count surviving cards");
+    assert_eq!(
+        surviving, 2,
+        "commit-or-nothing: an aborted fate destroys no card"
+    );
+}

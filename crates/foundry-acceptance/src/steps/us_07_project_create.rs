@@ -445,6 +445,19 @@ async fn status_403(world: &mut FoundryWorld) {
     assert_eq!(status.as_u16(), 403, "expected 403, got {status}");
 }
 
+/// Sibling of `status_403` for the authz refusals that converged on the uniform
+/// non-enumerable 404 (ADR-003). An authz refusal must not confirm that the
+/// resource it is refusing exists, so the HTML adapter answers the same 404 a
+/// never-existed team/project would. The 403 phrase above is retained for the
+/// refusals that legitimately stay 403 — CSRF double-submit failures and the
+/// non-author (not non-member) comment-edit refusal — which are a DIFFERENT
+/// refusal from an authz-membership one.
+#[then(regex = r"^the response status is 404 Not Found$")]
+async fn status_404(world: &mut FoundryWorld) {
+    let status = world.last_status.expect("status captured");
+    assert_eq!(status.as_u16(), 404, "expected 404, got {status}");
+}
+
 #[then(regex = r#"^no project named "([^"]+)" exists in any team$"#)]
 async fn no_project_named_anywhere(world: &mut FoundryWorld, name: String) {
     let harness = world.harness.as_ref().expect("harness");

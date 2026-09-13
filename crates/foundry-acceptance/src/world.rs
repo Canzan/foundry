@@ -151,6 +151,52 @@ pub struct FoundryWorld {
     /// oracle that NEITHER operator saw a raw database error.
     pub blo_concurrent: Vec<(reqwest::StatusCode, String)>,
 
+    // ---- issue-card-delete (icd) -------------------------------------
+    /// Tenancy + actors seeded by the `@icd` Background.
+    pub icd_workspace_id: Option<uuid::Uuid>,
+    pub icd_team_id: Option<uuid::Uuid>,
+    pub icd_priya_id: Option<uuid::Uuid>,
+    pub icd_marco_id: Option<uuid::Uuid>,
+    /// A second Backend member — the "filed by someone else" and "another team
+    /// member comments" arms. Membership, not authorship, is the delete gate (D2).
+    pub icd_other_id: Option<uuid::Uuid>,
+    pub icd_project_ids: HashMap<String, uuid::Uuid>,
+    /// STORED slugs read back at seed time — never re-derived from a name.
+    pub icd_project_slugs: HashMap<String, (String, String)>,
+    pub icd_current_project: Option<String>,
+    /// Canonical issue key (`AUTH-42`) -> row id, captured at seed time so the
+    /// cascade oracle can look for children AFTER the parent row is gone.
+    pub icd_issue_ids: HashMap<String, uuid::Uuid>,
+    /// Titles captured at seed time — the "did not save a half-typed edit" oracle.
+    pub icd_titles_before: HashMap<String, String>,
+    /// Last delete/dialog response (status + body).
+    pub icd_last: Option<(reqwest::StatusCode, String)>,
+    /// WHERE the last response sent her, as a PATH — the `Location` header of a
+    /// redirect on the HTTP lane, or the path the browser actually settled on
+    /// after following one on the `@needs-browser` lane.
+    ///
+    /// Captured because a `303` has an EMPTY body, so every body-based oracle is
+    /// vacuously satisfied by one: a redirect to `/sign-in`, to another
+    /// project's board, or to `/` would all pass. The destination is the whole
+    /// content of D8 ("303 to the board, never a re-render of a page for a
+    /// resource that no longer exists"), and the header is the only place it is
+    /// observable.
+    pub icd_last_location: Option<String>,
+    /// Every refusal observed, for byte-identical comparison against a
+    /// never-existed path (ADR-003 non-enumerability).
+    pub icd_refusals: Vec<(reqwest::StatusCode, String)>,
+    /// Outbox row count snapshotted before the write — the announcement oracle
+    /// counts BOTH ways (a missing event and a spurious one are different bugs).
+    pub icd_outbox_before: Option<i64>,
+    /// Which verb produced `icd_last` — the refusal oracle compares like with
+    /// like, since a non-member POST and a never-existed GET are different
+    /// requests and differ for reasons unrelated to non-enumerability.
+    pub icd_last_was_post: bool,
+    /// A live listener on some project, opened by a Given.
+    pub icd_subscription: Option<SseSubscription>,
+    /// The board markup a second window was showing before the delete.
+    pub icd_second_window_before: Option<String>,
+
     // ---- board-lane-reorder (US-BLR-01..03) ----
     pub blr_workspace_id: Option<uuid::Uuid>,
     pub blr_team_id: Option<uuid::Uuid>,

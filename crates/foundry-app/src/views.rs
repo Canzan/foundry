@@ -243,6 +243,11 @@ pub struct IssueEditModal {
     /// board card itself no longer navigates, so this is the recipient's route
     /// from the quick-edit dialog to the full view.
     pub detail_url: String,
+    /// `GET …/issues/{n}/delete` — the confirm-dialog route the dialog's Delete
+    /// control opens (issue-card-delete D5, ADR-ISSUE-DELETE-002). Carried the
+    /// same way `detail_url` is; the control that reads it renders OUTSIDE the
+    /// edit `<form>` (adr-modal-close-001 D-12) so it can never submit the edit.
+    pub delete_url: String,
 }
 
 /// The lane-delete confirm dialog FRAGMENT (board-lane-management US-BLM-03/04,
@@ -269,6 +274,85 @@ pub struct DeleteLaneModal {
     pub card_count: i64,
     /// Surviving lanes in board order; `[0]` is the picker preselect.
     pub survivors: Vec<foundry_services::BoardLane>,
+}
+
+/// The issue-delete confirm dialog FRAGMENT (issue-card-delete, feature-delta
+/// DDD-5/DDD-6, `adr-issue-delete-002`). A BARE htmx fragment swapped into
+/// `#modal-root` — MUST NOT extend `base.html`. Same destructive frame as
+/// [`DeleteLaneModal`]: `[data-modal="delete-issue"]` root, the declarative
+/// `[data-action="close-modal"]` trigger as the ONLY close affordance (BR-4),
+/// the hidden `_csrf` field on the confirm POST, `[data-error-slot]` for the
+/// refusal fragment, and the shipped "This cannot be undone." sentence.
+///
+/// The two counts are COPY, read once at dialog-GET time (D13) — the confirm
+/// binds whatever exists when it is submitted, so they are never a
+/// precondition. The SAME field names are carried by
+/// [`IssueDeleteModalPage`], which `{% include %}`s this partial.
+#[derive(Debug, Clone, Template)]
+#[template(path = "partials/delete_issue_modal.html")]
+pub struct IssueDeleteModal {
+    /// EMPTY on this carrier, and that is what selects the popup's close
+    /// control: the partial renders the shipped
+    /// `[data-action="close-modal"]` button, whose mechanism —
+    /// `keyboard.js::closeModal()` emptying `#modal-root` — is exactly right
+    /// here, because this fragment IS what `#modal-root` is holding. See
+    /// [`IssueDeleteModalPage::close_href`] for why the page carrier cannot
+    /// use it.
+    pub close_href: String,
+    /// `/team/{slug}/project/{slug}/issues/{n}/delete` — the confirm POST.
+    pub action: String,
+    /// The double-submit CSRF token, rendered into the hidden `_csrf` field.
+    pub csrf: String,
+    /// The issue key the dialog names (e.g. `AUTH-42`), so she knows what she
+    /// is deleting. Auto-escaped.
+    pub key: String,
+    /// Advisory count of comments that go with the issue.
+    pub comment_count: i64,
+    /// Advisory count of attachments that go with the issue.
+    pub attachment_count: i64,
+}
+
+/// The issue-delete confirm FULL PAGE (issue-card-delete, ADR-ISSUE-DELETE-002)
+/// — the carrier for a DIRECT navigation, which is how the delete works with
+/// scripting switched off. Extends `base.html` (page chrome + the vendored
+/// content-hashed stylesheet) and `{% include %}`s the SAME
+/// `partials/delete_issue_modal.html` the htmx fragment renders (the
+/// one-partial rule, NFR-WEBB-MAINT-02, DDD-6), so the popup and the page can
+/// never disagree. Returning the bare fragment to a direct navigation would
+/// render an unstyled floating div — the outcome that ADR explicitly rejected.
+///
+/// Mirrors [`NewIssueModalPage`]: the included partial resolves its
+/// `action`/`csrf`/`key`/`comment_count`/`attachment_count` from these
+/// same-named fields, so this view-model must carry every field the partial
+/// binds.
+#[derive(Debug, Clone, Template)]
+#[template(path = "delete_issue_modal_page.html")]
+pub struct IssueDeleteModalPage {
+    /// `/team/{slug}/project/{slug}/issues/{n}` — the issue's own page, and the
+    /// ONLY field on which this carrier differs from [`IssueDeleteModal`].
+    ///
+    /// NON-EMPTY selects an ANCHOR as the dialog's close control instead of the
+    /// popup's button, and it must stay non-empty. This page has no
+    /// `#modal-root`; that host is declared in `board.html` alone. The button's
+    /// `[data-action="close-modal"]` names ONE mechanism — empty `#modal-root`
+    /// — so rendering it here produced a × that fired the listener, found a
+    /// null host, and did nothing at all. A destructive dialog whose only exit
+    /// was the browser Back button.
+    ///
+    /// An anchor also keeps the carrier's whole reason for existing intact: it
+    /// is the scripting-OFF path, where a button is inert and an `href` is the
+    /// only thing a browser can follow on its own.
+    pub close_href: String,
+    /// `/team/{slug}/project/{slug}/issues/{n}/delete` — the confirm POST.
+    pub action: String,
+    /// The double-submit CSRF token, rendered into the hidden `_csrf` field.
+    pub csrf: String,
+    /// The issue key, shown in both the page `<h1>` and the dialog header.
+    pub key: String,
+    /// Advisory count of comments that go with the issue.
+    pub comment_count: i64,
+    /// Advisory count of attachments that go with the issue.
+    pub attachment_count: i64,
 }
 
 /// board-lane-overflow-menu — the Edit list dialog. Same frame as
@@ -300,10 +384,11 @@ pub struct InsertLaneModal {
     pub side: String,
 }
 
-/// The out-of-band board-columns refresh the successful lane-delete confirm
-/// carries (`hx-swap-oob="true"` on `#board-columns` — the house OOB idiom).
-/// The primary `#modal-root` innerHTML swap receives the EMPTY remainder, so
-/// the dialog closes while the columns update in place (no full reload).
+/// The out-of-band board-columns refresh a successful lane or issue delete
+/// confirm carries (`hx-swap-oob="true"` on `#board-columns` — the house OOB
+/// idiom). The primary `#modal-root` innerHTML swap receives the EMPTY
+/// remainder, so the dialog closes while the columns update in place (no full
+/// reload). Materialized by [`board_columns_oob_response`].
 #[derive(Debug, Clone, Template)]
 #[template(path = "partials/oob/board_columns_oob.html")]
 pub struct BoardColumnsOob {
@@ -314,8 +399,8 @@ pub struct BoardColumnsOob {
 
 /// The board's columns from a [`foundry_services::BoardView`] — the ONE
 /// builder both the full board page (`projects::build_board_page`) and the
-/// lane-delete out-of-band refresh (`lanes::oob_columns_response`) materialize
-/// from, so the OOB fragment and the next full render stay byte-identical
+/// out-of-band refresh ([`board_columns_oob_response`]) materialize from, so
+/// the OOB fragment and the next full render stay byte-identical
 /// (board-lane-management, architecture-design.md §5.3).
 ///
 /// Column slug = `lane.slug`, header = `lane.label`, card filter
@@ -384,6 +469,57 @@ pub(crate) fn board_columns(
                 .collect(),
         })
         .collect()
+}
+
+/// THE out-of-band board refresh — the ONE success body every mutation that
+/// changes what the board shows without navigating away returns: all four lane
+/// operations (`lanes::submit_delete_lane` / `submit_edit_lane` / the two
+/// inserts) and the issue-delete confirm (`issues::submit_delete`).
+///
+/// Re-reads through the SAME authz-gated `board_view` the board page renders
+/// from and materializes through the SAME [`board_columns`] builder, so the
+/// fragment and the next full render stay byte-identical — which is what keeps
+/// the `⋯` overflow menu's six lane operations intact across a refresh
+/// (`board-lane-overflow-menu` D14, issue-card-delete AC-2.5).
+///
+/// The body is the `hx-swap-oob="true"` `#board-columns` envelope and NOTHING
+/// outside it: htmx lifts the envelope out and applies the EMPTY remainder to
+/// the primary `#modal-root` target, which is what closes the open dialog. There
+/// is deliberately no "empty modal" template.
+///
+/// Lives HERE rather than in either caller because it was a verbatim twin in
+/// `lanes.rs` and `issues.rs` — one copy per feature that happened to need it,
+/// which is exactly how the fragment and the page drift apart.
+pub(crate) async fn board_columns_oob_response(
+    state: &crate::AppState,
+    principal: &foundry_services::Principal,
+    team_slug: &str,
+    project_slug: &str,
+) -> axum::response::Response {
+    use axum::response::IntoResponse as _;
+
+    let view =
+        match foundry_services::board::board_view(&state.store, principal, team_slug, project_slug)
+            .await
+        {
+            Ok(view) => view,
+            Err(err) => {
+                tracing::error!(error = %err, "board_view (out-of-band board refresh) failed");
+                return (
+                    axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                    "internal error",
+                )
+                    .into_response();
+            }
+        };
+    let body = BoardColumnsOob {
+        team_slug: team_slug.to_string(),
+        project_slug: project_slug.to_string(),
+        columns: board_columns(team_slug, project_slug, &view),
+    }
+    .render()
+    .expect("board_columns_oob partial renders from a fully-resolved, infallible view-model");
+    (axum::http::StatusCode::OK, axum::response::Html(body)).into_response()
 }
 
 /// A board column with its (already state-filtered) cards in display order.
@@ -713,6 +849,11 @@ pub struct IssuePage {
     pub csrf: String,
     /// `POST …/issues/{n}/attachments` — the upload form action.
     pub upload_url: String,
+    /// `GET …/issues/{n}/delete` — the confirm-dialog route the header's Delete
+    /// control pulls into `#modal-root` (issue-card-delete D8). The SAME string
+    /// the dialog form's `action` uses, so the page control and the confirm POST
+    /// can never point at different issues.
+    pub delete_url: String,
     pub attachments: Vec<AttachmentItem>,
     pub comments: Vec<CommentCard>,
     /// The change timeline (issue-change-history ADR-002 §1), NEWEST-first.

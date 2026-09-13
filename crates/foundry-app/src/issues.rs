@@ -9,11 +9,12 @@
 //!   (when the `HX-Request: true` header is present).
 //!
 //! Authorization: signed-in user must belong to the project's team.
-//! Non-members get 403 Forbidden — mirrors US-07's pattern. The team
-//! slug appears in the response body for the 403 case; team slugs are
-//! visible to all workspace members in any project URL they construct,
-//! so this is not an information leak — it's a confirmation that the
-//! team exists, which a workspace member could discover otherwise.
+//! Non-members get the uniform non-enumerable 404 — mirrors US-07's
+//! pattern. Step 04-01 converged every authz refusal in this adapter on
+//! `resource_not_found_page()`: the prior 403 named the team in its body,
+//! and that status/body pair separated "this team exists but is not yours"
+//! from "no such team". ADR-003 forbids a refusal from confirming that the
+//! resource it refuses exists, so all three reaches are byte-identical.
 //!
 //! Empty / whitespace-only title returns 400 Bad Request with an htmx
 //! error fragment rendered from the SHARED `error_fragment.html` template
@@ -22,7 +23,7 @@
 //! state-change chip renders from `partials/state_chip.html`. Both are
 //! BARE fragments (no `base.html` wrapper).
 
-use crate::bootstrap::{html_escape, invalid_page, resource_not_found_page, SessionUser};
+use crate::bootstrap::{html_escape, resource_not_found_page, SessionUser};
 use crate::session::SESSION_KEY_USER_ID;
 use crate::AppState;
 use askama::Template;
@@ -35,11 +36,29 @@ use foundry_services::{issues as issue_service, Principal, ServiceError};
 use serde::Deserialize;
 use tower_sessions::Session;
 
+/// The board this issue lives on — the destination every non-htmx success in
+/// this module redirects to: issue create (US-R03), issue edit, and the
+/// issue-card-delete confirm's `303` (D8, "back to the board, never a re-render
+/// of a page for a resource that no longer exists"). Named here rather than
+/// spelt inline three times so the four `…/issues/{n}/…` builders below and the
+/// redirect target are demonstrably the same board.
+fn board_url(team_slug: &str, project_slug: &str) -> String {
+    format!("/team/{team_slug}/project/{project_slug}")
+}
+
 /// Build the canonical edit-dialog URL for an issue (issue-edit-dialog). The
 /// SAME string the board card's `hx-get`, the dialog form `action`/`hx-post`,
 /// and the save handler all use — one source of truth for the endpoint.
 fn edit_url(team_slug: &str, project_slug: &str, number: i32) -> String {
     format!("/team/{team_slug}/project/{project_slug}/issues/{number}/edit")
+}
+
+/// Build the canonical delete URL for an issue (issue-card-delete,
+/// ADR-ISSUE-DELETE-002). ONE string for the GET that opens the confirm dialog
+/// and the POST that carries it out — the dialog form's `action`/`hx-post` and
+/// the Delete controls that open it all read it from here.
+fn delete_url(team_slug: &str, project_slug: &str, number: i32) -> String {
+    format!("/team/{team_slug}/project/{project_slug}/issues/{number}/delete")
 }
 
 /// Build the `POST …/issues/{n}/state` endpoint the DnD drop handler
@@ -122,7 +141,7 @@ pub async fn submit_create(
                 )
                     .into_response();
             }
-            redirect_to(&format!("/team/{team_slug}/project/{project_slug}"))
+            redirect_to(&board_url(&team_slug, &project_slug))
         }
         // The over-long description carries its own copy so the create dialog
         // shows the specific reason; every OTHER validation (empty/oversized
@@ -135,7 +154,7 @@ pub async fn submit_create(
             // renders the shipped one-contract fragment.
             bad_request_fragment("Title is required")
         }
-        Err(ServiceError::Forbidden) => non_member_page(&team_slug),
+        Err(ServiceError::Forbidden) => resource_not_found_page(),
         Err(ServiceError::NotFound) => {
             // Cross-tenant / missing-resource refusal (ADR-003): the service
             // scoped the team/project lookup by the RESOLVED acting workspace
@@ -204,7 +223,7 @@ pub async fn submit_state_change(
             (StatusCode::OK, Html(render_state_chip(&updated.state))).into_response()
         }
         Err(ServiceError::Validation { .. }) => bad_request_fragment("Invalid issue state"),
-        Err(ServiceError::Forbidden) => non_member_page(&team_slug),
+        Err(ServiceError::Forbidden) => resource_not_found_page(),
         Err(ServiceError::NotFound) => {
             resolve_not_found_page(&state, &principal, &team_slug, &project_slug).await
         }
@@ -244,7 +263,7 @@ pub async fn show_edit_form(
     .await
     {
         Ok(v) => v,
-        Err(ServiceError::Forbidden) => return non_member_page(&team_slug),
+        Err(ServiceError::Forbidden) => return resource_not_found_page(),
         // A foreign/missing issue is byte-identical to a never-existed one
         // (ADR-003): the requested key is NOT echoed, so there is no
         // enumeration oracle.
@@ -255,6 +274,7 @@ pub async fn show_edit_form(
     let (csrf, set_cookie) = crate::csrf::ensure_csrf_cookie(&state, &headers);
     let action = edit_url(&team_slug, &project_slug, issue_number);
     let detail = detail_url(&team_slug, &project_slug, issue_number);
+    let delete = delete_url(&team_slug, &project_slug, issue_number);
     let body = crate::views::IssueEditModal {
         action,
         csrf,
@@ -264,6 +284,7 @@ pub async fn show_edit_form(
         selected_state: view.state,
         lanes: view.lanes,
         detail_url: detail,
+        delete_url: delete,
     }
     .render()
     .expect("issue_edit_modal partial renders from a fully-resolved, infallible view-model");
@@ -272,6 +293,166 @@ pub async fn show_edit_form(
         Html(body).into_response(),
         set_cookie,
     )
+}
+
+// -------------------- GET+POST /team/:t/project/:p/issues/:n/delete --------
+//
+// The shape both handlers honour (feature-delta DDD-5/DDD-6,
+// `adr-issue-delete-002-get-post-confirm-not-delete-verb.md`):
+//
+//  - GET branches on `is_htmx`: htmx → the bare `delete_issue_modal.html`
+//    fragment for `#modal-root`; direct navigation → `delete_issue_modal_page`,
+//    which extends `base.html` and `{% include %}`s that SAME partial, so the
+//    fragment and the page can never disagree.
+//  - POST branches on `is_htmx` for RENDERING ONLY: htmx → cleared `#modal-root`
+//    plus the out-of-band `#board-columns` refresh; otherwise `303` to the
+//    board. Both call the SAME `issue_service::delete_issue`.
+//  - Refusals on BOTH verbs collapse into the SINGLE uniform
+//    `resource_not_found_page`: `Forbidden` and `NotFound` alike (DDD-9). No
+//    key and no team slug is echoed in any branch.
+
+/// issue-card-delete — the confirm dialog (GET). Resolves the issue and its two
+/// advisory child counts through the `resolve_member_project`-gated service
+/// read, then renders ONE of the two carriers of the SAME partial (DDD-6):
+/// htmx gets the bare `delete_issue_modal.html` fragment for `#modal-root`, a
+/// direct navigation gets `delete_issue_modal_page.html`, which extends
+/// `base.html` and includes that same partial — so the popup and the page can
+/// never disagree. Mints/reuses the CSRF cookie exactly as `show_edit_form`
+/// does, so the confirm POST (under `csrf_middleware`) has a matching
+/// double-submit token.
+pub async fn show_delete_form(
+    State(state): State<AppState>,
+    Path((team_slug, project_slug, issue_number)): Path<(String, String, i32)>,
+    session: Session,
+    headers: HeaderMap,
+) -> Response {
+    let Some(user) = signed_in_user(&session).await else {
+        return redirect_to("/sign-in");
+    };
+    let principal = Principal::Human {
+        user_id: user.user_id,
+        workspace_id: user.workspace_id,
+    };
+    let view = match issue_service::delete_issue_dialog(
+        &state.store,
+        &principal,
+        &team_slug,
+        &project_slug,
+        issue_number,
+    )
+    .await
+    {
+        Ok(v) => v,
+        // DDD-9 collapses BOTH refusals into ONE uniform non-enumerable answer.
+        // A 403 that names the team IS the enumeration oracle ADR-003 closes — it
+        // confirms the team exists and separates "not yours" from "never existed".
+        // A non-member reach, a foreign reach and a never-existed reach must be
+        // byte-identical, so all three render the SAME page and echo neither key
+        // nor slug.
+        Err(ServiceError::Forbidden | ServiceError::NotFound) => return resource_not_found_page(),
+        Err(_) => return internal_error("delete_issue_dialog", "service error"),
+    };
+
+    let (csrf, set_cookie) = crate::csrf::ensure_csrf_cookie(&state, &headers);
+    let action = delete_url(&team_slug, &project_slug, issue_number);
+    let rendered = "delete confirm renders from a fully-resolved, infallible view-model";
+    // The ONE field that distinguishes the two carriers of the same partial.
+    // The popup is held BY `#modal-root`, so the shipped close button (empty
+    // `close_href`) is correct there. The page is not — it has no `#modal-root`
+    // at all — so its close is an anchor back to the issue she decided not to
+    // delete. Rendering the popup's button on the page shipped a × that fired
+    // the listener, found a null host and did nothing; see
+    // `views::IssueDeleteModalPage::close_href`.
+    let body = if is_htmx(&headers) {
+        crate::views::IssueDeleteModal {
+            close_href: String::new(),
+            action,
+            csrf,
+            key: view.key,
+            comment_count: view.comment_count,
+            attachment_count: view.attachment_count,
+        }
+        .render()
+        .expect(rendered)
+    } else {
+        crate::views::IssueDeleteModalPage {
+            close_href: detail_url(&team_slug, &project_slug, issue_number),
+            action,
+            csrf,
+            key: view.key,
+            comment_count: view.comment_count,
+            attachment_count: view.attachment_count,
+        }
+        .render()
+        .expect(rendered)
+    };
+    crate::csrf::response_with_optional_cookie(
+        StatusCode::OK,
+        Html(body).into_response(),
+        set_cookie,
+    )
+}
+
+/// issue-card-delete — the confirm (POST). ONE delete seam shared by both
+/// surfaces (DDD-5, `adr-issue-delete-002`): the full page and the board popup
+/// both call the SAME `issue_service::delete_issue`, so there is nothing
+/// between them that could drift. The branch is on RENDERING only.
+///
+/// Success on a direct navigation is a `303` back to the board (D8) — never a
+/// re-render of the issue page, which would be a page for a resource that no
+/// longer exists. Success on an htmx confirm is the house OOB idiom (D7,
+/// identical in shape to lane delete): the refreshed `#board-columns` inside an
+/// `hx-swap-oob="true"` envelope, and NOTHING outside it — htmx lifts the
+/// envelope out and applies the EMPTY remainder to the primary `#modal-root`
+/// target, which is what closes the dialog. There is no "empty modal" template.
+///
+/// Both arms call the SAME `issue_service::delete_issue` above. One use case,
+/// two renderings (AC-2.9) — there is deliberately no second write path.
+///
+/// Membership, not authorship, is the gate (D2): a card filed by another member
+/// deletes cleanly, so there is deliberately no author check. The dialog's
+/// advisory counts do not gate either (D13) — a comment filed between the GET
+/// and this POST simply goes with the issue via the schema's `ON DELETE
+/// CASCADE`, which is correct, not a race.
+///
+/// CSRF is the layer-wide `csrf_middleware`'s job by route registration alone;
+/// no per-route token work happens here. Refusals mirror `show_delete_form`
+/// exactly (DDD-9, ADR-003): non-member, foreign, absent and already-deleted all
+/// render the SINGLE uniform `resource_not_found_page`, echoing neither the
+/// requested key nor the team slug.
+pub async fn submit_delete(
+    State(state): State<AppState>,
+    Path((team_slug, project_slug, issue_number)): Path<(String, String, i32)>,
+    session: Session,
+    headers: HeaderMap,
+) -> Response {
+    let Some(user) = signed_in_user(&session).await else {
+        return redirect_to("/sign-in");
+    };
+    let principal = Principal::Human {
+        user_id: user.user_id,
+        workspace_id: user.workspace_id,
+    };
+    match issue_service::delete_issue(
+        &state.store,
+        &principal,
+        &team_slug,
+        &project_slug,
+        issue_number,
+    )
+    .await
+    {
+        Ok(()) if is_htmx(&headers) => {
+            crate::views::board_columns_oob_response(&state, &principal, &team_slug, &project_slug)
+                .await
+        }
+        Ok(()) => redirect_to(&board_url(&team_slug, &project_slug)),
+        // The same uniform refusal `show_delete_form` gives, on the same two
+        // errors, so the two verbs cannot drift apart (DDD-9). `Ok(0)` from the
+        // double-submit race arrives here as `NotFound` and lands on this arm.
+        Err(ServiceError::Forbidden | ServiceError::NotFound) => resource_not_found_page(),
+        Err(_) => internal_error("delete_issue", "service error"),
+    }
 }
 
 // ------------------------ POST /team/:team/project/:project/issues/:n/edit
@@ -336,7 +517,7 @@ pub async fn submit_edit(
         {
             Ok(view) if view.state != submitted_state => Some(submitted_state),
             Ok(_) => None,
-            Err(ServiceError::Forbidden) => return non_member_page(&team_slug),
+            Err(ServiceError::Forbidden) => return resource_not_found_page(),
             Err(ServiceError::NotFound) => return resource_not_found_page(),
             Err(_) => return internal_error("edit_issue_form", "service error"),
         }
@@ -357,7 +538,7 @@ pub async fn submit_edit(
             let issue_key = parse_issue_key(&updated.key, updated.number);
             let edit = edit_url(&team_slug, &project_slug, updated.number);
             let state_post = state_url(&team_slug, &project_slug, updated.number);
-            let board = format!("/team/{team_slug}/project/{project_slug}");
+            let board = board_url(&team_slug, &project_slug);
 
             let Some(new_state) = relocate_to else {
                 // No status change — the shipped in-place card replace / 303.
@@ -399,7 +580,7 @@ pub async fn submit_edit(
                 Err(ServiceError::Validation { .. }) => {
                     return bad_request_fragment("Invalid issue state")
                 }
-                Err(ServiceError::Forbidden) => return non_member_page(&team_slug),
+                Err(ServiceError::Forbidden) => return resource_not_found_page(),
                 Err(ServiceError::NotFound) => return resource_not_found_page(),
                 Err(_) => return internal_error("change_issue_state", "service error"),
             };
@@ -427,7 +608,7 @@ pub async fn submit_edit(
             bad_request_fragment(&message)
         }
         Err(ServiceError::Validation { .. }) => bad_request_fragment("Title is required"),
-        Err(ServiceError::Forbidden) => non_member_page(&team_slug),
+        Err(ServiceError::Forbidden) => resource_not_found_page(),
         Err(ServiceError::NotFound) => resource_not_found_page(),
         Err(_) => internal_error("edit_issue_details", "service error"),
     }
@@ -468,9 +649,9 @@ fn parse_issue_key(key: &str, number: i32) -> foundry_core::IssueKey {
 /// echoed team/project slug, no team-vs-project body-shape difference — so a
 /// foreign reach is byte-identical to a never-existed reach and leaks nothing
 /// about the foreign resource's existence. The intra-workspace `Forbidden`
-/// (`non_member_page`, 403) keeps its shipped shape and is handled in the caller
-/// (ADR-003 boundary clause); a cross-tenant reach 404s at the team layer above
-/// and never reaches it.
+/// converged on the SAME uniform 404 in step 04-01, so every authz refusal in
+/// this adapter — non-member, foreign, never-existed — is now byte-identical
+/// and none of them confirms that the resource they refuse exists.
 async fn resolve_not_found_page(
     _state: &AppState,
     _principal: &Principal,
@@ -486,16 +667,6 @@ fn redirect_to(location: &str) -> Response {
         hdrs.insert(LOCATION, v);
     }
     (StatusCode::SEE_OTHER, hdrs, "").into_response()
-}
-
-fn non_member_page(team_slug: &str) -> Response {
-    invalid_page(
-        StatusCode::FORBIDDEN,
-        "Not a team member",
-        &format!(
-            "You are not a member of the {team_slug:?} team and cannot file issues in its projects."
-        ),
-    )
 }
 
 fn internal_error<E: std::fmt::Display>(label: &str, err: E) -> Response {

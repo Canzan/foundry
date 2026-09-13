@@ -1,7 +1,31 @@
 {% extends "app_shell.html" %}
 {% block title %}{{ issue_key }} - {{ project_slug }}{% endblock %}
 {% block app_content %}
-<header><h1>{{ issue_key }}</h1></header>
+<header><h1>{{ issue_key }}</h1>
+{# An ANCHOR, not a button, and the `href` is the WHOLE mechanism (D6,
+   AC-1.11, adr-issue-delete-002): scripting on or off, the browser follows it
+   to `…/issues/{n}/delete`, which answers the `delete_issue_modal_page.html`
+   carrier — the base.html page that includes the same confirm partial
+   the board's popup swaps (DDD-6). One path, one destination, no branch.
+
+   THIS LINK CARRIED `hx-get` + `hx-target="#modal-root"` AND WAS DEAD. Read
+   this before adding them back. `#modal-root` is declared in `board.html`
+   ALONE; this page has no such host. So with scripting ON htmx claimed the
+   click, failed to resolve the target (`htmx:targetError`), and — having
+   claimed it — never followed the `href`. The full issue page could not delete
+   an issue at all. The whole suite stayed green because every full-page
+   scenario was either HTTP-lane (never executes htmx) or `@needs-browser` with
+   scripting switched OFF (htmx absent by construction, so the href was
+   followed and the defect was invisible). The `@regression` scenarios in
+   issue-card-delete.feature now hold this line with scripting ON.
+
+   A popup here would need more than the host: DDD-5's htmx success arm answers
+   the out-of-band `#board-columns` refresh, and this page has no board to
+   refresh — confirming would clear the dialog and strand her on the page of an
+   issue that no longer exists. The full page's success path is the `303` to
+   the board, and that is what a plain navigation gets. A <button type="button">
+   cannot do any of this: with scripting off it is inert. #}
+<a href="{{ delete_url }}" data-action="delete-issue">Delete</a></header>
 {% if attachments.is_empty() %}<section class="attachments" data-attachment-list>
   <p class="attachments-empty">No attachments yet.</p>
 </section>{% else %}<section class="attachments">

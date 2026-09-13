@@ -718,6 +718,12 @@ kbd {
  * [data-action="close-modal"] listener wires the click in 01-02. */
 .modal-close {
   margin-left: auto;
+  /* The page carrier renders this control as an <a> (it has no #modal-root to
+     empty, so its close is a navigation back to the issue). The base `a` rule
+     sets colour only, leaving the UA's underline on a glyph that must read as
+     an icon in BOTH carriers. Harmless on the popup's <button>, which has no
+     underline to remove. */
+  text-decoration: none;
   min-width: 28px;
   min-height: 28px;
   padding: 0;

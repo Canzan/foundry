@@ -87,6 +87,39 @@ Open the printed URL in a browser to complete the initial admin claim.
 The URL is one-shot, has a 30-minute TTL, and is never logged again
 after first use. The app listens on `http://localhost:3000` by default.
 
+### The dev-loop scripts
+
+The `docker compose` path above runs the app **as it ships**. For the
+edit-build-look loop there are three scripts at the repo root that run the app
+**natively** against a script-owned Postgres container, so a rebuild is a
+`cargo build` and not an image build:
+
+| Script | What it does |
+|--------|--------------|
+| `./run.sh` | Builds, starts Postgres + the app, waits for `/healthz`, auto-claims a dev admin on a fresh database, opens a browser. Runs in the **foreground**; Ctrl-C stops the app and Postgres. `--watch` rebuilds on save. |
+| `./restart.sh` | Stops whatever is running, rebuilds the latest code, brings it back up **detached**, and returns you to the prompt. A failed build fails *here*, with cargo's diagnostics on your screen. |
+| `./stop.sh` | Stops the app and Postgres from any terminal, and removes containers leaked by an interrupted acceptance run. |
+
+```sh
+./run.sh            # foreground, opens a browser
+./restart.sh        # rebuild + relaunch detached, prompt comes back
+./stop.sh           # tear it all down
+```
+
+**Your data survives all of this.** The Postgres container is created with
+`--rm`, so stopping it removes the container, but the database lives in the
+named volume `foundry-ui-pg-data`, which outlives it — the next launch picks up
+where you left off. To start clean, remove the volume:
+`docker volume rm foundry-ui-pg-data`.
+
+`./stop.sh` deliberately leaves the two compose stacks alone
+(`docker-compose.yml`, `docker-compose.observability.yml`) — those are
+long-lived operator stacks, not dev-loop state; stop them with
+`docker compose down`. It also **counts but does not remove**
+testcontainers-managed containers: that label carries nothing identifying the
+project that started them, so removing them by label alone could take out
+another repo's running fixtures. `./stop.sh --testcontainers` opts in.
+
 ### Hot-reload for development
 
 For the inner edit → save → reload loop, install `cargo-watch` once and

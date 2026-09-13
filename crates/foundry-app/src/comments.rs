@@ -84,7 +84,7 @@ pub async fn show_issue(
     };
     match state.store.is_team_member(team.id, user.user_id).await {
         Ok(true) => {}
-        Ok(false) => return non_member_page(&team_slug),
+        Ok(false) => return resource_not_found_page(),
         Err(err) => return internal_error("is_team_member", err),
     }
     let issue = match state
@@ -205,7 +205,7 @@ pub async fn submit_comment(
     {
         Ok(v) => v,
         Err(ServiceError::Validation { message, .. }) => return bad_request_fragment(&message),
-        Err(ServiceError::Forbidden) => return non_member_page(&team_slug),
+        Err(ServiceError::Forbidden) => return resource_not_found_page(),
         Err(ServiceError::NotFound) => {
             return resolve_comment_not_found_page(
                 &state,
@@ -288,7 +288,7 @@ pub async fn show_edit_form(
     };
     match state.store.is_team_member(team.id, user.user_id).await {
         Ok(true) => {}
-        Ok(false) => return non_member_page(&team_slug),
+        Ok(false) => return resource_not_found_page(),
         Err(err) => return internal_error("is_team_member", err),
     }
     // 404-vs-410-vs-403 dispatch per ADR-008.
@@ -456,7 +456,7 @@ pub async fn submit_delete_comment(
     if !is_admin {
         match state.store.is_team_member(team.id, user.user_id).await {
             Ok(true) => {}
-            Ok(false) => return non_member_page(&team_slug),
+            Ok(false) => return resource_not_found_page(),
             Err(err) => return internal_error("is_team_member", err),
         }
     }
@@ -523,7 +523,7 @@ pub async fn show_single_comment(
     };
     match state.store.is_team_member(team.id, user.user_id).await {
         Ok(true) => {}
-        Ok(false) => return non_member_page(&team_slug),
+        Ok(false) => return resource_not_found_page(),
         Err(err) => return internal_error("is_team_member", err),
     }
     let comment = match state
@@ -597,10 +597,10 @@ async fn signed_in_user(session: &Session) -> Option<SessionUser> {
 /// does. BOTH must render the SINGLE uniform `resource_not_found_page()` — no
 /// echoed team/project slug, no team-vs-issue body-shape difference — so a
 /// foreign reach is byte-identical to a never-existed reach and leaks nothing
-/// about the foreign issue's existence. The intra-workspace `Forbidden`
-/// (`non_member_page`, 403) keeps its shipped shape and is handled in the caller
-/// (ADR-003 boundary clause); a cross-tenant reach 404s at the team layer above
-/// and never reaches it.
+/// about the foreign issue's existence. The intra-workspace non-member
+/// `Forbidden` converged on the SAME uniform 404 in step 04-01. The non-AUTHOR
+/// refusal is a DIFFERENT refusal (the actor is on the team and the comment is
+/// known to them) and legitimately keeps its 403 `forbidden_fragment`.
 async fn resolve_comment_not_found_page(
     _state: &AppState,
     _principal: &Principal,
@@ -630,7 +630,7 @@ async fn forbidden_edit_page(state: &AppState, principal: &Principal, team_slug:
         .is_team_member(team.id, principal.user_id())
         .await
     {
-        Ok(false) => non_member_page(team_slug),
+        Ok(false) => resource_not_found_page(),
         Ok(true) => forbidden_fragment("You may only edit your own comments."),
         Err(err) => internal_error("is_team_member", err),
     }
@@ -649,16 +649,6 @@ fn team_not_found_page(team_slug: &str) -> Response {
         StatusCode::NOT_FOUND,
         "Team not found",
         &format!("No team with slug {team_slug:?} exists in this workspace."),
-    )
-}
-
-fn non_member_page(team_slug: &str) -> Response {
-    invalid_page(
-        StatusCode::FORBIDDEN,
-        "Not a team member",
-        &format!(
-            "You are not a member of the {team_slug:?} team and cannot comment on its issues."
-        ),
     )
 }
 
@@ -770,6 +760,7 @@ fn render_issue_page(
         post_url: format!("/team/{team_slug}/project/{project_slug}/issues/{number}/comments"),
         csrf: csrf.to_string(),
         upload_url: format!("/team/{team_slug}/project/{project_slug}/issues/{number}/attachments"),
+        delete_url: format!("/team/{team_slug}/project/{project_slug}/issues/{number}/delete"),
         attachments: attachment_items,
         comments: cards,
         timeline,

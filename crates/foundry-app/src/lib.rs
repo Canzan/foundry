@@ -327,7 +327,7 @@ mod static_cache_policy_tests {
         // Content-hashed CSS + pinned vendored libs stay long-lived immutable
         // (their URLs are content-addressed / version-pinned).
         assert!(
-            static_cache_control_value("/static/css/foundry.3d3b9564.css").contains("immutable")
+            static_cache_control_value("/static/css/foundry.52ad52fa.css").contains("immutable")
         );
         assert!(static_cache_control_value("/static/vendor/htmx.min.js").contains("immutable"));
     }
@@ -344,7 +344,7 @@ mod static_cache_policy_tests {
         // a year at exactly the URLs that can never change to bust the cache.
         // Repairing the origin did not clear them.
         for path in [
-            "/static/css/foundry.3d3b9564.css",
+            "/static/css/foundry.52ad52fa.css",
             "/static/vendor/htmx.min.js",
             "/static/js/board-dnd.js",
         ] {
@@ -363,7 +363,7 @@ mod static_cache_policy_tests {
         // A success still gets the full path-aware policy — the fix must not
         // quietly disable immutable caching for the assets that earn it.
         assert!(
-            static_cache_control_value_for(StatusCode::OK, "/static/css/foundry.3d3b9564.css")
+            static_cache_control_value_for(StatusCode::OK, "/static/css/foundry.52ad52fa.css")
                 .contains("immutable")
         );
         assert_eq!(
@@ -668,6 +668,16 @@ pub fn build_router(state: AppState) -> Router {
             get(issues::show_edit_form)
                 .post(issues::submit_edit)
                 .layer(DefaultBodyLimit::max(4 * 1024 * 1024)),
+        )
+        // issue-card-delete (DISTILL scaffold, ADR-025): the GET+POST confirm
+        // pair — deliberately NOT the DELETE verb, so the whole path works with
+        // scripting disabled (ADR-ISSUE-DELETE-002). Mounted now so a request
+        // reaches a handler rather than the 404 fallback; the handlers answer
+        // 501 until DELIVER. Covered by the layer-wide csrf_middleware exactly
+        // like the edit pair above, with no per-route work.
+        .route(
+            "/team/{team_slug}/project/{project_slug}/issues/{issue_number}/delete",
+            get(issues::show_delete_form).post(issues::submit_delete),
         )
         .route(
             "/team/{team_slug}/project/{project_slug}/events",

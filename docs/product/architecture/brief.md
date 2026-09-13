@@ -145,6 +145,75 @@ drag-and-drop. The boundary is origin-based and absolute — a gesture beginning
 and the shipped card-drag scenarios passing *unmodified* are its standing proof.
 See `adr-board-lane-007-pointer-events-lane-drag.md`.
 
+### An issue has one delete, through one primitive that always announces itself
+
+Deleting an issue is a **hard** delete — there is no tombstone, no archive and
+no trash anywhere in foundry, and a card that is gone is gone from every
+surface at once. `comments`, `issue_attachments` and `issue_change_events` all
+reference `issues(id) ON DELETE CASCADE` (0004/0005/0013), so the cascade is a
+schema fact and no adapter re-implements it; an application-level child-delete
+fan-out would be a second cascade able to drift from the first.
+
+The load-bearing property is that **exactly one primitive performs it**.
+`foundry_store::issue_delete::delete_issues_with_outbox` takes a caller's
+transaction, deletes by id set, and writes one `IssueDeleted` outbox row per row
+*actually* deleted. Both callers route through it: the single-card delete (which
+owns its own transaction) and the lane delete's `DeleteCards` fate (which rides
+the fate transaction of ADR-BOARD-LANE-002, otherwise unchanged). One function
+cannot drift from itself, which is what makes "one meaning of deleted" a
+structural fact rather than a convention. Consequences every future feature
+inherits: a new removal surface adds a *caller*, never a second `DELETE FROM
+issues`; the emit binds to `rows_affected`, so a card that vanished mid-flight
+is silently absent from the announcement rather than falsely announced; and the
+announcement is atomic with the write, so a committed delete can never fail to
+announce itself and a rolled-back one announces nothing. The `IssueDeleted`
+payload uses only fields `EventPayload` already declares, so `schema_version`
+stays 1.
+
+Why hard and not soft: issues already hard-deleted through the shipped lane
+fate, so a tombstone would have created a second delete meaning for one entity;
+and `board-lane-overflow-menu` D1 declined archive precisely because it "would
+create a second way for a card to be invisible". The comment tombstone
+(`comment-edit-delete` ADR-007) is deliberately **not** the precedent here — it
+exists to preserve a comment's position in a thread, and an issue holds no such
+position. That divergence is a decision, not an inconsistency.
+
+Destructive web actions reach the write as a **`GET` dialog + `POST` confirm**
+pair under the layer-wide `csrf_middleware` — never an HTTP `DELETE` verb, which
+no HTML form can emit and which therefore cannot serve the scripting-disabled
+profile. A confirm dialog is mandatory and **counts** its consequences rather
+than merely warning, because with no undo the dialog is the entire safety net.
+Its body is authored once as a `#modal-root` fragment and carried two ways — the
+fragment for htmx, and a `{% extends "base.html" %}` page that `{% include %}`s
+the same partial for a direct navigation (the shape `new_issue_modal_page.html`
+established). One handler per verb branches on `is_htmx` for *rendering only*,
+so two surfaces share one use case and cannot drift.
+See `adr-issue-delete-001-one-hard-delete-primitive.md` and
+`adr-issue-delete-002-get-post-confirm-not-delete-verb.md`.
+
+### The board updates itself for one event, and only one
+
+`static/js/board-live.js` is foundry's first browser-side live-update surface. It
+opens an `EventSource` on the board's `/events` endpoint and removes a card's
+`article.issue-card[data-issue-key]` node when an `IssueDeleted` frame names it.
+Everything else about the realtime topology is unchanged and was already shipped:
+the outbox row, the `notify_outbox_event` trigger (0003), `spawn_pg_listener`, the
+broadcast channel and the SSE handler. What did not exist until now was any browser
+that consumed them — every prior realtime scenario asserted against a *server-side*
+subscriber, so "the board live-updates" had never been true.
+
+Three properties keep it safe to load from `base.html`, which every page extends.
+It subscribes by event **name** (`addEventListener("IssueDeleted", …)`), so the four
+other event types are never delivered to it and it cannot half-handle them. It
+holds **no node reference** — every frame re-queries the DOM — so the out-of-band
+`#board-columns` refresh cannot leave it pointing at a detached subtree, the same
+failure ADR-BOARD-LANE-005 records for the lane menu. And it **exits before
+constructing an `EventSource`** when the board markup is absent, so a page that is
+not a board opens no connection and registers no listener.
+
+It is deliberately narrow. Cards appearing, moving or retitling in place is a
+general live-board, and that is a separate feature.
+
 ### Colour enters the stylesheet at one seam; assets are hash-honest by construction
 
 foundry's presentation tier is one hand-authored stylesheet with no build step, and

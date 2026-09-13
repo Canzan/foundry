@@ -4,6 +4,30 @@
 
 Accepted (board-lane-management DESIGN wave, 2026-08-22)
 
+**Amended 2026-09-05 by `adr-issue-delete-001-one-hard-delete-primitive.md`** —
+one clause only. The `DeleteCards` arm's "No events, no outbox, no tombstone"
+no longer holds: that arm now routes through the shared
+`issue_delete::delete_issues_with_outbox` primitive and emits one `IssueDeleted`
+outbox row per destroyed card, in this same transaction. The parity it cited
+(`delete_issue_cascade`, "which emits nothing") is exactly what changed.
+
+**Corrected 2026-09-07 (DISTILL review gate).** An earlier wording of this
+amendment claimed "statement order … unchanged", which is too strong. The
+`DeleteCards` arm's statements DID change: it was one
+`DELETE FROM issues WHERE id = ANY($1)`; it is now a `SELECT workspace_id,
+key_prefix FROM projects` (`issue_delete_context`, supplying the primitive's
+`IssueDeleteContext`), then `DELETE … RETURNING id, number`, then one outbox
+`INSERT` per row returned. All inside the same transaction.
+
+What IS unchanged, and is what the amendment meant to assert: the enclosing
+transaction's **shape and guarantees** — the `FOR UPDATE` lock on the dying lane,
+the last-lane gate, the confirm-time membership snapshot, the `MoveTo`
+destination validation, the composite-FK strand-guard on the final
+`DELETE FROM lanes`, and the ≤3 bounded retry. The added `SELECT` sits inside the
+retry envelope like every other statement in the arm: if it fails, the attempt
+rolls back whole and is retried, so it introduces no new partial state and no new
+failure mode — only one more statement that can trigger the existing retry.
+
 ## Context
 
 Deleting a lane holding N ≥ 1 cards applies an operator-chosen fate — move-all

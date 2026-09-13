@@ -4,7 +4,15 @@
        (OD-3, no new asset), aria-label for the accessible name, OUTSIDE the
        <form> so it can never submit. Render-only here; the delegated
        [data-action="close-modal"] click listener lands in keyboard.js (D-10). #}
-    <header class="modal-header"><h2>Edit {{ key }}</h2> <a class="full-page-link" href="{{ detail_url }}">Open full page</a> <button type="button" class="modal-close" aria-label="Close" data-action="close-modal">&times;</button></header>
+    <header class="modal-header"><h2>Edit {{ key }}</h2> <a class="full-page-link" href="{{ detail_url }}">Open full page</a> {# issue-card-delete D5: a BUTTON, not an anchor — the mirror-image of the
+       full-page control's reasoning (issue.html). That one is an <a> because
+       with scripting OFF the browser must still follow its href; this dialog
+       does not exist without scripting (htmx is what swaps it into
+       #modal-root), so an href here would be an affordance no one can ever
+       reach. type="button" + OUTSIDE the <form>, beside the ×, is the D-12
+       protection: it cannot submit the edit Priya is looking at. Attributes
+       only — the delegated listeners already resolve it (BR-4, zero JS). #}
+      <button type="button" class="modal-delete" data-action="delete-issue" hx-get="{{ delete_url }}" hx-target="#modal-root" hx-swap="innerHTML">Delete</button> <button type="button" class="modal-close" aria-label="Close" data-action="close-modal">&times;</button></header>
     <form method="post" action="{{ action }}" hx-post="{{ action }}" hx-target="#modal-root" hx-swap="innerHTML">
       <input type="hidden" name="_csrf" value="{{ csrf }}">
       <label>Title <input type="text" name="title" value="{{ title }}" required autofocus></label>

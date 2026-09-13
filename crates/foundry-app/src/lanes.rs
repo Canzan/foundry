@@ -142,7 +142,10 @@ pub async fn submit_delete_lane(
     )
     .await
     {
-        Ok(_success) => oob_columns_response(&state, &principal, &team_slug, &project_slug).await,
+        Ok(_success) => {
+            crate::views::board_columns_oob_response(&state, &principal, &team_slug, &project_slug)
+                .await
+        }
         Err(DeleteLaneError::NotFound) => resource_not_found_page(),
         Err(DeleteLaneError::LastLane) => validation_fragment(LAST_LANE_MESSAGE),
         Err(DeleteLaneError::UnknownDestination) => {
@@ -153,33 +156,6 @@ pub async fn submit_delete_lane(
 }
 
 // ----------------------------------------------------------------- internals
-
-/// Success body: the refreshed board columns as the `hx-swap-oob="true"`
-/// `#board-columns` replace (house OOB idiom). Re-reads through the SAME
-/// authz-gated `board_view` the board page renders from, so the fragment and
-/// the next full render are byte-identical.
-async fn oob_columns_response(
-    state: &AppState,
-    principal: &Principal,
-    team_slug: &str,
-    project_slug: &str,
-) -> Response {
-    let view =
-        match foundry_services::board::board_view(&state.store, principal, team_slug, project_slug)
-            .await
-        {
-            Ok(view) => view,
-            Err(err) => return internal_error("board_view (post-delete refresh)", err),
-        };
-    let body = crate::views::BoardColumnsOob {
-        team_slug: team_slug.to_string(),
-        project_slug: project_slug.to_string(),
-        columns: crate::views::board_columns(team_slug, project_slug, &view),
-    }
-    .render()
-    .expect("board_columns_oob partial renders from a fully-resolved, infallible view-model");
-    (StatusCode::OK, Html(body)).into_response()
-}
 
 fn lane_delete_action(team_slug: &str, project_slug: &str, lane_slug: &str) -> String {
     format!("/team/{team_slug}/project/{project_slug}/lanes/{lane_slug}/delete")
@@ -394,7 +370,10 @@ pub async fn submit_edit_lane(
     )
     .await
     {
-        Ok(()) => oob_columns_response(&state, &principal, &team_slug, &project_slug).await,
+        Ok(()) => {
+            crate::views::board_columns_oob_response(&state, &principal, &team_slug, &project_slug)
+                .await
+        }
         Err(RenameLaneError::NotFound) => resource_not_found_page(),
         Err(RenameLaneError::LabelBlank) => validation_fragment(LABEL_BLANK_MESSAGE),
         Err(RenameLaneError::LabelTooLong) => validation_fragment(LABEL_TOO_LONG_MESSAGE),
@@ -498,7 +477,10 @@ pub async fn submit_move_lane(
     )
     .await
     {
-        Ok(()) => oob_columns_response(&state, &principal, &team_slug, &project_slug).await,
+        Ok(()) => {
+            crate::views::board_columns_oob_response(&state, &principal, &team_slug, &project_slug)
+                .await
+        }
         Err(MoveLaneError::NotFound) => resource_not_found_page(),
         Err(err) => internal_error("move_lane", format!("{err:?}")),
     }
@@ -529,7 +511,10 @@ pub async fn submit_insert_lane(
     )
     .await
     {
-        Ok(()) => oob_columns_response(&state, &principal, &team_slug, &project_slug).await,
+        Ok(()) => {
+            crate::views::board_columns_oob_response(&state, &principal, &team_slug, &project_slug)
+                .await
+        }
         Err(InsertLaneError::NotFound) => resource_not_found_page(),
         Err(InsertLaneError::LabelBlank) => validation_fragment(LABEL_BLANK_MESSAGE),
         Err(InsertLaneError::LabelTooLong) => validation_fragment(LABEL_TOO_LONG_MESSAGE),

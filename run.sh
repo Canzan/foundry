@@ -19,6 +19,7 @@
 #   FOUNDRY_PG_HOST_PORT   Postgres host port(default 5432; change if taken)
 #   FOUNDRY_RELEASE=1      build --release   (default: debug, faster first build)
 #   FOUNDRY_KEEP_PG=1      leave Postgres running on exit (default: stop it)
+#   FOUNDRY_NO_OPEN=1      skip opening a browser (./restart.sh sets this)
 #
 # Ctrl-C stops Foundry and Postgres. The database itself survives in the named
 # volume, so the next launch keeps your data. Set FOUNDRY_KEEP_PG=1 to leave
@@ -228,7 +229,13 @@ elif [ -n "$BOOTSTRAP" ]; then
   printf '\033[1;33m%s\033[0m\n' "$BOOTSTRAP"
 fi
 
-if   command -v open     >/dev/null 2>&1; then open "$OPEN_URL"
+# FOUNDRY_NO_OPEN=1 suppresses the browser launch. `./restart.sh` sets it: a
+# rebuild-and-relaunch should not steal window focus, and the tab the operator
+# already has open is still pointing at the right URL. The link is still
+# printed, so nothing is lost by not opening it.
+if [ "${FOUNDRY_NO_OPEN:-0}" = "1" ]; then
+  log "not opening a browser (FOUNDRY_NO_OPEN=1) — Foundry is at $OPEN_URL"
+elif command -v open     >/dev/null 2>&1; then open "$OPEN_URL"
 elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$OPEN_URL"
 else log "open your browser at $OPEN_URL"
 fi
