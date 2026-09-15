@@ -1,0 +1,257 @@
+{
+  "roadmap": {
+    "project_id": "card-drag-drop-feedback",
+    "created_at": "2026-09-14T11:19:24Z",
+    "total_steps": 8
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "Slice 01 (US-CDF-01, bugfix, test-first): card drops keep working after any in-place #board-columns refresh, and anything dragged in from outside the page is swallowed",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "Event-time drop claiming after any refresh, with identity revert",
+          "criteria": [
+            "TEST FIRST (D2, AC-1.2): before ANY production edit, Un-pend 'A card can still be dropped after the board rearranges itself in place' (#1) alone, run it, and record its RED verbatim with Chrome's browserVersion. Expected RED: `MISSING_FUNCTIONALITY: Done did not claim the card drag: the synthetic dragover on the lane now on screen was NOT defaultPrevented.` with `window.__cdfMark` intact (no reload) and no move request sent. A RED for any other reason (a harness panic, a WebDriver session timeout, a Postgres start timeout) is not the regression; re-run it.",
+            "Then, one at a time and each GREEN before the next: Un-pend 'Every way the board refreshes in place leaves every lane accepting drops' (#2, 4 rows). Expected RED x4: `the lane under AUTH-41 did not accept the drop (dragover defaultPrevented = false …)`.",
+            "Un-pend 'Rearranging the lanes by dragging a header leaves every lane accepting drops' (#2b). EXPECTED-GREEN GUARD: the header drag moves the existing lane nodes and never replaces #board-columns, so it is GREEN on HEAD and must stay GREEN before and after this step. M1 cannot kill it (DISTILL Upstream Issue #1).",
+            "Un-pend 'A card dropped at an exact slot after a refresh keeps that slot' (#3). Expected RED: the lane did not accept the drop.",
+            "Un-pend 'A freshly loaded board drags exactly as it did before' (#4). EXPECTED-GREEN GUARD for KPI 8 and AC-1.4: the body is exactly `state=in_progress` with an `x-csrf-token` header, and the reload agrees. It must stay GREEN.",
+            "Un-pend 'A drop the server refuses after a refresh puts the card back' (#8). Expected RED: the lane did not accept the drop. Once drops are claimed, its remaining oracle is that AUTH-43 returns to its exact original Backlog slot after the server's uniform 404.",
+            "Observable behaviour: after each of the 5 in-place refreshes (popup card delete, lane edit, lane insert, lane delete with move fate, and lane move from the ⋯ menu), and after the lane-header reorder, the synthetic `dragover` on the lane now on screen is `defaultPrevented`. The drop lands and persists across a reload. A lane that exists only after the refresh (the inserted 'Review') is a drop target immediately (AC-1.1, AC-1.3).",
+            "Observable behaviour: the move request is unchanged. It is the same URL, the same `state` + `after` form body (`after` omitted at the top), the same `x-csrf-token` header and the same optimistic landing slot. A non-2xx or network error returns the card to its exact origin slot even when the board was refreshed before the drop (AC-1.4, D9).",
+            "Off the board, nothing changes: pages that load the drag script without a `#board-columns` (sign-in, the issue page) behave exactly as before (F1). The existing page suites in the default lane stay green.",
+            "VERIFICATION: the Docker daemon is reachable (P1). Build the release binary, then exec the fresh `foundry` binary 2-3 times until `/usr/bin/time -p` reads `real 0.00` (P2), with nothing else running. Run `FOUNDRY_ACCEPTANCE_TAGS=us-cdf-01 cargo test -p foundry-acceptance --release --test acceptance` alone and record Chrome's `browserVersion` (P3). The six scenarios above are GREEN; the three not yet un-pended stay `@pending`. The default lane (tags unset) stays 632/632, and `cargo xtask smoke` (fmt, clippy, check-arch, workspace tests) passes.",
+            "GUARDS (KPI 8, AC-1.7, DDD-10): run `FOUNDRY_ACCEPTANCE_TAGS=blr`, `=kb` and `=icd`. The shipped card-drag ('Dragging a card still moves the card and never the lane', the keyboard-shortcut AUTH-2 mouse drag), lane-drag and popup-delete scenarios are green and UNMODIFIED. `git diff aa8a6f6 --stat` on their .feature files and step modules is empty. The fetch-spy request body is byte-identical to HEAD's. No server, handler, service, store or migration file changes."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/card-drag-drop-feedback.feature",
+          "scenario_name": "A card can still be dropped after the board rearranges itself in place",
+          "files_to_modify": [
+            "crates/foundry-app/static/js/board-dnd.js",
+            "crates/foundry-acceptance/tests/features/card-drag-drop-feedback.feature"
+          ],
+          "implementation_notes": "EXEMPT FROM PARADIGM: browser JS has no unit-test runner in this repo (DB6 forbids Node) and every acceptance scenario is a layer-4 browser scenario (example-only per Mandates 9/11). Compensate with the DDD-9 named-fault runs (M1-M9) at the slice boundary. SLICE 01 PROVES M1 (per-lane binding at load -> #1 and #2, not #2b), M2 (no session-null guard -> #5, #6) and M3 (no preventDefault on a foreign drop -> #5), by the DEVOPS procedure, after step 01-02 closes the slice. Fault runs are NOT roadmap steps. MECHANISM (DESIGN-pinned, ADR-BOARD-CARD-001; do not re-decide it): (1) DDD-2: replace the per-lane loop at board-dnd.js:86-146 with `dragstart`, `dragover`, `drop` and `dragend` delegated on `document`. Each first resolves `event.target.closest('#board-columns')` and returns when it is null (F1: base.html:49 loads the script on every page). The lane is `closest('[data-column]')` at event time. No listener is bound to any node inside #board-columns (ADR-001 rule 5). The fifth listener, `dragleave`, lands in 02-01, where it gets its only job. (2) DDD-1: one `CardDragSession` replaces the three module variables `dragged`/`origin`/`originNext`. For one drag it holds the dragged card node plus the origin as IDENTITY: card key, origin lane slug, next key and previous key. It never holds a lane, the active lane or the marker. A new `dragstart` first ends any stale session. A session `dragover` is `preventDefault()`-ed with `dropEffect = \"move\"`. (3) DDD-7: the pending move holds no nodes. On non-2xx or a network error, resolve the card by `data-issue-key`, the origin lane by slug, then the slot by next key, then previous key, then the end, all at response time. Skip the revert when the card is no longer on the live board. This closes F2, where `insertBefore` threw after a remote delete or reverted into a detached lane. (4) Keep `insertBeforeTarget` and `neighbourAbove` as they are; slice 03 renames the former. (5) With no session, the drop handler acts on nothing, preserving HEAD's `if (!card) return`. The CLAIMED swallow (preventDefault with dropEffect `none`) and the `dragend` teardown are 01-02's work. So on HEAD the fresh-board swallow rows of #5 pass by the per-lane binding's accident; they may be RED at the start of 01-02, and that is the deliberate hand-off. (6) `fetch` body, headers and URL byte-identical. No `keydown` listener (DDD-12)."
+        },
+        {
+          "id": "01-02",
+          "name": "Foreign drags swallowed on the board; every drag ends clean",
+          "criteria": [
+            "Un-pend 'Something dragged in from outside the page is swallowed by the board' (#5, 5 rows). Expected state per row, from DISTILL's RED classification. 'freshly loaded, a file keys.png, the gap between Backlog and In-Progress': RED, `the board did not swallow the foreign drop` (the gap is #board-columns, which HEAD never claims). The two 'after Priya deleted AUTH-42 from its popup' rows (file on Done, text on the gap): RED x2, the same reason. 'freshly loaded, a file keys.png, Done' and 'freshly loaded, a text selection from another app, the empty space below AUTH-7 in Done': EXPECTED-GREEN GUARDS on HEAD, by the accident of the per-lane binding. Step 01-01 removed that binding, so they may read RED when this step starts. They MUST be GREEN when it ends and stay GREEN thereafter.",
+            "Un-pend 'A card dragged in from another tab moves nothing in this one' (#6). EXPECTED-GREEN GUARD: HEAD's drop no-ops when no card was picked up on this page. It must stay GREEN; M2 is the fault that turns it red.",
+            "Un-pend 'A cancelled card drag is not mistaken for the next drag' (#7). Expected RED: `a card MOVED on a drop that was not a card drag begun on this page` (HEAD never clears its in-flight card on dragend, so the file drop moved AUTH-41 and POSTed).",
+            "Observable behaviour (AC-1.5, D4): a drag that did not begin on an `.issue-card` on this page (a file, a text selection, or a card from another tab) is claimed and swallowed anywhere inside #board-columns: on a lane, on the gap between lanes, and on every replaced lane. The synthetic `dragover` and `drop` carrying it are both `defaultPrevented`, no card moves, the fetch spy logs no request and the URL is unchanged. This holds on a fresh load and after a refresh.",
+            "Observable behaviour (AC-1.6, D5): every drag end (drop on a lane, drop elsewhere, Escape, release outside any lane) clears the in-flight drag, so a later foreign drag never moves the previously picked-up card. Escape is the browser's native drag cancel, delivered as `dragend` without `drop`. No `keydown` listener is added and `closeTopLayer()` stays Escape's only owner (DDD-12, BR-4); the shipped `@layered` scenarios stay green.",
+            "Outside #board-columns (for example the page header), the card drag does nothing; the browser default applies (DESIGN OQ-3, a user decision not taken here).",
+            "The six scenarios un-pended by 01-01 stay GREEN.",
+            "VERIFICATION: the same lane procedure as 01-01 (P1 Docker; P2 build and warm the binary until `real 0.00`, lane alone; P3 record `browserVersion`). `FOUNDRY_ACCEPTANCE_TAGS=us-cdf-01 cargo test -p foundry-acceptance --release --test acceptance` gives all 9 US-CDF-01 scenarios, 16 examples, GREEN, and the file holds no `@us-cdf-01 … @pending`. The default lane stays 632/632 and `cargo xtask smoke` passes.",
+            "GUARDS: `FOUNDRY_ACCEPTANCE_TAGS=blr`, `=kb` and `=icd` are green; those files show an empty diff against aa8a6f6 (KPI 8, AC-1.7). The request body is byte-identical (AC-1.4). There is no server-side change (DDD-10)."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/card-drag-drop-feedback.feature",
+          "scenario_name": "Something dragged in from outside the page is swallowed by the board",
+          "files_to_modify": [
+            "crates/foundry-app/static/js/board-dnd.js",
+            "crates/foundry-acceptance/tests/features/card-drag-drop-feedback.feature"
+          ],
+          "implementation_notes": "EXEMPT FROM PARADIGM: browser JS has no unit-test runner in this repo (DB6 forbids Node) and every acceptance scenario is a layer-4 browser scenario (example-only per Mandates 9/11). Compensate with the DDD-9 named-fault runs (M1-M9) at the slice boundary. SLICE 01 PROVES M1, M2 and M3. Run them once this step is GREEN; this step closes the slice. For each fault: snapshot board-dnd.js to the scratchpad, seed ONE fault with no rebuild (/static is served from disk), run `FOUNDRY_ACCEPTANCE_TAGS=us-cdf-01`, confirm the named scenario fails ON ITS ORACLE (a timeout is never a kill), restore, prove the restore with `cmp`, re-run GREEN, and record one row with browserVersion. The expected kills: M1 -> #1 and #2 (never #2b); M2 -> #5 and #6; M3 -> #5. The gate is 3/3 killed. Never run `cargo xtask ci` with a fault seeded. Fault runs are NOT roadmap steps. MECHANISM (DESIGN-pinned, ADR-BOARD-CARD-001 rule 3, DDD-6): a foreign drag is ANY drag with no session. `dataTransfer.types` is never inspected, because a card from another foundry tab carries text/plain exactly as ours does. Inside #board-columns with no session, `dragover` is `preventDefault()`-ed with `dataTransfer.dropEffect = \"none\"`, and `drop` is `preventDefault()`-ed and ignored. D5: `dragend` always calls the session's idempotent `end()`, which tears down by querying the DOM, never through a stored handle. Nothing is lit or marked yet, so `end()` only clears the session now; 02-02 and 03-02 extend the same teardown. DOGFOOD for the slice (D12; not a step): in Chrome, Firefox and Safari (OQ-2), drop a real Finder `keys.png` on a lane and on the gap between lanes, on a fresh load and after a refresh. If a browser navigates on a `none` drop, apply ADR-001's recorded fallback: accept with `move` and cancel in `drop`. Start the 5-working-day KPI 2 log in the slice-01 delivery notes."
+        }
+      ]
+    },
+    {
+      "id": "02",
+      "name": "Slice 02 (US-CDF-02): the lane under a dragged card visibly activates, exactly one at a time, and every way the drag ends clears it",
+      "steps": [
+        {
+          "id": "02-01",
+          "name": "Exactly the lane under the dragged card is activated",
+          "criteria": [
+            "Un-pend 'The lane under a dragged card lights up, and only that lane' (#9). Expected RED: `Done is not shown as activated … ([data-card-drop-target] on lanes: [])`.",
+            "Un-pend 'The highlight follows the card from lane to lane' (#10). Expected RED at the Given `Priya is dragging OPS-3 over Done` (the precondition is itself the missing feature).",
+            "Un-pend 'A lane stays lit while the card passes over the cards inside it' (#11). Expected RED at the same Given. Its oracle is read BETWEEN the `dragleave` and the next `dragover` (DDD-8f), so an activation that clears on every leave fails it here and passes everywhere else.",
+            "Un-pend 'Nothing is lit while the card is over no lane' (#12, 2 rows: over the page header; out of the browser window). Expected RED x2 at the same Given.",
+            "Un-pend 'Lanes still light up after the board refreshes in place' (#15). Expected RED: `Review is not shown as activated` (the lane was inserted in place with no reload; AC-2.7, D3).",
+            "Observable behaviour (AC-2.1, AC-2.2): during a card drag begun on this page, exactly one `section.column` carries `data-card-drop-target`, the lane under the pointer, and it does not blink off while the pointer crosses that lane's cards. Over no lane (the page header), or once the pointer has left the window, zero lanes carry it.",
+            "Observable behaviour (AC-2.4): a drag with no session never sets `data-card-drop-target`.",
+            "This step edits NO stylesheet. The oracles read the attribute, and any CSS edit would force a D13 rename, which 02-02 owns (one rename per slice; check-arch fails smoke on an edited but unrenamed CSS file).",
+            "All 9 US-CDF-01 scenarios stay GREEN.",
+            "VERIFICATION: warm binary, lane alone, Docker up (P1-P2). `FOUNDRY_ACCEPTANCE_TAGS=us-cdf-02 cargo test -p foundry-acceptance --release --test acceptance` gives the five scenarios above GREEN (the rest of us-cdf-02 stays `@pending`), and `=us-cdf-01` stays GREEN. Record `browserVersion` (P3). The default lane stays 632/632 and `cargo xtask smoke` passes.",
+            "GUARDS: `blr`, `kb` and `icd` are green and unmodified (KPI 8). The request body is byte-identical (AC-1.4). There is no server-side change (DDD-10)."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/card-drag-drop-feedback.feature",
+          "scenario_name": "The lane under a dragged card lights up, and only that lane",
+          "files_to_modify": [
+            "crates/foundry-app/static/js/board-dnd.js",
+            "crates/foundry-acceptance/tests/features/card-drag-drop-feedback.feature"
+          ],
+          "implementation_notes": "EXEMPT FROM PARADIGM: browser JS has no unit-test runner in this repo (DB6 forbids Node) and every acceptance scenario is a layer-4 browser scenario (example-only per Mandates 9/11). Compensate with the DDD-9 named-fault runs (M1-M9) at the slice boundary. SLICE 02 PROVES M9: clear activation on every `dragleave` must turn #11 RED. It runs after 02-02 closes the slice, by the DEVOPS procedure with tag `us-cdf-02`. Fault runs are NOT roadmap steps. MECHANISM (DESIGN-pinned DDD-3, ADR-BOARD-CARD-002 rules 1-3): `dragover` is the ONLY activator. On each session `dragover`, set `data-card-drop-target` on the lane resolved at event time and remove it from every other lane found by query. Write the DOM only when the lane changes. A session `dragover` that resolves no lane clears activation. Add the fifth delegated listener, `dragleave`, scoped to #board-columns like the others: a `dragleave` whose `relatedTarget` is null SCHEDULES a clear for the next animation frame, and any `dragover` cancels it ('left the window'). REJECTED by ADR-002 (do not implement): a dragenter/dragleave depth counter, which drifts when a leave is lost; and `relatedTarget` containment, which synthetic events always satisfy and some engines report as null. Activation lives only in the session branch, never in the foreign-drag swallow branch."
+        },
+        {
+          "id": "02-02",
+          "name": "Activation cleared on every exit; legible outline; slice-02 rename",
+          "criteria": [
+            "Un-pend 'Every way a drag ends leaves no lane lit' (#13, 4 rows: drops it on Done; presses Escape; releases it over the page header; drops it on Done and the server refuses the move). Expected RED x4 on HEAD at the Given `Priya is dragging OPS-3 over Done`. With 02-01 landed, the Given passes and the remaining RED is `no lane is shown as activated` after each exit, which is what this step turns GREEN (AC-2.3, D5).",
+            "Un-pend 'Something dragged in from outside the page lights nothing' (#14). Expected RED on HEAD at the positive control `a card dragged over Done straight afterwards does light it`. Once 02-01 keeps activation inside the session branch it may already be GREEN; this step must keep it so (AC-2.4).",
+            "Un-pend 'The activated lane is legible in both palettes and moves nothing' (#16, 2 rows: light, dark). Expected RED x2 on HEAD: `no lane is activated to measure`. With 02-01 landed, the remaining oracle is the >= 3:1 boundary contrast and identical card and column rectangles.",
+            "Observable behaviour (AC-2.3): zero `[data-card-drop-target]` after every exit: a drop (cleared before the POST answers, so a refused drop also ends with zero), Escape, release outside any lane, and the start of a new drag.",
+            "Observable behaviour (AC-2.5, AC-2.6, D6): the activated lane's boundary measures >= 3:1 against the page in the light AND dark palettes by the suite's contrast oracle. It uses existing `--cz-*` tokens only, with no new token and no colour literal (check-arch S1). Activating a lane moves no card and resizes no column: bounding rectangles before and after are identical.",
+            "AC-2.8, D13, THIS STEP OWNS THE SLICE-02 RENAME (it is the slice's only stylesheet edit): rename `static/css/foundry.52ad52fa.css` to `foundry.<first 8 hex of its new sha256>.css`. In the same change, update the `<link>` in `templates/base.html`, the three hashed-name literals in the `src/lib.rs` cache-policy tests, and the `static/VENDOR.md` table row and its notes paragraph. check-arch verifies that the hash equals the filename and that the VENDOR sha256 recomputes; every `/static` reference resolves.",
+            "All US-CDF-01 scenarios and 02-01's five scenarios stay GREEN.",
+            "VERIFICATION: rebuild the binary (base.html is compiled in by Askama), warm it, run the lane alone with Docker up (P1-P2). `FOUNDRY_ACCEPTANCE_TAGS=us-cdf-02` gives all 8 US-CDF-02 scenarios, 13 examples, GREEN, and `=us-cdf-01` is GREEN. Record `browserVersion` (P3). The default lane stays 632/632 and `cargo xtask smoke` passes: the `lib.rs` cache tests are green on the new literal and check-arch is green on the rename.",
+            "GUARDS: `blr`, `kb` and `icd` are green and unmodified (KPI 8). The request body is byte-identical (AC-1.4). There is no server-side change (DDD-10); `lib.rs` changes ONLY its cache-test literals."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/card-drag-drop-feedback.feature",
+          "scenario_name": "Every way a drag ends leaves no lane lit",
+          "files_to_modify": [
+            "crates/foundry-app/static/js/board-dnd.js",
+            "crates/foundry-app/static/css/foundry.52ad52fa.css",
+            "crates/foundry-app/templates/base.html",
+            "crates/foundry-app/src/lib.rs",
+            "crates/foundry-app/static/VENDOR.md",
+            "crates/foundry-acceptance/tests/features/card-drag-drop-feedback.feature"
+          ],
+          "implementation_notes": "EXEMPT FROM PARADIGM: browser JS has no unit-test runner in this repo (DB6 forbids Node) and every acceptance scenario is a layer-4 browser scenario (example-only per Mandates 9/11). Compensate with the DDD-9 named-fault runs (M1-M9) at the slice boundary. SLICE 02 PROVES M9 (clear activation on every `dragleave` -> 'A lane stays lit while the card passes over the cards inside it' must RED). Run it once this step is GREEN, by the DEVOPS procedure with tag `us-cdf-02`: snapshot, seed, run, restore, `cmp`, re-run GREEN, record browserVersion. Fault runs are NOT roadmap steps. MECHANISM (DESIGN-pinned, ADR-BOARD-CARD-002 rules 4 and 9): the session's idempotent `end()` now also removes every `data-card-drop-target`, found by query. It is called at drop (before the fetch) and at `dragend`, and by a new `dragstart` on any stale session. Style `.column[data-card-drop-target]` with an INSET `outline` in `--cz-muted` (5.89:1 light, 6.38:1 dark against the page, per ADR-002), the `.kb-selected` no-layout idiom; the inset keeps it inside a horizontally scrolling board. OQ-1 is DELIVER's: pick the activated SURFACE shift from existing tokens (`--cz-surface` would erase card elevation in the light palette), measure it, and record the choice and both palettes' ratios in the slice-02 delivery notes. RENAME SITES: the three literals are at `src/lib.rs` lines 330, 347 and 366 today. Do NOT edit the comment that names `foundry.52ad52fa.css` at `feature_issue_card_delete.rs:1571`: it is a shipped step module (KPI 8), and the acceptance suite discovers the hashed name on disk. DOGFOOD (D12; not a step): drag slowly across three lanes and their cards in Chrome and Firefox, light and dark, then press Escape mid-drag and release over the header. Nothing may stay lit and nothing may flicker."
+        }
+      ]
+    },
+    {
+      "id": "03",
+      "name": "Slice 03 (US-CDF-03): one zero-footprint marker shows the exact slot, the card lands at that slot, and a reload agrees",
+      "steps": [
+        {
+          "id": "03-01",
+          "name": "One marker shows the slot; drop lands there; slice-03 rename",
+          "criteria": [
+            "Un-pend 'A marker shows the slot between two cards' (#17). Expected RED: `no marker shows where the card would land ([data-card-drop-marker] …)`.",
+            "Un-pend 'The card lands exactly where the marker showed, and a reload agrees' (#18). Expected RED at the Given `the marker shows between AUTH-3 and AUTH-12 while Priya drags AUTH-41`.",
+            "Un-pend 'The marker reaches both ends of a lane' (#19, 2 rows: above the middle of AUTH-3 / first; below AUTH-19 / last). Expected RED x2: `no marker shows where the card would land`.",
+            "Un-pend 'Reordering inside a lane never offers the card's own slot' (#20). Expected RED: `no marker shows where the card would land`.",
+            "Un-pend 'A still pointer keeps the marker in one place' (#21). Expected RED at the marker Given.",
+            "Un-pend 'The marker moves with the card to another lane' (#22). Expected RED at the marker Given.",
+            "Un-pend 'The marker is legible in both palettes' (#26, 2 rows: light, dark). Expected RED x2: `no marker shows to measure`.",
+            "Observable behaviour (AC-3.1, AC-3.2, AC-3.4, D7): while a card drag is over a lane, exactly one `[data-card-drop-marker]` exists on the board. It sits in the gap above the card the slot precedes, or below the last card, and its `data-before-key` names that card (empty means the end). After the drop, the card sits at that slot, the POST's `after` is the key of the card now above it (omitted at the top), and a reload shows the same order (AC-3.3, D11). The dragged card's own slot is never a neighbour.",
+            "Observable behaviour (AC-3.5, D8): the marker takes no space. Repeated `dragover` at the same coordinates never moves it, and showing it moves no card.",
+            "Observable behaviour (AC-3.7): the marker measures >= 3:1 against the lane behind it (the activated surface 02-02 settled) in the light and dark palettes, from existing `--cz-*` tokens only (S1). It does not copy the `.lane-drop-indicator` colour (1.49:1).",
+            "D13, THIS STEP OWNS THE SLICE-03 RENAME. It is the slice's only stylesheet edit, and it carries BOTH the marker's zero-footprint geometry and its colour: the geometry is needed here because the oracles read the marker's midline against the gap (6px tolerance), and check-arch fails smoke on an edited but unrenamed CSS file. Rename the then-current `foundry.<hash>.css` and, in the same change, update `base.html`, the three `lib.rs` cache-test literals and `VENDOR.md`.",
+            "VERIFICATION: rebuild and warm the binary, run the lane alone with Docker up (P1-P2). `FOUNDRY_ACCEPTANCE_TAGS=us-cdf-03` gives the seven scenarios above GREEN (#23-#25 stay `@pending`); `=us-cdf-01` and `=us-cdf-02` are GREEN. Record `browserVersion` (P3). The default lane stays 632/632 and `cargo xtask smoke` passes.",
+            "GUARDS: `blr` (including its `.lane-drop-indicator`, which is unchanged), `kb` and `icd` are green and unmodified (KPI 8). The request body is byte-identical (AC-1.4); fetch-spy `after` = the marker's `data-before-key` neighbour = the post-drop DOM = the post-reload order (KPI 4). There is no server-side change (DDD-10)."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/card-drag-drop-feedback.feature",
+          "scenario_name": "A marker shows the slot between two cards",
+          "files_to_modify": [
+            "crates/foundry-app/static/js/board-dnd.js",
+            "crates/foundry-app/static/css/foundry.<hash>.css",
+            "crates/foundry-app/templates/base.html",
+            "crates/foundry-app/src/lib.rs",
+            "crates/foundry-app/static/VENDOR.md",
+            "crates/foundry-acceptance/tests/features/card-drag-drop-feedback.feature"
+          ],
+          "implementation_notes": "EXEMPT FROM PARADIGM: browser JS has no unit-test runner in this repo (DB6 forbids Node) and every acceptance scenario is a layer-4 browser scenario (example-only per Mandates 9/11). Compensate with the DDD-9 named-fault runs (M1-M9) at the slice boundary. SLICE 03 PROVES M4 (skip teardown on `dragend` -> #13, #23 and #7, run under tag `cdf` because it covers slices 01-03), M5 (recompute the drop slot at an offset `clientY` instead of reading the marker -> #18) and M6 (count the dragged card as a neighbour -> #20). Run them after 03-02 closes the slice. Fault runs are NOT roadmap steps. MECHANISM (DESIGN-pinned DDD-4, ADR-BOARD-CARD-002 rules 5-8): rename `insertBeforeTarget` to `slotFor(lane, y, card)`, keeping the same midpoint rule and still skipping the dragged card. Run it on each session `dragover`. Write the result to ONE `div[data-card-drop-marker]` inside the active lane, carrying `data-before-key`. Placing it removes any other, and a session `dragover` over no lane removes it. The marker is absolutely positioned (`.column` is already `position: relative`, css:1146, F3) in the 8px gap above the target card or below the last card, with `pointer-events: none` and `--cz-black` (about 13.8:1 light and 16.4:1 dark against `--cz-bg-2` at design time; re-measure against OQ-1's surface). ON DROP: resolve `data-before-key` inside the drop lane and land the card there. Recompute with `slotFor` ONLY when that lane holds no marker (a drop with no prior dragover). `after` still comes from the landed card via the shipped `neighbourAbove`, which skips the marker and any placeholder, so the body is unchanged. The marker must never be read back through a stored handle. Hook names are pinned; if one is renamed, the step module's constants move in the same change (DISTILL pre-requisite). Deliberately NOT shared with `board-lane-dnd.js`'s indicator (ADR-BOARD-LANE-007). The optional slice-03 oscillation spike is NOT run (DDD-4 made it moot)."
+        },
+        {
+          "id": "03-02",
+          "name": "Marker never outlives the drag, ignores foreign drags, survives refreshes",
+          "criteria": [
+            "Un-pend 'The marker never outlives the drag' (#23, 4 rows: she drops it / between AUTH-3 and AUTH-12; she presses Escape / back in its slot in Backlog; she releases it over the page header / back in its slot in Backlog; she drops it and the server refuses the move / back in its slot in Backlog). Expected RED x4 on HEAD at the Given `the marker shows between AUTH-3 and AUTH-12 while Priya drags AUTH-41`. With 03-01 landed, the remaining oracle is `no marker shows anywhere on the board` after each exit, plus AUTH-41's final position (AC-3.6).",
+            "Un-pend 'Something dragged in from outside the page shows no marker' (#24). Expected RED on HEAD at the positive control `a card dragged over In-Progress straight afterwards does show a marker`. With 03-01 keeping the marker inside the session branch it may already be GREEN; this step must keep it so (AC-3.8, D4).",
+            "Un-pend 'The marker works on a board that refreshed in place' (#25). Expected RED on HEAD: `no marker shows where the card would land`. It is this slice's replace-proof guard (D15, AC-3.8): after a popup delete with no reload, the marker shows between AUTH-12 and AUTH-19 and the reload order agrees.",
+            "Observable behaviour (AC-3.6, D5): zero `[data-card-drop-marker]` after every exit: a drop (removed before the POST answers, so a refused drop leaves none and the card returns to its exact origin slot), Escape, release outside any lane, and the start of a new drag. Zero `[data-card-drop-target]` still holds at the same moments.",
+            "This step edits NO stylesheet: slice 03's single rename belongs to 03-01, and a second CSS edit would need a second rename.",
+            "All US-CDF-01, US-CDF-02 and 03-01 scenarios stay GREEN.",
+            "VERIFICATION: warm binary, lane alone, Docker up (P1-P2). `FOUNDRY_ACCEPTANCE_TAGS=us-cdf-03` gives all 10 US-CDF-03 scenarios, 15 examples, GREEN; then `FOUNDRY_ACCEPTANCE_TAGS=cdf` gives US-CDF-01..03 GREEN with only `@us-cdf-04` still `@pending`. Record `browserVersion` (P3). The default lane stays 632/632 and `cargo xtask smoke` passes.",
+            "GUARDS: `blr`, `kb` and `icd` are green and unmodified (KPI 8). The request body is byte-identical (AC-1.4). There is no server-side change (DDD-10)."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/card-drag-drop-feedback.feature",
+          "scenario_name": "The marker never outlives the drag",
+          "files_to_modify": [
+            "crates/foundry-app/static/js/board-dnd.js",
+            "crates/foundry-acceptance/tests/features/card-drag-drop-feedback.feature"
+          ],
+          "implementation_notes": "EXEMPT FROM PARADIGM: browser JS has no unit-test runner in this repo (DB6 forbids Node) and every acceptance scenario is a layer-4 browser scenario (example-only per Mandates 9/11). Compensate with the DDD-9 named-fault runs (M1-M9) at the slice boundary. SLICE 03 PROVES M4, M5 and M6; this step closes the slice. M4 (skip the teardown on `dragend`) runs under `FOUNDRY_ACCEPTANCE_TAGS=cdf` and must RED 'Every way a drag ends leaves no lane lit', 'The marker never outlives the drag' and 'A cancelled card drag is not mistaken for the next drag'. M5 -> #18 and M6 -> #20 run under `us-cdf-03`. The gate is 3/3 killed; a survivor is a test gap fixed in this slice, and a timeout is never a kill. Fault runs are NOT roadmap steps. MECHANISM (ADR-BOARD-CARD-002 rule 9): extend the session's idempotent `end()` so ONE teardown removes every `[data-card-drop-marker]` and every `data-card-drop-target`, both found by query. It runs at drop (before the fetch), at `dragend` and at a stale-session `dragstart`. The refused-drop row relies on 01-01's identity revert (DDD-7); do not reintroduce a held origin node. DOGFOOD (D12; not a step): on a real lane holding 6+ cards, drag slowly down it and hold still at a card boundary; the marker must not flicker between two slots. Drop at the top, middle and bottom, reloading each time."
+        }
+      ]
+    },
+    {
+      "id": "04",
+      "name": "Slice 04 (US-CDF-04): every lane displays its placeholder if and only if it holds no card, by a CSS rule with zero script writers",
+      "steps": [
+        {
+          "id": "04-01",
+          "name": "Placeholder in every lane, shown by :has(); slice-04 rename",
+          "criteria": [
+            "Un-pend 'Dropping into an empty lane removes its placeholder' (#27). Expected RED: `Staging still displays the \"No issues yet\" placeholder beside a card`.",
+            "Un-pend 'A lane emptied by a drag shows the placeholder' (#28). Expected RED: `In-Progress holds no card yet does not display the … placeholder`.",
+            "Un-pend 'One drag updates both lanes at once' (#29). Expected RED: `Staging still displays the \"No issues yet\" placeholder beside a card`.",
+            "Un-pend 'Placeholders stay truthful on a board that refreshed in place' (#34). Expected RED on HEAD: the lane did not accept the drop. With slice 01 landed it advances to the placeholder oracle (Staging displays the placeholder beside OPS-7), which this step turns GREEN (AC-4.6).",
+            "Observable behaviour (AC-4.1, AC-4.5, D10, D11): after any drag, no lane DISPLAYS the placeholder (computed `display`, not DOM presence; DDD-5) while holding a card, and every lane holding no card displays it. A reload changes nothing visible in either lane involved.",
+            "Observable behaviour (AC-4.2): the displayed placeholder has the same words and markup as the server's empty-lane node, 'No issues yet — press <kbd>c</kbd> to file the first one.'. The client carries no second copy, and the full-page and OOB render paths stay byte-identical because they share the one partial.",
+            "ONE CHANGE (DEVOPS constraint; each slice lands as one commit): the partial edit, the rule pair and the D13 rename land together in THIS step. The partial alone would show 'No issues yet' in every lane. Rename the then-current `foundry.<hash>.css` and update `base.html`, the three `lib.rs` cache-test literals and `VENDOR.md` in the same change.",
+            "The shipped presence assertion `projects.rs:1157` (`empty_board_renders_inviting_empty_state_guidance`) stays green in `cargo test --workspace`; the placeholder is still rendered.",
+            "VERIFICATION: rebuild (Askama compiles the partial in) and warm the binary, run the lane alone with Docker up (P1-P2). `FOUNDRY_ACCEPTANCE_TAGS=us-cdf-04` gives the four scenarios above GREEN (#30-#33 stay `@pending`), and `=cdf` is GREEN for US-CDF-01..03. Record `browserVersion` (P3). The default lane stays 632/632 and `cargo xtask smoke` passes.",
+            "GUARDS: `blr`, `kb`, `icd`, `blm` and `blo` are green and unmodified. The last two render the same partial through the lane menu and its OOB refresh (KPI 8). The request body is byte-identical (AC-1.4). There is no handler, service, store or migration change (DDD-10). The Askama partial is a template, not a handler, and `board_columns_oob.html` is untouched."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/card-drag-drop-feedback.feature",
+          "scenario_name": "Dropping into an empty lane removes its placeholder",
+          "files_to_modify": [
+            "crates/foundry-app/templates/partials/board_columns.html",
+            "crates/foundry-app/static/css/foundry.<hash>.css",
+            "crates/foundry-app/templates/base.html",
+            "crates/foundry-app/src/lib.rs",
+            "crates/foundry-app/static/VENDOR.md",
+            "crates/foundry-acceptance/tests/features/card-drag-drop-feedback.feature"
+          ],
+          "implementation_notes": "EXEMPT FROM PARADIGM: browser JS has no unit-test runner in this repo (DB6 forbids Node) and every acceptance scenario is a layer-4 browser scenario (example-only per Mandates 9/11). Compensate with the DDD-9 named-fault runs (M1-M9) at the slice boundary. SLICE 04 PROVES M7 (remove the `:has()` rule pair -> #29 and #32, tag `us-cdf-04`) and M8 (skip the revert on non-2xx -> #8, the refused row of #23 and #30, tag `cdf`, covering slices 01, 03 and 04). They run after 04-02 closes the slice. Fault runs are NOT roadmap steps. MECHANISM (DESIGN-pinned DDD-5, ADR-BOARD-CARD-003): in `board_columns.html`, drop the `{% if column.cards.is_empty() %} … {% else %}` branch so that every `section.column` emits the existing `<p class=\"empty\">No issues yet — press <kbd>c</kbd> to file the first one.</p>` BEFORE its cards, with words and markup unchanged. Add the tokens-free, hide-by-default rule pair `.column > .empty { display: none }` and `.column:not(:has(> .issue-card)) > .empty { display: block }`. Below the :has() floor (Chrome/Edge 105, Safari 15.4, Firefox 121), the placeholder then never shows, which is silence rather than a lie. NO script writes, clones or restores a placeholder: `board-dnd.js` is not edited in this step and `board-live.js` is UNCHANGED. `neighbourAbove`, `slotFor` and keyboard.js's `.board .issue-card[data-issue-key]` already ignore the always-present node. Update the partial's header comment only where it would otherwise misdescribe the placeholder. P5: template and CSS edits need `./restart.sh` at dogfood."
+        },
+        {
+          "id": "04-02",
+          "name": "Refusal, hover, foreign and remote delete keep placeholders truthful",
+          "criteria": [
+            "Un-pend 'A refused drop puts both lanes back as they were' (#30). EXPECTED-GREEN GUARD: the exact-origin revert shipped in issue-status-move, and on HEAD nothing touches placeholders. The step first proves the move was sent and refused (404). It must stay GREEN, now through 01-01's identity revert plus 04-01's rule (AC-4.3).",
+            "Un-pend 'Only a drop changes a placeholder' (#31, 3 rows: Escape; release over the page header; a file keys.png dropped on Staging). Expected RED x3 on HEAD at the positive control: `Staging still displays the … placeholder beside a card` after Priya drops OPS-3. With 04-01 landed, it is expected GREEN (AC-4.4).",
+            "Un-pend 'A lane emptied by a delete in another tab shows the placeholder' (#32). Expected RED on HEAD: `In-Progress holds no card yet does not display the … placeholder` (the second tab dropped OPS-7 live, with no reload). With 04-01 landed, it is expected GREEN with the live-board script unchanged (AC-4.7, D16).",
+            "Un-pend 'A delete in another tab that leaves cards behind adds no placeholder' (#33). EXPECTED-GREEN GUARD: the live board removes only the card. Now that every lane renders the node, it proves Done (still holding OPS-11) does not display it. It must stay GREEN (AC-4.7).",
+            "No production edit is expected. Refusal, hover invariance and remote-delete truthfulness are consequences of 04-01's declarative rule. If #31 or #32 stays RED after un-pending, slice 04's hypothesis is DISPROVED. STOP and raise it to the user: ADR-BOARD-CARD-003's `<template>` fallback brings back two client writers and the 0.75d estimate, and that is a user decision. Do NOT patch the live-board script or add a placeholder writer to the card drag.",
+            "Observable behaviour (AC-4.4): hovering, cancelling and foreign drags never change any lane's placeholder, even with the marker present inside an empty lane; only a drop or a remote delete of a lane's last card does.",
+            "VERIFICATION: warm binary, lane alone, Docker up (P1-P2). Both two-tab scenarios ride the real SSE path, so no other lane may run concurrently. `FOUNDRY_ACCEPTANCE_TAGS=us-cdf-04` gives all 8 US-CDF-04 scenarios, 10 examples, GREEN. `FOUNDRY_ACCEPTANCE_TAGS=cdf` gives all 35 scenarios, 54 examples, GREEN with ZERO `@pending` left in the file. Record `browserVersion` (P3). The default lane stays 632/632 and `cargo xtask smoke` passes.",
+            "GUARDS: `blr`, `kb`, `icd`, `blm` and `blo` are green and unmodified (KPI 8), and the issue-card-delete two-window scenarios are green (the live board is unchanged). The request body is byte-identical (AC-1.4). There is no server-side change (DDD-10). Pre-push is `FOUNDRY_XTASK_INCLUDE_DOCKER=1 cargo xtask ci`; a green run that skipped the acceptance step is not a pass (P1)."
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/card-drag-drop-feedback.feature",
+          "scenario_name": "A refused drop puts both lanes back as they were",
+          "files_to_modify": [
+            "crates/foundry-acceptance/tests/features/card-drag-drop-feedback.feature"
+          ],
+          "implementation_notes": "EXEMPT FROM PARADIGM: browser JS has no unit-test runner in this repo (DB6 forbids Node) and every acceptance scenario is a layer-4 browser scenario (example-only per Mandates 9/11). Compensate with the DDD-9 named-fault runs (M1-M9) at the slice boundary. SLICE 04 PROVES M7 and M8; this step closes the slice and the feature. M7 (remove the `:has()` pair from the stylesheet; snapshot the CSS, not the JS) must RED 'One drag updates both lanes at once' and 'A lane emptied by a delete in another tab shows the placeholder' under `us-cdf-04`. M8 (skip the revert on non-2xx) must RED 'A drop the server refuses after a refresh puts the card back', the refused row of 'The marker never outlives the drag' and 'A refused drop puts both lanes back as they were' under `cdf`. The FEATURE GATE is 9/9 killed across M1-M9. Never run `cargo xtask ci` with a fault seeded: check-arch would flag the CSS hash. Fault runs are NOT roadmap steps. WHY THIS STEP CARRIES NO PRODUCTION FILE: DDD-5 turned four behaviours (refusal, hover invariance, remote delete, remote delete leaving cards) into consequences of one stylesheet fact. The step exists so that each is un-pended and proven as a separate observation after 04-01, and it is the recorded stop point if the declarative rule fails. MUTATION RECORD for Phase 5 (DDD-9): cargo-mutants is NOT APPLICABLE. Record `git diff --name-only aa8a6f6 -- '*.rs'` plus `git status --porcelain`: the expected .rs changes are `crates/foundry-app/src/lib.rs` (cache-test literals only) and test code. Any other production .rs file voids N/A, and `cargo mutants --in-diff` must then run on it. DOGFOOD (D12; not a step): in Chrome, Firefox and Safari, drag a lane's only card into an empty lane, then reload; have a drop refused; and delete a lane's last card on one screen with the board open on another."
+        }
+      ]
+    }
+  ],
+  "implementation_scope": {
+    "source_directories": [
+      "crates/foundry-app/static/js/",
+      "crates/foundry-app/static/css/",
+      "crates/foundry-app/templates/",
+      "crates/foundry-app/src/"
+    ],
+    "test_directories": [
+      "crates/foundry-acceptance/tests/features/"
+    ],
+    "excluded_patterns": [
+      "target/**",
+      "docs/**",
+      "crates/foundry-app/static/js/board-live.js",
+      "crates/foundry-app/static/js/board-lane-dnd.js",
+      "crates/foundry-app/static/js/keyboard.js",
+      "crates/foundry-app/templates/board.html",
+      "crates/foundry-app/templates/partials/oob/board_columns_oob.html",
+      "crates/foundry-app/templates/partials/issue_card.html",
+      "crates/foundry-store/**",
+      "crates/foundry-services/**",
+      "crates/foundry-acceptance/src/**"
+    ]
+  },
+  "validation": {
+    "status": "approved",
+    "reviewer": "nw-acceptance-designer-reviewer (Sentinel), 2026-09-14: approved, 0 blocker / 0 high / 1 low (R-1: 03-01 at the upper edge of one TDD cycle, 7 scenarios / 13 criteria; watch at slice 03)",
+    "approved_at": null,
+    "notes": "Authored 2026-09-14 (DELIVER Phase 1, planning only; no production code, no tests, no commit). 35 DISTILL scenarios (54 examples; 47 RED / 7 expected-GREEN / 0 BROKEN on aa8a6f6, Chrome 151.0.7922.108) mapped to 8 steps in 4 phases; phase number = slice number, ordered 01 -> 02 -> 03 -> 04. Claims per step: 01-01 x6, 01-02 x3, 02-01 x5, 02-02 x3, 03-01 x7, 03-02 x3, 04-01 x4, 04-02 x4. The 7 expected-GREEN scenarios (#2b, #4, the two fresh swallow rows of #5, #6, #30, #33) are marked as GUARDS in their steps. ONE DEVIATION from the suggested mapping: 'The marker is legible in both palettes' (#26) moved from 03-02 to 03-01, and 03-01 owns ALL slice-03 CSS plus its rename. Reason: the markers oracle reads the marker's geometric midline against the inter-card gap (6px tolerance), so 03-01 needs the marker's zero-footprint CSS. check-arch fails `cargo xtask smoke` on any edited-but-unrenamed stylesheet, and D13 allows one rename per slice, so only one step per slice may touch CSS. Consequence applied everywhere: CSS + rename is owned by 02-02, 03-01 and 04-01; 01-01, 01-02, 02-01, 03-02 and 04-02 edit no stylesheet. 04-02 carries no production file by design: DDD-5 makes its four behaviours declarative, and the step is the slice's recorded stop point if the :has() rule fails. AUTOMATED GATES (self-check): (1) AC coupling to private methods: PASS. Criteria name only scenario titles, DOM-contract hooks ([data-card-drop-target], [data-card-drop-marker][data-before-key], computed display of .column > .empty), CSS/token names and files; the DESIGN-pinned internal JS names (CardDragSession, slotFor, neighbourAbove, end()) appear only in implementation_notes. (2) Decomposition ratio: PASS, 8 steps / 6 production files (board-dnd.js, board_columns.html, the stylesheet, base.html, lib.rs cache-test literals, VENDOR.md) = 1.33 (<= 2.5); 2.0 if lib.rs and VENDOR.md are excluded. (3) No 3+ steps with identical AC structure: PASS; every step's criteria differ in scenario set, RED reasons and behaviour. (4) No empty files_to_modify: PASS (min 1: 04-02, the feature file). (5) Step ID format ^\\d{2}-\\d{2}$: PASS, 8/8. (6) test_file and scenario_name on every step: PASS; each scenario_name is an exact feature-file title. (7) Coverage: PASS, 35/35 claimed exactly once, zero orphans and zero multi-claims, by a mechanical title match over the criteria. No step covers 8 or more scenarios (max 7). COMMANDS: `des-roadmap validate` exit 0 ('VALID: 4 phases, 8 steps'), with advisory size warnings only: TOO_MANY_CRITERIA and CRITERIA_TOO_LONG remain by design, because each step carries per-scenario RED reasons and the P1-P3 verification the brief requires. `des-verify-integrity --roadmap-only` exit 0. REVIEWER: not dispatched in this planning pass; status stays pending_review."
+  }
+}

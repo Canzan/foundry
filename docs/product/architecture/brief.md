@@ -296,3 +296,176 @@ input and returns validated claims. Binding a claim to a user happens in
 `foundry-app`, where the tenancy rules already live. `deny.toml` bans `foundry-oidc`
 outside `foundry-app` and `foundry-acceptance`, mirroring the existing `foundry-api`
 rule.
+
+## Domain Model
+
+Owned by @nw-ddd-architect. Bootstrapped by the `card-drag-drop-feedback` DESIGN wave
+(2026-09-13). Like the section above, it records what a wave actually modelled and
+does not retro-model shipped server contexts. The user accepted the decisions recorded
+here on 2026-09-13.
+
+### The board card drag session (browser tier)
+
+**Subdomain: Supporting.** Every tracker lets you drag a card to a lane and a slot,
+so this is not a differentiator. It is built in-house only because the presentation
+tier takes no dependencies (ADR-BOARD-LANE-007 rejected drag libraries). The
+**core** subdomain, issue tracking, is upstream. It owns an issue's lane
+(`issues.state`, under the lane FK) and its order (`issues.position`, gap-free
+`0..N-1`, kept by `reposition_issue_with_outbox`).
+
+**Bounded context: Board Interaction.** This is the board page's browser tier. It owns
+the transient drag session, lane activation, the insertion marker and placeholder
+visibility, and **no persistent data**. It deliberately holds two drag models, one
+per gesture family: the card drag (HTML5 drag-and-drop, `board-dnd.js`) and the lane
+drag (Pointer Events, `board-lane-dnd.js`). They share a DOM region and no code
+(ADR-BOARD-LANE-007). The vocabulary keeps them apart too. The lane drag shows a
+**drop indicator** between columns; the card drag shows a **marker** between cards.
+
+```mermaid
+flowchart LR
+  subgraph Core
+    IT["Issue Tracking<br/>issues.state + issues.position<br/>change_issue_state · reposition_issue_with_outbox"]
+  end
+  subgraph Supporting
+    BR["Board Rendering<br/>partials/board_columns.html<br/>full page + OOB #board-columns"]
+    CD["Board Interaction: card drag<br/>board-dnd.js · CardDragSession"]
+    LD["Board Interaction: lane drag<br/>board-lane-dnd.js"]
+    LB["Live Board<br/>board-live.js"]
+    RT["Realtime fan-out<br/>outbox → LISTEN → SSE /events"]
+  end
+  CD -->|"Conformist · Published Language: POST state + after (form, x-csrf-token)"| IT
+  CD -->|"Conformist · Published Language: DOM contract data-column, data-issue-key, data-state-url, p.empty"| BR
+  LB -->|"Conformist · OHS: IssueDeleted, subscribed by name"| RT
+  RT -->|"Customer-Supplier: outbox rows written with every issue write"| IT
+  CD -.-|"Separate Ways: one DOM region, no shared code"| LD
+  LB -.-|"Separate Ways: emptiness is declarative, no shared writer"| CD
+```
+
+Arrows point downstream → upstream. The DOM contract is a **Published Language**. The
+server's partial is its only author, rendered byte-identically by the full page and
+the OOB refresh, and every board script conforms to it rather than translating it.
+
+**The session, against Vernon's rules.** `CardDragSession` is a transient process
+object. It is not a persisted aggregate: one root with value properties (card key,
+origin lane slug, origin neighbour keys) plus the dragged card node for the life of
+one drag.
+
+- *Rule 1, true invariants only:* its sole invariant is "at most one drag, and every ending leaves nothing behind", so nothing else sits inside it.
+- *Rule 2, small:* one root, value properties, no child entities.
+- *Rule 3, reference by identity:* lanes by slug and cards by key, re-resolved from the live document at event time. The dragged card is the one held reference, and only for one drag.
+- *Rule 4, eventual consistency outside the boundary:* the server's order is reached by an optimistic move reconciled against the POST outcome. The pending move reverts by identity, so it survives a replace or a remote delete (ADR-BOARD-CARD-001).
+
+The server-side invariant (gap-free positions) stays the issue aggregate's, untouched.
+
+```mermaid
+stateDiagram-v2
+  [*] --> Idle
+  Idle --> Idle: foreign dragover / drop inside #board-columns (claimed, dropEffect none, nothing else)
+  Idle --> Carrying: dragstart on .issue-card inside #board-columns
+  Carrying --> Aiming: dragover on a lane (activate lane, place marker)
+  Aiming --> Aiming: dragover (lane or slot changed, so update)
+  Aiming --> Carrying: dragover off every lane, or the pointer left the window (clear feedback)
+  Aiming --> Idle: drop on the lane (land at the marker's slot, hand off a PendingMove, clear)
+  Carrying --> Idle: dragend without drop (Escape, release outside), clear
+  Aiming --> Idle: dragend without drop, clear
+  note right of Idle
+    A PendingMove outlives the session: 2xx keeps the move;
+    non-2xx or a network error reverts by identity.
+  end note
+```
+
+**Invariants** (each is a named oracle in the feature's acceptance suite):
+
+1. Only a `dragstart` on an `.issue-card` inside `#board-columns` opens a session. Nothing else ever activates a lane, shows a marker, moves a card or sends a request.
+2. At most one session exists. A new `dragstart` ends any stale session first.
+3. Every ending (drop, `dragend`, refused or failed POST) leaves **zero** activated lanes and **zero** markers. Teardown is an idempotent DOM query, never a stored handle.
+4. No listener is bound to a node inside `#board-columns`. Lanes, the active lane and the marker are resolved from the live document at event time (ADR-BOARD-CARD-001).
+5. The marker, the landing slot and the POST's `after` derive from one slot computation, and the drop lands at the live marker's slot (ADR-BOARD-CARD-002).
+6. A lane displays its placeholder if and only if it holds no card. This is a CSS fact, not a script's job (ADR-BOARD-CARD-003).
+7. A foreign drag inside `#board-columns` is claimed and swallowed: `dragover` and `drop` are `defaultPrevented` and never acted on. Outside `#board-columns` the card drag does nothing.
+8. The move request is byte-identical to the shipped one (`state`, `after` omitted at the top, `x-csrf-token`).
+
+**Ubiquitous language: Board Interaction (card drag).**
+
+| Term | Meaning | Not to be confused with |
+|---|---|---|
+| Card | `article.issue-card[data-issue-key]`, one issue on the board | — |
+| Lane | `section.column[data-column=<slug>]`; the slug is identity, the label is display | a *status* (historical name for the same slug) |
+| Board replace | Any in-place swap of `#board-columns`: the popup delete, lane edit, insert or delete (OOB), or a lane move from the ⋯ menu (`applyBoard`). A lane-header drag is not one: it moves the existing lane nodes (card-drag-drop-feedback DISTILL Upstream Issue #1) | a reload, which re-runs every script; a lane-header drag, which rearranges without replacing |
+| Drag session | The one in-flight card drag, opened by a `dragstart` on a card on this page | the lane drag's gesture object |
+| Origin | The card's lane slug and neighbour keys when the session opened | — |
+| Foreign drag | Any drag with no session: a file, a text selection, a card from another tab | — |
+| Swallow | Claim a foreign drag inside the board without acting on it: no move, no request, no navigation | *refuse* (a server answer) |
+| Activated lane | The lane under a session's pointer, marked `data-card-drop-target` | *selected card* (`.kb-selected`, keyboard) |
+| Slot | The position the card would take: "before card K", or "the end" | an index (never used: stale on any concurrent change) |
+| Marker | The one `[data-card-drop-marker]` element showing, and recording, the slot | *drop indicator* (the lane drag's column rule) |
+| After key | `data-issue-key` of the card immediately above the slot; omitted at the top | *before* slug (the lane move's wire field) |
+| Placeholder | The server's "No issues yet — press c…" line, displayed exactly when a lane holds no card | an empty-state string elsewhere (`report.html`, `issue.html`) |
+| Pending move | The POST in flight after a drop; reverts by identity on refusal | the session, which has already ended |
+
+**ES/CQRS: neither.** The session is ephemeral browser state with no history of
+value, and the server's move already writes its change event and outbox row.
+
+**C4: System Context.**
+
+```mermaid
+C4Context
+  title System Context: the board card drag (card-drag-drop-feedback)
+  Person(priya, "Priya Raman", "Instance operator; drags cards between lanes and slots many times a session")
+  System(foundry, "foundry", "Self-hosted issue tracker: board page, HTML handlers, SSE")
+  System_Ext(desktop, "Desktop and other apps", "Sources of foreign drags: files, text selections")
+  System_Ext(tab2, "A second foundry tab", "Source of a card dragged in from elsewhere; origin of remote deletes")
+  Rel(priya, foundry, "Drags a card to a lane and slot", "HTML5 drag-and-drop in a browser")
+  Rel(desktop, foundry, "Drops a file or text on the board", "swallowed")
+  Rel(tab2, foundry, "Drags a card in / deletes an issue", "swallowed / IssueDeleted")
+```
+
+**C4: Container.**
+
+```mermaid
+C4Container
+  title Container: where the card drag session lives
+  Person(priya, "Priya Raman")
+  System_Boundary(f, "foundry") {
+    Container(page, "Board page", "HTML, vanilla JS, CSS (browser)", "board-dnd.js owns CardDragSession; board-lane-dnd.js, board-live.js and keyboard.js share the DOM; one stylesheet")
+    Container(app, "foundry-app", "Rust, axum, Askama", "GET board; POST issues/{n}/state; OOB #board-columns routes; /events SSE")
+    Container(svc, "foundry-services", "Rust", "change_issue_state: authz, lane validation")
+    ContainerDb(db, "PostgreSQL via foundry-store", "sqlx", "issues.state, issues.position; reposition_issue_with_outbox; outbox")
+  }
+  Rel(priya, page, "Drags a card")
+  Rel(page, app, "Move request: state + after (unchanged)", "fetch, x-csrf-token")
+  Rel(app, page, "Replaces #board-columns", "OOB swap or applyBoard")
+  Rel(app, page, "IssueDeleted", "SSE")
+  Rel(app, svc, "change_issue_state")
+  Rel(svc, db, "reposition_issue_with_outbox")
+```
+
+**C4: Component** (inside `board-dnd.js`). It earns its place because five
+collaborators replace three module variables, and the teardown owner must be
+unambiguous.
+
+```mermaid
+C4Component
+  title Component: board-dnd.js after card-drag-drop-feedback
+  Container_Boundary(page, "Board page (browser)") {
+    Component(listen, "Delegated listeners", "document: dragstart, dragover, dragleave, drop, dragend", "Return unless inside #board-columns; resolve the lane at event time")
+    Component(session, "CardDragSession", "object", "Single owner: start, over, drop, end; end() tears down by DOM query")
+    Component(slot, "slotFor(lane, y, card)", "function", "Midpoint rule (was insertBeforeTarget): the one slot computation")
+    Component(feedback, "Drop feedback", "functions", "Lane activation attribute; zero-footprint marker carrying data-before-key")
+    Component(pending, "PendingMove", "object", "POST state + after; reverts by identity at response time")
+    Component(css, "Stylesheet rules", "CSS, tokens only", "Activation outline, marker, :has() placeholder visibility")
+  }
+  Container_Ext(app, "foundry-app", "Rust", "POST issues/{n}/state")
+  Rel(listen, session, "delegates to")
+  Rel(session, slot, "computes the slot with")
+  Rel(session, feedback, "shows and clears")
+  Rel(session, pending, "hands off at drop")
+  Rel(pending, app, "fetch", "x-csrf-token")
+  Rel(feedback, css, "styled by")
+```
+
+See `adr-board-card-001-replace-proof-drag-session.md`,
+`adr-board-card-002-dragover-activation-and-slot-marker.md` and
+`adr-board-card-003-placeholder-shown-by-css.md` (all accepted 2026-09-13), which build on
+`adr-board-lane-005-overflow-menu-as-layer-arm.md` rule 2 and
+`adr-board-lane-007-pointer-events-lane-drag.md`.

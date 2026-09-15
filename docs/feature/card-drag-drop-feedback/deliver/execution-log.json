@@ -1,0 +1,301 @@
+{
+  "schema_version": "3.0",
+  "project_id": "card-drag-drop-feedback",
+  "feature_id": "card-drag-drop-feedback",
+  "events": [
+    {
+      "sid": "01-01",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-09-14T11:37:47Z"
+    },
+    {
+      "sid": "01-01",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-09-14T11:39:36Z"
+    },
+    {
+      "sid": "01-01",
+      "p": "RED_UNIT",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: browser JS has no unit-test runner in this repo (DB6 forbids Node); the un-pended layer-4 acceptance scenarios drive the change; M1-M3 named faults prove them at the slice boundary",
+      "t": "2026-09-14T11:39:36Z"
+    },
+    {
+      "sid": "01-01",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-09-14T11:48:25Z"
+    },
+    {
+      "sid": "01-01",
+      "p": "COMMIT",
+      "s": "SKIPPED",
+      "d": "APPROVED_SKIP: no-commit mode - user chose no commits for this delivery (2026-09-14); working tree left green for the user",
+      "t": "2026-09-14T11:48:25Z"
+    },
+    {
+      "sid": "01-02",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-09-14T11:51:19Z"
+    },
+    {
+      "sid": "01-02",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-09-14T11:56:57Z"
+    },
+    {
+      "sid": "01-02",
+      "p": "RED_UNIT",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: browser JS has no unit-test runner in this repo (DB6 forbids Node); the un-pended layer-4 acceptance scenarios drive the change; M1-M3 named faults prove them at the slice boundary",
+      "t": "2026-09-14T11:56:58Z"
+    },
+    {
+      "sid": "01-02",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-09-14T12:06:42Z"
+    },
+    {
+      "sid": "01-02",
+      "p": "COMMIT",
+      "s": "SKIPPED",
+      "d": "APPROVED_SKIP: no-commit mode - user chose no commits for this delivery (2026-09-14); working tree left green for the user",
+      "t": "2026-09-14T12:06:42Z"
+    },
+    {
+      "sid": "02-01",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-09-14T12:49:35Z"
+    },
+    {
+      "sid": "02-01",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-09-14T12:50:46Z"
+    },
+    {
+      "sid": "02-01",
+      "p": "RED_UNIT",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: browser JS has no unit-test runner in this repo (DB6 forbids Node); the un-pended layer-4 acceptance scenarios drive the change; M9 named fault proves them at the slice boundary",
+      "t": "2026-09-14T12:50:46Z"
+    },
+    {
+      "sid": "02-01",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-09-14T12:59:43Z"
+    },
+    {
+      "sid": "02-01",
+      "p": "COMMIT",
+      "s": "SKIPPED",
+      "d": "APPROVED_SKIP: no-commit mode - user chose no commits for this delivery (2026-09-14); working tree left green for the user",
+      "t": "2026-09-14T12:59:43Z"
+    },
+    {
+      "sid": "02-02",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-09-14T13:02:44Z"
+    },
+    {
+      "sid": "02-02",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-09-14T13:08:19Z"
+    },
+    {
+      "sid": "02-02",
+      "p": "RED_UNIT",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: browser JS/CSS has no unit-test runner in this repo (DB6 forbids Node); the un-pended layer-4 acceptance scenarios drive the change; the lib.rs cache tests and check-arch guard the rename; M9 named fault proves the slice",
+      "t": "2026-09-14T13:08:19Z"
+    },
+    {
+      "sid": "02-02",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-09-14T13:26:54Z"
+    },
+    {
+      "sid": "02-02",
+      "p": "COMMIT",
+      "s": "SKIPPED",
+      "d": "APPROVED_SKIP: no-commit mode - user chose no commits for this delivery (2026-09-14); working tree left green for the user",
+      "t": "2026-09-14T13:26:54Z"
+    },
+    {
+      "sid": "03-01",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-09-14T13:54:58Z"
+    },
+    {
+      "sid": "03-01",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-09-14T13:57:43Z"
+    },
+    {
+      "sid": "03-01",
+      "p": "RED_UNIT",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: browser JS/CSS has no unit-test runner in this repo (DB6 forbids Node); the un-pended layer-4 acceptance scenarios drive the change; the lib.rs cache tests and check-arch guard the rename; M4-M6 named faults prove the slice",
+      "t": "2026-09-14T13:57:43Z"
+    },
+    {
+      "sid": "03-01",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-09-14T14:07:19Z"
+    },
+    {
+      "sid": "03-01",
+      "p": "COMMIT",
+      "s": "SKIPPED",
+      "d": "APPROVED_SKIP: no-commit mode - user chose no commits for this delivery (2026-09-14); working tree left green for the user",
+      "t": "2026-09-14T14:07:19Z"
+    },
+    {
+      "sid": "03-02",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-09-14T14:22:08Z"
+    },
+    {
+      "sid": "03-02",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-09-14T14:27:17Z"
+    },
+    {
+      "sid": "03-02",
+      "p": "RED_UNIT",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: browser JS has no unit-test runner in this repo (DB6 forbids Node); the un-pended layer-4 acceptance scenarios drive the change; M4-M6 named faults prove the slice",
+      "t": "2026-09-14T14:27:17Z"
+    },
+    {
+      "sid": "03-02",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-09-14T14:36:57Z"
+    },
+    {
+      "sid": "03-02",
+      "p": "COMMIT",
+      "s": "SKIPPED",
+      "d": "APPROVED_SKIP: no-commit mode - user chose no commits for this delivery (2026-09-14); working tree left green for the user",
+      "t": "2026-09-14T14:36:57Z"
+    },
+    {
+      "sid": "04-01",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-09-14T15:07:54Z"
+    },
+    {
+      "sid": "04-01",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-09-14T15:09:05Z"
+    },
+    {
+      "sid": "04-01",
+      "p": "RED_UNIT",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: a template edit plus a CSS rule pair with no unit-test runner (DB6 forbids Node); the un-pended layer-4 acceptance scenarios drive the change; projects.rs:1157, the lib.rs cache tests and check-arch guard it; M7 named fault proves the slice",
+      "t": "2026-09-14T15:09:05Z"
+    },
+    {
+      "sid": "04-01",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-09-14T16:53:45Z"
+    },
+    {
+      "sid": "04-01",
+      "p": "COMMIT",
+      "s": "SKIPPED",
+      "d": "APPROVED_SKIP: no-commit mode - user chose no commits for this delivery (2026-09-14); working tree left green for the user",
+      "t": "2026-09-14T16:53:45Z"
+    },
+    {
+      "sid": "04-02",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-09-14T16:56:32Z"
+    },
+    {
+      "sid": "04-02",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-09-14T17:01:52Z"
+    },
+    {
+      "sid": "04-02",
+      "p": "RED_UNIT",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: no production change in this step (DDD-5 makes these behaviours consequences of 04-01's stylesheet rule); layer-4 acceptance scenarios only; M7/M8 named faults prove the slice",
+      "t": "2026-09-14T17:01:52Z"
+    },
+    {
+      "sid": "04-02",
+      "p": "COMMIT",
+      "s": "SKIPPED",
+      "d": "APPROVED_SKIP: no-commit mode - user chose no commits for this delivery (2026-09-14); working tree left green for the user",
+      "t": "2026-09-14T17:10:59Z"
+    },
+    {
+      "sid": "04-02",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "FAIL: no production edit; us-cdf-04 10/10, cdf 54/54, blr/kb/icd/blm/blo green, smoke green; default lane 631/632 (notification-delivery-providers.feature:62 sqlx unknown message type '\\0', outside the allowed rolling-upgrade flake); isolated notification-delivery 30/30 and full default re-run 632/632 - flake acceptance is a user/orchestrator decision",
+      "t": "2026-09-14T17:18:18Z"
+    },
+    {
+      "sid": "04-02",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS: all 8 US-CDF-04 scenarios green with no production edit (slice-04 hypothesis held); cdf 54/54; guards green; default re-run 632/632 EXIT=0 - first run 631/632 was the documented sqlx 'unknown message type \\0' concurrent-testcontainers flake in notification-delivery-providers.feature:62 (passes 30/30 alone); accepted as flake by the orchestrator",
+      "t": "2026-09-14T17:19:35Z"
+    },
+    {
+      "sid": "04-02",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-09-14T17:19:51Z"
+    }
+  ]
+}

@@ -1086,6 +1086,378 @@ pub async fn wait_for_kb_ready(client: &fantoccini::Client) {
         });
 }
 
+// =========================================================================
+// SYNTHETIC CARD DRAG (card-drag-drop-feedback DDD-8b/c/d/e)
+// =========================================================================
+//
+// WebDriver's pointer actions never start a NATIVE HTML5 drag in Chrome (a
+// mouse-down/move/up sequence produces a text selection, not a `dragstart`), so
+// the card drag is DISPATCHED: real `DragEvent`s carrying one real
+// `DataTransfer`, on the real elements, into `board-dnd.js`'s own listeners.
+// This generalises the `fire()` idiom at `keyboard_shortcut_bindings.rs:3028`
+// and the script in `feature_board_lane_reorder.rs::drag_a_card` into ONE kit,
+// so no third copy is written. Those two shipped steps are NOT changed (KPI 8).
+//
+// The kit follows the browser's protocol, which is what keeps it honest:
+//   * every point is resolved from LIVE geometry at dispatch time, and the
+//     event goes to the element actually under that point
+//     (`elementFromPoint`), exactly as a real drag's would;
+//   * `drop` is dispatched ONLY if the last `dragover` was `defaultPrevented`.
+//     A real browser never fires `drop` on a target that did not claim the
+//     drag, and a kit that did would let a lane with no listener "accept" a
+//     drop it never claimed. That is precisely the RCA bug, so a kit that
+//     skipped this rule could not see it;
+//   * `Escape` and "release outside any lane" are `dragend` on the dragged card
+//     with no `drop`, which is exactly what a real browser delivers (DDD-8c,
+//     DDD-12: the page receives no key events during a native drag);
+//   * a FOREIGN drag (a file, a text selection, a card from another tab) has no
+//     `dragstart` on this page at all. It only swaps in a `DataTransfer` whose
+//     payload a real one would carry.
+//
+// Every phase returns the event's `defaultPrevented`, the only observable a
+// synthetic lane has for "the board claimed this drag".
+//
+// The kit lives on `window`. A board REPLACE (htmx OOB, `applyBoard`) keeps it;
+// a RELOAD discards it, which is fine, because the next phase re-installs it.
+
+/// Where in a lane, or on the page, a synthetic drag points. Resolved from live
+/// geometry at dispatch time, never from coordinates a step invented.
+#[derive(Debug, Clone, Copy)]
+pub enum DragSpot<'a> {
+    /// Inside the lane `data-column = slug`, just below its last card: the END
+    /// slot. For an empty lane, its vertical middle.
+    LaneEnd(&'a str),
+    /// Inside the lane, just below the top edge of its first card, which is
+    /// above that card's middle and therefore the TOP slot.
+    LaneTop(&'a str),
+    /// In the gap between two adjacent cards of one lane (their gap midpoint).
+    Between(&'a str, &'a str),
+    /// One pixel below the top edge of this card, above its middle.
+    AboveMiddleOf(&'a str),
+    /// Four pixels below this card's bottom edge, clamped inside its lane.
+    Below(&'a str),
+    /// The middle of this card: the pointer is over the card itself.
+    OnCard(&'a str),
+    /// The board page's own `<header>`, outside `#board-columns`.
+    PageHeader,
+    /// `#board-columns` itself, at the seam between two adjacent lanes: the
+    /// board, but no lane.
+    BoardGap(&'a str, &'a str),
+    /// Exactly the point the previous `dragover` used: a still pointer.
+    SamePoint,
+}
+
+impl DragSpot<'_> {
+    fn to_json(self) -> serde_json::Value {
+        use serde_json::json;
+        match self {
+            DragSpot::LaneEnd(lane) => json!({"kind": "laneEnd", "lane": lane}),
+            DragSpot::LaneTop(lane) => json!({"kind": "laneTop", "lane": lane}),
+            DragSpot::Between(above, below) => {
+                json!({"kind": "between", "above": above, "below": below})
+            }
+            DragSpot::AboveMiddleOf(key) => json!({"kind": "aboveMiddle", "key": key}),
+            DragSpot::Below(key) => json!({"kind": "below", "key": key}),
+            DragSpot::OnCard(key) => json!({"kind": "onCard", "key": key}),
+            DragSpot::PageHeader => json!({"kind": "header"}),
+            DragSpot::BoardGap(left, right) => {
+                json!({"kind": "gap", "left": left, "right": right})
+            }
+            DragSpot::SamePoint => json!({"kind": "same"}),
+        }
+    }
+}
+
+/// What a foreign drag carries. Neither has a `dragstart` on this page.
+#[derive(Debug, Clone, Copy)]
+pub enum ForeignPayload<'a> {
+    /// A file from the desktop, carried as a real `File` in the transfer.
+    File(&'a str),
+    /// Plain text: a selection from another app, or a card dragged from another
+    /// foundry tab (which carries its key as `text/plain`, exactly like ours).
+    Text(&'a str),
+}
+
+const SYNTHETIC_DRAG_KIT: &str = r#"
+var kit = window.__synthDrag;
+if (!kit) {
+  kit = window.__synthDrag = { transfer: null, lastOverPrevented: false, lastPoint: null };
+  var need = function (el, what) {
+    if (!el) { throw new Error('synthetic drag: ' + what + ' is not on the board'); }
+    return el;
+  };
+  var board = function () { return need(document.getElementById('board-columns'), '#board-columns'); };
+  var lane = function (slug) { return need(board().querySelector('[data-column="' + slug + '"]'), 'lane ' + slug); };
+  var card = function (key) { return need(board().querySelector('[data-issue-key="' + key + '"]'), 'card ' + key); };
+  var rect = function (el) { return el.getBoundingClientRect(); };
+  var clampIn = function (y, r) { return Math.max(r.top + 1, Math.min(y, r.bottom - 2)); };
+  var under = function (x, y, within, fallback) {
+    var el = document.elementFromPoint(x, y);
+    return el && within.contains(el) ? el : fallback;
+  };
+  var laneOf = function (key) { return need(card(key).closest('[data-column]'), 'the lane of ' + key); };
+  kit.resolve = function (spot) {
+    var l, r, x, y, cards, a, b;
+    switch (spot.kind) {
+      case 'laneEnd':
+        l = lane(spot.lane); r = rect(l); x = r.left + r.width / 2;
+        cards = l.querySelectorAll('.issue-card');
+        y = cards.length ? clampIn(rect(cards[cards.length - 1]).bottom + 4, r) : r.top + r.height / 2;
+        return { target: under(x, y, l, l), x: x, y: y };
+      case 'laneTop':
+        l = lane(spot.lane); r = rect(l); x = r.left + r.width / 2;
+        cards = l.querySelectorAll('.issue-card');
+        y = cards.length ? rect(cards[0]).top + 1 : r.top + r.height / 2;
+        return { target: under(x, y, l, l), x: x, y: y };
+      case 'between':
+        l = laneOf(spot.above); a = rect(card(spot.above)); b = rect(card(spot.below));
+        r = rect(l); x = r.left + r.width / 2; y = (a.bottom + b.top) / 2;
+        return { target: under(x, y, l, l), x: x, y: y };
+      case 'aboveMiddle':
+        l = laneOf(spot.key); a = rect(card(spot.key)); r = rect(l);
+        x = r.left + r.width / 2; y = a.top + 1;
+        return { target: under(x, y, l, l), x: x, y: y };
+      case 'below':
+        l = laneOf(spot.key); a = rect(card(spot.key)); r = rect(l);
+        x = r.left + r.width / 2; y = clampIn(a.bottom + 4, r);
+        return { target: under(x, y, l, l), x: x, y: y };
+      case 'onCard':
+        a = card(spot.key); r = rect(a);
+        return { target: a, x: r.left + r.width / 2, y: r.top + r.height / 2 };
+      case 'header':
+        a = need(document.querySelector('.app-shell__content > header') || document.querySelector('header'), 'the page header');
+        r = rect(a);
+        return { target: a, x: r.left + r.width / 2, y: r.top + r.height / 2 };
+      case 'gap':
+        a = rect(lane(spot.left)); b = rect(lane(spot.right));
+        return { target: board(), x: (a.right + b.left) / 2, y: a.top + 24 };
+      case 'same':
+        need(kit.lastPoint, 'a previous drag point');
+        return { target: document.elementFromPoint(kit.lastPoint.x, kit.lastPoint.y) || board(), x: kit.lastPoint.x, y: kit.lastPoint.y };
+    }
+    throw new Error('synthetic drag: unknown spot ' + JSON.stringify(spot));
+  };
+  kit.fire = function (target, type, x, y, extra) {
+    var init = { bubbles: true, cancelable: true, composed: true, dataTransfer: kit.transfer, clientX: x, clientY: y };
+    if (extra) { for (var k in extra) { init[k] = extra[k]; } }
+    var event = new DragEvent(type, init);
+    target.dispatchEvent(event);
+    return event.defaultPrevented;
+  };
+  kit.start = function (a) {
+    var c = card(a.key), r = rect(c);
+    kit.transfer = new DataTransfer();
+    kit.lastOverPrevented = false;
+    return kit.fire(c, 'dragstart', r.left + r.width / 2, r.top + r.height / 2);
+  };
+  kit.foreign = function (a) {
+    var dt = new DataTransfer();
+    if (a.file) { dt.items.add(new File(['foundry acceptance'], a.file, { type: 'image/png' })); }
+    else { dt.setData('text/plain', a.text); }
+    // Chrome ignores `dropEffect` writes on a script-made DataTransfer (it is
+    // not a real drag data store) and always reads back `none`, so give this
+    // one a live, writable `dropEffect` as a real drag's store has. A browser
+    // offers an outside drag as a copy before the page answers, so a `none`
+    // read back after dragover can only be the board's own answer.
+    var effect = 'copy';
+    Object.defineProperty(dt, 'dropEffect', {
+      configurable: true,
+      get: function () { return effect; },
+      set: function (v) { if (['none', 'copy', 'link', 'move'].indexOf(v) >= 0) { effect = v; } }
+    });
+    kit.transfer = dt;
+    kit.lastOverPrevented = false;
+    kit.lastOverEffect = null;
+    return true;
+  };
+  kit.enter = function (a) { var p = kit.resolve(a.spot); return kit.fire(p.target, 'dragenter', p.x, p.y); };
+  kit.over = function (a) {
+    var p = kit.resolve(a.spot);
+    kit.lastPoint = { x: p.x, y: p.y };
+    kit.lastOverPrevented = kit.fire(p.target, 'dragover', p.x, p.y);
+    kit.lastOverEffect = kit.transfer ? kit.transfer.dropEffect : null;
+    return kit.lastOverPrevented;
+  };
+  kit.leave = function (a) {
+    var p = kit.resolve(a.spot);
+    var related = a.related ? kit.resolve(a.related).target : null;
+    return kit.fire(p.target, 'dragleave', p.x, p.y, { relatedTarget: related });
+  };
+  kit.drop = function (a) {
+    if (!kit.lastOverPrevented) { return false; }
+    var p = kit.resolve(a.spot);
+    return kit.fire(p.target, 'drop', p.x, p.y);
+  };
+  kit.end = function (a) {
+    var c = document.querySelector('[data-issue-key="' + a.key + '"]');
+    var prevented = false;
+    if (c) { var r = rect(c); prevented = kit.fire(c, 'dragend', r.left + r.width / 2, r.top + r.height / 2); }
+    kit.transfer = null;
+    kit.lastOverPrevented = false;
+    return prevented;
+  };
+}
+"#;
+
+async fn run_kit(client: &fantoccini::Client, phase: &str, arg: serde_json::Value) -> bool {
+    let script = format!("{SYNTHETIC_DRAG_KIT}\nreturn window.__synthDrag.{phase}(arguments[0]);");
+    client
+        .execute(&script, vec![arg])
+        .await
+        .unwrap_or_else(|err| panic!("synthetic drag phase {phase:?} could not run: {err}"))
+        .as_bool()
+        .unwrap_or(false)
+}
+
+/// `dragstart` on the card `key`, with a fresh `DataTransfer` for this drag.
+pub async fn drag_start(client: &fantoccini::Client, key: &str) -> bool {
+    run_kit(client, "start", serde_json::json!({ "key": key })).await
+}
+
+/// Begin a FOREIGN drag: no `dragstart` on this page, only the transfer a real
+/// one would carry. Follow with [`drag_over`] / [`drag_drop`].
+pub async fn drag_start_foreign(client: &fantoccini::Client, payload: ForeignPayload<'_>) {
+    let arg = match payload {
+        ForeignPayload::File(name) => serde_json::json!({ "file": name }),
+        ForeignPayload::Text(text) => serde_json::json!({ "text": text }),
+    };
+    run_kit(client, "foreign", arg).await;
+}
+
+/// Run the kit `phase` that points at `spot`.
+async fn run_kit_at(client: &fantoccini::Client, phase: &str, spot: DragSpot<'_>) -> bool {
+    run_kit(client, phase, serde_json::json!({ "spot": spot.to_json() })).await
+}
+
+/// `dragenter` at `spot`.
+pub async fn drag_enter(client: &fantoccini::Client, spot: DragSpot<'_>) -> bool {
+    run_kit_at(client, "enter", spot).await
+}
+
+/// `dragover` at `spot`; returns whether the board claimed it.
+pub async fn drag_over(client: &fantoccini::Client, spot: DragSpot<'_>) -> bool {
+    run_kit_at(client, "over", spot).await
+}
+
+/// The `dropEffect` the page left on the transfer during the last `dragover`,
+/// or `None` if no `dragover` has run since the drag began. A foreign drag
+/// starts at `copy`, so `none` here can only be the board's own answer.
+pub async fn last_drop_effect(client: &fantoccini::Client) -> Option<String> {
+    let script = format!("{SYNTHETIC_DRAG_KIT}\nreturn window.__synthDrag.lastOverEffect || null;");
+    client
+        .execute(&script, vec![])
+        .await
+        .unwrap_or_else(|err| panic!("reading the last dragover's dropEffect failed: {err}"))
+        .as_str()
+        .map(str::to_owned)
+}
+
+/// `dragleave` at `spot`, with `related` as the `relatedTarget` (`None` is the
+/// pointer leaving the window).
+pub async fn drag_leave(
+    client: &fantoccini::Client,
+    spot: DragSpot<'_>,
+    related: Option<DragSpot<'_>>,
+) -> bool {
+    let related = related.map(DragSpot::to_json);
+    run_kit(
+        client,
+        "leave",
+        serde_json::json!({ "spot": spot.to_json(), "related": related }),
+    )
+    .await
+}
+
+/// `drop` at `spot`, dispatched ONLY if the last `dragover` was claimed, as a
+/// real browser would. Returns `false` without dispatching otherwise.
+pub async fn drag_drop(client: &fantoccini::Client, spot: DragSpot<'_>) -> bool {
+    run_kit_at(client, "drop", spot).await
+}
+
+/// `dragend` on the dragged card `key` (a drop, `Escape`, or a release outside
+/// any lane all end this way) and forget the transfer.
+pub async fn drag_end(client: &fantoccini::Client, key: &str) -> bool {
+    run_kit(client, "end", serde_json::json!({ "key": key })).await
+}
+
+// ---- The move-request spy and the no-reload mark (DDD-8d, DDD-8e) --------
+
+/// Install a page-side `fetch` spy and the `window.__cdfMark` no-reload mark.
+/// Idempotent within one document. WebDriver-executed scripts are not bound by
+/// the page's CSP, so this needs no production seam. A reload discards BOTH,
+/// which is exactly what makes the mark an oracle: [`assert_not_reloaded`]
+/// fails if a step reloaded between the board replace and the drag (D2).
+pub async fn install_drag_observers(client: &fantoccini::Client) -> String {
+    client
+        .execute(
+            r#"if (!window.__cdfRequests) {
+                 window.__cdfRequests = [];
+                 var original = window.fetch;
+                 window.fetch = function (input, init) {
+                   var headers = (init && init.headers) || {};
+                   var entry = {
+                     url: typeof input === 'string' ? input : ((input && input.url) || ''),
+                     method: (init && init.method) || 'GET',
+                     body: init && typeof init.body === 'string' ? init.body : null,
+                     csrf: headers['x-csrf-token'] || headers['X-CSRF-Token'] || '',
+                     status: null
+                   };
+                   window.__cdfRequests.push(entry);
+                   var pending = original.apply(this, arguments);
+                   pending.then(function (r) { entry.status = r.status; },
+                                function () { entry.status = 0; });
+                   return pending;
+                 };
+               }
+               if (!window.__cdfMark) { window.__cdfMark = 'cdf-' + Date.now() + '-' + Math.random(); }
+               return window.__cdfMark;"#,
+            vec![],
+        )
+        .await
+        .expect("install the fetch spy and the no-reload mark")
+        .as_str()
+        .unwrap_or_default()
+        .to_string()
+}
+
+/// Panic unless the no-reload mark `mark` is still on this document, i.e. no
+/// step navigated or reloaded since [`install_drag_observers`] returned it.
+pub async fn assert_not_reloaded(client: &fantoccini::Client, mark: &str) {
+    let now = client
+        .execute("return window.__cdfMark || '';", vec![])
+        .await
+        .expect("read the no-reload mark")
+        .as_str()
+        .unwrap_or_default()
+        .to_string();
+    assert_eq!(
+        now, mark,
+        "the board was RELOADED between the in-place refresh and the drag (window.__cdfMark was \
+         {mark:?}, is now {now:?}). A reload re-binds every listener and hides the bug this \
+         scenario exists to catch (D2, DDD-8e); the step sequence is wrong, not the board"
+    );
+}
+
+/// One request the page sent through `fetch`, as the spy recorded it.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct SpiedRequest {
+    pub url: String,
+    pub method: String,
+    pub body: Option<String>,
+    pub csrf: String,
+    /// `None` while in flight; `Some(0)` for a network error.
+    pub status: Option<u16>,
+}
+
+/// Every request the spy has recorded on the current document.
+pub async fn spied_requests(client: &fantoccini::Client) -> Vec<SpiedRequest> {
+    let raw = client
+        .execute("return window.__cdfRequests || [];", vec![])
+        .await
+        .expect("read the fetch spy");
+    serde_json::from_value(raw).expect("the fetch spy's entries deserialize")
+}
+
 #[cfg(test)]
 mod tests {
     //! Reaping test for the lane's chromedriver lifecycle.

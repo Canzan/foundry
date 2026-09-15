@@ -1,0 +1,174 @@
+# docs/product/kpi-contracts.yaml: outcome-KPI instrumentation contracts (SSOT).
+#
+# Created 2026-09-13 by the card-drag-drop-feedback DEVOPS wave. No earlier file or
+# format existed: issue-card-delete (feature-delta.md:1100),
+# instance-admin-project-rename (:370) and board-lane-management (:486) all recorded
+# it absent. Later features append a key under `features:`.
+#
+# Homelab posture: foundry ships no product analytics. An instrument is one of
+#   acceptance  - an acceptance scenario's oracle; its verdict in `cargo xtask ci` is the measurement
+#   fault       - a named hand-seeded fault that must turn the scenario red (proves the oracle bites)
+#   dogfood     - a manual real-browser check or report, recorded in the slice's delivery notes
+#   runtime     - a server metric or log (Prometheus/Loki); none are used by the entries below
+# "alert" is where a breach surfaces. For acceptance instruments that is a red stage 8
+# of `cargo xtask ci` on ci-github.
+
+schema_version: 1
+
+features:
+  card-drag-drop-feedback:
+    job: job-board-card-move
+    source: docs/feature/card-drag-drop-feedback/feature-delta.md   # "## Wave: DISCUSS / [REF] Outcome KPIs"
+    devops: docs/feature/card-drag-drop-feedback/feature-delta.md   # "## Wave: DEVOPS / [REF] Monitoring contracts"
+    environments: docs/feature/card-drag-drop-feedback/environments.yaml
+    runtime_telemetry: none   # D9: byte-identical POST; browser tier sends nothing new
+    lane: "browser-lane: FOUNDRY_XTASK_INCLUDE_DOCKER=1 cargo xtask ci (FOUNDRY_ACCEPTANCE_TAGS=all)"
+    status: not-measured      # flips per KPI when DELIVER records the evidence
+    # DISTILL refinement (2026-09-13). Each acceptance instrument is linked to its
+    # executable scenarios in
+    # crates/foundry-acceptance/tests/features/card-drag-drop-feedback.feature
+    # (feature tag @cdf). Select a KPI's scenarios with
+    # FOUNDRY_ACCEPTANCE_TAGS=kpi (all @kpi) or the story tag. All are @pending
+    # until DELIVER un-pends their slice; @pending never runs in any lane.
+    #   gate: hard  = a red scenario blocks the merge (ci-github stage 8)
+    #   gate: soft  = recorded evidence, reviewed at finalize; does not block CI
+    #   window      = when the measurement is taken
+    kpis:
+      - id: CDF-KPI-1
+        name: Card drops work after an in-place board replace
+        type: leading-north-star
+        target: "100% of card drags over a lane claimed and persisted after each of the 5 in-place refreshes, plus the lane-header reorder as a guard (DISTILL Upstream Issue #1)"
+        baseline: "0% (every lane refuses; RCA cases B, C)"
+        instruments:
+          - {kind: acceptance, ref: "US-CDF-01 regression + refresh outline + header-reorder guard scenario", oracle: "synthetic dragover on the replacement lane defaultPrevented; card state after reload; window.__cdfMark present"}
+          - {kind: fault, ref: M1}
+          - {kind: dogfood, ref: "slice-01: popup delete / Move list right / Insert list after, then drag with no reload"}
+        alert: "ci-github stage 8 red"
+        gate: hard
+        window: "Every ci-github run from slice 01 on. RED on HEAD (aa8a6f6) recorded at DISTILL."
+        scenarios:   # @cdf @us-cdf-01 @kpi
+          - "A card can still be dropped after the board rearranges itself in place"
+          - "Every way the board refreshes in place leaves every lane accepting drops (outline, 4 in-place refreshes)"
+          - "Rearranging the lanes by dragging a header leaves every lane accepting drops (the lane-header reorder guard; expected-GREEN on HEAD)"
+        distill_note: "The header drag moves the existing lane node and never calls applyBoard, so it is not a #board-columns replace. It is the lane-header reorder guard, green on HEAD. Resolved at the final review: 5 in-place refreshes + 1 lane-header reorder (DISTILL Upstream Issue #1)."
+
+      - id: CDF-KPI-2
+        name: No "just in case" reload before dragging
+        type: leading
+        target: "0 refused drops over 5 working days of daily use after slice 01 ships"
+        baseline: "Refused after every popup delete since 87282d3; reload is the workaround"
+        instruments:
+          - {kind: dogfood, ref: "Priya's daily log: refused drops + pre-emptive reloads", recorded_in: "slice-01 delivery notes; finalize docs/evolution/ entry"}
+        alert: "Any refused drop in the log reopens US-CDF-01"
+        gate: soft
+        window: "5 consecutive working days from the day slice 01 is on Priya's instance"
+        scenarios: []   # dogfood only; no acceptance instrument
+
+      - id: CDF-KPI-3
+        name: Exactly the lane under the card is activated
+        type: leading
+        target: "Exactly 1 [data-card-drop-target] while over a lane, 0 otherwise, in 100% of drag scenarios"
+        baseline: "0 (no activation exists)"
+        instruments:
+          - {kind: acceptance, ref: "US-CDF-02 scenarios", oracle: "DOM count of [data-card-drop-target]; AC-2.2 read between dragleave and next dragover (DDD-8f)"}
+          - {kind: fault, ref: [M9, M4]}
+          - {kind: dogfood, ref: "slice-02: slow drag across lanes and cards, light and dark; no flicker"}
+        alert: "ci-github stage 8 red"
+        gate: hard
+        window: "Every ci-github run from slice 02 on"
+        scenarios:   # @cdf @us-cdf-02 (@kpi on the first)
+          - "The lane under a dragged card lights up, and only that lane"
+          - "The highlight follows the card from lane to lane"
+          - "A lane stays lit while the card passes over the cards inside it"
+          - "Nothing is lit while the card is over no lane (outline)"
+
+      - id: CDF-KPI-4
+        name: The card lands where the marker showed
+        type: leading
+        target: "100% of drops land in the marker's slot and a reload agrees"
+        baseline: "n/a (no marker)"
+        instruments:
+          - {kind: acceptance, ref: "US-CDF-03 scenarios", oracle: "marker data-before-key == post-drop DOM == fetch-spy `after` == post-reload order"}
+          - {kind: fault, ref: [M5, M6]}
+          - {kind: dogfood, ref: "slice-03: still pointer at a card boundary; top/middle/bottom drops, each reloaded"}
+        alert: "ci-github stage 8 red"
+        gate: hard
+        window: "Every ci-github run from slice 03 on"
+        scenarios:   # @cdf @us-cdf-03 (@kpi on the first)
+          - "The card lands exactly where the marker showed, and a reload agrees"
+          - "The marker reaches both ends of a lane (outline)"
+          - "Reordering inside a lane never offers the card's own slot"
+          - "The marker works on a board that refreshed in place"
+
+      - id: CDF-KPI-5
+        name: Empty lanes read truthfully
+        type: guardrail
+        target: "0 lanes displaying the placeholder with a card; 0 empty lanes without it; after every drag (incl. refusals) and every remote delete"
+        baseline: "3 known violations (RCA finding 3 + remote-delete lane)"
+        instruments:
+          - {kind: acceptance, ref: "US-CDF-04 scenarios", oracle: "computed display of .column > .empty per lane (not DOM presence); reload equality; two-tab SSE"}
+          - {kind: fault, ref: [M7, M8]}
+          - {kind: dogfood, ref: "slice-04: the three checks, incl. Safari"}
+        alert: "ci-github stage 8 red"
+        gate: hard
+        window: "Every ci-github run from slice 04 on"
+        scenarios:   # @cdf @us-cdf-04 (@kpi on the first two)
+          - "One drag updates both lanes at once"
+          - "A lane emptied by a delete in another tab shows the placeholder"
+          - "Dropping into an empty lane removes its placeholder"
+          - "A lane emptied by a drag shows the placeholder"
+          - "A refused drop puts both lanes back as they were"
+          - "Only a drop changes a placeholder (outline)"
+          - "A delete in another tab that leaves cards behind adds no placeholder"
+          - "Placeholders stay truthful on a board that refreshed in place"
+
+      - id: CDF-KPI-6
+        name: Foreign drags never move a card or navigate the tab
+        type: guardrail
+        target: "0 activations, 0 markers, 0 requests, 0 navigations for file/text/other-tab drags on the board, fresh load and after a refresh"
+        baseline: "Fresh load: only lanes swallow. After a refresh and between lanes: the browser default applies"
+        instruments:
+          - {kind: acceptance, ref: "US-CDF-01 foreign outline + other-tab scenario; US-CDF-02/03 file scenarios", oracle: "dragover and drop defaultPrevented; fetch-spy count 0; URL unchanged"}
+          - {kind: fault, ref: [M2, M3]}
+          - {kind: dogfood, ref: "slice-01: real Finder keys.png on a lane and the gap, fresh + after refresh, Chrome/Firefox/Safari (OQ-2)"}
+        alert: "ci-github stage 8 red; a dogfood navigation triggers the ADR-BOARD-CARD-001 fallback (accept + cancel)"
+        gate: hard
+        window: "Every ci-github run from slice 01 on (US-CDF-02/03 rows from their slices)"
+        scenarios:   # @cdf @kpi
+          - "Something dragged in from outside the page is swallowed by the board (outline, 5 rows)"
+          - "A card dragged in from another tab moves nothing in this one"
+          - "Something dragged in from outside the page lights nothing"
+          - "Something dragged in from outside the page shows no marker"
+
+      - id: CDF-KPI-7
+        name: Feedback never outlives the drag
+        type: guardrail
+        target: "0 [data-card-drop-target] and 0 [data-card-drop-marker] after every exit path"
+        baseline: "n/a"
+        instruments:
+          - {kind: acceptance, ref: "exit-path outlines (US-CDF-02, US-CDF-03)", oracle: "both DOM counts == 0"}
+          - {kind: fault, ref: M4}
+          - {kind: dogfood, ref: "slices 02/03: Escape mid-drag; release over the header"}
+        alert: "ci-github stage 8 red"
+        gate: hard
+        window: "Every ci-github run from slice 02 on"
+        scenarios:   # @cdf @kpi
+          - "Every way a drag ends leaves no lane lit (outline, 4 rows)"
+          - "The marker never outlives the drag (outline, 4 rows)"
+          - "A cancelled card drag is not mistaken for the next drag"
+
+      - id: CDF-KPI-8
+        name: The shipped drag keeps working unchanged
+        type: guardrail
+        target: "100% of shipped card-drag, lane-drag and popup-delete scenarios green and unmodified; POST body byte-identical"
+        baseline: "Shipped"
+        instruments:
+          - {kind: acceptance, ref: "board-lane-reorder.feature:229-235; keyboard_shortcut_bindings.rs:3013; lane-drag and popup-delete scenarios", oracle: "green in stage 8; `git diff aa8a6f6 --stat` on those files empty; fetch-spy body assertion (AC-1.4)"}
+          - {kind: fault, ref: M8}
+        alert: "ci-github stage 8 red, or a non-empty diff on a shipped scenario file"
+        gate: hard
+        window: "Every ci-github run; the shipped scenario files stay byte-identical to aa8a6f6"
+        scenarios:   # @cdf @us-cdf-01 @kpi, plus the shipped suites
+          - "A freshly loaded board drags exactly as it did before"
+          - "board-lane-reorder.feature: Dragging a card still moves the card and never the lane (unmodified)"
+          - "keyboard-shortcut-bindings.feature: the AUTH-2 mouse drag (unmodified)"

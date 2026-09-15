@@ -17,6 +17,10 @@ use std::path::PathBuf;
 use std::time::Duration;
 use std::time::Instant;
 
+/// card-drag-drop-feedback: one lane as the board shows it —
+/// `(slug, card keys in order, placeholder displayed, placeholder markup)`.
+pub type CdfLaneLook = (String, Vec<String>, bool, String);
+
 #[derive(cucumber::World, Default, Debug)]
 #[world(init = Self::default)]
 pub struct FoundryWorld {
@@ -236,6 +240,48 @@ pub struct FoundryWorld {
     pub blr_force_refusal: bool,
     /// Board scrollLeft captured during the auto-scroll scenarios.
     pub blr_scroll_before: Option<f64>,
+
+    // ---- card-drag-drop-feedback (US-CDF-01..04) ----
+    pub cdf_workspace_id: Option<uuid::Uuid>,
+    pub cdf_team_id: Option<uuid::Uuid>,
+    pub cdf_priya_id: Option<uuid::Uuid>,
+    pub cdf_project_ids: HashMap<String, uuid::Uuid>,
+    /// STORED `(team_slug, project_slug)`, read back at seed time.
+    pub cdf_project_slugs: HashMap<String, (String, String)>,
+    pub cdf_current_project: Option<String>,
+    /// Open a dark-palette session when the browser is first opened.
+    pub cdf_dark: bool,
+    /// The no-reload mark on the board document (DDD-8e).
+    pub cdf_mark: Option<String>,
+    /// The second browser session ("the second tab").
+    pub cdf_second_tab: Option<fantoccini::Client>,
+    /// The card being dragged, and its origin `(lane slug, key above, key
+    /// below)` read from the live board at `dragstart`: the exact-slot revert
+    /// oracle.
+    pub cdf_dragging: Option<String>,
+    pub cdf_origin: Option<(String, Option<String>, Option<String>)>,
+    /// Whether the board claimed the last `dragover`, and the last `drop`.
+    pub cdf_over_claimed: Option<bool>,
+    pub cdf_drop_claimed: Option<bool>,
+    /// The board as it read before an action: lane slug -> card keys, in order.
+    pub cdf_board_before: Option<Vec<(String, Vec<String>)>>,
+    /// The URL before a foreign drop.
+    pub cdf_url_before: Option<String>,
+    /// The server's own placeholder markup, read off a freshly loaded empty lane.
+    pub cdf_server_placeholder: Option<String>,
+    /// A lane's look `(slug, keys, placeholder shown, placeholder markup)`
+    /// captured before an action; compared after it or after a reload.
+    pub cdf_looks_before: Option<Vec<CdfLaneLook>>,
+    /// Rectangles of every card and column before activation (AC-2.6).
+    pub cdf_rects_before: Option<serde_json::Value>,
+    /// The marker `(lane, before-key, top)` before a still-pointer repeat.
+    pub cdf_marker_before: Option<(String, String, f64)>,
+    /// Every marker reading taken while the pointer held still.
+    pub cdf_marker_readings: Vec<Vec<(String, String, f64)>>,
+    /// How many move requests the page had sent before an action.
+    pub cdf_moves_before: Option<usize>,
+    /// The second tab's lanes before the first tab's delete.
+    pub cdf_second_looks_before: Option<Vec<CdfLaneLook>>,
 
     // ---- US-05+ in-process harness ----
     pub harness: Option<InProcHarness>,

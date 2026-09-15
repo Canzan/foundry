@@ -1,0 +1,201 @@
+# Product SSOT — journeys.
+#
+# Created by the card-drag-drop-feedback DISCUSS wave (2026-09-13). Third
+# journey in this directory; shape follows journey-issue-card-delete.yaml.
+# Lightweight depth by user decision: the drag path plus the drag-after-refresh
+# error path. The card move itself shipped in issue-status-move and
+# card-ranking-within-status, which predate the SSOT and are not retro-journeyed;
+# this journey records the gesture as this feature leaves it.
+
+schema_version: "0.1"
+
+journeys:
+  - id: journey-card-drag-drop
+    title: Drag a card to exactly where it belongs, and trust it to land there
+    persona: persona-instance-operator
+    job: job-board-card-move
+    platform: web
+    validated_by: docs/feature/card-drag-drop-feedback/feature-delta.md
+
+    goal: >
+      Move one card to a chosen lane and a chosen slot in it, seeing before
+      release which lane will take it and where, at any point in a session —
+      including straight after the board has refreshed itself in place.
+
+    emotional_arc:
+      pattern: Problem Relief
+      start: >
+        Wary. The last time she deleted a duplicate from its popup, the next
+        drag was refused by every lane until she reloaded. She has started
+        reloading before she moves anything.
+      middle: >
+        Oriented, then precise. The lane under the card answers; a line opens
+        between the two cards the card will sit between. She decides before she
+        lets go instead of correcting after.
+      end: >
+        Confident, then trusting. The card is where the line was, nothing stays
+        lit, and a reload shows the same thing — so the next time she simply
+        drags.
+      transition_rules:
+        - Feedback appears only for a card drag that began on this page, and is
+          gone on every way a drag ends. Feedback that lingers or lights for a
+          file is worse than none.
+        - What the board shows during the drag is what a reload shows after it.
+
+    steps:
+      - id: 1
+        name: Pick up
+        action: >
+          Priya presses AUTH-41 in Backlog on the Identity Platform board and
+          starts to drag — possibly seconds after deleting AUTH-42 from its
+          popup, which refreshed #board-columns in place.
+        mockup: |
+          BACKLOG            IN-PROGRESS          DONE
+          +-----------+      +-----------+        +-----------+
+          | AUTH-41 ~~|~~>   | AUTH-3    |        | AUTH-7    |
+          +-----------+      | AUTH-12   |        +-----------+
+          | AUTH-43   |      | AUTH-19   |
+          +-----------+      +-----------+
+        emotional_state:
+          entry: Wary (a refresh just happened)
+          exit: Neutral — the card lifted
+        shared_artifacts: [board-columns, in-flight-drag]
+        integration_checkpoint: >
+          Only a dragstart on an .issue-card on this page starts a card drag. The
+          in-flight state is set here and nowhere else.
+        failure_modes:
+          - A file, text selection or a card from another tab is treated as a card drag.
+          - State from a previous, cancelled drag is still set.
+
+      - id: 2
+        name: Carry across lanes
+        action: The card passes over Backlog, then In-Progress.
+        mockup: |
+          BACKLOG            ##IN-PROGRESS##       DONE
+                             # AUTH-3      #
+                             # AUTH-12     #   <- the lane under the card
+                             # AUTH-19     #      is activated; no other is
+                             ###############
+        emotional_state:
+          entry: Neutral
+          exit: Oriented — the board is answering
+        shared_artifacts: [board-columns, lane-slug, active-lane]
+        integration_checkpoint: >
+          The lane is resolved from the live document at event time, so a lane
+          replaced or inserted in place is a target like any other.
+        failure_modes:
+          - The lane was replaced in place and nothing accepts the drop (the RCA bug).
+          - The activation blinks off while the pointer crosses the lane's own cards.
+
+      - id: 3
+        name: Aim within the lane
+        action: Priya holds the card between AUTH-3 and AUTH-12.
+        mockup: |
+          IN-PROGRESS
+          | AUTH-3    |
+          =============   <- marker; after = AUTH-3
+          | AUTH-12   |
+          | AUTH-19   |
+        emotional_state:
+          entry: Oriented
+          exit: Precise
+        shared_artifacts: [after-key, marker]
+        integration_checkpoint: >
+          The marker's slot, the landing slot and the POST's `after` come from
+          one computation. A still pointer never moves the marker.
+        failure_modes:
+          - The marker shows one slot and the card lands in another.
+          - The marker oscillates between two slots at a card boundary.
+
+      - id: 4
+        name: Release
+        action: >
+          She lets go. The card moves optimistically and one POST carries
+          state=in_progress and after=AUTH-3, exactly as before this feature.
+        mockup: |
+          IN-PROGRESS
+          | AUTH-3    |
+          | AUTH-41   |   <- landed where the marker was; nothing lit
+          | AUTH-12   |
+          | AUTH-19   |
+        emotional_state:
+          entry: Precise
+          exit: Confident
+        shared_artifacts: [after-key, csrf-token, empty-placeholder]
+        integration_checkpoint: >
+          Every exit — drop, Escape, release outside a lane, refusal — leaves no
+          activated lane and no marker. Empty lanes gain or lose their
+          placeholder from the server template's single copy.
+        failure_modes:
+          - 'The "No issues yet" line stays in a lane that now holds the card.'
+          - The lane the card left is empty and says nothing.
+
+      - id: 5
+        name: Trust the result
+        action: Later she reloads, or comes back to the board.
+        mockup: |
+          Reload -> In-Progress reads AUTH-3, AUTH-41, AUTH-12, AUTH-19.
+          Identical to what the drop showed.
+        emotional_state:
+          entry: Confident
+          exit: Trust — no reflex reload next time
+        shared_artifacts: [board-columns]
+        integration_checkpoint: >
+          A reload changes nothing visible in the lanes a drag touched.
+        failure_modes:
+          - The optimistic board and the server's render disagree.
+
+    error_paths:
+      - id: drag-after-board-replace
+        trigger: >
+          #board-columns was replaced in place by a popup card delete, a lane
+          edit/insert/delete, or a lane move from the lane menu. A lane-header
+          drag only rearranges the existing lanes and replaces nothing; drops
+          must survive it too (card-drag-drop-feedback DISTILL Upstream Issue 1).
+        response: The drop is accepted exactly as on a fresh load.
+        recovery: None needed. Before card-drag-drop-feedback this was a silent refusal until reload.
+      - id: foreign-drag
+        trigger: A file, text selection or a card from another tab is dragged over a lane.
+        response: >
+          No lane activates, no marker, no request, and no navigation. A drop
+          anywhere on the board is swallowed, on a fresh load and after a
+          refresh.
+        recovery: n/a.
+      - id: cancelled
+        trigger: Escape, or release outside any lane.
+        response: The card stays in its origin slot; no feedback remains; placeholders unchanged.
+        recovery: Drag again.
+      - id: refused
+        trigger: The server refuses (the card was deleted by another operator — uniform 404) or the network fails.
+        response: The card returns to its exact origin slot; both lanes' placeholders are as before.
+        recovery: The board is correct; nothing was written.
+      - id: remote-empty
+        trigger: Another tab deletes the last card in a lane (IssueDeleted via board-live.js).
+        response: The lane shows its "No issues yet" placeholder without a reload.
+        recovery: n/a.
+
+    shared_artifacts_registry:
+      - id: board-columns
+        source: board.html + partials/oob/board_columns_oob.html (server); board-lane-dnd.js applyBoard (client)
+        consumed_by: [every card-drag behaviour, resolved at event time]
+      - id: lane-slug
+        source: lanes rows via partials/board_columns.html data-column
+        consumed_by: [lane resolution, POST state]
+      - id: in-flight-drag
+        source: a dragstart on an .issue-card on this page
+        consumed_by: [foreign-drag guard, activation, marker, revert, placeholder restore]
+      - id: active-lane
+        source: the live DOM, never a stored handle
+        consumed_by: [activation teardown]
+      - id: marker
+        source: the live DOM, positioned by the same slot computation as after-key
+        consumed_by: [marker teardown]
+      - id: after-key
+        source: data-issue-key of the card above the computed slot (absent = top)
+        consumed_by: [marker, optimistic landing, POST after]
+      - id: empty-placeholder
+        source: partials/board_columns.html line 39
+        consumed_by: [fresh render, OOB render, client-side restore, board-live.js remote-delete upkeep]
+      - id: csrf-token
+        source: foundry_csrf cookie -> x-csrf-token header
+        consumed_by: [the drop POST, unchanged]

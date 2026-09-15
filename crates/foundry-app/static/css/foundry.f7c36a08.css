@@ -361,6 +361,59 @@ textarea {
   border-radius: var(--radius);
 }
 
+/* The lane under a dragged card (card-drag-drop-feedback, ADR-BOARD-CARD-002).
+   The boundary is an INSET outline, the `.kb-selected` idiom: it takes no
+   layout, so lighting a lane moves no card and resizes no column, and the
+   negative offset keeps it inside a horizontally scrolling board. `--cz-muted`
+   measures 5.89:1 light and 6.38:1 dark against the page (1.4.11's 3:1), the
+   lane's own `--cz-line` hairline only 1.22 / 1.26.
+   The surface steps from `--cz-bg-2` to `--cz-bg`, not to `--cz-surface`: a
+   white lane would erase the raised card in the light palette (1.00:1), while
+   the page tone keeps it raised (1.04:1 light, 1.09:1 dark). */
+.column[data-card-drop-target] {
+  background: var(--cz-bg);
+  outline: 2px solid var(--cz-muted);
+  outline-offset: -2px;
+}
+
+/* The slot a dragged card will take (card-drag-drop-feedback, ADR-BOARD-CARD-002
+   rules 5-8). ZERO FOOTPRINT: absolutely positioned inside the lane (`.column`
+   is `position: relative`, below), so it takes no space. Showing it moves no
+   card, and because it cannot move the geometry the slot is computed from, a
+   still pointer cannot move it either. board-dnd.js sets only `top`, the
+   midline of the 8px gap above the card the slot precedes (or below the last
+   card); the negative half-height margin centres the line on that midline.
+   `pointer-events: none` keeps it from ever becoming a drag target.
+   `--cz-black` against the lane behind it, the activated `--cz-bg`, measures
+   14.70:1 light and 17.19:1 dark (13.79 / 16.40 on the resting `--cz-bg-2`).
+   The lane drag's `.lane-drop-indicator` colour (1.49:1) is deliberately NOT
+   reused, and nothing is shared with it (ADR-BOARD-LANE-007). */
+.column [data-card-drop-marker] {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  height: 2px;
+  margin-top: -1px;
+  background: var(--cz-black);
+  border-radius: 1px;
+  pointer-events: none;
+}
+
+/* The empty lane's placeholder (card-drag-drop-feedback, ADR-BOARD-CARD-003).
+   Every lane renders the server's one "No issues yet" line before its cards
+   (partials/board_columns.html); this pair displays it IF AND ONLY IF the lane
+   holds no card. A CSS fact with zero script writers, so the optimistic drop,
+   its revert and a remote delete are all truthful by construction. Hidden by
+   default: below the `:has()` floor (Chrome/Edge 105, Safari 15.4, Firefox
+   121) the placeholder never shows, which is silence rather than a lie. */
+.column > .empty {
+  display: none;
+}
+
+.column:not(:has(> .issue-card)) > .empty {
+  display: block;
+}
+
 /* THE EYEBROW IDIOM — canzan.net's label voice: mono, small, widely tracked,
    uppercase. It is what a lane header and a dashboard section header ARE, so
    both take it (`.dash__section h2` below carries the identical block).

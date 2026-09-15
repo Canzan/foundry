@@ -78,6 +78,7 @@ personas:
       - job-board-lane-shaping
       - job-canzan-theme
       - job-issue-card-delete
+      - job-board-card-move
 
   - id: persona-team-member-foil
     name: Marco

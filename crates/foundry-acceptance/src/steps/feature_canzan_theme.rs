@@ -2106,7 +2106,7 @@ struct Palette {
     black: Rgb,
 }
 
-type Rgb = (u8, u8, u8);
+pub(crate) type Rgb = (u8, u8, u8);
 
 const LIGHT: Palette = Palette {
     name: "light",
@@ -2250,7 +2250,7 @@ return out;
 "#;
 
 /// `rgb(r, g, b)` / `rgba(r, g, b, a)` as the browser reports them.
-fn parse_colour(raw: &str) -> Option<(Rgb, f64)> {
+pub(crate) fn parse_colour(raw: &str) -> Option<(Rgb, f64)> {
     let text = raw.trim();
     let body = text
         .strip_prefix("rgba(")
@@ -2266,7 +2266,7 @@ fn parse_colour(raw: &str) -> Option<(Rgb, f64)> {
     Some(((red as u8, green as u8, blue as u8), alpha))
 }
 
-fn hex(colour: Rgb) -> String {
+pub(crate) fn hex(colour: Rgb) -> String {
     format!("#{:02x}{:02x}{:02x}", colour.0, colour.1, colour.2)
 }
 
@@ -2284,7 +2284,7 @@ fn relative_luminance(colour: Rgb) -> f64 {
     0.2126 * channel(colour.0) + 0.7152 * channel(colour.1) + 0.0722 * channel(colour.2)
 }
 
-fn contrast_ratio(one: Rgb, other: Rgb) -> f64 {
+pub(crate) fn contrast_ratio(one: Rgb, other: Rgb) -> f64 {
     let (first, second) = (relative_luminance(one), relative_luminance(other));
     let (lighter, darker) = if first >= second {
         (first, second)

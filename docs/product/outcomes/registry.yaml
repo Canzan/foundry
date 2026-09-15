@@ -75,8 +75,8 @@ outcomes:
     order (0012) + one same-tx 0013 status event + one outbox row per card; delete
     routes through issue_delete::delete_issues_with_outbox and now emits one IssueDeleted
     outbox row per destroyed card (ADR-ISSUE-DELETE-001 amends the no-events-no-outbox
-    clause of ADR-BOARD-LANE-002 and nothing else); the composite FK is the strand-guard (bounded
-    retry <=3); cancel writes nothing.'
+    clause of ADR-BOARD-LANE-002 and nothing else); the composite FK is the strand-guard
+    (bounded retry <=3); cancel writes nothing.'
   keywords:
   - lane
   - delete
@@ -302,4 +302,91 @@ outcomes:
   - fan-out
   artifact: ''
   related: []
+  superseded_by: null
+- id: OUT-13
+  kind: invariant
+  summary: A card drag is claimed and lands after any in-place board replace, and
+    a foreign drag is swallowed
+  feature: card-drag-drop-feedback
+  inputs:
+  - shape: 'Native HTML5 drag events delegated on document, scoped to #board-columns
+      (dragstart on article.issue-card; dragover/dragleave/drop/dragend), after any
+      in-place #board-columns replace (popup delete, lane edit/insert/delete OOB,
+      lane-menu Move via applyBoard) or none; foreign drags carry a File or text/plain
+      and no dragstart on this page'
+  output:
+    shape: 'Card drag: dragover on the live lane defaultPrevented, drop moves the
+      card and sends ONE POST /team/{t}/project/{p}/issues/{n}/state (state=<slug>[&after=<key>],
+      x-csrf-token) byte-identical to the shipped body; refusal/network error reverts
+      by identity. Foreign drag inside #board-columns: dragover and drop defaultPrevented,
+      no activation, no marker, no request, no navigation'
+  keywords:
+  - board
+  - card-drag
+  - replace-proof
+  - delegated-listeners
+  - event-time-lane
+  - foreign-drag
+  - swallow
+  - drag-session
+  artifact: crates/foundry-acceptance/tests/features/card-drag-drop-feedback.feature
+  related:
+  - OUT-3
+  - OUT-6
+  superseded_by: null
+- id: OUT-14
+  kind: invariant
+  summary: The insertion marker, the landing slot and the move request's after key
+    are one computation
+  feature: card-drag-drop-feedback
+  inputs:
+  - shape: A card drag session's dragover at pointer Y over a lane (slotFor midpoint
+      rule, dragged card skipped); drop in that lane
+  output:
+    shape: Exactly one [data-card-drop-marker] on the board carrying data-before-key
+      (empty = end); the card lands before that key; POST after = key of the card
+      now above it, omitted at the top; a reload shows the same order; lane activation
+      [data-card-drop-target] on exactly the lane under the pointer; zero of either
+      after every exit
+  keywords:
+  - board
+  - card-drag
+  - marker
+  - slot
+  - after-key
+  - drop-feedback
+  - activation
+  - teardown
+  artifact: crates/foundry-acceptance/tests/features/card-drag-drop-feedback.feature
+  related:
+  - OUT-3
+  - OUT-6
+  - OUT-13
+  superseded_by: null
+- id: OUT-15
+  kind: invariant
+  summary: A lane displays its No-issues-yet placeholder if and only if it holds no
+    card
+  feature: card-drag-drop-feedback
+  inputs:
+  - shape: partials/board_columns.html renders p.empty in every section.column; any
+      mutation of a lane's cards (optimistic drop, revert, board-live.js IssueDeleted,
+      in-place replace)
+  output:
+    shape: Computed display of .column > .empty is block exactly when the lane has
+      no .issue-card child and none otherwise (CSS :has() pair); no script writes
+      placeholders; the markup is the server's single copy in both render paths
+  keywords:
+  - board
+  - lane
+  - placeholder
+  - empty-state
+  - has-selector
+  - declarative
+  - zero-writers
+  artifact: crates/foundry-acceptance/tests/features/card-drag-drop-feedback.feature
+  related:
+  - OUT-3
+  - OUT-6
+  - OUT-12
   superseded_by: null

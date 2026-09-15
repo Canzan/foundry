@@ -1,0 +1,126 @@
+# card-drag-drop-feedback: environment inventory (DEVOPS wave, lean, 2026-09-13)
+#
+# Consumed by DISTILL (Mandate 4, Environmental Realism). This feature does not
+# install into systems: no route, migration, dependency, config or pipeline
+# change (DESIGN DDD-10). The environments below are where the feature is
+# VERIFIED. Its KPIs are acceptance-, fault- and dogfood-verified, not
+# telemetry-verified. Grounded against xtask/src/main.rs, .github/workflows/ci.yml,
+# .forgejo/workflows/ci.yml, crates/foundry-acceptance/tests/acceptance.rs,
+# crates/foundry-acceptance/src/support/browser_harness.rs, crates/foundry-app/src/lib.rs.
+# Narrative: feature-delta.md "## Wave: DEVOPS / [REF] Environment matrix".
+
+feature: card-drag-drop-feedback
+
+target_environments:
+  - name: clean
+    description: >-
+      Default acceptance lane (FOUNDRY_ACCEPTANCE_TAGS unset) plus `cargo xtask smoke`.
+      It EXCLUDES @needs-browser (acceptance.rs:293-302), so none of this feature's
+      US-CDF scenarios run here. It guards KPI 8's non-browser shipped scenarios, the
+      lib.rs cache-policy tests, projects.rs:1157, and check-arch (S1, hash = filename).
+    platform: [macos, linux]
+    invocation: "cargo test -p foundry-acceptance --release --test acceptance"
+    preconditions:
+      - "Docker daemon reachable (testcontainers Postgres)"
+
+  - name: browser-lane
+    description: >-
+      Containerised Chrome (selenium/standalone-chrome) driven by fantoccini. It
+      dispatches SYNTHETIC DragEvents only, so it proves wiring, not feel. Every
+      US-CDF scenario and the M1-M9 named-fault runs execute here.
+    platform: [macos, linux]
+    invocation:
+      full: "FOUNDRY_XTASK_INCLUDE_DOCKER=1 cargo xtask ci   # stage 8, FOUNDRY_ACCEPTANCE_TAGS=all (main.rs:217-228)"
+      targeted: "FOUNDRY_ACCEPTANCE_TAGS=us-cdf-0N cargo test -p foundry-acceptance --release --test acceptance   # or =cdf (acceptance.rs:231-258)"
+    hosts: [developer-workstation, ci-github]
+    preconditions:
+      - "Docker daemon reachable; pre-push forces FOUNDRY_XTASK_INCLUDE_DOCKER=1, because auto-detect silently SKIPS the whole acceptance step when docker info fails (main.rs:85-102,217-228)"
+      - "Browser comes only from the selenium/standalone-chrome container (matched driver + Chrome). Never brew-install chromedriver or Chrome"
+      - "Image tag is :latest (floating, browser_harness.rs:209): record the Chrome browserVersion with every RED/GREEN observation"
+      - "Build first, then exec the fresh foundry binary 2-3 times until warm (macOS syspolicyd stalls a new binary in dyld at 0% CPU); building right before the lane makes subprocess scenarios time out"
+      - "Run the lane alone (no concurrent clippy or second lane); the full lane is ~15-20 min, so run it in the background"
+      - "No navigation or reload between the board replace and the drag; proven by window.__cdfMark (DDD-8e). The bug only shows WITHOUT a reload"
+      - "@pending scenarios never run in any lane (acceptance.rs:223-227, 252-255, 303-305); the RED-on-HEAD classification (AC-1.2) un-pends to observe"
+
+  - name: dogfood
+    description: >-
+      Manual real-browser check per slice (D12) on a real board, served by the native
+      dev loop: ./run.sh or ./restart.sh on http://localhost:3000. It is the only
+      environment that proves drag feel (flicker, oscillation), a real Finder file drop
+      (OQ-2) and :has() in real engines. It is also KPI 2's only instrument.
+    platform: [macos]
+    browsers:
+      chrome: [slice-01, slice-02, slice-03, slice-04]
+      firefox: [slice-01, slice-02, slice-03, slice-04]
+      safari: [slice-01, slice-04]   # slice-01 swallow check per DESIGN OQ-2; slice-04 :has() in a third engine
+    palettes: [light, dark]
+    preconditions:
+      - "After a template or CSS edit: ./restart.sh (Askama templates are compiled in; base.html names the CSS hash)"
+      - "After a JS edit: reload the board ONCE, before the sequence (board-dnd.js is no-cache, lib.rs:257-272)"
+      - "Within a sequence: never reload between the in-place refresh (popup delete, lane menu) or the lane-header reorder and the drag"
+      - "A freshly built binary may sit in dyld for minutes (syspolicyd); `sample <pid>` showing only _dyld_start is not an app hang"
+      - "Postgres runs from the script-owned container (foundry-ui-pg); no host install"
+      - "Record the result in the slice's delivery notes"
+
+# Where the gate runs, and where it does not.
+gate_hosts:
+  - name: ci-github
+    workflow: .github/workflows/ci.yml
+    runs: [clean, browser-lane]
+    authoritative: true
+    notes: "One job, `cargo xtask ci`, with FOUNDRY_XTASK_INCLUDE_DOCKER=1 (ci.yml:71); dockerd on ubuntu-latest"
+  - name: ci-forgejo
+    workflow: .forgejo/workflows/ci.yml
+    runs: [clean]
+    authoritative: false
+    notes: >-
+      The acceptance job (ci.yml:84-97) runs FOUNDRY_ACCEPTANCE_TAGS=all inside
+      rust:1.85-slim, which mounts docker.sock but ships no docker CLI, so
+      ensure_chromedriver panics. The browser lane cannot pass there. Not a KPI gate.
+
+coexistence_matrix:
+  - tool: board-lane-dnd.js lane drag (Pointer Events) and .lane-drop-indicator
+    must_not_break: true
+    held_by: "ADR-BOARD-LANE-007 (no shared code); shipped lane-drag scenarios unmodified (AC-1.7)"
+  - tool: keyboard.js closeTopLayer() single Escape owner (BR-4)
+    must_not_break: true
+    held_by: "DDD-12: no keydown listener added; shipped @layered scenarios"
+  - tool: keyboard.js card selection (.kb-selected)
+    must_not_break: true
+    held_by: "Distinct hooks; keyboard_shortcut_bindings.rs:3013 unmodified"
+  - tool: board-live.js SSE IssueDeleted
+    must_not_break: true
+    held_by: "Unchanged (DDD-5); issue-card-delete two-window scenarios; US-CDF-04 remote scenarios"
+  - tool: htmx OOB swaps and applyBoard (the five in-place refreshes; the lane-header drag reorders without replacing, DISTILL Upstream Issue 1)
+    must_not_break: true
+    held_by: "US-CDF-01 refresh outline + the header-reorder guard scenario"
+  - tool: non-board pages loading board-dnd.js (base.html:49)
+    must_not_break: true
+    held_by: "F1 guard: listeners return outside #board-columns"
+  - tool: check-arch token seam S1/S2, hash = filename, VENDOR.md sha256
+    must_not_break: true
+    held_by: "cargo xtask smoke/ci stage 4; D13 rename in the same commit as the CSS edit"
+  - tool: static cache policy tests (JS no-cache, hashed CSS immutable, errors no-store)
+    must_not_break: true
+    held_by: "lib.rs:318-333,336-371; hashed-name literals updated per rename"
+  - tool: dev loop (run.sh, restart.sh, stop.sh) and docker-compose.observability.yml
+    must_not_break: true
+    held_by: "Untouched by this feature"
+
+platform_coverage:
+  synthetic_lane: ["selenium/standalone-chrome:latest (Chrome, version floating; record browserVersion)"]
+  chrome_floor: 105   # first Chrome with CSS :has() (ADR-BOARD-CARD-003). The lane floats at :latest (observed 151.0.7922.108) and records browserVersion per run; pinning the image is a tracked follow-up
+  dogfood: ["macOS host: Chrome, Firefox, Safari (slices 01, 04)"]
+  user_browser_floor_for_has: {chrome_edge: 105, safari: "15.4", firefox: 121}
+  below_floor: "Placeholder never shows (silent, pre-feature behaviour), ADR-BOARD-CARD-003"
+  template_fallback: "Documented only, ADR-BOARD-CARD-003 Alternatives row 1; adoption is a user decision"
+  not_covered: ["touch drag", "keyboard card move"]   # D14
+  CI: ["GitHub Actions ubuntu-latest (authoritative)"]
+
+deployment_assumptions:
+  - "No server, handler, store or migration change (DDD-10); rollback is a total git revert per slice, 04 -> 01"
+  - "Each CSS-touching slice is ONE commit including the content-hash rename (base.html, lib.rs tests, VENDOR.md), per D13"
+  - "Slice 04's board_columns.html edit and its :has() rule land in the same commit, or every lane shows the placeholder"
+  - "board-dnd.js needs no content hash: served no-cache at a stable URL (lib.rs:257-272, guarded by lib.rs:318-333)"
+  - "Rolling update (3 replicas, maxSurge 1, maxUnavailable 0): a hashed-CSS 404 during skew is no-store (lib.rs:336-371), so the next load heals"
+  - "No runtime telemetry is added; KPIs are verified in browser-lane and dogfood only"

@@ -14,6 +14,16 @@ journeys:
     job: job-issue-card-delete
     platform: web
     validated_by: docs/feature/issue-card-delete/feature-delta.md
+    changelog:
+      - date: "2026-09-13"
+        feature: card-drag-drop-feedback
+        change: >
+          Step 6's first failure mode ("drops card drag bindings") materialised:
+          after the popup delete's OOB #board-columns refresh, every lane refused
+          card drops until reload (board-dnd.js bound dragover/drop per lane at
+          load). The refresh itself stands; the fix and its replace-then-drag
+          regression are card-drag-drop-feedback slice 01. See
+          docs/feature/card-drag-drop-feedback/rca-drag-after-board-replace.md.
 
     goal: >
       Remove one card that should not exist, from whichever of the two surfaces

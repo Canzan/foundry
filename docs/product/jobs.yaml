@@ -349,3 +349,66 @@ jobs:
           binding reason issue delete is a HARD delete rather than a tombstone:
           see docs/feature/issue-card-delete/feature-delta.md D1 and its
           Changed Assumptions section.
+
+  - id: job-board-card-move
+    title: Put a card where it belongs on the board, and trust the drop to land there
+    job_story: >
+      When a card on my board is in the wrong lane or the wrong place in its
+      lane — work started, work finished, a card that should be next — I want
+      to drag it to exactly the spot I mean and see, before I let go, which
+      lane and which slot will take it, so the board reads in the order the
+      work is really in, without checking afterwards whether the drop landed
+      or reloading the page first in case it will not.
+    dimensions:
+      functional: >
+        Move one card to a chosen lane and a chosen slot within it in one
+        gesture, with the destination visible before release, at any point in
+        a session — including straight after the board refreshed itself.
+      emotional: >
+        Stop distrusting the drag: no reflex reload before moving a card, no
+        second look to see whether it took.
+      social: >
+        The board's order is the team's shared reading of what is next; a card
+        that lands where it was aimed keeps that reading honest.
+    forces:
+      push: >
+        Card drops are silently refused after any in-place board refresh — a
+        card delete from the popup (since 87282d3) or any lane edit, insert,
+        move or delete — until a reload, because the drag wires each lane once
+        at page load. Nothing shows which lane or which slot will take the
+        card. "No issues yet" lingers after a drop into an empty lane and is
+        missing from a lane just emptied. (RCA:
+        docs/feature/card-drag-drop-feedback/rca-drag-after-board-replace.md)
+      pull: >
+        What every board tool does: the lane lights up, a line opens between
+        two cards, and the card drops into that gap.
+      anxiety: >
+        That the new highlights flicker or linger after the drag; that a file
+        dragged in from the desktop starts moving cards; that the marker shows
+        one place and the card lands in another.
+      habit: >
+        She already drags cards daily and they already land at the slot under
+        the cursor (card-ranking-within-status). Feedback must add to that
+        gesture, not change it — same drop semantics, same request, same
+        revert.
+    opportunity:
+      importance: high
+      satisfaction: low
+      note: >
+        Single-job feature; no comparative scoring table. Not a back-fill: the
+        move capability shipped in issue-status-move and
+        card-ranking-within-status, which predate the SSOT and are deliberately
+        not retro-validated. This entry is validated by the feature that found
+        the gesture silently broken after everyday actions. Importance high —
+        the board's core daily gesture; satisfaction low — refused without an
+        error after the actions an operator performs several times a session.
+    validated_by: docs/feature/card-drag-drop-feedback/feature-delta.md
+    relates_to:
+      - job: job-board-lane-shaping
+        relation: >
+          Sibling. That job's lane verbs (edit, insert, move, delete) are four
+          of the six in-place board refreshes that broke this job's gesture.
+      - job: job-issue-card-delete
+        relation: >
+          Sibling. Its popup delete (87282d3) made the board refresh an everyday
+          action, turning a latent defect in this job's gesture into a daily one.
