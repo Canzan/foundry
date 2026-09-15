@@ -1997,3 +1997,260 @@ targeted `#[allow]`, house precedent) and two tuple fields (now the
 | DESIGN#DDD-9 | Every M1-M9 fault must turn a named scenario red | DDD-9 | Each named scenario exists under its table name; M4 names aligned |
 | DEVOPS#P3 | Every browser-lane observation records Chrome's `browserVersion` | n/a | Recorded with the RED classification |
 | DISCUSS#KPI 8 | The shipped card-drag scenarios stay unmodified | n/a | No shipped `.feature` or scenario step edited |
+
+<!-- ===================================================================== -->
+
+## Wave: DELIVER / [REF] Implementation Summary
+
+Apex (@nw-platform-architect), DELIVER Phase 7 finalize, 2026-09-14. **Sources:**
+- `deliver/roadmap.json` and `deliver/execution-log.json`;
+- the four slice delivery notes;
+- `deliver/mutation/mutation-report.md`, including its post-refactor re-run;
+- `deliver/closing-notes.md`;
+- `git log aa8a6f6..90ed631`.
+
+All 8 roadmap steps are GREEN, across 4 phases with one per slice, run in order 01 → 04.
+
+- **The session.** The card drag is one `CardDragSession` behind five listeners delegated
+  on `document` and scoped to `#board-columns`. Lanes, the activated lane and the marker
+  are resolved from the live document at event time. So all five in-place board refreshes
+  leave every lane accepting drops, and so does the lane-header reorder guard (US-CDF-01,
+  ADR-BOARD-CARD-001).
+- **The revert.** A refused or failed move reverts by identity (card key, lane slug,
+  neighbour keys), re-resolved at response time.
+- **Foreign drags.** A drag with no session is claimed and swallowed with `dropEffect
+  "none"`.
+- **Activation.** Recomputed on every `dragover`: `data-card-drop-target`, an inset
+  `--cz-muted` outline on `--cz-bg`.
+- **The marker.** One zero-footprint `[data-card-drop-marker][data-before-key]` records
+  the slot, and the drop lands at it (ADR-BOARD-CARD-002).
+- **The placeholder.** The partial renders it in every lane, and a `:has()` rule pair
+  shows it only in a lane holding no card. There are zero script writers, and
+  `board-live.js` is untouched (ADR-BOARD-CARD-003). Step 04-02 proved that hypothesis
+  with no production edit.
+
+There is no handler, service, store or migration change, and the move request is
+byte-identical (D9, DDD-10).
+
+**Open questions at close:**
+- OQ-1: resolved. The activated surface is `--cz-bg`.
+- OQ-2: open. The real Finder drop is owed at dogfood.
+- OQ-3 and OQ-4: open follow-ups.
+- OQ-5: closed.
+- OQ-6: done (OUT-13/14/15).
+
+**How it landed.** The wave ran in no-commit mode: every COMMIT phase is logged
+`APPROVED_SKIP`. The concurrent `foundry` session then committed it as **one** commit,
+`3ee56fa`. On top sits `90ed631` (rustls 0.23.40 → 0.23.45, RUSTSEC-2026-0285), which can
+be reverted separately. Not pushed.
+
+**A deviation from DEVOPS, recorded here.** DEVOPS planned one commit per slice, with
+revert order 04 → 01 (*Deployment strategy*). The wave landed as a single commit, so the
+rollback unit is now the whole feature. `git revert 3ee56fa` restores `aa8a6f6`'s board
+tree, which is the tree DISTILL's RED classification exercised, and it keeps slice 04's
+partial and its `:has()` rule together. A per-slice rollback would now need a hand-made
+partial revert.
+
+## Wave: DELIVER / [REF] Files Modified
+
+From `git diff --name-status aa8a6f6 90ed631` (40 paths, +8585 / −124), plus the
+uncommitted changes.
+
+**Production (6):**
+
+| Path | Status | Change |
+|---|---|---|
+| `crates/foundry-app/static/js/board-dnd.js` | M | The session, delegation, activation, marker and identity revert (slices 01-03); refactored in Phase 3; sha256 `bfd0f143…` |
+| `crates/foundry-app/static/css/foundry.52ad52fa.css` → `foundry.f7c36a08.css` | R094 | The activation, marker and `:has()` rules (+53). The per-slice names `ed2e1ba7` and `54eb7a9b` collapse into one net rename in history |
+| `crates/foundry-app/templates/partials/board_columns.html` | M | The placeholder in every lane, and the header comment |
+| `crates/foundry-app/templates/base.html` | M | The stylesheet `<link>` (D13) |
+| `crates/foundry-app/static/VENDOR.md` | M | The hash row and notes (D13) |
+| `crates/foundry-app/src/lib.rs` | M | Only the three hashed-name literals in `static_cache_policy_tests`. This is test code inside a production file, and it is why cargo-mutants is N/A |
+
+**Dependency (separate commit `90ed631`):** `Cargo.lock`: rustls 0.23.40 → 0.23.45 and
+rustls-webpki 0.103.13 → 0.103.15. Lockfile only, with no manifest or API change.
+
+**Tests (7):**
+
+| Path | Status | Change |
+|---|---|---|
+| `crates/foundry-acceptance/tests/features/card-drag-drop-feedback.feature` | A | 35 scenario declarations |
+| `crates/foundry-acceptance/src/steps/feature_card_drag_drop_feedback.rs` | A | The step module |
+| `crates/foundry-acceptance/src/support/browser_harness.rs` | M | The synthetic-drag kit, the `fetch` spy, the no-reload mark, the writable foreign `dropEffect`, and `run_kit_at` |
+| `crates/foundry-acceptance/src/world.rs` | M | Card-drag world state (`CdfLaneLook`), including the dead `cdf_marker_before` field the review flagged |
+| `crates/foundry-acceptance/src/lib.rs` | M | The `mod` line |
+| `crates/foundry-acceptance/tests/acceptance.rs` | M | Force-link lines |
+| `crates/foundry-acceptance/src/steps/feature_canzan_theme.rs` | M | **Visibility only.** `Rgb`, `parse_colour`, `hex` and `contrast_ratio` become `pub(crate)`, so the contrast oracle can be reused (DESIGN *Reuse Analysis*). It is a shipped step module outside KPI 8's list, and no step or assertion changed |
+
+KPI 8's shipped files are byte-identical to `aa8a6f6`: `git diff --stat aa8a6f6 90ed631`
+is empty for them. They are five feature files (`board-lane-reorder`,
+`board-lane-management`, `board-lane-overflow-menu`, `issue-card-delete`,
+`keyboard-shortcut-bindings`) and their five step modules.
+
+**Docs:**
+- **Feature workspace (all new).** `feature-delta.md`, `rca-drag-after-board-replace.md`,
+  `environments.yaml` and `slices/slice-01..04-*.md`. In `deliver/`: `roadmap.json`,
+  `execution-log.json`, `.develop-progress.json`, `slice-01..04-delivery-notes.md` and
+  `mutation/mutation-report.md`.
+- **SSOT.**
+  - ADR-BOARD-CARD-001/002/003 (A).
+  - `architecture/brief.md` (M): `## Domain Model` bootstrapped.
+  - `jobs.yaml` (M): `job-board-card-move`.
+  - `journeys/journey-card-drag-drop.yaml` (A).
+  - `journeys/journey-issue-card-delete.yaml` (M): a changelog entry pointing to
+    *Changed Assumptions*.
+  - `kpi-contracts.yaml` (A): created by DEVOPS.
+  - `outcomes/registry.yaml` (M): OUT-13/14/15.
+  - `personas/persona-instance-operator.yaml` (M): one line.
+- **`CONTEXT.md`** (M): written by the concurrent session.
+
+**Uncommitted at finalize (in neither commit):**
+- `deliver/mutation/mutation-report.md`: modified, adding § "Post-refactor re-run (final
+  code, tip 90ed631)".
+- `deliver/closing-notes.md`: new and untracked.
+- **This finalize pass:**
+  - `docs/evolution/2026-09-14-card-drag-drop-feedback.md`: new and untracked.
+  - This DELIVER record in `feature-delta.md`.
+  - `docs/product/architecture/brief.md`: the shipped component inventory.
+  - `docs/product/kpi-contracts.yaml`: the measured values.
+
+## Wave: DELIVER / [REF] Scenarios Green
+
+Units, once: 35 scenario declarations (9 Scenario Outlines) execute as 54 examples.
+cucumber's `[Summary]` line calls each executed example a "scenario". Commit `3ee56fa`'s
+"35 acceptance scenarios" counts declarations.
+
+| Scope | Declarations | Examples | Final |
+|---|---|---|---|
+| `us-cdf-01` | 9 | 16 | 16/16 |
+| `us-cdf-02` | 8 | 13 | 13/13 |
+| `us-cdf-03` | 10 | 15 | 15/15 |
+| `us-cdf-04` | 8 | 10 | 10/10 |
+| **`cdf`** | **35** | **54** | **cdf 54/54 examples, 400/400 steps, `EXIT 0`**: tip `90ed631`, post-refactor, fresh release build, warm binary, lane run alone, load ~5 |
+
+- **Per-story finals.** These are from the post-refactor mutation restores: `us-cdf-01`
+  16/16 (127 steps), `us-cdf-02` 13/13 (85), `us-cdf-03` 15/15 (113) and `us-cdf-04`
+  10/10 (75).
+- **`@pending`.** Zero tags remain. The one `@pending` string in the file is its header
+  comment at line 6, which is now stale.
+- **Default lane.** 632/632 at 04-02, on the re-run. The first run's 631/632 was the sqlx
+  `'\0'` flake.
+- **Guards at slice 04.** blr 26/26, kb 38/38, icd 36/36, blm 24/24 and blo 25/25.
+- **The `all` lane** (stage 8 of `FOUNDRY_XTASK_INCLUDE_DOCKER=1 cargo xtask ci`) on the
+  tip: **825/825 scenarios, 5757/5757 steps** (attempt #4 on `868090f`, all gates green).
+
+## Wave: DELIVER / [REF] DoD Check
+
+Against the 9 items of *DISCUSS / [REF] DoD*.
+
+| # | DoD item | Status | Evidence |
+|---|---|---|---|
+| 1 | All UAT scenarios green in the `all` lane (`cargo xtask ci`); the slice-01 regression recorded RED on HEAD for the stated reason before its fix (AC-1.2) | RED on HEAD: **MET**. `all` lane: **MET**, 825/825 at `868090f` | DISTILL's RED classification on `aa8a6f6` (Chrome 151.0.7922.108): #1 failed `Done did not claim the card drag…` with `window.__cdfMark` intact. Step 01-01 recorded it RED again before any production edit. Targeted `cdf`: 54/54 examples, 400/400 steps at `90ed631` |
+| 2 | Shipped card-drag, lane-drag and popup-delete scenarios green and unmodified (KPI 8) | Unmodified: **MET**. Green: **MET per tag at slice 04**; the `all`-lane re-run on the tip is part of the gate in row 1 | `git diff --stat aa8a6f6 90ed631` is empty on the five shipped feature files and their five step modules. blr 26/26, kb 38/38, icd 36/36, blm 24/24, blo 25/25. **Exception, after the fact:** the closing follow-up modifies `keyboard_shortcut_bindings.rs` (step code only; the `.feature` is untouched): a user-approved, test-only fix for a pre-existing `kb` focus race that failed the closing gate intermittently with the pre-refactor `board-dnd.js` too (`closing-notes.md` § Phase 3.5) |
+| 3 | DOM oracles hold after every drag scenario: zero activated lanes, zero markers, truthful placeholders (KPIs 5, 7) | **MET** | `cdf` 54/54. The exit-path outlines are green (8 rows), as is the cancelled-drag scenario. M4, M7 and M8 were killed before and after the refactor |
+| 4 | The reload-equality oracle holds after every successful drag (D11) | **MET** | Every successful-drop scenario ends in a reload assertion (DISTILL *Inherited commitments*, D11). M5's collateral reds fell on reload oracles, so they bite |
+| 5 | POST body byte-identical; no handler, service, store or migration change (D9) | **MET** | The fetch-spy body is exactly `state=in_progress` plus `x-csrf-token` in "A freshly loaded board drags exactly as it did before". The diff holds no production `.rs` beyond the `lib.rs` test literals, and no migration. The partial is a template (DDD-10) |
+| 6 | Activation and marker ≥3:1 in both palettes, tokens only; the rename complete in each CSS-touching slice (D6, D8, D13) | **MET** | Outline 5.89:1 / 6.38:1 against the page. Marker 14.70:1 / 17.19:1 against the activated lane. Renames: `52ad52fa` → `ed2e1ba7` (02) → `54eb7a9b` (03) → `f7c36a08` (04), each with `base.html`, the `lib.rs` literals and `VENDOR.md`. check-arch green. The single commit shows one net rename |
+| 7 | Each slice's manual real-browser dogfood check recorded in its delivery notes (D12) | **MET (recorded)**; the real-browser items are owed to the user | § Dogfood in `slice-01..04-delivery-notes.md`; the owed list is under *Demo Evidence* below |
+| 8 | Per-feature mutation gate: ≥80% on modified Rust production files, or N/A with the file list | **MET** | cargo-mutants N/A, with the file list: the only production `.rs` change is the three `lib.rs` literals. M1-M9: 9/9 pre-refactor and 9/9 on the final code |
+| 9 | `cargo xtask ci` green (check-arch, deny); merged to main | CI: **MET**. `FOUNDRY_XTASK_INCLUDE_DOCKER=1 cargo xtask ci` is all green at `868090f` (attempt #4). Merge: **NOT DONE**; not pushed, by the user's choice (AGENTS.md gates the push) | smoke and check-arch green at the tip. deny: RUSTSEC-2026-0285 fixed by `90ed631` |
+
+## Wave: DELIVER / [REF] Demo Evidence
+
+Per-slice dogfood (D12). Run by the orchestrator in Chrome, against the `./restart.sh` dev
+server, on `/team/general/project/sandbox`, 2026-09-14.
+
+| Slice | What was shown | How |
+|---|---|---|
+| 01 | Two in-place replaces, ⋯ **Move list right** then **left**. Each was followed by a drag of GEN-2 into an empty lane with no reload: both were POSTed (`state=done`, `state=backlog`) and persisted after a reload. A foreign `File` on a lane and on the gap, on a fresh load and after a replace: `defaultPrevented`, 0 requests, URL unchanged | Real mouse; synthetic `File` |
+| 02 | Only the lane under the card lit, in light (a `rgb(92,100,95)` outline on `rgb(251,251,249)`) and in dark. Moving on lit only the next lane. The header and `Escape` left zero lit. Real-mouse drops left zero lit after each, and persisted | Synthetic `DragEvent`s into the real listeners, because a mid-drag highlight cannot be captured; real-mouse drops |
+| 03 | Exactly one marker in the gap (`data-before-key=GEN-3`, 2px, absolute, `pointer-events: none`, top 307 within 303-311), in light and dark. The own-slot hover gave marker `before=""`, never naming the dragged card. `Escape` left 0 markers and 0 lit lanes | Synthetic only. **Real-mouse drags were not verified**: the automation tool delivered partial or zero DOM events |
+| 04 | GEN-4, GEN-3 and GEN-2 dropped into Done and back. The placeholder's computed `display` flipped exactly with emptiness, and a reload matched each time. All six drops were claimed, and the board was left as found | Synthetic `DragEvent`s; every drop sent the real `POST …/state` |
+
+**A correction carried from slice 01.** The `dropEffect "none"` reading in its dogfood
+proves nothing: Chrome returns `"none"` for any script-built `DataTransfer`. The no-drop
+answer is proven instead by the swallow outline's writable-`dropEffect` step and by M2's
+kill.
+
+**Still owed to the user:**
+1. A real Finder `keys.png` dropped on a lane and on the gap, on a fresh load and after a refresh, in Chrome, Firefox and Safari (OQ-2). If a browser opens the file, apply ADR-BOARD-CARD-001's fallback.
+2. A real-mouse reorder within a lane (drop at the marker, then reload), in Chrome and Firefox.
+3. Real-mouse feel in Firefox and Safari, including whether the highlight flickers when it crosses a lane's own cards.
+4. By hand: a remote delete that empties a lane, and a refused drop. Also `:has()` checked in Firefox and Safari.
+5. The KPI 2 log: 5 working days from when slice 01 is on the instance. The table in `slice-01-delivery-notes.md` is empty.
+6. Delete the temporary issues GEN-3 and GEN-4 in Sandbox. The orchestrator does not hard-delete data.
+
+Stakeholder sign-off is the user's to give, after these items.
+
+## Wave: DELIVER / [REF] Quality Gates
+
+| Gate | Outcome | Evidence |
+|---|---|---|
+| Phase 3: refactor (L1-L4; L5 and L6 clean) | Done, behaviour-preserving | `board-dnd.js` 395 → 426 lines (sha256 `7e633e63` → `bfd0f143`): named hooks, `keyOf`, `otherCards`, `nearestCard`, `keepOneMarkerIn`, `moveBody`. In the step module: `DropPlace`, a split `refresh_in_place` and merged probes. Verified at `90ed631`: `cdf` 54/54 (400/400) and `cargo xtask smoke` green. The two earlier attempts (load 95-126, then ~24) produced infrastructure failures only and were not counted |
+| Phase 4: adversarial review | **APPROVED**; 0 blocking; zero Testing-Theater patterns | Three claims discounted (below). Non-blocking: a runbook for the fault procedure, the sqlx `'\0'` flake, and the dead `cdf_marker_before` field |
+| Phase 5: mutation, pre-refactor | **9/9** killed per slice (3/3, 1/1, 3/3, 2/2) | Named scenarios survived under M2, M6 and M7 at the first gate. All three were closed by strengthening their scenarios, then re-seeded red, with no assertion weakened. `mutation-report.md` § FEATURE VERDICT |
+| Phase 5: mutation, post-refactor | **9/9** killed on `90ed631`; no survivors, infra errors or repeated runs | § "Post-refactor re-run". The M6 and M3 seeds were re-derived with the same semantics. Every restore was `cp` + `cmp` |
+| cargo-mutants | N/A | The only production `.rs` change is the three `lib.rs` cache-test literals |
+| Phase 6: integrity | `des-verify-integrity` exit 0: "All 8 steps have complete DES traces" | 47 events. The first 04-02 GREEN `FAIL` is kept in the log, followed by `PASS` |
+| `cargo xtask smoke` and check-arch | Green at the tip | hash = filename, the VENDOR sha256 recomputes, `/static` references resolve, S1 |
+| `cargo deny` | RUSTSEC-2026-0285 fixed by `90ed631` | A `spin` yanked-version **warning** remains; it does not fail the gate |
+| Phase 3.5: `FOUNDRY_XTASK_INCLUDE_DOCKER=1 cargo xtask ci` | **GREEN** on `868090f` (attempt #4): all gates; acceptance 825/825 scenarios, 5757/5757 steps | Attempts #1-#3 failed on causes outside the branch: `grant_super_admin` PoolTimedOut; the `kb` focus race, fixed in `868090f`; and `SSLRequest 0x48` at load 95. See `closing-notes.md` § Phase 3.5 |
+
+**The reviewer's discounted claims, unverified or wrong, from `closing-notes.md`:**
+- that M1-M9 had been re-seeded on the post-refactor code (not at that time; that was
+  done afterwards, in Phase 5);
+- that the post-refactor runs were green (none had completed);
+- that pre-`:has()` browsers show the placeholder everywhere (ADR-BOARD-CARD-003: the
+  `display: none` default wins, so it never shows).
+
+## Wave: DELIVER / [REF] Commit Record
+
+- **`3ee56fa`** `feat(board): make card drag-and-drop show where the card will land`. This
+  is the wave, committed by the concurrent `foundry` session, and the refactor landed
+  inside it before its verification had finished.
+  - Its message ends with a **"NOT YET GATED"** paragraph. `cargo xtask ci` passed fmt,
+    clippy, check-arch and `build --release`. It then failed 5 tests in `foundry-services`'
+    `delete_lane_use_case` with `start postgres container: WaitContainer(StartupTimeout)`,
+    which was the local Docker daemon, not the feature. So it was committed but not pushed.
+  - **The final gate in *Quality Gates* supersedes that paragraph.** The orchestrator
+    records the outcome here: **GREEN** at `868090f`, attempt #4 (825/825).
+  - No commit is edited or amended; the message stays as written. The committed
+    `CONTEXT.md` ("NOT PUSHED — the gate is not green") is superseded the same way. It
+    is the orchestrator's handoff and is not edited here.
+- **`90ed631`** `fix(deps): bump rustls to 0.23.45 for RUSTSEC-2026-0285`. Lockfile only,
+  by the same session, and separate on purpose so it can be reverted on its own. This
+  session first misattributed it to `3ee56fa` by diffing `aa8a6f6..HEAD` after the tip had
+  moved. That is corrected; see the evolution doc, lesson 4.
+- **`868090f`** `test(kb): wait for title focus before typing into the new-issue modal`.
+  Test-only, user-approved, outside this feature's roadmap. It fixes a pre-existing `kb`
+  focus race that failed closing-gate attempt #2 intermittently, with the pre-refactor
+  `board-dnd.js` as well. Root cause traced, 10/10 `kb` runs green, and the `autofocus`
+  fault still reds four scenarios (`closing-notes.md` § Phase 3.5).
+- **The closing-docs commit** (this record, the evolution doc, closing notes and SSOT
+  updates) follows `868090f`. The user chose two local commits, with no push.
+
+## Wave: DELIVER / [REF] Pre-requisites for Finalize
+
+1. **Untracked paths need an explicit `git add`.** They are `deliver/closing-notes.md` and `docs/evolution/2026-09-14-card-drag-drop-feedback.md`. `git commit -a` would miss them (`issue-card-delete`'s lesson).
+2. **Every gate marker is filled** (done at finalize): in this file, in the evolution doc, and in `kpi-contracts.yaml` `final_gate`.
+3. **Session markers, as the user decided.** `.nwave/des/deliver-session.json` is removed at
+   the end, as approved. These are left for the user:
+   - `.nwave/des/des-task-active`
+   - `.nwave/des/des-task-active-card-drag-drop-feedback--`
+   - `deliver/.develop-progress.json` (committed in `3ee56fa`)
+
+   `.nwave/` is git-ignored, so none of the `.nwave/des` files is tracked.
+4. **Push and merge (DoD 9)** are gated by AGENTS.md and by the user's no-push choice.
+5. **Stale text, not edited here** (each is shipped or outside this pass's remit):
+   - The `.feature` header (line 6) says every scenario is scaffolded `@pending`.
+   - `feature_issue_card_delete.rs:1571` names `foundry.52ad52fa.css`. It was left by design, for KPI 8.
+   - `slice-04-delivery-notes.md` still shows 04-02 smoke as `_pending_`, and the M7 closure as "being strengthened". Both are done.
+   - `roadmap.json` has `validation.status: approved`, while its notes say "status stays pending_review" and `approved_at` is null.
+6. **Owed telemetry:** two DISCUSS `DocumentationDensityEvent`s. The helper is absent from this installation.
+7. **Follow-ups carried forward:**
+   - the `.lane-drop-indicator` contrast (1.49:1);
+   - the new-issue ordering bug (`position DEFAULT 0`);
+   - pinning `selenium/standalone-chrome`;
+   - the fault-procedure runbook;
+   - the dead `cdf_marker_before` field;
+   - OQ-3 and OQ-4.

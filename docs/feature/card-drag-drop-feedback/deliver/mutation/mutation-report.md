@@ -651,3 +651,115 @@ which is the final D13 rename. Everything else is under `crates/foundry-acceptan
   The M7 gap was that the remote-empty scenario never observed the placeholder hidden before the
   delete. It is closed by a before-state Given (see "M7 gap: CLOSED"). The final `cdf` run is
   **54 scenarios (54 passed), 400 steps (400 passed)**, `EXIT=0`.
+
+## Post-refactor re-run (final code, tip 90ed631)
+
+**Why.** M1-M9 above were killed against the pre-refactor code. The Phase-3 refactor reshaped
+`board-dnd.js`, adding the named hooks `CARD`, `LANE`, `KEY` and the helpers `keyOf`, `otherCards`,
+`nearestCard`, `keepOneMarkerIn` and `moveBody`. It also changed the step module. So all nine faults
+were re-seeded into the final code (2026-09-14, 21:36-21:49). Each seed keeps its original fault
+semantics and is re-derived against the current lines.
+
+**Units.** The feature declares 35 scenarios. Its outlines expand them into 54 executed examples.
+cucumber's `[Summary]` line calls every executed example a "scenario". The counts below are
+examples and steps, copied from finished logs, each with its `EXIT=` line.
+
+**Run conditions.**
+- **HEAD and tree.** HEAD was `90ed631` on branch `card-drag-drop-feedback`. No tracked file was
+  modified; `git status --short --untracked-files=no` was empty. The only untracked entry was the
+  orchestrator's `deliver/closing-notes.md`, which was not touched.
+- **Docker and lanes.** Docker was up (29.7.2). `pgrep -f 'target/release/deps/acceptance'` was
+  empty before every run.
+- **Binary.** `target/release/foundry` was warm. The first probe read `real 0.36`, so it was
+  re-warmed to `real 0.00`, and every run log records `real 0.00` at its start.
+- **Load average.** 4-7 during the runs.
+- **Lane command.** `FOUNDRY_ACCEPTANCE_TAGS=<tag> cargo test -p foundry-acceptance --release
+  --test acceptance`. Each run was logged to `<scratchpad>/M<n>.final.{run,green}.log`, and the log
+  header records the sha256 prefixes of both files.
+- **Chrome.** The same `selenium/standalone-chrome:latest` lane. The version was not re-read in
+  this run.
+- **Snapshots.** Both were taken once, before the first fault, and both are byte-identical to
+  `git show HEAD:<path>`:
+  - `<scratchpad>/board-dnd.js.final`, sha256
+    `bfd0f14327be34c7f63c36f8392d61d1a153cb43aeac696b37efa17038e9f78d`;
+  - `<scratchpad>/foundry.f7c36a08.css.final`, sha256
+    `f7c36a0871d8ab594b6b8767d957b4fbb3eb977b81226feda2b1ed80fb87a3eb`.
+- **Seeds.** Seeded with the Edit tool, one fault at a time. Each diff against its `.final`
+  snapshot is saved as `<scratchpad>/M<n>.final.diff`.
+- **Restores.** Every restore was `cp` from `.final`, proven with `cmp` for both files.
+- **Git.** No git command touched the index or the working tree.
+- **Validity.** No seeded run and no restore run hit a WebDriver, chromedriver, Postgres
+  (`StartupTimeout`/`PortNotExposed`), sqlx or subprocess timeout. Each log was grepped for these.
+  No run needed repeating.
+
+**Where the code moved.** Line numbers are in the seeded file.
+- **Slice-01 listeners.** `dragover` and `drop` moved from `:219-241` to `:370` and `:388`.
+- **Lane lookup.** Both listeners now resolve the lane with `closest(LANE)`.
+- **Foreign drops.** A foreign drop now falls through `lane = null` to a single `!lane` return,
+  instead of an explicit `if (!current) return;`.
+- **The own-slot skip.** It now lives in `otherCards`, which both `slotFor` and `slotMidline`
+  use. Before the refactor, each function had its own copy.
+- **The revert.** It is now in `CardDragSession.prototype.dropInto`, at `:306-313`.
+- **The `dragend` listener.** It is now at `:418`.
+
+| Fault | Seed file:lines (seeded file) | Tag | Named scenario(s) → result | First failing assertion (verbatim) | cmp clean | GREEN re-run (count) |
+|---|---|---|---|---|---|---|
+| M1 per-lane binding at load | `board-dnd.js:370` (`boundLanes` = `#board-columns [data-column]` captured in `init`, which runs at DOMContentLoaded), `:372-375` (`dragover` returns, before activation and `preventDefault`, for a lane not in that set), `:394-397` (the same in `drop`) | `us-cdf-01` | "A card can still be dropped after the board rearranges itself in place" **RED**. "Every way the board refreshes in place leaves every lane accepting drops" **RED, 4/4 rows**. The header-reorder guard stayed **GREEN**, as designed. | `assertion `left == right` failed: MISSING_FUNCTIONALITY: Done did not claim the card drag: the synthetic dragover on the lane now on screen was NOT defaultPrevented. The board was refreshed in place without a reload, and board-dnd.js bound its dragover/drop to the lanes present at page load (rca-drag-after-board-replace.md, AC-1.1)` with `left: Some(false)`, `right: Some(true)`. Outline rows: `MISSING_FUNCTIONALITY: the lane under AUTH-41 did not accept the drop (dragover defaultPrevented = false; a real browser only fires drop on a claimed target, so drop dispatched = false). On HEAD the lanes a board refresh put on screen carry no listener (rca-drag-after-board-replace.md)` | yes | 1: 16/16 examples, 127/127 steps, `EXIT=0` |
+| M2 no session-null guard | `board-dnd.js:383` (`dropEffect = "move"` unconditionally), `:394-400` (with no session, `drop` builds a `CardDragSession` from the card named by `text/plain`). The session-gated activation and marker block (`:372-377`) is unchanged, as in the pre-refactor seed. | `us-cdf-01` | "Something dragged in from outside the page is swallowed by the board" **RED, 5/5 rows**, on the `dropEffect` step (`:117`). "A card dragged in from another tab moves nothing in this one" **RED** (`:133`). | Swallow (all 5 rows): `assertion `left == right` failed: MISSING_FUNCTIONALITY: the board offered to take a drop it can only swallow: the foreign dragover's dropEffect was not "none", so a real browser shows a move cursor for something that names no card on this page (DDD-6, ADR-BOARD-CARD-001, AC-1.5)` with `left: Some("move")`, `right: Some("none")`. Other tab: `assertion `left == right` failed: MISSING_FUNCTIONALITY: a card MOVED on a drop that was not a card drag begun on this page (D4, AC-1.5/1.6). On HEAD the in-flight card survives a cancelled drag, so the next foreign drop is mistaken for it` with `left: [("backlog", ["AUTH-42", "AUTH-43"]), ("in_progress", ["AUTH-3", "AUTH-12", "AUTH-19"]), ("done", ["AUTH-7", "AUTH-41"])]` | yes | 1: 16/16, 127/127, `EXIT=0` |
+| M3 no `preventDefault()` on a foreign `drop` | `board-dnd.js:392` (the unconditional `preventDefault()` removed), `:393-395` (re-added as `if (current) { event.preventDefault(); }`, so card drops still call it and only foreign drops lose it) | `us-cdf-01` | "Something dragged in from outside the page is swallowed by the board" **RED, 5/5 rows** (`:116`). The other-tab scenario also went red, on its "must swallow" assertion. | `assertion `left == right` failed: MISSING_FUNCTIONALITY: the board did not swallow the foreign drop (dragover claimed, drop claimed) — a real browser would open the file in this tab (D4, AC-1.5)` with `left: (Some(true), Some(false))`, `right: (Some(true), Some(true))` | yes | 1: 16/16, 127/127, `EXIT=0` |
+| M9 clear on every `dragleave` | `board-dnd.js:406-408` (inserted at the top of the `dragleave` listener: `if (session) { activate(null); }`) | `us-cdf-02` | "A lane stays lit while the card passes over the cards inside it" **RED**, on `Then Done is still shown as activated` (`:174`, step `:1828`). It was the only red. | `MISSING_FUNCTIONALITY: Done is not shown as activated while the card is over it ([data-card-drop-target] on lanes: []; US-CDF-02, DDD-3)` | yes | 1: 13/13, 85/85, `EXIT=0` |
+| M5 drop slot at an offset `clientY` | `board-dnd.js:395` (the drop's `current.landingIn(lane, event.clientY)` replaced by `slotFor(lane, event.clientY + 48, current.card)`; the marker is ignored) | `us-cdf-03` | "The card lands exactly where the marker showed, and a reload agrees" **RED**, on `Then In-Progress reads AUTH-3, AUTH-41, AUTH-12, AUTH-19` (`:243`) | `assertion `left == right` failed: In-Progress on screen` with `left: ["AUTH-3", "AUTH-12", "AUTH-41", "AUTH-19"]`, `right: ["AUTH-3", "AUTH-41", "AUTH-12", "AUTH-19"]` | yes | 1: 15/15, 113/113, `EXIT=0` |
+| M6 dragged card counted as a neighbour | `board-dnd.js:105` (`slotFor` walks `lane.querySelectorAll(CARD)` instead of `otherCards(lane, card)`, so it no longer skips the dragged card; `otherCards` and its other caller, `slotMidline`, are unchanged) | `us-cdf-03` | "Reordering inside a lane never offers the card's own slot" **RED**, on `And the marker was never shown above AUTH-19 itself while she dragged it` (`:264`, step `:2028`). It was the only red. | `the dragged card's own slot was offered: hover 0 showed the marker above AUTH-19 itself (data-before-key names the dragged card; AC-3.4, invariant 5): [("in_progress", "AUTH-19", 359.6875)]` | yes | 1: 15/15, 113/113, `EXIT=0` |
+| M7 `:has()` pair removed | `foundry.f7c36a08.css:409-415` (both rules deleted; contents only, no rename). The hunk body is byte-identical to the recorded `M7.diff`. | `us-cdf-04` | "One drag updates both lanes at once" **RED** (`:347`). "A lane emptied by a delete in another tab shows the placeholder" **RED** (`:375`). | Both lanes: `MISSING_FUNCTIONALITY: Staging still displays the "No issues yet" placeholder beside a card (US-CDF-04, DDD-5); it reads ("staging", ["OPS-7"], true, "<p class=\"empty\">No issues yet — press <kbd>c</kbd> to file the first one.</p>")`. Remote empty: `MISSING_FUNCTIONALITY: In-Progress still displays the "No issues yet" placeholder beside a card (US-CDF-04, DDD-5); it reads ("in_progress", ["OPS-7"], true, "<p class=\"empty\">No issues yet — press <kbd>c</kbd> to file the first one.</p>")` | yes | 1: 10/10, 75/75, `EXIT=0` |
+| M4 no teardown on `dragend` | `board-dnd.js:418` (the `dragend` listener is now `function () {}`; the drop-path `endSession()` at `:396` and the stale-`dragstart` `endSession()` at `:357` are unchanged) | `cdf` | "A cancelled card drag is not mistaken for the next drag" **RED** (`:140`). "Every way a drag ends leaves no lane lit" **RED**, Escape row (`:191`). "The marker never outlives the drag" **RED**, Escape row (`:286`). The other exit rows stayed GREEN, as at the pre-refactor gate. | Cancelled drag: `assertion `left == right` failed: MISSING_FUNCTIONALITY: a card MOVED on a drop that was not a card drag begun on this page (D4, AC-1.5/1.6). On HEAD the in-flight card survives a cancelled drag, so the next foreign drop is mistaken for it` with `left: [("backlog", ["AUTH-42", "AUTH-43"]), ("in_progress", ["AUTH-3", "AUTH-12", "AUTH-19", "AUTH-41"]), ("done", ["AUTH-7"])]`. Lane lit: `no lane may stay activated: ["done"]`. Marker: `no marker may outlive or precede a card drag: [("in_progress", "AUTH-12", 307.6875)]` | yes | 1: 54/54, 400/400, `EXIT=0` |
+| M8 no revert on non-2xx | `board-dnd.js:308` (`origin.restore()` removed from the `!response.ok` branch). The `.catch` network-error revert (`:311-313`) is **kept as is**: a refused drop is a 404 response, not a network error, so the `.catch` never runs for it. | `cdf` | "A drop the server refuses after a refresh puts the card back" **RED** (`:149`). "The marker never outlives the drag", refused row **RED** (`:287`). "A refused drop puts both lanes back as they were" **RED** (`:356`). The refused row of the lit-lane outline stayed GREEN, as expected: it reads only activation. | Refresh refused: `assertion `left == right` failed: AUTH-43 must be back in its exact origin slot` with `left: Some(("done", Some("AUTH-7"), None))`, `right: Some(("backlog", Some("AUTH-41"), None))`. Marker refused: `AUTH-41 must be back in its exact origin slot` with `left: Some(("in_progress", Some("AUTH-3"), Some("AUTH-12")))`, `right: Some(("backlog", None, Some("AUTH-42")))`. Both lanes: `OPS-7 must be back in its exact origin slot` with `left: Some(("staging", None, None))`, `right: Some(("in_progress", None, None))` | yes | 1: 54/54, 400/400, `EXIT=0` (also the final `cdf` run) |
+
+**Counts under each fault** (from each finished seeded log):
+
+| Fault | Tag | Examples | Steps | EXIT |
+|---|---|---|---|---|
+| M1 | `us-cdf-01` | 16 (8 passed, 8 failed) | 113 (105 passed, 8 failed) | 101 |
+| M2 | `us-cdf-01` | 16 (10 passed, 6 failed) | 127 (121 passed, 6 failed) | 101 |
+| M3 | `us-cdf-01` | 16 (10 passed, 6 failed) | 122 (116 passed, 6 failed) | 101 |
+| M9 | `us-cdf-02` | 13 (12 passed, 1 failed) | 85 (84 passed, 1 failed) | 101 |
+| M5 | `us-cdf-03` | 15 (10 passed, 5 failed) | 111 (106 passed, 5 failed) | 101 |
+| M6 | `us-cdf-03` | 15 (14 passed, 1 failed) | 112 (111 passed, 1 failed) | 101 |
+| M7 | `us-cdf-04` | 10 (1 passed, 9 failed) | 66 (57 passed, 9 failed) | 101 |
+| M4 | `cdf` | 54 (51 passed, 3 failed) | 398 (395 passed, 3 failed) | 101 |
+| M8 | `cdf` | 54 (51 passed, 3 failed) | 399 (396 passed, 3 failed) | 101 |
+
+**Collateral reds match the pre-refactor gate.**
+
+| Fault | Collateral reds |
+|---|---|
+| M1 | "A card dropped at an exact slot after a refresh keeps that slot", "A drop the server refuses after a refresh puts the card back", and swallow row 3 (`(Some(false), Some(false))`). |
+| M3 | The other-tab scenario (`the first tab must swallow the drop, not leave it to the browser (D4)`, `left: Some(false)`). |
+| M5 | Four landing or reload oracles: "The marker reaches both ends of a lane" (`:252`), the own-slot reload (`:265`), the marker-outlives "drops it" row (`:287`), and "The marker works on a board that refreshed in place" (`:309`). |
+| M7 | Every other `us-cdf-04` scenario except "A lane emptied by a drag shows the placeholder", which asserts only an empty lane, as at the gate. |
+
+**Survivors: none.** Every named scenario went RED on its oracle under its fault. The three gaps
+closed on 2026-09-14 all hold on the final code:
+- M2 reddens the swallow outline through the `dropEffect` step.
+- M6 reddens the own-slot scenario through the AC-3.4 key oracle.
+- M7 reddens the remote-empty scenario through its before-state Given.
+
+**M6 seed note.** The refactor moved the dragged-card skip into `otherCards`, which `slotMidline`
+also uses. Deleting the skip inside `otherCards` would also change `slotMidline`, a stronger mutant
+than the recorded fault. The pre-refactor seed removed the skip from `slotFor` alone and left
+`slotMidline`'s own skip intact. So the re-seed removes it from `slotFor` alone.
+
+**Final state.**
+- `cmp <scratchpad>/board-dnd.js.final crates/foundry-app/static/js/board-dnd.js`: **clean**
+  (sha256 `bfd0f143…f78d`).
+- `cmp <scratchpad>/foundry.f7c36a08.css.final crates/foundry-app/static/css/foundry.f7c36a08.css`:
+  **clean** (sha256 `f7c36a08…a3eb`).
+- `git status --short` after the last restore, before this section was written:
+  `?? docs/feature/card-drag-drop-feedback/deliver/closing-notes.md` (the orchestrator's).
+- `git status --short` after this section was written:
+  ` M docs/feature/card-drag-drop-feedback/deliver/mutation/mutation-report.md` and
+  `?? docs/feature/card-drag-drop-feedback/deliver/closing-notes.md`.
+- Final `cdf` run after the last restore: **54 scenarios (54 passed), 400 steps (400 passed)**,
+  `EXIT=0`.
+- No lane is left running, and no git command touched the index or the working tree.
+
+**Verdict: 9/9 killed on the final (refactored) code. The per-feature mutation gate still holds.**

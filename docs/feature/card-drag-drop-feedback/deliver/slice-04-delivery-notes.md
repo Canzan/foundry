@@ -37,7 +37,7 @@ unchanged in this slice.
 | Guards (KPI 8) blr / kb / icd / blm / blo | 26/26 / 38/38 / 36/36 / 24/24 / 25/25 | 26/26 / 38/38 / 36/36 / 24/24 / 25/25 |
 | Default lane | 632/632 | first run 631/632 — the documented sqlx `unknown message type '\0'` concurrent-testcontainers flake, here in `notification-delivery-providers.feature:62` while connecting to the base database (feature untouched; passes 30/30 alone); full re-run **632/632**. The crafter correctly logged GREEN `FAIL` under its too-narrow brief; the orchestrator accepted the flake on this evidence and the crafter appended GREEN `PASS` |
 | `cargo test --workspace` | green; `projects.rs:1157` (placeholder still rendered on an empty board) ok. First run 631/632 on a one-off 90s browser-container readiness timeout after a Gatekeeper stall; clean re-run green | |
-| `cargo xtask smoke` / check-arch | green (hash = filename, VENDOR sha256) | _pending_ |
+| `cargo xtask smoke` / check-arch | green (hash = filename, VENDOR sha256) | green |
 | Named faults M7 / M8 | — | **M7 killed** (`:has()` pair removed → "One drag updates both lanes at once" RED: `Staging still displays the "No issues yet" placeholder beside a card`; also "A delete in another tab that leaves cards behind adds no placeholder" RED). Its named "A lane emptied by a delete in another tab shows the placeholder" **survived** — it never asserted the placeholder was hidden before the delete — and the DISTILL owner **CLOSED** it in-slice: a visible Given `In-Progress in the second tab does not show the placeholder while it holds OPS-7` (feature:375; step `given_second_tab_no_placeholder_while_holding`); re-seeded M7 now reddens it (`In-Progress still displays the "No issues yet" placeholder beside a card … ("in_progress", ["OPS-7"], true, …)`); restored by `cp` + `cmp`, us-cdf-04 10/10, `cdf` 54/54 (400 steps). **M8 killed**, all three named scenarios RED on `… must be back in its exact origin slot` after proving the move was sent and refused. Both files restored by `cp` + `cmp`; `cdf` 54/54 after. **Feature gate: 9/9 killed** |
 | Browser | Chrome 151.0.7922.108 | |
 
@@ -60,6 +60,7 @@ placeholder oracle is the computed `display` of each lane's `.empty`.
 
 All six drops were claimed; the board was left exactly as found. **Still owed to
 the user:** a remote delete emptying a lane (it needs a real issue deleted — the
-orchestrator does not hard-delete data; the automated scenario covers it and is
-being strengthened for the M7 gap), a refused drop by hand, and Firefox + Safari
+orchestrator does not hard-delete data; the automated scenario covers it, and was
+strengthened to close the M7 gap — it now also asserts the placeholder is hidden while the
+lane still holds the card), a refused drop by hand, and Firefox + Safari
 (`:has()` in two more engines).

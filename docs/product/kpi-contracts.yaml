@@ -12,6 +12,11 @@
 #   runtime     - a server metric or log (Prometheus/Loki); none are used by the entries below
 # "alert" is where a breach surfaces. For acceptance instruments that is a red stage 8
 # of `cargo xtask ci` on ci-github.
+#
+# Per-KPI `status` (added at DELIVER finalize, 2026-09-14):
+#   measured  - evidence recorded under `measured:` (the lane, fault and dogfood results)
+#   owed      - no measurement yet; `measurement: owed` names the owner and where it lands
+# `measured.owed` lists the parts of an otherwise measured KPI that a person must still do.
 
 schema_version: 1
 
@@ -20,16 +25,22 @@ features:
     job: job-board-card-move
     source: docs/feature/card-drag-drop-feedback/feature-delta.md   # "## Wave: DISCUSS / [REF] Outcome KPIs"
     devops: docs/feature/card-drag-drop-feedback/feature-delta.md   # "## Wave: DEVOPS / [REF] Monitoring contracts"
+    deliver: docs/feature/card-drag-drop-feedback/feature-delta.md  # "## Wave: DELIVER / [REF] DoD Check"
+    evolution: docs/evolution/2026-09-14-card-drag-drop-feedback.md
     environments: docs/feature/card-drag-drop-feedback/environments.yaml
     runtime_telemetry: none   # D9: byte-identical POST; browser tier sends nothing new
     lane: "browser-lane: FOUNDRY_XTASK_INCLUDE_DOCKER=1 cargo xtask ci (FOUNDRY_ACCEPTANCE_TAGS=all)"
-    status: not-measured      # flips per KPI when DELIVER records the evidence
+    status: measured-locally  # KPIs 1 and 3-8 measured on the local browser lane; KPI 2 owed; ci-github not yet run
+    measured_at: "2026-09-14, branch card-drag-drop-feedback, tip 90ed631 (feature commit 3ee56fa), after the Phase-3 refactor"
+    measured_lane: "FOUNDRY_ACCEPTANCE_TAGS=cdf: 54/54 examples, 400/400 steps, EXIT 0 (35 scenario declarations, 9 Scenario Outlines). Chrome 151.0.7922.108 (selenium/standalone-chrome:latest) at the slice gates; not re-read on the final run"
+    final_gate: "GREEN: FOUNDRY_XTASK_INCLUDE_DOCKER=1 cargo xtask ci on 868090f (attempt #4, 2026-09-15 13:46-14:00Z). All gates green; acceptance (all tags) 825/825 scenarios, 5757/5757 steps. Attempts #1-#3 failed on causes outside the branch (closing-notes.md, Phase 3.5)"
+    ci_github: "not run: branch not pushed (user choice; AGENTS.md gates the push). Every hard-gate window below starts at the first ci-github run."
     # DISTILL refinement (2026-09-13). Each acceptance instrument is linked to its
     # executable scenarios in
     # crates/foundry-acceptance/tests/features/card-drag-drop-feedback.feature
     # (feature tag @cdf). Select a KPI's scenarios with
-    # FOUNDRY_ACCEPTANCE_TAGS=kpi (all @kpi) or the story tag. All are @pending
-    # until DELIVER un-pends their slice; @pending never runs in any lane.
+    # FOUNDRY_ACCEPTANCE_TAGS=kpi (all @kpi) or the story tag. DELIVER un-pended every
+    # slice; zero @pending tags remain (2026-09-14).
     #   gate: hard  = a red scenario blocks the merge (ci-github stage 8)
     #   gate: soft  = recorded evidence, reviewed at finalize; does not block CI
     #   window      = when the measurement is taken
@@ -51,6 +62,12 @@ features:
           - "Every way the board refreshes in place leaves every lane accepting drops (outline, 4 in-place refreshes)"
           - "Rearranging the lanes by dragging a header leaves every lane accepting drops (the lane-header reorder guard; expected-GREEN on HEAD)"
         distill_note: "The header drag moves the existing lane node and never calls applyBoard, so it is not a #board-columns replace. It is the lane-header reorder guard, green on HEAD. Resolved at the final review: 5 in-place refreshes + 1 lane-header reorder (DISTILL Upstream Issue #1)."
+        status: measured
+        measured:
+          baseline_observed: "0%: RED on aa8a6f6 for the stated reason (scenario 1 and the refresh outline RED x4, dragover not defaultPrevented; DISTILL RED classification)"
+          value: "100%: 5/5 in-place refreshes (popup delete, lane rename, lane insert, lane delete, lane Move from the menu) plus the header-reorder guard; every drag claimed and persisted after a reload. us-cdf-01 16/16 examples"
+          fault: "M1 killed before and after the refactor (regression RED, outline RED 4/4; the header guard stays GREEN, as designed)"
+          dogfood: "Chrome, real mouse: 2/2 drags claimed and persisted after two in-place replaces (Move list right, Move list left) with no reload (slice-01 delivery notes)"
 
       - id: CDF-KPI-2
         name: No "just in case" reload before dragging
@@ -63,6 +80,10 @@ features:
         gate: soft
         window: "5 consecutive working days from the day slice 01 is on Priya's instance"
         scenarios: []   # dogfood only; no acceptance instrument
+        status: owed
+        measurement: owed
+        owner: "the user (Priya's daily log; single-operator instance)"
+        owed_note: "The log table in deliver/slice-01-delivery-notes.md is empty as of 2026-09-14. The window has not opened: slice 01 is committed (3ee56fa) but not pushed or deployed to the instance."
 
       - id: CDF-KPI-3
         name: Exactly the lane under the card is activated
@@ -81,6 +102,12 @@ features:
           - "The highlight follows the card from lane to lane"
           - "A lane stays lit while the card passes over the cards inside it"
           - "Nothing is lit while the card is over no lane (outline)"
+        status: measured
+        measured:
+          value: "100%: exactly 1 activated lane while over a lane and 0 otherwise, in every US-CDF-02 scenario (us-cdf-02 13/13 examples)"
+          fault: "M9 and M4 killed before and after the refactor"
+          dogfood: "Chrome, light and dark, synthetic DragEvents into the real listeners: only the lane under the card lit; zero lit over the header and after Escape; zero lit after each real-mouse drop"
+          owed: ["Firefox real-mouse feel, including no flicker while crossing a lane's own cards (the user)"]
 
       - id: CDF-KPI-4
         name: The card lands where the marker showed
@@ -99,6 +126,12 @@ features:
           - "The marker reaches both ends of a lane (outline)"
           - "Reordering inside a lane never offers the card's own slot"
           - "The marker works on a board that refreshed in place"
+        status: measured
+        measured:
+          value: "100%: marker data-before-key == post-drop DOM == fetch-spy after == post-reload order in every US-CDF-03 scenario (us-cdf-03 15/15 examples)"
+          fault: "M5 and M6 killed before and after the refactor (M6 after its 2026-09-14 gap closure)"
+          dogfood: "Chrome, synthetic DragEvents only: exactly one marker in the gap, light and dark; the own-slot hover never names the dragged card"
+          owed: ["A real-mouse reorder within a lane (drop at the marker, then reload) in Chrome and Firefox (the user); the automation tool's real-mouse drag was unreliable"]
 
       - id: CDF-KPI-5
         name: Empty lanes read truthfully
@@ -121,6 +154,12 @@ features:
           - "Only a drop changes a placeholder (outline)"
           - "A delete in another tab that leaves cards behind adds no placeholder"
           - "Placeholders stay truthful on a board that refreshed in place"
+        status: measured
+        measured:
+          value: "0 violations, from a baseline of 3: every lane displays the placeholder if and only if it holds no card, after every drag, refusal and remote delete (us-cdf-04 10/10 examples)"
+          fault: "M7 and M8 killed before and after the refactor (M7 after its 2026-09-14 gap closure)"
+          dogfood: "Chrome: six drops (three cards into Done and back); computed display flipped exactly with emptiness, and the reload matched each time"
+          owed: ["A remote delete emptying a lane by hand, a refused drop by hand, and :has() in Firefox and Safari (the user)"]
 
       - id: CDF-KPI-6
         name: Foreign drags never move a card or navigate the tab
@@ -139,6 +178,12 @@ features:
           - "A card dragged in from another tab moves nothing in this one"
           - "Something dragged in from outside the page lights nothing"
           - "Something dragged in from outside the page shows no marker"
+        status: measured
+        measured:
+          value: "0 activations, 0 markers, 0 requests and 0 navigations across the swallow outline (5 rows), the other-tab scenario and the US-CDF-02/03 file scenarios; the foreign dragover answers dropEffect none"
+          fault: "M2 and M3 killed before and after the refactor (M2 on all 5 swallow rows after its 2026-09-14 gap closure)"
+          dogfood: "Chrome, synthetic File only: defaultPrevented, 0 requests, URL unchanged, fresh and after a replace. The dropEffect reading from that check is void: Chrome reports none for any script-built DataTransfer"
+          owed: ["A real Finder keys.png on a lane and on the gap, fresh and after a refresh, in Chrome, Firefox and Safari (OQ-2, the user)"]
 
       - id: CDF-KPI-7
         name: Feedback never outlives the drag
@@ -156,6 +201,11 @@ features:
           - "Every way a drag ends leaves no lane lit (outline, 4 rows)"
           - "The marker never outlives the drag (outline, 4 rows)"
           - "A cancelled card drag is not mistaken for the next drag"
+        status: measured
+        measured:
+          value: "0 activated lanes and 0 markers after every exit path: 8/8 exit-outline rows (drop, Escape, release over the header, refused drop) plus the cancelled-drag scenario"
+          fault: "M4 killed before and after the refactor (the Escape rows and the cancelled drag)"
+          dogfood: "Chrome, synthetic DragEvents: Escape and release over the header left 0 lit lanes and 0 markers (slices 02 and 03)"
 
       - id: CDF-KPI-8
         name: The shipped drag keeps working unchanged
@@ -172,3 +222,9 @@ features:
           - "A freshly loaded board drags exactly as it did before"
           - "board-lane-reorder.feature: Dragging a card still moves the card and never the lane (unmodified)"
           - "keyboard-shortcut-bindings.feature: the AUTH-2 mouse drag (unmodified)"
+        status: measured
+        measured:
+          value: "100%: the shipped scenarios were not modified. git diff --stat aa8a6f6 90ed631 is empty on board-lane-reorder, board-lane-management, board-lane-overflow-menu, issue-card-delete and keyboard-shortcut-bindings (feature files and step modules). Guards green per tag at slice 04: blr 26/26, kb 38/38, icd 36/36, blm 24/24, blo 25/25"
+          post_body: "byte-identical: state=in_progress with an x-csrf-token header (A freshly loaded board drags exactly as it did before)"
+          fault: "M8 killed before and after the refactor"
+          note: "The all-lane re-run of the guards on the tip is part of final_gate above. One shipped step module outside this KPI's list, feature_canzan_theme.rs, changed visibility only (four contrast helpers made pub(crate)); no step or assertion changed."

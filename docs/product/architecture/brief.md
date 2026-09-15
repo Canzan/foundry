@@ -464,6 +464,33 @@ C4Component
   Rel(feedback, css, "styled by")
 ```
 
+**Shipped component inventory.** This was recorded at the card-drag-drop-feedback
+DELIVER finalize (2026-09-14, commit `3ee56fa`). The files at that point were
+`board-dnd.js` sha256 `bfd0f143…` and the stylesheet `foundry.f7c36a08.css`.
+**Everything below shipped, and nothing is deferred.**
+
+| Design element | Shipped as | Where | Invariants |
+|---|---|---|---|
+| Delegated listeners | Five `document` listeners (`dragstart`, `dragover`, `drop`, `dragleave`, `dragend`). Each returns unless `boardOf(target)` (`closest('#board-columns')`) holds, then resolves the lane with `closest(LANE)` | `board-dnd.js` `init()` | 1, 4, 7 |
+| `CardDragSession` | `CardDragSession(card)` with `landingIn(lane, y)`, `dropInto(lane, before)` and the idempotent `end()`. The listeners open and advance it, and `endSession()` is the one teardown caller | `board-dnd.js` | 2, 3 |
+| Origin as identity | `Origin(card)`: the card key, origin lane slug, and next and previous keys. `restore()` re-resolves them at response time and skips the revert when the card has left the live board | `board-dnd.js` | 3, 8; DDD-7 |
+| `PendingMove` | **Not a separate object.** It is the `fetch` promise inside `dropInto`, whose non-2xx and `.catch` arms call `Origin.restore()`. The body is built by `moveBody(slug, after)`, byte-identical to the shipped one | `board-dnd.js` | 8 |
+| `slotFor` | `slotFor(lane, y, card)` walks `otherCards(lane, card)`, the single own-slot skip, which `slotMidline` shares. `neighbourAbove` and `neighbourBelow` use `nearestCard`. The hooks are `CARD`, `LANE`, `KEY` and `BEFORE_KEY` | `board-dnd.js` | 5 |
+| Drop feedback | `activate(lane)` writes `data-card-drop-target`. `showMarker` and `keepOneMarkerIn` keep exactly one `[data-card-drop-marker][data-before-key]`, and `slotMidline` places it in the gap | `board-dnd.js` | 3, 5 |
+| Stylesheet rules | `.column[data-card-drop-target]`: `--cz-bg` surface with a 2px inset `--cz-muted` outline. `.column [data-card-drop-marker]`: `--cz-black`, absolute, `pointer-events: none`. The pair `.column > .empty { display: none }` and `.column:not(:has(> .issue-card)) > .empty { display: block }` | `static/css/foundry.f7c36a08.css:373, 391, 409, 413` | 6; D6, D8 |
+| Placeholder source | `<p class="empty">`, rendered in every lane before its cards | `templates/partials/board_columns.html` | 6 |
+| Unchanged by design | `board-live.js`, `board-lane-dnd.js`, `keyboard.js`, `board.html`, `oob/board_columns_oob.html`, and the `/state` handler, service and store | — | DDD-5, DDD-10, DDD-12 |
+
+The C4 Component view above shows `start` and `over` as methods of the session, and a
+`PendingMove` object. In the shipped code the listeners do the start and over work, and
+the pending move is `dropInto`'s promise plus `Origin`, as the table records. The
+behaviour and invariants are as designed.
+
+One accepted DELIVER deviation touches invariant 7 (slice-02 delivery notes). While a
+session exists, a `dragover` off `#board-columns` clears activation before it returns, so
+the page header goes dark. Foreign drags off the board are still left to the browser's
+default.
+
 See `adr-board-card-001-replace-proof-drag-session.md`,
 `adr-board-card-002-dragover-activation-and-slot-marker.md` and
 `adr-board-card-003-placeholder-shown-by-css.md` (all accepted 2026-09-13), which build on
