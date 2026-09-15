@@ -428,6 +428,34 @@ async fn open_new_issue_modal_by_pressing_c(world: &mut FoundryWorld) {
         );
 }
 
+/// Waits for the new-issue modal's `autofocus` to actually LAND before a step
+/// types at the focused element. `open_new_issue_modal_by_pressing_c` waits for
+/// the field to EXIST, and htmx inserts it a beat before it moves focus into it
+/// (htmx focuses `[autofocus]` in its settle task). A step that reads
+/// `active_element()` inside that beat gets `<body>` — and WebDriver's send-keys
+/// on that reference pulls focus BACK to the body, so the whole title is typed at
+/// the page: each `c` in it re-opens the modal, and `Enter` opens the selected
+/// card instead of submitting. That was the intermittent `#modal-root:empty`
+/// timeout in AC-03.2 and AC-X.5, pinned by a keydown/focusin trace on
+/// 2026-09-15.
+///
+/// Waiting on `:focus` — rather than typing into the element found by CSS, which
+/// would FOCUS it as a side effect — keeps these real keyboard tests:
+/// `find(...).send_keys(...)` would green them over a modal that opened
+/// unfocused, i.e. over a build where Mei really does have to reach for the mouse.
+async fn wait_for_title_field_focus(browser: &fantoccini::Client) {
+    browser
+        .wait()
+        .at_most(std::time::Duration::from_secs(10))
+        .for_element(Locator::Css(&format!("{TITLE_FIELD_SELECTOR}:focus")))
+        .await
+        .expect(
+            "the new-issue modal's title field never took focus, so a keystroke typed at the \
+             focused element would land on `body`. `new_issue_modal.html:6` carries `autofocus` \
+             — this reds if that attribute is removed (AC-03.1's own claim).",
+        );
+}
+
 // --- Background / navigation ------------------------------------------------
 
 /// Seeds Mei + the acme workspace + the Backend team, opens ONE browser session
@@ -1209,6 +1237,7 @@ async fn types_and_submits(world: &mut FoundryWorld, text: String) {
          assertion below would have no baseline to be new against"
     );
 
+    wait_for_title_field_focus(browser).await;
     let active = browser
         .active_element()
         .await
@@ -3686,29 +3715,9 @@ async fn new_issue_modal_open_with_title_typed(world: &mut FoundryWorld) {
              first half (D15). Without this the guard half below is VACUOUS: a layer that binds \
              nothing at all would pass it.",
         );
-    // WAIT for `autofocus` to actually land before typing. `open_new_issue_...`
-    // waits for the field to EXIST, and htmx inserts it a beat before the browser
-    // moves focus into it — so the first keystroke lands on `body` and is silently
-    // dropped. Observed directly at this step's RED: the field held
-    // "nter must submit this form".
-    //
-    // Waiting on `document.activeElement` — rather than typing into the element
-    // found by CSS, which would FOCUS it as a side effect — is what keeps this a
-    // real guard test: `find(...).send_keys(...)` would green the scenario over a
-    // modal that opened unfocused, i.e. over a build where Mei really does have to
-    // reach for the mouse.
-    browser
-        .wait()
-        .at_most(std::time::Duration::from_secs(10))
-        .for_element(Locator::Css(
-            "#modal-root [data-modal='new-issue'] input[name='title']:focus",
-        ))
-        .await
-        .expect(
-            "the new-issue modal's title field never took focus, so a keystroke typed at the \
-             focused element would land on `body` and be dropped. `new_issue_modal.html:6` carries \
-             `autofocus` — this reds if that attribute is removed (AC-03.1's own claim).",
-        );
+    // WAIT for `autofocus` to land before typing. Observed directly at this
+    // step's RED: the field held "nter must submit this form".
+    wait_for_title_field_focus(browser).await;
     browser
         .active_element()
         .await
@@ -4335,6 +4344,7 @@ async fn has_filed_an_issue_by_pressing_c(world: &mut FoundryWorld) {
         )
         .await
         .expect("record the board's keys before filing");
+    wait_for_title_field_focus(browser).await;
     let active = browser
         .active_element()
         .await
