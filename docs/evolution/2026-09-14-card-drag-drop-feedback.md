@@ -15,6 +15,13 @@ commit, `3ee56fa`, made by a concurrent `foundry` session. That session's separa
 `card-drag-drop-feedback`. **Not pushed**: that was the user's choice, and AGENTS.md gates
 the push anyway.
 
+> **Addendum, 2026-09-15.** Pushed and merged. Once the final gate was green at
+> `868090f`, the branch was pushed and `origin/main` fast-forwarded `aa8a6f6` →
+> `0beb1d5` at the user's instruction ("No PR, just commit to main"): no merge commit,
+> four commits, and `0beb1d5` docs-only — so `main` carries code byte-identical to the
+> gated tree. The paragraph above records the state at finalize and is left as written;
+> per this repo's practice a superseded record is corrected by a note, never rewritten.
+
 Final `FOUNDRY_XTASK_INCLUDE_DOCKER=1 cargo xtask ci`: **GREEN** on `868090f` (attempt #4,
 2026-09-15 13:46–14:00Z). Every stage passed, and the all-tags acceptance lane ran 825/825
 scenarios (5757 steps). Attempts #1–#3 failed, but never on this feature:

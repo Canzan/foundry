@@ -2044,6 +2044,12 @@ byte-identical (D9, DDD-10).
 `3ee56fa`. On top sits `90ed631` (rustls 0.23.40 → 0.23.45, RUSTSEC-2026-0285), which can
 be reverted separately. Not pushed.
 
+> **Addendum, 2026-09-15.** It is pushed now. After the final gate went green at
+> `868090f`, `origin/main` was fast-forwarded `aa8a6f6` → `0beb1d5` at the user's
+> instruction ("No PR, just commit to main") — no merge commit, four commits, and
+> `0beb1d5` is docs-only, so `main`'s code is byte-identical to the gated tree. The
+> sentence above is left as written: it was true at finalize.
+
 **A deviation from DEVOPS, recorded here.** DEVOPS planned one commit per slice, with
 revert order 04 → 01 (*Deployment strategy*). The wave landed as a single commit, so the
 rollback unit is now the whole feature. `git revert 3ee56fa` restores `aa8a6f6`'s board
@@ -2153,7 +2159,7 @@ Against the 9 items of *DISCUSS / [REF] DoD*.
 | 6 | Activation and marker ≥3:1 in both palettes, tokens only; the rename complete in each CSS-touching slice (D6, D8, D13) | **MET** | Outline 5.89:1 / 6.38:1 against the page. Marker 14.70:1 / 17.19:1 against the activated lane. Renames: `52ad52fa` → `ed2e1ba7` (02) → `54eb7a9b` (03) → `f7c36a08` (04), each with `base.html`, the `lib.rs` literals and `VENDOR.md`. check-arch green. The single commit shows one net rename |
 | 7 | Each slice's manual real-browser dogfood check recorded in its delivery notes (D12) | **MET (recorded)**; the real-browser items are owed to the user | § Dogfood in `slice-01..04-delivery-notes.md`; the owed list is under *Demo Evidence* below |
 | 8 | Per-feature mutation gate: ≥80% on modified Rust production files, or N/A with the file list | **MET** | cargo-mutants N/A, with the file list: the only production `.rs` change is the three `lib.rs` literals. M1-M9: 9/9 pre-refactor and 9/9 on the final code |
-| 9 | `cargo xtask ci` green (check-arch, deny); merged to main | CI: **MET**. `FOUNDRY_XTASK_INCLUDE_DOCKER=1 cargo xtask ci` is all green at `868090f` (attempt #4). Merge: **NOT DONE**; not pushed, by the user's choice (AGENTS.md gates the push) | smoke and check-arch green at the tip. deny: RUSTSEC-2026-0285 fixed by `90ed631` |
+| 9 | `cargo xtask ci` green (check-arch, deny); merged to main | CI: **MET**. `FOUNDRY_XTASK_INCLUDE_DOCKER=1 cargo xtask ci` is all green at `868090f` (attempt #4). Merge: **MET** (2026-09-15) - pushed, and `origin/main` fast-forwarded `aa8a6f6` -> `0beb1d5` with no merge commit, at the user's instruction ("No PR, just commit to main") | smoke and check-arch green at the tip. deny: RUSTSEC-2026-0285 fixed by `90ed631` |
 
 ## Wave: DELIVER / [REF] Demo Evidence
 
