@@ -7,6 +7,13 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 
 ## [Unreleased]
 
+## [v0.4.0] - 2026-09-19
+
+First tagged release since v0.3.1: everything on `main` since then, including
+the card drag-and-drop landing indicator, the issue-card delete fixes, native
+OIDC sign-in, and the rustls bump for RUSTSEC-2026-0285. The entries below
+are the ones recorded at the time; `git log v0.3.1..v0.4.0` is the full list.
+
 ### Added
 
 - **Close (×) control on the issue edit dialog.** The edit dialog's header now
@@ -141,5 +148,6 @@ followed it.
 - A `comments_visible` SQL VIEW for defense-in-depth against missed
   soft-delete filters is deferred to v0.3 (ADR-017).
 
-[Unreleased]: https://github.com/Canzan/foundry/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/Canzan/foundry/compare/v0.4.0...HEAD
+[v0.4.0]: https://github.com/Canzan/foundry/compare/v0.3.1...v0.4.0
 [v0.2.0]: https://github.com/Canzan/foundry/releases/tag/v0.2.0
