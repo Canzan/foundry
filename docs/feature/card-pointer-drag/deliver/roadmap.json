@@ -1,0 +1,289 @@
+{
+  "roadmap": {
+    "project_id": "card-pointer-drag",
+    "created_at": "2026-09-26T16:44:24Z",
+    "total_steps": 9
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "Slice 01 (US-CPD-01): the mouse card drag runs on Pointer Events, unchanged to the hand; every shipped card-drag-drop-feedback scenario is re-driven with its Gherkin byte-identical (ADR-BOARD-CARD-004, DDD-16)",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "check-arch rule: no board-*.js module registers a keydown listener (DDD-22, BR-4)",
+          "description": "Add the DDD-22 structural rule to xtask check-arch, with its nine injected-violation gold tests, before the drag module is rewritten, so every later step of the rewrite runs under it. It is the instrument for AC-1.6's clause that the drag module has no keydown listener.",
+          "criteria": [
+            "A rule that scans every `crates/foundry-app/static/js/board-*.js` found by listing the directory (never a hard-coded list), strips `//` line comments and `/* ... */` block comments, then flags registrations only: `addEventListener(\"keydown\"|'keydown'|`keydown`, ...)`, `.onkeydown =` and `on(\"keydown\"...)`. Each violation names the file, the 1-based line and the BR-4 reason (Escape has one owner, `keyboard.js::closeTopLayer()`).",
+            "The rule is wired into `source_violations` and named in `run`'s PASSED line.",
+            "All nine gold tests from feature-delta.md 'check-arch keydown rule (DDD-22)' pass: `shipped_board_modules_pass` (0; `board-lane-dnd.js:312` carries `keydown` inside a `//` comment), `a_keydown_listener_in_a_board_module_is_flagged` (1, names `board-dnd.js:<line>`), `a_commented_out_keydown_listener_is_not_flagged` (0), `a_block_commented_keydown_listener_is_not_flagged` (0, two-line block), `an_onkeydown_assignment_is_flagged` (1), `a_new_board_module_is_scanned` (1, proves the glob), `keyboard_js_is_out_of_scope` (0), `the_word_keydown_in_a_string_is_not_a_listener` (0), `a_missing_js_directory_is_flagged` (1, never passes vacuously).",
+            "Each flagging gold test is seen RED before the rule body exists (a stub returning no violations), then GREEN.",
+            "`cargo xtask check-arch` passes on the real tree; `cargo xtask smoke` (fmt, clippy -D warnings, check-arch, workspace tests) passes.",
+            "No `@cpd` scenario is un-pended by this step; no production JS, CSS, template or shipped `.feature` file changes (`git diff` on every shipped `.feature` empty)."
+          ],
+          "estimate": "0.25 day",
+          "dependencies": [],
+          "files_to_modify": [
+            "xtask/src/check_arch.rs"
+          ],
+          "test_file": "xtask/src/check_arch.rs",
+          "scenario_name": "a_keydown_listener_in_a_board_module_is_flagged",
+          "implementation_notes": "TEST PARADIGM: example-based per project CLAUDE.md; acceptance via cucumber-rs @cpd scenarios. Here the tests are the nine staged-tree gold tests in `check_arch.rs`'s `mod tests`, in the R1-R3 style (`check_lane_position_deferrable(tree.path())` is the pattern to copy: stage a temp tree, call the rule function, count violations). Signature per DISTILL: `fn check_board_modules_have_no_keydown_listener(root: &Path) -> Vec<String>`. Comment stripping is the `strip_css_block_comments` idea applied to JS line and block comments; keep string literals intact so the 'word in a string' case is decided by the registration regexes, not by stripping. The trap is the same as the `DEFERRABLE` rule's SQL `--` comment: a substring match fails on day one against `board-lane-dnd.js:312`. PBT opportunity (optional, low value): comment-stripping is idempotent and never changes a line count; not required. Mutation targets: the glob (kills via `a_new_board_module_is_scanned`), the comment strip (kills via the two commented-out cases), the missing-dir branch."
+        },
+        {
+          "id": "01-02",
+          "name": "Atomic swap: mouse lift, carry and land on Pointer Events, own-card dragstart cancelled, Escape arm, and the shipped driver re-pointed in the same change",
+          "description": "Rewrite the event layer of board-dnd.js onto Pointer Events for the mouse (6 px lift, point-resolved lane and slot, clone ghost with the origin dimmed in place, landing at the live marker with the byte-identical fetch), cancel dragstart on own cards while keeping the foreign swallow, add the closeTopLayer() card-drag arm, add the ghost/lifted styles with the stylesheet re-hash, and in the SAME change re-point every shipped card-drag step onto the trusted pointer driver per the DISTILL re-pointing plan.",
+          "criteria": [
+            "ORDERING (DISTILL re-pointing plan, point 1): the shipped driver is re-pointed in this same step that cancels own-card `dragstart`, never before. On HEAD a W3C mouse drag already moves a card through the HTML5 path, so re-pointing first would keep shipped scenarios green for the wrong reason. Evidence recorded in the step notes: with `dragstart` cancelled and the old HTML5 card branches removed, the re-driven shipped scenarios pass only through the pointer path (recorder shows `dragstart` cancelled, no native `drop`).",
+            "Un-pend and turn GREEN, one at a time: 'A card dragged with the mouse lands exactly where it is released' (#1), 'A card dropped at the top of a lane names no card above it' (#2), 'The card being dragged is carried under the mouse without hiding the lane beneath it' (#3), 'Escape during a card drag puts the card back and peels only that layer' (#6), 'A card never starts the browser's own drag, though it is still marked draggable' (#10), 'A card can still be dragged after the board refreshes in place' (#12). Each starts RED for the DISTILL-recorded reason (no lift; native drag + pointercancel in the recorder).",
+            "Observable behaviour: a primary-button mouse press on an `.issue-card` inside `#board-columns` that travels past 6 px lifts the card: `html[data-card-dragging]`, the origin carries `[data-card-lifted]` and stays in its slot, and exactly one fixed carried copy follows the pointer with `pointer-events: none`. The lane under the pointer (resolved from the point, never `event.target`) is lit, the one zero-footprint marker shows the slot, and release over a lane lands at the marker and sends the byte-identical POST (`state`, `after` from the neighbour above, omitted at the top, `x-csrf-token` = `foundry_csrf`). A reload agrees.",
+            "Observable behaviour: release off every lane, Escape (via the new `closeTopLayer()` arm directly above the lane-drag arm, dispatching `foundry:cancel-card-drag`), or a dragged card detached by a replace mid-drag ends as cancelled: no request, the card in its exact origin slot, zero `[data-card-drop-target]`, zero marker, no carried copy, no `data-card-dragging`. A release after a lift does not open the edit dialog (click guard armed on lifted release, consumed by the next click).",
+            "Driver re-pointing done per the DISTILL mapping table: `start_drag`, `drag_over`, `drop_here`, `end_drag`, the composed helpers, 'presses Escape' (real key via `press_key(\"Escape\")`, then `Up`), 'releases it over / moves it over the page header', 'carries it out of the browser window' (glide to the viewport edge), `when_pointer_passes_over_card` (glide across the card, reading activation per tick), `when_still_pointer` (`Jitter(600)`), `feature_board_lane_reorder.rs:1137` `drag_a_card`, `keyboard_shortcut_bindings.rs:3043` `hiroshi_drags_auth2_to_another_column`. Foreign steps (`when_foreign_drop`, `when_foreign_over`, `begin_foreign`, `when_drags_from_other_tab`) stay on `DragEvent`. The recorder is armed before every drag assertion.",
+            "If the viewport-edge glide does not leave nothing lit, or any other shipped scenario can pass only by rewording it, STOP and return the question to the user (D4, U4); never reword silently.",
+            "Every shipped .feature file byte-identical: `git diff` on `crates/foundry-acceptance/tests/features/*.feature` is empty except the removal of `@pending` from the six `@cpd` scenarios above. `FOUNDRY_ACCEPTANCE_TAGS=cdf` stays 54/54 GREEN (re-driven), `=blr` and `=kb` GREEN; the foreign scenarios (`card-drag-drop-feedback.feature:112` x5, `:130`, `:201`, `:297`, `:360` row 3, the file half of `:136`) are GREEN on `DragEvent`.",
+            "Stylesheet re-hash (D18): the ghost and lifted-origin styles use existing `--cz-*` tokens only; `static/css/foundry.f7c36a08.css` is renamed to `foundry.<first 8 hex of its new sha256>.css`, and in the same change the `<link>` in `templates/base.html`, the three literals in `src/lib.rs` cache-policy tests (lines 330, 347, 366) and the `static/VENDOR.md` row + notes paragraph are updated. The binary is rebuilt (Askama) and warmed before the lane.",
+            "`cargo xtask check-arch` passes (including the DDD-22 rule from 01-01 against the rewritten `board-dnd.js` and the hash/VENDOR checks); `cargo xtask smoke` passes; the default lane stays green. No server, handler, service, store, template-protocol or migration change (D1); `issue_card.html` and `issues.rs:731` keep `draggable=\"true\"` (DDD-19)."
+          ],
+          "estimate": "0.75 day",
+          "dependencies": [
+            "01-01"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/static/js/board-dnd.js",
+            "crates/foundry-app/static/js/keyboard.js",
+            "crates/foundry-app/static/css/foundry.f7c36a08.css",
+            "crates/foundry-app/templates/base.html",
+            "crates/foundry-app/src/lib.rs",
+            "crates/foundry-app/static/VENDOR.md",
+            "crates/foundry-acceptance/src/steps/feature_card_drag_drop_feedback.rs",
+            "crates/foundry-acceptance/src/steps/feature_board_lane_reorder.rs",
+            "crates/foundry-acceptance/src/steps/keyboard_shortcut_bindings.rs",
+            "crates/foundry-acceptance/tests/features/card-pointer-drag.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/card-pointer-drag.feature",
+          "scenario_name": "A card dragged with the mouse lands exactly where it is released",
+          "implementation_notes": "TEST PARADIGM: example-based per project CLAUDE.md; acceptance via cucumber-rs @cpd scenarios. This step is deliberately the largest in the roadmap: the ORDERING WARNING makes the mechanism swap, the dragstart cancel and the driver re-point one atomic change, and the shipped `cdf` suite exercises Escape, release-off-lane and the replace paths, so the keyboard.js arm and the cancel paths must land here too or the re-driven shipped rows go red. MECHANISM (DESIGN-pinned, do not re-decide): DDD-16 keep `CardDragSession`, `slotFor`, `activate`, `showMarker`/`keepOneMarkerIn`, `Origin.restore`, `dropInto`, `moveBody`, `neighbourAbove` (board-dnd.js:57-324); replace only the five `drag*` listeners in `init()` (:326-419) with `pointerdown/pointermove/pointerup/pointercancel` + `click` (capture) delegated on `document`, returning unless the gesture began on `.issue-card` inside `#board-columns`. DDD-3 `document.elementFromPoint(clientX, clientY)` with the ghost at `pointer-events: none`; `null` = no lane; no `setPointerCapture`. DDD-17 clone ghost `position: fixed` appended to `body`, offset up-left, removed by teardown query; origin dimmed via `[data-card-lifted]`. DDD-19 `dragstart` on own cards in `#board-columns` is `preventDefault()`-ed; never `pointerdown.preventDefault()`. DDD-1 foreign swallow (`dragover`/`drop` with no session, `dropEffect none`) kept verbatim minus the card-session branches. DDD-7 keyboard.js: one arm keyed on `html[data-card-dragging]` directly above arm 3, dispatching `foundry:cancel-card-drag`; board-dnd.js listens for that event, never for `keydown` (01-01 rule enforces it). DDD-10 the `fetch` is byte-identical. DDD-8 `!card.isConnected` at release = cancelled. Use the DISTILL harness functions (`perform_pointer`, `spot_point`, `card_press_point`, `install_pointer_recorder`); the harness itself needs no change. Do NOT edit any shipped step module comment that names the old CSS hash; the suite discovers the hashed name on disk. PBT opportunity: marker = landing = `after` is a quantifiable invariant (for any lane of N cards and any release Y, the landing index equals the marker index and `after` equals the key above it); there is no JS unit runner (DB6 forbids Node), so it stays covered by the ORDER oracles of #1/#2 and the shipped CDF slot scenarios. Named faults for the slice-01 mutation gate (run at 01-04): `dragstart` not cancelled -> #10; lift threshold 0 -> #5; ghost left behind -> #3/#6."
+        },
+        {
+          "id": "01-03",
+          "name": "One mouse gesture means one thing: click-guard reset, primary button only, card/lane boundary",
+          "description": "Complete the one-shot click guard (reset on the next pointerdown so a sub-threshold press after a drag still opens the card, and a release over the dragged card's own slot opens nothing), restrict the lift to the primary button, and prove the card drag and the lane-header drag never take each other's gesture.",
+          "criteria": [
+            "Un-pend and turn GREEN, one at a time: 'A drag released back over its own card does not open it' (#4), 'Right after a drag, a press that barely moves is still a click' (#5), 'Only the primary mouse button drags a card' (#7), 'A drag begun on a card never moves a lane' (#8), 'A drag begun on a lane header never lifts a card' (#9). #7 and #9 keep their positive controls ('... straight afterwards does lift'); a green that skips the control is not accepted.",
+            "Observable behaviour (DDD-6, AC-1.4, AC-1.5): the click that follows a lifted release is consumed exactly once, whatever its target (including the origin card itself); a release that never lifted delivers its click and the edit dialog opens; the guard is reset by the next `pointerdown`, so a stale guard never eats a later genuine click.",
+            "Observable behaviour (AC-1.4, AC-1.7, DDD-18): a secondary-button press-and-move lifts nothing, lights nothing and sends no request; a card gesture never reorders lanes; a lane-header drag reorders lanes and lifts no card, and a card drag straight afterwards still lifts.",
+            "The six scenarios from 01-02 stay GREEN; `FOUNDRY_ACCEPTANCE_TAGS=cdf` 54/54, `=blr`, `=kb` GREEN.",
+            "Every shipped .feature file byte-identical (`git diff` empty apart from `@pending` removals in `card-pointer-drag.feature`). No CSS change in this step (no re-hash needed); if one becomes necessary, the full D18 re-hash (VENDOR.md, lib.rs, base.html refs) is part of it.",
+            "`cargo xtask check-arch` passes; `cargo xtask smoke` passes."
+          ],
+          "estimate": "0.25 day",
+          "dependencies": [
+            "01-02"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/static/js/board-dnd.js",
+            "crates/foundry-acceptance/tests/features/card-pointer-drag.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/card-pointer-drag.feature",
+          "scenario_name": "Right after a drag, a press that barely moves is still a click",
+          "implementation_notes": "TEST PARADIGM: example-based per project CLAUDE.md; acceptance via cucumber-rs @cpd scenarios. MECHANISM: DDD-6 guard is one flag: armed on the release of any lifted session, consumed by the next capture-phase `click`, reset on the next `pointerdown`; never inspects the click's target (spike Q6: a same-card release clicks the card). Primary button = `event.button === 0` for `pointerType` mouse at `pointerdown`. The lane module (`board-lane-dnd.js`) is UNCHANGED; the boundary rests on origin (the gesture's start element) and thresholds (ADR-BOARD-CARD-004 legs 2 and 3), shared conventions not code (DDD-18). PBT opportunity: the click-guard arming/reset sequence is a genuine small state machine (events: lifted-release, unlifted-release, pointerdown, click; invariant: a click is swallowed iff the most recent release before it was lifted and no pointerdown intervened). With no JS unit runner, a model-based property run is not available in-repo; the example-based #4/#5 (mouse) and later #16/#17 (touch) pin the two critical sequences. Named fault for the mutation gate: click guard never reset -> #5 (and #16 in phase 02)."
+        },
+        {
+          "id": "01-04",
+          "name": "Foreign swallow after a pointer session, pointercancel revert, and slice-01 close",
+          "description": "Prove the retained HTML5 swallow still catches a desktop file right after a pointer drag, make pointercancel after the lift revert exactly as Escape and before the lift abandon the hold (the single revert path touch will reuse), then close slice 01: all 12 @us-cpd-01 scenarios green, the named-fault mutation runs, and the mouse dogfood.",
+          "criteria": [
+            "Un-pend 'A file from the desktop is still swallowed right after a pointer drag' (#11). It may already be GREEN when the step starts (the swallow is kept verbatim in 01-02); it MUST be GREEN at the end, with its real pointer-drag Given executed (anti-vacuity).",
+            "Observable behaviour (DDD-8, AC-1.6 last sentence): a `pointercancel` for the session's pointer after the lift reverts exactly as Escape does (no request, exact origin slot, zero residue: no lit lane, no marker, no carried copy, no `data-card-dragging`, no `[data-card-lifted]`); before the lift it abandons the pending gesture with nothing to undo. The mouse case has no trusted trigger in the lane, so it is instrumented by a named fault (below) and exercised later by touch #24/#25.",
+            "Slice gate: `FOUNDRY_ACCEPTANCE_TAGS=us-cpd-01 cargo test -p foundry-acceptance --release --test acceptance` gives all 12 US-CPD-01 scenarios GREEN and the file holds no `@us-cpd-01 ... @pending`. Docker is up, the binary is warm, `FOUNDRY_XTASK_INCLUDE_DOCKER=1` is set for any `cargo xtask ci` so the browser lane is not silently skipped, and Chrome's `browserVersion` is recorded.",
+            "Every shipped .feature file byte-identical (`git diff` on every shipped `.feature` empty); `cdf` 54/54, `blr`, `kb` GREEN; POST body byte-identical by the fetch spy.",
+            "Named-fault runs recorded (snapshot to scratchpad, seed ONE fault, run `us-cpd-01`, confirm the kill is on the named oracle and not a timeout, restore, `cmp`, re-run GREEN): lift threshold 0 -> #5; click guard never reset -> #5; `dragstart` not cancelled -> #10; ghost left behind -> #3/#6; mouse `pointercancel` not reverting -> recorded as surviving-by-design with no trusted trigger (its instrument is touch #24 in phase 03). Per-feature mutation kill rate on the modified files >= 80% (project CLAUDE.md).",
+            "`cargo xtask check-arch` passes; `cargo xtask smoke` passes. Dogfood per slice-01 brief (Chrome and Firefox, real mouse: drag + reload, click opens, drag does not, Escape mid-drag, delete-then-drag, Finder `keys.png` swallowed) recorded in the delivery notes.",
+            "DELIVER STOPS after this step and asks the user whether the DDD-13 device checklist (spike/findings.md steps 1-11 on real iOS Safari and Android Chrome) has been run and recorded before phase 02 is started."
+          ],
+          "estimate": "0.25 day",
+          "dependencies": [
+            "01-03"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/static/js/board-dnd.js",
+            "crates/foundry-acceptance/tests/features/card-pointer-drag.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/card-pointer-drag.feature",
+          "scenario_name": "A file from the desktop is still swallowed right after a pointer drag",
+          "implementation_notes": "TEST PARADIGM: example-based per project CLAUDE.md; acceptance via cucumber-rs @cpd scenarios. MECHANISM: DDD-8 one revert path shared by Escape, release off every lane, detached card and `pointercancel` after the lift; before the lift `pointercancel` only clears the pending gesture (and, from phase 02, the hold timer). DDD-9: `pointercancel` is filtered by the session's `pointerId` like every other event. DDD-1 swallow unchanged: document `dragover`/`drop` with no session, `dropEffect none`, fresh and after a replace. Fault runs are NOT roadmap steps; never run `cargo xtask ci` with a fault seeded (/static is served from disk, no rebuild needed for JS faults). Concurrent-session check (ListAgents + ps) before any lane run. PBT opportunity: 'zero lift residue after every exit' is an invariant over the set of exits {drop, off-lane, Escape, cancel, detach}; covered example-wise by #6 here and #24/#26 in phase 03."
+        }
+      ]
+    },
+    {
+      "id": "02",
+      "name": "Slice 02 (US-CPD-02): press and hold lifts a card on touch and pen, while a swipe still scrolls and a tap still opens. PRECONDITION: the DDD-13 real-device checklist (spike/findings.md) has been run and recorded; DELIVER stops before this phase to ask",
+      "steps": [
+        {
+          "id": "02-01",
+          "name": "Hold to lift for touch and pen; movement first scrolls; no scroll while lifted",
+          "description": "Add the touch/pen lift rule (350 ms within 10 px, movement past tolerance first leaves the gesture to the browser), the lifted-only non-passive touchmove guard, the card touch posture (user-select, -webkit-touch-callout, contextmenu suppression during a hold or session) with the stylesheet re-hash.",
+          "criteria": [
+            "PRECONDITION: the DDD-13 device checklist (spike/findings.md steps 1-11) has been run on a real iOS Safari and a real Android Chrome and recorded with OS/browser versions, and step 5 (WebKit honours the lifted `touchmove` guard) passed. If step 5 failed, or step 4/8 showed a native drag or `pointercancel` from a long-press, STOP: the `touch-action` / `draggable` trade-off returns to the user (DDD-4, DDD-19).",
+            "Un-pend and turn GREEN, one at a time: 'Holding a card lifts it and it can be dropped at an exact slot by touch' (#13), 'While lifted by touch, the lane under the finger lights, the marker shows the slot and nothing scrolls' (#14), 'A touch that moves before the hold completes scrolls the board and lifts nothing' (#15, positive control '... straight afterwards does lift it' included), 'A pen lifts a card by holding, exactly as a finger does' (#20).",
+            "Observable behaviour (DDD-5, AC-2.1, AC-2.2, AC-2.4, AC-2.6): a touch or pen pointer held 350 ms within 10 px lifts the card with the same carried copy, lit lane, marker, landing, POST body and reload agreement as the mouse; moving past 10 px before the hold leaves the gesture to the browser (the board's `scrollLeft` really grows) and nothing lifts; while lifted, neither the board nor the page scrolls; the lane is resolved from the point, not from the captured `event.target`.",
+            "All 12 US-CPD-01 scenarios stay GREEN; `cdf` 54/54, `blr` (including the lane-header touch guard, AC-2.8), `kb` GREEN.",
+            "Stylesheet re-hash (D18): card `user-select: none` and `-webkit-touch-callout: none` use no new token; the stylesheet is renamed to its new 8-hex sha256 prefix and `templates/base.html`, the three `src/lib.rs` cache-test literals and the `static/VENDOR.md` row + notes are updated in the same change; binary rebuilt and warmed.",
+            "Every shipped .feature file byte-identical (`git diff` on every shipped `.feature` empty); `issue_card.html` and `issues.rs:731` unchanged (DDD-19).",
+            "`cargo xtask check-arch` passes (hash = filename, VENDOR sha256 recomputes, DDD-22 rule); `cargo xtask smoke` passes."
+          ],
+          "estimate": "0.5 day",
+          "dependencies": [
+            "01-04"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/static/js/board-dnd.js",
+            "crates/foundry-app/static/css/foundry.f7c36a08.css",
+            "crates/foundry-app/templates/base.html",
+            "crates/foundry-app/src/lib.rs",
+            "crates/foundry-app/static/VENDOR.md",
+            "crates/foundry-acceptance/tests/features/card-pointer-drag.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/card-pointer-drag.feature",
+          "scenario_name": "Holding a card lifts it and it can be dropped at an exact slot by touch",
+          "implementation_notes": "TEST PARADIGM: example-based per project CLAUDE.md; acceptance via cucumber-rs @cpd scenarios (touch driven by CDP `Input.dispatchTouchEvent`, DDD-12a; pen by W3C `PenActions`; `@mobile` 390x844). The CSS file path in files_to_modify is the name at the start of the step; it is the file renamed by 01-02 (read the current `foundry.<hash>.css` on disk). MECHANISM (DESIGN-pinned): DDD-5 one timer per pending touch/pen gesture, tolerance tracked on `pointermove`, cleared on release, on tolerance exceeded and on `pointercancel`; mouse keeps 6 px. DDD-4 cards stay `touch-action: auto`; one non-passive `touchmove` listener on `document` calls `preventDefault()` only while a session is lifted; `contextmenu` is pd'd while a hold or session exists. DDD-15 lift feedback is visual only (no `navigator.vibrate`). DDD-3 resolution from the point (touch implicitly captures `event.target` to the origin card). Final hold values are a device feel call recorded in slice-02 notes. PBT opportunity: the lift rule is a quantifiable decision (for pointer type, elapsed ms, max displacement px: lift iff mouse and displacement > 6, or touch/pen and elapsed >= 350 and displacement <= 10); no JS unit runner, so #13/#15/#20 pin it by example. Named faults: no `touchmove` guard -> #14; `event.target` lane resolution -> #13/#14; hold timer not cleared on move -> #15."
+        },
+        {
+          "id": "02-02",
+          "name": "Tap still opens, lifted release in place opens nothing, refused touch drop reverts",
+          "description": "Prove the one-shot click guard and the shared revert path on touch: a tap (even straight after a touch drag) opens the card, a lifted release where it lifted opens nothing and moves nothing, and a touch drop the server refuses returns the card to its exact slot.",
+          "criteria": [
+            "PRECONDITION: the DDD-13 device checklist is recorded (as 02-01).",
+            "Un-pend and turn GREEN, one at a time: 'A tap on a card still opens it, even right after a touch drag' (#16), 'A card lifted by touch and released where it lifted opens nothing and stays put' (#17), 'A touch drop the server refuses puts the card back exactly' (#19).",
+            "Observable behaviour (DDD-6, AC-2.3): the click that follows a lifted touch release is consumed; the guard is reset by the next `pointerdown`, so the next tap opens the edit dialog; a tap that never lifted opens it every time.",
+            "Observable behaviour (AC-2.6, journey `refused`): a touch drop answered by the uniform 404 returns the card to its exact `(lane, above, below)` slot read at the lift, with zero residue.",
+            "All US-CPD-01 scenarios and 02-01's four stay GREEN; `cdf`, `blr`, `kb` GREEN.",
+            "Every shipped .feature file byte-identical (`git diff` on every shipped `.feature` empty). No CSS change (no re-hash); if one becomes necessary the full D18 re-hash is part of it.",
+            "`cargo xtask check-arch` passes; `cargo xtask smoke` passes."
+          ],
+          "estimate": "0.25 day",
+          "dependencies": [
+            "02-01"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/static/js/board-dnd.js",
+            "crates/foundry-acceptance/tests/features/card-pointer-drag.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/card-pointer-drag.feature",
+          "scenario_name": "A tap on a card still opens it, even right after a touch drag",
+          "implementation_notes": "TEST PARADIGM: example-based per project CLAUDE.md; acceptance via cucumber-rs @cpd scenarios. These scenarios may already be GREEN once 02-01 lands (the guard and `Origin.restore` are pointer-type-agnostic from phase 01); any production change here is limited to touch-specific gaps the un-pend exposes (e.g. a compat click/`contextmenu` interplay on touch release). A failure that is a test bug is fixed in the test, never by weakening an oracle (DISTILL: 22 scenarios' later steps run for the first time in DELIVER). PBT opportunity: click-guard arming/reset sequences (same state machine as 01-03, now across pointer types); pinned by example here (#16, #17). Named fault: click guard never reset -> #16."
+        },
+        {
+          "id": "02-03",
+          "name": "One pointer, one session; slice-02 close",
+          "description": "Filter every session event by the recorded pointerId so a second finger never takes, moves or drops the card, then close slice 02: all 8 @us-cpd-02 scenarios green, named-fault runs, and the real-device dogfood with the KPI 7 log started.",
+          "criteria": [
+            "PRECONDITION: the DDD-13 device checklist is recorded (as 02-01).",
+            "Un-pend and turn GREEN: 'A second finger during a touch drag does not take the card' (#18).",
+            "Observable behaviour (DDD-9, AC-2.7): while a session exists, events from any other `pointerId` are ignored: a second touch point neither lifts, moves, lands nor cancels the carried card; the first finger's release lands at the marker.",
+            "Slice gate: `FOUNDRY_ACCEPTANCE_TAGS=us-cpd-02` gives all 8 US-CPD-02 scenarios GREEN and `=us-cpd-01` GREEN; no `@us-cpd-02 ... @pending` remains; `browserVersion` recorded; Docker up, warm binary.",
+            "Named-fault runs recorded (snapshot, seed one, run `us-cpd-02`, kill on the named oracle, restore, `cmp`, re-run GREEN): no `pointerId` filter -> #18; no `touchmove` guard -> #14; `event.target` lane resolution -> #13/#14; click guard never reset -> #16. Per-feature mutation kill rate on modified files >= 80%.",
+            "Every shipped .feature file byte-identical (`git diff` on every shipped `.feature` empty); `cdf`, `blr`, `kb` GREEN.",
+            "`cargo xtask check-arch` passes; `cargo xtask smoke` passes. Slice-02 real-device dogfood table (iOS Safari, Android Chrome) filled in the delivery notes with the final hold ms value; KPI 7 log started."
+          ],
+          "estimate": "0.25 day",
+          "dependencies": [
+            "02-02"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/static/js/board-dnd.js",
+            "crates/foundry-acceptance/tests/features/card-pointer-drag.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/card-pointer-drag.feature",
+          "scenario_name": "A second finger during a touch drag does not take the card",
+          "implementation_notes": "TEST PARADIGM: example-based per project CLAUDE.md; acceptance via cucumber-rs @cpd scenarios (second finger = second CDP touch point). MECHANISM: DDD-9 the session records `pointerId` at `pointerdown`; `pointermove`, `pointerup` and `pointercancel` for any other id return early; a `pointerdown` from another pointer while a session or hold exists starts nothing. Shared convention with `board-lane-dnd.js` (DDD-18), not shared code. Fault runs are NOT roadmap steps."
+        }
+      ]
+    },
+    {
+      "id": "03",
+      "name": "Slice 03 (US-CPD-03): a carried card reaches an off-screen lane or slot by edge auto-scroll, and every interruption puts it back with nothing left behind (depends on phase 02's touch lift)",
+      "steps": [
+        {
+          "id": "03-01",
+          "name": "Edge auto-scroll, horizontal board and vertical page, with marker = landing = after",
+          "description": "Add the edge scroller used while a card is carried: horizontal #board-columns scroll (EDGE_ZONE 48 / EDGE_STEP 14, clamped to the board's extent) and vertical page scroll, recomputing lane, activation and marker from the point after every scroll step, for touch, pen and mouse.",
+          "criteria": [
+            "Un-pend and turn GREEN, one at a time: 'Holding a carried card at the board's edge scrolls to an off-screen lane' (#21), 'Auto-scroll stops at the board's end' (#22), 'Holding a carried card near the bottom reaches the end of a long lane' (#23), 'A mouse drag in a narrow window reaches an off-screen lane too' (#27).",
+            "Observable behaviour (DDD-11, AC-3.1-3.4, AC-3.7): a carried card held within 48 px of the board's side edge scrolls `#board-columns` by 14 px per step until the off-screen lane is under the pointer; scrolling stops at the board's extent; near the viewport's bottom the page scrolls vertically to reach the end of a long lane (20-card Backlog at 390 px); after every scroll step the lit lane and the marker are recomputed from the point, and the landing slot and the POST `after` equal the marker's slot (ORDER oracles, on screen and after a reload).",
+            "Scrolling stops on every exit (drop, off-lane release, Escape, cancel, detach): no scroll continues after the session ends.",
+            "All US-CPD-01 and US-CPD-02 scenarios stay GREEN; `cdf`, `blr` (lane auto-scroll unchanged), `kb` GREEN.",
+            "Every shipped .feature file byte-identical (`git diff` on every shipped `.feature` empty). No CSS change expected; if any, the full D18 re-hash (VENDOR.md, lib.rs, base.html refs) is part of this step.",
+            "`cargo xtask check-arch` passes; `cargo xtask smoke` passes."
+          ],
+          "estimate": "0.5 day",
+          "dependencies": [
+            "02-03"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/static/js/board-dnd.js",
+            "crates/foundry-acceptance/tests/features/card-pointer-drag.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/card-pointer-drag.feature",
+          "scenario_name": "Holding a carried card at the board's edge scrolls to an off-screen lane",
+          "implementation_notes": "TEST PARADIGM: example-based per project CLAUDE.md; acceptance via cucumber-rs @cpd scenarios (8-lane Homelab Ops and 20-card Backlog fixtures at `@mobile`; 440 px window for #27). MECHANISM: the `board-lane-dnd.js::autoScroll` shape copied, not shared (DDD-18): constant step, clamped (AC-3.2), driven by the last known pointer point while a still finger holds (a still finger produces no `pointermove`, so the scroller re-resolves from the stored point after each step); `elementFromPoint` returns `null` at the viewport edge (spike Q4), so the edge zone is measured inside the viewport. It changes what is visible, never what the marker addresses. PBT opportunity (real invariant): slot/landing agreement: for any scroll offset and any pointer point, the marker slot computed after the scroll equals the landing slot and `after` = key above it. It is the board-lane-reorder-style quantifiable invariant; with no JS unit runner it is pinned by the marker = landing = POST `after` oracles in #21, #23, #27, and a property run is recorded as an opportunity if a browser-side property harness is ever added. Named fault: marker not recomputed after a scroll step -> #21/#23."
+        },
+        {
+          "id": "03-02",
+          "name": "Interruptions leave nothing behind: pointercancel after and before the lift, release off every lane; feature close",
+          "description": "Prove on touch the single revert path from phase 01: the system taking the pointer after the lift puts the card back exactly with zero residue, a hold interrupted before the lift leaves nothing to undo and a hold straight afterwards still lifts, and a release off every lane changes nothing. Then close the feature: all 27 @cpd scenarios green, final named-fault runs and dogfood.",
+          "criteria": [
+            "Un-pend and turn GREEN, one at a time: 'The system taking the pointer mid-drag puts the card back and leaves nothing behind' (#24), 'A hold the system interrupts before the card lifts leaves nothing to undo' (#25, positive control '... holding AUTH-41 again straight afterwards does lift it' included), 'Releasing a carried card off every lane changes nothing' (#26).",
+            "Observable behaviour (DDD-8, AC-3.5, AC-3.6): `pointercancel` after the lift reverts to the exact `(lane, above, below)` slot with no request and zero residue (no lit lane, no marker, no carried copy, no `data-card-dragging`, no `[data-card-lifted]`, no running scroller); before the lift the hold timer is cleared and nothing lifts later; a release off every lane is the `cancelled` path.",
+            "Feature gate: `FOUNDRY_ACCEPTANCE_TAGS=cpd` gives all 27 scenarios GREEN and `card-pointer-drag.feature` holds no `@pending`; `cdf` 54/54, `blr`, `kb` GREEN; default lane green; `cargo xtask ci` with `FOUNDRY_XTASK_INCLUDE_DOCKER=1` passes with the browser lane actually run; `browserVersion` recorded.",
+            "Named-fault runs recorded: hold timer not cleared on `pointercancel` -> #25; ghost left behind -> #3/#24/#26; `pointercancel` not reverting (the mouse named fault from 01-04, now killed through the shared path) -> #24; scroller not stopped on exit -> #24/#26. Per-feature mutation kill rate on modified files >= 80%.",
+            "Every shipped .feature file byte-identical (`git diff` on every shipped `.feature` empty); the stylesheet name matches its hash and VENDOR.md/lib.rs/base.html references agree.",
+            "`cargo xtask check-arch` passes (DDD-22 rule green on the final `board-dnd.js`); `cargo xtask smoke` passes. Slice-03 dogfood table (iOS Safari, Android Chrome, narrow desktop window) recorded in the delivery notes."
+          ],
+          "estimate": "0.25 day",
+          "dependencies": [
+            "03-01"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/static/js/board-dnd.js",
+            "crates/foundry-acceptance/tests/features/card-pointer-drag.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/card-pointer-drag.feature",
+          "scenario_name": "The system taking the pointer mid-drag puts the card back and leaves nothing behind",
+          "implementation_notes": "TEST PARADIGM: example-based per project CLAUDE.md; acceptance via cucumber-rs @cpd scenarios (CDP `touchCancel` = the system taking the pointer, DDD-12a). The revert path already exists from 01-02/01-04; production changes here are expected only where touch exposes a gap (hold timer on cancel, scroller teardown). 'Nothing remains' oracles run only after the Given has proven the carried card, lit lane and marker existed (`prove_carried_over`). PBT opportunity: zero lift residue over every exit is an invariant over the finite exit set; the three scenarios here plus #6 cover it by example. Fault runs are NOT roadmap steps; never run `cargo xtask ci` with a fault seeded."
+        }
+      ]
+    }
+  ],
+  "implementation_scope": {
+    "source_directories": [
+      "crates/foundry-app/static/js/",
+      "crates/foundry-app/static/css/",
+      "crates/foundry-app/templates/",
+      "crates/foundry-app/src/",
+      "crates/foundry-app/static/",
+      "xtask/src/"
+    ],
+    "test_directories": [
+      "crates/foundry-acceptance/tests/features/",
+      "crates/foundry-acceptance/src/steps/",
+      "crates/foundry-acceptance/src/support/",
+      "xtask/src/"
+    ],
+    "excluded_patterns": [
+      "target/**",
+      "crates/foundry-app/static/vendor/**",
+      "crates/foundry-app/static/js/board-lane-dnd.js",
+      "crates/foundry-app/static/js/board-live.js",
+      "crates/foundry-app/templates/partials/issue_card.html",
+      "docs/feature/card-pointer-drag/spike/**"
+    ]
+  },
+  "validation": {
+    "status": "approved",
+    "reviewer": "nw-software-crafter-reviewer",
+    "approved_at": "2026-09-26T16:52:10Z",
+    "note": "Approved, 0 blockers/highs. Reviewer listed #8 under 01-02; roadmap places it in 01-03 (click guard), which is correct."
+  }
+}
