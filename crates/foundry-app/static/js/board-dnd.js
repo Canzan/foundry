@@ -29,8 +29,10 @@
 // `pointer-events: none`) follows the pointer. The lane and slot are resolved
 // from the POINT (`document.elementFromPoint`), never from `event.target`,
 // which a touch pointer captures to the origin card (DDD-3). A release over a
-// lane lands at the live marker; a release off every lane, Escape, or a card a
-// replace detached mid-drag ends as cancelled and sends nothing (DDD-8). A
+// lane lands at the live marker; a release off every lane, Escape, a card a
+// replace detached mid-drag, or a `pointercancel` after the lift ends as
+// cancelled through the one teardown (`end()`) and sends nothing; a
+// `pointercancel` before the lift only abandons the press (DDD-8). A
 // release after a lift arms a one-shot click guard so the drag never opens the
 // card; the next press resets it (DDD-6).
 //
@@ -518,7 +520,10 @@
     });
 
     // The browser took the pointer: after the lift this reverts exactly as
-    // Escape does; before it, the press is simply abandoned (DDD-8).
+    // Escape does (the same `end()`: no request, the card never left its slot,
+    // nothing left behind); before it, the press is simply abandoned (DDD-8).
+    // Only the session's own pointer counts (DDD-9). No `pointerup` follows, so
+    // no click guard is armed.
     document.addEventListener("pointercancel", function (event) {
       if (press && event.pointerId === press.pointerId) {
         endPress();

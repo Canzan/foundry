@@ -161,7 +161,7 @@ Feature: Card drag on any pointer
     Then the browser never gets to start its own drag, so the pointer stays with the board
     And AUTH-41 is still marked draggable
 
-  @us-cpd-01 @needs-browser @pending @error
+  @us-cpd-01 @needs-browser @error
   Scenario: A file from the desktop is still swallowed right after a pointer drag
     Given the Identity Platform board is open at the desk
     And Priya has just dragged AUTH-43 into Done with the mouse
