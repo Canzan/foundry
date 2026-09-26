@@ -15,7 +15,23 @@ journeys:
     persona: persona-instance-operator
     job: job-board-card-move
     platform: web
-    validated_by: docs/feature/card-drag-drop-feedback/feature-delta.md
+    validated_by:
+      - docs/feature/card-drag-drop-feedback/feature-delta.md
+      - docs/feature/card-pointer-drag/feature-delta.md
+    changelog:
+      - date: 2026-09-25
+        by: docs/feature/card-pointer-drag/feature-delta.md
+        change: >
+          Added the `touch` variant below (press-and-hold lift, scroll-vs-drag,
+          tap-to-open, pointercancel, edge auto-scroll). The mouse steps 1-5
+          keep their meaning; two phrases in them now describe the mechanism
+          card-pointer-drag replaces and are corrected here rather than
+          rewritten: step 1's "Only a dragstart on an .issue-card" reads "only
+          a pointer lift on an .issue-card" (a native dragstart now matters
+          only for FOREIGN drags), and the `cancelled` error path's Escape is
+          an arm of keyboard.js::closeTopLayer(), no longer the browser's
+          native drag cancel. The carried card is drawn by the page, not the
+          browser's drag image.
 
     goal: >
       Move one card to a chosen lane and a chosen slot in it, seeing before
@@ -174,6 +190,141 @@ journeys:
         response: The lane shows its "No issues yet" placeholder without a reload.
         recovery: n/a.
 
+    variants:
+      - id: touch
+        added_by: docs/feature/card-pointer-drag/feature-delta.md
+        platform: web (phone, 390px viewport; also tablet and pen)
+        goal: >
+          The same move as the mouse journey, by finger, on a phone, without
+          losing the two things a finger already does on the board: swipe to
+          scroll and tap to open a card.
+        emotional_arc:
+          pattern: Problem Relief
+          start: >
+            Resigned. On her phone the lane header drags but the card under it
+            does not, so moving AUTH-41 means open it, change Status, save —
+            and it lands at the top, not where she wanted.
+          middle: >
+            Deliberate, then in control. She holds; the card lifts under her
+            finger; the lane lights and the line opens exactly as on the
+            desktop.
+          end: >
+            Confident. The card is where the line was; swiping the board
+            afterwards still scrolls, and tapping a card still opens it.
+          transition_rules:
+            - A swipe never lifts a card. A lift never scrolls the board by accident.
+            - A tap never lifts a card. A lift never opens the card's dialog.
+            - The lift is announced visibly the moment it happens, so she never wonders whether she is holding a card.
+        steps:
+          - id: t1
+            name: Press and hold
+            action: >
+              On the Identity Platform board at 390px, Priya puts her thumb on
+              AUTH-41 in Backlog and holds still.
+            mockup: |
+              +-- AUTH (390px) ---------------+
+              | BACKLOG          IN-PROGRESS >|
+              | +-----------+    +---------   |
+              | | AUTH-41 * |    | AUTH-3     |
+              | +-----------+    | AUTH-12    |
+              | | AUTH-43   |    | AUTH-19    |
+              |   (thumb held on AUTH-41)     |
+              +-------------------------------+
+            emotional_state:
+              entry: Resigned (expects nothing to happen)
+              exit: Deliberate — the card responds only after the hold
+            shared_artifacts: [hold-duration, in-flight-drag]
+            integration_checkpoint: >
+              Until the hold completes nothing is lifted, nothing is lit, no
+              marker exists. Moving past the hold tolerance before it
+              completes hands the gesture to the browser as a scroll.
+            failure_modes:
+              - The OS long-press takes over (text selection, callout, context menu) instead of the lift.
+              - A native drag of the draggable card starts and cancels the pointer mid-hold.
+          - id: t2
+            name: Lift
+            action: The hold completes; AUTH-41 lifts under her thumb.
+            mockup: |
+              | BACKLOG          IN-PROGRESS >|
+              | .............    +---------   |
+              | : (origin)  :    | AUTH-3     |
+              |   +===========+  | AUTH-12    |
+              |   | AUTH-41   |  <- carried card follows the thumb
+              |   +===========+  | AUTH-19    |
+            emotional_state:
+              entry: Deliberate
+              exit: In control — she is visibly holding the card
+            shared_artifacts: [carried-card, in-flight-drag]
+            integration_checkpoint: >
+              From the lift on, moving the finger carries the card and never
+              scrolls the board; the carried card stays under the finger.
+            failure_modes:
+              - The first move after the lift scrolls the page and the drag is cancelled.
+          - id: t3
+            name: Carry to an off-screen lane
+            action: >
+              She carries AUTH-41 to the right edge; the board scrolls under
+              it until In-Progress is in view.
+            mockup: |
+              | IN-PROGRESS##   DONE          |
+              | # AUTH-3    #   AUTH-7        |
+              | #=========  # <- marker       |
+              | # AUTH-12   #                 |
+              | # AUTH-19   #    (thumb near  |
+              | #############     right edge) |
+            emotional_state:
+              entry: In control
+              exit: Oriented — same lit lane and line as on the desktop
+            shared_artifacts: [board-scroll, active-lane, marker, after-key]
+            integration_checkpoint: >
+              Auto-scroll changes what is visible, never what the marker
+              addresses; the marker tracks the finger across a scroll.
+            failure_modes:
+              - The drag stalls at the viewport edge and the destination is unreachable.
+          - id: t4
+            name: Release
+            action: She lifts her thumb between AUTH-3 and AUTH-12.
+            mockup: |
+              | IN-PROGRESS                   |
+              | | AUTH-3    |                 |
+              | | AUTH-41   | <- landed; nothing lit; no dialog opened
+              | | AUTH-12   |                 |
+            emotional_state:
+              entry: Oriented
+              exit: Confident
+            shared_artifacts: [after-key, csrf-token, empty-placeholder]
+            integration_checkpoint: >
+              The same single POST as the mouse drop (state + after,
+              x-csrf-token). The release does not open AUTH-41's dialog.
+            failure_modes:
+              - The release is read as a tap and AUTH-41's edit dialog opens over the board.
+        error_paths:
+          - id: swipe-not-drag
+            trigger: Priya swipes across AUTH-41 to scroll the board, without holding.
+            response: The board scrolls exactly as it does today; no card lifts, nothing lit, no request.
+            recovery: n/a.
+          - id: tap-not-drag
+            trigger: Priya taps AUTH-41 and lifts her finger before the hold completes, without moving.
+            response: AUTH-41's edit dialog opens, exactly as a mouse click does today.
+            recovery: n/a.
+          - id: pointercancel
+            trigger: >
+              The system takes the pointer mid-drag — an incoming call, a
+              notification pulled down, an OS edge gesture, a second finger
+              the browser claims.
+            response: >
+              AUTH-41 returns to its exact origin slot; no lane lit, no
+              marker, no carried card, no request.
+            recovery: Hold and drag again.
+          - id: release-off-board
+            trigger: She releases the carried card over the page header or outside every lane.
+            response: As the mouse journey's `cancelled` path — origin slot, nothing left on screen, no request.
+            recovery: Drag again.
+          - id: refused
+            trigger: The server refuses or the network fails after a touch drop.
+            response: As the mouse journey's `refused` path — exact origin slot, placeholders as before.
+            recovery: The board is correct; nothing was written.
+
     shared_artifacts_registry:
       - id: board-columns
         source: board.html + partials/oob/board_columns_oob.html (server); board-lane-dnd.js applyBoard (client)
@@ -199,3 +350,13 @@ journeys:
       - id: csrf-token
         source: foundry_csrf cookie -> x-csrf-token header
         consumed_by: [the drop POST, unchanged]
+      # Added by card-pointer-drag (2026-09-25), used by the touch variant.
+      - id: hold-duration
+        source: one constant in the card drag module (value owed by DESIGN, ~300-400 ms)
+        consumed_by: [touch and pen lift; the tap-vs-hold and swipe-vs-hold decisions]
+      - id: carried-card
+        source: the live DOM, drawn by the page while a session is lifted (replaces the browser drag image)
+        consumed_by: [lift feedback, teardown on every exit]
+      - id: board-scroll
+        source: '#board-columns scrollLeft (overflow-x below 480px) and the page scroll'
+        consumed_by: [edge auto-scroll while carrying; marker geometry]

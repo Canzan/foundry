@@ -1,0 +1,226 @@
+<!doctype html>
+<!--
+  card-pointer-drag DESIGN spike probe (OQ-1..OQ-5, OQ-9). Self-contained, no
+  network. Open on a phone (serve the folder, e.g. `python3 -m http.server`
+  on the laptop and browse to http://<laptop-ip>:8000/probe.html) or drive it
+  from CDP via window.probe.configure(cfg) / window.probe.log.
+
+  It mimics the board: a horizontally scrollable `.board` of 4 lanes x 12
+  cards, tall enough that the PAGE scrolls vertically (lanes never scroll
+  internally, as in foundry.css). A card lifts like the planned design:
+    mouse  -> primary press moved past MOUSE_THRESHOLD px
+    touch/pen -> held still (within HOLD_TOL px) for HOLD_MS ms
+  After a lift, a non-passive document `touchmove` listener calls
+  preventDefault (when "pd after lift" is on) so the page must not scroll.
+  Query-string toggles mirror the checkboxes, e.g. ?draggable=0&ta=pan-y
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Card Pointer Probe</title>
+<style>
+  :root { --bg:#fff; --fg:#111; --card:#eef2f7; --lift:#ffd76a; --lane:#f7f7f7; --line:#ccc; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#141414; --fg:#eee; --card:#2a3240; --lift:#8a6d10; --lane:#1d1d1d; --line:#444; }
+  }
+  body { margin:0; font:14px/1.3 system-ui, sans-serif; background:var(--bg); color:var(--fg); }
+  #controls { position:sticky; top:0; z-index:5; background:var(--bg); border-bottom:1px solid var(--line);
+    padding:6px 8px; display:flex; flex-wrap:wrap; gap:4px 10px; font-size:12px; }
+  #controls label { white-space:nowrap; }
+  #log { position:fixed; left:0; right:0; bottom:0; height:34vh; overflow:auto; z-index:6;
+    background:var(--bg); border-top:2px solid var(--line); font:11px/1.25 ui-monospace, monospace;
+    padding:4px 8px; white-space:pre-wrap; }
+  .board { display:flex; gap:10px; overflow-x:auto; padding:8px 8px 40vh; }
+  .column { flex:0 0 260px; background:var(--lane); border:1px solid var(--line); border-radius:6px; padding:6px; }
+  .column h3 { margin:2px 4px 8px; font-size:13px; }
+  .issue-card { background:var(--card); border-radius:6px; padding:10px; margin:0 0 8px; min-height:70px; cursor:grab; }
+  .issue-card.lifted { background:var(--lift); outline:2px solid currentColor; }
+  body.noselect .issue-card { -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; }
+  #status { font-weight:600; }
+</style>
+</head>
+<body>
+<div id="controls">
+  <span id="status">idle</span>
+  <label><input type="checkbox" id="o-draggable" checked> draggable</label>
+  <label>touch-action <select id="o-ta"><option>auto</option><option>none</option><option>pan-y</option><option>pan-x pan-y</option><option>manipulation</option></select></label>
+  <label><input type="checkbox" id="o-pdlift" checked> pd touchmove after lift</label>
+  <label><input type="checkbox" id="o-pdcm" checked> pd contextmenu</label>
+  <label><input type="checkbox" id="o-noselect" checked> no-select/callout</label>
+  <label><input type="checkbox" id="o-pdds"> pd dragstart</label>
+  <label><input type="checkbox" id="o-pdpd"> pd pointerdown</label>
+  <label><input type="checkbox" id="o-capture"> setPointerCapture</label>
+  <label><input type="checkbox" id="o-supclick" checked> suppress post-drag click</label>
+  <label>hold ms <input type="number" id="o-hold" value="350" style="width:4em"></label>
+  <label><input type="checkbox" id="o-moves"> log every move</label>
+  <button id="clear" type="button">clear log</button>
+</div>
+<div class="board" id="board-columns"></div>
+<div id="log"></div>
+<script>
+(function () {
+  "use strict";
+  var MOUSE_THRESHOLD = 6, HOLD_TOL = 10;
+  var q = new URLSearchParams(location.search);
+  var cfg = {
+    draggable: q.get("draggable") !== "0",
+    touchAction: q.get("ta") || "auto",
+    pdAfterLift: q.get("pdlift") !== "0",
+    pdContextmenu: q.get("pdcm") !== "0",
+    noSelect: q.get("noselect") !== "0",
+    pdDragstart: q.get("pdds") === "1",
+    pdPointerdown: q.get("pdpd") === "1",
+    capture: q.get("capture") === "1",
+    suppressClick: q.get("supclick") !== "0",
+    holdMs: Number(q.get("hold") || 350),
+    logMoves: q.get("moves") === "1"
+  };
+  var board = document.getElementById("board-columns");
+  var logEl = document.getElementById("log");
+  var statusEl = document.getElementById("status");
+  var log = [];
+  var t0 = performance.now();
+  var session = null;        // {id, card, type, x0, y0, lifted, timer}
+  var suppressNextClick = false;
+
+  function build() {
+    board.innerHTML = "";
+    for (var l = 0; l < 4; l++) {
+      var col = document.createElement("section");
+      col.className = "column"; col.setAttribute("data-column", "lane" + l);
+      var h = document.createElement("h3"); h.textContent = "Lane " + l; col.appendChild(h);
+      for (var i = 0; i < 12; i++) {
+        var c = document.createElement("article");
+        c.className = "issue-card"; c.id = "c" + l + "-" + i;
+        if (cfg.draggable) c.setAttribute("draggable", "true");
+        c.style.touchAction = cfg.touchAction;
+        c.textContent = "Card " + l + "-" + i + " — some selectable issue title text";
+        col.appendChild(c);
+      }
+      board.appendChild(col);
+    }
+    document.body.classList.toggle("noselect", cfg.noSelect);
+  }
+
+  function idOf(n) {
+    if (!n || n.nodeType !== 1) return n === document ? "document" : n === window ? "window" : String(n && n.nodeName);
+    return n.id || (n.className && String(n.className).split(" ")[0]) || n.nodeName.toLowerCase();
+  }
+  function cardAt(x, y) {
+    var el = document.elementFromPoint(x, y);
+    var c = el && el.closest ? el.closest(".issue-card") : null;
+    return c ? c.id : idOf(el);
+  }
+  function rec(e, extra) {
+    var r = { t: Math.round(performance.now() - t0), type: e.type, target: idOf(e.target) };
+    if (e.pointerType !== undefined) { r.pt = e.pointerType; r.pid = e.pointerId; }
+    if (e.clientX !== undefined) { r.x = Math.round(e.clientX); r.y = Math.round(e.clientY); }
+    if (e.touches) { var tt = e.changedTouches[0]; if (tt) { r.x = Math.round(tt.clientX); r.y = Math.round(tt.clientY); } }
+    r.cancelable = e.cancelable;
+    if (e.type === "scroll") { r.sx = Math.round(scrollX); r.sy = Math.round(scrollY); r.bx = Math.round(board.scrollLeft); }
+    if (e.dataTransfer) { r.dtTypes = Array.prototype.slice.call(e.dataTransfer.types || []); }
+    if (extra) for (var k in extra) r[k] = extra[k];
+    log.push(r);
+    var isMove = /move$|^scroll$|^drag$|dragover/.test(e.type);
+    if (!isMove || cfg.logMoves) print(r);
+    else { var last = logEl.lastChild; var key = e.type + "@" + r.target;
+      if (last && last.dataset && last.dataset.key === key) { last.dataset.n = +last.dataset.n + 1; last.textContent = fmt(r) + " x" + last.dataset.n; }
+      else print(r, key); }
+    return r;
+  }
+  function note(msg) { var r = { t: Math.round(performance.now() - t0), type: "NOTE", msg: msg }; log.push(r); print(r); }
+  function fmt(r) {
+    if (r.type === "NOTE") return r.t + " ** " + r.msg;
+    return r.t + " " + r.type + (r.pt ? "[" + r.pt + "]" : "") + " @" + r.target +
+      (r.x !== undefined ? " (" + r.x + "," + r.y + ")" : "") +
+      (r.sy !== undefined ? " page=" + r.sx + "," + r.sy + " board=" + r.bx : "") +
+      (r.dtTypes ? " types=" + r.dtTypes.join("|") : "") +
+      (r.prevented ? " PREVENTED" : "") + (r.cancelable === false ? " (uncancelable)" : "") +
+      (r.under ? " under=" + r.under : "");
+  }
+  function print(r, key) {
+    var d = document.createElement("div"); d.textContent = fmt(r);
+    if (key) { d.dataset.key = key; d.dataset.n = 1; }
+    logEl.appendChild(d); logEl.scrollTop = logEl.scrollHeight;
+  }
+  function setStatus(s) { statusEl.textContent = s; }
+
+  function lift(reason) {
+    session.lifted = true; session.card.classList.add("lifted");
+    note("LIFT " + session.card.id + " via " + reason); setStatus("LIFTED " + session.card.id);
+  }
+  function end(why) {
+    if (!session) return;
+    if (session.timer) clearTimeout(session.timer);
+    if (session.lifted) { suppressNextClick = cfg.suppressClick; note("END " + why + " (was lifted)"); }
+    session.card.classList.remove("lifted"); session = null; setStatus("idle");
+  }
+
+  var opts = { capture: true, passive: false };
+  ["pointerdown","pointermove","pointerup","pointercancel","gotpointercapture","lostpointercapture",
+   "touchstart","touchmove","touchend","touchcancel","dragstart","drag","dragend","dragenter","dragover","drop",
+   "contextmenu","click","selectstart","mousedown","mouseup"].forEach(function (type) {
+    document.addEventListener(type, function (e) {
+      var extra = {};
+      var card = e.target && e.target.closest ? e.target.closest(".issue-card") : null;
+      if (type === "pointerdown" && card && !session && (e.pointerType !== "mouse" || e.button === 0)) {
+        if (cfg.pdPointerdown) e.preventDefault();
+        session = { id: e.pointerId, card: card, type: e.pointerType, x0: e.clientX, y0: e.clientY, lifted: false };
+        if (cfg.capture) { try { card.setPointerCapture(e.pointerId); } catch (err) { note("capture failed " + err); } }
+        if (e.pointerType !== "mouse") {
+          session.timer = setTimeout(function () { session.timer = null; if (session && !session.lifted) lift("hold " + cfg.holdMs + "ms"); }, cfg.holdMs);
+        }
+      } else if (type === "pointermove" && session && e.pointerId === session.id) {
+        var d = Math.hypot(e.clientX - session.x0, e.clientY - session.y0);
+        extra.under = cardAt(e.clientX, e.clientY);
+        if (!session.lifted) {
+          if (session.type === "mouse" && d > MOUSE_THRESHOLD) lift("mouse " + Math.round(d) + "px");
+          else if (session.type !== "mouse" && d > HOLD_TOL && session.timer) { clearTimeout(session.timer); session.timer = null; note("hold aborted: moved " + Math.round(d) + "px (scroll path)"); }
+        }
+      } else if (type === "touchmove" && session && session.lifted && cfg.pdAfterLift) {
+        e.preventDefault();
+      } else if (type === "dragstart" && cfg.pdDragstart && card) {
+        e.preventDefault();
+      } else if (type === "contextmenu" && cfg.pdContextmenu) {
+        e.preventDefault();
+      } else if ((type === "dragover" || type === "drop") && board.contains(e.target)) {
+        e.preventDefault(); // swallow (foreign) drags on the board, as CDF D4
+      }
+      if (type === "click" && suppressNextClick) {
+        suppressNextClick = false; e.preventDefault(); e.stopPropagation(); extra.suppressed = true;
+      }
+      extra.prevented = e.defaultPrevented;
+      rec(e, extra);
+      if ((type === "pointerup" || type === "pointercancel") && session && e.pointerId === session.id) end(type);
+    }, opts);
+  });
+  // A new press must not inherit a stale suppression (only the click right after a drag is eaten).
+  document.addEventListener("pointerdown", function () { suppressNextClick = false; }, true);
+  window.addEventListener("scroll", function (e) { if (e.target !== logEl) rec(e); }, { capture: true, passive: true });
+
+  function bindControls() {
+    var map = { draggable: "o-draggable", pdAfterLift: "o-pdlift", pdContextmenu: "o-pdcm", noSelect: "o-noselect",
+      pdDragstart: "o-pdds", pdPointerdown: "o-pdpd", capture: "o-capture", suppressClick: "o-supclick", logMoves: "o-moves" };
+    Object.keys(map).forEach(function (k) {
+      var el = document.getElementById(map[k]); el.checked = cfg[k];
+      el.addEventListener("change", function () { cfg[k] = el.checked; build(); note("cfg " + k + "=" + el.checked); });
+    });
+    var ta = document.getElementById("o-ta"); ta.value = cfg.touchAction;
+    ta.addEventListener("change", function () { cfg.touchAction = ta.value; build(); note("cfg touch-action=" + ta.value); });
+    var hold = document.getElementById("o-hold"); hold.value = cfg.holdMs;
+    hold.addEventListener("change", function () { cfg.holdMs = Number(hold.value) || 350; note("cfg hold=" + cfg.holdMs); });
+    document.getElementById("clear").addEventListener("click", function (e) { e.stopPropagation(); logEl.innerHTML = ""; log.length = 0; });
+  }
+
+  window.probe = {
+    log: log, cfg: cfg,
+    configure: function (c) { for (var k in c) cfg[k] = c[k]; build(); log.length = 0; logEl.innerHTML = ""; session = null; suppressNextClick = false; t0 = performance.now(); scrollTo(0, 0); board.scrollLeft = 0; },
+    state: function () { return { sx: scrollX, sy: scrollY, bx: board.scrollLeft, session: session && { card: session.card.id, lifted: session.lifted }, ua: navigator.userAgent, maxTouchPoints: navigator.maxTouchPoints }; }
+  };
+  build(); bindControls();
+  note("ready: " + navigator.userAgent);
+})();
+</script>
+</body>
+</html>

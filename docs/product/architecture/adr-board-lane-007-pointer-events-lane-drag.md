@@ -4,6 +4,13 @@
 
 Accepted (board-lane-reorder DESIGN wave, 2026-09-03)
 
+**Status note, 2026-09-25 (card-pointer-drag DESIGN):** Superseded by
+`adr-board-card-004-pointer-events-card-drag.md` (accepted 2026-09-25), in part.
+It supersedes this ADR's "the divergence is deliberate and, for now, permanent"
+and boundary leg 1 ("different event families"). Cards move to Pointer Events.
+The lane drag decision itself (lanes on Pointer Events, `board-lane-dnd.js`)
+stands. The decision text below is unchanged.
+
 ## Context
 
 `board-lane-reorder` adds a drag gesture to the board's column headers. The

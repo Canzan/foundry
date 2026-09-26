@@ -355,15 +355,19 @@ jobs:
     job_story: >
       When a card on my board is in the wrong lane or the wrong place in its
       lane — work started, work finished, a card that should be next — I want
-      to drag it to exactly the spot I mean and see, before I let go, which
-      lane and which slot will take it, so the board reads in the order the
-      work is really in, without checking afterwards whether the drop landed
-      or reloading the page first in case it will not.
+      to drag it to exactly the spot I mean, with a mouse at my desk or with a
+      finger on my phone, and see, before I let go, which lane and which slot
+      will take it, so the board reads in the order the work is really in,
+      without checking afterwards whether the drop landed, reloading the page
+      first in case it will not, or waiting until I am back at a desk.
     dimensions:
       functional: >
         Move one card to a chosen lane and a chosen slot within it in one
         gesture, with the destination visible before release, at any point in
-        a session — including straight after the board refreshed itself.
+        a session — including straight after the board refreshed itself — on
+        any pointer: mouse, touch or pen. On touch the gesture must coexist
+        with scrolling the board and with tapping a card to open it
+        (card-pointer-drag widening, 2026-09-25).
       emotional: >
         Stop distrusting the drag: no reflex reload before moving a card, no
         second look to see whether it took.
@@ -391,9 +395,33 @@ jobs:
         the cursor (card-ranking-within-status). Feedback must add to that
         gesture, not change it — same drop semantics, same request, same
         revert.
+      touch_delta: >
+        Added by card-pointer-drag DISCUSS (2026-09-25); the four forces above
+        still hold. PUSH: on a phone a card cannot be dragged at all — the
+        card drag is native HTML5 drag-and-drop, which the shipped design
+        treats as inert on touch (ADR-BOARD-LANE-007) — while the lane header
+        right above it CAN be dragged by finger since board-lane-reorder, so
+        the board reads as half-broken; the only touch path is open the card,
+        change Status, save, which cannot choose a slot. PULL: press and hold
+        a card, feel it lift, carry it to the lane and the gap, let go — the
+        way every mobile board app works. ANXIETY: that a swipe meant to
+        scroll the board grabs a card instead; that a tap meant to open a card
+        starts a drag; that a system gesture or an incoming call mid-drag
+        leaves a card stranded half-moved; that the desktop drag — which
+        works — gets worse to fix the phone. HABIT: mouse users already drag
+        with an immediate lift and Escape to cancel; touch users already
+        swipe the board to scroll and tap a card to open it. The new gesture
+        must take nothing from either.
     opportunity:
       importance: high
       satisfaction: low
+      touch_note: >
+        card-pointer-drag re-scores the touch dimension only: importance
+        medium-high (Priya triages from her phone away from the desk; the lane
+        drag already works there, so the missing card drag is conspicuous —
+        ADR-BOARD-LANE-007 Consequences), satisfaction zero on touch (no
+        gesture exists). The mouse dimension is satisfied since
+        card-drag-drop-feedback and must stay so.
       note: >
         Single-job feature; no comparative scoring table. Not a back-fill: the
         move capability shipped in issue-status-move and
@@ -402,7 +430,24 @@ jobs:
         the gesture silently broken after everyday actions. Importance high —
         the board's core daily gesture; satisfaction low — refused without an
         error after the actions an operator performs several times a session.
-    validated_by: docs/feature/card-drag-drop-feedback/feature-delta.md
+    validated_by:
+      - docs/feature/card-drag-drop-feedback/feature-delta.md
+      - docs/feature/card-pointer-drag/feature-delta.md
+    scope_history:
+      - date: 2026-09-13
+        by: docs/feature/card-drag-drop-feedback/feature-delta.md
+        change: >
+          Job validated. Mouse drag made replace-proof and given lane
+          activation, a slot marker and truthful empty-lane placeholders.
+          Touch and keyboard moves explicitly deferred (that feature's D14).
+      - date: 2026-09-25
+        by: docs/feature/card-pointer-drag/feature-delta.md
+        change: >
+          Widened to touch and pen. The card drag converges onto Pointer
+          Events (the first deferred successor of ADR-BOARD-LANE-007): touch
+          and pen lift by press-and-hold, mouse keeps an immediate lift past a
+          movement threshold, and every card-drag-drop-feedback behaviour is
+          preserved. A keyboard card move remains deferred.
     relates_to:
       - job: job-board-lane-shaping
         relation: >

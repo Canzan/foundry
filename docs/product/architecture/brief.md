@@ -83,6 +83,9 @@ its own, and its open state is derived from the DOM rather than stored — a sto
 handle would be left detached by the out-of-band `#board-columns` refresh and
 turn `Escape` into a silent no-op. `keyboard.js` holds exactly one document
 `keydown` and one document `click` listener; more than that is a violation.
+From card-pointer-drag, `cargo xtask check-arch` enforces the board half of this:
+no `static/js/board-*.js` may contain a `keydown` listener. The rule carries an
+injected-violation gold test (ADR-BOARD-CARD-004).
 See `adr-modal-close-001-declarative-close-trigger.md` and
 `adr-board-lane-005-overflow-menu-as-layer-arm.md`.
 
@@ -138,12 +141,22 @@ See `adr-board-lane-001-issues-linkage-state-fk.md`,
 `adr-board-lane-004-lane-slug-mint.md` and
 `adr-board-lane-006-lane-move-permutation.md`.
 
-The board carries **two drag mechanisms by deliberate choice**: lanes drag on
-Pointer Events (so the gesture exists on touch at all), cards keep native HTML5
-drag-and-drop. The boundary is origin-based and absolute — a gesture beginning on
-`.issue-card` is a card move, one beginning on a column header is a lane move —
-and the shipped card-drag scenarios passing *unmodified* are its standing proof.
-See `adr-board-lane-007-pointer-events-lane-drag.md`.
+Both board drags run on **Pointer Events, in two hand-authored modules that share
+conventions and no code**: lanes in `board-lane-dnd.js`, and cards in `board-dnd.js`
+(card-pointer-drag; before it, cards used native HTML5 drag-and-drop). HTML5
+drag-and-drop survives on the board for one job only, swallowing foreign drags.
+Both modules listen for `pointerdown` on `document`, so the boundary no longer
+rests on different event families. It rests on two legs:
+
+- **Origin.** A gesture beginning on `.issue-card` is a card move, and one beginning on `[data-lane-drag]` is a lane move. Neither element contains the other.
+- **The lift rules.** A press that never lifts is a click or a tap.
+
+`board-lane-reorder.feature`'s card-vs-lane guard and card-pointer-drag's
+card-side scenario are the standing proof. A drag library (SortableJS) was
+evaluated and rejected. It would sort the DOM live, against the zero-footprint
+marker, and it binds per list, against replace-proofing, not merely against the
+dependency posture. See `adr-board-lane-007-pointer-events-lane-drag.md`
+(superseded in part) and `adr-board-card-004-pointer-events-card-drag.md`.
 
 ### An issue has one delete, through one primitive that always announces itself
 
@@ -307,18 +320,22 @@ here on 2026-09-13.
 ### The board card drag session (browser tier)
 
 **Subdomain: Supporting.** Every tracker lets you drag a card to a lane and a slot,
-so this is not a differentiator. It is built in-house only because the presentation
-tier takes no dependencies (ADR-BOARD-LANE-007 rejected drag libraries). The
+so this is not a differentiator. It is built in-house because a drag library's model
+(live DOM sorting, per-list binding) contradicts this context's marker and
+replace-proof contracts. SortableJS was evaluated and rejected on that ground
+(ADR-BOARD-CARD-004). The
 **core** subdomain, issue tracking, is upstream. It owns an issue's lane
 (`issues.state`, under the lane FK) and its order (`issues.position`, gap-free
 `0..N-1`, kept by `reposition_issue_with_outbox`).
 
 **Bounded context: Board Interaction.** This is the board page's browser tier. It owns
 the transient drag session, lane activation, the insertion marker and placeholder
-visibility, and **no persistent data**. It deliberately holds two drag models, one
-per gesture family: the card drag (HTML5 drag-and-drop, `board-dnd.js`) and the lane
-drag (Pointer Events, `board-lane-dnd.js`). They share a DOM region and no code
-(ADR-BOARD-LANE-007). The vocabulary keeps them apart too. The lane drag shows a
+visibility, and **no persistent data**. It holds two drag modules on one input
+model, Pointer Events for mouse, touch and pen: the card drag (`board-dnd.js`) and
+the lane drag (`board-lane-dnd.js`). They share a DOM region and conventions
+(threshold, edge scroll, `pointerId` filter, the `closeTopLayer()` arm pattern),
+and no code (ADR-BOARD-CARD-004). HTML5 drag-and-drop remains only as the foreign
+swallow. The vocabulary keeps them apart too. The lane drag shows a
 **drop indicator** between columns; the card drag shows a **marker** between cards.
 
 ```mermaid
@@ -347,8 +364,8 @@ the OOB refresh, and every board script conforms to it rather than translating i
 
 **The session, against Vernon's rules.** `CardDragSession` is a transient process
 object. It is not a persisted aggregate: one root with value properties (card key,
-origin lane slug, origin neighbour keys) plus the dragged card node for the life of
-one drag.
+origin lane slug, origin neighbour keys, the lifting `pointerId`, lifted or not) plus
+the dragged card node for the life of one drag.
 
 - *Rule 1, true invariants only:* its sole invariant is "at most one drag, and every ending leaves nothing behind", so nothing else sits inside it.
 - *Rule 2, small:* one root, value properties, no child entities.
@@ -357,17 +374,24 @@ one drag.
 
 The server-side invariant (gap-free positions) stays the issue aggregate's, untouched.
 
+*Restated in pointer terms by card-pointer-drag (DESIGN 2026-09-25,
+ADR-BOARD-CARD-004). The card-drag-drop-feedback HTML5 version is in git history
+and that feature's delta.*
+
 ```mermaid
 stateDiagram-v2
   [*] --> Idle
   Idle --> Idle: foreign dragover / drop inside #board-columns (claimed, dropEffect none, nothing else)
-  Idle --> Carrying: dragstart on .issue-card inside #board-columns
-  Carrying --> Aiming: dragover on a lane (activate lane, place marker)
-  Aiming --> Aiming: dragover (lane or slot changed, so update)
-  Aiming --> Carrying: dragover off every lane, or the pointer left the window (clear feedback)
-  Aiming --> Idle: drop on the lane (land at the marker's slot, hand off a PendingMove, clear)
-  Carrying --> Idle: dragend without drop (Escape, release outside), clear
-  Aiming --> Idle: dragend without drop, clear
+  Idle --> Pending: pointerdown on .issue-card inside #board-columns (primary button for mouse)
+  Pending --> Idle: touch/pen moves past tolerance before the hold (the browser scrolls)
+  Pending --> Idle: release before lifting (click or tap opens the card), or pointercancel (hold abandoned)
+  Pending --> Carrying: lift (mouse past 6 px; touch/pen held 350 ms within 10 px)
+  Carrying --> Aiming: pointermove over a lane, resolved from the point (activate lane, place marker)
+  Aiming --> Aiming: pointermove (lane or slot changed, so update; edge auto-scroll)
+  Aiming --> Carrying: pointermove off every lane (clear feedback)
+  Aiming --> Idle: pointerup on the lane (land at the marker's slot, hand off a PendingMove, clear, arm click guard)
+  Carrying --> Idle: pointerup off every lane, Escape arm, pointercancel, or card detached (revert, clear, arm click guard)
+  Aiming --> Idle: Escape arm, pointercancel, or card detached (revert, clear, arm click guard)
   note right of Idle
     A PendingMove outlives the session: 2xx keeps the move;
     non-2xx or a network error reverts by identity.
@@ -376,10 +400,10 @@ stateDiagram-v2
 
 **Invariants** (each is a named oracle in the feature's acceptance suite):
 
-1. Only a `dragstart` on an `.issue-card` inside `#board-columns` opens a session. Nothing else ever activates a lane, shows a marker, moves a card or sends a request.
-2. At most one session exists. A new `dragstart` ends any stale session first.
-3. Every ending (drop, `dragend`, refused or failed POST) leaves **zero** activated lanes and **zero** markers. Teardown is an idempotent DOM query, never a stored handle.
-4. No listener is bound to a node inside `#board-columns`. Lanes, the active lane and the marker are resolved from the live document at event time (ADR-BOARD-CARD-001).
+1. Only a **lift** (a primary-button mouse press past the movement threshold, or a touch/pen hold within tolerance) that began on an `.issue-card` inside `#board-columns` opens a session. A native `dragstart` on an own card is prevented and never opens one. Nothing else ever activates a lane, shows a marker, moves a card or sends a request.
+2. At most one session exists, driven only by the pointer that lifted it (`pointerId`). A new `pointerdown` ends any stale session first.
+3. Every ending (drop, Escape arm, `pointercancel`, release off every lane, card detached by a replace, refused or failed POST) leaves **zero** activated lanes, **zero** markers and **zero** carried ghosts. No drag ever opens the card's dialog: the next `click` is consumed once, and the guard is reset on the next `pointerdown`. Teardown is an idempotent DOM query, never a stored handle.
+4. No listener is bound to a node inside `#board-columns`. Lanes, the active lane and the marker are resolved **from the point** (`elementFromPoint`) in the live document at event time, never from `event.target`, which touch captures to the origin card (ADR-BOARD-CARD-001, -004).
 5. The marker, the landing slot and the POST's `after` derive from one slot computation, and the drop lands at the live marker's slot (ADR-BOARD-CARD-002).
 6. A lane displays its placeholder if and only if it holds no card. This is a CSS fact, not a script's job (ADR-BOARD-CARD-003).
 7. A foreign drag inside `#board-columns` is claimed and swallowed: `dragover` and `drop` are `defaultPrevented` and never acted on. Outside `#board-columns` the card drag does nothing.
@@ -392,7 +416,11 @@ stateDiagram-v2
 | Card | `article.issue-card[data-issue-key]`, one issue on the board | — |
 | Lane | `section.column[data-column=<slug>]`; the slug is identity, the label is display | a *status* (historical name for the same slug) |
 | Board replace | Any in-place swap of `#board-columns`: the popup delete, lane edit, insert or delete (OOB), or a lane move from the ⋯ menu (`applyBoard`). A lane-header drag is not one: it moves the existing lane nodes (card-drag-drop-feedback DISTILL Upstream Issue #1) | a reload, which re-runs every script; a lane-header drag, which rearranges without replacing |
-| Drag session | The one in-flight card drag, opened by a `dragstart` on a card on this page | the lane drag's gesture object |
+| Drag session | The one in-flight card drag, opened by a lift on a card on this page | the lane drag's gesture object |
+| Lift | The moment a press becomes a drag: a mouse past the movement threshold, or a touch/pen **hold** (350 ms within 10 px, subject to device feel) | a click or tap (release before the lift) |
+| Hold | A touch or pen pointer staying still on a card until the lift; moving first means scroll | the OS long-press (callout, menu), which the lift pre-empts |
+| Carried ghost | The fixed, non-hit-testable clone that follows the pointer; the origin card stays dimmed in its slot until the drop | the marker (the slot), the lane drag's column |
+| Click guard | The one-shot suppression of the `click` after a lifted release, reset on the next `pointerdown` | a disabled card |
 | Origin | The card's lane slug and neighbour keys when the session opened | — |
 | Foreign drag | Any drag with no session: a file, a text selection, a card from another tab | — |
 | Swallow | Claim a foreign drag inside the board without acting on it: no move, no request, no navigation | *refuse* (a server answer) |
@@ -415,7 +443,7 @@ C4Context
   System(foundry, "foundry", "Self-hosted issue tracker: board page, HTML handlers, SSE")
   System_Ext(desktop, "Desktop and other apps", "Sources of foreign drags: files, text selections")
   System_Ext(tab2, "A second foundry tab", "Source of a card dragged in from elsewhere; origin of remote deletes")
-  Rel(priya, foundry, "Drags a card to a lane and slot", "HTML5 drag-and-drop in a browser")
+  Rel(priya, foundry, "Drags a card to a lane and slot", "Pointer Events: mouse, touch, pen")
   Rel(desktop, foundry, "Drops a file or text on the board", "swallowed")
   Rel(tab2, foundry, "Drags a card in / deletes an issue", "swallowed / IssueDeleted")
 ```
@@ -496,3 +524,18 @@ See `adr-board-card-001-replace-proof-drag-session.md`,
 `adr-board-card-003-placeholder-shown-by-css.md` (all accepted 2026-09-13), which build on
 `adr-board-lane-005-overflow-menu-as-layer-arm.md` rule 2 and
 `adr-board-lane-007-pointer-events-lane-drag.md`.
+
+**card-pointer-drag (DESIGN 2026-09-25, ADR-BOARD-CARD-004 accepted).** The
+state diagram, invariants 1-4 and the ubiquitous language above are already
+restated in pointer terms. The C4 Component view and the shipped inventory
+above record the card-drag-drop-feedback build and stay until card-pointer-drag's
+DELIVER finalize replaces them with the shipped pointer build. The designed
+shape, whose full C4 Component is in
+`docs/feature/card-pointer-drag/feature-delta.md` §DESIGN:
+
+- **Only the listener layer changes.** Delegated `document` listeners for `pointerdown/move/up/cancel`, a non-passive `touchmove` guard (active only while lifted), `contextmenu` during a hold, and a capture-phase `click` guard. `CardDragSession`, `Origin`, `slotFor`, activation, the marker, `dropInto` and `moveBody` are kept.
+- **Lift rule:** mouse past 6 px; touch/pen held 350 ms within 10 px. Cards keep `touch-action: auto`, `user-select: none` and `-webkit-touch-callout: none`. Cards keep `draggable="true"` with own-card `dragstart` prevented; invariant 7's HTML5 swallow is unchanged.
+- **Carried ghost** (fixed clone, `pointer-events: none`); the origin stays dimmed in its slot, so no card moves before the drop. Edge auto-scroll works horizontally on the board (48/14) and vertically on the page, and never changes what the marker addresses.
+- **Escape** reaches a card drag through a new `closeTopLayer()` arm, found by `html[data-card-dragging]` and placed above the lane-drag arm. It dispatches `foundry:cancel-card-drag`, which reverses the CDF note that "`keyboard.js` gains no arm". `check-arch` forbids a `keydown` listener in any `board-*.js`.
+- **Test driver:** trusted W3C Actions (mouse, touch, key) for card drags; synthetic `DragEvent`s for foreign drags only.
+- **Provisional on the real-device checklist** (iOS Safari, Android Chrome) before the touch slice. If WebKit ignores the post-lift `touchmove` guard, the mechanism question returns to the user.
