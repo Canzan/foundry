@@ -273,6 +273,17 @@
       closeModal();
       return;
     }
+    // ARM 3a — an in-flight CARD drag (card-pointer-drag, ADR-BOARD-CARD-004,
+    // DDD-7). Directly above the lane-drag arm; the two never coexist (one
+    // pointer, one gesture). Found by its marker on `<html>`, which no board
+    // replace can detach, and cancelled by an event: board-dnd.js has no
+    // keydown listener of its own (BR-4, check-arch DDD-22).
+    if (document.documentElement.hasAttribute("data-card-dragging")) {
+      document.documentElement.dispatchEvent(
+        new CustomEvent("foundry:cancel-card-drag", { bubbles: true })
+      );
+      return;
+    }
     // ARM 3 — an in-flight lane drag (board-lane-reorder, ADR-BOARD-LANE-007).
     // ABOVE the menu because a drag under the pointer is the most immediate
     // layer on screen. Found by its DOM MARKER, not a stored handle, for the

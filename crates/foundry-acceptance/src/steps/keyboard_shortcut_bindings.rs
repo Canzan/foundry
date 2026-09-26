@@ -3024,21 +3024,16 @@ async fn has_selected_auth2(world: &mut FoundryWorld) {
         .expect("stamp AUTH-2's slot before the drag");
 }
 
-/// AC-05.8's When — and the honest limit it carries.
+/// AC-05.8's When.
 ///
-/// `board-dnd.js` implements NATIVE HTML5 drag-and-drop (`dragstart` / `dragover`
-/// / `drop`). WebDriver's pointer actions do NOT synthesise the native drag
-/// protocol in Chrome — a mouse-down/move/up sequence produces a text selection,
-/// never a `dragstart` — so the gesture is DISPATCHED: a real `DragEvent` with a
-/// real `DataTransfer` at each of the three stages, on the real elements, into
-/// `board-dnd.js`'s own real listeners. Same limit, same disclosure discipline as
-/// the `@ime` scenario (ADR-007 honest limit 1): the handlers under test run for
-/// real; only the input substrate is simulated. `board-dnd.js` is NOT modified —
-/// this step reaches it exactly as the browser would.
+/// Since card-pointer-drag (ADR-BOARD-CARD-004) `board-dnd.js` drags cards on
+/// Pointer Events, so the gesture is REAL input: a trusted W3C mouse drag
+/// (press AUTH-2, travel past the 6 px lift, carry, release) into
+/// `board-dnd.js`'s own document listeners — no dispatched `DragEvent` any
+/// more, and so no honest limit on the input substrate.
 ///
-/// The drop lands in the FIRST column that is not AUTH-2's own, and the `clientY`
-/// is the column's own top, so `insertBeforeTarget` resolves against the real
-/// geometry rather than a coordinate this step invented.
+/// The drop lands at the top of the FIRST column that is not AUTH-2's own,
+/// resolved from the live geometry rather than a coordinate this step invented.
 #[when(regex = r"^Hiroshi drags AUTH-2 into another column with the mouse$")]
 async fn hiroshi_drags_auth2_to_another_column(world: &mut FoundryWorld) {
     let browser = world.browser.as_ref().expect("browser session");
@@ -3047,34 +3042,49 @@ async fn hiroshi_drags_auth2_to_another_column(world: &mut FoundryWorld) {
             r#"var card = document.querySelector(".board .issue-card[data-issue-key='AUTH-2']");
                if (!card) { throw new Error('AUTH-2 is not on the board'); }
                var from = card.closest('[data-column]');
-               var into = null;
                var columns = document.querySelectorAll('.board [data-column]');
                for (var i = 0; i < columns.length; i++) {
-                 if (columns[i] !== from) { into = columns[i]; break; }
+                 if (columns[i] !== from) { return columns[i].getAttribute('data-column'); }
                }
-               if (!into) { throw new Error('the board renders only one column — nothing to drag INTO'); }
-               var transfer = new DataTransfer();
-               function fire(target, type, extra) {
-                 var event = new DragEvent(type, Object.assign({
-                   bubbles: true, cancelable: true, composed: true, dataTransfer: transfer
-                 }, extra || {}));
-                 target.dispatchEvent(event);
-                 return event;
-               }
-               var rect = into.getBoundingClientRect();
-               fire(card, 'dragstart');
-               fire(into, 'dragover', { clientY: rect.top });
-               fire(into, 'drop', { clientY: rect.top });
-               fire(card, 'dragend');
-               window.__kbDraggedInto = into.getAttribute('data-column');
-               return window.__kbDraggedInto;"#,
+               throw new Error('the board renders only one column — nothing to drag INTO');"#,
             Vec::new(),
         )
         .await
-        .expect("drag AUTH-2 into another column")
+        .expect("find a column to drag AUTH-2 into")
         .as_str()
-        .expect("the column AUTH-2 was dragged into")
+        .expect("the column AUTH-2 is dragged into")
         .to_string();
+    browser_harness::install_pointer_recorder(browser).await;
+    let (x, y) = browser_harness::card_press_point(browser, "AUTH-2").await;
+    let (to_x, to_y) =
+        browser_harness::spot_point(browser, browser_harness::DragSpot::LaneTop(&moved_into)).await;
+    browser_harness::perform_pointer(
+        browser,
+        browser_harness::PointerKind::Mouse,
+        (x, y),
+        &[
+            browser_harness::PointerStep::To(x, y),
+            browser_harness::PointerStep::Down,
+            browser_harness::PointerStep::Glide(x + 8.0, y + 6.0, 4),
+            browser_harness::PointerStep::Glide(to_x, to_y, 8),
+            browser_harness::PointerStep::Up,
+        ],
+    )
+    .await;
+    let record = browser_harness::pointer_record(browser).await;
+    assert!(
+        record.trusted("pointerup") > 0 && record.trusted("pointercancel") == 0,
+        "Hiroshi's drag must reach the page as trusted pointer input with no native drag taking \
+         it over: {}",
+        record.describe()
+    );
+    browser
+        .execute(
+            "window.__kbDraggedInto = arguments[0]; return null;",
+            vec![serde_json::Value::from(moved_into.clone())],
+        )
+        .await
+        .expect("record the column AUTH-2 was dragged into");
     assert!(
         !moved_into.is_empty(),
         "the drag reported no destination column"

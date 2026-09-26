@@ -399,6 +399,41 @@ textarea {
   pointer-events: none;
 }
 
+/* The card being dragged (card-pointer-drag, ADR-BOARD-CARD-004, DDD-17). The
+   origin card STAYS in its slot, dimmed, so no card moves until the drop and
+   `slotFor`'s own-slot skip is unchanged. The carried copy is a clone
+   board-dnd.js appends to `body` (stripped of key, id and htmx wiring), fixed
+   under the pointer and offset up-left of the grab. `pointer-events: none` is
+   load-bearing: the lane and slot are read with `elementFromPoint` (DDD-3), so
+   the ghost must never be what the point hits. It wears the card's own face,
+   raised by the palette's shadow; every value is an existing token. */
+.issue-card[data-card-lifted] {
+  opacity: 0.4;
+}
+
+.card-drag-ghost {
+  position: fixed;
+  z-index: 200;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 10px 12px;
+  background: var(--cz-surface);
+  border: 1px solid var(--cz-line-strong);
+  border-radius: var(--radius);
+  color: var(--cz-text);
+  box-shadow: var(--cz-shadow);
+  pointer-events: none;
+}
+
+.card-drag-ghost .key {
+  font-family: var(--cz-mono);
+}
+
+html[data-card-dragging],
+html[data-card-dragging] * {
+  cursor: grabbing;
+}
+
 /* The empty lane's placeholder (card-drag-drop-feedback, ADR-BOARD-CARD-003).
    Every lane renders the server's one "No issues yet" line before its cards
    (partials/board_columns.html); this pair displays it IF AND ONLY IF the lane

@@ -10,7 +10,7 @@
 //! browser tier does not yet do what the scenario asks, observed through the
 //! DESIGN-pinned DOM hooks (DDD-8f):
 //!
-//!   * "accepts the drag"        -> the synthetic `dragover` is `defaultPrevented`
+//!   * "accepts the drag"        -> the lane under the pointer is lit (was a synthetic `dragover`)
 //!   * "shown as activated"      -> `[data-card-drop-target]` on the lane
 //!   * "a marker shows …"        -> one `[data-card-drop-marker]`; `data-before-key` is the slot
 //!   * "shows the placeholder"   -> the lane's `.empty` is DISPLAYED, not merely present (DDD-5)
@@ -43,7 +43,9 @@
 //! dogfood check proves feel (D12).
 
 use crate::steps::feature_canzan_theme::{contrast_ratio, hex, parse_colour, Rgb};
-use crate::support::browser_harness::{self, DragSpot, ForeignPayload, SpiedRequest};
+use crate::support::browser_harness::{
+    self, DragSpot, ForeignPayload, PointerKind, PointerStep, SpiedRequest,
+};
 use crate::support::harness::InProcHarness;
 use crate::world::FoundryWorld;
 use cucumber::{given, then, when};
@@ -551,7 +553,78 @@ async fn reload_board(world: &mut FoundryWorld) {
 }
 
 // ------------------------------------------------------------ drag gestures
+//
+// RE-POINTED (card-pointer-drag DELIVER 01-02, ADR-BOARD-CARD-004, DDD-12). A
+// card drag is now TRUSTED mouse input, W3C WebDriver Actions through
+// `browser_harness::perform_pointer`, into board-dnd.js's Pointer Events
+// session. The Gherkin is unchanged (D4); each step keeps its meaning at the
+// user-visible hook: "X accepts the drag" is the lane under the pointer being
+// LIT (`[data-card-drop-target]`), where it used to be a claimed `dragover`,
+// and "a drop lands only on a lane that took it" is that lane being lit at the
+// release. The page event recorder is armed before every drag, and every
+// release proves the drag ran on the pointer path: a browser-native drag of a
+// card that the board did not cancel fails the step (on HEAD before this
+// change, a W3C mouse drag of a `draggable` card WAS served by the HTML5 path,
+// so without this proof a re-driven scenario could pass for the wrong reason).
+// Foreign drags (a file, a text selection, another tab) stay on the synthetic
+// DragEvent kit: nothing on this page has a pointer for them (D3).
 
+/// Moves per glide: enough `pointermove`s for the board to track the carry.
+const GLIDE_TICKS: u32 = 8;
+
+/// Where the mouse is and whether its button is down, kept on the board
+/// document (no drag step ever navigates, so it lives as long as the drag).
+async fn mouse_state(client: &fantoccini::Client) -> ((f64, f64), bool) {
+    let raw = js(
+        client,
+        "var m = window.__cdfMouse; return m ? [m.x, m.y, m.down] : null;",
+        vec![],
+    )
+    .await;
+    let state: Option<(f64, f64, bool)> = serde_json::from_value(raw).expect("mouse state shape");
+    let (x, y, down) = state.unwrap_or((0.0, 0.0, false));
+    ((x, y), down)
+}
+
+async fn set_mouse_state(client: &fantoccini::Client, at: (f64, f64), down: bool) {
+    js(
+        client,
+        "window.__cdfMouse = { x: arguments[0], y: arguments[1], down: arguments[2] }; return true;",
+        vec![
+            serde_json::json!(at.0),
+            serde_json::json!(at.1),
+            serde_json::json!(down),
+        ],
+    )
+    .await;
+}
+
+/// Run mouse `steps` from where the mouse is now, and remember where it ended.
+async fn mouse(client: &fantoccini::Client, steps: &[PointerStep], down: bool) -> (f64, f64) {
+    let (from, _) = mouse_state(client).await;
+    let at = browser_harness::perform_pointer(client, PointerKind::Mouse, from, steps).await;
+    set_mouse_state(client, at, down).await;
+    at
+}
+
+/// Whether the lane under the point `at` is lit: the user-visible "this lane
+/// takes the card". False over no lane (the page header, the board's seam).
+async fn lane_lit_at(client: &fantoccini::Client, at: (f64, f64)) -> bool {
+    js(
+        client,
+        &format!(
+            "var el = document.elementFromPoint(arguments[0], arguments[1]);
+             var lane = el && el.closest ? el.closest('#board-columns [data-column]') : null;
+             return !!lane && lane.matches('{ACTIVATED}');"
+        ),
+        vec![serde_json::json!(at.0), serde_json::json!(at.1)],
+    )
+    .await
+    .as_bool()
+    .unwrap_or(false)
+}
+
+/// Press the card `key` and move it past the 6 px lift threshold with the mouse.
 async fn start_drag(world: &mut FoundryWorld, key: &str) {
     let client = browser(world);
     world.cdf_origin = card_place(&client, key).await;
@@ -561,27 +634,70 @@ async fn start_drag(world: &mut FoundryWorld, key: &str) {
     );
     world.cdf_dragging = Some(key.to_string());
     world.cdf_moves_before = Some(move_requests(&client).await.len());
-    browser_harness::drag_start(&client, key).await;
+    browser_harness::install_pointer_recorder(&client).await;
+    if mouse_state(&client).await.1 {
+        mouse(&client, &[PointerStep::Up], false).await;
+    }
+    let (x, y) = browser_harness::card_press_point(&client, key).await;
+    set_mouse_state(&client, (x, y), false).await;
+    mouse(
+        &client,
+        &[
+            PointerStep::To(x, y),
+            PointerStep::Down,
+            PointerStep::Glide(x + 8.0, y + 6.0, 4),
+        ],
+        true,
+    )
+    .await;
 }
 
+/// Carry the held card to `spot` (resolved from live geometry). True when the
+/// lane under the pointer is lit there.
 async fn drag_over(world: &mut FoundryWorld, spot: DragSpot<'_>) -> bool {
-    let claimed = browser_harness::drag_over(&browser(world), spot).await;
+    let client = browser(world);
+    let (x, y) = match spot {
+        DragSpot::SamePoint => mouse_state(&client).await.0,
+        _ => browser_harness::spot_point(&client, spot).await,
+    };
+    let at = mouse(&client, &[PointerStep::Glide(x, y, GLIDE_TICKS)], true).await;
+    let claimed = lane_lit_at(&client, at).await;
     world.cdf_over_claimed = Some(claimed);
     claimed
 }
 
+/// Release the mouse where it is. True when the lane under it was lit at the
+/// release, which is the only place a card lands.
 async fn drop_here(world: &mut FoundryWorld) -> bool {
-    let dropped = browser_harness::drag_drop(&browser(world), DragSpot::SamePoint).await;
-    world.cdf_drop_claimed = Some(dropped);
-    dropped
+    let client = browser(world);
+    let (at, _) = mouse_state(&client).await;
+    let lit = lane_lit_at(&client, at).await;
+    mouse(&client, &[PointerStep::Up], false).await;
+    world.cdf_drop_claimed = Some(lit);
+    lit
 }
 
+/// End the drag: release the mouse if it is still down (after Escape, the
+/// release that follows), then prove the drag ran on the pointer path.
 async fn end_drag(world: &mut FoundryWorld) {
     let key = world
         .cdf_dragging
         .clone()
         .expect("a card drag must be in progress");
-    browser_harness::drag_end(&browser(world), &key).await;
+    let client = browser(world);
+    if mouse_state(&client).await.1 {
+        mouse(&client, &[PointerStep::Up], false).await;
+    }
+    let record = browser_harness::pointer_record(&client).await;
+    let native = record
+        .native_drags
+        .iter()
+        .any(|d| d.get("cancelled") != Some(&serde_json::Value::Bool(true)));
+    assert!(
+        !native && record.trusted("pointerup") > 0 && record.trusted("pointercancel") == 0,
+        "the drag of {key} must run on the pointer path only: trusted press and release, no          browser-native drag of a card left uncancelled, no pointercancel (DDD-19). {}",
+        record.describe()
+    );
 }
 
 /// Release the dragged `key` where the pointer is and end the drag. `label`
@@ -607,10 +723,9 @@ async fn drag_and_drop(world: &mut FoundryWorld, key: &str, spot: DragSpot<'_>) 
     settle_requests(&browser(world)).await;
     assert!(
         claimed && dropped,
-        "MISSING_FUNCTIONALITY: the lane under {key} did not accept the drop (dragover \
-         defaultPrevented = {claimed}; a real browser only fires drop on a claimed target, so \
-         drop dispatched = {dropped}). On HEAD the lanes a board refresh put on screen carry no \
-         listener (rca-drag-after-board-replace.md)"
+        "MISSING_FUNCTIONALITY: the lane under {key} did not accept the drop (lit under the \
+         carried card = {claimed}; lit at the release = {dropped}). A card lands only on the lane \
+         lit under it (ADR-BOARD-CARD-002, rca-drag-after-board-replace.md)"
     );
 }
 
@@ -1177,6 +1292,7 @@ async fn given_cancelled_drag(world: &mut FoundryWorld, key: String) {
     start_drag(world, &key).await;
     let origin = world.cdf_origin.clone().expect("origin").0;
     drag_over(world, DragSpot::LaneEnd(&origin)).await;
+    browser_harness::press_key(&browser(world), "Escape").await;
     end_drag(world).await;
 }
 
@@ -1265,15 +1381,7 @@ async fn when_drags_up_from_own_slot(
     world.cdf_marker_readings.clear();
 
     drag_over(world, DragSpot::AboveMiddleOf(&key)).await;
-    let aim: (f64, f64) = serde_json::from_value(
-        js(
-            &client,
-            "var p = window.__synthDrag.lastPoint; return [p.x, p.y];",
-            vec![],
-        )
-        .await,
-    )
-    .expect("the last drag point");
+    let (aim, _) = mouse_state(&client).await;
     let (own_top, own_bottom) = card_rect(&client, &key).await;
     let (above_top, above_bottom) = card_rect(&client, &card_above).await;
     let own_mid = (own_top + own_bottom) / 2.0;
@@ -1348,11 +1456,18 @@ async fn when_leaves_every_lane(world: &mut FoundryWorld, how: String) {
     if how.starts_with("moves") {
         drag_over(world, DragSpot::PageHeader).await;
     } else {
-        // Leaving the window: a dragleave with no relatedTarget and no
-        // dragover after it. DDD-3 clears on the next animation frame.
-        let lane = lane_slug_on_screen(&client, "Done").await;
-        browser_harness::drag_leave(&client, DragSpot::LaneEnd(&lane), None).await;
-        tokio::time::sleep(Duration::from_millis(250)).await;
+        // Leaving the window: W3C moves are clamped to the viewport, so the
+        // pointer is carried to the window's left edge and held there.
+        let (_, y) = mouse_state(&client).await.0;
+        mouse(
+            &client,
+            &[
+                PointerStep::Glide(0.0, y, GLIDE_TICKS),
+                PointerStep::Hold(250),
+            ],
+            true,
+        )
+        .await;
     }
 }
 
@@ -1362,21 +1477,32 @@ async fn when_leaves_every_lane(world: &mut FoundryWorld, how: String) {
 async fn when_pointer_passes_over_card(world: &mut FoundryWorld, key: String, label: String) {
     let client = browser(world);
     let lane = lane_slug_on_screen(&client, &label).await;
-    browser_harness::drag_enter(&client, DragSpot::OnCard(&key)).await;
-    browser_harness::drag_leave(
-        &client,
-        DragSpot::LaneEnd(&lane),
-        Some(DragSpot::OnCard(&key)),
-    )
-    .await;
+    let (from, _) = mouse_state(&client).await;
+    let (to_x, to_y) = browser_harness::spot_point(&client, DragSpot::OnCard(&key)).await;
+    // Across the card one move at a time, reading the light after every move:
+    // a lane that goes dark over its own card for even one move fails (M9).
+    for tick in 1..=GLIDE_TICKS {
+        let f = f64::from(tick) / f64::from(GLIDE_TICKS);
+        let point = (from.0 + (to_x - from.0) * f, from.1 + (to_y - from.1) * f);
+        mouse(&client, &[PointerStep::To(point.0, point.1)], true).await;
+        let lit = activated_lanes(&client).await;
+        assert_eq!(
+            lit,
+            vec![lane.clone()],
+            "MISSING_FUNCTIONALITY: {label} must stay lit while the pointer passes over {key} \
+             inside it (move {tick} of {GLIDE_TICKS})"
+        );
+    }
 }
 
 #[when(regex = r"^the drag reports the same pointer position several more times$")]
 async fn when_still_pointer(world: &mut FoundryWorld) {
     let client = browser(world);
     world.cdf_marker_readings.clear();
+    // Chrome dispatches no pointermove for a zero-distance move, so a literal
+    // repeat would be vacuous: a still hand reports a trickle of 1 px moves.
     for _ in 0..5 {
-        browser_harness::drag_over(&client, DragSpot::SamePoint).await;
+        mouse(&client, &[PointerStep::Jitter(120)], true).await;
         world.cdf_marker_readings.push(markers(&client).await);
     }
 }
@@ -1404,8 +1530,11 @@ async fn when_drag_ends(world: &mut FoundryWorld, how: String) {
     } else if how.starts_with("releases") {
         drag_over(world, DragSpot::PageHeader).await;
         drop_here(world).await;
+    } else {
+        // Escape reaches keyboard.js::closeTopLayer()'s card-drag arm; the
+        // mouse is still down and is released by `end_drag`.
+        browser_harness::press_key(&browser(world), "Escape").await;
     }
-    // Escape, a release outside any lane and a drop all end with dragend.
     end_drag(world).await;
     settle_requests(&browser(world)).await;
 }

@@ -67,7 +67,7 @@ Feature: Card drag on any pointer
 
   # The probe scenario (OQ-9): RED on HEAD at the drag, with the recorder
   # showing trusted mouse input DID reach the page and no card lifted.
-  @us-cpd-01 @needs-browser @pending @driving_port @real-io @kpi
+  @us-cpd-01 @needs-browser @driving_port @real-io @kpi
   Scenario: A card dragged with the mouse lands exactly where it is released
     Given the Identity Platform board is open at the desk
     When Priya drags AUTH-41 with the mouse between AUTH-3 and AUTH-12 and releases it
@@ -76,7 +76,7 @@ Feature: Card drag on any pointer
     And no edit dialog opens
     And a reload shows In-Progress as AUTH-3, AUTH-41, AUTH-12, AUTH-19
 
-  @us-cpd-01 @needs-browser @pending @driving_port @real-io
+  @us-cpd-01 @needs-browser @driving_port @real-io
   Scenario: A card dropped at the top of a lane names no card above it
     Given the Identity Platform board is open at the desk
     When Priya drags AUTH-41 with the mouse to the top of In-Progress and releases it
@@ -84,7 +84,7 @@ Feature: Card drag on any pointer
     And the move request is exactly the one the board has always sent, naming no card above
     And a reload shows In-Progress as AUTH-41, AUTH-3, AUTH-12, AUTH-19
 
-  @us-cpd-01 @needs-browser @pending
+  @us-cpd-01 @needs-browser
   Scenario: The card being dragged is carried under the mouse without hiding the lane beneath it
     Given the Identity Platform board is open at the desk
     And Priya has lifted AUTH-41 with the mouse
@@ -115,7 +115,7 @@ Feature: Card drag on any pointer
     Then AUTH-41's edit dialog opens
     And no further move request is sent
 
-  @us-cpd-01 @needs-browser @pending @error
+  @us-cpd-01 @needs-browser @error
   Scenario: Escape during a card drag puts the card back and peels only that layer
     Given the Identity Platform board is open at the desk
     And Priya is dragging AUTH-41 over Done with the mouse
@@ -154,7 +154,7 @@ Feature: Card drag on any pointer
   # DDD-19: cards keep draggable="true" (issue-status-move.feature:49), and the
   # board declines the browser's own drag of them, which would otherwise take
   # the pointer away mid-drag (spike Q1).
-  @us-cpd-01 @needs-browser @pending @error
+  @us-cpd-01 @needs-browser @error
   Scenario: A card never starts the browser's own drag, though it is still marked draggable
     Given the Identity Platform board is open at the desk
     When Priya presses AUTH-41 with the mouse and moves it 30 pixels
@@ -169,7 +169,7 @@ Feature: Card drag on any pointer
     Then nothing else moves and no further move request is sent
     And the board still shows Identity Platform in the same tab
 
-  @us-cpd-01 @needs-browser @pending @real-io
+  @us-cpd-01 @needs-browser @real-io
   Scenario: A card can still be dragged after the board refreshes in place
     Given the Identity Platform board is open at the desk
     And Priya has deleted AUTH-42 from its popup and the board refreshed without reloading

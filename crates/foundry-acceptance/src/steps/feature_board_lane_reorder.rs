@@ -1137,26 +1137,36 @@ async fn escape_cancels_drag(world: &mut FoundryWorld) {
 async fn drag_a_card(world: &mut FoundryWorld, key: String, _from: String, to: String) {
     open_board_in_browser(world).await;
     let to_slug = lane_slug_for_label(world, &to).await;
-    // The SHIPPED card drag: native HTML5 DnD (board-dnd.js). Exercised here
-    // from the lane side to prove ADR-BOARD-LANE-007's origin boundary — a
-    // gesture starting on a card is a card move, never a lane move.
-    let script = format!(
-        "var card = document.querySelector('[data-issue-key=\"{key}\"]'); \
-         var col = document.querySelector('[data-column=\"{to_slug}\"]'); \
-         if (!card || !col) {{ return false; }} \
-         var dt = new DataTransfer(); \
-         card.dispatchEvent(new DragEvent('dragstart', {{ bubbles: true, dataTransfer: dt }})); \
-         col.dispatchEvent(new DragEvent('dragover', {{ bubbles: true, cancelable: true, dataTransfer: dt }})); \
-         col.dispatchEvent(new DragEvent('drop', {{ bubbles: true, cancelable: true, dataTransfer: dt }})); \
-         return true;"
+    // The SHIPPED card drag, on Pointer Events since card-pointer-drag
+    // (ADR-BOARD-CARD-004): a TRUSTED mouse drag (W3C Actions) from the card to
+    // the end of the destination lane. Exercised here from the lane side to
+    // prove the origin boundary — a gesture starting on a card is a card move,
+    // never a lane move — now that both modules listen for `pointerdown`.
+    let client = browser(world);
+    browser_harness::install_pointer_recorder(client).await;
+    let (x, y) = browser_harness::card_press_point(client, &key).await;
+    let (to_x, to_y) =
+        browser_harness::spot_point(client, browser_harness::DragSpot::LaneEnd(&to_slug)).await;
+    browser_harness::perform_pointer(
+        client,
+        browser_harness::PointerKind::Mouse,
+        (x, y),
+        &[
+            browser_harness::PointerStep::To(x, y),
+            browser_harness::PointerStep::Down,
+            browser_harness::PointerStep::Glide(x + 8.0, y + 6.0, 4),
+            browser_harness::PointerStep::Glide(to_x, to_y, 8),
+            browser_harness::PointerStep::Up,
+        ],
+    )
+    .await;
+    let record = browser_harness::pointer_record(client).await;
+    assert!(
+        record.trusted("pointerup") > 0 && record.trusted("pointercancel") == 0,
+        "the card drag of {key} into {to:?} must reach the page as trusted pointer input with no \
+         native drag taking it over: {}",
+        record.describe()
     );
-    let ok = browser(world)
-        .execute(&script, vec![])
-        .await
-        .expect("dispatch card drag")
-        .as_bool()
-        .unwrap_or(false);
-    assert!(ok, "could not drag card {key} into {to:?}");
 }
 
 #[when(
