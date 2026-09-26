@@ -7,6 +7,46 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 
 ## [Unreleased]
 
+## [v0.5.0] - 2026-09-26
+
+The release footer and the first slice of Pointer Events card drag. The
+board-lane-reorder finalize and the card-pointer-drag DISCUSS/DESIGN/DISTILL
+commits in this range are docs and pending tests only; `git log
+v0.4.0..v0.5.0` is the full list.
+
+### Added
+
+- **Release version in the page footer.** Every full page, signed in or out,
+  now ends with a small muted `Foundry vX.Y.Z` footer, so an operator can see
+  which release is serving without shell access. The version is
+  `foundry-app`'s `CARGO_PKG_VERSION`, exposed as `views::RELEASE_VERSION` and
+  read from `base.html`; htmx fragments never extend the base template and
+  carry no footer. The footer sits in the app shell's bottom padding, so no
+  authed page (the board included) gains a scrollbar. Stylesheet content-hash
+  rotated `438142d2` → `f9143163`.
+
+### Changed
+
+- **Card drag runs on Pointer Events for the mouse.** `board-dnd.js` moves its
+  event layer from HTML5 drag-and-drop to Pointer Events
+  (ADR-BOARD-CARD-004): a primary-button press on a card lifts past 6 px, the
+  card stays in its slot while a fixed clone ghost follows the pointer, and
+  release over a lane lands at the live marker with the same POST as before.
+  Release off every lane, Escape (through `keyboard.js::closeTopLayer()`), or
+  `pointercancel` after the lift ends the drag cancelled. One gesture means one
+  thing: a lifted release never also opens the card dialog, only the primary
+  button starts a drag, and a card drag never moves a lane (nor a header drag a
+  card). Desktop files dragged onto the board are still swallowed. Touch and
+  pen come in a later release (card-pointer-drag slices 02–03). Stylesheet
+  content-hash rotated `f7c36a08` → `438142d2`.
+
+### Changed (internal)
+
+- **`check-arch` forbids keydown listeners in `board-*.js`.** Escape has one
+  owner, `keyboard.js::closeTopLayer()` (BR-4); the new rule flags any
+  `addEventListener("keydown"`, `.onkeydown =` or `on("keydown"` registration
+  in a board script (comments stripped, a missing js directory fails closed).
+
 ## [v0.4.0] - 2026-09-19
 
 First tagged release since v0.3.1: everything on `main` since then, including
@@ -148,6 +188,7 @@ followed it.
 - A `comments_visible` SQL VIEW for defense-in-depth against missed
   soft-delete filters is deferred to v0.3 (ADR-017).
 
-[Unreleased]: https://github.com/Canzan/foundry/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/Canzan/foundry/compare/v0.5.0...HEAD
+[v0.5.0]: https://github.com/Canzan/foundry/compare/v0.4.0...v0.5.0
 [v0.4.0]: https://github.com/Canzan/foundry/compare/v0.3.1...v0.4.0
 [v0.2.0]: https://github.com/Canzan/foundry/releases/tag/v0.2.0
