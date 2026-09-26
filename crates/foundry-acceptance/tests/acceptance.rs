@@ -50,6 +50,8 @@ use foundry_acceptance::steps::feature_canzan_theme as _feature_canzan_theme;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_card_drag_drop_feedback as _feature_cdf;
 #[allow(unused_imports)]
+use foundry_acceptance::steps::feature_card_pointer_drag as _feature_cpd;
+#[allow(unused_imports)]
 use foundry_acceptance::steps::feature_card_ranking_within_status as _feature_card_ranking;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_dashboard_enhancements as _feature_dashboard;

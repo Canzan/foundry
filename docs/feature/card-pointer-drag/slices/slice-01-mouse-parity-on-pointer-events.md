@@ -46,6 +46,11 @@ AC-1.1 … AC-1.9 (see `feature-delta.md` US-CPD-01). Gate: `git diff` on every
 shipped `.feature` = empty; all re-driven scenarios green; foreign scenarios
 green on `DragEvent`; POST body byte-identical (fetch spy).
 
+DoD also carries DDD-22: the `check-arch` rule that no `static/js/board-*.js`
+registers a `keydown` listener, with its nine gold tests, specified in
+`feature-delta.md` `## Wave: DISTILL`, "check-arch keydown rule (DDD-22)". It is
+the instrument for AC-1.6's "no `keydown` listener in the drag module".
+
 ## Production data
 
 Seeded Identity Platform (AUTH-3/12/19/41/42/43) and Homelab Ops (OPS-3/7/9,

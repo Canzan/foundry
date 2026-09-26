@@ -283,6 +283,9 @@ pub struct FoundryWorld {
     /// The second tab's lanes before the first tab's delete.
     pub cdf_second_looks_before: Option<Vec<CdfLaneLook>>,
 
+    // ---- card-pointer-drag (US-CPD-01..03) ----
+    pub cpd: crate::steps::feature_card_pointer_drag::CpdState,
+
     // ---- US-05+ in-process harness ----
     pub harness: Option<InProcHarness>,
     pub http: Option<reqwest::Client>,

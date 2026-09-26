@@ -741,6 +741,7 @@ are open risks and are not load-bearing in the recommendation.
 | DDD-10 | **The move POST is the shipped `fetch`**, byte-identical (`state`, `after` from `neighbourAbove` after landing, `x-csrf-token` from `foundry_csrf`). Never an htmx `hx-post`. | D1, board-lane-reorder DDD-13 |
 | DDD-11 | **Vertical page auto-scroll is in scope** (slice 03), alongside horizontal board auto-scroll (the `EDGE_ZONE 48 / EDGE_STEP 14` precedent). It changes what is visible, never what the marker addresses. | OQ-6 → confirmed |
 | DDD-12 | **The acceptance driver is re-pointed to trusted W3C Actions**: fantoccini `MouseActions` for mouse card drags, `TouchActions` for `@mobile` touch (a W3C `pause` of ≥ 400 ms is the hold), and `KeyActions` Escape for "presses Escape". Foreign drags stay synthetic `DragEvent` (`drag_start_foreign`). The page event recorder is armed before every drag assertion. `DragSpot` live-geometry resolution is kept as the source of Actions coordinates. Timeouts are budgeted at ~33 ms per touch step. | OQ-9, D4, spike Q7 |
+| DDD-12a (amends DDD-12, 2026-09-26, DISTILL measurement U1) | **Touch is driven by CDP, not `TouchActions`.** Mouse and pen: W3C `MouseActions` / `PenActions`; Escape: `KeyActions`; touch: Chrome's `Input.dispatchTouchEvent` through the driver's CDP passthrough (a second finger is a second touch point; `touchCancel` is "the system takes the pointer"). Measured on chromedriver/Chrome 151: a W3C touch source cannot continue a gesture across `perform_actions` calls (later moves and the release are silently dropped) and W3C `pointerCancel` dispatches nothing. CDP touch events are the same trusted dispatch chromedriver uses under its touch actions. The rest of DDD-12 stands. | DISTILL *Driver fidelity*, U1 |
 | DDD-13 | **The device checklist in `spike/findings.md` (steps 1-11) is mandatory** on a real iOS Safari and a real Android Chrome before slice 02 is planned. It is repeated as the slice-02/03 dogfood, with OS/browser versions recorded. Step 5 on iOS is the gate. | D19 |
 | DDD-14 | **ADR-BOARD-CARD-004 supersedes ADR-BOARD-LANE-007's "permanent divergence"** and boundary leg 1. It is drafted as **Proposed**; its Decision text is final when the user picks an option. The boundary rests on origin (leg 2) and thresholds (leg 3). | D13, OQ-8 |
 | DDD-15 | **Lift feedback is visual**: at the moment of the lift the carried visual appears and the origin is marked lifted. `navigator.vibrate` is not used (iOS has none), so a haptic-only cue would split the platforms. It stays a backlog enhancement. | OQ-10, OQ-7 (visual detail in DDD-17) |
@@ -1021,3 +1022,464 @@ the mechanism question returns to the user with the device evidence.
 
 - **`htmx-4-migration`**: move the vendored htmx 2.0.4 to 4.x (fetch transport, explicit attribute inheritance, morph swaps) across every `hx-*` surface. It should be scheduled once 4.x becomes npm `latest` (expected early 2027). No 2.0.x patch bump is taken meanwhile. It is not this feature's scope, and no feature directory is opened for it yet (DDD-20).
 - Carried from DISCUSS: a keyboard card move (D17); `.lane-drop-indicator` contrast; haptic lift feedback (DDD-15).
+
+## Wave: DISTILL
+
+Quinn (@nw-acceptance-designer), 2026-09-26. Rigor `adr-025-scaffolded-red`,
+no-commit mode. Density lean. `[lang-mode] rust` (`Cargo.toml`), `[policy-mode]
+inherit`, `[port-mode] inherit` (no `tests/common/state_delta.rs`, the Rust
+precedent of every prior feature: browser scenarios are layer 4+, where Mandate 8
+allows traditional assertions). Decisions fixed by the caller: core feature scope,
+the existing cucumber-rs suite, testcontainers Postgres + real headless Chrome,
+real production services, no mocks at acceptance level, no infrastructure testing.
+
+Scenario SSOT: `crates/foundry-acceptance/tests/features/card-pointer-drag.feature`
+(feature tag `@cpd`, **27 scenarios, all `@pending @needs-browser`**). Steps:
+`crates/foundry-acceptance/src/steps/feature_card_pointer_drag.rs`.
+
+### [REF] Prior Wave Consultation
+
+| Source | Read | What it settled for DISTILL |
+|---|---|---|
+| This file, DISCUSS (D1-D20, US-CPD-01..03, AC-1.1..3.7, KPIs 1-7, C1-C9, the *Test-driver re-pointing* table) | ✓ | The scenario set (each story's UAT is the starting point), the D4 byte-identical Gherkin gate, the C4/C8 SSOT duties. |
+| This file, DESIGN (DDD-1..22, all Locked; user decisions OQ-D0..D5) | ✓ | The DOM hooks the oracles read (DDD-7 `html[data-card-dragging]`, DDD-17 `[data-card-lifted]` + fixed ghost), the lift constants (DDD-5), the click guard (DDD-6), DDD-12's driver, DDD-19's cancelled `dragstart`, DDD-22's check-arch rule. |
+| `slices/slice-01..03`, `spike/findings.md` | ✓ | Production data per slice; the measured traps: touch target stays the origin card (Q4, `elementFromPoint`), ~15 px `touchmove` slop, the click after a lifted release (Q6), ~33 ms per CDP touch dispatch, W3C `pause` 400 ms = hold (Q7). |
+| `adr-board-card-004-pointer-events-card-drag.md`, `brief.md` | ✓ | Driving ports (no `## For Acceptance Designer` section; DESIGN *Driving Ports* stands in). |
+| `docs/product/journeys/journey-card-drag-drop.yaml` (`touch` variant) | ✓ | Every `failure_modes` / `error_paths` entry mapped below (*Adapter coverage*). |
+| `docs/product/outcomes/registry.yaml`, `docs/product/kpi-contracts.yaml` | ✓ | OUT-13/14 amended, OUT-16 registered; CDF-KPI-8 re-scoped; CPD-KPI-1..7 added (*Outcome registration*). |
+| `docs/architecture/atdd-infrastructure-policy.md` | ✓ | Every port in scope has a row (in-process HTTP, Postgres, containerised Chrome). No row added; the new driver mechanism is recorded below. |
+| `card-drag-drop-feedback` and `board-lane-reorder` `## Wave: DISTILL` | ✓ | Format, the "strip `@pending` for the run, restore by `cmp`" gate procedure, positive-control and "prove X existed" discipline, the three-reviewer precedent. |
+| `card-drag-drop-feedback.feature`, `issue-status-move.feature`, `card-ranking-within-status.feature`, `board-lane-reorder.feature`; `feature_card_drag_drop_feedback.rs`, `browser_harness.rs` (DragEvent kit), `world.rs`, `lib.rs`, `tests/acceptance.rs` | ✓ | Reused by pattern; the kit is untouched. Step phrases were checked against the global registry (two DISCUSS phrasings collided and were reworded, *Upstream issues*). |
+| `docs/feature/card-pointer-drag/{discuss,design,devops}/wave-decisions.md` | ⊘ | Not present (single `feature-delta.md` layout). No DEVOPS wave ran. |
+
+**Wave-Decision Reconciliation: PASSED — 0 contradictions.** DESIGN re-opened
+D20 (a drag library) and closed it on the same answer (Option A); OQ-4 resolved
+to keep `draggable` (DDD-19), which keeps `issue-status-move.feature:49` true.
+Both are decisions taken, not contradictions. One DESIGN statement is
+**refuted by measurement** and recorded as an upstream issue, not a
+contradiction: DDD-12's "`TouchActions` for `@mobile` touch" (see *Driver
+fidelity*).
+
+### [REF] Driver fidelity (OQ-9), measured
+
+DESIGN called W3C touch Actions "highly likely but not proven" (spike Q7). DISTILL
+ran them against the lane's own image (`selenium/standalone-chrome:latest` =
+`cd778b6f38d9`, **Chrome 151.0.7922.108**, same bundled chromedriver) on the
+spike's `probe.html`, driven by plain W3C/CDP HTTP calls with a capture-phase
+recorder armed first (scripts in the session scratchpad, not the repo).
+
+| Input | Result | Consequence |
+|---|---|---|
+| W3C **touch**, one `perform_actions` call (down, `pause` 450, up) | Trusted `pointerdown`/`touchstart` (pointerType `touch`); the probe's 350 ms hold **lifted**; tap → trusted `click` on the card | Touch reaches the page trusted |
+| W3C touch, quick swipe (one call) | Trusted `pointercancel` (browser claimed the pan); **board `scrollLeft` 0 → 184-210, page `scrollY` 0 → 470** on a vertical swipe | A REAL scroll is observable in this lane (AC-2.2 partly automatable) |
+| W3C touch **across calls** (down + hold in one call, moves / release in a later one) | **Every later move and release silently dropped**; the stale source then swallows the next touch call too. W3C `pointerCancel` is accepted and dispatches **nothing** | DDD-12's `TouchActions` cannot drive "lift, then assert, then carry": **touch goes through CDP instead** |
+| CDP `Input.dispatchTouchEvent` via the driver passthrough (`/session/{id}/goog/cdp/execute`), one event per call | Trusted, spans calls: hold lifted, 5/5 moves delivered, `touchEnd` delivered; a **second finger** is a distinct pointer (#3) and the first stays lifted; `touchCancel` → trusted `pointercancel` + `touchcancel` | The touch driver. It is the dispatch chromedriver itself uses under W3C touch |
+| W3C **mouse** on a `draggable` card, press + move 30 px | **A real HTML5 drag starts**: trusted `dragstart`, `pointercancel`, then `dragover` x8, `drop`, `dragend` | Contradicts the shipped harness comment "WebDriver pointer actions never start a NATIVE HTML5 drag". On HEAD a W3C mouse drag is served by the HTML5 path; DDD-19's cancelled `dragstart` is load-bearing in the lane too |
+| W3C mouse, same, `dragstart` cancelled (DDD-19 variant C) | Uninterrupted `pointermove`, lift at 6 px, `pointerup`; click on `#board-columns` (the common ancestor) | Confirms spike Q1 C through the lane's driver |
+| W3C mouse across calls + a W3C `Escape` key mid-drag | Moves and release delivered across calls; the page received the `keydown` | Mouse and keyboard stay W3C Actions |
+| W3C mouse right button | `contextmenu`, no lift | The primary-button scenario is drivable |
+| W3C **pen** across calls | pointerType `pen`, hold lifted, moves and release delivered; pen's compat mouse events also raise `dragstart` | Pen stays W3C Actions; DDD-19 covers the pen too |
+
+**Verdict: not a blocker.** Trusted pointer input works for all three pointer
+types in the container; W3C touch cannot span calls, so the harness drives
+touch with CDP touch events (equally trusted). Recorded as upstream issue U1.
+
+### [REF] Scenario list with tags
+
+`@cpd` on the feature; every scenario also carries `@needs-browser @pending`.
+Touch scenarios run in the 390x844 `@mobile` session. No `@walking_skeleton`
+(D8, a decision).
+
+| # | Scenario | Story | Tags (besides `@cpd @needs-browser @pending`) | AC |
+|---|---|---|---|---|
+| 1 | A card dragged with the mouse lands exactly where it is released | 01 | `@driving_port @real-io @kpi` | 1.3, 1.5 (no dialog), reload |
+| 2 | A card dropped at the top of a lane names no card above it | 01 | `@driving_port @real-io` | 1.3 (`after` omitted) |
+| 3 | The card being dragged is carried under the mouse without hiding the lane beneath it | 01 | | 1.8, D10 |
+| 4 | A drag released back over its own card does not open it | 01 | `@edge` | 1.5 (spike Q6 same-card click) |
+| 5 | Right after a drag, a press that barely moves is still a click | 01 | | 1.4, 1.5 (guard reset, DDD-6) |
+| 6 | Escape during a card drag puts the card back and peels only that layer | 01 | `@error` | 1.6 |
+| 7 | Only the primary mouse button drags a card | 01 | `@error` | 1.4 |
+| 8 | A drag begun on a card never moves a lane | 01 | `@error` | 1.7 (card side, D13) |
+| 9 | A drag begun on a lane header never lifts a card | 01 | `@error` | 1.7 (lane side), 2.8 |
+| 10 | A card never starts the browser's own drag, though it is still marked draggable | 01 | `@error` | DDD-2/19, 1.1 (`issue-status-move:49`) |
+| 11 | A file from the desktop is still swallowed right after a pointer drag | 01 | `@error` | 1.2 (D3 after a pointer session) |
+| 12 | A card can still be dragged after the board refreshes in place | 01 | `@real-io` | D10 replace-proof |
+| 13 | Holding a card lifts it and it can be dropped at an exact slot by touch | 02 | `@mobile @driving_port @real-io @kpi` | 2.1, 2.3, 2.6 |
+| 14 | While lifted by touch, the lane under the finger lights, the marker shows the slot and nothing scrolls | 02 | `@mobile` | 2.4, 2.6, DDD-3 |
+| 15 | A touch that moves before the hold completes scrolls the board and lifts nothing | 02 | `@mobile @error @kpi` | 2.2 (real scroll in Chrome) |
+| 16 | A tap on a card still opens it, even right after a touch drag | 02 | `@mobile @kpi` | 2.3 (guard reset on touch) |
+| 17 | A card lifted by touch and released where it lifted opens nothing and stays put | 02 | `@mobile @edge` | 2.3 |
+| 18 | A second finger during a touch drag does not take the card | 02 | `@mobile @error` | 2.7 (D16) |
+| 19 | A touch drop the server refuses puts the card back exactly | 02 | `@mobile @error @real-io` | 2.6 (journey `refused`) |
+| 20 | A pen lifts a card by holding, exactly as a finger does | 02 | | 2.1 (pen), 2.6 |
+| 21 | Holding a carried card at the board's edge scrolls to an off-screen lane | 03 | `@mobile @driving_port @real-io @kpi` | 3.1, 3.4 |
+| 22 | Auto-scroll stops at the board's end | 03 | `@mobile @edge` | 3.2 |
+| 23 | Holding a carried card near the bottom reaches the end of a long lane | 03 | `@mobile @kpi` | 3.3, 3.4 |
+| 24 | The system taking the pointer mid-drag puts the card back and leaves nothing behind | 03 | `@mobile @error @kpi` | 3.5 (after lift) |
+| 25 | A hold the system interrupts before the card lifts leaves nothing to undo | 03 | `@mobile @error` | 3.5 (before lift) |
+| 26 | Releasing a carried card off every lane changes nothing | 03 | `@mobile @error @kpi` | 3.6 |
+| 27 | A mouse drag in a narrow window reaches an off-screen lane too | 03 | | 3.7 |
+
+| Slice / story | Scenarios | `@error` | `@edge` |
+|---|---|---|---|
+| 01 / US-CPD-01 | 12 | 6 | 1 |
+| 02 / US-CPD-02 | 8 | 3 | 1 |
+| 03 / US-CPD-03 | 7 | 3 | 1 |
+| **Total** | **27** | **12 (44%)** | **3** (non-happy 15/27 = 56%) |
+
+**AC not covered by a scenario, and why.** AC-1.1 and AC-1.2 are the ~37
+re-driven shipped scenarios (D4), not new ones: DELIVER slice 01's gate. AC-1.9,
+2.9 (stylesheet re-hash) are `lib.rs` tests + check-arch. AC-2.5 (no callout,
+selection, context menu on iOS/Android) is dogfood-only (D19, DDD-13). The
+AC-1.6 clause "the drag module has no `keydown` listener" is DDD-22's check-arch
+rule (*check-arch keydown rule*). A mouse `pointercancel` (AC-1.6 last sentence)
+has no trusted trigger in this lane (Chrome raises it only when a native drag
+takes over, which DDD-19 prevents); the touch cancel (#24) exercises the same
+single revert path (DDD-8), and the mouse case is a named fault for DELIVER.
+
+**Oracle discipline, applied before any run.**
+- *Anti-vacuity by positive control:* #7, #9, #15, #25 would be green on HEAD
+  only because nothing lifts yet; each ends with "... straight afterwards does
+  lift", so each is RED for the right reason and discriminating after DELIVER.
+  #5, #11, #16 open with a real pointer drag as their Given for the same reason.
+- *"Nothing remains" only after "it existed":* the Givens of #6, #24, #26 prove
+  the carried card, the lit lane and the marker (`prove_carried_over`) and the
+  oracle refuses to run otherwise; #19 records all three just before the release.
+- *Exact slot, not lane:* "back in its exact slot" compares `(lane, above,
+  below)` read at the lift.
+- *ORDER oracles:* every landing reads the whole lane, on screen and after a
+  reload; the edge scenarios assert marker = landing = POST `after` (#21, #23, #27).
+- *Driver vs feature:* every lift failure reads the recorder first. No trusted
+  `pointerdown` → `BROKEN(driver)`; trusted input with no lift →
+  `MISSING_FUNCTIONALITY`, with the recorder's counts in the message.
+- *Scroll oracles are real:* #15 asserts the board's `scrollLeft` grew (measured
+  possible, above); #14 asserts neither the board nor the page moved while
+  lifted (spike Q3's control scrolled 285 px without the guard).
+
+### [REF] RED classification
+
+**Gate PASSED: 27 scenarios — 27 RED (MISSING_FUNCTIONALITY), 0 BROKEN, 0
+false-GREEN, 0 expected-GREEN.** Totals: 27 scenarios (27 failed), 151 steps
+(124 passed, 27 failed), 0 parse errors, 0 hook errors, 0 unmatched or ambiguous
+steps.
+
+Observed 2026-09-26 on HEAD `c683a1a` (working tree: this feature's test files
+and docs only; no production file changed). Lane:
+`FOUNDRY_ACCEPTANCE_TAGS=cpd cargo test -p foundry-acceptance --test acceptance`
+with the file's `@pending` tags stripped for the run and restored from a copy,
+proved identical with `cmp`. Browser: `selenium/standalone-chrome:latest` =
+`cd778b6f38d9` (Chrome 151.0.7922.108). **Run inside a Linux container** (U5):
+`rust:1.91-slim-bookworm` on the Docker host network, `FOUNDRY_BROWSER_DRIVER_HOST=host.docker.internal`,
+`FOUNDRY_BROWSER_HOST_GATEWAY=172.17.0.1`; testcontainers Postgres as usual.
+Compile gates in the same container: `cargo fmt --check` EXIT 0, `cargo clippy
+-p foundry-acceptance --all-targets --locked -- -D warnings` EXIT 0.
+
+**The probe is every scenario (OQ-9).** Each lift failure first reads the page
+recorder, so a RED line proves trusted input reached the page. Verbatim, #1:
+
+> `MISSING_FUNCTIONALITY: AUTH-41 did not lift after a primary press moved past the 6 px threshold with a mouse (US-CPD-01, DDD-5/7/17). Drag in flight on the page = false, origin marked lifted = false, carried copies = 0. The driver DID deliver trusted input: page recorder (trusted/all): [dragstart=1/1 pointercancel=1/1 pointerdown=1/1 pointermove=3/3]; pointer types seen: ["mouse"]; native drags: [{"cancelled": false, "key": "AUTH-41", "trusted": true}]`
+
+That line is HEAD's HTML5 module caught in the act: the trusted press-and-move
+starts the browser's own drag and Chrome takes the pointer (`pointercancel`),
+exactly spike Q1 variant A, which DDD-19 removes. The touch line reads
+`[pointerdown=1/1 touchstart=1/1]; pointer types seen: ["touch"]` and the pen line
+`[pointerdown=1/1 pointermove=1/1]; ["pen"]`.
+
+| # | Scenario | Class | First failing step → reason |
+|---|---|---|---|
+| 1, 2, 12 | Lands where released / top of a lane / after a refresh | RED x3 | the When's mouse lift: no lift, native drag + `pointercancel` (#12: the popup delete and in-place refresh passed first) |
+| 3, 4 | Carried under the mouse / released over its own card | RED x2 | Given `Priya has lifted AUTH-41 with the mouse` |
+| 5, 11 | Press barely moves after a drag / file after a drag | RED x2 | Given `Priya has just dragged AUTH-43 into Done with the mouse` |
+| 6 | Escape | RED | Given `Priya is dragging AUTH-41 over Done with the mouse` |
+| 7 | Only the primary button | RED | Positive control. Right button: not lifted, Backlog unchanged, no request (all passed), then `the same move with the primary button does lift AUTH-41` → no lift |
+| 8 | Card never moves a lane | RED | the When's lift of OPS-3 |
+| 9 | Lane header never lifts a card | RED | Positive control. The trusted header drag reordered the lanes (`Backlog, Done, In-Progress`), no card lifted or moved, no card request (all passed), then `a card dragged straight afterwards still lifts` → no lift |
+| 10 | Never the browser's own drag | RED | `the board let the browser start its own drag of a card (dragstart not cancelled)`, recorder `dragstart=1/1 pointercancel=1/1` |
+| 13, 14, 17, 18, 19 | Touch drop / lit lane + no scroll / lifted release in place / second finger / refused | RED x5 | Given `Priya has lifted AUTH-41 by holding it with a touch pointer`: trusted touch, no lift |
+| 15 | Swipe | RED | Positive control. The swipe **really scrolled the board** (`scrollLeft` grew), nothing lifted, lit or sent (all passed), then `holding OPS-3 still straight afterwards does lift it` → no lift |
+| 16 | Tap after a touch drag | RED | Given `Priya has just carried AUTH-43 into In-Progress by touch` |
+| 20 | Pen | RED | Given `Priya has lifted AUTH-19 by holding it with a pen` |
+| 21, 22, 23 | Edge to an off-screen lane / stops at the end / long lane | RED x3 | the touch lift Given (the 8-lane and 20-card preconditions passed: Done starts off-screen at 390 px) |
+| 24, 26 | System takes the pointer / release off every lane | RED x2 | Given `Priya is carrying AUTH-41 over In-Progress with a touch pointer` |
+| 25 | Hold interrupted before the lift | RED | Positive control. The CDP cancel arrived trusted (`pointercancel` recorded), nothing lifted after the hold time (passed), then `holding AUTH-41 again straight afterwards does lift it` → no lift |
+| 27 | Mouse edge scroll, narrow window | RED | Given `Priya has lifted OPS-3 with the mouse` (the 440 px window put Done off-screen) |
+
+By story: US-CPD-01 **12 RED**, US-CPD-02 **8 RED**, US-CPD-03 **7 RED**.
+
+**What the run did and did not execute.** 22 scenarios stop at the lift, so
+their later steps compiled clean but have not yet run against a lifting board;
+DELIVER's first un-pend is their first execution, and a failure there that is not
+about the feature is a test bug to fix, never a reason to weaken an oracle. The
+steps that DID run green: the Background, all five board-opening variants (desk,
+phone, pen, narrow window, eight lanes), the long-Backlog seeding, the
+deleted-elsewhere seeding, the popup delete with a proven in-place refresh, the
+right-button gesture and its three oracles, the trusted header drag and its two
+oracles, the native-drag press-and-move, the swipe and its two oracles (a real
+scroll), and the brief touch + CDP cancel and its oracle.
+
+**Before the gate ran, two driver defects were found and fixed** (by the OQ-9
+probe, not by the lane): W3C touch across calls (U1, now CDP), and out-of-viewport
+W3C moves (`move target out of bounds` rejects the WHOLE action and silently
+swallows the next call), which `perform_pointer` now prevents by clamping every
+point into the viewport. **A first lane attempt was BROKEN and not accepted:** the
+host-network container reached neither `127.0.0.1` nor `172.17.0.1` published
+ports on Docker Desktop (`the browser container did not report ready on
+127.0.0.1:<port> within 90s`, x27); measured with a reachability probe
+(`host.docker.internal:<published>` and `<container-ip>:4444` work, the other two
+do not), fixed with the `FOUNDRY_BROWSER_DRIVER_HOST` knob, re-run above. The
+eight Chrome containers and the Postgres container that attempt leaked (a panic
+inside `OnceCell::get_or_init` retries per scenario) were removed.
+
+**Regression: the `cdf` lane.** `FOUNDRY_ACCEPTANCE_TAGS=cdf` in the same
+container, after the `cpd` run: **54 scenarios (54 passed), 400 steps (400
+passed), EXIT 0**, the shipped baseline exactly. Production code is untouched and
+the shipped DragEvent kit still drives HEAD; the harness additions are new
+functions plus two environment knobs whose defaults are the old behaviour.
+
+### [REF] Scaffolds
+
+**None, by design** (DDD-16/21: the change is `board-dnd.js`, `keyboard.js` and
+the stylesheet, which DELIVER owns; no Rust production module is added or
+imported). Zero `SCAFFOLD: true` markers. The RED is the missing browser
+behaviour, observed through the DESIGN-pinned hooks.
+
+Test infrastructure added (not production):
+
+| File | Change |
+|---|---|
+| `crates/foundry-acceptance/src/support/browser_harness.rs` | EXTEND. Trusted pointer driver: `PointerKind`, `PointerStep`, `perform_pointer` (mouse/pen → W3C Actions; touch → CDP `Input.dispatchTouchEvent`, per-session touch-point bookkeeping), `viewport`, `spot_point` (re-uses the kit's `DragSpot` resolver), `card_press_point`, `install_pointer_recorder` / `pointer_record` / `PointerRecord`, `system_cancels_touch`, and two environment knobs for a containerised run, `FOUNDRY_BROWSER_HOST_GATEWAY` (default `host-gateway`) and `FOUNDRY_BROWSER_DRIVER_HOST` (default `127.0.0.1`), both unchanged when unset. The DragEvent kit is untouched; the shipped functions change only where they build the driver URL (`driver_host()`) and the container's `--add-host`. |
+| `crates/foundry-acceptance/src/steps/feature_card_pointer_drag.rs` | CREATE. Self-contained (own seeding, own `world.cpd` state), so no shipped step module changes before DELIVER re-points them. |
+| `crates/foundry-acceptance/src/world.rs` | EXTEND: one field, `cpd: CpdState` |
+| `crates/foundry-acceptance/src/lib.rs`, `tests/acceptance.rs` | Register and force-link the module |
+
+### [REF] Adapter coverage
+
+| Adapter | `@real-io` scenario | Covered by |
+|---|---|---|
+| `board-dnd.js` card gesture (Pointer Events, to be written) | YES | #1, #2, #12, #13, #21 (real script, trusted input, real POST) |
+| `fetch` → `POST …/issues/{n}/state` → `change_issue_state` | YES | #1, #2, #13, #20 (body byte-for-byte, `x-csrf-token` = `foundry_csrf` cookie, 200, reload order) |
+| Server refusal (uniform 404) → `Origin.restore` | YES | #19 (real store-level delete, real 404, exact slot) |
+| `keyboard.js::closeTopLayer()` card-drag arm | YES | #6 (a real Escape key; a second Escape is a no-op) |
+| Native HTML5 swallow (retained) | YES | #10 (own-card `dragstart` cancelled), #11 (file after a pointer drag) |
+| htmx OOB `#board-columns` (popup delete) | YES | #12 |
+| `board-lane-dnd.js` header drag | YES | #9 (and the shipped BLR guard, re-pointed) |
+| Browser scroll (board `scrollLeft`, page scroll) | YES | #15 (real swipe scroll), #14, #21, #22, #23 |
+
+Zero `NO — MISSING` rows.
+
+**Journey `touch` failure modes → scenarios.** t1 OS long-press: dogfood only
+(D19); native drag mid-hold: #10 (+ device steps 4/8). t2 first move scrolls: #14.
+t3 stalls at the edge: #21, #22, #23, #27. t4 release read as a tap: #4, #17.
+Error paths: swipe-not-drag #15; tap-not-drag #16 (and #5 for the mouse);
+pointercancel #24, #25; release-off-board #26; refused #19.
+
+### [REF] Driving adapter coverage
+
+| Driving port (DESIGN) | Exercised through its own protocol by |
+|---|---|
+| Pointer gesture on a card (mouse / touch / pen) | Every scenario: trusted W3C mouse/pen Actions and CDP touch events into the real page, after a real WebDriver sign-in |
+| Escape → `closeTopLayer()` arm | #6: a W3C key action, mid-drag, with the mouse still down |
+| Native drag events in `#board-columns` | #10 (the browser's own `dragstart`, raised by a trusted mouse press-and-move), #11 (synthetic foreign `DragEvent`) |
+| `click` after a lifted release | #1, #4, #13, #17, #26 (no dialog), #5, #16 (click/tap still opens) |
+| `POST …/issues/{n}/state` (unchanged) | #1, #2, #13, #19, #20, #21, #23, #27 |
+
+There is no CLI or `/api/v1` surface for this feature.
+
+### [REF] Test placement
+
+`crates/foundry-acceptance/tests/features/card-pointer-drag.feature` +
+`src/steps/feature_card_pointer_drag.rs`, registered in `src/lib.rs` and
+force-linked in `tests/acceptance.rs`: the one-feature-file-plus-one-step-module
+precedent of every shipped feature. Rust row of the polyglot matrix: `@pending`
+is the skip marker and every lane excludes it. Step phrases are workspace-wide in
+cucumber-rs's single registry and were grepped against every module (two
+collisions avoided, U3).
+
+### [REF] Driver re-pointing plan (DELIVER slice 01)
+
+DISTILL does **not** re-point the shipped driver: the shipped card-drag
+scenarios are green against HEAD's HTML5 module, and re-pointing them now would
+turn them red before the production change exists. DELIVER slice 01 re-points
+them in the SAME change that moves `board-dnd.js` onto Pointer Events. Gate:
+`git diff` on every shipped `.feature` empty, every re-driven scenario green,
+every foreign scenario green on `DragEvent`.
+
+Use the harness functions DISTILL added (above). Mapping
+(`feature_card_drag_drop_feedback.rs` unless noted):
+
+| Shipped step fn / helper | Today (DragEvent kit) | After slice 01 | Oracle |
+|---|---|---|---|
+| `start_drag` | `drag_start` | arm `install_pointer_recorder`; `perform_pointer(Mouse, [To(card_press_point), Down, Glide(+8,+6,4)])`; keep `cdf_origin`, `cdf_moves_before` | unchanged |
+| `drag_over(spot)` | `drag_over` → `dragover.defaultPrevented` into `cdf_over_claimed` | `perform_pointer(Mouse, [Glide(spot_point(spot), 8)])`; `cdf_over_claimed` := the lane under the pointer carries `[data-card-drop-target]` | "X accepts the drag" is observed at the lit lane instead of `dragover`: the same claim, at the user-visible hook |
+| `drop_here` | `drag_drop(SamePoint)` (only on a claimed dragover) | `perform_pointer(Mouse, [Up])`; `cdf_drop_claimed` := that lane was lit at the release | "a drop lands only on a lane that took it" is kept |
+| `end_drag` | `drag_end` | nothing after `Up`; after Escape it is the release that follows | unchanged |
+| `release_accepted`, `drag_and_drop`, `given_dragging_over`, `given_marker_between`, `given_cancelled_drag`, `when_hover_then_cancel`, `when_drags_*` | compose the kit | compose the re-pointed helpers | unchanged |
+| `when_drag_ends` "presses Escape" | `dragend`, no drop | `browser_harness::press_key("Escape")` (reaches the new arm), then `Up` | revert + zero residue |
+| `when_drag_ends` / `when_leaves_every_lane` "releases it over / moves it over the page header" | header `dragover` / `dragend` | `Glide(spot_point(PageHeader))`, then `Up` | unchanged |
+| `when_leaves_every_lane` "carries it out of the browser window" | `dragleave` with a null `relatedTarget` | `Glide` to the viewport edge (x = 0) and hold. **Flag:** W3C moves are clamped to the viewport, so "out of the window" becomes "to its edge". If that does not light nothing, the Gherkin is at stake and the question returns to the user (D4); it is never reworded silently | nothing lit |
+| `when_pointer_passes_over_card` (DDD-8f, read between `dragleave` and `dragover`) | `dragenter` + `dragleave` | a `Glide` across the card inside the lane, reading activation after every tick | the lane stays lit over its own cards (M9) |
+| `when_still_pointer` ("reports the same position several more times") | 5 x `dragover` at `SamePoint` | `Jitter(600)` at the point, reading markers per tick. **Chrome dispatches no `pointermove` for a zero-distance move, so a literal repeat is vacuous**; a 1 px jitter is what a still hand reports | readings identical |
+| `when_foreign_drop`, `when_foreign_over`, `begin_foreign` | foreign DragEvents | **unchanged** (D3) | unchanged |
+| `when_drags_from_other_tab` | `drag_start` in the second tab + foreign text in the first | **unchanged** (D3). After DDD-19 the second tab's own `dragstart` is cancelled; the step ignores that return value | unchanged |
+| `feature_board_lane_reorder.rs:1137` `drag_a_card` | inline `DragEvent` script | `perform_pointer(Mouse, [To(card), Down, Glide(lane end, 8), Up])` | card moves, never the lane |
+| `keyboard_shortcut_bindings.rs:3043` `hiroshi_drags_auth2_to_another_column` | inline `DragEvent` script | the same mouse drag to the first other column's top | `__kbDraggedInto`, old slot |
+
+Stays on `DragEvent`: `card-drag-drop-feedback.feature:112` (x5), `:130`, `:201`,
+`:297`, `:360` row 3, the file half of `:136`.
+
+**Two things DELIVER must not be surprised by.** (1) On HEAD, a W3C mouse drag of
+a card already moves it, through the HTML5 path (measured above). Re-pointing
+the driver BEFORE `dragstart` is cancelled would therefore keep most shipped
+scenarios green for the wrong reason; re-point and cancel in the same step. (2)
+Touch is CDP, not `TouchActions` (U1).
+
+### [REF] check-arch keydown rule (DDD-22): specified, not written
+
+`xtask/src/check_arch.rs` gold tests call the rule function
+(`check_lane_position_deferrable(tree.path())` is the pattern), so a RED-first
+gold test needs the function to exist, which is production logic in `xtask/src`
+(out of bounds for DISTILL), and a failing `mod tests` would redden every
+`cargo test` run in the meantime. The rule and its gold tests are DELIVER's (DoD
+item). Specification:
+
+- `fn check_board_modules_have_no_keydown_listener(root: &Path) -> Vec<String>`,
+  wired into `source_violations` and named in `run`'s PASSED line.
+- Input set: every `crates/foundry-app/static/js/board-*.js`, found by listing the
+  directory (never a hard-coded list).
+- Strip `//` line comments and `/* … */` block comments before matching (the
+  `strip_css_block_comments` idea, for JS). Then flag a line matching any of
+  `addEventListener\(\s*["'`]keydown["'`]`, `\.onkeydown\s*=`,
+  `on\(\s*["']keydown["']`. One violation per match: file, 1-based line, the
+  BR-4 reason ("Escape has one owner, `keyboard.js::closeTopLayer()`").
+
+| Gold test | Staged tree | Expected |
+|---|---|---|
+| `shipped_board_modules_pass` | the real `board-dnd.js` and `board-lane-dnd.js` (`:312` carries `keydown` inside a `//` comment) | 0 |
+| `a_keydown_listener_in_a_board_module_is_flagged` | `board-dnd.js` + `document.addEventListener("keydown", onKey);` | 1, names `board-dnd.js:<line>` |
+| `a_commented_out_keydown_listener_is_not_flagged` | `// document.addEventListener("keydown", onKey);` | 0 |
+| `a_block_commented_keydown_listener_is_not_flagged` | `/* window.addEventListener('keydown', f) */` over two lines | 0 |
+| `an_onkeydown_assignment_is_flagged` | `window.onkeydown = f;` | 1 |
+| `a_new_board_module_is_scanned` | a new `board-foo.js` with a keydown listener | 1 (proves the glob) |
+| `keyboard_js_is_out_of_scope` | `keyboard.js` with its keydown listener | 0 |
+| `the_word_keydown_in_a_string_is_not_a_listener` | `console.log("no keydown here")` | 0 |
+| `a_missing_js_directory_is_flagged` | no `static/js` | 1 (never pass vacuously) |
+
+### [REF] Outcome registration
+
+Hand-edited in the registry's own row shape (`nwave-ai outcomes register`
+rewrites the whole file and strips its comments; board-lane-reorder DISTILL).
+`registry.yaml` parses: 16 rows.
+
+| id | Change | What it pins |
+|---|---|---|
+| **OUT-13** | **Amended** (C8) | Input: the card gesture is Pointer Events (mouse 6 px / touch-pen 350 ms within 10 px, `pointerup`/`pointercancel`/the Escape arm) after any in-place replace; own-card `dragstart` cancelled. Foreign clause and output unchanged. `amended:` note added |
+| **OUT-14** | **Amended** (C8) | Input: a lifted session's point-resolved `pointermove` (DDD-3), including across edge auto-scroll. Output unchanged (marker = landing = `after`) |
+| **OUT-16** | **New** (invariant) | One card gesture means exactly one of open, scroll or move: the lift rule per pointer type, the one-shot click guard reset on the next press, primary button only, one pointer per session, zero lift residue after every exit. Artifact: `card-pointer-drag.feature` |
+
+**KPIs** (`docs/product/kpi-contracts.yaml`): **CDF-KPI-8 re-scoped** (C4) with a
+dated `rescoped:` block: the byte-identical guarantee covers the shipped
+`.feature` files; a step module may change only to re-point input. A new
+`card-pointer-drag` block carries **CPD-KPI-1..7** (DISCUSS KPIs 1-7) with
+scenario links, gate and `status: owed`. No DEVOPS wave ran, so these are
+DISTILL's instrument links, not a DEVOPS contract.
+
+### [REF] Infrastructure policy (`--policy=inherit`)
+
+No row added (every port has one). The new mechanism, for the Chrome row or a
+new *Driving* row if the user wants it recorded:
+
+| Port | Mechanism | Note |
+|---|---|---|
+| Card pointer gesture — card-pointer-drag | W3C Actions for mouse/pen/keyboard; CDP `Input.dispatchTouchEvent` through the driver passthrough for touch (a second finger = a second touch point; `touchCancel` = the system taking the pointer); a capture-phase page recorder armed before every gesture | chromedriver 151's W3C touch cannot span `perform_actions` calls and its `pointerCancel` is a no-op (measured). Real feel stays the slice dogfood (D19, DDD-13) |
+
+### [REF] Upstream issues
+
+1. **U1 (DESIGN DDD-12, refuted in part by measurement).** W3C `TouchActions`
+   cannot continue a gesture across `perform_actions` calls in chromedriver 151,
+   and W3C `pointerCancel` dispatches nothing. Touch is driven by CDP touch events
+   instead (same trusted dispatch). DDD-12 should read "mouse, pen and keys: W3C
+   Actions; touch: CDP `Input.dispatchTouchEvent`".
+2. **U2 (shipped harness comment, wrong).** `browser_harness.rs` says "WebDriver's
+   pointer actions never start a NATIVE HTML5 drag in Chrome". On Chrome 151 they
+   do (trusted `dragstart` → `drop` → `dragend`). Comment corrected in DISTILL
+   (after the review); the fact changes the re-pointing order (plan, point 1).
+3. **U3 (DISCUSS UAT wording).** Two UAT phrasings collide with shipped steps in
+   the global registry: "she presses Escape" (CDF `when_drag_ends`) and "the
+   system takes the pointer away from Priya" (BLR). Reworded to "she presses Escape
+   on the keyboard" and "an incoming call takes the touch away from Priya". The
+   DISCUSS "A click on a card still opens it, and a drag never does" (two Whens)
+   became #1/#4/#5, one When each. "Priya is carrying …" Givens name the pointer.
+4. **U4 (CDF re-drive).** "carries it out of the browser window" and "the drag
+   reports the same pointer position several more times" cannot be driven
+   literally with W3C input (clamped moves; no event for a zero-distance move).
+   The plan above says how, and when the question goes back to the user.
+5. **U5 (environment, this run).** The macOS host's `syspolicyd` was wedged: no
+   freshly linked binary could start (cargo build scripts sat in `_dyld_start` for
+   70+ minutes; a one-line C program never ran; another session's lanes were
+   stuck the same way). The compile gates and lanes were run inside a Linux
+   `rust:1.91-slim-bookworm` container on the Docker host network, with two
+   harness knobs (unset = unchanged): `FOUNDRY_BROWSER_HOST_GATEWAY=172.17.0.1`
+   (the browser container reaches the app) and
+   `FOUNDRY_BROWSER_DRIVER_HOST=host.docker.internal` (the suite reaches the
+   browser container's published port on Docker Desktop). `sudo killall
+   syspolicyd` restores the host; the lanes then run as before.
+
+### [REF] Pre-requisites for DELIVER
+
+1. The DDD-13 device checklist on real iOS Safari and Android Chrome before
+   slice 02 (unchanged from DESIGN).
+2. Un-pend per slice (`@us-cpd-01` first), never re-author. Run a story with
+   `FOUNDRY_ACCEPTANCE_TAGS=us-cpd-01 cargo test -p foundry-acceptance --release --test acceptance`
+   (or `=cpd`), with Docker up and, on this host, a warm binary.
+3. Slice 01 re-points the shipped driver per the plan in the same step that
+   cancels own-card `dragstart`; the shipped `.feature` diff stays empty (CDF-KPI-8
+   as re-scoped).
+4. DDD-22's check-arch rule + gold tests per the specification above (DoD).
+5. Named faults for the mutation gate, at minimum: lift threshold 0; hold timer not
+   cleared on `pointercancel` (#25 kills it); click guard never reset (#5, #16);
+   no `touchmove` guard (#14); `event.target` lane resolution (#13, #14); no
+   `pointerId` filter (#18); ghost left behind (#3, #24, #26); `dragstart` not
+   cancelled (#10); mouse `pointercancel` not reverting (no trusted trigger in the
+   lane, so a named fault is its only instrument).
+
+### [REF] Consolidated review (end of DISTILL)
+
+Three reviewers ran in parallel, not four. No DEVOPS wave ran for this feature, so
+there is no `## Wave: DEVOPS` section for the platform reviewer (Forge) to read. The
+board-lane-reorder precedent made the same call: a verdict on an absent wave would
+look like coverage without being any.
+
+| Reviewer | Wave | Verdict |
+|---|---|---|
+| Eclipse (`nw-product-owner-reviewer`) | DISCUSS | **approved**: 0 blockers, 1 high, 2 medium; DoR 9/9; every AC traced to a scenario or a named instrument |
+| Atlas (`nw-solution-architect-reviewer`) | DESIGN | **conditionally_approved**: 1 critical, 2 high, 1 medium, all documentation drift between DESIGN and DISTILL's measurements |
+| Sentinel (`nw-acceptance-designer-reviewer`) | DISTILL | **approved**: 0 blockers, 0 high, 0 low; positive controls, "prove it existed" guards and exact-slot oracles confirmed |
+
+| Finding | Severity | Resolution |
+|---|---|---|
+| DDD-12 still says `TouchActions`; DISTILL measured that they cannot span calls (U1) | Critical (DESIGN) | **Agreed, fixed.** DDD-12a added to the DESIGN table (dated, citing U1); DDD-12 left as written for traceability. ADR-004 carries the same driver note |
+| The amendment was not in the SSOT | High (DESIGN) | Same fix |
+| ADR-004 "Accepted" + "Provisional" is ambiguous | High (DESIGN) | **Agreed, fixed.** ADR-004 Status now reads "Accepted, contingent on device evidence for touch": slice 01 proceeds, the device checklist gates slice 02 planning |
+| The shipped harness comment says W3C mouse never starts a native drag (U2) | Medium (DESIGN) | **Agreed, fixed in DISTILL.** Comment corrected (test code only) |
+| No dedicated "alternatives considered" section in DISCUSS | High (DISCUSS) | **Not changed.** The alternatives are in DESIGN's *Options* A/B/C with a trade-off table and in ADR-004 *Alternatives*; D2, OQ-2 and OQ-4 name the DISCUSS-level ones. A third copy adds nothing |
+| AC-3.3 conditional on OQ-6 | Medium (DISCUSS) | **Already resolved upstream**: DDD-11 put vertical page auto-scroll in scope. Slice-03 brief now says so |
+| DDD-22 not referenced from the slice-01 DoD | Medium (DISCUSS) | **Agreed, fixed.** Slice-01 brief points to the DDD-22 specification |
+
+After the fixes the step module and harness were re-checked (`cargo fmt --check`,
+`cargo clippy -p foundry-acceptance --all-targets --locked -- -D warnings`). The
+only step-code change after the RED run was that the carried-copy probe now counts
+any visible fixed-position element showing a card key outside the board, dialog
+host and keyboard overlay, instead of requiring `.issue-card`/`[data-issue-key]`.
+That is broader, so it cannot make a "nothing carried" oracle pass more easily,
+and it leaves the choice of class and attributes to DELIVER (DDD-17).
+
+### [REF] Inherited commitments
+
+| Origin | Commitment | DDD | Impact |
+|--------|------------|-----|--------|
+| DISCUSS#D4 | Shipped Gherkin byte-identical; only the driver changes | DDD-12 | No shipped `.feature` or step module was edited; the re-pointing plan gives DELIVER the exact per-step mapping and the order constraint |
+| DISCUSS#D19 | Synthetic input proves wiring; a real device proves feel | DDD-13 | AC-2.5 and the hold feel are dogfood-only; #15 adds an automated real-scroll check in Chrome |
+| DESIGN#DDD-12 | Trusted W3C Actions driver, recorder armed first | DDD-12 | Mouse/pen/keys are W3C Actions; touch is CDP (measured, U1); every lift failure reports the recorder |
+| DESIGN#DDD-17 | Clone ghost, origin dimmed in its slot | DDD-17 | "Lifted" = `html[data-card-dragging]` + `[data-card-lifted]` + a fixed carried copy; all three must be gone after every exit |
+| DESIGN#DDD-22 | check-arch keydown rule is a DoD item | DDD-22 | Specified with nine gold tests including the commented-out case; implemented in DELIVER |
+| DISCUSS#C4 / C8 | CDF-KPI-8 re-scoped; OUT-13/14 amended | n/a | Done in `kpi-contracts.yaml` and `registry.yaml`; OUT-16 registered |

@@ -309,11 +309,16 @@ outcomes:
     a foreign drag is swallowed
   feature: card-drag-drop-feedback
   inputs:
-  - shape: 'Native HTML5 drag events delegated on document, scoped to #board-columns
-      (dragstart on article.issue-card; dragover/dragleave/drop/dragend), after any
-      in-place #board-columns replace (popup delete, lane edit/insert/delete OOB,
-      lane-menu Move via applyBoard) or none; foreign drags carry a File or text/plain
-      and no dragstart on this page'
+  - shape: 'A card gesture: Pointer Events delegated on document, scoped to article.issue-card
+      in #board-columns (pointerdown, then a mouse moved past 6 px or a touch/pen held
+      350 ms within 10 px; pointermove; pointerup / pointercancel / the closeTopLayer
+      Escape arm), after any in-place #board-columns replace (popup delete, lane edit/insert/delete
+      OOB, lane-menu Move via applyBoard) or none. Foreign drags (unchanged): native
+      HTML5 dragover/drop inside #board-columns carrying a File or text/plain with
+      no card session on this page; a native dragstart on an own card is cancelled'
+  amended: 'card-pointer-drag DISTILL (2026-09-26): input amended from native HTML5
+    drag events to Pointer Events (DISCUSS C8, ADR-BOARD-CARD-004). The foreign-drag
+    clause and the output are unchanged. New scenarios: card-pointer-drag.feature'
   output:
     shape: 'Card drag: dragover on the live lane defaultPrevented, drop moves the
       card and sends ONE POST /team/{t}/project/{p}/issues/{n}/state (state=<slug>[&after=<key>],
@@ -340,8 +345,13 @@ outcomes:
     are one computation
   feature: card-drag-drop-feedback
   inputs:
-  - shape: A card drag session's dragover at pointer Y over a lane (slotFor midpoint
-      rule, dragged card skipped); drop in that lane
+  - shape: A lifted card session's pointermove at the pointer's point, resolved with
+      elementFromPoint to a lane (slotFor midpoint rule, dragged card skipped), including
+      after an edge auto-scroll of the board or the page; pointerup in that lane
+  amended: 'card-pointer-drag DISTILL (2026-09-26): input amended from dragover at
+    pointer Y to a pointer-resolved pointermove (DISCUSS C8, DDD-3). The output is
+    unchanged; auto-scroll changes what is visible, never what the marker addresses
+    (DDD-11)'
   output:
     shape: Exactly one [data-card-drop-marker] on the board carrying data-before-key
       (empty = end); the card lands before that key; POST after = key of the card
@@ -389,4 +399,36 @@ outcomes:
   - OUT-3
   - OUT-6
   - OUT-12
+  superseded_by: null
+- id: OUT-16
+  kind: invariant
+  summary: One card gesture means exactly one of open, scroll or move, decided by
+    pointer type, distance and hold
+  feature: card-pointer-drag
+  inputs:
+  - shape: 'pointerdown on article.issue-card in #board-columns with pointerType mouse
+      (primary button only), touch or pen, followed by movement, a hold, a release
+      or a pointercancel'
+  output:
+    shape: 'Mouse: lifts once moved past 6 px; a release inside it is a click that
+      opens the edit dialog. Touch/pen: lifts after a 350 ms hold within 10 px; moving
+      first leaves the gesture to the browser (it scrolls, nothing lifts); releasing
+      first is a tap that opens the edit dialog. A lifted release never opens the dialog
+      (one-shot click guard, reset on the next pointerdown). Non-primary mouse buttons
+      and other pointers never drive a session. Lifted: html[data-card-dragging], the
+      origin card marked [data-card-lifted] in its slot, a fixed carried copy under
+      the pointer; zero of each after every exit'
+  keywords:
+  - board
+  - card-drag
+  - pointer-events
+  - touch
+  - press-and-hold
+  - click-guard
+  - tap
+  - swipe
+  artifact: crates/foundry-acceptance/tests/features/card-pointer-drag.feature
+  related:
+  - OUT-13
+  - OUT-14
   superseded_by: null

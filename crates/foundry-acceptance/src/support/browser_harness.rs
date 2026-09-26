@@ -222,6 +222,26 @@ const BROWSER_MAX_SESSIONS: usize = crate::support::MAX_CONCURRENT_SCENARIOS + 2
 pub(crate) const HOST_RESOLVER_RULE: &str =
     "--host-resolver-rules=MAP 127.0.0.1 host.docker.internal";
 
+/// Where the browser container's `host.docker.internal` points: Docker's
+/// `host-gateway` (the default), the machine the suite runs on. When the suite
+/// itself runs in a Linux container on the Docker host's network (`--network
+/// host`, the route around a macOS host that cannot execute freshly built
+/// binaries), the app listens inside the Docker VM, and the bridge gateway
+/// (`FOUNDRY_BROWSER_HOST_GATEWAY=172.17.0.1`) is what reaches it. Unset, the
+/// lane behaves exactly as before.
+fn browser_host_gateway() -> String {
+    std::env::var("FOUNDRY_BROWSER_HOST_GATEWAY").unwrap_or_else(|_| "host-gateway".to_string())
+}
+
+/// Where this process reaches the browser container's published WebDriver
+/// port: `127.0.0.1` (the default). From inside a container on Docker
+/// Desktop's host network a published port is reached through the bridge
+/// gateway instead (`FOUNDRY_BROWSER_DRIVER_HOST=172.17.0.1`), the same address
+/// testcontainers picks for Postgres when it finds itself in a container.
+fn driver_host() -> String {
+    std::env::var("FOUNDRY_BROWSER_DRIVER_HOST").unwrap_or_else(|_| "127.0.0.1".to_string())
+}
+
 /// Start the browser container once for this lane and return the host port its
 /// WebDriver endpoint is published on.
 ///
@@ -266,7 +286,10 @@ fn ensure_chromedriver() -> u16 {
             // for why we no longer pick one ourselves.
             .args(["-p", "4444"])
             // Reach the host's ephemeral app ports from inside the container.
-            .arg("--add-host=host.docker.internal:host-gateway")
+            .arg(format!(
+                "--add-host=host.docker.internal:{}",
+                browser_host_gateway()
+            ))
             // Chrome will exhaust the default 64MB /dev/shm and crash tabs
             // mid-scenario; the Selenium images document this as required.
             .arg("--shm-size=2g")
@@ -305,7 +328,7 @@ fn ensure_chromedriver() -> u16 {
 /// external process's readiness endpoint — not a sleep-and-hope.
 fn wait_for_driver_ready(port: u16) {
     let deadline = std::time::Instant::now() + DRIVER_READY_TIMEOUT;
-    let url = format!("http://127.0.0.1:{port}/status");
+    let url = format!("http://{}:{port}/status", driver_host());
     while std::time::Instant::now() < deadline {
         let responded = std::process::Command::new("curl")
             .args(["-fsS", "-o", "/dev/null", "--max-time", "1", &url])
@@ -318,12 +341,13 @@ fn wait_for_driver_ready(port: u16) {
         std::thread::sleep(Duration::from_millis(50));
     }
     panic!(
-        "the browser container did not report ready on 127.0.0.1:{port} within \
+        "the browser container did not report ready on {}:{port} within \
          {DRIVER_READY_TIMEOUT:?}.\n  NOTE: this failure repeats PER SCENARIO — a panic inside \
          `OnceCell::get_or_init` leaves the cell empty, so every later scenario starts its own \
          container and fails the same way. A lane reporting N of these is reporting ONE problem \
          N times, not N problems.\n  `docker logs` the container, or run the image by hand, \
-         before believing the app is involved."
+         before believing the app is involved.",
+        driver_host()
     );
 }
 
@@ -355,7 +379,7 @@ async fn connect_session(
     for attempt in 1..=SESSION_ATTEMPTS {
         match ClientBuilder::new(HttpConnector::new())
             .capabilities(capabilities.clone())
-            .connect(&format!("http://127.0.0.1:{port}"))
+            .connect(&format!("http://{}:{port}", driver_host()))
             .await
         {
             Ok(client) => return client,
@@ -483,7 +507,10 @@ pub async fn unhandled_script_errors(client: &fantoccini::Client) -> Vec<String>
         .expect("read the WebDriver session id")
         .expect("the session must still be open to read its log");
     let body: serde_json::Value = reqwest::Client::new()
-        .post(format!("http://127.0.0.1:{port}/session/{session_id}/log"))
+        .post(format!(
+            "http://{}:{port}/session/{session_id}/log",
+            driver_host()
+        ))
         .json(&serde_json::json!({ "type": "browser" }))
         .send()
         .await
@@ -1090,9 +1117,12 @@ pub async fn wait_for_kb_ready(client: &fantoccini::Client) {
 // SYNTHETIC CARD DRAG (card-drag-drop-feedback DDD-8b/c/d/e)
 // =========================================================================
 //
-// WebDriver's pointer actions never start a NATIVE HTML5 drag in Chrome (a
-// mouse-down/move/up sequence produces a text selection, not a `dragstart`), so
-// the card drag is DISPATCHED: real `DragEvent`s carrying one real
+// When this kit was written the card drag was native HTML5 DnD and it was
+// driven by DISPATCH. Correction (card-pointer-drag DISTILL, measured on Chrome
+// 151): W3C mouse actions on a `draggable` card DO start a real HTML5 drag
+// (trusted dragstart, pointercancel, dragover, drop, dragend). The kit stays
+// for FOREIGN drags; card drags move to the trusted pointer driver below. It is
+// DISPATCHED: real `DragEvent`s carrying one real
 // `DataTransfer`, on the real elements, into `board-dnd.js`'s own listeners.
 // This generalises the `fire()` idiom at `keyboard_shortcut_bindings.rs:3028`
 // and the script in `feature_board_lane_reorder.rs::drag_a_card` into ONE kit,
@@ -1456,6 +1486,510 @@ pub async fn spied_requests(client: &fantoccini::Client) -> Vec<SpiedRequest> {
         .await
         .expect("read the fetch spy");
     serde_json::from_value(raw).expect("the fetch spy's entries deserialize")
+}
+
+// =========================================================================
+// TRUSTED POINTER INPUT (card-pointer-drag DDD-12)
+// =========================================================================
+//
+// The card drag moves onto Pointer Events (ADR-BOARD-CARD-004), so it can be
+// driven the way a person drives it: W3C WebDriver Actions, which chromedriver
+// turns into TRUSTED browser input (`Input.dispatchMouseEvent` /
+// `Input.dispatchTouchEvent`). That is stronger evidence than the synthetic
+// `DragEvent` kit above could give, and the kit stays for FOREIGN drags only
+// (a file, a text selection, another tab's card), which have no pointer on this
+// page at all (D3, DDD-1).
+//
+// Three rules keep these helpers honest:
+//   * THE RECORDER IS ARMED FIRST. Automation drags can deliver zero events,
+//     and a drag that delivered nothing looks exactly like a feature that did
+//     nothing. [`install_pointer_recorder`] counts every pointer, touch, click
+//     and native-drag event the page receives (capture phase on `window`, so no
+//     page listener can hide one), and every "nothing lifted" oracle reads it
+//     first: trusted input must have ARRIVED before its absence of effect means
+//     anything.
+//   * COORDINATES COME FROM LIVE GEOMETRY. [`spot_point`] reuses the kit's
+//     `DragSpot` resolver, so a pointer goes where the board actually is at that
+//     moment, never where a step guessed it would be.
+//   * ONE GESTURE MAY SPAN SEVERAL CALLS, so "press and lift" can be one
+//     call, the oracle a read, and the release a later call. For the MOUSE and
+//     the PEN that is W3C Actions: WebDriver keeps each input source's state
+//     (button down, last position) between `perform_actions` calls. For TOUCH it
+//     is NOT: measured against this lane's chromedriver 151 (card-pointer-drag
+//     DISTILL, OQ-9 probe), a W3C touch source that is still down at the end of
+//     one `perform_actions` call has every later move and release SILENTLY
+//     DROPPED, and it then poisons the next touch call too. Touch therefore goes
+//     through the very dispatch chromedriver uses underneath its touch actions,
+//     Chrome's `Input.dispatchTouchEvent`, reached through the driver's CDP
+//     passthrough (`/session/{id}/goog/cdp/execute`). The events are just as
+//     trusted, a gesture spans calls, and a second finger is a second touch
+//     point beside the first, as on a phone.
+
+/// Which kind of pointer a gesture uses. Each maps to one W3C input source.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PointerKind {
+    Mouse,
+    Touch,
+    /// A second finger, down while the first one is.
+    SecondTouch,
+    /// A third finger: a fresh contact for a new gesture while the first
+    /// finger's bookkeeping is in any state.
+    RetryTouch,
+    Pen,
+}
+
+impl PointerKind {
+    fn source(self) -> &'static str {
+        match self {
+            PointerKind::Mouse => "cpd-mouse",
+            PointerKind::Touch => "cpd-touch",
+            PointerKind::SecondTouch => "cpd-touch-2",
+            PointerKind::RetryTouch => "cpd-touch-3",
+            PointerKind::Pen => "cpd-pen",
+        }
+    }
+}
+
+/// One tick of a pointer gesture. Points are viewport CSS pixels, rounded and
+/// clamped into the viewport when the actions are built.
+#[derive(Debug, Clone, Copy)]
+pub enum PointerStep {
+    /// Jump to a point (one move event).
+    To(f64, f64),
+    /// Travel from the current point to this one in `n` equal moves.
+    Glide(f64, f64, u32),
+    /// Primary button / contact down.
+    Down,
+    /// Secondary (right) mouse button down.
+    DownSecondary,
+    /// Primary button / contact up.
+    Up,
+    /// Secondary (right) mouse button up.
+    UpSecondary,
+    /// Stay still for this many milliseconds (a W3C `pause`: the hold).
+    Hold(u64),
+    /// Small back-and-forth moves at the current point for about this many
+    /// milliseconds: a finger or hand holding "still" at an edge, which real
+    /// hardware reports as a trickle of 1 px moves.
+    Jitter(u64),
+}
+
+/// How long one move tick is allowed to take. CDP touch dispatch is vsync-paced
+/// at ~33 ms per event (spike Q7), so a longer gesture must budget for it.
+const MOVE_TICK: Duration = Duration::from_millis(16);
+
+/// Perform `steps` with the pointer `kind`, starting from `from` (where the
+/// pointer is now, or where the first step puts it). Returns where the pointer
+/// ended. Mouse and pen: one W3C `perform_actions` call for all the steps.
+/// Touch: one CDP touch event per step (see the header of this section).
+pub async fn perform_pointer(
+    client: &fantoccini::Client,
+    kind: PointerKind,
+    from: (f64, f64),
+    steps: &[PointerStep],
+) -> (f64, f64) {
+    let (vw, vh) = viewport(client).await;
+    let clamp = |x: f64, y: f64| -> (f64, f64) {
+        (
+            x.round().clamp(0.0, (vw - 1.0).max(0.0)),
+            y.round().clamp(0.0, (vh - 1.0).max(0.0)),
+        )
+    };
+    // Expand into single ticks: a point to move to, a press, a release, a pause.
+    let mut ticks: Vec<Tick> = Vec::new();
+    let mut at = from;
+    for step in steps {
+        match *step {
+            PointerStep::To(x, y) => {
+                ticks.push(Tick::Move(clamp(x, y)));
+                at = (x, y);
+            }
+            PointerStep::Glide(x, y, n) => {
+                let n = n.max(1);
+                for i in 1..=n {
+                    let t = f64::from(i) / f64::from(n);
+                    ticks.push(Tick::Move(clamp(
+                        at.0 + (x - at.0) * t,
+                        at.1 + (y - at.1) * t,
+                    )));
+                }
+                at = (x, y);
+            }
+            PointerStep::Down => ticks.push(Tick::Down(false)),
+            PointerStep::DownSecondary => ticks.push(Tick::Down(true)),
+            PointerStep::Up => ticks.push(Tick::Up(false)),
+            PointerStep::UpSecondary => ticks.push(Tick::Up(true)),
+            PointerStep::Hold(ms) => ticks.push(Tick::Pause(ms)),
+            PointerStep::Jitter(ms) => {
+                let n = (ms / 40).max(1);
+                for i in 0..n {
+                    let dx = if i % 2 == 0 { -1.0 } else { 0.0 };
+                    ticks.push(Tick::Move(clamp(at.0 + dx, at.1)));
+                    ticks.push(Tick::Pause(24));
+                }
+                ticks.push(Tick::Move(clamp(at.0, at.1)));
+            }
+        }
+    }
+    match kind {
+        PointerKind::Mouse | PointerKind::Pen => w3c_pointer(client, kind, &ticks).await,
+        _ => cdp_touch(client, kind, &ticks).await,
+    }
+    at
+}
+
+/// One tick of an expanded gesture. `Down(true)` / `Up(true)` is the
+/// secondary mouse button.
+#[derive(Debug, Clone, Copy)]
+enum Tick {
+    Move((f64, f64)),
+    Down(bool),
+    Up(bool),
+    Pause(u64),
+}
+
+async fn w3c_pointer(client: &fantoccini::Client, kind: PointerKind, ticks: &[Tick]) {
+    use fantoccini::actions::{
+        InputSource, MouseActions, PenActions, PointerAction, MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT,
+    };
+    let actions: Vec<PointerAction> = ticks
+        .iter()
+        .map(|tick| match *tick {
+            Tick::Move((x, y)) => PointerAction::MoveTo {
+                duration: Some(MOVE_TICK),
+                x: x as i64,
+                y: y as i64,
+            },
+            Tick::Down(secondary) => PointerAction::Down {
+                button: if secondary {
+                    MOUSE_BUTTON_RIGHT
+                } else {
+                    MOUSE_BUTTON_LEFT
+                },
+            },
+            Tick::Up(secondary) => PointerAction::Up {
+                button: if secondary {
+                    MOUSE_BUTTON_RIGHT
+                } else {
+                    MOUSE_BUTTON_LEFT
+                },
+            },
+            Tick::Pause(ms) => PointerAction::Pause {
+                duration: Duration::from_millis(ms),
+            },
+        })
+        .collect();
+    let source = kind.source().to_string();
+    let result = if kind == PointerKind::Pen {
+        let seq = actions
+            .into_iter()
+            .fold(PenActions::new(source), InputSource::then);
+        client.perform_actions(seq).await
+    } else {
+        let seq = actions
+            .into_iter()
+            .fold(MouseActions::new(source), InputSource::then);
+        client.perform_actions(seq).await
+    };
+    result.unwrap_or_else(|err| {
+        panic!(
+            "BROKEN(driver): the {kind:?} pointer actions were refused by the browser driver: \
+             {err}. This is the harness, not the board: W3C Actions must reach the page before \
+             any card-drag oracle means anything (DDD-12)"
+        )
+    });
+}
+
+/// Touch points currently down, per WebDriver session: CDP touch id -> point.
+/// CDP needs every touch event to carry the full set of points still down.
+type TouchSet = std::collections::BTreeMap<u32, (f64, f64)>;
+static TOUCH_POINTS: Mutex<Option<std::collections::HashMap<String, TouchSet>>> = Mutex::new(None);
+
+fn touch_id(kind: PointerKind) -> u32 {
+    match kind {
+        PointerKind::SecondTouch => 2,
+        PointerKind::RetryTouch => 3,
+        _ => 1,
+    }
+}
+
+async fn session_of(client: &fantoccini::Client) -> String {
+    client
+        .session_id()
+        .await
+        .expect("read the WebDriver session id")
+        .expect("an open WebDriver session")
+}
+
+/// One Chrome DevTools command through the driver's CDP passthrough.
+async fn cdp(client: &fantoccini::Client, cmd: &str, params: serde_json::Value) {
+    let session = session_of(client).await;
+    let port = ensure_chromedriver();
+    let url = format!(
+        "http://{}:{port}/session/{session}/goog/cdp/execute",
+        driver_host()
+    );
+    let response = reqwest::Client::new()
+        .post(&url)
+        .json(&serde_json::json!({ "cmd": cmd, "params": params }))
+        .send()
+        .await
+        .unwrap_or_else(|err| panic!("BROKEN(driver): the {cmd} request failed: {err}"));
+    let status = response.status();
+    let body = response.text().await.unwrap_or_default();
+    assert!(
+        status.is_success(),
+        "BROKEN(driver): the browser driver refused {cmd} ({status}): {body}"
+    );
+}
+
+fn touch_points_json(points: &TouchSet) -> serde_json::Value {
+    serde_json::Value::Array(
+        points
+            .iter()
+            .map(|(id, (x, y))| serde_json::json!({ "x": x, "y": y, "id": id }))
+            .collect(),
+    )
+}
+
+async fn cdp_touch(client: &fantoccini::Client, kind: PointerKind, ticks: &[Tick]) {
+    let session = session_of(client).await;
+    let id = touch_id(kind);
+    // Where this finger is when it is not down yet (the next press lands there).
+    let mut hover: Option<(f64, f64)> = None;
+    for tick in ticks {
+        let points = {
+            let mut guard = TOUCH_POINTS.lock().expect("touch points lock");
+            guard
+                .get_or_insert_with(Default::default)
+                .entry(session.clone())
+                .or_default()
+                .clone()
+        };
+        let set = |points: TouchSet| {
+            let mut guard = TOUCH_POINTS.lock().expect("touch points lock");
+            guard
+                .get_or_insert_with(Default::default)
+                .insert(session.clone(), points);
+        };
+        match *tick {
+            Tick::Pause(ms) => tokio::time::sleep(Duration::from_millis(ms)).await,
+            Tick::Move(p) => {
+                if points.contains_key(&id) {
+                    let mut moved = points.clone();
+                    moved.insert(id, p);
+                    cdp(
+                        client,
+                        "Input.dispatchTouchEvent",
+                        serde_json::json!({ "type": "touchMove", "touchPoints": touch_points_json(&moved) }),
+                    )
+                    .await;
+                    set(moved);
+                } else {
+                    hover = Some(p);
+                }
+            }
+            Tick::Down(secondary) => {
+                assert!(!secondary, "a touch has no secondary button");
+                let p = hover.expect("a touch press needs a point: start the gesture with To");
+                let mut pressed = points.clone();
+                pressed.insert(id, p);
+                cdp(
+                    client,
+                    "Input.dispatchTouchEvent",
+                    serde_json::json!({ "type": "touchStart", "touchPoints": touch_points_json(&pressed) }),
+                )
+                .await;
+                set(pressed);
+            }
+            Tick::Up(_) => {
+                let p = *points
+                    .get(&id)
+                    .expect("a touch release needs that finger to be down");
+                // CDP releases exactly the points listed on touchEnd.
+                let mut released = TouchSet::new();
+                released.insert(id, p);
+                cdp(
+                    client,
+                    "Input.dispatchTouchEvent",
+                    serde_json::json!({ "type": "touchEnd", "touchPoints": touch_points_json(&released) }),
+                )
+                .await;
+                let mut rest = points.clone();
+                rest.remove(&id);
+                hover = Some(p);
+                set(rest);
+            }
+        }
+    }
+}
+
+/// The layout viewport, `(innerWidth, innerHeight)`.
+pub async fn viewport(client: &fantoccini::Client) -> (f64, f64) {
+    let raw = client
+        .execute("return [window.innerWidth, window.innerHeight];", vec![])
+        .await
+        .expect("read the viewport size");
+    serde_json::from_value(raw).expect("viewport shape")
+}
+
+/// The viewport point of a [`DragSpot`], resolved from live geometry by the
+/// same resolver the synthetic kit uses, so both drivers aim at the same place.
+pub async fn spot_point(client: &fantoccini::Client, spot: DragSpot<'_>) -> (f64, f64) {
+    let script = format!(
+        "{SYNTHETIC_DRAG_KIT}\nvar p = window.__synthDrag.resolve(arguments[0]); return [p.x, p.y];"
+    );
+    let raw = client
+        .execute(&script, vec![spot.to_json()])
+        .await
+        .unwrap_or_else(|err| panic!("resolve the point of {spot:?}: {err}"));
+    serde_json::from_value(raw).expect("spot point shape")
+}
+
+/// The middle of the part of card `key` that is inside the viewport: where a
+/// finger or cursor would actually press it. Panics if none of it is visible.
+pub async fn card_press_point(client: &fantoccini::Client, key: &str) -> (f64, f64) {
+    let raw = client
+        .execute(
+            "var c = document.querySelector('#board-columns [data-issue-key=\"' + arguments[0] + '\"]');
+             if (!c) { return null; }
+             var r = c.getBoundingClientRect();
+             var l = Math.max(r.left, 0), t = Math.max(r.top, 0);
+             var rr = Math.min(r.right, window.innerWidth), b = Math.min(r.bottom, window.innerHeight);
+             if (rr - l < 8 || b - t < 8) { return [-1, -1]; }
+             return [(l + rr) / 2, (t + b) / 2];",
+            vec![serde_json::json!(key)],
+        )
+        .await
+        .unwrap_or_else(|err| panic!("locate {key} to press it: {err}"));
+    let point: Option<(f64, f64)> = serde_json::from_value(raw).expect("press point shape");
+    let point = point.unwrap_or_else(|| panic!("{key} is not on the board to be pressed"));
+    assert!(
+        point.0 >= 0.0,
+        "{key} is on the board but not on screen, so no finger could press it"
+    );
+    point
+}
+
+/// Arm the page event recorder (idempotent within one document; a reload
+/// discards it, so re-arm after every navigation). Capture phase on `window`:
+/// it sees every event before any page listener can stop it. The native-drag
+/// entry is read in the bubble phase so it can report whether the page
+/// cancelled the drag.
+pub async fn install_pointer_recorder(client: &fantoccini::Client) {
+    client
+        .execute(
+            r#"if (!window.__cpdRec) {
+                 var rec = window.__cpdRec = { counts: {}, trusted: {}, types: {}, log: [], lastDown: null, nativeDrags: [] };
+                 var keyOf = function (t) {
+                   var el = t && t.closest ? t.closest('[data-issue-key]') : null;
+                   return el ? el.getAttribute('data-issue-key') : (t && t.tagName ? t.tagName.toLowerCase() : '?');
+                 };
+                 var note = function (e) {
+                   rec.counts[e.type] = (rec.counts[e.type] || 0) + 1;
+                   if (e.isTrusted) { rec.trusted[e.type] = (rec.trusted[e.type] || 0) + 1; }
+                   if (e.pointerType) { rec.types[e.pointerType] = true; }
+                   if (e.type === 'pointerdown') { rec.lastDown = { id: e.pointerId, type: e.pointerType, key: keyOf(e.target) }; }
+                   if (rec.log.length > 400) { rec.log.shift(); }
+                   rec.log.push(e.type + (e.pointerType ? '/' + e.pointerType + '#' + e.pointerId : '')
+                     + '@' + keyOf(e.target) + (e.isTrusted ? '' : '(synthetic)'));
+                 };
+                 ['pointerdown','pointermove','pointerup','pointercancel','touchstart','touchmove','touchend',
+                  'touchcancel','click','contextmenu','dragstart'].forEach(function (t) {
+                   window.addEventListener(t, note, { capture: true, passive: true });
+                 });
+                 window.addEventListener('dragstart', function (e) {
+                   rec.nativeDrags.push({ key: keyOf(e.target), cancelled: e.defaultPrevented, trusted: e.isTrusted });
+                 });
+               }
+               return true;"#,
+            vec![],
+        )
+        .await
+        .expect("arm the pointer recorder");
+}
+
+/// What the recorder has seen on the current document.
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+pub struct PointerRecord {
+    pub counts: std::collections::HashMap<String, u64>,
+    pub trusted: std::collections::HashMap<String, u64>,
+    pub types: std::collections::HashMap<String, bool>,
+    pub log: Vec<String>,
+    #[serde(rename = "lastDown")]
+    pub last_down: Option<serde_json::Value>,
+    #[serde(rename = "nativeDrags")]
+    pub native_drags: Vec<serde_json::Value>,
+}
+
+impl PointerRecord {
+    /// Trusted events of `event_type` the page received.
+    pub fn trusted(&self, event_type: &str) -> u64 {
+        self.trusted.get(event_type).copied().unwrap_or(0)
+    }
+
+    /// Every event of `event_type` the page received, trusted or not.
+    pub fn count(&self, event_type: &str) -> u64 {
+        self.counts.get(event_type).copied().unwrap_or(0)
+    }
+
+    /// One line for a failure message: trusted counts and the last events.
+    pub fn describe(&self) -> String {
+        let mut kinds: Vec<&String> = self.counts.keys().collect();
+        kinds.sort();
+        let counts = kinds
+            .iter()
+            .map(|k| format!("{k}={}/{}", self.trusted(k), self.count(k)))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let tail = self
+            .log
+            .iter()
+            .rev()
+            .take(10)
+            .rev()
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!(
+            "page recorder (trusted/all): [{counts}]; pointer types seen: {:?}; native drags: \
+             {:?}; last events: [{tail}]",
+            self.types.keys().collect::<Vec<_>>(),
+            self.native_drags
+        )
+    }
+}
+
+/// Read the recorder. An unarmed document reads as empty.
+pub async fn pointer_record(client: &fantoccini::Client) -> PointerRecord {
+    let raw = client
+        .execute("return window.__cpdRec || null;", vec![])
+        .await
+        .expect("read the pointer recorder");
+    if raw.is_null() {
+        return PointerRecord::default();
+    }
+    serde_json::from_value(raw).expect("pointer recorder shape")
+}
+
+/// The system takes the touch away from the page mid-gesture: an incoming call,
+/// the notification shade, the OS back gesture. Chrome reports it as a TRUSTED
+/// `touchcancel` + `pointercancel`. Driven through Chrome's own input domain
+/// (`Input.dispatchTouchEvent` `touchCancel`, reached through the driver's CDP
+/// passthrough) because W3C Actions have no portable "the OS took it" step:
+/// measured, chromedriver 151 ACCEPTS the W3C `pointerCancel` action and
+/// dispatches nothing at all.
+pub async fn system_cancels_touch(client: &fantoccini::Client) {
+    cdp(
+        client,
+        "Input.dispatchTouchEvent",
+        serde_json::json!({ "type": "touchCancel", "touchPoints": [] }),
+    )
+    .await;
+    let session = session_of(client).await;
+    if let Some(map) = TOUCH_POINTS.lock().expect("touch points lock").as_mut() {
+        map.remove(&session);
+    }
 }
 
 #[cfg(test)]

@@ -9,8 +9,12 @@ D4 (shipped Gherkin byte-identical) stays binding, and no device bake-off agains
 SortableJS was run. The user also chose to keep `draggable` with `dragstart`
 prevented, to record htmx 4 as a successor feature, and to add a `check-arch`
 rule forbidding a `keydown` listener in `board-*.js`.
-**Provisional on the device checklist:** if iOS Safari fails spike step 5, the
-mechanism question returns to the user with the device evidence.
+**Accepted, contingent on device evidence for touch.** Slice 01 (mouse parity)
+proceeds on this decision. The device checklist (spike steps 1-11, DDD-13) gates
+the planning of slice 02; if iOS Safari fails step 5, the mechanism question for
+touch returns to the user with the device evidence. (Clarified 2026-09-26 at the
+card-pointer-drag DISTILL review.) Acceptance-driver note, same date: touch is
+driven by CDP touch events, not W3C `TouchActions` (DDD-12a).
 
 Supersedes, in part, `adr-board-lane-007-pointer-events-lane-drag.md`:
 the phrase "the divergence is deliberate and, for now, permanent", and boundary

@@ -228,3 +228,88 @@ features:
           post_body: "byte-identical: state=in_progress with an x-csrf-token header (A freshly loaded board drags exactly as it did before)"
           fault: "M8 killed before and after the refactor"
           note: "The all-lane re-run of the guards on the tip is part of final_gate above. One shipped step module outside this KPI's list, feature_canzan_theme.rs, changed visibility only (four contrast helpers made pub(crate)); no step or assertion changed."
+        # RE-SCOPED 2026-09-26 by card-pointer-drag DISTILL (its DISCUSS C4, D4).
+        # Cards move onto Pointer Events, so the shipped card-drag DRIVERS must
+        # change: card-drag-drop-feedback's kit, feature_board_lane_reorder.rs
+        # `drag_a_card` and keyboard_shortcut_bindings.rs's AUTH-2 drag re-point
+        # from synthetic DragEvents to W3C Actions. The byte-identical guarantee
+        # now covers the shipped `.feature` FILES only; a step module may change
+        # to re-point input and nothing else (no oracle weakened or removed).
+        rescoped:
+          date: "2026-09-26"
+          by: "card-pointer-drag (DISCUSS C4 / D4; plan in its feature-delta, DISTILL section, Driver re-pointing plan)"
+          instrument: {kind: acceptance, ref: "every shipped .feature file (card-drag-drop-feedback, board-lane-reorder, keyboard-shortcut-bindings, issue-status-move, board-lane-management, board-lane-overflow-menu, issue-card-delete)", oracle: "green in stage 8; `git diff <card-pointer-drag base> -- 'crates/foundry-acceptance/tests/features/*.feature'` touches no shipped file (card-pointer-drag.feature is new); fetch-spy body assertion"}
+          step_modules: "may change ONLY to re-point card-drag input (DragEvent -> W3C Actions) and 'presses Escape' (dragend -> a real key); every oracle kept; foreign-drag steps stay on DragEvent"
+
+  card-pointer-drag:
+    job: job-board-card-move
+    source: docs/feature/card-pointer-drag/feature-delta.md   # "## Wave: DISCUSS / [REF] Outcome KPIs"
+    distill: docs/feature/card-pointer-drag/feature-delta.md  # "## Wave: DISTILL"
+    # No DEVOPS wave ran. Instruments below are DISTILL's scenario links; every
+    # KPI is `owed` until DELIVER un-pends its scenarios and runs the dogfood.
+    kpis:
+      - id: CPD-KPI-1
+        name: A card moves to an exact lane and slot by touch
+        type: leading
+        target: "100% of @mobile touch-drag scenarios green; dogfood 5/5 holds land at the marker on iOS Safari and on Android Chrome, and a reload agrees"
+        baseline: "0%: no card gesture exists on touch"
+        instruments:
+          - {kind: acceptance, ref: "card-pointer-drag.feature @us-cpd-02 @kpi / @us-cpd-03 @kpi", oracle: "lane order on screen and after a reload; the move body byte-for-byte"}
+          - {kind: dogfood, ref: "slice-02/03 device checklist (DDD-13)"}
+        gate: hard
+        status: owed
+      - id: CPD-KPI-2
+        name: The desk drag loses nothing
+        type: guardrail
+        target: "100% of the ~37 re-driven shipped scenarios green; shipped .feature diff empty; POST body byte-identical; CDF-KPI-1..7 held"
+        baseline: "CDF-KPI-8: 100% (HTML5)"
+        instruments:
+          - {kind: acceptance, ref: "CDF-KPI-8 (re-scoped above) + card-pointer-drag.feature @us-cpd-01 @kpi", oracle: "green; the shipped .feature diff; the fetch-spy body"}
+        gate: hard
+        status: owed
+      - id: CPD-KPI-3
+        name: A swipe across a card scrolls and never lifts
+        type: guardrail
+        target: "0 lifts and 0 requests from a touch that moves before the hold completes; dogfood 20 swipes -> 0 accidental lifts per device"
+        baseline: "Swipes always scroll (no drag exists)"
+        instruments:
+          - {kind: acceptance, ref: "A touch that moves before the hold completes scrolls the board and lifts nothing", oracle: "board scrollLeft grew; no lift during and 450 ms after; nothing lit or sent; a hold straight afterwards does lift"}
+          - {kind: dogfood, ref: "slice-02 swipe tally"}
+        gate: hard
+        status: owed
+      - id: CPD-KPI-4
+        name: A tap or click opens a card; a drag never does
+        type: guardrail
+        target: "100% of taps and sub-threshold clicks open the edit dialog; 0 dialogs opened by any drag"
+        baseline: "Click opens; no touch drag"
+        instruments:
+          - {kind: acceptance, ref: "card-pointer-drag.feature: the tap, the 3-pixel press, the own-card release and the lifted in-place release scenarios", oracle: "#modal-root edit dialog present / absent 1.2 s after the release"}
+        gate: hard
+        status: owed
+      - id: CPD-KPI-5
+        name: No card stranded and no feedback left behind
+        type: guardrail
+        target: "0 lit lanes, 0 markers, 0 carried cards and the card at its exact origin after 100% of Escape / pointercancel / off-lane release / refusal exits"
+        baseline: "CDF-KPI-7: 0 residue (mouse, HTML5 exits)"
+        instruments:
+          - {kind: acceptance, ref: "card-pointer-drag.feature @error exit scenarios + the re-driven CDF exit outlines", oracle: "residue counted only after the carried card, lit lane and marker were proven to exist"}
+        gate: hard
+        status: owed
+      - id: CPD-KPI-6
+        name: An off-screen lane or slot is reachable while carrying
+        type: leading
+        target: "100% of auto-scroll scenarios green; dogfood a far-lane drop on an 8-lane board at 390px per device"
+        baseline: "0% (no touch drag)"
+        instruments:
+          - {kind: acceptance, ref: "card-pointer-drag.feature @us-cpd-03 edge scenarios", oracle: "Done / AUTH-60 brought into view; marker = landing = after"}
+        gate: hard
+        status: owed
+      - id: CPD-KPI-7
+        name: Priya stops deferring card moves to the desk
+        type: leading
+        target: ">= 1 card moved by touch on each of 5 working days after slice 02 ships; 0 'moved it later at the desk' entries"
+        baseline: "Every phone-noticed move deferred"
+        instruments:
+          - {kind: dogfood, ref: "Priya's 5-day log in the slice-02 delivery notes"}
+        gate: soft
+        status: owed

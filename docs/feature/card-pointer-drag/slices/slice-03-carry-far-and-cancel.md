@@ -66,5 +66,6 @@ step and clamping, and the teardown-on-every-exit AC.
 
 ## Pre-slice SPIKE
 
-None. OQ-6 (vertical scope) must be answered in DESIGN before the slice is
-planned.
+None. OQ-6 (vertical scope) was answered in DESIGN: vertical page auto-scroll
+is in scope (DDD-11), so AC-3.3 is unconditional and scenario "Holding a carried
+card near the bottom reaches the end of a long lane" stands.
