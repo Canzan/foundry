@@ -96,7 +96,7 @@ Feature: Card drag on any pointer
     And once she releases it no carried card remains
 
   # Spike Q6: a drag released on the card it started from fires a click on it.
-  @us-cpd-01 @needs-browser @pending @edge
+  @us-cpd-01 @needs-browser @edge
   Scenario: A drag released back over its own card does not open it
     Given the Identity Platform board is open at the desk
     And Priya has lifted AUTH-41 with the mouse
@@ -107,7 +107,7 @@ Feature: Card drag on any pointer
 
   # The click guard resets on the next press (DDD-6). A guard that waited for
   # a click to consume would eat this one.
-  @us-cpd-01 @needs-browser @pending
+  @us-cpd-01 @needs-browser
   Scenario: Right after a drag, a press that barely moves is still a click
     Given the Identity Platform board is open at the desk
     And Priya has just dragged AUTH-43 into Done with the mouse
@@ -125,7 +125,7 @@ Feature: Card drag on any pointer
     And releasing the mouse over Done afterwards moves nothing
     And pressing Escape again changes nothing on the board
 
-  @us-cpd-01 @needs-browser @pending @error
+  @us-cpd-01 @needs-browser @error
   Scenario: Only the primary mouse button drags a card
     Given the Identity Platform board is open at the desk
     When Priya presses AUTH-41 with the right mouse button and moves it into In-Progress
@@ -135,7 +135,7 @@ Feature: Card drag on any pointer
 
   # The card side of the gesture boundary (D13). The lane side is the next
   # scenario, and the shipped board-lane-reorder guard stays the standing proof.
-  @us-cpd-01 @needs-browser @pending @error
+  @us-cpd-01 @needs-browser @error
   Scenario: A drag begun on a card never moves a lane
     Given Homelab Ops is open at the desk
     When Priya drags OPS-3 with the mouse from Backlog across the In-Progress header and releases it in Done
@@ -143,7 +143,7 @@ Feature: Card drag on any pointer
     And the lanes still read Backlog, Staging, In-Progress, Done
     And a reload shows Done as OPS-9, OPS-3
 
-  @us-cpd-01 @needs-browser @pending @error
+  @us-cpd-01 @needs-browser @error
   Scenario: A drag begun on a lane header never lifts a card
     Given the Identity Platform board is open at the desk
     When Priya drags the Done header with the mouse to the left of In-Progress

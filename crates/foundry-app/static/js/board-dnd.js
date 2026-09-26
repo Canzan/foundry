@@ -430,7 +430,10 @@
     // pointer, one gesture: every other pointer is ignored (DDD-9).
     var press = null;
     // Armed by the release of a lifted drag, consumed by the next click and
-    // reset by the next press (DDD-6).
+    // reset by the next press (DDD-6). The reset is what keeps it one-shot: a
+    // lifted mouse release may deliver NO click at all (Chrome drops it once
+    // the cancelled `dragstart` has fired), and an armed guard left standing
+    // would eat the next genuine click on a card.
     var swallowClick = false;
 
     // End the press. A lifted drag is torn down; the card never left its slot,
