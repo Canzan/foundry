@@ -15,6 +15,12 @@
 
 use askama::Template;
 
+/// The release this binary was built as — foundry-app's crate version, compiled
+/// in (release-version-footer D2). The crates are bumped together at release, so
+/// it equals the git tag without the build pipeline passing anything in.
+/// `base.html` reads it by path, so no page struct carries a version field.
+pub const RELEASE_VERSION: &str = env!("CARGO_PKG_VERSION");
+
 /// The project-create full page (US-R01). Extends `base.html`, which links the
 /// vendored `/static` stylesheet + htmx script (US-B01/B02) — replacing
 /// the previous bare-`<head>` `format!` markup (`projects.rs::render_create_form`).

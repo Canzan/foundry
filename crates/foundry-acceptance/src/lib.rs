@@ -47,6 +47,7 @@ pub mod steps {
     pub mod feature_per_workspace_backup;
     pub mod feature_pwa_mobile;
     pub mod feature_recipient_notification_preferences;
+    pub mod feature_release_version_footer;
     pub mod feature_remaining_surfaces;
     pub mod feature_token_management_api;
     pub mod feature_web_provisioning_flow;

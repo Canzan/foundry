@@ -106,6 +106,8 @@ use foundry_acceptance::steps::feature_pwa_mobile as _feature_pwa_mobile;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_recipient_notification_preferences as _feature_recipient_unsub;
 #[allow(unused_imports)]
+use foundry_acceptance::steps::feature_release_version_footer as _feature_rvf;
+#[allow(unused_imports)]
 use foundry_acceptance::steps::feature_remaining_surfaces as _feature_remaining;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_token_management_api as _feature_tma;

@@ -870,6 +870,28 @@ kbd {
   min-width: 0;
   padding: 24px 32px;
 }
+/* release-version-footer (US-RVF-01, D3) — the running release on every full
+   page: small, muted, non-interactive. Colour is `--cz-muted` (5.89:1 light,
+   6.38:1 dark on the page), the same tier as the rail's secondary text.
+
+   IT MUST NOT CHANGE A PAGE'S HEIGHT. The shell is `min-height: 100vh`, so a
+   footer in normal flow after it would give every authed page — the board
+   included — a 16px vertical scrollbar. After the shell it is pulled up by its
+   own height into the shell's bottom padding (24px desktop, 16px on a phone),
+   where nothing is drawn; `pointer-events: none` keeps that band clickable for
+   whatever sits under it. Pages without the shell (sign-in, bootstrap, …) are
+   short documents and take it in normal flow. */
+.site-footer {
+  padding: 0 16px;
+  font-size: 11px;
+  line-height: 16px;
+  text-align: right;
+  color: var(--cz-muted);
+}
+.app-shell + .site-footer {
+  margin-top: -16px;
+  pointer-events: none;
+}
 /* The rail carried FIFTEEN colour literals and zero tokens, which is why it had
    to move in the same step as the board: re-pointing only the already-tokenised
    rules would have shipped a white stripe down the left of a dark app. It is a
