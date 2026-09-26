@@ -91,6 +91,7 @@ fn source_violations(root: &Path) -> Vec<String> {
     violations.extend(check_app_no_slugify_definition(root));
     violations.extend(check_no_static_lane_list(root));
     violations.extend(check_lane_position_deferrable(root));
+    violations.extend(check_board_modules_have_no_keydown_listener(root));
     violations.extend(check_static_asset_integrity(root));
     violations.extend(check_stylesheet_colour_seam(root));
     violations.extend(check_stylesheet_dark_block_parity(root));
@@ -132,7 +133,7 @@ pub fn run(args: Vec<String>) -> ExitCode {
     let verdict = verdict(&args);
     match &verdict {
         Verdict::Passed => println!(
-            "check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, the lanes position constraint is still DEFERRABLE, every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, no colour literal outside the three stylesheet token regions, the three stylesheet token regions declare the identical colour-token set, dependency direction)"
+            "check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, the lanes position constraint is still DEFERRABLE, no board-*.js registers a keydown listener, every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, no colour literal outside the three stylesheet token regions, the three stylesheet token regions declare the identical colour-token set, dependency direction)"
         ),
         Verdict::UnparseableArguments(message) => eprintln!("check-arch: {message}"),
         Verdict::Violations(violations) => {
@@ -913,6 +914,169 @@ fn check_lane_position_deferrable(root: &Path) -> Vec<String> {
          Restore the keyword, or change both store operations and their ADRs together.",
         migration.display()
     )]
+}
+
+/// DDD-22 / BR-4 — Escape has exactly one owner, `keyboard.js::closeTopLayer()`.
+/// A drag module cancels through a closeTopLayer arm, never through a keydown
+/// listener of its own. Every `board-*.js` in the served js directory is
+/// scanned — listed, never hard-coded, so a new board module is covered the
+/// day it lands. Only REGISTRATIONS are flagged (`addEventListener("keydown"`,
+/// `.onkeydown =`, `on("keydown"`), after JS comments are stripped: the
+/// DEFERRABLE rule's lesson is that a stripper for the wrong comment syntax
+/// lets a commented-out case decide the verdict. A missing js directory fails
+/// the rule rather than passing it vacuously.
+fn check_board_modules_have_no_keydown_listener(root: &Path) -> Vec<String> {
+    let js_dir = root
+        .join("crates")
+        .join("foundry-app")
+        .join("static")
+        .join("js");
+    let Ok(entries) = std::fs::read_dir(&js_dir) else {
+        return vec![format!(
+            "no-board-keydown: cannot list {} — no board module could be checked for a \
+             keydown listener. BR-4: Escape has one owner, `keyboard.js::closeTopLayer()`.",
+            js_dir.display()
+        )];
+    };
+    let mut modules: Vec<PathBuf> = entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.is_file()
+                && path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .is_some_and(|n| n.starts_with("board-") && n.ends_with(".js"))
+        })
+        .collect();
+    modules.sort();
+    let mut violations = Vec::new();
+    for module in modules {
+        let Ok(source) = std::fs::read_to_string(&module) else {
+            violations.push(format!(
+                "no-board-keydown: cannot read {} — it could not be checked for a keydown \
+                 listener.",
+                rel(root, &module)
+            ));
+            continue;
+        };
+        for (idx, line) in strip_js_comments(&source).lines().enumerate() {
+            if registers_keydown_listener(line) {
+                violations.push(format!(
+                    "no-board-keydown: {}:{} registers a keydown listener. BR-4: Escape has \
+                     one owner, `keyboard.js::closeTopLayer()` — cancel through a \
+                     closeTopLayer arm instead.",
+                    rel(root, &module),
+                    idx + 1
+                ));
+            }
+        }
+    }
+    violations
+}
+
+/// Blank every JS `//` line comment and `/* … */` block comment, PRESERVING
+/// newlines so line numbers still map onto the original file. String literals
+/// (`'`, `"`, `` ` ``) are tracked and kept intact, so a `//` inside
+/// `"https://…"` does not hide a registration later on the same line.
+/// Known limitations: regex literals and `${…}` nesting inside template
+/// literals are not modelled — neither occurs in a way that matters for the
+/// board modules today.
+fn strip_js_comments(source: &str) -> String {
+    #[derive(PartialEq)]
+    enum State {
+        Code,
+        Line,
+        Block,
+        Str(char),
+    }
+    let mut out = String::with_capacity(source.len());
+    let mut state = State::Code;
+    let mut chars = source.chars().peekable();
+    while let Some(ch) = chars.next() {
+        match state {
+            State::Code => match (ch, chars.peek()) {
+                ('/', Some('/')) => {
+                    chars.next();
+                    out.push_str("  ");
+                    state = State::Line;
+                }
+                ('/', Some('*')) => {
+                    chars.next();
+                    out.push_str("  ");
+                    state = State::Block;
+                }
+                ('"' | '\'' | '`', _) => {
+                    out.push(ch);
+                    state = State::Str(ch);
+                }
+                _ => out.push(ch),
+            },
+            State::Line => {
+                if ch == '\n' {
+                    out.push('\n');
+                    state = State::Code;
+                } else {
+                    out.push(' ');
+                }
+            }
+            State::Block => {
+                if ch == '*' && chars.peek() == Some(&'/') {
+                    chars.next();
+                    out.push_str("  ");
+                    state = State::Code;
+                } else if ch == '\n' {
+                    out.push('\n');
+                } else {
+                    out.push(' ');
+                }
+            }
+            State::Str(quote) => {
+                out.push(ch);
+                if ch == '\\' {
+                    if let Some(escaped) = chars.next() {
+                        out.push(escaped);
+                    }
+                } else if ch == quote || (ch == '\n' && quote != '`') {
+                    state = State::Code;
+                }
+            }
+        }
+    }
+    out
+}
+
+/// True when `code` (one comment-stripped line) registers a keydown listener:
+/// `addEventListener(\s*["'`]keydown["'`]`, `\.onkeydown\s*=`, or
+/// `on(\s*["']keydown["']`. The bare word in a string is not a registration.
+fn registers_keydown_listener(code: &str) -> bool {
+    let quoted_keydown_follows = |rest: &str, quotes: &[char]| -> bool {
+        let rest = rest.trim_start();
+        let mut it = rest.chars();
+        let Some(open) = it.next() else {
+            return false;
+        };
+        let tail = it.as_str();
+        quotes.contains(&open)
+            && tail
+                .strip_prefix("keydown")
+                .and_then(|after| after.chars().next())
+                .is_some_and(|close| quotes.contains(&close))
+    };
+    let after_each = |needle: &str| -> Vec<&str> {
+        code.match_indices(needle)
+            .map(|(idx, _)| &code[idx + needle.len()..])
+            .collect()
+    };
+    after_each("addEventListener(")
+        .into_iter()
+        .any(|rest| quoted_keydown_follows(rest, &['"', '\'', '`']))
+        || after_each(".onkeydown")
+            .into_iter()
+            .any(|rest| rest.trim_start().starts_with('='))
+        || after_each("on(")
+            .into_iter()
+            .any(|rest| quoted_keydown_follows(rest, &['"', '\'']))
 }
 
 fn check_dependency_direction(root: &Path) -> Option<String> {
@@ -1787,6 +1951,130 @@ mod tests {
             check_lane_position_deferrable(tree.path()).len(),
             1,
             "an unreadable 0015 must FAIL the guard, never pass it vacuously"
+        );
+    }
+
+    // ---- DDD-22 / BR-4: no board-*.js registers a keydown listener --------
+
+    const JS_DIR: &str = "crates/foundry-app/static/js";
+
+    fn stage_js(files: &[(&str, &str)]) -> tempfile::TempDir {
+        let staged: Vec<(String, &str)> = files
+            .iter()
+            .map(|(name, body)| (format!("{JS_DIR}/{name}"), *body))
+            .collect();
+        let borrowed: Vec<(&str, &str)> = staged.iter().map(|(p, b)| (p.as_str(), *b)).collect();
+        stage(&borrowed)
+    }
+
+    fn shipped_js(name: &str) -> String {
+        std::fs::read_to_string(workspace_root().join(JS_DIR).join(name))
+            .unwrap_or_else(|e| panic!("read shipped {name}: {e}"))
+    }
+
+    #[test]
+    fn shipped_board_modules_pass() {
+        let dnd = shipped_js("board-dnd.js");
+        let lane = shipped_js("board-lane-dnd.js");
+        assert!(
+            lane.contains("keydown"),
+            "ANTI-VACUITY: board-lane-dnd.js is expected to mention `keydown` in a comment"
+        );
+        let tree = stage_js(&[("board-dnd.js", &dnd), ("board-lane-dnd.js", &lane)]);
+        let violations = check_board_modules_have_no_keydown_listener(tree.path());
+        assert_eq!(violations.len(), 0, "{violations:?}");
+    }
+
+    #[test]
+    fn a_keydown_listener_in_a_board_module_is_flagged() {
+        let tree = stage_js(&[(
+            "board-dnd.js",
+            "const a = 1;\n\ndocument.addEventListener(\"keydown\", (e) => cancel(e));\n",
+        )]);
+        let violations = check_board_modules_have_no_keydown_listener(tree.path());
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert!(
+            violations[0].contains("board-dnd.js:3"),
+            "{}",
+            violations[0]
+        );
+        assert!(
+            violations[0].contains("keyboard.js::closeTopLayer()"),
+            "the message must name BR-4's single Escape owner: {}",
+            violations[0]
+        );
+    }
+
+    #[test]
+    fn a_commented_out_keydown_listener_is_not_flagged() {
+        let tree = stage_js(&[(
+            "board-dnd.js",
+            "// document.addEventListener('keydown', onKey);\nconst a = 1;\n",
+        )]);
+        let violations = check_board_modules_have_no_keydown_listener(tree.path());
+        assert_eq!(violations.len(), 0, "{violations:?}");
+    }
+
+    #[test]
+    fn a_block_commented_keydown_listener_is_not_flagged() {
+        let tree = stage_js(&[(
+            "board-dnd.js",
+            "/* legacy:\n   window.addEventListener(`keydown`, onKey); */\nconst a = 1;\n",
+        )]);
+        let violations = check_board_modules_have_no_keydown_listener(tree.path());
+        assert_eq!(violations.len(), 0, "{violations:?}");
+    }
+
+    #[test]
+    fn an_onkeydown_assignment_is_flagged() {
+        let tree = stage_js(&[("board-dnd.js", "card.onkeydown = handler;\n")]);
+        let violations = check_board_modules_have_no_keydown_listener(tree.path());
+        assert_eq!(violations.len(), 1, "{violations:?}");
+    }
+
+    #[test]
+    fn a_new_board_module_is_scanned() {
+        let tree = stage_js(&[
+            ("board-dnd.js", "const a = 1;\n"),
+            ("board-foo.js", "board.on('keydown', cancel);\n"),
+        ]);
+        let violations = check_board_modules_have_no_keydown_listener(tree.path());
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert!(
+            violations[0].contains("board-foo.js:1"),
+            "{}",
+            violations[0]
+        );
+    }
+
+    #[test]
+    fn keyboard_js_is_out_of_scope() {
+        let tree = stage_js(&[
+            ("board-dnd.js", "const a = 1;\n"),
+            (
+                "keyboard.js",
+                "document.addEventListener(\"keydown\", closeTopLayer);\n",
+            ),
+        ]);
+        let violations = check_board_modules_have_no_keydown_listener(tree.path());
+        assert_eq!(violations.len(), 0, "{violations:?}");
+    }
+
+    #[test]
+    fn the_word_keydown_in_a_string_is_not_a_listener() {
+        let tree = stage_js(&[("board-dnd.js", "console.log(\"no keydown here\");\n")]);
+        let violations = check_board_modules_have_no_keydown_listener(tree.path());
+        assert_eq!(violations.len(), 0, "{violations:?}");
+    }
+
+    #[test]
+    fn a_missing_js_directory_is_flagged() {
+        let tree = stage(&[("crates/foundry-app/src/main.rs", "fn main() {}\n")]);
+        let violations = check_board_modules_have_no_keydown_listener(tree.path());
+        assert_eq!(
+            violations.len(),
+            1,
+            "a missing js directory must FAIL the guard, never pass it vacuously: {violations:?}"
         );
     }
 
@@ -2743,7 +3031,7 @@ mod tests {
     /// emits is prefixed with its own name, so a marker absent from the
     /// aggregate's output means that rule is no longer wired into the guard —
     /// the silent-disarm failure this whole block exists for.
-    const LAYER_1_RULE_MARKERS: [&str; 11] = [
+    const LAYER_1_RULE_MARKERS: [&str; 12] = [
         "api≠HTML:",
         "api≠ad-hoc-authz:",
         "api≠mint:",
@@ -2752,6 +3040,7 @@ mod tests {
         "tenant-scoping:",
         "single slugify:",
         "no-static-lane-list:",
+        "no-board-keydown:",
         "asset-reference:",
         "token-seam S1:",
         "token-seam S2:",
@@ -2759,7 +3048,7 @@ mod tests {
 
     /// A tree that breaks every LAYER 1 rule at once. Each fixture body is the
     /// planted violation from that rule's own gold test above, so this tree
-    /// tests AGGREGATION — that `run` still calls all eleven — and never
+    /// tests AGGREGATION — that `run` still calls all twelve — and never
     /// re-tests detection.
     fn every_layer_1_rule_violated_tree() -> tempfile::TempDir {
         stage(&[
@@ -2803,6 +3092,10 @@ mod tests {
             (
                 "crates/foundry-app/static/css/planted.css",
                 ".card { color: #ff0000; }\n",
+            ),
+            (
+                "crates/foundry-app/static/js/board-dnd.js",
+                "document.addEventListener(\"keydown\", cancel);\n",
             ),
         ])
     }
@@ -2861,10 +3154,18 @@ mod tests {
         // is a guard that cannot be trusted, and
         // `a_missing_migration_is_flagged_rather_than_silently_passing` pins
         // that. So a clean tree carries a valid migration rather than none.
-        let clean = stage(&[(
-            "crates/foundry-store/migrations/0015_project_lanes.sql",
-            "CREATE TABLE lanes (\n  UNIQUE (project_id, position) DEFERRABLE INITIALLY IMMEDIATE\n);\n",
-        )]);
+        // Likewise `check_board_modules_have_no_keydown_listener` fails closed
+        // on a missing js directory, so the clean tree carries a clean one.
+        let clean = stage(&[
+            (
+                "crates/foundry-store/migrations/0015_project_lanes.sql",
+                "CREATE TABLE lanes (\n  UNIQUE (project_id, position) DEFERRABLE INITIALLY IMMEDIATE\n);\n",
+            ),
+            (
+                "crates/foundry-app/static/js/board-dnd.js",
+                "export const noop = () => {};\n",
+            ),
+        ]);
         let clean_args = vec!["--root".to_string(), clean.path().display().to_string()];
         let planted = every_layer_1_rule_violated_tree();
         let planted_args = vec!["--root".to_string(), planted.path().display().to_string()];
