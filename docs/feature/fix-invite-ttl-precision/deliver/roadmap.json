@@ -1,0 +1,49 @@
+{
+  "roadmap": {
+    "project_id": "fix-invite-ttl-precision",
+    "created_at": "2026-09-27T03:16:56Z",
+    "total_steps": 1
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "Regression test and fix",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "Invite TTL assertion compares at Postgres microsecond precision",
+          "criteria": [
+            "RED: with the Background clock seeded at a value whose nanosecond part is not a multiple of 1000, the unmodified assertion fails with ttl_days = 6 on macOS",
+            "GREEN: a shared acceptance helper truncates an OffsetDateTime to microseconds; the step asserts expires_at - to_pg_micros(issued_at) == Duration::days(7) exactly",
+            "The whole member-invites feature and invite-accept feature stay green; no production code changes",
+            "fmt, clippy -D warnings, check-arch pass"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/member-invites.feature",
+          "scenario_name": "Submitting a valid email creates an invite and shows a shareable link",
+          "description": "Regression-first: seed the member-invites Background clock with sub-microsecond nanos so the 7-day assertion fails on every OS, then truncate issued_at to microseconds via a shared helper and assert the exact 7-day TTL.",
+          "dependencies": [],
+          "estimate": "0.1 day",
+          "files_to_modify": [
+            "crates/foundry-acceptance/src/steps/feature_member_invites.rs",
+            "crates/foundry-acceptance/src/support/"
+          ],
+          "implementation_notes": "See docs/feature/fix-invite-ttl-precision/rca.md. Precedent: 6b6bc0c (create_member_and_consume_store.rs:309-318). Do not switch the seed to now_anchor(); that hides the bug. Production stays unchanged."
+        }
+      ]
+    }
+  ],
+  "implementation_scope": {
+    "source_directories": [
+      "crates/foundry-acceptance/"
+    ],
+    "test_directories": [
+      "crates/foundry-acceptance/"
+    ],
+    "excluded_patterns": []
+  },
+  "validation": {
+    "status": "approved",
+    "reviewer": "orchestrator (bugfix, user-approved RCA option A 2026-09-26)",
+    "approved_at": "2026-09-27T03:16:56Z"
+  }
+}
