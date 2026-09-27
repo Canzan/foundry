@@ -66,7 +66,7 @@ git push origin vX.Y.Z
 Every full page renders the running release in its footer
 (`Foundry vX.Y.Z`, from `foundry-app`'s `CARGO_PKG_VERSION`), including
 the signed-out sign-in page. After a tag push, the deployment has rolled
-out when `/signin` on the instance shows the new version; until then the
+out when `/sign-in` on the instance shows the new version; until then the
 previous pod is still serving.
 
 ## Verifying a published image

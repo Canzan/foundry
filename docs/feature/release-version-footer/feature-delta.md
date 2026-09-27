@@ -33,7 +33,7 @@ page, so I can tell a release has deployed.
 
 #### Elevator Pitch
 Before: after tagging a release she cannot tell from the app whether the new image is serving.
-After: open `https://foundry.<domain>/signin` → sees `Foundry v0.5.0` at the bottom of the page.
+After: open `https://foundry.<domain>/sign-in` → sees `Foundry v0.5.0` at the bottom of the page.
 Decision enabled: the rollout is done (or still pending) — no need to inspect Argo CD.
 
 #### Acceptance Criteria
