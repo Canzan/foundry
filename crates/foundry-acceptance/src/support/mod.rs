@@ -23,6 +23,7 @@ pub mod multi_replica_harness;
 pub mod notify_recorder;
 pub mod oidc_issuer;
 pub mod pg_backup;
+pub mod pg_time;
 pub mod readme_inspect;
 pub mod round_robin_proxy;
 pub mod sse_client;

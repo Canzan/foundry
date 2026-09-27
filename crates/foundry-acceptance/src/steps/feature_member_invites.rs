@@ -37,6 +37,7 @@
 //! member membership, and the consumed-exactly-once invite.
 
 use crate::support::harness::{signed_in_get, signed_in_post, InProcHarness};
+use crate::support::pg_time::to_pg_micros;
 use crate::world::FoundryWorld;
 use cucumber::{given, then, when};
 use foundry_app::clock::Clock;
@@ -85,7 +86,16 @@ fn http(world: &mut FoundryWorld) -> reqwest::Client {
 /// authenticating against the SHIPPED cookie sign-in path with `DANA_PASSWORD`.
 #[given(regex = r#"^Dana Reyes is signed in as an admin of the "([^"]+)" workspace$"#)]
 async fn dana_signed_in_admin(world: &mut FoundryWorld, ws_name: String) {
-    let harness = InProcHarness::spawn(time::OffsetDateTime::now_utc()).await;
+    // Seed with deliberate sub-microsecond nanos: Linux CI's `now_utc()` carries
+    // nanoseconds while macOS's is whole microseconds, and Postgres `timestamptz`
+    // truncates to microseconds. Forcing non-zero nanos reproduces the Linux clock
+    // on every OS, so a precision-mismatched timestamp comparison fails locally
+    // too (see docs/feature/fix-invite-ttl-precision/rca.md).
+    let t = time::OffsetDateTime::now_utc();
+    let t = t
+        .replace_nanosecond(t.microsecond() * 1000 + 789)
+        .expect("microsecond*1000 + 789 is a valid nanosecond value");
+    let harness = InProcHarness::spawn(t).await;
     let store: Arc<Store> = harness.app.state.store.clone();
     let pool = store.pool().clone();
 
@@ -522,14 +532,14 @@ async fn sees_confirmation_link_7_days(world: &mut FoundryWorld) {
             .fetch_one(&pool)
             .await
             .expect("read the issued invite's expires_at");
+    // `expires_at` came back from `timestamptz` (µs); the mock clock keeps ns.
+    // Compare at the database's precision so the TTL is exactly 7 days.
     let issued_at = harness(world).fake_clock.now();
-    let ttl = expires_at - issued_at;
     assert_eq!(
-        ttl.whole_days(),
-        7,
-        "the invite must be valid for 7 days; expires_at = {expires_at}, issued_at = \
-         {issued_at}, ttl_days = {}",
-        ttl.whole_days()
+        expires_at - to_pg_micros(issued_at),
+        time::Duration::days(7),
+        "the invite must be valid for exactly 7 days; expires_at = {expires_at}, \
+         issued_at = {issued_at} (compared at Postgres µs precision)"
     );
 }
 
