@@ -37,14 +37,15 @@ cargo xtask ci    # full local pipeline; same gates as remote CI
 #    format.
 $EDITOR CHANGELOG.md
 
-# 3. Bump the workspace version (workspace.package version once we
-#    move it to workspace.package; today every crate is 0.1.0 and
-#    bumps individually).
+# 3. Bump every crate under crates/ to X.Y.Z (they are versioned
+#    together; there is no workspace.package version yet, and xtask keeps
+#    its own 0.1.0). Refresh the lock for the workspace crates only.
 $EDITOR crates/*/Cargo.toml
+cargo update --workspace
 
 # 4. Commit, tag, push.
-git add CHANGELOG.md crates/*/Cargo.toml
-git commit -m "release: vX.Y.Z"
+git add CHANGELOG.md Cargo.lock crates/*/Cargo.toml
+git commit -m "chore(release): vX.Y.Z"
 git tag -s vX.Y.Z -m "vX.Y.Z"   # signed tags strongly recommended
 git push origin main
 git push origin vX.Y.Z
@@ -59,6 +60,14 @@ git push origin vX.Y.Z
 #
 #    Track progress in the Actions tab.
 ```
+
+## Verifying a deployment
+
+Every full page renders the running release in its footer
+(`Foundry vX.Y.Z`, from `foundry-app`'s `CARGO_PKG_VERSION`), including
+the signed-out sign-in page. After a tag push, the deployment has rolled
+out when `/signin` on the instance shows the new version; until then the
+previous pod is still serving.
 
 ## Verifying a published image
 

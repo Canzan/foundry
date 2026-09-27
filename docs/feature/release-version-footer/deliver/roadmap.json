@@ -1,0 +1,81 @@
+{
+  "roadmap": {
+    "project_id": "release-version-footer",
+    "created_at": "2026-09-26T21:16:03Z",
+    "total_steps": 2
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "Release version footer and v0.5.0",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "Site-wide footer shows the running release version",
+          "criteria": [
+            "A new acceptance scenario (tag @rvf) proves the signed-out sign-in page and a signed-in board page each show `Foundry v` + the binary crate version exactly once, below main content",
+            "htmx fragment and OOB responses carry no footer",
+            "Muted styling from existing --cz-* tokens only; any CSS change carries the full stylesheet re-hash (VENDOR.md, lib.rs, base.html)",
+            "check-arch, fmt, clippy -D warnings pass; cdf, cpd, kb, blr lanes stay green"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/release-version-footer.feature",
+          "scenario_name": "Every page shows the release the server is running",
+          "description": "base.html renders `Foundry v<CARGO_PKG_VERSION>` once at the bottom of every full page, signed in or out.",
+          "dependencies": [],
+          "estimate": "0.25 day",
+          "files_to_modify": [
+            "crates/foundry-app/templates/base.html",
+            "crates/foundry-app/src/",
+            "crates/foundry-app/static/css/",
+            "crates/foundry-app/static/VENDOR.md",
+            "crates/foundry-acceptance/tests/features/release-version-footer.feature",
+            "crates/foundry-acceptance/src/steps/",
+            "crates/foundry-acceptance/src/lib.rs"
+          ],
+          "implementation_notes": "TEST PARADIGM: example-based per project CLAUDE.md. Version = env!(\"CARGO_PKG_VERSION\") of foundry-app, exposed to Askama via the shared template context or a template global; base.html is extended by every full page."
+        },
+        {
+          "id": "01-02",
+          "name": "Release chore: bump crates to 0.5.0 and close the CHANGELOG",
+          "criteria": [
+            "Every workspace crate version is 0.5.0 and Cargo.lock agrees",
+            "CHANGELOG has a [v0.5.0] section dated 2026-09-26 and an empty [Unreleased]",
+            "The @rvf scenario shows `Foundry v0.5.0`",
+            "cargo xtask smoke passes"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/release-version-footer.feature",
+          "scenario_name": "Every page shows the release the server is running",
+          "description": "Follow the v0.4.0 convention (5bfcccb): bump every crate 0.4.0 -> 0.5.0, update Cargo.lock, move Unreleased into [v0.5.0] - 2026-09-26 with the footer and card-pointer-drag slice 01 entries.",
+          "dependencies": [
+            "01-01"
+          ],
+          "estimate": "0.1 day",
+          "files_to_modify": [
+            "Cargo.toml",
+            "Cargo.lock",
+            "crates/*/Cargo.toml",
+            "xtask/Cargo.toml",
+            "CHANGELOG.md"
+          ],
+          "implementation_notes": "No tag and no push: the orchestrator tags v0.5.0 and pushes after this step."
+        }
+      ]
+    }
+  ],
+  "implementation_scope": {
+    "source_directories": [
+      "crates/foundry-app/"
+    ],
+    "test_directories": [
+      "crates/foundry-acceptance/"
+    ],
+    "excluded_patterns": [
+      "crates/foundry-app/static/vendor/**"
+    ]
+  },
+  "validation": {
+    "status": "approved",
+    "reviewer": "orchestrator (lean path by user decision 2026-09-26)",
+    "approved_at": "2026-09-26T21:16:16Z"
+  }
+}
