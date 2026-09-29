@@ -19,6 +19,8 @@ increment was delivered in **no-commit mode**, with all 4 COMMIT phases logged
 
 Final `FOUNDRY_XTASK_INCLUDE_DOCKER=1 cargo xtask ci`: **RED, 854/855 scenarios (5971/5972 steps), 2026-09-27; the one failure is not D3a.** `us-03-backup-restore` "`foundry doctor backup-verify` ... reports row counts" printed an empty `row-counts:` block. `count_rows` (`admin_cli.rs:1634`) shells out to a bare `psql`, but this host has no Postgres client. `439ee6f` (2026-09-04) routed `pg_restore` through a container shim (`FOUNDRY_PG_RESTORE`) but not `psql`, and `count_rows` swallows every error as "table not present". It failed 3/3 in isolation with `FOUNDRY_ACCEPTANCE_TAGS=us-03-cli`. D3a touches neither `admin_cli.rs` nor the backup steps. The user chose to commit D3a and fix the `psql` seam as a separate bugfix.
 
+> **Addendum 2026-09-28:** the one gate failure above, the host-`psql` gap in `backup-verify`, is fixed by `fix-backup-verify-fail-open`, which counts rows in the binary and fails closed. The full gate then went 855/855 green.
+
 ## Business context
 
 Before D3a, every operator had to be invited or created by hand before their cluster

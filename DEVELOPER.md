@@ -68,9 +68,9 @@ FOUNDRY_XTASK_INCLUDE_DOCKER=1 cargo xtask ci
 is missing. Install these once:
 
 - **`cargo-deny`** — `cargo install --locked cargo-deny`.
-- **A PostgreSQL 16+ client** (`pg_dump`/`pg_restore` on PATH) for the US-03
-  backup lane — macOS `brew install postgresql@16` (then add its `bin` to PATH),
-  Debian/Ubuntu `apt-get install -y postgresql-client-16`.
+- **No host PostgreSQL client.** The US-03 backup lane runs `pg_dump` /
+  `pg_restore` from a `postgres:16-alpine` container, and `backup-verify`
+  counts rows in-binary (no `psql`).
 - **A reachable Docker daemon** for the acceptance suite (see
   [Docker on macOS](#docker-on-macos-colima--orbstack--lima)).
 - A `.env` is auto-seeded from `.env.example` when missing.
@@ -102,12 +102,12 @@ these once:
 | Tool | Lane | Install (macOS) | Install (Debian/Ubuntu) |
 |------|------|------------------|--------------------------|
 | `docker` (or `colima`, `orbstack`, `lima`) | every acceptance run | Docker Desktop, OrbStack, or `brew install colima` | `apt-get install docker.io` or docker.com docs |
-| `pg_dump` + `pg_restore` (v16+) | `@needs-pgclient` backup/restore | `brew install postgresql@16` | `apt-get install -y postgresql-client-16` |
 
-The backup lane probes for `pg_dump`/`pg_restore` at startup and fails with a
-clear message if either is missing — silent skips would let backup regressions
-ship undetected. Use a client **>= 16**: the test database is `postgres:16-alpine`,
-and `pg_dump` refuses to dump a server newer than itself.
+The backup lane needs no host Postgres client: it runs `pg_dump`/`pg_restore`
+from the same `postgres:16-alpine` image the test database uses (so the client
+can never be older than the server), and points `backup-verify` at that
+container through `FOUNDRY_PG_RESTORE`. See
+[`docs/architecture/atdd-infrastructure-policy.md`](./docs/architecture/atdd-infrastructure-policy.md).
 
 ### Docker on macOS (Colima / OrbStack / Lima)
 
@@ -151,7 +151,7 @@ The `foundry` binary doubles as an operator CLI under `foundry doctor`:
 
 | Subcommand | Purpose |
 |------------|---------|
-| `backup-verify <archive>` | Validate a `pg_dump -Fc` custom-format archive and report row counts. Exit 0 on a healthy backup; non-zero on missing args, an unreadable/truncated archive, or a restore-probe failure. |
+| `backup-verify <archive>` | Validate a `pg_dump -Fc` custom-format archive and report row counts. Exit 0 + `status: OK` only after rows were counted; it fails closed otherwise (exit codes below). |
 | `list-workspaces` | List workspaces with the identity/selector used by `export-workspace`. |
 | `export-workspace <id\|name> <path>` | Export one workspace's tenant tables to a verifiable, isolation-scoped archive (per-workspace logical backup). |
 | `verify-export <path>` | Verify an exported archive's completeness and per-tenant isolation from the path alone. |
@@ -172,6 +172,13 @@ foundry doctor backup-verify /backups/foundry-2026-05-22.dump
 ```
 
 Pipe the output into `grep -q 'status: OK'` from cron to fail loudly on corruption.
+`pg_restore` is the only external tool it needs; row counts and the probe-schema
+cleanup run in-binary. It never prints `status: OK` unless it counted rows:
+exit 2 file missing, 3 `pg_restore` not invocable, 4 archive unreadable or
+truncated, 5 `FOUNDRY_DOCTOR_PROBE_URL` unset, 6/7 restore into the probe could
+not spawn / failed, **8** probe unreachable for row counts, **9** a count failed
+on a table that exists, **10** the restored schema holds no known Foundry table
+("not a Foundry backup?"). A known table genuinely absent from the dump is skipped.
 
 ### Manual onboarding drills (release-candidate cuts)
 

@@ -38,13 +38,10 @@ command runs:
   [DEVELOPER.md](./DEVELOPER.md#docker-on-macos-colima--orbstack--lima)
   for the one-line `DOCKER_HOST` export the acceptance harness needs.
 
-The full acceptance suite additionally exercises the system `pg_dump` /
-`pg_restore` binaries (slice-3 backup/restore lane). These must be
-**version 16 or newer** — the test database is Postgres 16, and `pg_dump`
-refuses to dump a server newer than itself. Install with
-`brew install libpq && brew link --force libpq` (macOS — `brew upgrade libpq`
-if you have an older one) or `apt-get install postgresql-client-16`
-(Debian/Ubuntu). The default fast `cargo test` does **not** need them.
+You do **not** need a host PostgreSQL client. The slice-3 backup/restore lane
+runs `pg_dump` / `pg_restore` from a pinned `postgres:16-alpine` container
+through that same Docker daemon, and `foundry doctor backup-verify` counts
+rows in-binary (no `psql`).
 
 ### From clone to green tests
 

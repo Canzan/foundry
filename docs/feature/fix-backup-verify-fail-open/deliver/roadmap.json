@@ -1,0 +1,58 @@
+{
+  "roadmap": {
+    "project_id": "fix-backup-verify-fail-open",
+    "created_at": "2026-09-29T02:16:36Z",
+    "total_steps": 1
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "Regression test and fix",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "backup-verify counts rows in-binary and fails closed",
+          "criteria": [
+            "RED: with FOUNDRY_PG_RESTORE a stub exiting 0 and an unreachable probe URL, backup-verify exits 0 and prints status: OK today",
+            "GREEN: an unreachable probe exits 8 with the probe named on stderr; a failing count on a present table exits 9; zero known Foundry tables exits 10; none print status: OK",
+            "Row counts and the schema DROP use sqlx in-binary with quoted identifiers; no psql anywhere in production code; only genuinely absent tables are skipped",
+            "@us-03-cli scenarios green on a host without psql; the whole us-03 feature and the workspace stay green",
+            "ci.yml drops postgresql-client-16; exit codes 8-10 documented; fmt, clippy -D warnings, check-arch pass"
+          ],
+          "test_file": "crates/foundry-app/tests/backup_verify_fail_closed.rs",
+          "scenario_name": "The `foundry doctor backup-verify` CLI subcommand reports row counts and exits zero on a healthy backup",
+          "description": "Regression-first: a hermetic test proves backup-verify reports a false OK when it cannot count. Then replace the two bare psql calls with in-binary sqlx (count via to_regclass + count(*), quoted DROP) and make every failure other than a genuinely absent table exit non-zero without status: OK.",
+          "dependencies": [],
+          "estimate": "0.5 day",
+          "files_to_modify": [
+            "crates/foundry-app/src/admin_cli.rs",
+            "crates/foundry-app/tests/backup_verify_fail_closed.rs",
+            ".github/workflows/ci.yml",
+            "RELEASING.md",
+            "DEVELOPER.md",
+            "CHANGELOG.md",
+            "docs/architecture/atdd-infrastructure-policy.md",
+            "README.md",
+            "AGENTS.md"
+          ],
+          "implementation_notes": "See docs/feature/fix-backup-verify-fail-open/rca.md. main is #[tokio::main]: use the existing std::thread::spawn + new_current_thread runtime pattern (admin_cli.rs ~290-312), never block_on in place. Use one sqlx PgConnection / max_connections(1) pool with acquire timeout; not Store::connect; never migrate. Escape identifiers by doubling '\"'. Never DROP the public schema. Exit codes 2-7 already exist. Run lanes with `timeout`; clean leftover testcontainers after."
+        }
+      ]
+    }
+  ],
+  "implementation_scope": {
+    "source_directories": [
+      "crates/foundry-app/"
+    ],
+    "test_directories": [
+      "crates/foundry-app/tests/",
+      "crates/foundry-acceptance/"
+    ],
+    "excluded_patterns": []
+  },
+  "validation": {
+    "status": "approved",
+    "reviewer": "orchestrator (bugfix, user-approved RCA option b + fail-closed 2026-09-28)",
+    "approved_at": "2026-09-28T00:00:00Z"
+  }
+}

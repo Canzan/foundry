@@ -35,6 +35,20 @@
 //!    (workspaces, users, teams, projects, issues, comments,
 //!    issue_attachments, sessions, ...). Tables present in the dump
 //!    but unknown to the verifier are silently ignored.
+//!    Counting happens in-binary over one sqlx connection (no `psql`;
+//!    `pg_restore` is the only external tool), with quoted identifiers.
+//!    Only a table that genuinely does not exist (`to_regclass` is NULL)
+//!    is skipped; the per-invocation schema is then dropped best-effort
+//!    (never `public`).
+//!
+//! Exit codes: 0 healthy (`status: OK`); 2 file missing; 3 pg_restore
+//! could not be invoked; 4 archive unreadable/truncated; 5
+//! `FOUNDRY_DOCTOR_PROBE_URL` unset; 6 pg_restore into the probe could
+//! not be spawned; 7 pg_restore into the probe failed; 8 probe
+//! unreachable for row counts; 9 a count failed on a table that exists;
+//! 10 the restored schema holds none of the known Foundry tables ("not a
+//! Foundry backup?"). Only exit 0 prints `status: OK` — the verifier
+//! fails closed, so cron can grep for that line.
 //!
 //! Production usage:
 //!
@@ -47,6 +61,7 @@
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::str::FromStr;
+use std::time::Duration;
 
 /// Which `pg_restore` to invoke.
 ///
@@ -96,8 +111,10 @@ pub fn run_backup_verify(dump_path: &Path) -> i32 {
         Err(err) => {
             eprintln!(
                 "foundry doctor backup-verify: could not invoke pg_restore: {err}. \
-                 Ensure the Postgres client tooling is installed (`apt-get install \
-                 postgresql-client-16` / `brew install libpq && brew link --force libpq`).",
+                 pg_restore (v16+) is the only external tool this command needs: run \
+                 it where one is installed (e.g. the postgres:16-alpine image, as in \
+                 RELEASING.md) or set FOUNDRY_PG_RESTORE to a pg_restore program or \
+                 container wrapper.",
             );
             return 3;
         }
@@ -162,43 +179,219 @@ pub fn run_backup_verify(dump_path: &Path) -> i32 {
         .unwrap_or_else(|| "public".to_string());
 
     println!("schema: {schema_name}");
-    println!("row-counts:");
-    let tables = [
-        "workspaces",
-        "users",
-        "teams",
-        "team_memberships",
-        "workspace_memberships",
-        "projects",
-        "issues",
-        "comments",
-        "issue_attachments",
-        "session",
-        "outbox",
-    ];
-
-    for table in tables {
-        match count_rows(&probe_url, &schema_name, table) {
-            Ok(n) => println!("  {table}: {n}"),
-            Err(_) => {
-                // Skip tables not present in this dump (older
-                // Foundry versions, optional features).
+    match count_rows_in_probe(probe_url, schema_name) {
+        Ok(counts) => {
+            println!("row-counts:");
+            for (table, n) in counts {
+                println!("  {table}: {n}");
             }
+            println!("status: OK");
+            0
+        }
+        Err(failure) => {
+            eprintln!("foundry doctor backup-verify: {failure}");
+            failure.exit_code()
+        }
+    }
+}
+
+/// The Foundry tables `backup-verify` counts. A table absent from the
+/// restored schema (an older Foundry, an optional feature) is skipped; at
+/// least one must be present or the archive is not a Foundry backup.
+const KNOWN_FOUNDRY_TABLES: [&str; 11] = [
+    "workspaces",
+    "users",
+    "teams",
+    "team_memberships",
+    "workspace_memberships",
+    "projects",
+    "issues",
+    "comments",
+    "issue_attachments",
+    "session",
+    "outbox",
+];
+
+/// How long the verifier waits to reach the probe database.
+const PROBE_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Row counts per present Foundry table, in `KNOWN_FOUNDRY_TABLES` order.
+type RowCounts = Vec<(&'static str, i64)>;
+
+/// Why the row-count step could not vouch for the backup. Every variant
+/// exits non-zero WITHOUT `status: OK`: cron greps for that line, so it may
+/// only appear after rows were actually counted.
+#[derive(Debug)]
+enum CountFailure {
+    /// The probe could not be reached (or its URL did not parse).
+    ProbeUnreachable { probe: String, error: String },
+    /// A table that exists in the restored schema could not be counted.
+    CountFailed { table: String, error: String },
+    /// The restored schema holds none of the known Foundry tables.
+    NoFoundryTables { schema: String },
+}
+
+impl CountFailure {
+    fn exit_code(&self) -> i32 {
+        match self {
+            CountFailure::ProbeUnreachable { .. } => 8,
+            CountFailure::CountFailed { .. } => 9,
+            CountFailure::NoFoundryTables { .. } => 10,
+        }
+    }
+}
+
+impl std::fmt::Display for CountFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CountFailure::ProbeUnreachable { probe, error } => write!(
+                f,
+                "could not reach the probe database FOUNDRY_DOCTOR_PROBE_URL ({probe}) \
+                 to count rows: {error}"
+            ),
+            CountFailure::CountFailed { table, error } => {
+                write!(f, "could not count rows in table {table}: {error}")
+            }
+            CountFailure::NoFoundryTables { schema } => write!(
+                f,
+                "restored schema {schema} contains none of the known Foundry tables \
+                 ({}) — not a Foundry backup?",
+                KNOWN_FOUNDRY_TABLES.join(", ")
+            ),
+        }
+    }
+}
+
+/// Quote a Postgres identifier: wrap in `"` and double any embedded `"`.
+fn quote_ident(ident: &str) -> String {
+    format!("\"{}\"", ident.replace('"', "\"\""))
+}
+
+/// Count the known Foundry tables in `schema` on the probe, then drop the
+/// per-invocation schema. `main` runs under `#[tokio::main]`, so the sqlx
+/// work runs on its own current-thread runtime in a separate thread (an
+/// in-place `block_on` would panic).
+fn count_rows_in_probe(probe_url: String, schema: String) -> Result<RowCounts, CountFailure> {
+    std::thread::spawn(move || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|err| CountFailure::ProbeUnreachable {
+                probe: "runtime".into(),
+                error: format!("could not build tokio runtime: {err}"),
+            })?;
+        runtime.block_on(async move {
+            let mut probe = ProbeDatabase::connect(&probe_url).await?;
+            let counts = probe.count_known_tables(&schema).await;
+            probe.drop_schema(&schema).await;
+            counts
+        })
+    })
+    .join()
+    .unwrap_or_else(|_| {
+        Err(CountFailure::CountFailed {
+            table: "(all)".into(),
+            error: "worker thread panicked; see stderr above".into(),
+        })
+    })
+}
+
+/// One sqlx connection to the probe database the dump was restored into.
+/// Deliberately not `Store::connect`: the probe holds someone else's schema
+/// and must never be migrated.
+struct ProbeDatabase {
+    conn: sqlx::PgConnection,
+}
+
+impl ProbeDatabase {
+    async fn connect(probe_url: &str) -> Result<Self, CountFailure> {
+        use sqlx::postgres::PgConnectOptions;
+        use sqlx::Connection;
+
+        let options = PgConnectOptions::from_str(probe_url).map_err(|err| {
+            CountFailure::ProbeUnreachable {
+                probe: "unparseable URL".into(),
+                error: err.to_string(),
+            }
+        })?;
+        // Name the probe by host:port/database, never the password.
+        let probe = format!(
+            "{}:{}/{}",
+            options.get_host(),
+            options.get_port(),
+            options.get_database().unwrap_or("")
+        );
+        let unreachable = |error: String| CountFailure::ProbeUnreachable {
+            probe: probe.clone(),
+            error,
+        };
+        match tokio::time::timeout(
+            PROBE_CONNECT_TIMEOUT,
+            sqlx::PgConnection::connect_with(&options),
+        )
+        .await
+        {
+            Ok(Ok(conn)) => Ok(Self { conn }),
+            Ok(Err(err)) => Err(unreachable(err.to_string())),
+            Err(_) => Err(unreachable(format!(
+                "timed out after {}s",
+                PROBE_CONNECT_TIMEOUT.as_secs()
+            ))),
         }
     }
 
-    // Step 4: drop the per-invocation schema so the probe DB stays
-    // reusable across back-to-back verifications. Best-effort.
-    let _ = Command::new("psql")
-        .arg(&probe_url)
-        .arg("-c")
-        .arg(format!("DROP SCHEMA IF EXISTS {schema_name} CASCADE"))
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
+    /// Counts every known Foundry table present in `schema`. Only a table
+    /// that genuinely does not exist is skipped; any other failure is fatal.
+    async fn count_known_tables(&mut self, schema: &str) -> Result<RowCounts, CountFailure> {
+        let mut counts = Vec::new();
+        for table in KNOWN_FOUNDRY_TABLES {
+            let count_failed = |err: sqlx::Error| CountFailure::CountFailed {
+                table: table.to_string(),
+                error: err.to_string(),
+            };
+            if let Some(n) = self.count(schema, table).await.map_err(count_failed)? {
+                counts.push((table, n));
+            }
+        }
+        if counts.is_empty() {
+            return Err(CountFailure::NoFoundryTables {
+                schema: schema.to_string(),
+            });
+        }
+        Ok(counts)
+    }
 
-    println!("status: OK");
-    0
+    /// `Ok(None)` when the table does not exist; `Ok(Some(n))` its row count.
+    async fn count(&mut self, schema: &str, table: &str) -> Result<Option<i64>, sqlx::Error> {
+        let qualified = format!("{}.{}", quote_ident(schema), quote_ident(table));
+        let absent: bool = sqlx::query_scalar("SELECT to_regclass($1) IS NULL")
+            .bind(&qualified)
+            .fetch_one(&mut self.conn)
+            .await?;
+        if absent {
+            return Ok(None);
+        }
+        let n: i64 = sqlx::query_scalar(&format!("SELECT count(*)::bigint FROM {qualified}"))
+            .fetch_one(&mut self.conn)
+            .await?;
+        Ok(Some(n))
+    }
+
+    /// Drop the per-invocation schema so the probe stays reusable across
+    /// back-to-back verifications. Best-effort (a warning, not a failure),
+    /// and never for `public`.
+    async fn drop_schema(&mut self, schema: &str) {
+        if schema == "public" {
+            return;
+        }
+        let sql = format!("DROP SCHEMA IF EXISTS {} CASCADE", quote_ident(schema));
+        if let Err(err) = sqlx::raw_sql(&sql).execute(&mut self.conn).await {
+            eprintln!(
+                "foundry doctor backup-verify: warning: could not drop probe schema \
+                 {schema}: {err}"
+            );
+        }
+    }
 }
 
 /// Best-effort parse of a `pg_restore --list` TOC for the schema name
@@ -282,8 +475,8 @@ pub fn run_restore_comment(comment_id: &str) -> i32 {
     // a runtime".) The thread-isolated runtime exits when the closure
     // returns.
     //
-    // backup-verify avoids this by using std::process::Command and
-    // never touching sqlx; restore-comment uses sqlx so we need a
+    // backup-verify's row counts use the same pattern
+    // (`count_rows_in_probe`); restore-comment uses sqlx so we need a
     // tokio context. The std::thread + new_current_thread runtime
     // pair keeps the operator-facing semantics synchronous (the
     // dispatch site still gets back an i32 exit code).
@@ -1626,30 +1819,4 @@ fn generate_provisioning_password() -> String {
     let mut bytes = [0u8; 16];
     rand::thread_rng().fill_bytes(&mut bytes);
     bytes.iter().map(|b| format!("{b:02x}")).collect()
-}
-
-/// Run `psql ... -t -A -c "SELECT count(*) FROM <schema>.<table>"`
-/// and return the parsed count. Returns an error if the table does
-/// not exist (caller swallows so missing tables don't break the run).
-fn count_rows(probe_url: &str, schema: &str, table: &str) -> Result<u64, String> {
-    let sql = format!("SELECT count(*) FROM \"{schema}\".\"{table}\"");
-    let out = Command::new("psql")
-        .arg(probe_url)
-        .arg("-t") // tuples only
-        .arg("-A") // unaligned
-        .arg("-c")
-        .arg(&sql)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .map_err(|err| format!("psql spawn: {err}"))?;
-    if !out.status.success() {
-        return Err(String::from_utf8_lossy(&out.stderr).into_owned());
-    }
-    let text = String::from_utf8_lossy(&out.stdout);
-    text.trim()
-        .lines()
-        .next()
-        .and_then(|first| first.trim().parse::<u64>().ok())
-        .ok_or_else(|| format!("could not parse count from {text:?}"))
 }

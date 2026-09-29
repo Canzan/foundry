@@ -83,13 +83,12 @@ jobs:
 
       # Tools `cargo xtask ci` expects on PATH. It checks for each and fails
       # with an install hint if missing; we install them up front so the gate
-      # runs clean. (Same tools a developer installs once locally.)
-      - name: Install cargo-deny + PostgreSQL 16 client
-        run: |
-          cargo install --locked cargo-deny || true
-          sudo apt-get update
-          sudo apt-get install -y postgresql-client-16
-          pg_dump --version
+      # runs clean. (Same tools a developer installs once locally.) No host
+      # Postgres client: the backup lane runs pg_dump/pg_restore from a
+      # postgres:16-alpine container and backup-verify counts rows in-binary,
+      # so CI must not install one that would hide a host-client dependency.
+      - name: Install cargo-deny
+        run: cargo install --locked cargo-deny || true
 
       # The single gate. Seeds .env from .env.example, runs every check in the
       # same order as the local pre-push gate, and builds the foundry binary +

@@ -125,7 +125,7 @@ file and reports per-table row counts.
 ### Why you can't run it directly inside the production container
 
 The runtime image (`gcr.io/distroless/cc-debian12`) is intentionally
-minimal — no shell, no `pg_restore`, no `psql`. Running
+minimal — no shell and no `pg_restore`. Running
 `foundry doctor backup-verify` inside the container will exit with a
 clear error pointing at the missing tooling.
 
@@ -133,8 +133,10 @@ Operators have three supported patterns.
 
 ### Pattern 1 — From the host (or any machine with the Postgres client tools)
 
-Easiest if Foundry isn't yet K8s-resident. Install the Postgres client
-tools (matching the major version Foundry runs on — currently 16):
+Easiest if Foundry isn't yet K8s-resident. `pg_restore` is the only
+external tool the verifier needs (row counts and the probe-schema cleanup
+run inside the binary; no `psql`). Install a client matching the major
+version Foundry runs on — currently 16:
 
 ```sh
 # macOS
@@ -154,6 +156,25 @@ foundry doctor backup-verify foundry.dump
 Exit code 0 + `status: OK` line on stdout = the backup is sound and
 the row counts are what you expect. Pipe `stdout` through
 `grep -q 'status: OK'` from cron to fail loudly on corruption.
+
+The verifier fails closed: `status: OK` prints only after rows were
+actually counted. Every other outcome exits non-zero:
+
+| Exit | Meaning |
+|------|---------|
+| 0 | Healthy backup; row counts printed, then `status: OK` |
+| 2 | The backup file does not exist |
+| 3 | `pg_restore` could not be invoked (not installed / `FOUNDRY_PG_RESTORE` wrong) |
+| 4 | The archive is unreadable or truncated |
+| 5 | `FOUNDRY_DOCTOR_PROBE_URL` is not set |
+| 6 | `pg_restore` into the probe database could not be spawned |
+| 7 | `pg_restore` into the probe database failed |
+| 8 | The probe database is unreachable for row counts (named on stderr) |
+| 9 | Counting rows failed on a table that exists (the table is named on stderr) |
+| 10 | The restored schema holds none of the known Foundry tables — not a Foundry backup? |
+
+A known Foundry table that is genuinely absent from the dump (an older
+release, an optional feature) is skipped, not an error.
 
 ### Pattern 2 — Via a transient container that bundles the client tools
 

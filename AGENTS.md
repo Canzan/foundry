@@ -108,10 +108,10 @@ command you run locally, so a red push is always avoidable.
   process failure — add the check to `xtask::run_ci`, not just to the workflow.
 - **Prerequisites** (xtask checks for each and prints an install hint if
   missing): a reachable Docker daemon (Colima/OrbStack/Docker Desktop) for the
-  `@docker-compose` group, `cargo-deny` (`cargo install --locked cargo-deny`), a
-  **PostgreSQL 16+ client** (`pg_dump`/`pg_restore` on PATH — macOS `brew install
-  postgresql@16`, Debian/Ubuntu `apt-get install -y postgresql-client-16`) for
-  the US-03 backup lane, and a `.env` (auto-seeded from `.env.example`).
+  `@docker-compose` group, `cargo-deny` (`cargo install --locked cargo-deny`), and
+  a `.env` (auto-seeded from `.env.example`). **No host PostgreSQL client**: the
+  US-03 backup lane runs `pg_dump`/`pg_restore` from a pinned `postgres:16-alpine`
+  container, and `backup-verify` counts rows in-binary (no `psql`).
 - **Never add a bespoke check to `ci.yml` alone.** If a gate belongs in CI it
   belongs in `cargo xtask ci` so it runs locally too — that single-source-of-truth
   invariant is what keeps "green locally" and "green in CI" identical.

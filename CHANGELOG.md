@@ -7,6 +7,20 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`foundry doctor backup-verify` fails closed.** It used to print
+  `status: OK` and exit 0 when it could not count a single row: its row
+  counts shelled out to a bare `psql`, and every failure (no `psql` on PATH,
+  an unreachable probe, a dump of the wrong database) was swallowed as "table
+  not present". Row counts and the probe-schema `DROP` now run in-binary over
+  sqlx with quoted identifiers, so `pg_restore` is the only external tool.
+  Only a genuinely absent table is skipped. **Runs that used to report a false
+  OK now exit non-zero:** 8 when the probe database is unreachable for row
+  counts, 9 when counting a table that exists fails, 10 when the restored
+  schema holds none of the known Foundry tables ("not a Foundry backup?").
+  CI no longer installs `postgresql-client-16`.
+
 ## [v0.5.0] - 2026-09-26
 
 The release footer and the first slice of Pointer Events card drag. The
