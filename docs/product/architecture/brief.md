@@ -395,16 +395,18 @@ The server-side invariant (gap-free positions) stays the issue aggregate's, unto
 
 *Restated in pointer terms by card-pointer-drag (DESIGN 2026-09-25,
 ADR-BOARD-CARD-004). The card-drag-drop-feedback HTML5 version is in git history
-and that feature's delta.*
+and that feature's delta. Amended 2026-09-29 for the grip and body hold: the lift
+line, invariants 1 and 3, and the Lift, Hold, Grip and Arming cue terms.*
 
 ```mermaid
 stateDiagram-v2
   [*] --> Idle
   Idle --> Idle: foreign dragover / drop inside #board-columns (claimed, dropEffect none, nothing else)
-  Idle --> Pending: pointerdown on .issue-card inside #board-columns (primary button for mouse)
-  Pending --> Idle: touch/pen moves past tolerance before the hold (the browser scrolls)
-  Pending --> Idle: release before lifting (click or tap opens the card), or pointercancel (hold abandoned)
-  Pending --> Carrying: lift (mouse past 6 px; touch/pen held 350 ms within 10 px)
+  %% amended 2026-09-29: the lift was "touch/pen held 350 ms within 10 px"
+  Idle --> Pending: pointerdown on .issue-card inside #board-columns (primary button for mouse; a touch/pen on the body shows the arming cue)
+  Pending --> Idle: touch/pen on the body moves past tolerance, or the page scrolls, before the hold (the browser scrolls; cue cleared)
+  Pending --> Idle: release before lifting (click or tap on the body opens the card; on the grip, nothing opens), or pointercancel (hold abandoned)
+  Pending --> Carrying: lift (mouse past 6 px; touch/pen on the grip past 3 px; touch/pen on the body held 500 ms within 10 px)
   Carrying --> Aiming: pointermove over a lane, resolved from the point (activate lane, place marker)
   Aiming --> Aiming: pointermove (lane or slot changed, so update; edge auto-scroll)
   Aiming --> Carrying: pointermove off every lane (clear feedback)
@@ -419,9 +421,9 @@ stateDiagram-v2
 
 **Invariants** (each is a named oracle in the feature's acceptance suite):
 
-1. Only a **lift** (a primary-button mouse press past the movement threshold, or a touch/pen hold within tolerance) that began on an `.issue-card` inside `#board-columns` opens a session. A native `dragstart` on an own card is prevented and never opens one. Nothing else ever activates a lane, shows a marker, moves a card or sends a request.
+1. Only a **lift** (a primary-button mouse press past the movement threshold; a touch/pen press on the card's **grip** past a few pixels of travel; or a touch/pen **hold** on the card body within tolerance; amended 2026-09-29) that began on an `.issue-card` inside `#board-columns` opens a session. A click or tap on the grip opens nothing. A native `dragstart` on an own card is prevented and never opens one. Nothing else ever activates a lane, shows a marker, moves a card or sends a request.
 2. At most one session exists, driven only by the pointer that lifted it (`pointerId`). A new `pointerdown` ends any stale session first.
-3. Every ending (drop, Escape arm, `pointercancel`, release off every lane, card detached by a replace, refused or failed POST) leaves **zero** activated lanes, **zero** markers and **zero** carried ghosts. No drag ever opens the card's dialog: the next `click` is consumed once, and the guard is reset on the next `pointerdown`. Teardown is an idempotent DOM query, never a stored handle.
+3. Every ending (drop, Escape arm, `pointercancel`, release off every lane, card detached by a replace, refused or failed POST) leaves **zero** activated lanes, **zero** markers and **zero** carried ghosts, and every ending of a hold leaves **zero** arming cues (added 2026-09-29). No drag ever opens the card's dialog: the next `click` is consumed once, and the guard is reset on the next `pointerdown`. Teardown is an idempotent DOM query, never a stored handle.
 4. No listener is bound to a node inside `#board-columns`. Lanes, the active lane and the marker are resolved **from the point** (`elementFromPoint`) in the live document at event time, never from `event.target`, which touch captures to the origin card (ADR-BOARD-CARD-001, -004).
 5. The marker, the landing slot and the POST's `after` derive from one slot computation, and the drop lands at the live marker's slot (ADR-BOARD-CARD-002).
 6. A lane displays its placeholder if and only if it holds no card. This is a CSS fact, not a script's job (ADR-BOARD-CARD-003).
@@ -436,8 +438,10 @@ stateDiagram-v2
 | Lane | `section.column[data-column=<slug>]`; the slug is identity, the label is display | a *status* (historical name for the same slug) |
 | Board replace | Any in-place swap of `#board-columns`: the popup delete, lane edit, insert or delete (OOB), or a lane move from the ⋯ menu (`applyBoard`). A lane-header drag is not one: it moves the existing lane nodes (card-drag-drop-feedback DISTILL Upstream Issue #1) | a reload, which re-runs every script; a lane-header drag, which rearranges without replacing |
 | Drag session | The one in-flight card drag, opened by a lift on a card on this page | the lane drag's gesture object |
-| Lift | The moment a press becomes a drag: a mouse past the movement threshold, or a touch/pen **hold** (350 ms within 10 px, subject to device feel) | a click or tap (release before the lift) |
-| Hold | A touch or pen pointer staying still on a card until the lift; moving first means scroll | the OS long-press (callout, menu), which the lift pre-empts |
+| Lift | The moment a press becomes a drag: a mouse past the movement threshold (6 px); a touch/pen on the **grip** past 3 px of travel; or a touch/pen **hold** on the body (500 ms within 10 px). *Amended 2026-09-29: was a 350 ms hold anywhere on the card* | a click or tap (release before the lift) |
+| Hold | A touch or pen pointer staying still on the card **body** until the lift, with the arming cue showing; moving first, or any scroll, means scroll. *Amended 2026-09-29: the body only; the grip needs no hold* | the OS long-press (callout, menu, native drag), which is suppressed, not raced |
+| Grip | The strip on every card's right edge (`[data-card-grip]`, `aria-hidden`, dot glyph), shown at every width for every pointer. A touch or pen there drags at once and never scrolls; a tap or click there opens nothing. *Added 2026-09-29* | a lane header's `[data-lane-drag]`; a button (it has no keyboard action) |
+| Arming cue | The card scaling down slightly and dimming over a body hold (`[data-card-arming]`), cleared at once by the lift or any abort; dim only under reduced motion. *Added 2026-09-29* | the lifted dim (`[data-card-lifted]`), which follows it |
 | Carried ghost | The fixed, non-hit-testable clone that follows the pointer; the origin card stays dimmed in its slot until the drop | the marker (the slot), the lane drag's column |
 | Click guard | The one-shot suppression of the `click` after a lifted release, reset on the next `pointerdown` | a disabled card |
 | Origin | The card's lane slug and neighbour keys when the session opened | — |
@@ -553,8 +557,9 @@ shape, whose full C4 Component is in
 `docs/feature/card-pointer-drag/feature-delta.md` §DESIGN:
 
 - **Only the listener layer changes.** Delegated `document` listeners for `pointerdown/move/up/cancel`, a non-passive `touchmove` guard (active only while lifted), `contextmenu` during a hold, and a capture-phase `click` guard. `CardDragSession`, `Origin`, `slotFor`, activation, the marker, `dropInto` and `moveBody` are kept.
-- **Lift rule:** mouse past 6 px; touch/pen held 350 ms within 10 px. Cards keep `touch-action: auto`, `user-select: none` and `-webkit-touch-callout: none`. Cards keep `draggable="true"` with own-card `dragstart` prevented; invariant 7's HTML5 swallow is unchanged.
+- **Lift rule:** mouse past 6 px; ~~touch/pen held 350 ms within 10 px~~ touch/pen on the grip past 3 px, or held on the body 500 ms within 10 px (amended 2026-09-29). Cards keep `touch-action: auto`, `user-select: none` and `-webkit-touch-callout: none`. Cards keep `draggable="true"` with own-card `dragstart` prevented; invariant 7's HTML5 swallow is unchanged.
+- **Grip and arming cue (added 2026-09-29).** The device checklist showed that no hold duration tells a resting-thumb swipe from a hold (14 of 30 swipes lifted at 350 ms on an iPhone). Every card, in both card sources, now ends with an empty `[data-card-grip]` strip, 48 px wide, `touch-action: none`, whose `touchstart` one non-passive `document` listener prevents, so iOS never starts its own drag there. The card body lifts after a 500 ms hold, shown by `[data-card-arming]` (scale and dim, dim only under reduced motion). A click on the grip opens nothing. The listeners stay on `document` (invariant 4).
 - **Carried ghost** (fixed clone, `pointer-events: none`); the origin stays dimmed in its slot, so no card moves before the drop. Edge auto-scroll works horizontally on the board (48/14) and vertically on the page, and never changes what the marker addresses.
 - **Escape** reaches a card drag through a new `closeTopLayer()` arm, found by `html[data-card-dragging]` and placed above the lane-drag arm. It dispatches `foundry:cancel-card-drag`, which reverses the CDF note that "`keyboard.js` gains no arm". `check-arch` forbids a `keydown` listener in any `board-*.js`.
 - **Test driver:** trusted W3C Actions (mouse, touch, key) for card drags; synthetic `DragEvent`s for foreign drags only.
-- **Provisional on the real-device checklist** (iOS Safari, Android Chrome) before the touch slice. If WebKit ignores the post-lift `touchmove` guard, the mechanism question returns to the user.
+- **Provisional on the real-device checklist** (iOS Safari, Android Chrome) before the touch slice. If WebKit ignores the post-lift `touchmove` guard, the mechanism question returns to the user. *2026-09-29: WebKit honours the guard (iPhone, iOS 26.7), so the mechanism stands. The Android run is still owed.*

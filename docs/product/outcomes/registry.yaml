@@ -310,15 +310,18 @@ outcomes:
   feature: card-drag-drop-feedback
   inputs:
   - shape: 'A card gesture: Pointer Events delegated on document, scoped to article.issue-card
-      in #board-columns (pointerdown, then a mouse moved past 6 px or a touch/pen held
-      350 ms within 10 px; pointermove; pointerup / pointercancel / the closeTopLayer
+      in #board-columns (pointerdown, then a mouse moved past 6 px, a touch/pen moved
+      past 3 px from the card''s grip, or a touch/pen held 500 ms within 10 px on the
+      card body; pointermove; pointerup / pointercancel / the closeTopLayer
       Escape arm), after any in-place #board-columns replace (popup delete, lane edit/insert/delete
       OOB, lane-menu Move via applyBoard) or none. Foreign drags (unchanged): native
       HTML5 dragover/drop inside #board-columns carrying a File or text/plain with
       no card session on this page; a native dragstart on an own card is cancelled'
   amended: 'card-pointer-drag DISTILL (2026-09-26): input amended from native HTML5
     drag events to Pointer Events (DISCUSS C8, ADR-BOARD-CARD-004). The foreign-drag
-    clause and the output are unchanged. New scenarios: card-pointer-drag.feature'
+    clause and the output are unchanged. New scenarios: card-pointer-drag.feature.
+    Re-amended by card-pointer-drag DESIGN (2026-09-29): the touch/pen lift is the
+    grip (3 px) or a body hold (500 ms within 10 px), was a 350 ms hold (DDD-5, DDD-26)'
   output:
     shape: 'Card drag: dragover on the live lane defaultPrevented, drop moves the
       card and sends ONE POST /team/{t}/project/{p}/issues/{n}/state (state=<slug>[&after=<key>],
@@ -403,27 +406,42 @@ outcomes:
 - id: OUT-16
   kind: invariant
   summary: One card gesture means exactly one of open, scroll or move, decided by
-    pointer type, distance and hold
+    pointer type, where the press began (the grip or the card body), distance and
+    hold
   feature: card-pointer-drag
   inputs:
   - shape: 'pointerdown on article.issue-card in #board-columns with pointerType mouse
-      (primary button only), touch or pen, followed by movement, a hold, a release
-      or a pointercancel'
+      (primary button only), touch or pen, on the card''s grip ([data-card-grip], its
+      last child) or on the rest of the card (the body), followed by movement, a hold,
+      a release or a pointercancel'
   output:
-    shape: 'Mouse: lifts once moved past 6 px; a release inside it is a click that
-      opens the edit dialog. Touch/pen: lifts after a 350 ms hold within 10 px; moving
-      first leaves the gesture to the browser (it scrolls, nothing lifts); releasing
-      first is a tap that opens the edit dialog. A lifted release never opens the dialog
-      (one-shot click guard, reset on the next pointerdown). Non-primary mouse buttons
-      and other pointers never drive a session. Lifted: html[data-card-dragging], the
-      origin card marked [data-card-lifted] in its slot, a fixed carried copy under
-      the pointer; zero of each after every exit'
+    shape: 'Mouse: lifts once moved past 6 px anywhere on the card, the grip included;
+      a release inside it is a click that opens the edit dialog, except on the grip,
+      where a click opens nothing. Touch/pen on the grip: lifts once moved past 3 px,
+      with no hold; its touchstart is defaultPrevented; a tap on it opens nothing and
+      moves nothing. Touch/pen on the body: lifts after a 500 ms hold within 10 px,
+      showing [data-card-arming] from the press to the lift; moving past 10 px first
+      leaves the gesture to the browser (it scrolls, nothing lifts); releasing first
+      is a tap that opens the edit dialog; its touchstart is never prevented; every
+      exit before the lift clears [data-card-arming]. A lifted release never opens
+      the dialog (one-shot click guard, reset on the next pointerdown). Non-primary
+      mouse buttons and other pointers never drive a session. Lifted: html[data-card-dragging],
+      the origin card marked [data-card-lifted] in its slot, a fixed carried copy under
+      the pointer; zero of each, and zero [data-card-arming], after every exit. Every
+      card, from both card sources, carries exactly one grip'
+  amended: 'card-pointer-drag DISTILL (2026-09-29): the touch/pen lift is the grip
+    (3 px, no hold, touchstart prevented, a tap opens nothing) or a body hold (500
+    ms within 10 px, with the arming cue), was a 350 ms whole-card hold; a mouse
+    click on the grip opens nothing; every card carries a grip (DISCUSS D5 as amended,
+    DESIGN DDD-23..29)'
   keywords:
   - board
   - card-drag
   - pointer-events
   - touch
   - press-and-hold
+  - grip
+  - arming-cue
   - click-guard
   - tap
   - swipe

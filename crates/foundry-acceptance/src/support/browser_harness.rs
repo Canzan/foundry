@@ -1846,16 +1846,24 @@ pub async fn spot_point(client: &fantoccini::Client, spot: DragSpot<'_>) -> (f64
     serde_json::from_value(raw).expect("spot point shape")
 }
 
-/// The middle of the part of card `key` that is inside the viewport: where a
-/// finger or cursor would actually press it. Panics if none of it is visible.
+/// The middle of the visible part of card `key`'s BODY: where a finger or
+/// cursor presses the card to open it, hold it or drag it by its text. The body
+/// is the card less its grip (`[data-card-grip]`, the card's right-edge strip,
+/// card-pointer-drag DDD-23/24), so a press here can never land on the grip,
+/// even on a card clipped at its left edge whose visible middle would otherwise
+/// fall inside the grip. A card with no grip (before slice 02) is all body.
+/// Panics if none of the body is visible.
 pub async fn card_press_point(client: &fantoccini::Client, key: &str) -> (f64, f64) {
     let raw = client
         .execute(
             "var c = document.querySelector('#board-columns [data-issue-key=\"' + arguments[0] + '\"]');
              if (!c) { return null; }
              var r = c.getBoundingClientRect();
+             var right = r.right;
+             var g = c.querySelector('[data-card-grip]');
+             if (g) { var gr = g.getBoundingClientRect(); if (gr.width > 0) { right = Math.min(right, gr.left); } }
              var l = Math.max(r.left, 0), t = Math.max(r.top, 0);
-             var rr = Math.min(r.right, window.innerWidth), b = Math.min(r.bottom, window.innerHeight);
+             var rr = Math.min(right, window.innerWidth), b = Math.min(r.bottom, window.innerHeight);
              if (rr - l < 8 || b - t < 8) { return [-1, -1]; }
              return [(l + rr) / 2, (t + b) / 2];",
             vec![serde_json::json!(key)],
@@ -1866,21 +1874,71 @@ pub async fn card_press_point(client: &fantoccini::Client, key: &str) -> (f64, f
     let point = point.unwrap_or_else(|| panic!("{key} is not on the board to be pressed"));
     assert!(
         point.0 >= 0.0,
-        "{key} is on the board but not on screen, so no finger could press it"
+        "{key} is on the board but its body is not on screen, so no finger could press it"
     );
     point
+}
+
+/// The middle of the visible part of card `key`'s grip (`[data-card-grip]`,
+/// card-pointer-drag DDD-23), or `None` when the card has no grip at all (the
+/// caller decides what a missing grip means). Panics if the card is not on
+/// the board, or if its grip exists but is not on screen.
+pub async fn grip_press_point(client: &fantoccini::Client, key: &str) -> Option<(f64, f64)> {
+    let raw = client
+        .execute(
+            "var c = document.querySelector('#board-columns [data-issue-key=\"' + arguments[0] + '\"]');
+             if (!c) { return 'no-card'; }
+             var g = c.querySelector('[data-card-grip]');
+             if (!g) { return null; }
+             var r = g.getBoundingClientRect();
+             var l = Math.max(r.left, 0), t = Math.max(r.top, 0);
+             var rr = Math.min(r.right, window.innerWidth), b = Math.min(r.bottom, window.innerHeight);
+             if (rr - l < 4 || b - t < 4) { return [-1, -1]; }
+             return [(l + rr) / 2, (t + b) / 2];",
+            vec![serde_json::json!(key)],
+        )
+        .await
+        .unwrap_or_else(|err| panic!("locate {key}'s grip to press it: {err}"));
+    assert!(
+        raw.as_str() != Some("no-card"),
+        "{key} is not on the board to be pressed"
+    );
+    let point: Option<(f64, f64)> = serde_json::from_value(raw).expect("grip point shape");
+    if let Some(p) = point {
+        assert!(
+            p.0 >= 0.0,
+            "{key}'s grip is on the board but not on screen, so no finger could press it"
+        );
+    }
+    point
+}
+
+/// Ask the page to honour `prefers-reduced-motion: reduce`, as a device set
+/// to reduce motion does (Chrome's `Emulation.setEmulatedMedia`, through the
+/// driver's CDP passthrough). It holds for the rest of the session.
+pub async fn emulate_reduced_motion(client: &fantoccini::Client) {
+    cdp(
+        client,
+        "Emulation.setEmulatedMedia",
+        serde_json::json!({ "features": [{ "name": "prefers-reduced-motion", "value": "reduce" }] }),
+    )
+    .await;
 }
 
 /// Arm the page event recorder (idempotent within one document; a reload
 /// discards it, so re-arm after every navigation). Capture phase on `window`:
 /// it sees every event before any page listener can stop it. The native-drag
 /// entry is read in the bubble phase so it can report whether the page
-/// cancelled the drag.
+/// cancelled the drag, and so is every `touchstart` (card-pointer-drag DDD-29):
+/// by then the board's own listener on `document` has run, so
+/// `defaultPrevented` says whether the board kept that touch from the browser.
+/// `lastDown.at` is the page clock (`performance.now()`) at the last
+/// `pointerdown`, so a step can time a hold on the page's own clock.
 pub async fn install_pointer_recorder(client: &fantoccini::Client) {
     client
         .execute(
             r#"if (!window.__cpdRec) {
-                 var rec = window.__cpdRec = { counts: {}, trusted: {}, types: {}, log: [], lastDown: null, nativeDrags: [] };
+                 var rec = window.__cpdRec = { counts: {}, trusted: {}, types: {}, log: [], lastDown: null, nativeDrags: [], touchstarts: [] };
                  var keyOf = function (t) {
                    var el = t && t.closest ? t.closest('[data-issue-key]') : null;
                    return el ? el.getAttribute('data-issue-key') : (t && t.tagName ? t.tagName.toLowerCase() : '?');
@@ -1889,7 +1947,10 @@ pub async fn install_pointer_recorder(client: &fantoccini::Client) {
                    rec.counts[e.type] = (rec.counts[e.type] || 0) + 1;
                    if (e.isTrusted) { rec.trusted[e.type] = (rec.trusted[e.type] || 0) + 1; }
                    if (e.pointerType) { rec.types[e.pointerType] = true; }
-                   if (e.type === 'pointerdown') { rec.lastDown = { id: e.pointerId, type: e.pointerType, key: keyOf(e.target) }; }
+                   if (e.type === 'pointerdown') {
+                     rec.lastDown = { id: e.pointerId, type: e.pointerType, key: keyOf(e.target), at: performance.now(),
+                       onGrip: !!(e.target && e.target.closest && e.target.closest('[data-card-grip]')) };
+                   }
                    if (rec.log.length > 400) { rec.log.shift(); }
                    rec.log.push(e.type + (e.pointerType ? '/' + e.pointerType + '#' + e.pointerId : '')
                      + '@' + keyOf(e.target) + (e.isTrusted ? '' : '(synthetic)'));
@@ -1901,6 +1962,11 @@ pub async fn install_pointer_recorder(client: &fantoccini::Client) {
                  window.addEventListener('dragstart', function (e) {
                    rec.nativeDrags.push({ key: keyOf(e.target), cancelled: e.defaultPrevented, trusted: e.isTrusted });
                  });
+                 window.addEventListener('touchstart', function (e) {
+                   var t = e.target;
+                   rec.touchstarts.push({ key: keyOf(t), prevented: e.defaultPrevented, trusted: e.isTrusted,
+                     onGrip: !!(t && t.closest && t.closest('[data-card-grip]')) });
+                 }, { passive: true });
                }
                return true;"#,
             vec![],
@@ -1920,6 +1986,10 @@ pub struct PointerRecord {
     pub last_down: Option<serde_json::Value>,
     #[serde(rename = "nativeDrags")]
     pub native_drags: Vec<serde_json::Value>,
+    /// Every `touchstart`, read in the bubble phase: `{key, onGrip, prevented,
+    /// trusted}`.
+    #[serde(default)]
+    pub touchstarts: Vec<serde_json::Value>,
 }
 
 impl PointerRecord {
@@ -1953,9 +2023,10 @@ impl PointerRecord {
             .join(", ");
         format!(
             "page recorder (trusted/all): [{counts}]; pointer types seen: {:?}; native drags: \
-             {:?}; last events: [{tail}]",
+             {:?}; touchstarts: {:?}; last events: [{tail}]",
             self.types.keys().collect::<Vec<_>>(),
-            self.native_drags
+            self.native_drags,
+            self.touchstarts
         )
     }
 }

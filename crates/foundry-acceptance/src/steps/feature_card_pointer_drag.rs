@@ -2,7 +2,8 @@
 //!
 //! Scenario SSOT: `tests/features/card-pointer-drag.feature` (tag `@cpd`).
 //! Grounding: `docs/feature/card-pointer-drag/feature-delta.md` (DISCUSS
-//! D1-D20, DESIGN DDD-1..22) and `spike/findings.md`.
+//! D1-D20, DESIGN DDD-1..29, amended 2026-09-29 to the grip and body hold) and
+//! `spike/findings.md`.
 //!
 //! DRIVER (DDD-12). Every card gesture is TRUSTED input: W3C WebDriver Actions
 //! for the mouse, a touch contact, a pen and the keyboard, through
@@ -23,7 +24,18 @@
 //!     `#board-columns`, `#modal-root` and `#kb-overlay-root` whose text shows
 //!     the card's key (DDD-17; its class and attributes are DELIVER's choice);
 //!   * `[data-card-drop-target]` and `[data-card-drop-marker][data-before-key]`
-//!     (shipped, ADR-BOARD-CARD-002).
+//!     (shipped, ADR-BOARD-CARD-002);
+//!   * `[data-card-grip]`, the card's last child (DDD-23), and
+//!     `.issue-card[data-card-arming]` while a touch or pen body hold is
+//!     pending (DDD-27), added 2026-09-29.
+//!
+//! TOUCH AND PEN (amended 2026-09-29, DDD-26/29). A press on the GRIP drags at
+//! once: the driver presses the grip and moves 6 px with no pause. A press on
+//! the card's TEXT (its body, `browser_harness::card_press_point`, which never
+//! lands on the grip) lifts after a 500 ms hold: the driver holds >= 700 ms and
+//! samples the card on the PAGE's clock while it holds (`HoldSample`), so a
+//! Then can read "arming, not lifted" at <= 250 ms and at >= 400 ms (which a
+//! 350 ms hold would already have lifted) and "lifted, not arming" at >= 700 ms.
 //!
 //! This module is self-contained on purpose: it seeds its own boards and keeps
 //! its state in `world.cpd`, so no shipped step module is edited before DELIVER
@@ -38,6 +50,7 @@ use crate::support::harness::InProcHarness;
 use crate::world::FoundryWorld;
 use cucumber::{given, then, when};
 use fantoccini::Locator;
+use scraper::{Html, Selector};
 use secrecy::SecretString;
 use sqlx::PgPool;
 use std::collections::HashMap;
@@ -49,14 +62,26 @@ const PRIYA_PASSWORD: &str = "priya-correct-horse-battery-staple";
 const IDENTITY: &str = "Identity Platform";
 const HOMELAB: &str = "Homelab Ops";
 const BROWSER_WAIT: Duration = Duration::from_secs(10);
-/// How long a lift may take to show once its gesture was dispatched. The hold
-/// itself (350 ms, DDD-5) is already inside the gesture's W3C `pause`.
+/// How long a lift may take to show once its gesture was dispatched. A body
+/// hold (500 ms, DDD-5 as amended) is already inside the gesture's hold.
 const LIFT_WAIT: Duration = Duration::from_millis(2500);
 /// How long a dialog that is NOT supposed to open is given to open anyway.
 const NO_DIALOG_WAIT: Duration = Duration::from_millis(1200);
-/// The W3C `pause` that is a touch or pen hold (DDD-12: >= 400 ms against the
-/// 350 ms hold of DDD-5).
-const HOLD_MS: u64 = 450;
+/// How long a touch or pen body hold is held, on the page's clock (DDD-12a as
+/// amended 2026-09-29: >= 700 ms against the 500 ms hold of DDD-5, a margin for
+/// ~33 ms per CDP step).
+const HOLD_MS: f64 = 700.0;
+/// "Arming, not yet lifted" is read this early into a body hold (DDD-29).
+const EARLY_READ_MS: f64 = 250.0;
+/// A second "still arming, not lifted" read falls in this window of the hold:
+/// after a 350 ms hold (the pre-amendment value) would already have lifted, and
+/// before the 500 ms hold can. It is what tells 500 from 350.
+const LATE_READ_MS: (f64, f64) = (400.0, 480.0);
+/// A grip lifts on travel alone (DDD-26): lifted this soon after the press, a
+/// hold (500 ms) cannot have been what lifted it.
+const GRIP_AT_ONCE_MS: f64 = 300.0;
+/// How long the "hold time has passed" oracle waits, from the press.
+const PAST_HOLD: Duration = Duration::from_millis(900);
 /// Longest a held-at-the-edge carry may take to scroll the board or the page
 /// far enough. The lane precedent scrolls 14 px per move (EDGE_STEP); CDP touch
 /// dispatch runs at ~33 ms per event (spike Q7).
@@ -108,6 +133,17 @@ pub struct CpdState {
     proven_marker: bool,
     /// Whether any card lifted during a gesture that must not lift one.
     lifted_during: Option<bool>,
+    /// Whether a card was seen arming (`[data-card-arming]`) during the gesture:
+    /// "no longer arming" is only meaningful after it (DDD-27).
+    proven_arming: bool,
+    /// The page read on its own clock while a body hold was held.
+    hold_samples: Vec<HoldSample>,
+    /// Page-clock ms from the press on a grip to the first lifted read, if it
+    /// lifted before a hold could have.
+    grip_lift_ms: Option<f64>,
+    /// The last server response read over HTTP (no browser): status and body.
+    http_status: Option<u16>,
+    http_body: Option<String>,
     /// The marker `(lane, before-key)` read just before the release.
     marker_at_release: Option<(String, String)>,
     scroll_at_release: Option<(f64, f64, f64)>,
@@ -513,7 +549,9 @@ async fn open_session(world: &mut FoundryWorld, how: &str) {
         "the board is opened once per scenario"
     );
     let client = match how {
-        "on a phone" => browser_harness::open_mobile_session().await,
+        "on a phone" | "on a phone that asks for reduced motion" => {
+            browser_harness::open_mobile_session().await
+        }
         "in a narrow window at the desk" => {
             let client = browser_harness::new_session().await;
             client
@@ -550,6 +588,9 @@ async fn open_board(world: &mut FoundryWorld, project: &str, how: &str) {
         .expect("navigate to the board");
     browser_harness::wait_for_board_ready(&client).await;
     browser_harness::wait_for_kb_ready(&client).await;
+    if how.ends_with("reduced motion") {
+        browser_harness::emulate_reduced_motion(&client).await;
+    }
     arm_observers(world).await;
 }
 
@@ -588,10 +629,32 @@ fn pointer_word(kind: PointerKind) -> &'static str {
     }
 }
 
-/// Put `key` in Priya's hand: read its origin, then press it and either travel
-/// past the mouse threshold or hold still for the hold (DDD-5). Returns
-/// without asserting the lift, so a caller can observe either outcome.
-async fn begin_gesture(world: &mut FoundryWorld, kind: PointerKind, key: &str) {
+/// How a card is being lifted, for the failure message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LiftBy {
+    /// A primary mouse press moved past the 6 px threshold (anywhere on the
+    /// card, the grip included).
+    MouseTravel,
+    /// A touch or pen press on the grip moved 6 px (DDD-26: 3 px, no timer).
+    Grip,
+    /// A touch or pen press held still on the card's text (DDD-26: 500 ms
+    /// within 10 px).
+    Hold,
+}
+
+impl LiftBy {
+    fn wanted(self) -> &'static str {
+        match self {
+            LiftBy::MouseTravel => "a primary press moved past the 6 px threshold",
+            LiftBy::Grip => "a press on its grip moved 6 px (the grip lifts on 3 px, no hold)",
+            LiftBy::Hold => "a press held still on its text for 700 ms (the hold is 500 ms)",
+        }
+    }
+}
+
+/// Read the card's origin, its move URL, the requests sent so far and the
+/// scroll, before a gesture puts `key` in Priya's hand.
+async fn prepare_gesture(world: &mut FoundryWorld, kind: PointerKind, key: &str) {
     assert_not_reloaded(world).await;
     let client = browser(world);
     let origin = card_place(&client, key).await;
@@ -613,26 +676,36 @@ async fn begin_gesture(world: &mut FoundryWorld, kind: PointerKind, key: &str) {
     .map(str::to_string);
     world.cpd.moves_before = move_requests(&client).await.len();
     world.cpd.scroll_at_lift = Some(scroll_state(&client).await);
+}
+
+/// Put `key` in Priya's hand with the mouse: press it and travel past the
+/// threshold (DDD-5). Returns without asserting the lift.
+async fn begin_gesture(world: &mut FoundryWorld, kind: PointerKind, key: &str) {
+    assert_eq!(
+        kind,
+        PointerKind::Mouse,
+        "a touch or pen lifts by its grip or by a hold on its text (lift_by_grip / hold_body)"
+    );
+    prepare_gesture(world, kind, key).await;
+    let client = browser(world);
     let press = browser_harness::card_press_point(&client, key).await;
-    let steps: Vec<PointerStep> = match kind {
-        PointerKind::Mouse => vec![
-            PointerStep::To(press.0, press.1),
-            PointerStep::Down,
-            PointerStep::Glide(press.0 + 8.0, press.1 + 6.0, 4),
-        ],
-        _ => vec![
-            PointerStep::To(press.0, press.1),
-            PointerStep::Down,
-            PointerStep::Hold(HOLD_MS),
-        ],
-    };
+    let steps = [
+        PointerStep::To(press.0, press.1),
+        PointerStep::Down,
+        PointerStep::Glide(press.0 + 8.0, press.1 + 6.0, 4),
+    ];
     world.cpd.at = browser_harness::perform_pointer(&client, kind, press, &steps).await;
 }
 
 /// Wait for `key` to show as lifted, or panic with the classification the
 /// recorder supports: no trusted input at all is the DRIVER (BROKEN); trusted
 /// input with no lift is the missing feature (RED).
-async fn await_lift(client: &fantoccini::Client, kind: PointerKind, key: &str) -> LiftState {
+async fn await_lift(
+    client: &fantoccini::Client,
+    kind: PointerKind,
+    key: &str,
+    by: LiftBy,
+) -> LiftState {
     let deadline = Instant::now() + LIFT_WAIT;
     loop {
         let state = lift_state(client, key).await;
@@ -641,10 +714,6 @@ async fn await_lift(client: &fantoccini::Client, kind: PointerKind, key: &str) -
         }
         if Instant::now() > deadline {
             let record = browser_harness::pointer_record(client).await;
-            let wanted = match kind {
-                PointerKind::Mouse => "a primary press moved past the 6 px threshold",
-                _ => "a press held still for the 350 ms hold",
-            };
             if record.trusted("pointerdown") == 0 {
                 panic!(
                     "BROKEN(driver): no trusted pointerdown reached the page for the {} \
@@ -654,9 +723,10 @@ async fn await_lift(client: &fantoccini::Client, kind: PointerKind, key: &str) -
                 );
             }
             panic!(
-                "MISSING_FUNCTIONALITY: {key} did not lift after {wanted} with a {} (US-CPD-0{}, \
-                 DDD-5/7/17). Drag in flight on the page = {}, origin marked lifted = {}, carried \
-                 copies = {}. The driver DID deliver trusted input: {}",
+                "MISSING_FUNCTIONALITY: {key} did not lift after {} with a {} (US-CPD-0{}, \
+                 DDD-5/7/17/26). Drag in flight on the page = {}, origin marked lifted = {}, \
+                 carried copies = {}. The driver DID deliver trusted input: {}",
+                by.wanted(),
                 pointer_word(kind),
                 if kind == PointerKind::Mouse { 1 } else { 2 },
                 state.session,
@@ -669,14 +739,167 @@ async fn await_lift(client: &fantoccini::Client, kind: PointerKind, key: &str) -
     }
 }
 
-/// Lift `key` with `kind` and prove it: a carried copy exists from here on.
-async fn lift(world: &mut FoundryWorld, kind: PointerKind, key: &str) {
-    begin_gesture(world, kind, key).await;
-    let client = browser(world);
-    let state = await_lift(&client, kind, key).await;
+/// Record a proven lift: a carried copy exists from here on.
+fn note_lift(world: &mut FoundryWorld, state: &LiftState) {
     world.cpd.proven_carried = true;
     world.cpd.ghost_at_lift = state.ghosts.first().map(|g| (g.0, g.1));
     world.cpd.pointer_at_lift = world.cpd.at;
+}
+
+/// Lift `key` with the mouse and prove it.
+async fn lift(world: &mut FoundryWorld, kind: PointerKind, key: &str) {
+    begin_gesture(world, kind, key).await;
+    let client = browser(world);
+    let state = await_lift(&client, kind, key, LiftBy::MouseTravel).await;
+    note_lift(world, &state);
+}
+
+/// One read of the card while a press is held, on the PAGE's clock
+/// (`performance.now()` since the last trusted `pointerdown`), cheap enough to
+/// repeat every few tens of milliseconds (no carried-copy scan).
+#[derive(Debug, Clone, serde::Deserialize)]
+struct HoldSample {
+    /// Page ms since the press; negative when the recorder saw no press.
+    elapsed: f64,
+    /// The card carries `[data-card-arming]` (DDD-27).
+    arming: bool,
+    /// Cards anywhere marked arming.
+    #[serde(rename = "anyArming")]
+    any_arming: u64,
+    /// `html[data-card-dragging]` and the card marked `[data-card-lifted]`.
+    lifted: bool,
+    /// The card's computed `transform` and `opacity`.
+    transform: String,
+    opacity: f64,
+}
+
+async fn hold_sample(client: &fantoccini::Client, key: &str) -> HoldSample {
+    let raw = js(
+        client,
+        &format!(
+            "var d = window.__cpdRec ? window.__cpdRec.lastDown : null;
+             var c = document.querySelector('#board-columns [data-issue-key=\"' + arguments[0] + '\"]');
+             var cs = c ? getComputedStyle(c) : null;
+             return {{
+               elapsed: d && typeof d.at === 'number' ? performance.now() - d.at : -1,
+               arming: !!c && c.matches('[data-card-arming]'),
+               anyArming: document.querySelectorAll('[data-card-arming]').length,
+               lifted: !!document.querySelector('{SESSION_MARKER}') && !!c && c.matches('{LIFTED}'),
+               transform: cs ? cs.transform : '',
+               opacity: cs ? parseFloat(cs.opacity) : 1
+             }};"
+        ),
+        vec![serde_json::json!(key)],
+    )
+    .await;
+    serde_json::from_value(raw).expect("hold sample shape")
+}
+
+/// Press `key`'s text with a touch or a pen and hold it still, sampling the
+/// card on the page's clock until the press is `HOLD_MS` old. Records the
+/// samples and whether the card was seen arming; asserts nothing about the
+/// board (the Thens and `lift_by_hold` do).
+async fn hold_body(world: &mut FoundryWorld, kind: PointerKind, key: &str) {
+    prepare_gesture(world, kind, key).await;
+    let client = browser(world);
+    let press = browser_harness::card_press_point(&client, key).await;
+    world.cpd.at = browser_harness::perform_pointer(
+        &client,
+        kind,
+        press,
+        &[PointerStep::To(press.0, press.1), PointerStep::Down],
+    )
+    .await;
+    let mut samples = Vec::new();
+    let started = Instant::now();
+    loop {
+        let sample = hold_sample(&client, key).await;
+        let elapsed = sample.elapsed;
+        samples.push(sample);
+        if elapsed >= HOLD_MS {
+            break;
+        }
+        if elapsed < 0.0 && started.elapsed() > Duration::from_millis(1500) {
+            // No trusted press reached the page; the lift oracle reports it.
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(15)).await;
+    }
+    world.cpd.proven_arming |= samples.iter().any(|s| s.arming);
+    world.cpd.hold_samples = samples;
+}
+
+/// Lift `key` by holding its text with a touch or a pen, and prove it.
+async fn lift_by_hold(world: &mut FoundryWorld, kind: PointerKind, key: &str) {
+    hold_body(world, kind, key).await;
+    let client = browser(world);
+    let state = await_lift(&client, kind, key, LiftBy::Hold).await;
+    note_lift(world, &state);
+    // The hold's timer starts at the press, so a 500 ms hold can never show
+    // lifted before 500 ms on the page's clock. Lifted earlier means a shorter
+    // hold (the pre-amendment 350 ms): every body-hold lift checks it.
+    let early: Vec<&HoldSample> = world
+        .cpd
+        .hold_samples
+        .iter()
+        .filter(|s| s.lifted && s.elapsed >= 0.0 && s.elapsed < LATE_READ_MS.1)
+        .collect();
+    assert!(
+        early.is_empty(),
+        "MISSING_FUNCTIONALITY: {key} lifted {:.0} ms into the hold on its text; the hold is \
+         500 ms (DDD-5 as amended 2026-09-29), so it must not lift before then",
+        early[0].elapsed
+    );
+}
+
+/// Press `key`'s grip with `kind` and move it past its threshold with no
+/// pause, reading on the page's clock how soon it lifted. Panics as
+/// MISSING_FUNCTIONALITY when the card has no grip.
+async fn lift_by_grip(world: &mut FoundryWorld, kind: PointerKind, key: &str) {
+    prepare_gesture(world, kind, key).await;
+    let client = browser(world);
+    let grip = grip_point(&client, key).await;
+    // Touch and pen: 6 px, past the grip's 3 px and inside the body's 10 px
+    // hold tolerance. Mouse: 8 + 6 px, past its 6 px threshold. Leftwards, so
+    // the pointer stays on the card.
+    let to = if kind == PointerKind::Mouse {
+        PointerStep::Glide(grip.0 - 8.0, grip.1 + 6.0, 4)
+    } else {
+        PointerStep::Glide(grip.0 - 6.0, grip.1, 1)
+    };
+    world.cpd.at = browser_harness::perform_pointer(
+        &client,
+        kind,
+        grip,
+        &[PointerStep::To(grip.0, grip.1), PointerStep::Down, to],
+    )
+    .await;
+    world.cpd.grip_lift_ms = None;
+    loop {
+        let sample = hold_sample(&client, key).await;
+        if sample.lifted && sample.elapsed >= 0.0 {
+            world.cpd.grip_lift_ms = Some(sample.elapsed);
+            break;
+        }
+        if sample.elapsed < 0.0 || sample.elapsed >= LATE_READ_MS.1 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(15)).await;
+    }
+    let state = await_lift(&client, kind, key, LiftBy::Grip).await;
+    note_lift(world, &state);
+}
+
+/// The grip's press point, or MISSING_FUNCTIONALITY when the card has none.
+async fn grip_point(client: &fantoccini::Client, key: &str) -> (f64, f64) {
+    browser_harness::grip_press_point(client, key)
+        .await
+        .unwrap_or_else(|| {
+            panic!(
+                "MISSING_FUNCTIONALITY: {key} has no grip ([data-card-grip]) to press: every card \
+                 carries one as its last child (US-CPD-02 AC-2.13, DDD-23)"
+            )
+        })
 }
 
 /// A point in the lane of `spot` that a pointer can hold without starting an
@@ -1086,7 +1309,7 @@ async fn given_homelab_cards(world: &mut FoundryWorld) {
 // ================================================================== Given
 
 #[given(
-    regex = r"^(the Identity Platform board|Homelab Ops) is open (at the desk|on a phone|for a pen)$"
+    regex = r"^(the Identity Platform board|Homelab Ops) is open (at the desk|on a phone|on a phone that asks for reduced motion|for a pen)$"
 )]
 async fn given_open(world: &mut FoundryWorld, which: String, how: String) {
     let project = if which == "Homelab Ops" {
@@ -1141,18 +1364,30 @@ async fn given_lifted_mouse(world: &mut FoundryWorld, key: String) {
     lift(world, PointerKind::Mouse, &key).await;
 }
 
-#[given(regex = r"^Priya has lifted (\w+-\d+) by holding it with a (touch pointer|pen)$")]
-async fn given_lifted_hold(world: &mut FoundryWorld, key: String, with: String) {
-    let kind = if with == "pen" {
+fn touch_or_pen(with: &str) -> PointerKind {
+    if with == "pen" {
         PointerKind::Pen
     } else {
         PointerKind::Touch
-    };
-    lift(world, kind, &key).await;
+    }
+}
+
+#[given(regex = r"^Priya has lifted (\w+-\d+) by holding its text with a (touch pointer|pen)$")]
+async fn given_lifted_hold(world: &mut FoundryWorld, key: String, with: String) {
+    lift_by_hold(world, touch_or_pen(&with), &key).await;
+}
+
+#[given(regex = r"^Priya has lifted (\w+-\d+) by its grip with a (touch pointer|pen)$")]
+async fn given_lifted_grip(world: &mut FoundryWorld, key: String, with: String) {
+    lift_by_grip(world, touch_or_pen(&with), &key).await;
 }
 
 async fn drag_into(world: &mut FoundryWorld, kind: PointerKind, key: &str, label: &str) {
-    lift(world, kind, key).await;
+    if kind == PointerKind::Mouse {
+        lift(world, kind, key).await;
+    } else {
+        lift_by_grip(world, kind, key).await;
+    }
     carry_to_lane_end(world, label).await;
     release(world).await;
     await_card_in(&browser(world), key, label).await;
@@ -1163,21 +1398,20 @@ async fn given_just_dragged(world: &mut FoundryWorld, key: String, label: String
     drag_into(world, PointerKind::Mouse, &key, &label).await;
 }
 
-#[given(regex = r"^Priya has just carried (\w+-\d+) into ([\w-]+) by touch$")]
+#[given(regex = r"^Priya has just carried (\w+-\d+) into ([\w-]+) by its grip$")]
 async fn given_just_carried(world: &mut FoundryWorld, key: String, label: String) {
     drag_into(world, PointerKind::Touch, &key, &label).await;
 }
 
 #[given(
-    regex = r"^Priya is (?:dragging|carrying) (\w+-\d+) over ([\w-]+) with (the mouse|a touch pointer)$"
+    regex = r"^Priya is (?:dragging|carrying) (\w+-\d+) over ([\w-]+) (with the mouse|by its grip with a touch pointer)$"
 )]
 async fn given_carrying_over(world: &mut FoundryWorld, key: String, label: String, with: String) {
-    let kind = if with == "the mouse" {
-        PointerKind::Mouse
+    if with == "with the mouse" {
+        lift(world, PointerKind::Mouse, &key).await;
     } else {
-        PointerKind::Touch
-    };
-    lift(world, kind, &key).await;
+        lift_by_grip(world, PointerKind::Touch, &key).await;
+    }
     carry_to_lane_end(world, &label).await;
     prove_carried_over(world, &label).await;
 }
@@ -1205,15 +1439,15 @@ async fn given_popup_deleted(world: &mut FoundryWorld, key: String) {
     popup_delete(world, &key).await;
 }
 
+/// A touch on the card's text, down for about 100 ms: the hold has begun (the
+/// card is read for its arming cue, which a later "no longer arming" oracle
+/// needs to have seen) and is nowhere near the 500 ms lift.
 #[given(
-    regex = r"^Priya has put a touch pointer on (\w+-\d+) without holding it long enough to lift$"
+    regex = r"^Priya has put a touch pointer on (\w+-\d+)'s text without holding it long enough to lift$"
 )]
 async fn given_touch_down_briefly(world: &mut FoundryWorld, key: String) {
+    prepare_gesture(world, PointerKind::Touch, &key).await;
     let client = browser(world);
-    world.cpd.origin = card_place(&client, &key).await;
-    world.cpd.key = Some(key.clone());
-    world.cpd.pointer = Some(PointerKind::Touch);
-    world.cpd.moves_before = move_requests(&client).await.len();
     let press = browser_harness::card_press_point(&client, &key).await;
     world.cpd.at = browser_harness::perform_pointer(
         &client,
@@ -1226,6 +1460,9 @@ async fn given_touch_down_briefly(world: &mut FoundryWorld, key: String) {
         ],
     )
     .await;
+    let sample = hold_sample(&client, &key).await;
+    world.cpd.proven_arming |= sample.arming;
+    world.cpd.hold_samples = vec![sample];
 }
 
 #[given(regex = r"^(\w+-\d+) was deleted elsewhere after Priya's board loaded$")]
@@ -1336,23 +1573,68 @@ async fn when_press_3px(world: &mut FoundryWorld, key: String) {
     .await;
 }
 
-#[when(regex = r"^she taps (\w+-\d+)$")]
-async fn when_tap(world: &mut FoundryWorld, key: String) {
+/// A brief tap on `key`'s text (its body, never the grip), with a fresh finger.
+/// The card is read between the press and the release for its arming cue, so
+/// a later "no longer arming" oracle knows the cue existed.
+async fn tap_text(world: &mut FoundryWorld, key: &str) {
     let client = browser(world);
-    world.cpd.moves_before = move_requests(&client).await.len();
-    let p = browser_harness::card_press_point(&client, &key).await;
-    browser_harness::perform_pointer(
+    let p = browser_harness::card_press_point(&client, key).await;
+    let at = browser_harness::perform_pointer(
         &client,
         PointerKind::RetryTouch,
         p,
+        &[PointerStep::To(p.0, p.1), PointerStep::Down],
+    )
+    .await;
+    world.cpd.proven_arming |= hold_sample(&client, key).await.arming;
+    browser_harness::perform_pointer(&client, PointerKind::RetryTouch, at, &[PointerStep::Up])
+        .await;
+}
+
+#[when(regex = r"^she taps (\w+-\d+)'s text$")]
+async fn when_tap(world: &mut FoundryWorld, key: String) {
+    let client = browser(world);
+    world.cpd.moves_before = move_requests(&client).await.len();
+    tap_text(world, &key).await;
+}
+
+/// A tap (touch) or click (mouse) on `key`'s grip: the press, a 2 px wobble
+/// (under the grip's 3 px, so a threshold of 0-2 px would lift), a read of
+/// whether anything lifted while the pointer was down, then the release.
+async fn press_grip_briefly(world: &mut FoundryWorld, kind: PointerKind, key: &str) {
+    prepare_gesture(world, kind, key).await;
+    let client = browser(world);
+    let grip = grip_point(&client, key).await;
+    let at = browser_harness::perform_pointer(
+        &client,
+        kind,
+        grip,
         &[
-            PointerStep::To(p.0, p.1),
+            PointerStep::To(grip.0, grip.1),
             PointerStep::Down,
-            PointerStep::Hold(80),
-            PointerStep::Up,
+            PointerStep::Glide(grip.0 - 2.0, grip.1, 1),
         ],
     )
     .await;
+    let during = lift_state(&client, key).await;
+    world.cpd.lifted_during = Some(during.session || during.origin_lifted || during.any_ghost > 0);
+    browser_harness::perform_pointer(&client, kind, at, &[PointerStep::Up]).await;
+    settle_requests(&client).await;
+}
+
+#[when(regex = r"^Priya taps (\w+-\d+)'s grip$")]
+async fn when_tap_grip(world: &mut FoundryWorld, key: String) {
+    press_grip_briefly(world, PointerKind::Touch, &key).await;
+}
+
+#[when(regex = r"^Priya clicks (\w+-\d+)'s grip with the mouse$")]
+async fn when_click_grip(world: &mut FoundryWorld, key: String) {
+    press_grip_briefly(world, PointerKind::Mouse, &key).await;
+}
+
+#[when(regex = r"^Priya holds a touch pointer still on (\w+-\d+)'s text$")]
+async fn when_hold_text(world: &mut FoundryWorld, key: String) {
+    hold_body(world, PointerKind::Touch, &key).await;
 }
 
 #[when(regex = r"^she presses Escape on the keyboard$")]
@@ -1501,7 +1783,7 @@ async fn when_file_dropped(world: &mut FoundryWorld, name: String, label: String
 }
 
 #[when(
-    regex = r"^Priya puts a touch pointer on (\w+-\d+) and swipes left before the hold completes$"
+    regex = r"^Priya puts a touch pointer on (\w+-\d+)'s text and swipes left before the hold completes$"
 )]
 async fn when_swipe(world: &mut FoundryWorld, key: String) {
     let client = browser(world);
@@ -1510,15 +1792,20 @@ async fn when_swipe(world: &mut FoundryWorld, key: String) {
     world.cpd.moves_before = move_requests(&client).await.len();
     world.cpd.board_scroll_before = Some(scroll_state(&client).await.0);
     let p = browser_harness::card_press_point(&client, &key).await;
-    let at = browser_harness::perform_pointer(
+    let down = browser_harness::perform_pointer(
         &client,
         PointerKind::Touch,
         p,
-        &[
-            PointerStep::To(p.0, p.1),
-            PointerStep::Down,
-            PointerStep::Glide(p.0 - 150.0, p.1, 6),
-        ],
+        &[PointerStep::To(p.0, p.1), PointerStep::Down],
+    )
+    .await;
+    // The hold has begun: the cue shows before the finger moves (DDD-27).
+    world.cpd.proven_arming |= hold_sample(&client, &key).await.arming;
+    let at = browser_harness::perform_pointer(
+        &client,
+        PointerKind::Touch,
+        down,
+        &[PointerStep::Glide(p.0 - 150.0, p.1, 6)],
     )
     .await;
     let early = lift_state(&client, &key).await;
@@ -1528,7 +1815,7 @@ async fn when_swipe(world: &mut FoundryWorld, key: String) {
         &client,
         PointerKind::Touch,
         at,
-        &[PointerStep::Hold(HOLD_MS)],
+        &[PointerStep::Hold(HOLD_MS as u64)],
     )
     .await;
     let late = lift_state(&client, &key).await;
@@ -2231,9 +2518,9 @@ async fn then_swipe_nothing(world: &mut FoundryWorld, key: String) {
     );
 }
 
-#[then(regex = r"^holding (\w+-\d+) (?:still|again) straight afterwards does lift it$")]
+#[then(regex = r"^holding (\w+-\d+)'s text (?:still|again) straight afterwards does lift it$")]
 async fn then_hold_lifts(world: &mut FoundryWorld, key: String) {
-    lift(world, PointerKind::RetryTouch, &key).await;
+    lift_by_hold(world, PointerKind::RetryTouch, &key).await;
 }
 
 #[then(regex = r"^(\w+-\d+) is still carried and ([\w-]+) is still the one lane lit up$")]
@@ -2255,19 +2542,24 @@ async fn then_first_finger_lands(
     below: String,
 ) {
     release(world).await;
-    let client = browser(world);
+    await_between(&browser(world), &key, &above, &below).await;
+}
+
+/// Wait for `key` to sit between `above` and `below`, or panic naming where it is.
+async fn await_between(client: &fantoccini::Client, key: &str, above: &str, below: &str) {
     let deadline = Instant::now() + Duration::from_secs(3);
     loop {
-        let place = card_place(&client, &key).await;
+        let place = card_place(client, key).await;
         if place
             .as_ref()
-            .is_some_and(|p| p.1.as_deref() == Some(&above) && p.2.as_deref() == Some(&below))
+            .is_some_and(|p| p.1.as_deref() == Some(above) && p.2.as_deref() == Some(below))
         {
             return;
         }
         assert!(
             Instant::now() < deadline,
-            "the first finger's release must land {key} between {above} and {below}; it is at {place:?}"
+            "MISSING_FUNCTIONALITY: the release must land {key} between {above} and {below}; it \
+             is at {place:?}"
         );
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
@@ -2364,7 +2656,7 @@ async fn then_page_scrolled(world: &mut FoundryWorld, _last: String) {
 )]
 async fn then_hold_abandoned(world: &mut FoundryWorld, key: String) {
     let client = browser(world);
-    tokio::time::sleep(Duration::from_millis(HOLD_MS + 200)).await;
+    tokio::time::sleep(PAST_HOLD).await;
     let record = browser_harness::pointer_record(&client).await;
     assert!(
         record.trusted("pointerdown") > 0 && record.trusted("pointercancel") > 0,
@@ -2391,4 +2683,611 @@ async fn then_hold_abandoned(world: &mut FoundryWorld, key: String) {
         world.cpd.origin,
         "{key} has not moved"
     );
+}
+
+// ======================================= slice 02 as amended 2026-09-29: the
+// grip, the body hold's arming cue, and a grip on every card (DDD-23..29)
+
+#[then(
+    regex = r"^(\w+-\d+) lifted as soon as (?:her finger|the pen) moved on its grip, without waiting for a hold$"
+)]
+async fn then_grip_lifted_at_once(world: &mut FoundryWorld, key: String) {
+    let at = world.cpd.grip_lift_ms;
+    assert!(
+        at.is_some_and(|ms| ms < GRIP_AT_ONCE_MS),
+        "MISSING_FUNCTIONALITY: {key} must lift as soon as the press on its grip travels 3 px, \
+         with no hold (DDD-26, AC-2.10); it lifted {} after the press on the page's clock, and a \
+         read within {GRIP_AT_ONCE_MS} ms is what rules a hold out",
+        at.map_or(
+            "not at all before a hold could have lifted it".to_string(),
+            |ms| { format!("{ms:.0} ms") }
+        )
+    );
+}
+
+fn touchstarts_on(record: &browser_harness::PointerRecord, key: &str, on_grip: bool) -> Vec<bool> {
+    record
+        .touchstarts
+        .iter()
+        .filter(|t| {
+            t["key"].as_str() == Some(key)
+                && t["onGrip"].as_bool() == Some(on_grip)
+                && t["trusted"].as_bool() == Some(true)
+        })
+        .map(|t| t["prevented"].as_bool() == Some(true))
+        .collect()
+}
+
+#[then(
+    regex = r"^the board claimed her touch on the grip, so the phone could not start a drag of its own$"
+)]
+async fn then_grip_touch_claimed(world: &mut FoundryWorld) {
+    let client = browser(world);
+    let key = held_key(world);
+    let record = browser_harness::pointer_record(&client).await;
+    let seen = touchstarts_on(&record, &key, true);
+    assert!(
+        !seen.is_empty(),
+        "BROKEN(driver): no trusted touch on {key}'s grip reached the page. {}",
+        record.describe()
+    );
+    assert!(
+        seen.iter().all(|prevented| *prevented),
+        "MISSING_FUNCTIONALITY: the board must prevent the default of a touch that lands on a grip \
+         (DDD-25), or iOS holds the touch for its own drag of the card first; touchstart \
+         defaultPrevented on {key}'s grip: {seen:?}. {}",
+        record.describe()
+    );
+}
+
+#[then(regex = r"^the board left her touch on (\w+-\d+)'s text to the browser$")]
+async fn then_body_touch_left(world: &mut FoundryWorld, key: String) {
+    let client = browser(world);
+    let record = browser_harness::pointer_record(&client).await;
+    let seen = touchstarts_on(&record, &key, false);
+    assert!(
+        !seen.is_empty(),
+        "BROKEN(driver): no trusted touch on {key}'s text reached the page. {}",
+        record.describe()
+    );
+    assert!(
+        seen.iter().all(|prevented| !*prevented),
+        "a touch on a card's text must be left to the browser, so it can still scroll and still \
+         tap (DDD-25): touchstart defaultPrevented on {key}'s text: {seen:?}"
+    );
+}
+
+#[then(regex = r"^(\w+-\d+) no longer shows it is arming$")]
+async fn then_not_arming(world: &mut FoundryWorld, key: String) {
+    assert!(
+        world.cpd.proven_arming,
+        "MISSING_FUNCTIONALITY: {key} never showed it was arming ([data-card-arming]) while the \
+         touch was on its text, so its absence now proves nothing (DDD-27, AC-2.12)"
+    );
+    let sample = hold_sample(&browser(world), &key).await;
+    assert_eq!(
+        sample.any_arming, 0,
+        "the arming cue must clear at once on every early exit, and no card may be left arming \
+         (DDD-27, AC-2.2/2.12): {sample:?}"
+    );
+}
+
+#[then(regex = r"^(\w+-\d+) has not lifted, is still in its slot and no move request is sent$")]
+async fn then_grip_press_nothing(world: &mut FoundryWorld, key: String) {
+    let client = browser(world);
+    let record = browser_harness::pointer_record(&client).await;
+    assert!(
+        record.last_down.as_ref().and_then(|d| d["key"].as_str()) == Some(key.as_str())
+            && record.trusted("pointerdown") > 0,
+        "BROKEN(driver): the press on {key}'s grip never reached the page. {}",
+        record.describe()
+    );
+    assert_eq!(
+        world.cpd.lifted_during,
+        Some(false),
+        "a press on a grip that travels under 3 px must not lift the card (DDD-26, AC-2.11)"
+    );
+    let state = lift_state(&client, &key).await;
+    assert!(
+        state.nothing_carried(),
+        "nothing may be carried after a tap on a grip: {state:?}"
+    );
+    assert_eq!(
+        card_place(&client, &key).await,
+        world.cpd.origin,
+        "{key} has not moved"
+    );
+    assert_eq!(
+        move_requests(&client).await.len(),
+        world.cpd.moves_before,
+        "no move is sent"
+    );
+}
+
+#[then(regex = r"^a (tap|click) on (\w+-\d+)'s text straight afterwards opens its edit dialog$")]
+async fn then_body_opens(world: &mut FoundryWorld, how: String, key: String) {
+    if how == "tap" {
+        tap_text(world, &key).await;
+    } else {
+        let client = browser(world);
+        let p = browser_harness::card_press_point(&client, &key).await;
+        browser_harness::perform_pointer(
+            &client,
+            PointerKind::Mouse,
+            p,
+            &[
+                PointerStep::To(p.0, p.1),
+                PointerStep::Down,
+                PointerStep::Up,
+            ],
+        )
+        .await;
+    }
+    then_dialog_opens(world, key).await;
+}
+
+#[then(regex = r"^a mouse drag begun on (\w+-\d+)'s grip straight afterwards does lift it$")]
+async fn then_mouse_grip_drag_lifts(world: &mut FoundryWorld, key: String) {
+    lift_by_grip(world, PointerKind::Mouse, &key).await;
+    let client = browser(world);
+    browser_harness::press_key(&client, "Escape").await;
+    release(world).await;
+    assert_back_at_origin(world, &key).await;
+}
+
+fn samples_between(world: &FoundryWorld, from: f64, to: f64) -> Vec<HoldSample> {
+    world
+        .cpd
+        .hold_samples
+        .iter()
+        .filter(|s| s.elapsed >= from && s.elapsed < to)
+        .cloned()
+        .collect()
+}
+
+fn no_read_in(world: &FoundryWorld, what: &str) -> String {
+    let times: Vec<i64> = world
+        .cpd
+        .hold_samples
+        .iter()
+        .map(|s| s.elapsed.round() as i64)
+        .collect();
+    format!(
+        "BROKEN(timing): no read of the board landed {what} on the page's clock (reads at \
+         {times:?} ms), so the hold cannot be timed; a negative time means no trusted press \
+         reached the page. Re-run on a less loaded lane before concluding anything"
+    )
+}
+
+#[then(regex = r"^a quarter of a second in, (\w+-\d+) shows it is arming and has not lifted$")]
+async fn then_arming_early(world: &mut FoundryWorld, key: String) {
+    let early = samples_between(world, 0.0, EARLY_READ_MS + 0.5);
+    let last = early
+        .last()
+        .cloned()
+        .unwrap_or_else(|| panic!("{}", no_read_in(world, "within 250 ms of the press")));
+    let record = browser_harness::pointer_record(&browser(world)).await;
+    assert!(
+        last.arming && !last.lifted,
+        "MISSING_FUNCTIONALITY: {:.0} ms into a hold on its text, {key} must show it is arming \
+         ([data-card-arming]) and not be lifted (DDD-27, AC-2.12); read {last:?}. {}",
+        last.elapsed,
+        record.describe()
+    );
+    world.cpd.proven_arming = true;
+}
+
+#[then(
+    regex = r"^four tenths of a second in, (\w+-\d+) is still arming, slightly shrunk and dimmed, and has not lifted$"
+)]
+async fn then_arming_late(world: &mut FoundryWorld, key: String) {
+    let late = samples_between(world, LATE_READ_MS.0, LATE_READ_MS.1);
+    let last = late.last().cloned().unwrap_or_else(|| {
+        panic!(
+            "{}",
+            no_read_in(world, "between 400 and 480 ms after the press")
+        )
+    });
+    assert!(
+        late.iter().all(|s| s.arming && !s.lifted),
+        "MISSING_FUNCTIONALITY: between 400 and 480 ms into the hold, {key} must still be arming \
+         and not lifted: the hold is 500 ms (DDD-5 as amended; a 350 ms hold lifts here). Reads: \
+         {late:?}"
+    );
+    assert!(
+        last.transform != "none" && !last.transform.is_empty() && last.opacity < 1.0,
+        "MISSING_FUNCTIONALITY: an arming card winds down visibly, scaled slightly and dimmed \
+         (DDD-27: scale 0.96, opacity 0.7 over the hold); {:.0} ms in it reads transform {:?}, \
+         opacity {}",
+        last.elapsed,
+        last.transform,
+        last.opacity
+    );
+}
+
+#[then(
+    regex = r"^once the half-second hold is up, (\w+-\d+) is lifted and no longer shows it is arming$"
+)]
+async fn then_lifted_after_hold(world: &mut FoundryWorld, key: String) {
+    let client = browser(world);
+    let kind = world.cpd.pointer.expect("a touch is on the card");
+    let state = await_lift(&client, kind, &key, LiftBy::Hold).await;
+    note_lift(world, &state);
+    let now = hold_sample(&client, &key).await;
+    assert!(
+        now.elapsed >= HOLD_MS && now.any_arming == 0,
+        "at the lift the arming cue is cleared (DDD-27): {:.0} ms after the press, {} card(s) \
+         still arming",
+        now.elapsed,
+        now.any_arming
+    );
+}
+
+#[then(regex = r"^she can carry it between (\w+-\d+) and (\w+-\d+) and drop it there$")]
+async fn then_carry_and_drop(world: &mut FoundryWorld, above: String, below: String) {
+    let key = held_key(world);
+    carry_between(world, &above, &below).await;
+    note_feedback_shown(world).await;
+    release(world).await;
+    await_between(&browser(world), &key, &above, &below).await;
+}
+
+#[then(regex = r"^(\w+-\d+) dims while it arms, but does not shrink$")]
+async fn then_reduced_motion_cue(world: &mut FoundryWorld, key: String) {
+    let arming: Vec<HoldSample> = world
+        .cpd
+        .hold_samples
+        .iter()
+        .filter(|s| s.arming && !s.lifted)
+        .cloned()
+        .collect();
+    assert!(
+        !arming.is_empty(),
+        "MISSING_FUNCTIONALITY: {key} never showed it was arming while held (DDD-27): {:?}",
+        world.cpd.hold_samples
+    );
+    assert!(
+        arming.iter().all(|s| s.transform == "none"),
+        "with reduced motion the arming cue must not scale the card (DDD-27): {arming:?}"
+    );
+    let latest = arming.last().expect("an arming read");
+    assert!(
+        latest.elapsed >= 300.0 && latest.opacity < 1.0,
+        "with reduced motion the arming cue still dims the card over the hold (DDD-27): the \
+         latest arming read, {:.0} ms in, has opacity {}",
+        latest.elapsed,
+        latest.opacity
+    );
+}
+
+// ------------------------------------------------ a grip on every card (N6)
+
+/// What a card's markup says about its grip, read from the live page or from a
+/// server response alike.
+#[derive(Debug, serde::Deserialize)]
+struct GripReport {
+    key: String,
+    /// `[data-card-grip]` elements inside the card.
+    grips: u64,
+    /// The card's last element child is its grip.
+    #[serde(rename = "lastIsGrip")]
+    last_is_grip: bool,
+    #[serde(rename = "ariaHidden")]
+    aria_hidden: Option<String>,
+    #[serde(rename = "hasTabindex")]
+    has_tabindex: bool,
+    text: String,
+}
+
+fn grip_reports_from_html(body: &str) -> Vec<GripReport> {
+    let doc = Html::parse_document(body);
+    let cards = Selector::parse("article.issue-card").expect("card selector");
+    let grip = Selector::parse("[data-card-grip]").expect("grip selector");
+    doc.select(&cards)
+        .map(|card| {
+            let grips: Vec<_> = card.select(&grip).collect();
+            let last = card.children().filter_map(scraper::ElementRef::wrap).last();
+            let first = grips.first();
+            GripReport {
+                key: card
+                    .value()
+                    .attr("data-issue-key")
+                    .unwrap_or("?")
+                    .to_string(),
+                grips: grips.len() as u64,
+                last_is_grip: last.is_some_and(|l| l.value().attr("data-card-grip").is_some()),
+                aria_hidden: first.and_then(|g| g.value().attr("aria-hidden").map(str::to_string)),
+                has_tabindex: first.is_some_and(|g| g.value().attr("tabindex").is_some()),
+                text: first
+                    .map(|g| g.text().collect::<String>())
+                    .unwrap_or_default(),
+            }
+        })
+        .collect()
+}
+
+async fn grip_reports_live(client: &fantoccini::Client) -> Vec<GripReport> {
+    let raw = js(
+        client,
+        "return Array.prototype.map.call(document.querySelectorAll('#board-columns .issue-card'), function (c) {
+           var g = c.querySelectorAll('[data-card-grip]');
+           var first = g.length ? g[0] : null;
+           return { key: c.getAttribute('data-issue-key') || '?', grips: g.length,
+             lastIsGrip: !!c.lastElementChild && c.lastElementChild.hasAttribute('data-card-grip'),
+             ariaHidden: first ? first.getAttribute('aria-hidden') : null,
+             hasTabindex: !!first && (first.hasAttribute('tabindex') || first.tabIndex >= 0),
+             text: first ? first.textContent : '' };
+         });",
+        vec![],
+    )
+    .await;
+    serde_json::from_value(raw).expect("grip report shape")
+}
+
+#[then(
+    regex = r"^(every card on the board|every card on the page she receives|the card the board receives for it) carries one grip, as its last part, hidden from screen readers and out of the tab order$"
+)]
+async fn then_cards_carry_grip(world: &mut FoundryWorld, which: String) {
+    let reports = if which == "every card on the board" {
+        grip_reports_live(&browser(world)).await
+    } else {
+        let status = world.cpd.http_status;
+        let body = world.cpd.http_body.clone().unwrap_or_default();
+        assert_eq!(
+            status,
+            Some(200),
+            "the server must answer the request with the card: {body}"
+        );
+        if which == "the card the board receives for it" {
+            assert!(
+                body.contains("hx-swap-oob") && !body.contains("<html"),
+                "precondition: the answer must be the in-place card update the board applies \
+                 without a reload (the second card source, issues.rs): {body}"
+            );
+        }
+        grip_reports_from_html(&body)
+    };
+    if which == "the card the board receives for it" {
+        assert_eq!(
+            reports.len(),
+            1,
+            "the in-place update carries exactly one card: {reports:?}"
+        );
+    } else {
+        assert!(
+            reports.len() >= 3,
+            "precondition: the board shows its cards: {reports:?}"
+        );
+    }
+    let wrong: Vec<&GripReport> = reports
+        .iter()
+        .filter(|r| {
+            r.grips != 1
+                || !r.last_is_grip
+                || r.aria_hidden.as_deref() != Some("true")
+                || r.has_tabindex
+                || !r.text.trim().is_empty()
+        })
+        .collect();
+    assert!(
+        wrong.is_empty(),
+        "MISSING_FUNCTIONALITY: every card carries exactly one grip, <span data-card-grip \
+         aria-hidden=\"true\"></span>, as its last child, with no text and no tab stop, in both \
+         card sources (US-CPD-02 AC-2.13, DDD-23). Cards that do not: {:?}",
+        wrong.iter().map(|r| &r.key).collect::<Vec<_>>()
+    );
+}
+
+#[then(
+    regex = r"^each grip is a strip 48 pixels wide down its card's whole right edge, on cards at least 48 pixels tall$"
+)]
+async fn then_grip_geometry(world: &mut FoundryWorld) {
+    let raw = js(
+        &browser(world),
+        "return Array.prototype.map.call(document.querySelectorAll('#board-columns .issue-card'), function (c) {
+           var r = c.getBoundingClientRect(), g = c.querySelector('[data-card-grip]');
+           var q = g ? g.getBoundingClientRect() : null;
+           return [c.getAttribute('data-issue-key'), r.height,
+             q ? q.width : -1, q ? Math.abs(r.right - q.right) : -1,
+             q ? Math.abs(r.top - q.top) : -1, q ? Math.abs(r.bottom - q.bottom) : -1];
+         });",
+        vec![],
+    )
+    .await;
+    let rows: Vec<(String, f64, f64, f64, f64, f64)> =
+        serde_json::from_value(raw).expect("grip geometry shape");
+    assert!(!rows.is_empty(), "precondition: the board shows its cards");
+    let wrong: Vec<_> = rows
+        .iter()
+        .filter(|(_, h, w, dr, dt, db)| {
+            *h < 47.5 || (*w - 48.0).abs() > 1.0 || *dr > 2.0 || *dt > 2.0 || *db > 2.0
+        })
+        .collect();
+    assert!(
+        wrong.is_empty(),
+        "MISSING_FUNCTIONALITY: each grip is 48 px wide and runs down its card's whole right edge, \
+         and every card is at least 48 px tall so a grip is a full touch target (DDD-24, U-3). \
+         (key, card height, grip width, gaps to the card's right / top / bottom): {wrong:?}"
+    );
+}
+
+#[then(
+    regex = r"^a finger on a grip never scrolls the board, while a finger on the rest of the card still can$"
+)]
+async fn then_grip_touch_action(world: &mut FoundryWorld) {
+    let raw = js(
+        &browser(world),
+        "return Array.prototype.map.call(document.querySelectorAll('#board-columns .issue-card'), function (c) {
+           var g = c.querySelector('[data-card-grip]');
+           return [c.getAttribute('data-issue-key'), getComputedStyle(c).touchAction,
+             g ? getComputedStyle(g).touchAction : 'no grip'];
+         });",
+        vec![],
+    )
+    .await;
+    let rows: Vec<(String, String, String)> =
+        serde_json::from_value(raw).expect("touch-action shape");
+    assert!(!rows.is_empty(), "precondition: the board shows its cards");
+    let wrong: Vec<_> = rows
+        .iter()
+        .filter(|(_, card, grip)| card != "auto" || grip != "none")
+        .collect();
+    assert!(
+        wrong.is_empty(),
+        "MISSING_FUNCTIONALITY: a grip is touch-action none (it never scrolls) and the card stays \
+         touch-action auto (a swipe on its text still scrolls) (DDD-4, DDD-24, DDD-29). (key, \
+         card, grip): {wrong:?}"
+    );
+}
+
+// ------------------------------------ the server's answers, read over HTTP
+
+fn http_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .expect("build the HTTP client")
+}
+
+/// Sign Priya in over HTTP; returns `(Cookie header value, csrf token)`.
+async fn http_sign_in(world: &FoundryWorld, http: &reqwest::Client) -> (String, String) {
+    let base = harness(world).base_url();
+    let get = http
+        .get(format!("{base}/sign-in"))
+        .send()
+        .await
+        .expect("get /sign-in for csrf");
+    let csrf = get
+        .headers()
+        .get_all(reqwest::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .find_map(|s| s.strip_prefix("foundry_csrf="))
+        .and_then(|rest| rest.split(';').next())
+        .expect("/sign-in must mint a foundry_csrf cookie")
+        .to_string();
+    let resp = http
+        .post(format!("{base}/sign-in"))
+        .header(reqwest::header::COOKIE, format!("foundry_csrf={csrf}"))
+        .form(&[
+            ("email", PRIYA_EMAIL),
+            ("password", PRIYA_PASSWORD),
+            ("_csrf", csrf.as_str()),
+        ])
+        .send()
+        .await
+        .expect("post /sign-in");
+    let session = resp
+        .headers()
+        .get_all(reqwest::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .find(|s| s.starts_with("foundry_session="))
+        .and_then(|s| s.split(';').next())
+        .expect("sign-in must issue a foundry_session cookie")
+        .to_string();
+    (format!("{session}; foundry_csrf={csrf}"), csrf)
+}
+
+fn project_path(world: &FoundryWorld, project: &str) -> String {
+    let (team, slug) = world
+        .cpd
+        .project_slugs
+        .get(project)
+        .unwrap_or_else(|| panic!("{project:?} must be seeded by the Background"));
+    format!("/team/{team}/project/{slug}")
+}
+
+async fn keep_answer(world: &mut FoundryWorld, resp: reqwest::Response) {
+    world.cpd.http_status = Some(resp.status().as_u16());
+    world.cpd.http_body = Some(resp.text().await.unwrap_or_default());
+}
+
+/// POST one of the board's dialogs as htmx does (`HX-Request: true`), so the
+/// server answers with the in-place card update, not a redirect.
+async fn post_dialog(world: &mut FoundryWorld, path: &str, form: &[(&str, &str)]) {
+    let http = http_client();
+    let (cookie, csrf) = http_sign_in(world, &http).await;
+    let mut fields: Vec<(&str, &str)> = form.to_vec();
+    fields.push(("_csrf", csrf.as_str()));
+    let resp = http
+        .post(format!("{}{path}", harness(world).base_url()))
+        .header(reqwest::header::COOKIE, cookie)
+        .header("HX-Request", "true")
+        .form(&fields)
+        .send()
+        .await
+        .unwrap_or_else(|err| panic!("post {path}: {err}"));
+    keep_answer(world, resp).await;
+}
+
+#[when(regex = r"^Priya fetches the Identity Platform board page$")]
+async fn when_fetch_board_page(world: &mut FoundryWorld) {
+    let http = http_client();
+    let (cookie, _) = http_sign_in(world, &http).await;
+    let path = project_path(world, IDENTITY);
+    let resp = http
+        .get(format!("{}{path}", harness(world).base_url()))
+        .header(reqwest::header::COOKIE, cookie)
+        .send()
+        .await
+        .expect("get the board page");
+    keep_answer(world, resp).await;
+}
+
+#[when(regex = r#"^Priya creates "([^"]+)" from the board's new-issue dialog$"#)]
+async fn when_create_from_dialog(world: &mut FoundryWorld, title: String) {
+    let path = format!("{}/issues", project_path(world, IDENTITY));
+    post_dialog(
+        world,
+        &path,
+        &[("title", title.as_str()), ("description", "")],
+    )
+    .await;
+}
+
+#[when(regex = r#"^Priya saves (\w+-\d+) from its edit dialog with the title "([^"]+)"$"#)]
+async fn when_save_title(world: &mut FoundryWorld, key: String, title: String) {
+    let path = format!(
+        "{}/issues/{}/edit",
+        project_path(world, IDENTITY),
+        number_of(&key)
+    );
+    post_dialog(
+        world,
+        &path,
+        &[
+            ("title", title.as_str()),
+            ("description", ""),
+            ("state", ""),
+        ],
+    )
+    .await;
+}
+
+#[when(regex = r"^Priya saves (\w+-\d+) from its edit dialog with its status set to ([\w-]+)$")]
+async fn when_save_status(world: &mut FoundryWorld, key: String, label: String) {
+    let slug: String =
+        sqlx::query_scalar("SELECT slug FROM lanes WHERE project_id = $1 AND label = $2")
+            .bind(world.cpd.project_ids[IDENTITY])
+            .bind(&label)
+            .fetch_one(&pool(world))
+            .await
+            .unwrap_or_else(|err| panic!("no lane labelled {label:?} on Identity Platform: {err}"));
+    let title = format!("Work item {key}");
+    let path = format!(
+        "{}/issues/{}/edit",
+        project_path(world, IDENTITY),
+        number_of(&key)
+    );
+    post_dialog(
+        world,
+        &path,
+        &[
+            ("title", title.as_str()),
+            ("description", ""),
+            ("state", slug.as_str()),
+        ],
+    )
+    .await;
 }

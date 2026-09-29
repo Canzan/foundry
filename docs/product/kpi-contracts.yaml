@@ -251,10 +251,11 @@ features:
       - id: CPD-KPI-1
         name: A card moves to an exact lane and slot by touch
         type: leading
-        target: "100% of @mobile touch-drag scenarios green; dogfood 5/5 holds land at the marker on iOS Safari and on Android Chrome, and a reload agrees"
+        target: "100% of @mobile touch-drag scenarios green; dogfood 5/5 grip drags and 5/5 body holds land at the marker on iOS Safari and on Android Chrome, and a reload agrees"
+        amended: "2026-09-29 (DISCUSS KPI 1 as amended): was 5/5 holds; the grip drag and the 500 ms body hold are both counted"
         baseline: "0%: no card gesture exists on touch"
         instruments:
-          - {kind: acceptance, ref: "card-pointer-drag.feature @us-cpd-02 @kpi / @us-cpd-03 @kpi", oracle: "lane order on screen and after a reload; the move body byte-for-byte"}
+          - {kind: acceptance, ref: "card-pointer-drag.feature @us-cpd-02 @kpi (the grip drag and the body hold) / @us-cpd-03 @kpi", oracle: "lane order on screen and after a reload; the move body byte-for-byte; a grip lifts within 300 ms of the press, a body hold is still arming and not lifted at 400-480 ms"}
           - {kind: dogfood, ref: "slice-02/03 device checklist (DDD-13)"}
         gate: hard
         status: owed
@@ -270,20 +271,22 @@ features:
       - id: CPD-KPI-3
         name: A swipe across a card scrolls and never lifts
         type: guardrail
-        target: "0 lifts and 0 requests from a touch that moves before the hold completes; dogfood 20 swipes -> 0 accidental lifts per device"
+        target: "0 lifts and 0 requests from a touch on the card body that moves before the 500 ms hold completes; dogfood 20 prompt swipes across card text -> 0 lifts per device. Accepted trade-off: a swipe whose thumb rests >= 500 ms before moving may lift; that lazy-swipe misfire rate is measured and recorded at the slice-02 dogfood, not gated (AC-2.14)"
+        amended: "2026-09-29 (DISCUSS KPI 3 as amended): was 20 swipes -> 0 accidental lifts; prompt and resting swipes are now counted apart"
         baseline: "Swipes always scroll (no drag exists)"
         instruments:
-          - {kind: acceptance, ref: "A touch that moves before the hold completes scrolls the board and lifts nothing", oracle: "board scrollLeft grew; no lift during and 450 ms after; nothing lit or sent; a hold straight afterwards does lift"}
-          - {kind: dogfood, ref: "slice-02 swipe tally"}
+          - {kind: acceptance, ref: "A touch on a card's text that moves before the hold completes scrolls the board and lifts nothing", oracle: "board scrollLeft grew; no lift during and 700 ms after; nothing lit or sent; the arming cue cleared; the touchstart not prevented; a hold straight afterwards does lift"}
+          - {kind: dogfood, ref: "slice-02 swipe tally, prompt (steps 1-2) and resting (step 3) swipes counted apart (DDD-13 checklist)"}
         gate: hard
         status: owed
       - id: CPD-KPI-4
         name: A tap or click opens a card; a drag never does
         type: guardrail
-        target: "100% of taps and sub-threshold clicks open the edit dialog; 0 dialogs opened by any drag"
+        target: "100% of taps on card text and sub-threshold clicks open the edit dialog; 0 dialogs opened by any drag or by a tap or click on the grip"
+        amended: "2026-09-29 (DISCUSS KPI 4 as amended): a tap or click on the grip opens nothing"
         baseline: "Click opens; no touch drag"
         instruments:
-          - {kind: acceptance, ref: "card-pointer-drag.feature: the tap, the 3-pixel press, the own-card release and the lifted in-place release scenarios", oracle: "#modal-root edit dialog present / absent 1.2 s after the release"}
+          - {kind: acceptance, ref: "card-pointer-drag.feature: the tap on a card's text, the grip tap, the mouse grip click, the 3-pixel press, the own-card release and the lifted in-place release scenarios", oracle: "#modal-root edit dialog present / absent 1.2 s after the release; each grip scenario ends with a body tap or click that does open"}
         gate: hard
         status: owed
       - id: CPD-KPI-5

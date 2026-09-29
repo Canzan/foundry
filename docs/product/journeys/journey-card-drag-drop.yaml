@@ -32,6 +32,19 @@ journeys:
           an arm of keyboard.js::closeTopLayer(), no longer the browser's
           native drag cancel. The carried card is drawn by the page, not the
           browser's drag image.
+      - date: 2026-09-29
+        by: docs/feature/card-pointer-drag/feature-delta.md
+        change: >
+          Touch variant amended after the real-device run (card-pointer-drag
+          D5 as amended; spike/findings.md). A whole-card press-and-hold could
+          not tell a resting-thumb swipe from a hold. Step t1 is now "Take
+          hold": a grip on the card's right edge lifts at once, or the card's
+          text lifts after a 500 ms hold with a visible arming cue. The
+          transition rule "A swipe never lifts a card" is narrowed to swipes
+          that move before the hold; a swipe that rests 500 ms or more first
+          is an accepted trade-off (new error path resting-swipe). New error
+          path grip-tap. The hold-duration entry records 500 ms, and grip and
+          arming-cue join the registry.
 
     goal: >
       Move one card to a chosen lane and a chosen slot in it, seeing before
@@ -205,45 +218,56 @@ journeys:
             does not, so moving AUTH-41 means open it, change Status, save —
             and it lands at the top, not where she wanted.
           middle: >
-            Deliberate, then in control. She holds; the card lifts under her
+            Deliberate, then in control. She takes the card by its grip, or
+            holds its text and watches it arm; the card lifts under her
             finger; the lane lights and the line opens exactly as on the
             desktop.
           end: >
             Confident. The card is where the line was; swiping the board
             afterwards still scrolls, and tapping a card still opens it.
           transition_rules:
-            - A swipe never lifts a card. A lift never scrolls the board by accident.
-            - A tap never lifts a card. A lift never opens the card's dialog.
-            - The lift is announced visibly the moment it happens, so she never wonders whether she is holding a card.
+            - A swipe that moves before the hold completes never lifts a card. A lift never scrolls the board by accident.
+            - A tap on the card's text never lifts it. A tap on the grip opens nothing. A lift never opens the card's dialog.
+            - A coming lift is visible before it happens (the arming cue on a hold), and the lift is announced visibly the moment it happens, so she never wonders whether she is holding a card.
         steps:
           - id: t1
-            name: Press and hold
+            name: Take hold (grip, or hold the text)
             action: >
               On the Identity Platform board at 390px, Priya puts her thumb on
-              AUTH-41 in Backlog and holds still.
+              AUTH-41's grip, the dotted strip on its right edge, and moves.
+              Or she puts her thumb on AUTH-41's text and holds still for
+              half a second while the card arms.
             mockup: |
               +-- AUTH (390px) ---------------+
               | BACKLOG          IN-PROGRESS >|
-              | +-----------+    +---------   |
-              | | AUTH-41 * |    | AUTH-3     |
-              | +-----------+    | AUTH-12    |
-              | | AUTH-43   |    | AUTH-19    |
-              |   (thumb held on AUTH-41)     |
+              | +---------+--+   +---------   |
+              | | AUTH-41 :⠇⠇|   | AUTH-3     |
+              | +---------+--+   | AUTH-12    |
+              | | AUTH-43 :⠇⠇|   | AUTH-19    |
+              |  grip: lifts at once          |
+              |  text: arms (shrinks, dims)   |
+              |        over 500 ms, then lifts|
               +-------------------------------+
             emotional_state:
               entry: Resigned (expects nothing to happen)
-              exit: Deliberate — the card responds only after the hold
-            shared_artifacts: [hold-duration, in-flight-drag]
+              exit: Deliberate — the grip answers at once; the text answers only after a visible hold
+            shared_artifacts: [grip, hold-duration, arming-cue, in-flight-drag]
             integration_checkpoint: >
-              Until the hold completes nothing is lifted, nothing is lit, no
-              marker exists. Moving past the hold tolerance before it
-              completes hands the gesture to the browser as a scroll.
+              On the grip, a few pixels of travel lift the card, with no hold,
+              and the gesture never scrolls; a grip tap opens nothing. On the
+              text, until the hold completes nothing is lifted, nothing is
+              lit, no marker exists, and only the arming cue shows. Moving past
+              the hold tolerance before it completes clears the cue and hands
+              the gesture to the browser as a scroll.
             failure_modes:
               - The OS long-press takes over (text selection, callout, context menu) instead of the lift.
               - A native drag of the draggable card starts and cancels the pointer mid-hold.
+              - iOS holds a grip touch for its own long-press drag, so the grip lifts late instead of at once.
+              - A card rendered by one of the two card sources, or by an in-place refresh, has no grip.
+              - The arming cue stays on a card after the hold is abandoned.
           - id: t2
             name: Lift
-            action: The hold completes; AUTH-41 lifts under her thumb.
+            action: The grip moves, or the hold completes; AUTH-41 lifts under her thumb.
             mockup: |
               | BACKLOG          IN-PROGRESS >|
               | .............    +---------   |
@@ -300,13 +324,28 @@ journeys:
               - The release is read as a tap and AUTH-41's edit dialog opens over the board.
         error_paths:
           - id: swipe-not-drag
-            trigger: Priya swipes across AUTH-41 to scroll the board, without holding.
+            trigger: Priya swipes across AUTH-41's text to scroll the board, moving before the hold completes.
             response: The board scrolls exactly as it does today; no card lifts, nothing lit, no request.
             recovery: n/a.
+          - id: resting-swipe
+            trigger: >
+              Priya's thumb rests on AUTH-12's text for 500 ms or more, then
+              swipes to scroll. An accepted trade-off (card-pointer-drag D5 as
+              amended 2026-09-29); its rate is measured at the slice-02 dogfood.
+            response: >
+              AUTH-12 arms visibly over the hold, then lifts instead of the
+              page scrolling.
+            recovery: >
+              Release off every lane or in place; AUTH-12 stays in its slot and
+              nothing is sent. Scroll again, or use the grip to drag.
           - id: tap-not-drag
-            trigger: Priya taps AUTH-41 and lifts her finger before the hold completes, without moving.
+            trigger: Priya taps AUTH-41's text and lifts her finger before the hold completes, without moving.
             response: AUTH-41's edit dialog opens, exactly as a mouse click does today.
             recovery: n/a.
+          - id: grip-tap
+            trigger: Priya taps AUTH-41's grip without moving.
+            response: Nothing opens, nothing lifts, no request. The grip belongs to the drag.
+            recovery: Tap the card's text to open it.
           - id: pointercancel
             trigger: >
               The system takes the pointer mid-drag — an incoming call, a
@@ -352,8 +391,15 @@ journeys:
         consumed_by: [the drop POST, unchanged]
       # Added by card-pointer-drag (2026-09-25), used by the touch variant.
       - id: hold-duration
-        source: one constant in the card drag module (value owed by DESIGN, ~300-400 ms)
-        consumed_by: [touch and pen lift; the tap-vs-hold and swipe-vs-hold decisions]
+        source: one constant in the card drag module (500 ms for the card body, user decision 2026-09-29; was ~300-400 ms)
+        consumed_by: [touch and pen lift from the card body; the tap-vs-hold and swipe-vs-hold decisions; the arming cue's timing]
+      # Added by card-pointer-drag (2026-09-29), used by the touch variant.
+      - id: grip
+        source: card markup in both sources (partials/issue_card.html and issues.rs:731); how is DESIGN's
+        consumed_by: [touch and pen lift at once; grip tap opens nothing]
+      - id: arming-cue
+        source: the stylesheet, driven by the body-hold state (tokens only)
+        consumed_by: [body hold; cleared on every abort before the lift]
       - id: carried-card
         source: the live DOM, drawn by the page while a session is lifted (replaces the browser drag image)
         consumed_by: [lift feedback, teardown on every exit]
