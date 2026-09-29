@@ -110,6 +110,10 @@ foundry-realtime = { path = "../foundry-realtime" }
 # dev-dep) — this adds NO new crate to Cargo.lock, only activates the existing
 # version for foundry-app's own tests.
 proptest = "1"
+# keycloak-sso 01-01 — the password-less-account door tests drive the real
+# router over a real Postgres (NULL decoding and the reset UPDATE are database
+# behaviour). Already a workspace dep (foundry-store / foundry-acceptance).
+testcontainers-modules = { workspace = true }
 
 # Slice 6 (ADR-010 / NFR-PERF-05) — middleware overhead microbench.
 # `harness = false` because the bench is hand-rolled (no criterion

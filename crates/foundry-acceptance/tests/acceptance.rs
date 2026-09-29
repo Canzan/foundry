@@ -76,6 +76,8 @@ use foundry_acceptance::steps::feature_issue_status_move as _feature_issue_statu
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_keycloak_sso as _kc_sso;
 #[allow(unused_imports)]
+use foundry_acceptance::steps::feature_keycloak_sso_provisioning as _kc_sso_provisioning;
+#[allow(unused_imports)]
 use foundry_acceptance::steps::feature_machine_token_admin as _feature_mt;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_member_invites as _feature_member_invites;

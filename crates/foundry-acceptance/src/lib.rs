@@ -32,6 +32,7 @@ pub mod steps {
     pub mod feature_issue_edit_modal_close;
     pub mod feature_issue_status_move;
     pub mod feature_keycloak_sso;
+    pub mod feature_keycloak_sso_provisioning;
     pub mod feature_machine_token_admin;
     pub mod feature_member_invites;
     pub mod feature_mwt_slice_01_coexist;

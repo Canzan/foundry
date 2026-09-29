@@ -31,7 +31,8 @@ use axum::http::header::{HeaderMap, SET_COOKIE};
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
 use base64::Engine as _;
-use foundry_oidc::AuthRequest;
+use foundry_oidc::{AuthRequest, IdentityClaims};
+use foundry_store::FederatedProvisionOutcome;
 use serde::Deserialize;
 use tower_sessions::Session;
 
@@ -192,22 +193,247 @@ pub async fn callback(
         return refuse(&state, &headers, "provider has not confirmed the email");
     }
 
-    // LINK, never provision (D3). users.email_lower is UNIQUE, so the match is
-    // unambiguous; an identity with no foundry account is refused, which is what
-    // keeps invites the only way into the tracker.
+    // DDD-15 find-or-provision. (1) An existing account links, role IGNORED —
+    // users.email_lower is UNIQUE, so the match is unambiguous.
     let email_lower = identity.email.trim().to_lowercase();
-    let user = match state.store.find_user_by_email(&email_lower).await {
-        Ok(Some(u)) => u,
-        Ok(None) => return refuse(&state, &headers, "no foundry account for this identity"),
+    let user_id = match state.store.find_user_by_email(&email_lower).await {
+        Ok(Some(u)) => u.id,
+        Ok(None) => match provision(&state, &provider, &identity, &email_lower).await {
+            Ok(id) => id,
+            Err(ProvisionFailure::Refused(why)) => return refuse(&state, &headers, why),
+            Err(ProvisionFailure::Internal) => {
+                return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response()
+            }
+        },
         Err(err) => {
             tracing::error!(%err, "find_user_by_email failed during oidc callback");
             return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
         }
     };
 
-    let mut resp = establish_session(&state, &session, &headers, user.id).await;
+    let mut resp = establish_session(&state, &session, &headers, user_id).await;
     if let Ok(v) = clear_cookie(&state).parse() {
         resp.headers_mut().append(SET_COOKIE, v);
     }
     resp
+}
+
+/// Refusal reasons the find-or-provision order adds (DDD-15/DDD-20). They ride the
+/// existing `refuse()` log line; the response is the generic refusal regardless.
+const NO_ACCOUNT: &str = "no foundry account for this identity";
+const LACKS_PROVISION_ROLE: &str = "identity lacks provision role";
+const NO_WORKSPACE: &str = "no workspace to provision into";
+
+/// `users.display_name CHECK (length BETWEEN 1 AND 64)`.
+const MAX_DISPLAY_NAME_CHARS: usize = 64;
+
+/// Why `provision` yielded no account: a logged refusal (the generic refusal
+/// page) or an internal fault (500).
+enum ProvisionFailure {
+    Refused(&'static str),
+    Internal,
+}
+
+/// DDD-15 steps (2)–(5) for an identity with no foundry account: gate on the
+/// provision role, then create a password-less member in the original workspace.
+async fn provision(
+    state: &AppState,
+    provider: &foundry_oidc::OidcProvider,
+    identity: &IdentityClaims,
+    email_lower: &str,
+) -> Result<uuid::Uuid, ProvisionFailure> {
+    judge_newcomer(provider.provision_role(), identity).map_err(ProvisionFailure::Refused)?;
+    // Unreachable in practice (RFC 5321 caps a local-part at 64); refusing beats a
+    // CHECK-violation 500 and never truncates (OD-7).
+    let display_name = greeting_name(identity).ok_or(ProvisionFailure::Refused(NO_ACCOUNT))?;
+    let email_display = identity.email.trim();
+    match state
+        .store
+        .provision_federated_member(email_lower, email_display, &display_name)
+        .await
+    {
+        Ok(FederatedProvisionOutcome::Created {
+            user_id,
+            workspace_id,
+        }) => {
+            log_provisioned(user_id, workspace_id);
+            Ok(user_id)
+        }
+        Ok(FederatedProvisionOutcome::Existing { user_id }) => Ok(user_id),
+        Ok(FederatedProvisionOutcome::NoWorkspace) => Err(ProvisionFailure::Refused(NO_WORKSPACE)),
+        Err(err) => {
+            tracing::error!(%err, "provision_federated_member failed during oidc callback");
+            Err(ProvisionFailure::Internal)
+        }
+    }
+}
+
+/// DDD-15 steps (2)–(3) for an identity with no foundry account. `None` role means
+/// link-only (exactly D3); the role match is exact and case-sensitive.
+fn judge_newcomer(
+    provision_role: Option<&str>,
+    identity: &IdentityClaims,
+) -> Result<(), &'static str> {
+    let role = provision_role.ok_or(NO_ACCOUNT)?;
+    if identity.has_realm_role(role) {
+        Ok(())
+    } else {
+        Err(LACKS_PROVISION_ROLE)
+    }
+}
+
+/// DDD-18 greeting-name chain: the first of `name` → `preferred_username` → email
+/// local-part that is non-blank once trimmed and fits the 64-character column.
+/// A longer candidate is skipped, never truncated (OD-7).
+fn greeting_name(identity: &IdentityClaims) -> Option<String> {
+    let local_part = identity.email.trim().split('@').next();
+    [
+        identity.name.as_deref(),
+        identity.preferred_username.as_deref(),
+        local_part,
+    ]
+    .into_iter()
+    .flatten()
+    .map(str::trim)
+    .find(|c| !c.is_empty() && c.chars().count() <= MAX_DISPLAY_NAME_CHARS)
+    .map(str::to_string)
+}
+
+/// DDD-20: the one info line a successful provision emits — ids only, no claims.
+fn log_provisioned(user_id: uuid::Uuid, workspace_id: uuid::Uuid) {
+    tracing::info!(%user_id, %workspace_id, "oidc identity provisioned");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// (configured provision role, realm roles held, verdict)
+    type RoleCase<'a> = (Option<&'a str>, &'a [&'a str], Result<(), &'a str>);
+    /// (name, preferred_username, email, expected greeting)
+    type NameCase<'a> = (Option<&'a str>, Option<&'a str>, &'a str, Option<&'a str>);
+
+    fn identity(
+        email: &str,
+        name: Option<&str>,
+        username: Option<&str>,
+        roles: &[&str],
+    ) -> IdentityClaims {
+        IdentityClaims {
+            subject: "sub-1".to_string(),
+            email: email.to_string(),
+            email_verified: true,
+            realm_roles: roles.iter().map(|r| r.to_string()).collect(),
+            name: name.map(str::to_string),
+            preferred_username: username.map(str::to_string),
+        }
+    }
+
+    /// DDD-15: provisioning off refuses as today (D3); a missing role — including
+    /// a differently-capitalised one — refuses with its own reason; the exact role
+    /// lets provisioning proceed.
+    #[test]
+    fn a_newcomer_is_refused_unless_provisioning_is_on_and_the_role_is_held() {
+        let cases: [RoleCase; 5] = [
+            (None, &["foundry-user"], Err(NO_ACCOUNT)),
+            (Some("foundry-user"), &[], Err(LACKS_PROVISION_ROLE)),
+            (
+                Some("foundry-user"),
+                &["some-other-role"],
+                Err(LACKS_PROVISION_ROLE),
+            ),
+            (
+                Some("foundry-user"),
+                &["Foundry-User"],
+                Err(LACKS_PROVISION_ROLE),
+            ),
+            (Some("foundry-user"), &["other", "foundry-user"], Ok(())),
+        ];
+        for (role, held, expected) in cases {
+            let who = identity("nia@example.test", Some("Nia"), None, held);
+            assert_eq!(
+                judge_newcomer(role, &who),
+                expected,
+                "provision role {role:?}, held {held:?}"
+            );
+        }
+    }
+
+    /// DDD-18 / OD-7: first non-blank candidate of name → preferred_username →
+    /// email local-part that fits in 64 characters; longer ones are skipped, never
+    /// truncated; the chosen candidate is trimmed.
+    #[test]
+    fn the_greeting_is_the_first_usable_candidate() {
+        let sixty_four = "a".repeat(64);
+        let sixty_five = "é".repeat(65);
+        let cases: [NameCase; 8] = [
+            (
+                Some("Nia Newcomer"),
+                Some("nia"),
+                "nia.newcomer@x.test",
+                Some("Nia Newcomer"),
+            ),
+            (Some("  Nia  "), None, "nia.newcomer@x.test", Some("Nia")),
+            (None, Some("nia"), "nia.newcomer@x.test", Some("nia")),
+            (Some("   "), Some("nia"), "nia.newcomer@x.test", Some("nia")),
+            (
+                Some(""),
+                Some("\t"),
+                "nia.newcomer@x.test",
+                Some("nia.newcomer"),
+            ),
+            (
+                Some(&sixty_five),
+                Some("nia"),
+                "nia.newcomer@x.test",
+                Some("nia"),
+            ),
+            (
+                Some(&sixty_four),
+                Some("nia"),
+                "nia.newcomer@x.test",
+                Some(&sixty_four),
+            ),
+            (None, None, &format!("{}@x.test", "b".repeat(65)), None),
+        ];
+        for (name, username, email, expected) in cases {
+            assert_eq!(
+                greeting_name(&identity(email, name, username, &[])).as_deref(),
+                expected,
+                "name {name:?}, username {username:?}, email {email:?}"
+            );
+        }
+    }
+
+    /// DDD-20: a provision logs one info line naming the user and workspace.
+    #[test]
+    fn a_provision_logs_the_user_and_workspace() {
+        #[derive(Clone, Default)]
+        struct Buf(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+        impl std::io::Write for Buf {
+            fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().expect("buf").extend_from_slice(b);
+                Ok(b.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let buf = Buf::default();
+        let sink = buf.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(move || sink.clone())
+            .with_ansi(false)
+            .finish();
+        let (user, workspace) = (uuid::Uuid::now_v7(), uuid::Uuid::now_v7());
+
+        tracing::subscriber::with_default(subscriber, || log_provisioned(user, workspace));
+
+        let out = String::from_utf8(buf.0.lock().expect("buf").clone()).expect("utf8");
+        assert_eq!(out.lines().count(), 1, "exactly one line: {out}");
+        assert!(out.contains("INFO"), "{out}");
+        assert!(out.contains("oidc identity provisioned"), "{out}");
+        assert!(out.contains(&user.to_string()), "{out}");
+        assert!(out.contains(&workspace.to_string()), "{out}");
+    }
 }

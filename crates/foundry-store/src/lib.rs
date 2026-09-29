@@ -490,6 +490,74 @@ impl Store {
         })
     }
 
+    /// Give a federated newcomer a password-less `member` account in the instance's
+    /// ORIGINAL workspace, in one transaction (keycloak-sso DDD-16/DDD-17).
+    ///
+    /// The workspace is `ORDER BY created_at, id LIMIT 1` — not the newest (the
+    /// `list_workspaces` order) and not "the only". No workspace ⇒ `NoWorkspace`
+    /// and nothing is written, so provisioning cannot pre-empt the bootstrap claim.
+    ///
+    /// `ON CONFLICT (email_lower) DO NOTHING` then re-read: when a concurrent first
+    /// sign-in (or any existing account) already holds the address, that row is
+    /// returned as `Existing`, untouched — no password, name or membership change.
+    /// Only `member` is ever granted; never `admin`, never `instance_admins`.
+    pub async fn provision_federated_member(
+        &self,
+        email_lower: &str,
+        email_display: &str,
+        display_name: &str,
+    ) -> Result<FederatedProvisionOutcome, StoreError> {
+        let mut tx = self.pool.begin().await?;
+
+        let workspace: Option<(uuid::Uuid,)> =
+            sqlx::query_as("SELECT id FROM workspaces ORDER BY created_at, id LIMIT 1")
+                .fetch_optional(&mut *tx)
+                .await?;
+        let Some((workspace_id,)) = workspace else {
+            tx.rollback().await?;
+            return Ok(FederatedProvisionOutcome::NoWorkspace);
+        };
+
+        let created: Option<(uuid::Uuid,)> = sqlx::query_as(
+            "INSERT INTO users (id, email_lower, email_display, display_name, password_hash)
+                  VALUES ($1, $2, $3, $4, NULL)
+             ON CONFLICT (email_lower) DO NOTHING
+               RETURNING id",
+        )
+        .bind(uuid::Uuid::now_v7())
+        .bind(email_lower)
+        .bind(email_display)
+        .bind(display_name)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        let Some((user_id,)) = created else {
+            let (user_id,): (uuid::Uuid,) =
+                sqlx::query_as("SELECT id FROM users WHERE email_lower = $1")
+                    .bind(email_lower)
+                    .fetch_one(&mut *tx)
+                    .await?;
+            tx.commit().await?;
+            return Ok(FederatedProvisionOutcome::Existing { user_id });
+        };
+
+        sqlx::query(
+            "INSERT INTO workspace_memberships (workspace_id, user_id, role)
+                  VALUES ($1, $2, $3)",
+        )
+        .bind(workspace_id)
+        .bind(user_id)
+        .bind(ROLE_MEMBER)
+        .execute(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+        Ok(FederatedProvisionOutcome::Created {
+            user_id,
+            workspace_id,
+        })
+    }
+
     /// Why a bootstrap token lookup might fail. Drives the explanatory
     /// page rendered for invalid `/bootstrap?token=...` GETs.
     pub async fn bootstrap_token_status(
@@ -1024,12 +1092,13 @@ impl Store {
     // ----- US-06 sign-in -------------------------------------------------
 
     /// Look up a user row by lower-cased email. Returns the bits the
-    /// sign-in handler needs (id + PHC-encoded password hash).
+    /// sign-in handler needs (id + PHC-encoded password hash, `None` for a
+    /// password-less account — keycloak-sso DDD-13/DDD-21).
     pub async fn find_user_by_email(
         &self,
         email_lower: &str,
     ) -> Result<Option<UserRow>, StoreError> {
-        let row: Option<(uuid::Uuid, String)> =
+        let row: Option<(uuid::Uuid, Option<String>)> =
             sqlx::query_as("SELECT id, password_hash FROM users WHERE email_lower = $1")
                 .bind(email_lower)
                 .fetch_optional(&self.pool)
@@ -2638,22 +2707,23 @@ impl Store {
         Ok(row.map(|r| r.0))
     }
 
-    /// Look up a user's PHC-encoded `password_hash` by id — the reauthentication
-    /// seam for the change-password flow: verify the CURRENT password (with the
-    /// same verifier sign-in uses) BEFORE rotating it, so a hijacked session
-    /// alone cannot change the credential. Returns `None` when no such user (a
-    /// data-consistency fault for a valid session). Mirrors
-    /// [`find_user_email_by_id`] / [`find_user_by_email`]'s hash read.
-    pub async fn find_user_password_hash_by_id(
+    /// Look up a user row by id — the reauthentication seam for the
+    /// change-password flow: verify the CURRENT password (with the same verifier
+    /// sign-in uses) BEFORE rotating it, so a hijacked session alone cannot
+    /// change the credential. Returns `None` when no such user (a
+    /// data-consistency fault for a valid session); a password-less account is
+    /// `Some` with `password_hash: None` (keycloak-sso DDD-13). Mirrors
+    /// [`find_user_by_email`].
+    pub async fn find_user_by_id(
         &self,
         user_id: uuid::Uuid,
-    ) -> Result<Option<String>, StoreError> {
-        let row: Option<(String,)> =
-            sqlx::query_as("SELECT password_hash FROM users WHERE id = $1")
+    ) -> Result<Option<UserRow>, StoreError> {
+        let row: Option<(uuid::Uuid, Option<String>)> =
+            sqlx::query_as("SELECT id, password_hash FROM users WHERE id = $1")
                 .bind(user_id)
                 .fetch_optional(&self.pool)
                 .await?;
-        Ok(row.map(|r| r.0))
+        Ok(row.map(|(id, password_hash)| UserRow { id, password_hash }))
     }
 
     /// Write a new `password_hash` for the signed-in account owner
@@ -3169,7 +3239,9 @@ pub enum ProjectInsertError {
 #[derive(Debug, Clone)]
 pub struct UserRow {
     pub id: uuid::Uuid,
-    pub password_hash: String,
+    /// PHC-encoded hash; `None` for a password-less (federated-only) account
+    /// (keycloak-sso DDD-13, migration 0016). Never a sentinel string.
+    pub password_hash: Option<String>,
 }
 
 /// Derive a non-empty `display_name` (length 1..=64, satisfying the `users`
@@ -3314,6 +3386,23 @@ pub enum MemberConsumeOutcome {
     },
     Refused,
     EmailCollision,
+}
+
+/// The outcome of [`Store::provision_federated_member`] (keycloak-sso DDD-16/17).
+/// `Created` is a fresh password-less member in the original workspace; `Existing`
+/// is the account that already held the address (a concurrent first sign-in won
+/// the race) — returned untouched so both callers sign in; `NoWorkspace` is an
+/// unclaimed instance, where nothing is created.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FederatedProvisionOutcome {
+    Created {
+        user_id: uuid::Uuid,
+        workspace_id: uuid::Uuid,
+    },
+    Existing {
+        user_id: uuid::Uuid,
+    },
+    NoWorkspace,
 }
 
 /// The outcome of [`Store::claim_bootstrap_and_create_workspace`] (bootstrap-claim-

@@ -55,6 +55,10 @@ pub struct OidcConfig {
     pub client_secret: SecretString,
     /// Absolute callback URL registered with the provider.
     pub redirect_uri: String,
+    /// Realm role whose holders get a foundry account on their first sign-in
+    /// (`FOUNDRY_OIDC_PROVISION_ROLE`). `None` = link-only: an identity with no
+    /// foundry account is refused, exactly as before provisioning existed.
+    pub provision_role: Option<String>,
 }
 
 impl OidcConfig {
@@ -77,6 +81,15 @@ impl OidcConfig {
             read("OIDC_CLIENT_SECRET"),
             read("OIDC_REDIRECT_URL"),
         )
+        .map(|cfg| cfg.map(|c| c.with_provision_role(read("FOUNDRY_OIDC_PROVISION_ROLE"))))
+    }
+
+    /// Opt in to role-gated provisioning. Blank means off: an operator who sets
+    /// the variable to `""` gets today's link-only behaviour, never a gate that
+    /// matches a role literally named "".
+    pub fn with_provision_role(mut self, role: Option<String>) -> Self {
+        self.provision_role = role.map(|r| r.trim().to_string()).filter(|r| !r.is_empty());
+        self
     }
 
     /// The whole decision, as a pure function.
@@ -132,6 +145,7 @@ impl OidcConfig {
             client_id: client_id.expect("checked present"),
             client_secret: SecretString::new(client_secret.expect("checked present").into()),
             redirect_uri,
+            provision_role: None,
         }))
     }
 }
@@ -169,11 +183,40 @@ fn random_token() -> String {
 }
 
 /// What foundry actually needs from a validated identity.
+///
+/// Claims only, never decisions (DDD-14): whether an identity may be provisioned
+/// is foundry-app's call. The roles and names default to empty, so a token that
+/// carries none of them validates exactly as it did before provisioning existed.
 #[derive(Clone, Debug)]
 pub struct IdentityClaims {
     pub subject: String,
     pub email: String,
     pub email_verified: bool,
+    /// Keycloak realm roles (`realm_access.roles`). Client roles
+    /// (`resource_access.*.roles`) are deliberately NOT read (OD-9).
+    pub realm_roles: Vec<String>,
+    /// The `name` profile claim, verbatim.
+    pub name: Option<String>,
+    /// The `preferred_username` profile claim, verbatim.
+    pub preferred_username: Option<String>,
+}
+
+impl IdentityClaims {
+    fn from_id_token(claims: IdTokenClaims) -> Self {
+        Self {
+            subject: claims.sub,
+            email: claims.email,
+            email_verified: claims.email_verified,
+            realm_roles: claims.realm_access.map(|r| r.roles).unwrap_or_default(),
+            name: claims.name,
+            preferred_username: claims.preferred_username,
+        }
+    }
+
+    /// Does the identity hold this realm role? Exact, case-sensitive (OD-9).
+    pub fn has_realm_role(&self, role: &str) -> bool {
+        self.realm_roles.iter().any(|held| held == role)
+    }
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -198,6 +241,19 @@ struct IdTokenClaims {
     email: String,
     #[serde(default)]
     email_verified: bool,
+    #[serde(default)]
+    realm_access: Option<RealmAccess>,
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    preferred_username: Option<String>,
+}
+
+/// Keycloak's realm-role mapper shape: `"realm_access": {"roles": [...]}`.
+#[derive(Deserialize)]
+struct RealmAccess {
+    #[serde(default)]
+    roles: Vec<String>,
 }
 
 struct CachedJwks {
@@ -237,6 +293,12 @@ impl OidcProvider {
 
     pub fn config(&self) -> &OidcConfig {
         &self.config
+    }
+
+    /// The realm role that opts an unknown identity into provisioning; `None`
+    /// means link-only. Read-only: foundry-app decides, this crate only carries it.
+    pub fn provision_role(&self) -> Option<&str> {
+        self.config.provision_role.as_deref()
     }
 
     async fn discovery(&self) -> Result<Discovery, OidcError> {
@@ -373,11 +435,7 @@ impl OidcProvider {
                 "the identity carries no email".to_string(),
             ));
         }
-        Ok(IdentityClaims {
-            subject: claims.sub,
-            email: claims.email,
-            email_verified: claims.email_verified,
-        })
+        Ok(IdentityClaims::from_id_token(claims))
     }
 
     async fn validate_id_token(&self, token: &str) -> Result<IdTokenClaims, OidcError> {
@@ -494,5 +552,105 @@ mod tests {
         assert_ne!(a.state, b.state);
         assert_ne!(a.nonce, b.nonce);
         assert_ne!(a.code_verifier, b.code_verifier);
+    }
+
+    /// The identity an ID-token payload of this shape yields.
+    fn identity_from(payload: serde_json::Value) -> IdentityClaims {
+        let claims: IdTokenClaims =
+            serde_json::from_value(payload).expect("payload deserialises as ID-token claims");
+        IdentityClaims::from_id_token(claims)
+    }
+
+    fn keycloak_payload() -> serde_json::Value {
+        serde_json::json!({
+            "sub": "kc-user-1",
+            "nonce": "n",
+            "email": "ada@example.com",
+            "email_verified": true,
+            "realm_access": { "roles": ["foundry-member", "offline_access"] },
+            "resource_access": { "foundry": { "roles": ["foundry-admin"] } },
+            "name": "Ada Lovelace",
+            "preferred_username": "ada",
+        })
+    }
+
+    #[test]
+    fn a_keycloak_token_exposes_its_realm_roles_and_profile_names() {
+        let id = identity_from(keycloak_payload());
+        assert_eq!(id.realm_roles, ["foundry-member", "offline_access"]);
+        assert_eq!(id.name.as_deref(), Some("Ada Lovelace"));
+        assert_eq!(id.preferred_username.as_deref(), Some("ada"));
+        assert_eq!(id.subject, "kc-user-1");
+        assert_eq!(id.email, "ada@example.com");
+        assert!(id.email_verified);
+    }
+
+    #[test]
+    fn a_token_without_roles_or_names_reads_exactly_as_before() {
+        for payload in [
+            serde_json::json!({ "sub": "s", "email": "a@example.com", "email_verified": true }),
+            serde_json::json!({
+                "sub": "s", "email": "a@example.com", "email_verified": true,
+                "realm_access": null, "name": null, "preferred_username": null,
+            }),
+            serde_json::json!({
+                "sub": "s", "email": "a@example.com", "email_verified": true,
+                "realm_access": {},
+            }),
+        ] {
+            let id = identity_from(payload.clone());
+            assert!(id.realm_roles.is_empty(), "{payload}");
+            assert_eq!(id.name, None, "{payload}");
+            assert_eq!(id.preferred_username, None, "{payload}");
+            assert_eq!(id.email, "a@example.com", "{payload}");
+        }
+    }
+
+    #[test]
+    fn only_an_exact_realm_role_counts_never_a_client_role() {
+        let id = identity_from(keycloak_payload());
+        assert!(id.has_realm_role("foundry-member"));
+        for not_held in [
+            "foundry-admin", // a client role (resource_access) never counts
+            "Foundry-Member",
+            "FOUNDRY-MEMBER",
+            "foundry-member ",
+            "foundry",
+            "",
+        ] {
+            assert!(!id.has_realm_role(not_held), "{not_held:?} must not match");
+        }
+    }
+
+    fn provider_with_provision_role(role: Option<&str>) -> OidcProvider {
+        let cfg = OidcConfig::from_parts(
+            some("https://kc.example/realms/x"),
+            some("foundry"),
+            some("s3cret"),
+            some("https://foundry.example/auth/oidc/callback"),
+        )
+        .expect("complete config is Ok")
+        .expect("complete config is Some")
+        .with_provision_role(role.map(str::to_string));
+        OidcProvider::new(cfg).expect("provider builds")
+    }
+
+    #[test]
+    fn a_blank_or_unset_provision_role_means_provisioning_off() {
+        for role in [None, Some(""), Some("   "), Some("\t\n")] {
+            assert_eq!(
+                provider_with_provision_role(role).provision_role(),
+                None,
+                "{role:?} must leave provisioning off"
+            );
+        }
+    }
+
+    #[test]
+    fn a_provision_role_is_carried_through_the_provider() {
+        assert_eq!(
+            provider_with_provision_role(Some("foundry-member")).provision_role(),
+            Some("foundry-member")
+        );
     }
 }

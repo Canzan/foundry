@@ -51,6 +51,15 @@ pub struct FoundryWorld {
     pub kc_filed_issue: bool,
     pub kc_password_path_used: bool,
     pub kc_claimed_instance: bool,
+    /// keycloak-sso provisioning: the workspace a provisioned newcomer joins.
+    pub kc_workspace_id: Option<uuid::Uuid>,
+    /// `foundry_session=<value>` from the most recent federated sign-in.
+    pub kc_session_cookie: Option<String>,
+    /// keycloak-sso provisioning: the foundry password of a pre-existing member.
+    pub kc_member_password: Option<String>,
+    /// keycloak-sso provisioning timing oracle: interleaved password-door samples.
+    pub kc_newcomer_latencies_ms: Vec<u64>,
+    pub kc_unknown_latencies_ms: Vec<u64>,
 
     // ---- instance-admin-project-rename (iapr) ----
     /// Seeded ids by display name, captured at Background time.

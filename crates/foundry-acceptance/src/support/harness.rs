@@ -304,7 +304,7 @@ impl InProcHarness {
     /// minted through the product verifies on the `/api/v1` path (US-MT01 AC:
     /// "a token issued this way authenticates against the API").
     pub async fn spawn(now: time::OffsetDateTime) -> Self {
-        Self::spawn_inner(now, true, &[ProviderKind::Log], None).await
+        Self::spawn_inner(now, true, &[ProviderKind::Log], None, None).await
     }
 
     /// Spawn a harness whose notifier fans out to a RECORDING provider per
@@ -314,7 +314,7 @@ impl InProcHarness {
     /// `WebhookProvider` pointed at a local receiver double (a real reqwest POST);
     /// every other kind is an in-memory double.
     pub async fn spawn_with_providers(now: time::OffsetDateTime, kinds: &[ProviderKind]) -> Self {
-        Self::spawn_inner(now, true, kinds, None).await
+        Self::spawn_inner(now, true, kinds, None, None).await
     }
 
     /// As [`spawn_with_providers`] but configures the `webhook` channel with a
@@ -326,7 +326,7 @@ impl InProcHarness {
         kinds: &[ProviderKind],
         webhook_secret: Option<String>,
     ) -> Self {
-        Self::spawn_inner(now, true, kinds, webhook_secret).await
+        Self::spawn_inner(now, true, kinds, webhook_secret, None).await
     }
 
     /// Spawn a VERIFIER-ONLY harness: `AppState.machine_token_signer` is `None`,
@@ -335,7 +335,26 @@ impl InProcHarness {
     /// server", graceful, OD1/DD2). The verifier is still present (every binary
     /// verifies).
     pub async fn spawn_verifier_only(now: time::OffsetDateTime) -> Self {
-        Self::spawn_inner(now, false, &[ProviderKind::Log], None).await
+        Self::spawn_inner(now, false, &[ProviderKind::Log], None, None).await
+    }
+
+    /// Spawn a harness pointed at an identity provider (keycloak-sso). The
+    /// provider is the SHIPPED `foundry_oidc::OidcProvider`, so discovery, JWKS
+    /// and the token exchange go over a real socket to whatever `config.issuer`
+    /// names — in the suite, the in-process `support::oidc_issuer` double.
+    pub async fn spawn_with_oidc(
+        now: time::OffsetDateTime,
+        config: foundry_oidc::OidcConfig,
+    ) -> Self {
+        let provider = foundry_oidc::OidcProvider::new(config).expect("oidc provider builds");
+        Self::spawn_inner(
+            now,
+            true,
+            &[ProviderKind::Log],
+            None,
+            Some(Arc::new(provider)),
+        )
+        .await
     }
 
     async fn spawn_inner(
@@ -343,6 +362,7 @@ impl InProcHarness {
         issuer: bool,
         provider_kinds: &[ProviderKind],
         webhook_secret: Option<String>,
+        oidc: Option<Arc<foundry_oidc::OidcProvider>>,
     ) -> Self {
         let (schema, pool, listen_url) = fresh_schema_pool_with_url().await;
         let store = Arc::new(Store::from_pool(pool));
@@ -406,7 +426,7 @@ impl InProcHarness {
         let file_upload_max_mb =
             file_upload_env::current_file_upload_max_mb().unwrap_or(DEFAULT_FILE_UPLOAD_MAX_MB);
         let state = AppState {
-            oidc: None,
+            oidc,
             store,
             session_secret: Arc::new(SecretString::new(
                 "test-only-secret-must-be-at-least-32-bytes-long-please-yes".into(),

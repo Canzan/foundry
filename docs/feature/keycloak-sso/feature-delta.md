@@ -47,7 +47,8 @@ convenient: an SSO design that can strand the operator has not done the job.
 |----|----------|---------|-----------|
 | D1 | Native OIDC relying party inside foundry, NOT an oauth2-proxy front | LOCKED | `infrastructure/modules/foundry/main.tf:10` records that foundry "speaks no OIDC, so it is NOT fronted by oauth2-proxy". A proxy would still leave foundry's own session layer behind it, so the operator authenticates twice unless foundry learns to trust a forwarded header — which is app code anyway, just less honest about it. Native RP puts the real identity in the session, so issue/comment authorship is correct and `/api/v1` + SSE keep working unchanged. |
 | D2 | Local password sign-in is RETAINED | LOCKED | Keycloak and LLDAP run on the same cluster as foundry. An SSO-only tracker is unreachable exactly when the cluster is broken and the operator most needs to read the issue describing how to fix it. |
-| D3 | Keycloak sign-in links to an EXISTING foundry user by verified email; unknown email is refused | LOCKED | No auto-provisioning. `users.email_lower` is already `UNIQUE`, so the match is unambiguous and "two users share an email" is structurally impossible. Keeps `users.password_hash NOT NULL` valid — no migration. Keeps the invite flow as the gate on who is in the tracker, so a realm federating all of LLDAP cannot silently populate foundry. |
+| D3 | Keycloak sign-in links to an EXISTING foundry user by verified email; unknown email is refused | SUPERSEDED 2026-09-27 (see D3a) | No auto-provisioning. `users.email_lower` is already `UNIQUE`, so the match is unambiguous and "two users share an email" is structurally impossible. Keeps `users.password_hash NOT NULL` valid — no migration. Keeps the invite flow as the gate on who is in the tracker, so a realm federating all of LLDAP cannot silently populate foundry. |
+| D3a | 2026-09-27 — role-gated, opt-in provisioning on first Keycloak sign-in | LOCKED | Supersedes the "provision nothing" half of D3 (the linking half stands unchanged). With `FOUNDRY_OIDC_PROVISION_ROLE` unset or blank, behaviour is exactly D3. With it set, a verified email with no foundry account whose ID token carries that Keycloak realm role (`realm_access.roles`) gets a `member` account in the instance's original workspace (oldest by creation), display name from `name` → `preferred_username` → email local-part, and NO password (migration `0016` makes `users.password_hash` nullable; the password door refuses a NULL hash through the same timing-equalised path as an unknown email). Missing role → the generic refusal, logged as `identity lacks provision role`. The realm role, not LLDAP membership, is the gate, so federating the directory still populates nothing on its own. Open follow-up: revoking the role does not touch an existing account. |
 | D4 | `POST /sign-out` clears the foundry session only — no RP-initiated logout | LOCKED | Matches how the rest of the cluster behaves. Ending the Keycloak SSO session would also sign the operator out of Grafana, Portainer and ArgoCD, which is surprising rather than correct. |
 | D5 | The bootstrap-claim and invite-accept flows are untouched | LOCKED | They are how a foundry user comes to exist at all; D3 makes SSO depend on them. A fresh cluster must still be claimable with no Keycloak in play. |
 | D6 | SSO is OFF unless configured; foundry starts and serves normally with no OIDC settings | LOCKED | `cargo xtask ci`, `cargo xtask smoke` and a contributor's `run.sh` must not require a Keycloak. Absent config means the "Sign in with Keycloak" affordance is not rendered and the OIDC routes refuse — not a boot failure. |
@@ -192,6 +193,29 @@ Acceptance criteria:
 - AC-5.3 `/auth/oidc/start` and `/auth/oidc/callback` refuse when OIDC is unconfigured, with the same generic response as AC-2.2 — not a 500 and not a stack trace.
 - AC-5.4 `cargo xtask ci` and `cargo xtask smoke` pass with no Keycloak reachable.
 - AC-5.5 Partial configuration (issuer set, secret missing) is a startup refusal with a named error, not a half-enabled flow.
+
+---
+
+**US-06 — A cluster identity holding the provision role gets a foundry account** (`job_id: job-sso-signin`) — *Addendum 2026-09-27 (D3a); supersedes nothing above, extends US-02*
+
+As the operator, I want a Keycloak realm role to decide who may enter foundry on
+their first sign-in, so that contributors I have already vetted in the cluster do
+not each need an invite.
+
+#### Elevator Pitch
+Before: I cannot let a vetted cluster user into foundry without sending them an invite and waiting for them to accept it.
+After: run `grant "foundry-user" to a realm user, then sign in as them through "Sign in with Keycloak"` → sees `the foundry dashboard greeting them by name, as an ordinary member of the original workspace`
+Decision enabled: I decide whether the realm role, rather than invites, is how contributors join, having watched a role holder arrive and a non-holder be refused.
+
+Acceptance criteria:
+- AC-6.1 With `FOUNDRY_OIDC_PROVISION_ROLE` unset or blank, an identity with no foundry account is refused exactly as AC-2.1/AC-2.2, even when its ID token carries a realm role.
+- AC-6.2 With it set, a verified email with no foundry account whose ID token lists that role in `realm_access.roles` gets one `member` account in the instance's original (oldest by creation) workspace, with no password, and is signed in by the same path as AC-1.4.
+- AC-6.3 The display name is the first of `name` → `preferred_username` → email local-part that is non-blank and at most 64 characters; a longer candidate is skipped, never truncated (OD-7).
+- AC-6.4 A missing role, an unconfirmed email, or an instance with no workspace yet is refused byte-identically to AC-2.2 and creates no account (D7). A missing role is logged `identity lacks provision role`.
+- AC-6.5 An identity whose email matches an existing account (in any letter case) is linked, never duplicated; that account's display name, password and membership are untouched, whatever roles the token carries.
+- AC-6.6 The password door refuses a provisioned (password-less) account with the same status, body and timing as an unknown email.
+- AC-6.7 A provisioned member may set a local password through forgot-password and then use the password door (OD-8). The forgot-password answer is identical whether the account has a password, has none, or does not exist.
+- AC-6.8 *Pinned, OD-10 open:* an account provisioned earlier keeps signing in through Keycloak after the role is withdrawn, and no second account is created. This records today's deliberate behaviour, not a decision on revocation.
 
 ### [REF] Definition of Done
 
@@ -343,7 +367,7 @@ the mechanism choice deferred to SPIKE-0.
 |---|---|---|
 | **Invited/existing users only** | CHOSEN | `users.email_lower` is already `UNIQUE`, so the match is unambiguous. `password_hash NOT NULL` stays valid — no migration. Invites remain the gate on who is in the tracker. |
 | Auto-provision any realm user | REJECTED | The Keycloak realm federates LLDAP, so everyone in the directory would silently gain a foundry account and appear in assignee pickers. Needs migration `0015` to make `password_hash` nullable, and makes the invite flow vestigial. |
-| Auto-provision gated on a realm role | REJECTED (for now) | Genuinely reasonable, and the natural next step if contributors outgrow invites. Rejected here only because it adds role-claim plumbing plus an unanswered question — what happens to an existing foundry user when the role is revoked? Deleting their account orphans authorship; leaving it makes the gate cosmetic. Not worth answering before anyone needs it. |
+| Auto-provision gated on a realm role | REJECTED (for now) — CHOSEN 2026-09-27 as D3a, opt-in via `FOUNDRY_OIDC_PROVISION_ROLE`; role revocation for existing accounts remains open | Genuinely reasonable, and the natural next step if contributors outgrow invites. Rejected here only because it adds role-claim plumbing plus an unanswered question — what happens to an existing foundry user when the role is revoked? Deleting their account orphans authorship; leaving it makes the gate cosmetic. Not worth answering before anyone needs it. |
 | Match on Keycloak `sub` rather than email | REJECTED | `sub` is stable and email is not, which argues for it — but no foundry user has a `sub` until their first SSO sign-in, so the *first* match must be by email regardless. Storing `sub` afterwards is a sensible hardening once the flow exists; it is not needed to make it work. |
 
 #### D4 — Local logout only
@@ -654,6 +678,37 @@ must not implement it as "cookie cleared, therefore replay impossible", and DIST
 scenario must replay a genuine code so it exercises the mechanism that actually holds.
 Surfaced by the [WHY] trade-off analysis below.
 
+### [REF] D3a addendum (2026-09-27)
+
+Addendum, not a rewrite: DDD-1..DDD-12 stand. D3a (DISCUSS, 2026-09-27) supersedes
+only the "provision nothing" half of D3 and OUT-3; this records how the design absorbs
+it. Design note only — no code shape is prescribed beyond the seams named.
+
+| ID | Decision | Verdict |
+|---|---|---|
+| DDD-13 | Migration `0016_nullable_password_hash.sql`: `ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL`. Additive, no backfill, no default; every existing row keeps its hash. `users.email_lower UNIQUE` is untouched and remains the one-account-per-address guarantee | LOCKED |
+| DDD-14 | `foundry-oidc` extracts, never decides. `IdTokenClaims` gains `realm_access.roles` (Keycloak's realm-role mapper shape), `name`, `preferred_username`, all `serde(default)`, so a token without them validates exactly as today. `IdentityClaims` exposes them. `OidcConfig.provision_role` (blank = `None`) is carried through `OidcProvider` read-only. The crate still depends on neither `foundry-store` nor `foundry-auth` (C4 direction unchanged) | LOCKED |
+| DDD-15 | "Find-or-provision" is owned by `foundry-app::oidc::callback`, the same place the link happens today. Order after the unchanged exchange + `email_verified` checks: (1) existing account by `email_lower` → link and sign in, role IGNORED (D3's linking half, unchanged); (2) no account and `provision_role` is `None` → refuse `no foundry account for this identity` (exactly D3); (3) role not in `realm_access.roles` (exact, case-sensitive match) → refuse `identity lacks provision role`; (4) no workspace exists → refuse `no workspace to provision into`; (5) provision, then `signin::establish_session` — the SAME DDD-6 seam, so the fail-closed branch and session shape are shared | LOCKED |
+| DDD-16 | Provisioning is one store operation (user row with `password_hash = NULL` + one `member` membership) in a single transaction, `ON CONFLICT (email_lower) DO NOTHING` then re-read, so two concurrent first sign-ins produce one account and both sign in. It never grants `admin`, never touches an existing row | LOCKED |
+| DDD-17 | Workspace: the instance's ORIGINAL workspace, `ORDER BY created_at, id LIMIT 1`. Not "the only" (0009 made multi-workspace legal) and not "newest" (the existing `ORDER BY id DESC` read). An unclaimed instance (no workspace) refuses, so provisioning can never pre-empt the bootstrap claim, whose "claimed" test is "a workspace exists" (D5 untouched) | LOCKED |
+| DDD-18 | Display name: first candidate of `name` → `preferred_username` → email local-part that is non-blank (trimmed) and at most 64 characters (`users.display_name CHECK (length BETWEEN 1 AND 64)`). A longer candidate is SKIPPED, never truncated (OD-7, decided 2026-09-27 review). A local-part over 64 characters is unreachable in practice (RFC 5321 caps it at 64 octets) | LOCKED |
+| DDD-19 | The password door treats a NULL hash exactly as an unknown email: `submit_signin` runs `verify_password` against `known_bad_hash()` and records the failed attempt, so status, body (D7/DDD-11) and wall-clock match the unknown-address arm. No early return on `None` — that would be a timing oracle for "this address has an SSO-only account" | LOCKED |
+| DDD-20 | Logging rides the existing `refuse()` → `tracing::info!(reason = ..., "oidc sign-in refused")` line; D3a adds the reasons `identity lacks provision role` and `no workspace to provision into`. A successful provision logs once at `info` (`"oidc identity provisioned"`, user id + workspace id; no claims dumped). Nothing is added to the response | LOCKED |
+| DDD-21 | Forgot-password / reset for a NULL-hash account (OD-8, decided: allowed). `submit_forgot` needs no logic change: it looks the user up by email, inserts a reset token and notifies, and ALWAYS renders the same `ForgotSentPage`, so the answer is identical for an account with a hash, without one, or none at all. `submit_reset` needs no logic change: `reset_password_and_consume` is an `UPDATE users SET password_hash = $2`, which fills a NULL as readily as it replaces a hash. The only required change is DDD-13's type change: while `UserRow.password_hash` is `String`, decoding a NULL row fails, `find_user_by_email` errs, and `submit_forgot`'s `if let Ok(Some(user))` silently sends nothing — non-enumerable, but the provisioned member never gets a link. Scenario 10 catches that | LOCKED |
+| DDD-22 | Role withdrawal (OD-10 stays OPEN). DDD-15 step (1) links an existing account before the role is consulted, so an account provisioned earlier keeps signing in after the role is removed, and no second account is created. Scenario 11 PINS this as today's deliberate behaviour so a revocation design has to change a named scenario, not discover an unpinned one | PINNED |
+
+**DDD-13 addendum (2026-09-27 review).** Migration `0016` is one-way once any
+NULL-hash row exists: restoring `NOT NULL` fails while a provisioned account has no
+password. Reverting D3a is therefore a FORWARD migration — first delete those
+accounts or assign them hashes (e.g. force a reset) — never a down migration.
+
+**Consequences.** `UserRow.password_hash` becomes `Option<String>` in `foundry-store`;
+every reader (≈50 references across `signin`, `reset_password`, `invites_accept`,
+`bootstrap`, `admin_cli`, `foundry-services`) must handle `None` explicitly — the
+compiler enumerates them, which is the reason to model it as `Option` rather than a
+sentinel string. Role revocation remains open (D3a): an existing account is linked
+on every later sign-in regardless of the role, by DDD-15 step (1).
+
 ## Wave: DISTILL
 
 Reconciliation gate: **passed — 0 contradictions.** DISCUSS D1–D7 and DESIGN
@@ -882,3 +937,285 @@ register once the CLI works.
   scenario is written to the observable outcome — "refuses to start and names the
   missing credential" — so either satisfies it, but `assert_cmd` exercises the actual
   operator-visible failure.
+
+### [REF] D3a increment (2026-09-27)
+
+Rigor profile `adr-025-scaffolded-red`. Increment on top of the delivered base
+feature (c755003); `keycloak-sso.feature` is not rewritten. Revised the same day
+after review (see § Review 2026-09-27).
+
+**Reconciliation: passed — 0 contradictions.** D3a supersedes the "provision
+nothing" half of D3 with an audit trail (DISCUSS D3 row marked SUPERSEDED; D3
+alternatives table amended; US-06 added as an addendum), so it is a revision, not a
+contradiction. D3's linking half, D5 (bootstrap/invite untouched — DDD-17 refuses on
+an unclaimed instance) and D7 (non-enumerable refusals — DDD-19/DDD-20/DDD-21 route
+every new refusal and the reset answer through the shipped uniform paths) all hold.
+DDD-6 (`establish_session`) and DDD-11 (one refusal function) are reused verbatim.
+DDD-12 (fake issuer) extended with realm roles and profile claims. DEVOPS still
+absent → WARN, default matrix. Tier A only; all scenarios layer 3+ (example-based,
+Mandate 9/11).
+
+`.feature` SSOT: `crates/foundry-acceptance/tests/features/keycloak-sso-provisioning.feature`
+(11 scenarios / 15 examples, all `@pending`, all `@keycloak-sso @keycloak-sso-provisioning @us-06`).
+
+| # | Scenario | Tags | ACs | What it proves |
+|---|---|---|---|---|
+| 1 | A newcomer holding the provision role is given an account and signed in | `@us-06 @driving_port @real-io` | 6.2 | Provision + sign-in through `establish_session`; greeted by `name`; exactly one `member` membership, in the ORIGINAL workspace although a newer one exists (DDD-16/17) |
+| 2 | A newcomer the provider gives no usable full name is still greeted by a name (3 examples) | `@us-06 @driving_port @real-io` | 6.3 | DDD-18: no `name` → `preferred_username`; neither → local-part; a 68-character `name` falls through to `preferred_username`, not truncated (OD-7) |
+| 3 | A newcomer without the provision role is turned away (2 examples: other role / no roles) | `@us-06 @error @security @driving_port @real-io` | 6.4 | DDD-15 step 3; refusal byte-identical to a real wrong-password answer (D7); no account |
+| 4 | With provisioning switched off a newcomer is turned away even holding the role | `@us-06 @error @security @driving_port @real-io` | 6.1 | Role unset = exactly D3 |
+| 5 | A newcomer whose address the provider has not confirmed is turned away | `@us-06 @error @security @driving_port @real-io` | 6.4 | `email_verified` precedes provisioning |
+| 6 | Before anyone has claimed the instance a newcomer holding the role is turned away | `@us-06 @error @security @driving_port @real-io` | 6.4 | DDD-17: no workspace → refuse; the bootstrap claim cannot be pre-empted |
+| 7 | A member who already has an account keeps it when they hold the provision role | `@us-06 @driving_port @real-io` | 6.5 | DDD-15 step 1: linked across address case, not duplicated; display name and password untouched |
+| 8 | A provisioned account has no password to sign in with (2 examples: empty / a guess) | `@us-06 @error @security @driving_port @real-io` | 6.6 | DDD-13/19: NULL hash refused byte-identically to an unknown address |
+| 9 | The password form takes as long to refuse a provisioned account as an unknown address | `@us-06 @error @security @driving_port @real-io` | 6.6 | DDD-19 timing: median within 150ms over 7 interleaved pairs (the `us-06-signin` oracle and budget) |
+| 10 | A provisioned member can choose a password of their own through a reset | `@us-06 @driving_port @real-io` | 6.7 | DDD-21: forgot-password → emailed link → new password → password door → board. Reuses the shipped `a visitor submits the forgot-password form with email "…"` step (`us_06_signin.rs`) |
+| 11 | A member provisioned earlier still signs in after the provision role is withdrawn | `@us-06 @driving_port @real-io` | 6.8 | DDD-22: PINS today's behaviour while OD-10 stays open; no second account |
+
+Error/edge ratio: 6 of 11 scenarios (8 of 15 examples) = **55%** (target ≥ 40%).
+
+AC-6.7's "the forgot-password answer is identical whatever the account state" is not a
+separate scenario: `submit_forgot` renders one static `ForgotSentPage` unconditionally
+(DDD-21), so the property is structural, and the shipped `us-06-signin` unknown-email
+scenario already exercises the no-account arm. AC-6.4's log line has no acceptance
+observable (the harness captures no tracing output); DELIVER covers it at unit level.
+Blank `FOUNDRY_OIDC_PROVISION_ROLE` = off (AC-6.1) is a config-parsing rule
+(`OidcConfig::with_provision_role`), specified at layer 1 in `foundry-oidc`.
+
+"Turned away exactly as a wrong password is" is asserted byte-for-byte against a live
+`POST /sign-in` for an unknown address, CSRF token masked — not by searching for the
+refusal copy.
+
+**Scaffolds.** No production stub (repo convention, as for the base feature): the
+step module compiles against current production and fails at assertions.
+
+| Artifact | Status |
+|---|---|
+| `crates/foundry-acceptance/tests/features/keycloak-sso-provisioning.feature` | created |
+| `crates/foundry-acceptance/src/steps/feature_keycloak_sso_provisioning.rs` | created (25 step phrases; no collision with any other module; one shipped phrase reused) |
+| `crates/foundry-acceptance/src/support/harness.rs` — `InProcHarness::spawn_with_oidc` | edited (closes the base DISTILL's "known RED gap") |
+| `crates/foundry-acceptance/src/support/oidc_issuer.rs` — `will_grant_realm_roles`, `will_name`, `realm_access`/`name`/`preferred_username` claims | edited |
+| `crates/foundry-acceptance/src/world.rs` (5 `kc_*` fields), `src/lib.rs`, `tests/acceptance.rs`, `Cargo.toml` (`foundry-oidc` path dep) | edited |
+| `crates/foundry-oidc/src/lib.rs` — `OidcConfig.provision_role` + `with_provision_role` | edited (config parsing only) |
+| `docs/architecture/atdd-infrastructure-policy.md` — identity-provider fake row | appended (missing since the base feature) |
+
+`cargo check -p foundry-acceptance --tests` and
+`cargo clippy -p foundry-acceptance --tests -- -D warnings` clean.
+
+**Pre-requisites.** Migration `0016` (DDD-13, one-way — see addendum);
+`UserRow.password_hash: Option<String>` with the NULL-hash refusal on the
+known-bad-hash path (DDD-19); claim extraction in `foundry-oidc` (DDD-14);
+find-or-provision in `oidc::callback` (DDD-15..18).
+
+**RED classification.** Command (after `cargo test -p foundry-acceptance --test
+acceptance --no-run` to warm the binary; `@pending` stripped from this one file with
+`sed -i '' 's/ @pending$//'`, file restored from a copy afterwards and the 11 tags
+re-counted):
+`FOUNDRY_ACCEPTANCE_TAGS=keycloak-sso-provisioning cargo test -p foundry-acceptance --test acceptance`
+→ 15 examples, 9 failed, 6 passed, 0 parse errors, 0 undefined steps. All 9 failures
+carry the identical message.
+
+| # | Result | Class | Failing step and message |
+|---|---|---|---|
+| 1 | FAIL | MISSING_FUNCTIONALITY | `Then the newcomer arrives signed in to the board` — `expected a redirect onto the board; got 401 Unauthorized` (body: the generic "Invalid email or password" page; left 401, right 303) |
+| 2a, 2b, 2c | FAIL | MISSING_FUNCTIONALITY | same step, same message |
+| 3a, 3b, 4, 5, 6, 7 | PASS | GUARD (green by inheritance) | — |
+| 8a, 8b, 9, 10, 11 | FAIL | MISSING_FUNCTIONALITY | `And the newcomer has been given an account through the identity provider` — same message |
+
+BROKEN: 0. False-GREEN: 0. The six GUARDs pin behaviour D3a must PRESERVE, which the
+link-only callback already exhibits; no fixture does the feature's work. They are not
+vacuous: scenario 7 passes the full start → authorize → exchange → session → board
+round-trip against the same double, so the 401s above are genuine "no foundry account"
+refusals, and 3–6 pass the byte-identical comparison, proving the D7 check works.
+Un-pend them together with scenario 1 (repo precedent: "green-by-inheritance" in
+`feature_mwt_slice_06_provision_and_prove.rs`).
+
+Scenarios 10 and 11 fail at the shared provisioning Given, so their later steps never
+ran. The reset steps were therefore proven separately with a throwaway scenario
+(deleted afterwards): an existing member ran the reused forgot-password step → the
+reset-link step → the password door → board greeting, all green. Scenario 10's steps
+are therefore not hiding a BROKEN behind the Given.
+
+**Outcomes** (recorded only; the `nwave-ai outcomes` CLI is still broken per the note
+above).
+
+| ID | Kind | Change |
+|---|---|---|
+| OUT-3 | invariant | Becomes CONDITIONAL: "no `users` row is created by the federated path **unless `FOUNDRY_OIDC_PROVISION_ROLE` is set and the verified identity carries that realm role**" |
+| OUT-6 (proposed) | operation | Input: validated federated identity, no account, provision role held, a workspace exists. Output: one `users` row with NULL `password_hash` + one `member` membership in the oldest workspace, then an established session. Keywords: oidc, provisioning, realm-role, member, keycloak |
+
+### Review 2026-09-27
+
+| Reviewer | Verdict |
+|---|---|
+| Acceptance designer reviewer | NEEDS_REVISION |
+| Solution architect reviewer | NEEDS_REVISION |
+
+| Finding | Disposition | Reason / where |
+|---|---|---|
+| No story or ACs to trace D3a scenarios to | ACCEPTED | US-06 (AC-6.1..6.8) added to DISCUSS as a dated addendum; every scenario tagged `@us-06` and mapped above |
+| Reset path for a NULL-hash account undesigned (OD-8) | ACCEPTED | DDD-21; scenario 10 |
+| Over-64-character display name undecided (OD-7) | ACCEPTED | DDD-18 (skip, never truncate); scenario 2 third example |
+| Role withdrawal behaviour unpinned (OD-10) | ACCEPTED | DDD-22; scenario 11 pins today's behaviour, OD-10 stays open |
+| Migration 0016 rollback unstated | ACCEPTED | DDD-13 addendum: one-way; revert is a forward migration |
+| Seed scenario 8's provisioned account by SQL | REJECTED | State is built through the real sign-in, per precedent; a SQL fixture would do the feature's work (fixture theater) and could pass without provisioning |
+| Replace DB-read Thens with HTTP observations | REJECTED | Account and membership existence has no HTTP observable that does not itself need the feature; DB reads in Thens only follow the base feature and `us-06-signin` |
+| Tag the timing scenario `@flaky` | REJECTED | Same interleaved-median oracle and budget as the shipped `us-06-signin` timing scenario, which is not tagged |
+| Add a concurrent-first-sign-in scenario | REJECTED | DDD-16's `ON CONFLICT` race is a store-level property; a parallel HTTP race in the acceptance lane would be nondeterministic. Unit/integration test in DELIVER |
+
+### Open decisions for DELIVER (D3a)
+
+- **OD-7** — RESOLVED 2026-09-27: skip, never truncate (DDD-18, AC-6.3).
+- **OD-8** — RESOLVED 2026-09-27: reset allowed (DDD-21, AC-6.7).
+- **OD-9** — RESOLVED 2026-09-27 (user confirmed): exact, case-sensitive match against
+  `realm_access.roles` only; `resource_access` client roles never count.
+- **OD-10** Role revocation for existing accounts — still OPEN; today's behaviour is
+  pinned by scenario 11 (DDD-22, AC-6.8).
+- **OD-11** The base `keycloak-sso.feature` is still wholly `@pending` although
+  delivered in c755003; `spawn_with_oidc` now exists, so its "known RED gap" is closed
+  and those scenarios can be un-pended.
+
+## Wave: DELIVER
+
+> **D3a increment, 2026-09-27.** Apex (@nw-platform-architect), DELIVER finalize. The
+> base feature (`c755003`, v0.4.0) has no DELIVER section. This section covers the D3a
+> increment only and supersedes nothing above; the DISTILL open decisions it resolves
+> are marked here, not edited in place. **Sources:** `deliver/roadmap.json`,
+> `deliver/execution-log.json` and `deliver/mutation/mutation-report.md`.
+> Evolution archive: `docs/evolution/2026-09-27-keycloak-sso.md`.
+
+### [REF] Implementation Summary
+
+There are 4 roadmap steps in 2 phases, and all are GREEN:
+- **Phase 01, foundations:** 01-01 and 01-02, independent of each other, with no scenario
+  un-pended.
+- **Phase 02, US-06:** 02-01, then 02-02.
+
+The increment ran in no-commit mode, so every COMMIT phase is `APPROVED_SKIP`.
+
+- **Migration `0016`.** `password_hash` becomes nullable: additive, no backfill,
+  one-way (DDD-13 and its addendum).
+- **The store.** `UserRow.password_hash: Option<String>`, and
+  `Store::provision_federated_member`: one transaction, the ORIGINAL workspace, `ON
+  CONFLICT (email_lower) DO NOTHING` then re-read, `member` only. It returns
+  `Created`, `Existing` or `NoWorkspace` (DDD-16/17).
+- **`signin::verify_against`.** One verifier serves the password door and
+  change-password reauth. A missing hash verifies against `known_bad_hash()` and
+  answers `false` (DDD-19).
+- **`foundry-oidc`.** It now reads `realm_access.roles`, `name` and
+  `preferred_username`, all `serde(default)`. `has_realm_role` is exact and
+  realm-only (OD-9). `with_provision_role` treats blank as `None`, and
+  `OidcProvider::provision_role()` exposes it (DDD-14).
+- **`oidc::callback`.** Find-or-provision in DDD-15 order, through the helpers
+  `provision`, `judge_newcomer`, `greeting_name` and `log_provisioned`. It adds the
+  refusal reasons `identity lacks provision role` and `no workspace to provision into`
+  (DDD-20).
+- **Opt-in.** `FOUNDRY_OIDC_PROVISION_ROLE`: unset or blank = off = exactly D3.
+
+**Open decisions at close:**
+- **OD-7**, **OD-8** and **OD-9**: resolved, as recorded in DISTILL.
+- **OD-10**: **OPEN**. Scenario 11 pins today's behaviour.
+- **OD-11**: **OPEN**. The 23 base scenarios are still `@pending`.
+
+### [REF] Per-step outcome
+
+| Step | RED | GREEN |
+|---|---|---|
+| 01-01 Accounts may exist without a password | Integration RED (RED_UNIT `NOT_APPLICABLE`). The store answered 500 on a NULL-hash decode error, and forgot-password silently sent nothing. The timing assertion was mutation-checked | Migration 0016, `Option` hash end to end, `verify_against` |
+| 01-02 foundry-oidc exposes realm roles and profile names | RED_UNIT: 3 failing on assertion, 8 passing. RED_ACCEPTANCE `NOT_APPLICABLE` | foundry-oidc 11/11; workspace excluding acceptance 297 passed; us-06 30/30 |
+| 02-01 OIDC callback provisions a member holding the provision role | RED_ACCEPTANCE 6/10: scenario 1 and three scenario-2 examples failed with 401, expected 303. RED_UNIT: 3 `oidc` unit tests and 3 of 4 store tests failed on assertion | Scenarios 1-7 (10 examples) green; us-06 40/40; default lane 645/645 (a us-09 sqlx `'\0'` flake, green on rerun); workspace 304 |
+| 02-02 Provisioned accounts at the password door, reset, and role withdrawal | Scenarios 8-11 (5 examples) green on un-pend; their RED was observed in 01-01's integration tests. RED_UNIT `NOT_APPLICABLE` | All 11 scenarios / 15 examples green |
+
+**A DISTILL defect was fixed in 02-01.** The outline placeholder `<full name>` was never
+substituted, because cucumber-rs forbids spaces in outline headers. The header is now
+`full_name`. All three examples had failed upstream at the 401, which masked it.
+
+**Final counts:**
+- provisioning: 15/15 examples;
+- `us-06`: 45/45;
+- default lane: 650/650;
+- workspace: 304 passed, 0 failed.
+
+The feature file has no `@pending` tag. Its one `@pending` string is the header comment
+at line 19.
+
+### [REF] Refactor
+
+Phase 3 was a separate L1–L4 pass in DES orchestrator mode, with no step entry in the log.
+Behaviour was unchanged. Afterwards: 304 workspace tests, provisioning 15/15 and `us-06`
+45/45 passed, and clippy, fmt and check-arch were clean.
+- **L2:** `verify_against` replaces the duplicated stored-hash / known-bad-hash block in
+  `submit_signin` and `submit_change_password`.
+- **L1:**
+  - `Refusal` → `ProvisionFailure` in `oidc.rs`.
+  - Step-module cookie constants.
+  - The `cookie_value`, `insert_workspace` and `describe_newcomer` helpers.
+  - The store-test helpers `migrated_store` and `account_of`.
+  - `assert_eq!` in place of `assert!(matches!)`.
+  - The stale feature-file header was fixed.
+- **Kept on purpose:** `provision()` keeps 4 parameters, and `spawn_inner` keeps 5 (that
+  long parameter list predates D3a).
+- **Phase 5 test code:** `post_form_as` and `password_hash_of` in
+  `password_less_account_doors.rs`.
+
+### [REF] Review
+
+| Review | Verdict |
+|---|---|
+| DISTILL (acceptance designer + solution architect) | NEEDS_REVISION ×2. 5 findings accepted and 4 rejected; see § Review 2026-09-27 |
+| Roadmap | APPROVED |
+| Phase 4 adversarial review | APPROVED, no defects |
+
+### [REF] Mutation
+
+The strategy is per-feature, gate ≥80%, run with cargo-mutants 25.3.1 `--in-diff` over
+the 4 production files. Full detail is in `deliver/mutation/mutation-report.md`.
+
+| | |
+|---|---|
+| Viable | 25: 33 generated, 8 unviable |
+| Kill rate | **96.0%** (24/25). **PASS**. Package tests alone: 84.0% (21/25). 3 kills came from the acceptance lane, applied by hand in an `rsync` copy |
+| Survivor | `OidcConfig::from_env → Ok(None)`, the untested humble env adapter. No test pins the name `FOUNDRY_OIDC_PROVISION_ROLE`. A typo fails safe: link-only |
+| H1: password-less account passes change-password reauth | Survived, then **closed** by the new test `a_signed_in_password_less_account_cannot_set_a_password_by_changing_it` |
+| H2: race loser (`Existing`) refused | Survived; **open**. The store half is covered; the app half needs a deterministic interleaving |
+| H4: provision into the newest workspace | Killed |
+
+### [REF] Integrity
+
+`des-verify-integrity`: "All 4 steps have complete DES traces" (26 events).
+
+### [REF] Quality gate
+
+`FOUNDRY_XTASK_INCLUDE_DOCKER=1 cargo xtask ci`: **RED, 854/855 scenarios (5971/5972 steps), 2026-09-27; the one failure is not D3a.** `us-03-backup-restore` "`foundry doctor backup-verify` ... reports row counts" printed an empty `row-counts:` block. `count_rows` (`admin_cli.rs:1634`) shells out to a bare `psql`, but this host has no Postgres client. `439ee6f` (2026-09-04) routed `pg_restore` through a container shim (`FOUNDRY_PG_RESTORE`) but not `psql`, and `count_rows` swallows every error as "table not present". It failed 3/3 in isolation with `FOUNDRY_ACCEPTANCE_TAGS=us-03-cli`. D3a touches neither `admin_cli.rs` nor the backup steps. The user chose to commit D3a and fix the `psql` seam as a separate bugfix.
+
+Known infrastructure flakes were seen during the wave: the sqlx `Protocol('\0')` flake,
+a testcontainers port-fetch failure, and `Connection reset by peer`. None was counted as
+a result, and no mutation kill relied on one.
+
+### [REF] Closing notes
+
+- **Outcomes.** OUT-3 (now conditional) and the proposed OUT-6 stay recorded in DISTILL
+  only, and `docs/product/outcomes/registry.yaml` is not edited.
+  - This feature's DISTILL declined to hand-write rows while the `nwave-ai outcomes`
+    CLI was broken.
+  - The registry has since used OUT-1..OUT-16 for other features, so this feature's
+    OUT-1..6 **collide by ID**. They need new IDs when they are registered.
+- **Architecture SSOT.** `docs/product/architecture/brief.md` § "Federated identity is
+  additive, never a migration" gains a dated D3a addendum. Its body is left as written.
+- **Rollback.** Migration 0016 is one-way once a NULL-hash row exists. Reverting the
+  code is safe with the role unset, which is link-only, exactly D3. Reverting the
+  schema is a forward migration (DDD-13 addendum).
+- **Workspace kept.** `docs/feature/keycloak-sso/`, including `deliver/`, is kept, as
+  earlier features did.
+- **Follow-ups:**
+  - OD-10: role revocation.
+  - OD-11: un-pend the 23 base `keycloak-sso.feature` scenarios. The shipped flow has no
+    acceptance coverage.
+  - A test for the `FOUNDRY_OIDC_PROVISION_ROLE` env name, through a pure lookup seam
+    in `from_env`.
+  - The concurrent-loser (`Existing`) path, end to end (H2).
+  - Change-password copy for password-less accounts.
+  - The empty-greeting-name refusal, which DDD-18 calls "unreachable" and nothing
+    exercises.
+  - Whether to keep the identity-provider row that the D3a DISTILL added to
+    `docs/architecture/atdd-infrastructure-policy.md`.

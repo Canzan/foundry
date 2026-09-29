@@ -1,0 +1,189 @@
+{
+  "schema_version": "3.0",
+  "project_id": "keycloak-sso",
+  "feature_id": "keycloak-sso",
+  "events": [
+    {
+      "sid": "01-01",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-09-27T20:48:46Z"
+    },
+    {
+      "sid": "01-01",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-09-27T20:51:49Z"
+    },
+    {
+      "sid": "01-01",
+      "p": "RED_UNIT",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: behaviour is a DB/driver + HTTP-door contract; integration tests at store seam and router cover it, no pure-domain logic to unit test",
+      "t": "2026-09-27T20:51:50Z"
+    },
+    {
+      "sid": "01-01",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-09-27T21:09:59Z"
+    },
+    {
+      "sid": "01-01",
+      "p": "COMMIT",
+      "s": "SKIPPED",
+      "d": "APPROVED_SKIP: no-commit mode; user has not asked for commits",
+      "t": "2026-09-27T21:09:59Z"
+    },
+    {
+      "sid": "01-02",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-09-27T21:11:29Z"
+    },
+    {
+      "sid": "01-02",
+      "p": "RED_ACCEPTANCE",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: step has no acceptance scenario (keycloak-sso-provisioning stays @pending); a signed-token issuer inside foundry-oidc would need new RSA/HTTP dev-deps duplicating the acceptance fake issuer; red work done in RED_UNIT at the ID-token payload boundary",
+      "t": "2026-09-27T21:11:29Z"
+    },
+    {
+      "sid": "01-02",
+      "p": "RED_UNIT",
+      "s": "EXECUTED",
+      "d": "PASS: cargo test -p foundry-oidc -> 3 failed on assertion (realm roles/names not extracted; has_realm_role stub false; provision_role() stub None), 8 passed",
+      "t": "2026-09-27T21:12:45Z"
+    },
+    {
+      "sid": "01-02",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS: foundry-oidc 11/11; workspace excl acceptance 297 passed 0 failed 1 ignored (48 binaries); clippy -D warnings clean; fmt --check clean; check-arch PASSED; acceptance us-06 30/30 scenarios; keycloak-sso tag selects 0 (all @pending)",
+      "t": "2026-09-27T21:22:34Z"
+    },
+    {
+      "sid": "01-02",
+      "p": "COMMIT",
+      "s": "SKIPPED",
+      "d": "APPROVED_SKIP: no-commit mode; user has not asked for commits",
+      "t": "2026-09-27T21:22:34Z"
+    },
+    {
+      "sid": "01-02",
+      "p": "RED_UNIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-09-27T21:23:05Z"
+    },
+    {
+      "sid": "01-02",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-09-27T21:23:05Z"
+    },
+    {
+      "sid": "02-01",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-09-27T21:24:08Z"
+    },
+    {
+      "sid": "02-01",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "PASS: FOUNDRY_ACCEPTANCE_TAGS=keycloak-sso-provisioning -> 10 scenarios (6 passed, 4 failed); scenario 1 + 3 examples of scenario 2 fail at 'Then the newcomer arrives signed in to the board': expected a redirect onto the board; got 401 Unauthorized (MISSING_FUNCTIONALITY); guards 3-7 pass",
+      "t": "2026-09-27T21:24:55Z"
+    },
+    {
+      "sid": "02-01",
+      "p": "RED_UNIT",
+      "s": "EXECUTED",
+      "d": "PASS: 3 oidc unit tests (judge_newcomer reasons, greeting chain incl >64 skip/blank skip, provision log line) fail on assertion vs stubs; store provision_federated_member.rs 3/4 fail on assertion vs stub (unclaimed-instance passes trivially vs NoWorkspace stub)",
+      "t": "2026-09-27T21:26:46Z"
+    },
+    {
+      "sid": "02-01",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS: workspace tests 304 passed/0 failed; clippy -D warnings, fmt --check, check-arch pass; keycloak-sso-provisioning 10/10; us-06 40/40; full default lane 645/645 (first run 644/645, us-09 sqlx '\\0' pool flake, green on rerun)",
+      "t": "2026-09-27T21:58:39Z"
+    },
+    {
+      "sid": "02-01",
+      "p": "COMMIT",
+      "s": "SKIPPED",
+      "d": "APPROVED_SKIP: no-commit mode; user has not asked for commits",
+      "t": "2026-09-27T21:58:39Z"
+    },
+    {
+      "sid": "02-01",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-09-27T21:59:13Z"
+    },
+    {
+      "sid": "02-01",
+      "p": "RED_UNIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-09-27T21:59:13Z"
+    },
+    {
+      "sid": "02-01",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-09-27T21:59:13Z"
+    },
+    {
+      "sid": "02-02",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-09-27T21:59:44Z"
+    },
+    {
+      "sid": "02-02",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "PASS: scenarios 8-11 (5 examples) green on first run after un-pending; red for this behaviour was observed in 01-01 integration tests",
+      "t": "2026-09-27T22:00:32Z"
+    },
+    {
+      "sid": "02-02",
+      "p": "RED_UNIT",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: no scenario exposed a defect; no unit tests needed",
+      "t": "2026-09-27T22:00:32Z"
+    },
+    {
+      "sid": "02-02",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-09-27T22:17:00Z"
+    },
+    {
+      "sid": "02-02",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-09-27T22:18:11Z"
+    },
+    {
+      "sid": "02-02",
+      "p": "COMMIT",
+      "s": "SKIPPED",
+      "d": "APPROVED_SKIP: no-commit mode; user has not asked for commits",
+      "t": "2026-09-27T22:18:11Z"
+    }
+  ]
+}

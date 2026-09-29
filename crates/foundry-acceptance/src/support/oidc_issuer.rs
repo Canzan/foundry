@@ -133,6 +133,11 @@ struct Inner {
     /// Subject/email the next minted identity describes.
     email: String,
     email_verified: bool,
+    /// Keycloak realm roles (`realm_access.roles`) the next identity carries.
+    realm_roles: Vec<String>,
+    /// Standard profile claims the next identity carries.
+    name: Option<String>,
+    preferred_username: Option<String>,
     variant: Variant,
     /// Codes the double has already exchanged. An authorization code is
     /// single-use AT the provider — this is what actually refuses a replayed
@@ -203,6 +208,20 @@ impl OidcIssuerDouble {
         let mut g = self.inner.lock().expect("lock");
         g.email = email.to_string();
         g.email_verified = confirmed;
+    }
+
+    /// Grant the next identity these realm roles, as Keycloak's `roles` scope
+    /// does when its realm-role mapper is added to the ID token.
+    pub fn will_grant_realm_roles(&self, roles: &[&str]) {
+        self.inner.lock().expect("lock").realm_roles =
+            roles.iter().map(|r| (*r).to_string()).collect();
+    }
+
+    /// Describe the next identity's profile (`name`, `preferred_username`).
+    pub fn will_name(&self, name: Option<&str>, preferred_username: Option<&str>) {
+        let mut g = self.inner.lock().expect("lock");
+        g.name = name.map(str::to_string);
+        g.preferred_username = preferred_username.map(str::to_string);
     }
 
     /// Bend the next identity out of shape.
@@ -277,6 +296,11 @@ struct TokenResponse {
 }
 
 #[derive(Serialize, Deserialize)]
+struct RealmAccess {
+    roles: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize)]
 struct Claims {
     iss: String,
     sub: String,
@@ -286,6 +310,12 @@ struct Claims {
     nonce: String,
     email: String,
     email_verified: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    realm_access: Option<RealmAccess>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    preferred_username: Option<String>,
 }
 
 async fn token(
@@ -327,6 +357,11 @@ async fn token(
             Variant::UnconfirmedEmail => false,
             _ => g.email_verified,
         },
+        realm_access: (!g.realm_roles.is_empty()).then(|| RealmAccess {
+            roles: g.realm_roles.clone(),
+        }),
+        name: g.name.clone(),
+        preferred_username: g.preferred_username.clone(),
     };
     drop(g);
 
@@ -367,6 +402,9 @@ mod tests {
                 nonce: "n".into(),
                 email: "a@b.test".into(),
                 email_verified: true,
+                realm_access: None,
+                name: None,
+                preferred_username: None,
             };
             let mut header = Header::new(Algorithm::RS256);
             header.kid = Some(SIGNING_KID.to_string());
@@ -391,6 +429,9 @@ mod tests {
             nonce: "n".into(),
             email: "a@b.test".into(),
             email_verified: true,
+            realm_access: None,
+            name: None,
+            preferred_username: None,
         };
         let mut header = Header::new(Algorithm::RS256);
         header.kid = Some(SIGNING_KID.to_string());

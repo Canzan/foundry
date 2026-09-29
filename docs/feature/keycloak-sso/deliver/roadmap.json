@@ -1,0 +1,145 @@
+{
+  "roadmap": {
+    "project_id": "keycloak-sso",
+    "created_at": "2026-09-27T20:40:59Z",
+    "total_steps": 4
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "Password-less accounts and provisioning claims (foundations, no scenario un-pended)",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "Accounts may exist without a password",
+          "criteria": [
+            "Migration 0016 makes users.password_hash nullable: additive, no backfill, no default; existing hashes and users.email_lower UNIQUE unchanged (DDD-13)",
+            "A user row without a password hash is found by email and by id as a password-less account, not a decode error (DDD-13, DDD-21)",
+            "The password form refuses a password-less account with the unknown-address status, body and timing, verifying the known-bad hash and recording the attempt (DDD-19, D7)",
+            "Forgot-password for a password-less account renders the usual page and sends a link; completing the reset sets a password the password door accepts (DDD-21)",
+            "Integration tests prove the above; no acceptance scenario un-pended; all existing suites green; fmt, clippy -D warnings, check-arch pass"
+          ],
+          "test_file": "crates/foundry-store/tests/nullable_password_hash.rs",
+          "scenario_name": "an account with no password is found by email, refused at the password door like an unknown address, and can be given a password through reset",
+          "description": "Compiler-driven change: make the password hash optional end to end so a federated-only account can exist, and route that case through the shipped non-enumerable paths (known-bad-hash verification at the password door, unconditional forgot-password page, reset UPDATE that fills a NULL). Every other reader of the hash (invite accept, bootstrap, admin CLI, services) handles the no-password case explicitly; no sentinel string. No provisioning yet. Proven here at integration level, end to end in 02-02.",
+          "dependencies": [],
+          "estimate": "0.5 day",
+          "files_to_modify": [
+            "crates/foundry-store/migrations/0016_nullable_password_hash.sql",
+            "crates/foundry-store/src/lib.rs",
+            "crates/foundry-auth/src/lib.rs",
+            "crates/foundry-app/src/signin.rs",
+            "crates/foundry-app/src/reset_password.rs",
+            "crates/foundry-app/src/invites_accept.rs",
+            "crates/foundry-app/src/bootstrap.rs",
+            "crates/foundry-app/src/admin_cli.rs",
+            "crates/foundry-app/src/lib.rs",
+            "crates/foundry-services/src/lib.rs",
+            "crates/foundry-store/tests/",
+            "crates/foundry-services/tests/",
+            "crates/foundry-acceptance/src/"
+          ],
+          "implementation_notes": "Latest migration is 0015_project_lanes.sql. 0016 is ONE-WAY once a NULL-hash row exists (DDD-13 addendum): no down migration; a revert is a forward migration. Let the compiler enumerate the ~50 readers across 9 crates after changing the store row type to an optional hash; many grep hits are SQL inserts in tests that need no change. DDD-19 forbids short-circuiting on a missing hash: that would be a timing oracle for 'this address has an SSO-only account'. DDD-21: submit_forgot and submit_reset need no logic change beyond the type change. Build the acceptance binary (cargo test -p foundry-acceptance --test acceptance --no-run) before running any lane; the default lane has a known us-04 rolling-upgrade flake, rerun slice3 alone before calling it a regression."
+        },
+        {
+          "id": "01-02",
+          "name": "foundry-oidc exposes realm roles and profile names",
+          "criteria": [
+            "A validated identity exposes realm_access.roles, name and preferred_username; a token lacking them validates exactly as today, with no roles and no names (DDD-14)",
+            "Only realm roles are exposed for the provision decision; resource_access client roles never count; role matching is exact and case-sensitive (OD-9)",
+            "A blank, whitespace-only or unset provision role means provisioning off; a non-blank one is carried through the provider read-only (AC-6.1, unit test)",
+            "foundry-oidc still depends on neither foundry-store nor foundry-auth; it extracts claims and never decides",
+            "Existing foundry-oidc tests and base keycloak-sso behaviour stay green; fmt, clippy -D warnings, check-arch pass"
+          ],
+          "test_file": "crates/foundry-oidc/src/lib.rs",
+          "scenario_name": "a blank provision role means provisioning off, and realm roles and profile names are read from the ID token when present and default to empty when absent",
+          "description": "Layer-1 claim extraction for D3a: extend the ID-token claim set with Keycloak's realm-role mapper shape and the two profile names the display-name chain needs, all defaulting so older tokens are unaffected, and expose the configured provision role from the provider.",
+          "dependencies": [],
+          "estimate": "0.25 day",
+          "files_to_modify": [
+            "crates/foundry-oidc/src/lib.rs",
+            "crates/foundry-oidc/Cargo.toml"
+          ],
+          "implementation_notes": "DISTILL already added OidcConfig.provision_role and with_provision_role (config parsing only) and the env read of FOUNDRY_OIDC_PROVISION_ROLE; confirm blank-means-off is honoured and add the unit test. The fake issuer (crates/foundry-acceptance/src/support/oidc_issuer.rs) already mints realm_access / name / preferred_username claims; do not change it. Independent of 01-01 and may run in parallel."
+        }
+      ]
+    },
+    {
+      "id": "02",
+      "name": "Role-gated provisioning on first Keycloak sign-in (US-06)",
+      "steps": [
+        {
+          "id": "02-01",
+          "name": "OIDC callback provisions a member holding the provision role",
+          "criteria": [
+            "A verified newcomer holding the role arrives signed in, greeted by name, with exactly one member membership in the oldest workspace (AC-6.2, DDD-16, DDD-17)",
+            "Greeting name is the first non-blank of name, preferred_username, email local-part at most 64 characters; longer candidates are skipped, never truncated (AC-6.3, DDD-18)",
+            "Existing accounts link regardless of role; otherwise provisioning off, missing role, or no workspace refuse byte-identically to a wrong password, creating nothing (DDD-15, AC-6.4)",
+            "Two concurrent first sign-ins for one address yield one password-less member account and both succeed; admin is never granted (DDD-16, store integration test)",
+            "Scenarios 1-7 un-pended and green; refusal reasons and the provision log line covered by unit tests (DDD-20); fmt, clippy -D warnings, check-arch pass"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/keycloak-sso-provisioning.feature",
+          "scenario_name": "A newcomer holding the provision role is given an account and signed in",
+          "description": "Walking skeleton for US-06: extend oidc::callback with the DDD-15 find-or-provision order (after the unchanged exchange and email_verified checks: link existing by email_lower with role ignored; provisioning off -> refuse; role absent -> refuse; no workspace -> refuse; else provision), a single-transaction store operation that inserts a password-less user plus one member membership into the original workspace (ON CONFLICT on email_lower then re-read, never touching an existing row), then the shared signin::establish_session seam. Logging per DDD-20: new refusal reasons 'identity lacks provision role' and 'no workspace to provision into' via refuse(); one info line 'oidc identity provisioned' with user id and workspace id, no claims; nothing added to the response. Un-pends scenarios 1-7: 'A newcomer holding the provision role is given an account and signed in' (walking skeleton); 'A newcomer the provider gives no usable full name is still greeted by a name' (3 examples); 'A newcomer without the provision role is turned away' (2 examples); 'With provisioning switched off a newcomer is turned away even holding the role'; 'A newcomer whose address the provider has not confirmed is turned away'; 'Before anyone has claimed the instance a newcomer holding the role is turned away'; 'A member who already has an account keeps it when they hold the provision role'. Scenarios 3-7 are green-by-inheritance guards un-pended together with scenario 1.",
+          "dependencies": [
+            "01-01",
+            "01-02"
+          ],
+          "estimate": "0.75 day",
+          "files_to_modify": [
+            "crates/foundry-app/src/oidc.rs",
+            "crates/foundry-store/src/lib.rs",
+            "crates/foundry-store/tests/provision_federated_member.rs",
+            "crates/foundry-acceptance/tests/features/keycloak-sso-provisioning.feature"
+          ],
+          "implementation_notes": "Callback is at crates/foundry-app/src/oidc.rs (callback ~line 163, refuse ~line 59). DDD-17: the existing workspace read is ORDER BY id DESC (newest) - do not reuse it; the original workspace is ORDER BY created_at, id LIMIT 1. An unclaimed instance (no workspace) must refuse so the bootstrap claim ('a workspace exists') cannot be pre-empted (D5). DDD-6 establish_session and DDD-11 refusal function are reused verbatim. The concurrent-first-sign-in race is a store-level test, not an acceptance scenario (DISTILL review). Un-pend by removing @pending from the scenarios in this file only. Lane: cargo test -p foundry-acceptance --test acceptance --no-run first (a cold binary makes subprocess scenarios time out), then FOUNDRY_ACCEPTANCE_TAGS=keycloak-sso-provisioning cargo test -p foundry-acceptance --test acceptance. Default-lane us-04 rolling-upgrade flake is known; rerun slice3 alone before treating it as a regression."
+        },
+        {
+          "id": "02-02",
+          "name": "Provisioned accounts at password door, reset, role withdrawal",
+          "criteria": [
+            "A provisioned account with an empty or guessed password is refused byte-identically to an unknown address (AC-6.6, DDD-19)",
+            "Refusing a provisioned account takes as long as an unknown address: median within 150ms over 7 interleaved pairs (AC-6.6)",
+            "A provisioned member resets via forgot-password, sets a password, signs in at the password door and reaches the board (AC-6.7, DDD-21)",
+            "After the provision role is withdrawn, a previously provisioned member still signs in and no second account appears (AC-6.8, DDD-22, OD-10 open)",
+            "All 11 scenarios green; base keycloak-sso, us-06-signin and invite-accept stay green; fmt, clippy -D warnings, check-arch pass"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/keycloak-sso-provisioning.feature",
+          "scenario_name": "A provisioned account has no password to sign in with",
+          "description": "End-to-end proof of 01-01's password-less work through a really provisioned account, plus the pinned role-withdrawal behaviour. Un-pends scenarios 8-11: 'A provisioned account has no password to sign in with' (2 examples); 'The password form takes as long to refuse a provisioned account as an unknown address'; 'A provisioned member can choose a password of their own through a reset'; 'A member provisioned earlier still signs in after the provision role is withdrawn'. Fix whatever they expose.",
+          "dependencies": [
+            "02-01"
+          ],
+          "estimate": "0.3 day",
+          "files_to_modify": [
+            "crates/foundry-acceptance/tests/features/keycloak-sso-provisioning.feature",
+            "crates/foundry-app/src/signin.rs",
+            "crates/foundry-app/src/reset_password.rs",
+            "crates/foundry-app/src/oidc.rs"
+          ],
+          "implementation_notes": "Production files are listed only in case a scenario exposes a gap; expected change is un-pending alone. State is built through the real sign-in, never seeded by SQL (DISTILL review: fixture theater). Scenario 10 reuses the shipped forgot-password step from us_06_signin.rs; DISTILL proved the reset steps green separately, so a failure here is a genuine NULL-hash defect, most likely the store failing to read a password-less row. Timing scenario uses the same oracle and budget as the shipped us-06-signin timing scenario; do not tag it @flaky; if it wobbles, run it at least 3 times before blaming the change. Warm the acceptance binary before the lane; the default lane has a known us-04 rolling-upgrade flake. OD-11 (base keycloak-sso.feature still @pending) is out of scope for this roadmap."
+        }
+      ]
+    }
+  ],
+  "implementation_scope": {
+    "source_directories": [
+      "crates/foundry-store/",
+      "crates/foundry-oidc/",
+      "crates/foundry-auth/",
+      "crates/foundry-app/",
+      "crates/foundry-services/"
+    ],
+    "test_directories": [
+      "crates/foundry-acceptance/",
+      "crates/foundry-store/tests/",
+      "crates/foundry-services/tests/"
+    ],
+    "excluded_patterns": []
+  },
+  "validation": {
+    "status": "approved",
+    "reviewer": "nw-software-crafter-reviewer",
+    "approved_at": "2026-09-27T21:00:00Z"
+  }
+}

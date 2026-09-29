@@ -115,21 +115,15 @@ pub async fn submit_signin(
         }
     };
 
-    let (verified, user) = match user_row {
-        Some(u) => {
-            let ok = foundry_auth::verify_password(&pwd, &u.password_hash)
-                .await
-                .unwrap_or(false);
-            (ok, Some(u))
-        }
-        None => {
-            // Run verify against a known-bad hash to keep wall-clock
-            // similar to the real-user path (constant-time email
-            // check per design/auth.md).
-            let _ = foundry_auth::verify_password(&pwd, known_bad_hash().await).await;
-            (false, None)
-        }
-    };
+    // DDD-19: a password-less (federated-only) account takes the unknown-email
+    // arm — verify against the known-bad hash, never an early return — so its
+    // status, body and wall-clock cannot reveal that the address has an
+    // SSO-only account.
+    let verified = verify_against(
+        &pwd,
+        user_row.as_ref().and_then(|u| u.password_hash.as_deref()),
+    )
+    .await;
 
     // Record the attempt regardless of outcome.
     if let Err(err) = state
@@ -150,7 +144,7 @@ pub async fn submit_signin(
         );
     }
 
-    let user = user.expect("verified implies user row found");
+    let user = user_row.expect("verified implies user row found");
     establish_session(&state, &session, &headers, user.id).await
 }
 
@@ -316,25 +310,22 @@ pub async fn submit_change_password(
     // using the SAME verifier the sign-in flow uses, so a hijacked session alone
     // cannot rotate the credential. A valid session implies the user row exists;
     // a missing/failed hash lookup is a data-consistency fault ⇒ 500 (D8 posture).
-    let stored_hash = match state
-        .store
-        .find_user_password_hash_by_id(user.user_id)
-        .await
-    {
-        Ok(Some(hash)) => hash,
+    let stored_hash = match state.store.find_user_by_id(user.user_id).await {
+        Ok(Some(row)) => row.password_hash,
         Ok(None) => {
             tracing::error!(user_id = %user.user_id, "change-password: no user row for a valid session");
             return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
         }
         Err(err) => {
-            tracing::error!(%err, "find_user_password_hash_by_id failed during change-password");
+            tracing::error!(%err, "find_user_by_id failed during change-password");
             return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
         }
     };
+    // A password-less (federated-only) account has no current password to
+    // prove, so it cannot reauthenticate here (it sets one through
+    // forgot-password, DDD-21). It still pays the verify cost, like sign-in.
     let current = SecretString::new(form.current_password.clone().into());
-    let reauthenticated = foundry_auth::verify_password(&current, &stored_hash)
-        .await
-        .unwrap_or(false);
+    let reauthenticated = verify_against(&current, stored_hash.as_deref()).await;
     if !reauthenticated {
         // Wrong current password: refuse without changing anything and WITHOUT
         // emitting `password_changed`.
@@ -592,6 +583,23 @@ fn render_forgot_form(csrf_token: &str, _error: Option<&str>) -> String {
     }
     .render()
     .expect("forgot.html renders")
+}
+
+/// Verify `password` against a stored PHC hash. With no hash (unknown email, or
+/// a password-less federated-only account — keycloak-sso DDD-19) it still runs
+/// verify against [`known_bad_hash`] and answers `false`: never an early return,
+/// so the wall-clock stays similar to the real-user path (constant-time email
+/// check per design/auth.md).
+async fn verify_against(password: &SecretString, stored_hash: Option<&str>) -> bool {
+    match stored_hash {
+        Some(hash) => foundry_auth::verify_password(password, hash)
+            .await
+            .unwrap_or(false),
+        None => {
+            let _ = foundry_auth::verify_password(password, known_bad_hash().await).await;
+            false
+        }
+    }
 }
 
 /// A PHC-encoded argon2id hash of a process-unique throwaway password.

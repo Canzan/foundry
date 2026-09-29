@@ -22,6 +22,8 @@ foundry-core = { path = "../foundry-core" }
 foundry-store = { path = "../foundry-store", features = ["test-support"] }
 foundry-auth = { path = "../foundry-auth", features = ["test-support"] }
 foundry-app   = { path = "../foundry-app", features = ["test-support"] }
+# keycloak-sso: the harness builds the SHIPPED provider (deny.toml rule 3 lists this crate).
+foundry-oidc = { path = "../foundry-oidc" }
 foundry-realtime = { path = "../foundry-realtime" }
 
 cucumber = { workspace = true }

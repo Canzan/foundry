@@ -47,6 +47,25 @@ Keycloak sign-in links to a foundry user that already exists, matched on the UNI
 nothing. The local password path stays permanently available, because Keycloak, LLDAP
 and foundry share a cluster and the tracker must open when that cluster is broken.
 
+> **Addendum, 2026-09-27 (keycloak-sso D3a).** "It provisions nothing" is now the
+> default, not the rule. When `FOUNDRY_OIDC_PROVISION_ROLE` is set, a newcomer can get an
+> account on first sign-in. The newcomer must be verified, have no foundry account, and
+> carry that Keycloak realm role (`realm_access.roles`, exact match). The instance must
+> also be claimed.
+>
+> The account is one password-less `member` in the instance's original workspace
+> (`Store::provision_federated_member`). The session is then established through the
+> same `establish_session` seam. Unset or blank, the variable leaves behaviour as
+> described above.
+>
+> `users.password_hash` is nullable from migration `0016`, which is one-way. The
+> password door treats a NULL hash exactly as an unknown address. The "Human,
+> federated" row in the table above therefore reads "linked to, or with the role
+> provisioned as, a `users` row".
+>
+> Role revocation (OD-10) is open. Design: `docs/feature/keycloak-sso/feature-delta.md`
+> DDD-13..22. The paragraph above is left as written.
+
 The same reasoning shapes startup: configuration SHAPE is validated at boot (a partial
 config is `health.startup.refused`), but discovery and JWKS are fetched lazily, so an
 unreachable Keycloak refuses a sign-in attempt rather than a boot. foundry's readiness
