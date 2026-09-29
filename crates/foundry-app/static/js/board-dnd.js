@@ -27,6 +27,14 @@
 // card; a touch or pen press on the card's grip (`[data-card-grip]`) lifts it
 // past GRIP_THRESHOLD, with no timer. A touch on the grip is claimed at
 // `touchstart` (DDD-25) and a click on the grip never opens the card (DDD-28).
+// A touch or pen press on the card's text (the body) lifts after HOLD_MS held
+// within HOLD_TOLERANCE; while the hold is pending the card carries
+// `data-card-arming` (DDD-27). Before the lift a move past the tolerance, a
+// `touchmove` past it, any `scroll` or a `pointercancel` aborts the hold and
+// leaves the gesture to the browser; a release first is a tap that opens the
+// card. After a body lift a non-passive `touchmove` guard keeps the page
+// still (DDD-4), and a release before the card was carried anywhere lands
+// nowhere.
 // From the lift, `<html>` carries `data-card-dragging`, the origin card
 // stays in its slot marked `data-card-lifted`, and one fixed clone (the ghost,
 // `pointer-events: none`) follows the pointer. The lane and slot are resolved
@@ -343,6 +351,16 @@
   // lifted and stays in its slot; the ghost is a fixed clone under the pointer.
   var DRAGGING = "data-card-dragging";
   var LIFTED = "data-card-lifted";
+  // A touch or pen body hold is pending on this card (DDD-27).
+  var ARMING = "data-card-arming";
+
+  // Clear the arming cue from every card, found by query (rule 9's idiom).
+  function clearArming() {
+    var arming = document.querySelectorAll("[" + ARMING + "]");
+    for (var i = 0; i < arming.length; i++) {
+      arming[i].removeAttribute(ARMING);
+    }
+  }
   var GHOST = "data-card-ghost";
   // The ghost sits this far up-left of where the card was grabbed, so the hand
   // (a thumb, on touch) does not hide it.
@@ -351,13 +369,17 @@
   // second card (no key, no id, no htmx wiring, not draggable).
   var GHOST_STRIPPED = [
     "id", KEY, "draggable", "data-state-url", "hx-get", "hx-target", "hx-swap",
-    "aria-selected", "style", LIFTED
+    "aria-selected", "style", LIFTED, ARMING
   ];
 
   // Lift the card: mark the drag in flight, dim the origin in place, and put
   // the ghost under the pointer at (`x`, `y`), keeping where it was grabbed.
+  // The arming cue is cleared first: the card is measured with its transform,
+  // and a ghost measured mid-cue would be too small (DDD-27).
   CardDragSession.prototype.lift = function (x, y) {
     var card = this.card;
+    clearArming();
+    this.carried = false;
     var rect = card.getBoundingClientRect();
     var ghost = card.cloneNode(true);
     for (var i = 0; i < GHOST_STRIPPED.length; i++) {
@@ -395,6 +417,7 @@
   // Light the lane under (`x`, `y`) and mark the slot it points at; over no
   // lane, nothing is lit or marked.
   CardDragSession.prototype.track = function (x, y) {
+    this.carried = true;
     var lane = laneAt(x, y);
     activate(lane);
     showMarker(lane, lane ? slotFor(lane, y, this.card) : null, this.card);
@@ -406,6 +429,7 @@
   // removed, and nothing is marked lifted or in flight (ADR-BOARD-CARD-002
   // rules 4 and 9) — at a release before the move is sent, and at a cancel.
   CardDragSession.prototype.end = function () {
+    clearArming();
     activate(null);
     showMarker(null, null, null);
     var left = document.querySelectorAll("[" + GHOST + "], [" + LIFTED + "]");
@@ -426,6 +450,12 @@
   // timer: 3, not 0, so a tap never flashes a ghost and pen jitter is not a
   // drag (DDD-26).
   var GRIP_THRESHOLD = 3;
+  // A touch or pen press on the card's text lifts after this hold, held within
+  // HOLD_TOLERANCE px (DDD-5, DDD-26). 10 px is under Chrome's ~15 px touch
+  // slop, so no scroll starts before the hold decides. The hold is written
+  // once to `<html>` as `--card-hold-ms`, the arming cue's duration (DDD-27).
+  var HOLD_MS = 500;
+  var HOLD_TOLERANCE = 10;
   var GRIP = "[data-card-grip]";
 
   // The own card an event began on, or null: an `.issue-card` inside
@@ -440,7 +470,15 @@
     return !!grip && !!ownCard(grip);
   }
 
+  // The distance from (`x0`, `y0`) to (`x`, `y`).
+  function travel(x0, y0, x, y) {
+    var dx = x - x0;
+    var dy = y - y0;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+
   function init() {
+    document.documentElement.style.setProperty("--card-hold-ms", HOLD_MS + "ms");
     // The one press on a card this page is following, if any: which pointer,
     // where it went down, the card, and — from the lift — its session. One
     // pointer, one gesture: every other pointer is ignored (DDD-9).
@@ -452,13 +490,47 @@
     // would eat the next genuine click on a card.
     var swallowClick = false;
 
-    // End the press. A lifted drag is torn down; the card never left its slot,
-    // so a cancel sends nothing and restores nothing (DDD-8).
+    // End the press. A pending hold is dropped with its cue; a lifted drag is
+    // torn down; the card never left its slot, so a cancel sends nothing and
+    // restores nothing (DDD-8).
     function endPress() {
+      if (press && press.hold !== null) {
+        clearTimeout(press.hold);
+      }
       if (press && press.session) {
         press.session.end();
       }
+      clearArming();
       press = null;
+    }
+
+    // True while a touch or pen body hold is pending (armed, not yet lifted).
+    function holding() {
+      return !!press && press.hold !== null;
+    }
+
+    // The hold is up: lift `held` if it is still the press being followed and
+    // its card is still on the page; a board replace mid-hold abandons it.
+    function liftHeld(held) {
+      if (press !== held || held.hold === null) {
+        return;
+      }
+      held.hold = null;
+      if (!held.card.isConnected) {
+        endPress();
+        return;
+      }
+      held.session = new CardDragSession(held.card);
+      held.session.lift(held.x, held.y);
+    }
+
+    // Arm a touch or pen press on the card's text: the cue starts and one timer
+    // is set for the hold (DDD-26, DDD-27).
+    function arm(held) {
+      held.card.setAttribute(ARMING, "");
+      held.hold = setTimeout(function () {
+        liftHeld(held);
+      }, HOLD_MS);
     }
 
     // Cancel a lifted drag but keep following the pointer, so its release is
@@ -487,30 +559,49 @@
       }
       // The per-origin lift rule (DDD-26): the mouse lifts past THRESHOLD
       // anywhere on the card; touch and pen lift past GRIP_THRESHOLD on the
-      // grip; elsewhere they are left to the browser (scroll, tap).
+      // grip, and after a HOLD_MS hold on the body.
       var mouse = event.pointerType === "mouse";
-      if (!mouse && !onOwnGrip(event.target)) {
-        return;
-      }
+      var body = !mouse && !onOwnGrip(event.target);
       press = {
         pointerId: event.pointerId,
         card: card,
         startX: event.clientX,
         startY: event.clientY,
+        x: event.clientX,
+        y: event.clientY,
         threshold: mouse ? THRESHOLD : GRIP_THRESHOLD,
+        hold: null,
         session: null,
         cancelled: false
       };
+      if (body) {
+        arm(press);
+      }
     });
+
+    // Abort a pending hold: the cue clears, nothing lifts, and the gesture is
+    // the browser's (a scroll).
+    function abortHold() {
+      if (holding()) {
+        endPress();
+      }
+    }
 
     document.addEventListener("pointermove", function (event) {
       if (!press || event.pointerId !== press.pointerId || press.cancelled) {
         return;
       }
+      if (holding()) {
+        if (travel(press.startX, press.startY, event.clientX, event.clientY) > HOLD_TOLERANCE) {
+          abortHold(); // a swipe on the text: the browser scrolls
+          return;
+        }
+        press.x = event.clientX;
+        press.y = event.clientY;
+        return;
+      }
       if (!press.session) {
-        var dx = event.clientX - press.startX;
-        var dy = event.clientY - press.startY;
-        if (Math.sqrt(dx * dx + dy * dy) < press.threshold) {
+        if (travel(press.startX, press.startY, event.clientX, event.clientY) < press.threshold) {
           return; // still a click or a tap
         }
         press.session = new CardDragSession(press.card);
@@ -527,11 +618,13 @@
       }
       var current = press.session;
       if (!current) {
-        press = null; // a click; leave it to whatever it landed on
+        endPress(); // a click or a tap; leave it to whatever it landed on
         return;
       }
       swallowClick = true;
-      var lane = press.cancelled || !current.card.isConnected
+      // A card lifted by a hold and released before it was carried anywhere
+      // lands nowhere: nothing moves and nothing is sent.
+      var lane = press.cancelled || !current.carried || !current.card.isConnected
         ? null
         : laneAt(event.clientX, event.clientY);
       var before = lane ? current.landingIn(lane, event.clientY) : null;
@@ -575,6 +668,40 @@
       },
       true
     );
+
+    // Before a body lift, a finger past HOLD_TOLERANCE aborts the hold (WebKit
+    // stops sending `pointermove` once it claims a pan); after any lift, every
+    // `touchmove` is prevented so neither the page nor the board scrolls under
+    // the carried card (DDD-4). Non-passive explicitly.
+    document.addEventListener(
+      "touchmove",
+      function (event) {
+        if (holding()) {
+          var touch = event.touches[0];
+          if (touch && travel(press.startX, press.startY, touch.clientX, touch.clientY) > HOLD_TOLERANCE) {
+            abortHold();
+          }
+          return;
+        }
+        if (press && press.session && !press.cancelled) {
+          event.preventDefault();
+        }
+      },
+      { passive: false }
+    );
+
+    // Any scroll before the lift means the browser took the gesture: a pending
+    // hold is over (DDD-26). Capture phase (scroll does not bubble) and
+    // passive; scrolls after the lift (edge auto-scroll) are ignored.
+    document.addEventListener("scroll", abortHold, { capture: true, passive: true });
+
+    // No callout or context menu while a hold is arming or a card is lifted
+    // (DDD-4): the OS long-press would race the 500 ms hold.
+    document.addEventListener("contextmenu", function (event) {
+      if (holding() || (press && press.session)) {
+        event.preventDefault();
+      }
+    });
 
     // A touch on an own card's grip is the board's (DDD-25): prevented at
     // `touchstart`, so iOS never starts its own drag interaction there and the

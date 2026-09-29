@@ -204,7 +204,7 @@ Feature: Card drag on any pointer
   # The body path of KPI 1. The reads are on the page's own clock: arming and
   # not lifted a quarter second in, still not lifted at 0.4 s (where a 350 ms
   # hold would already have lifted it), lifted by 0.7 s.
-  @us-cpd-02 @needs-browser @pending @mobile @kpi
+  @us-cpd-02 @needs-browser @mobile @kpi
   Scenario: Holding a card's text arms it visibly, then lifts it, and it drops at an exact slot
     Given the Identity Platform board is open on a phone
     When Priya holds a touch pointer still on AUTH-41's text
@@ -218,7 +218,7 @@ Feature: Card drag on any pointer
 
   # Lifted by a hold on its text, because only a body lift makes the post-lift
   # guard matter: a finger on the grip can never scroll anything.
-  @us-cpd-02 @needs-browser @pending @mobile
+  @us-cpd-02 @needs-browser @mobile
   Scenario: While lifted by a hold on its text, the lane under the finger lights, the marker shows the slot and nothing scrolls
     Given the Identity Platform board is open on a phone
     And Priya has lifted AUTH-41 by holding its text with a touch pointer
@@ -228,7 +228,7 @@ Feature: Card drag on any pointer
     And a carried AUTH-41 has followed the pointer
     And neither the board nor the page has scrolled while she carried it
 
-  @us-cpd-02 @needs-browser @pending @mobile @error @kpi
+  @us-cpd-02 @needs-browser @mobile @error @kpi
   Scenario: A touch on a card's text that moves before the hold completes scrolls the board and lifts nothing
     Given Homelab Ops is open on a phone
     When Priya puts a touch pointer on OPS-3's text and swipes left before the hold completes
@@ -240,7 +240,7 @@ Feature: Card drag on any pointer
 
   # A touch drag past the slop produces no click at all (spike Q6), so a click
   # guard that waits for one would eat this tap.
-  @us-cpd-02 @needs-browser @pending @mobile @kpi
+  @us-cpd-02 @needs-browser @mobile @kpi
   Scenario: A tap on a card's text still opens it, even right after a touch drag
     Given the Identity Platform board is open on a phone
     And Priya has just carried AUTH-43 into In-Progress by its grip
@@ -260,7 +260,7 @@ Feature: Card drag on any pointer
     And a tap on AUTH-41's text straight afterwards opens its edit dialog
 
   # A still hold released where it lifted is where spike Q6 saw a click.
-  @us-cpd-02 @needs-browser @pending @mobile @edge
+  @us-cpd-02 @needs-browser @mobile @edge
   Scenario: A card lifted by a hold on its text and released where it lifted opens nothing and stays put
     Given the Identity Platform board is open on a phone
     And Priya has lifted AUTH-41 by holding its text with a touch pointer
@@ -291,7 +291,7 @@ Feature: Card drag on any pointer
     And AUTH-41 is back in its exact slot in Backlog
     And no lane is lit, no marker shows and no carried card remains
 
-  @us-cpd-02 @needs-browser @pending
+  @us-cpd-02 @needs-browser
   Scenario: A pen lifts a card by holding its text, exactly as a finger does
     Given the Identity Platform board is open for a pen
     And Priya has lifted AUTH-19 by holding its text with a pen
@@ -350,7 +350,7 @@ Feature: Card drag on any pointer
     And each grip is a strip 48 pixels wide down its card's whole right edge, on cards at least 48 pixels tall
     And a finger on a grip never scrolls the board, while a finger on the rest of the card still can
 
-  @us-cpd-02 @needs-browser @pending @mobile
+  @us-cpd-02 @needs-browser @mobile
   Scenario: With reduced motion, a card being held only dims
     Given the Identity Platform board is open on a phone that asks for reduced motion
     When Priya holds a touch pointer still on AUTH-41's text
