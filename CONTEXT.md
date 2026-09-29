@@ -2,25 +2,25 @@
 
 ## Current Task
 
-`card-drag-drop-feedback` is delivered, closed, and **on `main`**. `origin/main` was
-fast-forwarded `aa8a6f6` → `0beb1d5` on 2026-09-15 at the user's instruction ("No PR,
-just commit to main"): no merge commit, 4 commits — `3ee56fa` feature · `90ed631` rustls
-advisory · `868090f` kb test-flake fix · `0beb1d5` closing docs; then `181a65a` reconciled
-the records. The merged `card-drag-drop-feedback` branch is deleted, locally and on origin.
-Final gate, attempt #4 on `868090f` (`FOUNDRY_XTASK_INCLUDE_DOCKER=1 cargo xtask ci`):
-**GREEN** — 825/825 scenarios, 5757 steps, 2026-09-15 13:46–14:00Z. `0beb1d5` is
-docs-only, so what is on `main` is byte-identical in code to the gated commit.
-`3ee56fa`'s "NOT YET GATED" paragraph is superseded; full record in
-`deliver/closing-notes.md`.
+Two changes are on `main` and pushed, with no PR:
+- keycloak-sso **D3a** (`9abf827`): role-gated, opt-in provisioning, `FOUNDRY_OIDC_PROVISION_ROLE`.
+- **fix-backup-verify-fail-open** (`6b8460e`): row counts run in the binary, and the verifier fails closed with exits 8, 9 and 10.
+
+The final full gate on `6b8460e` passed: 855/855 scenarios. Records are in `docs/evolution/2026-09-27-keycloak-sso.md` and `docs/feature/fix-backup-verify-fail-open/rca.md`.
 
 ## Key Decisions
 
-- **Supersede, never rewrite.** No commit is amended and no historical record edited: `3ee56fa`'s message and the evolution doc's finalize-time "Not pushed" both stand, corrected by dated addenda. Only live status fields (this file, `kpi-contracts.yaml`, the gate table) were updated in place.
-- Counts: 35 scenario declarations = 54 examples (`cdf` 54/54). M1–M9 were 9/9 killed both before and after the refactor.
-- Gate reds #1–#3 were not the branch: a `grant_super_admin` PoolTimedOut; the kb focus race, fixed in `868090f`; and a Postgres `SSLRequest 0x48` on a host at load 95 (`pi-companion`).
+- D3a resolutions: OD-7, a name over 64 characters falls through the chain and is never truncated; OD-8, a member with no password may reset one; OD-9, the role match is exact, case-sensitive and realm-only. Migration 0016 is one-way.
+- `backup-verify` prints `status: OK` only after counting at least one Foundry table. pg_restore is its only external tool, and CI no longer installs a host Postgres client.
 
 ## Next Steps
 
-- Owed to the user: a real-mouse in-lane reorder, a real Finder drop, and Firefox + Safari checks. The user deletes temp issues GEN-3 and GEN-4.
-- `.nwave/des/des-task-active*` (untracked) are left for the user.
-- Follow-ups: a new issue jumps to the top of its lane on reload; the stale `foundry.52ad52fa.css` comment (`feature_issue_card_delete.rs:1571`); `.lane-drop-indicator` contrast; the dead `cdf_marker_before`; pin the Chrome image; the testcontainers connect flakes.
+- keycloak-sso:
+  - OD-10: decide what revoking the provision role does to an existing account.
+  - OD-11: un-pend the 23 base `keycloak-sso.feature` scenarios. The shipped SSO flow has no acceptance coverage.
+  - Add tests for the `FOUNDRY_OIDC_PROVISION_ROLE` env name (a `from_env` seam) and for the race loser (the `Existing` path) end to end.
+  - Change-password copy for a password-less member: point them to forgot-password.
+  - A no-usable-name identity is refused; confirm that is intended.
+  - Re-ID keycloak OUT-1..6, which collide with the registry, once the outcomes CLI works.
+- Ops: verify that RELEASING Pattern 2 (the glibc binary mounted into alpine) actually runs.
+- Older, from card-drag: a new issue jumps to the top of its lane on reload; `.lane-drop-indicator` contrast; pin the Chrome image; testcontainers connect flakes; real-browser checks are still owed.
