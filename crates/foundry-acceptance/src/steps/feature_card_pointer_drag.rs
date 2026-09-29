@@ -3084,13 +3084,28 @@ async fn then_cards_carry_grip(world: &mut FoundryWorld, which: String) {
 async fn then_grip_geometry(world: &mut FoundryWorld) {
     let raw = js(
         &browser(world),
-        "return Array.prototype.map.call(document.querySelectorAll('#board-columns .issue-card'), function (c) {
+        "function measure(c, label) {
            var r = c.getBoundingClientRect(), g = c.querySelector('[data-card-grip]');
            var q = g ? g.getBoundingClientRect() : null;
-           return [c.getAttribute('data-issue-key'), r.height,
+           return [label, r.height,
              q ? q.width : -1, q ? Math.abs(r.right - q.right) : -1,
              q ? Math.abs(r.top - q.top) : -1, q ? Math.abs(r.bottom - q.bottom) : -1];
-         });",
+         }
+         var cards = document.querySelectorAll('#board-columns .issue-card');
+         var rows = Array.prototype.map.call(cards, function (c) {
+           return measure(c, c.getAttribute('data-issue-key'));
+         });
+         // Every seeded title wraps at 390 px, so the board holds no one-line
+         // card and the 48 px floor (U-3) would never bind. Measure one: the
+         // first card with a one-word title, restored in the same task.
+         var t = cards.length ? cards[0].querySelector('.title') : null;
+         if (t) {
+           var was = t.textContent;
+           t.textContent = 'x';
+           rows.push(measure(cards[0], cards[0].getAttribute('data-issue-key') + ' as a one-line card'));
+           t.textContent = was;
+         }
+         return rows;",
         vec![],
     )
     .await;

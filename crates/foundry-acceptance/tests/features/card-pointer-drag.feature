@@ -322,14 +322,14 @@ Feature: Card drag on any pointer
 
   # Card source 1: the board template, on a fresh load (the server's page, no
   # browser needed).
-  @us-cpd-02 @pending @real-io
+  @us-cpd-02 @real-io
   Scenario: Every card on a freshly loaded board carries a grip
     When Priya fetches the Identity Platform board page
     Then every card on the page she receives carries one grip, as its last part, hidden from screen readers and out of the tab order
 
   # Card source 2: the card the server renders for an in-place update, which
   # the board applies without a reload (new issue, edit save, status change).
-  @us-cpd-02 @pending @real-io
+  @us-cpd-02 @real-io
   Scenario Outline: A card that reaches the board without a reload carries a grip too
     When Priya <change>
     Then the card the board receives for it carries one grip, as its last part, hidden from screen readers and out of the tab order
@@ -342,7 +342,7 @@ Feature: Card drag on any pointer
 
   # The board template again, re-rendered by an in-place refresh, and what the
   # grip does under a finger.
-  @us-cpd-02 @needs-browser @pending @mobile
+  @us-cpd-02 @needs-browser @mobile
   Scenario: Every card keeps a full-height grip after the board refreshes in place
     Given the Identity Platform board is open on a phone
     And Priya has deleted AUTH-42 from its popup and the board refreshed without reloading

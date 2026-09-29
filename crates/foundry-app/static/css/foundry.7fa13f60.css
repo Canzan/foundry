@@ -415,8 +415,9 @@ textarea {
   position: fixed;
   z-index: 200;
   box-sizing: border-box;
+  min-height: 48px;
   margin: 0;
-  padding: 10px 12px;
+  padding: 10px 56px 10px 12px;
   background: var(--cz-surface);
   border: 1px solid var(--cz-line-strong);
   border-radius: var(--radius);
@@ -502,14 +503,55 @@ kbd {
 }
 
 .issue-card {
+  position: relative;
   display: block;
+  min-height: 48px;
   margin-bottom: 8px;
-  padding: 10px 12px;
+  padding: 10px 56px 10px 12px;
   background: var(--cz-surface);
   border: 1px solid var(--cz-line);
   border-radius: var(--radius);
   color: var(--cz-text);
   text-decoration: none;
+}
+
+/* The card's grip (card-pointer-drag, DDD-23/DDD-24, U-3). One empty
+   `[data-card-grip]` span, the card's last child in both card sources, drawn
+   here as a 48 px strip down the card's whole right edge: the card's 56 px
+   right padding is the strip plus the board's 8 px gutter, and its 48 px
+   min-height makes every grip at least a 48 x 48 touch target. On a phone the
+   grip is where a finger drags at once, so it alone is `touch-action: none`
+   (the card stays `auto`: a swipe on the text still scrolls) and it keeps
+   iOS's own drag, selection and callout off. The dots are two columns of
+   three, drawn in `currentColor` (3 px dots, 6 px pitch) rather than a text
+   glyph, so the card's text and wrap are unchanged; `--cz-muted` clears 3:1
+   on the card (WCAG 1.4.11). It is `aria-hidden` with no tab stop: the card's
+   own `hx-get` stays its one accessible action. The carried copy is a clone,
+   so it wears the grip too. */
+[data-card-grip] {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-left: 1px dotted var(--cz-line-strong);
+  color: var(--cz-muted);
+  cursor: grab;
+  touch-action: none;
+  -webkit-user-drag: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+[data-card-grip]::before {
+  content: "";
+  width: 12px;
+  height: 18px;
+  background: radial-gradient(circle, currentColor 1.5px, transparent 1.5px) 0 0 / 6px 6px;
 }
 
 /* The keyboard selection ring (keyboard-shortcut-bindings, ADR-004 / NFR-7).

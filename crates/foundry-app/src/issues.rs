@@ -728,7 +728,7 @@ pub(crate) fn render_issue_card(
     // §1) now lives INSIDE the dialog (`issue_edit_modal.html`), not on the card,
     // so a click anywhere on the card is a dialog-open and never a full-page nav.
     format!(
-        r##"<article class="issue-card" id="issue-{key}" data-issue-key="{key}" draggable="true" data-state-url="{state}" hx-get="{edit}" hx-target="#modal-root" hx-swap="innerHTML" style="cursor:pointer"><span class="key">{key}</span> <span class="title">{title}</span></article>"##,
+        r##"<article class="issue-card" id="issue-{key}" data-issue-key="{key}" draggable="true" data-state-url="{state}" hx-get="{edit}" hx-target="#modal-root" hx-swap="innerHTML" style="cursor:pointer"><span class="key">{key}</span> <span class="title">{title}</span><span data-card-grip aria-hidden="true"></span></article>"##,
         key = html_escape(&issue_key.to_string()),
         state = html_escape(state_url),
         edit = html_escape(edit_url),
@@ -795,4 +795,51 @@ fn render_issue_card_oob_replace(
         &format!(r#"<article class="issue-card" hx-swap-oob="outerHTML:[data-issue-key='{key}']""#),
         1,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::views::IssueCard;
+
+    /// The board template's card partial, rendered on its own.
+    #[derive(Template)]
+    #[template(path = "partials/issue_card.html")]
+    struct BoardCard {
+        card: IssueCard,
+    }
+
+    /// Both card sources render the same card (the Board Interaction DOM
+    /// contract, DDD-23): the board template on a load or refresh, and
+    /// `render_issue_card` behind the new-issue, edit-save and relocation
+    /// responses. A card that differs by source is a card the board scripts
+    /// read differently depending on how it arrived.
+    #[test]
+    fn board_template_and_server_rendered_card_are_identical() {
+        let project = foundry_core::ProjectKey::try_new("AUTH").expect("valid project key");
+        let key = foundry_core::IssueKey::try_new(&project, 41).expect("valid issue key");
+        let title = "Rotate the signing keys";
+        let edit_url = "/projects/AUTH/issues/41/edit";
+        let state_url = "/projects/AUTH/issues/41/state";
+
+        let from_template = BoardCard {
+            card: IssueCard {
+                key: key.to_string(),
+                title: title.to_string(),
+                edit_url: edit_url.to_string(),
+                state_url: state_url.to_string(),
+            },
+        }
+        .render()
+        .expect("issue_card.html renders");
+        let from_server = render_issue_card(&key, title, edit_url, state_url);
+
+        assert_eq!(from_template.trim_end(), from_server);
+        assert!(
+            from_server.ends_with(
+                r#"<span class="title">Rotate the signing keys</span><span data-card-grip aria-hidden="true"></span></article>"#
+            ),
+            "the grip is the card's last child, straight after the title:\n{from_server}"
+        );
+    }
 }
