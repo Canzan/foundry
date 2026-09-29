@@ -188,7 +188,7 @@ Feature: Card drag on any pointer
   # rest of the card (the driver never presses the grip for it).
   # ========================================================================
 
-  @us-cpd-02 @needs-browser @pending @mobile @driving_port @real-io @kpi
+  @us-cpd-02 @needs-browser @mobile @driving_port @real-io @kpi
   Scenario: A card dragged by its grip lifts at once and drops at an exact slot by touch
     Given the Identity Platform board is open on a phone
     And Priya has lifted AUTH-41 by its grip with a touch pointer
@@ -251,7 +251,7 @@ Feature: Card drag on any pointer
 
   # The tap presses the grip and wobbles 2 px, under the grip's 3 px, so a
   # grip that lifted on no travel at all would lift here.
-  @us-cpd-02 @needs-browser @pending @mobile @error @kpi
+  @us-cpd-02 @needs-browser @mobile @error @kpi
   Scenario: A tap on a card's grip opens nothing, while a tap on its text still does
     Given the Identity Platform board is open on a phone
     When Priya taps AUTH-41's grip
@@ -269,7 +269,7 @@ Feature: Card drag on any pointer
     And Backlog now reads AUTH-41, AUTH-42, AUTH-43
     And no carried card remains and no move request is sent
 
-  @us-cpd-02 @needs-browser @pending @mobile @error
+  @us-cpd-02 @needs-browser @mobile @error
   Scenario: A second finger during a touch drag does not take the card
     Given the Identity Platform board is open on a phone
     And Priya has lifted AUTH-41 by its grip with a touch pointer
@@ -281,7 +281,7 @@ Feature: Card drag on any pointer
   # The journey's `refused` path on touch: the revert is the shipped one
   # (AC-2.6), and a store-level delete announces nothing, so the board still
   # shows the card when Priya lifts it.
-  @us-cpd-02 @needs-browser @pending @mobile @error @real-io
+  @us-cpd-02 @needs-browser @mobile @error @real-io
   Scenario: A touch drop the server refuses puts the card back exactly
     Given the Identity Platform board is open on a phone
     And AUTH-41 was deleted elsewhere after Priya's board loaded
@@ -299,7 +299,7 @@ Feature: Card drag on any pointer
     Then In-Progress now reads AUTH-19, AUTH-3, AUTH-12
     And the move request is exactly the one the board has always sent, naming no card above
 
-  @us-cpd-02 @needs-browser @pending
+  @us-cpd-02 @needs-browser
   Scenario: A pen on a card's grip drags it at once, exactly as a finger does
     Given the Identity Platform board is open for a pen
     And Priya has lifted AUTH-19 by its grip with a pen
@@ -311,7 +311,7 @@ Feature: Card drag on any pointer
 
   # At the desk the grip is part of the card for dragging, but a click on it
   # opens nothing, as a tap on it does not (DDD-28).
-  @us-cpd-02 @needs-browser @pending @error
+  @us-cpd-02 @needs-browser @error
   Scenario: A mouse click on a card's grip opens nothing, while a mouse drag from the grip still lifts the card
     Given the Identity Platform board is open at the desk
     When Priya clicks AUTH-41's grip with the mouse

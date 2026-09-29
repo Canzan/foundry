@@ -22,9 +22,12 @@
 // origin is held as identity (keys and a lane slug), never as nodes, and is
 // resolved against the live board when a refused move is reverted.
 //
-// The gesture (ADR-BOARD-CARD-004): a primary-button mouse press on an
+// The gesture (ADR-BOARD-CARD-004, DDD-26): a primary-button mouse press on an
 // `.issue-card` inside `#board-columns` that travels past THRESHOLD lifts the
-// card. From the lift, `<html>` carries `data-card-dragging`, the origin card
+// card; a touch or pen press on the card's grip (`[data-card-grip]`) lifts it
+// past GRIP_THRESHOLD, with no timer. A touch on the grip is claimed at
+// `touchstart` (DDD-25) and a click on the grip never opens the card (DDD-28).
+// From the lift, `<html>` carries `data-card-dragging`, the origin card
 // stays in its slot marked `data-card-lifted`, and one fixed clone (the ghost,
 // `pointer-events: none`) follows the pointer. The lane and slot are resolved
 // from the POINT (`document.elementFromPoint`), never from `event.target`,
@@ -416,14 +419,25 @@
     document.documentElement.removeAttribute(DRAGGING);
   };
 
-  // Below this many pixels of travel a press is a click, not a drag (the lane
-  // drag's threshold, board-lane-dnd.js; DDD-5).
+  // Below this many pixels of travel a mouse press is a click, not a drag (the
+  // lane drag's threshold, board-lane-dnd.js; DDD-5).
   var THRESHOLD = 6;
+  // A touch or pen press on the grip lifts after this much travel, with no
+  // timer: 3, not 0, so a tap never flashes a ghost and pen jitter is not a
+  // drag (DDD-26).
+  var GRIP_THRESHOLD = 3;
+  var GRIP = "[data-card-grip]";
 
   // The own card an event began on, or null: an `.issue-card` inside
   // `#board-columns`.
   function ownCard(target) {
     return boardOf(target) ? target.closest(CARD) : null;
+  }
+
+  // True when `target` is inside the grip of an own card.
+  function onOwnGrip(target) {
+    var grip = target && target.closest ? target.closest(GRIP) : null;
+    return !!grip && !!ownCard(grip);
   }
 
   function init() {
@@ -463,12 +477,19 @@
       }
       endPress();
       swallowClick = false;
-      // Mouse only here; touch and pen lift by holding (DDD-5, slice 02).
-      if (event.pointerType !== "mouse" || event.button !== 0) {
+      // Primary contact only: mouse button 0, the pen tip, the first finger.
+      if (!event.isPrimary || event.button !== 0) {
         return;
       }
       var card = ownCard(event.target);
       if (!card) {
+        return;
+      }
+      // The per-origin lift rule (DDD-26): the mouse lifts past THRESHOLD
+      // anywhere on the card; touch and pen lift past GRIP_THRESHOLD on the
+      // grip; elsewhere they are left to the browser (scroll, tap).
+      var mouse = event.pointerType === "mouse";
+      if (!mouse && !onOwnGrip(event.target)) {
         return;
       }
       press = {
@@ -476,6 +497,7 @@
         card: card,
         startX: event.clientX,
         startY: event.clientY,
+        threshold: mouse ? THRESHOLD : GRIP_THRESHOLD,
         session: null,
         cancelled: false
       };
@@ -488,8 +510,8 @@
       if (!press.session) {
         var dx = event.clientX - press.startX;
         var dy = event.clientY - press.startY;
-        if (Math.sqrt(dx * dx + dy * dy) < THRESHOLD) {
-          return; // still a click
+        if (Math.sqrt(dx * dx + dy * dy) < press.threshold) {
+          return; // still a click or a tap
         }
         press.session = new CardDragSession(press.card);
         press.session.lift(event.clientX, event.clientY);
@@ -536,12 +558,15 @@
     document.addEventListener("foundry:cancel-card-drag", cancelDrag);
 
     // The click a lifted release produces — on the card it began on, or on
-    // whatever the press and release share — never opens anything. Capture
-    // phase, so it is stopped before htmx or keyboard.js see it.
+    // whatever the press and release share — never opens anything. Nor does
+    // any click on an own card's grip, whatever the pointer: that branch is
+    // not one-shot and no press resets it (DDD-28). Capture phase, so it is
+    // stopped before htmx or keyboard.js see it; either way an armed guard is
+    // cleared.
     document.addEventListener(
       "click",
       function (event) {
-        if (!swallowClick) {
+        if (!swallowClick && !onOwnGrip(event.target)) {
           return;
         }
         swallowClick = false;
@@ -549,6 +574,22 @@
         event.stopPropagation();
       },
       true
+    );
+
+    // A touch on an own card's grip is the board's (DDD-25): prevented at
+    // `touchstart`, so iOS never starts its own drag interaction there and the
+    // pointer events arrive at once. Non-passive explicitly (a `document` touch
+    // listener is passive by default); off a grip it does nothing, so a touch
+    // on the card's text still scrolls and still taps.
+    document.addEventListener(
+      "touchstart",
+      function (event) {
+        if (!onOwnGrip(event.target)) {
+          return;
+        }
+        event.preventDefault();
+      },
+      { passive: false }
     );
 
     // An own card never starts the browser's own drag: it would take the
