@@ -182,3 +182,54 @@ no-select on, hold 350 ms. Record Pass/Fail and the OS/browser version for each 
 
 If step 5 scrolls on iOS (a `pointercancel` right after `LIFT` when moving), OQ-2(a) fails on
 WebKit, and the none/pan-y trade-off returns to the user.
+
+## Device checklist result (DDD-13), 2026-09-29: FAIL on the D5 premise
+
+Real device: iPhone 13 Pro Max, iOS 26.7, Safari and Brave (both WebKit). Logs were
+beaconed with `probe.html?beacon=1` to `serve.py` and summarised per gesture.
+
+- **Step 1 fails.** 14 of 30 swipes up from a card lifted it instead of scrolling:
+  5 of 13 with `draggable` on, 9 of 17 with it off. In every failing swipe the first
+  `touchmove`/`pointermove` arrived 407-1085 ms after `pointerdown`, at 1-4 px from the
+  touchdown point. The thumb was still. It was not a WebKit delivery delay: the gap
+  is there without `draggable`, and swipes that moved at once aborted the hold in
+  11-153 ms. First-move times spread evenly from 25 to 1085 ms, so no hold duration
+  separates "rest, then swipe" from "hold to lift" (350 ms lifts ~half; 800 ms still 2/17).
+- **Step 5 passes.** In all 14 lifted gestures, `pointermove` kept flowing, every
+  `touchmove` was `PREVENTED`, the page scrolled 0 px and no `pointercancel` came. OQ-2(a),
+  the post-lift `touchmove` guard, works on WebKit.
+- **OQ-4.** With `draggable="true"`, iOS fires a native `dragstart` ~655 ms into a still
+  press (4 of 5 lifts). With it off, iOS still drags the card's text
+  (`types=text/html|text/plain`). The design's own-card `dragstart` cancel (DDD-19)
+  covers both.
+- **iOS Simulator** (Xcode 27, iOS 18.6 and 27.0, XCUITest system touches) passes steps
+  1-6 and does NOT reproduce the failure, because synthesised swipes start moving at once.
+  The rest-time sweep matches the device: a rest ≥ ~320 ms before the swipe lifts the card.
+
+**Decision (user, 2026-09-29): a drag handle replaces whole-card press-and-hold for
+touch and pen.** A grip on each card with `touch-action: none` drags at once. Swipes
+elsewhere on the card scroll, and taps open it. Mouse stays whole-card (slice 01). This
+changes D5 and the slice-02 Gherkin wording, so slice 02 goes back through
+DISCUSS/DESIGN/DISTILL. The handle is proven on `probe-v3.html` before that.
+
+### Iterations after the decision (same device, 2026-09-29)
+
+| Probe | Change | Phone result |
+|---|---|---|
+| `probe-v3.html` | Grip strip (48 px, right edge, `touch-action: none`); touch drags only from the grip | Lifts, but only after 571-1505 ms: with `draggable="true"` iOS holds the grip touch for its own drag (`mousedown` + `dragstart` ~660 ms, `dragend` 15 ms later) before any pointer event reaches the page |
+| `probe-v4.html` | `preventDefault()` on `touchstart` when it lands on the grip, plus `-webkit-user-drag: none` | No `dragstart` on any grip press. Moves flow across lanes after the lift, every `touchmove` is prevented, 0 scroll, no `pointercancel` |
+| `probe-v5.html` | Carried ghost, lane outline, and a drop (the earlier probes only logged, which read as "cannot drag") | 13 of 13 grip drags dropped in the lane under the finger; body swipes scrolled |
+| `probe-v6.html` | Also a **card-body press-and-hold** (500 ms) with an arming cue (the card scales to .96 and dims over the hold), and own-card `dragstart` prevented | 5 of 5 body-hold drags lifted at ~503 ms and dropped where aimed. The user: "works great" |
+
+Chosen touch/pen model (the user, 2026-09-29): **the grip drags at once, and the card
+body lifts after a 500 ms hold with a visible arming cue.** The mouse is unchanged (whole
+card, 6 px). Known trade-off, measured in the D5 run: a swipe whose thumb rests ≥ the hold
+before moving lifts the card instead of scrolling. The grip is the reliable path, and the
+cue makes the hold visible. The v6 phone run did not re-measure lazy swipes, so this is
+still owed at the slice-02 dogfood.
+
+Harness: `serve.py` (static + `/log` beacon collector). The simulator runs used an XCUITest
+bundle driving MobileSafari (`XCUIApplication(bundleIdentifier: "com.apple.mobilesafari")`,
+`press(forDuration:thenDragTo:withVelocity:thenHoldForDuration:)`) on iOS 18.6 and 27.0.
+The simulator cannot reproduce the resting-thumb or iOS drag-interaction stalls, because
+synthesised touches move at once. Real-device runs remain the oracle (D19).

@@ -18,7 +18,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Card Pointer Probe</title>
+<title>Card Pointer Probe v5</title>
 <style>
   :root { --bg:#fff; --fg:#111; --card:#eef2f7; --lift:#ffd76a; --lane:#f7f7f7; --line:#ccc; }
   @media (prefers-color-scheme: dark) {
@@ -35,6 +35,15 @@
   .column { flex:0 0 260px; background:var(--lane); border:1px solid var(--line); border-radius:6px; padding:6px; }
   .column h3 { margin:2px 4px 8px; font-size:13px; }
   .issue-card { background:var(--card); border-radius:6px; padding:10px; margin:0 0 8px; min-height:70px; cursor:grab; }
+  .issue-card { position:relative; padding-right:56px; }
+  /* v3: the grip is the only touch/pen drag origin; touch-action none so the browser never pans from it. */
+  .card-grip { -webkit-user-drag:none; position:absolute; top:0; right:0; width:48px; height:100%; min-height:48px; touch-action:none;
+    -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; display:flex; align-items:center;
+    justify-content:center; border-left:1px dashed var(--line); cursor:grab; }
+  .card-grip::before { content:"\2807\2807"; font-size:18px; letter-spacing:-6px; opacity:.6; }
+  .ghost { position:fixed; left:0; top:0; z-index:9; pointer-events:none; opacity:.9; margin:0;
+    box-shadow:0 8px 24px rgba(0,0,0,.35); transform-origin:0 0; }
+  .column.target { outline:3px solid #2a7de1; outline-offset:-3px; }
   .issue-card.lifted { background:var(--lift); outline:2px solid currentColor; }
   body.noselect .issue-card { -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; }
   #status { font-weight:600; }
@@ -61,7 +70,7 @@
 <script>
 (function () {
   "use strict";
-  var MOUSE_THRESHOLD = 6, HOLD_TOL = 10;
+  var MOUSE_THRESHOLD = 6, HOLD_TOL = 10, GRIP_THRESHOLD = 3;
   var q = new URLSearchParams(location.search);
   // ?beacon=1 posts every printed log line to /log (serve.py), tagged with ?run=<label>.
   var BEACON = q.get("beacon") === "1", RUN = q.get("run") || "-";
@@ -98,6 +107,8 @@
         if (cfg.draggable) c.setAttribute("draggable", "true");
         c.style.touchAction = cfg.touchAction;
         c.textContent = "Card " + l + "-" + i + " — some selectable issue title text";
+        var g = document.createElement("span"); g.className = "card-grip"; g.setAttribute("role", "img"); g.setAttribute("aria-label", "grip " + c.id);
+        c.appendChild(g);
         col.appendChild(c);
       }
       board.appendChild(col);
@@ -151,10 +162,38 @@
 
   function lift(reason) {
     session.lifted = true; session.card.classList.add("lifted");
+    // v5: a carried copy follows the finger; the origin stays in its slot, dimmed, until the drop.
+    var r = session.card.getBoundingClientRect();
+    var gh = session.card.cloneNode(true); gh.removeAttribute("id"); gh.classList.add("ghost");
+    gh.style.width = r.width + "px"; document.body.appendChild(gh);
+    session.ghost = gh; session.dx = session.x0 - r.left; session.dy = session.y0 - r.top;
+    moveGhost(session.lastX === undefined ? session.x0 : session.lastX, session.lastY === undefined ? session.y0 : session.lastY);
     note("LIFT " + session.card.id + " via " + reason); setStatus("LIFTED " + session.card.id);
+  }
+  function moveGhost(x, y) {
+    if (!session || !session.ghost) return;
+    session.ghost.style.transform = "translate(" + (x - session.dx) + "px," + (y - session.dy) + "px) rotate(2deg)";
+    var col = laneAt(x, y);
+    document.querySelectorAll(".column.target").forEach(function (c) { if (c !== col) c.classList.remove("target"); });
+    if (col) col.classList.add("target");
+  }
+  function laneAt(x, y) {
+    var el = document.elementFromPoint(x, y);
+    return el && el.closest ? el.closest(".column") : null;
+  }
+  function dropAt(x, y) {
+    var col = laneAt(x, y); if (!col) { note("drop: off every lane (revert)"); return; }
+    var el = document.elementFromPoint(x, y), over = el && el.closest ? el.closest(".issue-card") : null;
+    if (over === session.card) { note("drop: own slot"); return; }
+    if (over) { var r = over.getBoundingClientRect(); col.insertBefore(session.card, y < r.top + r.height / 2 ? over : over.nextSibling); }
+    else col.appendChild(session.card);
+    note("drop: " + session.card.id + " into " + col.getAttribute("data-column"));
   }
   function end(why) {
     if (!session) return;
+    if (session.lifted && why === "pointerup" && session.lastX !== undefined) dropAt(session.lastX, session.lastY);
+    if (session.ghost) session.ghost.remove();
+    document.querySelectorAll(".column.target").forEach(function (c) { c.classList.remove("target"); });
     if (session.timer) clearTimeout(session.timer);
     if (session.lifted) { suppressNextClick = cfg.suppressClick; note("END " + why + " (was lifted)"); }
     session.card.classList.remove("lifted"); session = null; setStatus("idle");
@@ -167,20 +206,33 @@
     document.addEventListener(type, function (e) {
       var extra = {};
       var card = e.target && e.target.closest ? e.target.closest(".issue-card") : null;
-      if (type === "pointerdown" && card && !session && (e.pointerType !== "mouse" || e.button === 0)) {
+      var grip = e.target && e.target.closest ? e.target.closest(".card-grip") : null;
+      if (type === "touchstart" && grip) {
+        // v4: a touch on the grip is always a drag, so opt it out of every native gesture
+        // (iOS long-press, native drag interaction, callout, compat mouse/click) up front.
+        e.preventDefault();
+      }
+      if (type === "pointerdown" && card && !session && (e.pointerType === "mouse" ? e.button === 0 : !!grip)) {
         if (cfg.pdPointerdown) e.preventDefault();
         session = { id: e.pointerId, card: card, type: e.pointerType, x0: e.clientX, y0: e.clientY, lifted: false };
         if (cfg.capture) { try { card.setPointerCapture(e.pointerId); } catch (err) { note("capture failed " + err); } }
-        if (e.pointerType !== "mouse") {
+        if (false) {
           session.timer = setTimeout(function () { session.timer = null; if (session && !session.lifted) lift("hold " + cfg.holdMs + "ms"); }, cfg.holdMs);
         }
       } else if (type === "pointermove" && session && e.pointerId === session.id) {
         var d = Math.hypot(e.clientX - session.x0, e.clientY - session.y0);
+        session.lastX = e.clientX; session.lastY = e.clientY;
+        if (session.lifted) moveGhost(e.clientX, e.clientY);
         extra.under = cardAt(e.clientX, e.clientY);
         if (!session.lifted) {
           if (session.type === "mouse" && d > MOUSE_THRESHOLD) lift("mouse " + Math.round(d) + "px");
+          else if (session.type !== "mouse" && d > GRIP_THRESHOLD) lift("grip " + Math.round(d) + "px");
           else if (session.type !== "mouse" && d > HOLD_TOL && session.timer) { clearTimeout(session.timer); session.timer = null; note("hold aborted: moved " + Math.round(d) + "px (scroll path)"); }
         }
+      } else if (type === "touchmove" && session && !session.lifted && session.timer && e.touches[0]) {
+        // v2: WebKit stops sending pointermove once it claims a pan, so the hold is also aborted on touchmove.
+        var td = Math.hypot(e.touches[0].clientX - session.x0, e.touches[0].clientY - session.y0);
+        if (td > HOLD_TOL) { clearTimeout(session.timer); session.timer = null; note("hold aborted: touchmove " + Math.round(td) + "px (scroll path)"); }
       } else if (type === "touchmove" && session && session.lifted && cfg.pdAfterLift) {
         e.preventDefault();
       } else if (type === "dragstart" && cfg.pdDragstart && card) {
@@ -200,7 +252,12 @@
   });
   // A new press must not inherit a stale suppression (only the click right after a drag is eaten).
   document.addEventListener("pointerdown", function () { suppressNextClick = false; }, true);
-  window.addEventListener("scroll", function (e) { if (e.target !== logEl) rec(e); }, { capture: true, passive: true });
+  window.addEventListener("scroll", function (e) {
+    if (e.target === logEl) return;
+    rec(e);
+    // v2: any real scroll before the lift means the browser took the gesture; the hold is over.
+    if (session && !session.lifted && session.timer) { clearTimeout(session.timer); session.timer = null; note("hold aborted: scroll (scroll path)"); }
+  }, { capture: true, passive: true });
 
   function bindControls() {
     var map = { draggable: "o-draggable", pdAfterLift: "o-pdlift", pdContextmenu: "o-pdcm", noSelect: "o-noselect",
@@ -222,7 +279,7 @@
     state: function () { return { sx: scrollX, sy: scrollY, bx: board.scrollLeft, session: session && { card: session.card.id, lifted: session.lifted }, ua: navigator.userAgent, maxTouchPoints: navigator.maxTouchPoints }; }
   };
   build(); bindControls();
-  note("ready: " + navigator.userAgent);
+  note("ready v5 (v4 + carried ghost, lane highlight, drop): " + navigator.userAgent);
 })();
 </script>
 </body>
