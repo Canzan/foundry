@@ -966,23 +966,43 @@ pub fn run_list_workspaces() -> i32 {
     })
 }
 
+/// Resolve an operator's workspace selector to one `(id, name)` row: the
+/// workspace whose id equals `selector`, or whose name equals it exactly,
+/// ignoring ASCII case. Shared by `export-workspace` and `list-users
+/// --workspace`, so both accept the same selectors.
+fn resolve_workspace_selector<'a>(
+    workspaces: &'a [(uuid::Uuid, String)],
+    selector: &str,
+) -> Option<&'a (uuid::Uuid, String)> {
+    let selector_lower = selector.to_ascii_lowercase();
+    workspaces.iter().find(|(id, name)| {
+        id.to_string() == selector || name.to_ascii_lowercase() == selector_lower
+    })
+}
+
 /// Entry point invoked from `main.rs` when the CLI sees
-/// `foundry doctor list-users`.
+/// `foundry doctor list-users [--workspace <id|name>]`.
 ///
-/// Prints every user on the instance — id, email, display name, and whether
-/// they hold an `instance_admins` row — so the operator can pick targets for
-/// `reset-password` / `grant-super-admin` without a psql session. Mirrors
+/// Without a workspace, prints every user on the instance — id, email,
+/// display name, and whether they hold an `instance_admins` row — so the
+/// operator can pick targets for `reset-password` / `grant-super-admin`
+/// without a psql session. With `--workspace`, prints only that workspace's
+/// members, each with their role in it; the selector resolves like
+/// `export-workspace`'s (id, or exact case-insensitive name). Mirrors
 /// `list-workspaces`: LIVE DB via `DATABASE_URL`, thread-isolated tokio
 /// runtime, structured `key: value` + `status:` stdout.
 ///
-/// Output shape: per user, `user-id:` / `user-email:` / `user-name:` /
-/// `super-admin: true|false` lines, then a trailing `status: OK`.
+/// Output shape: with `--workspace`, a leading `workspace-id:` /
+/// `workspace-name:` pair; then per user, `user-id:` / `user-email:` /
+/// `user-name:` / `super-admin: true|false` lines, plus `workspace-role:
+/// admin|member` with `--workspace`; then a trailing `status: OK`.
 ///
-/// Exit codes (mirroring `run_list_workspaces`):
+/// Exit codes (mirroring `run_list_workspaces` and `run_export_workspace`):
 ///
 /// - `0` OK: the roster was listed; stdout ends with `status: OK`.
+/// - `2` no workspace matches the `--workspace` selector.
 /// - `3` DB unreachable / list-read error.
-pub fn run_list_users() -> i32 {
+pub fn run_list_users(workspace: Option<&str>) -> i32 {
     let database_url = match std::env::var("DATABASE_URL") {
         Ok(v) if !v.is_empty() => v,
         _ => {
@@ -994,6 +1014,8 @@ pub fn run_list_users() -> i32 {
             return 3;
         }
     };
+
+    let workspace = workspace.map(str::to_string);
 
     // Thread-isolated runtime (see `run_restore_comment`): dispatched from inside
     // the outer `#[tokio::main]` runtime, so a nested `block_on` would panic.
@@ -1021,22 +1043,65 @@ pub fn run_list_users() -> i32 {
                 }
             };
 
-            let users = match store.list_users().await {
-                Ok(u) => u,
+            let Some(selector) = workspace else {
+                let users = match store.list_users().await {
+                    Ok(u) => u,
+                    Err(err) => {
+                        eprintln!(
+                            "foundry doctor list-users: failed to list users \
+                             against live DB: {err}"
+                        );
+                        return 3;
+                    }
+                };
+                for (id, email, name, super_admin) in &users {
+                    println!("user-id: {id}");
+                    println!("user-email: {email}");
+                    println!("user-name: {name}");
+                    println!("super-admin: {super_admin}");
+                }
+                println!("status: OK");
+                return 0;
+            };
+
+            let workspaces = match store.list_workspaces().await {
+                Ok(w) => w,
                 Err(err) => {
                     eprintln!(
-                        "foundry doctor list-users: failed to list users \
+                        "foundry doctor list-users: failed to list workspaces \
                          against live DB: {err}"
                     );
                     return 3;
                 }
             };
+            let Some((workspace_id, workspace_name)) =
+                resolve_workspace_selector(&workspaces, &selector)
+            else {
+                eprintln!(
+                    "foundry doctor list-users: no workspace matches {selector:?}; \
+                     run `foundry doctor list-workspaces` to see each workspace's id and name."
+                );
+                return 2;
+            };
 
-            for (id, email, name, super_admin) in &users {
+            let users = match store.list_users_in_workspace(*workspace_id).await {
+                Ok(u) => u,
+                Err(err) => {
+                    eprintln!(
+                        "foundry doctor list-users: failed to list the workspace's \
+                         users against live DB: {err}"
+                    );
+                    return 3;
+                }
+            };
+            println!("workspace-id: {workspace_id}");
+            println!("workspace-name: {workspace_name}");
+            for (id, email, name, super_admin, role) in &users {
                 println!("user-id: {id}");
                 println!("user-email: {email}");
                 println!("user-name: {name}");
                 println!("super-admin: {super_admin}");
+                println!("workspace-role: {role}");
             }
             println!("status: OK");
             0
@@ -1148,11 +1213,8 @@ pub fn run_export_workspace(selector: &str, out_path: &str) -> i32 {
                     return 3;
                 }
             };
-            let selector_lower = selector.to_ascii_lowercase();
-            let resolved = workspaces.iter().find(|(id, name)| {
-                id.to_string() == selector || name.to_ascii_lowercase() == selector_lower
-            });
-            let Some((workspace_id, _name)) = resolved else {
+            let Some((workspace_id, _name)) = resolve_workspace_selector(&workspaces, &selector)
+            else {
                 eprintln!(
                     "foundry doctor export-workspace: no workspace matches {selector:?}; \
                      run `foundry doctor list-workspaces` to see each workspace's id and name."
@@ -1819,4 +1881,38 @@ fn generate_provisioning_password() -> String {
     let mut bytes = [0u8; 16];
     rand::thread_rng().fill_bytes(&mut bytes);
     bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_workspace_selector;
+
+    fn workspaces() -> Vec<(uuid::Uuid, String)> {
+        vec![
+            (uuid::Uuid::now_v7(), "Acme Corp".to_string()),
+            (uuid::Uuid::now_v7(), "Globex LLC".to_string()),
+        ]
+    }
+
+    #[test]
+    fn a_workspace_resolves_by_its_id() {
+        let all = workspaces();
+        let globex_id = all[1].0.to_string();
+        let resolved = resolve_workspace_selector(&all, &globex_id);
+        assert_eq!(resolved.map(|w| w.1.as_str()), Some("Globex LLC"));
+    }
+
+    #[test]
+    fn a_workspace_resolves_by_its_exact_name_ignoring_case() {
+        let all = workspaces();
+        let resolved = resolve_workspace_selector(&all, "acme CORP");
+        assert_eq!(resolved.map(|w| w.1.as_str()), Some("Acme Corp"));
+    }
+
+    #[test]
+    fn a_partial_or_unknown_name_resolves_to_nothing() {
+        let all = workspaces();
+        assert_eq!(resolve_workspace_selector(&all, "Acme"), None);
+        assert_eq!(resolve_workspace_selector(&all, "Initech"), None);
+    }
 }

@@ -891,9 +891,23 @@ fn dispatch_subcommand() -> Option<i32> {
                 }
                 // Operator roster: print every user (id, email, display name,
                 // super-admin flag) so reset-password / grant-super-admin have
-                // discoverable targets. Reads DATABASE_URL.
+                // discoverable targets, or with `--workspace <id|name>` only that
+                // workspace's members and their role in it. Reads DATABASE_URL.
                 "list-users" => {
-                    let code = foundry_app::admin_cli::run_list_users();
+                    let workspace = match args.iter().position(|a| a == "--workspace") {
+                        None => None,
+                        Some(i) => match args.get(i + 1).filter(|v| !v.is_empty()) {
+                            Some(selector) => Some(selector.as_str()),
+                            None => {
+                                eprintln!(
+                                    "foundry doctor list-users: --workspace needs a value. \
+                                     Usage: foundry doctor list-users [--workspace <id|name>]"
+                                );
+                                return Some(2);
+                            }
+                        },
+                    };
+                    let code = foundry_app::admin_cli::run_list_users(workspace);
                     Some(code)
                 }
                 "export-workspace" => {
