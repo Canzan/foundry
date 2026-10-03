@@ -245,8 +245,18 @@ features:
     job: job-board-card-move
     source: docs/feature/card-pointer-drag/feature-delta.md   # "## Wave: DISCUSS / [REF] Outcome KPIs"
     distill: docs/feature/card-pointer-drag/feature-delta.md  # "## Wave: DISTILL"
-    # No DEVOPS wave ran. Instruments below are DISTILL's scenario links; every
-    # KPI is `owed` until DELIVER un-pends its scenarios and runs the dogfood.
+    deliver: docs/feature/card-pointer-drag/feature-delta.md  # "## Wave: DELIVER / [REF] DoD Check"
+    evolution: docs/evolution/2026-10-03-card-pointer-drag.md
+    runtime_telemetry: none   # D1: byte-identical POST; the browser tier sends nothing new
+    lane: "browser-lane: FOUNDRY_XTASK_INCLUDE_DOCKER=1 cargo xtask ci (FOUNDRY_ACCEPTANCE_TAGS=all)"
+    # No DEVOPS wave ran. Instruments below are DISTILL's scenario links.
+    # Values recorded at DELIVER finalize (2026-10-03): the acceptance halves are
+    # measured; the real-device halves are owed by the user (`measured.owed`).
+    status: measured-locally  # KPIs 2, 4, 5 measured; 1, 3, 6 acceptance-measured with device parts owed; 7 owed
+    measured_at: "2026-10-03 finalize, main: slice 03 close 2850ec2, then 7045cd3 (test-only) and fc7ce42 (refactor)"
+    measured_lane: "FOUNDRY_ACCEPTANCE_TAGS=cpd: 37/37 scenarios, 315/315 steps (35 declarations / 37 examples), re-run after fc7ce42. Chrome 151.0.7922.108 (selenium/standalone-chrome:latest, cd778b6f38d9)"
+    final_gate: "GREEN: FOUNDRY_XTASK_INCLUDE_DOCKER=1 cargo xtask ci at 2850ec2 (03-02 close): all gates; acceptance (all tags) 880/880 scenarios, 6187/6187 steps, browser lane run; re-run on the final tip fc7ce42 (after 7045cd3 and the fc7ce42 refactor) 2026-10-03: all gates green, 880/880 scenarios, 6187/6187 steps, browser lane run"
+    ci_github: "pending: slices 01-02 are on origin/main; slice 03 and the two post-close commits pushed at finalize 2026-10-03 (no PR)"
     kpis:
       - id: CPD-KPI-1
         name: A card moves to an exact lane and slot by touch
@@ -258,7 +268,12 @@ features:
           - {kind: acceptance, ref: "card-pointer-drag.feature @us-cpd-02 @kpi (the grip drag and the body hold) / @us-cpd-03 @kpi", oracle: "lane order on screen and after a reload; the move body byte-for-byte; a grip lifts within 300 ms of the press, a body hold is still arming and not lifted at 400-480 ms"}
           - {kind: dogfood, ref: "slice-02/03 device checklist (DDD-13)"}
         gate: hard
-        status: owed
+        status: measured
+        measured:
+          value: "Acceptance 100%: us-cpd-02 18/18 (the grip drag #13 and the body hold #30 land at the marker, agree after a reload, byte-identical body) and us-cpd-03 7/7 (#21-#23 edge carries land at the marker)"
+          fault: "slice-02 named faults 23/26 killed (grip touchstart, grip threshold, hold 350 ms, arming cue faults); slice-02-delivery-notes.md"
+          dogfood: "Slice 02 real-device checklist (grip drags step 4, body holds step 6) reported PASSED by the user on 2026-10-02, iOS Safari and Android Chrome; per-step tallies, OS and browser versions not supplied"
+          owed: ["slice-02 tallies and versions (grip drags x/10, body holds x/5 per device)", "slice-03 device checklist (the user)"]
       - id: CPD-KPI-2
         name: The desk drag loses nothing
         type: guardrail
@@ -267,7 +282,10 @@ features:
         instruments:
           - {kind: acceptance, ref: "CDF-KPI-8 (re-scoped above) + card-pointer-drag.feature @us-cpd-01 @kpi", oracle: "green; the shipped .feature diff; the fetch-spy body"}
         gate: hard
-        status: owed
+        status: measured
+        measured:
+          value: "100%: cdf 54/54 (400 steps), blr 26/26, kb 38/38, us-cts-03 5/5, us-cpd-01 12/12; default lane 654/654; every shipped .feature byte-identical (the only .feature diff is the new card-pointer-drag.feature); fetch-spy body byte-identical in cdf and cpd"
+          fault: "slice-01 named faults: dragstart not cancelled reds all 12 us-cpd-01 scenarios; lift threshold 0 and click guard never reset killed on #5"
       - id: CPD-KPI-3
         name: A swipe across a card scrolls and never lifts
         type: guardrail
@@ -278,7 +296,12 @@ features:
           - {kind: acceptance, ref: "A touch on a card's text that moves before the hold completes scrolls the board and lifts nothing", oracle: "board scrollLeft grew; no lift during and 700 ms after; nothing lit or sent; the arming cue cleared; the touchstart not prevented; a hold straight afterwards does lift"}
           - {kind: dogfood, ref: "slice-02 swipe tally, prompt (steps 1-2) and resting (step 3) swipes counted apart (DDD-13 checklist)"}
         gate: hard
-        status: owed
+        status: measured
+        measured:
+          value: "Acceptance 100%: #15 (a touch on the text that moves before the hold scrolls the board and lifts nothing; touchstart not prevented; cue cleared; a hold straight after lifts)"
+          fault: "body touchstart prevented, cue not cleared on a move abort: killed (#15). The move aborts and the scroll abort, each alone, survive by design (redundant aborts, DDD-26)"
+          dogfood: "Slice 02 checklist steps 1-2 (prompt swipes) reported PASSED by the user on 2026-10-02; tallies not supplied"
+          owed: ["the lazy-swipe misfire tally (resting swipes x/20 per device, AC-2.14), recorded, not gated", "the prompt-swipe tallies and versions"]
       - id: CPD-KPI-4
         name: A tap or click opens a card; a drag never does
         type: guardrail
@@ -288,7 +311,11 @@ features:
         instruments:
           - {kind: acceptance, ref: "card-pointer-drag.feature: the tap on a card's text, the grip tap, the mouse grip click, the 3-pixel press, the own-card release and the lifted in-place release scenarios", oracle: "#modal-root edit dialog present / absent 1.2 s after the release; each grip scenario ends with a body tap or click that does open"}
         gate: hard
-        status: owed
+        status: measured
+        measured:
+          value: "100%: the body tap (#16), the grip tap (#28), the mouse grip click (#29), the 3-pixel press and the lifted in-place releases (us-cpd-01, #17) all green; 0 dialogs opened by a drag or a grip"
+          fault: "click guard never reset, grip click branch missing, grip threshold 0: killed. 'Click guard never armed' survives in Chrome (no click after a lifted mouse release)"
+          owed: ["Firefox click guard after a lifted mouse release (the user; the only place the survivor shows)"]
       - id: CPD-KPI-5
         name: No card stranded and no feedback left behind
         type: guardrail
@@ -297,7 +324,11 @@ features:
         instruments:
           - {kind: acceptance, ref: "card-pointer-drag.feature @error exit scenarios + the re-driven CDF exit outlines", oracle: "residue counted only after the carried card, lit lane and marker were proven to exist"}
         gate: hard
-        status: owed
+        status: measured
+        measured:
+          value: "100%: 0 lit lanes, 0 markers, 0 ghosts, 0 arming cues and the card at its origin after Escape, pointercancel (#24, #25), off-lane release (#26) and refusal exits; since 7045cd3 also no scroll running 300 ms after the exit"
+          fault: "ghost left behind, pointercancel not reverting, arming kept and hold timer kept on pointercancel, scroller not stopped in end(): all killed"
+          owed: ["slice-03 device steps 5-8 (system gesture mid-drag and mid-hold, off-lane release, release at an edge)"]
       - id: CPD-KPI-6
         name: An off-screen lane or slot is reachable while carrying
         type: leading
@@ -306,7 +337,11 @@ features:
         instruments:
           - {kind: acceptance, ref: "card-pointer-drag.feature @us-cpd-03 edge scenarios", oracle: "Done / AUTH-60 brought into view; marker = landing = after"}
         gate: hard
-        status: owed
+        status: measured
+        measured:
+          value: "Acceptance 100%: us-cpd-03 #21 (board scrolls to Done), #22 (stops at the end), #23 (page scrolls to the end of a long lane), #27 (mouse, narrow window); marker = landing = after with a truly still hold (7045cd3)"
+          fault: "vertical page scroll missing, marker not recomputed after a scroll step, scroller not stopped: killed. Equivalent: the unclamped scroller. Survives: the board's end spilling into a sideways page scroll (invisible at 390px)"
+          owed: ["dogfood: a far-lane drop on an 8-lane board at 390px on each device (slice-03 checklist step 1, the user)", "narrow desktop window check"]
       - id: CPD-KPI-7
         name: Priya stops deferring card moves to the desk
         type: leading
@@ -316,3 +351,6 @@ features:
           - {kind: dogfood, ref: "Priya's 5-day log in the slice-02 delivery notes"}
         gate: soft
         status: owed
+        measurement: owed
+        owner: "the user (Priya's 5-day log; single-operator instance)"
+        owed_note: "No log entries as of 2026-10-03. Device-only, with no acceptance instrument. The window opens when slice 02 is deployed to the instance"

@@ -106,7 +106,14 @@ lane can reach at all (without the three below): 23/23.
    traffic). Each path alone is proven only by the device checklist, steps
    1-3 and 7(a) below.
 
-## Real-device dogfood — OWED — to be run by the user
+## Real-device dogfood — PASSED (reported by the user, 2026-10-02)
+
+The user reported on 2026-10-02 that they ran this checklist on the real
+board and every step passed; nothing returned D5 to the user, so U-1's waived
+Android check is closed and slice 03 opened. Per-step tallies, OS and browser
+versions were not supplied to the delivery agent; the table below stays blank
+until they are.
+
 
 Not run by the delivery agent. Run the amended checklist (feature-delta
 "Device checklist, grip and body hold") in the app on the real board, on

@@ -19,6 +19,17 @@ driven by CDP touch events, not W3C `TouchActions` (DDD-12a).
 Step 5 passed, so Option A stands for touch. Step 1 failed the whole-card hold,
 and the user replaced it with a grip and a body hold. See *Amendment 2026-09-29*
 at the end; Decisions 1, 4 and 8 are annotated.
+**Implemented 2026-10-03** (card-pointer-drag DELIVER finalize). All three slices shipped:
+- slice 01, `e92e6dd`..`a9958d2`, in v0.5.0;
+- slice 02, `1bcf72d`..`666e085`;
+- slice 03, `7e51169` and `2850ec2`;
+- then `7045cd3` and the refactor `fc7ce42`.
+
+`FOUNDRY_XTASK_INCLUDE_DOCKER=1 cargo xtask ci` ran 880/880. The touch contingency above
+is met: the slice-02 device checklist was reported passed by the user on 2026-10-02,
+Android included, which closes U-1. The slice-03 device checklist is still owed. The
+shipped inventory is in `brief.md` § "The board card drag session". The decision text
+below is unchanged.
 
 Supersedes, in part, `adr-board-lane-007-pointer-events-lane-drag.md`:
 the phrase "the divergence is deliberate and, for now, permanent", and boundary

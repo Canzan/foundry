@@ -491,75 +491,85 @@ C4Container
   Rel(svc, db, "reposition_issue_with_outbox")
 ```
 
-**C4: Component** (inside `board-dnd.js`). It earns its place because five
-collaborators replace three module variables, and the teardown owner must be
-unambiguous.
+**C4: Component** (inside `board-dnd.js`, as shipped by card-pointer-drag). *Replaced at
+the card-pointer-drag DELIVER finalize (2026-10-03). The card-drag-drop-feedback HTML5
+view and its shipped inventory (`board-dnd.js` sha256 `bfd0f143…`,
+`foundry.f7c36a08.css`) are in git history before `c683a1a` and in
+`docs/evolution/2026-09-14-card-drag-drop-feedback.md`.*
 
 ```mermaid
 C4Component
-  title Component: board-dnd.js after card-drag-drop-feedback
+  title Component: board-dnd.js after card-pointer-drag (shipped)
   Container_Boundary(page, "Board page (browser)") {
-    Component(listen, "Delegated listeners", "document: dragstart, dragover, dragleave, drop, dragend", "Return unless inside #board-columns; resolve the lane at event time")
-    Component(session, "CardDragSession", "object", "Single owner: start, over, drop, end; end() tears down by DOM query")
-    Component(slot, "slotFor(lane, y, card)", "function", "Midpoint rule (was insertBeforeTarget): the one slot computation")
-    Component(feedback, "Drop feedback", "functions", "Lane activation attribute; zero-footprint marker carrying data-before-key")
-    Component(pending, "PendingMove", "object", "POST state + after; reverts by identity at response time")
-    Component(css, "Stylesheet rules", "CSS, tokens only", "Activation outline, marker, :has() placeholder visibility")
+    Component(listen, "Delegated listeners", "document: pointerdown/move/up/cancel; touchstart + touchmove (non-passive); scroll (capture, passive); contextmenu; click (capture); dragstart/dragover/drop", "Return unless the gesture began on an own card in #board-columns; one pointerId at a time")
+    Component(press, "Press", "object", "pointerId, start point, threshold, hold timer; travelled(), lift() opens the session")
+    Component(session, "CardDragSession", "object", "card, Origin, carried/ended/frame/x/y set at construction; lift, follow, track, scrollEdges, landingIn, dropInto, end")
+    Component(resolve, "laneAt(x, y)", "function", "elementFromPoint, ghost not hit-testable")
+    Component(slot, "slotFor + feedback", "functions (kept)", "One slot computation; data-card-drop-target; one zero-footprint marker")
+    Component(edge, "Edge scroller", "edgeStep / edgeScroll, rAF loop", "Board scrollLeft and page scrollTop, 48/14, re-tracks after every step")
+    Component(pending, "dropInto + Origin", "fetch (kept)", "POST state + after; revert by identity")
+    Component(kb, "keyboard.js closeTopLayer arm 3a", "arm", "html[data-card-dragging] -> foundry:cancel-card-drag")
   }
   Container_Ext(app, "foundry-app", "Rust", "POST issues/{n}/state")
-  Rel(listen, session, "delegates to")
-  Rel(session, slot, "computes the slot with")
-  Rel(session, feedback, "shows and clears")
-  Rel(session, pending, "hands off at drop")
+  Rel(listen, press, "opens and advances")
+  Rel(press, session, "lifts into")
+  Rel(session, resolve, "resolves the lane with")
+  Rel(session, slot, "computes the slot and shows feedback with")
+  Rel(session, edge, "steps once a frame")
+  Rel(session, pending, "hands off the landing to")
   Rel(pending, app, "fetch", "x-csrf-token")
-  Rel(feedback, css, "styled by")
+  Rel(kb, listen, "dispatches foundry:cancel-card-drag to")
 ```
 
-**Shipped component inventory.** This was recorded at the card-drag-drop-feedback
-DELIVER finalize (2026-09-14, commit `3ee56fa`). The files at that point were
-`board-dnd.js` sha256 `bfd0f143…` and the stylesheet `foundry.f7c36a08.css`.
-**Everything below shipped, and nothing is deferred.**
+**Shipped component inventory (card-pointer-drag).** This was recorded at the
+card-pointer-drag DELIVER finalize (2026-10-03, tip `fc7ce42`). The files at that point
+were `board-dnd.js` (850 lines, sha256 `5603c19e…`) and `foundry.6b3e4436.css`.
 
-| Design element | Shipped as | Where | Invariants |
+| Design element | Shipped as | Where | Invariants / DDD |
 |---|---|---|---|
-| Delegated listeners | Five `document` listeners (`dragstart`, `dragover`, `drop`, `dragleave`, `dragend`). Each returns unless `boardOf(target)` (`closest('#board-columns')`) holds, then resolves the lane with `closest(LANE)` | `board-dnd.js` `init()` | 1, 4, 7 |
-| `CardDragSession` | `CardDragSession(card)` with `landingIn(lane, y)`, `dropInto(lane, before)` and the idempotent `end()`. The listeners open and advance it, and `endSession()` is the one teardown caller | `board-dnd.js` | 2, 3 |
-| Origin as identity | `Origin(card)`: the card key, origin lane slug, and next and previous keys. `restore()` re-resolves them at response time and skips the revert when the card has left the live board | `board-dnd.js` | 3, 8; DDD-7 |
-| `PendingMove` | **Not a separate object.** It is the `fetch` promise inside `dropInto`, whose non-2xx and `.catch` arms call `Origin.restore()`. The body is built by `moveBody(slug, after)`, byte-identical to the shipped one | `board-dnd.js` | 8 |
-| `slotFor` | `slotFor(lane, y, card)` walks `otherCards(lane, card)`, the single own-slot skip, which `slotMidline` shares. `neighbourAbove` and `neighbourBelow` use `nearestCard`. The hooks are `CARD`, `LANE`, `KEY` and `BEFORE_KEY` | `board-dnd.js` | 5 |
-| Drop feedback | `activate(lane)` writes `data-card-drop-target`. `showMarker` and `keepOneMarkerIn` keep exactly one `[data-card-drop-marker][data-before-key]`, and `slotMidline` places it in the gap | `board-dnd.js` | 3, 5 |
-| Stylesheet rules | `.column[data-card-drop-target]`: `--cz-bg` surface with a 2px inset `--cz-muted` outline. `.column [data-card-drop-marker]`: `--cz-black`, absolute, `pointer-events: none`. The pair `.column > .empty { display: none }` and `.column:not(:has(> .issue-card)) > .empty { display: block }` | `static/css/foundry.f7c36a08.css:373, 391, 409, 413` | 6; D6, D8 |
-| Placeholder source | `<p class="empty">`, rendered in every lane before its cards | `templates/partials/board_columns.html` | 6 |
-| Unchanged by design | `board-live.js`, `board-lane-dnd.js`, `keyboard.js`, `board.html`, `oob/board_columns_oob.html`, and the `/state` handler, service and store | — | DDD-5, DDD-10, DDD-12 |
+| Gesture listeners | **On `document` only:** `pointerdown`, `pointermove`, `pointerup` and `pointercancel`. A non-passive `touchstart` calls `preventDefault()` only on an own card's grip. A non-passive `touchmove` aborts a pending hold past 10 px and is prevented while lifted. A passive capture `scroll` acts only on a pending hold. `contextmenu` is prevented while a hold is arming or a card is lifted. A capture `click` guard. `ownCard()` and `onOwnGrip()` scope everything to `#board-columns` | `board-dnd.js` `init()` | 1, 4; DDD-4, DDD-25, DDD-26 |
+| `Press` | `Press(event, card, threshold)` holds the `pointerId`, start point, latest point, hold timer and, from the lift, its session. `travelled(x, y)` and `lift(x, y)`. One press per page; other pointers are ignored. **The `pointerId` lives on the press, not on the session** | `board-dnd.js` | 2; DDD-9, DDD-26 |
+| Lift rule | Mouse, primary button: `THRESHOLD` 6 anywhere on the card. Touch or pen on the grip: `GRIP_THRESHOLD` 3, no timer. Touch or pen on the body: `HOLD_MS` 500 within `HOLD_TOLERANCE` 10. The hold timer lifts only a still-pending, still-connected press | `board-dnd.js` | 1; DDD-5, DDD-26 |
+| Hold aborts | `abortHold()` runs on a `pointermove` or `touchmove` past 10 px, any `scroll`, or `pointercancel`. Each goes through `endPress()`, which clears the timer and the cue. A release first is a tap that opens the card | `board-dnd.js` | 3; DDD-26 |
+| `CardDragSession` | `CardDragSession(card)` sets `card`, `origin`, `carried`, `ended`, `frame`, `x`, `y`, `grabX` and `grabY` at construction. Methods: `lift`, `follow`, `track`, `scrollEdges`, `landingIn`, `dropInto` and the idempotent `end()`, which is the single teardown owner. It ends by DOM query: lit lanes, marker, ghost, `[data-card-lifted]`, `[data-card-arming]`, `html[data-card-dragging]`, and the rAF frame | `board-dnd.js` | 2, 3; DDD-8 |
+| Point resolver | `laneAt(x, y)`: `elementFromPoint`, then `boardOf` and `closest(LANE)`. `event.target` is never used for the lane during a session | `board-dnd.js` | 4; DDD-3 |
+| Carried ghost | `ghostOf(card, width)`: a stripped clone (no key, id, htmx wiring or `draggable`) with class `.card-drag-ghost`, `[data-card-ghost]`, `aria-hidden`, fixed, `pointer-events: none`, and `GHOST_OFFSET` 12 up-left of the grab point. The origin is marked `[data-card-lifted]` and stays in its slot | `board-dnd.js`; stylesheet `.card-drag-ghost`, `.issue-card[data-card-lifted]` | 3; DDD-17 |
+| Grip | `<span data-card-grip aria-hidden="true"></span>`, the card's last child, identical in `partials/issue_card.html` and `issues.rs::render_issue_card`. The unit test `board_template_and_server_rendered_card_are_identical` holds them equal. CSS: absolute, full height, 48 px, `touch-action: none`, `-webkit-user-drag: none`, a dotted `--cz-line-strong` separator, and a `radial-gradient` dot glyph in `--cz-muted`. The card gets `position: relative`, 56 px right padding and `min-height: 48px` | templates; `issues.rs:731`; stylesheet `[data-card-grip]` | 1; DDD-23, DDD-24 |
+| Arming cue | `[data-card-arming]` while a body hold is pending. `--card-hold-ms` is written once to `<html>` at init. The card goes to `scale(0.96)` and opacity 0.7 over the hold, `ease-in`. The transition sits on that selector only, so clearing it snaps back. Under `prefers-reduced-motion: reduce` there is no transform. `clearArming()` runs on every exit and before the ghost is measured | `board-dnd.js`; stylesheet `.issue-card[data-card-arming]` | 3; DDD-27 |
+| Click guard | One-shot `swallowClick`, armed by a lifted release and reset by the next `pointerdown`. Every click on an own card's grip is consumed too (DDD-28). Capture phase, before htmx and `keyboard.js` | `board-dnd.js` | 3; DDD-6, DDD-28 |
+| Edge scroller | `edgeStep` and `edgeScroll`, with `EDGE_ZONE` 48 and `EDGE_STEP` 14 copied from `board-lane-dnd.js` (DDD-18). `#board-columns.scrollLeft` sideways (never the page) and the page's `scrollTop`, clamped, with edges measured inside the viewport. `scrollEdges()` loops on `requestAnimationFrame` from the last carried point and calls `track` again after any step that moved. It starts only once the card has been carried and stops in `end()` | `board-dnd.js` | 5; DDD-11 |
+| Escape | Arm 3a in `keyboard.js::closeTopLayer()`, directly above the lane-drag arm. It finds `html[data-card-dragging]` and dispatches `foundry:cancel-card-drag`. `cancelDrag()` ends the session through `end()`;
+the card never left its slot, so nothing is restored. It keeps following the pointer, so
+the release still arms the click guard. `board-dnd.js` has no `keydown` listener | `keyboard.js` | 3; DDD-7 |
+| No `keydown` in board modules | check-arch `no-board-keydown`: every `static/js/board-*.js`, found by glob, is scanned for **registrations** (`addEventListener("keydown"`, `.onkeydown =`, `on("keydown"`) after JS comments are stripped. Gold tests include the commented-out case and an anti-vacuity check on `board-lane-dnd.js`'s comment | `xtask/src/check_arch.rs` | BR-4; DDD-22 |
+| Own-card native drag | `dragstart` on an own card is prevented. Cards keep `draggable="true"` | `board-dnd.js` | 1; DDD-2, DDD-19 |
+| Foreign swallow | `dragover` (with `dropEffect "none"`) and `drop` are prevented inside `#board-columns`; outside it, the browser default applies. No card session is native any more, so these listeners never light a lane | `board-dnd.js` | 7; DDD-1 |
+| Kept from card-drag-drop-feedback | `Origin` and `restore()`, `slotFor`, `otherCards`, `nearestCard`, `neighbourAbove` and `neighbourBelow`, `activate`, `showMarker`, `keepOneMarkerIn`, `slotMidline`, `dropInto` and `moveBody`. The move request is byte-identical | `board-dnd.js` | 5, 6, 8; DDD-10 |
+| Unchanged by design | `board-lane-dnd.js`, `board-live.js` (a card it removes mid-drag ends the session as cancelled at release, `isConnected`), `board_columns.html`, the `/state` handler, service and store, and htmx 2.0.4 | — | DDD-8, DDD-18, DDD-20 |
 
-The C4 Component view above shows `start` and `over` as methods of the session, and a
-`PendingMove` object. In the shipped code the listeners do the start and over work, and
-the pending move is `dropInto`'s promise plus `Origin`, as the table records. The
-behaviour and invariants are as designed.
+**Deviations from the design, recorded.**
+- The DESIGN C4 view shows the session owning the `pointerId`. As shipped, `Press` owns it,
+  and also the hold, and creates the session at the lift.
+- CDF's accepted deviation on invariant 7 (a `dragover` off `#board-columns` cleared
+  activation while a session existed) **no longer applies**: no card session is native,
+  so an off-board `dragover` simply returns.
 
-One accepted DELIVER deviation touches invariant 7 (slice-02 delivery notes). While a
-session exists, a `dragover` off `#board-columns` clears activation before it returns, so
-the page header goes dark. Foreign drags off the board are still left to the browser's
-default.
+**Planned but not shipped (deferred):**
+- registering the touch listeners only on board pages (DDD-25 fallback (c)), held until a
+  device shows scroll-start latency;
+- haptic lift feedback (DDD-15);
+- a keyboard card move (D17);
+- `htmx-4-migration` (DDD-20);
+- closing an open lane menu on a grip click (U-4, accepted as-is).
+
+**Proven only on a device, not in CI:** the `scroll` abort and the move aborts each on
+their own, and the lazy-swipe trade-off. The slice-03 device checklist is owed
+(`docs/feature/card-pointer-drag/deliver/slice-03-delivery-notes.md`).
 
 See `adr-board-card-001-replace-proof-drag-session.md`,
 `adr-board-card-002-dragover-activation-and-slot-marker.md` and
-`adr-board-card-003-placeholder-shown-by-css.md` (all accepted 2026-09-13), which build on
+`adr-board-card-003-placeholder-shown-by-css.md` (all accepted 2026-09-13), and
+`adr-board-card-004-pointer-events-card-drag.md` (accepted 2026-09-25, amended
+2026-09-29, implemented 2026-10-03). They build on
 `adr-board-lane-005-overflow-menu-as-layer-arm.md` rule 2 and
-`adr-board-lane-007-pointer-events-lane-drag.md`.
-
-**card-pointer-drag (DESIGN 2026-09-25, ADR-BOARD-CARD-004 accepted).** The
-state diagram, invariants 1-4 and the ubiquitous language above are already
-restated in pointer terms. The C4 Component view and the shipped inventory
-above record the card-drag-drop-feedback build and stay until card-pointer-drag's
-DELIVER finalize replaces them with the shipped pointer build. The designed
-shape, whose full C4 Component is in
-`docs/feature/card-pointer-drag/feature-delta.md` §DESIGN:
-
-- **Only the listener layer changes.** Delegated `document` listeners for `pointerdown/move/up/cancel`, a non-passive `touchmove` guard (active only while lifted), `contextmenu` during a hold, and a capture-phase `click` guard. `CardDragSession`, `Origin`, `slotFor`, activation, the marker, `dropInto` and `moveBody` are kept.
-- **Lift rule:** mouse past 6 px; ~~touch/pen held 350 ms within 10 px~~ touch/pen on the grip past 3 px, or held on the body 500 ms within 10 px (amended 2026-09-29). Cards keep `touch-action: auto`, `user-select: none` and `-webkit-touch-callout: none`. Cards keep `draggable="true"` with own-card `dragstart` prevented; invariant 7's HTML5 swallow is unchanged.
-- **Grip and arming cue (added 2026-09-29).** The device checklist showed that no hold duration tells a resting-thumb swipe from a hold (14 of 30 swipes lifted at 350 ms on an iPhone). Every card, in both card sources, now ends with an empty `[data-card-grip]` strip, 48 px wide, `touch-action: none`, whose `touchstart` one non-passive `document` listener prevents, so iOS never starts its own drag there. The card body lifts after a 500 ms hold, shown by `[data-card-arming]` (scale and dim, dim only under reduced motion). A click on the grip opens nothing. The listeners stay on `document` (invariant 4).
-- **Carried ghost** (fixed clone, `pointer-events: none`); the origin stays dimmed in its slot, so no card moves before the drop. Edge auto-scroll works horizontally on the board (48/14) and vertically on the page, and never changes what the marker addresses.
-- **Escape** reaches a card drag through a new `closeTopLayer()` arm, found by `html[data-card-dragging]` and placed above the lane-drag arm. It dispatches `foundry:cancel-card-drag`, which reverses the CDF note that "`keyboard.js` gains no arm". `check-arch` forbids a `keydown` listener in any `board-*.js`.
-- **Test driver:** trusted W3C Actions (mouse, touch, key) for card drags; synthetic `DragEvent`s for foreign drags only.
-- **Provisional on the real-device checklist** (iOS Safari, Android Chrome) before the touch slice. If WebKit ignores the post-lift `touchmove` guard, the mechanism question returns to the user. *2026-09-29: WebKit honours the guard (iPhone, iOS 26.7), so the mechanism stands. The Android run is still owed.*
+`adr-board-lane-007-pointer-events-lane-drag.md`, which ADR-004 supersedes in part.

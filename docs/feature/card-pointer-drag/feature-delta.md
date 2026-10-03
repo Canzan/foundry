@@ -2010,3 +2010,157 @@ Slice 03 then un-pends #21-#24, #26 and #27 on its own features (they need
 | DESIGN#DDD-22 | check-arch keydown rule is a DoD item | DDD-22 | Specified with nine gold tests including the commented-out case; implemented in DELIVER |
 | DISCUSS#C4 / C8 | CDF-KPI-8 re-scoped; OUT-13/14 amended | n/a | Done in `kpi-contracts.yaml` and `registry.yaml`; OUT-16 registered |
 | DISCUSS#D5 (amended 2026-09-29) | Grip drags at once; body lifts after a 500 ms hold with an arming cue; a grip tap or click opens nothing; every card has a grip | DDD-23..29 | Slice 02 re-authored (16 declarations / 18 examples), slice-03 Givens by the grip, OUT-16 and CPD-KPI-1/3/4 amended, all 25 new-set examples RED for the missing grip or hold |
+
+## Wave: DELIVER
+
+Apex (@nw-platform-architect), DELIVER Phase 7 finalize, 2026-10-03. **Sources:**
+`deliver/roadmap.json`, `deliver/execution-log.json`, `deliver/slice-01..03-delivery-notes.md`
+and `git log c683a1a^..fc7ce42`. This section is pointers. The detail lives in the slice
+notes. Evolution archive: `docs/evolution/2026-10-03-card-pointer-drag.md`.
+
+### [REF] Implementation Summary
+
+There are 9 roadmap steps in 3 phases, one phase per slice, run 01 → 03. Every step is
+COMMIT/PASS, with one commit per step. `des-verify-integrity` exits 0.
+- **Slice 01, mouse parity** (`e92e6dd`, `6b711a2`, `d56f245`, `a9958d2`; in v0.5.0):
+  - the DDD-22 check-arch rule;
+  - the atomic swap of the card drag onto Pointer Events, with the three shipped drivers
+    re-pointed in the same change;
+  - the click guard and the card/lane boundary;
+  - the foreign swallow after a session, and the `pointercancel` revert.
+- **Slice 02, grip and body hold** (`1bcf72d`, `45f8e7a`, `666e085`):
+  - the grip in both card sources;
+  - the grip drag with its `touchstart` claim and click branch;
+  - the 500 ms body hold with the arming cue and its aborts.
+- **Slice 03, carry far and cancel** (`7e51169`, `2850ec2`):
+  - the edge scroller, sideways on the board and vertically on the page;
+  - 03-02, interruptions. It needed **no production change**, and named faults prove its
+    scenarios discriminate.
+- **After the close:** `7045cd3` (harness fidelity, test-only) and `fc7ce42` (L1-L3
+  refactor: the `Press` type, constructor-initialised `CardDragSession`, and
+  `assert_no_move_sent`).
+
+The server protocol is unchanged (D1, DDD-10). The shipped components and what was
+deferred are in `brief.md` § "Shipped component inventory (card-pointer-drag)".
+
+**Open questions at close:**
+- OQ-1 to OQ-16 are resolved (DESIGN DDD-1..29; the amendment).
+- U-1 is closed by the slice-02 dogfood. U-2 and U-3 are unticked in the slice-02 notes.
+  U-4 is accepted.
+- DISTILL U8 (the `isConnected` fault) is an accepted survivor, verified by reading.
+
+### [REF] Files Modified
+
+From the 13 feature code commits, `524737b` (DISTILL) through `fc7ce42`.
+`git diff c683a1a^ fc7ce42` also carries other features' work (keycloak-sso D3a,
+release-version-footer, list-users), so it is not used as this list.
+
+| Path | Change |
+|---|---|
+| `crates/foundry-app/static/js/board-dnd.js` | Event layer rewritten (426 → 850 lines): `Press`, the lift rule, the point resolver, ghost, click guard, touch/scroll/contextmenu guards, edge scroller, own-card `dragstart` pd. `CardDragSession`, `Origin`, `slotFor`, feedback, `dropInto` and `moveBody` kept |
+| `crates/foundry-app/static/js/keyboard.js` | Arm 3a: `html[data-card-dragging]` → `foundry:cancel-card-drag` (+11) |
+| `crates/foundry-app/templates/partials/issue_card.html`, `crates/foundry-app/src/issues.rs` | The grip span in both card sources, plus the unit test `board_template_and_server_rendered_card_are_identical` |
+| `crates/foundry-app/static/css/foundry.f7c36a08.css` → `foundry.6b3e4436.css` | Ghost, lifted dim, grip, card padding and `min-height`, arming cue, reduced motion. Re-hashed in 01-02, 02-01 and 02-03. `f9143163` was release-version-footer's |
+| `crates/foundry-app/templates/base.html`, `crates/foundry-app/src/lib.rs`, `crates/foundry-app/static/VENDOR.md` | Stylesheet name and hash only (D18) |
+| `xtask/src/check_arch.rs` | DDD-22 `no-board-keydown` rule plus gold tests (+308) |
+| `crates/foundry-acceptance/tests/features/card-pointer-drag.feature` | **New**: 35 declarations / 37 examples. DELIVER only removed `@pending` |
+| `crates/foundry-acceptance/src/steps/feature_card_pointer_drag.rs` | **New** step module (DISTILL; strengthened in `7045cd3`, refactored in `fc7ce42`) |
+| `crates/foundry-acceptance/src/support/browser_harness.rs` | The trusted-input kit: W3C Actions, CDP touch, recorder (DISTILL and amendment) |
+| `crates/foundry-acceptance/src/steps/feature_card_drag_drop_feedback.rs`, `feature_board_lane_reorder.rs`, `keyboard_shortcut_bindings.rs` | Driver re-pointing only (re-scoped CDF-KPI-8). Every oracle kept, foreign drags still `DragEvent` |
+| `crates/foundry-acceptance/src/{lib.rs,world.rs}`, `tests/acceptance.rs` | `mod` line, world state, force-link |
+
+**Docs and SSOT**, across the waves: ADR-BOARD-CARD-004 (new); the ADR-BOARD-LANE-007
+status note; `brief.md`; `jobs.yaml`; `journey-card-drag-drop.yaml`; `kpi-contracts.yaml`;
+`outcomes/registry.yaml`. **Changed at this finalize:** this section; the evolution doc;
+the `brief.md` inventory; the ADR-004 status note; the `kpi-contracts.yaml` measured
+values.
+
+### [REF] Scenarios Green
+
+| Scope | Result |
+|---|---|
+| `@us-cpd-01` | 12/12 (102 steps) |
+| `@us-cpd-02` | 16 declarations / 18 examples: 18/18 (151 steps) |
+| `@us-cpd-03` | 7/7 (62 steps) |
+| **`cpd`** | **37/37 scenarios, 315/315 steps**, 0 `@pending` tags. Re-run after `fc7ce42` |
+| Re-driven shipped suites | cdf 54/54 (400), blr 26/26 (141), kb 38/38 (261), us-cts-03 5/5 (36) |
+| Default lane | 654/654 scenarios, 4522/4522 steps (03-02) |
+| All tags, `FOUNDRY_XTASK_INCLUDE_DOCKER=1 cargo xtask ci` | **880/880 scenarios, 6187/6187 steps**, browser lane run, at `2850ec2` (03-02) and again on the final tip `fc7ce42` |
+
+The `.feature` header (line 7) still says every scenario is scaffolded `@pending`. That is
+stale and is not edited here.
+
+### [REF] DoD Check
+
+Against *DISCUSS / [REF] DoD*, plus the DESIGN DoD item DDD-22.
+
+| # | DoD item | Status | Evidence |
+|---|---|---|---|
+| 1 | Every `@us-cpd-*` green; re-driven shipped scenarios green; shipped `.feature` diff empty (KPI 2) | **MET** | `cpd` 37/37. cdf 54/54, blr 26/26, kb 38/38. The only `.feature` change is the new `card-pointer-drag.feature` |
+| 2 | Foreign-drag scenarios green on `DragEvent` (D3) | **MET** | CDF swallow outline and other-tab scenarios inside cdf 54/54. `cpd` #11 (a file straight after a pointer drag), with its discriminating fault in the slice-01 notes |
+| 3 | Real-device dogfood on iOS Safari and Android Chrome recorded per slice (D19); desktop mouse feel recorded in Chrome and Firefox | **PARTLY MET, the rest OWED** | Slice 02: **PASSED, reported by the user 2026-10-02**. Tallies, OS and browser versions are not recorded yet (`slice-02-delivery-notes.md`). Slice 03: **OWED** (`slice-03-delivery-notes.md`). Desktop Chrome and Firefox feel, including the Firefox click guard: **OWED** (slice-01 checklist unticked) |
+| 4 | ADR supersedes ADR-007's divergence (D13); `brief.md` restated in pointer terms; OUT-13/14 amended | **MET** | ADR-BOARD-CARD-004 (Accepted, implemented note 2026-10-03); the ADR-007 status note; brief invariants, state diagram, UL, and now the shipped inventory; `registry.yaml` OUT-13/14 amended, OUT-16 new |
+| 5 | CDF-KPI-8 instrument re-scoped in `kpi-contracts.yaml` (C4) | **MET** | `rescoped:` block, 2026-09-26 |
+| 6 | Stylesheet re-hash per CSS-touching slice; card markup in both sources | **MET** | `438142d2` (01), `7fa13f60` and `6b3e4436` (02). Slice 03 had no CSS change. Both sources carry the grip, held identical by a unit test. check-arch "hashed name = own sha256 prefix" green |
+| 7 | `FOUNDRY_XTASK_INCLUDE_DOCKER=1 cargo xtask ci` green; named-fault mutation ≥80% | **MET** | 880/880 at `2850ec2` and at the final tip `fc7ce42`. 34/39 = 87.2% (*Quality Gates*) |
+| D | DDD-22 check-arch `keydown` rule with gold tests | **MET** | `e92e6dd`; green at every gate |
+
+### [REF] Demo Evidence
+
+**This is a UI feature, so there are no CLI demos.** Each story's elevator-pitch demo is
+a browser scenario. The evidence is those scenarios running green against the real
+release binary, real Postgres and real headless Chrome 151, with trusted input, not
+invented commands:
+
+| Story | Elevator-pitch demo | Green run |
+|---|---|---|
+| US-CPD-01 (mouse parity) | A mouse drag lifts past 6 px, lights the lane, shows the marker and lands there. A click opens the card; a drag never does. Escape puts it back | `FOUNDRY_ACCEPTANCE_TAGS=us-cpd-01` 12/12, plus the re-driven cdf 54/54 |
+| US-CPD-02 (touch and pen) | A thumb on the grip drags at once. A hold on the text arms, then lifts. A swipe scrolls, and a tap opens | `us-cpd-02` 18/18, including #15's real board scroll in Chrome |
+| US-CPD-03 (carry far, never strand) | Held at the edge, the board or page scrolls to the off-screen lane, and the card lands at the marker. A system cancel or an off-lane release leaves nothing behind | `us-cpd-03` 7/7, with the harness holding truly still (`7045cd3`) |
+
+**What the scenarios cannot show, by D19:** real feel, real iOS and Android scroll, and
+the lazy-swipe rate. That is the device dogfood:
+- slice 02: PASSED, reported by the user, with tallies owed;
+- slice 03: owed;
+- the desktop Chrome and Firefox checks: owed.
+
+The checklists are in the slice notes. Stakeholder sign-off is the user's to give.
+
+### [REF] Quality Gates
+
+| Gate | Outcome | Evidence |
+|---|---|---|
+| Phase 3 refactor (L1-L3; L4-L6 none) | Done, behaviour-preserving | `fc7ce42`. `cpd` 37/37, cdf 54/54, blr 26/26, kb 38/38, check-arch and smoke green |
+| Phase 4 adversarial review | **APPROVED, no findings** | `nw-software-crafter-reviewer` |
+| Phase 5 mutation (per-feature, ≥80%) | **34/39 = 87.2%, PASS** | Each distinct named fault counted once, at its latest result. The equivalent clamp is excluded (85.0% if counted). Five survivors are documented in the slice notes. Measured before `fc7ce42` |
+| Phase 6 integrity | `des-verify-integrity` exit 0, 9 steps, 41 events | Mixed-form log: 01-01..02-03 legacy 5-phase, 03-01/03-02 3-phase (`des-config.json` `tdd_phases` moved to [RED, GREEN, COMMIT] on 2026-10-03) |
+| Full CI | **GREEN**, 880/880 | At `2850ec2` (03-02 close) and re-run on the final tip `fc7ce42` after the harness strengthening and refactor: exit 0, 880/880 scenarios, 6187/6187 steps, browser lane run |
+| check-arch / smoke | Green | `no-board-keydown`, hash honesty and S1 included. Smoke needs `CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false` on this host (DISTILL U6) |
+
+### [REF] Pre-requisites for Finalize
+
+1. **Untracked or modified docs must be `git add`ed explicitly:**
+   - `docs/evolution/2026-10-03-card-pointer-drag.md` (new);
+   - this file;
+   - `docs/product/architecture/brief.md`;
+   - `docs/product/architecture/adr-board-card-004-pointer-events-card-drag.md`;
+   - `docs/product/kpi-contracts.yaml`;
+   - `deliver/slice-02-delivery-notes.md` (already modified).
+2. **Push.** Slice 03, `7045cd3` and `fc7ce42` are ahead of `origin/main`. Pushing is
+   the orchestrator's job.
+3. **Session markers and `deliver/.develop-progress.json`** are the orchestrator's.
+   `spike/probe-log.txt` is untracked and is left alone.
+4. **Phase B migration: nothing to migrate.** This feature uses the single
+   `feature-delta.md` layout, with no `design/`, `distill/` or `discuss/` directory and no
+   `design/adrs/`. ADR-004 already lives in `docs/product/architecture/`. The workspace is
+   kept as delivery history.
+5. **Owed by the user:**
+   - the slice-03 device checklist;
+   - the slice-02 tallies, versions and lazy-swipe count;
+   - the desktop Chrome and Firefox feel, including the Firefox click guard;
+   - U-2 and U-3;
+   - the CPD-KPI-7 5-day log.
+6. **Stale text, not edited here:**
+   - the `.feature` header line 7 (`@pending`);
+   - the slice-02 file name `slices/slice-02-touch-press-and-hold.md`, which predates the
+     grip.
