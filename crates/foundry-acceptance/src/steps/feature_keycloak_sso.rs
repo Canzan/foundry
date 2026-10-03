@@ -419,18 +419,31 @@ async fn arrive_without_starting(world: &mut FoundryWorld) {
     record(world, resp).await;
 }
 
+/// The genuine round-trip — the start's sealed challenge cookie carried by hand,
+/// the provider's `/authorize` visited so the identity it mints answers the real
+/// nonce — with exactly one thing wrong: the `state` the arrival answers. Only the
+/// state comparison stands between this arrival and a session.
 #[when("they arrive answering a different challenge")]
 async fn arrive_wrong_state(world: &mut FoundryWorld) {
-    let url = format!(
-        "{}{}?code=c&state=a-challenge-nobody-issued",
-        base(world),
-        CALLBACK_PATH
-    );
-    let resp = world
-        .http
-        .as_ref()
-        .expect("client")
-        .get(&url)
+    let start = world.last_headers.clone().expect("the start response");
+    let challenge =
+        set_cookie_pair(&start, CHALLENGE_COOKIE).expect("start sets the challenge cookie");
+    let authorize = start
+        .get(reqwest::header::LOCATION)
+        .and_then(|v| v.to_str().ok())
+        .expect("start redirect names the provider")
+        .to_string();
+    let http = world.http.clone().expect("client");
+    http.get(&authorize).send().await.expect("authorize");
+
+    let code = format!("code-{}", uuid::Uuid::new_v4());
+    let resp = http
+        .get(format!("{}{}", base(world), CALLBACK_PATH))
+        .query(&[
+            ("code", code.as_str()),
+            ("state", "a-challenge-nobody-issued"),
+        ])
+        .header(reqwest::header::COOKIE, challenge)
         .send()
         .await
         .expect("callback");

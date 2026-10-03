@@ -86,37 +86,37 @@ Feature: Signing in to foundry with a cluster identity
 
   # ------------------------------------------------ US-03 forged and stale arrivals
 
-  @us-03 @error @security @driving_port @real-io @pending
+  @us-03 @error @security @driving_port @real-io
   Scenario: An arrival nobody started is refused
     Given foundry is connected to the cluster identity provider
     When someone arrives claiming to have signed in, having never begun
     Then they are returned to the sign-in page and told nothing more
 
-  @us-03 @error @security @driving_port @real-io @pending
+  @us-03 @error @security @driving_port @real-io
   Scenario: An arrival that does not match the challenge it answers is refused
     Given the operator has begun signing in with their cluster identity
     When they arrive answering a different challenge
     Then they are returned to the sign-in page and told nothing more
 
-  @us-03 @error @security @driving_port @real-io @pending
+  @us-03 @error @security @driving_port @real-io
   Scenario: An identity answering a stale challenge is refused
     Given the operator has begun signing in with their cluster identity
     When the identity provider vouches for them against an earlier challenge
     Then they are returned to the sign-in page and told nothing more
 
-  @us-03 @error @security @driving_port @real-io @pending
+  @us-03 @error @security @driving_port @real-io
   Scenario: An identity signed by an unknown key is refused
     Given the operator has begun signing in with their cluster identity
     When an identity signed by a key the provider does not publish arrives
     Then they are returned to the sign-in page and told nothing more
 
-  @us-03 @error @security @driving_port @real-io @pending
+  @us-03 @error @security @driving_port @real-io
   Scenario: An identity vouched for by a different provider is refused
     Given the operator has begun signing in with their cluster identity
     When an identity naming a different provider arrives
     Then they are returned to the sign-in page and told nothing more
 
-  @us-03 @error @security @driving_port @real-io @pending
+  @us-03 @error @security @driving_port @real-io
   Scenario: An identity that has already expired is refused
     Given the operator has begun signing in with their cluster identity
     When an identity whose validity has already lapsed arrives
