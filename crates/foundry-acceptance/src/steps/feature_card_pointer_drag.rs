@@ -506,6 +506,15 @@ async fn move_requests(client: &fantoccini::Client) -> Vec<browser_harness::Spie
         .collect()
 }
 
+/// No move request has been sent since `world.cpd.moves_before` was taken.
+async fn assert_no_move_sent(world: &FoundryWorld, client: &fantoccini::Client, why: &str) {
+    assert_eq!(
+        move_requests(client).await.len(),
+        world.cpd.moves_before,
+        "{why}"
+    );
+}
+
 async fn settle_requests(client: &fantoccini::Client) {
     let deadline = Instant::now() + BROWSER_WAIT;
     loop {
@@ -1091,11 +1100,12 @@ async fn assert_nothing_left(world: &FoundryWorld) {
         "MISSING_FUNCTIONALITY: a marker is still shown after the drag ended"
     );
     settle_requests(&client).await;
-    assert_eq!(
-        move_requests(&client).await.len(),
-        world.cpd.moves_before,
-        "no move request may be sent when the drag does not land"
-    );
+    assert_no_move_sent(
+        world,
+        &client,
+        "no move request may be sent when the drag does not land",
+    )
+    .await;
 }
 
 async fn assert_back_at_origin(world: &FoundryWorld, key: &str) {
@@ -2188,11 +2198,7 @@ async fn then_dialog_opens(world: &mut FoundryWorld, key: String) {
 async fn then_no_further_request(world: &mut FoundryWorld) {
     let client = browser(world);
     settle_requests(&client).await;
-    assert_eq!(
-        move_requests(&client).await.len(),
-        world.cpd.moves_before,
-        "a click or tap must send no move request"
-    );
+    assert_no_move_sent(world, &client, "a click or tap must send no move request").await;
 }
 
 #[then(regex = r"^a carried (\w+-\d+) has followed the pointer$")]
@@ -2306,11 +2312,12 @@ async fn then_no_carried_no_request(world: &mut FoundryWorld) {
     then_no_carried(world).await;
     let client = browser(world);
     settle_requests(&client).await;
-    assert_eq!(
-        move_requests(&client).await.len(),
-        world.cpd.moves_before,
-        "a lifted card released where it lifted sends no move"
-    );
+    assert_no_move_sent(
+        world,
+        &client,
+        "a lifted card released where it lifted sends no move",
+    )
+    .await;
 }
 
 #[then(regex = r"^(\w+-\d+) is back in its exact slot in ([\w-]+)$")]
@@ -2378,11 +2385,7 @@ async fn then_release_after_cancel(world: &mut FoundryWorld, _label: String) {
         before,
         "a release after Escape must land nothing (D11)"
     );
-    assert_eq!(
-        move_requests(&client).await.len(),
-        world.cpd.moves_before,
-        "a release after Escape sends no move"
-    );
+    assert_no_move_sent(world, &client, "a release after Escape sends no move").await;
     assert_eq!(
         edit_dialog_title(&client).await,
         None,
@@ -2413,11 +2416,7 @@ async fn then_second_escape(world: &mut FoundryWorld) {
         "nor lights a lane"
     );
     assert_eq!(edit_dialog_title(&client).await, None, "nor opens a dialog");
-    assert_eq!(
-        move_requests(&client).await.len(),
-        world.cpd.moves_before,
-        "nor sends a move"
-    );
+    assert_no_move_sent(world, &client, "nor sends a move").await;
 }
 
 #[then(regex = r"^(\w+-\d+) has not lifted and ([\w-]+) now reads ((?:\w+-\d+)(?:, \w+-\d+)*)$")]
@@ -2445,11 +2444,7 @@ async fn then_not_lifted_reads(world: &mut FoundryWorld, key: String, label: Str
 async fn then_no_request_for_it(world: &mut FoundryWorld) {
     let client = browser(world);
     settle_requests(&client).await;
-    assert_eq!(
-        move_requests(&client).await.len(),
-        world.cpd.moves_before,
-        "no move is sent"
-    );
+    assert_no_move_sent(world, &client, "no move is sent").await;
 }
 
 #[then(regex = r"^the same move with the primary button does lift (\w+-\d+)$")]
@@ -2499,11 +2494,7 @@ async fn then_header_moved_no_card(world: &mut FoundryWorld) {
     before.sort();
     now.sort();
     assert_eq!(now, before, "every card stays in its lane, in order");
-    assert_eq!(
-        move_requests(&client).await.len(),
-        world.cpd.moves_before,
-        "no card move is sent"
-    );
+    assert_no_move_sent(world, &client, "no card move is sent").await;
 }
 
 #[then(regex = r"^a card dragged straight afterwards still lifts$")]
@@ -2558,11 +2549,7 @@ async fn then_foreign_nothing(world: &mut FoundryWorld) {
             .expect("board before the file"),
         "MISSING_FUNCTIONALITY: a card moved on a file drop, after a pointer drag (D3)"
     );
-    assert_eq!(
-        move_requests(&client).await.len(),
-        world.cpd.moves_before,
-        "no move is sent"
-    );
+    assert_no_move_sent(world, &client, "no move is sent").await;
 }
 
 #[then(regex = r"^the board still shows Identity Platform in the same tab$")]
@@ -2637,11 +2624,7 @@ async fn then_swipe_nothing(world: &mut FoundryWorld, key: String) {
         Vec::<(String, String)>::new(),
         "no marker shows"
     );
-    assert_eq!(
-        move_requests(&client).await.len(),
-        world.cpd.moves_before,
-        "no move is sent"
-    );
+    assert_no_move_sent(world, &client, "no move is sent").await;
     assert_eq!(
         card_place(&client, &key).await,
         world.cpd.origin,
@@ -2804,11 +2787,7 @@ async fn then_hold_abandoned(world: &mut FoundryWorld, key: String) {
         Vec::<String>::new(),
         "no lane is lit"
     );
-    assert_eq!(
-        move_requests(&client).await.len(),
-        world.cpd.moves_before,
-        "no move is sent"
-    );
+    assert_no_move_sent(world, &client, "no move is sent").await;
     assert_eq!(
         card_place(&client, &key).await,
         world.cpd.origin,
@@ -2928,11 +2907,7 @@ async fn then_grip_press_nothing(world: &mut FoundryWorld, key: String) {
         world.cpd.origin,
         "{key} has not moved"
     );
-    assert_eq!(
-        move_requests(&client).await.len(),
-        world.cpd.moves_before,
-        "no move is sent"
-    );
+    assert_no_move_sent(world, &client, "no move is sent").await;
 }
 
 #[then(regex = r"^a (tap|click) on (\w+-\d+)'s text straight afterwards opens its edit dialog$")]

@@ -290,10 +290,18 @@
   };
 
   // One lifted card drag on this page: the dragged card and where it came from.
-  // It never holds a lane.
+  // It never holds a lane. `carried` turns true at the first move after the
+  // lift, which (`x`, `y`) then records; `frame` is the pending edge-scroll step.
   function CardDragSession(card) {
     this.card = card;
     this.origin = new Origin(card);
+    this.carried = false;
+    this.ended = false;
+    this.frame = 0;
+    this.x = 0;
+    this.y = 0;
+    this.grabX = 0;
+    this.grabY = 0;
   }
 
   // The card a drop into `lane` lands before (null: the end): the slot the live
@@ -360,14 +368,6 @@
   var LIFTED = "data-card-lifted";
   // A touch or pen body hold is pending on this card (DDD-27).
   var ARMING = "data-card-arming";
-
-  // Clear the arming cue from every card, found by query (rule 9's idiom).
-  function clearArming() {
-    var arming = document.querySelectorAll("[" + ARMING + "]");
-    for (var i = 0; i < arming.length; i++) {
-      arming[i].removeAttribute(ARMING);
-    }
-  }
   var GHOST = "data-card-ghost";
   // The ghost sits this far up-left of where the card was grabbed, so the hand
   // (a thumb, on touch) does not hide it.
@@ -379,15 +379,16 @@
     "aria-selected", "style", LIFTED, ARMING
   ];
 
-  // Lift the card: mark the drag in flight, dim the origin in place, and put
-  // the ghost under the pointer at (`x`, `y`), keeping where it was grabbed.
-  // The arming cue is cleared first: the card is measured with its transform,
-  // and a ghost measured mid-cue would be too small (DDD-27).
-  CardDragSession.prototype.lift = function (x, y) {
-    var card = this.card;
-    clearArming();
-    this.carried = false;
-    var rect = card.getBoundingClientRect();
+  // Clear the arming cue from every card, found by query (rule 9's idiom).
+  function clearArming() {
+    var arming = document.querySelectorAll("[" + ARMING + "]");
+    for (var i = 0; i < arming.length; i++) {
+      arming[i].removeAttribute(ARMING);
+    }
+  }
+
+  // The ghost of `card`: a stripped clone, `width` px wide, not yet placed.
+  function ghostOf(card, width) {
     var ghost = card.cloneNode(true);
     for (var i = 0; i < GHOST_STRIPPED.length; i++) {
       ghost.removeAttribute(GHOST_STRIPPED[i]);
@@ -395,14 +396,25 @@
     ghost.className = "card-drag-ghost";
     ghost.setAttribute(GHOST, "");
     ghost.setAttribute("aria-hidden", "true");
-    ghost.style.width = rect.width + "px";
+    ghost.style.width = width + "px";
+    return ghost;
+  }
+
+  // Lift the card: mark the drag in flight, dim the origin in place, and put
+  // the ghost under the pointer at (`x`, `y`), keeping where it was grabbed.
+  // The arming cue is cleared first: the card is measured with its transform,
+  // and a ghost measured mid-cue would be too small (DDD-27).
+  CardDragSession.prototype.lift = function (x, y) {
+    var card = this.card;
+    clearArming();
+    var rect = card.getBoundingClientRect();
+    var ghost = ghostOf(card, rect.width);
     this.grabX = x - rect.left + GHOST_OFFSET;
     this.grabY = y - rect.top + GHOST_OFFSET;
     document.documentElement.setAttribute(DRAGGING, "");
     card.setAttribute(LIFTED, "");
     document.body.appendChild(ghost);
     this.follow(x, y);
-    this.ended = false;
     this.scrollEdges();
   };
 
@@ -540,12 +552,34 @@
     return !!grip && !!ownCard(grip);
   }
 
-  // The distance from (`x0`, `y0`) to (`x`, `y`).
-  function travel(x0, y0, x, y) {
-    var dx = x - x0;
-    var dy = y - y0;
-    return Math.sqrt(dx * dx + dy * dy);
+  // One press on an own card: which pointer, where it went down, how far it
+  // must travel to lift (`threshold`), the latest held point (`x`, `y`), the
+  // pending body-hold timer (`hold`), and — from the lift — its session.
+  function Press(event, card, threshold) {
+    this.pointerId = event.pointerId;
+    this.card = card;
+    this.startX = event.clientX;
+    this.startY = event.clientY;
+    this.x = event.clientX;
+    this.y = event.clientY;
+    this.threshold = threshold;
+    this.hold = null;
+    this.session = null;
+    this.cancelled = false;
   }
+
+  // How far (`x`, `y`) is from where the press went down.
+  Press.prototype.travelled = function (x, y) {
+    var dx = x - this.startX;
+    var dy = y - this.startY;
+    return Math.sqrt(dx * dx + dy * dy);
+  };
+
+  // Lift the pressed card under (`x`, `y`) into a new drag session.
+  Press.prototype.lift = function (x, y) {
+    this.session = new CardDragSession(this.card);
+    this.session.lift(x, y);
+  };
 
   function init() {
     document.documentElement.style.setProperty("--card-hold-ms", HOLD_MS + "ms");
@@ -579,6 +613,19 @@
       return !!press && press.hold !== null;
     }
 
+    // True from the lift until the press ends (cancelled or not).
+    function lifted() {
+      return !!press && !!press.session;
+    }
+
+    // Abort a pending hold: the cue clears, nothing lifts, and the gesture is
+    // the browser's (a scroll).
+    function abortHold() {
+      if (holding()) {
+        endPress();
+      }
+    }
+
     // The hold is up: lift `held` if it is still the press being followed and
     // its card is still on the page; a board replace mid-hold abandons it.
     function liftHeld(held) {
@@ -590,8 +637,7 @@
         endPress();
         return;
       }
-      held.session = new CardDragSession(held.card);
-      held.session.lift(held.x, held.y);
+      held.lift(held.x, held.y);
     }
 
     // Arm a touch or pen press on the card's text: the cue starts and one timer
@@ -606,7 +652,7 @@
     // Cancel a lifted drag but keep following the pointer, so its release is
     // still a lifted release (the click guard) that lands nowhere.
     function cancelDrag() {
-      if (!press || !press.session || press.cancelled) {
+      if (!lifted() || press.cancelled) {
         return;
       }
       press.session.end();
@@ -632,37 +678,18 @@
       // grip, and after a HOLD_MS hold on the body.
       var mouse = event.pointerType === "mouse";
       var body = !mouse && !onOwnGrip(event.target);
-      press = {
-        pointerId: event.pointerId,
-        card: card,
-        startX: event.clientX,
-        startY: event.clientY,
-        x: event.clientX,
-        y: event.clientY,
-        threshold: mouse ? THRESHOLD : GRIP_THRESHOLD,
-        hold: null,
-        session: null,
-        cancelled: false
-      };
+      press = new Press(event, card, mouse ? THRESHOLD : GRIP_THRESHOLD);
       if (body) {
         arm(press);
       }
     });
-
-    // Abort a pending hold: the cue clears, nothing lifts, and the gesture is
-    // the browser's (a scroll).
-    function abortHold() {
-      if (holding()) {
-        endPress();
-      }
-    }
 
     document.addEventListener("pointermove", function (event) {
       if (!press || event.pointerId !== press.pointerId || press.cancelled) {
         return;
       }
       if (holding()) {
-        if (travel(press.startX, press.startY, event.clientX, event.clientY) > HOLD_TOLERANCE) {
+        if (press.travelled(event.clientX, event.clientY) > HOLD_TOLERANCE) {
           abortHold(); // a swipe on the text: the browser scrolls
           return;
         }
@@ -671,11 +698,10 @@
         return;
       }
       if (!press.session) {
-        if (travel(press.startX, press.startY, event.clientX, event.clientY) < press.threshold) {
+        if (press.travelled(event.clientX, event.clientY) < press.threshold) {
           return; // still a click or a tap
         }
-        press.session = new CardDragSession(press.card);
-        press.session.lift(event.clientX, event.clientY);
+        press.lift(event.clientX, event.clientY);
       }
       press.session.follow(event.clientX, event.clientY);
       press.session.track(event.clientX, event.clientY);
@@ -748,12 +774,12 @@
       function (event) {
         if (holding()) {
           var touch = event.touches[0];
-          if (touch && travel(press.startX, press.startY, touch.clientX, touch.clientY) > HOLD_TOLERANCE) {
+          if (touch && press.travelled(touch.clientX, touch.clientY) > HOLD_TOLERANCE) {
             abortHold();
           }
           return;
         }
-        if (press && press.session && !press.cancelled) {
+        if (lifted() && !press.cancelled) {
           event.preventDefault();
         }
       },
@@ -768,7 +794,7 @@
     // No callout or context menu while a hold is arming or a card is lifted
     // (DDD-4): the OS long-press would race the 500 ms hold.
     document.addEventListener("contextmenu", function (event) {
-      if (holding() || (press && press.session)) {
+      if (holding() || lifted()) {
         event.preventDefault();
       }
     });
@@ -781,10 +807,9 @@
     document.addEventListener(
       "touchstart",
       function (event) {
-        if (!onOwnGrip(event.target)) {
-          return;
+        if (onOwnGrip(event.target)) {
+          event.preventDefault();
         }
-        event.preventDefault();
       },
       { passive: false }
     );
