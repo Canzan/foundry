@@ -32,9 +32,7 @@ pub struct FoundryWorld {
     // ---- keycloak-sso: federated sign-in ----
     /// The in-process identity-provider double, alive for the scenario.
     pub kc_issuer: Option<crate::support::oidc_issuer::OidcIssuerDouble>,
-    pub kc_issuer_url: Option<String>,
-    pub kc_provider_configured: bool,
-    pub kc_provider_reachable: bool,
+    /// The scenario asked for a provider address with no credential (US-05).
     pub kc_partial_config: bool,
     pub kc_start_attempted: bool,
     /// (exit code, combined stdout+stderr) of the real `foundry` binary booted
@@ -42,19 +40,22 @@ pub struct FoundryWorld {
     pub kc_startup: Option<(Option<i32>, String)>,
     /// Address the provider will vouch for next.
     pub kc_subject_email: Option<String>,
-    pub kc_account_exists: bool,
-    pub kc_has_workspace: bool,
     /// Authorization code from the most recent completed sign-in, replayed by the
     /// AC-3.5 scenario against the provider's single-use guarantee.
     pub kc_last_code: Option<String>,
+    /// Status of this scenario's sign-in start, once one has been begun.
     pub kc_start_status: Option<StatusCode>,
+    /// The earlier start response: compared by the challenge-uniqueness Then and
+    /// re-presented by the replay When.
     pub kc_first_start_headers: Option<HeaderMap>,
     /// (status, body) per refusal branch, asserted byte-identical.
     pub kc_refusals: Vec<(StatusCode, String)>,
     pub kc_filed_issue: bool,
+    /// Which door the scenario came in through; read by the per-door landing Then.
     pub kc_password_path_used: bool,
     pub kc_claimed_instance: bool,
-    /// keycloak-sso provisioning: the workspace a provisioned newcomer joins.
+    /// The workspace a provisioned newcomer joins (provisioning) or the operator
+    /// belongs to (link-only sign-in).
     pub kc_workspace_id: Option<uuid::Uuid>,
     /// `foundry_session=<value>` from the most recent federated sign-in.
     pub kc_session_cookie: Option<String>,

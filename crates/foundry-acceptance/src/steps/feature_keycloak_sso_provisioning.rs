@@ -16,6 +16,10 @@
 //! "Turned away exactly as a wrong password is" is checked against a REAL
 //! wrong-password answer for an unknown address, byte for byte once the per-request
 //! CSRF token is masked (D7), not just by searching for the refusal copy.
+//!
+//! The round-trip, the password door, the cookie helpers and the protocol
+//! constants are `pub(crate)`: `feature_keycloak_sso` drives the same flow
+//! link-only, so both features exercise one copy of the browser's behaviour.
 
 use crate::support::harness::InProcHarness;
 use crate::support::oidc_issuer::OidcIssuerDouble;
@@ -27,13 +31,15 @@ use reqwest::StatusCode;
 use secrecy::SecretString;
 use std::collections::HashMap;
 
-const START_PATH: &str = "/auth/oidc/start";
-const CALLBACK_PATH: &str = "/auth/oidc/callback";
-const SIGN_IN_PATH: &str = "/sign-in";
+/// DESIGN OD-3 pinned the two OIDC paths. If DELIVER moves them, the Keycloak
+/// client's redirect URI in the homelab repo moves in the same change.
+pub(crate) const START_PATH: &str = "/auth/oidc/start";
+pub(crate) const CALLBACK_PATH: &str = "/auth/oidc/callback";
+pub(crate) const SIGN_IN_PATH: &str = "/sign-in";
 const CLIENT_ID: &str = "foundry";
-const CSRF_COOKIE: &str = "foundry_csrf";
-const SESSION_COOKIE: &str = "foundry_session";
-const CHALLENGE_COOKIE: &str = "foundry_oidc";
+pub(crate) const CSRF_COOKIE: &str = "foundry_csrf";
+pub(crate) const SESSION_COOKIE: &str = "foundry_session";
+pub(crate) const CHALLENGE_COOKIE: &str = "foundry_oidc";
 /// Local-part `nia.newcomer` deliberately differs from the username `nia`, so the
 /// display-name fallback chain's last two links are distinguishable.
 const NEWCOMER_EMAIL: &str = "nia.newcomer@example.test";
@@ -43,14 +49,14 @@ const MEMBER_EMAIL: &str = "pat@example.test";
 const MEMBER_IDP_EMAIL: &str = "Pat@Example.test";
 const MEMBER_PASSWORD: &str = "pat-own-password-long-enough";
 /// An address with no account anywhere — the baseline every refusal is compared to.
-const UNKNOWN_EMAIL: &str = "nobody-at-all@example.test";
+pub(crate) const UNKNOWN_EMAIL: &str = "nobody-at-all@example.test";
 /// The one refusal copy every failed sign-in shows (D7).
 const GENERIC_REFUSAL: &str = "Invalid email or password";
-const TEST_NOW: &str = "2026-01-15T12:00:00Z";
+pub(crate) const TEST_NOW: &str = "2026-01-15T12:00:00Z";
 const ORIGINAL_WORKSPACE_CREATED: &str = "2025-06-01T00:00:00Z";
 const NEWER_WORKSPACE_CREATED: &str = "2025-12-01T00:00:00Z";
 
-fn ts(raw: &str) -> time::OffsetDateTime {
+pub(crate) fn ts(raw: &str) -> time::OffsetDateTime {
     time::OffsetDateTime::parse(raw, &time::format_description::well_known::Rfc3339)
         .expect("timestamp parses")
 }
@@ -103,7 +109,7 @@ pub(crate) fn cookie_value(pair: &str, name: &str) -> String {
 
 /// Mask the per-request CSRF token so two refusals rendered for two different
 /// requests compare byte-for-byte on everything else.
-fn mask_csrf(body: &str) -> String {
+pub(crate) fn mask_csrf(body: &str) -> String {
     const MARK: &str = r#"name="_csrf" value=""#;
     let Some(at) = body.find(MARK) else {
         return body.to_string();
@@ -116,7 +122,8 @@ fn mask_csrf(body: &str) -> String {
     body.replace(token, "<csrf>")
 }
 
-async fn record(world: &mut FoundryWorld, resp: reqwest::Response) {
+/// Keep a response as the scenario's latest answer: status, headers and body.
+pub(crate) async fn record(world: &mut FoundryWorld, resp: reqwest::Response) {
     world.last_status = Some(resp.status());
     world.last_headers = Some(resp.headers().clone());
     world.last_body = Some(resp.text().await.unwrap_or_default());
@@ -124,7 +131,7 @@ async fn record(world: &mut FoundryWorld, resp: reqwest::Response) {
 
 /// One password-door attempt, exactly as a browser makes it: fetch the form for
 /// its CSRF cookie, then post. Returns status, headers and body.
-async fn password_attempt(
+pub(crate) async fn password_attempt(
     world: &FoundryWorld,
     email: &str,
     password: &str,
@@ -152,6 +159,16 @@ async fn password_attempt(
     let status = resp.status();
     let headers = resp.headers().clone();
     (status, headers, resp.text().await.unwrap_or_default())
+}
+
+/// A password-door attempt kept as the scenario's latest answer, with the session
+/// it established (if any) kept as the scenario's session.
+pub(crate) async fn sign_in_with_password(world: &mut FoundryWorld, email: &str, password: &str) {
+    let (status, headers, body) = password_attempt(world, email, password).await;
+    world.kc_session_cookie = set_cookie_pair(&headers, SESSION_COOKIE);
+    world.last_status = Some(status);
+    world.last_headers = Some(headers);
+    world.last_body = Some(body);
 }
 
 /// Wall-clock of one password-door attempt (form fetch included on both arms).
@@ -186,7 +203,6 @@ pub(crate) async fn spawn_foundry(
             Some(insert_workspace(&harness, "Cluster", ORIGINAL_WORKSPACE_CREATED).await);
     }
 
-    world.kc_issuer_url = Some(double.issuer());
     world.kc_issuer = Some(double);
     world.harness = Some(harness);
     world.http = Some(client());
@@ -406,11 +422,8 @@ pub(crate) async fn finish_federated_sign_in(world: &mut FoundryWorld) {
 
 #[when(regex = r#"^the newcomer tries the password form with "([^"]*)"$"#)]
 async fn newcomer_tries_password(world: &mut FoundryWorld, password: String) {
-    let (status, headers, body) = password_attempt(world, &subject_email(world), &password).await;
-    world.kc_session_cookie = set_cookie_pair(&headers, SESSION_COOKIE);
-    world.last_status = Some(status);
-    world.last_headers = Some(headers);
-    world.last_body = Some(body);
+    let email = subject_email(world);
+    sign_in_with_password(world, &email, &password).await;
 }
 
 /// Follow the reset link the forgot-password request emailed, as the person would:

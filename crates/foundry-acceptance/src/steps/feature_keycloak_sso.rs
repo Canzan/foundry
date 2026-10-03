@@ -1,7 +1,8 @@
 //! Step definitions for `keycloak-sso` — signing in to foundry with the cluster
-//! identity (`tests/features/keycloak-sso.feature`; un-pended scenario by scenario in DELIVER).
+//! identity (`tests/features/keycloak-sso.feature`). Every scenario runs against
+//! the shipped code; nothing is simulated above the HTTP boundary.
 //!
-//! Foundry is spawned with `InProcHarness::spawn_with_oidc`, built through the
+//! Foundry is spawned with `InProcHarness::spawn_with_oidc` through the
 //! provisioning module's `spawn_foundry` with NO provision role — link-only, D3
 //! exactly. The sign-in is the real browser round-trip shared with that module:
 //! `/auth/oidc/start`, the double's `/authorize` (which records the nonce), then
@@ -10,17 +11,28 @@
 //! while the harness speaks plain HTTP on loopback.
 //!
 //! The identity provider is `support::oidc_issuer` — an in-process axum double on
-//! `127.0.0.1:0` signing with a FIXED RSA test keypair. Real RS256 crypto, fixture
-//! key material, mirroring the shipped machine-token keypair. Postgres is REAL
-//! (shared testcontainer, per-scenario schema).
+//! `127.0.0.1:0` signing with a FIXED RSA test keypair; each refusal scenario asks
+//! it to mint one specific defect. Postgres is REAL (shared testcontainer,
+//! per-scenario schema): Givens seed accounts at the store boundary, Thens read
+//! sessions and authorship there.
 //!
-//! Reused Givens (cucumber-rs requires globally-unique step text — every step
-//! phrase in this module is scoped to "cluster identity" wording to avoid
-//! colliding with the shipped sign-in and bootstrap modules).
+//! - Refusals (US-02, US-03) are compared byte for byte, CSRF token masked, with a
+//!   REAL wrong-password answer from the password door (D7).
+//! - The landing Then knows three doors — cluster identity and password land on
+//!   `/`, the first operator's bootstrap claim on `/dashboard` — and confirms the
+//!   person by following the redirect with the session it set (US-04).
+//! - The half-configured startup scenario (US-05) launches the shipped `foundry`
+//!   binary as a subprocess and reads its exit code and logs.
+//!
+//! cucumber-rs requires globally-unique step text — every step phrase in this
+//! module is scoped to "cluster identity" wording to avoid colliding with the
+//! shipped sign-in and bootstrap modules.
 
 use crate::steps::feature_keycloak_sso_provisioning::{
     begin_federated_sign_in, client, cookie_value, finish_federated_sign_in, insert_workspace,
-    set_cookie_pair, spawn_foundry,
+    mask_csrf, password_attempt, record, set_cookie_pair, sign_in_with_password, spawn_foundry, ts,
+    CALLBACK_PATH, CHALLENGE_COOKIE, CSRF_COOKIE, SESSION_COOKIE, SIGN_IN_PATH, START_PATH,
+    TEST_NOW, UNKNOWN_EMAIL,
 };
 use crate::support::harness::InProcHarness;
 use crate::support::oidc_issuer::Variant;
@@ -30,17 +42,8 @@ use foundry_app::Clock;
 use reqwest::redirect::Policy;
 use reqwest::StatusCode;
 use secrecy::SecretString;
+use sqlx::PgPool;
 use std::collections::HashMap;
-
-/// DESIGN OD-3 pinned these. If DELIVER moves them, the Keycloak client's redirect
-/// URI in the homelab repo moves in the same change.
-const START_PATH: &str = "/auth/oidc/start";
-const CALLBACK_PATH: &str = "/auth/oidc/callback";
-const SIGN_IN_PATH: &str = "/sign-in";
-
-const TEST_NOW: &str = "2026-01-15T12:00:00Z";
-const CHALLENGE_COOKIE: &str = "foundry_oidc";
-const CSRF_COOKIE: &str = "foundry_csrf";
 
 /// The operator's existing foundry account — the one a cluster identity links to.
 const OPERATOR_EMAIL: &str = "operator@example.test";
@@ -57,20 +60,12 @@ const STRANGER_EMAIL: &str = "stranger@example.test";
 /// Has an account, belongs to no workspace.
 const ORPHAN_EMAIL: &str = "orphan@example.test";
 const ORPHAN_NAME: &str = "Orla Orphan";
-const SESSION_COOKIE: &str = "foundry_session";
-/// An address with no account anywhere — the wrong-password baseline.
-const UNKNOWN_EMAIL: &str = "nobody-at-all@example.test";
 /// The first operator of a fresh instance, claiming it through the bootstrap link.
 const CLAIM_TOKEN: &str = "keycloak-sso-claim-token";
 const CLAIMANT_EMAIL: &str = "first-operator@example.test";
 const CLAIMANT_NAME: &str = "Fen First";
 const CLAIMANT_PASSWORD: &str = "first-operator-password-long";
 const CLAIMANT_WORKSPACE: &str = "Homelab";
-
-fn now() -> time::OffsetDateTime {
-    time::OffsetDateTime::parse(TEST_NOW, &time::format_description::well_known::Rfc3339)
-        .expect("TEST_NOW parses")
-}
 
 /// A client that does NOT follow redirects — every assertion here is about the
 /// redirect itself (where it points, whether it happened at all).
@@ -84,25 +79,50 @@ fn no_redirect_client() -> reqwest::Client {
 
 async fn ensure_harness(world: &mut FoundryWorld) {
     if world.harness.is_none() {
-        world.harness = Some(InProcHarness::spawn(now()).await);
+        world.harness = Some(InProcHarness::spawn(ts(TEST_NOW)).await);
     }
     if world.http.is_none() {
         world.http = Some(no_redirect_client());
     }
 }
 
-fn base(world: &FoundryWorld) -> String {
-    world
-        .harness
-        .as_ref()
-        .expect("harness spawned by a Given")
-        .base_url()
+fn harness(world: &FoundryWorld) -> &InProcHarness {
+    world.harness.as_ref().expect("harness spawned by a Given")
 }
 
-async fn record(world: &mut FoundryWorld, resp: reqwest::Response) {
-    world.last_status = Some(resp.status());
-    world.last_headers = Some(resp.headers().clone());
-    world.last_body = Some(resp.text().await.unwrap_or_default());
+fn base(world: &FoundryWorld) -> String {
+    harness(world).base_url()
+}
+
+/// The scenario's schema, read and seeded at the store boundary.
+fn pool(world: &FoundryWorld) -> &PgPool {
+    harness(world).app.state.store.pool()
+}
+
+/// The provider will vouch for `email` next. A no-op when no provider is connected.
+fn vouch_for(world: &FoundryWorld, email: &str, confirmed: bool) {
+    if let Some(d) = world.kc_issuer.as_ref() {
+        d.will_vouch_for(email, confirmed);
+    }
+}
+
+/// The provider will mint `variant` next. A no-op when no provider is connected.
+fn mint_next(world: &FoundryWorld, variant: Variant) {
+    if let Some(d) = world.kc_issuer.as_ref() {
+        d.will_mint(variant);
+    }
+}
+
+/// The CSRF cookie pair minted for `session`, exactly as a browser receives it
+/// when it opens a page with that session.
+async fn csrf_for_session(http: &reqwest::Client, base: &str, session: &str) -> String {
+    let page = http
+        .get(format!("{base}{SIGN_IN_PATH}"))
+        .header(reqwest::header::COOKIE, session)
+        .send()
+        .await
+        .expect("csrf for the session");
+    set_cookie_pair(page.headers(), CSRF_COOKIE).expect("csrf cookie")
 }
 
 // ------------------------------------------------------------------ Givens
@@ -118,14 +138,12 @@ async fn connect_provider(world: &mut FoundryWorld) {
 async fn ensure_connected(world: &mut FoundryWorld) {
     if world.harness.is_none() {
         spawn_foundry(world, None, false).await;
-        world.kc_provider_configured = true;
     }
 }
 
 #[given("foundry is not connected to any cluster identity provider")]
 async fn no_provider(world: &mut FoundryWorld) {
     ensure_harness(world).await;
-    world.kc_provider_configured = false;
 }
 
 #[given("foundry is given a provider address but no credential for it")]
@@ -135,13 +153,16 @@ async fn half_configured(world: &mut FoundryWorld) {
 
 #[given(regex = r"^the operator has a foundry account for a confirmed address$")]
 async fn account_confirmed(world: &mut FoundryWorld) {
+    signing_in_as(world, OPERATOR_EMAIL, true).await;
+}
+
+/// An instance in use — connected, the operator's workspace and account seeded —
+/// with the provider set to vouch for `email` next.
+async fn signing_in_as(world: &mut FoundryWorld, email: &str, confirmed: bool) {
     ensure_connected(world).await;
     seed_operator_account(world).await;
-    if let Some(d) = world.kc_issuer.as_ref() {
-        d.will_vouch_for(OPERATOR_EMAIL, true);
-    }
-    world.kc_subject_email = Some(OPERATOR_EMAIL.to_string());
-    world.kc_account_exists = true;
+    vouch_for(world, email, confirmed);
+    world.kc_subject_email = Some(email.to_string());
 }
 
 /// A real account with a password and exactly one `member` membership. Idempotent:
@@ -150,25 +171,20 @@ async fn seed_operator_account(world: &mut FoundryWorld) {
     if world.kc_workspace_id.is_some() {
         return;
     }
-    let harness = world.harness.as_ref().expect("harness");
-    let workspace_id =
-        insert_workspace(harness, OPERATOR_WORKSPACE, OPERATOR_WORKSPACE_CREATED).await;
+    let workspace_id = insert_workspace(
+        harness(world),
+        OPERATOR_WORKSPACE,
+        OPERATOR_WORKSPACE_CREATED,
+    )
+    .await;
     seed_account(world, OPERATOR_EMAIL, OPERATOR_NAME).await;
-    let pool = world
-        .harness
-        .as_ref()
-        .expect("harness")
-        .app
-        .state
-        .store
-        .pool();
     sqlx::query(
         "INSERT INTO workspace_memberships (workspace_id, user_id, role) \
               SELECT $1, id, 'member' FROM users WHERE email_lower = $2",
     )
     .bind(workspace_id)
     .bind(OPERATOR_EMAIL)
-    .execute(pool)
+    .execute(pool(world))
     .await
     .expect("seed the operator's membership");
     world.kc_workspace_id = Some(workspace_id);
@@ -176,14 +192,6 @@ async fn seed_operator_account(world: &mut FoundryWorld) {
 
 /// A real account with a password and NO workspace membership.
 async fn seed_account(world: &FoundryWorld, email: &str, name: &str) {
-    let pool = world
-        .harness
-        .as_ref()
-        .expect("harness")
-        .app
-        .state
-        .store
-        .pool();
     let hash =
         foundry_auth::hash_password(&SecretString::new(OPERATOR_PASSWORD.to_string().into()))
             .await
@@ -197,7 +205,7 @@ async fn seed_account(world: &FoundryWorld, email: &str, name: &str) {
     .bind(email)
     .bind(name)
     .bind(&hash)
-    .execute(pool)
+    .execute(pool(world))
     .await
     .expect("seed an account");
 }
@@ -206,16 +214,7 @@ async fn seed_account(world: &FoundryWorld, email: &str, name: &str) {
 async fn operator_id(world: &FoundryWorld) -> uuid::Uuid {
     let (id,): (uuid::Uuid,) = sqlx::query_as("SELECT id FROM users WHERE email_lower = $1")
         .bind(OPERATOR_EMAIL)
-        .fetch_one(
-            world
-                .harness
-                .as_ref()
-                .expect("harness")
-                .app
-                .state
-                .store
-                .pool(),
-        )
+        .fetch_one(pool(world))
         .await
         .expect("the operator's account");
     id
@@ -225,43 +224,21 @@ async fn operator_id(world: &FoundryWorld) -> uuid::Uuid {
 /// refusal here is the link-only gate, not the unclaimed-instance guard.
 #[given("a person known to the identity provider has no foundry account")]
 async fn no_account(world: &mut FoundryWorld) {
-    ensure_connected(world).await;
-    seed_operator_account(world).await;
-    let email = STRANGER_EMAIL.to_string();
-    if let Some(d) = world.kc_issuer.as_ref() {
-        d.will_vouch_for(&email, true);
-    }
-    world.kc_subject_email = Some(email);
-    world.kc_account_exists = false;
+    signing_in_as(world, STRANGER_EMAIL, true).await;
 }
 
 #[given("the operator has a foundry account for an address the provider has not confirmed")]
 async fn account_unconfirmed(world: &mut FoundryWorld) {
-    ensure_connected(world).await;
-    seed_operator_account(world).await;
-    let email = OPERATOR_EMAIL.to_string();
-    if let Some(d) = world.kc_issuer.as_ref() {
-        d.will_vouch_for(&email, false);
-        d.will_mint(Variant::UnconfirmedEmail);
-    }
-    world.kc_subject_email = Some(email);
-    world.kc_account_exists = true;
+    signing_in_as(world, OPERATOR_EMAIL, false).await;
+    mint_next(world, Variant::UnconfirmedEmail);
 }
 
 #[given("a person has a foundry account but belongs to no workspace")]
 async fn account_without_workspace(world: &mut FoundryWorld) {
-    ensure_connected(world).await;
     // A workspace exists — the person simply is not in it — so failing closed is
     // observable rather than the only thing an empty instance could do.
-    seed_operator_account(world).await;
+    signing_in_as(world, ORPHAN_EMAIL, true).await;
     seed_account(world, ORPHAN_EMAIL, ORPHAN_NAME).await;
-    let email = ORPHAN_EMAIL.to_string();
-    if let Some(d) = world.kc_issuer.as_ref() {
-        d.will_vouch_for(&email, true);
-    }
-    world.kc_subject_email = Some(email);
-    world.kc_account_exists = true;
-    world.kc_has_workspace = false;
 }
 
 #[given("the identity provider cannot be reached")]
@@ -271,7 +248,6 @@ async fn provider_unreachable(world: &mut FoundryWorld) {
     if let Some(d) = world.kc_issuer.as_ref() {
         d.shutdown();
     }
-    world.kc_provider_reachable = false;
 }
 
 #[given("the operator has begun signing in with their cluster identity")]
@@ -344,14 +320,7 @@ async fn file_issue_as_federated(world: &mut FoundryWorld) {
         .expect("the cluster-identity sign-in established a session");
     let base = base(world);
     let http = client();
-    // The CSRF token is minted for this session exactly as a browser receives it.
-    let page = http
-        .get(format!("{base}{SIGN_IN_PATH}"))
-        .header(reqwest::header::COOKIE, session.clone())
-        .send()
-        .await
-        .expect("csrf for the session");
-    let csrf = set_cookie_pair(page.headers(), CSRF_COOKIE).expect("csrf cookie");
+    let csrf = csrf_for_session(&http, &base, &session).await;
     let form = HashMap::from([
         ("title", FILED_TITLE.to_string()),
         ("_csrf", cookie_value(&csrf, CSRF_COOKIE)),
@@ -375,14 +344,7 @@ async fn file_issue_as_federated(world: &mut FoundryWorld) {
 async fn seed_operator_project(world: &FoundryWorld) {
     let workspace_id = world.kc_workspace_id.expect("the operator's workspace");
     let user_id = operator_id(world).await;
-    let pool = world
-        .harness
-        .as_ref()
-        .expect("harness")
-        .app
-        .state
-        .store
-        .pool();
+    let pool = pool(world);
     let team_id = uuid::Uuid::now_v7();
     sqlx::query("INSERT INTO teams (id, workspace_id, name, slug) VALUES ($1, $2, 'Ops', $3)")
         .bind(team_id)
@@ -474,33 +436,27 @@ async fn arrive_wrong_state(world: &mut FoundryWorld) {
 
 #[when("the identity provider vouches for them against an earlier challenge")]
 async fn provider_stale_nonce(world: &mut FoundryWorld) {
-    if let Some(d) = world.kc_issuer.as_ref() {
-        d.will_mint(Variant::StaleNonce);
-    }
-    complete_with_provider(world).await;
+    complete_minting(world, Variant::StaleNonce).await;
 }
 
 #[when("an identity signed by a key the provider does not publish arrives")]
 async fn identity_unpublished_key(world: &mut FoundryWorld) {
-    if let Some(d) = world.kc_issuer.as_ref() {
-        d.will_mint(Variant::UnpublishedKey);
-    }
-    complete_with_provider(world).await;
+    complete_minting(world, Variant::UnpublishedKey).await;
 }
 
 #[when("an identity naming a different provider arrives")]
 async fn identity_foreign_issuer(world: &mut FoundryWorld) {
-    if let Some(d) = world.kc_issuer.as_ref() {
-        d.will_mint(Variant::ForeignIssuer);
-    }
-    complete_with_provider(world).await;
+    complete_minting(world, Variant::ForeignIssuer).await;
 }
 
 #[when("an identity whose validity has already lapsed arrives")]
 async fn identity_lapsed(world: &mut FoundryWorld) {
-    if let Some(d) = world.kc_issuer.as_ref() {
-        d.will_mint(Variant::Lapsed);
-    }
+    complete_minting(world, Variant::Lapsed).await;
+}
+
+/// The round-trip, with the provider minting `variant` for it.
+async fn complete_minting(world: &mut FoundryWorld, variant: Variant) {
+    mint_next(world, variant);
     complete_with_provider(world).await;
 }
 
@@ -556,9 +512,7 @@ async fn every_refusal(world: &mut FoundryWorld) {
         Variant::Lapsed,
         Variant::StaleNonce,
     ] {
-        if let Some(d) = world.kc_issuer.as_ref() {
-            d.will_mint(variant);
-        }
+        mint_next(world, variant);
         begun_signin(world).await;
         complete_with_provider(world).await;
         seen.push(last_answer(world));
@@ -567,15 +521,11 @@ async fn every_refusal(world: &mut FoundryWorld) {
     // A well-formed identity that foundry itself turns away: no account (refused
     // before any provisioning, D3), and an account in no workspace (refused where
     // the session would be established — a separately rendered branch).
-    if let Some(d) = world.kc_issuer.as_ref() {
-        d.will_mint(Variant::Valid);
-    }
+    mint_next(world, Variant::Valid);
     seed_account(world, ORPHAN_EMAIL, ORPHAN_NAME).await;
     for email in [STRANGER_EMAIL, ORPHAN_EMAIL] {
         begun_signin(world).await;
-        if let Some(d) = world.kc_issuer.as_ref() {
-            d.will_vouch_for(email, true);
-        }
+        vouch_for(world, email, true);
         complete_with_provider(world).await;
         seen.push(last_answer(world));
     }
@@ -600,9 +550,7 @@ fn last_answer(world: &FoundryWorld) -> (StatusCode, String) {
 #[when("they sign in with their foundry password")]
 async fn password_sign_in(world: &mut FoundryWorld) {
     world.kc_password_path_used = true;
-    let resp = password_door(world, OPERATOR_EMAIL, OPERATOR_PASSWORD).await;
-    world.kc_session_cookie = set_cookie_pair(resp.headers(), SESSION_COOKIE);
-    record(world, resp).await;
+    sign_in_with_password(world, OPERATOR_EMAIL, OPERATOR_PASSWORD).await;
 }
 
 /// The real claim: a bootstrap token minted at the store boundary (as the startup
@@ -610,7 +558,7 @@ async fn password_sign_in(world: &mut FoundryWorld) {
 #[when("the first operator claims the instance")]
 async fn claim_instance(world: &mut FoundryWorld) {
     world.kc_claimed_instance = true;
-    let harness = world.harness.as_ref().expect("harness");
+    let harness = harness(world);
     let expires_at = harness.fake_clock.now() + time::Duration::minutes(30);
     harness
         .app
@@ -661,13 +609,7 @@ async fn switch_doors(world: &mut FoundryWorld) {
 async fn sign_out(world: &FoundryWorld, session: &str) {
     let base = base(world);
     let http = client();
-    let page = http
-        .get(format!("{base}{SIGN_IN_PATH}"))
-        .header(reqwest::header::COOKIE, session)
-        .send()
-        .await
-        .expect("csrf for the session");
-    let csrf = set_cookie_pair(page.headers(), CSRF_COOKIE).expect("csrf cookie");
+    let csrf = csrf_for_session(&http, &base, session).await;
     let form = HashMap::from([("_csrf", cookie_value(&csrf, CSRF_COOKIE))]);
     let resp = http
         .post(format!("{base}/sign-out"))
@@ -698,16 +640,7 @@ async fn session_user_id(world: &FoundryWorld, session: &str) -> Option<uuid::Uu
           WHERE s.id = $1",
     )
     .bind(id)
-    .fetch_optional(
-        world
-            .harness
-            .as_ref()
-            .expect("harness")
-            .app
-            .state
-            .store
-            .pool(),
-    )
+    .fetch_optional(pool(world))
     .await
     .expect("read the session's user");
     found.map(|(id,)| id)
@@ -983,16 +916,7 @@ async fn issue_authored_by_them(world: &mut FoundryWorld) {
     let authors: Vec<(uuid::Uuid,)> =
         sqlx::query_as("SELECT author_id FROM issues WHERE title = $1")
             .bind(FILED_TITLE)
-            .fetch_all(
-                world
-                    .harness
-                    .as_ref()
-                    .expect("harness")
-                    .app
-                    .state
-                    .store
-                    .pool(),
-            )
+            .fetch_all(pool(world))
             .await
             .expect("read the filed issue");
     assert_eq!(
@@ -1048,66 +972,18 @@ async fn refused_uniformly(world: &mut FoundryWorld) {
 
 /// A real wrong-password attempt at the password door, made as a browser makes it.
 async fn wrong_password_refusal(world: &FoundryWorld) -> (StatusCode, String) {
-    let resp = password_door(world, UNKNOWN_EMAIL, "a-wrong-password-long-enough").await;
-    let status = resp.status();
-    (status, resp.text().await.unwrap_or_default())
-}
-
-/// The password door as a browser uses it: open `GET /sign-in` (which mints the
-/// CSRF cookie), then submit the form with it.
-async fn password_door(world: &FoundryWorld, email: &str, password: &str) -> reqwest::Response {
-    let base = base(world);
-    let http = client();
-    let form_page = http
-        .get(format!("{base}{SIGN_IN_PATH}"))
-        .send()
-        .await
-        .expect("sign-in page");
-    let csrf = set_cookie_pair(form_page.headers(), CSRF_COOKIE).expect("csrf cookie");
-    let form = HashMap::from([
-        ("email", email.to_string()),
-        ("password", password.to_string()),
-        ("_csrf", cookie_value(&csrf, CSRF_COOKIE)),
-    ]);
-    http.post(format!("{base}{SIGN_IN_PATH}"))
-        .header(reqwest::header::COOKIE, csrf)
-        .form(&form)
-        .send()
-        .await
-        .expect("password sign-in")
-}
-
-/// Mask the per-request CSRF token so two refusals rendered for two requests
-/// compare byte-for-byte on everything else.
-fn mask_csrf(body: &str) -> String {
-    const MARK: &str = r#"name="_csrf" value=""#;
-    let Some(at) = body.find(MARK) else {
-        return body.to_string();
-    };
-    let rest = &body[at + MARK.len()..];
-    let token = &rest[..rest.find('"').unwrap_or(0)];
-    if token.is_empty() {
-        return body.to_string();
-    }
-    body.replace(token, "<csrf>")
+    let (status, _, body) =
+        password_attempt(world, UNKNOWN_EMAIL, "a-wrong-password-long-enough").await;
+    (status, body)
 }
 
 #[then("no foundry account has been created for them")]
 async fn no_account_created(world: &mut FoundryWorld) {
     let email = world.kc_subject_email.clone().expect("a subject email");
-    let pool = world
-        .harness
-        .as_ref()
-        .expect("harness")
-        .app
-        .state
-        .store
-        .pool()
-        .clone();
     let found: Option<(uuid::Uuid,)> =
         sqlx::query_as("SELECT id FROM users WHERE email_lower = $1")
             .bind(email.to_lowercase())
-            .fetch_optional(&pool)
+            .fetch_optional(pool(world))
             .await
             .expect("users lookup");
     assert!(
