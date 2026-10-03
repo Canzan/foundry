@@ -362,7 +362,7 @@ Feature: Card drag on any pointer
   # hold's timing out of these scenarios; #25 is the one body hold.
   # ========================================================================
 
-  @us-cpd-03 @needs-browser @pending @mobile @driving_port @real-io @kpi
+  @us-cpd-03 @needs-browser @mobile @driving_port @real-io @kpi
   Scenario: Holding a carried card at the board's edge scrolls to an off-screen lane
     Given Homelab Ops has eight lanes and is open on a phone
     And Priya has lifted OPS-3 by its grip with a touch pointer
@@ -371,7 +371,7 @@ Feature: Card drag on any pointer
     And OPS-3 landed exactly where the marker showed just before she let go
     And a reload shows Done as OPS-9, OPS-3
 
-  @us-cpd-03 @needs-browser @pending @mobile @edge
+  @us-cpd-03 @needs-browser @mobile @edge
   Scenario: Auto-scroll stops at the board's end
     Given Homelab Ops has eight lanes and is open on a phone
     And Priya has lifted OPS-3 by its grip with a touch pointer
@@ -380,7 +380,7 @@ Feature: Card drag on any pointer
     Then the board scrolls no further and the page has not scrolled sideways
     And a marker still shows in the lane under her finger
 
-  @us-cpd-03 @needs-browser @pending @mobile @kpi
+  @us-cpd-03 @needs-browser @mobile @kpi
   Scenario: Holding a carried card near the bottom reaches the end of a long lane
     Given Identity Platform's Backlog runs on from AUTH-43 through AUTH-60, twenty cards in all
     And the Identity Platform board is open on a phone
@@ -416,7 +416,7 @@ Feature: Card drag on any pointer
     And no lane is lit, no marker shows, no carried card remains and no move request is sent
     And no edit dialog opens
 
-  @us-cpd-03 @needs-browser @pending
+  @us-cpd-03 @needs-browser
   Scenario: A mouse drag in a narrow window reaches an off-screen lane too
     Given Homelab Ops has eight lanes and is open in a narrow window at the desk
     And Priya has lifted OPS-3 with the mouse

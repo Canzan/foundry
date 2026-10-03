@@ -47,6 +47,13 @@
 // release after a lift arms a one-shot click guard so the drag never opens the
 // card; the next press resets it (DDD-6).
 //
+// Edge auto-scroll (DDD-11, AC-3.1-3.4): while a carried card is held within
+// EDGE_ZONE of the board's side edge, `#board-columns` scrolls EDGE_STEP a
+// frame toward it, clamped to its extent; near the viewport's top or bottom
+// the page scrolls. It runs from the last carried point, so a still finger
+// keeps it going, and after every step the lane and marker are resolved again
+// from that point. It stops in `end()`, on every exit.
+//
 // Cards keep `draggable="true"` (issue-status-move), so the browser would start
 // its OWN drag of them and take the pointer away (`pointercancel`, spike Q1):
 // that `dragstart` is cancelled (DDD-19). HTML5 drag-and-drop stays only to
@@ -395,6 +402,8 @@
     card.setAttribute(LIFTED, "");
     document.body.appendChild(ghost);
     this.follow(x, y);
+    this.ended = false;
+    this.scrollEdges();
   };
 
   // Carry the ghost to the pointer at (`x`, `y`). Found by query, like every
@@ -414,10 +423,65 @@
     return boardOf(under) ? under.closest(LANE) : null;
   }
 
+  // How close to an edge a carried card must be held before the view scrolls
+  // under it, and by how much per step (the lane drag's constants,
+  // board-lane-dnd.js; copied, not shared, DDD-18).
+  var EDGE_ZONE = 48;
+  var EDGE_STEP = 14;
+
+  // One step of `scroller`'s `axis` ("scrollLeft" or "scrollTop") away from the
+  // nearer edge when `at` is within EDGE_ZONE of `low` or `high`, clamped to
+  // [0, `max`]. True when it scrolled.
+  function edgeStep(scroller, axis, at, low, high, max) {
+    var was = scroller[axis];
+    if (at > high - EDGE_ZONE) {
+      scroller[axis] = Math.min(max, was + EDGE_STEP);
+    } else if (at < low + EDGE_ZONE) {
+      scroller[axis] = Math.max(0, was - EDGE_STEP);
+    }
+    return scroller[axis] !== was;
+  }
+
+  // Scroll what a card held at (`x`, `y`) is near the edge of: the board
+  // sideways (never the page, AC-3.2) and the page up or down (DDD-11). The
+  // edges are measured inside the viewport, where the point can still be read
+  // (`elementFromPoint` is null past it, spike Q4). True when anything moved.
+  function edgeScroll(x, y) {
+    var moved = false;
+    var board = document.getElementById("board-columns");
+    if (board) {
+      var rect = board.getBoundingClientRect();
+      moved = edgeStep(board, "scrollLeft", x, Math.max(rect.left, 0),
+        Math.min(rect.right, window.innerWidth), board.scrollWidth - board.clientWidth);
+    }
+    var page = document.scrollingElement || document.documentElement;
+    return edgeStep(page, "scrollTop", y, 0, window.innerHeight,
+      page.scrollHeight - page.clientHeight) || moved;
+  }
+
+  // While the session lasts, step the edge scroll once a frame from the last
+  // point the card was carried to: a still finger sends no `pointermove`, so
+  // after every step the lane and marker are resolved again from that point.
+  // Auto-scroll changes what is visible, never what the marker addresses.
+  CardDragSession.prototype.scrollEdges = function () {
+    var session = this;
+    session.frame = requestAnimationFrame(function () {
+      if (session.ended) {
+        return;
+      }
+      if (session.carried && edgeScroll(session.x, session.y)) {
+        session.track(session.x, session.y);
+      }
+      session.scrollEdges();
+    });
+  };
+
   // Light the lane under (`x`, `y`) and mark the slot it points at; over no
   // lane, nothing is lit or marked.
   CardDragSession.prototype.track = function (x, y) {
     this.carried = true;
+    this.x = x;
+    this.y = y;
     var lane = laneAt(x, y);
     activate(lane);
     showMarker(lane, lane ? slotFor(lane, y, this.card) : null, this.card);
@@ -428,7 +492,13 @@
   // stored handle. Every activated lane goes dark, every marker and ghost is
   // removed, and nothing is marked lifted or in flight (ADR-BOARD-CARD-002
   // rules 4 and 9) — at a release before the move is sent, and at a cancel.
+  // The edge scroller stops here, so no scroll outlives the session.
   CardDragSession.prototype.end = function () {
+    this.ended = true;
+    if (this.frame) {
+      cancelAnimationFrame(this.frame);
+      this.frame = 0;
+    }
     clearArming();
     activate(null);
     showMarker(null, null, null);
