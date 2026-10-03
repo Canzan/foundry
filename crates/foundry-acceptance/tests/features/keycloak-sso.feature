@@ -62,7 +62,7 @@ Feature: Signing in to foundry with a cluster identity
 
   # ------------------------------------------------- US-02 who is allowed through
 
-  @us-02 @error @security @driving_port @real-io @pending
+  @us-02 @error @security @driving_port @real-io
   Scenario: An identity with no foundry account is turned away
     Given foundry is connected to the cluster identity provider
     And a person known to the identity provider has no foundry account
@@ -70,14 +70,14 @@ Feature: Signing in to foundry with a cluster identity
     Then they are returned to the sign-in page and told nothing more
     And no foundry account has been created for them
 
-  @us-02 @error @security @driving_port @real-io @pending
+  @us-02 @error @security @driving_port @real-io
   Scenario: An unconfirmed address is turned away even when it matches an account
     Given foundry is connected to the cluster identity provider
     And the operator has a foundry account for an address the provider has not confirmed
     When they authenticate with the identity provider
     Then they are returned to the sign-in page and told nothing more
 
-  @us-02 @error @security @driving_port @real-io @pending
+  @us-02 @error @security @driving_port @real-io
   Scenario: A person who belongs to no workspace is turned away
     Given foundry is connected to the cluster identity provider
     And a person has a foundry account but belongs to no workspace

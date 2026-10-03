@@ -51,6 +51,14 @@ const OPERATOR_WORKSPACE_CREATED: &str = "2025-06-01T00:00:00Z";
 const TEAM_SLUG: &str = "ops";
 const PROJECT_SLUG: &str = "homelab";
 const FILED_TITLE: &str = "Filed through a cluster identity";
+/// Known to the provider, unknown to foundry.
+const STRANGER_EMAIL: &str = "stranger@example.test";
+/// Has an account, belongs to no workspace.
+const ORPHAN_EMAIL: &str = "orphan@example.test";
+const ORPHAN_NAME: &str = "Orla Orphan";
+const SESSION_COOKIE: &str = "foundry_session";
+/// An address with no account anywhere — the wrong-password baseline.
+const UNKNOWN_EMAIL: &str = "nobody-at-all@example.test";
 
 fn now() -> time::OffsetDateTime {
     time::OffsetDateTime::parse(TEST_NOW, &time::format_description::well_known::Rfc3339)
@@ -138,23 +146,15 @@ async fn seed_operator_account(world: &mut FoundryWorld) {
     let harness = world.harness.as_ref().expect("harness");
     let workspace_id =
         insert_workspace(harness, OPERATOR_WORKSPACE, OPERATOR_WORKSPACE_CREATED).await;
-    let pool = harness.app.state.store.pool();
-    let hash =
-        foundry_auth::hash_password(&SecretString::new(OPERATOR_PASSWORD.to_string().into()))
-            .await
-            .expect("hash the operator's password");
-    sqlx::query(
-        "INSERT INTO users (id, email_lower, email_display, display_name, password_hash) \
-              VALUES ($1, $2, $3, $4, $5)",
-    )
-    .bind(uuid::Uuid::now_v7())
-    .bind(OPERATOR_EMAIL)
-    .bind(OPERATOR_EMAIL)
-    .bind(OPERATOR_NAME)
-    .bind(&hash)
-    .execute(pool)
-    .await
-    .expect("seed the operator");
+    seed_account(world, OPERATOR_EMAIL, OPERATOR_NAME).await;
+    let pool = world
+        .harness
+        .as_ref()
+        .expect("harness")
+        .app
+        .state
+        .store
+        .pool();
     sqlx::query(
         "INSERT INTO workspace_memberships (workspace_id, user_id, role) \
               SELECT $1, id, 'member' FROM users WHERE email_lower = $2",
@@ -165,6 +165,34 @@ async fn seed_operator_account(world: &mut FoundryWorld) {
     .await
     .expect("seed the operator's membership");
     world.kc_workspace_id = Some(workspace_id);
+}
+
+/// A real account with a password and NO workspace membership.
+async fn seed_account(world: &FoundryWorld, email: &str, name: &str) {
+    let pool = world
+        .harness
+        .as_ref()
+        .expect("harness")
+        .app
+        .state
+        .store
+        .pool();
+    let hash =
+        foundry_auth::hash_password(&SecretString::new(OPERATOR_PASSWORD.to_string().into()))
+            .await
+            .expect("hash a password");
+    sqlx::query(
+        "INSERT INTO users (id, email_lower, email_display, display_name, password_hash) \
+              VALUES ($1, $2, $3, $4, $5)",
+    )
+    .bind(uuid::Uuid::now_v7())
+    .bind(email)
+    .bind(email)
+    .bind(name)
+    .bind(&hash)
+    .execute(pool)
+    .await
+    .expect("seed an account");
 }
 
 /// The operator's user id, read at the store boundary.
@@ -186,9 +214,13 @@ async fn operator_id(world: &FoundryWorld) -> uuid::Uuid {
     id
 }
 
+/// The instance is in use — the operator's workspace and account exist — so a
+/// refusal here is the link-only gate, not the unclaimed-instance guard.
 #[given("a person known to the identity provider has no foundry account")]
 async fn no_account(world: &mut FoundryWorld) {
-    let email = "stranger@example.test".to_string();
+    ensure_connected(world).await;
+    seed_operator_account(world).await;
+    let email = STRANGER_EMAIL.to_string();
     if let Some(d) = world.kc_issuer.as_ref() {
         d.will_vouch_for(&email, true);
     }
@@ -198,7 +230,9 @@ async fn no_account(world: &mut FoundryWorld) {
 
 #[given("the operator has a foundry account for an address the provider has not confirmed")]
 async fn account_unconfirmed(world: &mut FoundryWorld) {
-    let email = "operator@example.test".to_string();
+    ensure_connected(world).await;
+    seed_operator_account(world).await;
+    let email = OPERATOR_EMAIL.to_string();
     if let Some(d) = world.kc_issuer.as_ref() {
         d.will_vouch_for(&email, false);
         d.will_mint(Variant::UnconfirmedEmail);
@@ -209,7 +243,12 @@ async fn account_unconfirmed(world: &mut FoundryWorld) {
 
 #[given("a person has a foundry account but belongs to no workspace")]
 async fn account_without_workspace(world: &mut FoundryWorld) {
-    let email = "orphan@example.test".to_string();
+    ensure_connected(world).await;
+    // A workspace exists — the person simply is not in it — so failing closed is
+    // observable rather than the only thing an empty instance could do.
+    seed_operator_account(world).await;
+    seed_account(world, ORPHAN_EMAIL, ORPHAN_NAME).await;
+    let email = ORPHAN_EMAIL.to_string();
     if let Some(d) = world.kc_issuer.as_ref() {
         d.will_vouch_for(&email, true);
     }
@@ -254,8 +293,13 @@ async fn choose_cluster_identity(world: &mut FoundryWorld) {
     start_sign_in(world).await;
 }
 
+/// Authenticating is the whole round-trip: when no sign-in has been begun in this
+/// scenario, it begins one first.
 #[when("they authenticate with the identity provider")]
 async fn complete_with_provider(world: &mut FoundryWorld) {
+    if world.kc_start_status.is_none() {
+        start_sign_in(world).await;
+    }
     finish_federated_sign_in(world).await;
 }
 
@@ -648,18 +692,64 @@ async fn refused_uniformly(world: &mut FoundryWorld) {
         StatusCode::UNAUTHORIZED,
         "expected the generic refusal; got {status}"
     );
-    let body = world.last_body.clone().unwrap_or_default();
-    assert!(
-        !body.to_lowercase().contains("no such account")
-            && !body.to_lowercase().contains("not found"),
-        "the refusal names why it refused — that is an account-existence oracle"
-    );
-    let set_cookie = world
+    let session = world
         .last_headers
         .as_ref()
-        .map(|h| h.get_all(reqwest::header::SET_COOKIE).iter().count())
-        .unwrap_or(0);
-    let _ = set_cookie;
+        .and_then(|h| set_cookie_pair(h, SESSION_COOKIE));
+    assert!(session.is_none(), "a refusal must not establish a session");
+    let body = world.last_body.clone().unwrap_or_default();
+    // D7: byte-identical (CSRF token aside) to a real wrong-password refusal.
+    let (baseline_status, baseline_body) = wrong_password_refusal(world).await;
+    assert_eq!(
+        status, baseline_status,
+        "the refusal's status differs from a wrong password's"
+    );
+    assert_eq!(
+        mask_csrf(&body),
+        mask_csrf(&baseline_body),
+        "the refusal is distinguishable from a wrong password's — an account-existence oracle"
+    );
+}
+
+/// A real wrong-password attempt at the password door, made as a browser makes it.
+async fn wrong_password_refusal(world: &FoundryWorld) -> (StatusCode, String) {
+    let base = base(world);
+    let http = client();
+    let form_page = http
+        .get(format!("{base}{SIGN_IN_PATH}"))
+        .send()
+        .await
+        .expect("sign-in page");
+    let csrf = set_cookie_pair(form_page.headers(), CSRF_COOKIE).expect("csrf cookie");
+    let form = HashMap::from([
+        ("email", UNKNOWN_EMAIL.to_string()),
+        ("password", "a-wrong-password-long-enough".to_string()),
+        ("_csrf", cookie_value(&csrf, CSRF_COOKIE)),
+    ]);
+    let resp = http
+        .post(format!("{base}{SIGN_IN_PATH}"))
+        .header(reqwest::header::COOKIE, csrf)
+        .form(&form)
+        .send()
+        .await
+        .expect("password sign-in");
+    let status = resp.status();
+    (status, resp.text().await.unwrap_or_default())
+}
+
+/// Mask the per-request CSRF token so two refusals rendered for two requests
+/// compare byte-for-byte on everything else.
+fn mask_csrf(body: &str) -> String {
+    const MARK: &str = r#"name="_csrf" value=""#;
+    let Some(at) = body.find(MARK) else {
+        return body.to_string();
+    };
+    let rest = &body[at + MARK.len()..];
+    let token = &rest[..rest.find('"').unwrap_or(0)];
+    if token.is_empty() {
+        return body.to_string();
+    }
+    body.replace(token, "<csrf>")
 }
 
 #[then("no foundry account has been created for them")]
