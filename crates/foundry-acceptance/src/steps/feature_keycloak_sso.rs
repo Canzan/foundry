@@ -707,7 +707,87 @@ async fn ask_when_unconfigured(world: &mut FoundryWorld) {
 
 #[when("foundry starts")]
 async fn foundry_starts(world: &mut FoundryWorld) {
+    assert!(
+        world.kc_partial_config,
+        "the scenario did not half-configure foundry"
+    );
     world.kc_start_attempted = true;
+    world.kc_startup = Some(boot_half_configured().await);
+}
+
+/// Shape-only OIDC settings: three of the four, never contacted (ADR-OIDC-003
+/// validates shape at boot; discovery is lazy).
+const HALF_CONFIGURED_OIDC: [(&str, &str); 3] = [
+    ("OIDC_ISSUER_URL", "http://127.0.0.1:1/realms/homelab"),
+    ("OIDC_CLIENT_ID", "foundry"),
+    ("OIDC_REDIRECT_URL", "http://127.0.0.1:1/auth/oidc/callback"),
+];
+/// The credential the half-configured boot withholds.
+const MISSING_CREDENTIAL: &str = "OIDC_CLIENT_SECRET";
+const BOOT_SESSION_SECRET: &str = "keycloak-sso-boot-session-secret-at-least-32-bytes";
+const BOOT_MACHINE_TOKEN_PUBLIC_KEY: &str = "-----BEGIN PUBLIC KEY-----\\nMCowBQYDK2VwAyEAwtFPs8Jcuncc+E7dXqG/oolI3P6Hamrpd8zVKPvRmg0=\\n-----END PUBLIC KEY-----";
+/// A refusing boot exits in well under a second; one still running past this
+/// started anyway.
+const BOOT_BUDGET: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Launch the shipped `foundry` binary (the same subprocess shape the other
+/// refuse-to-start scenarios use) against a fresh migrated schema, so the boot
+/// gets past the store and reaches the OIDC check with the secret withheld.
+async fn boot_half_configured() -> (Option<i32>, String) {
+    use std::process::Stdio;
+    use tokio::process::Command;
+
+    let (schema, pool, url) = crate::support::harness::fresh_schema_pool_with_url().await;
+    pool.close().await;
+
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin("foundry"));
+    for inherited in [
+        "OIDC_ISSUER_URL",
+        "OIDC_CLIENT_ID",
+        MISSING_CREDENTIAL,
+        "OIDC_REDIRECT_URL",
+        "FOUNDRY_OIDC_PROVISION_ROLE",
+    ] {
+        cmd.env_remove(inherited);
+    }
+    cmd.envs(HALF_CONFIGURED_OIDC)
+        .env("DATABASE_URL", &url)
+        .env("FOUNDRY_DB_SCHEMA", &schema)
+        .env("FOUNDRY_SKIP_MIGRATIONS", "1")
+        .env("FOUNDRY_HOST", "127.0.0.1")
+        .env("FOUNDRY_PORT", "0")
+        .env("METRICS_HOST", "127.0.0.1")
+        .env("METRICS_PORT", "0")
+        .env("SESSION_SECRET", BOOT_SESSION_SECRET)
+        .env("SESSION_COOKIE_SECURE", "false")
+        .env("MACHINE_TOKEN_PUBLIC_KEYS", BOOT_MACHINE_TOKEN_PUBLIC_KEY)
+        .env("RUST_LOG", "info,foundry=info,sqlx=warn")
+        .env("RUST_LOG_FORMAT", "pretty")
+        .env("NO_COLOR", "1")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+
+    let child = cmd.spawn().expect("spawn foundry");
+    match tokio::time::timeout(BOOT_BUDGET, child.wait_with_output()).await {
+        Ok(output) => {
+            let output = output.expect("collect foundry output");
+            let text = format!(
+                "{}{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            (output.status.code(), text)
+        }
+        Err(_) => (
+            None,
+            format!(
+                "foundry was still running {}s after boot",
+                BOOT_BUDGET.as_secs()
+            ),
+        ),
+    }
 }
 
 // ------------------------------------------------------------------- Thens
@@ -1103,5 +1183,17 @@ async fn refuses_to_start(world: &mut FoundryWorld) {
         "the scenario did not half-configure foundry"
     );
     assert!(world.kc_start_attempted, "foundry was never started");
-    panic!("startup refusal on partial OIDC config is not yet implemented — DELIVER adds it");
+    let (code, output) = world.kc_startup.as_ref().expect("foundry was booted");
+    assert!(
+        code.is_some_and(|c| c != 0),
+        "foundry started with a half-configured provider (exit {code:?}):\n{output}"
+    );
+    assert!(
+        output.contains("health.startup.refused") && output.contains("oidc_config"),
+        "foundry exited, but not through the OIDC configuration refusal:\n{output}"
+    );
+    assert!(
+        output.contains(MISSING_CREDENTIAL),
+        "the startup refusal does not name the missing credential {MISSING_CREDENTIAL}:\n{output}"
+    );
 }

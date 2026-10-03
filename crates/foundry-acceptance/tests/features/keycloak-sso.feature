@@ -172,20 +172,20 @@ Feature: Signing in to foundry with a cluster identity
 
   # --------------------------------------------- US-05 running without a provider
 
-  @us-05 @driving_port @real-io @pending
+  @us-05 @driving_port @real-io
   Scenario: With no provider configured foundry serves as it always did
     Given foundry is not connected to any cluster identity provider
     When a visitor opens the sign-in page
     Then they are not offered a way to sign in with a cluster identity
     And foundry reports itself healthy and ready
 
-  @us-05 @error @driving_port @real-io @pending
+  @us-05 @error @driving_port @real-io
   Scenario: Asking for cluster identity when none is configured is refused
     Given foundry is not connected to any cluster identity provider
     When someone asks to sign in with a cluster identity
     Then they are returned to the sign-in page and told nothing more
 
-  @us-05 @error @pending
+  @us-05 @error
   Scenario: A half-configured provider stops foundry from starting
     Given foundry is given a provider address but no credential for it
     When foundry starts

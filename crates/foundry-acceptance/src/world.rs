@@ -37,6 +37,9 @@ pub struct FoundryWorld {
     pub kc_provider_reachable: bool,
     pub kc_partial_config: bool,
     pub kc_start_attempted: bool,
+    /// (exit code, combined stdout+stderr) of the real `foundry` binary booted
+    /// half-configured; `None` exit = it was still running when the budget ran out.
+    pub kc_startup: Option<(Option<i32>, String)>,
     /// Address the provider will vouch for next.
     pub kc_subject_email: Option<String>,
     pub kc_account_exists: bool,
