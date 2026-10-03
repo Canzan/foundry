@@ -29,7 +29,7 @@ Feature: Signing in to foundry with a cluster identity
 
   # ---------------------------------------------------------------- US-01 arrival
 
-  @us-01 @walking_skeleton @driving_port @real-io @pending
+  @us-01 @walking_skeleton @driving_port @real-io
   Scenario: The operator signs in with their cluster identity and reaches their board
     Given foundry is connected to the cluster identity provider
     And the operator has a foundry account for a confirmed address
@@ -37,25 +37,25 @@ Feature: Signing in to foundry with a cluster identity
     And they authenticate with the identity provider
     Then they arrive at their board signed in as themselves
 
-  @us-01 @driving_port @real-io @pending
+  @us-01 @driving_port @real-io
   Scenario: The sign-in page offers the cluster identity when it is available
     Given foundry is connected to the cluster identity provider
     When a visitor opens the sign-in page
     Then they are offered a way to sign in with their cluster identity
 
-  @us-01 @driving_port @real-io @pending
+  @us-01 @driving_port @real-io
   Scenario: Each sign-in attempt carries a fresh single-use challenge
     Given foundry is connected to the cluster identity provider
     When the operator begins signing in with their cluster identity twice
     Then each attempt carries a different challenge
 
-  @us-01 @driving_port @real-io @pending
+  @us-01 @driving_port @real-io
   Scenario: A cluster identity grants exactly what a password grants
     Given the operator has signed in with their cluster identity
     When they file an issue
     Then the issue is recorded as authored by them
 
-  @us-01 @real-io @pending
+  @us-01 @real-io
   Scenario: The challenge is discarded once the sign-in finishes
     Given the operator has signed in with their cluster identity
     Then no challenge remains held by their browser

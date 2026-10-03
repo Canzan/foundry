@@ -55,7 +55,7 @@ fn ts(raw: &str) -> time::OffsetDateTime {
         .expect("timestamp parses")
 }
 
-fn client() -> reqwest::Client {
+pub(crate) fn client() -> reqwest::Client {
     reqwest::Client::builder()
         .redirect(Policy::none())
         .cookie_store(false)
@@ -85,7 +85,7 @@ fn subject_email(world: &FoundryWorld) -> String {
 }
 
 /// `name=value` of the first `Set-Cookie` for `name`, or `None`.
-fn set_cookie_pair(headers: &HeaderMap, name: &str) -> Option<String> {
+pub(crate) fn set_cookie_pair(headers: &HeaderMap, name: &str) -> Option<String> {
     let prefix = format!("{name}=");
     headers
         .get_all(reqwest::header::SET_COOKIE)
@@ -97,7 +97,7 @@ fn set_cookie_pair(headers: &HeaderMap, name: &str) -> Option<String> {
 }
 
 /// The value half of a `name=value` pair from [`set_cookie_pair`].
-fn cookie_value(pair: &str, name: &str) -> String {
+pub(crate) fn cookie_value(pair: &str, name: &str) -> String {
     pair.trim_start_matches(&format!("{name}=")).to_string()
 }
 
@@ -164,7 +164,7 @@ async fn timed_password_attempt_ms(world: &FoundryWorld, email: &str) -> u64 {
 /// Start the provider double, then foundry pointed at it. When `seed_workspace` is
 /// set, seed the instance's ORIGINAL workspace — the one a provisioned newcomer
 /// joins; otherwise the instance is unclaimed.
-async fn spawn_foundry(
+pub(crate) async fn spawn_foundry(
     world: &mut FoundryWorld,
     provision_role: Option<String>,
     seed_workspace: bool,
@@ -194,7 +194,11 @@ async fn spawn_foundry(
 
 /// Seed a workspace created at `created_at`; creation order decides which one is
 /// the instance's ORIGINAL workspace.
-async fn insert_workspace(harness: &InProcHarness, name: &str, created_at: &str) -> uuid::Uuid {
+pub(crate) async fn insert_workspace(
+    harness: &InProcHarness,
+    name: &str,
+    created_at: &str,
+) -> uuid::Uuid {
     let workspace_id = uuid::Uuid::now_v7();
     sqlx::query("INSERT INTO workspaces (id, name, created_at) VALUES ($1, $2, $3)")
         .bind(workspace_id)
@@ -340,27 +344,42 @@ async fn newcomer_already_provisioned(world: &mut FoundryWorld) {
 /// The full browser round-trip, minus the browser.
 #[when(regex = r"^(?:the newcomer|the member) signs in through the identity provider$")]
 async fn signs_in_through_provider(world: &mut FoundryWorld) {
+    begin_federated_sign_in(world).await;
+    finish_federated_sign_in(world).await;
+}
+
+/// The first leg: ask foundry to start a federated sign-in. The start response is
+/// recorded, so its redirect and challenge cookie are what the second leg answers.
+pub(crate) async fn begin_federated_sign_in(world: &mut FoundryWorld) {
     let base = harness(world).base_url();
     let http = world.http.clone().expect("client");
-
     let start = http
         .get(format!("{base}{START_PATH}"))
         .send()
         .await
         .expect("start");
+    record(world, start).await;
+}
+
+/// The second leg: visit the provider's `/authorize` named by the recorded start
+/// redirect, then answer foundry's callback with that redirect's `state` and the
+/// sealed challenge cookie the start response set.
+pub(crate) async fn finish_federated_sign_in(world: &mut FoundryWorld) {
+    let base = harness(world).base_url();
+    let http = world.http.clone().expect("client");
     assert_eq!(
-        start.status(),
-        StatusCode::FOUND,
+        world.last_status,
+        Some(StatusCode::FOUND),
         "foundry did not hand off to the identity provider"
     );
+    let start = world.last_headers.clone().expect("the start response");
     let authorize = start
-        .headers()
         .get(reqwest::header::LOCATION)
         .and_then(|v| v.to_str().ok())
         .expect("start redirect names the provider")
         .to_string();
-    let challenge = set_cookie_pair(start.headers(), CHALLENGE_COOKIE)
-        .expect("start sets the challenge cookie");
+    let challenge =
+        set_cookie_pair(&start, CHALLENGE_COOKIE).expect("start sets the challenge cookie");
     let state = reqwest::Url::parse(&authorize)
         .expect("authorize url parses")
         .query_pairs()
