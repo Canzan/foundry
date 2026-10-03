@@ -7,6 +7,66 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 
 ## [Unreleased]
 
+## [v0.6.0] - 2026-10-03
+
+Card drag on phones and tablets (card-pointer-drag slices 02 and 03, which
+completes the feature), opt-in Keycloak role provisioning, a per-workspace
+`list-users`, and a fail-closed `backup-verify`. `git log v0.5.0..v0.6.0` is
+the full list.
+
+### Added
+
+- **Cards drag on touch and pen.** Every card carries a grip. A touch or pen
+  press on the grip lifts the card once it has travelled 3 px, with no wait and
+  no page scroll; a tap on the grip opens nothing. A press on the card's text
+  is a hold: the card visibly arms (it eases to 96% scale and 70% opacity over
+  the 500 ms hold, dim-only under `prefers-reduced-motion`) and then lifts. A
+  swipe that starts on the text still scrolls the page or the board, and a tap
+  still opens the card. Once lifted, touch carries the card exactly as the
+  mouse does: the lane lights, the marker shows the landing slot, and the drop
+  sends the same move request. Cards gain a 48 px minimum height so the grip is
+  easy to hit on one-line cards. Stylesheet content-hash rotated `f9143163` →
+  `7fa13f60` (the grip) → `6b3e4436` (the arming cue).
+- **Carried cards scroll the board and the page at the edges.** Holding a
+  carried card within 48 px of the board's side edge scrolls the board towards
+  the off-screen lanes, 14 px per frame, stopping at the board's end; holding
+  it near the top or bottom of the window scrolls the page, so a long lane's
+  end is reachable on a phone. The marker and the landing slot are recomputed
+  after every scroll step. This works for mouse, touch and pen.
+- **Opt-in provisioning of Keycloak realm-role holders.** Set
+  `FOUNDRY_OIDC_PROVISION_ROLE` to a realm role name. A verified identity with
+  no Foundry account whose ID token carries that role (exact, case-sensitive,
+  realm roles only) gets a password-less `member` account in the instance's
+  original workspace on first sign-in. It is never made an admin. Unset or
+  blank keeps the previous link-only behaviour. A missing role, an unconfirmed
+  address or provisioning switched off all return the same generic refusal as
+  a wrong password. Password-less members can set a password through
+  forgot-password.
+- **`foundry doctor list-users --workspace <id|name>`** lists one workspace's
+  members, each with a `workspace-role: admin|member` line. The selector is
+  the same as `export-workspace`'s: an id, or an exact case-insensitive name.
+  It exits 2 when no workspace matches and 3 when the database is unreachable.
+
+### Changed
+
+- **Interruptions leave nothing behind on touch.** When the system takes the
+  pointer from a carried card (a notification shade, a second gesture), the
+  card goes back to its exact slot and nothing is sent. A hold the system
+  interrupts before the lift leaves no arming cue, and a release off every lane
+  changes nothing.
+
+### Migration notes
+
+- **`0016_nullable_password_hash`**: `ALTER TABLE users ALTER COLUMN
+  password_hash DROP NOT NULL`. This is a catalog-only change with no backfill,
+  so it runs instantly at any size. It is safe for rolling deploys: v0.5.0
+  never writes a NULL hash. It becomes **one-way** once role provisioning
+  creates a password-less account, because v0.5.0 cannot read a NULL hash and
+  `NOT NULL` cannot be restored while one exists. Rolling back after that is a
+  forward migration: delete those accounts or give them passwords first. If
+  `FOUNDRY_OIDC_PROVISION_ROLE` stays unset, no NULL row is ever written and a
+  rollback to v0.5.0 stays possible.
+
 ### Fixed
 
 - **`foundry doctor backup-verify` fails closed.** It used to print
