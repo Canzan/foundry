@@ -412,9 +412,22 @@ async fn seed_operator_project(world: &FoundryWorld) {
     crate::support::harness::seed_lanes_for_project(pool, project_id).await;
 }
 
+/// A forged arrival that would succeed in every other respect: a real operator
+/// with a confirmed address and a workspace exists, and the provider will vouch
+/// for that operator for the presented code. The code answers an authorization
+/// request begun at the provider directly — never through foundry — so the
+/// identity it yields carries no nonce, exactly what a challenge synthesised
+/// from the arrival itself would expect. Only the missing challenge stands
+/// between this arrival and a session.
 #[when("someone arrives claiming to have signed in, having never begun")]
 async fn arrive_without_starting(world: &mut FoundryWorld) {
     ensure_harness(world).await;
+    seed_operator_account(world).await;
+    world
+        .kc_issuer
+        .as_ref()
+        .expect("the provider is connected")
+        .will_vouch_for(OPERATOR_EMAIL, true);
     let url = format!(
         "{}{}?code=fabricated&state=fabricated",
         base(world),
