@@ -150,21 +150,21 @@ Feature: Signing in to foundry with a cluster identity
 
   # ------------------------------------------------------- US-04 the door that stays
 
-  @us-04 @driving_port @real-io @pending
+  @us-04 @driving_port @real-io
   Scenario: The password door still opens while cluster identity is available
     Given foundry is connected to the cluster identity provider
     And the operator has a foundry account for a confirmed address
     When they sign in with their foundry password
     Then they arrive at their board signed in as themselves
 
-  @us-04 @driving_port @real-io @pending
+  @us-04 @driving_port @real-io
   Scenario: A fresh instance can still be claimed with the provider unreachable
     Given foundry is connected to the cluster identity provider
     And the identity provider cannot be reached
     When the first operator claims the instance
     Then they arrive at their board signed in as themselves
 
-  @us-04 @driving_port @real-io @pending
+  @us-04 @driving_port @real-io
   Scenario: Either door leads to the same person
     Given the operator has signed in with their cluster identity
     When they sign out and sign in again with their foundry password

@@ -1,5 +1,5 @@
 //! Step definitions for `keycloak-sso` — signing in to foundry with the cluster
-//! identity (`tests/features/keycloak-sso.feature`, 23 scenarios, all `@pending`).
+//! identity (`tests/features/keycloak-sso.feature`; un-pended scenario by scenario in DELIVER).
 //!
 //! Foundry is spawned with `InProcHarness::spawn_with_oidc`, built through the
 //! provisioning module's `spawn_foundry` with NO provision role — link-only, D3
@@ -26,6 +26,7 @@ use crate::support::harness::InProcHarness;
 use crate::support::oidc_issuer::Variant;
 use crate::world::FoundryWorld;
 use cucumber::{given, then, when};
+use foundry_app::Clock;
 use reqwest::redirect::Policy;
 use reqwest::StatusCode;
 use secrecy::SecretString;
@@ -59,6 +60,12 @@ const ORPHAN_NAME: &str = "Orla Orphan";
 const SESSION_COOKIE: &str = "foundry_session";
 /// An address with no account anywhere — the wrong-password baseline.
 const UNKNOWN_EMAIL: &str = "nobody-at-all@example.test";
+/// The first operator of a fresh instance, claiming it through the bootstrap link.
+const CLAIM_TOKEN: &str = "keycloak-sso-claim-token";
+const CLAIMANT_EMAIL: &str = "first-operator@example.test";
+const CLAIMANT_NAME: &str = "Fen First";
+const CLAIMANT_PASSWORD: &str = "first-operator-password-long";
+const CLAIMANT_WORKSPACE: &str = "Homelab";
 
 fn now() -> time::OffsetDateTime {
     time::OffsetDateTime::parse(TEST_NOW, &time::format_description::well_known::Rfc3339)
@@ -580,16 +587,117 @@ fn last_answer(world: &FoundryWorld) -> (StatusCode, String) {
 #[when("they sign in with their foundry password")]
 async fn password_sign_in(world: &mut FoundryWorld) {
     world.kc_password_path_used = true;
+    let resp = password_door(world, OPERATOR_EMAIL, OPERATOR_PASSWORD).await;
+    world.kc_session_cookie = set_cookie_pair(resp.headers(), SESSION_COOKIE);
+    record(world, resp).await;
 }
 
+/// The real claim: a bootstrap token minted at the store boundary (as the startup
+/// hook mints one), then the claim form posted to `/bootstrap`, signed out.
 #[when("the first operator claims the instance")]
 async fn claim_instance(world: &mut FoundryWorld) {
     world.kc_claimed_instance = true;
+    let harness = world.harness.as_ref().expect("harness");
+    let expires_at = harness.fake_clock.now() + time::Duration::minutes(30);
+    harness
+        .app
+        .state
+        .store
+        .insert_bootstrap_token(uuid::Uuid::now_v7(), &sha256(CLAIM_TOKEN), expires_at)
+        .await
+        .expect("mint a bootstrap token");
+    let form = HashMap::from([
+        ("email", CLAIMANT_EMAIL),
+        ("password", CLAIMANT_PASSWORD),
+        ("display_name", CLAIMANT_NAME),
+        ("workspace_name", CLAIMANT_WORKSPACE),
+    ]);
+    let resp = client()
+        .post(format!("{}/bootstrap?token={CLAIM_TOKEN}", base(world)))
+        .form(&form)
+        .send()
+        .await
+        .expect("claim the instance");
+    world.kc_session_cookie = set_cookie_pair(resp.headers(), SESSION_COOKIE);
+    record(world, resp).await;
 }
 
+fn sha256(s: &str) -> [u8; 32] {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(s.as_bytes()).into()
+}
+
+/// Through the door the person actually uses: the federated session's person is
+/// noted, the footer sign-out is posted as a browser posts it, then the password
+/// form is submitted.
 #[when("they sign out and sign in again with their foundry password")]
 async fn switch_doors(world: &mut FoundryWorld) {
-    world.kc_password_path_used = true;
+    let federated = world
+        .kc_session_cookie
+        .clone()
+        .expect("the cluster-identity sign-in established a session");
+    world.kc_federated_user_id = Some(
+        session_user_id(world, &federated)
+            .await
+            .expect("the federated session belongs to no user"),
+    );
+    sign_out(world, &federated).await;
+    password_sign_in(world).await;
+}
+
+async fn sign_out(world: &FoundryWorld, session: &str) {
+    let base = base(world);
+    let http = client();
+    let page = http
+        .get(format!("{base}{SIGN_IN_PATH}"))
+        .header(reqwest::header::COOKIE, session)
+        .send()
+        .await
+        .expect("csrf for the session");
+    let csrf = set_cookie_pair(page.headers(), CSRF_COOKIE).expect("csrf cookie");
+    let form = HashMap::from([("_csrf", cookie_value(&csrf, CSRF_COOKIE))]);
+    let resp = http
+        .post(format!("{base}/sign-out"))
+        .header(reqwest::header::COOKIE, format!("{session}; {csrf}"))
+        .form(&form)
+        .send()
+        .await
+        .expect("sign out");
+    assert_eq!(
+        resp.status(),
+        StatusCode::SEE_OTHER,
+        "signing out of the federated session was refused"
+    );
+    assert_eq!(
+        session_user_id(world, session).await,
+        None,
+        "the federated session survived signing out"
+    );
+}
+
+/// The user a session belongs to, read at the store boundary: the session row the
+/// cookie names holds its user id. `None` once the session is gone.
+async fn session_user_id(world: &FoundryWorld, session: &str) -> Option<uuid::Uuid> {
+    let id = cookie_value(session, SESSION_COOKIE);
+    let found: Option<(uuid::Uuid,)> = sqlx::query_as(
+        "SELECT u.id FROM session s JOIN users u \
+              ON position(convert_to(u.id::text, 'UTF8') IN s.data) > 0 \
+          WHERE s.id = $1",
+    )
+    .bind(id)
+    .fetch_optional(
+        world
+            .harness
+            .as_ref()
+            .expect("harness")
+            .app
+            .state
+            .store
+            .pool(),
+    )
+    .await
+    .expect("read the session's user");
+    found.map(|(id,)| id)
 }
 
 #[when("someone asks to sign in with a cluster identity")]
@@ -604,13 +712,50 @@ async fn foundry_starts(world: &mut FoundryWorld) {
 
 // ------------------------------------------------------------------- Thens
 
+/// The door a scenario came in through, read from what its When recorded.
+#[derive(Debug, Clone, Copy)]
+enum Door {
+    ClusterIdentity,
+    Password,
+    InstanceClaim,
+}
+
+impl Door {
+    fn used(world: &FoundryWorld) -> Self {
+        if world.kc_claimed_instance {
+            Door::InstanceClaim
+        } else if world.kc_password_path_used {
+            Door::Password
+        } else {
+            Door::ClusterIdentity
+        }
+    }
+
+    /// Each door's documented landing: the claim lands on the workspace dashboard
+    /// (bootstrap.rs, pinned by us_05_bootstrap); both sign-in doors on the board.
+    fn landing(self) -> &'static str {
+        match self {
+            Door::InstanceClaim => "/dashboard",
+            Door::ClusterIdentity | Door::Password => "/",
+        }
+    }
+
+    fn person(self) -> &'static str {
+        match self {
+            Door::InstanceClaim => CLAIMANT_NAME,
+            Door::ClusterIdentity | Door::Password => OPERATOR_NAME,
+        }
+    }
+}
+
 #[then("they arrive at their board signed in as themselves")]
 async fn arrive_signed_in(world: &mut FoundryWorld) {
+    let door = Door::used(world);
     let status = world.last_status.expect("a response was captured");
     assert_eq!(
         status,
         StatusCode::SEE_OTHER,
-        "expected a redirect onto the board; got {status}"
+        "expected the {door:?} door to redirect onto the board; got {status}"
     );
     let loc = world
         .last_headers
@@ -619,12 +764,53 @@ async fn arrive_signed_in(world: &mut FoundryWorld) {
         .and_then(|v| v.to_str().ok())
         .unwrap_or_default()
         .to_string();
-    assert_eq!(loc, "/", "expected to land on the board, got {loc:?}");
-    assert_session_opens_board(world, "the federated session does not open the board").await;
+    assert_eq!(
+        loc,
+        door.landing(),
+        "the {door:?} door landed somewhere other than its documented landing"
+    );
+    if let Door::InstanceClaim = door {
+        assert_landing_signed_in(world, door.landing()).await;
+    }
+    assert_session_opens_board_as(world, door.person(), "the session does not open the board")
+        .await;
+    if let Some(federated) = world.kc_federated_user_id {
+        let session = world.kc_session_cookie.clone().expect("a session");
+        assert_eq!(
+            session_user_id(world, &session).await,
+            Some(federated),
+            "the password door reached a different person than the cluster identity did"
+        );
+    }
+}
+
+/// Follow the redirect with the session cookie: the landing serves a signed-in page.
+async fn assert_landing_signed_in(world: &FoundryWorld, landing: &str) {
+    let session = world
+        .kc_session_cookie
+        .clone()
+        .expect("the claim established no session");
+    let resp = client()
+        .get(format!("{}{landing}", base(world)))
+        .header(reqwest::header::COOKIE, session)
+        .send()
+        .await
+        .expect("landing");
+    assert_eq!(resp.status(), StatusCode::OK, "{landing} did not open");
+    let body = resp.text().await.unwrap_or_default();
+    assert!(
+        body.contains("Signed in: true"),
+        "{landing} does not see the claimant signed in"
+    );
 }
 
 /// The session the sign-in established opens the board, signed in as the operator.
 async fn assert_session_opens_board(world: &FoundryWorld, failure: &str) {
+    assert_session_opens_board_as(world, OPERATOR_NAME, failure).await;
+}
+
+/// The session the sign-in established opens the board, greeting `name`.
+async fn assert_session_opens_board_as(world: &FoundryWorld, name: &str, failure: &str) {
     let session = world
         .kc_session_cookie
         .clone()
@@ -637,10 +823,10 @@ async fn assert_session_opens_board(world: &FoundryWorld, failure: &str) {
         .expect("board");
     assert_eq!(resp.status(), StatusCode::OK, "{failure}");
     let body = resp.text().await.unwrap_or_default();
-    let greeting = format!("Welcome back, {OPERATOR_NAME}</p>");
+    let greeting = format!("Welcome back, {name}</p>");
     assert!(
         body.contains(&greeting),
-        "the board is not signed in as the operator (expected {greeting:?})"
+        "the board is not signed in as {name} (expected {greeting:?})"
     );
 }
 
@@ -769,6 +955,14 @@ async fn refused_uniformly(world: &mut FoundryWorld) {
 
 /// A real wrong-password attempt at the password door, made as a browser makes it.
 async fn wrong_password_refusal(world: &FoundryWorld) -> (StatusCode, String) {
+    let resp = password_door(world, UNKNOWN_EMAIL, "a-wrong-password-long-enough").await;
+    let status = resp.status();
+    (status, resp.text().await.unwrap_or_default())
+}
+
+/// The password door as a browser uses it: open `GET /sign-in` (which mints the
+/// CSRF cookie), then submit the form with it.
+async fn password_door(world: &FoundryWorld, email: &str, password: &str) -> reqwest::Response {
     let base = base(world);
     let http = client();
     let form_page = http
@@ -778,19 +972,16 @@ async fn wrong_password_refusal(world: &FoundryWorld) -> (StatusCode, String) {
         .expect("sign-in page");
     let csrf = set_cookie_pair(form_page.headers(), CSRF_COOKIE).expect("csrf cookie");
     let form = HashMap::from([
-        ("email", UNKNOWN_EMAIL.to_string()),
-        ("password", "a-wrong-password-long-enough".to_string()),
+        ("email", email.to_string()),
+        ("password", password.to_string()),
         ("_csrf", cookie_value(&csrf, CSRF_COOKIE)),
     ]);
-    let resp = http
-        .post(format!("{base}{SIGN_IN_PATH}"))
+    http.post(format!("{base}{SIGN_IN_PATH}"))
         .header(reqwest::header::COOKIE, csrf)
         .form(&form)
         .send()
         .await
-        .expect("password sign-in");
-    let status = resp.status();
-    (status, resp.text().await.unwrap_or_default())
+        .expect("password sign-in")
 }
 
 /// Mask the per-request CSRF token so two refusals rendered for two requests

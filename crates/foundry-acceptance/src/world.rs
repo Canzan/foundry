@@ -55,6 +55,9 @@ pub struct FoundryWorld {
     pub kc_workspace_id: Option<uuid::Uuid>,
     /// `foundry_session=<value>` from the most recent federated sign-in.
     pub kc_session_cookie: Option<String>,
+    /// The user a federated session belonged to, captured before signing out so
+    /// the password door's session can be compared with it (AC-4.3).
+    pub kc_federated_user_id: Option<uuid::Uuid>,
     /// keycloak-sso provisioning: the foundry password of a pre-existing member.
     pub kc_member_password: Option<String>,
     /// keycloak-sso provisioning timing oracle: interleaved password-door samples.
