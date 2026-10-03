@@ -21,6 +21,10 @@ Final `FOUNDRY_XTASK_INCLUDE_DOCKER=1 cargo xtask ci`: **RED, 854/855 scenarios 
 
 > **Addendum 2026-09-28:** the one gate failure above, the host-`psql` gap in `backup-verify`, is fixed by `fix-backup-verify-fail-open`, which counts rows in the binary and fails closed. The full gate then went 855/855 green.
 
+> **Addendum 2026-10-03:** a later increment closed OD-11, un-pending the 23 base
+> `keycloak-sso.feature` scenarios against the shipped flow with no production change.
+> See § "2026-10-03 increment: OD-11" below.
+
 ## Business context
 
 Before D3a, every operator had to be invited or created by hand before their cluster
@@ -266,14 +270,107 @@ The gate is per-feature, at ≥80%. The tool was cargo-mutants 25.3.1, run with
 - `crates/foundry-store/migrations/0016_nullable_password_hash.sql`
 - `crates/foundry-acceptance/tests/features/keycloak-sso-provisioning.feature`
 
+## 2026-10-03 increment: OD-11
+
+### Summary
+
+Roadmap phase 03 (steps 03-01..03-06, approved 2026-10-03 by
+nw-acceptance-designer-reviewer, `e13940a`) un-pended all 23 base
+`keycloak-sso.feature` scenarios. The flow shipped in `c755003` (v0.4.0) finally has
+acceptance coverage. **No production code changed:** every scenario passed against the
+shipped flow once the harness drove it for real. The diff touches only
+`crates/foundry-acceptance/` (the base and provisioning step modules, `world.rs`, and
+23 `@pending` tags removed from the feature file, Gherkin otherwise byte-identical).
+
+- The KNOWN RED GAP harness was replaced by `InProcHarness::spawn_with_oidc` with the
+  provision role unset (D3 exactly), and a real round-trip: start, the double's
+  `/authorize`, callback with the genuine state and sealed challenge cookie.
+- Flag-only Whens became real HTTP (password door, bootstrap claim, sign-out), and
+  scenario 23 boots the real `foundry` binary half-configured.
+- **User decision 2026-10-03, scenario 19:** landing is per door: `/` for the
+  password and SSO doors, `/dashboard` for the bootstrap claim, with identity
+  confirmed by following the redirect.
+- OD-11 is **resolved**. OD-10 stays open.
+
+### Commits
+
+| Commit | Step | What |
+|---|---|---|
+| `29a7326` | 03-01 | Walking skeleton + US-01 (5); harness wired to `spawn_with_oidc` |
+| `72a76f3` | 03-02 | US-02 refusals (3); refusal Then compares with a real wrong password |
+| `26ecdd9` | 03-03 | US-03 forged and stale arrivals (6) |
+| `b6689e9` | 03-04 | Replay, unreachable provider, identical refusals (3) |
+| `39863a6` | 03-05 | US-04 doors (3); per-door landing; same-person by user id |
+| `5c8491b` | 03-06 | US-05 no provider and half-configured startup (3); closes OD-11 |
+| `0c2553d` | — | F10 harness fix: the unstarted arrival is refused by the missing challenge alone |
+| `4e6a1f2` | — | Refactor, test code only, oracles unchanged |
+
+### Gates
+
+| | |
+|---|---|
+| keycloak-sso lane | 38/38 (23 base + provisioning) |
+| keycloak-sso-provisioning | 15/15 |
+| `us-06` sign-in | 45/45 |
+| Default lane | 677/677 (at 03-06) |
+| check-arch | Green |
+| smoke | Green 03-01..03-05; at 03-06 the workspace test gate failed only on foundry-store testcontainers start-up flakes (`PortNotExposed` / `PoolTimedOut`); foundry-store passed 25/25 binaries alone. The increment touches only `foundry-acceptance` |
+| Integrity | `des-verify-integrity`: all 10 steps complete |
+| Adversarial review | nw-software-crafter-reviewer: APPROVED, zero defects |
+| Mutation (cargo-mutants) | Not run: no production file in the diff. Named faults stand in |
+| **Full CI** | **GREEN on 4e6a1f2 (2026-10-03): exit 0, all gates green; acceptance (all tags) 903/903 scenarios, 6268/6268 steps, browser lane run** (`FOUNDRY_XTASK_INCLUDE_DOCKER=1 cargo xtask ci`) |
+
+### Faults
+
+**25/25 named faults killed (F1–F25)**, each seeded alone in production code,
+restored and `cmp`-verified. Variants also killed: F16b (session rotated on refusal),
+F17 (`expect()` panic on discovery failure), F-landing (password door → `/dashboard`).
+Four survived a first oracle and were killed only after a test was tightened:
+
+- **F2** (fixed state/nonce): the whole-`Location` compare differed anyway because of
+  PKCE; killed once the Then compared state and nonce.
+- **F8** (refusal names its reason): killed once the refusal Then compared status and
+  CSRF-masked body with a real wrong-password answer.
+- **F18b** (no-workspace → 403): the no-workspace branch renders outside `refuse()`;
+  killed once the sweep collected that arrival.
+- **F10** (missing challenge cookie trusted): the scenario's world had no account, so
+  the forgery was refused downstream anyway. Killed after `0c2553d` made the
+  arrival one that would otherwise succeed.
+
+### Lessons
+
+1. **`Secure` cookies over loopback HTTP vanish silently.** A cookie-store client
+   drops foundry's `Secure` cookies on plain-HTTP loopback, so several scenarios
+   looked refused for the wrong reason: the arrival never carried its challenge and
+   was stopped at "no challenge cookie" before the check under test. Carry cookies by
+   hand, and make a refusal scenario prove it reached the guard it names.
+2. **A refusal oracle that only checks forbidden phrases is too weak.** It let a
+   reason-naming refusal (F8) through. Compare status and masked body with a real
+   reference refusal (a wrong password) instead.
+3. **A refusal can be right for the wrong reason.** F10 survived because the world
+   lacked what a successful forgery needs. A guard's scenario must build the world in
+   which that guard is the only thing standing.
+4. **Green-on-first-run against shipped code needs fault seeding to mean anything.**
+   21 of 23 scenarios were green on first run (the other two were red on the harness,
+   not the product); the named faults are what showed four oracles were too weak.
+5. **Whole-redirect comparisons hide the field that matters.** PKCE alone kept the
+   `Location` differing under F2; compare the specific parameters.
+
 ## Follow-ups
 
 - **OD-10: role revocation.** An account provisioned earlier keeps signing in after its
   role is withdrawn. Scenario 11 pins that, so a revocation design must change a named
   scenario.
-- **OD-11: un-pend the 23 base `keycloak-sso.feature` scenarios.** The flow shipped in
-  `c755003` still has no acceptance coverage. `spawn_with_oidc` now exists, so the
-  base DISTILL's "known RED gap" is closed.
+- ~~**OD-11: un-pend the 23 base `keycloak-sso.feature` scenarios.**~~ **Closed
+  2026-10-03** by phase 03 (`5c8491b`); see § "2026-10-03 increment: OD-11".
+- **Refuse an empty expected nonce in `foundry-oidc` (security hardening).** Without a
+  challenge the expected nonce is `""`, and an ID token with no nonce deserialises as
+  `""` (`serde(default)`), so the nonce comparison passes. The challenge cookie is
+  the sole guard against code injection. Refuse an empty expected nonce, with a
+  scenario. Raised 2026-10-03; production unchanged.
+- **Stale feature header.** `keycloak-sso.feature` line 11 says it "provisions nothing
+  (D3)", true only with `FOUNDRY_OIDC_PROVISION_ROLE` unset. DISTILL-owned; left
+  as-is.
 - **A test for the `FOUNDRY_OIDC_PROVISION_ROLE` name.** Give `from_env` a pure lookup
   seam (e.g. `from_lookup(impl Fn(&str) -> Option<String>)`). That kills the accepted
   survivor.

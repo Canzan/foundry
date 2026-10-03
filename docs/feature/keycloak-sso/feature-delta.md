@@ -1219,3 +1219,146 @@ a result, and no mutation kill relied on one.
     exercises.
   - Whether to keep the identity-provider row that the D3a DISTILL added to
     `docs/architecture/atdd-infrastructure-policy.md`.
+
+## Wave: DELIVER
+
+> **Phase 03 increment (OD-11), 2026-10-03.** Apex (@nw-platform-architect), DELIVER
+> finalize. This section covers roadmap phase 03 only (steps 03-01..03-06) and
+> supersedes nothing above; the D3a DELIVER section stays as written, including its
+> "OD-11: OPEN" line. **Sources:** `deliver/roadmap.json` (phase 03),
+> `deliver/execution-log.json` and the step commits. Evolution archive:
+> `docs/evolution/2026-09-27-keycloak-sso.md` § "2026-10-03 increment: OD-11".
+
+### [REF] Implementation Summary
+
+Phase 03 un-pends the 23 base `keycloak-sso.feature` scenarios against the flow
+shipped in `c755003` (v0.4.0). There are 6 roadmap steps, run in order, all GREEN.
+The roadmap phase was approved 2026-10-03 by nw-acceptance-designer-reviewer
+(`e13940a`).
+
+- **No production code changed.** Every base scenario passed against the shipped
+  flow once the harness drove it for real. The diff `e13940a..4e6a1f2` touches only
+  `crates/foundry-acceptance/`.
+- **The KNOWN RED GAP harness is gone.** "foundry is connected to the cluster
+  identity provider" starts the issuer double and spawns foundry with
+  `InProcHarness::spawn_with_oidc`, provision role unset (link-only, D3 exactly).
+- **The round-trip is real:** start redirect, the double's `/authorize` (records the
+  nonce), callback with the redirect's state and the sealed challenge cookie. Cookies
+  are carried by hand, because foundry's cookies are `Secure` and the lane speaks
+  plain HTTP over loopback.
+- **Flag-only Whens are real HTTP:** the password door (`GET`/`POST /sign-in`), the
+  bootstrap claim (`POST /bootstrap` with a minted token, provider shut down),
+  `POST /sign-out`, and for scenario 23 the real `foundry` binary launched
+  half-configured.
+- **Placeholder `panic!` Thens are gone.** Several were strengthened past what the
+  first draft checked:
+  - 03-01: "different challenge" compares state and nonce, not the whole redirect
+    (PKCE kept the redirect differing under F2).
+  - 03-02: the refusal Then asserts no session cookie and compares status 401 and
+    the CSRF-masked body with a real wrong-password answer (it used to check two
+    forbidden phrases, which let F8 through).
+  - 03-04: the refusal sweep also collects no-account, no-workspace, never-begun and
+    wrong-state arrivals (the no-workspace branch renders outside `refuse()`).
+  - 03-05: "same person" compares user ids, read from the session row before
+    sign-out (a greeting check alone passed under F21).
+- **`0c2553d` (F10).** "An arrival nobody started is refused" now arrives as a
+  forgery that would otherwise succeed: a confirmed account with a workspace, a
+  provider that vouches for it, and a code from an authorization request begun at
+  the provider directly. Only the missing challenge refuses it.
+- **`4e6a1f2` refactor (test code only, oracles unchanged).** Shared round-trip,
+  password door and protocol constants moved into `pub(crate)` items of
+  `feature_keycloak_sso_provisioning`; `feature_keycloak_sso.rs` 1212 → 1088 lines;
+  World `kc_*` fields 23 → 18; truthful step-module header.
+
+**Scenario 19 landing (user decision 2026-10-03, recorded in 03-05's notes).** The
+shared Then derives the door from world state and requires a 303 to that door's
+documented landing exactly: `/` for the password and cluster-identity doors,
+`/dashboard` for the bootstrap claim. For the claim it follows `/dashboard` with the
+session cookie and then checks that `/` greets the claimant. `/dashboard` is never
+accepted for the password or SSO doors (fault F-landing). The reviewer confirmed the
+decision does not weaken scenarios 1, 18 or 20.
+
+**Open decisions at close:**
+- **OD-11** — RESOLVED 2026-10-03: all 23 base scenarios run against the shipped
+  flow; `keycloak-sso.feature` has no `@pending` tag (03-06, `5c8491b`).
+- **OD-10** — still OPEN; provisioning scenario 11 pins today's behaviour.
+
+### [REF] Files modified
+
+| File | Change |
+|---|---|
+| `crates/foundry-acceptance/src/steps/feature_keycloak_sso.rs` | Real harness, round-trip, Whens and Thens; refactored in `4e6a1f2` |
+| `crates/foundry-acceptance/src/steps/feature_keycloak_sso_provisioning.rs` | Round-trip split into begin/finish helpers; shared `pub(crate)` helpers and constants (behaviour unchanged) |
+| `crates/foundry-acceptance/src/world.rs` | `kc_federated_user_id`, `kc_startup`; five write-only `kc_*` fields dropped |
+| `crates/foundry-acceptance/tests/features/keycloak-sso.feature` | `@pending` removed from 23 tag lines; Gherkin otherwise byte-identical to DISTILL's |
+
+### [REF] Scenarios green
+
+| Step | Commit | Scenarios (un-pended) | First run |
+|---|---|---|---|
+| 03-01 | `29a7326` | Walking skeleton; offer when available; fresh single-use challenge; grants exactly what a password grants; challenge discarded (5) | All green |
+| 03-02 | `72a76f3` | No foundry account; unconfirmed address; no workspace (3) | No-account RED on the harness ("they authenticate" assumed a begun sign-in), not the product; the others green |
+| 03-03 | `26ecdd9` | Nobody started; mismatched challenge; stale challenge; unknown key; different provider; expired (6) | All green (the mismatched-challenge step was reworked before its first run to carry the genuine cookie) |
+| 03-04 | `b6689e9` | Replay; unreachable provider; every refusal identical (3) | All green |
+| 03-05 | `39863a6` | Password door open; claim with provider unreachable; either door same person (3) | All green |
+| 03-06 | `5c8491b` | No provider serves as before; asking when none configured; half-configured stops startup (3) | Half-configured RED on the placeholder `panic!` (harness), then green against the real binary |
+
+### [REF] Per-step outcome
+
+| Step | Lanes at the step |
+|---|---|
+| 03-01 | keycloak-sso 20/20 (5 base + 15 provisioning); provisioning 15/15; check-arch, smoke, clippy green |
+| 03-02 | keycloak-sso tag 23/23; provisioning 15/15; check-arch, smoke green |
+| 03-03 | keycloak-sso 29/29; provisioning 15/15; check-arch, smoke green |
+| 03-04 | keycloak-sso 32/32; provisioning 15/15; check-arch, smoke green |
+| 03-05 | keycloak-sso 35/35; provisioning 15/15; us-06 45/45; check-arch green; smoke green on rerun (first run: foundry-services testcontainers SSLRequest flake, crate 7/7 alone) |
+| 03-06 | keycloak-sso 38/38; provisioning 15/15; default lane 677/677; check-arch green; smoke workspace-test gate failed only on foundry-store testcontainers start-up flakes (`PortNotExposed` / `PoolTimedOut`), foundry-store 25/25 binaries alone |
+| `0c2553d`, `4e6a1f2` | keycloak-sso 38/38; provisioning 15/15; us-06 45/45; fmt, clippy `-D warnings`, check-arch pass |
+
+### [REF] Quality gates
+
+**Named faults: 25/25 killed (F1–F25).** Each was seeded alone, restored and
+`cmp`-verified against HEAD.
+
+| Faults | Scenario group | Note |
+|---|---|---|
+| F1–F5 | US-01 (03-01) | F2 (fixed state/nonce) survived the whole-`Location` oracle; killed after the Then compared state and nonce |
+| F6–F9 | US-02 (03-02) | F8 (reason-naming refusal) survived the forbidden-phrase oracle; killed after the Then compared with a real wrong-password answer |
+| F10–F15 | US-03 (03-03) | F10 (missing challenge cookie trusted) survived 29/29 at 03-03: the world held no account, so the forgery was refused downstream. Killed after `0c2553d` |
+| F16–F18 | Replay, unreachable, identical refusals (03-04) | F18b (no-workspace → 403) survived the first sweep; killed after the When collected the no-workspace arrival |
+| F19–F21 | US-04 (03-05) | F21 survived a greeting-only check in drafting; the user-id compare kills it |
+| F22–F25 | US-05 (03-06) | Binary rebuilt for F24/F25 and after restore |
+
+Variants also killed: F16b (`cycle_id()` rotate on refusal), F17 (`expect()` panic on
+discovery failure), F-landing (password door → `/dashboard`).
+
+- **Mutation (cargo-mutants):** not run. No production file changed in the
+  increment, so the per-feature `--in-diff` scope is empty; the named faults stand in
+  for it against the shipped production files.
+- **Adversarial review** (nw-software-crafter-reviewer): APPROVED, zero defects.
+- **Integrity:** `des-verify-integrity`: all 10 steps complete.
+- **Full CI gate:** **GREEN on 4e6a1f2 (2026-10-03): exit 0, all gates green; acceptance (all tags) 903/903 scenarios, 6268/6268 steps, browser lane run** (`FOUNDRY_XTASK_INCLUDE_DOCKER=1 cargo xtask ci`).
+
+**Security follow-up (production, not changed here).** Without a challenge the
+expected nonce is `""`, and an ID token with no nonce deserialises as `""`
+(`serde(default)`), so the nonce comparison passes. The challenge cookie is the sole
+guard against code injection; F10's scenario now pins that guard. Suggested
+hardening: refuse an empty expected nonce in `foundry-oidc`, with a scenario.
+
+### [REF] Pre-requisites
+
+- `c755003` (v0.4.0): the shipped base flow; `InProcHarness::spawn_with_oidc` and
+  `AppState.oidc` (used by the D3a provisioning lane).
+- D3a (2026-09-27): the provisioning step module whose round-trip, password door and
+  constants phase 03 shares.
+- A warm `foundry` binary for scenario 23 (subprocess); rebuild before the lane.
+- Base scenarios run with `FOUNDRY_OIDC_PROVISION_ROLE` unset (D3 exactly).
+
+**Left as-is (DISTILL-owned).** The `keycloak-sso.feature` header (line 11) still says
+it "provisions nothing (D3)", which is true only with `FOUNDRY_OIDC_PROVISION_ROLE`
+unset. Outcome rows stay unregistered (see the D3a closing notes); no
+`docs/product/kpi-contracts.yaml` or `docs/product/outcomes/registry.yaml` entry
+exists for keycloak-sso.
+
+**No migration.** The feature uses the single `feature-delta.md` layout; there are no
+`design/`, `distill/walking-skeleton.md` or `discuss/journey-*` files to move.
