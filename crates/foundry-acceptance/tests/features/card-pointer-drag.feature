@@ -390,7 +390,7 @@ Feature: Card drag on any pointer
     And AUTH-43 landed exactly where the marker showed just before she let go
     And a reload shows AUTH-43 last in Backlog, after AUTH-60
 
-  @us-cpd-03 @needs-browser @pending @mobile @error @kpi
+  @us-cpd-03 @needs-browser @mobile @error @kpi
   Scenario: The system taking the pointer mid-drag puts the card back and leaves nothing behind
     Given the Identity Platform board is open on a phone
     And Priya is carrying AUTH-41 over In-Progress by its grip with a touch pointer
@@ -398,7 +398,7 @@ Feature: Card drag on any pointer
     Then AUTH-41 is back in its exact slot in Backlog
     And no lane is lit, no marker shows, no carried card remains and no move request is sent
 
-  @us-cpd-03 @needs-browser @pending @mobile @error
+  @us-cpd-03 @needs-browser @mobile @error
   Scenario: A hold the system interrupts before the card lifts leaves nothing to undo
     Given the Identity Platform board is open on a phone
     And Priya has put a touch pointer on AUTH-41's text without holding it long enough to lift
@@ -407,7 +407,7 @@ Feature: Card drag on any pointer
     And AUTH-41 no longer shows it is arming
     And holding AUTH-41's text again straight afterwards does lift it
 
-  @us-cpd-03 @needs-browser @pending @mobile @error @kpi
+  @us-cpd-03 @needs-browser @mobile @error @kpi
   Scenario: Releasing a carried card off every lane changes nothing
     Given the Identity Platform board is open on a phone
     And Priya is carrying AUTH-41 over In-Progress by its grip with a touch pointer
