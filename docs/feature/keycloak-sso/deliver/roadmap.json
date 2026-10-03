@@ -2,7 +2,7 @@
   "roadmap": {
     "project_id": "keycloak-sso",
     "created_at": "2026-09-27T20:40:59Z",
-    "total_steps": 4
+    "total_steps": 10
   },
   "phases": [
     {
@@ -120,6 +120,168 @@
           "implementation_notes": "Production files are listed only in case a scenario exposes a gap; expected change is un-pending alone. State is built through the real sign-in, never seeded by SQL (DISTILL review: fixture theater). Scenario 10 reuses the shipped forgot-password step from us_06_signin.rs; DISTILL proved the reset steps green separately, so a failure here is a genuine NULL-hash defect, most likely the store failing to read a password-less row. Timing scenario uses the same oracle and budget as the shipped us-06-signin timing scenario; do not tag it @flaky; if it wobbles, run it at least 3 times before blaming the change. Warm the acceptance binary before the lane; the default lane has a known us-04 rolling-upgrade flake. OD-11 (base keycloak-sso.feature still @pending) is out of scope for this roadmap."
         }
       ]
+    },
+    {
+      "id": "03",
+      "name": "Un-pend the base keycloak-sso.feature against the shipped flow (OD-11)",
+      "steps": [
+        {
+          "id": "03-01",
+          "name": "Wire the base step module to spawn_with_oidc; walking skeleton and US-01 arrival green",
+          "criteria": [
+            "Un-pends, in order (5 scenarios): 'The operator signs in with their cluster identity and reaches their board' (walking skeleton); 'The sign-in page offers the cluster identity when it is available'; 'Each sign-in attempt carries a fresh single-use challenge'; 'A cluster identity grants exactly what a password grants'; 'The challenge is discarded once the sign-in finishes'",
+            "The gap harness is gone: 'foundry is connected to the cluster identity provider' starts the issuer double and then spawns foundry with InProcHarness::spawn_with_oidc pointed at it, provision role UNSET (link-only, D3 exactly); the KNOWN RED GAP module doc and the DELIVER TODO in connect_provider are removed",
+            "The round-trip is real: start redirect, the double's /authorize (records the nonce), callback with the state from the start redirect and the sealed challenge cookie; cookies carried by hand as the provisioning module does (Secure cookies over loopback HTTP)",
+            "The 'operator has a foundry account for a confirmed address' Given creates a real account with a password and one member membership; Givens that open a scenario without 'foundry is connected' ('has signed in', 'has begun signing in') connect the provider and seed the account themselves, idempotently",
+            "No placeholder panic! remains in the Thens these scenarios use: authorship is read from the filed issue and compared with the federated user; the walking skeleton proves a session that opens the board, not only a 303 to /",
+            "keycloak-sso.feature changes only by removing ' @pending' from these 5 tag lines; Gherkin text otherwise byte-identical (DISTILL-owned)",
+            "keycloak-sso lane green for the un-pended scenarios; keycloak-sso-provisioning (us-06) lane stays 11/11 (15 examples); cargo xtask check-arch and cargo xtask smoke pass"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/keycloak-sso.feature",
+          "scenario_name": "The operator signs in with their cluster identity and reaches their board",
+          "description": "Close the DISTILL-era RED gap now that AppState.oidc and InProcHarness::spawn_with_oidc exist (c755003, used by feature_keycloak_sso_provisioning.rs:182). Replace the plain-harness-then-record-issuer Given with a real spawn_with_oidc harness, replace the fake callback (state=from-cookie, no /authorize visit, cookie_store jar) with the full browser round-trip, make account Givens create real rows, and finish the Thens that currently panic! as DELIVER placeholders. Then un-pend the walking skeleton and the rest of US-01. Named faults the 5 scenarios must kill: (F1) the sign-in page never renders the cluster-identity control when a provider is configured (offer_oidc forced false) - scenario 2; (F2) start reuses one state/nonce across attempts - scenario 3; (F3) callback omits the Max-Age=0 challenge-cookie clear on success - scenario 5; (F4) callback redirects to / without establishing a session, or establishes it for a different user - scenarios 1 and 4; (F5) a federated session is scoped to a workspace or user other than the account's, so the filed issue is not authored by them - scenario 4.",
+          "dependencies": [
+            "02-02"
+          ],
+          "estimate": "0.75 day",
+          "files_to_modify": [
+            "crates/foundry-acceptance/src/steps/feature_keycloak_sso.rs",
+            "crates/foundry-acceptance/tests/features/keycloak-sso.feature",
+            "crates/foundry-acceptance/src/world.rs",
+            "crates/foundry-acceptance/src/steps/feature_keycloak_sso_provisioning.rs",
+            "crates/foundry-app/src/oidc.rs",
+            "crates/foundry-app/src/signin.rs"
+          ],
+          "implementation_notes": "PRODUCTION ALREADY SHIPPED (base flow c755003 v0.4.0, D3a 9abf827). A scenario that passes on first run against existing code is EXPECTED: record it honestly as green-on-first-run in the step's RED/GREEN log, never fabricate a RED. A scenario that fails must fail for a business reason (wrong status, absent control, absent session, wrong author) - not for a harness reason (dropped Secure cookie, missing /authorize visit, unseeded account); harness failures are fixed in the step module, not in production. Any production fix is minimal and named after the scenario that exposed it; oidc.rs and signin.rs are listed only in case. D3/D3a: base scenarios run with provisioning OFF - build the OidcConfig as the provisioning module's spawn_foundry does but with with_provision_role(None) (or omit it); that is D3 behaviour exactly. No scenario in this step conflicts with D3a. Shared helpers (set_cookie_pair, cookie_value, mask_csrf, password_attempt, the start->authorize->callback round-trip) already exist in feature_keycloak_sso_provisioning.rs: prefer making them pub(crate) or moving them to a support module over copying them; that file is listed for that reason only and its behaviour must not change (us-06 lane is the guard). cucumber-rs step text is global: keep the 'cluster identity' wording, do not add a phrase that collides with us_06_signin or the provisioning module. Scenario 4: file the issue through the shipped HTTP issue-filing route with the federated session cookie and CSRF token; read the author at the store boundary in the Then. Linking by non-normalised email is NOT killed here (the base account and the vouched address share case); provisioning scenario 7 already covers it - do not claim it. OD-10 (role revocation) is out of scope; do not touch provisioning scenario 11. EXEMPT FROM PARADIGM: Layer-3 acceptance un-pending over real HTTP and real Postgres is example-based (Mandates 9/11); no new unit-level contract is introduced. ENVIRONMENT: build with CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false on this host; warm the acceptance binary first (cargo test -p foundry-acceptance --test acceptance --no-run) - a cold binary makes subprocess scenarios time out; acceptance uses a PREBUILT foundry binary for subprocess lanes, so rebuild foundry before any lane that launches it; bound EVERY lane run with a timeout and kill leftover containers if it hangs. GUARD LANES: FOUNDRY_ACCEPTANCE_TAGS=keycloak-sso cargo test -p foundry-acceptance --test acceptance (note: this tag also selects the provisioning feature, which carries @keycloak-sso); FOUNDRY_ACCEPTANCE_TAGS=keycloak-sso-provisioning (us-06) lane; cargo xtask check-arch; cargo xtask smoke."
+        },
+        {
+          "id": "03-02",
+          "name": "US-02 who is allowed through: no account, unconfirmed address, no workspace",
+          "criteria": [
+            "Un-pends, in order (3 scenarios): 'An identity with no foundry account is turned away'; 'An unconfirmed address is turned away even when it matches an account'; 'A person who belongs to no workspace is turned away'",
+            "Each refusal is the generic 401 refusal page and establishes no session; the no-account refusal leaves no users row for the address (provisioning off)",
+            "The unconfirmed-address and no-workspace Givens create the real account (and, for no-workspace, no membership) the Gherkin describes",
+            "keycloak-sso.feature changes only by removing ' @pending' from these 3 tag lines",
+            "keycloak-sso lane green for every scenario un-pended so far; us-06 lane stays green; cargo xtask check-arch and cargo xtask smoke pass"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/keycloak-sso.feature",
+          "scenario_name": "An identity with no foundry account is turned away",
+          "description": "Prove the link-only gate of the shipped callback with provisioning off: a stranger is refused and nothing is created, a matching account at an unconfirmed address is refused, an existing account with no membership fails closed in the shared establish_session seam. Named faults the 3 scenarios must kill: (F6) email_verified check removed from the callback - scenario 'An unconfirmed address...'; (F7) an unset provision role treated as 'provision anyone' (judge_newcomer allows None) - scenario 'An identity with no foundry account...' via the no-account-created Then; (F8) the refusal names its reason (e.g. 'no such account') instead of the generic copy - same scenario via the refused-uniformly Then; (F9) establish_session's no-membership branch defaults to some workspace instead of failing closed - scenario 'A person who belongs to no workspace...'.",
+          "dependencies": [
+            "03-01"
+          ],
+          "estimate": "0.3 day",
+          "files_to_modify": [
+            "crates/foundry-acceptance/src/steps/feature_keycloak_sso.rs",
+            "crates/foundry-acceptance/tests/features/keycloak-sso.feature",
+            "crates/foundry-app/src/oidc.rs",
+            "crates/foundry-app/src/signin.rs"
+          ],
+          "implementation_notes": "PRODUCTION ALREADY SHIPPED: green-on-first-run is expected and must be recorded honestly; a failure must be a business failure; any production fix minimal. D3a INTERACTION (the step where it matters): these scenarios assume link-only. They MUST run with FOUNDRY_OIDC_PROVISION_ROLE effectively unset (spawn_with_oidc config with no provision role), which is D3 behaviour exactly: the callback's judge_newcomer returns 'no foundry account for this identity' and provisions nothing. Under D3a with a role configured AND held, 'An identity with no foundry account is turned away' would instead provision and sign the person in - not a contradiction at runtime because the scenario's Given ('foundry is connected to the cluster identity provider') is the default, provisioning-off configuration, but the feature header comment ('It provisions nothing (D3)') predates D3a; reported as an open question, Gherkin NOT edited. 'A person who belongs to no workspace' concerns an EXISTING account: under D3a an existing account links regardless of role, then establish_session fails closed - consistent with D3a. The unconfirmed check precedes find-or-provision in both D3 and D3a - consistent. The refused-uniformly Then today only checks status and two forbidden phrases; strengthening it to compare against a real wrong-password answer (mask_csrf) is welcome in the step module but must not change Gherkin. OD-10 out of scope. EXEMPT FROM PARADIGM: Layer-3 example-based acceptance (Mandates 9/11). ENVIRONMENT: CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false for cargo builds on this host; warm the acceptance binary first; acceptance uses a prebuilt foundry binary for subprocess lanes; bound every lane run with a timeout. GUARD LANES: keycloak-sso tag lane; keycloak-sso-provisioning (us-06) lane; cargo xtask check-arch; cargo xtask smoke."
+        },
+        {
+          "id": "03-03",
+          "name": "US-03 forged and stale arrivals are refused",
+          "criteria": [
+            "Un-pends, in order (6 scenarios): 'An arrival nobody started is refused'; 'An arrival that does not match the challenge it answers is refused'; 'An identity answering a stale challenge is refused'; 'An identity signed by an unknown key is refused'; 'An identity vouched for by a different provider is refused'; 'An identity that has already expired is refused'",
+            "Each forged or stale arrival gets the generic 401 refusal and no session; the wrong-challenge arrival carries a genuine challenge cookie with a state that does not match it",
+            "The identity-shaped variants (stale nonce, unpublished key, foreign issuer, lapsed) are exercised through a genuine start and /authorize visit, so the refusal comes from validation of the minted identity, not from a missing challenge",
+            "keycloak-sso.feature changes only by removing ' @pending' from these 6 tag lines",
+            "keycloak-sso lane green for every scenario un-pended so far; us-06 lane stays green; cargo xtask check-arch and cargo xtask smoke pass"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/keycloak-sso.feature",
+          "scenario_name": "An arrival nobody started is refused",
+          "description": "Prove the callback's challenge checks and foundry-oidc's ID-token validation against the issuer double's mint variants. Named faults the 6 scenarios must kill: (F10) callback proceeds without a challenge cookie - 'An arrival nobody started...'; (F11) state comparison skipped - 'An arrival that does not match the challenge...'; (F12) nonce check skipped in exchange_code - 'An identity answering a stale challenge...'; (F13) signature not verified, or verification falls back to any key when the kid is unknown - 'An identity signed by an unknown key...'; (F14) issuer not validated - 'An identity vouched for by a different provider...'; (F15) exp not validated - 'An identity that has already expired...'.",
+          "dependencies": [
+            "03-02"
+          ],
+          "estimate": "0.4 day",
+          "files_to_modify": [
+            "crates/foundry-acceptance/src/steps/feature_keycloak_sso.rs",
+            "crates/foundry-acceptance/tests/features/keycloak-sso.feature",
+            "crates/foundry-oidc/src/lib.rs",
+            "crates/foundry-app/src/oidc.rs"
+          ],
+          "implementation_notes": "PRODUCTION ALREADY SHIPPED: green-on-first-run is expected and must be recorded honestly; a failure must be a business failure; any production fix minimal. The mutation-relevant guard is that each scenario reaches the check it names: for F11-F15 the step must present a valid challenge cookie and the matching state (except the deliberately mismatched state of F11), otherwise every scenario is refused at 'no challenge cookie' and kills nothing beyond F10. A crafter may confirm this by checking the refusal reason in the 'oidc sign-in refused' log line, not by asserting on it. The double mints exp from the wall clock (now - 3600 for Lapsed) while the harness clock is MockClock at 2026-01-15; foundry-oidc validates exp against the wall clock, which is what makes the valid path green in the us-06 lane - if a lapsed identity is accepted, that is a genuine F15 defect, not a clock-fixture issue. No D3a interaction: all six refusals precede find-or-provision. OD-10 out of scope. EXEMPT FROM PARADIGM: Layer-3 example-based acceptance (Mandates 9/11). ENVIRONMENT: CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false for cargo builds on this host; warm the acceptance binary first; acceptance uses a prebuilt foundry binary for subprocess lanes; bound every lane run with a timeout. GUARD LANES: keycloak-sso tag lane; keycloak-sso-provisioning (us-06) lane; cargo xtask check-arch; cargo xtask smoke."
+        },
+        {
+          "id": "03-04",
+          "name": "Replay, unreachable provider, and refusals indistinguishable from a wrong password",
+          "criteria": [
+            "Un-pends, in order (3 scenarios): 'Replaying a completed sign-in is refused'; 'An unreachable provider refuses the sign-in rather than breaking'; 'Every refusal looks identical, whoever is refused'",
+            "A replay re-presents the genuine code, state and challenge of a completed sign-in and is refused by the provider's single-use code, not by the cleared cookie; the original session cookie still opens the board afterwards",
+            "With the provider shut down, the sign-in attempt gets the generic 401 refusal (never a 500 or a hang) and /healthz still answers 200",
+            "Every refusal variant is byte-identical to the others once the per-request CSRF token is masked, and to a REAL wrong-password answer from the password door (no placeholder panic! remains)",
+            "keycloak-sso.feature changes only by removing ' @pending' from these 3 tag lines",
+            "keycloak-sso lane green for every scenario un-pended so far; us-06 lane stays green; cargo xtask check-arch and cargo xtask smoke pass"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/keycloak-sso.feature",
+          "scenario_name": "Replaying a completed sign-in is refused",
+          "description": "Prove the three cross-cutting refusal properties of AC-3.5, AC-3.6 and AC-2.2/2.5/3.7. Named faults the 3 scenarios must kill: (F16) the callback ignores a failed code exchange, or a refusal flushes or rotates the caller's existing session - replay scenario; (F17) an unreachable provider surfaces as a 500, an unwrap panic, or a boot-time discovery dependency that stops other pages - unreachable scenario; (F18) any refusal branch differs from a wrong password in status or body (e.g. a 400/403 branch, a reason-specific message, the no-workspace branch rendering differently) - identical-refusal scenario.",
+          "dependencies": [
+            "03-03"
+          ],
+          "estimate": "0.4 day",
+          "files_to_modify": [
+            "crates/foundry-acceptance/src/steps/feature_keycloak_sso.rs",
+            "crates/foundry-acceptance/tests/features/keycloak-sso.feature",
+            "crates/foundry-app/src/oidc.rs",
+            "crates/foundry-app/src/signin.rs"
+          ],
+          "implementation_notes": "PRODUCTION ALREADY SHIPPED: green-on-first-run is expected and must be recorded honestly; a failure must be a business failure; any production fix minimal. Replay (AC-3.5, feature-delta Changed Assumptions): the challenge cookie IS cleared on success, so the replay step must keep the original challenge cookie and state from the first round-trip and present them again with the same code - otherwise the refusal comes from 'no challenge cookie' and F16 survives. 'Their original session is untouched' replaces its placeholder panic! with: the session cookie from the first sign-in still opens the board after the replay. Unreachable: the provider is connected first (spawn_with_oidc builds lazily - no network at construction), then shut down; start then fails at discovery and refuses; the When must tolerate start returning a refusal without a Location. Identical refusals: compare bodies with the CSRF token masked (refuse() mints a fresh token when no CSRF cookie is carried) and compare against a real wrong-password POST /sign-in for an unknown address, as the provisioning module's turned_away Then does. The refusal page rendered by refuse() omits the cluster-identity control (render_signin_form passes offer_oidc=false) exactly as the wrong-password page does - this is what makes them identical; do not 'fix' it in this step. No D3a interaction: the collected variants all refuse before find-or-provision. OD-10 out of scope. EXEMPT FROM PARADIGM: Layer-3 example-based acceptance (Mandates 9/11). ENVIRONMENT: CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false for cargo builds on this host; warm the acceptance binary first; acceptance uses a prebuilt foundry binary for subprocess lanes; bound every lane run with a timeout. GUARD LANES: keycloak-sso tag lane; keycloak-sso-provisioning (us-06) lane; cargo xtask check-arch; cargo xtask smoke."
+        },
+        {
+          "id": "03-05",
+          "name": "US-04 the password door stays open alongside cluster identity",
+          "criteria": [
+            "Un-pends, in order (3 scenarios): 'The password door still opens while cluster identity is available'; 'A fresh instance can still be claimed with the provider unreachable'; 'Either door leads to the same person'",
+            "The password door is driven through the real GET/POST /sign-in with the account's own password while a provider is configured",
+            "The instance claim is driven through the real /bootstrap claim with a minted bootstrap token while the provider double is shut down, on an instance with no workspace",
+            "After a federated sign-in, sign-out and a password sign-in, the session belongs to the same user id as the federated session",
+            "keycloak-sso.feature changes only by removing ' @pending' from these 3 tag lines",
+            "keycloak-sso lane green for every scenario un-pended so far; us-06 lane and the shipped us-06-signin scenarios (AC-4.2) stay green; cargo xtask check-arch and cargo xtask smoke pass"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/keycloak-sso.feature",
+          "scenario_name": "The password door still opens while cluster identity is available",
+          "description": "Prove D2 (strictly additive, break-glass door) end to end: replace the flag-only Whens ('sign in with their foundry password', 'first operator claims the instance', 'sign out and sign in again') with real HTTP. Named faults the 3 scenarios must kill: (F19) the password door is disabled or gated when a provider is configured - first scenario; (F20) bootstrap or readiness consults the identity provider, so a claim fails while it is unreachable - second scenario; (F21) a federated sign-in links to or creates a different account than the password door reaches for the same address - third scenario.",
+          "dependencies": [
+            "03-04"
+          ],
+          "estimate": "0.4 day",
+          "files_to_modify": [
+            "crates/foundry-acceptance/src/steps/feature_keycloak_sso.rs",
+            "crates/foundry-acceptance/tests/features/keycloak-sso.feature",
+            "crates/foundry-app/src/signin.rs",
+            "crates/foundry-app/src/bootstrap.rs"
+          ],
+          "implementation_notes": "PRODUCTION ALREADY SHIPPED: green-on-first-run is expected and must be recorded honestly; a failure must be a business failure; any production fix minimal. Reuse the shipped drivers instead of re-implementing them: password_attempt (provisioning module, or the us_06_signin helper) for the password door, and the us_05_bootstrap / feature_bootstrap_enum_oracle claim helpers for the claim (mint a bootstrap token, POST /bootstrap). 'Foundry is connected to the cluster identity provider' must therefore NOT seed a workspace or account itself - seeding belongs to the account Givens - or the claim scenario has nothing to claim. RISK FOR THE SHARED THEN: 'they arrive at their board signed in as themselves' asserts 303 with Location exactly '/', but the shipped bootstrap claim answers 303 to '/dashboard' (bootstrap.rs ~line 186). Whether '/dashboard' counts as 'their board' is an open question, raised to the orchestrator; do not edit Gherkin and do not weaken the shared Then for the other three scenarios. Acceptable resolutions are a step-module change that asserts each door's documented landing plus a working session, or a ruling that the scenario fails for a business reason. 'Either door leads to the same person': strengthen the shared Then (or a scenario-local world flag) to compare the session's user with the federated one; a bare 303 to '/' cannot kill F21. No D3a interaction: the account exists before either door is used. OD-10 out of scope. EXEMPT FROM PARADIGM: Layer-3 example-based acceptance (Mandates 9/11). ENVIRONMENT: CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false for cargo builds on this host; warm the acceptance binary first; acceptance uses a prebuilt foundry binary for subprocess lanes; bound every lane run with a timeout. GUARD LANES: keycloak-sso tag lane; keycloak-sso-provisioning (us-06) lane; cargo xtask check-arch; cargo xtask smoke. USER DECISION 2026-10-03 (scenario 19 landing): the shared Then 'they arrive at their board signed in as themselves' checks each door's DOCUMENTED landing — `/` for the password and cluster-identity doors, `/dashboard` for the bootstrap claim (bootstrap.rs, pinned by us_05_bootstrap) — then follows the redirect with the session cookie and confirms the session is that person. The step must know which door was used (record it in world state); it must NOT accept /dashboard for the password or SSO doors. No production change, no Gherkin change."
+        },
+        {
+          "id": "03-06",
+          "name": "US-05 running without a provider; close OD-11",
+          "criteria": [
+            "Un-pends, in order (3 scenarios): 'With no provider configured foundry serves as it always did'; 'Asking for cluster identity when none is configured is refused'; 'A half-configured provider stops foundry from starting'",
+            "With no provider the sign-in page carries no link to /auth/oidc/start, /healthz and /readyz answer 200, and GET /auth/oidc/start answers the generic 401 refusal",
+            "The half-configured scenario launches the REAL foundry binary with OIDC_ISSUER_URL, OIDC_CLIENT_ID and OIDC_REDIRECT_URL set and OIDC_CLIENT_SECRET absent; the process exits non-zero and its output names OIDC_CLIENT_SECRET (no placeholder panic! remains)",
+            "keycloak-sso.feature holds no @pending tag on any scenario: all 23 base scenarios run; Gherkin text otherwise byte-identical to DISTILL's",
+            "keycloak-sso lane 23/23 base scenarios green plus the provisioning feature; us-06 lane green; default lane green (rerun slice3 alone before treating the known us-04 rolling-upgrade flake as a regression); cargo xtask check-arch and cargo xtask smoke pass. OD-11 resolved; no docs updated in this step (the orchestrator finalizes)"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/keycloak-sso.feature",
+          "scenario_name": "With no provider configured foundry serves as it always did",
+          "description": "Prove US-05 (configuration-off is the old foundry; half-configured refuses to start, ADR-OIDC-003) and close OD-11. Named faults the 3 scenarios must kill: (F22) the cluster-identity control is rendered regardless of configuration - first scenario; (F23) start answers 404/500 instead of the generic refusal when unconfigured - second scenario; (F24) a partial OIDC configuration is treated as absent (from_parts returns Ok(None)) so foundry starts silently - third scenario; (F25) the startup refusal does not name the missing variable - third scenario.",
+          "dependencies": [
+            "03-05"
+          ],
+          "estimate": "0.4 day",
+          "files_to_modify": [
+            "crates/foundry-acceptance/src/steps/feature_keycloak_sso.rs",
+            "crates/foundry-acceptance/tests/features/keycloak-sso.feature",
+            "crates/foundry-app/src/main.rs",
+            "crates/foundry-oidc/src/lib.rs"
+          ],
+          "implementation_notes": "PRODUCTION ALREADY SHIPPED: green-on-first-run is expected and must be recorded honestly; a failure must be a business failure; any production fix minimal. Scenario 23 is the only subprocess scenario in the feature (DISTILL driving-adapter table: 'binary startup, process launch'): reuse the shipped subprocess-launch helper other acceptance steps use (grep Command::new under crates/foundry-acceptance/src) rather than adding a new one. Acceptance uses a PREBUILT foundry binary - rebuild foundry (with CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false on this host) before the lane, and warm the acceptance binary, or the subprocess scenario times out for a non-business reason. Give the binary the env it needs to reach the OIDC check (the composition root builds the store and other providers first) and set three of the four OIDC variables so the refusal names exactly the missing credential; the startup-refusal event is health.startup.refused with probe=oidc, reason=oidc_config. Env-var names (OIDC_ISSUER_URL, OIDC_CLIENT_ID, OIDC_CLIENT_SECRET, OIDC_REDIRECT_URL) are read in foundry-oidc from_env; FOUNDRY_OIDC_PROVISION_ROLE stays unset (D3 behaviour). Closing OD-11: after this step `grep -c '@pending' crates/foundry-acceptance/tests/features/keycloak-sso.feature` must count only comment lines, if any, and zero tag lines. Do not edit feature-delta.md, CONTEXT.md or any other doc. OD-10 out of scope; provisioning scenario 11 untouched. EXEMPT FROM PARADIGM: Layer-3 example-based acceptance (Mandates 9/11). ENVIRONMENT: bound every lane run with a timeout (a background rerun once hung 26h); kill leftover containers if a run hangs. GUARD LANES: keycloak-sso tag lane; keycloak-sso-provisioning (us-06) lane; DEFAULT lane (no FOUNDRY_ACCEPTANCE_TAGS); cargo xtask check-arch; cargo xtask smoke."
+        }
+      ]
     }
   ],
   "implementation_scope": {
@@ -140,6 +302,11 @@
   "validation": {
     "status": "approved",
     "reviewer": "nw-software-crafter-reviewer",
-    "approved_at": "2026-09-27T21:00:00Z"
+    "approved_at": "2026-09-27T21:00:00Z",
+    "notes": [
+      "2026-10-03: phase 03 (steps 03-01..03-06) added to resolve OD-11 (un-pend the 23 base keycloak-sso.feature scenarios). The approval above covers phases 01-02 only; phase 03 awaits review and is NOT approved.",
+      "2026-10-03: user resolved the phase-03 open question on scenario 19 — per-door landing in the shared Then (see 03-05 notes). Header comment 'provisions nothing (D3)' is stale since D3a but left as DISTILL text; base scenarios run with FOUNDRY_OIDC_PROVISION_ROLE unset, which is D3 exactly.",
+      "2026-10-03: phase 03 (03-01..03-06) APPROVED by nw-acceptance-designer-reviewer: 23/23 scenarios covered once, max 6 per step, scenario_name verbatim, fault mapping sound, per-door landing decision does not weaken scenarios 1/18/20."
+    ]
   }
 }
