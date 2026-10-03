@@ -192,3 +192,102 @@ check. Record the OS and browser version, Pass/Fail per step, and the tallies.
       at the marker; releasing at the edge stops the scroll. Result: ____
 - [ ] **KPI 7 log:** record the dogfood date, devices and outcome in the KPI 7
       log. Result: ____
+
+---
+
+# Harness strengthening (post-03-02)
+
+2026-10-02, by `nw-acceptance-designer`, routed from the two test-strength
+survivors above. Only `crates/foundry-acceptance/src/steps/feature_card_pointer_drag.rs`
+changed: no production code, no shared support module, and every `.feature`
+file is byte-identical (`git diff -- '*.feature'` is empty).
+
+## What changed in the steps, and why it is faithful
+
+1. **Holding still at an edge sends nothing.** `hold_at_right_edge` (the When
+   of #21/#27 and the Given of #22), "she keeps holding it at the edge" (#22)
+   and the hold of #23 used to "hold still" with `PointerStep::Jitter`, a
+   stream of 1 px moves. Every one of those was a `pointermove` that re-ran
+   `track`, and that hid a scroller that never re-resolves the marker. They
+   now hold with `hold_still`: no touch event (CDP) and no mouse action (W3C)
+   reaches the page while the scroller runs. The harness only polls the page
+   every 50 ms. A real finger held still produces no `pointermove`, as the
+   03-01 notes and the scroller's own comment say, so this is the faithful
+   driver and not a test hack.
+2. **#21/#27 release at the held point, with no glide.** "She holds it at the
+   right edge of the board until Done is in view and releases it over Done":
+   she now holds at the height of Done's lane end (read up front with
+   `DragSpot::LaneEnd`, while Done is still off-screen). When the board stops,
+   her finger is already over Done, and she lets go right there. A harness
+   check (`BROKEN(harness)`, using the page's own hit test, not the product's
+   marker) confirms the held point is over Done before the release. Because no
+   pointer event comes between the last scroll step and the release, the
+   existing marker = landing = POST `after` oracles pass only if the scroller
+   itself re-resolves the marker from the stored point.
+3. **#23 still glides to "below AUTH-60".** The held point (12 px from the
+   viewport bottom) drifts off the lane as the page scrolls on to its end, so
+   "lets go below it" needs a move. The hold itself is now still. The hold
+   also waits for the page to come to rest before that move, which closes the
+   race between reading the marker and releasing that the old jitter timing
+   was hiding. So #23 does not discriminate the marker fault; #21, #22 and #27
+   do.
+4. **"Nothing remains" now also means no scroll keeps running.** The Then
+   "no lane is lit, no marker shows, no carried card remains and no move
+   request is sent" (#24, #26 and the slice 01 Escape scenario) first waits
+   until 300 ms after the drag ended. It then asserts that the board's
+   `scrollLeft` and the page's `scrollX`/`scrollY` are unchanged since that
+   moment, and only after that reads the lit lanes and the marker. The exit
+   snapshot is taken at the release (`release`), the system cancel and Escape,
+   and it is cleared at each new gesture.
+5. **#26's finger lifts at the header's right-hand end.** "She lifts her finger
+   over the page header" carries the card to the header as before, then moves
+   it to the header's right-hand end, 12 px in from the board's right edge,
+   and lifts there at once. That point is still on the header: a harness check
+   reads `elementFromPoint` and checks the board can still scroll right by more
+   than 100 px. It also lies inside the board's edge zone (the scroller
+   measures its edges sideways only), so the release happens while a scroller
+   would still have somewhere to go. #24 keeps its mid-board cancel. Its Given,
+   "carrying AUTH-41 over In-Progress", cannot be held in an edge zone without
+   the board scrolling In-Progress away from under the finger, and its When
+   has no movement. The strengthened oracle runs there too, but it cannot
+   discriminate.
+
+## Fault results (one seeded at a time in `board-dnd.js`; restored and `cmp`-verified against `git show HEAD:…` after each)
+
+| Fault | Seeding | Run | Result | Killed on |
+|---|---|---|---|---|
+| a. Marker not recomputed after a scroll step | `scrollEdges`: `if (session.carried) { edgeScroll(session.x, session.y); }`, with no `track` after a step | us-cpd-03: 4/7 scenarios, 58/61 steps | **killed** | #21 and #27 (mouse) "landed exactly where the marker showed just before she let go": "marker = landing (D10, AC-3.4): OPS-3 landed at ("done", Some("OPS-9"), None); left: ("done", ""), right: ("staging", "")". #22 "a marker still shows in the lane under her finger": "lane under the finger String("done"), markers [("staging", "")]". #23 passes (see 3 above) |
+| b. Scroller not stopped in `end()` | `end()` neither sets `ended` nor cancels the frame (the 03-01/03-02 survivor) | us-cpd-03: 6/7 scenarios, 60/61 steps | **killed** | #26 "no lane is lit, no marker shows, no carried card remains and no move request is sent": "MISSING_FUNCTIONALITY: the edge scroll outlived the drag (DDD-8, AC-3.5): (board scrollLeft, page scrollX, page scrollY) was (28.0, 0.0, 0.0) when the drag ended and (280.0, 0.0, 0.0) 305 ms later". #24 passes (mid-board cancel) |
+
+Neither kill was a timeout. Chrome sends no synthetic `pointermove` to a still
+mouse when content scrolls under it, so the mouse scenario (#27) kills fault a
+as well as the touch one.
+
+## Lane counts (unseeded, with the harness change)
+
+| Lane | Result |
+|---|---|
+| `FOUNDRY_ACCEPTANCE_TAGS=us-cpd-03` (positive control, run twice) | 7/7 scenarios, 62/62 steps, both runs |
+| `FOUNDRY_ACCEPTANCE_TAGS=cpd` | 37/37 scenarios, 315/315 steps |
+| `cargo fmt --check -p foundry-acceptance`, `cargo clippy -p foundry-acceptance --all-targets -D warnings`, `cargo xtask check-arch` | all clean / passed |
+
+The cdf, blr and kb lanes were not re-run: no shared support module changed,
+and the changed steps belong to `card-pointer-drag.feature` only.
+
+## Per-feature mutation kill rate, recomputed
+
+Counted the same way as above: each distinct named fault once, at its latest
+result. The two faults above move from survived to killed.
+
+| Source | Faults | Killed |
+|---|---|---|
+| Slice 01 | 7 | 6 |
+| Slice 02 | 26 | 23 |
+| 03-01 (equivalent clamp excluded) | 4 | 3 (vertical scroll, marker recompute, scroller stop); "board's end spills into a sideways page scroll" still survives |
+| 03-02, new faults | 2 | 2 |
+| **Feature** | **39** | **34: 87.2% — PASS** |
+
+**How the clamp is counted.** The unclamped scroller is an equivalent mutant:
+the browser clamps `scrollLeft`/`scrollTop` itself, so it is excluded from the
+denominator. Counting it as a survivor gives 34/40 = 85.0%. The raw per-run
+tally adds this run's two kills to the earlier 33/42 and gives 35/44 = 79.5%.

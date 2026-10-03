@@ -86,6 +86,14 @@ const PAST_HOLD: Duration = Duration::from_millis(900);
 /// far enough. The lane precedent scrolls 14 px per move (EDGE_STEP); CDP touch
 /// dispatch runs at ~33 ms per event (spike Q7).
 const EDGE_SCROLL_WAIT: Duration = Duration::from_secs(30);
+/// How often a finger held still at an edge looks at the board. Holding still
+/// sends the page NOTHING (a real finger held still produces no
+/// `pointermove`), so this is only the harness's own polling interval.
+const STILL_POLL: Duration = Duration::from_millis(50);
+/// How long after a drag ends its scroll offsets must stay put: about twenty
+/// animation frames, in which a leftover edge scroller (14 px a frame) would
+/// move the board or the page well over 200 px.
+const SCROLL_SETTLE: Duration = Duration::from_millis(300);
 
 const SESSION_MARKER: &str = "html[data-card-dragging]";
 const LIFTED: &str = "[data-card-lifted]";
@@ -147,6 +155,9 @@ pub struct CpdState {
     /// The marker `(lane, before-key)` read just before the release.
     marker_at_release: Option<(String, String)>,
     scroll_at_release: Option<(f64, f64, f64)>,
+    /// The scroll read the moment the drag ended (release, system cancel or
+    /// Escape) and when, so "nothing remains" can see a scroll that outlives it.
+    scroll_at_exit: Option<((f64, f64, f64), Instant)>,
     target_visible_at_release: bool,
     board_before: Option<Snapshot>,
     lanes_before: Option<Vec<String>>,
@@ -676,6 +687,7 @@ async fn prepare_gesture(world: &mut FoundryWorld, kind: PointerKind, key: &str)
     .map(str::to_string);
     world.cpd.moves_before = move_requests(&client).await.len();
     world.cpd.scroll_at_lift = Some(scroll_state(&client).await);
+    world.cpd.scroll_at_exit = None;
 }
 
 /// Put `key` in Priya's hand with the mouse: press it and travel past the
@@ -938,7 +950,46 @@ async fn release(world: &mut FoundryWorld) {
     let client = browser(world);
     let kind = world.cpd.pointer.expect("a card is in Priya's hand");
     browser_harness::perform_pointer(&client, kind, world.cpd.at, &[PointerStep::Up]).await;
+    note_exit(world).await;
     settle_requests(&client).await;
+}
+
+/// Record the scroll the moment the drag ended, for `assert_no_scroll_outlives`.
+async fn note_exit(world: &mut FoundryWorld) {
+    let client = browser(world);
+    world.cpd.scroll_at_exit = Some((scroll_state(&client).await, Instant::now()));
+}
+
+/// Hold the finger (or the mouse) still for `wait`: NO pointer event of any
+/// kind reaches the page, exactly as a real finger held still at an edge
+/// produces no `pointermove` (03-01 implementation notes). Whatever the edge
+/// scroller changes meanwhile, it must re-resolve from the stored point itself.
+async fn hold_still(wait: Duration) {
+    tokio::time::sleep(wait).await;
+}
+
+/// The drag has ended, so no edge scroll may still be running: the board's and
+/// the page's offsets read when it ended are unchanged `SCROLL_SETTLE` later.
+/// A scroller left running after the release or the cancel keeps stepping from
+/// the last carried point and moves one of them (DDD-8, AC-3.5).
+async fn assert_no_scroll_outlives(world: &FoundryWorld) {
+    let client = browser(world);
+    let (at_exit, ended) = match world.cpd.scroll_at_exit {
+        Some(exit) => exit,
+        None => (scroll_state(&client).await, Instant::now()),
+    };
+    tokio::time::sleep((ended + SCROLL_SETTLE).saturating_duration_since(Instant::now())).await;
+    let now = scroll_state(&client).await;
+    let moved = (now.0 - at_exit.0).abs() >= 1.0
+        || (now.1 - at_exit.1).abs() >= 1.0
+        || (now.2 - at_exit.2).abs() >= 1.0;
+    assert!(
+        !moved,
+        "MISSING_FUNCTIONALITY: the edge scroll outlived the drag (DDD-8, AC-3.5): (board \
+         scrollLeft, page scrollX, page scrollY) was {at_exit:?} when the drag ended and {now:?} \
+         {} ms later",
+        ended.elapsed().as_millis()
+    );
 }
 
 async fn carry_between(world: &mut FoundryWorld, above: &str, below: &str) {
@@ -1020,6 +1071,9 @@ async fn assert_nothing_left(world: &FoundryWorld) {
         world.cpd.proven_lit,
         world.cpd.proven_marker
     );
+    // First, after the drag has been over for a while: a scroller still running
+    // would also re-light the lane and re-draw the marker under the last point.
+    assert_no_scroll_outlives(world).await;
     let key = held_key(world);
     let state = lift_state(&client, &key).await;
     assert!(
@@ -1066,10 +1120,13 @@ async fn assert_back_at_origin(world: &FoundryWorld, key: &str) {
     }
 }
 
-/// Carry the held card to the board's right edge and keep holding there until
-/// `done` says so. Panics as MISSING_FUNCTIONALITY when the board never
-/// scrolls far enough.
-async fn hold_at_right_edge<F>(world: &mut FoundryWorld, what: &str, mut done: F)
+/// Carry the held card to the board's right edge (at height `at_y`, or where
+/// the pointer is now) and hold it STILL there until `done` says so: no pointer
+/// event reaches the page while the board scrolls (`hold_still`), so the lit
+/// lane and the marker can only follow the scroll if the scroller re-resolves
+/// them from the stored point. Panics as MISSING_FUNCTIONALITY when the board
+/// never scrolls far enough.
+async fn hold_at_right_edge<F>(world: &mut FoundryWorld, what: &str, at_y: Option<f64>, mut done: F)
 where
     F: FnMut(f64, f64) -> bool,
 {
@@ -1083,7 +1140,7 @@ where
     )
     .await;
     let edge_x = raw.as_f64().expect("board edge");
-    let y = world.cpd.at.1;
+    let y = at_y.unwrap_or(world.cpd.at.1);
     world.cpd.at = browser_harness::perform_pointer(
         &client,
         kind,
@@ -1106,9 +1163,22 @@ where
                  {start} to {now} of {max}"
             );
         }
-        browser_harness::perform_pointer(&client, kind, world.cpd.at, &[PointerStep::Jitter(600)])
-            .await;
+        hold_still(STILL_POLL).await;
     }
+}
+
+/// The lane under the viewport point `at`, by the page's own hit test.
+async fn lane_under(client: &fantoccini::Client, at: (f64, f64)) -> Option<String> {
+    js(
+        client,
+        "var el = document.elementFromPoint(arguments[0], arguments[1]);
+         var l = el ? el.closest('#board-columns [data-column]') : null;
+         return l ? l.getAttribute('data-column') : null;",
+        vec![serde_json::json!(at.0), serde_json::json!(at.1)],
+    )
+    .await
+    .as_str()
+    .map(str::to_string)
 }
 
 async fn lane_fully_visible(client: &fantoccini::Client, slug: &str) -> bool {
@@ -1429,7 +1499,10 @@ async fn given_carried_between(
 
 #[given(regex = r"^she has carried it to the right edge until the board scrolled to its end$")]
 async fn given_carried_to_end(world: &mut FoundryWorld) {
-    hold_at_right_edge(world, "its end", |now, max| max > 0.0 && now >= max - 1.0).await;
+    hold_at_right_edge(world, "its end", None, |now, max| {
+        max > 0.0 && now >= max - 1.0
+    })
+    .await;
 }
 
 #[given(
@@ -1640,6 +1713,7 @@ async fn when_hold_text(world: &mut FoundryWorld, key: String) {
 #[when(regex = r"^she presses Escape on the keyboard$")]
 async fn when_escape(world: &mut FoundryWorld) {
     browser_harness::press_key(&browser(world), "Escape").await;
+    note_exit(world).await;
 }
 
 #[when(regex = r"^Priya presses (\w+-\d+) with the right mouse button and moves it into ([\w-]+)$")]
@@ -1855,9 +1929,19 @@ async fn when_second_finger(world: &mut FoundryWorld, label: String) {
 async fn when_edge_scroll_and_drop(world: &mut FoundryWorld, until: String, over: String) {
     let client = browser(world);
     let slug = lane_slug_on_screen(&client, &until).await;
-    hold_at_right_edge(world, &format!("{until} was in view"), |now, max| {
-        now >= max - 1.0
-    })
+    let over_slug = lane_slug_on_screen(&client, &over).await;
+    // She holds the card at the height of the end of the lane she means to drop
+    // in, so that when the board stops the finger is already over it: the
+    // release happens right there, with no move after the scroll.
+    let at_y = browser_harness::spot_point(&client, DragSpot::LaneEnd(&over_slug))
+        .await
+        .1;
+    hold_at_right_edge(
+        world,
+        &format!("{until} was in view"),
+        Some(at_y),
+        |now, max| now >= max - 1.0,
+    )
     .await;
     assert!(
         lane_fully_visible(&client, &slug).await,
@@ -1865,7 +1949,14 @@ async fn when_edge_scroll_and_drop(world: &mut FoundryWorld, until: String, over
          held at the board's edge (AC-3.1)"
     );
     world.cpd.target_visible_at_release = true;
-    carry_to_lane_end(world, &over).await;
+    let under = lane_under(&client, world.cpd.at).await;
+    assert_eq!(
+        under.as_deref(),
+        Some(over_slug.as_str()),
+        "BROKEN(harness): the finger held at the board's edge {:?} is not over {over} once the \
+         board has stopped, so releasing there would not be releasing over {over}",
+        world.cpd.at
+    );
     release_recording_marker(world).await;
 }
 
@@ -1873,9 +1964,7 @@ async fn when_edge_scroll_and_drop(world: &mut FoundryWorld, until: String, over
 async fn when_keep_holding(world: &mut FoundryWorld) {
     let client = browser(world);
     world.cpd.scroll_at_release = Some(scroll_state(&client).await);
-    let kind = world.cpd.pointer.expect("a card is in Priya's hand");
-    browser_harness::perform_pointer(&client, kind, world.cpd.at, &[PointerStep::Jitter(1500)])
-        .await;
+    hold_still(Duration::from_millis(1500)).await;
 }
 
 #[when(
@@ -1916,8 +2005,18 @@ async fn when_hold_bottom(world: &mut FoundryWorld, last: String) {
                 scroll.2
             );
         }
-        browser_harness::perform_pointer(&client, kind, world.cpd.at, &[PointerStep::Jitter(600)])
-            .await;
+        hold_still(STILL_POLL).await;
+    }
+    // Still holding: wait for the page to come to rest (its end), so the move
+    // to "below AUTH-60" starts from a page the scroller no longer moves.
+    let mut was = scroll_state(&client).await.2;
+    loop {
+        hold_still(Duration::from_millis(120)).await;
+        let now = scroll_state(&client).await.2;
+        if (now - was).abs() < 1.0 || Instant::now() > deadline {
+            break;
+        }
+        was = now;
     }
     world.cpd.target_visible_at_release = true;
     let lane = card_place(&client, &last).await.expect("the last card").0;
@@ -1929,6 +2028,7 @@ async fn when_hold_bottom(world: &mut FoundryWorld, last: String) {
 #[when(regex = r"^an incoming call takes the touch away from Priya$")]
 async fn when_system_cancels(world: &mut FoundryWorld) {
     browser_harness::system_cancels_touch(&browser(world)).await;
+    note_exit(world).await;
 }
 
 #[when(regex = r"^she lifts her finger over the page header$")]
@@ -1936,7 +2036,38 @@ async fn when_release_over_header(world: &mut FoundryWorld) {
     let client = browser(world);
     let to = browser_harness::spot_point(&client, DragSpot::PageHeader).await;
     carry_to(world, to).await;
-    release(world).await;
+    // The finger comes to rest at the header's right-hand end, which lies
+    // above the board's right edge, and lifts there at once: a release inside
+    // the board's edge zone while the board can still scroll that way, so a
+    // scroller that outlived the release would keep moving it.
+    let raw = js(
+        &client,
+        "var h = document.querySelector('.app-shell__content > header') || document.querySelector('header');
+         var b = document.getElementById('board-columns');
+         var hr = h.getBoundingClientRect(), br = b.getBoundingClientRect();
+         var x = Math.min(hr.right, br.right, window.innerWidth) - 12, y = hr.top + hr.height / 2;
+         var el = document.elementFromPoint(x, y);
+         return [x, y, !!(el && h.contains(el)), b.scrollWidth - b.clientWidth - b.scrollLeft];",
+        vec![],
+    )
+    .await;
+    let (x, y, on_header, room): (f64, f64, bool, f64) =
+        serde_json::from_value(raw).expect("header end shape");
+    assert!(
+        on_header && room > 100.0,
+        "BROKEN(harness): the header's right-hand end ({x}, {y}) must be on the header \
+         ({on_header}) above a board that can still scroll right ({room} px left)"
+    );
+    let kind = world.cpd.pointer.expect("a card is in Priya's hand");
+    world.cpd.at = browser_harness::perform_pointer(
+        &client,
+        kind,
+        world.cpd.at,
+        &[PointerStep::To(x, y), PointerStep::Up],
+    )
+    .await;
+    note_exit(world).await;
+    settle_requests(&client).await;
 }
 
 // =================================================================== Then
