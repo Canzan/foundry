@@ -126,14 +126,14 @@ Feature: Signing in to foundry with a cluster identity
   # keep it); it is provided by the provider accepting each authorisation once. The
   # scenario therefore replays a GENUINE completed sign-in, so it exercises the
   # mechanism that actually holds (feature-delta.md § Changed Assumptions).
-  @us-03 @error @security @driving_port @real-io @pending
+  @us-03 @error @security @driving_port @real-io
   Scenario: Replaying a completed sign-in is refused
     Given the operator has signed in with their cluster identity
     When that same sign-in is presented a second time
     Then they are returned to the sign-in page and told nothing more
     And their original session is untouched
 
-  @us-03 @error @driving_port @real-io @pending
+  @us-03 @error @driving_port @real-io
   Scenario: An unreachable provider refuses the sign-in rather than breaking
     Given foundry is connected to the cluster identity provider
     And the identity provider cannot be reached
@@ -141,7 +141,7 @@ Feature: Signing in to foundry with a cluster identity
     Then they are returned to the sign-in page and told nothing more
     And foundry keeps serving every other page
 
-  @us-02 @us-03 @security @driving_port @real-io @pending
+  @us-02 @us-03 @security @driving_port @real-io
   Scenario: Every refusal looks identical, whoever is refused
     Given foundry is connected to the cluster identity provider
     When each way of being turned away is attempted in turn

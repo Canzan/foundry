@@ -276,6 +276,8 @@ async fn begun_signin(world: &mut FoundryWorld) {
 #[given("the operator has signed in with their cluster identity")]
 async fn has_signed_in(world: &mut FoundryWorld) {
     begun_signin(world).await;
+    // Kept so a replay can re-present this sign-in's own state and challenge.
+    world.kc_first_start_headers = world.last_headers.clone();
     complete_with_provider(world).await;
 }
 
@@ -484,31 +486,44 @@ async fn identity_lapsed(world: &mut FoundryWorld) {
 
 #[when("that same sign-in is presented a second time")]
 async fn replay_completed_signin(world: &mut FoundryWorld) {
-    // Replay the GENUINE code. Refusal comes from the provider accepting an
-    // authorization code once — NOT from the challenge cookie having been
-    // cleared (feature-delta.md § Changed Assumptions, AC-3.5).
+    // Replay the GENUINE code, state AND challenge cookie of the completed sign-in.
+    // Everything foundry checks before the exchange still matches, so the refusal
+    // can only come from the provider accepting an authorization code once — NOT
+    // from the challenge cookie having been cleared (feature-delta.md § Changed
+    // Assumptions, AC-3.5). The session it established rides along, as a browser
+    // would send it, so a refusal that disturbs it is observable.
     let code = world.kc_last_code.clone().expect("a completed sign-in");
-    let url = format!(
-        "{}{}?code={}&state=from-cookie",
-        base(world),
-        CALLBACK_PATH,
-        code
-    );
-    let resp = world
-        .http
-        .as_ref()
-        .expect("client")
-        .get(&url)
+    let start = world
+        .kc_first_start_headers
+        .clone()
+        .expect("the completed sign-in's start response");
+    let challenge =
+        set_cookie_pair(&start, CHALLENGE_COOKIE).expect("start sets the challenge cookie");
+    let state = challenge_params(Some(&start))
+        .map(|(state, _)| state)
+        .expect("start redirect carries state");
+    let session = world
+        .kc_session_cookie
+        .clone()
+        .expect("the completed sign-in established a session");
+    let resp = client()
+        .get(format!("{}{}", base(world), CALLBACK_PATH))
+        .query(&[("code", code.as_str()), ("state", state.as_str())])
+        .header(reqwest::header::COOKIE, format!("{challenge}; {session}"))
         .send()
         .await
         .expect("callback");
     record(world, resp).await;
 }
 
+/// The provider is already unreachable, so the start itself may refuse — that
+/// refusal (no hand-off at all) is the answer the operator gets.
 #[when("the operator tries to sign in with their cluster identity")]
 async fn try_sign_in_unreachable(world: &mut FoundryWorld) {
     begun_signin(world).await;
-    complete_with_provider(world).await;
+    if world.last_status == Some(StatusCode::FOUND) {
+        finish_federated_sign_in(world).await;
+    }
 }
 
 #[when("each way of being turned away is attempted in turn")]
@@ -526,12 +541,40 @@ async fn every_refusal(world: &mut FoundryWorld) {
         }
         begun_signin(world).await;
         complete_with_provider(world).await;
-        seen.push((
-            world.last_status.expect("status"),
-            world.last_body.clone().unwrap_or_default(),
-        ));
+        seen.push(last_answer(world));
     }
+
+    // A well-formed identity that foundry itself turns away: no account (refused
+    // before any provisioning, D3), and an account in no workspace (refused where
+    // the session would be established — a separately rendered branch).
+    if let Some(d) = world.kc_issuer.as_ref() {
+        d.will_mint(Variant::Valid);
+    }
+    seed_account(world, ORPHAN_EMAIL, ORPHAN_NAME).await;
+    for email in [STRANGER_EMAIL, ORPHAN_EMAIL] {
+        begun_signin(world).await;
+        if let Some(d) = world.kc_issuer.as_ref() {
+            d.will_vouch_for(email, true);
+        }
+        complete_with_provider(world).await;
+        seen.push(last_answer(world));
+    }
+
+    // Arrivals refused before the provider is ever asked.
+    arrive_without_starting(world).await;
+    seen.push(last_answer(world));
+    begun_signin(world).await;
+    arrive_wrong_state(world).await;
+    seen.push(last_answer(world));
+
     world.kc_refusals = seen;
+}
+
+fn last_answer(world: &FoundryWorld) -> (StatusCode, String) {
+    (
+        world.last_status.expect("status"),
+        world.last_body.clone().unwrap_or_default(),
+    )
 }
 
 #[when("they sign in with their foundry password")]
@@ -577,7 +620,11 @@ async fn arrive_signed_in(world: &mut FoundryWorld) {
         .unwrap_or_default()
         .to_string();
     assert_eq!(loc, "/", "expected to land on the board, got {loc:?}");
+    assert_session_opens_board(world, "the federated session does not open the board").await;
+}
 
+/// The session the sign-in established opens the board, signed in as the operator.
+async fn assert_session_opens_board(world: &FoundryWorld, failure: &str) {
     let session = world
         .kc_session_cookie
         .clone()
@@ -588,11 +635,7 @@ async fn arrive_signed_in(world: &mut FoundryWorld) {
         .send()
         .await
         .expect("board");
-    assert_eq!(
-        resp.status(),
-        StatusCode::OK,
-        "the federated session does not open the board"
-    );
+    assert_eq!(resp.status(), StatusCode::OK, "{failure}");
     let body = resp.text().await.unwrap_or_default();
     let greeting = format!("Welcome back, {OPERATOR_NAME}</p>");
     assert!(
@@ -795,7 +838,15 @@ async fn original_session_untouched(world: &mut FoundryWorld) {
         world.kc_last_code.is_some(),
         "no completed sign-in to replay"
     );
-    panic!("session durability across a replay is not yet observable — DELIVER wires it");
+    let reissued = world
+        .last_headers
+        .as_ref()
+        .and_then(|h| set_cookie_pair(h, SESSION_COOKIE));
+    assert!(
+        reissued.is_none(),
+        "the refused replay touched the session cookie: {reissued:?}"
+    );
+    assert_session_opens_board(world, "the refused replay ended the original session").await;
 }
 
 #[then("foundry keeps serving every other page")]
@@ -817,10 +868,13 @@ async fn still_serving(world: &mut FoundryWorld) {
 async fn refusals_identical(world: &mut FoundryWorld) {
     let seen = &world.kc_refusals;
     assert!(seen.len() >= 2, "fewer than two refusals were collected");
-    let first = &seen[0];
-    for (i, other) in seen.iter().enumerate().skip(1) {
+    // Each refusal carries its own freshly minted CSRF token; everything else
+    // must match byte for byte.
+    let (first_status, first_body) = &seen[0];
+    for (i, (status, body)) in seen.iter().enumerate().skip(1) {
         assert_eq!(
-            first, other,
+            (first_status, mask_csrf(first_body)),
+            (status, mask_csrf(body)),
             "refusal {i} differs from refusal 0 — the branches are distinguishable"
         );
     }
@@ -832,7 +886,14 @@ async fn password_refusal_identical(world: &mut FoundryWorld) {
         !world.kc_refusals.is_empty(),
         "no federated refusals collected"
     );
-    panic!("cross-path refusal comparison needs the federated path — DELIVER wires it");
+    let (baseline_status, baseline_body) = wrong_password_refusal(world).await;
+    for (i, (status, body)) in world.kc_refusals.iter().enumerate() {
+        assert_eq!(
+            (*status, mask_csrf(body)),
+            (baseline_status, mask_csrf(&baseline_body)),
+            "refusal {i} is distinguishable from a wrong password's — an account-existence oracle"
+        );
+    }
 }
 
 #[then("foundry reports itself healthy and ready")]
