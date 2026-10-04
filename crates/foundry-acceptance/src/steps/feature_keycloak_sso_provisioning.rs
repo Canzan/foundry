@@ -772,18 +772,13 @@ async fn newcomer_has_chosen_password(world: &mut FoundryWorld, password: String
 /// cannot restart foundry over the same database mid-scenario, so the write that
 /// sign-in performed earlier is made directly; what is under test is the later
 /// sign-in, not the provisioning.
-///
-/// DELIVER: DDD-25 adds a `now` parameter to `provision_federated_member`; pass
-/// `harness(world).app.state.clock.now()` (or the harness's equivalent) here when
-/// the signature changes.
 #[given("the newcomer was given an account while provisioning was still switched on")]
 async fn newcomer_provisioned_earlier(world: &mut FoundryWorld) {
     let email = subject_email(world);
-    let outcome = harness(world)
-        .app
-        .state
+    let state = &harness(world).app.state;
+    let outcome = state
         .store
-        .provision_federated_member(&email, &email, NEWCOMER_NAME)
+        .provision_federated_member(&email, &email, NEWCOMER_NAME, state.clock.now())
         .await
         .expect("the provisioning write succeeds");
     assert!(

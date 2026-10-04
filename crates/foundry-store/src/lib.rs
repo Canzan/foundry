@@ -261,6 +261,23 @@ impl Store {
                 mt_cols.0
             )));
         }
+        // keycloak-sso DDD-32: both sign-in doors read `users.provisioned_at`
+        // (UserRow.provisioned); against a pre-0017 schema refuse readiness
+        // rather than serve 500s at both doors. Scoped as above.
+        let marker: (i64,) = sqlx::query_as(
+            "SELECT count(*)::bigint
+               FROM information_schema.columns
+              WHERE table_schema = current_schema()
+                AND table_name = 'users'
+                AND column_name = 'provisioned_at'",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        if marker.0 < 1 {
+            return Err(ProbeError::Failed(
+                "users table missing migration-0017 column provisioned_at".to_string(),
+            ));
+        }
         Ok(ProbeReport {
             select_one_ok: true,
             round_trip_ms: started.elapsed().as_millis(),
@@ -501,11 +518,16 @@ impl Store {
     /// sign-in (or any existing account) already holds the address, that row is
     /// returned as `Existing`, untouched — no password, name or membership change.
     /// Only `member` is ever granted; never `admin`, never `instance_admins`.
+    ///
+    /// A new account carries `provisioned_at = now` — the caller's clock, never SQL
+    /// `now()` — written by the same INSERT (DDD-25); the `Existing` re-read writes
+    /// nothing.
     pub async fn provision_federated_member(
         &self,
         email_lower: &str,
         email_display: &str,
         display_name: &str,
+        now: time::OffsetDateTime,
     ) -> Result<FederatedProvisionOutcome, StoreError> {
         let mut tx = self.pool.begin().await?;
 
@@ -519,8 +541,9 @@ impl Store {
         };
 
         let created: Option<(uuid::Uuid,)> = sqlx::query_as(
-            "INSERT INTO users (id, email_lower, email_display, display_name, password_hash)
-                  VALUES ($1, $2, $3, $4, NULL)
+            "INSERT INTO users (id, email_lower, email_display, display_name, password_hash,
+                                provisioned_at)
+                  VALUES ($1, $2, $3, $4, NULL, $5)
              ON CONFLICT (email_lower) DO NOTHING
                RETURNING id",
         )
@@ -528,6 +551,7 @@ impl Store {
         .bind(email_lower)
         .bind(email_display)
         .bind(display_name)
+        .bind(now)
         .fetch_optional(&mut *tx)
         .await?;
 
@@ -1123,12 +1147,13 @@ impl Store {
         &self,
         email_lower: &str,
     ) -> Result<Option<UserRow>, StoreError> {
-        let row: Option<(uuid::Uuid, Option<String>)> =
-            sqlx::query_as("SELECT id, password_hash FROM users WHERE email_lower = $1")
-                .bind(email_lower)
-                .fetch_optional(&self.pool)
-                .await?;
-        Ok(row.map(|(id, password_hash)| UserRow { id, password_hash }))
+        let row: Option<UserRow> = sqlx::query_as(&format!(
+            "SELECT {USER_ROW_COLUMNS} FROM users WHERE email_lower = $1"
+        ))
+        .bind(email_lower)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row)
     }
 
     /// Count failed sign-in attempts for `email_lower` since
@@ -2743,12 +2768,13 @@ impl Store {
         &self,
         user_id: uuid::Uuid,
     ) -> Result<Option<UserRow>, StoreError> {
-        let row: Option<(uuid::Uuid, Option<String>)> =
-            sqlx::query_as("SELECT id, password_hash FROM users WHERE id = $1")
-                .bind(user_id)
-                .fetch_optional(&self.pool)
-                .await?;
-        Ok(row.map(|(id, password_hash)| UserRow { id, password_hash }))
+        let row: Option<UserRow> = sqlx::query_as(&format!(
+            "SELECT {USER_ROW_COLUMNS} FROM users WHERE id = $1"
+        ))
+        .bind(user_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row)
     }
 
     /// Write a new `password_hash` for the signed-in account owner
@@ -3261,13 +3287,22 @@ pub enum ProjectInsertError {
 }
 
 /// Minimal user projection used by the sign-in handler.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, sqlx::FromRow)]
 pub struct UserRow {
     pub id: uuid::Uuid,
     /// PHC-encoded hash; `None` for a password-less (federated-only) account
     /// (keycloak-sso DDD-13, migration 0016). Never a sentinel string.
     pub password_hash: Option<String>,
+    /// Role provisioning created this account (keycloak-sso DDD-26): it carries
+    /// the 0017 marker, OR it has no password — an account a pre-0017 replica
+    /// provisioned during a rolling deploy. A password and no marker reads `false`.
+    pub provisioned: bool,
 }
+
+/// The [`UserRow`] projection, shared by every lookup that builds one so the
+/// DDD-26 rule is computed in exactly one place.
+const USER_ROW_COLUMNS: &str = "id, password_hash, \
+     (provisioned_at IS NOT NULL OR password_hash IS NULL) AS provisioned";
 
 /// Derive a non-empty `display_name` (length 1..=64, satisfying the `users`
 /// CHECK) from an invitee email's local-part (ADR-002). Truncates by char to 64 so

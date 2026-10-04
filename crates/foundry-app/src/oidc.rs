@@ -249,7 +249,7 @@ async fn provision(
     let email_display = identity.email.trim();
     match state
         .store
-        .provision_federated_member(email_lower, email_display, &display_name)
+        .provision_federated_member(email_lower, email_display, &display_name, state.clock.now())
         .await
     {
         Ok(FederatedProvisionOutcome::Created {

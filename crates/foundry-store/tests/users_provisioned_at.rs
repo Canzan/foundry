@@ -4,14 +4,6 @@
 //! (OD-14); `UserRow.provisioned` reads `provisioned_at IS NOT NULL OR
 //! password_hash IS NULL` (DDD-26); nothing ever clears the marker (DDD-27).
 //!
-//! SCAFFOLD: true — DISTILL 2026-10-04 (DESIGN OQ-6, OQ-7). Every test here is
-//! `#[ignore]`d until DELIVER writes 0017 and the read-model field. They compile
-//! today because they reach the new column through SQL only, and the new
-//! `UserRow.provisioned` field through [`provisioned`], a shim that panics.
-//! DELIVER: replace the shim's body with `row.provisioned`, pass the caller's
-//! `now` to `provision_federated_member` once DDD-25 adds it, and remove the
-//! `#[ignore]`s.
-//!
 //! WHY-NEW-FILE: crates/foundry-store/tests/users_provisioned_at.rs
 //!   CLOSEST-EXISTING: crates/foundry-store/tests/nullable_password_hash.rs
 //!   EXTENSION-COST: that file pins 0016 (an account MAY lack a password) and the
@@ -24,7 +16,7 @@
 //! migration runner's per-version application cannot be faked. Integration-level,
 //! example-based (Mandate 9/11).
 
-use foundry_store::{run_migrations, run_migrations_from_dir, ResetOutcome, Store, UserRow};
+use foundry_store::{run_migrations, run_migrations_from_dir, ResetOutcome, Store};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 use std::path::PathBuf;
@@ -34,11 +26,6 @@ use testcontainers_modules::testcontainers::runners::AsyncRunner;
 use testcontainers_modules::testcontainers::ImageExt;
 
 const MIGRATION_0017: &str = "0017_users_provisioned_at.sql";
-
-/// SCAFFOLD: stands in for `row.provisioned` (DDD-26), which does not exist yet.
-fn provisioned(_row: &UserRow) -> bool {
-    panic!("SCAFFOLD: UserRow.provisioned (DDD-26) not yet implemented -- RED scaffold")
-}
 
 fn production_migrations_dir() -> PathBuf {
     let manifest =
@@ -127,12 +114,11 @@ async fn marker(
 /// those — an account with a password (bootstrap, invite, test user) stays
 /// unmarked.
 #[tokio::test]
-#[ignore = "DISTILL scaffold (US-07, DDD-24 / OQ-6): un-ignore when migration 0017 exists"]
 async fn the_upgrade_marks_exactly_the_password_less_accounts_as_provisioned_when_they_were_created(
 ) {
     assert!(
         production_migrations_dir().join(MIGRATION_0017).exists(),
-        "SCAFFOLD: migration {MIGRATION_0017} (DDD-24) not yet written -- RED scaffold"
+        "migration {MIGRATION_0017} (DDD-24) is missing"
     );
     let (pool, _pg) = empty_pool().await;
     let at_0016 = staged_migrations("0016");
@@ -181,11 +167,10 @@ async fn the_upgrade_marks_exactly_the_password_less_accounts_as_provisioned_whe
 /// arm covers a provisioned account that has since chosen a password; an account
 /// with a password and no marker is not provisioned. Read by email and by id.
 #[tokio::test]
-#[ignore = "DISTILL scaffold (US-07, DDD-26 / OQ-7): un-ignore when UserRow.provisioned exists"]
 async fn an_account_is_read_as_provisioned_when_marked_or_password_less() {
     assert!(
         production_migrations_dir().join(MIGRATION_0017).exists(),
-        "SCAFFOLD: migration {MIGRATION_0017} (DDD-24) not yet written -- RED scaffold"
+        "migration {MIGRATION_0017} (DDD-24) is missing"
     );
     let (pool, _pg) = empty_pool().await;
     run_migrations(&pool).await.expect("run migrations");
@@ -220,8 +205,8 @@ async fn an_account_is_read_as_provisioned_when_marked_or_password_less() {
             .await
             .expect("lookup by id")
             .expect("found by id");
-        assert_eq!(provisioned(&by_email), expected, "{email} by email");
-        assert_eq!(provisioned(&by_id), expected, "{email} by id");
+        assert_eq!(by_email.provisioned, expected, "{email} by email");
+        assert_eq!(by_id.provisioned, expected, "{email} by id");
     }
 }
 
@@ -229,11 +214,10 @@ async fn an_account_is_read_as_provisioned_when_marked_or_password_less() {
 /// marker, and neither password writer — the reset link nor a signed-in or
 /// operator password change — clears it.
 #[tokio::test]
-#[ignore = "DISTILL scaffold (US-07, DDD-25/27): un-ignore when provision_federated_member writes provisioned_at"]
 async fn no_password_write_clears_the_provisioned_marker() {
     assert!(
         production_migrations_dir().join(MIGRATION_0017).exists(),
-        "SCAFFOLD: migration {MIGRATION_0017} (DDD-24) not yet written -- RED scaffold"
+        "migration {MIGRATION_0017} (DDD-24) is missing"
     );
     let (pool, _pg) = empty_pool().await;
     run_migrations(&pool).await.expect("run migrations");
@@ -244,9 +228,14 @@ async fn no_password_write_clears_the_provisioned_marker() {
         .expect("seed the original workspace");
     let store = Store::from_pool(pool.clone());
 
-    // DELIVER: DDD-25 adds the caller's `now` here.
+    let provisioned_at = time::macros::datetime!(2026-10-04 08:15 UTC);
     let user_id = match store
-        .provision_federated_member("nia@example.test", "nia@example.test", "Nia")
+        .provision_federated_member(
+            "nia@example.test",
+            "nia@example.test",
+            "Nia",
+            provisioned_at,
+        )
         .await
         .expect("provision")
     {
@@ -295,7 +284,7 @@ async fn no_password_write_clears_the_provisioned_marker() {
         .expect("lookup")
         .expect("found");
     assert!(
-        provisioned(&row),
+        row.provisioned,
         "a provisioned account with a password reads as not provisioned"
     );
 }

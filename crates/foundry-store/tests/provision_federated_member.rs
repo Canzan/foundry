@@ -103,6 +103,7 @@ async fn provisions_a_password_less_member_into_the_original_workspace() {
             "nia.newcomer@example.test",
             "Nia.Newcomer@example.test",
             "Nia Newcomer",
+            now,
         )
         .await
         .expect("provision");
@@ -146,6 +147,7 @@ async fn an_unclaimed_instance_provisions_nothing() {
             "nia.newcomer@example.test",
             "nia.newcomer@example.test",
             "Nia",
+            time::OffsetDateTime::now_utc(),
         )
         .await
         .expect("provision");
@@ -182,7 +184,12 @@ async fn an_existing_account_is_returned_untouched() {
     .expect("seed existing membership");
 
     let outcome = store
-        .provision_federated_member("pat@example.test", "PAT@example.test", "Patricia Operator")
+        .provision_federated_member(
+            "pat@example.test",
+            "PAT@example.test",
+            "Patricia Operator",
+            time::OffsetDateTime::now_utc(),
+        )
         .await
         .expect("provision");
 
@@ -209,12 +216,13 @@ async fn an_existing_account_is_returned_untouched() {
 #[tokio::test]
 async fn concurrent_first_sign_ins_share_one_account() {
     let (store, _pg) = migrated_store().await;
-    let workspace = seed_workspace(&store, "Northwind", time::OffsetDateTime::now_utc()).await;
+    let now = time::OffsetDateTime::now_utc();
+    let workspace = seed_workspace(&store, "Northwind", now).await;
 
     let email = "nia.newcomer@example.test";
     let (a, b) = tokio::join!(
-        store.provision_federated_member(email, email, "Nia"),
-        store.provision_federated_member(email, email, "Nia"),
+        store.provision_federated_member(email, email, "Nia", now),
+        store.provision_federated_member(email, email, "Nia", now),
     );
     let user_of = |o: FederatedProvisionOutcome| match o {
         FederatedProvisionOutcome::Created { user_id, .. } => user_id,
