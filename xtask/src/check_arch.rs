@@ -4053,13 +4053,32 @@ mod tests {
         );
     }
 
+    /// A planner stage ahead of the builder (the cargo-chef shape): the
+    /// builder is found by its `AS builder` name, not by being first.
+    const PLANNER_STAGE: &str = concat!(
+        "FROM --platform=$BUILDPLATFORM rust:1.85-slim AS planner\n",
+        "RUN cargo chef prepare --recipe-path recipe.json\n",
+    );
+
     #[test]
     fn a_publish_path_that_stamps_every_image_is_accepted() {
-        let tree = stage_publish(STAMPING_WORKFLOW, STAMPING_WORKFLOW, STAMPING_DOCKERFILE);
-        assert_eq!(
-            check_publish_workflows_stamp_the_image(tree.path()),
-            Vec::<String>::new()
-        );
+        for (shape, dockerfile) in [
+            (
+                "the builder is the only build stage",
+                STAMPING_DOCKERFILE.to_string(),
+            ),
+            (
+                "a planner stage precedes the builder",
+                format!("{PLANNER_STAGE}{STAMPING_DOCKERFILE}"),
+            ),
+        ] {
+            let tree = stage_publish(STAMPING_WORKFLOW, STAMPING_WORKFLOW, &dockerfile);
+            assert_eq!(
+                check_publish_workflows_stamp_the_image(tree.path()),
+                Vec::<String>::new(),
+                "{shape}"
+            );
+        }
     }
 
     #[test]
@@ -4070,6 +4089,26 @@ mod tests {
                 "FROM gcr.io/distroless/cc-debian12 AS runtime\n",
                 "FROM gcr.io/distroless/cc-debian12 AS runtime\nARG FOUNDRY_STAMP_SHA=\n",
             );
+        let refusal = "            echo \"::error::build stamp is empty (sha='$stamp_sha' \
+                       date='$stamp_date')\"\n";
+        let exit = "            exit 1\n";
+        let exit_before_refusal =
+            STAMPING_WORKFLOW.replace(&format!("{refusal}{exit}"), &format!("{exit}{refusal}"));
+        assert_ne!(
+            exit_before_refusal, STAMPING_WORKFLOW,
+            "the swap must apply"
+        );
+        let planner_holds_the_args = format!(
+            "{}{}",
+            PLANNER_STAGE.replace(
+                "RUN cargo chef prepare --recipe-path recipe.json\n",
+                "ARG FOUNDRY_STAMP_SHA=\nARG FOUNDRY_STAMP_DATE=\n\
+                 RUN cargo build --release -p foundry-app\n",
+            ),
+            STAMPING_DOCKERFILE
+                .replace("ARG FOUNDRY_STAMP_SHA=\n", "")
+                .replace("ARG FOUNDRY_STAMP_DATE=\n", ""),
+        );
         for (fault, forgejo, github, dockerfile, names) in [
             (
                 "a workflow passes no SHA build-arg",
@@ -4117,6 +4156,38 @@ mod tests {
                 STAMPING_WORKFLOW.to_string(),
                 format!("{STAMPING_DOCKERFILE}ARG FOUNDRY_STAMP_SHA=\n"),
                 "Dockerfile:8 declares `ARG FOUNDRY_STAMP_SHA` outside the builder stage",
+            ),
+            (
+                "a workflow's `exit 1` comes before the refusal, not after it",
+                exit_before_refusal,
+                STAMPING_WORKFLOW.to_string(),
+                STAMPING_DOCKERFILE.to_string(),
+                ".forgejo/workflows/build-and-publish.yml does not refuse an empty stamp",
+            ),
+            (
+                "a workflow stamps the build time with backtick `date`",
+                STAMPING_WORKFLOW.to_string(),
+                STAMPING_WORKFLOW.replace(
+                    "          stamp_date=\"$(git log -1 --format=%cd --date=short)\"\n",
+                    "          stamp_date=\"$(git log -1 --format=%cd --date=short)\"\n          \
+                     built_on=`date -u +%F`\n",
+                ),
+                STAMPING_DOCKERFILE.to_string(),
+                ".github/workflows/release.yml:10 computes a date from the build time",
+            ),
+            (
+                "the stamp inputs sit in a planner stage ahead of the builder, not in it",
+                STAMPING_WORKFLOW.to_string(),
+                STAMPING_WORKFLOW.to_string(),
+                planner_holds_the_args,
+                "Dockerfile does not declare `ARG FOUNDRY_STAMP_SHA=` in the builder stage",
+            ),
+            (
+                "the builder declares only the date input, the SHA input nowhere",
+                STAMPING_WORKFLOW.to_string(),
+                STAMPING_WORKFLOW.to_string(),
+                STAMPING_DOCKERFILE.replace("ARG FOUNDRY_STAMP_SHA=\n", ""),
+                "Dockerfile does not declare `ARG FOUNDRY_STAMP_SHA=` in the builder stage",
             ),
         ] {
             let tree = stage_publish(&forgejo, &github, &dockerfile);

@@ -373,3 +373,45 @@ more builds.
 - `FOUNDRY_ACCEPTANCE_TAGS=rvf`: 3/3 scenarios, 17/17 steps. `FOUNDRY_STAMP_*` was unset.
 - `cargo fmt --check`, `cargo clippy -p foundry-app --all-targets -- -D warnings` and
   `cargo xtask check-arch`: all clean.
+
+## Addendum, 2026-10-04: the four xtask survivors are killed
+
+**What changed.** Only test fixtures were added in `xtask/src/check_arch.rs`, all inside `mod tests`.
+The rule's production code is byte-identical to HEAD: every diff hunk starts after line 4055.
+Each fixture changes exactly ONE thing from `STAMPING_WORKFLOW` / `STAMPING_DOCKERFILE`:
+
+| Survivor | Fixture | Test | Asserts |
+|---|---|---|---|
+| `:1890:25` `index + 1` → `index - 1` | the refusal's `exit 1` is swapped to the line BEFORE the `build stamp is empty` echo | *flagged* | `.forgejo/workflows/build-and-publish.yml does not refuse an empty stamp` |
+| `:1901:55` second `\|\|` → `&&` | a ``built_on=`date -u +%F` `` line is added after the commit-date line | *flagged* | `.github/workflows/release.yml:10 computes a date from the build time` |
+| `:1919:43` `&&` → `\|\|` | (a) a correct Dockerfile with a cargo-chef `AS planner` stage before `AS builder` | *accepted* (now a 2-row table) | no violation |
+| | (b) the two stamp ARGs (and a `cargo build`) only in that planner stage, none in the builder | *flagged* | `Dockerfile does not declare `ARG FOUNDRY_STAMP_SHA=` in the builder stage` |
+| `:1984:13` `&&` → `\|\|` | `ARG FOUNDRY_STAMP_SHA=` deleted from the builder and declared nowhere else | *flagged* | `Dockerfile does not declare `ARG FOUNDRY_STAMP_SHA=` in the builder stage` |
+
+**Hand-applied mutants.** Each exact cargo-mutants replacement was applied to the working file, then
+`cargo test -p xtask` was run. The file was then restored with `cp` from a saved copy and
+`cmp`-verified. All four runs ended `RESTORED_CMP_OK`.
+
+| Mutant | Result | Failure |
+|---|---|---|
+| `:1890:25` `- 1` | killed (45/46) | `a workflow's `exit 1` comes before the refusal, not after it: expected a violation naming .forgejo/workflows/build-and-publish.yml does not refuse an empty stamp, got []` |
+| `:1901:55` `&&` | killed (45/46) | `a workflow stamps the build time with backtick `date`: expected a violation naming .github/workflows/release.yml:10 computes a date from the build time, got []` |
+| `:1919:43` `\|\|` | killed (44/46) | *accepted*: `left: ["publish-stamp: Dockerfile's builder stage has no `RUN … cargo build` …"]`, `right: []`. *flagged*: `the stamp inputs sit in a planner stage ahead of the builder, not in it: … got []` |
+| `:1984:13` `\|\|` | killed (45/46) | `the builder declares only the date input, the SHA input nowhere: expected a violation naming Dockerfile does not declare `ARG FOUNDRY_STAMP_SHA=` in the builder stage, got []` |
+
+**cargo-mutants re-run** (copy mode, `timeout 1800`, `--in-diff` over `git diff c7568bd -- xtask/src/check_arch.rs`
+against the working tree, `--package xtask`): 58 mutants, **54 caught, 3 missed, 1 unviable**. The 3
+misses are exactly the three `+ → *` equivalents argued above (`:1890:25`, `:1931:38`, `:1942:35`).
+The equivalence arguments still hold with a stage before the builder, because `builder * 1 == builder`.
+
+**Revised result.**
+
+| | Before | After |
+|---|---|---|
+| `xtask/src/check_arch.rs` | 92.6% (50/54) | **100% (54/54)** |
+| Killed | 62 | 66 |
+| Genuine survivors | 4 | **0** |
+| **Kill rate** | 93.9% (62/66) | **100% (66/66)**; 95.7% (66/69) with the 3 equivalents counted |
+
+**Gates.** `cargo test -p xtask` passed 46/46. `cargo fmt --check`,
+`cargo clippy -p xtask --all-targets -- -D warnings` and `cargo xtask check-arch` (PASSED) were all clean.
