@@ -2,7 +2,7 @@
   "roadmap": {
     "project_id": "keycloak-sso",
     "created_at": "2026-09-27T20:40:59Z",
-    "total_steps": 13
+    "total_steps": 14
   },
   "phases": [
     {
@@ -368,6 +368,34 @@
           "implementation_notes": "PRODUCTION ALREADY CORRECT for both scenarios (DISTILL RED gate measured GREEN_ALREADY): green-on-first-run is expected and must be recorded honestly, never fabricate a RED. signin.rs and oidc.rs are listed only in case a scenario exposes an over-applied check from 04-02; any fix is minimal and named after the scenario. Gherkin is DISTILL-owned: remove only ' @pending' from the 2 tag lines. After this step `grep -n '@pending' crates/foundry-acceptance/tests/features/keycloak-sso-provisioning.feature` must match only comment lines, if any, and zero tag lines; the header comment describing 11-18 as @pending may be left as DISTILL text. CHANGELOG follows the file's Keep-a-Changelog shape under [Unreleased]; FOUNDRY_OIDC_PROVISION_ROLE is documented only there, so the OD-12/OD-13 consequences must be stated there in plain words. Include OQ-10 in the migration note as an operator check before release (did prod ever set FOUNDRY_OIDC_PROVISION_ROLE? expected backfill: zero rows on v0.6.0). DoD 6: do not edit AC-6.8 or DDD-22 in place; add the dated supersession note in a later dated section (or a dated marker appended to those lines that leaves the original wording intact). brief.md shipped wording and OQ-9 (deploy repo docs) belong to the orchestrator's finalize, not this step. EXEMPT FROM PARADIGM: Layer-3 example-based acceptance (Mandates 9/11) and docs; no new unit-level contract. ENVIRONMENT: CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false for cargo builds on this host; warm the acceptance binary first; rebuild foundry before the default lane (acceptance uses a prebuilt binary for subprocess scenarios); bound EVERY lane run with timeout and kill leftover containers if it hangs; testcontainers PortNotExposed is an infra flake — rerun the crate alone; the default lane has a known us-04 rolling-upgrade flake — rerun slice3 alone before calling it a regression; xtask ci silently skips the browser lane without FOUNDRY_XTASK_INCLUDE_DOCKER=1. GUARD LANES: FOUNDRY_ACCEPTANCE_TAGS=keycloak-sso-provisioning; FOUNDRY_ACCEPTANCE_TAGS=keycloak-sso; FOUNDRY_ACCEPTANCE_TAGS=us-06; DEFAULT lane (no FOUNDRY_ACCEPTANCE_TAGS); cargo xtask check-arch; cargo xtask smoke; FOUNDRY_XTASK_INCLUDE_DOCKER=1 cargo xtask ci."
         }
       ]
+    },
+    {
+      "id": "05",
+      "name": "Structural guard for the provisioned marker (OQ-8)",
+      "steps": [
+        {
+          "id": "05-01",
+          "name": "check-arch forbids clearing or rewriting the provisioned marker",
+          "description": "OQ-8: enforce D9 (the provisioned marker is permanent; reset, password change or sign-in never clears it) structurally. Add an xtask check-arch rule, in the style of the DDD-22 no-board-keydown rule, that fails the build when any SQL UPDATE assigns users.provisioned_at outside the one sanctioned place: migration 0017's backfill. The only legitimate writer at run time is the INSERT in Store::provision_federated_member.",
+          "criteria": [
+            "cargo xtask check-arch fails, naming file:line and D9, when any .rs file under crates/ or any .sql migration other than 0017_users_provisioned_at.sql contains an UPDATE that sets provisioned_at (case-insensitive, across line breaks within one SQL string or statement)",
+            "Migration 0017's backfill UPDATE and the INSERT that writes provisioned_at in provision_federated_member are not flagged; mentions in comments (// or -- or /* */) and in test files under crates/*/tests/ are not flagged",
+            "The rule scans by globbing crates/**/*.rs and crates/*/migrations/*.sql (no hand-maintained list) and fails closed if a directory cannot be read",
+            "Injected-violation gold tests in xtask cover: an UPDATE ... SET provisioned_at = NULL in a .rs string (flagged); a multi-line UPDATE users\\n SET password_hash = $1, provisioned_at = NULL (flagged); the same text in a // comment (not flagged); a new migration 0018 that updates provisioned_at (flagged); 0017's backfill (not flagged); an INSERT naming provisioned_at (not flagged)",
+            "The PASSED summary line lists the new rule; cargo xtask check-arch passes on the current tree; cargo test -p xtask, fmt, clippy -D warnings pass"
+          ],
+          "test_file": "xtask/src/check_arch.rs",
+          "scenario_name": "check-arch gold tests for the provisioned-marker rule",
+          "dependencies": [
+            "04-03"
+          ],
+          "estimate": "0.25 day",
+          "files_to_modify": [
+            "xtask/src/check_arch.rs"
+          ],
+          "implementation_notes": "Follow check_board_modules_have_no_keydown_listener (xtask/src/check_arch.rs ~line 920-980) and its gold tests: strip comments before matching, report file:line, fail closed on unreadable dirs. Exempt exactly crates/foundry-store/migrations/0017_users_provisioned_at.sql and crates/*/tests/** (store tests seed rows directly). Wire the rule into the violations list near line 94 and the PASSED message near line 136. Matching should catch `UPDATE <table> SET ... provisioned_at =` within a single string/statement; avoid flagging `SELECT ... provisioned_at` or `provisioned_at IS NOT NULL`. Named faults to seed after GREEN (in the rule, one at a time, restore + cmp-verify): exemption widened to all migrations; comment stripping removed; multi-line match removed; rule not wired into the violations list. EXEMPT FROM PARADIGM: xtask rule with example-based gold tests, the DDD-22 precedent. Environment: CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false; bound runs with timeout."
+        }
+      ]
     }
   ],
   "implementation_scope": {
@@ -394,7 +422,8 @@
       "2026-10-03: user resolved the phase-03 open question on scenario 19 — per-door landing in the shared Then (see 03-05 notes). Header comment 'provisions nothing (D3)' is stale since D3a but left as DISTILL text; base scenarios run with FOUNDRY_OIDC_PROVISION_ROLE unset, which is D3 exactly.",
       "2026-10-03: phase 03 (03-01..03-06) APPROVED by nw-acceptance-designer-reviewer: 23/23 scenarios covered once, max 6 per step, scenario_name verbatim, fault mapping sound, per-door landing decision does not weaken scenarios 1/18/20.",
       "2026-10-04: phase 04 added for OD-10 (US-07), awaits review. Steps 04-01..04-03 cover provisioning scenarios 11-18 once each and the four DISTILL scaffolds once each; guards 17 and 18 un-pend with the callback split in 04-02 (DISTILL: un-pend guards with 11), guards 15 and 16 in 04-03. Approvals above do not cover phase 04.",
-      "2026-10-04: phase 04 (04-01..04-03) APPROVED by nw-acceptance-designer-reviewer: scenarios 11-18 and the four scaffolds each covered once; guards 17/18 placed with the callback change; named faults killable; Gherkin unchanged apart from @pending removal."
+      "2026-10-04: phase 04 (04-01..04-03) APPROVED by nw-acceptance-designer-reviewer: scenarios 11-18 and the four scaffolds each covered once; guards 17/18 placed with the callback change; named faults killable; Gherkin unchanged apart from @pending removal.",
+      "2026-10-04: phase 05 (05-01, OQ-8) added at the user's request; a single xtask rule with gold tests following the DDD-22 precedent."
     ]
   }
 }
