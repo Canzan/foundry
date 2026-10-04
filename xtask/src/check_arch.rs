@@ -92,6 +92,7 @@ fn source_violations(root: &Path) -> Vec<String> {
     violations.extend(check_no_static_lane_list(root));
     violations.extend(check_lane_position_deferrable(root));
     violations.extend(check_board_modules_have_no_keydown_listener(root));
+    violations.extend(check_provisioned_marker_is_never_rewritten(root));
     violations.extend(check_static_asset_integrity(root));
     violations.extend(check_stylesheet_colour_seam(root));
     violations.extend(check_stylesheet_dark_block_parity(root));
@@ -133,7 +134,7 @@ pub fn run(args: Vec<String>) -> ExitCode {
     let verdict = verdict(&args);
     match &verdict {
         Verdict::Passed => println!(
-            "check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, the lanes position constraint is still DEFERRABLE, no board-*.js registers a keydown listener, every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, no colour literal outside the three stylesheet token regions, the three stylesheet token regions declare the identical colour-token set, dependency direction)"
+            "check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, the lanes position constraint is still DEFERRABLE, no board-*.js registers a keydown listener, nothing outside migration 0017 UPDATEs users.provisioned_at (D9), every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, no colour literal outside the three stylesheet token regions, the three stylesheet token regions declare the identical colour-token set, dependency direction)"
         ),
         Verdict::UnparseableArguments(message) => eprintln!("check-arch: {message}"),
         Verdict::Violations(violations) => {
@@ -1077,6 +1078,356 @@ fn registers_keydown_listener(code: &str) -> bool {
         || after_each("on(")
             .into_iter()
             .any(|rest| quoted_keydown_follows(rest, &['"', '\'']))
+}
+
+/// The one migration allowed to UPDATE `users.provisioned_at`: its OD-14
+/// backfill marks pre-existing password-less accounts at their `created_at`.
+const PROVISIONED_MARKER_BACKFILL: &str =
+    "crates/foundry-store/migrations/0017_users_provisioned_at.sql";
+
+/// keycloak-sso D9 / DDD-27 / OQ-8 — the provisioned marker is permanent.
+/// `users.provisioned_at` is written by exactly one INSERT
+/// (`Store::provision_federated_member`) and by migration 0017's backfill;
+/// nothing clears or rewrites it. Every `.rs` under `crates/` (except each
+/// crate's `tests/`, where store tests seed rows directly) and every
+/// `crates/*/migrations/*.sql` is globbed — never hand-listed — and any SQL
+/// `UPDATE … SET … provisioned_at = …` is flagged, case-insensitively and
+/// across line breaks within one Rust string literal or one SQL statement.
+/// Rust and SQL comments are stripped first, so a commented-out statement
+/// cannot decide the verdict. An unreadable directory fails the rule.
+fn check_provisioned_marker_is_never_rewritten(root: &Path) -> Vec<String> {
+    let crates_dir = root.join("crates");
+    let Ok(entries) = std::fs::read_dir(&crates_dir) else {
+        return vec![format!(
+            "provisioned-marker: cannot list {} — no crate could be checked for an UPDATE of \
+             users.provisioned_at. D9: the provisioned marker is permanent.",
+            crates_dir.display()
+        )];
+    };
+    let mut crate_dirs: Vec<PathBuf> = entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.is_dir())
+        .collect();
+    crate_dirs.sort();
+
+    let mut violations = Vec::new();
+    for crate_dir in crate_dirs {
+        let tests_dir = crate_dir.join("tests");
+        let (sources, unreadable) = files_under(&crate_dir, "rs", &|dir| dir == tests_dir);
+        let migrations_dir = crate_dir.join("migrations");
+        let (migrations, unlisted) = if migrations_dir.is_dir() {
+            // `*.sql` directly inside `migrations/` — no descent.
+            files_under(&migrations_dir, "sql", &|_| true)
+        } else {
+            (Vec::new(), Vec::new())
+        };
+        for dir in unreadable.iter().chain(&unlisted) {
+            violations.push(format!(
+                "provisioned-marker: cannot list {} — it could not be checked for an UPDATE of \
+                 users.provisioned_at (D9).",
+                rel(root, dir)
+            ));
+        }
+        for file in sources.iter().chain(&migrations) {
+            if rel(root, file) == PROVISIONED_MARKER_BACKFILL {
+                continue;
+            }
+            violations.extend(provisioned_marker_violations_in(root, file));
+        }
+    }
+    violations
+}
+
+/// The D9 violations in one file, each naming `file:line`.
+fn provisioned_marker_violations_in(root: &Path, file: &Path) -> Vec<String> {
+    let Ok(source) = std::fs::read_to_string(file) else {
+        return vec![format!(
+            "provisioned-marker: cannot read {} — it could not be checked for an UPDATE of \
+             users.provisioned_at (D9).",
+            rel(root, file)
+        )];
+    };
+    let sql_texts: Vec<(usize, String)> = if file.extension().is_some_and(|e| e == "sql") {
+        vec![(1, source)]
+    } else {
+        rust_string_literals(&source)
+    };
+    sql_texts
+        .iter()
+        .flat_map(|(first_line, sql)| {
+            provisioned_at_assignments(sql)
+                .into_iter()
+                .map(move |offset| first_line + offset)
+        })
+        .map(|line| {
+            format!(
+                "provisioned-marker: {}:{} UPDATEs users.provisioned_at. D9: the provisioned \
+                 marker is permanent — only the provisioning INSERT \
+                 (`Store::provision_federated_member`) writes it, and only migration 0017's \
+                 backfill may UPDATE it (DDD-27).",
+                rel(root, file),
+                line
+            )
+        })
+        .collect()
+}
+
+/// Recursively list `*.{extension}` files under `dir`, not descending into any
+/// directory `skip` accepts. Also returns every directory that could not be
+/// read, so the caller can fail closed instead of passing over it.
+fn files_under(
+    dir: &Path,
+    extension: &str,
+    skip: &dyn Fn(&Path) -> bool,
+) -> (Vec<PathBuf>, Vec<PathBuf>) {
+    let mut files = Vec::new();
+    let mut unreadable = Vec::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(current) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&current) else {
+            unreadable.push(current);
+            continue;
+        };
+        for path in entries.flatten().map(|entry| entry.path()) {
+            if path.is_dir() {
+                if !skip(&path) {
+                    stack.push(path);
+                }
+            } else if path.extension().is_some_and(|e| e == extension) {
+                files.push(path);
+            }
+        }
+    }
+    files.sort();
+    unreadable.sort();
+    (files, unreadable)
+}
+
+/// Every string literal in a Rust source (`"…"`, `r#"…"#`, `b"…"`) with the
+/// 1-based line it opens on. `//` and nested `/* … */` comments are skipped
+/// rather than read, so a commented-out query never yields a literal; char
+/// literals are consumed so `'"'` does not open a string.
+fn rust_string_literals(source: &str) -> Vec<(usize, String)> {
+    let chars: Vec<char> = source.chars().collect();
+    let is_ident = |c: char| c.is_alphanumeric() || c == '_';
+    let mut literals = Vec::new();
+    let mut line = 1;
+    let mut i = 0;
+    while i < chars.len() {
+        let next = chars.get(i + 1).copied();
+        match chars[i] {
+            '\n' => {
+                line += 1;
+                i += 1;
+            }
+            '/' if next == Some('/') => {
+                while i < chars.len() && chars[i] != '\n' {
+                    i += 1;
+                }
+            }
+            '/' if next == Some('*') => {
+                let mut depth = 0usize;
+                while i < chars.len() {
+                    match (chars[i], chars.get(i + 1).copied()) {
+                        ('/', Some('*')) => {
+                            depth += 1;
+                            i += 2;
+                        }
+                        ('*', Some('/')) => {
+                            depth -= 1;
+                            i += 2;
+                            if depth == 0 {
+                                break;
+                            }
+                        }
+                        (c, _) => {
+                            line += usize::from(c == '\n');
+                            i += 1;
+                        }
+                    }
+                }
+            }
+            '"' => {
+                let opened_on = line;
+                let mut text = String::new();
+                i += 1;
+                while i < chars.len() && chars[i] != '"' {
+                    let take = if chars[i] == '\\' { 2 } else { 1 };
+                    for &c in chars.iter().skip(i).take(take) {
+                        line += usize::from(c == '\n');
+                        text.push(c);
+                    }
+                    i += take;
+                }
+                i += 1;
+                literals.push((opened_on, text));
+            }
+            'r' if i == 0 || !is_ident(chars[i - 1]) || chars[i - 1] == 'b' => {
+                let hashes = chars[i + 1..].iter().take_while(|&&c| c == '#').count();
+                if chars.get(i + 1 + hashes) != Some(&'"') {
+                    i += 1;
+                    continue;
+                }
+                let opened_on = line;
+                let closing: Vec<char> = std::iter::once('"')
+                    .chain(std::iter::repeat_n('#', hashes))
+                    .collect();
+                let mut text = String::new();
+                i += hashes + 2;
+                while i < chars.len() && !chars[i..].starts_with(&closing) {
+                    line += usize::from(chars[i] == '\n');
+                    text.push(chars[i]);
+                    i += 1;
+                }
+                i += closing.len();
+                literals.push((opened_on, text));
+            }
+            '\'' if next == Some('\\') => {
+                i += 3;
+                while i < chars.len() && chars[i] != '\'' {
+                    i += 1;
+                }
+                i += 1;
+            }
+            '\'' if chars.get(i + 2) == Some(&'\'') => i += 3,
+            _ => i += 1,
+        }
+    }
+    literals
+}
+
+/// The 0-based line offsets, within `sql`, of every assignment to
+/// `provisioned_at` in an `UPDATE … SET` clause — `provisioned_at = …` or a
+/// `(…, provisioned_at, …) = (…)` row assignment. SQL comments are stripped
+/// first and each `;`-separated statement is matched whole, so the clause may
+/// span lines. The clause ends at WHERE / FROM / RETURNING, which keeps a
+/// `WHERE provisioned_at = $1` filter and every SELECT out of scope.
+fn provisioned_at_assignments(sql: &str) -> Vec<usize> {
+    let code = strip_sql_comments(sql).to_ascii_lowercase();
+    let mut offsets = Vec::new();
+    let mut statement_start = 0;
+    for statement in code.split(';') {
+        let mut from = 0;
+        while let Some(update) = find_sql_word(statement, "update", from) {
+            from = update + "update".len();
+            let Some(set) = find_sql_word(statement, "set", from) else {
+                break;
+            };
+            let clause_start = set + "set".len();
+            let clause_end = ["where", "from", "returning"]
+                .iter()
+                .filter_map(|word| find_sql_word(statement, word, clause_start))
+                .min()
+                .unwrap_or(statement.len());
+            let clause = &statement[clause_start..clause_end];
+            let mut at = 0;
+            while let Some(column) = find_sql_word(clause, "provisioned_at", at) {
+                at = column + "provisioned_at".len();
+                if is_assignment_target(clause, column, at) {
+                    let offset = statement_start + clause_start + column;
+                    offsets.push(code[..offset].matches('\n').count());
+                }
+            }
+        }
+        statement_start += statement.len() + 1;
+    }
+    offsets.dedup();
+    offsets
+}
+
+/// True when the column word spanning `start..end` in a SET clause is assigned:
+/// followed by `=`, or inside a parenthesised column list followed by `=`.
+fn is_assignment_target(clause: &str, start: usize, end: usize) -> bool {
+    let assigns = |rest: &str| {
+        let rest = rest.trim_start();
+        rest.starts_with('=') && !rest.starts_with("==")
+    };
+    if assigns(&clause[end..]) {
+        return true;
+    }
+    let opened = clause[..start].rfind('(');
+    let closed_before = clause[..start].rfind(')');
+    match (opened, clause[end..].find(')')) {
+        (Some(open), Some(close)) if closed_before.is_none_or(|c| c < open) => {
+            assigns(&clause[end + close + 1..])
+        }
+        _ => false,
+    }
+}
+
+/// Byte offset of the first whole-word occurrence of `word` in `text` at or
+/// after `from`. `text` and `word` are expected to share a case.
+fn find_sql_word(text: &str, word: &str, from: usize) -> Option<usize> {
+    let is_word_byte = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
+    let bytes = text.as_bytes();
+    text.get(from..)?
+        .match_indices(word)
+        .map(|(idx, _)| from + idx)
+        .find(|&idx| {
+            let before = idx.checked_sub(1).map(|b| bytes[b]);
+            let after = bytes.get(idx + word.len()).copied();
+            !before.is_some_and(is_word_byte) && !after.is_some_and(is_word_byte)
+        })
+}
+
+/// Blank SQL `--` line comments and `/* … */` block comments, preserving
+/// newlines so line offsets survive. `'…'` string literals are kept intact.
+fn strip_sql_comments(sql: &str) -> String {
+    #[derive(PartialEq)]
+    enum State {
+        Code,
+        Line,
+        Block,
+        Quoted,
+    }
+    let mut out = String::with_capacity(sql.len());
+    let mut state = State::Code;
+    let mut chars = sql.chars().peekable();
+    while let Some(ch) = chars.next() {
+        let blank = if ch == '\n' { '\n' } else { ' ' };
+        match state {
+            State::Code => match (ch, chars.peek()) {
+                ('-', Some('-')) => {
+                    chars.next();
+                    out.push_str("  ");
+                    state = State::Line;
+                }
+                ('/', Some('*')) => {
+                    chars.next();
+                    out.push_str("  ");
+                    state = State::Block;
+                }
+                ('\'', _) => {
+                    out.push(ch);
+                    state = State::Quoted;
+                }
+                _ => out.push(ch),
+            },
+            State::Line => {
+                out.push(blank);
+                if ch == '\n' {
+                    state = State::Code;
+                }
+            }
+            State::Block => {
+                if ch == '*' && chars.peek() == Some(&'/') {
+                    chars.next();
+                    out.push_str("  ");
+                    state = State::Code;
+                } else {
+                    out.push(blank);
+                }
+            }
+            State::Quoted => {
+                out.push(ch);
+                if ch == '\'' {
+                    state = State::Code;
+                }
+            }
+        }
+    }
+    out
 }
 
 fn check_dependency_direction(root: &Path) -> Option<String> {
@@ -2078,6 +2429,164 @@ mod tests {
         );
     }
 
+    // ---- keycloak-sso D9 / OQ-8: nothing UPDATEs users.provisioned_at ------
+
+    const MIGRATION_0017: &str = "crates/foundry-store/migrations/0017_users_provisioned_at.sql";
+
+    fn assert_flagged_at(violations: &[String], location: &str) {
+        assert!(
+            violations
+                .iter()
+                .any(|v| v.contains(location) && v.contains("D9")),
+            "expected a D9 violation naming {location}: {violations:?}"
+        );
+    }
+
+    #[test]
+    fn an_update_clearing_the_marker_in_a_rust_string_is_flagged() {
+        let tree = stage(&[
+            (
+                "crates/foundry-store/src/lib.rs",
+                "fn a() {}\n\nlet _ = sqlx::query(\"UPDATE users SET provisioned_at = NULL WHERE id = $1\");\n",
+            ),
+            (
+                "crates/foundry-services/src/deep/nested/reset.rs",
+                "const Q: &str = \"update users set Provisioned_At = null where id = $1\";\n",
+            ),
+        ]);
+        let violations = check_provisioned_marker_is_never_rewritten(tree.path());
+        assert_eq!(violations.len(), 2, "{violations:?}");
+        assert_flagged_at(&violations, "crates/foundry-store/src/lib.rs:3");
+        assert_flagged_at(
+            &violations,
+            "crates/foundry-services/src/deep/nested/reset.rs:1",
+        );
+    }
+
+    #[test]
+    fn a_multi_line_update_that_also_clears_the_marker_is_flagged() {
+        let tree = stage(&[
+            (
+                "crates/foundry-store/src/lib.rs",
+                "let _ = sqlx::query(\n    \"UPDATE users\n SET password_hash = $1, provisioned_at = NULL\n WHERE id = $2\",\n);\n",
+            ),
+            (
+                "crates/foundry-store/src/raw.rs",
+                "let _ = sqlx::query(r#\"UPDATE users\n   SET (display_name, provisioned_at) = ($1, NULL)\n WHERE id = $2\"#);\n",
+            ),
+        ]);
+        let violations = check_provisioned_marker_is_never_rewritten(tree.path());
+        assert_eq!(violations.len(), 2, "{violations:?}");
+        assert_flagged_at(&violations, "crates/foundry-store/src/lib.rs:3");
+        assert_flagged_at(&violations, "crates/foundry-store/src/raw.rs:2");
+    }
+
+    #[test]
+    fn the_same_update_inside_a_comment_is_not_flagged() {
+        let tree = stage(&[(
+            "crates/foundry-store/src/lib.rs",
+            "// sqlx::query(\"UPDATE users\n// SET password_hash = $1, provisioned_at = NULL\")\n\
+             /* legacy: sqlx::query(\"UPDATE users SET provisioned_at = NULL\") */\n\
+             let _ = sqlx::query(\"UPDATE users SET password_hash = $1 -- , provisioned_at = NULL\n WHERE id = $2\");\n",
+        )]);
+        let violations = check_provisioned_marker_is_never_rewritten(tree.path());
+        assert_eq!(violations.len(), 0, "{violations:?}");
+    }
+
+    #[test]
+    fn a_new_migration_that_updates_the_marker_is_flagged_but_0017s_backfill_is_not() {
+        let backfill = std::fs::read_to_string(workspace_root().join(MIGRATION_0017))
+            .expect("read shipped migration 0017");
+        assert!(
+            backfill.contains("SET provisioned_at = created_at"),
+            "ANTI-VACUITY: 0017 is expected to carry the sanctioned backfill UPDATE"
+        );
+        let tree = stage(&[
+            (MIGRATION_0017, &backfill),
+            (
+                "crates/foundry-store/migrations/0018_reset_provenance.sql",
+                "-- clear the marker on reset\n\
+                 /* UPDATE users SET provisioned_at = NULL; */\n\
+                 UPDATE users\n   SET provisioned_at = NULL\n WHERE password_hash IS NOT NULL;\n",
+            ),
+        ]);
+        let violations = check_provisioned_marker_is_never_rewritten(tree.path());
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert_flagged_at(
+            &violations,
+            "crates/foundry-store/migrations/0018_reset_provenance.sql:4",
+        );
+    }
+
+    #[test]
+    fn writing_the_marker_on_insert_and_reading_it_are_not_flagged() {
+        let tree = stage(&[(
+            "crates/foundry-store/src/lib.rs",
+            "let _ = sqlx::query_as(\n\
+             \"INSERT INTO users (id, email_lower, password_hash,\n\
+                                 provisioned_at)\n\
+                   VALUES ($1, $2, NULL, $3)\n\
+              ON CONFLICT (email_lower) DO NOTHING\n\
+                RETURNING id\",\n);\n\
+             const READ: &str = \"SELECT (provisioned_at IS NOT NULL OR password_hash IS NULL) AS provisioned FROM users\";\n\
+             const OTHER: &str = \"UPDATE users SET display_name = $1 WHERE provisioned_at = $2\";\n",
+        )]);
+        let violations = check_provisioned_marker_is_never_rewritten(tree.path());
+        assert_eq!(violations.len(), 0, "{violations:?}");
+    }
+
+    #[test]
+    fn integration_tests_may_seed_the_marker_directly() {
+        let tree = stage(&[(
+            "crates/foundry-store/tests/users_provisioned_at.rs",
+            "sqlx::query(\"UPDATE users SET provisioned_at = $2 WHERE id = $1\");\n",
+        )]);
+        let violations = check_provisioned_marker_is_never_rewritten(tree.path());
+        assert_eq!(violations.len(), 0, "{violations:?}");
+    }
+
+    #[test]
+    fn a_missing_crates_directory_is_flagged() {
+        let tree = stage(&[("README.md", "nothing here\n")]);
+        let violations = check_provisioned_marker_is_never_rewritten(tree.path());
+        assert_eq!(
+            violations.len(),
+            1,
+            "a missing crates directory must FAIL the guard, never pass it vacuously: {violations:?}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_unreadable_source_directory_is_flagged() {
+        use std::os::unix::fs::PermissionsExt;
+        let tree = stage(&[("crates/foundry-store/src/locked/lib.rs", "fn a() {}\n")]);
+        let locked = tree.path().join("crates/foundry-store/src/locked");
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000))
+            .expect("lock dir");
+        let violations = check_provisioned_marker_is_never_rewritten(tree.path());
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755))
+            .expect("unlock dir");
+        assert_eq!(
+            violations.len(),
+            1,
+            "an unreadable directory must FAIL the guard: {violations:?}"
+        );
+    }
+
+    #[test]
+    fn the_shipped_tree_writes_the_marker_only_where_sanctioned() {
+        let root = workspace_root();
+        let store = std::fs::read_to_string(root.join("crates/foundry-store/src/lib.rs"))
+            .expect("read shipped store");
+        assert!(
+            store.contains("provisioned_at"),
+            "ANTI-VACUITY: the store is expected to name provisioned_at"
+        );
+        let violations = check_provisioned_marker_is_never_rewritten(&root);
+        assert_eq!(violations.len(), 0, "{violations:?}");
+    }
+
     #[test]
     fn api_html_construction_is_flagged_but_clean_json_is_not() {
         let clean = stage(&[(
@@ -3031,7 +3540,7 @@ mod tests {
     /// emits is prefixed with its own name, so a marker absent from the
     /// aggregate's output means that rule is no longer wired into the guard —
     /// the silent-disarm failure this whole block exists for.
-    const LAYER_1_RULE_MARKERS: [&str; 12] = [
+    const LAYER_1_RULE_MARKERS: [&str; 13] = [
         "api≠HTML:",
         "api≠ad-hoc-authz:",
         "api≠mint:",
@@ -3041,6 +3550,7 @@ mod tests {
         "single slugify:",
         "no-static-lane-list:",
         "no-board-keydown:",
+        "provisioned-marker:",
         "asset-reference:",
         "token-seam S1:",
         "token-seam S2:",
@@ -3096,6 +3606,10 @@ mod tests {
             (
                 "crates/foundry-app/static/js/board-dnd.js",
                 "document.addEventListener(\"keydown\", cancel);\n",
+            ),
+            (
+                "crates/foundry-store/src/reset.rs",
+                "let _ = sqlx::query(\"UPDATE users SET provisioned_at = NULL WHERE id = $1\");\n",
             ),
         ])
     }
