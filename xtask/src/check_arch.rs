@@ -4100,6 +4100,24 @@ mod tests {
                 dockerfile_late_arg,
                 "Dockerfile",
             ),
+            (
+                "a workflow keeps both commit commands but also stamps the build time",
+                STAMPING_WORKFLOW.replace(
+                    "          stamp_date=\"$(git log -1 --format=%cd --date=short)\"\n",
+                    "          stamp_date=\"$(git log -1 --format=%cd --date=short)\"\n          \
+                     built_on=\"$(date -u +%F)\"\n",
+                ),
+                STAMPING_WORKFLOW.to_string(),
+                STAMPING_DOCKERFILE.to_string(),
+                ".forgejo/workflows/build-and-publish.yml:10 computes a date from the build time",
+            ),
+            (
+                "the Dockerfile stamps the builder correctly but also declares the SHA in runtime",
+                STAMPING_WORKFLOW.to_string(),
+                STAMPING_WORKFLOW.to_string(),
+                format!("{STAMPING_DOCKERFILE}ARG FOUNDRY_STAMP_SHA=\n"),
+                "Dockerfile:8 declares `ARG FOUNDRY_STAMP_SHA` outside the builder stage",
+            ),
         ] {
             let tree = stage_publish(&forgejo, &github, &dockerfile);
             let violations = check_publish_workflows_stamp_the_image(tree.path());

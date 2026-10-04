@@ -22,8 +22,8 @@
 #     Explicit-input precedence (AC-5) and the degraded `unknown` rendering (AC-6) are unit
 #     examples in foundry-app, not scenarios here.
 #
-# @pending (US-RVF-02): the two page scenarios fail until DELIVER ships the build stamp — today's
-# footer has neither the date nor the commit id. DELIVER removes @pending from both together.
+# LIVE (US-RVF-02): both page scenarios run — DELIVER step 02-01 shipped the build stamp and removed
+# their @pending tag, so the footer now carries the commit date and the commit id.
 #
 # REUSE: the Background and the board / new-issue-modal fetches are the shipped board-new-issue
 # steps (feature_board_new_issue.rs). The signed-out fetch and the Then oracles live in
