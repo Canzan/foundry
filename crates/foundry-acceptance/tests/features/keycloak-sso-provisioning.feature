@@ -16,10 +16,16 @@
 # Harness: the SHIPPED foundry_oidc::OidcProvider talks over a real socket to the
 # in-process RS256 provider double (support/oidc_issuer.rs). Postgres is REAL.
 #
-# Every scenario runs (DISTILL scaffolded them @pending, ADR-025; DELIVER un-pended
+# Scenarios 1-10 run (DISTILL scaffolded them @pending, ADR-025; DELIVER un-pended
 # them all). Scenarios 3-7 are GUARDS: they pin behaviour D3a must preserve and
 # already passed against the link-only callback — they run alongside scenario 1 so
 # they guard the provisioning code, not the absence of it.
+#
+# Scenarios 11-18 are US-07 (D3b, 2026-10-04): an account CREATED by provisioning
+# must hold the provision role at every sign-in through the identity provider;
+# every other account is unaffected. DISTILL scaffolded them all @pending —
+# scenario 11 included, because it now asserts the refusal D3b adds. Scenarios
+# 15-18 are GUARDS that already pass today; DELIVER un-pends them with 11.
 # Blank-means-off for FOUNDRY_OIDC_PROVISION_ROLE is a configuration-parsing rule and
 # is specified at unit level in foundry-oidc, not here.
 
@@ -150,14 +156,117 @@ Feature: A cluster identity holding the provision role is given a foundry accoun
     Then the newcomer arrives signed in to the board
     And the newcomer is greeted as "Nia Newcomer"
 
-  # 11 — pins today's deliberate behaviour while OD-10 (role revocation) stays open.
-  @us-06 @driving_port @real-io
-  Scenario: A member provisioned earlier still signs in after the provision role is withdrawn
+  # 11 — US-07 (D3b, OD-10 resolved 2026-10-04): withdrawing the provision role
+  # closes the identity-provider door to a member provisioning created, and deletes
+  # nothing (D8). Rewritten 2026-10-04 from the AC-6.8 pin, which it supersedes.
+  @us-07 @error @security @driving_port @real-io @pending
+  Scenario: A provisioned member whose provision role is withdrawn is turned away and keeps everything they had
+    Given foundry provisions holders of the "foundry-user" realm role
+    And a newcomer named "Nia Newcomer" is confirmed by the identity provider
+    And the identity provider grants the newcomer the "foundry-user" realm role
+    And the newcomer has been given an account through the identity provider
+    And the newcomer has filed an issue and commented on it
+    And the identity provider no longer grants the newcomer the "foundry-user" realm role
+    When the newcomer signs in through the identity provider
+    Then the newcomer is turned away exactly as a wrong password is
+    And the newcomer still has exactly one foundry account
+    And the newcomer is an ordinary member of the instance's original workspace
+    And the newcomer's name and the work they authored are unchanged
+
+  # 12 — the role match is exact (D11 / OD-9): a different role, or the right name
+  # differently capitalised, is no role at all.
+  @us-07 @error @security @driving_port @real-io @pending
+  Scenario Outline: A provisioned member left holding only a different role is turned away
+    Given foundry provisions holders of the "foundry-user" realm role
+    And a newcomer named "Nia Newcomer" is confirmed by the identity provider
+    And the identity provider grants the newcomer the "foundry-user" realm role
+    And the newcomer has been given an account through the identity provider
+    And the identity provider now grants the newcomer only the "<role>" realm role
+    When the newcomer signs in through the identity provider
+    Then the newcomer is turned away exactly as a wrong password is
+    And the newcomer still has exactly one foundry account
+
+    Examples:
+      | role            |
+      | some-other-role |
+      | Foundry-User    |
+
+  # 13 — picks up where 11 leaves off: a re-grant restores access with no repair step.
+  @us-07 @driving_port @real-io @pending
+  Scenario: A member turned away after the withdrawal is let back in as the same account once the role is granted again
     Given foundry provisions holders of the "foundry-user" realm role
     And a newcomer named "Nia Newcomer" is confirmed by the identity provider
     And the identity provider grants the newcomer the "foundry-user" realm role
     And the newcomer has been given an account through the identity provider
     And the identity provider no longer grants the newcomer the "foundry-user" realm role
+    And the newcomer has been turned away through the identity provider
+    And the identity provider grants the newcomer the "foundry-user" realm role
     When the newcomer signs in through the identity provider
     Then the newcomer arrives signed in to the board
+    And the newcomer is signed in as the same account they were given
+    And the newcomer still has exactly one foundry account
+
+  # 14 — choosing a password does not turn a provisioned member into an invited one (D9).
+  @us-07 @error @security @driving_port @real-io @pending
+  Scenario: A provisioned member who chose a password through a reset is still turned away without the role
+    Given foundry provisions holders of the "foundry-user" realm role
+    And a newcomer named "Nia Newcomer" is confirmed by the identity provider
+    And the identity provider grants the newcomer the "foundry-user" realm role
+    And the newcomer has been given an account through the identity provider
+    And the newcomer has chosen the password "nia-chose-this-password" through a reset
+    And the identity provider no longer grants the newcomer the "foundry-user" realm role
+    When the newcomer signs in through the identity provider
+    Then the newcomer is turned away exactly as a wrong password is
+    And the newcomer still has exactly one foundry account
+
+  # 15 — same member as 14: the role gates only the identity-provider door; the
+  # password door stays the local way in (OD-12, resolved 2026-10-04).
+  @us-07 @driving_port @real-io @pending
+  Scenario: A provisioned member who chose a password can still use it after the role is withdrawn
+    Given foundry provisions holders of the "foundry-user" realm role
+    And a newcomer named "Nia Newcomer" is confirmed by the identity provider
+    And the identity provider grants the newcomer the "foundry-user" realm role
+    And the newcomer has been given an account through the identity provider
+    And the newcomer has chosen the password "nia-chose-this-password" through a reset
+    And the identity provider no longer grants the newcomer the "foundry-user" realm role
+    When the newcomer tries the password form with "nia-chose-this-password"
+    Then the newcomer arrives signed in to the board
+    And the newcomer is greeted as "Nia Newcomer"
+
+  # 16 — the withdrawal takes effect at the next sign-in through the identity
+  # provider; a session already running is left to expire or be signed out (D10).
+  @us-07 @driving_port @real-io @pending
+  Scenario: A provisioned member already signed in keeps working after the role is withdrawn
+    Given foundry provisions holders of the "foundry-user" realm role
+    And a newcomer named "Nia Newcomer" is confirmed by the identity provider
+    And the identity provider grants the newcomer the "foundry-user" realm role
+    And the newcomer has been given an account through the identity provider
+    And the identity provider no longer grants the newcomer the "foundry-user" realm role
+    When the newcomer comes back to the board in the session they already have
+    Then the newcomer is greeted as "Nia Newcomer"
+
+  # 17 — control: an account that came in another way never depended on the role,
+  # so withdrawing it means nothing for that account (D3b).
+  @us-07 @driving_port @real-io @pending
+  Scenario: An invited member without the provision role still signs in through the identity provider
+    Given foundry provisions holders of the "foundry-user" realm role
+    And a member named "Pat Operator" already has a foundry account with a password
+    And the identity provider confirms the member under a differently capitalised address as "Patricia Operator"
+    And the identity provider grants the member no realm roles
+    When the member signs in through the identity provider
+    Then the member arrives signed in to the board
+    And the member is greeted as "Pat Operator"
+    And the member still has exactly one foundry account
+
+  # 18 — with provisioning switched off afterwards, a provisioned account links like
+  # any other, whatever roles it holds: exactly D3 (OD-13, resolved 2026-10-04).
+  @us-07 @driving_port @real-io @pending
+  Scenario: With provisioning switched off a provisioned member signs in whatever roles they hold
+    Given foundry provisions nobody from the cluster identity provider
+    And a newcomer named "Nia Newcomer" is confirmed by the identity provider
+    And the newcomer was given an account while provisioning was still switched on
+    And the identity provider no longer grants the newcomer the "foundry-user" realm role
+    When the newcomer signs in through the identity provider
+    Then the newcomer arrives signed in to the board
+    And the newcomer is greeted as "Nia Newcomer"
     And the newcomer still has exactly one foundry account

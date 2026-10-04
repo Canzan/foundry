@@ -558,7 +558,7 @@ async fn anonymous_redirect_old_cookie(world: &mut FoundryWorld, _who: String) {
 // ----- Password reset -----------------------------------------------------
 
 #[when(regex = r#"^a visitor submits the forgot-password form with email "([^"]+)"$"#)]
-async fn submit_forgot_password(world: &mut FoundryWorld, email: String) {
+pub(crate) async fn submit_forgot_password(world: &mut FoundryWorld, email: String) {
     ensure_harness(world).await;
     let csrf = fetch_csrf_for(world, "/forgot-password").await;
     let harness = world.harness.as_ref().expect("harness");

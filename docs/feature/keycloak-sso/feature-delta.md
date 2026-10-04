@@ -1638,3 +1638,213 @@ order is the DDD-28 table.
 - **OQ-8 (DELIVER): an optional `xtask check-arch` scanner** that fails the build if `provisioned_at` appears in an `UPDATE` anywhere in `crates/`. It would enforce D9 structurally rather than only behaviourally. Recommended but not required; DDD-27's tests are the floor.
 - **OQ-9 (outside this repo):** the deploy repository's environment docs for `FOUNDRY_OIDC_PROVISION_ROLE` should carry the OD-12/OD-13 consequences too, if that repo documents the variable.
 - **OQ-10 (operator, before release):** check whether prod ever set `FOUNDRY_OIDC_PROVISION_ROLE`. It sizes the backfill (expected: zero rows) and goes in the 0017 migration note.
+
+## Wave: DISTILL
+
+> **OD-10 increment, 2026-10-04 — role withdrawal (US-07, D3b).** Rigor profile
+> `adr-025-scaffolded-red`. Lean, Tier-1 [REF] only. Appends to the DISTILL above and
+> edits none of it. Rewrites provisioning scenario 11 (the AC-6.8 / DDD-22 pin, both
+> superseded) and adds scenarios 12–18 to the same `.feature`. Nothing is committed by
+> DISTILL; DELIVER commits on GREEN.
+
+### [REF] Reconciliation
+
+**Passed — 0 contradictions.** D3b is implemented step by step in DDD-28: (1a) not
+provisioned → link (D3b's "unaffected"), (1b) role unset → link (OD-13), (1c) role
+held → link, (1d) role missing → refuse. D8 maps to DDD-28 ("refuse", no delete). D9
+maps to DDD-23/25/27, D10 to "no session revocation" (nothing in DESIGN), D11 to
+DDD-29 (`provider.provision_role()` at sign-in, `has_realm_role`), and D12 to DDD-30.
+OD-12 maps to DDD-31 and OD-14 to the DDD-24 backfill and its DDD-26 read arm. DEVOPS
+is still absent, so this is a WARN and the default matrix applies. Tier A only: every
+scenario is layer 3 (real axum via `build_router`, real Postgres, the shipped
+`OidcProvider` against the RS256 double), so they are example-based (Mandates 9 and
+11). Language: Rust (cucumber-rs + `cargo test`). There is no Python state-delta port,
+and this project's precedent is direct assertions at layer 3+.
+
+### [REF] Scenario list with tags
+
+`.feature` SSOT: `crates/foundry-acceptance/tests/features/keycloak-sso-provisioning.feature`.
+Every row below carries `@keycloak-sso @keycloak-sso-provisioning` (feature tags),
+`@us-07 @driving_port @real-io`, and `@pending`.
+
+| # | Scenario | Extra tags | AC | Oracle |
+|---|---|---|---|---|
+| 11 | A provisioned member whose provision role is withdrawn is turned away and keeps everything they had (**rewritten**, was the AC-6.8 pin) | `@error @security` | 7.1, 7.2 | The refusal is byte-identical (CSRF masked) to a live wrong-password answer, with no session cookie. Then exactly one `users` row; exactly one `member` membership in the original workspace; `display_name` = "Nia Newcomer"; the issue she filed and the comment she made through her own session are still hers and not tombstoned |
+| 12 | A provisioned member left holding only a different role is turned away (2 examples: `some-other-role`, `Foundry-User`) | `@error @security` | 7.1 (D11 / OD-9 boundary) | Byte-identical refusal; one account |
+| 13 | A member turned away after the withdrawal is let back in as the same account once the role is granted again | — | 7.3 | The Given composes 11's When and refusal (Pillar 2). The sign-in then lands on `/` with a session. That session's user id equals the id recorded when provisioning created the account. One account |
+| 14 | A provisioned member who chose a password through a reset is still turned away without the role | `@error @security` | 7.5 | Reset reuses scenario 10's real forgot-password → emailed link → reset form. Byte-identical refusal; one account |
+| 15 | A provisioned member who chose a password can still use it after the role is withdrawn | — | 7.8 (OD-12) | The password door lands on `/` and the greeting is "Nia Newcomer" |
+| 16 | A provisioned member already signed in keeps working after the role is withdrawn | — | 7.7 (D10) | The pre-withdrawal session still opens the board, greeted by name |
+| 17 | An invited member without the provision role still signs in through the identity provider | — | 7.4 (D3b control) | Pat has a password account and no realm roles; he links, lands, is greeted "Pat Operator", and has one account |
+| 18 | With provisioning switched off a provisioned member signs in whatever roles they hold | — | 7.9 (OD-13) | Role unset; the account came from the store's real `provision_federated_member`; he links, lands and is greeted, with one account |
+
+Examples: 9 across 8 scenarios. Error/security examples: 11, 12a, 12b and 14, i.e.
+**4 of 9 = 44%** (target ≥ 40%). The base feature is not touched, and scenarios 1–10
+are unchanged.
+
+AC-7.6 (a distinct log reason with nothing added to the response) is split by layer.
+"Nothing added to the response" is the byte-identical comparison in 11, 12 and 14.
+The distinct reason is unit-level (OQ-5, below), because the lane captures no
+tracing (D3a precedent).
+
+### [REF] RED classification (fail-for-the-right-reason gate)
+
+Procedure (D3a precedent): `cargo test -p foundry-acceptance --test acceptance
+--no-run` to warm the binary. The `.feature` was copied, then
+`sed -i '' 's/ @pending$//'` was run on it, then
+`FOUNDRY_ACCEPTANCE_TAGS=keycloak-sso-provisioning timeout 900 cargo test -p
+foundry-acceptance --test acceptance`, then the file was restored from the copy. The
+restore was verified with `cmp` (identical), and the tag-line diff against the
+pre-DISTILL file showed only scenario 11's line changed plus seven added. Result:
+**23 examples, 18 passed, 5 failed; 0 parsing errors, 0 undefined steps, 0 hook
+errors.**
+
+| # | Result | Class | Failing step — message |
+|---|---|---|---|
+| 11 | FAIL | MISSING_FUNCTIONALITY | `Then the newcomer is turned away exactly as a wrong password is`: "a refusal must not establish a session". The withdrawn member arrives signed in, which is today's link-only step (1) |
+| 12a, 12b | FAIL | MISSING_FUNCTIONALITY | Same step, same message |
+| 13 | FAIL | MISSING_FUNCTIONALITY | `And the newcomer has been turned away through the identity provider` (the Given that composes 11), same message |
+| 14 | FAIL | MISSING_FUNCTIONALITY | `Then … turned away …`, same message |
+| 15, 16, 17, 18 | PASS | GREEN_ALREADY (guards) | — |
+| 1–10 (14 examples) | PASS | unchanged | — |
+
+**BROKEN: 0.** The GREEN_ALREADY guards are legitimate. D3b must PRESERVE the
+behaviour they pin (the password door, live sessions, non-provisioned accounts, and
+role-unset link-only), and the shipped callback already shows it. They are not
+vacuous: each one fails if DELIVER over-applies the check (see named faults below).
+Un-pend them together with 11.
+
+The steps that 11 and 13 never reach were proven by a throwaway probe scenario
+(`@distill-probe`, deleted afterwards). It ran provision → file an issue and comment
+→ sign in again with the role → `same account`, `exactly one account`, `ordinary
+member of the original workspace`, `name and the work they authored are unchanged`:
+12/12 steps green. So 11's and 13's later Thens hide no BROKEN.
+
+### [REF] Scaffolds (RED-ready, Mandate 7)
+
+No production stub. Each scaffold is test code that compiles against today's
+production and is `#[ignore]`d. Each stands in for the API it awaits with a local shim
+that `panic!`s with `SCAFFOLD: … -- RED scaffold`, so un-ignoring it gives a RED
+assertion-class failure, never a compile error. `grep -rn "SCAFFOLD" crates/` finds
+them, and DELIVER leaves zero behind.
+
+| Artifact | What it specifies | How it stays compiled / ignored | `--include-ignored` today |
+|---|---|---|---|
+| `crates/foundry-app/src/oidc.rs` `tests::a_returning_account_is_refused_only_when_provisioned_and_the_role_is_missing` (OQ-5, AC-7.6) | 10-row table over (provisioned, role, held): not provisioned → `Ok` ×3 (incl. role set and roles missing); provisioned + role `None` → `Ok` ×2; provisioned + role held → `Ok` ×2; provisioned + role missing / other / `Foundry-User` → `Err("provisioned account lacks provision role")` ×3; plus `assert_ne!` against `LACKS_PROVISION_ROLE` (D12) | Calls `judge_returning_scaffold` (a `#[cfg(test)]` shim with the DDD-29 signature) and a test-local reason literal. `#[ignore = "DISTILL scaffold (US-07, DDD-29): …"]`. **DELIVER:** delete the shim and the literal, call `judge_returning` and the new const, un-ignore | FAILED — `SCAFFOLD: judge_returning (DDD-29) not yet implemented` |
+| `crates/foundry-store/tests/users_provisioned_at.rs` `the_upgrade_marks_exactly_the_password_less_accounts_as_provisioned_when_they_were_created` (OQ-6, DoD 4) | The schema is staged at 0016 from a temp copy of the production migrations (run by the real `run_migrations_from_dir`). Mixed rows go in: password-less ×2 (different `created_at`), password ×1, "reset before the upgrade" ×1. After applying 0017, only the password-less rows are marked, with `provisioned_at = created_at`; the reset row stays unmarked (OD-14's accepted residue); a re-run changes nothing | New column read through SQL only. An entry guard asserts the 0017 file exists. `#[ignore]` with reason | FAILED — `SCAFFOLD: migration 0017_users_provisioned_at.sql (DDD-24) not yet written` |
+| same file, `an_account_is_read_as_provisioned_when_marked_or_password_less` (OQ-7, DDD-26) | By email AND by id: no password + no marker (the rolling-deploy window) → provisioned; marker + password → provisioned; password + no marker → not provisioned | Reads `UserRow.provisioned` through the `provisioned(&UserRow)` shim. `#[ignore]` | FAILED — same guard |
+| same file, `no_password_write_clears_the_provisioned_marker` (DDD-25/27, AC-7.5 at the store) | `provision_federated_member` sets the marker. `reset_password_and_consume` and `update_user_password` leave it unchanged, and the row still reads provisioned | Same guard and shim. **DELIVER:** pass `now` once DDD-25 adds it | FAILED — same guard |
+
+The 0016 staging and mixed-row insert path was proven against a real container by a
+throwaway probe test (deleted). The schema stood up at 0016, had no `provisioned_at`,
+and `created_at` round-tripped. So OQ-6's harness is not a hidden BROKEN.
+
+Test-support edits (no behaviour change; the keycloak-sso lane stays green):
+`feature_keycloak_sso.rs` gains `seed_team_project` (extracted from
+`seed_operator_project`, so the operator and the newcomer share one seeder), and
+`csrf_for_session` and `session_user_id` become `pub(crate)`.
+`us_06_signin.rs::submit_forgot_password` becomes `pub(crate)` so 14 and 15 reuse
+scenario 10's step rather than copy it. `newcomer_already_provisioned` now also
+records the session's user id (`kc_federated_user_id`) for AC-7.3.
+
+New step phrases (8, all in `feature_keycloak_sso_provisioning.rs`, under the "US-07"
+banner; no collision, since the 23-example run reported no ambiguity):
+`the newcomer has filed an issue and commented on it`;
+`the identity provider now grants the newcomer only the "…" realm role`;
+`the newcomer has been turned away through the identity provider`;
+`the newcomer has chosen the password "…" through a reset`;
+`the newcomer was given an account while provisioning was still switched on`;
+`the newcomer comes back to the board in the session they already have`;
+`the newcomer's name and the work they authored are unchanged`;
+`the newcomer is signed in as the same account they were given`.
+Step reuse across the file is 139 step lines over 34 phrases ≈ **4.1×** (informational).
+
+### [REF] Test placement
+
+| Layer | Where | Precedent |
+|---|---|---|
+| Acceptance (layer 3) | `keycloak-sso-provisioning.feature` scenarios 11–18 | Same file, harness and double as D3a. US-07 is a D3a addendum on the same driving port |
+| Unit (layer 1) | `foundry-app/src/oidc.rs` `#[cfg(test)] mod tests` | `judge_newcomer`'s table test sits there. DDD-29 makes `judge_returning` its sibling |
+| Store integration | `foundry-store/tests/users_provisioned_at.rs` (new file; WHY-NEW-FILE header) | `nullable_password_hash.rs` (0016), `instance_admins_migration.rs` (`run_migrations_from_dir`) |
+
+### [REF] Driving-port coverage
+
+| Port | Scenarios |
+|---|---|
+| `GET /auth/oidc/start` + `GET /auth/oidc/callback` (CHANGED, DDD-28) | 11, 12, 13, 14 (refuse arm 1d); 13 (1c); 17 (1a); 18 (1b) |
+| `POST /sign-in` (unchanged, OD-12) | 15; baseline for every byte-identical refusal |
+| `POST /forgot-password` + reset link (unchanged, DDD-27) | 14, 15 (Given) |
+| Board `GET /` with an existing session (D10) | 16 |
+| Issue + comment posts (authorship, D8) | 11 (Given) |
+
+Driven: `users` lookup/provisioning is real Postgres in every scenario. The roles in
+the ID token come from the shipped fake issuer (policy row from D3a; no new row).
+`Clock` is not observed at acceptance; `provisioned_at` is pinned at store level.
+
+### [REF] Named faults DELIVER must kill
+
+| Fault | Killed by |
+|---|---|
+| Role check skipped for provisioned accounts (step 1 still links unconditionally) | 11, 12a/b, 13, 14; unit rows 8–10 |
+| Check applied to non-provisioned accounts (invited/linked refused without role) | 17; unit rows 1–3 |
+| Role unset treated as refuse for provisioned accounts | 18; unit rows 4–5 |
+| Role match not exact (case-insensitive, or client roles count) | 12b (`Foundry-User`); unit row 10 |
+| Role held but still refused (re-grant does not restore) / a second account created | 13; unit rows 6–7 |
+| Marker cleared by reset or password change | 14; store `no_password_write_clears_the_provisioned_marker` |
+| Refusal reason leaks to the response / response differs from wrong password | 11, 12, 14 (byte-identical, CSRF masked) |
+| Reason reuses `LACKS_PROVISION_ROLE` (operator cannot tell withdrawn from stranger) | unit `assert_ne!` |
+| Refusal deletes or alters account, membership, name, issues or comments | 11's four Thens |
+| Live session ended by the change | 16 |
+| Password door gated on the role | 15 |
+| Backfill marks password accounts, or uses `now()` instead of `created_at` | store OQ-6 test |
+| DDD-26 `OR password_hash IS NULL` dropped (window account reads as invited) | store OQ-7 test (window row, by email and by id) |
+| Marker not written by the provisioning INSERT | store DDD-25/27 test; 14 end-to-end |
+
+### [REF] Pre-requisites
+
+- D3a as shipped (0016, `provision_federated_member`, DDD-15 order) — present.
+- DELIVER builds: migration 0017 (DDD-24), the `provision_federated_member` `now`
+  parameter (DDD-25; this changes the call in step
+  `the newcomer was given an account while provisioning was still switched on`
+  and in the DDD-25/27 store test), `UserRow.provisioned` (DDD-26), the `probe`
+  column assertion (DDD-32), and `judge_returning` plus its const and the
+  callback split (DDD-28..30).
+- Lanes after DISTILL (with `@pending` restored): `FOUNDRY_ACCEPTANCE_TAGS=keycloak-sso`
+  → 37/37. That is the former 38 minus scenario 11, which is now `@pending`;
+  nothing new runs. `keycloak-sso-provisioning` → 14/14 examples (scenarios 1–10);
+  11–18 skipped. `cargo clippy -p foundry-acceptance -p foundry-app -p foundry-store
+  --all-targets -D warnings`, `cargo fmt --check` and `cargo xtask check-arch` are
+  all clean. `foundry-store --test users_provisioned_at`: 3 ignored.
+
+### Open items for DELIVER / the orchestrator
+
+- **Un-pend 11–18 together** once the callback split lands, with 15–18 as guards.
+  Un-ignore the four scaffolds as their APIs appear and delete each shim.
+- **DDD-32 probe test** (a schema missing `provisioned_at` refuses `/readyz`) is not
+  scaffolded here. It follows the shipped `probe_schema_scoping.rs` pattern and is
+  DELIVER's to add alongside the probe edit.
+- **OQ-8** (a check-arch scanner forbidding an `UPDATE` of `provisioned_at`) is
+  optional and left to DELIVER. The store test above is the floor.
+- **D11's "renamed role" case** (provisioned under one role name, checked against a
+  renamed one) has no acceptance scenario, because the harness cannot restart foundry
+  over the same schema with a new config. It is covered structurally:
+  `judge_returning` takes the role read at sign-in, and unit rows 8–10 vary the held
+  set against the configured name.
+- **AC-6.8 and DDD-22** must still be marked superseded by dated text (DoD 6), and
+  `CHANGELOG.md` updated (DDD-33). Both are DELIVER's job.
+- The end-of-DISTILL consolidated four-reviewer gate is run by the orchestrator.
+
+### [REF] End-of-DISTILL consolidated review (2026-10-04, OD-10 increment)
+
+Three reviewers ran in parallel. No DEVOPS wave ran, so there is no platform reviewer;
+this follows the card-pointer-drag and board-lane-reorder precedent.
+
+| Reviewer | Wave | Verdict |
+|---|---|---|
+| nw-product-owner-reviewer | DISCUSS (US-07, AC-7.1..7.9, slice-04) | APPROVED: DoR 9/9; every AC-7.x mapped (AC-7.6 at unit level); 0 antipatterns |
+| nw-solution-architect-reviewer | DESIGN (DDD-23..33) | APPROVED: check placement, DDD-26 OR safety (every non-provisioning INSERT binds a hash), 0017 rolling-deploy and rollback safety, D7 preserved |
+| nw-acceptance-designer-reviewer | DISTILL (scenarios 11–18, 4 scaffolds) | APPROVED: coverage, scenario 11 rewrite, RED classification, oracles, scaffolds compile and are ignored |
+
+**Findings:** 0 blockers, 0 high, 0 medium. The DISTILL reviewer called scenario 18 RED.
+DISTILL's own gate run measured it GREEN_ALREADY, as a guard, and the measured
+classification stands.

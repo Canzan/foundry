@@ -21,6 +21,8 @@
 //! constants are `pub(crate)`: `feature_keycloak_sso` drives the same flow
 //! link-only, so both features exercise one copy of the browser's behaviour.
 
+use crate::steps::feature_keycloak_sso::{csrf_for_session, seed_team_project, session_user_id};
+use crate::steps::us_06_signin::submit_forgot_password;
 use crate::support::harness::InProcHarness;
 use crate::support::oidc_issuer::OidcIssuerDouble;
 use crate::world::FoundryWorld;
@@ -349,10 +351,14 @@ async fn role_withdrawn(world: &mut FoundryWorld, _role: String) {
     issuer(world).will_grant_realm_roles(&[]);
 }
 
+/// The account the sign-in created is remembered by the person its session
+/// belongs to, so a later sign-in can be checked to be the same account (AC-7.3).
 #[given("the newcomer has been given an account through the identity provider")]
 async fn newcomer_already_provisioned(world: &mut FoundryWorld) {
     signs_in_through_provider(world).await;
     arrives_signed_in(world).await;
+    let session = world.kc_session_cookie.clone().expect("a session cookie");
+    world.kc_federated_user_id = session_user_id(world, &session).await;
 }
 
 // ------------------------------------------------------------------- Whens
@@ -651,5 +657,209 @@ async fn newcomer_timing_within(world: &mut FoundryWorld, budget_ms: u64) {
         "timing side-channel: a provisioned account's refusal differs from an unknown \
          address's by {delta}ms (budget {budget_ms}ms). median(newcomer)={m_newcomer}ms \
          median(unknown)={m_unknown}ms; newcomer={newcomer:?} unknown={unknown:?}"
+    );
+}
+
+// ------------------------------------------------- US-07 (D3b) role withdrawal
+//
+// DISTILL 2026-10-04. Every phrase below drives an API that ships today (the
+// browser round-trip, the password door, the reset link, the store's provisioning
+// write); nothing here waits on DELIVER except the behaviour itself, so the
+// scenarios that need D3b fail at an assertion, never at a missing step.
+
+/// Where the provisioned newcomer files the work that must survive the withdrawal.
+const NEWCOMER_TEAM_SLUG: &str = "cluster";
+const NEWCOMER_PROJECT_SLUG: &str = "nia-work";
+const NEWCOMER_ISSUE_TITLE: &str = "Filed before the provision role was withdrawn";
+const NEWCOMER_COMMENT_BODY: &str = "Commented before the provision role was withdrawn";
+/// The display name `newcomer_confirmed` and the provisioning store write give her.
+const NEWCOMER_NAME: &str = "Nia Newcomer";
+
+/// The newcomer's account id, read at the store boundary by address.
+async fn newcomer_account_id(world: &FoundryWorld) -> uuid::Uuid {
+    let (id,): (uuid::Uuid,) = sqlx::query_as("SELECT id FROM users WHERE email_lower = $1")
+        .bind(subject_email(world))
+        .fetch_one(harness(world).app.state.store.pool())
+        .await
+        .expect("the newcomer has an account");
+    id
+}
+
+/// A form post made through the newcomer's own session, exactly as a browser makes
+/// it: the CSRF pair is minted for that session first.
+async fn post_as_newcomer(world: &FoundryWorld, path: &str, fields: &[(&str, &str)]) -> StatusCode {
+    let base = harness(world).base_url();
+    let session = world
+        .kc_session_cookie
+        .clone()
+        .expect("the newcomer's sign-in established a session");
+    let http = client();
+    let csrf = csrf_for_session(&http, &base, &session).await;
+    let mut form: HashMap<&str, String> =
+        fields.iter().map(|(k, v)| (*k, (*v).to_string())).collect();
+    form.insert("_csrf", cookie_value(&csrf, CSRF_COOKIE));
+    http.post(format!("{base}{path}"))
+        .header(reqwest::header::COOKIE, format!("{session}; {csrf}"))
+        .header("hx-request", "true")
+        .form(&form)
+        .send()
+        .await
+        .expect("post as the newcomer")
+        .status()
+}
+
+/// AC-7.2's "authored work": one issue and one comment on it, both made through
+/// the newcomer's session — the team and project they are filed in are the
+/// precondition, seeded at the store boundary.
+#[given("the newcomer has filed an issue and commented on it")]
+async fn newcomer_authored_work(world: &mut FoundryWorld) {
+    let workspace_id = world
+        .kc_workspace_id
+        .expect("the original workspace was seeded");
+    let user_id = newcomer_account_id(world).await;
+    seed_team_project(
+        harness(world).app.state.store.pool(),
+        workspace_id,
+        user_id,
+        NEWCOMER_TEAM_SLUG,
+        NEWCOMER_PROJECT_SLUG,
+    )
+    .await;
+    let issues = format!("/team/{NEWCOMER_TEAM_SLUG}/project/{NEWCOMER_PROJECT_SLUG}/issues");
+    let filed = post_as_newcomer(world, &issues, &[("title", NEWCOMER_ISSUE_TITLE)]).await;
+    assert!(
+        filed.is_success() || filed.is_redirection(),
+        "the newcomer could not file an issue: {filed}"
+    );
+    let commented = post_as_newcomer(
+        world,
+        &format!("{issues}/1/comments"),
+        &[("body", NEWCOMER_COMMENT_BODY)],
+    )
+    .await;
+    assert!(
+        commented.is_success() || commented.is_redirection(),
+        "the newcomer could not comment on their issue: {commented}"
+    );
+}
+
+/// Only `role` is in the next ID token's realm roles — the provision role is gone.
+#[given(regex = r#"^the identity provider now grants the newcomer only the "([^"]+)" realm role$"#)]
+async fn now_grants_only(world: &mut FoundryWorld, role: String) {
+    issuer(world).will_grant_realm_roles(&[&role]);
+}
+
+/// Scenario 11's When and its first Then, composed as the precondition of the
+/// re-grant (Pillar 2).
+#[given("the newcomer has been turned away through the identity provider")]
+async fn newcomer_already_turned_away(world: &mut FoundryWorld) {
+    signs_in_through_provider(world).await;
+    turned_away(world).await;
+}
+
+/// Scenario 10's forgot-password request and reset link, composed as a
+/// precondition: the provisioned newcomer now has a password of their own.
+#[given(regex = r#"^the newcomer has chosen the password "([^"]+)" through a reset$"#)]
+async fn newcomer_has_chosen_password(world: &mut FoundryWorld, password: String) {
+    let email = subject_email(world);
+    submit_forgot_password(world, email).await;
+    newcomer_resets_password(world, password).await;
+}
+
+/// The account was created by provisioning while it was still switched on —
+/// through the store's own provisioning write, the one the callback calls — and
+/// foundry has since been started with provisioning off (OD-13). The harness
+/// cannot restart foundry over the same database mid-scenario, so the write that
+/// sign-in performed earlier is made directly; what is under test is the later
+/// sign-in, not the provisioning.
+///
+/// DELIVER: DDD-25 adds a `now` parameter to `provision_federated_member`; pass
+/// `harness(world).app.state.clock.now()` (or the harness's equivalent) here when
+/// the signature changes.
+#[given("the newcomer was given an account while provisioning was still switched on")]
+async fn newcomer_provisioned_earlier(world: &mut FoundryWorld) {
+    let email = subject_email(world);
+    let outcome = harness(world)
+        .app
+        .state
+        .store
+        .provision_federated_member(&email, &email, NEWCOMER_NAME)
+        .await
+        .expect("the provisioning write succeeds");
+    assert!(
+        matches!(
+            outcome,
+            foundry_store::FederatedProvisionOutcome::Created { .. }
+        ),
+        "the newcomer was not given a new account: {outcome:?}"
+    );
+}
+
+/// The browser still holds the session it was given before the withdrawal; the
+/// newcomer opens the board with it. The answer is kept as the latest response.
+#[when("the newcomer comes back to the board in the session they already have")]
+async fn newcomer_returns_with_session(world: &mut FoundryWorld) {
+    let base = harness(world).base_url();
+    let session = world
+        .kc_session_cookie
+        .clone()
+        .expect("the newcomer was signed in before the withdrawal");
+    let resp = client()
+        .get(format!("{base}/"))
+        .header(reqwest::header::COOKIE, session)
+        .send()
+        .await
+        .expect("board");
+    record(world, resp).await;
+}
+
+/// D8: the refusal deleted nothing — the display name, the issue and the comment
+/// the newcomer authored are all still theirs, unedited and not tombstoned.
+#[then("the newcomer's name and the work they authored are unchanged")]
+async fn newcomer_work_unchanged(world: &mut FoundryWorld) {
+    let user_id = newcomer_account_id(world).await;
+    let pool = harness(world).app.state.store.pool();
+    let (name,): (String,) = sqlx::query_as("SELECT display_name FROM users WHERE id = $1")
+        .bind(user_id)
+        .fetch_one(pool)
+        .await
+        .expect("read the newcomer's name");
+    assert_eq!(name, NEWCOMER_NAME, "the newcomer's display name changed");
+    let issues: Vec<(String,)> = sqlx::query_as("SELECT title FROM issues WHERE author_id = $1")
+        .bind(user_id)
+        .fetch_all(pool)
+        .await
+        .expect("read the newcomer's issues");
+    assert_eq!(
+        issues,
+        vec![(NEWCOMER_ISSUE_TITLE.to_string(),)],
+        "the issues the newcomer authored changed"
+    );
+    let comments: Vec<(String, bool)> = sqlx::query_as(
+        "SELECT body_markdown, deleted_at IS NULL FROM comments WHERE author_id = $1",
+    )
+    .bind(user_id)
+    .fetch_all(pool)
+    .await
+    .expect("read the newcomer's comments");
+    assert_eq!(
+        comments,
+        vec![(NEWCOMER_COMMENT_BODY.to_string(), true)],
+        "the comments the newcomer authored changed"
+    );
+}
+
+/// AC-7.3: the session the re-granted sign-in established belongs to the very
+/// account provisioning created — same id, no repair step.
+#[then("the newcomer is signed in as the same account they were given")]
+async fn same_account_as_given(world: &mut FoundryWorld) {
+    let given = world
+        .kc_federated_user_id
+        .expect("the account provisioning gave the newcomer was remembered");
+    let session = world.kc_session_cookie.clone().expect("a session cookie");
+    assert_eq!(
+        session_user_id(world, &session).await,
+        Some(given),
+        "the newcomer was signed in as a different account than the one they were given"
     );
 }

@@ -115,7 +115,7 @@ fn mint_next(world: &FoundryWorld, variant: Variant) {
 
 /// The CSRF cookie pair minted for `session`, exactly as a browser receives it
 /// when it opens a page with that session.
-async fn csrf_for_session(http: &reqwest::Client, base: &str, session: &str) -> String {
+pub(crate) async fn csrf_for_session(http: &reqwest::Client, base: &str, session: &str) -> String {
     let page = http
         .get(format!("{base}{SIGN_IN_PATH}"))
         .header(reqwest::header::COOKIE, session)
@@ -344,12 +344,23 @@ async fn file_issue_as_federated(world: &mut FoundryWorld) {
 async fn seed_operator_project(world: &FoundryWorld) {
     let workspace_id = world.kc_workspace_id.expect("the operator's workspace");
     let user_id = operator_id(world).await;
-    let pool = pool(world);
+    seed_team_project(pool(world), workspace_id, user_id, TEAM_SLUG, PROJECT_SLUG).await;
+}
+
+/// A team `user_id` belongs to, holding one project with its lanes, in
+/// `workspace_id` — the precondition for filing an issue there.
+pub(crate) async fn seed_team_project(
+    pool: &PgPool,
+    workspace_id: uuid::Uuid,
+    user_id: uuid::Uuid,
+    team_slug: &str,
+    project_slug: &str,
+) {
     let team_id = uuid::Uuid::now_v7();
     sqlx::query("INSERT INTO teams (id, workspace_id, name, slug) VALUES ($1, $2, 'Ops', $3)")
         .bind(team_id)
         .bind(workspace_id)
-        .bind(TEAM_SLUG)
+        .bind(team_slug)
         .execute(pool)
         .await
         .expect("seed a team");
@@ -367,7 +378,7 @@ async fn seed_operator_project(world: &FoundryWorld) {
     .bind(project_id)
     .bind(team_id)
     .bind(workspace_id)
-    .bind(PROJECT_SLUG)
+    .bind(project_slug)
     .execute(pool)
     .await
     .expect("seed a project");
@@ -632,7 +643,7 @@ async fn sign_out(world: &FoundryWorld, session: &str) {
 
 /// The user a session belongs to, read at the store boundary: the session row the
 /// cookie names holds its user id. `None` once the session is gone.
-async fn session_user_id(world: &FoundryWorld, session: &str) -> Option<uuid::Uuid> {
+pub(crate) async fn session_user_id(world: &FoundryWorld, session: &str) -> Option<uuid::Uuid> {
     let id = cookie_value(session, SESSION_COOKIE);
     let found: Option<(uuid::Uuid,)> = sqlx::query_as(
         "SELECT u.id FROM session s JOIN users u \
