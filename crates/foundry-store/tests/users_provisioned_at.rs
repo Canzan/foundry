@@ -212,7 +212,8 @@ async fn an_account_is_read_as_provisioned_when_marked_or_password_less() {
 
 /// DDD-25 / DDD-27 / D9 (AC-7.5 at the store): the provisioning write sets the
 /// marker, and neither password writer — the reset link nor a signed-in or
-/// operator password change — clears it.
+/// operator password change — clears it. The marker is the caller's `now`, not
+/// SQL `now()`.
 #[tokio::test]
 async fn no_password_write_clears_the_provisioned_marker() {
     assert!(
@@ -228,7 +229,10 @@ async fn no_password_write_clears_the_provisioned_marker() {
         .expect("seed the original workspace");
     let store = Store::from_pool(pool.clone());
 
-    let provisioned_at = time::macros::datetime!(2026-10-04 08:15 UTC);
+    // The caller's clock, years from the wall clock and carrying sub-microsecond
+    // nanoseconds: only the bound `now` can land here — SQL `now()` cannot
+    // coincide with 2020 (DDD-25).
+    let provisioned_at = time::macros::datetime!(2020-03-14 15:09:26.535_897_932 UTC);
     let user_id = match store
         .provision_federated_member(
             "nia@example.test",
@@ -244,6 +248,16 @@ async fn no_password_write_clears_the_provisioned_marker() {
     };
     let first = marker(&pool, user_id).await.0;
     assert!(first.is_some(), "the provisioning write left no marker");
+    // Postgres keeps whole microseconds; sqlx truncates (same rule as
+    // foundry-acceptance support::pg_time::to_pg_micros).
+    let expected_marker = provisioned_at
+        .replace_nanosecond(provisioned_at.microsecond() * 1000)
+        .expect("microsecond*1000 is a valid nanosecond value");
+    assert_eq!(
+        first,
+        Some(expected_marker),
+        "the provisioned marker is not the caller's clock (DDD-25)"
+    );
 
     let token_hash = vec![9u8; 32];
     let now = time::OffsetDateTime::now_utc();
