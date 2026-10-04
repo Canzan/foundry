@@ -2,16 +2,16 @@
 
 ## Current Task
 
-All clear. No nWave work is queued or in progress: every roadmap step is committed and all 58 features have an evolution record. This session shipped card-pointer-drag (pushed), v0.6.0 / v0.6.1 / v0.6.2, keycloak-sso OD-11 and OD-10, and v0.7.0 (live on dev and prod), then finished OQ-8 and the docs housekeeping.
+The release-version-footer build stamp (US-RVF-02) shipped in v0.8.0 (`a610dd9`, no PR). The dev footer reads `Foundry v0.8.0 · 2026-10-04` with `data-commit="a610dd9"`; prod is still on v0.7.0, awaiting approval. CI 911/911, mutation 55/60 (91.7%), review APPROVED. The canzan-lift stale-stamp fix shipped as canzan-lift v0.4.2 (`c30ec4a4`): live on dev, prod awaiting approval.
 
 ## Key Decisions
 
-- keycloak-sso D3b: an account created by role provisioning must hold the role at every Keycloak sign-in. The password door stays open (OD-12). Unsetting the role reopens the Keycloak door (OD-13).
-- Foundry runs at dev https://foundry.unintelligent-design.us/ and prod https://foundry.jeffbailey.us/. Prod skipped the v0.6.1 and v0.6.2 patches and took v0.7.0 after about 45 minutes.
-- `.nwave/des-config.json` (untracked) uses `tdd_phases` [RED, GREEN, COMMIT]. The DES Agent hook still wants PREPARE, RED_ACCEPTANCE and RED_UNIT listed as numbered items in prompts.
+- The footer matches canzan-lift. `build.rs` stamps from `FOUNDRY_STAMP_*` build-args, then git, then `unknown`. When the loose branch ref is absent it watches the ref's parent dir, so the stamp re-stamps after `pack-refs`.
+- Both publish workflows pass a separate 7-char stamp and refuse to publish on an empty value. check-arch `publish-stamp:` enforces this. OQ-D4 is resolved: the Forgejo runner has git, since dev shows a real SHA.
+- Prod (`foundry.jeffbailey.us`) is held for approval by design. A lagging prod footer means "awaiting approval".
 
 ## Next Steps
 
-- OQ-10: confirm whether prod ever set `FOUNDRY_OIDC_PROVISION_ROLE`; if it did, check the accounts migration 0017 marked.
-- Do one manual Keycloak sign-in on v0.7.0, and check why prod skips patch releases.
-- The user owes card-pointer-drag device evidence: slice-02 tallies and the slice-03 checklist. New work starts with `/nw:new`.
+- Approve foundry v0.8.0 and canzan-lift v0.4.2 for prod, then check the prod footer (AC-8). Then OQ-10, and one manual Keycloak sign-in.
+- Mutation follow-ups: extract a pure path-choice function in foundry's `build.rs` and unit-test it, like canzan-lift's `ref_watch_path`; add 4 xtask publish-stamp fixtures.
+- The user owes card-pointer-drag device evidence.
