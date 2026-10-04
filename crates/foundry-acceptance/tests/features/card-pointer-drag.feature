@@ -4,8 +4,9 @@
 # its text (amended 2026-09-29); a quick swipe still scrolls, a tap still opens
 # the card, and a mouse drag feels exactly as it did.
 #
-# AUTHORED BY DISTILL (ADR-025). Every scenario is scaffolded RED as `@pending`
-# and DELIVER un-pends them slice by slice (01 -> 03), never re-authoring one.
+# AUTHORED BY DISTILL (ADR-025). Every scenario was scaffolded RED as `@pending`
+# and DELIVER un-pended them slice by slice (01 -> 03), never re-authoring one;
+# all are now live.
 # No production seam is scaffolded: DESIGN DDD-16/21 put the whole change in
 # board-dnd.js, keyboard.js and the stylesheet, which DELIVER owns.
 #

@@ -7,9 +7,11 @@
 # operator most needs the issue describing how to fix it (DISCUSS D2).
 #
 # Keycloak sign-in LINKS to a foundry account that already exists, matched on the
-# UNIQUE `users.email_lower` and gated on the provider confirming the address. It
-# provisions nothing (D3) — so a realm federating the whole directory cannot quietly
-# populate the tracker.
+# UNIQUE `users.email_lower` and gated on the provider confirming the address. These
+# scenarios run with FOUNDRY_OIDC_PROVISION_ROLE unset, so sign-in is link-only and
+# provisions nothing (D3) — a realm federating the whole directory cannot quietly
+# populate the tracker. Since D3a (v0.6.0) provisioning is opt-in via that role;
+# it is covered by keycloak-sso-provisioning.feature.
 #
 # Every refusal is byte-identical to a wrong-password refusal (D7). The callback is
 # publicly reachable, so a specific message would turn foundry into an
