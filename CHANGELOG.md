@@ -7,6 +7,13 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 
 ## [Unreleased]
 
+## [v0.7.0] - 2026-10-04
+
+Withdrawing the Keycloak provision role now takes away Keycloak sign-in from
+the accounts that role provisioning created (keycloak-sso OD-10 / US-07).
+Migration 0017 records which accounts those are. `git log v0.6.2..v0.7.0` is
+the full list.
+
 ### Changed
 
 - **Withdrawing the provision role closes the Keycloak door to provisioned
@@ -347,7 +354,11 @@ followed it.
 - A `comments_visible` SQL VIEW for defense-in-depth against missed
   soft-delete filters is deferred to v0.3 (ADR-017).
 
-[Unreleased]: https://github.com/Canzan/foundry/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/Canzan/foundry/compare/v0.7.0...HEAD
+[v0.7.0]: https://github.com/Canzan/foundry/compare/v0.6.2...v0.7.0
+[v0.6.2]: https://github.com/Canzan/foundry/compare/v0.6.1...v0.6.2
+[v0.6.1]: https://github.com/Canzan/foundry/compare/v0.6.0...v0.6.1
+[v0.6.0]: https://github.com/Canzan/foundry/compare/v0.5.0...v0.6.0
 [v0.5.0]: https://github.com/Canzan/foundry/compare/v0.4.0...v0.5.0
 [v0.4.0]: https://github.com/Canzan/foundry/compare/v0.3.1...v0.4.0
 [v0.2.0]: https://github.com/Canzan/foundry/releases/tag/v0.2.0
