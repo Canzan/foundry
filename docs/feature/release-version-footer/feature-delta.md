@@ -524,3 +524,380 @@ None. D5, D6, D8 and D13 are applied as written. Observations, with no decision 
 - **OQ-D6 (DELIVER).** Record the DoD evidence: a `docker build` with build-args showing the real
   stamp, one without showing `unknown`, and the AC-7 demo (commit → rebuild re-stamps; set and unset
   `FOUNDRY_STAMP_SHA` → re-stamps each time).
+
+### [REF] DESIGN revision 2026-10-04 (architect review: NEEDS_REVISION)
+
+> Append-only. The rows below **supersede** DDD-6, DDD-8, DDD-13 and DDD-14 above and close OQ-D1.
+> Where the original text disagrees with this subsection, this subsection wins. The Decisions-table
+> rows for those four DDDs should be read with the amendments here. No DISCUSS decision changes.
+
+#### DDD-13 (revised): the stamp is a separate output from the image-tag SHA
+
+The Forgejo "Compute tags" step already sets `short_sha="${GITHUB_SHA::12}"` and writes it as
+output `sha`, which feeds the zot image tag. **That value is unchanged and is NOT used for the
+stamp.** The stamp is two *separate* outputs, `stamp_sha` and `stamp_date`, computed with the
+DDD-3 commands exactly: `git rev-parse --short=7 HEAD` and `git log -1 --format=%cd --date=short`.
+The image tag stays 12 characters (zot) or `sha-<7>` (ghcr). `data-commit` is git's 7-or-more
+abbreviation. Both share a prefix, but the two are never substituted for each other.
+
+**`.forgejo/workflows/build-and-publish.yml`, step "Compute tags" (id `tags`).** Insert these lines
+directly after the existing `short_sha="${GITHUB_SHA::12}"` line. That puts them before the `{ … }`
+output block and outside every `refs/tags/*` / `refs/heads/*` conditional, so they run on `main` and
+on `v*` alike. The step already runs under bash (it uses `[[`) and `set -e`:
+
+```bash
+          # Build stamp (release-version-footer DDD-3/DDD-13). SEPARATE from the
+          # 12-char image tag above, computed exactly as build.rs computes it in a
+          # checkout. The Docker context has no .git (.dockerignore), so the commit
+          # must be handed in; an empty value would ship a footer reading
+          # `unknown`, so refuse to publish instead.
+          stamp_sha="$(git rev-parse --short=7 HEAD)"
+          stamp_date="$(git log -1 --format=%cd --date=short)"
+          if [[ -z "${stamp_sha}" || -z "${stamp_date}" ]]; then
+            echo "::error::build stamp is empty (sha='${stamp_sha}' date='${stamp_date}')"
+            exit 1
+          fi
+```
+
+Inside the existing `{ … } >> "${GITHUB_OUTPUT}"` block, after `echo "sha=${short_sha}"`, add:
+
+```bash
+            echo "stamp_sha=${stamp_sha}"
+            echo "stamp_date=${stamp_date}"
+```
+
+In step "Build and push" (`docker/build-push-action@v5`), add under `with:`, beside `platforms:`:
+
+```yaml
+          build-args: |
+            FOUNDRY_STAMP_SHA=${{ steps.tags.outputs.stamp_sha }}
+            FOUNDRY_STAMP_DATE=${{ steps.tags.outputs.stamp_date }}
+```
+
+A failing `git` already exits the step under `set -e`, because a command-substitution assignment
+returns the command's status. The `-z` guard catches the remaining case, where git exits 0 with
+empty output.
+
+**`.github/workflows/release.yml`, job `build` (the matrix job).** Insert a new step directly after
+`- uses: actions/checkout@v4` (before `docker/setup-qemu-action`). It has no `if:`, so it runs for
+branch, tag and `workflow_dispatch` alike:
+
+```yaml
+      # Build stamp (release-version-footer DDD-3/DDD-13). The Docker context
+      # has no .git, so the commit is handed in as build-args; same commands as
+      # build.rs. Refuse to publish an image whose footer would read `unknown`.
+      - name: Compute build stamp
+        id: stamp
+        shell: bash
+        run: |
+          set -euo pipefail
+          stamp_sha="$(git rev-parse --short=7 HEAD)"
+          stamp_date="$(git log -1 --format=%cd --date=short)"
+          if [[ -z "${stamp_sha}" || -z "${stamp_date}" ]]; then
+            echo "::error::build stamp is empty (sha='${stamp_sha}' date='${stamp_date}')"
+            exit 1
+          fi
+          {
+            echo "sha=${stamp_sha}"
+            echo "date=${stamp_date}"
+          } >> "${GITHUB_OUTPUT}"
+```
+
+In step "Build and push by digest" (`docker/build-push-action@v6`, id `build`), add under `with:`,
+beside `platforms:`:
+
+```yaml
+          build-args: |
+            FOUNDRY_STAMP_SHA=${{ steps.stamp.outputs.sha }}
+            FOUNDRY_STAMP_DATE=${{ steps.stamp.outputs.date }}
+```
+
+The `merge` job builds nothing and is not changed. Both matrix legs (amd64 and arm64) compute the
+same values from the same checkout.
+
+**Checkout depth.** Both workflows use `actions/checkout@v4` with no `fetch-depth`, so the default
+is 1. A depth-1 fetch contains the HEAD commit object. `git rev-parse --short=7 HEAD` needs only
+HEAD's object name, and `git log -1 --format=%cd` reads only HEAD's commit object, never a parent,
+so depth 1 is sufficient for both. On a `v*` push, checkout resolves the tag to its commit, so HEAD
+is the tagged commit (detached). With almost no objects in a depth-1 clone, the abbreviation is
+always exactly 7 characters. Precondition, unchanged from OQ-D4: the job's environment must have
+`git` ≥ 2.18. Otherwise checkout downloads an archive with no `.git`, and the guard above fails the
+job loudly, which is the intended behaviour.
+
+#### DDD-8 (revised): the free function is the primary seam (OQ-D1 closed)
+
+- `views.rs` exposes `pub fn site_footer() -> SiteFooter`. It returns
+  `SiteFooter::of(RELEASE_VERSION, BUILD_SHA, BUILD_DATE)`.
+- `base.html` replaces its footer line, in the same position (still the immediate next sibling of
+  `{% block content %}`, D14), with `{{ crate::views::site_footer()|safe }}`. This is a
+  `crate::views::…` path expression of the same shape as the shipped
+  `{{ crate::views::RELEASE_VERSION }}`, with a zero-argument call.
+- `SiteFooter::of(version, sha, date)` stays the pure, testable constructor. It applies
+  `answered_or_unknown` to `sha` and `date`, and all of DDD-12's exact-HTML, degraded and hostile
+  examples target it.
+- `SiteFooter` stays an askama template struct (`partials/site_footer.html`). Its derived
+  `Display` is the escaped render, so `|safe` in `base.html` passes already-escaped markup and a
+  render error propagates instead of being swallowed into an empty footer.
+- The `SiteFooter::compiled()` associated function from the original DDD-8 is dropped.
+
+**OQ-D1: CLOSED.** The design no longer depends on askama resolving an associated-function path.
+DELIVER's GREEN compile confirms the free-function path call. If askama 0.12 rejects even that,
+the one permitted fallback keeps the proven non-call path form:
+`pub static SITE_FOOTER: LazyLock<String>`, holding `site_footer()` rendered once, used as
+`{{ crate::views::SITE_FOOTER|safe }}`. The output, the `of` seam and the tests are unchanged.
+
+#### DDD-14 (revised): CI and xtask builds, with evidence
+
+**Nothing sets `FOUNDRY_STAMP_*` for any cargo build.**
+- A repo-wide search for `FOUNDRY_STAMP|FOUNDRY_BUILD` outside `docs/` and `target/` finds zero
+  matches.
+- `xtask/src/main.rs` launches every gate through `run_steps` (`:296-330`). The only environment it
+  ever adds is each gate's own `env_vars` list (`:321-323`), and every list is empty (`vec![]`, at
+  `:149`, `:161`, `:170`, `:175`, `:199`, `:201`, `:213`, `:250-279`) except the acceptance gate's
+  `FOUNDRY_ACCEPTANCE_TAGS=all` (`:226`).
+- `.github/workflows/ci.yml` sets only `SQLX_OFFLINE` (`:40`), `DATABASE_URL` (`:67`) and
+  `FOUNDRY_XTASK_INCLUDE_DOCKER` (`:71`).
+- `.forgejo/workflows/ci.yml` sets only `DATABASE_URL` (`:64`) and `FOUNDRY_ACCEPTANCE_TAGS`
+  (`:96`).
+
+**Every CI build starts from `actions/checkout@v4`.**
+- GitHub: `.github/workflows/ci.yml:73` (job `ci`, `ubuntu-latest`), then `cargo run -q -p xtask
+  -- ci` (`:96-97`). This runs `build --all --release` (`xtask/src/main.rs:172-176`), `test
+  --workspace --exclude foundry-acceptance --release` (`:191-199`), and `test -p
+  foundry-acceptance --release` (`:217-227`, which carries `@rvf`).
+- Forgejo: `.forgejo/workflows/ci.yml:43`, `:66`, `:93` and `:105`, then `cargo clippy`
+  (`:48-49`), `cargo build --all --release` (`:67-68`), `cargo test --workspace --release`
+  (`:69-70`) and `cargo test -p foundry-acceptance --release` (`:94-97`).
+
+**Correction to the original DDD-14.** "Runs in a checkout" holds everywhere. "git answers" is
+**confirmed only for GitHub `ci.yml`**, because `ubuntu-latest` ships git, so build.rs stamps the
+real commit there. Every Forgejo `ci.yml` job runs inside `container: image: rust:1.85-slim`
+(`:40-41`, `:54-55`, `:88-89`, `:102-103`). The Debian `slim` Rust images are not known to ship
+`git`. If they don't, `actions/checkout@v4` falls back to an archive download with no `.git`.
+build.rs then stamps `unknown`, and the `@rvf` oracle (DDD-15), which runs git in the same
+container, also expects `unknown`. The lane stays consistent and green either way, so **no change to
+Forgejo `ci.yml` is required**. The weaker "it really is the commit" check comes from the GitHub
+lane and from local `cargo xtask ci`. DELIVER should record which case Forgejo CI is in, from the
+first run's checkout log. Not in scope: adding git to that container image.
+
+#### DDD-6 (revised): close the packed-ref gap; the AC-7 manual demo is the gating check
+
+**Directive amendment (gap found while specifying demo row 4).** The original DDD-6 registers the
+branch ref only if its loose file exists. After `git pack-refs --all`, or in a fresh clone whose
+tip lives only in `packed-refs`, that file is absent, so nothing watches it. The next commit then
+*creates* the loose file. `HEAD` still says `ref: refs/heads/<branch>` and `packed-refs` does not
+change, so no registered path changes and **the stamp goes stale**. canzan-lift's `build.rs`
+comment says cargo notices the appearing path, but its `rerun_if_present` never registers a missing
+path, so it has the same latent gap (reported, not fixed here).
+
+Amended rule: when HEAD is attached and the branch ref's loose file is **absent**, register the
+nearest **existing ancestor directory** of that path, still resolved through `--git-path` and
+canonicalised (normally `<git-dir>/refs/heads`). Cargo scans a registered directory's contents for
+modifications, so the loose ref appearing inside it re-runs the script. The script still never
+registers a non-existent path, so the no-op build stays `Fresh` (row 1). The other directives
+(`build.rs`, both env inputs, `HEAD`, `packed-refs` if present) are unchanged.
+
+The rerun directives are not testable by any unit test or lane: cargo runs build scripts, and a
+lane cannot commit mid-run. So **the AC-7 manual demo gates the DELIVER step that adds build.rs.**
+The step is not COMMIT-ready until the demo below is run and its observed output is recorded in
+this file's DELIVER section. Code review against this DDD is required in addition, not instead.
+
+**How to observe.** Run `cargo build -p foundry-app -vv 2>&1 | grep -E 'FOUNDRY_BUILD_|Running .*build-script|Fresh foundry-app'`.
+A rerun shows the build script's `cargo:rustc-env=FOUNDRY_BUILD_SHA=…` / `…_DATE=…` lines. A
+no-op build shows `Fresh foundry-app` and no build-script run. Confirm the end-to-end result once
+by loading `/sign-in` and reading the footer and `data-commit`.
+
+| # | Git or env state to exercise | Expected |
+|---|---|---|
+| 1 | Clean build, then the same command again with no change | First run stamps HEAD; the second shows `Fresh`, with no rerun (proves that only existing paths are registered) |
+| 2 | New commit on the current branch (`git commit --allow-empty -m demo`), rebuild | Re-stamps to the new SHA (the branch-ref watch) |
+| 3 | Detached HEAD (`git checkout --detach HEAD~1`), rebuild; then `git checkout -` and rebuild | Stamps HEAD~1's SHA and date, then returns to the branch tip (the `HEAD` watch; the branch-ref watch is skipped while detached) |
+| 4 | `git pack-refs --all` (the loose branch ref moves into `packed-refs`), rebuild; then `git commit --allow-empty -m demo2`, rebuild | First rebuild: the stamp is unchanged and correct (same commit, no `unknown`). Second: re-stamps to demo2. The loose ref reappears inside the watched `refs/heads` directory (amended rule above); without the amendment this row goes stale |
+| 5 | `FOUNDRY_STAMP_SHA=abc1234 cargo build …` | Stamps `abc1234`; the date still comes from git |
+| 6 | `FOUNDRY_STAMP_SHA= cargo build …` (blank) and `FOUNDRY_STAMP_SHA='  ' cargo build …` | Re-stamps to git's SHA (blank counts as absent, and the env change triggers a rerun) |
+| 7 | Unset `FOUNDRY_STAMP_SHA`, rebuild | Stays at or returns to git's SHA. Never keeps `abc1234` |
+| 8 | Linked worktree (`git worktree add ../fw-demo`), commit inside it, then build there | The worktree build stamps the worktree's commit (`--git-path` resolution) |
+
+Rows 2, 3, 4 and 7 are the stale-stamp failures D11 exists to prevent. If any row fails, that is a
+D11 violation, not an acceptable degradation. The empty demo commits are made on a throwaway branch
+or reset afterwards, and are never pushed. The DELIVER step's DoD therefore reads "AC-7 demo rows
+1-8 recorded", replacing OQ-D6's shorter wording for AC-7.
+
+## Wave: DISTILL — increment 2026-10-04 (build stamp, US-RVF-02)
+
+> Lean Tier-1 [REF]. `[lang-mode] rust` · `[policy-mode] inherit` (one row appended to
+> `docs/architecture/atdd-infrastructure-policy.md`: build stamp source = real git) ·
+> `[port-mode]` no `tests/common/state_delta.*`, by project convention: every prior foundry DISTILL
+> asserts universe-bound values inside the step (here: exact footer text, exact `data-commit`,
+> nothing but the overlay root and scripts after the footer). Mandate-12's `domain_types.py` is a
+> Python-pilot artefact with no foundry precedent and is N/A here.
+>
+> Inputs: ✓ this file (DISCUSS D5-D14, AC-4..AC-10; DESIGN DDD-1..17, OQ-D1..D6) ·
+> ✓ `slices/slice-02-build-stamp.md` · ✓ the `.feature` and step file · ✓ `tests/acceptance.rs`
+> (tag filtering) · ✓ canzan-lift `build.rs`, `src/ui/mod.rs` (`include!` seam), `src/ui/render.rs`
+> stamp tests · ✓ keycloak-sso DISTILL (OD-10 scaffold precedent) · ⊘ `discuss/`, `design/`,
+> `devops/wave-decisions.md` (this feature keeps its decisions in this file; no DEVOPS wave: WARN,
+> default matrix N/A because the lane is in-process).
+>
+> **Reconciliation passed — 0 contradictions.** DESIGN's own "Contradictions with DISCUSS" lists
+> none, and DISTILL found none. The two DESIGN observations (partial vs inline template; 7 vs 8
+> hex characters in a shallow clone) do not change any scenario, because the oracle compares
+> against the same clone's git.
+>
+> The end-of-DISTILL consolidated review (four reviewers over this whole file) is run by the
+> orchestrator. Nothing here is committed by DISTILL.
+
+### [REF] Scenarios (`crates/foundry-acceptance/tests/features/release-version-footer.feature`)
+
+OQ-D2 resolved: the Then phrase now names the build stamp, split in two so each half of AC-4 fails
+on its own message. The header cites US-RVF-02 / D5-D14 / DDD-15 and describes the git-based oracle
+and its guard. The Feature title and narrative now say "the release and the build".
+
+| # | Scenario | Tags | AC | Oracle |
+|---|---|---|---|---|
+| 1 | The sign-in page names the running build without an account | `@rvf @release-version-footer @driving_port @real-io` (feature) + `@us-rvf-02 @pending @contract-shape:pure-function` | AC-4, AC-9 (once, placement) | Footer text trimmed == `Foundry v{Cargo.toml version} · {git log -1 --format=%cd --date=short}`; `Foundry v` occurs once; footer is a top-level `<body>` child, not first, followed only by `#kb-overlay-root` and scripts. Then `data-commit` == `git rev-parse --short=7 HEAD` on the same element |
+| 2 | A signed-in board page names the running build | same as 1 | AC-4, AC-9 | same as 1 |
+| 3 | An htmx fragment carries no release footer | feature tags + `@contract-shape:pure-function` (NOT pending; unchanged) | AC-9 (no footer in fragments) | No `Foundry v`, no `<footer>` |
+
+Step phrases (in `src/steps/feature_release_version_footer.rs`, globally unique; the old phrase
+`the page shows the running release version once, below the main content` and its step were
+removed because no feature uses it any longer):
+- `the page names the running release and the date of the commit it was built from, once, below the main content`
+- `that footer carries the short id of the commit the server was built from`
+
+Oracle (DDD-15) as implemented: `expected_build_stamp()` first asserts that `FOUNDRY_STAMP_SHA`
+and `FOUNDRY_STAMP_DATE` are unset or blank in the test process (failure names the variable and its
+value). It then runs the DDD-3 argument vectors with `current_dir = env!("CARGO_MANIFEST_DIR")`.
+Every git failure becomes `unknown`, as build.rs does. It never reads `foundry_app::views::*`. The
+placement checks moved into a shared `footer_below_content` helper.
+
+Error/edge coverage. The lane holds one negative scenario (3) out of three. The degraded, blank,
+hostile and precedence paths are AC-5/AC-6 unit examples, per DDD-12; together these are 8 of the 11
+examples. AC-7, AC-8 and AC-10 are structural or manual (below).
+
+Step reuse (informational): 11 Gherkin step lines over 4 phrases declared in this file plus 5
+reused from board-new-issue.
+
+### [REF] RED classification (fail-for-the-right-reason gate)
+
+Run: `@pending` stripped from scenarios 1-2, then `FOUNDRY_ACCEPTANCE_TAGS=rvf cargo test -p
+foundry-acceptance --test acceptance` against HEAD `99ad7a9` (committed 2026-10-04).
+
+| # | Result | Class | Failing step — message |
+|---|---|---|---|
+| 1 | FAIL | MISSING_FUNCTIONALITY | `Then the page names the running release and the date …`: `left: "Foundry v0.7.0"`, `right: "Foundry v0.7.0 · 2026-10-04"` |
+| 2 | FAIL | MISSING_FUNCTIONALITY | Same step, same diff |
+| 3 | PASS | unchanged guard | — |
+
+The second Then is never reached in 1-2, so it was proven by a throwaway probe scenario
+(`@distill-probe`, deleted afterwards): `When a visitor … sign-in page` → `Then that footer carries
+the short id …` failed MISSING_FUNCTIONALITY with `left: None, right: Some("99ad7a9")` on
+`<footer class="site-footer">Foundry v0.7.0</footer>`. The same probe with `FOUNDRY_STAMP_SHA=deadbee`
+in the environment failed on the precondition guard naming `FOUNDRY_STAMP_SHA="deadbee"`, so the
+guard works.
+
+**BROKEN: 0.** `@pending` was restored from a byte copy, and `diff` showed no difference. Restored
+lane: `FOUNDRY_ACCEPTANCE_TAGS=rvf`, 1 scenario (1 passed), 5 steps passed.
+
+Known window: while 1-2 are `@pending`, the `@rvf` lane does not assert the footer text at all,
+only the fragment negative. The canzan-theme-system, pwa-mobile-rendering and blr lanes still
+cover the footer's placement. DELIVER closes the window by un-pending both scenarios.
+
+### [REF] Scaffolds (RED-ready, Mandate 7)
+
+There is no production stub, so DISTILL does not write `build.rs` and does not touch
+`views.rs` or the templates. Each scaffold is test code that compiles against today's production and
+is `#[ignore = "DISTILL scaffold (US-RVF-02 …): …"]`. Each drives a local shim that `panic!`s with
+`SCAFFOLD: … -- RED scaffold`, so un-ignoring it gives an assertion-class failure, never a
+compile error. `grep -rn "SCAFFOLD" crates/foundry-app/src xtask/src` finds them, and DELIVER
+leaves none behind.
+
+| Artifact | Specifies | Shim → DELIVER replaces with | `--include-ignored` today |
+|---|---|---|---|
+| `crates/foundry-app/src/build_stamp_tests.rs` (new; `#[cfg(test)] mod build_stamp_tests;` in `lib.rs`) `an_explicit_stamp_input_beats_git` (proptest) | AC-5: a non-blank explicit input wins over any git answer, trimmed | `stamp_scaffold` → `build_script::stamp` via `mod build_script { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/build.rs")); }` with `#[allow(dead_code)]` (DDD-12) | FAILED — `SCAFFOLD: build.rs stamp (DDD-2)` |
+| same, `a_blank_or_absent_stamp_input_falls_through_to_git_then_unknown` | AC-5 table: explicit, explicit with surrounding whitespace, absent + git, `""` + git, whitespace + git, `""`/whitespace/absent without git → `unknown` | same | FAILED — same |
+| same, `git_is_not_asked_when_an_explicit_stamp_is_given` | DDD-2: the git thunk is not called when an explicit stamp is given | same | FAILED — same |
+| same, `the_build_script_and_the_footer_agree_on_the_unknown_placeholder` | DDD-5: `build_script::UNKNOWN == views::BUILD_FIELD_UNKNOWN == "unknown"` | `unknown_placeholders_scaffold` → the two constants | FAILED — `SCAFFOLD: … (DDD-5)` |
+| same, `a_release_build_renders_the_exact_footer` | DDD-9 exact HTML: `<footer class="site-footer" data-commit="817c16d">Foundry v0.8.0 · 2026-10-04</footer>` | `site_footer_of_scaffold` → `views::SiteFooter::of(..)` rendered to a `String` | FAILED — `SCAFFOLD: views::SiteFooter::of (DDD-8)` |
+| same, `an_unanswerable_build_renders_the_honest_placeholder` | AC-6 exact degraded HTML for (`unknown`,`unknown`), (`""`,`""`) and (whitespace, whitespace) | same | FAILED — same |
+| same, `hostile_build_fields_come_out_escaped` | DDD-10: `"`, `<`, `&`, `>` in the sha (attribute), the date and the version (text) come out as entities, exact HTML | same | FAILED — same |
+| same, `the_footer_renders_sanely_for_any_build_fields` (proptest) | AC-6 quantified over arbitrary printable sha/date: the element always renders, the commit attribute is never empty, no ` · </footer>`, no `vunknown`, the painted text holds no markup | same | FAILED — same |
+| `xtask/src/check_arch.rs` `tests::the_shipped_publish_path_stamps_every_image` | AC-8 (proposed check-arch rule): the real repo's two publish workflows and Dockerfile satisfy the rule | `publish_stamp_violations_scaffold` → a new `check_publish_workflows_stamp_the_image(root)` wired into `source_violations` | FAILED — `SCAFFOLD: check_publish_workflows_stamp_the_image` |
+| same, `a_publish_path_that_stamps_every_image_is_accepted` | A staged DDD-13/DDD-11-shaped workflow pair and Dockerfile produce no violations | same | FAILED — same |
+| same, `a_publish_path_that_can_ship_an_unstamped_image_is_flagged` | Staged faults, each flagged and naming its file: no SHA build-arg; no empty-stamp refusal; build time (`date -u`) instead of the commit date; `ARG FOUNDRY_STAMP_SHA` in the runtime stage | same | FAILED — same |
+
+The rule contract is written above the xtask block. Each publish workflow must contain both DDD-3
+commands, the `build stamp is empty` refusal followed by `exit 1`, and both `FOUNDRY_STAMP_*=`
+build-args. The Dockerfile must declare both ARGs after the builder `FROM` and before the `RUN` that
+runs `cargo build`. If DELIVER declines the rule, it deletes the block and records AC-8's review as
+manual.
+
+Without `--include-ignored`, today's results are: foundry-app `build_stamp_tests` 8 ignored;
+xtask 43 passed, 3 ignored.
+
+### [REF] Test placement
+
+- Acceptance: `crates/foundry-acceptance/tests/features/release-version-footer.feature` + `src/steps/feature_release_version_footer.rs`. This is the existing `@rvf` HTTP lane, in-process, so the binary under test is compiled in this checkout (DDD-14).
+- Unit (AC-5/AC-6/DDD-5): a lib `#[cfg(test)]` module in foundry-app. This is the only place that can `include!` `build.rs` *and* reach `views::SiteFooter` (DDD-12; canzan-lift `src/ui/mod.rs` precedent). OQ-D3 still lets the crafter move it.
+- Structural (AC-8): the xtask check-arch test module, which already stages fixture trees with `tempfile` (no new crate).
+
+### [REF] Manual / structural checks for DELIVER (not acceptance-lane testable)
+
+Prefix every cargo command with `CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false` and bound it
+with `timeout`. Run the commit demos on a throwaway branch or worktree, never on `main`.
+
+- **AC-7 (no stale stamp), recorded once in DELIVER.**
+  1. `cargo build -p foundry-app --bin foundry`, then run it and `curl -s localhost:<port>/sign-in | grep -o '<footer[^>]*>[^<]*'`. Record the footer. Its `data-commit` must equal `git rev-parse --short=7 HEAD`.
+  2. `git commit --allow-empty -m "stamp probe"`, rebuild with the same command (incremental, no `cargo clean`), and fetch again. `data-commit` must equal the new HEAD. Then `git reset --hard HEAD~1`, rebuild, and confirm it follows back.
+  3. `FOUNDRY_STAMP_SHA=deadbee cargo build …`: the footer shows `data-commit="deadbee"`. Unset it, rebuild: the footer returns to the git SHA. Repeat with `FOUNDRY_STAMP_SHA="  "` (blank): the footer shows the git SHA.
+  4. Review: `cargo build -vv -p foundry-app 2>&1 | grep -E 'rerun-if-(changed|env-changed)'` lists `build.rs`, both `FOUNDRY_STAMP_*`, and absolute paths for HEAD, the branch ref and `packed-refs` (the last only if it exists). No path may be missing on disk, or the script reruns on every build. In a linked worktree, the paths resolve through `--git-path`.
+  5. Degraded: `docker build .` without build-args → the footer reads `Foundry v<ver> · unknown`, `data-commit="unknown"`. With `--build-arg FOUNDRY_STAMP_SHA=$(git rev-parse --short=7 HEAD) --build-arg FOUNDRY_STAMP_DATE=$(git log -1 --format=%cd --date=short)` → the real stamp (DoD, OQ-D6).
+- **AC-8 (published images carry the commit).** Structural: the xtask scaffold above, un-ignored and green, plus `cargo xtask check-arch` green. Fallback if the rule is declined: `grep -nE 'git rev-parse --short=7 HEAD|git log -1 --format=%cd --date=short|build stamp is empty|FOUNDRY_STAMP_(SHA|DATE)=' .forgejo/workflows/build-and-publish.yml .github/workflows/release.yml` must show all four in each file, and `grep -n 'ARG FOUNDRY_STAMP\|cargo build' Dockerfile` must show both ARGs right above the cargo `RUN`. Operator check after the v0.8.0 tag: the `data-commit` and date on the prod `/sign-in` equal `git log -1 --format='%h %cd' --date=short v0.8.0`. Record it in the DELIVER section.
+- **AC-10 (runbook).** Doc review: RELEASING.md "Verifying a deployment" matches DDD-16. It names both the date and `data-commit`, gives the `git log -1 --format='%h %cd' --date=short <ref>` one-liner, says `unknown` is never expected from a publish workflow, and notes that on the dev `:main` instance the SHA is the signal.
+- **AC-9 residue.** The 320px one-line check and the "no scrollbar" check stay with the canzan-theme-system, pwa-mobile-rendering and blr lanes (DDD-17). DELIVER runs them after un-pending.
+
+### [REF] Named faults DELIVER must kill
+
+| Fault | Killed by |
+|---|---|
+| The date is the build time (or `SOURCE_DATE_EPOCH`, or `date -u`) instead of the commit date | `@rvf` scenarios 1-2 (git `%cd` oracle); xtask fault "build time instead of commit date" |
+| The SHA is painted as text, or missing from `data-commit`, or on another element | `@rvf` `that footer carries the short id …` (same element); `a_release_build_renders_the_exact_footer` |
+| The SHA is `--short` (unpinned) or 12 characters (the zot tag) instead of `--short=7` | `@rvf` `data-commit` equality |
+| A blank or whitespace input is treated as given (`data-commit=""` / `· ` hole) | `a_blank_or_absent_…`; `an_unanswerable_build_…` (blank rows); sanity proptest |
+| Git is asked even when an explicit stamp exists | `git_is_not_asked_when_an_explicit_stamp_is_given` |
+| A git failure breaks the build (`unwrap`/`expect`/`?`) | AC-7 step 5 (`docker build .` with no `.git` succeeds) + review against DDD-4 |
+| `vunknown`, or a version run through `answered_or_unknown` | sanity proptest; degraded exact HTML |
+| A trailing ` · ` or an empty footer | degraded exact HTML; sanity proptest |
+| An unescaped value under the `\|safe` (`"`, `<`, `&`) | `hostile_build_fields_come_out_escaped`; sanity proptest |
+| `UNKNOWN` drifts between build.rs and views.rs | `the_build_script_and_the_footer_agree_on_the_unknown_placeholder` |
+| A missing rerun directive (only `.git/HEAD`, no `rerun-if-env-changed`) leaves a stale stamp | AC-7 steps 2-4 (manual demo + `-vv` review) |
+| A workflow publishes with an empty stamp, or omits the build-args | xtask faults "no SHA build-arg" / "publishes with an empty stamp"; AC-8 post-tag operator check |
+| The Dockerfile ARG is in the wrong stage (never reaches build.rs) or too early (busts the cache) | xtask fault "ARG in runtime stage"; DDD-11 review |
+| The footer is duplicated, moved before the content, or rendered in a fragment | `@rvf` placement checks; scenario 3 |
+| The oracle reads the production constant (circular) | Review: the step file imports nothing from `foundry_app` |
+
+### [REF] Pre-requisites
+
+- DESIGN driving ports: `GET /sign-in` and full pages that extend `base.html` (HTTP); `cargo build`/`cargo test` of foundry-app (build time); `docker build --build-arg` (pipeline).
+- A git checkout with at least one commit, and `git` on PATH, wherever the `@rvf` lane runs. If git cannot answer, both sides read `unknown` and the lane still agrees.
+- `FOUNDRY_STAMP_SHA` / `FOUNDRY_STAMP_DATE` unset in the shell that runs the acceptance tests (enforced by the guard).
+- OQ-D5 accepted race: a commit between compiling and running reds the lane with a diff naming both values. Rerun. Concurrent foundry sessions make this more likely.
+
+### [REF] Open items
+
+- OQ-D1, OQ-D3, OQ-D4 and OQ-D6 stay with DELIVER (unchanged).
+- The AC-8 check-arch rule is a DISTILL **proposal**. DELIVER accepts it (implement and un-ignore) or declines it (delete the block and record the grep fallback). Either way, the decision is recorded in the DELIVER section.
+- `@contract-shape:` tags are new to this repo's feature files. They are informational, and no lane filters on them.
+- AT-completeness (Phase 2.5, informational): the checklist passes 12 of 15 items, ACCEPTABLE_WITH_DOCUMENTED_GAPS. The items:
+  - C1a (blank/empty) passes.
+  - C1b passes: the boundaries are blank vs whitespace vs one character.
+  - C2a/C2b are N/A, since the stamp is a pure value with no state machine.
+  - C3 is N/A.
+  - C4a is the AC-7 manual rebuild, which is idempotent by D7.
+  - C4b is N/A.
+  - C5a passes (input × git, four cells). C5b passes (explicit SHA does not change the date: the per-field `stamp`).
+  - C6a/C6b pass (hostile input, `unknown`).
+  - C6c is a gap: build.rs's closed failure set (DDD-4) is review-only.
+  - C7a passes (no `.git` in the container, via the manual check).
+  - C7b is a gap: a build interrupted mid-run is not testable here.
+  - C7c is a gap: the OQ-D5 compile/run race is accepted, not tested.

@@ -3724,4 +3724,155 @@ mod tests {
              guard from a failing one"
         );
     }
+
+    // =======================================================================
+    // release-version-footer US-RVF-02 AC-8 (DDD-11/DDD-13) — every published
+    // image carries the commit it was built from.
+    // =======================================================================
+    //
+    // SCAFFOLD: true — DISTILL 2026-10-04 (ADR-025). A PROPOSED check-arch rule;
+    // the tests are `#[ignore]`d and drive a local shim that panics with
+    // `SCAFFOLD: … -- RED scaffold`. DELIVER: write
+    // `check_publish_workflows_stamp_the_image(root) -> Vec<String>`, add it to
+    // `source_violations`, call it instead of the shim, un-ignore, delete the shim.
+    // If DELIVER declines the rule, delete this block and record AC-8's manual
+    // review instead (feature-delta DISTILL section).
+    //
+    // The rule, per file (each miss is one violation naming the file):
+    //   * `.forgejo/workflows/build-and-publish.yml` and
+    //     `.github/workflows/release.yml` each contain the two DDD-3 commands
+    //     (`git rev-parse --short=7 HEAD`, `git log -1 --format=%cd --date=short`),
+    //     the DDD-13 refusal (`build stamp is empty` followed by `exit 1`), and
+    //     both build-args (`FOUNDRY_STAMP_SHA=`, `FOUNDRY_STAMP_DATE=`);
+    //   * `Dockerfile` declares `ARG FOUNDRY_STAMP_SHA` and `ARG FOUNDRY_STAMP_DATE`
+    //     after the builder `FROM` and before the `RUN` that runs `cargo build`
+    //     (DDD-11: earlier busts the apt/COPY cache; later, or in another stage,
+    //     never reaches build.rs).
+
+    fn publish_stamp_violations_scaffold(_root: &Path) -> Vec<String> {
+        panic!(
+            "SCAFFOLD: check_publish_workflows_stamp_the_image (US-RVF-02 AC-8) not yet \
+             implemented -- RED scaffold"
+        )
+    }
+
+    /// A stamping workflow shaped like DDD-13 (YAML indentation kept so the
+    /// fixture reads like the real file; the rule matches lines, not YAML).
+    const STAMPING_WORKFLOW: &str = concat!(
+        "jobs:\n",
+        "  build:\n",
+        "    steps:\n",
+        "      - name: Compute build stamp\n",
+        "        id: stamp\n",
+        "        run: |\n",
+        "          set -euo pipefail\n",
+        "          stamp_sha=\"$(git rev-parse --short=7 HEAD)\"\n",
+        "          stamp_date=\"$(git log -1 --format=%cd --date=short)\"\n",
+        "          if [ -z \"$stamp_sha\" ] || [ -z \"$stamp_date\" ]; then\n",
+        "            echo \"::error::build stamp is empty (sha='$stamp_sha' date='$stamp_date')\"\n",
+        "            exit 1\n",
+        "          fi\n",
+        "          echo \"stamp_sha=$stamp_sha\" >> \"$GITHUB_OUTPUT\"\n",
+        "          echo \"stamp_date=$stamp_date\" >> \"$GITHUB_OUTPUT\"\n",
+        "      - uses: docker/build-push-action@v6\n",
+        "        with:\n",
+        "          build-args: |\n",
+        "            FOUNDRY_STAMP_SHA=${{ steps.stamp.outputs.stamp_sha }}\n",
+        "            FOUNDRY_STAMP_DATE=${{ steps.stamp.outputs.stamp_date }}\n",
+    );
+
+    /// A Dockerfile shaped like DDD-11: both inputs in the builder stage,
+    /// immediately before the cargo build.
+    const STAMPING_DOCKERFILE: &str = concat!(
+        "FROM --platform=$BUILDPLATFORM rust:1.85-slim AS builder\n",
+        "RUN apt-get update\n",
+        "COPY crates ./crates\n",
+        "ARG FOUNDRY_STAMP_SHA=\n",
+        "ARG FOUNDRY_STAMP_DATE=\n",
+        "RUN --mount=type=cache,target=/work/target cargo build --locked --release -p foundry-app\n",
+        "FROM gcr.io/distroless/cc-debian12 AS runtime\n",
+    );
+
+    const PUBLISH_WORKFLOWS: [&str; 2] = [
+        ".forgejo/workflows/build-and-publish.yml",
+        ".github/workflows/release.yml",
+    ];
+
+    fn stage_publish(forgejo: &str, github: &str, dockerfile: &str) -> tempfile::TempDir {
+        stage(&[
+            (PUBLISH_WORKFLOWS[0], forgejo),
+            (PUBLISH_WORKFLOWS[1], github),
+            ("Dockerfile", dockerfile),
+        ])
+    }
+
+    #[test]
+    #[ignore = "DISTILL scaffold (US-RVF-02 AC-8): publish-stamp check-arch rule not yet written; the workflows do not stamp yet"]
+    fn the_shipped_publish_path_stamps_every_image() {
+        let violations = publish_stamp_violations_scaffold(&workspace_root());
+        assert!(
+            violations.is_empty(),
+            "both publish workflows must compute, refuse on empty and pass the stamp, and the \
+             Dockerfile must receive it right before the cargo build: {violations:?}"
+        );
+    }
+
+    #[test]
+    #[ignore = "DISTILL scaffold (US-RVF-02 AC-8): publish-stamp check-arch rule not yet written"]
+    fn a_publish_path_that_stamps_every_image_is_accepted() {
+        let tree = stage_publish(STAMPING_WORKFLOW, STAMPING_WORKFLOW, STAMPING_DOCKERFILE);
+        assert_eq!(
+            publish_stamp_violations_scaffold(tree.path()),
+            Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    #[ignore = "DISTILL scaffold (US-RVF-02 AC-8): publish-stamp check-arch rule not yet written"]
+    fn a_publish_path_that_can_ship_an_unstamped_image_is_flagged() {
+        let dockerfile_late_arg = STAMPING_DOCKERFILE
+            .replace("ARG FOUNDRY_STAMP_SHA=\n", "")
+            .replace(
+                "FROM gcr.io/distroless/cc-debian12 AS runtime\n",
+                "FROM gcr.io/distroless/cc-debian12 AS runtime\nARG FOUNDRY_STAMP_SHA=\n",
+            );
+        for (fault, forgejo, github, dockerfile, names) in [
+            (
+                "a workflow passes no SHA build-arg",
+                STAMPING_WORKFLOW.replace("FOUNDRY_STAMP_SHA=", "OTHER_ARG="),
+                STAMPING_WORKFLOW.to_string(),
+                STAMPING_DOCKERFILE.to_string(),
+                PUBLISH_WORKFLOWS[0],
+            ),
+            (
+                "a workflow publishes with an empty stamp",
+                STAMPING_WORKFLOW.to_string(),
+                STAMPING_WORKFLOW.replace("build stamp is empty", "stamp missing, continuing"),
+                STAMPING_DOCKERFILE.to_string(),
+                PUBLISH_WORKFLOWS[1],
+            ),
+            (
+                "a workflow stamps the build time, not the commit date",
+                STAMPING_WORKFLOW
+                    .replace("git log -1 --format=%cd --date=short", "date -u +%Y-%m-%d"),
+                STAMPING_WORKFLOW.to_string(),
+                STAMPING_DOCKERFILE.to_string(),
+                PUBLISH_WORKFLOWS[0],
+            ),
+            (
+                "the Dockerfile declares the SHA input outside the builder stage",
+                STAMPING_WORKFLOW.to_string(),
+                STAMPING_WORKFLOW.to_string(),
+                dockerfile_late_arg,
+                "Dockerfile",
+            ),
+        ] {
+            let tree = stage_publish(&forgejo, &github, &dockerfile);
+            let violations = publish_stamp_violations_scaffold(tree.path());
+            assert!(
+                violations.iter().any(|v| v.contains(names)),
+                "{fault}: expected a violation naming {names}, got {violations:?}"
+            );
+        }
+    }
 }

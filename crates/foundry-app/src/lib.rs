@@ -38,6 +38,11 @@ pub mod signin;
 pub mod unsubscribe;
 pub mod views;
 
+// release-version-footer US-RVF-02 — AC-5/AC-6/DDD-5 unit examples (DISTILL
+// scaffold; DELIVER wires the `include!` seam over build.rs, DDD-12).
+#[cfg(test)]
+mod build_stamp_tests;
+
 use axum::extract::{DefaultBodyLimit, State};
 use axum::http::StatusCode;
 use axum::middleware;
