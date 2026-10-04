@@ -168,11 +168,33 @@ impl AuthRequest {
         }
     }
 
+    /// Every field of an issued challenge is a fresh, non-empty random value.
+    /// One with an empty field was never issued by [`Self::generate`].
+    fn ensure_issued(&self) -> Result<(), OidcError> {
+        if self.state.is_empty() || self.nonce.is_empty() || self.code_verifier.is_empty() {
+            return Err(OidcError::Untrusted(
+                "the sign-in answers no challenge we issued".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
     /// S256 PKCE challenge for [`Self::code_verifier`].
     pub fn code_challenge(&self) -> String {
         let digest = Sha256::digest(self.code_verifier.as_bytes());
         base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(digest)
     }
+}
+
+/// OIDC Core §3.1.3.7(11): a nonce was sent, so the ID token's nonce claim must
+/// be present AND equal. Two empty values are not a match.
+fn ensure_nonce(expected: &str, presented: &str) -> Result<(), OidcError> {
+    if expected.is_empty() || presented.is_empty() || presented != expected {
+        return Err(OidcError::Untrusted(
+            "the identity answers a challenge we did not issue".to_string(),
+        ));
+    }
+    Ok(())
 }
 
 fn random_token() -> String {
@@ -391,12 +413,17 @@ impl OidcProvider {
     ///
     /// The code is single-use AT the provider, which is what actually refuses a
     /// replayed callback — clearing our own cookie only helps if the client
-    /// cooperates. The `nonce` comparison below is the independent second layer.
+    /// cooperates. The `nonce` check below is a second layer, but not an
+    /// independent one: the expected nonce comes from the same challenge cookie
+    /// that carries `state`. So both sides of it must be present — a challenge
+    /// with an empty field is refused before any provider call, and an identity
+    /// whose nonce is absent or different answers no challenge we issued.
     pub async fn exchange_code(
         &self,
         code: &str,
         req: &AuthRequest,
     ) -> Result<IdentityClaims, OidcError> {
+        req.ensure_issued()?;
         let d = self.discovery().await?;
         let params = [
             ("grant_type", "authorization_code"),
@@ -425,11 +452,7 @@ impl OidcProvider {
             .map_err(|e| OidcError::Protocol(format!("token body: {e}")))?;
 
         let claims = self.validate_id_token(&body.id_token).await?;
-        if claims.nonce != req.nonce {
-            return Err(OidcError::Untrusted(
-                "the identity answers a challenge we did not issue".to_string(),
-            ));
-        }
+        ensure_nonce(&req.nonce, &claims.nonce)?;
         if claims.email.trim().is_empty() {
             return Err(OidcError::Untrusted(
                 "the identity carries no email".to_string(),
@@ -644,6 +667,86 @@ mod tests {
                 "{role:?} must leave provisioning off"
             );
         }
+    }
+
+    /// A provider whose issuer refuses every connection: any request that reaches
+    /// the network comes back as `Transport`, never `Untrusted`.
+    fn provider_at_a_dead_issuer() -> OidcProvider {
+        let cfg = OidcConfig::from_parts(
+            some("http://127.0.0.1:9/realms/x"),
+            some("foundry"),
+            some("s3cret"),
+            some("https://foundry.example/auth/oidc/callback"),
+        )
+        .expect("complete config is Ok")
+        .expect("complete config is Some");
+        OidcProvider::new(cfg).expect("provider builds")
+    }
+
+    #[tokio::test]
+    async fn an_unissued_challenge_is_refused_before_the_exchange() {
+        let provider = provider_at_a_dead_issuer();
+        let issued = AuthRequest::generate();
+        let unissued = [
+            (
+                "state",
+                AuthRequest {
+                    state: String::new(),
+                    ..issued.clone()
+                },
+            ),
+            (
+                "nonce",
+                AuthRequest {
+                    nonce: String::new(),
+                    ..issued.clone()
+                },
+            ),
+            (
+                "code_verifier",
+                AuthRequest {
+                    code_verifier: String::new(),
+                    ..issued.clone()
+                },
+            ),
+        ];
+        for (blank, req) in unissued {
+            let outcome = provider.exchange_code("a-code", &req).await;
+            assert!(
+                matches!(outcome, Err(OidcError::Untrusted(_))),
+                "an empty {blank} must be refused as untrusted before any provider call, got {outcome:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn only_a_present_and_matching_nonce_is_answered() {
+        for (expected, presented, answered) in [
+            ("", "", false),
+            ("n", "", false),
+            ("", "n", false),
+            ("n", "m", false),
+            ("n", "n", true),
+        ] {
+            assert_eq!(
+                ensure_nonce(expected, presented).is_ok(),
+                answered,
+                "expected {expected:?}, presented {presented:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_identity_with_no_nonce_claim_answers_no_challenge() {
+        let mut payload = keycloak_payload();
+        payload.as_object_mut().expect("object").remove("nonce");
+        let claims: IdTokenClaims =
+            serde_json::from_value(payload).expect("a missing nonce still deserialises");
+        let issued = AuthRequest::generate();
+        assert!(matches!(
+            ensure_nonce(&issued.nonce, &claims.nonce),
+            Err(OidcError::Untrusted(_))
+        ));
     }
 
     #[test]
