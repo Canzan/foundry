@@ -7,6 +7,30 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 
 ## [Unreleased]
 
+## [v0.6.1] - 2026-10-03
+
+Acceptance coverage for Keycloak sign-in. There is no change to runtime
+behaviour; `git log v0.6.0..v0.6.1` is the full list.
+
+### Changed (internal)
+
+- **The Keycloak sign-in flow now has acceptance coverage.** The 23 base
+  `keycloak-sso.feature` scenarios, `@pending` since the flow shipped in
+  v0.4.0, now run against the shipped code over real HTTP and real Postgres
+  with an in-process identity-provider double. They cover:
+  - arrival and the walking skeleton;
+  - who is turned away;
+  - forged, stale and replayed arrivals;
+  - an unreachable provider;
+  - refusals byte-identical to a wrong password;
+  - the password door and the bootstrap claim alongside SSO;
+  - running without a provider, and a half-configured provider refusing to
+    start.
+
+  All 23 passed against the existing code, so no production fix was needed.
+  25 named faults seeded in the production code were each caught by a
+  scenario.
+
 ## [v0.6.0] - 2026-10-03
 
 Card drag on phones and tablets (card-pointer-drag slices 02 and 03, which
