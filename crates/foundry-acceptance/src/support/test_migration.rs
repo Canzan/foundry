@@ -112,33 +112,7 @@ pub fn stage_subset(max_version: u64) -> Result<TestMigrationsDir> {
         .tempdir()
         .context("create tempdir for staged pre-feature migrations")?;
 
-    let prod_dir = production_migrations_dir();
-    for entry in std::fs::read_dir(&prod_dir)
-        .with_context(|| format!("read production migrations dir {prod_dir:?}"))?
-    {
-        let entry = entry?;
-        let path = entry.path();
-        let is_sql = path.extension().map(|e| e == "sql").unwrap_or(false);
-        if !is_sql || !entry.file_type()?.is_file() {
-            continue;
-        }
-        let filename = path
-            .file_name()
-            .with_context(|| format!("filename for {path:?}"))?
-            .to_owned();
-        // The numeric prefix before the first '_' is the sqlx version.
-        let version: u64 = filename
-            .to_string_lossy()
-            .split('_')
-            .next()
-            .and_then(|n| n.parse().ok())
-            .with_context(|| format!("parse migration version from {filename:?}"))?;
-        if version > max_version {
-            continue;
-        }
-        let dst = dir.path().join(&filename);
-        std::fs::copy(&path, &dst).with_context(|| format!("copy {path:?} -> {dst:?}"))?;
-    }
+    copy_production_migrations_into(dir.path(), |v| v <= max_version)?;
 
     Ok(TestMigrationsDir { dir })
 }
@@ -223,6 +197,7 @@ fn copy_production_migrations_into(dir: &Path, keep: impl Fn(u64) -> bool) -> Re
             .file_name()
             .with_context(|| format!("filename for {path:?}"))?
             .to_owned();
+        // The numeric prefix before the first '_' is the sqlx version.
         let version: u64 = filename
             .to_string_lossy()
             .split('_')

@@ -33,6 +33,15 @@ fn production_migrations_dir() -> PathBuf {
     PathBuf::from(manifest).join("migrations")
 }
 
+/// Every test here exercises migration 0017; fail on its absence, not on a
+/// missing column further in.
+fn assert_migration_0017_present() {
+    assert!(
+        production_migrations_dir().join(MIGRATION_0017).exists(),
+        "migration {MIGRATION_0017} (DDD-24) is missing"
+    );
+}
+
 async fn empty_pool() -> (
     PgPool,
     testcontainers_modules::testcontainers::ContainerAsync<Postgres>,
@@ -116,10 +125,7 @@ async fn marker(
 #[tokio::test]
 async fn the_upgrade_marks_exactly_the_password_less_accounts_as_provisioned_when_they_were_created(
 ) {
-    assert!(
-        production_migrations_dir().join(MIGRATION_0017).exists(),
-        "migration {MIGRATION_0017} (DDD-24) is missing"
-    );
+    assert_migration_0017_present();
     let (pool, _pg) = empty_pool().await;
     let at_0016 = staged_migrations("0016");
     run_migrations_from_dir(&pool, &at_0016)
@@ -168,10 +174,7 @@ async fn the_upgrade_marks_exactly_the_password_less_accounts_as_provisioned_whe
 /// with a password and no marker is not provisioned. Read by email and by id.
 #[tokio::test]
 async fn an_account_is_read_as_provisioned_when_marked_or_password_less() {
-    assert!(
-        production_migrations_dir().join(MIGRATION_0017).exists(),
-        "migration {MIGRATION_0017} (DDD-24) is missing"
-    );
+    assert_migration_0017_present();
     let (pool, _pg) = empty_pool().await;
     run_migrations(&pool).await.expect("run migrations");
     let store = Store::from_pool(pool.clone());
@@ -216,10 +219,7 @@ async fn an_account_is_read_as_provisioned_when_marked_or_password_less() {
 /// SQL `now()`.
 #[tokio::test]
 async fn no_password_write_clears_the_provisioned_marker() {
-    assert!(
-        production_migrations_dir().join(MIGRATION_0017).exists(),
-        "migration {MIGRATION_0017} (DDD-24) is missing"
-    );
+    assert_migration_0017_present();
     let (pool, _pg) = empty_pool().await;
     run_migrations(&pool).await.expect("run migrations");
     sqlx::query("INSERT INTO workspaces (id, name) VALUES ($1, 'Cluster')")

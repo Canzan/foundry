@@ -1147,13 +1147,12 @@ impl Store {
         &self,
         email_lower: &str,
     ) -> Result<Option<UserRow>, StoreError> {
-        let row: Option<UserRow> = sqlx::query_as(&format!(
+        Ok(sqlx::query_as(&format!(
             "SELECT {USER_ROW_COLUMNS} FROM users WHERE email_lower = $1"
         ))
         .bind(email_lower)
         .fetch_optional(&self.pool)
-        .await?;
-        Ok(row)
+        .await?)
     }
 
     /// Count failed sign-in attempts for `email_lower` since
@@ -2768,13 +2767,12 @@ impl Store {
         &self,
         user_id: uuid::Uuid,
     ) -> Result<Option<UserRow>, StoreError> {
-        let row: Option<UserRow> = sqlx::query_as(&format!(
+        Ok(sqlx::query_as(&format!(
             "SELECT {USER_ROW_COLUMNS} FROM users WHERE id = $1"
         ))
         .bind(user_id)
         .fetch_optional(&self.pool)
-        .await?;
-        Ok(row)
+        .await?)
     }
 
     /// Write a new `password_hash` for the signed-in account owner

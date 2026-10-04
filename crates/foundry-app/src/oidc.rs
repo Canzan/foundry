@@ -222,8 +222,10 @@ pub async fn callback(
     resp
 }
 
-/// Refusal reasons the find-or-provision order adds (DDD-15/DDD-20). They ride the
-/// existing `refuse()` log line; the response is the generic refusal regardless.
+/// Refusal reasons the find-or-provision order adds (DDD-15/DDD-20, DDD-28/DDD-30).
+/// They ride the existing `refuse()` log line; the response is the generic refusal
+/// regardless. A returning provisioned account and a newcomer lacking the role log
+/// different reasons so the operator can tell them apart (D12).
 const NO_ACCOUNT: &str = "no foundry account for this identity";
 const LACKS_PROVISION_ROLE: &str = "identity lacks provision role";
 const PROVISIONED_LACKS_PROVISION_ROLE: &str = "provisioned account lacks provision role";

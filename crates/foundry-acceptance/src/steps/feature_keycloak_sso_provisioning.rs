@@ -662,10 +662,9 @@ async fn newcomer_timing_within(world: &mut FoundryWorld, budget_ms: u64) {
 
 // ------------------------------------------------- US-07 (D3b) role withdrawal
 //
-// DISTILL 2026-10-04. Every phrase below drives an API that ships today (the
-// browser round-trip, the password door, the reset link, the store's provisioning
-// write); nothing here waits on DELIVER except the behaviour itself, so the
-// scenarios that need D3b fail at an assertion, never at a missing step.
+// Every phrase below drives a shipped API (the browser round-trip, the password
+// door, the reset link, the store's provisioning write); the behaviour under test
+// is the callback's step-(1) check on a returning provisioned account (DDD-28).
 
 /// Where the provisioned newcomer files the work that must survive the withdrawal.
 const NEWCOMER_TEAM_SLUG: &str = "cluster";
