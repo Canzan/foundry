@@ -66,6 +66,17 @@ and foundry share a cluster and the tracker must open when that cluster is broke
 > Role revocation (OD-10) is open. Design: `docs/feature/keycloak-sso/feature-delta.md`
 > DDD-13..22. The paragraph above is left as written.
 
+> **Planned, 2026-10-04 (keycloak-sso OD-10 / D3b; not yet shipped).** OD-10 is resolved.
+> Migration `0017` adds `users.provisioned_at` (timestamptz, NULL means "not provisioned")
+> and backfills it onto every password-less row. Only provisioning writes it; resets and
+> password changes never clear it. At Keycloak sign-in, an existing account that is
+> provisioned must still hold the provision role, if one is configured. Otherwise the
+> sign-in gets the generic refusal, logged as `provisioned account lacks provision role`.
+> Invited and pre-existing accounts are not affected, and neither is the password door.
+> Withdrawal deletes nothing, and live sessions run to expiry. Design:
+> `docs/feature/keycloak-sso/feature-delta.md` DDD-23..33 (DDD-28 supersedes DDD-22).
+> DELIVER finalize replaces this note with the shipped wording.
+
 The same reasoning shapes startup: configuration SHAPE is validated at boot (a partial
 config is `health.startup.refused`), but discovery and JWKS are fetched lazily, so an
 unreachable Keycloak refuses a sign-in attempt rather than a boot. foundry's readiness

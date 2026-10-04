@@ -1362,3 +1362,279 @@ exists for keycloak-sso.
 
 **No migration.** The feature uses the single `feature-delta.md` layout; there are no
 `design/`, `distill/walking-skeleton.md` or `discuss/journey-*` files to move.
+
+## Wave: DISCUSS
+
+> **OD-10 increment, 2026-10-04 — role withdrawal for provisioned accounts.** Lean,
+> lightweight, cross-cutting (auth), brownfield: no walking skeleton. Appends to the
+> DISCUSS above and edits none of it. **OD-10 is RESOLVED 2026-10-04** by the user
+> decision recorded as D3b. AC-6.8 and DDD-22 are **superseded** by D3b. DISTILL
+> must rewrite `keycloak-sso-provisioning.feature` scenario 11 ("A member provisioned
+> earlier still signs in after the provision role is withdrawn"). The scenario is a
+> pin, and it now pins the opposite outcome.
+
+### [REF] Persona
+
+The user is `persona-instance-operator` (Priya Raman, from
+`docs/product/personas/persona-instance-operator.yaml`). She grants the Keycloak
+realm role `foundry-user`, and from 2026-10-04 she also takes it away. The account
+affected is a provisioned member, Nia Newcomer (`nia.newcomer@example.test`). The
+provisioning scenarios already use Nia as a fixture identity, not as a researched
+persona, so she is no new persona. Pat Operator is the control case: he was invited
+and has a password, so this increment must leave him alone.
+
+### [REF] JTBD one-liner
+
+When I take the `foundry-user` role away from someone in Keycloak, I want that to stop
+them signing in to foundry through Keycloak, so I can use the realm role as the one
+gate both into foundry and back out of it (`job_id: job-sso-signin`). This extends
+the job's **anxiety** force. Today the gate opens but never closes, so the operator
+cannot trust "who holds the role" as an answer to "who can get in". No new job;
+`docs/product/jobs.yaml` is **not** edited.
+
+### [REF] Locked decisions
+
+| ID | Decision | Verdict | Rationale |
+|----|----------|---------|-----------|
+| D3b | 2026-10-04: an account CREATED BY role provisioning (D3a) must hold the provision realm role at EVERY Keycloak sign-in. If it does not, the sign-in gets the generic refusal (D7). Accounts that existed before, or were linked or invited normally, are unaffected: they keep D3's link-only behaviour | LOCKED (user) | Resolves OD-10 and supersedes AC-6.8 / DDD-22. The role was the reason the account exists, so it stays the condition for using the Keycloak door. Accounts that came in another way never depended on the role, so withdrawing it means nothing for them. |
+| D8 | Withdrawal deletes nothing: the account, its membership, display name, password state, and every issue and comment it authored stay intact | LOCKED (user) | Authorship has a foreign key to `users.id`. D3's [WHY] already recorded that deleting the account orphans authorship. Re-granting the role must restore access with no repair step. |
+| D9 | foundry must know which accounts were provisioned. The record is written when the account is created, and nothing later removes it: not a reset, not a password change, not a sign-in | LOCKED (requirement only; the schema belongs to DESIGN) | Today a provisioned account can only be recognised by `password_hash IS NULL`. OD-8 (reset allowed) erases that, so a reset would turn a provisioned account into one that looks invited. |
+| D10 | Revocation applies at the NEXT Keycloak sign-in. An existing foundry session lives until it expires or the member signs out | LOCKED | foundry learns roles only from an ID token, at sign-in. Revoking in real time would need back-channel logout or role polling against Keycloak, and both are out of scope. |
+| D11 | The role checked is the one `FOUNDRY_OIDC_PROVISION_ROLE` names at sign-in time, not the role that was configured when the account was provisioned. The match is the same exact, case-sensitive, `realm_access.roles`-only match as OD-9 | LOCKED (derived from D3b's "the provision realm role") | One rule and one setting. If the operator renames the role, every provisioned member needs the new one. |
+| D12 | The refusal is logged on the existing `oidc sign-in refused` line, with its own reason, separate from a newcomer's `identity lacks provision role`. Proposed wording: `provisioned account lacks provision role`. DESIGN may reword it. The response carries nothing extra | LOCKED | The operator needs the log to tell "a stranger without the role" from "a member whose role I removed". Under D7 the response must not tell them apart. |
+
+Rejected alternatives (user, 2026-10-04):
+
+| Alternative | Why rejected |
+|---|---|
+| Keep today's behaviour (AC-6.8: link regardless of role) | Leaves the role gate cosmetic after the first sign-in. This is the residue D3's [WHY] named. |
+| Require the role for EVERY SSO sign-in while provisioning is on | Would lock out the operator and invited members who were never given the role. That breaks D3's linking half and the anxiety force. |
+| Remove membership when the role is withdrawn | Destructive and one-way. The member could not come back on re-grant without a manual repair, and the change would reach into team and workspace state well beyond authentication. |
+
+### [REF] User story
+
+**US-07: Withdrawing the provision role closes foundry's Keycloak door to a provisioned member** (`job_id: job-sso-signin`). Addendum 2026-10-04 (D3b). Supersedes AC-6.8.
+
+As the operator, I want removing the `foundry-user` realm role to stop a provisioned
+member signing in through Keycloak, so that the role I used to let them in is also
+how I take that access away.
+
+#### Elevator Pitch
+
+Before: Priya removes `foundry-user` from Nia in Keycloak, but Nia still lands on the board through "Sign in with Keycloak". Revoking the role does nothing in foundry.
+After: Nia clicks "Sign in with Keycloak" at `https://foundry.<domain>/sign-in`, which goes through `/auth/oidc/start`, and is sent back to the sign-in page with the same generic message a wrong password gets. Once Priya re-grants the role, Nia's next sign-in lands on her board as the same account.
+Decision enabled: Priya decides she can manage foundry access from Keycloak alone, with the realm role as the gate in both directions, because she has watched a withdrawn role close the door and a re-grant open it again.
+
+#### Acceptance criteria
+
+All ACs below assume `FOUNDRY_OIDC_PROVISION_ROLE=foundry-user` unless stated.
+
+- AC-7.1: Nia's account was created by provisioning. If her ID token no longer lists `foundry-user` in `realm_access.roles`, the Keycloak sign-in is refused with no session cookie, and the response is byte-identical to a wrong-password refusal (status 401 plus the CSRF-masked body, D7).
+- AC-7.2: After that refusal, Nia still has exactly one account and one `member` membership in the original workspace. Her display name and her authored issues and comments are unchanged (D8).
+- AC-7.3: Once the role is granted again, Nia's next Keycloak sign-in lands on the board as the same account (same user id), and no second account is created.
+- AC-7.4: Pat Operator was invited and has a password. His Keycloak sign-in without `foundry-user` still links and lands on the board, exactly as before this change (D3b).
+- AC-7.5: Nia's account is still treated as provisioned after she sets a password through forgot-password and reset (OD-8). A Keycloak sign-in without the role is still refused (D9).
+- AC-7.6: The refusal in AC-7.1 is logged on the `oidc sign-in refused` line with a reason distinct from `identity lacks provision role`. The response does not include that reason (D12).
+- AC-7.7: A session Nia established before the role was withdrawn keeps working until it expires or she signs out (D10). This is pinned as deliberate behaviour, not as a gap.
+- AC-7.8 (*provisional, OD-12*): Nia's password door is not affected by the role. If she has set a password, she can still sign in with it after the role is withdrawn. If she has not, the door refuses her as it does today (AC-6.6).
+- AC-7.9 (*provisional, OD-13*): With `FOUNDRY_OIDC_PROVISION_ROLE` unset, Nia's Keycloak sign-in links and lands on the board whatever roles she holds. This is exactly D3, as AC-6.1 promises for "unset".
+
+### [REF] Definition of Done
+
+1. AC-7.1 to AC-7.7 are green at layer 3 (real axum via `build_router`, real Postgres). AC-7.6 is checked at unit level, because the lane captures no tracing (D3a precedent).
+2. AC-7.8 and AC-7.9 are green as confirmed, or rewritten if the user overturns OD-12 or OD-13.
+3. Scenario 11 is rewritten to AC-7.1 and AC-7.2, not deleted. Scenarios 1 to 10 and the 23 base scenarios stay green unchanged.
+4. Accounts provisioned before this change are marked by the backfill rule chosen for OD-14, and that rule has its own test.
+5. `cargo xtask ci` is green (with `FOUNDRY_XTASK_INCLUDE_DOCKER=1`). Per-feature mutation is at least 80% over the files changed.
+6. AC-6.8 and DDD-22 are marked superseded by later dated sections, not edited in place. `CHANGELOG.md` is updated.
+
+### [REF] Out of scope
+
+- Ending live sessions when a role is withdrawn: no back-channel logout and no role polling (D10).
+- Gating the password door on a Keycloak role (see OD-12). foundry cannot ask Keycloak at password sign-in without breaking D2.
+- Deleting accounts, removing memberships, or reassigning authorship (D8).
+- Role checks for accounts that were not provisioned (D3b).
+- A UI or CLI for viewing or editing an account's provisioned marker.
+- Client roles in `resource_access` (OD-9 stands).
+
+### [REF] Driving ports
+
+| Port | Change |
+|---|---|
+| `GET /auth/oidc/callback` | CHANGED: a provisioned account now has to pass a role check before it is linked (DDD-15 step 1 splits) |
+| `GET /auth/oidc/start` | Unchanged; it is the entry point for the Elevator Pitch |
+| `POST /sign-in` (password) | Unchanged, if OD-12 is confirmed. Regression only |
+| `POST /forgot-password`, reset | Unchanged. AC-7.5 only depends on the provisioned marker surviving a reset |
+
+### [REF] Pre-requisites
+
+- D3a as shipped: `Store::provision_federated_member`, the DDD-15 order in `oidc::callback`, and migration `0016`.
+- A provisioned marker on the account (D9). DESIGN owns the schema. It is a new forward migration, plus the OD-14 backfill.
+- The provider double in the acceptance lane can already withdraw a role. The step "the identity provider no longer grants the newcomer…" exists for scenario 11.
+- Production context: prod is still on v0.6.0, and nobody has checked whether `FOUNDRY_OIDC_PROVISION_ROLE` is set there. That decides how much the OD-14 backfill matters.
+
+### [REF] Outcome KPIs
+
+| KPI | Target | Measurement |
+|---|---|---|
+| Keycloak sign-ins that get in on a provisioned account with the role withdrawn | 0 | AC-7.1 scenario. `provisioned account lacks provision role` log lines with no session created |
+| Non-provisioned accounts refused because of this change | 0 | AC-7.4 scenario. Base scenarios still 23/23 and provisioning scenarios 1–10 still green |
+| Manual steps to restore a re-granted member | 0 | AC-7.3: same user id, no operator action in foundry |
+
+### [REF] Slice
+
+`slices/slice-04-role-withdrawal.md`: a single slice, about 1 day.
+
+### Open decisions for DESIGN / the user
+
+- **OD-10**: RESOLVED 2026-10-04 (D3b, D8). It supersedes AC-6.8 and DDD-22.
+- **OD-12: does withdrawing the role also close the password door?** *Recommendation: no.* The role gates only the Keycloak door, and the password door stays the local break-glass route (D2). foundry cannot check a Keycloak role at password sign-in without calling Keycloak, which would break D2's availability. A "seen refused" flag would not help either, because the member just uses the password door and never triggers it. **Residue the user must accept:** forgot-password reaches provisioned accounts (OD-8), so a member whose role was withdrawn can reset a password and get in through the password door. Under this recommendation, revocation is complete only if the operator also removes the membership locally. That route ships today (`member_invites::submit_remove_member`), and with no workspace the member is refused fail-closed. The user should confirm this explicitly. The alternative is to refuse forgot-password and reset for a provisioned account that has no password. That narrows the hole but does not close it for a member who already set one.
+- **OD-13: provisioning switched OFF later, with the role variable unset.** *Recommendation: link-only.* A provisioned account signs in like any linked account, exactly D3. AC-6.1 promises that "unset = exactly D3", and the D3a DELIVER rollback note depends on it ("reverting the code with the role unset is link-only"). **Risk:** an operator who unsets the variable just to "stop new accounts" also reopens the Keycloak door to every member whose role was withdrawn. The alternative is to refuse provisioned accounts whenever provisioning is off. That is safer, but it locks out the members with no warning on an innocent config change. The operator docs should state the consequence whichever way this goes.
+- **OD-14: accounts provisioned before this change have no marker.** *Recommendation:* the forward migration backfills the marker on every row with `password_hash IS NULL`. Bootstrap and invite-accept always set a password, so a NULL hash means provisioned. **Risk:** an account that was provisioned and then reset its password before the migration looks invited, so it would keep link-only access. The `oidc identity provisioned` info log lines carry the user id and can find those accounts by hand. If provisioning was never enabled in production (to be checked; prod is on v0.6.0), the backfill is a no-op and the risk is zero.
+- **OD-15 (DESIGN):** where the provenance check goes in the DDD-15 order. The requirement only says that a provisioned account is checked before the link in step (1), and that every other account is unaffected. Timing does not need to match: the OIDC path has no timing AC today, and both arms do the same account lookup.
+
+### [REF] Open-question resolutions (user, 2026-10-04)
+
+- **OD-12 — RESOLVED:** the password door stays open. The role gates only the Keycloak
+  door, and the password door remains the local break-glass route (D2). AC-7.8 becomes
+  firm. Withdrawing the role alone does **not** fully revoke a provisioned member, who can
+  still set a password through forgot-password. Full revocation also requires removing
+  their workspace membership in foundry. The operator docs must say so.
+- **OD-13 — RESOLVED:** link-only, exactly D3. With `FOUNDRY_OIDC_PROVISION_ROLE` unset,
+  a provisioned account signs in through Keycloak like any linked account. AC-7.9 becomes
+  firm. Risk accepted: unsetting the variable also reopens the Keycloak door to members
+  whose role was withdrawn. The operator docs must say so.
+- **OD-14 — RESOLVED:** the migration backfills the provisioned marker onto every account
+  that has no password. The bootstrap claim and invite-accept always set one. Accepted
+  risk: an account that was provisioned and then reset before the migration stays
+  link-only. The `oidc identity provisioned` log lines can find such accounts by hand.
+- **D11 (confirmed):** the role checked is whatever `FOUNDRY_OIDC_PROVISION_ROLE` names
+  at sign-in time, matched exactly against realm roles only (OD-9).
+- **OD-15** (where the check sits in the DDD-15 order) remains a DESIGN decision.
+
+## Wave: DESIGN
+
+> **OD-10 increment, 2026-10-04 — role withdrawal (D3b).** Scope: application /
+> components. Mode: propose. Density: lean, Tier-1 [REF] only. Appends to the DESIGN
+> above and edits none of it. DDD-1..DDD-21 stand. **DDD-22 is SUPERSEDED by DDD-28**
+> (AC-6.8 was superseded in DISCUSS by AC-7.1/AC-7.2). Paradigm unchanged
+> (object-oriented, trait-injected effects). No ADR: every decision is an extension of
+> DDD-13..DDD-20 inside an existing component; none changes a crate boundary, a
+> dependency, or a security pin.
+
+### [REF] Decisions
+
+| ID | Decision | Verdict |
+|---|---|---|
+| DDD-23 | **Provenance is `users.provisioned_at TIMESTAMPTZ NULL`.** Non-NULL means "this account was created by role provisioning". Rejected: `provisioned_by_oidc BOOLEAN NOT NULL DEFAULT false` (see trade-off below) | LOCKED |
+| DDD-24 | **Migration `0017_users_provisioned_at.sql`**, forward-only, one file, one transaction: (1) `ALTER TABLE users ADD COLUMN provisioned_at TIMESTAMPTZ NULL`, with no default and no index; (2) the OD-14 backfill `UPDATE users SET provisioned_at = created_at WHERE password_hash IS NULL AND provisioned_at IS NULL`. `created_at` is the true provisioning moment for such a row, so the backfilled value is accurate, not a placeholder | LOCKED |
+| DDD-25 | **`Store::provision_federated_member` writes the marker in its existing INSERT**, so it lands in the same transaction as the user row and the membership. On the `Created` path only. The `ON CONFLICT (email_lower) DO NOTHING` re-read path (`Existing`) writes nothing; DDD-16's "never touches an existing row" stands. The timestamp comes from the caller's injected `Clock` (a `now` parameter, the `reset_password_and_consume` convention), not from SQL `now()`. `FederatedProvisionOutcome` is unchanged | LOCKED |
+| DDD-26 | **Read model: `UserRow` gains `provisioned: bool`**, computed in SQL as `provisioned_at IS NOT NULL OR password_hash IS NULL`, in both queries that build `UserRow` (`find_user_by_email`, `find_user_by_id`). The `OR password_hash IS NULL` arm is the OD-14 rule applied at read time. It closes the rolling-deploy window: a v0.6.2 replica can still provision, without the marker, after 0017 has run (DDD-24 consequences) | LOCKED |
+| DDD-27 | **Nothing clears the marker (D9).** The only code that writes `provisioned_at` is the DDD-25 INSERT plus the 0017 backfill. The three password writers set `password_hash` only: `reset_password_and_consume` (`foundry-store/src/lib.rs:1255`), `update_user_password` (`:2764`) and `set_first_admin_password_and_consume` (`:382`). Sign-in writes nothing to `users`. So AC-7.5 holds by construction and is pinned behaviourally (AC-7.5 scenario plus a store test on `update_user_password`) | LOCKED |
+| DDD-28 | **OD-15: the check sits inside DDD-15 step (1), right after `find_user_by_email` returns `Some`, before `establish_session`.** Step (1) splits: (1a) not provisioned → link, role ignored (D3, unchanged; AC-7.4); (1b) provisioned, `provision_role` is `None` → link (OD-13, AC-7.9); (1c) provisioned, role held → link (AC-7.3); (1d) provisioned, role not held → refuse. Everything before step (1) keeps its order: challenge cookie, `state`, `code`, exchange + RS256 + nonce, then `email_verified`. Steps (2)–(5) are unchanged. The `Existing` outcome of step (5) is NOT re-judged, because that identity has just passed `judge_newcomer` and so holds the role. **Supersedes DDD-22** | LOCKED |
+| DDD-29 | **The verdict is a pure function, a sibling of `judge_newcomer`:** `judge_returning(provisioned, provision_role, identity) -> Result<(), &'static str>`. Contract shape: pure, return-only, no I/O. It is table-tested exactly like `judge_newcomer`. The callback stays the imperative shell. The role match reuses `IdentityClaims::has_realm_role` (exact, case-sensitive, realm-only: D11 / OD-9) and reads the role from `provider.provision_role()` at sign-in time (D11) | LOCKED |
+| DDD-30 | **DDD-20's reason list gains `provisioned account lacks provision role`** (D12's wording, kept). It is a new `const` beside `LACKS_PROVISION_ROLE`, and it goes through the existing single `refuse()`, so status, body and the cleared challenge cookie are the shipped D7 refusal. Nothing is added to the response. No new log line on success | LOCKED |
+| DDD-31 | **Password door untouched (OD-12).** `submit_signin` ignores `UserRow.provisioned`. DDD-19 (a NULL hash is treated as an unknown address) stands. `submit_forgot` / `submit_reset` need no change | LOCKED |
+| DDD-32 | **`Store::probe` asserts that `users.provisioned_at` exists in `current_schema()`**, beside the shipped 0006/0007 column checks. `find_user_by_email` serves BOTH doors. A binary that boots against a pre-0017 schema would 500 every password sign-in as well as every Keycloak one. The probe makes that substrate lie a `/readyz` refusal instead (Earned Trust) | LOCKED |
+| DDD-33 | **Operator documentation goes in `CHANGELOG.md` `[Unreleased]`**, because no OIDC operator page exists in this repo: `FOUNDRY_OIDC_PROVISION_ROLE` is documented only there and in this brief. The entry has a `### Changed` item (withdrawal closes the Keycloak door at next sign-in; live sessions run to expiry) that states both accepted residues in plain words. OD-12: full revocation also needs removing the workspace membership, because forgot-password still reaches the account. OD-13: unsetting the variable reopens the Keycloak door to withdrawn members. It also has a `### Migration notes` item for 0017 (DDD-24 consequences). The brief gets a dated "planned" note now; DELIVER finalize rewrites it as shipped | LOCKED |
+
+**DDD-23 trade-off: timestamp vs boolean.**
+
+| | `provisioned_at TIMESTAMPTZ NULL` (chosen) | `provisioned_by_oidc BOOLEAN NOT NULL DEFAULT false` |
+|---|---|---|
+| ADD COLUMN cost | Catalog-only, instant | Catalog-only, instant (PG11+ fast default) |
+| Old binary (v0.6.2) inserting a row | Gets NULL = "not provisioned" | Gets false = "not provisioned". Same exposure |
+| Carries *when* | Yes. Backfill uses `created_at`, so an operator can line it up against `oidc identity provisioned` log lines (the OD-14 hand-search) | No |
+| Schema idiom | Matches `used_at`, `revoked_at`, `notified_at`, `deleted_at` (nullable event timestamps) | No precedent for a provenance flag |
+| Tri-state risk | None in practice. NULL is the one "no" value, and the column is never written back to NULL (DDD-27) | None |
+
+The boolean buys nothing the timestamp lacks. The timestamp buys audit context for free.
+
+**DDD-24 consequences (NFR-MIG-03).**
+- *Runtime.* The ADD COLUMN is catalog-only. The backfill is one sequential scan of `users` (there is no index on `password_hash`) that updates only NULL-hash rows. On a 10k-user database that is milliseconds. On prod it updates zero rows unless provisioning was ever enabled (prod is on v0.6.0, where provisioning does not exist). The ACCESS EXCLUSIVE lock from the ALTER is held for the length of the transaction, i.e. that scan.
+- *Forward-compatible with v0.6.2 (safe for rolling deploys).* Every `users` INSERT in v0.6.2 names its columns, and nothing selects `*` from `users`, so the old binary neither sees nor breaks on the column. **Window:** while old and new replicas coexist after 0017 has run, an old replica can provision an account with `password_hash = NULL` and `provisioned_at = NULL`. DDD-26's read predicate treats that account as provisioned, so D3b holds for it. The residue is an account provisioned in that window that ALSO resets its password before the marker is ever written. It is the same accepted-risk class as OD-14, and it is narrower.
+- *Rollback to v0.6.2.* Safe: the column is ignored and no down migration is needed. While on v0.6.2, D3b is not enforced. Accounts provisioned during the rollback are covered on return by DDD-26, subject to the same residue.
+- *Transactional.* sqlx applies the file in one transaction under the shipped `MIGRATION_LOCK_ID` advisory lock. A failure leaves 0016 state intact. There is no `CONCURRENTLY` and no partial state.
+
+**OD-14 assumption verified against the code.** Every `users` INSERT outside
+provisioning binds a non-optional `&str` hash: `create_member_and_consume`
+(`foundry-store/src/lib.rs:455`), `create_initial_workspace` (`:621`),
+`claim_bootstrap_and_create_workspace` (`:714`), `provision_workspace` (`:2538`) and
+`create_user` / `doctor add-test-user` (`:2791`). The only literal `NULL` is
+`provision_federated_member` (`:523`), and no `UPDATE` sets the hash to NULL. So a NULL
+hash means provisioned, as DISCUSS assumed. No contradiction.
+
+### [REF] Reuse Analysis
+
+| Existing component | File | Overlap | Decision | Justification |
+|---|---|---|---|---|
+| `judge_newcomer` | `crates/foundry-app/src/oidc.rs:273` | Role verdict for an identity | **EXTEND** (sibling pure fn, same shape, same table-test idiom) | It cannot simply be reused: its `None` role answers `NO_ACCOUNT`, while a returning provisioned account with `None` must LINK (OD-13). The sibling shares `has_realm_role` and the refusal-const pattern |
+| `refuse()` + DDD-20 reason consts | `oidc.rs:60`, `:223-225` | Logged generic refusal | **EXTEND** (one new const) | D7 / D12 require the single shipped refusal path |
+| `IdentityClaims::has_realm_role` | `crates/foundry-oidc/src/lib.rs:239` | Exact realm-role match | **EXTEND** (call verbatim) | Already pins OD-9 / D11 semantics, with unit tests |
+| `provider.provision_role()` | `foundry-oidc/src/lib.rs:322` | Role named at sign-in time | **EXTEND** (call verbatim) | D11 "whatever the env names at sign-in" is exactly what it returns |
+| `Store::provision_federated_member` | `foundry-store/src/lib.rs:504` | Creating the provisioned row | **EXTEND** (one more column in the INSERT, `now` parameter) | Same transaction, by construction |
+| `Store::find_user_by_email` / `find_user_by_id` + `UserRow` | `foundry-store/src/lib.rs:1122`, `:2742`, `:3265` | Account lookup in callback step (1) | **EXTEND** (one computed column, one field) | Step (1) already does this lookup. A second query would add a round-trip and a place for the two to drift |
+| `Store::probe` column assertions | `foundry-store/src/lib.rs:220-263` | Substrate check for required columns | **EXTEND** (one more assertion) | Precedent: the 0006 and 0007/0008 checks |
+| Migration idiom | `crates/foundry-store/migrations/0016_nullable_password_hash.sql` | Additive `users` change | **EXTEND** (new numbered file `0017`) | Forward-only numbered migrations are the shipped mechanism |
+| Acceptance step "the identity provider no longer grants the newcomer…" | `crates/foundry-acceptance/src/steps/feature_keycloak_sso_provisioning.rs` | Withdrawing the role in the provider double | **EXTEND** (reuse) | Already drives scenario 11 |
+
+Zero CREATE NEW, apart from the migration file, which is the mechanism and not a component.
+
+### [REF] Component decomposition
+
+| Component | Path | Change |
+|---|---|---|
+| Migration 0017 | `crates/foundry-store/migrations/0017_users_provisioned_at.sql` | **NEW**: ADD COLUMN + OD-14 backfill (DDD-24) |
+| Provisioning write | `crates/foundry-store/src/lib.rs::provision_federated_member` | **EDIT**: set `provisioned_at` in the INSERT; `now` parameter (DDD-25) |
+| User read model | `crates/foundry-store/src/lib.rs::{UserRow, find_user_by_email, find_user_by_id}` | **EDIT**: `provisioned: bool` computed in SQL (DDD-26) |
+| Substrate probe | `crates/foundry-store/src/lib.rs::probe` | **EDIT**: assert `users.provisioned_at` (DDD-32) |
+| Callback step (1) | `crates/foundry-app/src/oidc.rs::callback` | **EDIT**: call `judge_returning` on `Ok(Some(u))`; refuse on `Err` (DDD-28) |
+| Returning-account verdict | `crates/foundry-app/src/oidc.rs::judge_returning` + reason const | **NEW fn in existing module** (DDD-29/30) |
+| Password door, forgot, reset, change-password, doctor set-password | `crates/foundry-app/src/signin.rs`, `reset_password.rs`, `admin_cli.rs` | **NO CHANGE**: regression only (DDD-27/31) |
+| Provisioning feature | `crates/foundry-acceptance/tests/features/keycloak-sso-provisioning.feature` | **DISTILL**: rewrite scenario 11; add AC-7.2..7.9 scenarios |
+| Operator docs | `CHANGELOG.md` `[Unreleased]` | **EDIT** at DELIVER (DDD-33) |
+| Architecture SSOT | `docs/product/architecture/brief.md` | Planned note now; shipped wording at DELIVER finalize |
+
+### [REF] Driving ports
+
+| Port | Handler | Change |
+|---|---|---|
+| `GET /auth/oidc/callback` | `oidc::callback` | CHANGED: step (1) splits per DDD-28 |
+| `GET /auth/oidc/start` | `oidc::start` | Unchanged |
+| `POST /sign-in` | `signin::submit_signin` | Unchanged (OD-12). Regression for AC-7.8 |
+| `POST /forgot-password`, reset form | `signin::submit_forgot` / `reset_password::submit_reset` | Unchanged. AC-7.5 depends on DDD-27 |
+| Change password (signed in), `foundry doctor` set-password | `signin.rs:356`, `admin_cli.rs:1673` (both via `update_user_password`) | Unchanged. Neither touches the marker (DDD-27) |
+
+### [REF] Driven ports and adapters
+
+| Driven port | Class | Production adapter | Change | Acceptance treatment |
+|---|---|---|---|---|
+| `users` lookup by `email_lower` (now with `provisioned`) | internal | `Store` / Postgres | EDIT (DDD-26) | **Real** Postgres, per-scenario schema |
+| Provisioning transaction | internal | `Store::provision_federated_member` | EDIT (DDD-25) | **Real** |
+| Keycloak token exchange (roles in ID token) | external | `foundry-oidc` over `reqwest` | Unchanged | Shipped fake issuer. The withdraw/re-grant steps already exist |
+| Clock (`provisioned_at`) | external, non-deterministic | `Arc<dyn Clock>` | Newly passed to the store call | Shipped `MockClock` / `SystemClock` |
+| Schema substrate | internal | `Store::probe` | EDIT (DDD-32) | Store test against a schema missing the column |
+
+No external integration is added or changed, so there are no new contract-test annotations.
+Slice 03's cluster e2e against the real Keycloak remains the contract test for role claims.
+
+### [REF] Technology choices
+
+None new. Rust 1.88 / edition 2021, sqlx + Postgres 16, `tracing`; every one is already
+in the workspace. Net dependency delta: zero. `cargo deny` is unaffected.
+
+### [REF] C4
+
+No new diagram. The container view (brief.md, and the DESIGN [REF] C4 — Container
+above) is unchanged: the edit stays inside `foundry-app` → `foundry-store` →
+PostgreSQL, along the existing "Look up user by email_lower" relation. The callback
+order is the DDD-28 table.
+
+### [REF] Open questions deferred to DISTILL / DELIVER
+
+- **OQ-5 (DISTILL): AC-7.6 at unit level.** `refuse()` needs an `AppState`. Recommended: assert that `judge_returning` yields the new const and that it differs from `LACKS_PROVISION_ROLE`. The log wiring is the shipped `refuse()` line. Alternatively, capture `tracing` around `refuse()` with a minimal state. DISTILL picks.
+- **OQ-6 (DISTILL): the OD-14 backfill test (DoD 4).** It needs a schema at 0016 with mixed rows, then 0017 applied. The precedent is `feature_mwt_slice_05_migration_guarantee` and `run_migrator_timed`. It could be a store integration test rather than a Gherkin scenario.
+- **OQ-7 (DISTILL): the DDD-26 rolling-window arm** (NULL hash, NULL marker, still provisioned) needs its own store-level example, or mutation of the `OR` survives.
+- **OQ-8 (DELIVER): an optional `xtask check-arch` scanner** that fails the build if `provisioned_at` appears in an `UPDATE` anywhere in `crates/`. It would enforce D9 structurally rather than only behaviourally. Recommended but not required; DDD-27's tests are the floor.
+- **OQ-9 (outside this repo):** the deploy repository's environment docs for `FOUNDRY_OIDC_PROVISION_ROLE` should carry the OD-12/OD-13 consequences too, if that repo documents the variable.
+- **OQ-10 (operator, before release):** check whether prod ever set `FOUNDRY_OIDC_PROVISION_ROLE`. It sizes the backfill (expected: zero rows) and goes in the 0017 migration note.
