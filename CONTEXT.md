@@ -2,16 +2,16 @@
 
 ## Current Task
 
-keycloak-sso OD-10 (US-07) shipped in v0.7.0 (`40a91e3`, no PR). Withdrawing the Keycloak provision role now closes Keycloak sign-in to the accounts that role provisioning created. Migration 0017 adds `users.provisioned_at` and backfills password-less accounts. CI 911/911, cargo-mutants 12/12, review APPROVED. v0.7.0 is live on dev and prod. Prod skipped v0.6.1 and v0.6.2 and jumped from v0.6.0 straight to v0.7.0.
+All clear. No nWave work is queued or in progress: every roadmap step is committed and all 58 features have an evolution record. This session shipped card-pointer-drag (pushed), v0.6.0 / v0.6.1 / v0.6.2, keycloak-sso OD-11 and OD-10, and v0.7.0 (live on dev and prod), then finished OQ-8 and the docs housekeeping.
 
 ## Key Decisions
 
-- D3b with OD-12 / OD-13 / OD-14: the password door stays open, so full revocation also means removing the workspace membership. Unsetting the role reopens the Keycloak door. The backfill marks password-less accounts.
-- v0.6.2 hardening: `foundry-oidc` refuses an empty nonce, state or verifier. A user still owes one manual Keycloak sign-in to confirm it.
-- Foundry runs at dev https://foundry.unintelligent-design.us/ and prod https://foundry.jeffbailey.us/. Check both after a release.
+- keycloak-sso D3b: an account created by role provisioning must hold the role at every Keycloak sign-in. The password door stays open (OD-12). Unsetting the role reopens the Keycloak door (OD-13).
+- Foundry runs at dev https://foundry.unintelligent-design.us/ and prod https://foundry.jeffbailey.us/. Prod skipped the v0.6.1 and v0.6.2 patches and took v0.7.0 after about 45 minutes.
+- `.nwave/des-config.json` (untracked) uses `tdd_phases` [RED, GREEN, COMMIT]. The DES Agent hook still wants PREPARE, RED_ACCEPTANCE and RED_UNIT listed as numbered items in prompts.
 
 ## Next Steps
 
-- OQ-10: confirm whether prod ever set `FOUNDRY_OIDC_PROVISION_ROLE`; if it did, check the accounts 0017 marked. Do the manual Keycloak sign-in, and check why prod skips patch releases.
-- The user owes card-pointer-drag device evidence: slice-02 tallies and the slice-03 checklist.
-- Done 2026-10-04: OQ-8 (`check-arch` `provisioned-marker` rule, `87d1ee8`); evolution docs for the three shipped fixes; stale feature-file comments fixed (`d38864b`). No feature has open DELIVER work.
+- OQ-10: confirm whether prod ever set `FOUNDRY_OIDC_PROVISION_ROLE`; if it did, check the accounts migration 0017 marked.
+- Do one manual Keycloak sign-in on v0.7.0, and check why prod skips patch releases.
+- The user owes card-pointer-drag device evidence: slice-02 tallies and the slice-03 checklist. New work starts with `/nw:new`.
