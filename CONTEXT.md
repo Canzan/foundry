@@ -2,16 +2,16 @@
 
 ## Current Task
 
-The release-version-footer build stamp (US-RVF-02) shipped in v0.8.0 (`a610dd9`, no PR). The dev footer reads `Foundry v0.8.0 · 2026-10-04` with `data-commit="a610dd9"`; prod is still on v0.7.0, awaiting approval. CI 911/911, mutation 55/60 (91.7%), review APPROVED. The canzan-lift stale-stamp fix shipped as canzan-lift v0.4.2 (`c30ec4a4`): live on dev, prod awaiting approval.
+All clear; nothing is queued. The release-version-footer build stamp (US-RVF-02) shipped in v0.8.0 (`a610dd9`). The dev footer reads `Foundry v0.8.0 · 2026-10-04` with `data-commit="a610dd9"`; prod is on v0.7.0, awaiting approval. Follow-ups are done: a pure, tested `ref_watch_path` with the climb bounded at `refs` (`c883b6e`), and 4 publish-stamp fixtures (`c61eb9c`). Build-stamp mutation is 66/66. canzan-lift v0.4.2 (the stale-stamp fix, `c30ec4a4`) is live on dev.
 
 ## Key Decisions
 
-- The footer matches canzan-lift. `build.rs` stamps from `FOUNDRY_STAMP_*` build-args, then git, then `unknown`. When the loose branch ref is absent it watches the ref's parent dir, so the stamp re-stamps after `pack-refs`.
-- Both publish workflows pass a separate 7-char stamp and refuse to publish on an empty value. check-arch `publish-stamp:` enforces this. OQ-D4 is resolved: the Forgejo runner has git, since dev shows a real SHA.
+- `build.rs` stamps from `FOUNDRY_STAMP_*`, then git, then `unknown`. It watches the refs dir when the branch ref is packed, and never climbs above `refs`.
+- Both publish workflows stamp images and refuse empty values. check-arch `publish-stamp:` enforces this. The Forgejo runner has git (OQ-D4 resolved).
 - Prod (`foundry.jeffbailey.us`) is held for approval by design. A lagging prod footer means "awaiting approval".
 
 ## Next Steps
 
-- Approve foundry v0.8.0 and canzan-lift v0.4.2 for prod, then check the prod footer (AC-8). Then OQ-10, and one manual Keycloak sign-in.
-- Mutation follow-ups done: build.rs path choice (`c883b6e`) and the 4 xtask publish-stamp fixtures (`c61eb9c`). US-RVF-02 mutation is now 66/66 non-equivalent.
-- The user owes card-pointer-drag device evidence.
+- Approve foundry v0.8.0 and canzan-lift v0.4.2 for prod, then check the prod footer `data-commit` (AC-8).
+- OQ-10 (did prod ever set `FOUNDRY_OIDC_PROVISION_ROLE`?) and one manual Keycloak sign-in.
+- The user owes card-pointer-drag device evidence. New work starts with `/nw:new`.
