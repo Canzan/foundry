@@ -2,16 +2,16 @@
 
 ## Current Task
 
-The empty-nonce hardening shipped in v0.6.2 (`51b62cd`, release `b6e17ed`, no PR): `foundry-oidc` now refuses an empty or absent nonce, state or verifier. Full `cargo xtask ci` passed 903/903. v0.6.2 is live on dev; prod is stuck on v0.6.0 and has not taken v0.6.1 or v0.6.2. Next is keycloak-sso OD-10 DISCUSS (lightweight).
+keycloak-sso OD-10 (US-07) shipped in v0.7.0 (`40a91e3`, no PR). Withdrawing the Keycloak provision role now closes Keycloak sign-in to the accounts that role provisioning created. Migration 0017 adds `users.provisioned_at` and backfills password-less accounts. CI 911/911, cargo-mutants 12/12, review APPROVED. v0.7.0 is live on dev and prod. Prod skipped v0.6.1 and v0.6.2 and jumped from v0.6.0 straight to v0.7.0.
 
 ## Key Decisions
 
-- OD-10 (user, 2026-10-04): an account created by role provisioning must still hold the realm role at every Keycloak sign-in, or it gets the generic refusal. Other accounts are unaffected.
-- In scenario 19, each door lands on its own page: `/` for password and SSO, `/dashboard` for the bootstrap claim. The empty-nonce fix is scope (a)+(b)+(c) only.
-- Foundry runs at dev https://foundry.unintelligent-design.us/ and prod https://foundry.jeffbailey.us/. Check both footers after every release.
+- D3b with OD-12 / OD-13 / OD-14: the password door stays open, so full revocation also means removing the workspace membership. Unsetting the role reopens the Keycloak door. The backfill marks password-less accounts.
+- v0.6.2 hardening: `foundry-oidc` refuses an empty nonce, state or verifier. A user still owes one manual Keycloak sign-in to confirm it.
+- Foundry runs at dev https://foundry.unintelligent-design.us/ and prod https://foundry.jeffbailey.us/. Check both after a release.
 
 ## Next Steps
 
-- Find out why prod has not rolled past v0.6.0 (the image updater or sync on the prod cluster; there is no kube context for it here). Then do one manual Keycloak sign-in on v0.6.2.
-- Take keycloak-sso OD-10 through DISCUSS, DESIGN, DISTILL and DELIVER. It needs a record of which accounts were provisioned, and it changes provisioning scenario 11.
-- The user owes card-pointer-drag device evidence. Small cleanups remain: stale feature-file comments, and evolution docs for three shipped fixes.
+- OQ-10: confirm whether prod ever set `FOUNDRY_OIDC_PROVISION_ROLE`; if it did, check the accounts 0017 marked. Do the manual Keycloak sign-in, and check why prod skips patch releases.
+- The user owes card-pointer-drag device evidence: slice-02 tallies and the slice-03 checklist.
+- Cleanups: the stale "provisions nothing" header in `keycloak-sso.feature`, the line-7 comment in `card-pointer-drag.feature`, and evolution docs for three shipped fixes. Optional: OQ-8, a check-arch rule against UPDATEs of `provisioned_at`.
