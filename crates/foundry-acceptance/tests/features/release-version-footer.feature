@@ -40,13 +40,13 @@ Feature: Every page shows the release and the build the server is running
     And a project "Sandbox" with key prefix "GEN" exists under "Backend"
     And Mei is signed in
 
-  @us-rvf-02 @pending @contract-shape:pure-function
+  @us-rvf-02 @contract-shape:pure-function
   Scenario: The sign-in page names the running build without an account
     When a visitor with no session opens the sign-in page
     Then the page names the running release and the date of the commit it was built from, once, below the main content
     And that footer carries the short id of the commit the server was built from
 
-  @us-rvf-02 @pending @contract-shape:pure-function
+  @us-rvf-02 @contract-shape:pure-function
   Scenario: A signed-in board page names the running build
     When Mei fetches the "Sandbox" board
     Then the page names the running release and the date of the commit it was built from, once, below the main content

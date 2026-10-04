@@ -21,6 +21,66 @@ use askama::Template;
 /// `base.html` reads it by path, so no page struct carries a version field.
 pub const RELEASE_VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// The short id of the commit this binary was built from (`git rev-parse
+/// --short=7 HEAD`, or the `FOUNDRY_STAMP_SHA` build-arg), stamped by `build.rs`
+/// (release-version-footer DDD-7). A compile-time string that is printed, never
+/// parsed; `unknown` when the build machine could not answer.
+pub const BUILD_SHA: &str = env!("FOUNDRY_BUILD_SHA");
+
+/// The commit date of that build (`git log -1 --format=%cd --date=short`, or the
+/// `FOUNDRY_STAMP_DATE` build-arg) — the COMMIT's date, never the build time.
+/// Printed, never parsed; `unknown` when nobody could answer.
+pub const BUILD_DATE: &str = env!("FOUNDRY_BUILD_DATE");
+
+/// What the footer says for a build field nobody could answer. The same word as
+/// `build.rs`'s `UNKNOWN`, pinned equal by a unit test (DDD-5).
+pub const BUILD_FIELD_UNKNOWN: &str = "unknown";
+
+/// The site footer on every full page: the release, the commit date and — on
+/// the element, not in the painted text — the commit id (DDD-8/DDD-9):
+/// `<footer class="site-footer" data-commit="{sha}">Foundry v{version} · {date}</footer>`.
+///
+/// Every field is HTML-escaped by askama in `partials/site_footer.html`, so the
+/// one `|safe` in `base.html` only ever passes this struct's escaped render
+/// (DDD-10).
+#[derive(Debug, Clone, Template)]
+#[template(path = "partials/site_footer.html")]
+pub struct SiteFooter<'a> {
+    version: &'a str,
+    sha: &'a str,
+    date: &'a str,
+}
+
+impl<'a> SiteFooter<'a> {
+    /// The footer for explicit field values — the pure seam the degraded and
+    /// hostile examples drive. A blank `sha` or `date` reads as `unknown`, never
+    /// as an empty attribute or a bare trailing separator. The version is not
+    /// normalised: it is `CARGO_PKG_VERSION`, never blank, so `vunknown` cannot
+    /// occur (AC-6).
+    pub fn of(version: &'a str, sha: &'a str, date: &'a str) -> Self {
+        Self {
+            version,
+            sha: answered_or_unknown(sha),
+            date: answered_or_unknown(date),
+        }
+    }
+}
+
+/// The footer this binary renders: its release and its build stamp. `base.html`
+/// calls it as `{{ crate::views::site_footer()|safe }}` (DDD-8, revised).
+pub fn site_footer() -> SiteFooter<'static> {
+    SiteFooter::of(RELEASE_VERSION, BUILD_SHA, BUILD_DATE)
+}
+
+/// A build field, trimmed, or `unknown` when blank: the renderer does not
+/// assume its input is well-formed just because a machine wrote it.
+fn answered_or_unknown(field: &str) -> &str {
+    match field.trim() {
+        "" => BUILD_FIELD_UNKNOWN,
+        answered => answered,
+    }
+}
+
 /// The project-create full page (US-R01). Extends `base.html`, which links the
 /// vendored `/static` stylesheet + htmx script (US-B01/B02) — replacing
 /// the previous bare-`<head>` `format!` markup (`projects.rs::render_create_form`).

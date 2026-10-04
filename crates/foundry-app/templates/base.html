@@ -55,12 +55,14 @@
 </head>
 <body>
 {% block content %}{% endblock %}
-{# release-version-footer (US-RVF-01) — the running release, on every full page.
+{# release-version-footer (US-RVF-01/02) — the running release and the build it
+   was compiled from, on every full page (`partials/site_footer.html`).
    It must stay the IMMEDIATE next sibling of the content block: the stylesheet
    pulls it up into the app shell's bottom padding with `.app-shell + .site-footer`,
    which is what keeps a 100vh shell from growing a scrollbar. Fragments never
-   extend base.html, so they never carry it. #}
-<footer class="site-footer">Foundry v{{ crate::views::RELEASE_VERSION }}</footer>
+   extend base.html, so they never carry it. `|safe` is sound here: SiteFooter's
+   render has already escaped every field (DDD-10). #}
+{{ crate::views::site_footer()|safe }}
 {# keyboard-shortcut-bindings ADR-003 — the keyboard layer's overlay host, kept
    DISTINCT from board.html's #modal-root and ABOVE it in the layer stack (last
    sibling paints on top), so slice 03's Esc has two hosts to peel topmost-first. #}
