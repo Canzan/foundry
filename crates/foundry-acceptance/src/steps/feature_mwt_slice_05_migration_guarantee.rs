@@ -386,6 +386,33 @@ async fn install_is_upgraded(world: &mut FoundryWorld) {
         .expect("apply the forward-only upgrade");
 }
 
+/// Finish the operator's upgrade: run every production migration NEWER than the
+/// multi-workspace set (`0012`..latest) on top of the `0011` schema.
+///
+/// The slice-05 proofs about the multi-workspace upgrade (`0009`/`0010`/`0011`)
+/// — tenant rows byte-for-byte unchanged, workspace identity unchanged — are
+/// taken at `0011`, BEFORE this runs. A real upgrade then keeps going through
+/// every later migration, and the current binary only ever reads a fully
+/// migrated schema (`Store::probe` refuses an older one). So any step that reads
+/// through the CURRENT `Store` sign-in / workspace API calls this first, which
+/// reads the schema production actually serves. Idempotent: the runner skips
+/// migrations already applied, so a scenario with several such reads upgrades
+/// once.
+async fn finish_upgrade_to_latest(world: &FoundryWorld) {
+    let pool = world.mwt5_pool.clone().expect("pre-feature pool seeded");
+    let staged = world.mwt5_staged.as_ref().expect("staged dir present");
+
+    let copied = test_migration::add_post_forward_only_to(staged.path())
+        .expect("stage the migrations after the multi-workspace set");
+    assert!(
+        !copied.is_empty(),
+        "a real upgrade runs the migrations after 0011 too — none were found to stage"
+    );
+    run_migrations_from_dir(&pool, staged.path())
+        .await
+        .expect("apply the rest of the upgrade (0012..latest)");
+}
+
 /// Columns the forward-only upgrade ADDITIVELY introduces (nullable, no rewrite)
 /// — they do not exist in the pre-feature schema, so a row-level before/after
 /// EQUALITY proof over tenant DATA (ADR-004 / D4) must compare the rows over the
@@ -493,6 +520,7 @@ async fn admin_signs_in_as_before(world: &mut FoundryWorld, admin_email: String)
     let pool = world.mwt5_pool.clone().expect("pre-feature pool seeded");
     let expected_id = world.mwt5_workspace_id.expect("workspace id captured");
     let store = Store::from_pool(pool.clone());
+    finish_upgrade_to_latest(world).await;
 
     let user = store
         .find_user_by_email(&admin_email.to_ascii_lowercase())
@@ -653,9 +681,12 @@ async fn active_session_and_valid_token(world: &mut FoundryWorld) {
     let store = Store::from_pool(pool.clone());
 
     // The session leg: the carried admin must be a real signed-in user pre-upgrade.
+    // Looked up by email through `user_id_by_email`, which reads only columns the
+    // pre-feature schema has: the full sign-in row (`find_user_by_email`) projects
+    // columns later migrations add, and nothing has been upgraded yet here.
     let admin_email = world.mwt5_admin_email.clone().expect("admin email seeded");
     store
-        .find_user_by_email(&admin_email.to_ascii_lowercase())
+        .user_id_by_email(&admin_email.to_ascii_lowercase())
         .await
         .expect("look up the carried-over admin pre-upgrade")
         .expect("the carried session's admin must exist before the upgrade");
@@ -683,6 +714,7 @@ async fn carried_session_resolves_to_first(world: &mut FoundryWorld) {
     let expected_id = world.mwt5_workspace_id.expect("workspace id captured");
     let admin_email = world.mwt5_admin_email.clone().expect("admin email seeded");
     let store = Store::from_pool(pool.clone());
+    finish_upgrade_to_latest(world).await;
 
     let user = store
         .find_user_by_email(&admin_email.to_ascii_lowercase())
@@ -814,6 +846,7 @@ async fn upgraded_user_resolves_to_first(world: &mut FoundryWorld) {
     let expected_id = world.mwt5_workspace_id.expect("workspace id captured");
     let admin_email = world.mwt5_admin_email.clone().expect("admin email seeded");
     let store = Store::from_pool(pool.clone());
+    finish_upgrade_to_latest(world).await;
 
     let user = store
         .find_user_by_email(&admin_email.to_ascii_lowercase())
@@ -1010,6 +1043,7 @@ async fn existing_member_lands_on_first(world: &mut FoundryWorld) {
     let pool = world.mwt5_pool.clone().expect("pre-feature pool seeded");
     let expected_id = world.mwt5_workspace_id.expect("workspace id captured");
     let store = Store::from_pool(pool.clone());
+    finish_upgrade_to_latest(world).await;
 
     let user = store
         .find_user_by_email(EXISTING_MEMBER_EMAIL)

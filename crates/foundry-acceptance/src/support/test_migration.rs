@@ -162,6 +162,53 @@ pub fn stage_subset(max_version: u64) -> Result<TestMigrationsDir> {
 /// feature acceptance; this helper stays scoped to the multi-workspace set.
 pub fn add_forward_only_to(dir: &Path) -> Result<()> {
     let prod_dir = production_migrations_dir();
+    // Only the multi-workspace-era migrations (0009..=0011). Later feature
+    // migrations (0012 position backfill, 0013 change-events, …) are not
+    // part of "the multi-workspace upgrade" and would break the
+    // byte-for-byte tenant-data guarantee — see the fn doc.
+    let copied_versions = copy_production_migrations_into(dir, |v| (9..=11).contains(&v))?;
+
+    // The canonical forward-only upgrade set is `0009`, `0010`, AND the
+    // feature's additive `0011_instance_admins.sql` (ADR-003/004, D6). The
+    // slice-05 guarantee is the upgrade-safety PROOF for ALL THREE; until
+    // `0011` ships, the "upgrade" the scenario applies is incomplete and the
+    // guarantee is unproven — so staging the canonical set MUST fail. This is
+    // the genuine RED for step 01-01 (DISTILL RED-state contract: "0011
+    // MISSING → idempotence unproven until built").
+    if !copied_versions.contains(&11) {
+        anyhow::bail!(
+            "canonical forward-only migration set is incomplete: \
+             0011_instance_admins.sql is missing from {prod_dir:?}"
+        );
+    }
+    Ok(())
+}
+
+/// Copy every canonical production migration NEWER than the multi-workspace set
+/// (version `>= 12`) into an EXISTING staged dir — the rest of a real upgrade.
+///
+/// Companion to [`add_forward_only_to`]. The slice-05 guarantee proves the
+/// multi-workspace upgrade (`0009`..=`0011`) byte-for-byte; once that proof has
+/// been taken, a scenario that goes on to read through the CURRENT `Store` API
+/// (sign-in lookups, workspace resolution) must first finish the upgrade the
+/// way a real operator upgrade does — by running every later migration too.
+/// The current binary only ever reads a fully migrated schema (`Store::probe`
+/// refuses anything older), so reading through it at `0011` would test a state
+/// production never serves.
+///
+/// Returns the versions copied (sorted). Idempotent with the runner: sqlx skips
+/// migrations already recorded as applied.
+pub fn add_post_forward_only_to(dir: &Path) -> Result<Vec<u64>> {
+    let mut copied = copy_production_migrations_into(dir, |v| v >= 12)?;
+    copied.sort_unstable();
+    Ok(copied)
+}
+
+/// Copy each canonical production `.sql` migration whose numeric version prefix
+/// satisfies `keep` into `dir`, preserving its filename. Returns the copied
+/// versions in directory order.
+fn copy_production_migrations_into(dir: &Path, keep: impl Fn(u64) -> bool) -> Result<Vec<u64>> {
+    let prod_dir = production_migrations_dir();
     let mut copied_versions = Vec::new();
     for entry in std::fs::read_dir(&prod_dir)
         .with_context(|| format!("read production migrations dir {prod_dir:?}"))?
@@ -182,32 +229,14 @@ pub fn add_forward_only_to(dir: &Path) -> Result<()> {
             .next()
             .and_then(|n| n.parse().ok())
             .with_context(|| format!("parse migration version from {filename:?}"))?;
-        // Only the multi-workspace-era migrations (0009..=0011). Later feature
-        // migrations (0012 position backfill, 0013 change-events, …) are not
-        // part of "the multi-workspace upgrade" and would break the
-        // byte-for-byte tenant-data guarantee — see the fn doc.
-        if !(9..=11).contains(&version) {
+        if !keep(version) {
             continue;
         }
         let dst = dir.join(&filename);
         std::fs::copy(&path, &dst).with_context(|| format!("copy {path:?} -> {dst:?}"))?;
         copied_versions.push(version);
     }
-
-    // The canonical forward-only upgrade set is `0009`, `0010`, AND the
-    // feature's additive `0011_instance_admins.sql` (ADR-003/004, D6). The
-    // slice-05 guarantee is the upgrade-safety PROOF for ALL THREE; until
-    // `0011` ships, the "upgrade" the scenario applies is incomplete and the
-    // guarantee is unproven — so staging the canonical set MUST fail. This is
-    // the genuine RED for step 01-01 (DISTILL RED-state contract: "0011
-    // MISSING → idempotence unproven until built").
-    if !copied_versions.contains(&11) {
-        anyhow::bail!(
-            "canonical forward-only migration set is incomplete: \
-             0011_instance_admins.sql is missing from {prod_dir:?}"
-        );
-    }
-    Ok(())
+    Ok(copied_versions)
 }
 
 /// Resolve the absolute path to `crates/foundry-store/migrations` from
