@@ -1,0 +1,52 @@
+{
+  "roadmap": {
+    "project_id": "fix-oidc-empty-nonce",
+    "created_at": "2026-10-04T00:45:33Z",
+    "total_steps": 1
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "Regression test and fix",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "foundry-oidc refuses an empty or absent nonce, state or verifier",
+          "criteria": [
+            "RED: unit tests in foundry-oidc fail today: exchange_code with an empty state, nonce or code_verifier returns Transport (reaches the network) instead of Untrusted; ensure_nonce(\"\",\"\") is accepted",
+            "GREEN: exchange_code refuses an empty state, nonce or code_verifier as OidcError::Untrusted before any provider call",
+            "GREEN: a pure ensure_nonce(expected, presented) refuses when either is empty or they differ; it replaces the inline comparison",
+            "The doc comment no longer calls the nonce an independent layer; serde(default) on the nonce claim is kept so a missing claim reaches ensure_nonce",
+            "keycloak-sso 38/38 and keycloak-sso-provisioning 15/15 stay green; fmt, clippy -D warnings, check-arch, smoke pass"
+          ],
+          "test_file": "crates/foundry-oidc/src/lib.rs",
+          "scenario_name": "exchange_code refuses an empty nonce (unit regression)",
+          "description": "Approved fix (a)+(b)+(c) from docs/feature/fix-oidc-empty-nonce/rca.md: guard empty state/nonce/code_verifier at the top of exchange_code, require a non-empty matching nonce on both sides via a pure helper, and correct the 'independent second layer' doc comment. Refusals stay OidcError::Untrusted, so the app's single refuse() keeps them byte-identical to a wrong password (D7).",
+          "dependencies": [],
+          "estimate": "0.25 day",
+          "files_to_modify": [
+            "crates/foundry-oidc/src/lib.rs"
+          ],
+          "implementation_notes": "See rca.md for file:line evidence. No foundry-app change, no Gherkin, no new dev-dependencies (the optional HTTP integration test is out of scope). Unit tests live in lib.rs mod tests: empty-field refusals through exchange_code with an unroutable issuer must assert Untrusted (today Transport); a table test of ensure_nonce including the (\"\",\"\") and (\"x\",\"\") rows. Named faults to seed after GREEN: guard removed; ensure_nonce empty checks removed; ensure_nonce compares only presence. Real Keycloak manual sign-in is owed by the user after deploy. Build with CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false; bound lane runs with timeout."
+        }
+      ]
+    }
+  ],
+  "implementation_scope": {
+    "source_directories": [
+      "crates/foundry-oidc/src/"
+    ],
+    "test_directories": [
+      "crates/foundry-oidc/src/"
+    ],
+    "excluded_patterns": [
+      "target/**"
+    ]
+  },
+  "validation": {
+    "status": "approved",
+    "reviewer": "user",
+    "approved_at": "2026-10-04T00:45:33Z",
+    "note": "User approved RCA fix direction (a)+(b)+(c) on 2026-10-04 via /nw-bugfix Phase 2."
+  }
+}

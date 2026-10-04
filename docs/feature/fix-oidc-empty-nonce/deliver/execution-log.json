@@ -1,0 +1,27 @@
+{
+  "schema_version": "3.0",
+  "feature_id": "fix-oidc-empty-nonce",
+  "events": [
+    {
+      "sid": "01-01",
+      "p": "RED",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-10-04T00:47:10Z"
+    },
+    {
+      "sid": "01-01",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-10-04T01:01:14Z"
+    },
+    {
+      "sid": "01-01",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-10-04T01:01:22Z"
+    }
+  ]
+}
