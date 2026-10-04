@@ -13,5 +13,5 @@ The release-version-footer build stamp (US-RVF-02) shipped in v0.8.0 (`a610dd9`,
 ## Next Steps
 
 - Approve foundry v0.8.0 and canzan-lift v0.4.2 for prod, then check the prod footer (AC-8). Then OQ-10, and one manual Keycloak sign-in.
-- Mutation follow-ups: build.rs path choice done (`c883b6e`, pure `ref_watch_path`, climb now bounded at `refs`). 4 xtask publish-stamp fixtures remain.
+- Mutation follow-ups done: build.rs path choice (`c883b6e`) and the 4 xtask publish-stamp fixtures (`c61eb9c`). US-RVF-02 mutation is now 66/66 non-equivalent.
 - The user owes card-pointer-drag device evidence.
