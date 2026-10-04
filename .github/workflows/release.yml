@@ -82,6 +82,25 @@ jobs:
 
       - uses: actions/checkout@v4
 
+      # Build stamp (release-version-footer DDD-3/DDD-13). The Docker context
+      # has no .git, so the commit is handed in as build-args; same commands as
+      # build.rs. Refuse to publish an image whose footer would read `unknown`.
+      - name: Compute build stamp
+        id: stamp
+        shell: bash
+        run: |
+          set -euo pipefail
+          stamp_sha="$(git rev-parse --short=7 HEAD)"
+          stamp_date="$(git log -1 --format=%cd --date=short)"
+          if [[ -z "${stamp_sha}" || -z "${stamp_date}" ]]; then
+            echo "::error::build stamp is empty (sha='${stamp_sha}' date='${stamp_date}')"
+            exit 1
+          fi
+          {
+            echo "sha=${stamp_sha}"
+            echo "date=${stamp_date}"
+          } >> "${GITHUB_OUTPUT}"
+
       - uses: docker/setup-qemu-action@v3
 
       - uses: docker/setup-buildx-action@v3
@@ -107,6 +126,9 @@ jobs:
         with:
           context: .
           platforms: ${{ matrix.platform }}
+          build-args: |
+            FOUNDRY_STAMP_SHA=${{ steps.stamp.outputs.sha }}
+            FOUNDRY_STAMP_DATE=${{ steps.stamp.outputs.date }}
           labels: ${{ steps.meta.outputs.labels }}
           # Per-arch gha cache scope so the two matrix legs don't clobber
           # each other's cache.

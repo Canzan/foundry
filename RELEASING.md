@@ -63,11 +63,34 @@ git push origin vX.Y.Z
 
 ## Verifying a deployment
 
-Every full page renders the running release in its footer
-(`Foundry vX.Y.Z`, from `foundry-app`'s `CARGO_PKG_VERSION`), including
-the signed-out sign-in page. After a tag push, the deployment has rolled
-out when `/sign-in` on the instance shows the new version; until then the
-previous pod is still serving.
+Every full page, including the signed-out `/sign-in` page, names the build
+it is running in its footer:
+
+```html
+<footer class="site-footer" data-commit="817c16d">Foundry v0.8.0 · 2026-10-04</footer>
+```
+
+- `vX.Y.Z` is the release, from `foundry-app`'s `CARGO_PKG_VERSION`.
+- `YYYY-MM-DD` is the **commit date** of the build (not the build time).
+- `data-commit` is the short SHA of that commit. It is not painted; view the
+  page source or inspect the footer element.
+
+After a push or a tag, ask git what the instance should be showing:
+
+```sh
+git log -1 --format='%h %cd' --date=short <ref>   # e.g. v0.8.0 or origin/main
+```
+
+The rollout has landed when **both** the footer date and `data-commit` match
+that line, not just the version. Builds of `:main` between tags all share a
+version, so on the dev instance the SHA is the signal. A `data-commit` and
+date of `unknown` mean an image built without the stamp build-args; neither
+publish workflow can produce one (each refuses to publish on an empty
+stamp), so `unknown` from a published image is a bug, not a pending
+rollout. Production may be held for approval: a prod footer still showing
+the previous commit can mean "awaiting approval" rather than a failed
+rollout, so check the deployment's approval status before calling it
+failed. Until the new pod is ready, the previous one is still serving.
 
 ## Verifying a published image
 

@@ -93,6 +93,7 @@ fn source_violations(root: &Path) -> Vec<String> {
     violations.extend(check_lane_position_deferrable(root));
     violations.extend(check_board_modules_have_no_keydown_listener(root));
     violations.extend(check_provisioned_marker_is_never_rewritten(root));
+    violations.extend(check_publish_workflows_stamp_the_image(root));
     violations.extend(check_static_asset_integrity(root));
     violations.extend(check_stylesheet_colour_seam(root));
     violations.extend(check_stylesheet_dark_block_parity(root));
@@ -134,7 +135,7 @@ pub fn run(args: Vec<String>) -> ExitCode {
     let verdict = verdict(&args);
     match &verdict {
         Verdict::Passed => println!(
-            "check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, the lanes position constraint is still DEFERRABLE, no board-*.js registers a keydown listener, nothing outside migration 0017 UPDATEs users.provisioned_at (D9), every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, no colour literal outside the three stylesheet token regions, the three stylesheet token regions declare the identical colour-token set, dependency direction)"
+            "check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, the lanes position constraint is still DEFERRABLE, no board-*.js registers a keydown listener, nothing outside migration 0017 UPDATEs users.provisioned_at (D9), both publish workflows stamp every image with its commit and the Dockerfile hands it to build.rs (AC-8), every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, no colour literal outside the three stylesheet token regions, the three stylesheet token regions declare the identical colour-token set, dependency direction)"
         ),
         Verdict::UnparseableArguments(message) => eprintln!("check-arch: {message}"),
         Verdict::Violations(violations) => {
@@ -1779,6 +1780,247 @@ fn rel(root: &Path, file: &Path) -> String {
         .unwrap_or(file)
         .to_string_lossy()
         .to_string()
+}
+
+// ---- check_publish_workflows_stamp_the_image — US-RVF-02 AC-8 --------------
+//
+// The container build context has no `.git` (`.dockerignore`), so build.rs can
+// only stamp a published image with the commit it was built from if the publish
+// workflow hands that commit in. An image that silently reads `unknown` in
+// production is the failure this rule exists to prevent (DDD-13), as is an ARG
+// declared where build.rs never sees it (DDD-11).
+
+/// The two workflows that publish an image. Hand-listed on purpose: each is a
+/// publish path that must stamp, and a renamed or deleted one fails closed.
+const STAMPED_PUBLISH_WORKFLOWS: [&str; 2] = [
+    ".forgejo/workflows/build-and-publish.yml",
+    ".github/workflows/release.yml",
+];
+
+/// The stamp inputs build.rs reads; each must be a builder-stage `ARG`.
+const STAMP_INPUTS: [&str; 2] = ["FOUNDRY_STAMP_SHA", "FOUNDRY_STAMP_DATE"];
+
+/// The DDD-13 refusal phrase; an `exit 1` must follow it inside its `if`.
+const EMPTY_STAMP_REFUSAL: &str = "build stamp is empty";
+
+/// AC-8. Both publish workflows compute the stamp from the commit (DDD-3),
+/// refuse to publish on an empty value and pass both build-args; the Dockerfile
+/// declares both inputs in the builder stage immediately before the cargo
+/// build. A missing or unreadable file is a violation, never a pass.
+fn check_publish_workflows_stamp_the_image(root: &Path) -> Vec<String> {
+    let mut violations: Vec<String> = STAMPED_PUBLISH_WORKFLOWS
+        .iter()
+        .flat_map(|workflow| publish_workflow_stamp_violations(root, workflow))
+        .collect();
+    violations.extend(dockerfile_stamp_violations(root));
+    violations
+}
+
+/// The DDD-13 violations in one publish workflow. YAML / shell comment lines
+/// are ignored, so a commented-out command cannot satisfy the rule.
+fn publish_workflow_stamp_violations(root: &Path, workflow: &str) -> Vec<String> {
+    let Ok(source) = std::fs::read_to_string(root.join(workflow)) else {
+        return vec![format!(
+            "publish-stamp: cannot read {workflow} — it could not be checked for the build \
+             stamp; an image it publishes may read `unknown` (DDD-13)."
+        )];
+    };
+    let lines: Vec<(usize, &str)> = source
+        .lines()
+        .enumerate()
+        .map(|(index, line)| (index + 1, line.trim()))
+        .filter(|(_, line)| !line.starts_with('#'))
+        .collect();
+    let has = |needle: &str| lines.iter().any(|(_, line)| line.contains(needle));
+
+    let mut violations = Vec::new();
+    for (needle, what) in [
+        (
+            "git rev-parse --short=7 HEAD",
+            "never computes the stamp SHA with `git rev-parse --short=7 HEAD`",
+        ),
+        (
+            "git log -1 --format=%cd --date=short",
+            "never computes the stamp date from the commit with \
+             `git log -1 --format=%cd --date=short`",
+        ),
+        ("build-args:", "passes no `build-args:` to the image build"),
+        (
+            "FOUNDRY_STAMP_SHA=",
+            "passes no `FOUNDRY_STAMP_SHA=` build-arg",
+        ),
+        (
+            "FOUNDRY_STAMP_DATE=",
+            "passes no `FOUNDRY_STAMP_DATE=` build-arg",
+        ),
+    ] {
+        if !has(needle) {
+            violations.push(format!(
+                "publish-stamp: {workflow} {what} — the published image would read `unknown` \
+                 or the wrong commit (DDD-3/DDD-13)."
+            ));
+        }
+    }
+    if !refuses_an_empty_stamp(&lines) {
+        violations.push(format!(
+            "publish-stamp: {workflow} does not refuse an empty stamp (`{EMPTY_STAMP_REFUSAL}` \
+             followed by `exit 1`) — it could publish an image whose footer reads `unknown` \
+             (DDD-13)."
+        ));
+    }
+    for (line_number, line) in &lines {
+        if computes_the_build_time(line) {
+            violations.push(format!(
+                "publish-stamp: {workflow}:{line_number} computes a date from the build time \
+                 (`date`) — the stamp date is the commit's own date \
+                 (`git log -1 --format=%cd --date=short`, DDD-3)."
+            ));
+        }
+    }
+    violations
+}
+
+/// Whether the refusal phrase is followed by `exit 1` before its `if` closes.
+fn refuses_an_empty_stamp(lines: &[(usize, &str)]) -> bool {
+    lines
+        .iter()
+        .enumerate()
+        .filter(|(_, (_, line))| line.contains(EMPTY_STAMP_REFUSAL))
+        .any(|(index, _)| {
+            lines[index + 1..]
+                .iter()
+                .map(|(_, line)| *line)
+                .take_while(|line| *line != "fi")
+                .any(|line| line == "exit 1")
+        })
+}
+
+/// Whether a line runs the `date` command (`$(date …)`, `` `date …` ``, or
+/// `date …` as a command), i.e. stamps the build time instead of the commit.
+fn computes_the_build_time(line: &str) -> bool {
+    line.contains("$(date") || line.contains("`date") || line.starts_with("date ")
+}
+
+/// The DDD-11 violations in the Dockerfile: each stamp input is an `ARG` in
+/// the `builder` stage, positioned after every other instruction that precedes
+/// the cargo build (so no earlier cached layer is invalidated by a new commit),
+/// and declared in no other stage (where build.rs would never see it).
+fn dockerfile_stamp_violations(root: &Path) -> Vec<String> {
+    let Ok(source) = std::fs::read_to_string(root.join("Dockerfile")) else {
+        return vec![
+            "publish-stamp: cannot read Dockerfile — it could not be checked for the \
+             FOUNDRY_STAMP_* build inputs (DDD-11)."
+                .to_string(),
+        ];
+    };
+    let instructions = dockerfile_instructions(&source);
+    let Some(builder) = instructions
+        .iter()
+        .position(|i| i.keyword == "FROM" && i.text.to_lowercase().ends_with(" as builder"))
+    else {
+        return vec![
+            "publish-stamp: Dockerfile has no `AS builder` stage — the stamp inputs cannot \
+             reach build.rs (DDD-11)."
+                .to_string(),
+        ];
+    };
+    let stage_end = instructions[builder + 1..]
+        .iter()
+        .position(|i| i.keyword == "FROM")
+        .map_or(instructions.len(), |offset| builder + 1 + offset);
+    let Some(cargo_build) = (builder + 1..stage_end).find(|&index| {
+        instructions[index].keyword == "RUN" && instructions[index].text.contains("cargo build")
+    }) else {
+        return vec![
+            "publish-stamp: Dockerfile's builder stage has no `RUN … cargo build` — the stamp \
+             inputs cannot reach build.rs (DDD-11)."
+                .to_string(),
+        ];
+    };
+    // The ARGs immediately before the cargo build: the run of ARG
+    // instructions that ends right at it.
+    let adjacent_start = (builder + 1..cargo_build)
+        .rev()
+        .take_while(|&index| instructions[index].keyword == "ARG")
+        .last()
+        .unwrap_or(cargo_build);
+
+    let mut violations = Vec::new();
+    for input in STAMP_INPUTS {
+        let declares = |index: &usize| instructions[*index].declares_arg(input);
+        if !(adjacent_start..cargo_build).any(|index| declares(&index)) {
+            violations.push(format!(
+                "publish-stamp: Dockerfile does not declare `ARG {input}=` in the builder stage \
+                 immediately before the `cargo build` RUN (line {}) — build.rs would never see \
+                 the stamp, or an earlier cached layer would be busted (DDD-11).",
+                instructions[cargo_build].line
+            ));
+        }
+        for index in (0..instructions.len()).filter(|index| !(builder..stage_end).contains(index)) {
+            if declares(&index) {
+                violations.push(format!(
+                    "publish-stamp: Dockerfile:{} declares `ARG {input}` outside the builder \
+                     stage — build.rs runs in the builder and never sees it (DDD-11).",
+                    instructions[index].line
+                ));
+            }
+        }
+    }
+    violations
+}
+
+/// One Dockerfile instruction: its first line, upper-cased keyword and the
+/// full text with `\` continuations joined.
+struct DockerInstruction {
+    line: usize,
+    keyword: String,
+    text: String,
+}
+
+impl DockerInstruction {
+    /// Whether this is `ARG <name>` or `ARG <name>=<default>`.
+    fn declares_arg(&self, name: &str) -> bool {
+        self.keyword == "ARG"
+            && self
+                .text
+                .split_whitespace()
+                .nth(1)
+                .is_some_and(|declared| declared.split('=').next() == Some(name))
+    }
+}
+
+/// The Dockerfile's instructions in order. Comment and blank lines are
+/// skipped; a line ending in `\` continues onto the next.
+fn dockerfile_instructions(source: &str) -> Vec<DockerInstruction> {
+    let mut instructions: Vec<DockerInstruction> = Vec::new();
+    let mut continuing = false;
+    for (index, raw) in source.lines().enumerate() {
+        let line = raw.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let (body, continues) = match line.strip_suffix('\\') {
+            Some(body) => (body.trim_end(), true),
+            None => (line, false),
+        };
+        match instructions.last_mut() {
+            Some(current) if continuing => {
+                current.text.push(' ');
+                current.text.push_str(body);
+            }
+            _ => instructions.push(DockerInstruction {
+                line: index + 1,
+                keyword: body
+                    .split_whitespace()
+                    .next()
+                    .unwrap_or_default()
+                    .to_uppercase(),
+                text: body.to_string(),
+            }),
+        }
+        continuing = continues;
+    }
+    instructions
 }
 
 // ---- check_stylesheet_token_seam — S1/S2 (ADR-CANZAN-THEME-004) ------------
@@ -3540,7 +3782,7 @@ mod tests {
     /// emits is prefixed with its own name, so a marker absent from the
     /// aggregate's output means that rule is no longer wired into the guard —
     /// the silent-disarm failure this whole block exists for.
-    const LAYER_1_RULE_MARKERS: [&str; 13] = [
+    const LAYER_1_RULE_MARKERS: [&str; 14] = [
         "api≠HTML:",
         "api≠ad-hoc-authz:",
         "api≠mint:",
@@ -3551,6 +3793,7 @@ mod tests {
         "no-static-lane-list:",
         "no-board-keydown:",
         "provisioned-marker:",
+        "publish-stamp:",
         "asset-reference:",
         "token-seam S1:",
         "token-seam S2:",
@@ -3670,6 +3913,8 @@ mod tests {
         // that. So a clean tree carries a valid migration rather than none.
         // Likewise `check_board_modules_have_no_keydown_listener` fails closed
         // on a missing js directory, so the clean tree carries a clean one.
+        // And `check_publish_workflows_stamp_the_image` fails closed on missing
+        // publish workflows or Dockerfile, so it carries stamping ones.
         let clean = stage(&[
             (
                 "crates/foundry-store/migrations/0015_project_lanes.sql",
@@ -3679,6 +3924,9 @@ mod tests {
                 "crates/foundry-app/static/js/board-dnd.js",
                 "export const noop = () => {};\n",
             ),
+            (PUBLISH_WORKFLOWS[0], STAMPING_WORKFLOW),
+            (PUBLISH_WORKFLOWS[1], STAMPING_WORKFLOW),
+            ("Dockerfile", STAMPING_DOCKERFILE),
         ]);
         let clean_args = vec!["--root".to_string(), clean.path().display().to_string()];
         let planted = every_layer_1_rule_violated_tree();
@@ -3730,13 +3978,9 @@ mod tests {
     // image carries the commit it was built from.
     // =======================================================================
     //
-    // SCAFFOLD: true — DISTILL 2026-10-04 (ADR-025). A PROPOSED check-arch rule;
-    // the tests are `#[ignore]`d and drive a local shim that panics with
-    // `SCAFFOLD: … -- RED scaffold`. DELIVER: write
-    // `check_publish_workflows_stamp_the_image(root) -> Vec<String>`, add it to
-    // `source_violations`, call it instead of the shim, un-ignore, delete the shim.
-    // If DELIVER declines the rule, delete this block and record AC-8's manual
-    // review instead (feature-delta DISTILL section).
+    // Proposed by DISTILL 2026-10-04, accepted and implemented by DELIVER 02-02
+    // as `check_publish_workflows_stamp_the_image`, wired into
+    // `source_violations`.
     //
     // The rule, per file (each miss is one violation naming the file):
     //   * `.forgejo/workflows/build-and-publish.yml` and
@@ -3748,13 +3992,6 @@ mod tests {
     //     after the builder `FROM` and before the `RUN` that runs `cargo build`
     //     (DDD-11: earlier busts the apt/COPY cache; later, or in another stage,
     //     never reaches build.rs).
-
-    fn publish_stamp_violations_scaffold(_root: &Path) -> Vec<String> {
-        panic!(
-            "SCAFFOLD: check_publish_workflows_stamp_the_image (US-RVF-02 AC-8) not yet \
-             implemented -- RED scaffold"
-        )
-    }
 
     /// A stamping workflow shaped like DDD-13 (YAML indentation kept so the
     /// fixture reads like the real file; the rule matches lines, not YAML).
@@ -3807,9 +4044,8 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "DISTILL scaffold (US-RVF-02 AC-8): publish-stamp check-arch rule not yet written; the workflows do not stamp yet"]
     fn the_shipped_publish_path_stamps_every_image() {
-        let violations = publish_stamp_violations_scaffold(&workspace_root());
+        let violations = check_publish_workflows_stamp_the_image(&workspace_root());
         assert!(
             violations.is_empty(),
             "both publish workflows must compute, refuse on empty and pass the stamp, and the \
@@ -3818,17 +4054,15 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "DISTILL scaffold (US-RVF-02 AC-8): publish-stamp check-arch rule not yet written"]
     fn a_publish_path_that_stamps_every_image_is_accepted() {
         let tree = stage_publish(STAMPING_WORKFLOW, STAMPING_WORKFLOW, STAMPING_DOCKERFILE);
         assert_eq!(
-            publish_stamp_violations_scaffold(tree.path()),
+            check_publish_workflows_stamp_the_image(tree.path()),
             Vec::<String>::new()
         );
     }
 
     #[test]
-    #[ignore = "DISTILL scaffold (US-RVF-02 AC-8): publish-stamp check-arch rule not yet written"]
     fn a_publish_path_that_can_ship_an_unstamped_image_is_flagged() {
         let dockerfile_late_arg = STAMPING_DOCKERFILE
             .replace("ARG FOUNDRY_STAMP_SHA=\n", "")
@@ -3868,7 +4102,7 @@ mod tests {
             ),
         ] {
             let tree = stage_publish(&forgejo, &github, &dockerfile);
-            let violations = publish_stamp_violations_scaffold(tree.path());
+            let violations = check_publish_workflows_stamp_the_image(tree.path());
             assert!(
                 violations.iter().any(|v| v.contains(names)),
                 "{fault}: expected a violation naming {names}, got {violations:?}"

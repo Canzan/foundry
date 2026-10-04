@@ -58,8 +58,21 @@ jobs:
         run: |
           set -e
           short_sha="${GITHUB_SHA::12}"
+          # Build stamp (release-version-footer DDD-3/DDD-13). SEPARATE from the
+          # 12-char image tag above, computed exactly as build.rs computes it in a
+          # checkout. The Docker context has no .git (.dockerignore), so the commit
+          # must be handed in; an empty value would ship a footer reading
+          # `unknown`, so refuse to publish instead.
+          stamp_sha="$(git rev-parse --short=7 HEAD)"
+          stamp_date="$(git log -1 --format=%cd --date=short)"
+          if [[ -z "${stamp_sha}" || -z "${stamp_date}" ]]; then
+            echo "::error::build stamp is empty (sha='${stamp_sha}' date='${stamp_date}')"
+            exit 1
+          fi
           {
             echo "sha=${short_sha}"
+            echo "stamp_sha=${stamp_sha}"
+            echo "stamp_date=${stamp_date}"
             if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
               echo "release=${GITHUB_REF#refs/tags/}"
             else
@@ -80,6 +93,9 @@ jobs:
           # arm64-only by default matches the Pi 5 cluster; override with the
           # BUILD_PLATFORMS variable (e.g. linux/amd64,linux/arm64).
           platforms: ${{ vars.BUILD_PLATFORMS || 'linux/arm64' }}
+          build-args: |
+            FOUNDRY_STAMP_SHA=${{ steps.tags.outputs.stamp_sha }}
+            FOUNDRY_STAMP_DATE=${{ steps.tags.outputs.stamp_date }}
           provenance: false
           # zot rejects buildx's default Docker-schema2 manifest; force OCI
           # media types on both the image and the registry cache.

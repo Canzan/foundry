@@ -57,3 +57,31 @@ Rows 2, 3, 4 and 7 are the stale-stamp cases D11 exists to prevent. All of them 
 
 Not observable from this host. DDD-14 asks DELIVER to record it from the first Forgejo run's
 checkout log. That check is still owed.
+
+## Published-image path — `docker build` with and without build-args (step 02-02; AC-6, AC-8, OQ-D6)
+
+Run 2026-10-04 on this host (Docker 29.8.0, aarch64) against the 02-02 working tree: HEAD `00f02a5`
+plus the DDD-11 Dockerfile ARGs. `.dockerignore` excludes `.git` and `.env`; no secrets were in
+the context.
+
+**How observed.** Each image ran for real, not via `strings`. A throwaway `postgres:16-alpine`
+ran on a private Docker network. The image started with `DATABASE_URL` pointing at it, a demo
+`SESSION_SECRET`, and `MACHINE_TOKEN_PUBLIC_KEYS` set to an Ed25519 public key generated for
+the demo and deleted afterwards. Migrations ran on boot. `curl http://127.0.0.1:38099/sign-in`
+fetched the page, and the footer element was grepped out of the HTML.
+
+| Build | Command | Footer served at `/sign-in` |
+|---|---|---|
+| No build-args | `docker build -t foundry-rvf0202:nostamp .` | `<footer class="site-footer" data-commit="unknown">Foundry v0.7.0 · unknown</footer>` |
+| With build-args | `docker build -t foundry-rvf0202:stamp --build-arg FOUNDRY_STAMP_SHA=00f02a5 --build-arg FOUNDRY_STAMP_DATE=2026-10-04 .` (values from `git rev-parse --short=7 HEAD` and `git log -1 --format=%cd --date=short`) | `<footer class="site-footer" data-commit="00f02a5">Foundry v0.7.0 · 2026-10-04</footer>` |
+
+**Cache (DDD-11).** The second build, which changed only the two ARG values, reported every layer
+before the cargo `RUN` as `CACHED` (#3-#14). Inside the `RUN`, the target cache mount recompiled
+`foundry-app` alone (`Compiling foundry-app v0.7.0`, `Finished … in 44.43s`).
+
+**Cleanup.** Both images, the Postgres container, the network and the demo key were removed.
+The BuildKit cache mounts (`cargo-registry-arm64`, `cargo-target-arm64`) were left in place.
+
+**Still owed (OQ-D4).** Whether the Forgejo `build-and-publish` runner has `git` is proven only by
+the first push after this commit. If it doesn't, the empty-stamp guard fails that job loudly. The
+post-tag operator check on the prod footer (AC-8) is also still owed.

@@ -54,6 +54,19 @@ COPY Cargo.toml Cargo.lock rust-toolchain.toml rustfmt.toml ./
 COPY crates ./crates
 COPY xtask  ./xtask
 
+# Build stamp (release-version-footer US-RVF-02, DDD-11). build.rs bakes the
+# short commit and its commit date into the footer, but no `.git` reaches this
+# context (`.dockerignore` excludes it), so the commit must be handed in: the
+# publish workflows pass both as `--build-arg`. Without them the args arrive
+# EMPTY, build.rs treats blank as absent, finds no git, and the image honestly
+# reads `unknown`. Declared HERE, right before the cargo RUN and after every
+# COPY, so a new commit invalidates only the cargo layer — the apt and COPY
+# layers above stay cached, and the target cache mount plus build.rs's
+# `rerun-if-env-changed` recompiles foundry-app alone. Never in the runtime
+# stage: build.rs runs here.
+ARG FOUNDRY_STAMP_SHA=
+ARG FOUNDRY_STAMP_DATE=
+
 # Cross-compile for the target triple. rustup installs the pinned toolchain
 # (1.91) + the cross std. Caches are scoped per-arch so concurrent amd64 /
 # arm64 builds don't contend on the same cache mount.
