@@ -284,3 +284,92 @@ identical):
 **Gate verdict: PASS.** 55/60 = 91.7% with the 3 equivalents excluded, or 87.3% (55/63) with them
 counted. There are 5 genuine survivors: 4 missing xtask fixtures and the unobserved
 rerun-directive path in `build.rs`.
+
+## Addendum, 2026-10-04: the `build.rs` survivor B4 is killed
+
+**What changed.** The branch-tip watch is now a pure, tested path choice in `crates/foundry-app/build.rs`
+(the canzan-lift `ref_watch_path` precedent, commit `c30ec4a4`):
+
+- `ref_watch_path(ref_path, exists) -> Option<PathBuf>` returns the loose ref if it exists. Otherwise it
+  returns the nearest existing ancestor directory, and it **never climbs above the `refs` directory**.
+  It returns `None` when nothing qualifies.
+- `git_watch_paths(head, branch_ref, packed_refs, exists) -> Vec<PathBuf>` returns the list cargo
+  watches: `HEAD`, the branch tip as chosen above (none when HEAD is detached), and `packed-refs`. Each
+  appears only if it exists.
+- The imperative `emit_rerun_directives` asks git for the three paths. It hands them to
+  `git_watch_paths(…, Path::exists)` and registers each result through the unchanged canonicalising
+  `rerun_if_present`. `rerun_on_nearest_existing` is gone.
+
+**Behaviour change: the climb is now bounded.** The old loop, `path.ancestors().find(|c| c.exists())`,
+had no bound. If nothing below `refs` existed, it registered the git dir, and then the repository
+root, and so on up to `/`. Watching those reruns the build script on every index write or every
+change in the tree. It now stops at `refs` and returns `None`. Detached-HEAD behaviour, the
+never-register-a-missing-path rule and the git-cannot-answer degradation are unchanged.
+
+**Tests** (`crates/foundry-app/src/build_stamp_tests.rs`; each uses a fake `exists` closure and
+touches no filesystem):
+
+| Test | What it covers |
+|---|---|
+| `the_branch_tip_watch_falls_back_to_the_nearest_existing_ref_directory` | 7 cases: a loose ref, a packed ref, a namespaced ref with missing intermediate directories, a partly present namespace, only `refs` existing, nothing below `refs` (the git dir, `/repo` and `/` exist: `None`), nothing at all |
+| `the_branch_tip_watch_never_climbs_above_refs` | all 256 subsets of the existing ancestors of `refs/heads/feat/x/y`: the answer is always the nearest existing path at or below `refs`, or `None` |
+| `cargo_watches_head_the_branch_tip_and_packed_refs_when_they_exist` | a loose ref, a packed ref, no `packed-refs` yet, a detached HEAD, git cannot answer |
+
+**RED before the change.** The new tests did not compile against the old `build.rs`, because
+`ref_watch_path` did not exist. Next, the old logic was lifted verbatim into the new pure signatures:
+the unbounded `ancestors().find`, wired the same way. Against that, 2 of the 3 tests failed on the
+bound: `nothing below refs exists: never watch the git dir or above`, `left: Some("/repo/.git")`,
+`right: None`. The original B4 gap needs no new demonstration, because no test observed the watch
+path at all (see Survivors).
+
+**Seeded faults** (`cargo test -p foundry-app --lib build_stamp`, applied in the working tree with a
+`cp` backup and a `cp` restore, then a `cmp` check. Every seed ended `RESTORED_CMP_OK`):
+
+| Seed | Outcome | Killing assertion |
+|---|---|---|
+| S1 `ref_watch_path` returns `None` when the loose ref is absent | killed (3 tests) | `a packed ref is watched through its directory`: `left: None`, `right: Some("/repo/.git/refs/heads")`. Also the 256-subset test and the `git_watch_paths` table |
+| S2 the caller drops `ref_watch_path`'s result (the B4 equivalent: no branch-tip watch) | killed | `a loose branch ref`: `left: [HEAD, packed-refs]`, `right: [HEAD, refs/heads/main, packed-refs]` |
+| S3 the caller ignores the choice and registers the raw loose ref (the pre-fallback behaviour) | killed | `a packed branch ref is watched through its directory`: `refs/heads` missing from the list |
+| S4 the `refs` bound removed | killed (2 tests) | `nothing below refs exists…`: `left: Some("/repo/.git")`, `right: None` |
+
+**cargo-mutants on the new functions.** `build.rs` was copied verbatim into a throwaway probe crate,
+together with the three tests above. `cargo mutants --re 'ref_watch_path|git_watch_paths'` produced
+7 mutants, and all 7 were caught on test assertions:
+- `git_watch_paths -> vec![]` and `-> vec![Default::default()]`;
+- `ref_watch_path -> None` and `-> Some(Default::default())`;
+- `==` → `!=` in the `refs` match;
+- `+ 1` → `- 1` and `+ 1` → `* 1` in the bound.
+
+**Revised result.** B4 no longer exists. It is replaced in the denominator by the 7 cargo-mutants
+mutants of `ref_watch_path` and `git_watch_paths`. S1–S4 are extra evidence and are not counted, so
+the count stays generator-defined.
+
+| | Before | After |
+|---|---|---|
+| `build.rs` (`stamp` ×3 + the path choice) | 75% (3/4) | **100% (10/10)** |
+| Viable non-equivalent (denominator) | 60 | 66 |
+| Killed | 55 | 62 |
+| Genuine survivors | 5 | 4 (the xtask fixtures, unchanged) |
+| **Kill rate** | 91.7% (55/60) | **93.9% (62/66)**; 89.9% (62/69) with the 3 equivalents counted |
+
+**Still unobserved, and still outside the seed scope.** The imperative residue in `emit_rerun_directives`
+is not tested: the three `git` calls and the `for path in … { rerun_if_present(&path) }` loop. Neither
+are `rerun_if_present` and `git_path`. Dropping the loop would still go unseen by the suite. The
+residue is now just the git calls and the canonicalising print, and every choice of what to watch is
+under test.
+
+**Behavioural check in a scratch clone** (never the real repository's refs; no `.env`; own
+`CARGO_TARGET_DIR`, deleted afterwards). The steps were: `git pack-refs --all`, which left
+`refs/heads` empty, then `cargo build -p foundry-app -vv`, then `git commit --allow-empty`, then two
+more builds.
+- **Build 1** watched `.git/HEAD`, `.git/refs/heads` (the directory, because the loose ref was
+  absent) and `.git/packed-refs`, and stamped `72f8e4e`.
+- **Build 2**, after the commit, was `Dirty foundry-app … the file .git/refs/heads` changed. The
+  build script re-ran, now watched `.git/refs/heads/main`, and **re-stamped `fef3894`**.
+- **Build 3**, with no change, was `Fresh foundry-app`.
+
+**Gates.**
+- `cargo test -p foundry-app`: green (lib 90/90, 3 integration suites).
+- `FOUNDRY_ACCEPTANCE_TAGS=rvf`: 3/3 scenarios, 17/17 steps. `FOUNDRY_STAMP_*` was unset.
+- `cargo fmt --check`, `cargo clippy -p foundry-app --all-targets -- -D warnings` and
+  `cargo xtask check-arch`: all clean.

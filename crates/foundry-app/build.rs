@@ -19,7 +19,8 @@
 //     `expect` and no `?` on a git or env result anywhere below.
 //
 // (3) THE STAMP DOES NOT GO STALE (D11). A footer that names the WRONG commit is
-//     worse than none. See `emit_rerun_directives`.
+//     worse than none. See `emit_rerun_directives` and the pure path choice
+//     it delegates to (`git_watch_paths`, `ref_watch_path`).
 //
 // WHERE EACH FIELD COMES FROM, in precedence order (D9, DDD-2):
 //
@@ -34,10 +35,12 @@
 //   3. `unknown`.
 //
 // `src/build_stamp_tests.rs` compiles this very file (`include!`) to drive
-// `stamp` and `UNKNOWN`; that is why those two are `pub(crate)`.
+// `stamp`, `UNKNOWN`, `git_watch_paths` and `ref_watch_path`; that is why
+// those four are `pub(crate)`.
 
 use std::env;
-use std::path::Path;
+use std::ffi::OsStr;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// The placeholder a field carries when nobody could answer. Pinned equal to
@@ -100,38 +103,30 @@ fn git(args: &[&str]) -> Option<String> {
 ///   * `build.rs` and both `FOUNDRY_STAMP_*` inputs — setting, blanking or
 ///     dropping an input must re-stamp (in the container these are the ONLY
 ///     triggers).
-///   * `HEAD` — moves on a branch switch, and IS the commit when detached.
-///   * the branch ref HEAD points at — what a COMMIT changes (`HEAD` still says
-///     `ref: refs/heads/<branch>`). When its loose file is ABSENT (after
-///     `git pack-refs`, or a fresh clone) the nearest existing parent directory
-///     is watched instead: the next commit creates the loose file inside it,
-///     and cargo scans a registered directory's contents. Watching nothing
-///     there would leave the stamp stale.
-///   * `packed-refs` — where a packed branch tip lives.
+///   * the git paths `git_watch_paths` chooses: `HEAD`, the branch tip and
+///     `packed-refs`.
 ///
-/// Every path comes from `git rev-parse --git-path` (correct in a linked
-/// worktree) and is canonicalised. A path that does not exist is never
-/// registered: cargo would rerun the script on every build. If git cannot
-/// answer, only the first three directives are emitted.
+/// Every git path comes from `git rev-parse --git-path` (correct in a linked
+/// worktree) and is canonicalised by `rerun_if_present`. If git cannot answer,
+/// only the first three directives are emitted.
 fn emit_rerun_directives() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-env-changed={STAMP_SHA_INPUT}");
     println!("cargo:rerun-if-env-changed={STAMP_DATE_INPUT}");
 
-    if let Some(head) = git_path("HEAD") {
-        rerun_if_present(Path::new(&head));
-    }
-
+    let head = git_path("HEAD");
     // `symbolic-ref` fails on a detached HEAD, which is correct: `HEAD` holds
     // the commit itself there, and there is no branch tip to watch.
-    if let Some(branch_ref) = git(&["symbolic-ref", "--quiet", "HEAD"]) {
-        if let Some(loose_ref) = git_path(&branch_ref) {
-            rerun_on_nearest_existing(Path::new(&loose_ref));
-        }
-    }
+    let branch_ref = git(&["symbolic-ref", "--quiet", "HEAD"]).and_then(|branch| git_path(&branch));
+    let packed_refs = git_path("packed-refs");
 
-    if let Some(packed) = git_path("packed-refs") {
-        rerun_if_present(Path::new(&packed));
+    for path in git_watch_paths(
+        head.as_deref().map(Path::new),
+        branch_ref.as_deref().map(Path::new),
+        packed_refs.as_deref().map(Path::new),
+        Path::exists,
+    ) {
+        rerun_if_present(&path);
     }
 }
 
@@ -140,12 +135,53 @@ fn git_path(name: &str) -> Option<String> {
     git(&["rev-parse", "--git-path", name])
 }
 
-/// Register `path`, or — when it does not exist — its nearest existing ancestor
-/// directory, so a file appearing there later still re-runs the script.
-fn rerun_on_nearest_existing(path: &Path) {
-    if let Some(existing) = path.ancestors().find(|candidate| candidate.exists()) {
-        rerun_if_present(existing);
+/// The git paths cargo must watch, in order, each only if it EXISTS (a
+/// `rerun-if-changed` on a missing path makes cargo rerun the script on every
+/// build):
+///
+///   * `head` — moves on a branch switch, and IS the commit when detached.
+///   * the branch tip, chosen by `ref_watch_path` from `branch_ref` (the loose
+///     ref HEAD points at; `None` when detached) — what a COMMIT changes.
+///   * `packed_refs` — where a packed branch tip lives.
+///
+/// Pure over `exists` so `src/build_stamp_tests.rs` can drive it.
+pub(crate) fn git_watch_paths(
+    head: Option<&Path>,
+    branch_ref: Option<&Path>,
+    packed_refs: Option<&Path>,
+    exists: impl Fn(&Path) -> bool,
+) -> Vec<PathBuf> {
+    let present = |path: Option<&Path>| path.filter(|path| exists(path)).map(Path::to_path_buf);
+    let branch_tip = branch_ref.and_then(|path| ref_watch_path(path, &exists));
+    [present(head), branch_tip, present(packed_refs)]
+        .into_iter()
+        .flatten()
+        .collect()
+}
+
+/// The path to watch for the branch tip at `ref_path`: the loose ref file when
+/// it exists, else its nearest existing ancestor directory. The loose file is
+/// ABSENT after `git pack-refs` or in a fresh clone, and the next commit
+/// CREATES it; cargo scans a watched directory's contents, so the file
+/// appearing there reruns the script. The climb stops at the `refs` directory:
+/// watching the git dir itself would rerun the script on every index write.
+/// `None` means there is nothing safe to watch; `HEAD` and `packed-refs` are
+/// then all cargo has.
+pub(crate) fn ref_watch_path(ref_path: &Path, exists: impl Fn(&Path) -> bool) -> Option<PathBuf> {
+    if exists(ref_path) {
+        return Some(ref_path.to_path_buf());
     }
+    let parents_up_to_refs = ref_path
+        .ancestors()
+        .skip(1)
+        .position(|dir| dir.file_name() == Some(OsStr::new("refs")))?
+        + 1;
+    ref_path
+        .ancestors()
+        .skip(1)
+        .take(parents_up_to_refs)
+        .find(|dir| exists(dir))
+        .map(Path::to_path_buf)
 }
 
 /// Register `path` with cargo only if it exists, as a canonical absolute path

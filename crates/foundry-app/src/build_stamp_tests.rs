@@ -4,7 +4,8 @@
 //!
 //! What is tested is exactly what cargo executes: cargo never runs tests
 //! written inside a build script, so this module compiles THE SAME FILE
-//! (`include!` of `build.rs`, DDD-12) and drives its pure `stamp` directly.
+//! (`include!` of `build.rs`, DDD-12) and drives its pure `stamp` and its pure
+//! rerun-path choice (`ref_watch_path`, `git_watch_paths`, D11) directly.
 //! The rendering examples target `views::SiteFooter::of`, the pure seam
 //! `base.html` renders through `views::site_footer()`.
 
@@ -13,13 +14,16 @@ use proptest::prelude::*;
 use crate::views::{SiteFooter, BUILD_FIELD_UNKNOWN};
 
 /// `build.rs`, compiled into the test target. Its `main` and the shell helpers
-/// (`given`, `git`, `emit_rerun_directives`) are unused here, hence the allow.
+/// (`given`, `git`, `emit_rerun_directives`, `rerun_if_present`) are unused
+/// here, hence the allow.
 #[allow(dead_code)]
 mod build_script {
     include!(concat!(env!("CARGO_MANIFEST_DIR"), "/build.rs"));
 }
 
-use build_script::stamp;
+use std::path::{Path, PathBuf};
+
+use build_script::{git_watch_paths, ref_watch_path, stamp};
 
 /// The footer for explicit field values, rendered to the HTML base.html embeds.
 fn footer_html(version: &str, sha: &str, date: &str) -> String {
@@ -78,6 +82,148 @@ fn git_is_not_asked_when_an_explicit_stamp_is_given() {
     assert!(
         !asked.get(),
         "git must not be asked when an explicit stamp is given"
+    );
+}
+
+// --- D11: what cargo watches so the stamp never goes stale ------------------
+
+/// D11. A commit on a branch rewrites the branch's loose ref, not `HEAD`. After
+/// `git pack-refs` (or in a fresh clone) that loose file is ABSENT, and the
+/// next commit CREATES it, so the watch must sit on the nearest directory that
+/// exists or the footer keeps naming the previous commit. The climb stops at
+/// `refs`: watching the git dir itself would rerun the build script on every
+/// index write.
+#[test]
+fn the_branch_tip_watch_falls_back_to_the_nearest_existing_ref_directory() {
+    let git = Path::new("/repo/.git");
+    let main = git.join("refs/heads/main");
+    let nested = git.join("refs/heads/feat/x/y");
+    for (case, ref_path, existing, expected) in [
+        (
+            "a loose ref is watched itself",
+            &main,
+            vec![git.join("refs/heads/main"), git.join("refs/heads")],
+            Some(git.join("refs/heads/main")),
+        ),
+        (
+            "a packed ref is watched through its directory",
+            &main,
+            vec![git.join("refs/heads"), git.join("refs")],
+            Some(git.join("refs/heads")),
+        ),
+        (
+            "a namespaced branch climbs past its missing directories",
+            &nested,
+            vec![git.join("refs/heads"), git.join("refs")],
+            Some(git.join("refs/heads")),
+        ),
+        (
+            "a partly present namespace stops at the deepest existing directory",
+            &nested,
+            vec![git.join("refs/heads/feat"), git.join("refs/heads")],
+            Some(git.join("refs/heads/feat")),
+        ),
+        (
+            "only refs itself exists",
+            &main,
+            vec![git.join("refs"), git.to_path_buf()],
+            Some(git.join("refs")),
+        ),
+        (
+            "nothing below refs exists: never watch the git dir or above",
+            &main,
+            vec![
+                git.to_path_buf(),
+                PathBuf::from("/repo"),
+                PathBuf::from("/"),
+            ],
+            None,
+        ),
+        ("nothing exists at all", &main, vec![], None),
+    ] {
+        let exists = |path: &Path| existing.iter().any(|known| known == path);
+        assert_eq!(ref_watch_path(ref_path, exists), expected, "{case}");
+    }
+}
+
+/// D11, quantified over every combination of existing ancestors of a
+/// namespaced ref: the watch is the ref itself or a directory between it and
+/// `refs`, never anything above `refs`, and it exists.
+#[test]
+fn the_branch_tip_watch_never_climbs_above_refs() {
+    let refs = Path::new("/repo/.git/refs");
+    let ref_path = refs.join("heads/feat/x/y");
+    let candidates: Vec<&Path> = ref_path.ancestors().collect();
+    for mask in 0u32..(1 << candidates.len()) {
+        let existing: Vec<&Path> = candidates
+            .iter()
+            .enumerate()
+            .filter(|(bit, _)| mask & (1 << bit) != 0)
+            .map(|(_, path)| *path)
+            .collect();
+        let exists = |path: &Path| existing.contains(&path);
+        let nearest_at_or_below_refs = candidates
+            .iter()
+            .take_while(|path| path.starts_with(refs))
+            .find(|path| exists(path))
+            .map(|path| path.to_path_buf());
+        assert_eq!(
+            ref_watch_path(&ref_path, exists),
+            nearest_at_or_below_refs,
+            "existing {existing:?}"
+        );
+    }
+}
+
+/// D11. The full list cargo is asked to watch: `HEAD`, the branch tip as
+/// chosen above, and `packed-refs`, each only if it exists (a missing path
+/// would rerun the script on every build). A detached HEAD has no branch tip;
+/// a checkout git cannot answer for watches nothing.
+#[test]
+fn cargo_watches_head_the_branch_tip_and_packed_refs_when_they_exist() {
+    let git = Path::new("/repo/.git");
+    let (head, packed) = (git.join("HEAD"), git.join("packed-refs"));
+    let (main, heads) = (git.join("refs/heads/main"), git.join("refs/heads"));
+    for (case, branch_ref, existing, expected) in [
+        (
+            "a loose branch ref",
+            Some(&main),
+            vec![&head, &main, &heads, &packed],
+            vec![&head, &main, &packed],
+        ),
+        (
+            "a packed branch ref is watched through its directory",
+            Some(&main),
+            vec![&head, &heads, &packed],
+            vec![&head, &heads, &packed],
+        ),
+        (
+            "no packed-refs yet",
+            Some(&main),
+            vec![&head, &main, &heads],
+            vec![&head, &main],
+        ),
+        (
+            "a detached HEAD has no branch tip to watch",
+            None,
+            vec![&head, &heads, &packed],
+            vec![&head, &packed],
+        ),
+    ] {
+        let exists = |path: &Path| existing.iter().any(|known| *known == path);
+        let watched = git_watch_paths(
+            Some(&head),
+            branch_ref.map(PathBuf::as_path),
+            Some(&packed),
+            exists,
+        );
+        let expected: Vec<PathBuf> = expected.into_iter().cloned().collect();
+        assert_eq!(watched, expected, "{case}");
+    }
+    assert_eq!(
+        git_watch_paths(None, None, None, |_: &Path| true),
+        Vec::<PathBuf>::new(),
+        "git could not answer"
     );
 }
 
