@@ -7,6 +7,44 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 
 ## [Unreleased]
 
+### Changed
+
+- **Withdrawing the provision role closes the Keycloak door to provisioned
+  members.** With `FOUNDRY_OIDC_PROVISION_ROLE` set, an account that role
+  provisioning created must still hold that realm role at every Keycloak
+  sign-in. Without it, the sign-in gets the same generic refusal as a wrong
+  password. The account, its membership and its work are kept, and granting
+  the role again lets the member back in as the same account. Accounts that
+  were invited or linked are unaffected: the role still means nothing for
+  them.
+  - **Takes effect at the next sign-in.** A session the member already has
+    keeps working until it expires or they sign out.
+  - **The password door stays open.** A provisioned member who has set a
+    password can still sign in with it, and forgot-password still reaches a
+    provisioned account. To take a member's access away completely, also
+    remove their workspace membership.
+  - **Unsetting `FOUNDRY_OIDC_PROVISION_ROLE` reopens the Keycloak door** to
+    every member whose role was withdrawn, as well as stopping new accounts.
+    With the variable unset, provisioned accounts sign in like any linked
+    account.
+
+### Migration notes
+
+- **`0017_users_provisioned_at`**: `ALTER TABLE users ADD COLUMN
+  provisioned_at TIMESTAMPTZ NULL`, then one scan of `users` that marks every
+  password-less account as provisioned at its `created_at`. The column add is
+  catalog-only (no default, no index); the scan touches only password-less
+  rows and is safe to re-run. It is safe for rolling deploys and for rollback
+  to v0.6.2: v0.6.2 ignores the column, and while it runs the role is not
+  re-checked.
+  - **Check before upgrading:** did production ever set
+    `FOUNDRY_OIDC_PROVISION_ROLE`? If it never did, no account was
+    provisioned and the scan marks zero rows.
+  - **Accepted gap:** an account provisioned and then given a password
+    through a reset before this upgrade has a password, so the scan cannot
+    tell it was provisioned. It keeps signing in through Keycloak without the
+    role. Remove its workspace membership if its access should end.
+
 ## [v0.6.2] - 2026-10-04
 
 A hardening fix to Keycloak sign-in. `git log v0.6.1..v0.6.2` is the full

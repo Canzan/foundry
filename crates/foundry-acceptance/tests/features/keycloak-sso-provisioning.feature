@@ -221,7 +221,7 @@ Feature: A cluster identity holding the provision role is given a foundry accoun
 
   # 15 — same member as 14: the role gates only the identity-provider door; the
   # password door stays the local way in (OD-12, resolved 2026-10-04).
-  @us-07 @driving_port @real-io @pending
+  @us-07 @driving_port @real-io
   Scenario: A provisioned member who chose a password can still use it after the role is withdrawn
     Given foundry provisions holders of the "foundry-user" realm role
     And a newcomer named "Nia Newcomer" is confirmed by the identity provider
@@ -235,7 +235,7 @@ Feature: A cluster identity holding the provision role is given a foundry accoun
 
   # 16 — the withdrawal takes effect at the next sign-in through the identity
   # provider; a session already running is left to expire or be signed out (D10).
-  @us-07 @driving_port @real-io @pending
+  @us-07 @driving_port @real-io
   Scenario: A provisioned member already signed in keeps working after the role is withdrawn
     Given foundry provisions holders of the "foundry-user" realm role
     And a newcomer named "Nia Newcomer" is confirmed by the identity provider
