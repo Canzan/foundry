@@ -2,7 +2,7 @@
   "roadmap": {
     "project_id": "release-version-footer",
     "created_at": "2026-09-26T21:16:03Z",
-    "total_steps": 2
+    "total_steps": 4
   },
   "phases": [
     {
@@ -60,6 +60,66 @@
           "implementation_notes": "No tag and no push: the orchestrator tags v0.5.0 and pushes after this step."
         }
       ]
+    },
+    {
+      "id": "02",
+      "name": "Build stamp (US-RVF-02)",
+      "steps": [
+        {
+          "id": "02-01",
+          "name": "Every full page names the build it was compiled from",
+          "description": "Add crates/foundry-app/build.rs (pure stamp precedence FOUNDRY_STAMP_* > git > unknown; rerun directives incl. the revised refs-dir rule) emitting FOUNDRY_BUILD_SHA / FOUNDRY_BUILD_DATE; views::BUILD_SHA / BUILD_DATE / BUILD_FIELD_UNKNOWN beside RELEASE_VERSION; SiteFooter partial with pure SiteFooter::of and views::site_footer() called from base.html in the same sibling position; make the 8 build_stamp_tests.rs scaffolds real; un-pend the two @us-rvf-02 scenarios; run and record the AC-7 demo.",
+          "criteria": [
+            "Un-pend 'The sign-in page names the running build without an account' then 'A signed-in board page names the running build': each RED for the business reason, then GREEN — footer text `Foundry v<Cargo.toml version> · <git commit date>`, data-commit = `git rev-parse --short=7 HEAD`, once, below main content; the fragment scenario stays green (AC-4, AC-9)",
+            "build.rs: precedence trimmed-non-blank FOUNDRY_STAMP_* > git > `unknown`, never fails the build, no new crates or build-dependencies; rerun directives per the DESIGN revision (build.rs, both env inputs, HEAD, branch ref or its nearest existing parent dir, packed-refs, resolved via --git-path) (AC-5, D10, D11)",
+            "The 8 foundry-app scaffolds are real (include! of build.rs into the test module, shims replaced by build_script::stamp, UNKNOWN, views::BUILD_FIELD_UNKNOWN, SiteFooter::of) and pass; no SCAFFOLD marker remains in build_stamp_tests.rs (AC-5, AC-6, DDD-5, DDD-9, DDD-10)",
+            "AC-7 demo recorded (rows 1-8 of the DESIGN revision: no-change build reruns nothing; new commit re-stamps; detached HEAD and back; pack-refs then commit; set / blank / unset FOUNDRY_STAMP_SHA; linked worktree) in docs/feature/release-version-footer/deliver/ac7-demo.md",
+            "rvf lane green (3 scenarios); canzan-theme-system, pwa-mobile-rendering, blr, cdf lanes green; no CSS change (or the full re-hash if one is unavoidable); fmt, clippy -D warnings, check-arch pass"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/release-version-footer.feature",
+          "scenario_name": "The sign-in page names the running build without an account",
+          "dependencies": [
+            "01-02"
+          ],
+          "estimate": "0.5 day",
+          "files_to_modify": [
+            "crates/foundry-app/build.rs",
+            "crates/foundry-app/src/views.rs",
+            "crates/foundry-app/templates/base.html",
+            "crates/foundry-app/templates/partials/site_footer.html",
+            "crates/foundry-app/src/build_stamp_tests.rs",
+            "crates/foundry-acceptance/tests/features/release-version-footer.feature",
+            "docs/feature/release-version-footer/deliver/ac7-demo.md"
+          ],
+          "implementation_notes": "Follow canzan-lift's build.rs and render.rs stamp functions (the precedent) but apply the DESIGN revision's refs-dir rule (canzan-lift lacks it). OQ-D3: the include! module needs #[allow(dead_code)] for build.rs's main. If askama rejects the free-function call, the only allowed fallback is a LazyLock<String> static (DESIGN revision). Named faults to seed after GREEN (one at a time; restore + cmp-verify): date from build time instead of commit date; SHA shown in text / missing from data-commit; blank input not treated as absent; a git failure panics (build fails); `vunknown`; trailing separator on unknown; unescaped field; missing rerun directive on the branch-ref parent dir (stale stamp — killed by the AC-7 demo row 4, record it). ENVIRONMENT: CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false for cargo builds on this host; warm the acceptance binary; bound every lane run with timeout; testcontainers PortNotExposed / sqlx '\\0' flakes: rerun alone before calling a regression. Gherkin is DISTILL-owned: only @pending removal. Source of truth: docs/feature/release-version-footer/feature-delta.md 2026-10-04 DISCUSS (D5-D14, AC-4..10), DESIGN (DDD-1..17) and the 'DESIGN revision 2026-10-04' (supersedes DDD-6, DDD-8, DDD-13, DDD-14), DISTILL increment."
+        },
+        {
+          "id": "02-02",
+          "name": "Published images carry the build stamp, and the runbook checks it",
+          "description": "Dockerfile ARGs FOUNDRY_STAMP_SHA / FOUNDRY_STAMP_DATE right before the cargo build RUN in the builder stage; both publish workflows compute the stamp (separate 7-char output; 12-char image tag untouched), refuse to publish on an empty value, and pass build-args — exact shell/YAML per the DESIGN revision DDD-13; the check-arch rule check_publish_workflows_stamp_the_image (make the 3 xtask scaffolds real); RELEASING.md 'Verifying a deployment' rewritten per DDD-16 (date + data-commit vs `git log -1 --format='%h %cd' --date=short <ref>`; :main builds share a version so the SHA is the signal; `unknown` never expected from a publish workflow).",
+          "criteria": [
+            "cargo xtask check-arch fails when a publish workflow lacks the stamp build-args, lacks the empty-stamp refusal, computes the date from build time, or the Dockerfile ARG sits in the runtime stage; passes on the tree; the 3 xtask scaffolds are real and pass; no SCAFFOLD marker remains for US-RVF-02 (AC-8)",
+            "docker build without build-args yields a footer reading `unknown` (data-commit=\"unknown\"); with build-args yields the given values — both recorded in deliver/ac7-demo.md (AC-6, AC-8, OQ-D6)",
+            "RELEASING.md 'Verifying a deployment' names the date and data-commit check with the git one-liner (AC-10)",
+            "check-arch, cargo test -p xtask, fmt, clippy -D warnings pass; rvf lane still green"
+          ],
+          "test_file": "xtask/src/check_arch.rs",
+          "scenario_name": "check-arch publish-workflow stamp rule gold tests",
+          "dependencies": [
+            "02-01"
+          ],
+          "estimate": "0.25 day",
+          "files_to_modify": [
+            "Dockerfile",
+            ".forgejo/workflows/build-and-publish.yml",
+            ".github/workflows/release.yml",
+            "xtask/src/check_arch.rs",
+            "RELEASING.md",
+            "docs/feature/release-version-footer/deliver/ac7-demo.md"
+          ],
+          "implementation_notes": "The workflows' real proof is the next push: OQ-D4 (git in the Forgejo build-and-publish runner) — the guard fails loudly if not. Named faults to seed in the rule after GREEN: rule not wired; empty-refusal check removed; build-time-date check removed; runtime-stage ARG check removed. ENVIRONMENT: CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false for cargo builds on this host; warm the acceptance binary; bound every lane run with timeout; testcontainers PortNotExposed / sqlx '\\0' flakes: rerun alone before calling a regression. Gherkin is DISTILL-owned: only @pending removal. Source of truth: docs/feature/release-version-footer/feature-delta.md 2026-10-04 DISCUSS (D5-D14, AC-4..10), DESIGN (DDD-1..17) and the 'DESIGN revision 2026-10-04' (supersedes DDD-6, DDD-8, DDD-13, DDD-14), DISTILL increment."
+        }
+      ]
     }
   ],
   "implementation_scope": {
@@ -76,6 +136,9 @@
   "validation": {
     "status": "approved",
     "reviewer": "orchestrator (lean path by user decision 2026-09-26)",
-    "approved_at": "2026-09-26T21:16:16Z"
+    "approved_at": "2026-09-26T21:16:16Z",
+    "notes": [
+      "2026-10-04: phase 02 (02-01, 02-02) added for US-RVF-02 build stamp; DISTILL consolidated review resolved (PO approved; architect revision applied; acceptance-designer finding RELEASING.md placed in 02-02)."
+    ]
   }
 }
