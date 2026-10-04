@@ -7,6 +7,31 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 
 ## [Unreleased]
 
+## [v0.8.0] - 2026-10-04
+
+The page footer now names the build, not just the release (release-version-footer
+US-RVF-02). `git log v0.7.0..v0.8.0` is the full list.
+
+### Added
+
+- **The footer names the commit it was built from.** Every full page now ends with
+  `Foundry v0.8.0 · 2026-10-04` and carries the commit's short SHA in the footer's
+  `data-commit` attribute (`<footer class="site-footer" data-commit="…">`). So an
+  operator can tell which build is serving, not just which release, and can spot a
+  stale image or a dev build that shares a version.
+  - **The date is the commit date, not the build time,** so a rebuild of the same
+    commit reads the same.
+  - **Where the stamp comes from:** a new `crates/foundry-app/build.rs` takes it from
+    the `FOUNDRY_STAMP_SHA` / `FOUNDRY_STAMP_DATE` build-args when they are set, else
+    from git, else `unknown`. It never fails the build and adds no crates. Its rerun
+    directives keep the stamp fresh, including after `git pack-refs`.
+  - **How published images get it:** the Dockerfile builder stage, the Forgejo
+    `build-and-publish.yml` and the GitHub `release.yml` now pass the build-args.
+    Both workflows refuse to publish if either value is empty, and
+    `cargo xtask check-arch` enforces that shape.
+  - **RELEASING.md "Verifying a deployment"** now checks the footer date and
+    `data-commit` against `git log -1 --format='%h %cd' --date=short <ref>`.
+
 ## [v0.7.0] - 2026-10-04
 
 Withdrawing the Keycloak provision role now takes away Keycloak sign-in from
@@ -354,7 +379,8 @@ followed it.
 - A `comments_visible` SQL VIEW for defense-in-depth against missed
   soft-delete filters is deferred to v0.3 (ADR-017).
 
-[Unreleased]: https://github.com/Canzan/foundry/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/Canzan/foundry/compare/v0.8.0...HEAD
+[v0.8.0]: https://github.com/Canzan/foundry/compare/v0.7.0...v0.8.0
 [v0.7.0]: https://github.com/Canzan/foundry/compare/v0.6.2...v0.7.0
 [v0.6.2]: https://github.com/Canzan/foundry/compare/v0.6.1...v0.6.2
 [v0.6.1]: https://github.com/Canzan/foundry/compare/v0.6.0...v0.6.1
