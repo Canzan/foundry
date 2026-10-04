@@ -1848,3 +1848,166 @@ this follows the card-pointer-drag and board-lane-reorder precedent.
 **Findings:** 0 blockers, 0 high, 0 medium. The DISTILL reviewer called scenario 18 RED.
 DISTILL's own gate run measured it GREEN_ALREADY, as a guard, and the measured
 classification stands.
+
+## Wave: DELIVER
+
+> **OD-10 increment (US-07, D3b), 2026-10-04.** Apex (@nw-platform-architect), DELIVER
+> finalize. This section covers roadmap phase 04 only (steps 04-01..04-03, approved
+> `0ea878f`) and supersedes nothing above; the earlier DELIVER sections stay as
+> written, including their "OD-10: OPEN" lines. **US-07 is DELIVERED.** **Sources:**
+> `deliver/roadmap.json` (phase 04), `deliver/execution-log.json` and the step
+> commits. Evolution archive: `docs/evolution/2026-09-27-keycloak-sso.md`
+> § "2026-10-04 increment: OD-10 / US-07".
+
+### [REF] Implementation Summary
+
+A provisioned account must now hold the provision realm role at every Keycloak
+sign-in (D3b). Without it, the sign-in gets the shipped generic refusal. Three
+roadmap steps, run in order, all GREEN; one harness fix, one test tightening and one
+refactor followed.
+
+- **04-01 `fdf3346` (store).** Migration `0017_users_provisioned_at.sql` adds
+  `users.provisioned_at TIMESTAMPTZ NULL` and backfills `provisioned_at = created_at`
+  onto every password-less row (DDD-23/24, OD-14). `UserRow.provisioned` is computed
+  in SQL as `provisioned_at IS NOT NULL OR password_hash IS NULL` from one shared
+  projection behind `find_user_by_email` and `find_user_by_id` (DDD-26).
+  `provision_federated_member` takes the caller's `now` and writes it in the
+  provisioning INSERT only; the `ON CONFLICT` re-read writes nothing (DDD-25/27).
+  `Store::probe` refuses a schema without `users.provisioned_at` (DDD-32), with a
+  probe test in `probe_schema_scoping.rs`. The four DISTILL store scaffolds are
+  un-ignored and their shims gone.
+- **04-02 `25c6ab3` (oidc).** Callback step (1) splits per DDD-28. The pure
+  `judge_returning(provisioned, provision_role, identity)` decides for an existing
+  account: not provisioned links (1a), provisioned with the role unset links (1b,
+  OD-13), provisioned with the role held exactly links (1c), otherwise refuse (1d)
+  through the single `refuse()` with the new reason
+  `PROVISIONED_LACKS_PROVISION_ROLE` = `provisioned account lacks provision role`,
+  distinct from `LACKS_PROVISION_ROLE` (DDD-29/30, D11, D12). Earlier checks keep their
+  order; steps (2)–(5) and the `Existing` outcome are unchanged. The unit scaffold is
+  un-ignored (10 rows plus `assert_ne!`). Scenarios 11–14 and 17–18 un-pended.
+- **24a209d (harness fix, test code only).** 04-01 regressed 4 default-lane scenarios
+  in `us-mwt-slice-05`: that harness stops the schema at 0011 to prove the upgrade
+  byte-for-byte, then read through the current `Store` sign-in API, which now
+  projects `provisioned_at` → Postgres 42703. Fix: upgrade through the latest
+  migration before any current-Store read. The 0011 byte-for-byte proofs are
+  unchanged. Production is unaffected (`Store::probe` refuses a pre-0017 schema).
+- **04-03 `44262c8`.** Guards 15 and 16 un-pended; the feature has no `@pending`
+  line. `CHANGELOG.md` `[Unreleased]` gains a `### Changed` entry (both accepted
+  residues, OD-12 and OD-13, in plain words) and `### Migration notes` for 0017,
+  including the OQ-10 check (DDD-33). AC-6.8 and DDD-22 marked superseded with dated
+  text, original wording intact (DoD 6).
+- **`a901f19` (test).** `no_password_write_clears_the_provisioned_marker` now
+  provisions at a fixed instant and asserts the stored marker equals it (truncated
+  to microseconds), so an INSERT using SQL `now()` fails. Closes a gap 04-01
+  reported.
+- **`182b0a8` (refactor, L1–L2, behaviour unchanged).** One migration-copy loop in
+  `test_migration.rs` (3 → 2 loops); one 0017-presence guard in
+  `users_provisioned_at.rs` (3 → 1); truthful reason doc in `oidc.rs` and US-07 step
+  header. Left as-is, with reasons: `judge_newcomer` / `judge_returning` (merging
+  would blur two reasons and the DDD-28 order), the `probe` counts, migration 0017.
+
+**Open decisions at close:**
+- **OD-10** — RESOLVED 2026-10-04 (D3b) and DELIVERED: scenario 11 now pins the
+  refusal (AC-7.1/AC-7.2).
+- **OD-12, OD-13** — residues accepted by the user and stated in `CHANGELOG.md`.
+- **OQ-8** (check-arch rule against an `UPDATE` of `provisioned_at`) — not done;
+  optional. The store test is the floor.
+- **OQ-10** (operator: did production ever set `FOUNDRY_OIDC_PROVISION_ROLE`?) — open;
+  the 0017 migration note tells operators to check.
+
+### [REF] Files modified
+
+| File | Change |
+|---|---|
+| `crates/foundry-store/migrations/0017_users_provisioned_at.sql` | NEW: ADD COLUMN + OD-14 backfill (04-01) |
+| `crates/foundry-store/src/lib.rs` | `UserRow.provisioned`, shared projection, `provision_federated_member(now)`, `probe` column check (04-01); return-direct reads (182b0a8) |
+| `crates/foundry-store/tests/users_provisioned_at.rs` | Three scaffolds live (04-01); clock pinned (a901f19); one guard helper (182b0a8) |
+| `crates/foundry-store/tests/probe_schema_scoping.rs` | DDD-32 probe test (04-01) |
+| `crates/foundry-store/tests/provision_federated_member.rs` | `now` argument (04-01) |
+| `crates/foundry-app/src/oidc.rs` | `state.clock.now()` to provisioning (04-01); `judge_returning`, new const, callback step-1 split, unit table live (04-02); reason doc (182b0a8) |
+| `crates/foundry-acceptance/src/steps/feature_keycloak_sso_provisioning.rs` | Scenario-18 Given passes the harness clock (04-01); step header (182b0a8) |
+| `crates/foundry-acceptance/tests/features/keycloak-sso-provisioning.feature` | `@pending` removed from 11–18 (04-02, 04-03); Gherkin otherwise DISTILL's |
+| `crates/foundry-acceptance/src/steps/feature_mwt_slice_05_migration_guarantee.rs` | Upgrade to latest before current-Store reads (24a209d) |
+| `crates/foundry-acceptance/src/support/test_migration.rs` | Post-0011 staging, `copy_production_migrations_into` (24a209d); one copy loop (182b0a8) |
+| `CHANGELOG.md` | `[Unreleased]` Changed + Migration notes (04-03) |
+| `docs/feature/keycloak-sso/feature-delta.md` | AC-6.8 / DDD-22 superseded (04-03); this section |
+
+### [REF] Scenarios green
+
+| # | Scenario (AC) | Step | First run |
+|---|---|---|---|
+| 11 | Withdrawn role turned away, keeps everything (7.1, 7.2) | 04-02 | RED for the business reason ("a refusal must not establish a session") → GREEN |
+| 12a, 12b | Only a different role: `some-other-role`, `Foundry-User` (7.1, D11) | 04-02 | RED, same reason → GREEN |
+| 13 | Re-grant lets the same account back in (7.3) | 04-02 | RED in its composed Given → GREEN |
+| 14 | Reset does not lift the refusal (7.5) | 04-02 | RED, same reason → GREEN |
+| 17 | Invited member without the role links (7.4) | 04-02 | GREEN_ALREADY (guard, arm 1a) |
+| 18 | Provisioning off: provisioned member links (7.9) | 04-02 | GREEN_ALREADY (guard, arm 1b) |
+| 15 | Password door still open after withdrawal (7.8) | 04-03 | GREEN_ALREADY (guard) |
+| 16 | Live session keeps working (7.7) | 04-03 | GREEN_ALREADY (guard) |
+
+`keycloak-sso-provisioning.feature`: 18 scenarios / 23 examples, no `@pending`.
+AC-7.6 is unit-level: `judge_returning` yields the new const, `assert_ne!` against
+`LACKS_PROVISION_ROLE`.
+
+### [REF] Per-step outcome
+
+| Step | Lanes at the step |
+|---|---|
+| 04-01 `fdf3346` | foundry-store 82/82 (users_provisioned_at 3/3, provision_federated_member 4/4, probe_schema_scoping 2/2); keycloak-sso 37/37; provisioning 14/14; us-06 44/44; fmt, clippy `-D warnings`, check-arch pass. **Default lane not run** — see Lessons |
+| 04-02 `25c6ab3` | foundry-app 79/79 (lib); provisioning 21/21 (15, 16 pending); keycloak-sso 44/44; us-06 44/44; fmt, clippy, check-arch pass |
+| 04-03 (first GREEN) | provisioning 23/23; keycloak-sso 46/46; us-06 44/44; **default lane 681/685** — the 4 failures were 04-01's `provisioned_at` regression in `us-mwt-slice-05`. COMMIT blocked (`BLOCKED_BY_DEPENDENCY`), harness fix routed to acceptance-designer |
+| `24a209d` | mwt-slice-05 6/6 (42/42 steps); default lane run twice, 684/685 each — one different scenario each run (navigation-bar, then member-invites), the known sqlx `'\0'` flake, both features green alone |
+| 04-03 `44262c8` | As above, GREEN; committed |
+| `a901f19`, `182b0a8` | foundry-store 82/82; foundry-app 89/89 (lib 79/79); keycloak-sso 46/46; provisioning 23/23; us-06 44/44; mwt-slice-05 6/6; us-blm-01 6/6; fmt, clippy, check-arch pass |
+
+### [REF] DoD check (DISCUSS OD-10 DoD, 2026-10-04)
+
+| # | DoD item | Status | Evidence |
+|---|---|---|---|
+| 1 | AC-7.1..7.7 green at layer 3; AC-7.6 at unit level | MET | Scenarios 11–14, 16, 17 (layer 3); unit table + `assert_ne!` in `oidc.rs` |
+| 2 | AC-7.8 and AC-7.9 green as confirmed | MET | Scenarios 15, 18 (OD-12, OD-13 confirmed by the user) |
+| 3 | Scenario 11 rewritten, not deleted; 1–10 and the 23 base scenarios unchanged and green | MET | keycloak-sso 46/46 (23 base + 23 provisioning examples) |
+| 4 | Pre-change accounts marked by the OD-14 backfill rule, with its own test | MET | `users_provisioned_at.rs` upgrade test (0016 → 0017, mixed rows, re-run idempotent) |
+| 5 | `cargo xtask ci` green with Docker; per-feature mutation ≥ 80% over changed files | **MET** | CI 911/911 on `182b0a8`. Mutation: 12/12 viable mutants killed (100%) |
+| 6 | AC-6.8 and DDD-22 superseded by dated text; `CHANGELOG.md` updated | MET | `44262c8` |
+
+### [REF] Demo evidence
+
+Auth/HTTP feature with no new UI: the demonstration is the layer-3 scenario runs
+(real axum via `build_router`, real Postgres, the shipped `OidcProvider` against the
+RS256 issuer double), not a live walk-through. The Elevator Pitch maps to scenario 11
+(Nia withdrawn → byte-identical refusal, account and work intact) and scenario 13
+(re-grant → same user id, one account). Pat's control case is scenario 17. A sign-in
+against the real cluster Keycloak was not run; production is on v0.6.0.
+
+### [REF] Quality gates
+
+**Named faults: 20/20 killed in phase 04**, each seeded alone, restored and
+`cmp`-verified; plus the marker-clock fault, killed after `a901f19`.
+
+| Step | Killed | Faults |
+|---|---|---|
+| 04-01 | 7/7 | Backfill uses `now()`; backfill marks password accounts; DDD-26 `OR` arm dropped; marker not written on insert; reset clears marker; password change clears marker; probe silent pre-0017 |
+| 04-02 | 11/11 | Check skipped at the call site; check applied to non-provisioned; role unset refuses; case-insensitive match; held role still refused; reason leaked as a 403; reason reuses `LACKS_PROVISION_ROLE`; refusal renames / drops membership / deletes comments; reset clears `provisioned_at`. F7 killed by the unit test only |
+| 04-03 | 2/2 | Password door gated on the role (15, and 10); live session ended for a provisioned account (16, and others) |
+| `a901f19` | 1/1 | Provisioning INSERT uses SQL `now()` instead of the caller's clock (survived 04-01's store test) |
+
+- **Mutation (cargo-mutants, per-feature ≥ 80%):** **PASS**. cargo-mutants 25.3.1 `--in-diff` over the phase-04 diff of `oidc.rs` and the store's `lib.rs`: 16 generated, 4 unviable, 12 viable, **12/12 killed (100%)**. The package tests kill 10/12 (83.3%) and the acceptance re-check kills the 2 whole-function handler mutants. See `deliver/mutation/mutation-report-od10.md`.
+- **Adversarial review:** **APPROVED**, no defects (nw-software-crafter-reviewer, 2026-10-04)
+- **Integrity:** `des-verify-integrity`: all 13 steps complete.
+- **Full CI gate** (`FOUNDRY_XTASK_INCLUDE_DOCKER=1 cargo xtask ci` on `182b0a8`):
+  **GREEN**: exit 0, all gates, 911/911 scenarios and 6339/6339 steps, browser lane run (2026-10-04)
+
+### [REF] Pre-requisites
+
+- D3a as shipped: migration `0016`, `provision_federated_member`, the DDD-15 order.
+- Phase 03 (v0.6.1): the base round-trip harness the provisioning lane shares.
+- `CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false` for release builds on this host;
+  a warm acceptance binary; every lane run bounded with `timeout`.
+- **Before release (operator, OQ-10):** check whether production ever set
+  `FOUNDRY_OIDC_PROVISION_ROLE`. If not, 0017's backfill marks zero rows. Production
+  is on v0.6.0, unrelated to this increment.
+
+**No migration of artifacts.** Single `feature-delta.md` layout; nothing to move.
+Outcome rows stay unregistered: no keycloak-sso entry exists in
+`docs/product/kpi-contracts.yaml` or `docs/product/outcomes/registry.yaml`.

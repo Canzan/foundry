@@ -24,7 +24,7 @@ foundry authenticates three distinct credential classes, deliberately kept apart
 | Class | Credential | Verified by | Algorithm pin |
 |---|---|---|---|
 | Human, local | Password (argon2) + `tower-sessions` cookie | `foundry-auth` | n/a |
-| Human, federated | Keycloak ID token → linked to an existing `users` row | `foundry-oidc` | RS256 only |
+| Human, federated | Keycloak ID token → linked to an existing `users` row (or, with the role, provisioned as one; a provisioned row must keep the role, see below) | `foundry-oidc` | RS256 only |
 | Machine | Self-issued Ed25519 JWT | `foundry-auth` | EdDSA only |
 
 The separation is enforced at build time, not by convention. `check_jwt_alg_pin`
@@ -66,16 +66,28 @@ and foundry share a cluster and the tracker must open when that cluster is broke
 > Role revocation (OD-10) is open. Design: `docs/feature/keycloak-sso/feature-delta.md`
 > DDD-13..22. The paragraph above is left as written.
 
-> **Planned, 2026-10-04 (keycloak-sso OD-10 / D3b; not yet shipped).** OD-10 is resolved.
-> Migration `0017` adds `users.provisioned_at` (timestamptz, NULL means "not provisioned")
-> and backfills it onto every password-less row. Only provisioning writes it; resets and
-> password changes never clear it. At Keycloak sign-in, an existing account that is
-> provisioned must still hold the provision role, if one is configured. Otherwise the
-> sign-in gets the generic refusal, logged as `provisioned account lacks provision role`.
-> Invited and pre-existing accounts are not affected, and neither is the password door.
-> Withdrawal deletes nothing, and live sessions run to expiry. Design:
+> **Shipped, 2026-10-04 (keycloak-sso OD-10 / D3b, US-07).** OD-10 is resolved, and the
+> "Role revocation (OD-10) is open" line above no longer holds. Migration `0017`
+> (`crates/foundry-store/migrations/0017_users_provisioned_at.sql`) adds
+> `users.provisioned_at` (timestamptz, NULL means "not provisioned") and backfills it
+> from `created_at` onto every password-less row. Only
+> `Store::provision_federated_member` writes it, in its INSERT, with the caller's
+> injected clock; resets and password changes never clear it. `UserRow.provisioned`
+> reads `provisioned_at IS NOT NULL OR password_hash IS NULL` in `foundry-store`, so an
+> account provisioned by an older replica during a rolling deploy still counts.
+> `Store::probe` refuses a schema without the column, so `/readyz` fails rather than
+> every sign-in.
+>
+> At Keycloak sign-in, `foundry-app`'s `oidc::callback` asks the pure
+> `judge_returning` about an existing account: one that was not provisioned links as
+> before; a provisioned one links if the provision role is unset or held exactly, and
+> is otherwise refused through the single `refuse()`, logged as
+> `provisioned account lacks provision role`. The response is the generic refusal.
+> Withdrawal deletes nothing and takes effect at the next sign-in; live sessions run
+> to expiry. The password door is untouched, so full revocation also needs removing
+> the workspace membership, and unsetting `FOUNDRY_OIDC_PROVISION_ROLE` reopens the
+> Keycloak door to withdrawn members (both stated in `CHANGELOG.md`). Design:
 > `docs/feature/keycloak-sso/feature-delta.md` DDD-23..33 (DDD-28 supersedes DDD-22).
-> DELIVER finalize replaces this note with the shipped wording.
 
 The same reasoning shapes startup: configuration SHAPE is validated at boot (a partial
 config is `health.startup.refused`), but discovery and JWKS are fetched lazily, so an

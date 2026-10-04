@@ -356,14 +356,111 @@ Four survived a first oracle and were killed only after a test was tightened:
 5. **Whole-redirect comparisons hide the field that matters.** PKCE alone kept the
    `Location` differing under F2; compare the specific parameters.
 
+## 2026-10-04 increment: OD-10 / US-07
+
+### Summary
+
+Roadmap phase 04 (steps 04-01..04-03, approved `0ea878f`) delivers US-07 and
+closes OD-10 by the user decision D3b: an account created by role provisioning must
+hold the provision realm role at every Keycloak sign-in, or it gets the shipped
+generic refusal. Invited and pre-existing accounts keep D3's link-only behaviour.
+Withdrawal deletes nothing (D8), applies at the next sign-in (D10), and the password
+door is untouched (OD-12).
+
+- **Store:** migration `0017_users_provisioned_at.sql` adds
+  `users.provisioned_at TIMESTAMPTZ NULL` and backfills it from `created_at` onto
+  every password-less row (OD-14). `UserRow.provisioned` reads
+  `provisioned_at IS NOT NULL OR password_hash IS NULL` (DDD-26, which also covers
+  the rolling-deploy window). Only the provisioning INSERT writes the marker, with
+  the caller's clock. `Store::probe` refuses a pre-0017 schema (DDD-32).
+- **OIDC:** callback step (1) splits (DDD-28). The pure `judge_returning` refuses a
+  provisioned account whose role is configured but not held, logged as
+  `provisioned account lacks provision role`, distinct from a newcomer's
+  `identity lacks provision role` (D12). The response is byte-identical to a wrong
+  password.
+- **Operator docs:** `CHANGELOG.md` `[Unreleased]` states both accepted residues
+  (OD-12: full revocation also needs removing the membership; OD-13: unsetting the
+  variable reopens the Keycloak door) and the 0017 migration note, including the
+  OQ-10 check.
+- AC-6.8 and DDD-22 are superseded by dated text in `feature-delta.md`.
+
+### Commits
+
+| Commit | Step | What |
+|---|---|---|
+| `fdf3346` | 04-01 | Migration 0017 + backfill; `UserRow.provisioned`; `provision_federated_member(now)`; probe column check |
+| `25c6ab3` | 04-02 | `judge_returning`, `PROVISIONED_LACKS_PROVISION_ROLE`, callback step-1 split; scenarios 11–14, 17, 18 |
+| `24a209d` | — | Harness fix: `us-mwt-slice-05` upgrades through the latest migration before current-Store reads |
+| `44262c8` | 04-03 | Guards 15, 16; CHANGELOG; AC-6.8 / DDD-22 superseded; closes US-07 |
+| `a901f19` | — | Store test pins `provisioned_at` to the injected clock |
+| `182b0a8` | — | Refactor (L1–L2): one migration-copy loop; one 0017 guard; truthful notes |
+
+### Gates
+
+| | |
+|---|---|
+| keycloak-sso lane | 46/46 (23 base + 23 provisioning examples) |
+| keycloak-sso-provisioning | 23/23 (18 scenarios, no `@pending`) |
+| `us-06` sign-in | 44/44 |
+| `mwt-slice-05` | 6/6 |
+| foundry-store / foundry-app | 82/82 / 89/89 |
+| Default lane | 684/685 on two runs after `24a209d`; the one failure differed per run (known sqlx `'\0'` flake, passing alone) |
+| fmt, clippy `-D warnings`, check-arch | Pass |
+| Integrity | `des-verify-integrity`: all 13 steps complete |
+| Adversarial review | **APPROVED**, no defects (nw-software-crafter-reviewer, 2026-10-04) |
+| Mutation (cargo-mutants) | **PASS**: cargo-mutants 25.3.1 `--in-diff` over the phase-04 diff of `oidc.rs` and the store's `lib.rs`: 16 generated, 4 unviable, 12 viable, **12/12 killed (100%)**. The package tests kill 10/12 (83.3%) and the acceptance re-check kills the 2 whole-function handler mutants. See `deliver/mutation/mutation-report-od10.md` |
+| **Full CI** (`FOUNDRY_XTASK_INCLUDE_DOCKER=1 cargo xtask ci` on `182b0a8`) | **GREEN**: exit 0, all gates, 911/911 scenarios and 6339/6339 steps, browser lane run (2026-10-04) |
+
+### Faults
+
+**20/20 named faults killed in phase 04** (04-01 7/7, 04-02 11/11, 04-03 2/2), each
+seeded alone, restored and `cmp`-verified, plus the marker-clock fault after
+`a901f19`.
+
+- Scenarios 11, 12 (both examples), 13 and 14 were RED for the business reason (the
+  withdrawn member arrived signed in) and went GREEN in 04-02. Guards 15–18 were
+  GREEN on first run; each is held by a fault that over-applies the check.
+- **F7** (04-02) was killed by the `judge_returning` unit table only.
+- **Marker clock:** an INSERT using SQL `now()` survived 04-01's store test, which
+  only checked that the marker was set. `a901f19` provisions at a fixed instant and
+  compares the stored value.
+
+### Lessons
+
+1. **A store-projection change needs the default lane in the same step.** 04-01
+   changed the shared `UserRow` projection behind `find_user_by_email` and ran only
+   the feature lanes. A harness elsewhere (`us-mwt-slice-05`) stops the schema at
+   0011 and reads through the current Store API, so 4 default-lane scenarios failed
+   with 42703, and the regression surfaced only at 04-03, blocking its commit.
+   Shared reads have consumers the feature lanes never see.
+2. **"Is set" is not "is set from the clock".** A presence assertion let a SQL
+   `now()` through. Pin injected values exactly when the design names their source.
+3. **Write guards before the change and keep them.** 15–18 were green from DISTILL
+   onwards, and they are what would catch an over-applied check (password door,
+   live session, invited member, role unset).
+
 ## Follow-ups
 
-- **OD-10: role revocation.** An account provisioned earlier keeps signing in after its
-  role is withdrawn. Scenario 11 pins that, so a revocation design must change a named
-  scenario.
+- ~~**OD-10: role revocation.**~~ **Closed 2026-10-04** by phase 04 (D3b, US-07,
+  `25c6ab3`); see § "2026-10-04 increment: OD-10 / US-07".
+- **OQ-10 (operator, before release): did production ever set
+  `FOUNDRY_OIDC_PROVISION_ROLE`?** It sizes the 0017 backfill (expected zero rows).
+  The `CHANGELOG.md` migration note tells operators to check. Production is still on
+  v0.6.0, for reasons unrelated to this increment.
+- **OQ-8 (optional): a `cargo xtask check-arch` rule** that fails the build if
+  `provisioned_at` appears in an `UPDATE` in `crates/`, enforcing D9 structurally.
+  Not done; the store test `no_password_write_clears_the_provisioned_marker` is the
+  floor.
+- **Accepted residues, documented in `CHANGELOG.md`:** OD-12 (forgot-password still
+  reaches a withdrawn member; full revocation also needs removing the membership),
+  OD-13 (unsetting the variable reopens the Keycloak door), and OD-14 (an account
+  provisioned then reset before 0017 stays link-only).
+- **OQ-9 (outside this repo):** the deploy repository's docs for
+  `FOUNDRY_OIDC_PROVISION_ROLE` should carry the OD-12/OD-13 consequences.
 - ~~**OD-11: un-pend the 23 base `keycloak-sso.feature` scenarios.**~~ **Closed
   2026-10-03** by phase 03 (`5c8491b`); see § "2026-10-03 increment: OD-11".
-- **Refuse an empty expected nonce in `foundry-oidc` (security hardening).** Without a
+- ~~**Refuse an empty expected nonce in `foundry-oidc` (security hardening).**~~
+  **Shipped in v0.6.2** (2026-10-04, `CHANGELOG.md` § Security). Without a
   challenge the expected nonce is `""`, and an ID token with no nonce deserialises as
   `""` (`serde(default)`), so the nonce comparison passes. The challenge cookie is
   the sole guard against code injection. Refuse an empty expected nonce, with a
