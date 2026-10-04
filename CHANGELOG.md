@@ -7,6 +7,29 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 
 ## [Unreleased]
 
+## [v0.6.2] - 2026-10-04
+
+A hardening fix to Keycloak sign-in. `git log v0.6.1..v0.6.2` is the full
+list.
+
+### Security
+
+- **Keycloak sign-in refuses an identity whose nonce is empty or missing.**
+  `foundry-oidc` used to check only that the nonce in the ID token *equalled*
+  the one foundry expected, not that both were present. A token with no
+  `nonce` claim, answering an empty expected nonce, would therefore be
+  accepted. Before any call to the provider, foundry now also refuses a
+  sign-in whose challenge has an empty state, nonce or PKCE verifier.
+  - **Not reachable before this fix.** Every real challenge carries 43
+    random characters, and it travels in a cookie signed with
+    `SESSION_SECRET`. A sign-in with no challenge cookie is refused before
+    the exchange.
+  - **Why it matters anyway.** The fix stops the nonce depending on the
+    cookie check alone.
+  - **What a refused sign-in looks like.** Refusals are unchanged: byte for
+    byte, the same answer as a wrong password.
+  - **After deploying.** Sign in once through the real Keycloak.
+
 ## [v0.6.1] - 2026-10-03
 
 Acceptance coverage for Keycloak sign-in. There is no change to runtime
