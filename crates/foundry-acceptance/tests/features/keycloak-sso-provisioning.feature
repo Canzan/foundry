@@ -159,7 +159,7 @@ Feature: A cluster identity holding the provision role is given a foundry accoun
   # 11 — US-07 (D3b, OD-10 resolved 2026-10-04): withdrawing the provision role
   # closes the identity-provider door to a member provisioning created, and deletes
   # nothing (D8). Rewritten 2026-10-04 from the AC-6.8 pin, which it supersedes.
-  @us-07 @error @security @driving_port @real-io @pending
+  @us-07 @error @security @driving_port @real-io
   Scenario: A provisioned member whose provision role is withdrawn is turned away and keeps everything they had
     Given foundry provisions holders of the "foundry-user" realm role
     And a newcomer named "Nia Newcomer" is confirmed by the identity provider
@@ -175,7 +175,7 @@ Feature: A cluster identity holding the provision role is given a foundry accoun
 
   # 12 — the role match is exact (D11 / OD-9): a different role, or the right name
   # differently capitalised, is no role at all.
-  @us-07 @error @security @driving_port @real-io @pending
+  @us-07 @error @security @driving_port @real-io
   Scenario Outline: A provisioned member left holding only a different role is turned away
     Given foundry provisions holders of the "foundry-user" realm role
     And a newcomer named "Nia Newcomer" is confirmed by the identity provider
@@ -192,7 +192,7 @@ Feature: A cluster identity holding the provision role is given a foundry accoun
       | Foundry-User    |
 
   # 13 — picks up where 11 leaves off: a re-grant restores access with no repair step.
-  @us-07 @driving_port @real-io @pending
+  @us-07 @driving_port @real-io
   Scenario: A member turned away after the withdrawal is let back in as the same account once the role is granted again
     Given foundry provisions holders of the "foundry-user" realm role
     And a newcomer named "Nia Newcomer" is confirmed by the identity provider
@@ -207,7 +207,7 @@ Feature: A cluster identity holding the provision role is given a foundry accoun
     And the newcomer still has exactly one foundry account
 
   # 14 — choosing a password does not turn a provisioned member into an invited one (D9).
-  @us-07 @error @security @driving_port @real-io @pending
+  @us-07 @error @security @driving_port @real-io
   Scenario: A provisioned member who chose a password through a reset is still turned away without the role
     Given foundry provisions holders of the "foundry-user" realm role
     And a newcomer named "Nia Newcomer" is confirmed by the identity provider
@@ -247,7 +247,7 @@ Feature: A cluster identity holding the provision role is given a foundry accoun
 
   # 17 — control: an account that came in another way never depended on the role,
   # so withdrawing it means nothing for that account (D3b).
-  @us-07 @driving_port @real-io @pending
+  @us-07 @driving_port @real-io
   Scenario: An invited member without the provision role still signs in through the identity provider
     Given foundry provisions holders of the "foundry-user" realm role
     And a member named "Pat Operator" already has a foundry account with a password
@@ -260,7 +260,7 @@ Feature: A cluster identity holding the provision role is given a foundry accoun
 
   # 18 — with provisioning switched off afterwards, a provisioned account links like
   # any other, whatever roles it holds: exactly D3 (OD-13, resolved 2026-10-04).
-  @us-07 @driving_port @real-io @pending
+  @us-07 @driving_port @real-io
   Scenario: With provisioning switched off a provisioned member signs in whatever roles they hold
     Given foundry provisions nobody from the cluster identity provider
     And a newcomer named "Nia Newcomer" is confirmed by the identity provider

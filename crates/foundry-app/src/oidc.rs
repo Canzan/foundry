@@ -193,11 +193,15 @@ pub async fn callback(
         return refuse(&state, &headers, "provider has not confirmed the email");
     }
 
-    // DDD-15 find-or-provision. (1) An existing account links, role IGNORED —
+    // DDD-15 find-or-provision. (1) An existing account links unless provisioning
+    // created it and it no longer holds the provision role (DDD-28) —
     // users.email_lower is UNIQUE, so the match is unambiguous.
     let email_lower = identity.email.trim().to_lowercase();
     let user_id = match state.store.find_user_by_email(&email_lower).await {
-        Ok(Some(u)) => u.id,
+        Ok(Some(u)) => match judge_returning(u.provisioned, provider.provision_role(), &identity) {
+            Ok(()) => u.id,
+            Err(why) => return refuse(&state, &headers, why),
+        },
         Ok(None) => match provision(&state, &provider, &identity, &email_lower).await {
             Ok(id) => id,
             Err(ProvisionFailure::Refused(why)) => return refuse(&state, &headers, why),
@@ -222,6 +226,7 @@ pub async fn callback(
 /// existing `refuse()` log line; the response is the generic refusal regardless.
 const NO_ACCOUNT: &str = "no foundry account for this identity";
 const LACKS_PROVISION_ROLE: &str = "identity lacks provision role";
+const PROVISIONED_LACKS_PROVISION_ROLE: &str = "provisioned account lacks provision role";
 const NO_WORKSPACE: &str = "no workspace to provision into";
 
 /// `users.display_name CHECK (length BETWEEN 1 AND 64)`.
@@ -279,6 +284,22 @@ fn judge_newcomer(
         Ok(())
     } else {
         Err(LACKS_PROVISION_ROLE)
+    }
+}
+
+/// DDD-28 step (1) / DDD-29 for an identity whose account already exists. Only an
+/// account provisioning created depends on the role, and only while provisioning is
+/// on (OD-13); the role match is exact and case-sensitive, read at sign-in (D11).
+fn judge_returning(
+    provisioned: bool,
+    provision_role: Option<&str>,
+    identity: &IdentityClaims,
+) -> Result<(), &'static str> {
+    match provision_role {
+        Some(role) if provisioned && !identity.has_realm_role(role) => {
+            Err(PROVISIONED_LACKS_PROVISION_ROLE)
+        }
+        _ => Ok(()),
     }
 }
 
@@ -362,24 +383,6 @@ mod tests {
     /// (account was provisioned, configured provision role, realm roles held, verdict)
     type ReturningCase<'a> = (bool, Option<&'a str>, &'a [&'a str], Result<(), &'a str>);
 
-    /// D12 / DDD-30: the reason a provisioned account without the role is refused
-    /// with. DISTILL pins the wording here; DELIVER replaces this literal with the
-    /// new reason `const` beside `LACKS_PROVISION_ROLE`.
-    const PROVISIONED_LACKS_ROLE_REASON: &str = "provisioned account lacks provision role";
-
-    /// SCAFFOLD: true — DISTILL 2026-10-04 (US-07, DDD-29). Stands in for
-    /// `judge_returning(provisioned, provision_role, identity)`, which does not exist
-    /// yet. DELIVER deletes this shim, calls `judge_returning` in its place and
-    /// removes the `#[ignore]` below. It panics, so the un-ignored test is RED at an
-    /// assertion-class failure, never BROKEN.
-    fn judge_returning_scaffold(
-        _provisioned: bool,
-        _provision_role: Option<&str>,
-        _identity: &IdentityClaims,
-    ) -> Result<(), &'static str> {
-        panic!("SCAFFOLD: judge_returning (DDD-29) not yet implemented -- RED scaffold")
-    }
-
     /// DDD-28 step (1) / DDD-29 / AC-7.6: an account that already exists is
     /// refused only when provisioning created it AND provisioning is on AND the
     /// identity lacks the exact role. Never provisioned → link whatever the roles
@@ -387,9 +390,8 @@ mod tests {
     /// missing, differently capitalised or replaced → refuse (1d, D11 / OD-9) with
     /// a reason of its own, distinct from a newcomer's (D12).
     #[test]
-    #[ignore = "DISTILL scaffold (US-07, DDD-29): un-ignore when judge_returning exists"]
     fn a_returning_account_is_refused_only_when_provisioned_and_the_role_is_missing() {
-        let refuse = Err(PROVISIONED_LACKS_ROLE_REASON);
+        let refuse = Err(PROVISIONED_LACKS_PROVISION_ROLE);
         let cases: [ReturningCase; 10] = [
             (false, Some("foundry-user"), &[], Ok(())),
             (false, Some("foundry-user"), &["some-other-role"], Ok(())),
@@ -410,13 +412,13 @@ mod tests {
         for (provisioned, role, held, expected) in cases {
             let who = identity("nia@example.test", Some("Nia"), None, held);
             assert_eq!(
-                judge_returning_scaffold(provisioned, role, &who),
+                judge_returning(provisioned, role, &who),
                 expected,
                 "provisioned {provisioned}, provision role {role:?}, held {held:?}"
             );
         }
         assert_ne!(
-            PROVISIONED_LACKS_ROLE_REASON, LACKS_PROVISION_ROLE,
+            PROVISIONED_LACKS_PROVISION_ROLE, LACKS_PROVISION_ROLE,
             "the operator must be able to tell a withdrawn member from a stranger (D12)"
         );
     }
