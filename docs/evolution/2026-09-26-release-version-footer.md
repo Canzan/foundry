@@ -65,3 +65,91 @@ both https://foundry.unintelligent-design.us/sign-in (dev) and https://foundry.j
 
 None recorded. The DISCUSS out-of-scope list (git SHA or build date, a version API endpoint, pipeline
 changes) stands.
+
+## 2026-10-04 increment: build stamp (US-RVF-02)
+
+**Delivered:** 2026-10-04. **Ships in:** v0.8.0, tagged after push. Prod is held for approval by
+design. Full wave run: DISCUSS + DESIGN, then DISTILL with a DESIGN revision, then DELIVER.
+Record: `docs/feature/release-version-footer/feature-delta.md` (the 2026-10-04 sections) and
+`deliver/ac7-demo.md`. This increment narrows the "Git SHA or build date" out-of-scope line above.
+A version API endpoint stays out.
+
+### Summary
+
+`Foundry v0.7.0` named a release, not a build. Every `:main` image between two tags read the same,
+and so did a stale image. The footer is now
+`<footer class="site-footer" data-commit="<sha7>">Foundry v<version> · <commit date></footer>`.
+
+- A new `crates/foundry-app/build.rs` bakes the SHA and the commit date. For each field it uses a
+  non-blank `FOUNDRY_STAMP_*` input, else git, else `unknown`. It never fails the build and adds no
+  crates.
+- Its rerun directives keep the stamp fresh across commits, detached HEADs, packed refs, worktrees
+  and env changes.
+- The container has no `.git`, so both publish workflows compute the stamp, refuse to publish an
+  empty one, and pass it in as Docker build-args.
+- A check-arch rule (`publish-stamp:`) holds both workflows and the Dockerfile to that shape.
+- RELEASING.md now verifies a rollout by the date and `data-commit`, not just the version.
+
+### Commits
+
+| Commit | What |
+|---|---|
+| `99ad7a9` | DISCUSS + DESIGN (D5-D14, AC-4..AC-10, DDD-1..17) |
+| `ef7dc39` | DISTILL (amended `@rvf`, 11 scaffolds) + DESIGN revision (DDD-6, -8, -13, -14) |
+| `c7568bd` | DELIVER roadmap phase 02 |
+| `00f02a5` | 02-01: `build.rs`, `views::SiteFooter` / `site_footer()`, footer partial, `base.html`, 8 unit tests, `@rvf` live, AC-7 demo |
+| `11b757a` | 02-02: Dockerfile ARGs, both publish workflows, `publish-stamp` check-arch rule, RELEASING.md, docker demo |
+| `3f3897a` | Single-fault fixtures for the two surviving rule faults |
+
+### Gates
+
+- Lanes: rvf 3/3, canzan-theme-system 28/28, pwa-mobile-rendering 14/14, blr 26/26, cdf 54/54.
+- Unit: foundry-app `build_stamp_tests` 8/8; xtask 46/46. Static: check-arch, fmt, clippy
+  `-D warnings`.
+- AC-7 demo rows 1-8 PASS (scratch clone). `docker build` without build-args served `unknown`, and
+  with them served the given values, from a running image.
+- Peer review: **APPROVED**, zero defects (nw-software-crafter-reviewer, 2026-10-04)
+- Full CI: **GREEN** on `3f3897a`: exit 0, all gates, 911/911 scenarios and 6341/6341 steps, browser lane run (2026-10-04)
+
+### Faults
+
+- **02-01: 8/8 killed.** Build-time date, SHA in text or missing `data-commit`, blank treated as
+  given, git failure panics, `vunknown`, trailing separator, unescaped field, missing refs-dir
+  directive.
+- **02-02: 4/4 killed, after `3f3897a`.** At `11b757a`, two rule faults survived: the
+  build-time-date check removed and the runtime-stage-ARG check removed. They were killed once each
+  had a fixture of its own.
+
+### Lessons
+
+- **Watching only the files that exist misses the file that appears.** The design review found
+  that after `git pack-refs`, or in a fresh clone, the branch's loose ref is absent. Nothing
+  watches it, so the next commit creates it and changes no watched path, and the stamp goes stale.
+  The fix is to watch the nearest existing parent directory. canzan-lift's `build.rs` had the same
+  gap. It was fixed there as `c30ec4a4` and released as canzan-lift v0.4.2 (2026-10-04).
+- **A bug that needs a sequence needs that sequence in the demo.** The gap reproduces only with
+  pack → build → commit → build. An ordinary commit on a branch with a loose ref re-stamps, so a
+  demo of "commit, rebuild" alone would have passed with the bug present.
+- **A fixture that changes two things at once lets a fault survive.** Each DISTILL fixture for the
+  publish rule broke two checks, so deleting either check still left the test red. One fault per
+  fixture, each asserting its own `file:line` message, is what made the rule's tests able to kill
+  faults.
+- **A lane oracle can be blind on the day of the commit.** A build-time date equals the commit
+  date on the commit day, so `@rvf` cannot see that fault then. It was killed by a past-dated
+  commit in the demo instead.
+- **A rule that cannot be unit-tested can still gate a step.** Cargo's rerun directives are only
+  observable by building. Making the recorded AC-7 demo a COMMIT precondition is what caught and
+  proved the refs-dir fix.
+
+### Follow-ups
+
+- **Operator, first Forgejo push (OQ-D4).** Confirm the `build-and-publish` runner has `git`. If it
+  does not, the empty-stamp guard fails the job by design.
+- **Operator, first Forgejo CI run (DDD-14).** Record whether checkout had `.git`. Probably not
+  (`rust:1.85-slim`), in which case both build.rs and the oracle read `unknown`, consistently.
+- **Operator, after v0.8.0 is approved (AC-8).** Check that the prod `/sign-in` footer's
+  `data-commit` and date equal `git log -1 --format='%h %cd' --date=short v0.8.0`, and record it in
+  the feature-delta DELIVER section. An unchanged prod footer before approval is expected.
+- **v0.8.0 release chore.** `CHANGELOG.md` `[Unreleased]` has no build-stamp entry yet.
+- **Nit.** The `views::RELEASE_VERSION` doc comment still says `base.html` reads it by path; it is
+  now read through `site_footer()`.

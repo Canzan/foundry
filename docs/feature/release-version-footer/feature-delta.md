@@ -901,3 +901,160 @@ with `timeout`. Run the commit demos on a throwaway branch or worktree, never on
   - C7a passes (no `.git` in the container, via the manual check).
   - C7b is a gap: a build interrupted mid-run is not testable here.
   - C7c is a gap: the OQ-D5 compile/run race is accepted, not tested.
+
+## Wave: DELIVER — increment 2026-10-04 (build stamp, US-RVF-02)
+
+> Finalized 2026-10-04 from `deliver/roadmap.json` (phase 02), `deliver/execution-log.json`
+> (02-01 and 02-02: RED, GREEN, COMMIT all PASS), `deliver/ac7-demo.md`, and commits `00f02a5`
+> (02-01), `11b757a` (02-02) and `3f3897a` (fixture follow-up). Upstream: DISCUSS + DESIGN
+> `99ad7a9`, DISTILL + DESIGN revision `ef7dc39`, roadmap phase 02 `c7568bd`. Ships in **v0.8.0**
+> (OQ-3), tagged after push. Evolution record: `docs/evolution/2026-09-26-release-version-footer.md`
+> (2026-10-04 increment).
+
+### [REF] Implementation summary
+
+Every full page now ends in
+`<footer class="site-footer" data-commit="<sha7>">Foundry v<version> · <commit date></footer>`
+(D5, D8, DDD-9). The version is still `CARGO_PKG_VERSION` (D6).
+
+- **02-01 (`00f02a5`), the stamp and the footer.** A new `crates/foundry-app/build.rs` emits
+  `FOUNDRY_BUILD_SHA` / `FOUNDRY_BUILD_DATE`. Per field, a trimmed non-blank `FOUNDRY_STAMP_*` input
+  wins, then git (`rev-parse --short=7 HEAD`, `log -1 --format=%cd --date=short`), then `unknown`.
+  Every git or env failure becomes absent, so the build never fails, and no crate or
+  build-dependency was added (D9, D10, DDD-2..4). The rerun directives follow the DESIGN revision of
+  DDD-6: `build.rs`, both env inputs, and `HEAD`, the branch ref and `packed-refs` resolved through
+  `--git-path`, canonicalised, and registered only if they exist. When the loose branch ref is
+  absent, its nearest existing parent directory is watched instead. `views.rs` gains `BUILD_SHA`,
+  `BUILD_DATE` and `BUILD_FIELD_UNKNOWN` beside `RELEASE_VERSION`, plus the pure
+  `SiteFooter::of(version, sha, date)` (blank → `unknown`, askama-escaped through
+  `partials/site_footer.html`) and the production seam `pub fn site_footer()`. `base.html` renders
+  `{{ crate::views::site_footer()|safe }}` in the old footer's place (DDD-8 revised). askama 0.12
+  accepted the free-function call, so the `LazyLock` fallback was not needed (OQ-D1 closed). No CSS
+  change (DDD-17).
+- **02-02 (`11b757a`), the published-image path.** The Dockerfile declares
+  `ARG FOUNDRY_STAMP_SHA=` / `ARG FOUNDRY_STAMP_DATE=` in the builder stage, after every `COPY` and
+  right before the cargo `RUN` (DDD-11). Forgejo `build-and-publish.yml` computes a separate 7-char
+  stamp beside the untouched 12-char tag SHA. GitHub `release.yml` gains a "Compute build stamp"
+  step in the `build` matrix job. Both refuse with `::error::` + `exit 1` on an empty value and
+  pass both build-args (DDD-13 revised). The DISTILL check-arch proposal was **accepted**: the rule
+  `check_publish_workflows_stamp_the_image` (`publish-stamp:`) is wired into `source_violations`,
+  the PASSED summary and `LAYER_1_RULE_MARKERS`, and it fails closed on a missing file. RELEASING.md
+  "Verifying a deployment" was rewritten per DDD-16.
+- **`3f3897a`, fixtures.** Two seeded rule faults survived 02-02 because their DISTILL fixtures
+  tripped two checks at once. Two single-fault fixtures were added (a workflow that keeps both
+  commit commands but also runs `date -u +%F`; a Dockerfile with correct builder ARGs plus a
+  runtime-stage ARG), each asserting its own `file:line` message. The `.feature` header now marks
+  the US-RVF-02 scenarios live.
+
+### [REF] Files modified
+
+- **Production (`00f02a5`):** NEW `crates/foundry-app/build.rs`; `crates/foundry-app/src/views.rs`;
+  NEW `crates/foundry-app/templates/partials/site_footer.html`; `crates/foundry-app/templates/base.html`.
+- **Pipeline (`11b757a`):** `Dockerfile`; `.forgejo/workflows/build-and-publish.yml`;
+  `.github/workflows/release.yml`.
+- **Tests:** `crates/foundry-app/src/build_stamp_tests.rs` (8 scaffolds made real, `00f02a5`);
+  `crates/foundry-acceptance/tests/features/release-version-footer.feature` (`@pending` removed
+  `00f02a5`, header `3f3897a`); `xtask/src/check_arch.rs` (rule + 3 scaffolds made real `11b757a`,
+  two fixtures `3f3897a`).
+- **Docs:** `RELEASING.md` (`11b757a`); `deliver/ac7-demo.md` (`00f02a5`, `11b757a`); this file,
+  the evolution record and `docs/product/architecture/brief.md` (finalize).
+- **Not touched:** CSS / `VENDOR.md`, `Cargo.lock` and every `Cargo.toml` (no new crate),
+  `/healthz`, `/readyz`, the CLI, `docker-compose.yml`, both `ci.yml` workflows.
+
+### [REF] Scenarios green count
+
+`@rvf` 3/3: the sign-in page names the running build, a signed-in board page names the running
+build (both un-pended in 02-01), and the htmx fragment carries no footer (unchanged). Unit:
+foundry-app `build_stamp_tests` 8/8 (foundry-app lib 87 passed); xtask 46/46, with the three
+publish-stamp scaffolds real. No `SCAFFOLD` marker remains for US-RVF-02.
+
+### [REF] DoD check (vs the 2026-10-04 DISCUSS DoD)
+
+| DoD item | Status | Evidence |
+|---|---|---|
+| AC-4: exact text + `data-commit` on sign-in and board | PASS | `@rvf` scenarios 1-2; git oracle (DDD-15), Cargo.toml version |
+| AC-5: precedence (explicit > git > `unknown`; blank = absent) | PASS | `build_stamp_tests` precedence examples + proptest via `include!` |
+| AC-6: degraded `unknown`, escaping, never `vunknown` / bare ` · ` | PASS | exact degraded HTML, hostile-input and sanity-proptest unit tests; `docker build` with no build-args served `data-commit="unknown"` / `Foundry v0.7.0 · unknown` |
+| AC-7: no stale stamp | PASS | `ac7-demo.md` rows 1-8 (scratch clone), plus the `-vv` directive listing |
+| AC-8: published images carry the commit | PARTIAL: structural PASS, prod check OWED | `publish-stamp:` check-arch rule green on the tree; `docker build` with build-args served the given values. The post-tag prod footer check waits for v0.8.0 and its approval |
+| AC-9: no regression | PASS | rvf 3/3, canzan-theme-system 28/28, pwa-mobile-rendering 14/14, blr 26/26, cdf 54/54; no CSS change |
+| AC-10: runbook | PASS | RELEASING.md "Verifying a deployment" (`11b757a`) names the date, `data-commit`, the `git log -1 --format='%h %cd' --date=short <ref>` one-liner, `unknown` never expected from a publish workflow, the dev SHA signal, and prod awaiting approval |
+| check-arch, fmt, clippy `-D warnings`, xtask smoke; no new crate | PASS for check-arch / fmt / clippy and the lockfile (recorded per step). xtask smoke is not recorded per step; it is covered by the full CI run below | `git diff 99ad7a9 HEAD -- Cargo.lock` is empty |
+| `docker build` with and without build-args, both recorded | PASS | `ac7-demo.md` "Published-image path": each image ran against a throwaway Postgres and `/sign-in` was fetched |
+| AC-7 demo recorded; RELEASING.md updated; `RELEASE_VERSION` doc comment accurate | PASS, with a wording nit | The value is still crate-derived. Its doc comment still says "`base.html` reads it by path", but `base.html` now reaches it through `site_footer()` |
+| After the next tag, prod footer checked and recorded here | OWED | v0.8.0 is not tagged yet; prod is held for approval |
+
+### [REF] Demo evidence
+
+- **AC-7 (`deliver/ac7-demo.md`).** Rows 1-8 all PASS in a scratch clone with its own
+  `CARGO_TARGET_DIR`: a no-change build stays `Fresh`; a commit re-stamps; detached HEAD and back;
+  `pack-refs --all` then commit re-stamps through the watched `refs/heads` directory; set, blank and
+  unset `FOUNDRY_STAMP_SHA`; a linked worktree. End to end, the `@rvf` lane read
+  `Foundry v0.7.0 · 2026-10-04` with `data-commit` = `c7568bd` (HEAD at the time).
+- **Published-image path (`deliver/ac7-demo.md`, 02-02).** Docker 29.8.0, aarch64, each image run
+  for real against a throwaway `postgres:16-alpine`:
+  - no build-args: `<footer class="site-footer" data-commit="unknown">Foundry v0.7.0 · unknown</footer>`
+  - `--build-arg FOUNDRY_STAMP_SHA=00f02a5 --build-arg FOUNDRY_STAMP_DATE=2026-10-04`:
+    `<footer class="site-footer" data-commit="00f02a5">Foundry v0.7.0 · 2026-10-04</footer>`
+  - Cache (DDD-11): with only the ARG values changed, every layer before the cargo `RUN` was
+    `CACHED`, and only `foundry-app` recompiled.
+- **Reproduction finding.** The stale-stamp gap needs **pack → build → commit → build** to show.
+  A commit on a branch whose loose ref already exists re-stamps without the amended rule, so rows
+  2 and 3 alone would not have caught it. Only row 4's sequence did: with the refs-dir directive
+  removed, the rebuild printed `Fresh foundry-app` and kept the old SHA.
+
+### [REF] Quality gates
+
+| Gate | Outcome |
+|---|---|
+| DES phases | 02-01 and 02-02: RED, GREEN, COMMIT PASS (`execution-log.json`) |
+| RED for the business reason | 02-01: rvf failed on `"Foundry v0.7.0"` vs `"Foundry v0.7.0 · 2026-10-04"` (2 failed, fragment passed); the 8 unit tests then failed to compile (no build.rs). 02-02: the 3 xtask tests failed E0425 (no rule), then 14 `publish-stamp` violations on the unstamped tree |
+| Lanes | rvf 3/3, canzan-theme-system 28/28, pwa-mobile-rendering 14/14, blr 26/26, cdf 54/54 |
+| Unit | foundry-app `build_stamp_tests` 8/8 (lib 87 passed); xtask 46/46 |
+| Static | check-arch PASSED (including the new `publish-stamp:` rule), fmt, clippy `-D warnings` |
+| Named faults, 02-01 | 8/8 KILLED, each seeded alone and restored (`cmp` identical): build-time date (past-dated commit demo; the lane is blind on the commit day), SHA in text or missing `data-commit`, blank input treated as given, git failure panics (`GIT_DIR=/nonexistent`), `vunknown`, trailing separator, unescaped field, missing refs-dir directive (row 4). Litmus: removing the `base.html` call fails rvf 2/3 |
+| Named faults, 02-02 | 4/4 KILLED after `3f3897a`. Recorded in `11b757a`: rule not wired (KILLED by `layer_1_aggregates_every_rule`) and empty-refusal check removed (KILLED). Build-time-date check removed and runtime-stage-ARG check removed SURVIVED at `11b757a`, because each DISTILL fixture tripped a second check. They were KILLED by the single-fault fixtures in `3f3897a` |
+| Mutation (per-feature policy) | Seeded named faults as above. No `cargo-mutants` run is recorded |
+| Peer review | **APPROVED**, zero defects (nw-software-crafter-reviewer, 2026-10-04) |
+| Full CI (`cargo xtask ci`) | **GREEN** on `3f3897a`: exit 0, all gates, 911/911 scenarios and 6341/6341 steps, browser lane run (2026-10-04) |
+
+### [REF] Pre-requisites / carried notes
+
+- **Release.** v0.8.0 is tagged after push. Prod is held for approval by design, so an unchanged
+  prod footer after the tag means "awaiting approval", not a failed rollout. RELEASING.md says so.
+- **CHANGELOG.** `[Unreleased]` is still empty. DESIGN "Interactions" expected DELIVER to add the
+  entry; it was left to the v0.8.0 release chore, which is outside this finalize.
+- **canzan-lift.** The DESIGN revision found the same refs-dir stale-stamp gap in canzan-lift's
+  `build.rs` (`rerun_if_present` never registers a missing ref). It was fixed there as `c30ec4a4`
+  and released as canzan-lift **v0.4.2** (2026-10-04). The bug only reproduces with
+  pack → build → commit → build.
+
+### [REF] Operator-owed items
+
+1. **OQ-D4: does the Forgejo `build-and-publish` runner have `git`?** The first push after this
+   delivery proves it. If it doesn't, `actions/checkout` falls back to a tarball with no `.git`, and
+   the empty-stamp guard fails the job loudly. That red job is the guard working, not a regression.
+2. **DDD-14: which case is Forgejo CI in?** Its jobs run in `rust:1.85-slim`, probably without
+   `git`. Then build.rs and the `@rvf` oracle both read `unknown`, and the lane stays consistent
+   and green. Record the case from the first run's checkout log.
+3. **AC-8: the prod footer, after v0.8.0 is approved.** `/sign-in` on
+   https://foundry.jeffbailey.us must show `data-commit` and the date equal to
+   `git log -1 --format='%h %cd' --date=short v0.8.0`, and `Foundry v0.8.0`. Record the result
+   here. The dev instance (`:main`) can be checked the same way against `origin/main` after push.
+
+
+### [REF] Mutation (DELIVER Phase 5, 2026-10-04)
+
+**PASS: 55/60 non-equivalent mutants killed (91.7%).** Counting the 3 equivalents in the
+denominator gives 55/63 (87.3%). See `deliver/mutation/mutation-report-rvf02.md`.
+
+**How it ran:** cargo-mutants `--in-diff` over `views.rs` and xtask `check_arch.rs`. `build.rs`
+is outside cargo-mutants' reach, so its `stamp` and path-choice mutants were hand-seeded
+(3 of 4 killed).
+
+**5 genuine survivors,** recorded as follow-ups:
+- `build.rs` `rerun_on_nearest_existing -> ()`. No automated test checks the watched paths;
+  only the recorded AC-7 demo (row 4) kills it. Fix: extract a pure path-choice function, as
+  canzan-lift's `ref_watch_path` (`c30ec4a4`), and unit-test it.
+- Four xtask fixture gaps: the backtick `date` form; a Dockerfile stage before `builder`; the
+  refusal-line boundary; a dropped stamp ARG.

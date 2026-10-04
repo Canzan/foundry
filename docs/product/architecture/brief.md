@@ -325,17 +325,31 @@ See `adr-canzan-theme-001-font-axis-instancing-and-subsetting.md`,
 
 ### Every full page names the build serving it
 
-**Planned (release-version-footer build stamp, DESIGN 2026-10-04; ships in v0.8.0).** Today
-`base.html` ends every full page with `<footer class="site-footer">Foundry v<version></footer>`,
-where `<version>` is `views::RELEASE_VERSION` (`CARGO_PKG_VERSION`). US-RVF-02 adds the build. A new
-`crates/foundry-app/build.rs` bakes `FOUNDRY_BUILD_SHA` / `FOUNDRY_BUILD_DATE`, taking each from the
-`FOUNDRY_STAMP_*` input if it is non-blank, else from git, else `unknown`. It never fails the build,
-and its rerun directives keep the stamp fresh. The footer becomes
-`<footer class="site-footer" data-commit="<sha>">Foundry v<version> · <commit date></footer>`, rendered
-through a pure `views::SiteFooter` seam. The container build has no `.git`, so both publish
-workflows hand the commit in as build-args and refuse to publish if either value is empty. See
-`docs/feature/release-version-footer/feature-delta.md` (DESIGN, DDD-1..17). This note is replaced
-with the shipped wording at finalize.
+**Shipped (release-version-footer US-RVF-02, delivered 2026-10-04; ships in v0.8.0).**
+`base.html` ends every full page with
+`<footer class="site-footer" data-commit="<sha7>">Foundry v<version> · <commit date></footer>`,
+rendered by `{{ crate::views::site_footer()|safe }}`.
+
+- `<version>` is `views::RELEASE_VERSION` (`CARGO_PKG_VERSION`). The crates are bumped together, so
+  it equals the tag.
+- `crates/foundry-app/build.rs` bakes `FOUNDRY_BUILD_SHA` (`git rev-parse --short=7 HEAD`) and
+  `FOUNDRY_BUILD_DATE` (the commit date, `git log -1 --format=%cd --date=short`). For each field it
+  takes the `FOUNDRY_STAMP_*` input if it is non-blank, else git, else `unknown`.
+- build.rs never fails the build and adds no crates. Its rerun directives watch `HEAD`, the branch
+  ref (or, when that ref is packed, its parent directory), `packed-refs` and both inputs, so the
+  stamp never goes stale.
+- The pure `views::SiteFooter::of` maps blank values to `unknown` and escapes every field.
+  `site_footer()` applies it to the compiled constants. A build that cannot see its commit reads
+  `· unknown` with `data-commit="unknown"`.
+- The container build has no `.git`, so both publish workflows (Forgejo `build-and-publish.yml`,
+  GitHub `release.yml`) hand the commit in as Docker build-args, declared in the builder stage
+  right before the cargo `RUN`. They refuse to publish if either value is empty. check-arch's
+  `publish-stamp:` rule holds both workflows and the Dockerfile to that shape.
+- RELEASING.md "Verifying a deployment" checks the date and `data-commit` against the pushed
+  commit.
+
+See `docs/feature/release-version-footer/feature-delta.md` (DESIGN DDD-1..17 and its revision,
+DELIVER 2026-10-04).
 
 ### Crate graph
 
