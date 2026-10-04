@@ -14,4 +14,4 @@ keycloak-sso OD-10 (US-07) shipped in v0.7.0 (`40a91e3`, no PR). Withdrawing the
 
 - OQ-10: confirm whether prod ever set `FOUNDRY_OIDC_PROVISION_ROLE`; if it did, check the accounts 0017 marked. Do the manual Keycloak sign-in, and check why prod skips patch releases.
 - The user owes card-pointer-drag device evidence: slice-02 tallies and the slice-03 checklist.
-- Cleanups: the stale "provisions nothing" header in `keycloak-sso.feature`, the line-7 comment in `card-pointer-drag.feature`, and evolution docs for three shipped fixes. Optional: OQ-8, a check-arch rule against UPDATEs of `provisioned_at`.
+- Done 2026-10-04: OQ-8 (`check-arch` `provisioned-marker` rule, `87d1ee8`); evolution docs for the three shipped fixes; stale feature-file comments fixed (`d38864b`). No feature has open DELIVER work.
