@@ -447,10 +447,12 @@ seeded alone, restored and `cmp`-verified, plus the marker-clock fault after
   `FOUNDRY_OIDC_PROVISION_ROLE`?** It sizes the 0017 backfill (expected zero rows).
   The `CHANGELOG.md` migration note tells operators to check. Production is still on
   v0.6.0, for reasons unrelated to this increment.
-- **OQ-8 (optional): a `cargo xtask check-arch` rule** that fails the build if
-  `provisioned_at` appears in an `UPDATE` in `crates/`, enforcing D9 structurally.
-  Not done; the store test `no_password_write_clears_the_provisioned_marker` is the
-  floor.
+- ~~**OQ-8 (optional): a `cargo xtask check-arch` rule**~~ **Done 2026-10-04**
+  (`87d1ee8`, roadmap step 05-01). The `provisioned-marker` rule fails the build on
+  any SQL `UPDATE` that assigns `users.provisioned_at` outside migration 0017's
+  backfill. It scans every `.rs` string literal and every migration, skips comments
+  and `crates/*/tests/`, and fails closed. Nine gold tests; four seeded faults, all
+  killed.
 - **Accepted residues, documented in `CHANGELOG.md`:** OD-12 (forgot-password still
   reaches a withdrawn member; full revocation also needs removing the membership),
   OD-13 (unsetting the variable reopens the Keycloak door), and OD-14 (an account

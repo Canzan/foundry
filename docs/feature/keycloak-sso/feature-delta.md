@@ -2011,3 +2011,29 @@ against the real cluster Keycloak was not run; production is on v0.6.0.
 **No migration of artifacts.** Single `feature-delta.md` layout; nothing to move.
 Outcome rows stay unregistered: no keycloak-sso entry exists in
 `docs/product/kpi-contracts.yaml` or `docs/product/outcomes/registry.yaml`.
+
+## Wave: DELIVER / [REF] OQ-8 addendum (2026-10-04)
+
+**OQ-8 — RESOLVED** in phase 05, step 05-01 (`87d1ee8`). `cargo xtask check-arch`
+now carries the `provisioned-marker` rule. It fails the build, naming `file:line`
+and D9, when any SQL `UPDATE` assigns `users.provisioned_at` anywhere except
+`crates/foundry-store/migrations/0017_users_provisioned_at.sql`:
+
+- **Scanned:** string literals in `.rs` files under `crates/`, excluding each
+  crate's `tests/`, and every `*.sql` migration.
+- **Not flagged:** comments; the provisioning INSERT; reads such as `IS NOT NULL`
+  and `WHERE` filters.
+- **Wider than asked:** `ON CONFLICT DO UPDATE SET provisioned_at` is flagged too.
+
+D9 is now enforced structurally as well as by DDD-27's store tests.
+
+**Tests:** 9 gold tests, with the aggregation test extended; `cargo test -p xtask`
+43/43; check-arch PASSED on the tree.
+
+**Seeded faults, 4 of 4 killed:** exemption widened, comment stripping removed,
+multi-line matching removed, rule not wired in.
+
+**Known limit:** an UPDATE split across separately concatenated Rust literals is not
+matched (scope: one SQL string).
+
+`des-verify-integrity`: all 14 steps complete.
