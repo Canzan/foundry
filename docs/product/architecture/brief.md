@@ -323,6 +323,20 @@ See `adr-canzan-theme-001-font-axis-instancing-and-subsetting.md`,
 `adr-canzan-theme-003-asset-integrity-guard-in-check-arch.md` and
 `adr-canzan-theme-004-token-seam-and-dark-block-parity.md`.
 
+### Every full page names the build serving it
+
+**Planned (release-version-footer build stamp, DESIGN 2026-10-04; ships in v0.8.0).** Today
+`base.html` ends every full page with `<footer class="site-footer">Foundry v<version></footer>`,
+where `<version>` is `views::RELEASE_VERSION` (`CARGO_PKG_VERSION`). US-RVF-02 adds the build. A new
+`crates/foundry-app/build.rs` bakes `FOUNDRY_BUILD_SHA` / `FOUNDRY_BUILD_DATE`, taking each from the
+`FOUNDRY_STAMP_*` input if it is non-blank, else from git, else `unknown`. It never fails the build,
+and its rerun directives keep the stamp fresh. The footer becomes
+`<footer class="site-footer" data-commit="<sha>">Foundry v<version> · <commit date></footer>`, rendered
+through a pure `views::SiteFooter` seam. The container build has no `.git`, so both publish
+workflows hand the commit in as build-args and refuse to publish if either value is empty. See
+`docs/feature/release-version-footer/feature-delta.md` (DESIGN, DDD-1..17). This note is replaced
+with the shipped wording at finalize.
+
 ### Crate graph
 
 ```mermaid

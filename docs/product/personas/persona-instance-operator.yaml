@@ -25,6 +25,7 @@ personas:
       - docs/feature/issue-edit-modal-close-icon/feature-delta.md
       - docs/feature/board-lane-management/feature-delta.md
       - docs/feature/canzan-theme-system/feature-delta.md
+      - docs/feature/release-version-footer/feature-delta.md
 
     situation: >
       Runs foundry on her own cluster alongside Grafana, Portainer, ArgoCD and
@@ -79,6 +80,7 @@ personas:
       - job-canzan-theme
       - job-issue-card-delete
       - job-board-card-move
+      - job-confirm-release-serving
 
   - id: persona-team-member-foil
     name: Marco

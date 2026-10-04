@@ -457,3 +457,70 @@ jobs:
         relation: >
           Sibling. Its popup delete (87282d3) made the board refresh an everyday
           action, turning a latent defect in this job's gesture into a daily one.
+
+  - id: job-confirm-release-serving
+    title: Confirm from the app itself that the build I just pushed is the one serving
+    job_story: >
+      When I push a release tag, I want to see which release the instance is
+      actually serving, so I know the rollout finished without checking Argo CD
+      or the pod image.
+    dimensions:
+      functional: >
+        Read, from any full page including the signed-out sign-in page, which
+        release the running binary is (US-RVF-01) and which commit and commit
+        date it was built from (US-RVF-02), in one page load.
+      emotional: >
+        Stop wondering whether the rollout landed. Stop trusting a version
+        number that reads the same for every build between two tags.
+      social: >
+        Not established by any wave. The persona runs a single-operator
+        instance, and nothing here claims an audience beyond her.
+    forces:
+      push: >
+        Before US-RVF-01, the app said nothing about what it was running. The
+        only checks were Argo CD or the pod image. After it, `Foundry v0.7.0`
+        names a release, not a build. Forgejo's build-and-publish.yml builds an
+        image on every push to main as well as on v* tags, so every build
+        between two tags (and a stale re-pulled image) reads identically.
+      pull: >
+        One glance at /sign-in, with no account and no cluster access. This is
+        canzan-lift's footer stamp (version · commit date, SHA in data-commit),
+        which already ships beside foundry.
+      anxiety: >
+        That the stamp lies with confidence (a stale SHA from a cached build),
+        reads `unknown` in production because the container build has no .git
+        (canzan-lift's fix-build-stamp-unknown-in-container RCA), or breaks the
+        build on a machine without git.
+      habit: >
+        She already verifies every rollout from the /sign-in footer (v0.6.0
+        through v0.7.0). The stamp must extend that check in place, without
+        moving the footer, changing the layout, or adding a step.
+    opportunity:
+      importance: medium
+      satisfaction: medium
+      note: >
+        Single-job feature; no comparative scoring table (the skill requires one
+        only when multiple jobs compete). Importance medium: it is a
+        verification aid, not a capability, but it is used on every release.
+        Satisfaction is medium after US-RVF-01, because the release check works
+        but the build check does not. US-RVF-02 targets the build check.
+        Registered retroactively on 2026-10-04: US-RVF-01 (2026-09-26) stated
+        this job in prose before this entry existed. That is not a back-fill of
+        an invented job; the job story above is US-RVF-01's own wording.
+    validated_by:
+      - docs/feature/release-version-footer/feature-delta.md
+    scope_history:
+      - date: 2026-09-26
+        by: docs/feature/release-version-footer/feature-delta.md
+        change: >
+          US-RVF-01: job stated and first satisfied for the RELEASE. A
+          site-wide footer reads `Foundry v<crate version>`. Shipped in v0.5.0.
+          A git SHA or build date was explicitly out of scope.
+      - date: 2026-10-04
+        by: docs/feature/release-version-footer/feature-delta.md
+        change: >
+          US-RVF-02: job WIDENED from the release to the BUILD. The footer adds
+          the commit date and carries the short SHA in data-commit, baked at
+          compile time from build-args, then git, then `unknown`. This lets the
+          operator spot a stale or dev build that shares a version number.
+          Targeted for v0.8.0.
