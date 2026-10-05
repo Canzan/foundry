@@ -59,7 +59,7 @@ Feature: Correcting a stale workspace name from the instance dashboard, with the
     And reopening the instance dashboard shows workspace "Household" and no longer "Bailey Family"
     And no other workspace's name changed
 
-  @us-iawr-01 @driving_port @real-io @pending @contract-shape:pure-function
+  @us-iawr-01 @driving_port @real-io @contract-shape:pure-function
   Scenario: Members read the new name in their sidebar on their next page
     Given Priya has renamed workspace "Bailey Family" to "Household"
     When Dana opens a page in her workspace
@@ -153,32 +153,32 @@ Feature: Correcting a stale workspace name from the instance dashboard, with the
 
   # --------------------------------------------------------- who may rename (D1)
 
-  @us-iawr-01 @error @security @real-io @pending @contract-shape:unbounded-preservation
+  @us-iawr-01 @error @security @real-io @contract-shape:unbounded-preservation
   Scenario: Only the instance admin can rename a workspace
     Given Marco is a signed-in member who is not an instance admin
     When Marco sends the rename for workspace "Bailey Family" to "Household"
     Then the answer is byte-identical to a never-existed address
     And workspace "Bailey Family" is unchanged with no rename on record
 
-  @us-iawr-01 @error @security @real-io @pending @contract-shape:unbounded-preservation
+  @us-iawr-01 @error @security @real-io @contract-shape:unbounded-preservation
   Scenario: A signed-out visitor cannot rename a workspace
     When a signed-out visitor sends a rename for workspace "Bailey Family"
     Then the answer is byte-identical to a never-existed address
     And workspace "Bailey Family" is unchanged with no rename on record
 
-  @us-iawr-01 @error @security @real-io @pending @contract-shape:unbounded-preservation
+  @us-iawr-01 @error @security @real-io @contract-shape:unbounded-preservation
   Scenario: A workspace rename that does not carry the dashboard's matching token is refused
     When a rename for workspace "Bailey Family" is submitted without the dashboard's matching token
     Then the workspace rename is refused before any change is made
     And workspace "Bailey Family" is unchanged with no rename on record
 
-  @us-iawr-01 @error @security @real-io @pending @contract-shape:unbounded-preservation
+  @us-iawr-01 @error @security @real-io @contract-shape:unbounded-preservation
   Scenario: A workspace rename aimed at a garbled workspace id is answered like a missing page
     When Priya sends a workspace rename aimed at the workspace id "not-a-uuid"
     Then the answer is byte-identical to a never-existed address
     And no workspace changed and nothing new went on record
 
-  @us-iawr-01 @error @security @real-io @pending @contract-shape:unbounded-preservation
+  @us-iawr-01 @error @security @real-io @contract-shape:unbounded-preservation
   Scenario: A workspace rename aimed at a workspace that does not exist is answered like a missing page
     When Priya sends a workspace rename aimed at a workspace id that matches nothing
     Then the answer is byte-identical to a never-existed address
@@ -186,7 +186,7 @@ Feature: Correcting a stale workspace name from the instance dashboard, with the
 
   # ------------------------------------------- what a rename must leave alone (guards)
 
-  @us-iawr-01 @guard @real-io @pending @contract-shape:unbounded-preservation
+  @us-iawr-01 @guard @real-io @contract-shape:unbounded-preservation
   Scenario: Renaming a workspace leaves the projects listed under it exactly as they were
     Given workspace "Bailey Family" has a team "Home" with project "Chores" (CHR)
     And Priya has noted the project rows listed under workspace "Canzan Labs"
@@ -195,7 +195,7 @@ Feature: Correcting a stale workspace name from the instance dashboard, with the
     Then she sees "Auth v2" and "Sandbox" under "Canzan Platform" and "Chores" under "Bailey Family"
     And the project rows listed under workspace "Canzan Platform" are byte-identical to before
 
-  @us-iawr-01 @guard @real-io @pending @contract-shape:unbounded-preservation
+  @us-iawr-01 @guard @real-io @contract-shape:unbounded-preservation
   Scenario: A workspace backup taken after a rename carries the new name and no rename record
     Given Priya has renamed workspace "Bailey Family" to "Household"
     When Priya exports workspace "Household" to a backup
