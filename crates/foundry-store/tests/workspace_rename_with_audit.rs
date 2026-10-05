@@ -6,15 +6,6 @@
 //! the row, compares, updates and appends in ONE transaction, reading `old_name`
 //! under the lock; `Store::probe` refuses a schema without the record.
 //!
-//! SCAFFOLD: true — DISTILL 2026-10-05 (DESIGN OQ-D2; DoD 2 and 5). Every test
-//! here is `#[ignore]`d until DELIVER writes 0018, the store method and the probe
-//! check. They compile today because they reach the new table through SQL only,
-//! and the new store method through [`rename_workspace_with_audit`], a shim that
-//! panics. DELIVER: replace the shim's body with a call to
-//! `store.rename_workspace_with_audit(workspace_id, actor_id, new_name)` mapping
-//! `WorkspaceRenameWrite` onto [`Write`] (or swap [`Write`] for the real enum),
-//! and remove the `#[ignore]`s one at a time.
-//!
 //! Not reachable over HTTP: the actor is always a real session user, so the
 //! forced audit-write failure (a non-existent `actor_id`) and the lock
 //! interleaving live here, not in the acceptance lane (OQ-D2).
@@ -29,7 +20,9 @@
 //! Real Postgres (testcontainers): the transaction, the row lock, the FK fault and
 //! the CHECK cannot be faked. Integration-level, example-based (Mandates 9/11).
 
-use foundry_store::{run_migrations, run_migrations_from_dir, Store};
+use foundry_store::{
+    run_migrations, run_migrations_from_dir, Store, WorkspaceRenameWrite as Write,
+};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 use std::collections::BTreeMap;
@@ -41,25 +34,17 @@ use testcontainers_modules::testcontainers::{ContainerAsync, ImageExt};
 
 const LEGACY_NAME: &str = "Canzan Labs Platform Engineering and Site Reliability";
 
-/// The outcome DESIGN pins for the store write (`WorkspaceRenameWrite`).
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum Write {
-    Renamed { old_name: String },
-    Unchanged,
-    NotFound,
-}
-
-/// SCAFFOLD: stands in for `Store::rename_workspace_with_audit` (DDD-2), which
-/// does not exist yet. `Err` carries the store error's text.
+/// The store's outcome (`WorkspaceRenameWrite`); `Err` carries the store error's text.
 async fn rename_workspace_with_audit(
-    _store: &Store,
-    _workspace_id: uuid::Uuid,
-    _actor_id: uuid::Uuid,
-    _new_name: &str,
+    store: &Store,
+    workspace_id: uuid::Uuid,
+    actor_id: uuid::Uuid,
+    new_name: &str,
 ) -> Result<Write, String> {
-    panic!(
-        "SCAFFOLD: Store::rename_workspace_with_audit (DDD-2) not yet implemented -- RED scaffold"
-    )
+    store
+        .rename_workspace_with_audit(workspace_id, actor_id, new_name)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 fn production_migrations_dir() -> PathBuf {
@@ -190,7 +175,6 @@ async fn fixture() -> Fixture {
 /// `workspaces.name`, so legacy names stay) — rewrites none of them, starts the
 /// record empty, and re-applying the set is a no-op.
 #[tokio::test]
-#[ignore = "SCAFFOLD: DELIVER writes migration 0018_workspace_rename_events"]
 async fn migration_0018_applies_cleanly_over_existing_workspaces_including_legacy_long_names() {
     let (pool, _container) = empty_pool().await;
     run_migrations_from_dir(&pool, &staged_migrations("0017"))
@@ -219,7 +203,6 @@ async fn migration_0018_applies_cleanly_over_existing_workspaces_including_legac
 /// DDD-5: the record's shape — columns, the two foreign keys and their delete
 /// actions, and the `(workspace_id, created_at)` index.
 #[tokio::test]
-#[ignore = "SCAFFOLD: DELIVER writes migration 0018_workspace_rename_events"]
 async fn the_rename_record_has_the_designed_columns_keys_and_index() {
     let (_store, pool, _container) = migrated().await;
     let columns: Vec<(String, String, String)> = sqlx::query_as(
@@ -275,7 +258,6 @@ async fn the_rename_record_has_the_designed_columns_keys_and_index() {
 /// D4 in the schema: a record whose old and new names are equal is refused by
 /// `CHECK (old_name <> new_name)` (SQLSTATE 23514), even written by hand.
 #[tokio::test]
-#[ignore = "SCAFFOLD: DELIVER writes migration 0018_workspace_rename_events"]
 async fn the_rename_record_refuses_an_entry_that_changes_nothing() {
     let f = fixture().await;
     let err = sqlx::query(
@@ -318,7 +300,6 @@ async fn the_rename_record_refuses_an_entry_that_changes_nothing() {
 /// one record — the old name from the row, the new name, the actor — and every
 /// other workspace is byte-identical.
 #[tokio::test]
-#[ignore = "SCAFFOLD: DELIVER writes Store::rename_workspace_with_audit and 0018"]
 async fn an_effective_rename_changes_one_name_and_appends_one_record() {
     let f = fixture().await;
     let before = workspace_names(&f.pool).await;
@@ -353,7 +334,6 @@ async fn an_effective_rename_changes_one_name_and_appends_one_record() {
 /// D4: the same name writes nothing — no UPDATE, no record — while a case-only
 /// change is a real rename.
 #[tokio::test]
-#[ignore = "SCAFFOLD: DELIVER writes Store::rename_workspace_with_audit and 0018"]
 async fn the_same_name_writes_nothing_and_a_case_change_is_a_rename() {
     let f = fixture().await;
     let before = workspace_names(&f.pool).await;
@@ -375,7 +355,6 @@ async fn the_same_name_writes_nothing_and_a_case_change_is_a_rename() {
 
 /// An unknown workspace writes nothing anywhere.
 #[tokio::test]
-#[ignore = "SCAFFOLD: DELIVER writes Store::rename_workspace_with_audit and 0018"]
 async fn an_unknown_workspace_writes_nothing() {
     let f = fixture().await;
     let before = workspace_names(&f.pool).await;
@@ -390,7 +369,6 @@ async fn an_unknown_workspace_writes_nothing() {
 /// fails the INSERT after the UPDATE — rolls the whole rename back: the name is
 /// unchanged and there is no record. A rename without its record never commits.
 #[tokio::test]
-#[ignore = "SCAFFOLD: DELIVER writes Store::rename_workspace_with_audit and 0018"]
 async fn a_failed_record_write_leaves_the_name_unchanged_and_nothing_on_record() {
     let f = fixture().await;
     let before = workspace_names(&f.pool).await;
@@ -417,7 +395,6 @@ async fn a_failed_record_write_leaves_the_name_unchanged_and_nothing_on_record()
 /// "Bailey Family" -> "Household" (a record that never matched the row), and one
 /// that does not lock at all finishes before the holder commits.
 #[tokio::test]
-#[ignore = "SCAFFOLD: DELIVER writes Store::rename_workspace_with_audit and 0018"]
 async fn the_old_name_on_record_is_the_one_read_under_the_lock() {
     let f = fixture().await;
     let mut holder = f.pool.begin().await.expect("begin holder");
@@ -469,7 +446,6 @@ async fn the_old_name_on_record_is_the_one_read_under_the_lock() {
 /// is the first's new name) and the final name is the last record's new name,
 /// whichever order they ran in.
 #[tokio::test]
-#[ignore = "SCAFFOLD: DELIVER writes Store::rename_workspace_with_audit and 0018"]
 async fn concurrent_renames_serialize_into_a_chain_of_records() {
     let f = fixture().await;
     let (a, b) = tokio::join!(
@@ -505,7 +481,6 @@ async fn concurrent_renames_serialize_into_a_chain_of_records() {
 /// DDD-11: a schema missing the record fails the readiness probe instead of
 /// turning the first rename into a 500.
 #[tokio::test]
-#[ignore = "SCAFFOLD: DELIVER extends Store::probe for 0018"]
 async fn the_probe_refuses_a_schema_without_the_rename_record() {
     let (store, pool, _container) = migrated().await;
     store

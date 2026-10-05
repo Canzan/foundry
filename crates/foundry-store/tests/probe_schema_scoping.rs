@@ -101,6 +101,10 @@ async fn probe_column_check_is_scoped_to_current_schema() {
             // (keycloak-sso DDD-32); the healthy schema carries it.
             "CREATE TABLE sibling.users (id uuid PRIMARY KEY, password_hash text, \
          provisioned_at timestamptz)",
+            // ...and migration 0018's workspace_rename_events (DDD-11).
+            "CREATE TABLE sibling.workspace_rename_events (id uuid PRIMARY KEY, \
+         workspace_id uuid, actor_id uuid, old_name text, new_name text, \
+         created_at timestamptz)",
         ],
     )
     .await;
@@ -151,6 +155,10 @@ async fn probe_refuses_a_schema_without_the_provisioned_marker() {
             "CREATE TABLE pre_0017.users (id uuid PRIMARY KEY, password_hash text)".to_string(),
             "CREATE TABLE current.users (id uuid PRIMARY KEY, password_hash text, \
              provisioned_at timestamptz)"
+                .to_string(),
+            "CREATE TABLE current.workspace_rename_events (id uuid PRIMARY KEY, \
+             workspace_id uuid, actor_id uuid, old_name text, new_name text, \
+             created_at timestamptz)"
                 .to_string(),
         ])
         .collect();

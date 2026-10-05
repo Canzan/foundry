@@ -278,6 +278,25 @@ impl Store {
                 "users table missing migration-0017 column provisioned_at".to_string(),
             ));
         }
+        // instance-admin-workspace-rename DDD-11: the rename writes
+        // `workspace_rename_events` in its transaction; against a pre-0018
+        // schema refuse readiness rather than turn the first rename into a 500.
+        let rename_cols: (i64,) = sqlx::query_as(
+            "SELECT count(*)::bigint
+               FROM information_schema.columns
+              WHERE table_schema = current_schema()
+                AND table_name = 'workspace_rename_events'
+                AND column_name IN ('id', 'workspace_id', 'actor_id',
+                                    'old_name', 'new_name', 'created_at')",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        if rename_cols.0 < 6 {
+            return Err(ProbeError::Failed(format!(
+                "workspace_rename_events missing migration-0018 columns (found {} of 6)",
+                rename_cols.0
+            )));
+        }
         Ok(ProbeReport {
             select_one_ok: true,
             round_trip_ms: started.elapsed().as_millis(),
@@ -1378,6 +1397,54 @@ impl Store {
             .fetch_optional(&self.pool)
             .await?;
         Ok(row.map(|r| r.0))
+    }
+
+    /// Rename a workspace and append its `workspace_rename_events` record in ONE
+    /// transaction (instance-admin-workspace-rename DDD-2/3, ADR-WORKSPACE-RENAME-001).
+    ///
+    /// The current name is read `FOR UPDATE`, so concurrent renames serialize and
+    /// the record's `old_name` is always the value the row held under the lock.
+    /// That locked read is authoritative for the no-op: a byte-equal name writes
+    /// nothing ([`WorkspaceRenameWrite::Unchanged`]); a case-only change is a
+    /// rename. An unknown workspace writes nothing ([`WorkspaceRenameWrite::NotFound`]).
+    /// A failed record INSERT (e.g. an unknown actor) drops the transaction, so
+    /// the name rolls back with it. Instance-scoped by design (DDD-12).
+    pub async fn rename_workspace_with_audit(
+        &self,
+        workspace_id: uuid::Uuid,
+        actor_id: uuid::Uuid,
+        new_name: &str,
+    ) -> Result<WorkspaceRenameWrite, StoreError> {
+        let mut tx = self.pool.begin().await?;
+        let locked: Option<(String,)> =
+            sqlx::query_as("SELECT name FROM workspaces WHERE id = $1 FOR UPDATE")
+                .bind(workspace_id)
+                .fetch_optional(&mut *tx)
+                .await?;
+        let Some((old_name,)) = locked else {
+            return Ok(WorkspaceRenameWrite::NotFound);
+        };
+        if old_name == new_name {
+            return Ok(WorkspaceRenameWrite::Unchanged);
+        }
+        sqlx::query("UPDATE workspaces SET name = $2 WHERE id = $1")
+            .bind(workspace_id)
+            .bind(new_name)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query(
+            "INSERT INTO workspace_rename_events (id, workspace_id, actor_id, old_name, new_name)
+                  VALUES ($1, $2, $3, $4, $5)",
+        )
+        .bind(uuid::Uuid::now_v7())
+        .bind(workspace_id)
+        .bind(actor_id)
+        .bind(&old_name)
+        .bind(new_name)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(WorkspaceRenameWrite::Renamed { old_name })
     }
 
     /// List every workspace `user_id` is a member of, as `(id, name)` ordered by
@@ -3203,6 +3270,18 @@ pub enum RepositionOutcome {
     IssueNotFound,
     /// The `after` neighbour does not resolve within the target column (R3).
     NeighbourNotFound,
+}
+
+/// Outcome of [`Store::rename_workspace_with_audit`] (DDD-2). Only `Renamed`
+/// wrote anything: the new name plus exactly one `workspace_rename_events` row.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WorkspaceRenameWrite {
+    /// The name changed; `old_name` is the value read under the row lock.
+    Renamed { old_name: String },
+    /// The locked name is byte-equal to the requested one; nothing written.
+    Unchanged,
+    /// No workspace has this id; nothing written.
+    NotFound,
 }
 
 /// The current `title` + `description_md` of an issue, read for the edit-dialog
