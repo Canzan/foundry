@@ -2,17 +2,16 @@
 
 ## Current Task
 
-The release-version-footer build stamp (US-RVF-02) shipped in v0.8.0 (`a610dd9`). The dev footer reads `Foundry v0.8.0 · 2026-10-04` with `data-commit="a610dd9"`; prod verified on v0.8.0 with the same stamp (AC-8 met). Follow-ups are done: a pure, tested `ref_watch_path` with the climb bounded at `refs` (`c883b6e`), and 4 publish-stamp fixtures (`c61eb9c`). Build-stamp mutation is 66/66. canzan-lift v0.4.2 (the stale-stamp fix, `c30ec4a4`) is live on dev.
+`instance-admin-workspace-rename` shipped in v0.9.0 (`da9fb91`). Instance admins rename a workspace from `/admin/instance/workspaces`; each rename is audited in `workspace_rename_events` (migration 0018), and the sidebar brand is one line with an ellipsis. Gates: 27/27 scenarios, mutation 14/14, CI 937/938 (sqlx flake, rerun green). Dev footer `Foundry v0.9.0 · 2026-10-05`, `data-commit="da9fb91"`; prod is still on v0.8.0, awaiting approval.
 
 ## Key Decisions
 
-- `build.rs` stamps from `FOUNDRY_STAMP_*`, then git, then `unknown`. It watches the refs dir when the branch ref is packed, and never climbs above `refs`.
-- Both publish workflows stamp images and refuse empty values. check-arch `publish-stamp:` enforces this. The Forgejo runner has git (OQ-D4 resolved).
+- The rename and its audit row are one transaction under a row lock; a same-name submission writes nothing. Rename records stay out of per-workspace exports (TENANT_TABLES stays at ten).
+- The 24-character cap applies to the rename path only; there is no CHECK on `workspaces.name` (D10).
 - Prod (`foundry.jeffbailey.us`) is held for approval by design. A lagging prod footer means "awaiting approval".
 
 ## Next Steps
 
-- In progress, uncommitted, not started by this session: `instance-admin-workspace-rename`. DISCUSS and DESIGN are written (2026-10-05, migration 0018, ADR-workspace-rename-001/002, plus brief, jobs and persona edits). Next is DISTILL; resume with `/nw:continue`.
-- Approve canzan-lift v0.4.2 for prod.
-- OQ-10 closed: prod sets `foundry-member` but never provisioned an account (1 user, created 2026-08-22). Still owed: one manual Keycloak sign-in.
-- The user owes card-pointer-drag device evidence. New work starts with `/nw:new`.
+- Approve foundry v0.9.0 and canzan-lift v0.4.2 for prod, then check the prod footer `data-commit="da9fb91"`.
+- Follow-up B, `instance-workspace-name-rule`: the 24-character rule for provisioning, bootstrap and the CLI, and possibly a rule against control characters. Then follow-up D, `CHECK … NOT VALID`.
+- Still owed by the user: one manual Keycloak sign-in, and the card-pointer-drag device evidence.
