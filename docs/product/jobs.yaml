@@ -83,6 +83,58 @@ jobs:
         treatment.
     validated_by: docs/feature/instance-admin-project-rename/feature-delta.md
 
+  - id: job-instance-workspace-rename
+    title: Correct a workspace's name from the instance dashboard, with the change on record
+    job_story: >
+      When a workspace's name no longer says what the workspace is ("Bailey
+      Family" became the shared household-operations space), I want to
+      correct it from the instance dashboard and keep a record of the change,
+      so every member's sidebar reads right and I can later answer "who
+      renamed this, and what was it called before?" without opening a
+      production database session.
+    dimensions:
+      functional: >
+        Change any workspace's display name safely (authz, CSRF, a length rule
+        that keeps the sidebar legible), with each effective change recorded
+        as actor, old name, new name, and time.
+      emotional: >
+        Stop wincing at a wrong label every member reads on every page, and
+        stop fixing it with an untraceable hand-typed UPDATE.
+      social: >
+        Members see a workspace named for what it is now; a second
+        super-admin can see who changed it and from what.
+    forces:
+      push: >
+        The only path is SQL against production: no length rule (the 240px
+        sidebar brand has no truncation, so a long name breaks the shell) and
+        no trace of who renamed what. Since multi-workspace tenancy (0009)
+        there can be several workspaces, and more than one super-admin.
+      pull: >
+        The same inline row rename already shipped for projects on the same
+        dashboard, plus an audit entry the operator can query.
+      anxiety: >
+        That renaming disturbs members' sessions, invites or URLs (it does
+        not: workspaces have no slug; the id is the identity), or that a
+        rename lands without its audit entry.
+      habit: >
+        psql is fast for a single operator. The web path must be safer
+        (validation, authz, audit), not merely prettier.
+    opportunity:
+      importance: medium
+      satisfaction: low
+      note: >
+        Single-job feature; no comparative scoring table. Sibling of
+        job-instance-project-rename rather than a widening of it: the object
+        differs (the tenant label every member sees in the shell) and the job
+        adds accountability (audit), which the project job explicitly left
+        out.
+    validated_by: docs/feature/instance-admin-workspace-rename/feature-delta.md
+    relates_to:
+      - job: job-instance-project-rename
+        relation: >
+          Sibling. Same operator, same dashboard, same row-rename idiom; this
+          job owns the workspace label and adds an append-only rename record.
+
   - id: job-dismiss-edit-dialog
     title: Back out of an issue's edit dialog without saving, the way every other app allows
     job_story: >

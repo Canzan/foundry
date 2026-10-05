@@ -26,6 +26,7 @@ personas:
       - docs/feature/board-lane-management/feature-delta.md
       - docs/feature/canzan-theme-system/feature-delta.md
       - docs/feature/release-version-footer/feature-delta.md
+      - docs/feature/instance-admin-workspace-rename/feature-delta.md
 
     situation: >
       Runs foundry on her own cluster alongside Grafana, Portainer, ArgoCD and
@@ -75,6 +76,7 @@ personas:
     pains_addressed_to_date:
       - job-sso-signin
       - job-instance-project-rename
+      - job-instance-workspace-rename
       - job-dismiss-edit-dialog
       - job-board-lane-shaping
       - job-canzan-theme

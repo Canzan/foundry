@@ -107,6 +107,18 @@ defining `fn slugify(` under `crates/foundry-app/src` fails the build.
 See `adr-project-rename-001-request-slugs-not-derived.md` and
 `adr-project-rename-002-rename-write-placement.md`.
 
+A workspace's `name` is likewise a display label. Workspaces have no slug, so a
+rename moves no URL. An instance-admin rename (`instance-admin-workspace-rename`,
+designed 2026-10-05) is the first audited label change. `Store::rename_workspace_with_audit`
+locks the row, updates the name and appends one `workspace_rename_events` row
+(migration 0018) in one transaction. The audit's `old_name` comes from the locked
+read, and a same-name submission writes nothing (also enforced by
+`CHECK (old_name <> new_name)`). The audit rows are instance records. They are
+deliberately **not** in the per-workspace export: `TENANT_TABLES` stays at ten,
+because the actor is usually a non-member and would break the archive's
+membership-bounded `users` closure. See `adr-workspace-rename-001-audited-rename-transaction.md`
+and `adr-workspace-rename-002-rename-audit-not-tenant-export.md`.
+
 ### Dialog layers close by one mechanism, many declarative triggers
 
 Dialogs are `div.modal` fragments htmx-swaps into `#modal-root`; "closed" is a
