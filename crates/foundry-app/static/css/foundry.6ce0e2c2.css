@@ -993,8 +993,17 @@ kbd {
   color: var(--cz-on-black);
   font-size: 13px;
   font-weight: 700;
+  /* The workspace name beside it may shrink to nothing; the monogram never does. */
+  flex-shrink: 0;
 }
+/* instance-admin-workspace-rename (D6): a legacy name of any length stays on ONE
+   line and ends in an ellipsis; the span's `title` carries the full name.
+   `min-width: 0` lets it shrink inside the brand's flex row instead of widening it. */
 .sidebar__workspace {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   font-size: 14px;
   color: var(--cz-text);
 }
@@ -1243,6 +1252,12 @@ kbd {
     padding: 8px 12px;
     border-right: none;
     border-bottom: 1px solid var(--cz-line);
+  }
+  /* The brand is a flex item of the wrapping top bar: bound it to the bar's width
+     so a no-wrap workspace name truncates instead of widening the page (OQ-D3). */
+  .sidebar__brand {
+    min-width: 0;
+    max-width: 100%;
   }
   .sidebar__nav {
     flex-direction: row;

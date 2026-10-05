@@ -226,7 +226,7 @@ Feature: Correcting a stale workspace name from the instance dashboard, with the
     When she renames the "Bailey Family" workspace to "Household" in her browser
     Then that workspace's row shows "Household" without the page reloading
 
-  @us-iawr-01 @needs-browser @edge @kpi @real-io @pending @contract-shape:pure-function
+  @us-iawr-01 @needs-browser @edge @kpi @real-io @contract-shape:pure-function
   Scenario Outline: A long workspace name stays on one line in the sidebar
     Given workspace "Canzan Labs Platform Engineering and Site Reliability" exists with no projects
     And Lena is a member of workspace "Canzan Labs Platform Engineering and Site Reliability"
