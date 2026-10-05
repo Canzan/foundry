@@ -36,7 +36,7 @@ use crate::csrf::{build_csrf_cookie, generate_token};
 use crate::session::SESSION_KEY_USER_ID;
 use crate::views::{
     InstanceDashboardPage, InstanceGrantConfirmedFragment, InstanceProjectRowView,
-    InstanceProvisionedFragment, InstanceWorkspaceRow,
+    InstanceProvisionedFragment, InstanceWorkspaceHeadView, InstanceWorkspaceRow,
 };
 use crate::AppState;
 use askama::Template;
@@ -92,7 +92,7 @@ pub async fn show_dashboard(
             .into_iter()
             .map(|(id, name)| InstanceWorkspaceRow {
                 workspace_id: id.to_string(),
-                name,
+                head: workspace_head_view(id, name, csrf.clone()),
                 projects: projects_by_workspace.remove(&id).unwrap_or_default(),
             })
             .collect(),
@@ -152,6 +152,20 @@ fn project_row_view(
         name: row.name,
         key_prefix: row.key_prefix,
         team_name: row.team_name,
+        csrf,
+    }
+}
+
+/// The workspace row's head view-model — the SAME shape whether rendered by the
+/// dashboard loop or returned bare as the rename's 200 fragment (DDD-7).
+fn workspace_head_view(
+    workspace_id: uuid::Uuid,
+    name: String,
+    csrf: String,
+) -> InstanceWorkspaceHeadView {
+    InstanceWorkspaceHeadView {
+        workspace_id: workspace_id.to_string(),
+        name,
         csrf,
     }
 }
@@ -433,16 +447,80 @@ pub async fn submit_project_rename(
             resource_not_found_page()
         }
         // Handler-owned copy, service-owned classification (D4/D6 verbatim).
-        Err(RenameProjectError::EmptyName) => {
-            rename_error_fragment("Project name must not be empty")
-        }
-        Err(RenameProjectError::NameTooLong) => {
-            rename_error_fragment("Project name must be at most 256 characters")
-        }
-        Err(RenameProjectError::DuplicateName) => {
-            rename_error_fragment("Project name must be unique within the team")
-        }
+        Err(RenameProjectError::EmptyName) => rename_error_fragment(
+            PROJECT_RENAME_ERROR_MARKER,
+            "Project name must not be empty",
+        ),
+        Err(RenameProjectError::NameTooLong) => rename_error_fragment(
+            PROJECT_RENAME_ERROR_MARKER,
+            "Project name must be at most 256 characters",
+        ),
+        Err(RenameProjectError::DuplicateName) => rename_error_fragment(
+            PROJECT_RENAME_ERROR_MARKER,
+            "Project name must be unique within the team",
+        ),
         Err(RenameProjectError::Store(err)) => internal_error("rename_project", err),
+    }
+}
+
+// ===========================================================================
+// instance-admin-workspace-rename — the workspace rename write surface
+// (feature-delta.md DESIGN DDD-1/7/8). Same mount and HTTP-only mapping as the
+// project rename above; classification is service-owned
+// (`foundry_services::workspaces`).
+// ===========================================================================
+
+/// `POST /admin/instance/workspaces/{workspace_id}/rename` — correct a
+/// workspace's display name in place, with the change on record (US-IAWR-01).
+///
+/// `Path<String>` parsed to `Uuid` IN the handler: a malformed id, a non-admin,
+/// and an unknown id all render the SAME uniform 404 (no enumeration oracle).
+/// Success and no-op answer 200 with the bare head partial rendered from the
+/// outcome's name (DDD-8, no re-read); validation refusals answer 422 with the
+/// bare `ErrorFragment` (marker `workspace-rename-error`) carrying the D3 copy.
+pub async fn submit_workspace_rename(
+    State(state): State<AppState>,
+    axum::extract::Path(workspace_id): axum::extract::Path<String>,
+    session: Session,
+    headers: HeaderMap,
+    axum::extract::Form(form): axum::extract::Form<RenameForm>,
+) -> Response {
+    let Some(admin) = require_instance_admin(&state, &session).await else {
+        return resource_not_found_page();
+    };
+    let Ok(workspace_id) = workspace_id.parse::<uuid::Uuid>() else {
+        return resource_not_found_page();
+    };
+    let services = foundry_services::Services::new(state.store.clone());
+    let outcome = services
+        .rename_workspace(foundry_services::workspaces::RenameWorkspaceRequest {
+            acting_user_id: admin.user_id,
+            workspace_id,
+            new_name: &form.name,
+        })
+        .await;
+    use foundry_services::workspaces::{RenameWorkspaceError, WorkspaceRenameOutcome};
+    match outcome {
+        Ok(WorkspaceRenameOutcome::Renamed { name })
+        | Ok(WorkspaceRenameOutcome::NoOp { name }) => {
+            let (csrf, set_cookie) = ensure_csrf_cookie(&state, &headers);
+            match workspace_head_view(workspace_id, name, csrf).render() {
+                Ok(html) => html_with_optional_cookie(html, set_cookie),
+                Err(err) => internal_error("render instance_workspace_head", err),
+            }
+        }
+        Err(RenameWorkspaceError::Forbidden) | Err(RenameWorkspaceError::NotFound) => {
+            resource_not_found_page()
+        }
+        Err(RenameWorkspaceError::EmptyName) => rename_error_fragment(
+            WORKSPACE_RENAME_ERROR_MARKER,
+            "Workspace name must not be empty",
+        ),
+        Err(RenameWorkspaceError::NameTooLong) => rename_error_fragment(
+            WORKSPACE_RENAME_ERROR_MARKER,
+            "Workspace name must be at most 24 characters",
+        ),
+        Err(RenameWorkspaceError::Store(err)) => internal_error("rename_workspace", err),
     }
 }
 
@@ -472,12 +550,16 @@ async fn render_project_row_fragment(
     }
 }
 
+/// The byte-stable scraper markers of the two rename surfaces' 422 fragments.
+const PROJECT_RENAME_ERROR_MARKER: &str = "project-rename-error";
+const WORKSPACE_RENAME_ERROR_MARKER: &str = "workspace-rename-error";
+
 /// The 422 refusal: the SHARED bare `error_fragment.html` parameterized with
-/// the byte-stable `project-rename-error` marker (form-errors.js routes it
-/// into the submitting row's `[data-error-slot]`, D6).
-fn rename_error_fragment(message: &str) -> Response {
+/// the surface's byte-stable marker (form-errors.js routes it into the
+/// submitting row's `[data-error-slot]`, D6).
+fn rename_error_fragment(marker: &str, message: &str) -> Response {
     let body = crate::views::ErrorFragment {
-        fragment_marker: "project-rename-error".to_string(),
+        fragment_marker: marker.to_string(),
         message: message.to_string(),
     }
     .render()
@@ -507,7 +589,10 @@ mod response_helper_tests {
     /// `[data-error-slot]`, D6) and the exact copy the handler chose.
     #[tokio::test]
     async fn rename_error_fragment_is_a_422_with_marker_and_copy() {
-        let resp = rename_error_fragment("Project name must not be empty");
+        let resp = rename_error_fragment(
+            PROJECT_RENAME_ERROR_MARKER,
+            "Project name must not be empty",
+        );
         assert_eq!(
             resp.status(),
             StatusCode::UNPROCESSABLE_ENTITY,

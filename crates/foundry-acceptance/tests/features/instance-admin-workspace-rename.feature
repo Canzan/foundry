@@ -52,7 +52,7 @@ Feature: Correcting a stale workspace name from the instance dashboard, with the
 
   # ----------------------------------------------- correcting the name (happy path)
 
-  @us-iawr-01 @driving_port @real-io @pending @contract-shape:bounded-change
+  @us-iawr-01 @driving_port @real-io @contract-shape:bounded-change
   Scenario: A stale workspace name is corrected from the dashboard
     When Priya renames workspace "Bailey Family" to "Household"
     Then the workspace row she gets back shows "Household"
@@ -67,13 +67,13 @@ Feature: Correcting a stale workspace name from the instance dashboard, with the
     And the workspace name's hover title reads "Household"
     And Dana is still a member of the same workspace
 
-  @us-iawr-01 @driving_port @real-io @kpi @pending @contract-shape:bounded-change
+  @us-iawr-01 @driving_port @real-io @kpi @contract-shape:bounded-change
   Scenario: Every rename is on record with who, what, and when
     When Priya renames workspace "Bailey Family" to "Household"
     Then workspace "Household" has exactly 1 rename on record
     And the latest rename on record for workspace "Household" names Priya, from "Bailey Family" to "Household", at the time of the rename
 
-  @us-iawr-01 @edge @real-io @pending @contract-shape:bounded-change
+  @us-iawr-01 @edge @real-io @contract-shape:bounded-change
   Scenario: Changing only the letter case is a real rename and goes on record
     Given Priya has renamed workspace "Bailey Family" to "Household"
     When Priya renames workspace "Household" to "household"

@@ -613,3 +613,4 @@ pub mod issues;
 pub mod lanes;
 pub mod projects;
 pub mod tokens;
+pub mod workspaces;

@@ -1338,6 +1338,23 @@ pub struct InstanceProjectRowView {
     pub csrf: String,
 }
 
+/// The head of one workspace row on the instance dashboard
+/// (instance-admin-workspace-rename DDD-7): the name, the rename form, and its
+/// error slot. Rendered by the dashboard loop AND returned bare as the rename's
+/// 200 fragment, swapped by `outerHTML` so nested project rows are untouched.
+/// The `data-workspace-head` / `data-workspace-name` markers and the
+/// `workspace-rename-error-{id}` slot are the acceptance scraper contract.
+#[derive(Debug, Clone, Template)]
+#[template(path = "partials/instance_workspace_head.html")]
+pub struct InstanceWorkspaceHeadView {
+    /// The workspace id — the form's action URL and the error-slot id.
+    pub workspace_id: String,
+    /// The display name (auto-escaped) — `data-workspace-name` and the input.
+    pub name: String,
+    /// The double-submit CSRF token — hidden `_csrf` in the rename form.
+    pub csrf: String,
+}
+
 /// A single existing-workspace row on the instance dashboard
 /// (`GET /admin/instance/workspaces`, web-provisioning-flow 01-02). Carries the
 /// workspace id + name the thin `list_workspaces` read returned; both rendered
@@ -1347,8 +1364,10 @@ pub struct InstanceProjectRowView {
 pub struct InstanceWorkspaceRow {
     /// The workspace id — `data-workspace-id` marker + visible id.
     pub workspace_id: String,
-    /// The workspace name (auto-escaped) — visible in the row.
-    pub name: String,
+    /// The row's head (name, rename form, error slot) — the SAME partial the
+    /// rename answers with as its 200 fragment (instance-admin-workspace-rename
+    /// DDD-7, the one-partial rule).
+    pub head: InstanceWorkspaceHeadView,
     /// Every project in this workspace, ordered by name — the per-workspace
     /// slice of the ONE instance-wide `list_projects_for_instance` read
     /// (instance-admin-project-rename 01-01; no per-workspace N+1). Empty

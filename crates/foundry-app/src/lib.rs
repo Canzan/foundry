@@ -756,6 +756,14 @@ pub fn build_router(state: AppState) -> Router {
             "/admin/instance/projects/{project_id}/rename",
             post(instance_admin::submit_project_rename),
         )
+        // instance-admin-workspace-rename (DDD-1/7) — the per-workspace rename
+        // POST, beside the project rename: same mount (UNDER `csrf_middleware`
+        // + `session_layer`), Path<String> parsed in the handler so a malformed
+        // id gets the SAME uniform 404 as a non-admin.
+        .route(
+            "/admin/instance/workspaces/{workspace_id}/rename",
+            post(instance_admin::submit_workspace_rename),
+        )
         .route("/", get(signin::dashboard_root))
         // Non-enumerability (ADR-002, web-provisioning-flow): a path with NO
         // route is refused with the SAME uniform `resource_not_found_page()` the
