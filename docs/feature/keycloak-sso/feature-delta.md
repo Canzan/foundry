@@ -2037,3 +2037,21 @@ multi-line matching removed, rule not wired in.
 matched (scope: one SQL string).
 
 `des-verify-integrity`: all 14 steps complete.
+
+### [REF] OQ-10 — RESOLVED (2026-10-04, checked on production)
+
+Production does set the provision role: the `foundry` ConfigMap on the k3s-canzan-core
+cluster (`foundry.jeffbailey.us`) has `FOUNDRY_OIDC_PROVISION_ROLE = foundry-member`, wired
+by the homelab Terraform. **Provisioning never created an account there**, so migration
+0017's backfill marked zero rows. Evidence, from a read-only query on CNPG `pg-1`, database
+`foundry`, migrations through 17 applied:
+
+- 1 user in total, with a password and `provisioned_at IS NULL`.
+- That user was created 2026-08-22, before provisioning existed (D3a shipped in v0.6.0 on
+  2026-10-03), so it cannot have been provisioned and then reset.
+- 0 password-less accounts, 0 accounts marked provisioned.
+- 0 `oidc identity provisioned` log lines (the pod started 2026-10-04 20:22Z, so the log
+  window is short; the database facts above are conclusive regardless).
+
+From now on, any account created by Keycloak sign-in on production is provisioned, and needs
+`foundry-member` at every Keycloak sign-in (D3b).

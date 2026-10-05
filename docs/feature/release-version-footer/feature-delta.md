@@ -1058,3 +1058,10 @@ is outside cargo-mutants' reach, so its `stamp` and path-choice mutants were han
   canzan-lift's `ref_watch_path` (`c30ec4a4`), and unit-test it.
 - Four xtask fixture gaps: the backtick `date` form; a Dockerfile stage before `builder`; the
   refusal-line boundary; a dropped stamp ARG.
+
+### [REF] AC-8 — production footer verified (2026-10-04)
+
+Production (`foundry.jeffbailey.us`) runs `zot.jeffbailey.us/foundry:v0.8.0`. Its `/sign-in`
+footer reads `<footer class="site-footer" data-commit="a610dd9">Foundry v0.8.0 · 2026-10-04</footer>`,
+which matches `git log -1 --format='%h %cd' --date=short v0.8.0`. The published image carries the
+real stamp, not `unknown`. **AC-8: MET.**
