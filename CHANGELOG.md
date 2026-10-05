@@ -7,8 +7,11 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 
 ## [Unreleased]
 
+## [v0.9.0] - 2026-10-05
+
 An instance admin can now rename a workspace from the dashboard, and every rename
-is on record (instance-admin-workspace-rename).
+is on record (instance-admin-workspace-rename). `git log v0.8.0..v0.9.0` is the full
+list.
 
 ### Added
 
@@ -414,7 +417,8 @@ followed it.
 - A `comments_visible` SQL VIEW for defense-in-depth against missed
   soft-delete filters is deferred to v0.3 (ADR-017).
 
-[Unreleased]: https://github.com/Canzan/foundry/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/Canzan/foundry/compare/v0.9.0...HEAD
+[v0.9.0]: https://github.com/Canzan/foundry/compare/v0.8.0...v0.9.0
 [v0.8.0]: https://github.com/Canzan/foundry/compare/v0.7.0...v0.8.0
 [v0.7.0]: https://github.com/Canzan/foundry/compare/v0.6.2...v0.7.0
 [v0.6.2]: https://github.com/Canzan/foundry/compare/v0.6.1...v0.6.2
