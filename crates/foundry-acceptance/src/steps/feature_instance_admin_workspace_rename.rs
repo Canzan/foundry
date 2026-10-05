@@ -1010,14 +1010,69 @@ async fn backup_passes_verification(world: &mut FoundryWorld) {
 // @needs-browser — the dashboard row (D9) and the sidebar (D6, OQ-D3)
 // ===========================================================================
 
-fn head_css(workspace_id: uuid::Uuid) -> String {
-    format!(r#"[data-workspace-row][data-workspace-id="{workspace_id}"] [data-workspace-head]"#)
+fn row_css(workspace_id: uuid::Uuid) -> String {
+    format!(r#"[data-workspace-row][data-workspace-id="{workspace_id}"]"#)
 }
+
+fn head_css(workspace_id: uuid::Uuid) -> String {
+    format!("{} [data-workspace-head]", row_css(workspace_id))
+}
+
+/// Node-identity probe (DDD-7). Before each browser submit, plant a JS expando
+/// on the target `<li data-workspace-row>`, on every child of it OTHER than
+/// the head (the project list, or the "No projects yet." line), and on the
+/// head itself. A server render can never carry an expando, so after a 200:
+/// the row and its non-head children must still hold theirs (same DOM nodes —
+/// not re-rendered), while the head must NOT (it was swapped). This catches a
+/// whole-`<li>` swap even for a workspace with no projects. Returns the number
+/// of tagged non-head children so the step can refuse a vacuous plant.
+const ROW_IDENTITY_PLANT: &str = "var li = document.querySelector(arguments[0]);
+     if (!li) { return -1; }
+     li.__iawr_node = 'kept';
+     var n = 0;
+     for (var i = 0; i < li.children.length; i++) {
+       var c = li.children[i];
+       if (c.hasAttribute('data-workspace-head')) { c.__iawr_node = 'head'; }
+       else { c.__iawr_node = 'kept'; n++; }
+     }
+     return n;";
+
+/// Reads back the expandos planted by [`ROW_IDENTITY_PLANT`]:
+/// `[row kept?, non-head children all kept?, non-head child count, head still the old node?]`.
+const ROW_IDENTITY_PROBE: &str = "var li = document.querySelector(arguments[0]);
+     if (!li) { return [false, false, 0, true]; }
+     var kept = true, n = 0, oldHead = false;
+     for (var i = 0; i < li.children.length; i++) {
+       var c = li.children[i];
+       if (c.hasAttribute('data-workspace-head')) { if (c.__iawr_node === 'head') { oldHead = true; } }
+       else { n++; if (c.__iawr_node !== 'kept') { kept = false; } }
+     }
+     return [li.__iawr_node === 'kept', kept, n, oldHead];";
+
+/// Text of the whole page with the target row cut out (scripts and templates
+/// dropped) — where a refusal message must NOT appear.
+const TEXT_OUTSIDE_ROW: &str = "var clone = document.body.cloneNode(true);
+     var li = clone.querySelector(arguments[0]);
+     if (li) { li.remove(); }
+     clone.querySelectorAll('script, template').forEach(function (e) { e.remove(); });
+     return [li !== null, clone.textContent];";
 
 async fn submit_in_browser(world: &mut FoundryWorld, label: &str, typed: &str) {
     let target = resolve(world, label).await;
     world.iawr_target = Some(target);
     let browser = world.browser.as_ref().expect("browser session");
+    let tagged = browser
+        .execute(
+            ROW_IDENTITY_PLANT,
+            vec![serde_json::Value::String(row_css(target))],
+        )
+        .await
+        .expect("plant the row-identity expandos");
+    assert!(
+        tagged.as_i64().unwrap_or(-1) >= 1,
+        "the {label:?} row must hold content beside its head to prove the swap leaves it alone; \
+         plant returned {tagged:?}"
+    );
     let head = browser
         .wait()
         .at_most(Duration::from_secs(10))
@@ -1093,6 +1148,31 @@ async fn row_swapped_in_place(world: &mut FoundryWorld, name: String) {
         Some("alive"),
         "the row swap must NOT be a full reload"
     );
+    let probe = browser
+        .execute(
+            ROW_IDENTITY_PROBE,
+            vec![serde_json::Value::String(row_css(target))],
+        )
+        .await
+        .expect("probe the row's node identity");
+    let v = probe
+        .as_array()
+        .expect("the identity probe returns an array");
+    let flag = |i: usize| v[i].as_bool().unwrap_or(false);
+    assert!(
+        flag(0),
+        "only the head may be re-rendered: the workspace's <li data-workspace-row> must be \
+         the SAME DOM node as before the rename, not a re-rendered one (DDD-7); probe = {v:?}"
+    );
+    assert!(
+        flag(1) && v[2].as_u64().unwrap_or(0) >= 1,
+        "only the head may be re-rendered: the row's content beside the head must be the \
+         SAME DOM nodes as before the rename (DDD-7); probe = {v:?}"
+    );
+    assert!(
+        !flag(3),
+        "the head must be the re-rendered node carrying the new name (DDD-7); probe = {v:?}"
+    );
 }
 
 #[then(regex = r#"^"([^"]+)" appears inside that workspace row's message area$"#)]
@@ -1109,6 +1189,28 @@ async fn message_in_row_slot(world: &mut FoundryWorld, message: String) {
         |text| text.contains(&message),
     )
     .await;
+    let browser = world.browser.as_ref().expect("browser session");
+    let outside = browser
+        .execute(
+            TEXT_OUTSIDE_ROW,
+            vec![serde_json::Value::String(row_css(target))],
+        )
+        .await
+        .expect("read the page text outside the workspace row");
+    let v = outside
+        .as_array()
+        .expect("the outside-text probe returns an array");
+    assert_eq!(
+        v[0].as_bool(),
+        Some(true),
+        "the workspace row must be on the page"
+    );
+    let text = v[1].as_str().unwrap_or_default();
+    assert!(
+        !text.contains(&message),
+        "{message:?} must appear ONLY inside that workspace row — no other row's message area \
+         and no page banner may show it (D9); page text outside the row = {text:?}"
+    );
 }
 
 #[then(regex = r"^the workspace rename form is still there for her to correct$")]
