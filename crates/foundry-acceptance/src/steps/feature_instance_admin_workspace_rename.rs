@@ -69,7 +69,11 @@ fn rename_url(workspace_id: &str) -> String {
     format!("/admin/instance/workspaces/{workspace_id}/rename")
 }
 const DASHBOARD_PATH: &str = "/admin/instance/workspaces";
-const ERROR_MARKER: &str = "workspace-rename-error";
+/// The refusal fragment's marker in its attribute form. The bare substring
+/// `workspace-rename-error` also appears in every head's error-slot id
+/// (`workspace-rename-error-{id}`), so only the attribute form tells a refusal
+/// apart from a correct head.
+const ERROR_FRAGMENT_ATTR: &str = r#"data-hx-fragment="workspace-rename-error""#;
 const HEAD_MARKER: &str = "data-workspace-head";
 
 /// The precedent's browser Given plants this page-lifetime marker after load; a
@@ -675,8 +679,8 @@ async fn row_shows_no_error(world: &mut FoundryWorld, name: String) {
     assert_head_fragment(world, &name);
     let body = world.last_body.as_deref().expect("answer captured");
     assert!(
-        !body.contains(ERROR_MARKER),
-        "a quiet success carries no error; got {body:?}"
+        !body.contains(ERROR_FRAGMENT_ATTR),
+        "a quiet success carries no refusal fragment ({ERROR_FRAGMENT_ATTR}); got {body:?}"
     );
     let after = capture_universe(world).await;
     assert_universe_delta(&before(world), &after, None, None, None);
@@ -794,8 +798,8 @@ async fn refused_saying(world: &mut FoundryWorld, message: String) {
         "the refusal must state {message:?}; got {body:?}"
     );
     assert!(
-        body.contains(ERROR_MARKER),
-        "the refusal must carry the {ERROR_MARKER:?} marker; got {body:?}"
+        body.contains(ERROR_FRAGMENT_ATTR),
+        "the refusal must be the {ERROR_FRAGMENT_ATTR} fragment; got {body:?}"
     );
     assert!(
         !body.contains("<html"),
