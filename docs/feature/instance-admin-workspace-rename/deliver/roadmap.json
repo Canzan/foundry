@@ -1,0 +1,291 @@
+{
+  "roadmap": {
+    "project_id": "instance-admin-workspace-rename",
+    "created_at": "2026-10-05T00:00:00Z",
+    "total_steps": 6,
+    "goal": "Let the instance super-admin rename a workspace's display name in place on /admin/instance/workspaces (trimmed, non-empty, at most 24 Unicode scalars; same-name is a quiet no-op), with every effective rename appended atomically to workspace_rename_events, and keep the sidebar brand on one line with an ellipsis and a full-name title.",
+    "sources": [
+      "docs/feature/instance-admin-workspace-rename/feature-delta.md",
+      "docs/product/architecture/adr-workspace-rename-001-audited-rename-transaction.md",
+      "docs/product/architecture/adr-workspace-rename-002-rename-audit-not-tenant-export.md",
+      "crates/foundry-acceptance/tests/features/instance-admin-workspace-rename.feature",
+      "crates/foundry-store/tests/workspace_rename_with_audit.rs"
+    ],
+    "scenario_ownership_invariant": "All 23 DISTILL acceptance scenarios are owned by exactly one step (01-01: 0 acceptance + 10 store tests, 02-01: 5, 02-02: 7, 02-03: 8, 03-01: 2, 04-01: 1). DELIVER un-pends a scenario only in the step that owns it, in the DISTILL order; the authz guards (14-18) are never un-pended before scenario 1 is green. Scaffold burn-down tracked via grep -rn 'SCAFFOLD' crates/foundry-store/tests/workspace_rename_with_audit.rs and grep -c '@pending' on the .feature."
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "Audited rename transaction in the store (D5, DDD-2/3/5/11/12)",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "Migration 0018, atomic rename-with-audit store write, probe extension",
+          "description": "Create crates/foundry-store/migrations/0018_workspace_rename_events.sql exactly per DDD-5 (id UUID PK app-minted v7; workspace_id FK workspaces ON DELETE CASCADE; actor_id FK users with no ON DELETE action; old_name/new_name TEXT NOT NULL; created_at TIMESTAMPTZ NOT NULL DEFAULT now(); CHECK (old_name <> new_name); index (workspace_id, created_at)); purely additive, no backfill, no CHECK on workspaces.name (D10). Add Store::rename_workspace_with_audit(workspace_id, actor_id, new_name) -> Result<WorkspaceRenameWrite, StoreError> with WorkspaceRenameWrite = Renamed{old_name} | Unchanged | NotFound: ONE transaction that SELECTs name FOR UPDATE, byte-compares (authoritative no-op, DDD-3), UPDATEs, INSERTs the event with old_name from the locked read, commits (reposition_issue_with_outbox / record_issue_change idiom). Add the non-locking Store::workspace_name_by_id(id) -> Option<String> pre-read. Extend Store::probe to refuse a schema missing workspace_rename_events or its columns (DDD-11). Delete the SCAFFOLD shim in the store test file (call the real method / use the real enum) and remove the ten #[ignore]s one at a time.",
+          "criteria": [
+            "All ten workspace_rename_with_audit store tests pass un-ignored; the panicking shim and every SCAFFOLD marker in that file are gone",
+            "A forced audit-insert failure (unknown actor_id) rolls the name back and leaves zero records; old_name is the value read under the row lock",
+            "Migration 0018 applies over existing workspaces (incl. 52-char legacy names) without rewriting them, re-applies as a no-op, and the probe refuses a schema without it",
+            "Store method name does not end in _in_workspace( (DDD-12); cargo xtask check-arch, fmt, clippy -D warnings green; TENANT_TABLES and KNOWN_FOUNDRY_TABLES untouched (DDD-6)",
+            "Default acceptance lane stays green, including every scenario that stages the schema at an older migration (probe extension must not break them)"
+          ],
+          "estimate": "0.5 day",
+          "dependencies": [],
+          "files_to_modify": [
+            "crates/foundry-store/migrations/0018_workspace_rename_events.sql",
+            "crates/foundry-store/src/lib.rs",
+            "crates/foundry-store/tests/workspace_rename_with_audit.rs"
+          ],
+          "test_file": "crates/foundry-store/tests/workspace_rename_with_audit.rs",
+          "scenario_name": [
+            "migration_0018_applies_cleanly_over_existing_workspaces_including_legacy_long_names",
+            "the_rename_record_has_the_designed_columns_keys_and_index",
+            "the_rename_record_refuses_an_entry_that_changes_nothing",
+            "an_effective_rename_changes_one_name_and_appends_one_record",
+            "the_same_name_writes_nothing_and_a_case_change_is_a_rename",
+            "an_unknown_workspace_writes_nothing",
+            "a_failed_record_write_leaves_the_name_unchanged_and_nothing_on_record",
+            "the_old_name_on_record_is_the_one_read_under_the_lock",
+            "concurrent_renames_serialize_into_a_chain_of_records",
+            "the_probe_refuses_a_schema_without_the_rename_record"
+          ],
+          "lane_commands": [
+            "timeout 900 cargo test -p foundry-store --test workspace_rename_with_audit (Docker up: testcontainers Postgres)",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false cargo build -p foundry-app --bin foundry (rebuild + warm the binary BEFORE the lane; acceptance does not rebuild it)",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance (default lane, no FOUNDRY_ACCEPTANCE_TAGS)"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): unit tests for new pure logic MUST be property-based (proptest) with state-delta discipline where state mutates; single-example unit tests are FALLBACK only with a # bypass: comment. Acceptance scenarios are the cucumber .feature file (already authored by DISTILL \u2014 un-pend, do not re-author). Integration/browser tests stay single-example \u2014 they verify wiring. EXEMPT FROM PARADIGM: store integration step against real Postgres (transaction, row lock, FK fault, CHECK cannot be faked) \u2014 compensate with property-based tests on the adjacent pure classifier (02-01). No acceptance scenario is un-pended here (scenario_name lists the ten store tests this step un-ignores). Schema-pinned regression lesson: an earlier feature's migration step regressed a scenario that stops the schema at an older migration; the extended probe refuses any schema without 0018, so every acceptance scenario/support helper that stages migrations (support/test_migration.rs, slice_8_deferred_metrics staged migration, us-mwt-slice-05 migration guarantee, us-04 rolling-upgrade) must still pass \u2014 run the DEFAULT lane, not just the store tests. us-04 is a known concurrency flake: rerun it alone before calling it a regression. Record time is the database's (DEFAULT now()); do not bind the injected Clock unless the acceptance oracles move to fake_clock in the same change. Bounded-change contract: mutation set = {workspaces.name of row id, +1 workspace_rename_events row}; Unchanged/NotFound write nothing."
+        }
+      ]
+    },
+    {
+      "id": "02",
+      "name": "Rename write path over HTTP (US-IAWR-01, D1-D4, D7-D8)",
+      "steps": [
+        {
+          "id": "02-01",
+          "name": "Classifier, use-case, handler, route and head partial: happy path and no-op",
+          "description": "Create foundry_services::workspaces (DDD-1/9): RenameWorkspaceRequest, WorkspaceRenameOutcome{Renamed{name}, NoOp{name}}, RenameWorkspaceError{Forbidden, NotFound, EmptyName, NameTooLong, Store}, pub WORKSPACE_NAME_MAX_CHARS = 24, pure classify_workspace_rename(raw, current) with ordered checks trim -> no-op -> empty -> over 24 Unicode scalars, and Services::rename_workspace (is_instance_admin re-check -> workspace_name_by_id pre-read -> classify -> rename_workspace_with_audit; Unchanged maps to NoOp). Add submit_workspace_rename in instance_admin.rs (Path<String> parsed to Uuid in-handler; Forbidden/NotFound/bad id => uniform resource_not_found_page; EmptyName/NameTooLong => 422 bare ErrorFragment marker workspace-rename-error with the D3 copy; 200 => bare head fragment from the outcome name, DDD-8). Generalize rename_error_fragment to take the marker. Mount POST /admin/instance/workspaces/{workspace_id}/rename beside the project rename route under csrf_middleware + session_layer. Create partials/instance_workspace_head.html ([data-workspace-head], [data-workspace-name], form hx-target closest [data-workspace-head] hx-swap outerHTML, data-error-target '#workspace-rename-error-{id} > *', slot id workspace-rename-error-{id} with [data-error-anchor]; NO maxlength) and render it inside each <li data-workspace-row> in instance_dashboard.html.",
+          "criteria": [
+            "Renaming 'Bailey Family' to 'Household' returns a 200 bare head fragment (no <html) and the reloaded dashboard shows it under the same data-workspace-id",
+            "Exactly one record (Priya, old, new, database-clock time) per effective rename; a case-only change is a second record and earlier records survive unchanged",
+            "' Household ' on 'Household' and a resubmitted 52-char legacy name are quiet 200s with nothing written (no-op precedes the 422 gates)",
+            "classify_workspace_rename has proptests plus exact 24/25 and multi-byte (24 scalars, 28 bytes) example pairs; the handler owns the D3 copy",
+            "Owned scenarios un-pended and green in the iawr lane; iapr lane, check-arch (LAYER-1e), fmt, clippy green"
+          ],
+          "estimate": "0.5 day",
+          "dependencies": [
+            "01-01"
+          ],
+          "files_to_modify": [
+            "crates/foundry-services/src/workspaces.rs",
+            "crates/foundry-services/src/lib.rs",
+            "crates/foundry-app/src/instance_admin.rs",
+            "crates/foundry-app/src/lib.rs",
+            "crates/foundry-app/src/views.rs",
+            "crates/foundry-app/templates/partials/instance_workspace_head.html",
+            "crates/foundry-app/templates/instance_dashboard.html",
+            "crates/foundry-acceptance/tests/features/instance-admin-workspace-rename.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/instance-admin-workspace-rename.feature",
+          "scenario_name": [
+            "A stale workspace name is corrected from the dashboard",
+            "Every rename is on record with who, what, and when",
+            "Renaming a workspace to its current name is a quiet success",
+            "An over-long name from before the limit can be left as it is",
+            "Changing only the letter case is a real rename and goes on record"
+          ],
+          "lane_commands": [
+            "timeout 600 cargo test -p foundry-services workspaces",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false cargo build -p foundry-app --bin foundry (then one warm-up run before the timed lane)",
+            "FOUNDRY_ACCEPTANCE_TAGS=iawr CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1200 cargo test -p foundry-acceptance --test acceptance",
+            "FOUNDRY_ACCEPTANCE_TAGS=iapr CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1200 cargo test -p foundry-acceptance --test acceptance (precedent dashboard steps must still match the new head partial, OQ-D1)"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): unit tests for new pure logic (classify_workspace_rename) MUST be property-based (proptest) with state-delta discipline where state mutates; single-example unit tests are FALLBACK only with a # bypass: comment. Acceptance scenarios are the cucumber .feature file (already authored by DISTILL \u2014 un-pend, do not re-author). Integration/browser tests stay single-example \u2014 they verify wiring. Un-pend in DISTILL order: 1, 3, 5, 6, 4. Named faults killed here: route not mounted; record missing for an effective rename; record written for a no-op; case-only change treated as a no-op; length/empty check before the no-op check (6); wrong actor/old/new/time (1, 3, 4); earlier records altered (4); success answer not bare (1). Keep the classifier's precedence exact: trim, then no-op (byte-equal to current), then empty, then chars().count() > 24. Mutation gate >= 80% on modified files with the exact 24/25 pair (precedent lesson 2). Do not add maxlength to the input (scenario 22 types 25 characters).",
+          "error_copy": {
+            "EmptyName": "Workspace name must not be empty",
+            "NameTooLong": "Workspace name must be at most 24 characters"
+          }
+        },
+        {
+          "id": "02-02",
+          "name": "Validation edges, duplicate names allowed, markup escaping, sidebar title",
+          "description": "Un-pend the rule and escaping scenarios. The classifier and 422 mapping landed in 02-01; this step is assertion enablement plus closing any gap the arms expose: two workspaces may share a name (no uniqueness arm, D7); 24-scalar names accepted including '\u00c5ngstr\u00f6m \u00d8resund Soci\u00e9t\u00e9' (28 bytes); surrounding spaces trimmed before counting and stored trimmed; 25-scalar names (ASCII and multi-byte) refused 422 with the limit copy; empty and whitespace-only refused 422 with the empty copy; a name containing markup characters round-trips as text in the head, the sidebar brand, the monogram, and the brand's title. Add title=\"{{ full workspace name }}\" to .sidebar__workspace in partials/sidebar.html (HTML only; the CSS edit and re-hash are 04-01's).",
+          "criteria": [
+            "Names of 23 and 24 Unicode scalars (incl. 28-byte multi-byte) are accepted with one record each; a padded 24-char name is stored and recorded trimmed",
+            "25-scalar names (ASCII and multi-byte) return 422 bare workspace-rename-error with exactly 'Workspace name must be at most 24 characters'; nothing written",
+            "Empty and whitespace-only names return 422 with exactly 'Workspace name must not be empty'; universe unchanged, no record",
+            "Renaming to another workspace's name succeeds (D7); '<b>Ops</b> & 'Co'' renders as escaped text in head, sidebar, monogram and title",
+            "Owned scenarios un-pended and green in the iawr lane; check-arch, fmt, clippy green"
+          ],
+          "estimate": "0.25 day",
+          "dependencies": [
+            "02-01"
+          ],
+          "files_to_modify": [
+            "crates/foundry-services/src/workspaces.rs",
+            "crates/foundry-app/src/instance_admin.rs",
+            "crates/foundry-app/templates/partials/sidebar.html",
+            "crates/foundry-acceptance/tests/features/instance-admin-workspace-rename.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/instance-admin-workspace-rename.feature",
+          "scenario_name": [
+            "Two workspaces may share a name",
+            "A name of up to 24 characters is accepted",
+            "Spaces around a name are trimmed before the limit is counted",
+            "A name past 24 characters is refused with the limit stated",
+            "An empty name is refused with the reason stated",
+            "A name of only spaces counts as empty",
+            "A name with markup characters is shown exactly as typed"
+          ],
+          "lane_commands": [
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false cargo build -p foundry-app --bin foundry (then one warm-up run before the timed lane)",
+            "FOUNDRY_ACCEPTANCE_TAGS=iawr CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1200 cargo test -p foundry-acceptance --test acceptance"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): unit tests for new pure logic (classify_workspace_rename) MUST be property-based (proptest) with state-delta discipline where state mutates; single-example unit tests are FALLBACK only with a # bypass: comment. Acceptance scenarios are the cucumber .feature file (already authored by DISTILL \u2014 un-pend, do not re-author). Integration/browser tests stay single-example \u2014 they verify wiring. Un-pend in DISTILL order: 7, 8, 9, 10, 11, 12, 13. Named faults killed here: cap off by one or counted in bytes (8, 10); length counted before trim (9); a uniqueness rule added (7); name rendered as markup in head/sidebar/title (13). Scenario 13 needs the sidebar title attribute, which is why sidebar.html lands here; askama autoescaping covers the attribute \u2014 do not mark the value safe. The sidebar CSS (ellipsis) is deliberately NOT touched in this step (OQ-D4: one re-hash, one step, 04-01)."
+        },
+        {
+          "id": "02-03",
+          "name": "Authz refusals, member sidebar, project-row and backup guards",
+          "description": "Un-pend the authorization guards (only now that scenario 1 proves the route is mounted \u2014 they pass their 404/403 steps against an unmounted route) and the cross-surface guards: a non-admin and a signed-out POST get the byte-identical never-existed answer; a POST without the matching _csrf pair is refused 403 by the middleware; garbled and unknown workspace ids get the same uniform 404 (no 400 oracle); a member's next page shows the new name, monogram and title with membership and workspace id unchanged; the served bytes of every project row under the renamed workspace are identical before and after (only _csrf redacted); a per-workspace export after a rename holds manifest.json plus exactly the ten TENANT_TABLES, declares the new name, never mentions workspace_rename_events, and passes verify-export.",
+          "criteria": [
+            "Non-admin, signed-out, garbled-id and unknown-id rename POSTs get the byte-identical never-existed answer; universe unchanged, no record",
+            "A POST without the matching _csrf pair is refused 403 before the handler runs; nothing written",
+            "Dana's next page shows 'Household', monogram 'H' and title 'Household'; her membership and the workspace id are unchanged",
+            "Project rows under the renamed workspace are byte-identical; export-workspace lists exactly ten tables, no rename record, and verify-export passes",
+            "Owned scenarios un-pended and green in the iawr lane; iapr lane, check-arch, fmt, clippy green"
+          ],
+          "estimate": "0.25 day",
+          "dependencies": [
+            "02-01",
+            "02-02"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/src/instance_admin.rs",
+            "crates/foundry-app/templates/partials/instance_workspace_head.html",
+            "crates/foundry-acceptance/tests/features/instance-admin-workspace-rename.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/instance-admin-workspace-rename.feature",
+          "scenario_name": [
+            "Only the instance admin can rename a workspace",
+            "A signed-out visitor cannot rename a workspace",
+            "A workspace rename that does not carry the dashboard's matching token is refused",
+            "A workspace rename aimed at a garbled workspace id is answered like a missing page",
+            "A workspace rename aimed at a workspace that does not exist is answered like a missing page",
+            "Members read the new name in their sidebar on their next page",
+            "Renaming a workspace leaves the projects listed under it exactly as they were",
+            "A workspace backup taken after a rename carries the new name and no rename record"
+          ],
+          "lane_commands": [
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false cargo build -p foundry-app --bin foundry (scenario 20 shells out to the real foundry binary; rebuild and warm first)",
+            "FOUNDRY_ACCEPTANCE_TAGS=iawr CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1200 cargo test -p foundry-acceptance --test acceptance",
+            "FOUNDRY_ACCEPTANCE_TAGS=iapr CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1200 cargo test -p foundry-acceptance --test acceptance"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): unit tests for new pure logic MUST be property-based (proptest) with state-delta discipline where state mutates; single-example unit tests are FALLBACK only with a # bypass: comment. Acceptance scenarios are the cucumber .feature file (already authored by DISTILL \u2014 un-pend, do not re-author). Integration/browser tests stay single-example \u2014 they verify wiring. EXEMPT FROM PARADIGM: guard/wiring step (authz, export, byte-identity) \u2014 compensate with property-based tests on the adjacent classifier (02-01). Un-pend in DISTILL order: 14-18 (strictly after scenario 1 is green), then 2, 19, 20. Named faults killed here: unauthorized rename allowed (14, 15); refusal distinguishable from a never-existed address (14, 15, 17, 18); route outside CSRF/session layers (16); monogram not following the name or stale cached name (2); membership or id changed (2); project-row markers changed by the head partial / wrong swap target (19, OQ-D1); rename records leaking into the per-workspace export (20, DDD-6 \u2014 TENANT_TABLES stays at ten). Expected to be pure assertion enablement; fix any defect the pins reveal in 02-01 code."
+        }
+      ]
+    },
+    {
+      "id": "03",
+      "name": "Browser lane: in-place swap and in-row refusals (AC1, AC5, D9)",
+      "steps": [
+        {
+          "id": "03-01",
+          "name": "Row head swaps in place; repeated refusals stay inside the row",
+          "description": "Un-pend the two @needs-browser scenarios in real Chrome: submitting 'Household' re-renders only the head under [data-workspace-id=\u2026] (outerHTML on [data-workspace-head]), the precedent's page-lifetime marker survives (no reload), and both project rows remain; a blank submission shows 'Workspace name must not be empty' inside THIS head's [data-error-slot], then a 25-character submission shows 'Workspace name must be at most 24 characters' in the same slot (proving the slot survived the first refusal), the form stays mounted, and 'Household' then succeeds without a reload. Zero changes to static/js/form-errors.js; any fix belongs in the head partial markup (data-error-target child selector). No maxlength on the input.",
+          "criteria": [
+            "Submitting 'Household' in the browser re-renders only that workspace's head; the page-lifetime marker survives and both project rows remain",
+            "Blank then 25-char submissions each show their exact message inside this head's error slot; no other row shows either message",
+            "The form stays mounted after refusals and a corrected 'Household' succeeds without a reload; the input carries no maxlength",
+            "static/js/form-errors.js byte-unchanged; chromedriver preflight passes and both @needs-browser scenarios actually ran (not silently skipped)",
+            "Owned scenarios un-pended and green; iawr and iapr lanes, check-arch, fmt, clippy green"
+          ],
+          "estimate": "0.25 day",
+          "dependencies": [
+            "02-03"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/templates/partials/instance_workspace_head.html",
+            "crates/foundry-acceptance/tests/features/instance-admin-workspace-rename.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/instance-admin-workspace-rename.feature",
+          "scenario_name": [
+            "The workspace row updates in place when the rename succeeds",
+            "Refused workspace renames explain themselves inside the row, every time"
+          ],
+          "lane_commands": [
+            "Docker up (selenium/standalone-chrome) \u2014 verify with docker info before the lane",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false cargo build -p foundry-app --bin foundry (then one warm-up run before the timed lane)",
+            "FOUNDRY_ACCEPTANCE_TAGS=iawr CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo test -p foundry-acceptance --test acceptance (confirm the @needs-browser scenario count in the summary is non-zero)"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): unit tests for new pure logic MUST be property-based (proptest) with state-delta discipline where state mutates; single-example unit tests are FALLBACK only with a # bypass: comment. Acceptance scenarios are the cucumber .feature file (already authored by DISTILL \u2014 un-pend, do not re-author). Integration/browser tests stay single-example \u2014 they verify wiring. EXEMPT FROM PARADIGM: single-shot browser UI flow \u2014 compensate with property-based tests on the adjacent classifier (02-01). Named faults killed here: outerHTML swap consumes the error slot so the second refusal is silent (22); refusal routed into another row's slot (22); whole <li> re-rendered (21). Precedent DELIVER lesson 1: the slot must be targeted via data-error-target with a child selector so it survives the swap. xtask ci silently skips the browser lane without Docker (set FOUNDRY_XTASK_INCLUDE_DOCKER=1 for ci). Chrome automation drag is unreliable but these flows are type+submit, not drag."
+        }
+      ]
+    },
+    {
+      "id": "04",
+      "name": "Sidebar single-line safety net (D6, DDD-10, KPI-3)",
+      "steps": [
+        {
+          "id": "04-01",
+          "name": "Sidebar brand ellipsis CSS and asset re-hash in one change",
+          "description": "Before editing, run git log -- crates/foundry-app/static/css/ to check for a concurrent re-hash by another session (OQ-D4); if one landed, rebase onto its filename. Edit the .sidebar__workspace rule in crates/foundry-app/static/css/foundry.6b3e4436.css to one line with white-space: nowrap, overflow: hidden, text-overflow: ellipsis (min-width: 0 inside its flex parent), and inside @media (max-width: 480px) bound the brand to the bar width so a nowrap name cannot widen the page (OQ-D3). Re-hash in the SAME change: rename to foundry.<first 8 hex of sha256>.css and update all five reference sites (base.html link, the three cache-test literals in crates/foundry-app/src/lib.rs, the VENDOR.md row and its prose note). check-arch R1/R2/R3 must pass.",
+          "criteria": [
+            "A 52-character legacy name renders on one line with ellipsis at desktop and at 390px; really truncated (scrollWidth > clientWidth); title holds the full name",
+            "No horizontal page overflow at either width (documentElement.scrollWidth <= clientWidth; brand's right edge inside the page)",
+            "The CSS file is renamed to its new content hash and all five reference sites updated in the same commit; check-arch R1/R2/R3 green",
+            "Zero remaining @pending tags in the iawr feature and zero SCAFFOLD markers for this feature; full default and browser lanes green",
+            "Owned scenario un-pended and green (both examples); fmt, clippy, cargo xtask smoke green"
+          ],
+          "estimate": "0.25 day",
+          "dependencies": [
+            "02-02"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/static/css/foundry.6b3e4436.css",
+            "crates/foundry-app/templates/base.html",
+            "crates/foundry-app/src/lib.rs",
+            "crates/foundry-app/static/VENDOR.md",
+            "crates/foundry-acceptance/tests/features/instance-admin-workspace-rename.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/instance-admin-workspace-rename.feature",
+          "scenario_name": [
+            "A long workspace name stays on one line in the sidebar"
+          ],
+          "lane_commands": [
+            "git log --oneline -5 -- crates/foundry-app/static/css/ (OQ-D4 concurrent re-hash check, before editing)",
+            "Docker up (selenium/standalone-chrome)",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false cargo build -p foundry-app --bin foundry (then one warm-up run before the timed lane)",
+            "FOUNDRY_ACCEPTANCE_TAGS=iawr CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo test -p foundry-acceptance --test acceptance (confirm @needs-browser scenarios ran)",
+            "cargo xtask check-arch"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): unit tests for new pure logic MUST be property-based (proptest) with state-delta discipline where state mutates; single-example unit tests are FALLBACK only with a # bypass: comment. Acceptance scenarios are the cucumber .feature file (already authored by DISTILL \u2014 un-pend, do not re-author). Integration/browser tests stay single-example \u2014 they verify wiring. EXEMPT FROM PARADIGM: CSS + asset re-hash with a browser geometry oracle \u2014 no quantifiable invariant beyond the scenario's two widths; compensate via check-arch R1/R2/R3 asset-integrity guard. The file name in files_to_modify is the PRE-edit name; the step renames it (git mv) to its new hash. ONE step, ONE commit for edit + re-hash (OQ-D4) because other sessions share this worktree. Named fault killed: sidebar wraps, overflows, lacks title, or page scrolls sideways at 480px (23). Depends only on 02-02 (sidebar title attribute); may run in parallel with 02-03/03-01 if the worktree allows, but commit it alone."
+        }
+      ]
+    }
+  ],
+  "implementation_scope": {
+    "source_directories": [
+      "crates/foundry-store/src/",
+      "crates/foundry-store/migrations/",
+      "crates/foundry-services/src/",
+      "crates/foundry-app/src/",
+      "crates/foundry-app/templates/",
+      "crates/foundry-app/static/css/"
+    ],
+    "test_directories": [
+      "crates/foundry-store/tests/",
+      "crates/foundry-acceptance/tests/",
+      "crates/foundry-acceptance/src/steps/"
+    ],
+    "excluded_patterns": [
+      "target/**",
+      "crates/foundry-app/static/js/form-errors.js"
+    ]
+  },
+  "validation": {
+    "status": "approved",
+    "reviewer": "nw-acceptance-designer-reviewer",
+    "date": "2026-10-05"
+  }
+}
