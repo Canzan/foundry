@@ -208,14 +208,14 @@ Feature: Correcting a stale workspace name from the instance dashboard, with the
   # message area, or the sidebar's layout. These drive a REAL headless Chrome
   # against the same in-process origin.
 
-  @us-iawr-01 @needs-browser @driving_port @real-io @pending @contract-shape:bounded-change
+  @us-iawr-01 @needs-browser @driving_port @real-io @contract-shape:bounded-change
   Scenario: The workspace row updates in place when the rename succeeds
     Given Priya has the instance dashboard open in her browser
     When she renames the "Bailey Family" workspace to "Household" in her browser
     Then that workspace's row shows "Household" without the page reloading
     And the projects listed under "Canzan Labs" are still on the page
 
-  @us-iawr-01 @needs-browser @error @real-io @pending @contract-shape:unbounded-preservation
+  @us-iawr-01 @needs-browser @error @real-io @contract-shape:unbounded-preservation
   Scenario: Refused workspace renames explain themselves inside the row, every time
     Given Priya has the instance dashboard open in her browser
     When she blanks the "Bailey Family" workspace name in her browser
