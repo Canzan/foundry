@@ -91,6 +91,32 @@ pub struct FoundryWorld {
     /// Priya's seeded user id (issue author, membership anchor).
     pub iapr_priya_id: Option<uuid::Uuid>,
 
+    // ---- instance-admin-workspace-rename (iawr) ----
+    /// Names a workspace was given by a rename in THIS scenario, mapped to its
+    /// id. Looked up before the Background's seed names, so a workspace is
+    /// still found after its rename and a shared name (D7) resolves to the
+    /// workspace that was renamed to it.
+    pub iawr_aliases: HashMap<String, uuid::Uuid>,
+    /// Seeded members by first name: (email, user id, workspace id).
+    pub iawr_members: HashMap<String, (String, uuid::Uuid, uuid::Uuid)>,
+    /// The workspace the last rename was aimed at.
+    pub iawr_target: Option<uuid::Uuid>,
+    /// The observable universe captured just before the last rename: every
+    /// workspace `(id, name)`, and every rename record, `None` while the record
+    /// does not exist in the schema yet.
+    pub iawr_before: Option<crate::steps::feature_instance_admin_workspace_rename::Universe>,
+    /// Database clock just before and just after the last rename request.
+    pub iawr_window: Option<(time::OffsetDateTime, time::OffsetDateTime)>,
+    /// The last page a member opened, as served.
+    pub iawr_member_page: Option<String>,
+    /// Normalized project rows listed under one workspace, noted before a rename.
+    pub iawr_noted_rows: Option<Vec<String>>,
+    /// The backup written by the export scenario, and the CLI's last
+    /// `(exit, stdout, stderr)`.
+    pub iawr_backup_dir: Option<tempfile::TempDir>,
+    pub iawr_backup_path: Option<PathBuf>,
+    pub iawr_cli: Option<(i32, String, String)>,
+
     // ---- board-lane-management (blm) ----
     /// Seeded ids, captured at Given time.
     pub blm_workspace_id: Option<uuid::Uuid>,

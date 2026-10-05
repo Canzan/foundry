@@ -450,3 +450,35 @@ outcomes:
   - OUT-13
   - OUT-14
   superseded_by: null
+- id: OUT-17
+  kind: operation
+  summary: Rename a workspace's display name from the instance dashboard, with each
+    effective rename on record
+  feature: instance-admin-workspace-rename
+  inputs:
+  - shape: 'RenameWorkspaceRequest { acting_user_id: Uuid, workspace_id: Uuid, new_name:
+      &str } via POST /admin/instance/workspaces/{workspace_id}/rename (session + double-submit
+      _csrf); Store::rename_workspace_with_audit(workspace_id, actor_id, new_name) in
+      one transaction'
+  output:
+    shape: 'WorkspaceRenameOutcome::{Renamed,NoOp} -> 200 bare [data-workspace-head]
+      fragment | RenameWorkspaceError::{EmptyName,NameTooLong} -> 422 bare workspace-rename-error
+      fragment ("Workspace name must not be empty" / "Workspace name must be at most
+      24 characters", 24 Unicode scalars after trim) | Forbidden/NotFound/garbled-id
+      -> uniform non-enumerable 404. Each effective rename appends exactly one workspace_rename_events
+      row (actor, workspace, old name read under the row lock, new name, time) in the
+      same transaction; a no-op or refusal writes nothing; the record is not part of
+      the per-workspace export (ten tables)'
+  keywords:
+  - workspace
+  - rename
+  - display-name
+  - instance-admin
+  - audit
+  - append-only
+  - atomic
+  - sidebar
+  artifact: crates/foundry-acceptance/tests/features/instance-admin-workspace-rename.feature
+  related:
+  - OUT-1
+  superseded_by: null

@@ -62,6 +62,8 @@ use foundry_acceptance::steps::feature_form_error_display as _feature_form_error
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_instance_admin_project_rename as _feature_iapr;
 #[allow(unused_imports)]
+use foundry_acceptance::steps::feature_instance_admin_workspace_rename as _feature_iawr;
+#[allow(unused_imports)]
 use foundry_acceptance::steps::feature_invite_accept as _feature_invite_accept;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_issue_card_delete as _feature_icd;

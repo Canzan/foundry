@@ -497,3 +497,239 @@ L3 is omitted: there is one new module per container, and the L2 diagram plus th
 - **DISTILL (acceptance-designer)**: these seams are pinned: route, `[data-workspace-head]`, `[data-workspace-name]`, `#workspace-rename-error-{id}`, marker `workspace-rename-error`, the two D3 strings verbatim, table `workspace_rename_events` (columns per DDD-5), `.sidebar__workspace[title]`. See OQ-D1 to OQ-D5.
 - **DEVOPS (platform-architect)**: one forward-only additive migration (0018), applied by the existing boot-time `run_migrations`, with the probe extended. No infrastructure delta. **No external integrations, so no contract tests are required.** Paradigm OOP (`nw-software-crafter`).
 - **ADRs**: `docs/product/architecture/adr-workspace-rename-001-audited-rename-transaction.md`, `docs/product/architecture/adr-workspace-rename-002-rename-audit-not-tenant-export.md`.
+
+## Wave: DISTILL
+
+Acceptance designer: Quinn (nw-acceptance-designer) | Date: 2026-10-05 | Rigor
+`adr-025-scaffolded-red` | Density: lean, Tier-1 [REF] only; DISTILL declares no
+ask-intelligent triggers, so no expansion menu. `[lang-mode] rust` (cucumber-rs +
+`cargo test`). `[policy-mode] inherit` (`docs/architecture/atdd-infrastructure-policy.md`,
+two rows appended). `[port-mode]` none: as in every prior feature here, the state
+delta is a module-local fail-closed helper (`assert_universe_delta`), not a shared
+port. Nothing is committed by DISTILL; DELIVER commits on GREEN.
+
+### [REF] Reconciliation
+
+**Passed — 0 contradictions.** Each DISCUSS decision has a DESIGN counterpart: D1/D2
+↔ Driving Port 1 and the authz matrix; D3 ↔ DDD-9; D4 ↔ DDD-3 and the DDD-5 CHECK;
+D5 ↔ DDD-2/4/5; D6 ↔ DDD-10; D7 ↔ DDD-9 (no uniqueness arm); D8 ↔ DDD-8 and Changed
+Assumption 1; D9 ↔ the DDD-7 partial (`data-error-target`); D10 ↔ DDD-5 (no CHECK on
+`workspaces.name`). DESIGN's three Changed Assumptions refine DISCUSS without changing
+an observable. There is no DEVOPS section: WARN, default environment matrix. Tier A
+only: every scenario is layer 3 (real router, real Postgres, real Chrome, real CLI),
+so all are example-based (Mandates 9 and 11). Tier B is not warranted: the longest
+journey chains two scenarios and the input space is one string.
+
+### [REF] Scenario list with tags
+
+`.feature` SSOT: `crates/foundry-acceptance/tests/features/instance-admin-workspace-rename.feature`.
+Feature tag `@iawr`; every scenario carries `@us-iawr-01`, `@real-io`, `@pending` and
+a `@contract-shape:` tag (`bounded-change` = one name moves and one record is added;
+`unbounded-preservation` = nothing moves; `pure-function` = a read). Background (the
+precedent's steps): Priya is the instance super-admin; "Canzan Labs" with projects
+"Auth v2" and "Sandbox"; "Bailey Family" with none; plus Dana, a member of "Bailey
+Family".
+
+| # | Scenario | Extra tags | AC / D | Oracle |
+|---|---|---|---|---|
+| 1 | A stale workspace name is corrected from the dashboard | `@driving_port` | AC1, D2 | 200 bare `[data-workspace-head]` whose `[data-workspace-name]` is exactly "Household", no `<html`; state delta: only this name moves, one record appended (Priya, old, new, time); reloaded dashboard shows it under the same `data-workspace-id` and the list no longer says "Bailey Family"; every other workspace unchanged |
+| 2 | Members read the new name in their sidebar on their next page | `@driving_port` | AC2, D8, D6 | Dana's `/`: `.sidebar__workspace` = "Household", `.sidebar__monogram` = "H", `title` = "Household"; her membership and the workspace id are unchanged |
+| 3 | Every rename is on record with who, what, and when | `@driving_port @kpi` | AC3, D5, KPI-2 | Exactly 1 record for the workspace; latest names Priya, "Bailey Family" → "Household", `created_at` inside the database-clock window around the request |
+| 4 | Changing only the letter case is a real rename and goes on record | `@edge` | D4 | Chains 1 (Pillar 2). 2 records; latest "Household" → "household" |
+| 5 | Renaming a workspace to its current name is a quiet success | `@edge` | AC4, D4 | Chains 1. " Household " → 200 head "Household", no `workspace-rename-error`; universe unchanged (no write, no record) |
+| 6 | An over-long name from before the limit can be left as it is | `@edge` | DDD-3 | 52-character legacy name resubmitted → 200, no error, universe unchanged (no-op wins over the 422 gate) |
+| 7 | Two workspaces may share a name | `@edge` | D7 | "Bailey Family" → "Canzan Labs" accepted; 1 record on the renamed one |
+| 8 | A name of up to 24 characters is accepted (3 examples) | `@edge` | AC5, D3 | "Canzan Labs Platform Ops" (24), "Bailey Family Workspace" (23), "Ångström Øresund Société" (24 scalars, 28 bytes) each accepted with one record |
+| 9 | Spaces around a name are trimmed before the limit is counted | `@edge` | D3 | "  Canzan Labs Platform Ops  " → stored and recorded trimmed |
+| 10 | A name past 24 characters is refused with the limit stated (2 examples) | `@error` | AC5, D3 | "Canzan Labs Platform Team" (25), "Ångström Øresund Sociétés" (25 scalars) → 422 bare `workspace-rename-error` with the D3 copy; universe unchanged; no record |
+| 11 | An empty name is refused with the reason stated | `@error` | AC5, D3 | "" → 422 "Workspace name must not be empty"; nothing written |
+| 12 | A name of only spaces counts as empty | `@error @edge` | AC5, D3 | "   " → same |
+| 13 | A name with markup characters is shown exactly as typed | `@error @security` | D6 (escaping) | `<b>Ops</b> & 'Co'` round-trips as text in the head, the sidebar (monogram "<") and the `title` |
+| 14 | Only the instance admin can rename a workspace | `@error @security` | AC6, D1 | Marco's POST → byte-identical never-existed answer; universe unchanged; no record |
+| 15 | A signed-out visitor cannot rename a workspace | `@error @security` | AC6, D1 | Valid CSRF pair, no session → byte-identical answer; nothing written |
+| 16 | A workspace rename that does not carry the dashboard's matching token is refused | `@error @security` | AC6, D2 | 403 from the middleware; nothing written |
+| 17 | A workspace rename aimed at a garbled workspace id is answered like a missing page | `@error @security` | AC6, D2 | "not-a-uuid" → byte-identical answer (no 400 oracle); universe unchanged |
+| 18 | A workspace rename aimed at a workspace that does not exist is answered like a missing page | `@error @security` | AC6 | Fresh v7 id → same |
+| 19 | Renaming a workspace leaves the projects listed under it exactly as they were | `@guard` | OQ-D1, DDD-7 | The SERVED bytes of every `<li data-project-row>` under the workspace (only the per-sign-in `_csrf` value redacted) are identical before and after; the precedent's own grouping step still finds "Auth v2"/"Sandbox" under "Canzan Platform" and "Chores" under "Bailey Family" |
+| 20 | A workspace backup taken after a rename carries the new name and no rename record | `@guard` | ADR-002, D8 | Real `foundry doctor export-workspace <id>`: exit 0; tar entries are exactly `manifest.json` + the ten `TENANT_TABLES`; manifest never mentions `workspace_rename_events`; `declared_workspace_name` = "Household"; `verify-export` exits 0 ending `status: OK` |
+| 21 | The workspace row updates in place when the rename succeeds | `@needs-browser @driving_port` | AC1, DDD-7 | Real Chrome: the head under `[data-workspace-id=…]` re-renders "Household"; the precedent's page-lifetime marker survives (no reload); both project rows still present |
+| 22 | Refused workspace renames explain themselves inside the row, every time | `@needs-browser @error` | AC5, D9 | Blank → "must not be empty" inside THIS head's `[data-error-slot]`; then 25 characters → "at most 24 characters" in the same slot (a second, different message proves the slot survived the first swap); form still mounted; then "Household" succeeds without reload |
+| 23 | A long workspace name stays on one line in the sidebar (2 examples: desktop, phone-sized) | `@needs-browser @edge @kpi` | AC7, D6, OQ-D3, KPI-3 | 52-character name: brand height < 1.5 line-heights, `text-overflow: ellipsis`, overflow clipped, `scrollWidth > clientWidth` (really truncated), brand's right edge inside the page; `title` = full name; `documentElement.scrollWidth <= clientWidth`. Phone = `open_mobile_session` (390px, real mobile emulation, ≤480px breakpoint) |
+
+Examples: **27 across 23 scenarios**. Error/security examples: 10a, 10b, 11, 12, 13,
+14, 15, 16, 17, 18, 22 = **11 of 27 = 41%** (target ≥ 40%). Walking skeleton: none
+(DISCUSS: brownfield extension); scenarios 1 and 21 are the `@driving_port` demos.
+Step reuse (informational, Mandate-12 criterion 4): 96 step lines over 45 distinct
+steps (38 new, 7 reused from the precedent) ≈ 2.1×.
+
+### [REF] RED classification (fail-for-the-right-reason gate)
+
+Procedure: `cargo build -p foundry-app --bin foundry` and `cargo test -p
+foundry-acceptance --test acceptance --no-run`, then one tag run with `@pending`
+present to warm the binary (0 scenarios). The `.feature` was copied to the
+scratchpad, `sed -i '' 's/ @pending//'` stripped the tag,
+`FOUNDRY_ACCEPTANCE_TAGS=iawr timeout 1200 cargo test -p foundry-acceptance --test
+acceptance` ran (HTTP + `@needs-browser`, Docker up), and the file was restored from
+the copy (every scenario tag line carries `@pending` again; 0 without). Result:
+**27 examples, 27 failed; 170 steps, 143 passed, 27 failed; 0 parsing errors, 0
+undefined steps, 0 hook errors. 27 MISSING_FUNCTIONALITY, 0 GREEN_ALREADY, 0 BROKEN.**
+
+| Scenarios | First failing step | Evidence | Class |
+|---|---|---|---|
+| 1, 6, 7, 8a-c, 9, 13 | `the workspace row she gets back shows …` | status 404, body = the uniform "Not found" page: the route is not mounted | MISSING_FUNCTIONALITY |
+| 2, 4, 5, 19, 20 | `Given Priya has renamed workspace …` | same 404 | MISSING_FUNCTIONALITY |
+| 3 | `workspace "Household" has exactly 1 rename on record` | `MISSING: the workspace rename record does not exist yet (migration 0018…)` | MISSING_FUNCTIONALITY |
+| 10a/b, 11, 12 | `the workspace rename is refused saying …` | 404 instead of 422 | MISSING_FUNCTIONALITY |
+| 14, 15, 16, 17, 18 | `… is unchanged with no rename on record` / `no workspace changed and nothing new went on record` | the `MISSING:` record panic. The byte-identical (14, 15, 17, 18) and 403 (16) steps PASS today: an unmounted route answers the same uniform 404, and the middleware 403s before routing. These five are non-vacuous only through the record read; scenarios 1-13 are what prove the route exists | MISSING_FUNCTIONALITY |
+| 21, 22 | `she renames / blanks the "Bailey Family" workspace … in her browser` | no `[data-workspace-head]` within 10s | MISSING_FUNCTIONALITY |
+| 23 desktop / phone | `the sidebar shows the workspace name on one line ending in an ellipsis` | height 63px vs 21px line (3 lines) / 42px (2 lines): today's brand wraps | MISSING_FUNCTIONALITY |
+
+The steps a pending scenario cannot reach today (backup, project-row guard, member
+sidebar, browser project rows, sidebar `title`) were exercised once through a
+throwaway probe feature against the current build (deleted afterwards): 4 of 5 green,
+the 5th failing only on the missing `title` (D6). The probe caught one step defect,
+fixed before the gate: the project-row comparison first re-serialized rows through
+an HTML parser, which reorders attributes; it now compares served bytes.
+
+Store scaffolds (`cargo test -p foundry-store --test workspace_rename_with_audit --
+--include-ignored`): **10 failed, 0 passed, 0 BROKEN.** Seven panic with `SCAFFOLD:
+Store::rename_workspace_with_audit (DDD-2) not yet implemented` (the lock test
+surfaces it through the `JoinError`). The migration test fails reading the absent
+table (42P01). The shape test sees no columns. The CHECK test gets 42P01 where it
+expects 23514. The probe test finds the probe still accepting a schema without the
+record. Without `--include-ignored`: 10 ignored, exit 0.
+
+### [REF] Scaffolds (RED-ready, Mandate 7)
+
+`crates/foundry-store/tests/workspace_rename_with_audit.rs`, `SCAFFOLD: true`. Every
+test is `#[ignore = "SCAFFOLD: …"]`, and the file compiles today: it reaches the new
+table through SQL only and the new store method through the shim
+`rename_workspace_with_audit(&Store, workspace_id, actor_id, new_name) -> Result<Write,
+String>`, which panics. `Write { Renamed { old_name }, Unchanged, NotFound }` mirrors
+DESIGN's `WorkspaceRenameWrite`. DELIVER replaces the shim body with the real call
+(or swaps in the real enum) and un-ignores one test at a time.
+
+| Test | Pins |
+|---|---|
+| `migration_0018_applies_cleanly_over_existing_workspaces_including_legacy_long_names` | DoD 5: staged at 0017 with "Bailey Family" and a 52-character name, then the full set twice; no workspace rewritten, record empty, re-apply a no-op |
+| `the_rename_record_has_the_designed_columns_keys_and_index` | DDD-5: six NOT NULL columns and types; FK to `workspaces` CASCADE, FK to `users` NO ACTION; index `(workspace_id, created_at)` |
+| `the_rename_record_refuses_an_entry_that_changes_nothing` | DDD-5 CHECK: old = new refused with 23514 exactly; a case-only entry accepted |
+| `an_effective_rename_changes_one_name_and_appends_one_record` | Bounded change: `Renamed{old_name}`, exactly one name moves, exactly one record (workspace, actor, old, new) |
+| `the_same_name_writes_nothing_and_a_case_change_is_a_rename` | D4: `Unchanged` writes nothing; "bailey family" is `Renamed` |
+| `an_unknown_workspace_writes_nothing` | `NotFound`, no write |
+| `a_failed_record_write_leaves_the_name_unchanged_and_nothing_on_record` | OQ-D2 / DoD 2: a non-existent `actor_id` fails the INSERT after the UPDATE → `Err`, name rolled back, zero records |
+| `the_old_name_on_record_is_the_one_read_under_the_lock` | DDD-3: a holder transaction locks the row and renames it to "Kitchen"; the rename must still be waiting after 500ms, and after the holder commits it records "Kitchen" → "Household" |
+| `concurrent_renames_serialize_into_a_chain_of_records` | Two concurrent renames: records chain (second.old = first.new); the stored name equals the last record's new name |
+| `the_probe_refuses_a_schema_without_the_rename_record` | DDD-11: the probe accepts the migrated schema and refuses it once the table is dropped |
+
+No production scaffold was written. Every acceptance step drives a shipped or
+DESIGN-pinned driving port (HTTP, browser, CLI) or reads Postgres, so no step needs
+a placeholder for new API. The new service, store method, handler, route and partial
+are reached only through those ports.
+
+### [REF] Test placement
+
+- Acceptance: `crates/foundry-acceptance/tests/features/instance-admin-workspace-rename.feature`
+  and `crates/foundry-acceptance/src/steps/feature_instance_admin_workspace_rename.rs`
+  (registered in `src/lib.rs` and force-linked in `tests/acceptance.rs`). New
+  `iawr_*` fields in `src/world.rs`. This is the precedent's layout
+  (`instance-admin-project-rename`).
+- Store integration: `crates/foundry-store/tests/workspace_rename_with_audit.rs`
+  (the `users_provisioned_at.rs` shim-and-ignore pattern; WHY-NEW-FILE in its header).
+- Unit and property tests for `classify_workspace_rename` (`foundry-services`) are
+  DELIVER's: the ordered trim / no-op / empty / over-24 contract, with an exact
+  24/25 example pair beside any proptest (precedent lesson 2), including a
+  multi-byte pair (24 scalars and more than 24 bytes is accepted).
+
+### [REF] Driving-port coverage
+
+| Driving port (DESIGN) | Scenarios |
+|---|---|
+| `POST /admin/instance/workspaces/{workspace_id}/rename` (200 / 422 / 404 / 403) | 1, 3-18 (HTTP), 21-22 (browser) |
+| `GET /admin/instance/workspaces` (`[data-workspace-head]`, form, slot) | 1 (reload), 19 (project rows), 21-22 |
+| Every app-shell page (`.sidebar__workspace` + `title`, single line) | 2, 13 (HTTP), 23 (browser, desktop + 390px) |
+| `foundry doctor export-workspace` / `verify-export` (guard, unchanged) | 20 |
+
+Adapter coverage: Postgres (`workspaces`, `workspace_rename_events`) is real in every
+scenario and every store test. No external or non-deterministic port is involved;
+the record's time is checked against the database clock (DDD-5 `DEFAULT now()`).
+
+### [REF] Named faults DELIVER must kill
+
+| Fault | Killed by |
+|---|---|
+| Route not mounted, or mounted outside CSRF/session layers | 1-13, 21-22 (404 today); 16 (403) |
+| Record missing for an effective rename | 1, 3, 4, 7, 8, 9 (delta); store bounded-change test |
+| Record written for a no-op (exact or after trim) | 5, 6 (universe unchanged); store D4 test; the CHECK test |
+| Case-only change treated as a no-op | 4; store D4 test |
+| Rename not transactional (name kept when the record fails) | store `a_failed_record_write_…` |
+| `old_name` read outside the row lock | store `the_old_name_on_record_…` (deterministic interleave), `concurrent_renames_…` |
+| Record carries the wrong actor, old name, new name, or time | 1, 3, 4, 9 (delta asserts all four) |
+| Earlier records altered (not append-only) | 4 (delta: earlier entries must survive unchanged) |
+| Cap off by one (`>` vs `>=`) or counted in bytes | 8 (24 accepted, incl. 24 scalars / 28 bytes), 10 (25 refused, incl. multi-byte) |
+| Length counted before trim | 9 |
+| Length or empty check before the no-op check | 6 (legacy 52-character name resubmitted is a quiet 200) |
+| A uniqueness rule added | 7 |
+| Unauthorized rename allowed (non-admin, signed-out) | 14, 15 |
+| A refusal distinguishable from a never-existed address (400 for a bad id, 403/401) | 14, 15, 17, 18 (byte-identical) |
+| Name rendered as markup in the head, the sidebar or `title` | 13 |
+| Success answer not bare / wrong swap target (whole `<li>` re-rendered) | 1 (no `<html`), 19 (project rows byte-identical), 21 (project rows still present) |
+| `outerHTML` swap consumes the error slot (second refusal silent) | 22 |
+| Refusal routed into another row's slot | 22 (slot scoped to this workspace's head) |
+| Monogram not following the name; stale cached name | 2, 13 |
+| Membership or workspace id changed by a rename | 2, 1 (no workspace created or removed) |
+| Sidebar wraps, overflows, or lacks `title`; page scrolls sideways at 480px | 23 (desktop and 390px) |
+| Project-row markers changed by the new head partial (OQ-D1) | 19 |
+| Rename records leak into the per-workspace export, or export breaks after a rename | 20 |
+| Migration rewrites legacy names, back-fills records, or is not idempotent | store migration test |
+| Schema shape drift (FK actions, NOT NULLs, index, CHECK) | store shape and CHECK tests |
+| Probe accepts a schema without 0018 | store probe test |
+
+### [REF] Pre-requisites
+
+- Shipped and used as-is: the instance dashboard, `require_instance_admin`,
+  `csrf_middleware` + `session_layer`, `form-errors.js` with `data-error-target`, the
+  uniform 404 page, `foundry doctor export-workspace`/`verify-export`, the browser
+  lane (Docker `selenium/standalone-chrome`), and the precedent's steps (Background,
+  Marco, the never-existed answer, the dashboard in the browser, the grouping check).
+- DELIVER builds: migration 0018 (DDD-5), `Store::rename_workspace_with_audit` and
+  `workspace_name_by_id` (DDD-2/3), the probe check (DDD-11), `foundry_services::
+  workspaces` (DDD-1/9), the handler and route (Driving Port 1), the
+  `instance_workspace_head.html` partial with `[data-workspace-head]`,
+  `[data-workspace-name]` and `#workspace-rename-error-{id}` (DDD-7), and the sidebar
+  `title` plus the CSS edit and re-hash (DDD-10, OQ-D4).
+- OQ-D1 finding: the shipped steps that read the dashboard still match with the head
+  partial inside the `<li>`. The precedent's `section_of` anchors on the first
+  occurrence of a workspace name inside `[data-workspace-list]` and ends at the next
+  OTHER workspace's name, so the name appearing twice (span and input `value`) is
+  harmless. Its XPath row and slot lookups are scoped to `[data-project-row]`.
+  web-provisioning's `body.contains(ws_name)` is unaffected. Scenario 19 runs the
+  precedent's grouping step after a rename as the standing proof.
+- Lanes after DISTILL (with `@pending` restored): `FOUNDRY_ACCEPTANCE_TAGS=iawr` → 0
+  scenarios (all pending). `FOUNDRY_ACCEPTANCE_TAGS=iapr` → 21/21 scenarios, 132/132
+  steps (browser included). `foundry-store --test workspace_rename_with_audit` → 10
+  ignored. `cargo clippy -p foundry-store -p foundry-acceptance --all-targets -- -D
+  warnings`, `cargo fmt --all -- --check` and `cargo xtask check-arch` are all clean.
+- Registry: `OUT-17` (operation, `related: [OUT-1]`) appended to
+  `docs/product/outcomes/registry.yaml` (OQ-D5). `nwave-ai outcomes check-delta`
+  reports 0 collisions.
+
+### Open items for DELIVER / the orchestrator
+
+- **Un-pend in this order**: 1 (route + head), then 3/5/6 (record, no-op), 8-12
+  (rule), 14-18 (authz guards, together with 1), 2/13 (sidebar `title`), 19-20
+  (guards), 21-22 (browser), 23 (CSS, its own commit per OQ-D4). Un-ignore the store
+  tests as 0018 and the store method land, deleting the shim.
+- **No `maxlength` on the rename input.** Scenario 22 types 25 characters to get the
+  second refusal; a `maxlength="24"` would truncate the typing and turn the second
+  leg into a success. The server rule is the contract (D3). If DELIVER wants
+  `maxlength`, it must change scenario 22 to another refusal and say why.
+- **Record time is the database's.** DDD-5 uses `DEFAULT now()`, so scenarios 1/3/4/9
+  bound `created_at` by the database clock around the request. If DELIVER binds the
+  injected `Clock` instead (the keycloak `provisioned_at` precedent), those oracles
+  must move to `fake_clock` in the same change.
+- **The authz scenarios (14-18) cannot alone prove the route is mounted.** They pass
+  their 404/403 steps today. Un-pend them with or after scenario 1, never before.
+- DoD items owned by DELIVER: CHANGELOG and `jobs.yaml`; mutation ≥ 80% with the
+  24/25 example pair; `cargo xtask smoke` / `ci`.
+- The end-of-DISTILL consolidated four-reviewer gate is run by the orchestrator.

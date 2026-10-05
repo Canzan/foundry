@@ -25,6 +25,7 @@ pub mod steps {
     pub mod feature_fix_comment_delete_csrf;
     pub mod feature_form_error_display;
     pub mod feature_instance_admin_project_rename;
+    pub mod feature_instance_admin_workspace_rename;
     pub mod feature_invite_accept;
     pub mod feature_issue_card_delete;
     pub mod feature_issue_change_history;
