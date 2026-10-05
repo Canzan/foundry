@@ -733,3 +733,90 @@ the record's time is checked against the database clock (DDD-5 `DEFAULT now()`).
 - DoD items owned by DELIVER: CHANGELOG and `jobs.yaml`; mutation ≥ 80% with the
   24/25 example pair; `cargo xtask smoke` / `ci`.
 - The end-of-DISTILL consolidated four-reviewer gate is run by the orchestrator.
+
+## Wave: DELIVER
+
+### [REF] Implementation summary
+
+- **Store:** an instance admin renames a workspace's display name from `/admin/instance/workspaces`.
+  `Store::rename_workspace_with_audit` locks the row, re-checks the no-op, then updates the name and
+  appends one `workspace_rename_events` row (migration 0018), all in one transaction.
+- **Service:** `foundry_services::workspaces` classifies the name: trim, then no-op, then empty, then
+  over 24 Unicode scalars. It also re-checks instance-admin authority.
+- **Handler:** `submit_workspace_rename` returns the bare head fragment (200), the D3 refusal copy
+  (422) or the uniform 404.
+- **Sidebar:** the brand carries a `title` and stays on one line with an ellipsis
+  (`foundry.6ce0e2c2.css`).
+
+### [REF] Files modified
+
+- **Production:**
+  - `crates/foundry-store/migrations/0018_workspace_rename_events.sql` (new)
+  - `crates/foundry-store/src/lib.rs`: `WorkspaceRenameWrite`, `rename_workspace_with_audit`, probe
+  - `crates/foundry-services/src/workspaces.rs` (new) and `src/lib.rs`
+  - `crates/foundry-app/src/instance_admin.rs`: handler, `rename_error_fragment(marker, …)`
+  - `crates/foundry-app/src/lib.rs` (route) and `views.rs` (`InstanceWorkspaceHeadView`)
+  - Templates: `partials/instance_workspace_head.html` (new), `instance_dashboard.html`,
+    `partials/sidebar.html` (`title`), `base.html`
+  - `static/css/foundry.6ce0e2c2.css` (renamed from `foundry.6b3e4436.css`) and `static/VENDOR.md`
+- **Tests:**
+  - `crates/foundry-store/tests/workspace_rename_with_audit.rs` (10) and `probe_schema_scoping.rs`
+    (healthy schemas gain the table)
+  - `crates/foundry-services/tests/rename_workspace_use_case.rs` (3, new), plus 6 classifier unit
+    tests in `workspaces.rs`
+  - The acceptance steps `feature_instance_admin_workspace_rename.rs`, fixed twice: the attribute-form
+    refusal marker, and the node-identity and row-only checks
+- **Docs:** this section, the evolution doc, `CHANGELOG.md`, and `deliver/mutation/mutation-report.md`
+
+### [REF] Scenarios green
+
+27 of 27 examples (23 scenarios) in `instance-admin-workspace-rename.feature`, with zero `@pending`,
+as of 2026-10-05. All other lanes:
+
+| Lane | Result |
+|---|---|
+| iapr | 21/21 |
+| Default | 708/708 |
+| Browser | 216/217 (one card-pointer-drag timing flake under load; 18/18 on a rerun of its tag) |
+| Store suite | 92/92 |
+
+### [REF] DoD check
+
+| # | Item | Result |
+|---|---|---|
+| 1 | UAT scenarios pass (HTTP and browser) | PASS: 27/27 |
+| 2 | A forced audit-write failure leaves the name unchanged | PASS: `a_failed_record_write_leaves_the_name_unchanged_and_nothing_on_record` |
+| 3 | check-arch, including LAYER-1e and asset integrity | PASS |
+| 4 | No forbidden/never-existed oracle | PASS: scenarios 14–18 byte-identical; a deliberate authz break fails all five |
+| 5 | Migration 0018 over legacy long names | PASS: store test; default lane green, including migration-staging scenarios |
+| 6 | Round trip: rename → member sidebar → audit entry | PASS: scenarios 1–3 |
+| 7 | smoke before commits, ci before push | PASS with a flake rerun: ci 937/938, then us-mt01 8/8. Per-step smoke was blocked by testcontainers port flakes under host load; every failing test passed alone |
+| 8 | Mutation ≥ 80% with the 24/25 pair | PASS: 14/14 (100%) |
+| 9 | CHANGELOG, jobs.yaml, registry | PASS: jobs and OUT-17 at DISCUSS/DISTILL; CHANGELOG `[Unreleased]` |
+
+### [REF] Quality gates
+
+- **Refactor (L1–L4):** no changes. The code already mirrors the project-rename precedent.
+  Sharing the uniform-404 opening would hide the security rule, so it was declined. Wiring check passes.
+- **Adversarial review:** APPROVED. One low-severity note: the 500ms lock-test wait could flake on
+  slow hosts (recorded under Open / deferred in the evolution doc).
+- **Mutation:** 20 mutants, 6 unviable. 14/14 viable killed, 10 by package tests and 4 by the
+  acceptance re-check. One structural gap was found and closed by `rename_workspace_use_case.rs`.
+- **DES integrity:** all 6 steps have complete traces.
+- **CI:** `cargo xtask ci` with `FOUNDRY_XTASK_INCLUDE_DOCKER=1` (2026-10-05): fmt, clippy, check-arch, release build, workspace tests and cargo-deny all green. Acceptance (all tags, including browser and docker-compose): 937/938 scenarios. The one failure was the known sqlx `'\0'` pool flake in a us-mt01 setup step, and `us-mt01` alone then passed 8/8.
+
+### [REF] Pre-requisites
+
+DISTILL scenarios and store scaffolds (`ef95bc6`); DESIGN DDD-1..12 and ADR-WORKSPACE-RENAME-001/002.
+
+### [WHY] Upstream Issues
+
+- **DISTILL step defect, fixed in `023ec2d`:** the "carries no error" check used the bare marker
+  `workspace-rename-error`, but the DESIGN-pinned slot id `workspace-rename-error-{id}` contains it.
+  Both checks now use the `data-hx-fragment` attribute form.
+- **DISTILL guard weakness, fixed in `68d9b19`:** the browser checks for "only the head re-renders"
+  and "no other row shows the message" could not fail for the renamed workspace.
+- **Roadmap omission:** `probe_schema_scoping.rs` needed the new table in its healthy schemas, as on
+  every earlier probe extension.
+- **DESIGN naming:** `workspace_name_by_id` was not added, because the existing `Store::workspace_name`
+  already is that read.

@@ -7,6 +7,41 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 
 ## [Unreleased]
 
+An instance admin can now rename a workspace from the dashboard, and every rename
+is on record (instance-admin-workspace-rename).
+
+### Added
+
+- **Rename a workspace from `/admin/instance/workspaces`.** Each workspace row gains a
+  rename form. The name is trimmed and must be 1 to 24 characters, counted as
+  Unicode characters, not bytes. Refusals explain themselves inside the row, and a
+  successful rename updates the row in place. Members see the new name and monogram
+  on their next page. Only instance admins can rename; anyone else gets the same
+  "not found" answer as a page that never existed.
+  - **Resubmitting the current name is a quiet success** and writes nothing, so a
+    workspace whose name predates the 24-character limit can be left as it is. A
+    change of letter case is a real rename.
+  - **Two workspaces may share a name**, as provisioning already allows.
+- **Every effective rename is on record.** A new append-only
+  `workspace_rename_events` table keeps who renamed which workspace, from what, to
+  what, and when. It is written in the same transaction as the rename, so neither
+  can exist without the other. There is no in-app viewer yet; query the table.
+  Rename records are instance records and are **not** included in per-workspace
+  exports (`doctor export-workspace` still writes the same ten tables).
+- **A long workspace name stays on one line in the sidebar,** ending in an ellipsis,
+  with the full name on hover. This holds at desktop width and on phones, without
+  making the page scroll sideways. It also covers names created before the limit.
+
+### Migration notes
+
+- **Migration 0018** adds the `workspace_rename_events` table and nothing else: no
+  backfill, and no change to `workspaces`. It runs automatically at startup and is
+  safe during a rolling deploy, because v0.8.0 replicas never read the new table.
+- **The readiness check** (`/readyz`) now refuses a database without the 0018 table,
+  so a half-migrated database fails readiness instead of the first rename failing.
+- **Rolling back to v0.8.0** is safe: the old binary ignores the extra table. Its
+  rows remain and are picked up again on the next upgrade.
+
 ## [v0.8.0] - 2026-10-04
 
 The page footer now names the build, not just the release (release-version-footer
