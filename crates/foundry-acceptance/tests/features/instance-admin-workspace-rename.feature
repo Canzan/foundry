@@ -81,21 +81,21 @@ Feature: Correcting a stale workspace name from the instance dashboard, with the
     And workspace "household" has exactly 2 renames on record
     And the latest rename on record for workspace "household" names Priya, from "Household" to "household", at the time of the rename
 
-  @us-iawr-01 @edge @real-io @pending @contract-shape:unbounded-preservation
+  @us-iawr-01 @edge @real-io @contract-shape:unbounded-preservation
   Scenario: Renaming a workspace to its current name is a quiet success
     Given Priya has renamed workspace "Bailey Family" to "Household"
     When Priya renames workspace "Household" to " Household "
     Then the workspace row she gets back shows "Household" and carries no error
     And no workspace changed and nothing new went on record
 
-  @us-iawr-01 @edge @real-io @pending @contract-shape:unbounded-preservation
+  @us-iawr-01 @edge @real-io @contract-shape:unbounded-preservation
   Scenario: An over-long name from before the limit can be left as it is
     Given workspace "Canzan Labs Platform Engineering and Site Reliability" exists with no projects
     When Priya renames workspace "Canzan Labs Platform Engineering and Site Reliability" to "Canzan Labs Platform Engineering and Site Reliability"
     Then the workspace row she gets back shows "Canzan Labs Platform Engineering and Site Reliability" and carries no error
     And no workspace changed and nothing new went on record
 
-  @us-iawr-01 @edge @real-io @pending @contract-shape:bounded-change
+  @us-iawr-01 @edge @real-io @contract-shape:bounded-change
   Scenario: Two workspaces may share a name
     When Priya renames workspace "Bailey Family" to "Canzan Labs"
     Then the workspace row she gets back shows "Canzan Labs"
@@ -103,7 +103,7 @@ Feature: Correcting a stale workspace name from the instance dashboard, with the
 
   # ------------------------------------------------ the 24-character rule (D3)
 
-  @us-iawr-01 @edge @real-io @pending @contract-shape:bounded-change
+  @us-iawr-01 @edge @real-io @contract-shape:bounded-change
   Scenario Outline: A name of up to 24 characters is accepted
     When Priya renames workspace "Bailey Family" to "<submitted>"
     Then the workspace row she gets back shows "<stored>"
@@ -115,13 +115,13 @@ Feature: Correcting a stale workspace name from the instance dashboard, with the
       | Bailey Family Workspace      | Bailey Family Workspace  |
       | Ångström Øresund Société     | Ångström Øresund Société |
 
-  @us-iawr-01 @edge @real-io @pending @contract-shape:bounded-change
+  @us-iawr-01 @edge @real-io @contract-shape:bounded-change
   Scenario: Spaces around a name are trimmed before the limit is counted
     When Priya renames workspace "Bailey Family" to "  Canzan Labs Platform Ops  "
     Then the workspace row she gets back shows "Canzan Labs Platform Ops"
     And the latest rename on record for workspace "Canzan Labs Platform Ops" names Priya, from "Bailey Family" to "Canzan Labs Platform Ops", at the time of the rename
 
-  @us-iawr-01 @error @real-io @pending @contract-shape:unbounded-preservation
+  @us-iawr-01 @error @real-io @contract-shape:unbounded-preservation
   Scenario Outline: A name past 24 characters is refused with the limit stated
     When Priya renames workspace "Bailey Family" to "<submitted>"
     Then the workspace rename is refused saying "Workspace name must be at most 24 characters"
@@ -132,19 +132,19 @@ Feature: Correcting a stale workspace name from the instance dashboard, with the
       | Canzan Labs Platform Team |
       | Ångström Øresund Sociétés |
 
-  @us-iawr-01 @error @real-io @pending @contract-shape:unbounded-preservation
+  @us-iawr-01 @error @real-io @contract-shape:unbounded-preservation
   Scenario: An empty name is refused with the reason stated
     When Priya renames workspace "Bailey Family" to ""
     Then the workspace rename is refused saying "Workspace name must not be empty"
     And workspace "Bailey Family" is unchanged with no rename on record
 
-  @us-iawr-01 @error @edge @real-io @pending @contract-shape:unbounded-preservation
+  @us-iawr-01 @error @edge @real-io @contract-shape:unbounded-preservation
   Scenario: A name of only spaces counts as empty
     When Priya renames workspace "Bailey Family" to "   "
     Then the workspace rename is refused saying "Workspace name must not be empty"
     And workspace "Bailey Family" is unchanged with no rename on record
 
-  @us-iawr-01 @error @security @real-io @pending @contract-shape:bounded-change
+  @us-iawr-01 @error @security @real-io @contract-shape:bounded-change
   Scenario: A name with markup characters is shown exactly as typed
     When Priya renames workspace "Bailey Family" to "<b>Ops</b> & 'Co'"
     Then the workspace row she gets back shows "<b>Ops</b> & 'Co'"
