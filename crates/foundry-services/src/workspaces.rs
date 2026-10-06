@@ -3,17 +3,21 @@
 //!
 //! The ordered behaviour (the order pins the observable 422 precedence):
 //! `is_instance_admin` (defence-in-depth, the `provision_workspace` idiom) →
-//! non-locking current-name pre-read → trim → no-op → empty → length → the
-//! atomic audited write. The store's locked re-read is AUTHORITATIVE for the
-//! no-op (DDD-3); the pre-read exists only so an untouched legacy name
-//! resubmitted from the pre-filled form is a quiet success, not a 422.
+//! non-locking current-name pre-read → trim → byte-equal no-op → the ONE
+//! workspace-name rule ([`WorkspaceName::try_new`], instance-workspace-name-rule
+//! DDD-4) → the atomic audited write. The store's locked re-read is
+//! AUTHORITATIVE for the no-op (DDD-3); the pre-read exists only so an untouched
+//! legacy name resubmitted from the pre-filled form is a quiet success, not a
+//! 422 — even one the rule would now refuse (D6).
 //! No uniqueness arm: two workspaces may share a name (D7).
 
+use foundry_core::{WorkspaceName, WorkspaceNameError};
 use foundry_store::{Store, WorkspaceRenameWrite};
 
-/// The workspace-name cap in Unicode scalars (`chars().count()`, D3). `pub` so
-/// the provisioning, bootstrap, and CLI paths can reuse the one rule (DDD-9).
-pub const WORKSPACE_NAME_MAX_CHARS: usize = 24;
+/// The workspace-name cap, re-exported from its one home in `foundry-core` so
+/// the shipped `foundry_services::workspaces::WORKSPACE_NAME_MAX_CHARS` path
+/// stays valid.
+pub use foundry_core::WORKSPACE_NAME_MAX_CHARS;
 
 /// The rename request as the driving adapter hands it over.
 pub struct RenameWorkspaceRequest<'a> {
@@ -34,17 +38,17 @@ pub enum WorkspaceRenameOutcome {
     NoOp { name: String },
 }
 
-/// Typed refusals; the HANDLER owns the copy (D3) and the uniform 404 mapping.
+/// Typed refusals. The copy of an [`InvalidName`](Self::InvalidName) refusal is
+/// its [`WorkspaceNameError`]'s `Display` (D3); the handler owns only the
+/// uniform 404 mapping.
 #[derive(Debug)]
 pub enum RenameWorkspaceError {
     /// Actor is not an instance admin → uniform 404.
     Forbidden,
     /// Unknown workspace id (or lost race with a delete) → uniform 404.
     NotFound,
-    /// Trimmed name empty → 422.
-    EmptyName,
-    /// More than [`WORKSPACE_NAME_MAX_CHARS`] Unicode scalars → 422.
-    NameTooLong,
+    /// The trimmed name breaks the workspace-name rule → 422.
+    InvalidName(WorkspaceNameError),
     Store(foundry_store::StoreError),
 }
 
@@ -57,9 +61,10 @@ pub enum WorkspaceNameDecision {
     Write { name: String },
 }
 
-/// The pure ordered-check contract (DDD-9): trim → no-op (byte-equal to
-/// `current_name`) → empty → over [`WORKSPACE_NAME_MAX_CHARS`] scalars. A
-/// case-only change is NOT byte-equal, so it is a real rename.
+/// The pure ordered-check contract (DDD-4): trim → no-op (byte-equal to
+/// `current_name`, so an untouched legacy name is never refused, D6) →
+/// [`WorkspaceName::try_new`]. A case-only change is NOT byte-equal, so it is a
+/// real rename.
 pub fn classify_workspace_rename(
     raw_new_name: &str,
     current_name: &str,
@@ -70,14 +75,9 @@ pub fn classify_workspace_rename(
             name: trimmed.to_string(),
         });
     }
-    if trimmed.is_empty() {
-        return Err(RenameWorkspaceError::EmptyName);
-    }
-    if trimmed.chars().count() > WORKSPACE_NAME_MAX_CHARS {
-        return Err(RenameWorkspaceError::NameTooLong);
-    }
+    let name = WorkspaceName::try_new(trimmed).map_err(RenameWorkspaceError::InvalidName)?;
     Ok(WorkspaceNameDecision::Write {
-        name: trimmed.to_string(),
+        name: name.as_str().to_string(),
     })
 }
 
@@ -129,8 +129,8 @@ impl crate::Services {
 
 /// Property tests over the PURE classification (its inputs are exactly what
 /// the pre-read hands over, so no store double is needed at this seam).
-/// Universe per case: the single decision value. Budget: 4 behaviours × 2 = 8
-/// max; 4 properties + 2 exact-boundary examples.
+/// Universe per case: the single decision value. Budget: 5 behaviours × 2 = 10
+/// max; 5 properties + 3 exact-boundary examples.
 #[cfg(test)]
 mod classify_workspace_rename_properties {
     use super::*;
@@ -140,16 +140,30 @@ mod classify_workspace_rename_properties {
     /// strategies never emit).
     const CURRENT: &str = "current~name";
 
+    /// A sample of the D4 refused set: Cc (incl. TAB, NUL, DEL, NEL), a bidi
+    /// override, a bidi isolate, and the line/paragraph separators.
+    fn refused_char() -> impl Strategy<Value = char> {
+        prop::sample::select(vec![
+            '\t', '\0', '\u{7F}', '\u{85}', '\u{1B}', '\u{202A}', '\u{202E}', '\u{2066}',
+            '\u{2069}', '\u{2028}', '\u{2029}',
+        ])
+    }
+
+    fn is_invalid(
+        decision: &Result<WorkspaceNameDecision, RenameWorkspaceError>,
+        expected: WorkspaceNameError,
+    ) -> bool {
+        matches!(decision, Err(RenameWorkspaceError::InvalidName(e)) if *e == expected)
+    }
+
     proptest! {
-        /// Behaviour 1 — input that trims to nothing is EmptyName.
+        /// Behaviour 1 — input that trims to nothing is refused as Empty.
         #[test]
         fn whitespace_only_input_is_empty(raw in "[ \t\r\n]{0,8}") {
+            let decision = classify_workspace_rename(&raw, CURRENT);
             prop_assert!(
-                matches!(
-                    classify_workspace_rename(&raw, CURRENT),
-                    Err(RenameWorkspaceError::EmptyName)
-                ),
-                "{raw:?} trims to empty and must classify EmptyName"
+                is_invalid(&decision, WorkspaceNameError::Empty),
+                "{raw:?} trims to empty and must be refused as Empty, got {decision:?}"
             );
         }
 
@@ -168,19 +182,44 @@ mod classify_workspace_rename_properties {
                 prop_assert_eq!(decision.ok(), Some(WorkspaceNameDecision::Write { name }));
             } else {
                 prop_assert!(
-                    matches!(decision, Err(RenameWorkspaceError::NameTooLong)),
-                    "{scalars} scalars must classify NameTooLong"
+                    is_invalid(&decision, WorkspaceNameError::TooLong),
+                    "{scalars} scalars must be refused as TooLong, got {decision:?}"
                 );
             }
         }
 
-        /// Behaviour 3 — precedence: a trimmed input byte-equal to the current
-        /// name is a quiet NoOp even past the length gate (no-op precedes it).
+        /// Behaviour 3 — an interior refused character is ControlCharacter at
+        /// any length: the control arm precedes the length arm (named fault 6),
+        /// and edge whitespace is trimmed before it is looked at (fault 4).
+        #[test]
+        fn interior_refused_char_is_control_at_any_length(
+            head in "[A-Za-z]{1,30}",
+            refused in refused_char(),
+            tail in "[A-Za-z]{1,30}",
+            pad in "[ \t\r\n]{0,3}",
+        ) {
+            let raw = format!("{pad}{head}{refused}{tail}{pad}");
+            let decision = classify_workspace_rename(&raw, CURRENT);
+            prop_assert!(
+                is_invalid(&decision, WorkspaceNameError::ControlCharacter),
+                "{raw:?} must be refused as ControlCharacter, got {decision:?}"
+            );
+        }
+
+        /// Behaviour 4 — precedence: a trimmed input byte-equal to the current
+        /// name is a quiet NoOp before every gate — past the length cap, and for
+        /// a legacy name holding a refused character (D6, named fault 7).
         #[test]
         fn byte_equal_current_is_noop_before_every_gate(
-            current in "[A-Za-z][A-Za-z0-9 ]{0,80}[A-Za-z0-9]",
+            head in "[A-Za-z][A-Za-z0-9 ]{0,40}",
+            refused in prop::option::of(refused_char()),
+            tail in "[A-Za-z0-9 ]{0,40}[A-Za-z0-9]",
             pad in "[ \t]{0,3}",
         ) {
+            let current = match refused {
+                Some(c) => format!("{head}{c}{tail}"),
+                None => format!("{head}{tail}"),
+            };
             let raw = format!("{pad}{current}{pad}");
             prop_assert_eq!(
                 classify_workspace_rename(&raw, &current).ok(),
@@ -188,7 +227,7 @@ mod classify_workspace_rename_properties {
             );
         }
 
-        /// Behaviour 4 — a case-only change is a real rename (byte-equality,
+        /// Behaviour 5 — a case-only change is a real rename (byte-equality,
         /// not case-insensitive equality), persisting the trimmed input.
         #[test]
         fn case_only_change_is_written(
@@ -214,9 +253,9 @@ mod classify_workspace_rename_properties {
             Some(WorkspaceNameDecision::Write { name: at_cap }),
             "24 scalars sit AT the cap and must be written verbatim"
         );
-        assert!(matches!(
-            classify_workspace_rename(&"a".repeat(25), CURRENT),
-            Err(RenameWorkspaceError::NameTooLong)
+        assert!(is_invalid(
+            &classify_workspace_rename(&"a".repeat(25), CURRENT),
+            WorkspaceNameError::TooLong
         ));
     }
 
@@ -234,9 +273,26 @@ mod classify_workspace_rename_properties {
         );
         let over_cap = "Ångström Øresund Societés";
         assert_eq!(over_cap.chars().count(), 25);
-        assert!(matches!(
-            classify_workspace_rename(over_cap, CURRENT),
-            Err(RenameWorkspaceError::NameTooLong)
+        assert!(is_invalid(
+            &classify_workspace_rename(over_cap, CURRENT),
+            WorkspaceNameError::TooLong
+        ));
+    }
+
+    /// Legacy pin (D6): the untouched legacy tab name is a NoOp; one edited
+    /// character away it is refused for the tab.
+    #[test]
+    fn legacy_tab_name_untouched_is_noop_edited_is_refused() {
+        let legacy = "Canzan\tLabs";
+        assert_eq!(
+            classify_workspace_rename(legacy, legacy).ok(),
+            Some(WorkspaceNameDecision::NoOp {
+                name: legacy.to_string()
+            })
+        );
+        assert!(is_invalid(
+            &classify_workspace_rename("Canzan\tLabz", legacy),
+            WorkspaceNameError::ControlCharacter
         ));
     }
 }

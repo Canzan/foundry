@@ -97,6 +97,7 @@ fn source_violations(root: &Path) -> Vec<String> {
     violations.extend(check_static_asset_integrity(root));
     violations.extend(check_stylesheet_colour_seam(root));
     violations.extend(check_stylesheet_dark_block_parity(root));
+    violations.extend(check_workspace_name_one_source(root));
     violations
 }
 
@@ -135,7 +136,7 @@ pub fn run(args: Vec<String>) -> ExitCode {
     let verdict = verdict(&args);
     match &verdict {
         Verdict::Passed => println!(
-            "check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, the lanes position constraint is still DEFERRABLE, no board-*.js registers a keydown listener, nothing outside migration 0017 UPDATEs users.provisioned_at (D9), both publish workflows stamp every image with its commit and the Dockerfile hands it to build.rs (AC-8), every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, no colour literal outside the three stylesheet token regions, the three stylesheet token regions declare the identical colour-token set, dependency direction)"
+            "check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, the lanes position constraint is still DEFERRABLE, no board-*.js registers a keydown listener, nothing outside migration 0017 UPDATEs users.provisioned_at (D9), both publish workflows stamp every image with its commit and the Dockerfile hands it to build.rs (AC-8), every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, no colour literal outside the three stylesheet token regions, the three stylesheet token regions declare the identical colour-token set, the workspace-name refusal copy lives only in foundry-core, dependency direction)"
         ),
         Verdict::UnparseableArguments(message) => eprintln!("check-arch: {message}"),
         Verdict::Violations(violations) => {
@@ -4204,20 +4205,82 @@ mod tests {
 // instance-workspace-name-rule DDD-12 — `workspace-name-one-source`
 // ---------------------------------------------------------------------------
 
-/// SCAFFOLD: true — written at DISTILL (2026-10-05). DELIVER replaces the body,
-/// wires it into [`run`]'s rule list and adds it to the PASSED banner, then
-/// un-ignores `workspace_name_one_source_tests`.
+/// The adapter and service crates that must never state the workspace-name
+/// copy themselves (DDD-12a).
+const WORKSPACE_NAME_COPY_FORBIDDEN_IN: [&str; 4] = [
+    "foundry-app",
+    "foundry-services",
+    "foundry-api",
+    "foundry-store",
+];
+
+/// The opening of every D3 workspace-name refusal, quote included, so prose
+/// that merely mentions the rule is not a second copy.
+const WORKSPACE_NAME_COPY_PREFIX: &str = "\"Workspace name must";
+
+/// `workspace-name-one-source` (instance-workspace-name-rule DDD-12).
 ///
-/// The rule (DDD-12): (a) the literal prefix `"Workspace name must` appears in no
-/// `.rs` under `crates/{foundry-app,foundry-services,foundry-api,foundry-store}/src`
-/// — its only production home is `crates/foundry-core/src` (the D3 copy is
-/// `WorkspaceNameError`'s `Display`, DDD-3); (b) `create_initial_workspace(` has no
-/// call site under `crates/{foundry-app,foundry-services,foundry-api}/src` — the
-/// store's test-seeding seam is never a production door (DDD-7). Every violation
-/// names `file:line`; an unreadable directory fails the rule.
-#[cfg_attr(not(test), allow(dead_code))]
-fn check_workspace_name_one_source(_root: &Path) -> Vec<String> {
-    panic!("SCAFFOLD: check-arch workspace-name-one-source is not implemented yet (DDD-12)")
+/// (a) the literal prefix `"Workspace name must` appears in no `.rs` under
+/// `crates/{foundry-app,foundry-services,foundry-api,foundry-store}/src` — its
+/// only production home is `crates/foundry-core/src` (the D3 copy is
+/// `WorkspaceNameError`'s `Display`, DDD-3). Test trees (`tests/`, the
+/// acceptance crate) may hold the expected strings. Every violation names
+/// `file:line`; a missing `crates/` or an unreadable directory fails the rule.
+///
+/// Clause (b) — no production call of `create_initial_workspace(` (DDD-7) —
+/// lands with slice 02.
+fn check_workspace_name_one_source(root: &Path) -> Vec<String> {
+    let crates_dir = root.join("crates");
+    if !crates_dir.is_dir() {
+        return vec![format!(
+            "workspace-name-one-source: cannot list {} — no crate could be checked for a \
+             second copy of the workspace-name refusal (DDD-12).",
+            crates_dir.display()
+        )];
+    }
+    let mut violations = Vec::new();
+    for crate_name in WORKSPACE_NAME_COPY_FORBIDDEN_IN {
+        let src = crates_dir.join(crate_name).join("src");
+        if !src.is_dir() {
+            continue;
+        }
+        let (sources, unreadable) = files_under(&src, "rs", &|_| false);
+        for dir in &unreadable {
+            violations.push(format!(
+                "workspace-name-one-source: cannot list {} — it could not be checked for a \
+                 second copy of the workspace-name refusal (DDD-12).",
+                rel(root, dir)
+            ));
+        }
+        for file in &sources {
+            violations.extend(workspace_name_copy_violations_in(root, file));
+        }
+    }
+    violations
+}
+
+/// The DDD-12a violations in one file, each naming `file:line`.
+fn workspace_name_copy_violations_in(root: &Path, file: &Path) -> Vec<String> {
+    let Ok(contents) = std::fs::read_to_string(file) else {
+        return vec![format!(
+            "workspace-name-one-source: cannot read {} (DDD-12).",
+            rel(root, file)
+        )];
+    };
+    contents
+        .lines()
+        .enumerate()
+        .filter(|(_, line)| line.contains(WORKSPACE_NAME_COPY_PREFIX))
+        .map(|(line_no, _)| {
+            format!(
+                "workspace-name-one-source: {}:{} states the workspace-name refusal copy — \
+                 its one home is WorkspaceNameError's Display in foundry-core; render \
+                 `err.to_string()` instead (DDD-3/DDD-12)",
+                rel(root, file),
+                line_no + 1,
+            )
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -4225,7 +4288,7 @@ mod workspace_name_one_source_tests {
     //! Injected-violation gold tests for `workspace-name-one-source` (DDD-12),
     //! the `check_provisioned_marker_is_never_rewritten` idiom: a staged tree, the
     //! rule run against it, the violations named by `file:line`.
-    //! SCAFFOLD: every test is `#[ignore]`d until DELIVER implements the rule.
+    //! Clause (b)'s tests stay `#[ignore]`d until slice 02 implements it.
 
     use super::check_workspace_name_one_source;
 
@@ -4249,7 +4312,6 @@ mod workspace_name_one_source_tests {
         #[error(\"Workspace name must not be empty\")]\n    Empty,\n}\n";
 
     #[test]
-    #[ignore = "SCAFFOLD: un-ignored by DELIVER slice 01 (instance-workspace-name-rule DDD-12a)"]
     fn the_copy_in_foundry_core_is_its_one_home() {
         let tree = stage(&[("crates/foundry-core/src/lib.rs", CORE_COPY)]);
         let violations = check_workspace_name_one_source(tree.path());
@@ -4257,7 +4319,6 @@ mod workspace_name_one_source_tests {
     }
 
     #[test]
-    #[ignore = "SCAFFOLD: un-ignored by DELIVER slice 01 (instance-workspace-name-rule DDD-12a)"]
     fn a_second_copy_in_any_adapter_or_service_crate_is_flagged() {
         let tree = stage(&[
             ("crates/foundry-core/src/lib.rs", CORE_COPY),
@@ -4302,7 +4363,6 @@ mod workspace_name_one_source_tests {
     }
 
     #[test]
-    #[ignore = "SCAFFOLD: un-ignored by DELIVER slice 01 (instance-workspace-name-rule DDD-12a)"]
     fn expected_strings_in_the_acceptance_suite_and_crate_tests_are_not_flagged() {
         let tree = stage(&[
             ("crates/foundry-core/src/lib.rs", CORE_COPY),
@@ -4368,7 +4428,6 @@ mod workspace_name_one_source_tests {
     }
 
     #[test]
-    #[ignore = "SCAFFOLD: un-ignored by DELIVER slice 01 (instance-workspace-name-rule DDD-12)"]
     fn a_missing_crates_directory_fails_the_rule() {
         let tree = stage(&[("README.md", "nothing here\n")]);
         let violations = check_workspace_name_one_source(tree.path());

@@ -512,14 +512,11 @@ pub async fn submit_workspace_rename(
         Err(RenameWorkspaceError::Forbidden) | Err(RenameWorkspaceError::NotFound) => {
             resource_not_found_page()
         }
-        Err(RenameWorkspaceError::EmptyName) => rename_error_fragment(
-            WORKSPACE_RENAME_ERROR_MARKER,
-            "Workspace name must not be empty",
-        ),
-        Err(RenameWorkspaceError::NameTooLong) => rename_error_fragment(
-            WORKSPACE_RENAME_ERROR_MARKER,
-            "Workspace name must be at most 24 characters",
-        ),
+        // The copy is the rule's own `Display` (D3/DDD-3): never match a
+        // variant here, so a new refusal reaches this door with no edit.
+        Err(RenameWorkspaceError::InvalidName(err)) => {
+            rename_error_fragment(WORKSPACE_RENAME_ERROR_MARKER, &err.to_string())
+        }
         Err(RenameWorkspaceError::Store(err)) => internal_error("rename_workspace", err),
     }
 }

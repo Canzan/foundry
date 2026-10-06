@@ -56,7 +56,7 @@ Feature: One rule for naming a workspace, at every door
       And workspace "Canzan Labs" has a team "Backend" with projects "Auth v2" (AUTH) and "Sandbox" (SBX)
       And workspace "Household" exists with no projects
 
-    @us-wnr-01 @error @real-io @pending @contract-shape:unbounded-preservation
+    @us-wnr-01 @error @real-io @contract-shape:unbounded-preservation
     Scenario Outline: A name with an invisible character inside it is refused inside the row
       When Priya renames workspace "Household" to the pasted name "<pasted>"
       Then the workspace rename is refused saying "Workspace name must not contain control characters"
@@ -70,13 +70,13 @@ Feature: One rule for naming a workspace, at every door
         | Ops[U+2066]Stacking  |
         | Ops[U+2028]Platform  |
 
-    @us-wnr-01 @error @kpi @real-io @pending @contract-shape:unbounded-preservation
+    @us-wnr-01 @error @kpi @real-io @contract-shape:unbounded-preservation
     Scenario: A name with a null character is refused with the reason, not an internal error
       When Priya renames workspace "Household" to the pasted name "Bailey[NUL]Family"
       Then the workspace rename is refused saying "Workspace name must not contain control characters"
       And workspace "Household" is unchanged with no rename on record
 
-    @us-wnr-01 @edge @real-io @pending @contract-shape:bounded-change
+    @us-wnr-01 @edge @real-io @contract-shape:bounded-change
     Scenario Outline: Joined, accented and spaced names are still accepted
       When Priya renames workspace "Household" to the pasted name "<pasted>"
       Then the pasted name "<pasted>" is stored exactly, with one rename on record
@@ -88,32 +88,32 @@ Feature: One rule for naming a workspace, at every door
         | Ops[NBSP]Team            |
         | Ångström Øresund Société |
 
-    @us-wnr-01 @edge @real-io @pending @contract-shape:bounded-change
+    @us-wnr-01 @edge @real-io @contract-shape:bounded-change
     Scenario: Tabs and line breaks at either end are trimmed, not refused
       When Priya renames workspace "Household" to the pasted name "[TAB]Kitchen[NEWLINE]"
       Then the workspace row she gets back shows "Kitchen"
       And the latest rename on record for workspace "Kitchen" names Priya, from "Household" to "Kitchen", at the time of the rename
 
-    @us-wnr-01 @edge @error @real-io @pending @contract-shape:unbounded-preservation
+    @us-wnr-01 @edge @error @real-io @contract-shape:unbounded-preservation
     Scenario: A name of only spaces and tabs counts as empty
       When Priya renames workspace "Household" to the pasted name "[SPACE][TAB][SPACE]"
       Then the workspace rename is refused saying "Workspace name must not be empty"
       And workspace "Household" is unchanged with no rename on record
 
-    @us-wnr-01 @error @real-io @pending @contract-shape:unbounded-preservation
+    @us-wnr-01 @error @real-io @contract-shape:unbounded-preservation
     Scenario: A long name with a tab is refused for the tab first
       When Priya renames workspace "Household" to the pasted name "Canzan Labs Platform[TAB]Engineering"
       Then the workspace rename is refused saying "Workspace name must not contain control characters"
       And workspace "Household" is unchanged with no rename on record
 
-    @us-wnr-01 @edge @guard @real-io @pending @contract-shape:unbounded-preservation
+    @us-wnr-01 @edge @guard @real-io @contract-shape:unbounded-preservation
     Scenario: An untouched name with a tab from before the rule can be left as it is
       Given workspace "Canzan[TAB]Labs" was named before the rule existed
       When Priya renames workspace "Canzan[TAB]Labs" to the pasted name "Canzan[TAB]Labs"
       Then the workspace row she gets back shows the pasted name "Canzan[TAB]Labs" and carries no error
       And no workspace changed and nothing new went on record
 
-    @us-wnr-01 @needs-browser @error @real-io @pending @contract-shape:unbounded-preservation
+    @us-wnr-01 @needs-browser @error @real-io @contract-shape:unbounded-preservation
     Scenario: A pasted tab is explained inside the row on the real page
       Given Priya has the instance dashboard open in her browser
       When she pastes "House[TAB]hold" over the "Household" workspace name in her browser and submits it
