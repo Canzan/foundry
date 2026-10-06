@@ -1,0 +1,332 @@
+{
+  "roadmap": {
+    "project_id": "instance-workspace-name-rule",
+    "created_at": "2026-10-05T00:00:00Z",
+    "total_steps": 6,
+    "goal": "Apply one workspace-name rule (trim, then non-empty, then no control characters from the exact D4 set, then at most 24 Unicode scalars) with one byte-identical copy at all four doors (instance-dashboard rename, first-run bootstrap claim, dashboard provisioning, foundry doctor provision-workspace), so every refusal states the same reason and leaves nothing behind, and every accepted name is stored trimmed.",
+    "sources": [
+      "docs/feature/instance-workspace-name-rule/feature-delta.md",
+      "docs/product/architecture/adr-workspace-name-001-one-rule-as-core-value-object.md",
+      "docs/product/architecture/adr-workspace-name-002-bootstrap-name-check-before-claim.md",
+      "crates/foundry-acceptance/tests/features/instance-workspace-name-rule.feature",
+      "crates/foundry-core/tests/workspace_name.rs",
+      "xtask/src/check_arch.rs"
+    ],
+    "scenario_ownership_invariant": "All 28 DISTILL acceptance scenarios (55 outline rows) are owned by exactly one step (01-01: 0 acceptance + 13 core unit tests, 01-02: 8 + 4 check-arch gold tests, 02-01: 5 + 2 check-arch gold tests, 03-01: 7, 04-01: 5, 05-01: 3). DELIVER un-pends a scenario only in the step that owns it, in the DISTILL order; scenarios 21-24 may already pass after 03-01 (OQ-D4) but stay @pending until 04-01, and the parity outlines 26-28 stay @pending until all four doors are done. Scaffold burn-down tracked via grep -c '@pending' crates/foundry-acceptance/tests/features/instance-workspace-name-rule.feature, grep -n 'SCAFFOLD' crates/foundry-core/tests/workspace_name.rs and grep -n 'SCAFFOLD' xtask/src/check_arch.rs (workspace_name_one_source section)."
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "The rule as a core value object, composed by rename (US-WNR-01, D1-D6, DDD-1/2/3/4/12a/13)",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "WorkspaceName core value object: D4 set, D3 copy",
+          "description": "Create the value object in crates/foundry-core (in lib.rs or a sibling module workspace_name.rs re-exported from lib.rs; crafter's choice), following the ProjectKey idiom: pub WORKSPACE_NAME_MAX_CHARS = 24; WorkspaceName with a private String field, try_new(raw: &str) -> Result<WorkspaceName, WorkspaceNameError>, as_str(), Display; WorkspaceNameError a flat Copy enum {Empty, ControlCharacter, TooLong} whose thiserror Display is the D3 copy verbatim ('Workspace name must not be empty' / 'Workspace name must not contain control characters' / 'Workspace name must be at most 24 characters'). try_new order (D5/DDD-2): str::trim, then empty, then the D4 predicate over the trimmed value, then chars().count() > 24. The D4 predicate is EXACTLY: char::is_control() (Cc: U+0000-001F, U+007F-009F), U+202A-202E, U+2066-2069, U+2028, U+2029; every other Cf (U+200B-200F, U+00AD, U+FEFF, U+206A-206F, variation selectors) is allowed. Then in crates/foundry-core/tests/workspace_name.rs delete mod scaffold, import from foundry_core, delete the SCAFFOLD header marker, and remove the 13 #[ignore]s one at a time (each test RED for the right reason before GREEN).",
+          "criteria": [
+            "All 13 workspace_name tests (9 exact-example, 4 proptest) pass un-ignored; mod scaffold and every SCAFFOLD marker in that file are gone",
+            "Every DDD-13 boundary pair holds exactly: 24/25 ASCII and multi-byte, U+001F/0020, U+007E/007F, U+009F/00A0, U+2027/2028/2029/202A, U+202E/202F, U+2065/2066/2069/206A",
+            "Edge Unicode White_Space (TAB, LF, CR, U+0085, U+2028/2029, NBSP) is trimmed not refused; edge non-whitespace controls (U+0001, U+202E) are refused; ZWJ/ZWNJ/soft hyphen/U+FEFF accepted",
+            "Precedence is Empty, then ControlCharacter, then TooLong; each variant's to_string() equals its D3 string byte for byte",
+            "foundry-core keeps no I/O and no new dependency; workspace build, fmt, clippy -D warnings, check-arch and the default acceptance lane green"
+          ],
+          "estimate": "0.25 day",
+          "dependencies": [],
+          "files_to_modify": [
+            "crates/foundry-core/src/lib.rs",
+            "crates/foundry-core/tests/workspace_name.rs"
+          ],
+          "test_file": "crates/foundry-core/tests/workspace_name.rs",
+          "scenario_name": [
+            "the_cap_is_24_scalars",
+            "the_c0_and_c1_control_boundaries",
+            "the_line_and_paragraph_separators",
+            "the_bidi_embedding_override_and_isolate_boundaries",
+            "other_format_characters_stay_allowed",
+            "whitespace_controls_at_the_edges_are_trimmed_not_refused",
+            "non_whitespace_controls_at_the_edges_are_refused",
+            "empty_comes_before_control_and_control_before_length",
+            "each_refusal_reads_the_d3_copy_byte_for_byte",
+            "whitespace_only_is_always_empty",
+            "a_refused_character_inside_a_clean_name_is_always_refused",
+            "the_length_gate_sits_at_24_trimmed_scalars",
+            "an_accepted_name_is_the_trimmed_input"
+          ],
+          "lane_commands": [
+            "timeout 600 cargo test -p foundry-core --test workspace_name",
+            "timeout 600 cargo test -p foundry-core",
+            "timeout 900 cargo fmt --all -- --check && timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "timeout 600 cargo xtask check-arch",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && timeout 300 target/debug/foundry --help (rebuild + warm the binary BEFORE any lane; acceptance does not rebuild it; the warm-up absorbs the macOS first-exec stall)",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance (default lane; foundry-core is shared by every crate)"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): unit tests for new pure logic (WorkspaceName::try_new) MUST be property-based (proptest) with state-delta discipline where state mutates; single-example unit tests are FALLBACK only with a # bypass: comment, EXCEPT the DDD-13 exact boundary examples, which are mandatory mutation-killing pairs (precedent lesson: a proptest range need not sample the boundary). Acceptance scenarios are the cucumber .feature file (already authored by DISTILL \u2014 un-pend, do not re-author). Integration/browser tests stay single-example \u2014 they verify wiring. Contract shape: pure function (return-only). No acceptance scenario is un-pended here (scenario_name lists the 13 core tests this step un-ignores). Named faults killed: controls checked before trim; all of Cf refused; Cc set off by one at U+001F/0020, U+007E/007F, U+009F/00A0; bidi ranges off by one at U+2029/202A, U+202E/202F, U+2065/2066, U+2069/206A; U+2028/2029 allowed in the interior; length counted in bytes; precedence reordered; Display copy drifting from D3. Do NOT yet remove WORKSPACE_NAME_MAX_CHARS from foundry-services (01-02 turns it into a re-export). A sibling module crates/foundry-core/src/workspace_name.rs (re-exported from lib.rs) is allowed if the crafter prefers it; lib.rs changes either way. MUTATION: per-feature gate >= 80% kill rate on modified files (cargo mutants --in-diff <feature diff> --file crates/foundry-core/src/...); every predicate bound and the 24 cap must be killed by an exact boundary pair, not by luck of the proptest range."
+        },
+        {
+          "id": "01-02",
+          "name": "Rename composes the rule; check-arch clause (a)",
+          "description": "In crates/foundry-services/src/workspaces.rs: replace the local cap with pub use foundry_core::WORKSPACE_NAME_MAX_CHARS (shipped path stays valid); classify_workspace_rename becomes trim -> byte-equal no-op -> WorkspaceName::try_new (DDD-4); RenameWorkspaceError::{EmptyName, NameTooLong} collapse into InvalidName(WorkspaceNameError); rewrite the in-file proptests against InvalidName and add the legacy no-op property (a byte-equal stored name containing a D4 character, or more than 24 scalars, is NoOp \u2014 D6). In crates/foundry-app/src/instance_admin.rs (submit_workspace_rename ~:515-522) collapse the two copy arms into one InvalidName(e) => rename_error_fragment(MARKER, &e.to_string()); the adapter holds no 'Workspace name must' literal. In xtask/src/check_arch.rs implement check_workspace_name_one_source clause (a) (the literal prefix \"Workspace name must appears in no .rs under crates/{foundry-app,foundry-services,foundry-api,foundry-store}/src; fails closed when crates/ is missing), wire it into run and the PASSED banner, remove its SCAFFOLD panic, and un-ignore the four clause-(a) gold tests: the_copy_in_foundry_core_is_its_one_home, a_second_copy_in_any_adapter_or_service_crate_is_flagged, expected_strings_in_the_acceptance_suite_and_crate_tests_are_not_flagged, a_missing_crates_directory_fails_the_rule. Then un-pend the eight rename scenarios in the DISTILL order.",
+          "criteria": [
+            "Interior TAB, U+007F, U+202E, U+2066, U+2028 or NUL answers 422 workspace-rename-error with exactly the control copy (never 'internal error'); name unchanged, no record",
+            "A 30-scalar name with a tab gets the control copy, not the length copy; whitespace-only gets the empty copy",
+            "ZWJ, ZWNJ, interior NBSP and 24 multi-byte names accepted; '[TAB]Kitchen[NEWLINE]' stores 'Kitchen'; an untouched legacy tab name is a quiet 200, no record",
+            "check-arch workspace-name-one-source clause (a) runs in cargo xtask check-arch and its 4 gold tests pass un-ignored; no 'Workspace name must' literal remains in app/services/api/store src",
+            "Owned scenarios (incl. the @needs-browser one, actually run) green in the iwnr lane; iawr and iapr lanes, default lane, fmt, clippy green"
+          ],
+          "estimate": "0.5 day",
+          "dependencies": [
+            "01-01"
+          ],
+          "files_to_modify": [
+            "crates/foundry-services/src/workspaces.rs",
+            "crates/foundry-app/src/instance_admin.rs",
+            "xtask/src/check_arch.rs",
+            "crates/foundry-acceptance/tests/features/instance-workspace-name-rule.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/instance-workspace-name-rule.feature",
+          "scenario_name": [
+            "A name with an invisible character inside it is refused inside the row",
+            "A name with a null character is refused with the reason, not an internal error",
+            "A long name with a tab is refused for the tab first",
+            "Joined, accented and spaced names are still accepted",
+            "Tabs and line breaks at either end are trimmed, not refused",
+            "A name of only spaces and tabs counts as empty",
+            "An untouched name with a tab from before the rule can be left as it is",
+            "A pasted tab is explained inside the row on the real page"
+          ],
+          "lane_commands": [
+            "timeout 600 cargo test -p foundry-services workspaces",
+            "timeout 600 cargo test -p xtask workspace_name_one_source",
+            "timeout 600 cargo xtask check-arch",
+            "timeout 900 cargo fmt --all -- --check && timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "docker info (Docker up: Postgres testcontainer + selenium/standalone-chrome for the @needs-browser scenario)",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && timeout 300 target/debug/foundry --help (rebuild + warm BEFORE the lanes)",
+            "FOUNDRY_ACCEPTANCE_TAGS=iwnr CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo test -p foundry-acceptance --test acceptance (confirm the @needs-browser count in the summary is non-zero)",
+            "FOUNDRY_ACCEPTANCE_TAGS=iawr CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo test -p foundry-acceptance --test acceptance (shipped rename copy now comes from core; must stay byte-identical)",
+            "FOUNDRY_ACCEPTANCE_TAGS=iapr CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1200 cargo test -p foundry-acceptance --test acceptance",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance (default lane)"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): unit tests for new pure logic (classify_workspace_rename) MUST be property-based (proptest) with state-delta discipline where state mutates; single-example unit tests are FALLBACK only with a # bypass: comment. Acceptance scenarios are the cucumber .feature file (already authored by DISTILL \u2014 un-pend, do not re-author). Integration/browser tests stay single-example \u2014 they verify wiring. Un-pend in DISTILL order: 1, 2, 6, then the guards 3, 4, 5, 7, then 8 (@needs-browser; a browser cannot type a tab, so the step sets the value the way a paste lands). Named faults killed here: rename runs the rule before the no-op (7); control before empty on an untrimmed value (5); length before control (6); NUL reaching Postgres as a 500 (2); all of Cf refused (3); controls checked before trim (4); a door rendering its own copy (check-arch clause a). The handler renders err.to_string() \u2014 it must never match a WorkspaceNameError variant to choose copy (DDD-3), so a future arm reaches every door with no edit. DDD-11: a refusal must NEVER log the raw name (no tracing field, no Debug of the form); a refusal is an ordinary input error and needs no log line at all. Leave clause (b) and its 2 gold tests ignored (02-01). No other crate names EmptyName/NameTooLong for workspaces (projects.rs has its own unrelated variants \u2014 do not touch). MUTATION: >= 80% on modified files (cargo mutants --in-diff, scoped to workspaces.rs, instance_admin.rs, check_arch.rs) with exact boundary pairs: the no-op byte-equality vs a case-only change, and the legacy-tab no-op vs an edited tab name."
+        }
+      ]
+    },
+    {
+      "id": "02",
+      "name": "First-run claim refuses an unfit name without burning the link (US-WNR-02, D7-D9, DDD-7/9/12b, ADR-WORKSPACE-NAME-002)",
+      "steps": [
+        {
+          "id": "02-01",
+          "name": "Bootstrap name check before claim; check-arch clause (b)",
+          "description": "In crates/foundry-app/src/bootstrap.rs submit (~:90-158): after the token-present check and BEFORE the password hash and the claim transaction, run WorkspaceName::try_new on the workspace name (ADR-WORKSPACE-NAME-002, DDD-9). On Err: call the NON-consuming Store::bootstrap_token_status; Valid => 422 claim page (base.html) with one .error carrying err.to_string(), and email, display_name and workspace_name retained as submitted; the password input carries NO value and the password appears nowhere in the body; any non-valid state (used, expired, unknown) => today's byte-identical bootstrap_refusal_page(), whatever the name; a status read error => 500. Nothing is hashed, claimed or written on any refusal path. On Ok, the shipped flow runs unchanged with the validated (trimmed) name passed to claim_bootstrap_and_create_workspace. Extend BootstrapClaim in views.rs (~:1087) with error: Option<String>, email, display_name, workspace_name (GET renders them empty; an absent error renders no slot) and render_claim_form (~:293) to take them; bootstrap_claim.html gains the .error slot and value attributes on the three retained inputs, none on password, no maxlength (D12). In crates/foundry-store/src/lib.rs (~:625-633) add the doc comment marking create_initial_workspace a test-seeding seam (production doors use WorkspaceName). In xtask/src/check_arch.rs add clause (b): create_initial_workspace( has no call site under crates/{foundry-app,foundry-services,foundry-api}/src; un-ignore a_production_call_to_the_test_seeding_seam_is_flagged and the_seam_itself_and_its_test_callers_are_not_flagged; remove the rule's remaining SCAFFOLD markers.",
+          "criteria": [
+            "Live link plus 33-char, blank, newline or NUL name: 422 claim page, one .error with the D3 copy, three fields kept, password nowhere in the body",
+            "A refused claim moves nothing and leaves the link unconsumed; the corrected retry on the same link is a 303 with workspace and first instance admin",
+            "'  Raman Household  ' is stored trimmed; used, expired and never-issued links answer each of four unfit names byte-identically to an acceptable name (12 comparisons); nothing moved",
+            "check-arch clause (b) runs and its 2 gold tests pass un-ignored; no SCAFFOLD marker remains in the workspace_name_one_source rule or its tests",
+            "Owned scenarios green in the iwnr lane; us-05, bootstrap-enum-oracle and default lanes, fmt, clippy green"
+          ],
+          "estimate": "0.5 day",
+          "dependencies": [
+            "01-02"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/src/bootstrap.rs",
+            "crates/foundry-app/src/views.rs",
+            "crates/foundry-app/templates/bootstrap_claim.html",
+            "crates/foundry-store/src/lib.rs",
+            "xtask/src/check_arch.rs",
+            "crates/foundry-acceptance/tests/features/instance-workspace-name-rule.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/instance-workspace-name-rule.feature",
+          "scenario_name": [
+            "An over-long workspace name is refused and the link still works",
+            "A blank or invisible-character workspace name is refused on the claim page",
+            "The corrected claim with the same link succeeds",
+            "Spaces around the workspace name are trimmed",
+            "A dead link answers exactly as before, whatever the name"
+          ],
+          "lane_commands": [
+            "timeout 600 cargo test -p xtask workspace_name_one_source",
+            "timeout 600 cargo xtask check-arch",
+            "timeout 900 cargo fmt --all -- --check && timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && timeout 300 target/debug/foundry --help (rebuild + warm BEFORE the lanes)",
+            "FOUNDRY_ACCEPTANCE_TAGS=iwnr CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo test -p foundry-acceptance --test acceptance",
+            "FOUNDRY_ACCEPTANCE_TAGS=us-05 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo test -p foundry-acceptance --test acceptance (us-05-bootstrap.feature; the @us-05 tag also matches scenarios in other features \u2014 that is expected)",
+            "FOUNDRY_ACCEPTANCE_TAGS=bootstrap-enum-oracle CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1200 cargo test -p foundry-acceptance --test acceptance (dead-link byte-identity across arms)",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance (default lane)"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): unit tests for new pure logic MUST be property-based (proptest) with state-delta discipline where state mutates; single-example unit tests are FALLBACK only with a # bypass: comment. Acceptance scenarios are the cucumber .feature file (already authored by DISTILL \u2014 un-pend, do not re-author). Integration/browser tests stay single-example \u2014 they verify wiring. EXEMPT FROM PARADIGM: adapter ordering/wiring step (check placement before hash and claim, liveness branch, page re-render) \u2014 compensate with the property-based tests on the adjacent pure rule (01-01). Un-pend in DISTILL order: 9, 11, 10, then the guards 12, 13. Named faults killed here: P3 checks inside the claim transaction and consumes the link (9-11); answers a dead link with a 422 instead of the uniform refusal (13 \u2014 DDD-9 option (c) is a new enumeration oracle); echoes the password (9); passes the raw instead of the validated name to the claim (12); NUL reaching Postgres (11); a production door calling create_initial_workspace (check-arch clause b). Ordering per ADR-WORKSPACE-NAME-002: the pure name check runs BEFORE the password hash (no argon work on a refusal) and BEFORE the claim; the liveness read happens ONLY on the refusal path, so the happy path gains zero queries and the claim transaction stays authoritative (a link that dies between the status read and a valid retry still gets the refusal page). The dead-link page must stay byte-identical (us-05 and bootstrap-enum-oracle pin it relatively). DDD-11: refusals NEVER log the raw name; keep the existing tracing::info!(?reason) for link refusals unchanged and add no name field anywhere. The GET /bootstrap markup change is additive (OQ-D5: no shipped test pins it byte for byte). MUTATION: >= 80% on modified files (bootstrap.rs, check_arch.rs) with exact boundary pairs: live vs used/expired/unknown link under an unfit name, and a 24 vs 25 scalar workspace name on a live link."
+        }
+      ]
+    },
+    {
+      "id": "03",
+      "name": "Dashboard provisioning refuses an unfit name and creates nothing (US-WNR-03, D7-D9, DDD-5/8, OQ-D4)",
+      "steps": [
+        {
+          "id": "03-01",
+          "name": "Typed provisioning port and 422 dashboard re-render",
+          "description": "In crates/foundry-services/src/lib.rs (~:227-289) change ProvisionRequest.workspace_name to WorkspaceName (owned); the use-case does not re-check and gains no ServiceError arm (DDD-5); the store call passes as_str(). OQ-D4: this type change breaks crates/foundry-app/src/admin_cli.rs, so in THIS commit run_provision_workspace builds the WorkspaceName at its FINAL position \u2014 after the --admin-email/--as presence check and BEFORE reading DATABASE_URL \u2014 refusing with stderr 'foundry doctor provision-workspace: {err}', exit 2 and empty stdout (04-01 adds main.rs's absent-vs-present split, the trimmed echo, and the CLI scenarios). Update crates/foundry-services/tests/provision_workspace_use_case.rs call sites to WorkspaceName::try_new(..).unwrap(). In crates/foundry-app/src/instance_admin.rs submit_provision (~:198-240): parse AFTER require_instance_admin (signed-out/non-admin keep the uniform 404 first, D8); on Err answer 422 with the FULL dashboard re-rendered through the page assembly shared with show_dashboard (~:77-122), the copy in [data-provision-error] (.error) inside [data-provision-form], name and email retained as submitted; on Ok the success fragment renders the validated name (not form.name.trim()). InstanceDashboardPage (views.rs ~:1391) gains provision_error: Option<String>, provision_name, provision_email; instance_dashboard.html (~:31-37) gains the error slot (rendered only when present) and value attributes on name and email \u2014 placed BEFORE the existing required attribute; no maxlength, no pattern (D12).",
+          "criteria": [
+            "A 24-scalar name is provisioned (200 instance-provisioned fragment, exactly +1 workspace, user, membership, invite); '  Globex  ' is shown and stored as 'Globex'",
+            "25-char, blank, trailing U+202E and NUL names: 422 full dashboard, one [data-provision-form] [data-provision-error] with the D3 copy; name and email kept; nothing moved",
+            "The corrected name provisions with the same first-admin email; a non-admin submitting a 40-char name gets the byte-identical never-existed 404 and nothing moved",
+            "In the real browser the refusal shows in the Provision form with the typed values still in the inputs; the GET dashboard body never contains value=\"\"></ (web-provisioning-flow stays green)",
+            "Owned scenarios green in the iwnr lane; web-provisioning-flow, mwt-slice-06, iawr, default lanes, services tests, check-arch, fmt, clippy green"
+          ],
+          "estimate": "0.5 day",
+          "dependencies": [
+            "01-02"
+          ],
+          "files_to_modify": [
+            "crates/foundry-services/src/lib.rs",
+            "crates/foundry-services/tests/provision_workspace_use_case.rs",
+            "crates/foundry-app/src/instance_admin.rs",
+            "crates/foundry-app/src/views.rs",
+            "crates/foundry-app/templates/instance_dashboard.html",
+            "crates/foundry-app/src/admin_cli.rs",
+            "crates/foundry-acceptance/tests/features/instance-workspace-name-rule.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/instance-workspace-name-rule.feature",
+          "scenario_name": [
+            "A name past 24 characters is refused, kept in the form, and nothing is created",
+            "A blank or invisible-character name is refused and nothing is created",
+            "The corrected name provisions with the same first-admin email",
+            "A name of exactly 24 characters is provisioned",
+            "Spaces around the name are trimmed before it is stored and shown",
+            "A non-admin is refused before the name is looked at",
+            "The refusal is shown in the Provision form on the real page, ready to correct"
+          ],
+          "lane_commands": [
+            "timeout 900 cargo test -p foundry-services --test provision_workspace_use_case (Docker up: testcontainers Postgres)",
+            "timeout 600 cargo xtask check-arch",
+            "timeout 900 cargo fmt --all -- --check && timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "docker info (Postgres testcontainer + selenium/standalone-chrome for the @needs-browser scenario)",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && timeout 300 target/debug/foundry --help (rebuild + warm BEFORE the lanes; admin_cli.rs changed and mwt-slice-06 execs the binary)",
+            "FOUNDRY_ACCEPTANCE_TAGS=iwnr CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo test -p foundry-acceptance --test acceptance (confirm the @needs-browser count is non-zero)",
+            "FOUNDRY_ACCEPTANCE_TAGS=web-provisioning-flow CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1200 cargo test -p foundry-acceptance --test acceptance (the value=\"\"></ trap in dashboard_offers_both_forms)",
+            "FOUNDRY_ACCEPTANCE_TAGS=mwt-slice-06 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo test -p foundry-acceptance --test acceptance (CLI provision-workspace through the typed port)",
+            "FOUNDRY_ACCEPTANCE_TAGS=iawr CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo test -p foundry-acceptance --test acceptance (shared dashboard page assembly)",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance (default lane)"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): unit tests for new pure logic MUST be property-based (proptest) with state-delta discipline where state mutates; single-example unit tests are FALLBACK only with a # bypass: comment. Acceptance scenarios are the cucumber .feature file (already authored by DISTILL \u2014 un-pend, do not re-author). Integration/browser tests stay single-example \u2014 they verify wiring. EXEMPT FROM PARADIGM: typed-port change plus adapter re-render (compile-time guarantee + page wiring) \u2014 compensate with the property-based tests on the adjacent pure rule (01-01). Un-pend in DISTILL order: 15, 16, 17, then the guards 14, 18, 19, then 20 (@needs-browser). Scenarios 21-24 may already pass after this step because of the OQ-D4 parse; leave them @pending until 04-01. FRAGILE ASSERTION (DISTILL OQ-D5): feature_web_provisioning_flow.rs dashboard_offers_both_forms fails if the GET body contains value=\"\"></ \u2014 render the inputs as <input type=\"text\" name=\"name\" value=\"{{ provision_name }}\" required> (value BEFORE the existing required, never as the last attribute before >) so an empty GET value never produces value=\"\"></. Do not remove required (it is shipped markup, not this feature's enforcement), and add no maxlength/pattern (D12). Prefer not editing the web-provisioning-flow assertion; if it must change, narrow it to the _csrf input only and say so in the commit. Named faults killed: P1 checks the name before the authz gate (19); answers with a bare fragment (15, 20); drops the retained name or email (15, 20); provisions before refusing (15, 16); NUL reaching Postgres (16); success fragment rendering form.name instead of the validated name (18). The GET and 422 paths share ONE page assembly so the refusal page cannot drift from the dashboard. DDD-11: refusals NEVER log the raw name (HTTP or CLI). MUTATION: >= 80% on modified files (instance_admin.rs, admin_cli.rs, services lib.rs) with exact boundary pairs: 24 vs 25 scalars (14 vs 15), admin vs non-admin under an unfit name (19)."
+        }
+      ]
+    },
+    {
+      "id": "04",
+      "name": "CLI refuses an unfit name before touching the database (US-WNR-04, D8-D10, DDD-10/11)",
+      "steps": [
+        {
+          "id": "04-01",
+          "name": "CLI rule before DATABASE_URL, exit 2, trimmed echo",
+          "description": "Finish P2 on top of the 03-01 parse. In crates/foundry-app/src/main.rs (~:841-851) keep the usage error (exit 2) for an ABSENT --name only; a PRESENT --name, including \"\", is passed through to run_provision_workspace and reaches the rule (so --name \"\" gets the D3 empty copy). In crates/foundry-app/src/admin_cli.rs confirm WorkspaceName::try_new runs after the --admin-email/--as presence check and BEFORE DATABASE_URL is read (no DB connection, no authz on refusal); on Err stderr is exactly one line 'foundry doctor provision-workspace: <copy>', exit 2, nothing on stdout; on success stdout prints 'workspace-name: <validated>' from the WorkspaceName (trimmed), never the raw argument. Exit codes 0, 3 and 4 unchanged.",
+          "criteria": [
+            "32-char, blank, \"\" and trailing U+202E names exit 2 with stdout empty and stderr 'foundry doctor provision-workspace: <D3 copy>'; nothing moved",
+            "A --name carrying a line break exits 2 and no line equal to 'status: refused' (or any forged line) appears on either stream",
+            "'  Globex  ' exits 0, stdout has 'workspace-name: Globex', 'Globex' is stored, exactly +1 of each provisioned row",
+            "With DATABASE_URL unset or unreachable an unfit name exits 2 (not 3); an absent --name still gets the usage line, exit 2",
+            "Owned scenarios green in the iwnr lane; mwt-slice-06 and default lanes, check-arch, fmt, clippy green"
+          ],
+          "estimate": "0.25 day",
+          "dependencies": [
+            "03-01"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/src/main.rs",
+            "crates/foundry-app/src/admin_cli.rs",
+            "crates/foundry-acceptance/tests/features/instance-workspace-name-rule.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/instance-workspace-name-rule.feature",
+          "scenario_name": [
+            "A name the rule refuses exits 2 with the reason and creates nothing",
+            "A name with a line break cannot forge output lines",
+            "Spaces around the name are trimmed in storage and in the output",
+            "A name mistake is caught without a database",
+            "Leaving the name out entirely still gets the usage line"
+          ],
+          "lane_commands": [
+            "timeout 600 cargo xtask check-arch",
+            "timeout 900 cargo fmt --all -- --check && timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && timeout 300 target/debug/foundry --help (MANDATORY rebuild + warm: every scenario in this step execs the prebuilt foundry binary; a stale or cold binary times out or tests old code)",
+            "FOUNDRY_ACCEPTANCE_TAGS=iwnr CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo test -p foundry-acceptance --test acceptance",
+            "FOUNDRY_ACCEPTANCE_TAGS=mwt-slice-06 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo test -p foundry-acceptance --test acceptance (shipped CLI provision-workspace contract: exit codes and key: value stdout)",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance (default lane)"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): unit tests for new pure logic MUST be property-based (proptest) with state-delta discipline where state mutates; single-example unit tests are FALLBACK only with a # bypass: comment. Acceptance scenarios are the cucumber .feature file (already authored by DISTILL \u2014 un-pend, do not re-author). Integration/browser tests stay single-example \u2014 they verify wiring. EXEMPT FROM PARADIGM: CLI argument-order and exact stdout/stderr contract (subprocess, exact strings) \u2014 compensate with the property-based tests on the adjacent pure rule (01-01). Un-pend in DISTILL order: 21, 22, 23, 24, then the guard 25. Named faults killed: P2 checks after reading DATABASE_URL (24, exit 3 instead of 2); sends an absent --name to the rule (25); sends --name \"\" to usage (21); echoes the raw instead of the validated name (22, 23); stores the padding (23). DDD-11 is observable here: the refused name, which may carry a newline, must appear on NEITHER stream and in no log line \u2014 print only the prefixed copy (err.to_string()), never the input. The stderr prefix is the CLI's medium, not copy: the check-arch clause (a) literal stays only in foundry-core. Acceptance uses the prebuilt binary (assert_cmd does not rebuild it): rebuild and warm before every lane run of this step. MUTATION: >= 80% on modified files (main.rs dispatch arm, admin_cli.rs) with exact boundary pairs: absent --name vs --name \"\" (25 vs 21), DATABASE_URL unset vs set under an unfit name (24)."
+        }
+      ]
+    },
+    {
+      "id": "05",
+      "name": "KPI-2 parity: same verdict and same words at every door (D2, D3, KPI-2, KPI-4)",
+      "steps": [
+        {
+          "id": "05-01",
+          "name": "Parity outlines across all four doors; final burn-down",
+          "description": "Un-pend the three parity scenarios, which need all four doors: each door (rename, bootstrap on a fresh live link, dashboard, CLI) is reduced to Refused(copy) or Accepted(stored); refusals for \"\", blank, 25 ASCII, 25 multi-byte, interior TAB, U+202E, interior U+2028 and 32-with-a-tab must equal the expected copy at every door with nothing moved; acceptances for 24 ASCII, 24 multi-byte, '[TAB]Kitchen[NEWLINE]', the ZWJ family and interior NBSP must store the same value at every door; NUL is refused with the control copy at the three web doors (never a 500). Expected to be pure assertion enablement; fix any divergence the matrix exposes in the owning door's code. Then confirm the burn-down: zero @pending in the iwnr feature, zero SCAFFOLD markers in crates/foundry-core/tests/workspace_name.rs and in the workspace_name_one_source section of xtask/src/check_arch.rs, and the per-feature mutation report.",
+          "criteria": [
+            "All 8 refusal rows give the same D3 copy at rename, bootstrap, dashboard and CLI, with nothing moved at any door (KPI-2: 4 of 4 doors)",
+            "All 5 acceptance rows store the same trimmed value at all four doors, read back from the store",
+            "NUL is refused with 'Workspace name must not contain control characters' at the three web doors; no door answers 'internal error' (KPI-4)",
+            "Zero @pending in instance-workspace-name-rule.feature; zero SCAFFOLD markers for this feature; mutation kill rate >= 80% on every modified production file",
+            "Full iwnr lane (browser scenarios actually run) plus iawr, iapr, us-05, bootstrap-enum-oracle, web-provisioning-flow, mwt-slice-06 and default lanes green; check-arch, fmt, clippy green"
+          ],
+          "estimate": "0.25 day",
+          "dependencies": [
+            "02-01",
+            "04-01"
+          ],
+          "files_to_modify": [
+            "crates/foundry-acceptance/tests/features/instance-workspace-name-rule.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/instance-workspace-name-rule.feature",
+          "scenario_name": [
+            "Every door refuses the same name in the same words",
+            "Every door accepts the same name and stores it the same way",
+            "A null character is refused in the same words at every web door, never as an internal error"
+          ],
+          "lane_commands": [
+            "timeout 600 cargo xtask check-arch",
+            "timeout 900 cargo fmt --all -- --check && timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "timeout 900 cargo test -p foundry-core -p foundry-services -p xtask",
+            "docker info (Postgres testcontainer + selenium/standalone-chrome)",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && timeout 300 target/debug/foundry --help (rebuild + warm BEFORE the lanes; the parity matrix execs the CLI)",
+            "FOUNDRY_ACCEPTANCE_TAGS=iwnr CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (expect 55 rows passed, 0 skipped; @needs-browser count non-zero)",
+            "for t in iawr iapr us-05 bootstrap-enum-oracle web-provisioning-flow mwt-slice-06; do FOUNDRY_ACCEPTANCE_TAGS=$t CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo test -p foundry-acceptance --test acceptance || break; done",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance (default lane)",
+            "grep -c '@pending' crates/foundry-acceptance/tests/features/instance-workspace-name-rule.feature (expect 0)",
+            "timeout 3600 cargo mutants --in-diff <feature diff> --file <each modified production file> (per-feature gate >= 80%)"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): unit tests for new pure logic MUST be property-based (proptest) with state-delta discipline where state mutates; single-example unit tests are FALLBACK only with a # bypass: comment. Acceptance scenarios are the cucumber .feature file (already authored by DISTILL \u2014 un-pend, do not re-author). Integration/browser tests stay single-example \u2014 they verify wiring. EXEMPT FROM PARADIGM: cross-door parity matrix over a finite door set (exact copy strings) \u2014 the quantified invariant lives in the core proptests (01-01). Un-pend in DISTILL order: 26, 27, 28. Named faults killed: any door rendering its own copy (26, 28, and check-arch clause a); any door storing the raw instead of the trimmed value (27 Kitchen \u2014 the CLI stored the padding before 04-01); NUL reaching Postgres at any web door (28). The parity matrix needs a fresh live bootstrap link per row (the step glue mints it). DDD-11 review item (DISTILL open item): the acceptance harness does not capture tracing output for the HTTP doors, so before closing DELIVER grep the rename, bootstrap and provision refusal arms and confirm none logs the raw name. MUTATION: per-feature gate >= 80% kill rate over every production file modified by 01-01..04-01 (cargo mutants --in-diff, scoped per file as in the precedent's mutation report); surviving mutants on a predicate bound or the 24 cap must be killed with an exact boundary pair, not waived. Lane caveats: us-04 rolling-upgrade in the default lane is a known concurrency flake (rerun it alone before calling it a regression); xtask ci silently skips the browser lane without Docker (set FOUNDRY_XTASK_INCLUDE_DOCKER=1); another session may share this worktree \u2014 check for running lanes/containers first."
+        }
+      ]
+    }
+  ],
+  "implementation_scope": {
+    "source_directories": [
+      "crates/foundry-core/src/",
+      "crates/foundry-services/src/",
+      "crates/foundry-app/src/",
+      "crates/foundry-app/templates/",
+      "crates/foundry-store/src/",
+      "xtask/src/"
+    ],
+    "test_directories": [
+      "crates/foundry-core/tests/",
+      "crates/foundry-services/tests/",
+      "crates/foundry-acceptance/tests/",
+      "crates/foundry-acceptance/src/steps/"
+    ],
+    "excluded_patterns": [
+      "target/**",
+      "crates/foundry-store/migrations/**",
+      "crates/foundry-app/static/**"
+    ]
+  },
+  "validation": {
+    "status": "approved",
+    "reviewer": "nw-acceptance-designer-reviewer",
+    "date": "2026-10-05"
+  }
+}
