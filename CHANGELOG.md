@@ -7,8 +7,11 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 
 ## [Unreleased]
 
+## [v0.10.0] - 2026-10-06
+
 Every way of naming a workspace now follows one rule, and control characters
-are refused (instance-workspace-name-rule).
+are refused (instance-workspace-name-rule). `git log v0.9.0..v0.10.0` is the
+full list.
 
 ### Changed
 
@@ -460,7 +463,8 @@ followed it.
 - A `comments_visible` SQL VIEW for defense-in-depth against missed
   soft-delete filters is deferred to v0.3 (ADR-017).
 
-[Unreleased]: https://github.com/Canzan/foundry/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/Canzan/foundry/compare/v0.10.0...HEAD
+[v0.10.0]: https://github.com/Canzan/foundry/compare/v0.9.0...v0.10.0
 [v0.9.0]: https://github.com/Canzan/foundry/compare/v0.8.0...v0.9.0
 [v0.8.0]: https://github.com/Canzan/foundry/compare/v0.7.0...v0.8.0
 [v0.7.0]: https://github.com/Canzan/foundry/compare/v0.6.2...v0.7.0
