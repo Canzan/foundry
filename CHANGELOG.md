@@ -7,6 +7,49 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 
 ## [Unreleased]
 
+Every way of naming a workspace now follows one rule, and control characters
+are refused (instance-workspace-name-rule).
+
+### Changed
+
+- **One workspace-name rule on every path.** Dashboard provisioning, the
+  first-run bootstrap claim, `foundry doctor provision-workspace` and rename all
+  apply the same rule, and refuse a bad name with the same words. The name is
+  trimmed, must not be empty, must not contain control characters, and must be
+  at most 24 characters. Before this release, only rename checked names.
+  - **Refused characters:** Unicode control characters (newline, tab, NUL and
+    so on), the bidi embedding/override/isolate characters (U+202A–202E,
+    U+2066–2069) and the line/paragraph separators U+2028/2029. Zero-width
+    joiners and other format characters stay allowed, so emoji and non-Latin
+    spellings keep working. The new message is "Workspace name must not contain
+    control characters".
+  - **A refusal leaves nothing behind:** no workspace, user, membership or
+    invite is created, and a bootstrap link is not used up, so you can correct
+    the name and retry with the same link or email.
+  - **The dashboard and the bootstrap claim page keep what you typed** (never
+    the password) and show the reason on the page.
+  - **A NUL in a name** used to cause an internal error; it is now refused like
+    any other bad name.
+  - **Existing names are not rewritten.** Resubmitting an existing name
+    unchanged on rename is still a quiet success, even if it predates the rule.
+
+### BREAKING (CLI)
+
+- **`foundry doctor provision-workspace` refuses a name that breaks the rule.**
+  Such a name now exits **2** with `foundry doctor provision-workspace: <reason>`
+  on stderr and nothing on stdout, before any database is contacted. It used to
+  exit 0 and create the workspace. Scripts that provisioned long or padded names
+  must adjust.
+  - `--name ""` now gets "Workspace name must not be empty" instead of the
+    usage line. A missing `--name` still gets the usage line.
+  - The name is trimmed, and the success output prints the trimmed name:
+    `workspace-name: Globex` for `--name "  Globex  "`.
+
+### Migration notes
+
+- No database migration. Existing workspace names are left as they are. A
+  database CHECK on `workspaces.name` is planned as a separate change.
+
 ## [v0.9.0] - 2026-10-05
 
 An instance admin can now rename a workspace from the dashboard, and every rename

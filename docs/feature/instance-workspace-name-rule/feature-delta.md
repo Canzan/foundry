@@ -958,3 +958,79 @@ Docker running (the shared Postgres testcontainer; the browser container for 8 a
 - DDD-11 (refusals never log the raw name) is observable here only on the CLI (scenario 22 checks both streams). The HTTP doors' `tracing` output is not captured by the acceptance harness; DELIVER's review should check that no refusal arm logs the name.
 - A browser cannot type a tab, so scenario 8 sets the input's value the way a paste lands, then presses the row's own submit button.
 - None of the above needs a user decision.
+
+## Wave: DELIVER
+
+### [REF] Implementation summary
+
+- **The rule:** `foundry_core::WorkspaceName::try_new` trims, then refuses an empty name, the D4
+  characters, and more than 24 Unicode scalars. The `Display` of `WorkspaceNameError` is the D3 copy.
+- **The doors:** all four use it, with the same verdict and byte-identical words.
+  - Rename (`InvalidName`) and the dashboard (422 full page, name and email kept, after the
+    permission check).
+  - Bootstrap (checked before hashing and claiming; on refusal a live link gets a 422 claim page and a
+    dead link the unchanged refusal page).
+  - The CLI (exit 2 before `DATABASE_URL`; success prints the trimmed name).
+- **Enforcement:** `ProvisionRequest` carries a `WorkspaceName`. check-arch `workspace-name-one-source`
+  keeps the copy in foundry-core and `create_initial_workspace` out of production code.
+
+### [REF] Files modified
+
+- **Production:**
+  - `crates/foundry-core/src/workspace_name.rs` (new) and `lib.rs`
+  - `crates/foundry-services/src/workspaces.rs` and `lib.rs`
+  - `crates/foundry-app/src/instance_admin.rs`, `bootstrap.rs`, `admin_cli.rs`, `main.rs` and `views.rs`
+  - Templates `bootstrap_claim.html` and `instance_dashboard.html`
+  - `crates/foundry-store/src/lib.rs` (doc comment only)
+  - `xtask/src/check_arch.rs`
+- **Tests:**
+  - `crates/foundry-core/tests/workspace_name.rs` (14 tests)
+  - The foundry-services classifier proptests and `tests/provision_workspace_use_case.rs`
+  - The xtask gold tests (6)
+  - `instance-workspace-name-rule.feature` and its step module (61 scenario rows)
+- **Docs:** this section, the evolution doc, `CHANGELOG.md`, and `deliver/mutation/mutation-report.md`
+
+### [REF] Scenarios green
+
+61 of 61 rows in `instance-workspace-name-rule.feature`, with zero `@pending` tag lines, as of
+2026-10-06. That is the 55 DISTILL rows plus 6 added to kill mutation survivors.
+
+| Lane | Result |
+|---|---|
+| iawr | 27/27 |
+| iapr | 21/21 |
+| us-05 | 23/23 |
+| bootstrap-enum-oracle | 4/4 |
+| web-provisioning-flow | 11/11 |
+| mwt-slice-06 | 9/9 |
+| Default (at 05-01) | 761/761 |
+
+### [REF] DoD check
+
+All nine items pass: scenarios on all four doors; parity (KPI-2); nothing left behind on refusal
+(KPI-3); no 500 on NUL (KPI-4); check-arch; mutation 100% with exact boundary pairs; the CHANGELOG,
+the brief, jobs.yaml and the OUT-18 row. CI passes: 999/999.
+
+### [REF] Quality gates
+
+- **Refactor (`4dea2a8`):** the check-arch rule reads each file once, `render_claim` is renamed, and
+  the provisioning status moved into `ProvisionFormEcho::status`.
+- **Adversarial review:** APPROVED. The live-vs-dead bootstrap question was checked separately: a GET
+  already distinguishes the two link states, so there is no new oracle.
+- **Mutation:** 50/50 viable killed (100%). The first pass was 46/50; four survivors were closed with
+  six scenarios.
+- **DES integrity:** all 6 steps have complete traces.
+- **CI:** `cargo xtask ci` with `FOUNDRY_XTASK_INCLUDE_DOCKER=1` (2026-10-06): all gates green. That covers fmt, clippy, check-arch, the release build, workspace tests, cargo-deny, and acceptance on all tags including browser and docker-compose: 999/999 scenarios, 6900 steps, with no flakes.
+
+### [WHY] Upstream Issues
+
+- **DISTILL step defects, fixed in `a430466`:**
+  - the parity step minted its bootstrap link after the before-snapshot;
+  - the dashboard trimmed-echo check read through a trimming helper;
+  - `WorkspaceName`'s `Display` was unpinned.
+- **DISTILL coverage gaps, closed in `6198fd3`:** a missing `--as`, a missing `--admin-email`, and the
+  live-link claim form.
+- **Roadmap:** the burn-down `grep -c '@pending'` also counted the header comment. It now counts tag
+  lines only.
+- **DESIGN review:** the claim of missing bidi boundaries was false, and the advice to hash before the
+  name check was rejected per ADR-002.
