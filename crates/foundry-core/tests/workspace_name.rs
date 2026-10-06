@@ -1,17 +1,6 @@
 //! `foundry_core::WorkspaceName` — the one workspace-name rule
 //! (instance-workspace-name-rule, DESIGN DDD-1/2/3/13, ADR-WORKSPACE-NAME-001).
 //!
-//! SCAFFOLD: true — written at DISTILL (2026-10-05) BEFORE the value object
-//! exists. Every test is `#[ignore]`d and runs against the `scaffold` shim below,
-//! whose bodies panic, so `cargo test -p foundry-core -- --include-ignored`
-//! classifies each one RED (a panic in the code under test), never BROKEN (a
-//! missing symbol). DELIVER slice 01:
-//!   1. creates `WorkspaceName`, `WorkspaceNameError` and `WORKSPACE_NAME_MAX_CHARS`
-//!      in `foundry-core` (lib.rs or a re-exported `workspace_name.rs`);
-//!   2. deletes `mod scaffold` and swaps the `use` line for
-//!      `use foundry_core::{WorkspaceName, WorkspaceNameError, WORKSPACE_NAME_MAX_CHARS};`;
-//!   3. removes the `#[ignore]` attributes.
-//!
 //! The rule under test (D1, D4, D5, DDD-2): `try_new(raw)` trims (`str::trim`,
 //! Unicode White_Space), then refuses Empty, then ControlCharacter (Cc, i.e.
 //! `char::is_control`; U+202A-202E; U+2066-2069; U+2028; U+2029), then TooLong
@@ -23,39 +12,8 @@
 //! pair, because a proptest range need not sample the boundary (the precedent's
 //! lesson). The properties cover the space between the pairs.
 
+use foundry_core::{WorkspaceName, WorkspaceNameError, WORKSPACE_NAME_MAX_CHARS};
 use proptest::prelude::*;
-use scaffold::{WorkspaceName, WorkspaceNameError, WORKSPACE_NAME_MAX_CHARS};
-
-/// SCAFFOLD: true — the target API's shape, panicking. DELIVER deletes this module.
-mod scaffold {
-    pub const WORKSPACE_NAME_MAX_CHARS: usize = 24;
-
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    pub enum WorkspaceNameError {
-        Empty,
-        ControlCharacter,
-        TooLong,
-    }
-
-    impl std::fmt::Display for WorkspaceNameError {
-        fn fmt(&self, _f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            panic!("SCAFFOLD: WorkspaceNameError's Display (the D3 copy) is not implemented yet")
-        }
-    }
-
-    #[derive(Debug, Clone, PartialEq, Eq)]
-    pub struct WorkspaceName(String);
-
-    impl WorkspaceName {
-        pub fn try_new(_raw: &str) -> Result<Self, WorkspaceNameError> {
-            panic!("SCAFFOLD: WorkspaceName::try_new is not implemented yet (DDD-2)")
-        }
-
-        pub fn as_str(&self) -> &str {
-            &self.0
-        }
-    }
-}
 
 use WorkspaceNameError::{ControlCharacter, Empty, TooLong};
 
@@ -82,7 +40,6 @@ fn interior(c: char) -> String {
 // ---------------------------------------------------------------- exact pairs
 
 #[test]
-#[ignore = "SCAFFOLD: un-ignored by DELIVER slice 01 (instance-workspace-name-rule)"]
 fn the_cap_is_24_scalars() {
     assert_eq!(WORKSPACE_NAME_MAX_CHARS, 24);
     check("Canzan Labs Platform Ops", Ok("Canzan Labs Platform Ops")); // 24 ASCII
@@ -97,7 +54,6 @@ fn the_cap_is_24_scalars() {
 }
 
 #[test]
-#[ignore = "SCAFFOLD: un-ignored by DELIVER slice 01 (instance-workspace-name-rule)"]
 fn the_c0_and_c1_control_boundaries() {
     check(&interior('\u{1F}'), Err(ControlCharacter));
     check(&interior('\u{20}'), Ok("Ops Team"));
@@ -114,7 +70,6 @@ fn the_c0_and_c1_control_boundaries() {
 }
 
 #[test]
-#[ignore = "SCAFFOLD: un-ignored by DELIVER slice 01 (instance-workspace-name-rule)"]
 fn the_line_and_paragraph_separators() {
     check(&interior('\u{2027}'), Ok("Ops\u{2027}Team"));
     check(&interior('\u{2028}'), Err(ControlCharacter));
@@ -123,7 +78,6 @@ fn the_line_and_paragraph_separators() {
 }
 
 #[test]
-#[ignore = "SCAFFOLD: un-ignored by DELIVER slice 01 (instance-workspace-name-rule)"]
 fn the_bidi_embedding_override_and_isolate_boundaries() {
     check(&interior('\u{2029}'), Err(ControlCharacter));
     check(&interior('\u{202A}'), Err(ControlCharacter));
@@ -137,7 +91,6 @@ fn the_bidi_embedding_override_and_isolate_boundaries() {
 }
 
 #[test]
-#[ignore = "SCAFFOLD: un-ignored by DELIVER slice 01 (instance-workspace-name-rule)"]
 fn other_format_characters_stay_allowed() {
     for c in [
         '\u{200B}', '\u{200C}', '\u{200D}', '\u{200E}', '\u{200F}', '\u{FEFF}', '\u{AD}',
@@ -151,7 +104,6 @@ fn other_format_characters_stay_allowed() {
 }
 
 #[test]
-#[ignore = "SCAFFOLD: un-ignored by DELIVER slice 01 (instance-workspace-name-rule)"]
 fn whitespace_controls_at_the_edges_are_trimmed_not_refused() {
     check("\tKitchen\n", Ok("Kitchen"));
     check("\r\nKitchen\u{0B}\u{0C}", Ok("Kitchen"));
@@ -162,7 +114,6 @@ fn whitespace_controls_at_the_edges_are_trimmed_not_refused() {
 }
 
 #[test]
-#[ignore = "SCAFFOLD: un-ignored by DELIVER slice 01 (instance-workspace-name-rule)"]
 fn non_whitespace_controls_at_the_edges_are_refused() {
     check("\u{1}Ops", Err(ControlCharacter));
     check("Ops\u{202E}", Err(ControlCharacter));
@@ -172,7 +123,6 @@ fn non_whitespace_controls_at_the_edges_are_refused() {
 }
 
 #[test]
-#[ignore = "SCAFFOLD: un-ignored by DELIVER slice 01 (instance-workspace-name-rule)"]
 fn empty_comes_before_control_and_control_before_length() {
     check("", Err(Empty));
     check("   ", Err(Empty));
@@ -184,7 +134,6 @@ fn empty_comes_before_control_and_control_before_length() {
 }
 
 #[test]
-#[ignore = "SCAFFOLD: un-ignored by DELIVER slice 01 (instance-workspace-name-rule)"]
 fn each_refusal_reads_the_d3_copy_byte_for_byte() {
     assert_eq!(Empty.to_string(), "Workspace name must not be empty");
     assert_eq!(
@@ -225,13 +174,11 @@ proptest! {
     #![proptest_config(ProptestConfig::with_cases(256))]
 
     #[test]
-    #[ignore = "SCAFFOLD: un-ignored by DELIVER slice 01 (instance-workspace-name-rule)"]
     fn whitespace_only_is_always_empty(raw in "[ \t\n\r\u{0B}\u{0C}\u{85}\u{A0}\u{2028}\u{2029}\u{3000}]{0,12}") {
         prop_assert_eq!(WorkspaceName::try_new(&raw).map(|n| n.as_str().to_string()), Err(Empty));
     }
 
     #[test]
-    #[ignore = "SCAFFOLD: un-ignored by DELIVER slice 01 (instance-workspace-name-rule)"]
     fn a_refused_character_inside_a_clean_name_is_always_refused(
         name in clean_name(24),
         c in refused_char(),
@@ -248,7 +195,6 @@ proptest! {
     }
 
     #[test]
-    #[ignore = "SCAFFOLD: un-ignored by DELIVER slice 01 (instance-workspace-name-rule)"]
     fn the_length_gate_sits_at_24_trimmed_scalars(name in clean_name(40), pad in "[ \t]{0,3}") {
         let raw = format!("{pad}{name}{pad}");
         let got = WorkspaceName::try_new(&raw).map(|n| n.as_str().to_string());
@@ -260,7 +206,6 @@ proptest! {
     }
 
     #[test]
-    #[ignore = "SCAFFOLD: un-ignored by DELIVER slice 01 (instance-workspace-name-rule)"]
     fn an_accepted_name_is_the_trimmed_input(chars in prop::collection::vec(any::<char>(), 0..30)) {
         let raw: String = chars.into_iter().collect();
         if let Ok(name) = WorkspaceName::try_new(&raw) {

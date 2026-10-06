@@ -1,5 +1,20 @@
 {
-  "schema_version": "5.0",
+  "schema_version": "3.0",
   "feature_id": "instance-workspace-name-rule",
-  "events": []
+  "events": [
+    {
+      "sid": "01-01",
+      "p": "RED",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-10-06T03:44:29Z"
+    },
+    {
+      "sid": "01-01",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-10-06T03:44:59Z"
+    }
+  ]
 }
