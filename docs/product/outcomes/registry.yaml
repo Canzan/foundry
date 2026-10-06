@@ -479,6 +479,54 @@ outcomes:
   - atomic
   - sidebar
   artifact: crates/foundry-acceptance/tests/features/instance-admin-workspace-rename.feature
+  amended: 'instance-workspace-name-rule DISTILL (2026-10-05): the rename composes the
+    shared rule (OUT-18); RenameWorkspaceError::{EmptyName,NameTooLong} become InvalidName(WorkspaceNameError)
+    with a third refusal, "Workspace name must not contain control characters", after
+    empty and before length; the no-op still runs first, so a byte-equal legacy name
+    (over-long or containing a tab) is still a quiet 200 (DESIGN DDD-4)'
   related:
   - OUT-1
+  - OUT-18
+  superseded_by: null
+- id: OUT-18
+  kind: specification
+  summary: One workspace-name rule with one copy at every door that names a workspace
+    (dashboard provisioning, the operator CLI, the bootstrap claim, and rename)
+  feature: instance-workspace-name-rule
+  inputs:
+  - shape: 'raw name &str -> foundry_core::WorkspaceName::try_new(raw), reached from
+      POST /admin/instance/workspaces (form name, after the instance-admin gate), foundry
+      doctor provision-workspace --name (before DATABASE_URL is read), POST /bootstrap?token=
+      (form workspace_name, before the claim transaction) and POST /admin/instance/workspaces/{workspace_id}/rename
+      (after the no-op check)'
+  output:
+    shape: 'Ok(WorkspaceName) holding the trimmed value (str::trim), which is what is
+      stored | WorkspaceNameError::{Empty, ControlCharacter, TooLong}, checked in that
+      order: Empty if the trimmed value is empty; ControlCharacter if it contains a Cc
+      character (char::is_control), U+202A-202E, U+2066-2069, U+2028 or U+2029 (every
+      other Cf allowed); TooLong if it has more than 24 Unicode scalars. Display is the
+      copy every door shows byte for byte: "Workspace name must not be empty" / "Workspace
+      name must not contain control characters" / "Workspace name must be at most 24
+      characters". Doors: rename -> 422 workspace-rename-error fragment; dashboard ->
+      422 full dashboard with [data-provision-form] [data-provision-error], name and
+      email kept; bootstrap live link -> 422 claim page with .error, email, display name
+      and workspace name kept, password never echoed, link not consumed; bootstrap dead
+      link -> the uniform refusal page byte-identical whatever the name; CLI -> exit
+      2, stderr "foundry doctor provision-workspace: <copy>", empty stdout, no database
+      contact. A refusal writes nothing; authz refusals (uniform 404) come before the
+      rule'
+  keywords:
+  - workspace
+  - display-name
+  - validation
+  - control-characters
+  - bidi
+  - provisioning
+  - bootstrap
+  - rename
+  - cli
+  - parity
+  artifact: crates/foundry-acceptance/tests/features/instance-workspace-name-rule.feature
+  related:
+  - OUT-17
   superseded_by: null

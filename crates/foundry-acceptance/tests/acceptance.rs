@@ -64,6 +64,8 @@ use foundry_acceptance::steps::feature_instance_admin_project_rename as _feature
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_instance_admin_workspace_rename as _feature_iawr;
 #[allow(unused_imports)]
+use foundry_acceptance::steps::feature_instance_workspace_name_rule as _feature_iwnr;
+#[allow(unused_imports)]
 use foundry_acceptance::steps::feature_invite_accept as _feature_invite_accept;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_issue_card_delete as _feature_icd;

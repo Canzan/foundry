@@ -117,6 +117,25 @@ pub struct FoundryWorld {
     pub iawr_backup_path: Option<PathBuf>,
     pub iawr_cli: Option<(i32, String, String)>,
 
+    // ---- instance-workspace-name-rule (iwnr) ----
+    /// The naming universe captured just before the last attempt at any door.
+    pub iwnr_before: Option<crate::steps::feature_instance_workspace_name_rule::NamingUniverse>,
+    /// The bootstrap claim as last submitted (to check what the page kept).
+    pub iwnr_claim: Option<crate::steps::feature_instance_workspace_name_rule::ClaimSubmission>,
+    /// The last dashboard provision as submitted: `(name, first-admin email)`.
+    pub iwnr_provision: Option<(String, String)>,
+    /// Where the provisioning command finds its database.
+    pub iwnr_cli_database: crate::steps::feature_instance_workspace_name_rule::CliDatabase,
+    /// The provisioning command's last `(exit, stdout, stderr)`.
+    pub iwnr_cli: Option<(i32, String, String)>,
+    /// The parity matrix's verdict at each door, in visiting order.
+    pub iwnr_verdicts: Vec<(
+        crate::steps::feature_instance_workspace_name_rule::Door,
+        crate::steps::feature_instance_workspace_name_rule::Verdict,
+    )>,
+    /// Dead-link comparisons made, and every one that differed from the baseline.
+    pub iwnr_dead_link_report: Option<(usize, Vec<String>)>,
+
     // ---- board-lane-management (blm) ----
     /// Seeded ids, captured at Given time.
     pub blm_workspace_id: Option<uuid::Uuid>,

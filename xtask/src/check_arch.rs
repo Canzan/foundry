@@ -4199,3 +4199,182 @@ mod tests {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// instance-workspace-name-rule DDD-12 — `workspace-name-one-source`
+// ---------------------------------------------------------------------------
+
+/// SCAFFOLD: true — written at DISTILL (2026-10-05). DELIVER replaces the body,
+/// wires it into [`run`]'s rule list and adds it to the PASSED banner, then
+/// un-ignores `workspace_name_one_source_tests`.
+///
+/// The rule (DDD-12): (a) the literal prefix `"Workspace name must` appears in no
+/// `.rs` under `crates/{foundry-app,foundry-services,foundry-api,foundry-store}/src`
+/// — its only production home is `crates/foundry-core/src` (the D3 copy is
+/// `WorkspaceNameError`'s `Display`, DDD-3); (b) `create_initial_workspace(` has no
+/// call site under `crates/{foundry-app,foundry-services,foundry-api}/src` — the
+/// store's test-seeding seam is never a production door (DDD-7). Every violation
+/// names `file:line`; an unreadable directory fails the rule.
+#[cfg_attr(not(test), allow(dead_code))]
+fn check_workspace_name_one_source(_root: &Path) -> Vec<String> {
+    panic!("SCAFFOLD: check-arch workspace-name-one-source is not implemented yet (DDD-12)")
+}
+
+#[cfg(test)]
+mod workspace_name_one_source_tests {
+    //! Injected-violation gold tests for `workspace-name-one-source` (DDD-12),
+    //! the `check_provisioned_marker_is_never_rewritten` idiom: a staged tree, the
+    //! rule run against it, the violations named by `file:line`.
+    //! SCAFFOLD: every test is `#[ignore]`d until DELIVER implements the rule.
+
+    use super::check_workspace_name_one_source;
+
+    fn stage(files: &[(&str, &str)]) -> tempfile::TempDir {
+        let dir = tempfile::tempdir().expect("tempdir");
+        for (rel_path, body) in files {
+            let path = dir.path().join(rel_path);
+            std::fs::create_dir_all(path.parent().expect("parent")).expect("mkdir");
+            std::fs::write(&path, body).expect("write fixture");
+        }
+        dir
+    }
+
+    fn flagged_at(violations: &[String], location: &str) -> bool {
+        violations.iter().any(|v| v.contains(location))
+    }
+
+    /// The copy's one production home, as DELIVER will write it.
+    const CORE_COPY: &str =
+        "#[derive(Debug, thiserror::Error)]\npub enum WorkspaceNameError {\n    \
+        #[error(\"Workspace name must not be empty\")]\n    Empty,\n}\n";
+
+    #[test]
+    #[ignore = "SCAFFOLD: un-ignored by DELIVER slice 01 (instance-workspace-name-rule DDD-12a)"]
+    fn the_copy_in_foundry_core_is_its_one_home() {
+        let tree = stage(&[("crates/foundry-core/src/lib.rs", CORE_COPY)]);
+        let violations = check_workspace_name_one_source(tree.path());
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+
+    #[test]
+    #[ignore = "SCAFFOLD: un-ignored by DELIVER slice 01 (instance-workspace-name-rule DDD-12a)"]
+    fn a_second_copy_in_any_adapter_or_service_crate_is_flagged() {
+        let tree = stage(&[
+            ("crates/foundry-core/src/lib.rs", CORE_COPY),
+            (
+                "crates/foundry-app/src/instance_admin.rs",
+                "fn a() {}\nlet m = \"Workspace name must be at most 24 characters\";\n",
+            ),
+            (
+                "crates/foundry-services/src/deep/workspaces.rs",
+                "const M: &str = \"Workspace name must not contain control characters\";\n",
+            ),
+            (
+                "crates/foundry-api/src/lib.rs",
+                "\n\n\nlet _ = format!(\"Workspace name must {}\", x);\n",
+            ),
+            (
+                "crates/foundry-store/src/lib.rs",
+                "let _ = \"Workspace name must not be empty\";\n",
+            ),
+        ]);
+        let violations = check_workspace_name_one_source(tree.path());
+        assert_eq!(violations.len(), 4, "{violations:?}");
+        assert!(
+            flagged_at(&violations, "crates/foundry-app/src/instance_admin.rs:2"),
+            "{violations:?}"
+        );
+        assert!(
+            flagged_at(
+                &violations,
+                "crates/foundry-services/src/deep/workspaces.rs:1"
+            ),
+            "{violations:?}"
+        );
+        assert!(
+            flagged_at(&violations, "crates/foundry-api/src/lib.rs:4"),
+            "{violations:?}"
+        );
+        assert!(
+            flagged_at(&violations, "crates/foundry-store/src/lib.rs:1"),
+            "{violations:?}"
+        );
+    }
+
+    #[test]
+    #[ignore = "SCAFFOLD: un-ignored by DELIVER slice 01 (instance-workspace-name-rule DDD-12a)"]
+    fn expected_strings_in_the_acceptance_suite_and_crate_tests_are_not_flagged() {
+        let tree = stage(&[
+            ("crates/foundry-core/src/lib.rs", CORE_COPY),
+            (
+                "crates/foundry-acceptance/src/steps/feature_x.rs",
+                "let m = \"Workspace name must not be empty\";\n",
+            ),
+            (
+                "crates/foundry-app/tests/rename.rs",
+                "assert_eq!(m, \"Workspace name must be at most 24 characters\");\n",
+            ),
+        ]);
+        let violations = check_workspace_name_one_source(tree.path());
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+
+    #[test]
+    #[ignore = "SCAFFOLD: un-ignored by DELIVER slice 02 (instance-workspace-name-rule DDD-12b)"]
+    fn a_production_call_to_the_test_seeding_seam_is_flagged() {
+        let tree = stage(&[
+            ("crates/foundry-core/src/lib.rs", CORE_COPY),
+            (
+                "crates/foundry-app/src/bootstrap.rs",
+                "async fn f() {\n    store.create_initial_workspace(id, name).await;\n}\n",
+            ),
+            (
+                "crates/foundry-services/src/provisioning.rs",
+                "let _ = s.create_initial_workspace(\n    a,\n);\n",
+            ),
+        ]);
+        let violations = check_workspace_name_one_source(tree.path());
+        assert_eq!(violations.len(), 2, "{violations:?}");
+        assert!(
+            flagged_at(&violations, "crates/foundry-app/src/bootstrap.rs:2"),
+            "{violations:?}"
+        );
+        assert!(
+            flagged_at(&violations, "crates/foundry-services/src/provisioning.rs:1"),
+            "{violations:?}"
+        );
+    }
+
+    #[test]
+    #[ignore = "SCAFFOLD: un-ignored by DELIVER slice 02 (instance-workspace-name-rule DDD-12b)"]
+    fn the_seam_itself_and_its_test_callers_are_not_flagged() {
+        let tree = stage(&[
+            ("crates/foundry-core/src/lib.rs", CORE_COPY),
+            (
+                "crates/foundry-store/src/lib.rs",
+                "pub async fn create_initial_workspace(&self) {}\n",
+            ),
+            (
+                "crates/foundry-store/tests/seed.rs",
+                "store.create_initial_workspace(a).await;\n",
+            ),
+            (
+                "crates/foundry-acceptance/src/steps/feature_mwt_slice_06.rs",
+                "store.create_initial_workspace(a).await;\n",
+            ),
+        ]);
+        let violations = check_workspace_name_one_source(tree.path());
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+
+    #[test]
+    #[ignore = "SCAFFOLD: un-ignored by DELIVER slice 01 (instance-workspace-name-rule DDD-12)"]
+    fn a_missing_crates_directory_fails_the_rule() {
+        let tree = stage(&[("README.md", "nothing here\n")]);
+        let violations = check_workspace_name_one_source(tree.path());
+        assert!(
+            !violations.is_empty(),
+            "a missing crates directory must FAIL the guard, never pass it vacuously"
+        );
+    }
+}

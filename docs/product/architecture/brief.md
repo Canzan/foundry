@@ -119,6 +119,26 @@ because the actor is usually a non-member and would break the archive's
 membership-bounded `users` closure. See `adr-workspace-rename-001-audited-rename-transaction.md`
 and `adr-workspace-rename-002-rename-audit-not-tenant-export.md`.
 
+One rule governs a workspace name on **every write path** (`instance-workspace-name-rule`,
+designed 2026-10-05). There are four write paths: dashboard provisioning,
+`foundry doctor provision-workspace`, the bootstrap claim, and the rename. Each one
+parses the name through `foundry_core::WorkspaceName::try_new`. It trims the name, then
+refuses an empty one, then any control character, then more than 24 Unicode scalars.
+The control characters are Cc, the bidi embedding, override and isolate controls
+U+202A-202E and U+2066-2069, and U+2028/2029; every other format character is allowed.
+Each door renders the refusal copy from `WorkspaceNameError`'s `Display`, so the
+wording is byte-identical everywhere. The rename keeps its no-op first, so an untouched
+legacy name stays a quiet success. The provisioning use-case takes a `WorkspaceName`,
+so an unchecked name cannot reach it. The bootstrap claim checks the name before its
+transaction, and answers with the rule only for a live link, so a dead link's refusal
+stays uniform. The store stays `&str` and does not validate, because fixtures must
+seed legacy names. `Store::create_initial_workspace` is a test-seeding seam with no
+production caller. `cargo xtask check-arch` (`workspace-name-one-source`) fails the
+build on a second copy of the refusal text outside `foundry-core`, or on a production
+call to that seeder. There is no DB CHECK yet; that is a separate follow-up. Project
+names keep their own rule. See `adr-workspace-name-001-one-rule-as-core-value-object.md`
+and `adr-workspace-name-002-bootstrap-name-check-before-claim.md`.
+
 ### Dialog layers close by one mechanism, many declarative triggers
 
 Dialogs are `div.modal` fragments htmx-swaps into `#modal-root`; "closed" is a
@@ -381,6 +401,8 @@ graph TB
   app --> store
   api --> svc
   svc --> store
+  svc --> core
+  app --> core
   oidc --> core
   auth --> core
   store --> core

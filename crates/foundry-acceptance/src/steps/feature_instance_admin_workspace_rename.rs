@@ -57,10 +57,10 @@ use time::OffsetDateTime;
 
 const TEST_NOW: &str = "2026-01-15T12:00:00Z";
 /// The precedent's Background seeds Priya and Marco with these credentials.
-const PRIYA_EMAIL: &str = "priya@canzan.test";
-const PRIYA_PASSWORD: &str = "priya-correct-horse-battery-staple";
-const MARCO_EMAIL: &str = "marco@canzan.test";
-const MARCO_PASSWORD: &str = "marco-correct-horse-battery-staple";
+pub(crate) const PRIYA_EMAIL: &str = "priya@canzan.test";
+pub(crate) const PRIYA_PASSWORD: &str = "priya-correct-horse-battery-staple";
+pub(crate) const MARCO_EMAIL: &str = "marco@canzan.test";
+pub(crate) const MARCO_PASSWORD: &str = "marco-correct-horse-battery-staple";
 const MEMBER_PASSWORD: &str = "member-correct-horse-battery-staple";
 
 /// DESIGN-pinned seams (feature delta, DESIGN [REF] Handoff). If DELIVER moves
@@ -73,7 +73,7 @@ const DASHBOARD_PATH: &str = "/admin/instance/workspaces";
 /// `workspace-rename-error` also appears in every head's error-slot id
 /// (`workspace-rename-error-{id}`), so only the attribute form tells a refusal
 /// apart from a correct head.
-const ERROR_FRAGMENT_ATTR: &str = r#"data-hx-fragment="workspace-rename-error""#;
+pub(crate) const ERROR_FRAGMENT_ATTR: &str = r#"data-hx-fragment="workspace-rename-error""#;
 const HEAD_MARKER: &str = "data-workspace-head";
 
 /// The precedent's browser Given plants this page-lifetime marker after load; a
@@ -101,7 +101,7 @@ fn now_anchor() -> OffsetDateTime {
         .expect("parse anchor")
 }
 
-async fn ensure_harness(world: &mut FoundryWorld) {
+pub(crate) async fn ensure_harness(world: &mut FoundryWorld) {
     if world.harness.is_none() {
         world.harness = Some(InProcHarness::spawn(now_anchor()).await);
     }
@@ -116,15 +116,15 @@ async fn ensure_harness(world: &mut FoundryWorld) {
     }
 }
 
-fn harness(world: &FoundryWorld) -> &InProcHarness {
+pub(crate) fn harness(world: &FoundryWorld) -> &InProcHarness {
     world.harness.as_ref().expect("harness spawned by a Given")
 }
 
-fn pool(world: &FoundryWorld) -> PgPool {
+pub(crate) fn pool(world: &FoundryWorld) -> PgPool {
     harness(world).app.state.store.pool().clone()
 }
 
-fn http(world: &FoundryWorld) -> reqwest::Client {
+pub(crate) fn http(world: &FoundryWorld) -> reqwest::Client {
     world.http.as_ref().expect("http client").clone()
 }
 
@@ -145,7 +145,7 @@ async fn db_now(world: &FoundryWorld) -> OffsetDateTime {
 
 /// A workspace's id by the name the scenario calls it: a name it was renamed to
 /// in this scenario first, then its seed name, then a unique stored name.
-async fn resolve(world: &FoundryWorld, label: &str) -> uuid::Uuid {
+pub(crate) async fn resolve(world: &FoundryWorld, label: &str) -> uuid::Uuid {
     if let Some(id) = world.iawr_aliases.get(label) {
         return *id;
     }
@@ -163,7 +163,7 @@ async fn resolve(world: &FoundryWorld, label: &str) -> uuid::Uuid {
     }
 }
 
-async fn capture_universe(world: &FoundryWorld) -> Universe {
+pub(crate) async fn capture_universe(world: &FoundryWorld) -> Universe {
     let pool = pool(world);
     let workspaces: Vec<(uuid::Uuid, String)> = sqlx::query_as("SELECT id, name FROM workspaces")
         .fetch_all(&pool)
@@ -202,7 +202,7 @@ fn records_of(universe: &Universe) -> &[RenameRecord] {
     })
 }
 
-fn before(world: &FoundryWorld) -> Universe {
+pub(crate) fn before(world: &FoundryWorld) -> Universe {
     world
         .iawr_before
         .clone()
@@ -213,7 +213,7 @@ fn before(world: &FoundryWorld) -> Universe {
 /// moves. `change = Some((id, new))`: only workspace `id`'s name moves, to `new`,
 /// and exactly one record is appended for it — by `actor`, from the name it had
 /// before, to `new`, stamped inside `window`. Earlier records are never altered.
-fn assert_universe_delta(
+pub(crate) fn assert_universe_delta(
     before: &Universe,
     after: &Universe,
     change: Option<(uuid::Uuid, &str)>,
@@ -460,7 +460,7 @@ async fn priya_noted_project_rows(world: &mut FoundryWorld, label: String) {
 
 /// Capture the universe, then send the rename from Priya's real session with a
 /// fresh double-submit `_csrf`, bracketing it with the database clock.
-async fn priya_renames(world: &mut FoundryWorld, label: &str, new_name: &str) {
+pub(crate) async fn priya_renames(world: &mut FoundryWorld, label: &str, new_name: &str) {
     send_rename_as(world, PRIYA_EMAIL, PRIYA_PASSWORD, label, new_name).await;
 }
 
@@ -630,7 +630,7 @@ async fn priya_exports_workspace(world: &mut FoundryWorld, label: String) {
 
 /// The 200 answer is the BARE workspace head (DDD-7/8): `[data-workspace-head]`
 /// whose `[data-workspace-name]` reads exactly `name`, with no page wrapper.
-fn assert_head_fragment(world: &FoundryWorld, name: &str) {
+pub(crate) fn assert_head_fragment(world: &FoundryWorld, name: &str) {
     assert_eq!(
         world.last_status,
         Some(StatusCode::OK),
@@ -1014,7 +1014,7 @@ fn row_css(workspace_id: uuid::Uuid) -> String {
     format!(r#"[data-workspace-row][data-workspace-id="{workspace_id}"]"#)
 }
 
-fn head_css(workspace_id: uuid::Uuid) -> String {
+pub(crate) fn head_css(workspace_id: uuid::Uuid) -> String {
     format!("{} [data-workspace-head]", row_css(workspace_id))
 }
 
@@ -1108,7 +1108,12 @@ async fn blanks_in_browser(world: &mut FoundryWorld, label: String) {
 }
 
 /// Poll a CSS selector's text until `accept` holds, or panic after 10s.
-async fn wait_for_text(world: &FoundryWorld, css: &str, what: &str, accept: impl Fn(&str) -> bool) {
+pub(crate) async fn wait_for_text(
+    world: &FoundryWorld,
+    css: &str,
+    what: &str,
+    accept: impl Fn(&str) -> bool,
+) {
     let browser = world.browser.as_ref().expect("browser session");
     let deadline = std::time::Instant::now() + Duration::from_secs(10);
     loop {

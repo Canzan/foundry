@@ -135,6 +135,70 @@ jobs:
           Sibling. Same operator, same dashboard, same row-rename idiom; this
           job owns the workspace label and adds an append-only rename record.
 
+  - id: job-instance-workspace-naming
+    title: Name a workspace right at whichever door it is created or renamed through
+    job_story: >
+      When I name a workspace, whether provisioning it from the instance
+      dashboard or from `foundry doctor provision-workspace`, claiming a fresh
+      instance, or renaming it later, I want every one of those doors to
+      refuse the same bad names for the same stated reason at the moment I
+      type them (blank, longer than the sidebar can show, or carrying an
+      invisible control character), so no workspace starts life with a label
+      I must later correct, and every place its name is printed (sidebar,
+      invite email, CLI output) shows one clean line.
+    dimensions:
+      functional: >
+        One rule (trim, non-empty, no control characters, at most 24 Unicode
+        scalars) with one set of refusal messages on all four doors. A
+        refusal creates nothing, burns no bootstrap link, and keeps the
+        first-admin email free for the retry.
+      emotional: >
+        Stop discovering, a page load after provisioning, that the name I
+        just chose is truncated or is not what I typed. Trust that the door I
+        happen to use does not decide what is allowed.
+      social: >
+        A new workspace admin's first sidebar already reads right. Nobody
+        receives an invite email with a stray line break in the workspace
+        name.
+    forces:
+      push: >
+        Since v0.9.0 the rename door refuses names that the three creation
+        doors accept (code reading, instance-admin-workspace-rename D10). The
+        dashboard Provision form accepts "   " and creates a nameless
+        workspace. The CLI does not even trim, and it echoes a newline in the
+        name into its key: value stdout, forging lines. A NUL produces
+        "internal error" on every door.
+      pull: >
+        The rule and copy the rename door already shows, applied everywhere,
+        plus a stated reason for invisible characters.
+      anxiety: >
+        That a refused provision or claim leaves half-made rows behind,
+        burning the first-admin email or the one-time bootstrap link; that
+        existing long or odd legacy names suddenly break; and that a valid
+        emoji or accented name gets refused.
+      habit: >
+        Typing or pasting any name and fixing it afterwards with a rename.
+        Scripts call the CLI with whatever name they are given. The rule must
+        refuse with a stable exit code and leave legacy names alone.
+    opportunity:
+      importance: medium
+      satisfaction: low
+      note: >
+        Single-job feature; no comparative scoring table. Satisfaction low:
+        1 of 4 doors enforces any rule, and none refuses control characters.
+        Sibling of job-instance-workspace-rename rather than a widening of
+        it. That job's situation is drift and its distinctive outcome is
+        accountability (audit). This job's situation is creation at any door
+        and its outcome is one consistent rule. Grounded in code reading, not
+        interviews (no DISCOVER), the same recorded risk as its sibling.
+    validated_by: docs/feature/instance-workspace-name-rule/feature-delta.md
+    relates_to:
+      - job: job-instance-workspace-rename
+        relation: >
+          Sibling. The rename door is one of this job's four doors. This job
+          adds the control-character refusal to it and keeps that job's no-op
+          precedence for legacy names unchanged.
+
   - id: job-dismiss-edit-dialog
     title: Back out of an issue's edit dialog without saving, the way every other app allows
     job_story: >
