@@ -112,8 +112,13 @@ impl ProvisionFormEcho {
         }
     }
 
-    fn is_refusal(&self) -> bool {
-        self.error.is_some()
+    /// 422 when the form carries a refusal, 200 otherwise.
+    fn status(&self) -> StatusCode {
+        if self.error.is_some() {
+            StatusCode::UNPROCESSABLE_ENTITY
+        } else {
+            StatusCode::OK
+        }
     }
 }
 
@@ -154,11 +159,7 @@ async fn render_dashboard(
         csrf.clone(),
     )
     .await;
-    let status = if provision.is_refusal() {
-        StatusCode::UNPROCESSABLE_ENTITY
-    } else {
-        StatusCode::OK
-    };
+    let status = provision.status();
     let page = InstanceDashboardPage {
         csrf,
         workspaces,

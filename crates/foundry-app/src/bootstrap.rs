@@ -220,7 +220,7 @@ async fn refuse_unfit_name(
                 display_name: form.display_name.clone(),
                 workspace_name: form.workspace_name.clone(),
             };
-            (StatusCode::UNPROCESSABLE_ENTITY, Html(render(page))).into_response()
+            (StatusCode::UNPROCESSABLE_ENTITY, Html(render_claim(page))).into_response()
         }
         Ok(reason) => {
             tracing::info!(?reason, "bootstrap claim link refused (non-enumerable)");
@@ -337,7 +337,7 @@ fn sha256(input: &str) -> [u8; 32] {
 }
 
 fn render_claim_form(token: &str) -> String {
-    render(BootstrapClaim {
+    render_claim(BootstrapClaim {
         token: token.to_string(),
         error: None,
         email: String::new(),
@@ -346,7 +346,7 @@ fn render_claim_form(token: &str) -> String {
     })
 }
 
-fn render(page: BootstrapClaim) -> String {
+fn render_claim(page: BootstrapClaim) -> String {
     page.render().expect("bootstrap_claim.html renders")
 }
 

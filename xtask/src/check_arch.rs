@@ -4262,9 +4262,16 @@ fn check_workspace_name_one_source(root: &Path) -> Vec<String> {
             ));
         }
         for file in &sources {
-            violations.extend(workspace_name_copy_violations_in(root, file));
+            let Ok(contents) = std::fs::read_to_string(file) else {
+                violations.push(format!(
+                    "workspace-name-one-source: cannot read {} (DDD-12).",
+                    rel(root, file)
+                ));
+                continue;
+            };
+            violations.extend(workspace_name_copy_violations_in(root, file, &contents));
             if WORKSPACE_SEAM_FORBIDDEN_IN.contains(&crate_name) {
-                violations.extend(workspace_seam_call_violations_in(root, file));
+                violations.extend(workspace_seam_call_violations_in(root, file, &contents));
             }
         }
     }
@@ -4273,13 +4280,7 @@ fn check_workspace_name_one_source(root: &Path) -> Vec<String> {
 
 /// The DDD-12b violations in one file: each line calling the test-seeding seam,
 /// named `file:line`. Comment lines and the seam's own `fn` definition are not calls.
-fn workspace_seam_call_violations_in(root: &Path, file: &Path) -> Vec<String> {
-    let Ok(contents) = std::fs::read_to_string(file) else {
-        return vec![format!(
-            "workspace-name-one-source: cannot read {} (DDD-12).",
-            rel(root, file)
-        )];
-    };
+fn workspace_seam_call_violations_in(root: &Path, file: &Path, contents: &str) -> Vec<String> {
     let definition = format!("fn {WORKSPACE_SEAM_CALL}");
     contents
         .lines()
@@ -4302,13 +4303,7 @@ fn workspace_seam_call_violations_in(root: &Path, file: &Path) -> Vec<String> {
 }
 
 /// The DDD-12a violations in one file, each naming `file:line`.
-fn workspace_name_copy_violations_in(root: &Path, file: &Path) -> Vec<String> {
-    let Ok(contents) = std::fs::read_to_string(file) else {
-        return vec![format!(
-            "workspace-name-one-source: cannot read {} (DDD-12).",
-            rel(root, file)
-        )];
-    };
+fn workspace_name_copy_violations_in(root: &Path, file: &Path, contents: &str) -> Vec<String> {
     contents
         .lines()
         .enumerate()
