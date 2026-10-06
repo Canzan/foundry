@@ -285,7 +285,7 @@ Feature: One rule for naming a workspace, at every door
       And workspace "Canzan Labs" has a team "Backend" with projects "Auth v2" (AUTH) and "Sandbox" (SBX)
       And workspace "Household" exists with no projects
 
-    @us-wnr-01 @us-wnr-02 @us-wnr-03 @us-wnr-04 @kpi @error @real-io @pending @contract-shape:unbounded-preservation
+    @us-wnr-01 @us-wnr-02 @us-wnr-03 @us-wnr-04 @kpi @error @real-io @contract-shape:unbounded-preservation
     Scenario Outline: Every door refuses the same name in the same words
       When Priya offers the workspace name "<pasted>" at every door
       Then every door refuses it saying "<refusal>"
@@ -302,7 +302,7 @@ Feature: One rule for naming a workspace, at every door
         | Ops[U+2028]Platform                  | Workspace name must not contain control characters  |
         | Canzan Labs Platform[TAB]Engineering | Workspace name must not contain control characters  |
 
-    @us-wnr-01 @us-wnr-02 @us-wnr-03 @us-wnr-04 @kpi @edge @real-io @pending @contract-shape:bounded-change
+    @us-wnr-01 @us-wnr-02 @us-wnr-03 @us-wnr-04 @kpi @edge @real-io @contract-shape:bounded-change
     Scenario Outline: Every door accepts the same name and stores it the same way
       When Priya offers the workspace name "<pasted>" at every door
       Then every door accepts it and stores "<stored>"
@@ -315,7 +315,7 @@ Feature: One rule for naming a workspace, at every door
         | 👨[ZWJ]👩[ZWJ]👧 Bailey   | 👨[ZWJ]👩[ZWJ]👧 Bailey   |
         | Ops[NBSP]Team            | Ops[NBSP]Team            |
 
-    @us-wnr-01 @us-wnr-02 @us-wnr-03 @kpi @error @real-io @pending @contract-shape:unbounded-preservation
+    @us-wnr-01 @us-wnr-02 @us-wnr-03 @kpi @error @real-io @contract-shape:unbounded-preservation
     Scenario: A null character is refused in the same words at every web door, never as an internal error
       When Priya offers the workspace name "Bailey[NUL]Family" at every web door
       Then every door refuses it saying "Workspace name must not contain control characters"
