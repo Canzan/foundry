@@ -874,7 +874,7 @@ Reconciliation passed: 0 contradictions. DESIGN's two Changed Assumptions (the r
 | 23 | Spaces around the name are trimmed in storage and in the output | @us-wnr-04 @edge | WNR-04 AC2, D10 | exit 0, stdout line `workspace-name: Globex`; stored "Globex"; exactly +1 of each provisioned row | MF (stores and prints the padding) |
 | 24 | A name mistake is caught without a database (2 rows: no DATABASE_URL, unreachable DATABASE_URL) | @us-wnr-04 @error | WNR-04 AC1, D8, DDD-10 | exit 2 with the length copy, empty stdout | MF x2 (exit 3) |
 | 25 | Leaving the name out entirely still gets the usage line | @us-wnr-04 @error @guard | DDD-10 | exit 2, usage line, no "Workspace name must" | GA (guard) |
-| 26 | Every door refuses the same name in the same words (8 rows: `""`, blank, 25 ASCII, 25 multi-byte, interior TAB, U+202E, interior U+2028, 32 with a tab) | all four stories @kpi @error | KPI-2, D2, D3, OQ-D1 | rename, bootstrap (fresh live link), dashboard and CLI each reduced to `Refused(copy)`; all equal the expected copy; nothing moved at any door | MF x8 (today 1 of 4 doors) |
+| 26 | Every door refuses the same name in the same words (8 rows: `""`, blank, 25 ASCII, 25 multi-byte, interior TAB, U+202E, interior U+2028, 32 with a tab) | all four stories @kpi @error | KPI-2, D2, D3, OQ-D1 | rename, bootstrap (a fresh live link, minted before the "before" snapshot so a correct refusal reads live links unchanged), dashboard and CLI each reduced to `Refused(copy)`; all equal the expected copy; nothing moved at any door | MF x8 (today 1 of 4 doors) |
 | 27 | Every door accepts the same name and stores it the same way (5 rows: 24 ASCII, 24 multi-byte, `[TAB]Kitchen[NEWLINE]`, ZWJ family, interior NBSP) | all four stories @kpi @edge bounded-change | KPI-2, D1 | each door `Accepted(stored)` read back from the store | MF x1 (Kitchen: the CLI stores the padding); GA x4 (guards) |
 | 28 | A null character is refused in the same words at every web door, never as an internal error | WNR-01..03 @kpi @error | KPI-2, KPI-4 | three web doors `Refused(control copy)`; nothing moved | MF (500 on all three) |
 
@@ -929,6 +929,8 @@ Rule (core): controls checked before trim; all of Cf refused; Cc set off by one 
 2. **Slice 02**: 9, 11, 10, then the guards 12, 13; check-arch clause (b) tests.
 3. **Slice 03**: 15, 16, 17, then the guards 14, 18, 19; then 20 (`@needs-browser`). The typed `ProvisionRequest` forces the CLI parse into this commit (OQ-D4), so 21-24 may already pass; leave them pending until slice 04.
 4. **Slice 04**: 21, 22, 23, 24, then the guard 25. Then the parity outlines 26, 27 and 28, which need all four doors.
+
+Burn-down count: count `@pending` on tag lines only. The feature header comment also contains the word (line 5, "every scenario is @pending"), so a bare `grep -c '@pending'` never reaches 0 and reads one higher than the number of pending scenarios. Use `grep -cE '^[[:space:]]*@.*@pending' crates/foundry-acceptance/tests/features/instance-workspace-name-rule.feature`: 3 before step 05-01, 0 after it. (The roadmap's "expect 0" for `grep -c '@pending'` means this tag-line count.)
 
 ### [REF] Pre-requisites
 

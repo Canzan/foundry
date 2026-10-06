@@ -450,6 +450,16 @@ fn texts(html: &str, css: &str) -> Vec<String> {
         .collect()
 }
 
+/// Like [`texts`], but the text exactly as served: NOT trimmed. For an echo
+/// whose edges are the point (a trimmed name must not come back padded).
+fn raw_texts(html: &str, css: &str) -> Vec<String> {
+    let doc = Html::parse_document(html);
+    let sel = Selector::parse(css).expect("selector");
+    doc.select(&sel)
+        .map(|el| el.text().collect::<String>())
+        .collect()
+}
+
 fn input_value(html: &str, css: &str) -> Option<Option<String>> {
     let doc = Html::parse_document(html);
     let sel = Selector::parse(css).expect("selector");
@@ -751,7 +761,7 @@ async fn offer_at_rename(world: &mut FoundryWorld, name: &str) -> Verdict {
     }
 }
 
-async fn offer_at_bootstrap(world: &mut FoundryWorld, name: &str) -> Verdict {
+async fn mint_parity_link(world: &mut FoundryWorld) -> String {
     let raw = format!("parity-link-{}", uuid::Uuid::now_v7());
     let h = harness(world);
     let expires_at = h.fake_clock.now() + time::Duration::minutes(30);
@@ -761,11 +771,15 @@ async fn offer_at_bootstrap(world: &mut FoundryWorld, name: &str) -> Verdict {
         .insert_bootstrap_token(uuid::Uuid::now_v7(), &sha256(&raw), expires_at)
         .await
         .expect("mint a live bootstrap link");
+    raw
+}
+
+async fn offer_at_bootstrap(world: &mut FoundryWorld, raw: &str, name: &str) -> Verdict {
     let claim = ClaimSubmission {
         email: PARITY_CLAIM_EMAIL.to_string(),
         ..priyas_claim(name)
     };
-    let (status, body, _) = post_claim(world, &raw, &claim).await;
+    let (status, body, _) = post_claim(world, raw, &claim).await;
     match status {
         StatusCode::UNPROCESSABLE_ENTITY => Verdict::Refused(texts(&body, ".error").join(" | ")),
         StatusCode::SEE_OTHER => match workspace_of_first_admin(world, PARITY_CLAIM_EMAIL).await {
@@ -816,12 +830,16 @@ async fn offer_at_cli(world: &mut FoundryWorld, name: &str) -> Verdict {
 
 async fn offer_at_doors(world: &mut FoundryWorld, pasted: &str, doors: &[Door]) {
     let name = decode_invisibles(pasted);
+    // The bootstrap door's live link is a PRECONDITION, so it is minted BEFORE the
+    // "before" snapshot: a correct refusal leaves it live, and the universe must
+    // then read unchanged (live links 1 -> 1), not 0 -> 1.
+    let link = mint_parity_link(world).await;
     world.iwnr_before = Some(capture_naming_universe(world).await);
     let mut verdicts = Vec::new();
     for door in doors {
         let verdict = match door {
             Door::Rename => offer_at_rename(world, &name).await,
-            Door::BootstrapClaim => offer_at_bootstrap(world, &name).await,
+            Door::BootstrapClaim => offer_at_bootstrap(world, &link, &name).await,
             Door::DashboardProvision => offer_at_dashboard(world, &name).await,
             Door::Cli => offer_at_cli(world, &name).await,
         };
@@ -973,10 +991,13 @@ async fn dashboard_confirms(world: &mut FoundryWorld, name: String, first_admin:
         "the provision must succeed; body = {}",
         snippet(&body)
     );
+    // Untrimmed on purpose: a fragment echoing the raw `form.name` ("  Globex  ")
+    // instead of the validated name must fail here (DDD-8, scenario 18).
     assert_eq!(
-        texts(&body, &format!("{PROVISIONED_FRAGMENT_CSS} strong")),
+        raw_texts(&body, &format!("{PROVISIONED_FRAGMENT_CSS} strong")),
         vec![name.clone()],
-        "the confirmation must show the stored (trimmed) name; body = {body:?}"
+        "the confirmation must show exactly the stored (trimmed) name, no padding; \
+         body = {body:?}"
     );
     assert!(
         body.contains(&format!(r#"data-first-admin-email="{first_admin}""#)),

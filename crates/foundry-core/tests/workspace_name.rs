@@ -5,8 +5,9 @@
 //! Unicode White_Space), then refuses Empty, then ControlCharacter (Cc, i.e.
 //! `char::is_control`; U+202A-202E; U+2066-2069; U+2028; U+2029), then TooLong
 //! (more than 24 Unicode scalars, `chars().count()`); on success it holds the
-//! trimmed value. Every other format character (Cf) is allowed. `Display` of each
-//! error is the D3 copy, byte for byte.
+//! trimmed value, which is also exactly what its `Display` shows. Every other
+//! format character (Cf) is allowed. `Display` of each error is the D3 copy,
+//! byte for byte.
 //!
 //! Mutation targets (DoD 6, DDD-13): every boundary below is an exact example
 //! pair, because a proptest range need not sample the boundary (the precedent's
@@ -203,6 +204,17 @@ proptest! {
         } else {
             prop_assert_eq!(got, Err(TooLong));
         }
+    }
+
+    /// `Display` is part of the value object's public contract (DDD-2): it shows
+    /// exactly the stored (trimmed) name, so `format!("{name}")` can never leak
+    /// padding or come back empty.
+    #[test]
+    fn an_accepted_name_displays_exactly_as_stored(name in clean_name(24), pad in "[ \t\n]{0,3}") {
+        let raw = format!("{pad}{name}{pad}");
+        let accepted = WorkspaceName::try_new(&raw).expect("a clean name of at most 24 scalars");
+        prop_assert_eq!(format!("{accepted}"), name.as_str());
+        prop_assert_eq!(accepted.to_string(), accepted.as_str());
     }
 
     #[test]

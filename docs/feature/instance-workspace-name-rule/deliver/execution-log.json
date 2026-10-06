@@ -113,6 +113,27 @@
       "s": "EXECUTED",
       "d": "PASS",
       "t": "2026-10-06T05:33:21Z"
+    },
+    {
+      "sid": "05-01",
+      "p": "RED",
+      "s": "EXECUTED",
+      "d": "FAIL",
+      "t": "2026-10-06T05:37:00Z"
+    },
+    {
+      "sid": "05-01",
+      "p": "GREEN",
+      "s": "SKIPPED",
+      "d": "BLOCKED_BY_DEPENDENCY: parity glue snapshots before minting its own bootstrap link; needs acceptance-designer fix",
+      "t": "2026-10-06T05:38:21Z"
+    },
+    {
+      "sid": "05-01",
+      "p": "COMMIT",
+      "s": "SKIPPED",
+      "d": "BLOCKED_BY_DEPENDENCY: GREEN blocked on parity glue defect; nothing committed",
+      "t": "2026-10-06T05:38:21Z"
     }
   ]
 }
