@@ -597,14 +597,16 @@ pub fn run_restore_comment(comment_id: &str) -> i32 {
 /// Exit codes (mirroring `run_restore_comment`'s exit-code discipline):
 ///
 /// - `0` provisioned: workspace + first admin created; stdout reports them.
-/// - `2` invalid args: missing `--name`/`--admin-email`, or no acting
-///   super-admin resolvable (`--as` required for v1).
+/// - `2` invalid args: missing `--admin-email`/`--as`, or a name the
+///   workspace-name rule refuses (checked before `DATABASE_URL` is read).
 /// - `3` DB / infra fail: DATABASE_URL unreachable, SESSION_SECRET unset, or a
 ///   DB-side failure mid-provision.
 /// - `4` not authorized: the acting user is NOT an instance super-admin. The
 ///   refusal is observationally independent of whether the target already exists.
 pub fn run_provision_workspace(name: &str, admin_email: &str, acting_email: &str) -> i32 {
-    if name.is_empty() || admin_email.is_empty() || acting_email.is_empty() {
+    // `--name` presence is the dispatcher's usage check; a present name, even
+    // "", is the workspace-name rule's to judge (DDD-10).
+    if admin_email.is_empty() || acting_email.is_empty() {
         eprintln!(
             "foundry doctor provision-workspace: --name, --admin-email and --as are required. \
              Usage: foundry doctor provision-workspace --name <name> \
@@ -649,7 +651,8 @@ pub fn run_provision_workspace(name: &str, admin_email: &str, acting_email: &str
     let public_url =
         std::env::var("FOUNDRY_PUBLIC_URL").unwrap_or_else(|_| "http://localhost".into());
 
-    let name = name.to_string();
+    // Echo the validated (trimmed) name, never the raw argument (D10).
+    let name = workspace_name.as_str().to_string();
     let admin_email = admin_email.to_string();
     let acting_email = acting_email.to_string();
 

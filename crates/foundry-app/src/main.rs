@@ -838,17 +838,21 @@ fn dispatch_subcommand() -> Option<i32> {
                             .and_then(|i| args.get(i + 1))
                             .cloned()
                     };
-                    let name = opt("--name").unwrap_or_default();
+                    // An ABSENT --name is a usage error; a PRESENT one, even "",
+                    // goes to the workspace-name rule (instance-workspace-name-rule DDD-10).
                     let admin_email = opt("--admin-email").unwrap_or_default();
                     let acting_email = opt("--as").unwrap_or_default();
-                    if name.is_empty() || admin_email.is_empty() {
-                        eprintln!(
-                            "foundry doctor provision-workspace: missing required flags. \
-                             Usage: foundry doctor provision-workspace --name <name> \
-                             --admin-email <addr> --as <super-admin-email>"
-                        );
-                        return Some(2);
-                    }
+                    let name = match opt("--name") {
+                        Some(name) if !admin_email.is_empty() => name,
+                        _ => {
+                            eprintln!(
+                                "foundry doctor provision-workspace: missing required flags. \
+                                 Usage: foundry doctor provision-workspace --name <name> \
+                                 --admin-email <addr> --as <super-admin-email>"
+                            );
+                            return Some(2);
+                        }
+                    };
                     let code = foundry_app::admin_cli::run_provision_workspace(
                         &name,
                         &admin_email,

@@ -234,7 +234,7 @@ Feature: One rule for naming a workspace, at every door
       Given Priya is the instance super-admin
       And workspace "Canzan Labs" has a team "Backend" with projects "Auth v2" (AUTH) and "Sandbox" (SBX)
 
-    @us-wnr-04 @driving_port @error @real-io @pending @contract-shape:unbounded-preservation
+    @us-wnr-04 @driving_port @error @real-io @contract-shape:unbounded-preservation
     Scenario Outline: A name the rule refuses exits 2 with the reason and creates nothing
       When Priya runs the provisioning command naming the workspace "<pasted>" for first admin "dana@canzan.net"
       Then the command exits 2 saying "<refusal>" with nothing on standard output
@@ -247,20 +247,20 @@ Feature: One rule for naming a workspace, at every door
         |                                  | Workspace name must not be empty                    |
         | Globex[U+202E]                   | Workspace name must not contain control characters  |
 
-    @us-wnr-04 @error @security @kpi @real-io @pending @contract-shape:unbounded-preservation
+    @us-wnr-04 @error @security @kpi @real-io @contract-shape:unbounded-preservation
     Scenario: A name with a line break cannot forge output lines
       When Priya runs the provisioning command naming the workspace "Globex[NEWLINE]status: refused" for first admin "dana@canzan.net"
       Then the command exits 2 saying "Workspace name must not contain control characters" with nothing on standard output
       And neither output carries the forged line "status: refused"
       And nothing was created or changed
 
-    @us-wnr-04 @edge @real-io @pending @contract-shape:bounded-change
+    @us-wnr-04 @edge @real-io @contract-shape:bounded-change
     Scenario: Spaces around the name are trimmed in storage and in the output
       When Priya runs the provisioning command naming the workspace "  Globex  " for first admin "dana@canzan.net"
       Then the command exits 0 and reports "workspace-name: Globex"
       And the provisioned workspace is stored as "Globex"
 
-    @us-wnr-04 @error @real-io @pending @contract-shape:unbounded-preservation
+    @us-wnr-04 @error @real-io @contract-shape:unbounded-preservation
     Scenario Outline: A name mistake is caught without a database
       Given <situation>
       When Priya runs the provisioning command naming the workspace "Canzan Labs Platform Engineering" for first admin "dana@canzan.net"
@@ -271,7 +271,7 @@ Feature: One rule for naming a workspace, at every door
         | no database is configured for the command       |
         | the command's database cannot be reached        |
 
-    @us-wnr-04 @error @guard @real-io @pending @contract-shape:unbounded-preservation
+    @us-wnr-04 @error @guard @real-io @contract-shape:unbounded-preservation
     Scenario: Leaving the name out entirely still gets the usage line
       When Priya runs the provisioning command without a workspace name for first admin "dana@canzan.net"
       Then the command exits 2 with its usage line and no name-rule message
