@@ -1410,6 +1410,14 @@ pub struct InstanceDashboardPage {
     /// assembled once per page via `NavContext::home_for`. `app_shell.html`
     /// injects `partials/sidebar.html`, which reads `nav.*`.
     pub nav: crate::nav::NavContext,
+    /// The workspace-name refusal shown in the Provision form's
+    /// `[data-provision-error]` slot on the 422 re-render
+    /// (instance-workspace-name-rule D9/DDD-8); `None` on the GET.
+    pub provision_error: Option<String>,
+    /// The Provision form's name, kept as submitted on a refusal; empty on the GET.
+    pub provision_name: String,
+    /// The Provision form's first-admin email, kept as submitted; empty on the GET.
+    pub provision_email: String,
 }
 
 /// The htmx success FRAGMENT returned by `POST /admin/instance/workspaces`

@@ -31,8 +31,9 @@
   <form method="post" action="/admin/instance/workspaces" data-provision-form>
     <h2>Provision a workspace</h2>
     <input type="hidden" name="_csrf" value="{{ csrf }}">
-    <label>Workspace name <input type="text" name="name" required></label>
-    <label>First admin email <input type="email" name="email" required></label>
+    {% if let Some(error) = provision_error %}<p class="error" data-provision-error>{{ error }}</p>{% endif %}
+    <label>Workspace name <input type="text" name="name" value="{{ provision_name }}" required></label>
+    <label>First admin email <input type="email" name="email" value="{{ provision_email }}" required></label>
     <button type="submit">Provision workspace</button>
   </form>
 

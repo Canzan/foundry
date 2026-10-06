@@ -176,19 +176,19 @@ Feature: One rule for naming a workspace, at every door
       Given Priya is the instance super-admin
       And workspace "Canzan Labs" has a team "Backend" with projects "Auth v2" (AUTH) and "Sandbox" (SBX)
 
-    @us-wnr-03 @driving_port @edge @guard @real-io @pending @contract-shape:bounded-change
+    @us-wnr-03 @driving_port @edge @guard @real-io @contract-shape:bounded-change
     Scenario: A name of exactly 24 characters is provisioned
       When Priya provisions workspace "Canzan Labs Platform Ops" for first admin "dana@canzan.net" from the dashboard
       Then the dashboard confirms workspace "Canzan Labs Platform Ops" was provisioned for first admin "dana@canzan.net"
 
-    @us-wnr-03 @driving_port @error @real-io @pending @contract-shape:unbounded-preservation
+    @us-wnr-03 @driving_port @error @real-io @contract-shape:unbounded-preservation
     Scenario: A name past 24 characters is refused, kept in the form, and nothing is created
       When Priya provisions workspace "Canzan Labs Platform Engineering" for first admin "dana@canzan.net" from the dashboard
       Then the dashboard refuses the provision saying "Workspace name must be at most 24 characters"
       And the provision form still holds the name "Canzan Labs Platform Engineering" and the first admin "dana@canzan.net"
       And nothing was created or changed
 
-    @us-wnr-03 @error @kpi @real-io @pending @contract-shape:unbounded-preservation
+    @us-wnr-03 @error @kpi @real-io @contract-shape:unbounded-preservation
     Scenario Outline: A blank or invisible-character name is refused and nothing is created
       When Priya provisions workspace "<pasted>" for first admin "dana@canzan.net" from the dashboard
       Then the dashboard refuses the provision saying "<refusal>"
@@ -201,26 +201,26 @@ Feature: One rule for naming a workspace, at every door
         | Globex[U+202E]            | Workspace name must not contain control characters  |
         | Globex[NUL]Labs           | Workspace name must not contain control characters  |
 
-    @us-wnr-03 @driving_port @real-io @pending @contract-shape:bounded-change
+    @us-wnr-03 @driving_port @real-io @contract-shape:bounded-change
     Scenario: The corrected name provisions with the same first-admin email
       Given Priya's dashboard provision of "Canzan Labs Platform Engineering" for first admin "dana@canzan.net" was refused for its name
       When Priya provisions workspace "Canzan Platform Eng" for first admin "dana@canzan.net" from the dashboard
       Then the dashboard confirms workspace "Canzan Platform Eng" was provisioned for first admin "dana@canzan.net"
       And the instance dashboard lists workspace "Canzan Platform Eng"
 
-    @us-wnr-03 @edge @guard @real-io @pending @contract-shape:bounded-change
+    @us-wnr-03 @edge @guard @real-io @contract-shape:bounded-change
     Scenario: Spaces around the name are trimmed before it is stored and shown
       When Priya provisions workspace "  Globex  " for first admin "dana@canzan.net" from the dashboard
       Then the dashboard confirms workspace "Globex" was provisioned for first admin "dana@canzan.net"
 
-    @us-wnr-03 @error @security @guard @real-io @pending @contract-shape:unbounded-preservation
+    @us-wnr-03 @error @security @guard @real-io @contract-shape:unbounded-preservation
     Scenario: A non-admin is refused before the name is looked at
       Given Marco is a signed-in member who is not an instance admin
       When Marco posts a dashboard provision of a 40-character workspace name
       Then the answer is byte-identical to a never-existed address
       And nothing was created or changed
 
-    @us-wnr-03 @needs-browser @error @real-io @pending @contract-shape:unbounded-preservation
+    @us-wnr-03 @needs-browser @error @real-io @contract-shape:unbounded-preservation
     Scenario: The refusal is shown in the Provision form on the real page, ready to correct
       Given Priya has the instance dashboard open in her browser
       When she provisions workspace "Canzan Labs Platform Engineering" for first admin "dana@canzan.net" in her browser

@@ -219,14 +219,18 @@ impl Services {
 /// `Store`-typed surface the seam already owns.
 pub mod provisioning {
     use super::{ServiceError, Store};
+    use foundry_core::WorkspaceName;
     use secrecy::SecretString;
 
     /// What the operator asks for: a NEW workspace `name` with a first admin at
     /// `admin_email`, provisioned by the super-admin identified by
     /// `acting_user_id` (already resolved from `--as`/the bootstrap claim).
+    /// The name is a [`WorkspaceName`]: every driving adapter applies the one
+    /// rule before it can build a request, so this use-case never re-checks it
+    /// (instance-workspace-name-rule DDD-5).
     pub struct ProvisionRequest<'a> {
         pub acting_user_id: uuid::Uuid,
-        pub workspace_name: &'a str,
+        pub workspace_name: WorkspaceName,
         pub admin_email: &'a str,
         /// Initial credential the operator sets for the first admin. The first
         /// admin can reset it by accepting the emitted invite link.
@@ -276,7 +280,7 @@ pub mod provisioning {
         store
             .provision_workspace(
                 workspace_id,
-                request.workspace_name,
+                request.workspace_name.as_str(),
                 admin_user_id,
                 &admin_email_lower,
                 request.admin_email,

@@ -17,6 +17,7 @@
 //!      and NO workspace is created (kills the `delete !` gate-inversion mutant —
 //!      the security-critical one — and re-confirms the no-op mutants).
 
+use foundry_core::WorkspaceName;
 use foundry_services::{provisioning, ServiceError, Services};
 use foundry_store::Store;
 use secrecy::SecretString;
@@ -126,7 +127,7 @@ fn request_for(
 ) -> provisioning::ProvisionRequest<'static> {
     provisioning::ProvisionRequest {
         acting_user_id,
-        workspace_name,
+        workspace_name: WorkspaceName::try_new(workspace_name).expect("a valid workspace name"),
         admin_email,
         admin_password: SecretString::new("initial-credential-123".into()),
         invite_expires_at: time::OffsetDateTime::now_utc() + time::Duration::days(7),

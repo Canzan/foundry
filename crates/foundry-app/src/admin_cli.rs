@@ -613,6 +613,17 @@ pub fn run_provision_workspace(name: &str, admin_email: &str, acting_email: &str
         return 2;
     }
 
+    // The one workspace-name rule, applied before any database is reached
+    // (instance-workspace-name-rule OQ-D4). The refusal carries only the rule's
+    // copy, never the raw name (DDD-11).
+    let workspace_name = match foundry_core::WorkspaceName::try_new(name) {
+        Ok(valid) => valid,
+        Err(err) => {
+            eprintln!("foundry doctor provision-workspace: {err}");
+            return 2;
+        }
+    };
+
     let database_url = match std::env::var("DATABASE_URL") {
         Ok(v) if !v.is_empty() => v,
         _ => {
@@ -698,7 +709,7 @@ pub fn run_provision_workspace(name: &str, admin_email: &str, acting_email: &str
             let now = time::OffsetDateTime::now_utc();
             let request = foundry_services::provisioning::ProvisionRequest {
                 acting_user_id,
-                workspace_name: &name,
+                workspace_name,
                 admin_email: &admin_email,
                 admin_password: secrecy::SecretString::new(generate_provisioning_password().into()),
                 invite_expires_at: now + time::Duration::days(7),

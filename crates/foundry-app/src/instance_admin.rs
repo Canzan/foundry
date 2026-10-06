@@ -44,6 +44,7 @@ use axum::extract::State;
 use axum::http::header::{COOKIE, SET_COOKIE};
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::{Html, IntoResponse, Response};
+use foundry_core::{WorkspaceName, WorkspaceNameError};
 use foundry_services::provisioning::ProvisionRequest;
 use foundry_services::ServiceError;
 use secrecy::SecretString;
@@ -82,7 +83,50 @@ pub async fn show_dashboard(
     let Some(user) = require_instance_admin(&state, &session).await else {
         return resource_not_found_page();
     };
-    let (csrf, set_cookie) = ensure_csrf_cookie(&state, &headers);
+    render_dashboard(&state, &user, &headers, ProvisionFormEcho::blank()).await
+}
+
+/// What the Provision form shows: blank on the GET; on a refused name, the
+/// rule's copy plus the name and email exactly as submitted
+/// (instance-workspace-name-rule D9/DDD-8).
+struct ProvisionFormEcho {
+    error: Option<String>,
+    name: String,
+    email: String,
+}
+
+impl ProvisionFormEcho {
+    fn blank() -> Self {
+        Self {
+            error: None,
+            name: String::new(),
+            email: String::new(),
+        }
+    }
+
+    fn refused(form: ProvisionForm, err: WorkspaceNameError) -> Self {
+        Self {
+            error: Some(err.to_string()),
+            name: form.name,
+            email: form.email,
+        }
+    }
+
+    fn is_refusal(&self) -> bool {
+        self.error.is_some()
+    }
+}
+
+/// The ONE dashboard page assembly, shared by the GET and the 422 re-render of
+/// a refused provision, so the refusal page cannot drift from the dashboard.
+/// The caller has already passed `require_instance_admin`.
+async fn render_dashboard(
+    state: &AppState,
+    user: &SessionUser,
+    headers: &HeaderMap,
+    provision: ProvisionFormEcho,
+) -> Response {
+    let (csrf, set_cookie) = ensure_csrf_cookie(state, headers);
     let mut projects_by_workspace = match state.store.list_projects_for_instance().await {
         Ok(rows) => group_project_rows_by_workspace(rows, &csrf),
         Err(err) => return internal_error("list_projects_for_instance", err),
@@ -103,20 +147,32 @@ pub async fn show_dashboard(
     // the footer sign-out form reuses the SAME `csrf` double-submit token minted for
     // the provision/grant forms above (04-03).
     let nav = crate::nav::NavContext::home_for(
-        &state,
+        state,
         user.user_id,
         user.workspace_id,
         true,
         csrf.clone(),
     )
     .await;
+    let status = if provision.is_refusal() {
+        StatusCode::UNPROCESSABLE_ENTITY
+    } else {
+        StatusCode::OK
+    };
     let page = InstanceDashboardPage {
         csrf,
         workspaces,
         nav,
+        provision_error: provision.error,
+        provision_name: provision.name,
+        provision_email: provision.email,
     };
     match page.render() {
-        Ok(html) => html_with_optional_cookie(html, set_cookie),
+        Ok(html) => {
+            let mut resp = html_with_optional_cookie(html, set_cookie);
+            *resp.status_mut() = status;
+            resp
+        }
         Err(err) => internal_error("render instance_dashboard", err),
     }
 }
@@ -198,16 +254,27 @@ fn html_with_optional_cookie(html: String, set_cookie: Option<String>) -> Respon
 pub async fn submit_provision(
     State(state): State<AppState>,
     session: Session,
+    headers: HeaderMap,
     axum::extract::Form(form): axum::extract::Form<ProvisionForm>,
 ) -> Response {
     let Some(admin) = require_instance_admin(&state, &session).await else {
         return resource_not_found_page();
     };
+    // The name is looked at only AFTER the authz gate, so a non-admin keeps the
+    // uniform 404 whatever the name (D8). A refusal never logs the raw name (DDD-11).
+    let workspace_name = match WorkspaceName::try_new(&form.name) {
+        Ok(valid) => valid,
+        Err(err) => {
+            let echo = ProvisionFormEcho::refused(form, err);
+            return render_dashboard(&state, &admin, &headers, echo).await;
+        }
+    };
+    let shown_name = workspace_name.as_str().to_string();
 
     let now = state.clock.now();
     let request = ProvisionRequest {
         acting_user_id: admin.user_id,
-        workspace_name: form.name.trim(),
+        workspace_name,
         admin_email: form.email.trim(),
         admin_password: SecretString::new(generate_initial_password().into()),
         invite_expires_at: now + time::Duration::days(INVITE_TTL_DAYS),
@@ -222,7 +289,7 @@ pub async fn submit_provision(
             };
             let fragment = InstanceProvisionedFragment {
                 workspace_id: provisioned.workspace_id.to_string(),
-                workspace_name: form.name.trim().to_string(),
+                workspace_name: shown_name,
                 first_admin_email: form.email.trim().to_string(),
                 invite_link,
             };
