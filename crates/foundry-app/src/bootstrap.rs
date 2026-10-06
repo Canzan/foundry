@@ -13,6 +13,7 @@ use axum::extract::{Form, Query, State};
 use axum::http::header::{HeaderMap, HeaderValue, LOCATION};
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
+use foundry_core::{WorkspaceName, WorkspaceNameError};
 use foundry_store::BootstrapTokenStatus;
 use secrecy::SecretString;
 use serde::Deserialize;
@@ -103,6 +104,14 @@ pub async fn submit(
     let hash = sha256(&token);
     let now = state.clock.now();
 
+    // ADR-WORKSPACE-NAME-002: the pure name rule runs BEFORE the password hash and
+    // BEFORE the claim transaction, so a refusal does no argon2 work, writes
+    // nothing and leaves the link unconsumed. DDD-11: the raw name is never logged.
+    let workspace_name = match WorkspaceName::try_new(&form.workspace_name) {
+        Ok(name) => name,
+        Err(err) => return refuse_unfit_name(&state, &hash, now, &token, &form, &err).await,
+    };
+
     // Hash the password BEFORE opening the claim+create transaction (no crypto inside
     // the DB tx), matching the `create_member_and_consume` handler ordering.
     let pwd = SecretString::new(form.password.into());
@@ -134,7 +143,7 @@ pub async fn submit(
             &hash,
             now,
             workspace_id,
-            form.workspace_name.trim(),
+            workspace_name.as_str(),
             user_id,
             &email_lower,
             email_display,
@@ -185,6 +194,43 @@ pub async fn submit(
     let mut headers = HeaderMap::new();
     headers.insert(LOCATION, HeaderValue::from_static("/dashboard"));
     (StatusCode::SEE_OTHER, headers, "").into_response()
+}
+
+/// The answer to a claim whose workspace name the rule refused (D8/D9, DDD-9).
+///
+/// Reads the link's liveness WITHOUT consuming it — the read happens only on this
+/// refusal path, so the happy path gains no query. A live link gets the claim page
+/// again (422) with the reason and the non-secret fields retained; every non-valid
+/// link keeps today's byte-identical uniform refusal, whatever the name, so the
+/// name rule opens no new enumeration oracle. Nothing is hashed, claimed or written.
+async fn refuse_unfit_name(
+    state: &AppState,
+    hash: &[u8; 32],
+    now: time::OffsetDateTime,
+    token: &str,
+    form: &BootstrapForm,
+    err: &WorkspaceNameError,
+) -> Response {
+    match state.store.bootstrap_token_status(hash, now).await {
+        Ok(BootstrapTokenStatus::Valid) => {
+            let page = BootstrapClaim {
+                token: token.to_string(),
+                error: Some(err.to_string()),
+                email: form.email.clone(),
+                display_name: form.display_name.clone(),
+                workspace_name: form.workspace_name.clone(),
+            };
+            (StatusCode::UNPROCESSABLE_ENTITY, Html(render(page))).into_response()
+        }
+        Ok(reason) => {
+            tracing::info!(?reason, "bootstrap claim link refused (non-enumerable)");
+            bootstrap_refusal_page()
+        }
+        Err(err) => {
+            tracing::error!(%err, "bootstrap_token_status failed");
+            (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response()
+        }
+    }
 }
 
 // --------------------------------------------------------------- GET /dashboard
@@ -291,11 +337,17 @@ fn sha256(input: &str) -> [u8; 32] {
 }
 
 fn render_claim_form(token: &str) -> String {
-    BootstrapClaim {
+    render(BootstrapClaim {
         token: token.to_string(),
-    }
-    .render()
-    .expect("bootstrap_claim.html renders")
+        error: None,
+        email: String::new(),
+        display_name: String::new(),
+        workspace_name: String::new(),
+    })
+}
+
+fn render(page: BootstrapClaim) -> String {
+    page.render().expect("bootstrap_claim.html renders")
 }
 
 /// The UNIFORM non-enumerable bootstrap-claim refusal (the security crux,

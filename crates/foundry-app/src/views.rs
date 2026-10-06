@@ -1082,11 +1082,24 @@ pub struct BootstrapDashboard {
 /// `/bootstrap` POST is **CSRF-EXEMPT** — the form carries NO `_csrf` field; this is
 /// preserved exactly (do NOT add CSRF). The `token` is auto-escaped (matching the
 /// previous `html_escape`).
+///
+/// instance-workspace-name-rule (D9, ADR-WORKSPACE-NAME-002): a live-link claim
+/// refused for its workspace name re-renders this page with one `.error` and the
+/// three non-secret fields retained. The password is never a field here, so it can
+/// never be echoed. `GET /bootstrap` renders every field empty and no error slot.
 #[derive(Debug, Clone, Template)]
 #[template(path = "bootstrap_claim.html")]
 pub struct BootstrapClaim {
     /// The bootstrap token, rendered into the form `action` (auto-escaped).
     pub token: String,
+    /// The refusal reason (the D3 copy via `err.to_string()`); `None` renders no slot.
+    pub error: Option<String>,
+    /// The submitted email, retained on a refusal (auto-escaped).
+    pub email: String,
+    /// The submitted display name, retained on a refusal (auto-escaped).
+    pub display_name: String,
+    /// The submitted workspace name, retained as typed on a refusal (auto-escaped).
+    pub workspace_name: String,
 }
 
 /// The invite-link page returned by `POST /invites` (US-R06). Extends `base.html`,

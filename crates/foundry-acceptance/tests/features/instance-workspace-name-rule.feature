@@ -127,7 +127,7 @@ Feature: One rule for naming a workspace, at every door
       Given a fresh Foundry instance with no workspace and no users
       And the bootstrap token "claim-001" was minted 1 minute ago with a 30-minute TTL
 
-    @us-wnr-02 @driving_port @error @real-io @pending @contract-shape:unbounded-preservation
+    @us-wnr-02 @driving_port @error @real-io @contract-shape:unbounded-preservation
     Scenario: An over-long workspace name is refused and the link still works
       When Priya claims the instance through link "claim-001" naming the workspace "Raman Household Operations Center"
       Then the claim page is shown again saying "Workspace name must be at most 24 characters"
@@ -135,14 +135,14 @@ Feature: One rule for naming a workspace, at every door
       And nothing was created or changed
       And the bootstrap token "claim-001" remains unconsumed
 
-    @us-wnr-02 @driving_port @real-io @pending @contract-shape:bounded-change
+    @us-wnr-02 @driving_port @real-io @contract-shape:bounded-change
     Scenario: The corrected claim with the same link succeeds
       Given Priya's claim through link "claim-001" was refused for the workspace name "Raman Household Operations Center"
       When Priya claims the instance through link "claim-001" naming the workspace "Raman Household"
       Then the response redirects the admin to the workspace dashboard
       And the workspace "Raman Household" exists with a first instance admin
 
-    @us-wnr-02 @error @kpi @real-io @pending @contract-shape:unbounded-preservation
+    @us-wnr-02 @error @kpi @real-io @contract-shape:unbounded-preservation
     Scenario Outline: A blank or invisible-character workspace name is refused on the claim page
       When Priya claims the instance through link "claim-001" naming the workspace "<pasted>"
       Then the claim page is shown again saying "<refusal>"
@@ -155,13 +155,13 @@ Feature: One rule for naming a workspace, at every door
         | Raman[NEWLINE]Household  | Workspace name must not contain control characters  |
         | Raman[NUL]Household      | Workspace name must not contain control characters  |
 
-    @us-wnr-02 @edge @guard @real-io @pending @contract-shape:bounded-change
+    @us-wnr-02 @edge @guard @real-io @contract-shape:bounded-change
     Scenario: Spaces around the workspace name are trimmed
       When Priya claims the instance through link "claim-001" naming the workspace "  Raman Household  "
       Then the response redirects the admin to the workspace dashboard
       And the workspace "Raman Household" exists with a first instance admin
 
-    @us-wnr-02 @error @security @guard @real-io @pending @contract-shape:unbounded-preservation
+    @us-wnr-02 @error @security @guard @real-io @contract-shape:unbounded-preservation
     Scenario: A dead link answers exactly as before, whatever the name
       Given the admin has already claimed the workspace using "claim-001"
       And the bootstrap token "stale-002" was minted 31 minutes ago with a 30-minute TTL

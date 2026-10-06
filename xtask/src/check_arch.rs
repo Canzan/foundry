@@ -136,7 +136,7 @@ pub fn run(args: Vec<String>) -> ExitCode {
     let verdict = verdict(&args);
     match &verdict {
         Verdict::Passed => println!(
-            "check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, the lanes position constraint is still DEFERRABLE, no board-*.js registers a keydown listener, nothing outside migration 0017 UPDATEs users.provisioned_at (D9), both publish workflows stamp every image with its commit and the Dockerfile hands it to build.rs (AC-8), every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, no colour literal outside the three stylesheet token regions, the three stylesheet token regions declare the identical colour-token set, the workspace-name refusal copy lives only in foundry-core, dependency direction)"
+            "check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, the lanes position constraint is still DEFERRABLE, no board-*.js registers a keydown listener, nothing outside migration 0017 UPDATEs users.provisioned_at (D9), both publish workflows stamp every image with its commit and the Dockerfile hands it to build.rs (AC-8), every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, no colour literal outside the three stylesheet token regions, the three stylesheet token regions declare the identical colour-token set, the workspace-name refusal copy lives only in foundry-core and no production door calls create_initial_workspace, dependency direction)"
         ),
         Verdict::UnparseableArguments(message) => eprintln!("check-arch: {message}"),
         Verdict::Violations(violations) => {
@@ -4214,6 +4214,13 @@ const WORKSPACE_NAME_COPY_FORBIDDEN_IN: [&str; 4] = [
     "foundry-store",
 ];
 
+/// The production-door crates that must never call the raw-name test-seeding
+/// seam `create_initial_workspace` (DDD-12b); foundry-store defines it.
+const WORKSPACE_SEAM_FORBIDDEN_IN: [&str; 3] = ["foundry-app", "foundry-services", "foundry-api"];
+
+/// A call (or any mention outside a definition) of the test-seeding seam.
+const WORKSPACE_SEAM_CALL: &str = "create_initial_workspace(";
+
 /// The opening of every D3 workspace-name refusal, quote included, so prose
 /// that merely mentions the rule is not a second copy.
 const WORKSPACE_NAME_COPY_PREFIX: &str = "\"Workspace name must";
@@ -4227,8 +4234,10 @@ const WORKSPACE_NAME_COPY_PREFIX: &str = "\"Workspace name must";
 /// acceptance crate) may hold the expected strings. Every violation names
 /// `file:line`; a missing `crates/` or an unreadable directory fails the rule.
 ///
-/// Clause (b) — no production call of `create_initial_workspace(` (DDD-7) —
-/// lands with slice 02.
+/// (b) `create_initial_workspace(` — the raw-name test-seeding seam (DDD-7) —
+/// has no call site under `crates/{foundry-app,foundry-services,foundry-api}/src`:
+/// every production door names a workspace through `WorkspaceName`. The seam's
+/// definition in foundry-store and its test callers are not flagged.
 fn check_workspace_name_one_source(root: &Path) -> Vec<String> {
     let crates_dir = root.join("crates");
     if !crates_dir.is_dir() {
@@ -4254,9 +4263,42 @@ fn check_workspace_name_one_source(root: &Path) -> Vec<String> {
         }
         for file in &sources {
             violations.extend(workspace_name_copy_violations_in(root, file));
+            if WORKSPACE_SEAM_FORBIDDEN_IN.contains(&crate_name) {
+                violations.extend(workspace_seam_call_violations_in(root, file));
+            }
         }
     }
     violations
+}
+
+/// The DDD-12b violations in one file: each line calling the test-seeding seam,
+/// named `file:line`. Comment lines and the seam's own `fn` definition are not calls.
+fn workspace_seam_call_violations_in(root: &Path, file: &Path) -> Vec<String> {
+    let Ok(contents) = std::fs::read_to_string(file) else {
+        return vec![format!(
+            "workspace-name-one-source: cannot read {} (DDD-12).",
+            rel(root, file)
+        )];
+    };
+    let definition = format!("fn {WORKSPACE_SEAM_CALL}");
+    contents
+        .lines()
+        .enumerate()
+        .filter(|(_, line)| {
+            line.contains(WORKSPACE_SEAM_CALL)
+                && !line.contains(&definition)
+                && !line.trim_start().starts_with("//")
+        })
+        .map(|(line_no, _)| {
+            format!(
+                "workspace-name-one-source: {}:{} calls the test-seeding seam \
+                 `create_initial_workspace` from a production door — it applies no \
+                 workspace-name rule; name the workspace through `WorkspaceName` (DDD-7/DDD-12)",
+                rel(root, file),
+                line_no + 1,
+            )
+        })
+        .collect()
 }
 
 /// The DDD-12a violations in one file, each naming `file:line`.
@@ -4288,7 +4330,6 @@ mod workspace_name_one_source_tests {
     //! Injected-violation gold tests for `workspace-name-one-source` (DDD-12),
     //! the `check_provisioned_marker_is_never_rewritten` idiom: a staged tree, the
     //! rule run against it, the violations named by `file:line`.
-    //! Clause (b)'s tests stay `#[ignore]`d until slice 02 implements it.
 
     use super::check_workspace_name_one_source;
 
@@ -4380,7 +4421,6 @@ mod workspace_name_one_source_tests {
     }
 
     #[test]
-    #[ignore = "SCAFFOLD: un-ignored by DELIVER slice 02 (instance-workspace-name-rule DDD-12b)"]
     fn a_production_call_to_the_test_seeding_seam_is_flagged() {
         let tree = stage(&[
             ("crates/foundry-core/src/lib.rs", CORE_COPY),
@@ -4406,7 +4446,6 @@ mod workspace_name_one_source_tests {
     }
 
     #[test]
-    #[ignore = "SCAFFOLD: un-ignored by DELIVER slice 02 (instance-workspace-name-rule DDD-12b)"]
     fn the_seam_itself_and_its_test_callers_are_not_flagged() {
         let tree = stage(&[
             ("crates/foundry-core/src/lib.rs", CORE_COPY),

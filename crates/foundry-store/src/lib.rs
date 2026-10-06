@@ -629,6 +629,14 @@ impl Store {
     ///
     /// Caller is responsible for ensuring the bootstrap token was claimed
     /// (single-use guard) before invoking this.
+    ///
+    /// TEST-SEEDING SEAM (instance-workspace-name-rule DDD-7): it takes a raw
+    /// `&str` name and applies no workspace-name rule, so no production door may
+    /// call it. Production doors name a workspace through
+    /// `foundry_core::WorkspaceName` (the bootstrap claim goes through
+    /// [`Store::claim_bootstrap_and_create_workspace`]); `cargo xtask check-arch`
+    /// (`workspace-name-one-source` clause (b)) flags any call under
+    /// `crates/{foundry-app,foundry-services,foundry-api}/src`.
     #[allow(clippy::too_many_arguments)]
     pub async fn create_initial_workspace(
         &self,

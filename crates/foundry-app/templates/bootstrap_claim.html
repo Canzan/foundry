@@ -2,11 +2,12 @@
 {% block title %}Claim Foundry workspace{% endblock %}
 {% block content %}
 <h1>Claim your workspace</h1>
+{% if let Some(error) = error %}<p class="error">{{ error }}</p>{% endif %}
 <form method="post" action="/bootstrap?token={{ token }}">
-  <label>Email <input type="email" name="email" required></label>
+  <label>Email <input type="email" name="email" value="{{ email }}" required></label>
   <label>Password <input type="password" name="password" required></label>
-  <label>Display name <input type="text" name="display_name" required></label>
-  <label>Workspace name <input type="text" name="workspace_name" required></label>
+  <label>Display name <input type="text" name="display_name" value="{{ display_name }}" required></label>
+  <label>Workspace name <input type="text" name="workspace_name" value="{{ workspace_name }}" required></label>
   <button type="submit">Claim</button>
 </form>
 {% endblock %}
