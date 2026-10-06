@@ -2,16 +2,16 @@
 
 ## Current Task
 
-`instance-admin-workspace-rename` shipped in v0.9.0 (`da9fb91`). Instance admins rename a workspace from `/admin/instance/workspaces`; each rename is audited in `workspace_rename_events` (migration 0018), and the sidebar brand is one line with an ellipsis. Gates: 27/27 scenarios, mutation 14/14, CI 937/938 (sqlx flake, rerun green). Dev footer `Foundry v0.9.0 · 2026-10-05`, `data-commit="da9fb91"`; prod is still on v0.8.0, awaiting approval.
+`instance-workspace-name-rule` shipped in v0.10.0 (`dc2b7aa`). One workspace-name rule (trim, non-empty, no control/bidi characters, at most 24) applies on dashboard provisioning, bootstrap, the CLI and rename, with identical wording. Gates: 61/61 scenarios, mutation 50/50, CI 999/999. Dev footer `Foundry v0.10.0 · 2026-10-06`, `data-commit="dc2b7aa"`; prod is on v0.9.0, awaiting approval.
 
 ## Key Decisions
 
-- The rename and its audit row are one transaction under a row lock; a same-name submission writes nothing. Rename records stay out of per-workspace exports (TENANT_TABLES stays at ten).
-- The 24-character cap applies to the rename path only; there is no CHECK on `workspaces.name` (D10).
-- Prod (`foundry.jeffbailey.us`) is held for approval by design. A lagging prod footer means "awaiting approval".
+- `foundry_core::WorkspaceName` is the one rule. Its error's `Display` is the only copy; check-arch `workspace-name-one-source` keeps it there.
+- Bootstrap checks the name before the claim. A refusal never uses up the link, and a dead link answers as before.
+- Prod (`foundry.jeffbailey.us`) is held for approval by design.
 
 ## Next Steps
 
-- Approve foundry v0.9.0 and canzan-lift v0.4.2 for prod, then check the prod footer `data-commit="da9fb91"`.
-- Follow-up B, `instance-workspace-name-rule`: the 24-character rule for provisioning, bootstrap and the CLI, and possibly a rule against control characters. Then follow-up D, `CHECK … NOT VALID`.
+- Approve foundry v0.9.0 and v0.10.0 and canzan-lift v0.4.2 for prod, then check the prod footer `data-commit="dc2b7aa"`.
+- Follow-up D: `CHECK … NOT VALID` on `workspaces.name`. Optionally, the same rule for project names, and one CLI usage message.
 - Still owed by the user: one manual Keycloak sign-in, and the card-pointer-drag device evidence.
