@@ -69,6 +69,10 @@ const PROVISION_EMAIL_CSS: &str = r#"[data-provision-form] input[name="email"]"#
 const PROVISIONED_FRAGMENT_CSS: &str = r#"[data-hx-fragment="instance-provisioned"]"#;
 const RENAME_ERROR_CSS: &str = r#"[data-hx-fragment="workspace-rename-error"]"#;
 const CLI_PREFIX: &str = "foundry doctor provision-workspace: ";
+/// The command's own answer when `--name` or `--admin-email` is left out.
+const MISSING_FLAGS_USAGE: &str = "foundry doctor provision-workspace: missing required flags. \
+    Usage: foundry doctor provision-workspace --name <name> --admin-email <addr> \
+    --as <super-admin-email>";
 
 /// The bootstrap claim as Priya fills it in. The password is distinctive so a
 /// page that echoes it anywhere is caught (D9: never echoed).
@@ -136,6 +140,42 @@ pub enum CliDatabase {
     NoneConfigured,
     /// `DATABASE_URL` points at an address nothing listens on.
     Unreachable,
+}
+
+/// The provisioning command line Priya types: each flag present with its value,
+/// or `None` to leave that flag out entirely.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProvisioningCommand {
+    pub name: Option<String>,
+    pub first_admin: Option<String>,
+    pub acting_as: Option<String>,
+}
+
+impl ProvisioningCommand {
+    /// Every flag present, Priya saying who she is.
+    pub fn by_priya(name: Option<String>, first_admin: &str) -> Self {
+        Self {
+            name,
+            first_admin: Some(first_admin.to_string()),
+            acting_as: Some(PRIYA_EMAIL.to_string()),
+        }
+    }
+
+    /// The same command without `--as`.
+    pub fn without_saying_who(self) -> Self {
+        Self {
+            acting_as: None,
+            ..self
+        }
+    }
+
+    /// The same command without `--admin-email`.
+    pub fn without_first_admin(self) -> Self {
+        Self {
+            first_admin: None,
+            ..self
+        }
+    }
 }
 
 /// The four doors, in the order the parity matrix visits them.
@@ -381,12 +421,11 @@ async fn priya_provisions(world: &mut FoundryWorld, name: &str, first_admin: &st
     world.iwnr_provision = Some((name, first_admin.to_string()));
 }
 
-/// Run the REAL `foundry doctor provision-workspace` as Priya. `name = None`
-/// leaves `--name` out entirely.
+/// Run the REAL `foundry doctor provision-workspace` with exactly the flags of
+/// `command`; a `None` flag is left out of the command line entirely.
 async fn run_provisioning_command(
     world: &FoundryWorld,
-    name: Option<String>,
-    first_admin: &str,
+    command: ProvisioningCommand,
 ) -> (i32, String, String) {
     let database_url = match world.iwnr_cli_database {
         CliDatabase::Scenario => {
@@ -397,7 +436,6 @@ async fn run_provisioning_command(
         CliDatabase::NoneConfigured => None,
         CliDatabase::Unreachable => Some(UNREACHABLE_DATABASE_URL.to_string()),
     };
-    let first_admin = first_admin.to_string();
     let output = tokio::task::spawn_blocking(move || {
         let mut cmd = AssertCommand::cargo_bin("foundry").expect("cargo-bin foundry");
         match database_url {
@@ -407,12 +445,16 @@ async fn run_provisioning_command(
         cmd.env("SESSION_SECRET", CLI_SESSION_SECRET)
             .env("FOUNDRY_PUBLIC_URL", "http://localhost")
             .args(["doctor", "provision-workspace"]);
-        if let Some(name) = name {
-            cmd.args(["--name", &name]);
+        for (flag, value) in [
+            ("--name", &command.name),
+            ("--admin-email", &command.first_admin),
+            ("--as", &command.acting_as),
+        ] {
+            if let Some(value) = value {
+                cmd.args([flag, value.as_str()]);
+            }
         }
-        cmd.args(["--admin-email", &first_admin])
-            .args(["--as", PRIYA_EMAIL])
-            .timeout(Duration::from_secs(60))
+        cmd.timeout(Duration::from_secs(60))
             .output()
             .expect("invoke foundry doctor provision-workspace")
     })
@@ -425,9 +467,9 @@ async fn run_provisioning_command(
     )
 }
 
-async fn priya_runs_command(world: &mut FoundryWorld, name: Option<String>, first_admin: &str) {
+async fn priya_runs_command(world: &mut FoundryWorld, command: ProvisioningCommand) {
     world.iwnr_before = Some(capture_naming_universe(world).await);
-    let out = run_provisioning_command(world, name, first_admin).await;
+    let out = run_provisioning_command(world, command).await;
     world.iwnr_cli = Some(out);
 }
 
@@ -541,6 +583,11 @@ async fn provision_was_refused(world: &mut FoundryWorld, name: String, first_adm
     assert_nothing_moved(&naming_before(world), &capture_naming_universe(world).await);
 }
 
+#[given(regex = r"^the command reaches the instance's database$")]
+async fn database_configured(world: &mut FoundryWorld) {
+    world.iwnr_cli_database = CliDatabase::Scenario;
+}
+
 #[given(regex = r"^no database is configured for the command$")]
 async fn no_database_configured(world: &mut FoundryWorld) {
     world.iwnr_cli_database = CliDatabase::NoneConfigured;
@@ -611,6 +658,24 @@ async fn pastes_in_browser(world: &mut FoundryWorld, pasted: String, label: Stri
 )]
 async fn when_priya_claims(world: &mut FoundryWorld, link: String, name: String) {
     priya_claims(world, &link, &name).await;
+}
+
+#[when(regex = r#"^Priya opens the claim link "([^"]+)"$"#)]
+async fn priya_opens_claim_link(world: &mut FoundryWorld, link: String) {
+    world.iwnr_before = Some(capture_naming_universe(world).await);
+    let url = format!(
+        "{}/bootstrap?token={}",
+        harness(world).base_url(),
+        urlencoding::encode(&raw_link(world, &link))
+    );
+    let resp = http(world)
+        .get(url)
+        .send()
+        .await
+        .expect("open the bootstrap claim link");
+    world.last_status = Some(resp.status());
+    world.last_headers = Some(resp.headers().clone());
+    world.last_body = Some(resp.text().await.unwrap_or_default());
 }
 
 /// For each dead link: its answer to an acceptable name is the baseline, and
@@ -726,14 +791,38 @@ async fn provisions_in_browser(world: &mut FoundryWorld, name: String, first_adm
     regex = r#"^Priya runs the provisioning command naming the workspace "([^"]*)" for first admin "([^"]+)"$"#
 )]
 async fn when_priya_runs_command(world: &mut FoundryWorld, name: String, first_admin: String) {
-    priya_runs_command(world, Some(decode_invisibles(&name)), &first_admin).await;
+    priya_runs_command(
+        world,
+        ProvisioningCommand::by_priya(Some(decode_invisibles(&name)), &first_admin),
+    )
+    .await;
 }
 
 #[when(
     regex = r#"^Priya runs the provisioning command without a workspace name for first admin "([^"]+)"$"#
 )]
 async fn when_priya_runs_command_without_name(world: &mut FoundryWorld, first_admin: String) {
-    priya_runs_command(world, None, &first_admin).await;
+    priya_runs_command(world, ProvisioningCommand::by_priya(None, &first_admin)).await;
+}
+
+#[when(
+    regex = r#"^Priya runs the provisioning command naming the workspace "([^"]*)" for first admin "([^"]+)" without saying who she is$"#
+)]
+async fn when_priya_runs_command_without_saying_who(
+    world: &mut FoundryWorld,
+    name: String,
+    first_admin: String,
+) {
+    let command = ProvisioningCommand::by_priya(Some(decode_invisibles(&name)), &first_admin);
+    priya_runs_command(world, command.without_saying_who()).await;
+}
+
+#[when(
+    regex = r#"^Priya runs the provisioning command naming the workspace "([^"]*)" without naming a first admin$"#
+)]
+async fn when_priya_runs_command_without_first_admin(world: &mut FoundryWorld, name: String) {
+    let command = ProvisioningCommand::by_priya(Some(decode_invisibles(&name)), "");
+    priya_runs_command(world, command.without_first_admin()).await;
 }
 
 // ===========================================================================
@@ -813,8 +902,11 @@ async fn offer_at_dashboard(world: &mut FoundryWorld, name: &str) -> Verdict {
 }
 
 async fn offer_at_cli(world: &mut FoundryWorld, name: &str) -> Verdict {
-    let (exit, stdout, stderr) =
-        run_provisioning_command(world, Some(name.to_string()), PARITY_CLI_ADMIN).await;
+    let (exit, stdout, stderr) = run_provisioning_command(
+        world,
+        ProvisioningCommand::by_priya(Some(name.to_string()), PARITY_CLI_ADMIN),
+    )
+    .await;
     match exit {
         2 => match stderr.lines().find_map(|l| l.strip_prefix(CLI_PREFIX)) {
             Some(copy) => Verdict::Refused(copy.to_string()),
@@ -927,6 +1019,42 @@ async fn claim_page_again(world: &mut FoundryWorld, copy: String) {
         "the 422 answer must be the claim page, with its form to correct; body = {body:?}"
     );
     assert_one_refusal(&body, ".error", &copy, "the claim page");
+}
+
+#[then(regex = r#"^the claim page for link "([^"]+)" is shown with an empty form and no error$"#)]
+async fn empty_claim_page(world: &mut FoundryWorld, link: String) {
+    let body = world.last_body.clone().unwrap_or_default();
+    assert_eq!(
+        world.last_status,
+        Some(StatusCode::OK),
+        "a live link opens the claim page; body = {}",
+        snippet(&body)
+    );
+    let expected_action = format!("/bootstrap?token={}", raw_link(world, &link));
+    let doc = Html::parse_document(&body);
+    let form = Selector::parse(r#"form[method="post"]"#).expect("selector");
+    let actions: Vec<_> = doc
+        .select(&form)
+        .filter_map(|f| f.value().attr("action"))
+        .collect();
+    assert_eq!(
+        actions,
+        vec![expected_action.as_str()],
+        "the claim page must carry one form posting back to the link it was opened with; \
+         body = {body:?}"
+    );
+    for field in ["email", "password", "display_name", "workspace_name"] {
+        let value = input_value(&body, &format!(r#"input[name="{field}"]"#))
+            .unwrap_or_else(|| panic!("the claim form must ask for {field}; body = {body:?}"));
+        assert!(
+            value.as_deref().unwrap_or("").is_empty(),
+            "a freshly opened claim form starts with {field} empty, got {value:?}"
+        );
+    }
+    assert!(
+        texts(&body, ".error").is_empty(),
+        "a freshly opened claim form carries no error; body = {body:?}"
+    );
 }
 
 #[then(
@@ -1166,16 +1294,30 @@ async fn command_usage(world: &mut FoundryWorld) {
     let (exit, stdout, stderr) = cli_result(world);
     assert_eq!(
         exit, 2,
-        "an absent --name is a usage error; stderr={stderr:?}"
+        "an absent --name, --admin-email or --as is a usage error: exit 2 (D8, DDD-10); \
+         stdout={stdout:?} stderr={stderr:?}"
     );
-    assert!(stdout.is_empty(), "a usage error prints nothing on stdout");
+    assert!(
+        stdout.is_empty(),
+        "a usage error prints nothing on stdout; got {stdout:?}"
+    );
     assert!(
         stderr.contains("Usage: foundry doctor provision-workspace"),
-        "an absent --name still gets the usage line (DDD-10); got {stderr:?}"
+        "an absent required flag still gets the usage line (DDD-10); got {stderr:?}"
     );
     assert!(
         !stderr.contains("Workspace name must"),
-        "an ABSENT --name is a usage error, not a name-rule refusal (DDD-10); got {stderr:?}"
+        "an absent required flag is a usage error, checked before the name rule \
+         (D8, DDD-10); got {stderr:?}"
+    );
+}
+
+#[then(regex = r"^the usage line says required flags are missing$")]
+async fn usage_says_flags_missing(world: &mut FoundryWorld) {
+    let (_, _, stderr) = cli_result(world);
+    assert!(
+        stderr.lines().any(|l| l == MISSING_FLAGS_USAGE),
+        "stderr must carry exactly the line {MISSING_FLAGS_USAGE:?}; got {stderr:?}"
     );
 }
 

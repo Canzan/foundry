@@ -127,6 +127,13 @@ Feature: One rule for naming a workspace, at every door
       Given a fresh Foundry instance with no workspace and no users
       And the bootstrap token "claim-001" was minted 1 minute ago with a 30-minute TTL
 
+    @us-wnr-02 @driving_port @real-io @contract-shape:unbounded-preservation
+    Scenario: Opening a live link shows an empty claim form for that link
+      When Priya opens the claim link "claim-001"
+      Then the claim page for link "claim-001" is shown with an empty form and no error
+      And nothing was created or changed
+      And the bootstrap token "claim-001" remains unconsumed
+
     @us-wnr-02 @driving_port @error @real-io @contract-shape:unbounded-preservation
     Scenario: An over-long workspace name is refused and the link still works
       When Priya claims the instance through link "claim-001" naming the workspace "Raman Household Operations Center"
@@ -276,6 +283,31 @@ Feature: One rule for naming a workspace, at every door
       When Priya runs the provisioning command without a workspace name for first admin "dana@canzan.net"
       Then the command exits 2 with its usage line and no name-rule message
       And nothing was created or changed
+
+    @us-wnr-04 @error @guard @security @real-io @contract-shape:unbounded-preservation
+    Scenario Outline: Not saying who she is gets the usage line before the name or the database is looked at
+      Given <situation>
+      When Priya runs the provisioning command naming the workspace "<name>" for first admin "dana@canzan.net" without saying who she is
+      Then the command exits 2 with its usage line and no name-rule message
+      And nothing was created or changed
+
+      Examples:
+        | situation                                   | name                             |
+        | the command reaches the instance's database | Globex                           |
+        | no database is configured for the command   | Globex                           |
+        | the command reaches the instance's database | Canzan Labs Platform Engineering |
+
+    @us-wnr-04 @error @guard @real-io @contract-shape:unbounded-preservation
+    Scenario Outline: Leaving out the first admin says required flags are missing, whatever the name
+      When Priya runs the provisioning command naming the workspace "<name>" without naming a first admin
+      Then the command exits 2 with its usage line and no name-rule message
+      And the usage line says required flags are missing
+      And nothing was created or changed
+
+      Examples:
+        | name                             |
+        | Globex                           |
+        | Canzan Labs Platform Engineering |
 
   # ========================================================== KPI-2 — one rule, four doors
   Rule: The same name gets the same verdict and the same words at every door
