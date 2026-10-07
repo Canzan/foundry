@@ -4240,21 +4240,13 @@ const WORKSPACE_NAME_COPY_PREFIX: &str = "\"Workspace name must";
 /// every production door names a workspace through `WorkspaceName`. The seam's
 /// definition in foundry-store and its test callers are not flagged.
 fn check_workspace_name_one_source(root: &Path) -> Vec<String> {
-    scan_one_source(
-        root,
-        &WORKSPACE_NAME_ONE_SOURCE,
-        &|crate_name, file, contents| {
-            if WORKSPACE_SEAM_FORBIDDEN_IN.contains(&crate_name) {
-                workspace_seam_call_violations_in(root, file, contents)
-            } else {
-                Vec::new()
-            }
-        },
-    )
+    scan_one_source(root, &WORKSPACE_NAME_ONE_SOURCE)
 }
 
 /// A "the refusal copy has one home" rule: no `.rs` under the
-/// [`NAME_COPY_FORBIDDEN_IN`] crates' `src` may contain `copy_prefix`.
+/// [`NAME_COPY_FORBIDDEN_IN`] crates' `src` may contain `copy_prefix`, and no
+/// `.rs` under the `seam_forbidden_in` crates' `src` may call the rule's
+/// bypassing seam.
 struct OneSourceRule {
     /// Rule id, the prefix of every violation it reports.
     id: &'static str,
@@ -4264,6 +4256,10 @@ struct OneSourceRule {
     home: &'static str,
     /// The design reference the messages cite.
     reference: &'static str,
+    /// The crates whose `src` must not call the seam.
+    seam_forbidden_in: &'static [&'static str],
+    /// The seam-call violations in one file, each naming `file:line`.
+    seam_calls_in: fn(&Path, &Path, &str) -> Vec<String>,
 }
 
 const WORKSPACE_NAME_ONE_SOURCE: OneSourceRule = OneSourceRule {
@@ -4271,16 +4267,15 @@ const WORKSPACE_NAME_ONE_SOURCE: OneSourceRule = OneSourceRule {
     copy_prefix: WORKSPACE_NAME_COPY_PREFIX,
     home: "WorkspaceNameError's Display in foundry-core",
     reference: "DDD-3/DDD-12",
+    seam_forbidden_in: &WORKSPACE_SEAM_FORBIDDEN_IN,
+    seam_calls_in: workspace_seam_call_violations_in,
 };
 
-/// Per-file extra clauses a one-source rule adds on top of the copy scan.
-type ExtraClause<'a> = dyn Fn(&str, &Path, &str) -> Vec<String> + 'a;
-
 /// The shared scan behind every one-source rule: walk each forbidden crate's
-/// `src`, flag every line stating the copy (`file:line`), and run `extra` on
-/// each file. A missing `crates/`, an unreadable directory or file fails the
-/// rule — it never passes vacuously.
-fn scan_one_source(root: &Path, rule: &OneSourceRule, extra: &ExtraClause<'_>) -> Vec<String> {
+/// `src`, flag every line stating the copy (`file:line`), and every seam call
+/// in the crates the rule closes to it. A missing `crates/`, an unreadable
+/// directory or file fails the rule — it never passes vacuously.
+fn scan_one_source(root: &Path, rule: &OneSourceRule) -> Vec<String> {
     let crates_dir = root.join("crates");
     if !crates_dir.is_dir() {
         return vec![format!(
@@ -4318,7 +4313,9 @@ fn scan_one_source(root: &Path, rule: &OneSourceRule, extra: &ExtraClause<'_>) -
                 continue;
             };
             violations.extend(copy_violations_in(root, rule, file, &contents));
-            violations.extend(extra(crate_name, file, &contents));
+            if rule.seam_forbidden_in.contains(&crate_name) {
+                violations.extend((rule.seam_calls_in)(root, file, &contents));
+            }
         }
     }
     violations
@@ -4540,6 +4537,8 @@ const PROJECT_NAME_ONE_SOURCE: OneSourceRule = OneSourceRule {
     copy_prefix: PROJECT_NAME_COPY_PREFIX,
     home: "ProjectNameError's Display in foundry-core",
     reference: "DDD-4/DDD-12",
+    seam_forbidden_in: &PROJECT_INSERT_FORBIDDEN_IN,
+    seam_calls_in: project_insert_call_violations_in,
 };
 
 /// `project-name-one-source` (project-name-rule DDD-12).
@@ -4555,17 +4554,7 @@ const PROJECT_NAME_ONE_SOURCE: OneSourceRule = OneSourceRule {
 /// call. Comment lines, the store's definition, the services caller and test
 /// callers are not flagged.
 fn check_project_name_one_source(root: &Path) -> Vec<String> {
-    scan_one_source(
-        root,
-        &PROJECT_NAME_ONE_SOURCE,
-        &|crate_name, file, contents| {
-            if PROJECT_INSERT_FORBIDDEN_IN.contains(&crate_name) {
-                project_insert_call_violations_in(root, file, contents)
-            } else {
-                Vec::new()
-            }
-        },
-    )
+    scan_one_source(root, &PROJECT_NAME_ONE_SOURCE)
 }
 
 /// The doors that must create a project through the use-case, never the store.

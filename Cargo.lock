@@ -1350,6 +1350,7 @@ version = "0.10.0"
 dependencies = [
  "foundry-auth",
  "foundry-core",
+ "foundry-services",
  "foundry-store",
  "proptest",
  "secrecy",

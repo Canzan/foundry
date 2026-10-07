@@ -181,7 +181,7 @@ pub async fn create_project(
     store: &Store,
     request: CreateProjectRequest<'_>,
 ) -> Result<CreatedProject, CreateProjectError> {
-    create_project_with_sibling_reads(store, request, Vec::new()).await
+    create_with_retry(store, request, Vec::new()).await
 }
 
 /// How many create attempts a key-prefix fallback address gets before the
@@ -192,14 +192,22 @@ pub const FALLBACK_SLUG_ATTEMPTS: usize = 3;
 /// [`create_project`] with the sibling read scriptable (DESIGN OQ-D3): attempt
 /// `i` checks against `scripted[i]` instead of reading the store while a
 /// scripted list remains, so a test can hand the check a STALE view and make
-/// the unique index fire on insert. Not for production callers.
-///
+/// the unique index fire on insert. A test seam: compiled only for tests and
+/// the `test-support` feature, never into a production build.
+#[cfg(any(test, feature = "test-support"))]
+pub async fn create_project_with_sibling_reads(
+    store: &Store,
+    request: CreateProjectRequest<'_>,
+    scripted: Vec<Vec<(String, String)>>,
+) -> Result<CreatedProject, CreateProjectError> {
+    create_with_retry(store, request, scripted).await
+}
+
 /// Each attempt reads the siblings, runs the check, parses the key, mints from
 /// the same read and inserts in its own transaction. Only a `KeyFallback`
 /// address losing on the slug index is retried (DDD-10); a `Derived` one keeps
 /// today's `NotUnique`.
-#[doc(hidden)]
-pub async fn create_project_with_sibling_reads(
+async fn create_with_retry(
     store: &Store,
     request: CreateProjectRequest<'_>,
     scripted: Vec<Vec<(String, String)>>,

@@ -10,7 +10,7 @@
 //! milliseconds) is not drivable deterministically over HTTP. DESIGN's seam: the
 //! use-case's internal "read siblings → check → mint → insert" step can be handed
 //! a STALE sibling list, so the unique index fires on a chosen attempt. That seam
-//! is the `#[doc(hidden)] pub` `create_project_with_sibling_reads`: attempt `i`
+//! is the `test-support`-gated `create_project_with_sibling_reads`: attempt `i`
 //! uses `scripted[i]` instead of reading the store while a scripted list remains,
 //! then reads the store.
 //!
