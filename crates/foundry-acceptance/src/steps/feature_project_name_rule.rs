@@ -66,7 +66,10 @@ use std::time::Duration;
 
 /// DESIGN-pinned seams. If DELIVER moves one, the template and this module move
 /// in the same change.
-const CREATE_ERROR_CSS: &str = "p.error";
+/// The refusal slot is the `p.error` the template renders immediately before
+/// the create form (it is a sibling, not a descendant), so the oracle is scoped
+/// by that adjacency — a refusal in any other `p.error` on the page does not count.
+const CREATE_ERROR_CSS: &str = r#"p.error:has(+ form[action$="/projects"])"#;
 const CREATE_NAME_CSS: &str = r#"form[action$="/projects"] input[name="name"]"#;
 const CREATE_KEY_CSS: &str = r#"form[action$="/projects"] input[name="key_prefix"]"#;
 const CREATE_FRAGMENT_CSS: &str = r#"[data-hx-fragment="project-create-error"]"#;

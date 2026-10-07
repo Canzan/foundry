@@ -351,6 +351,16 @@ proptest! {
         }
     }
 
+    /// An accepted name displays exactly as stored — the trimmed value, the same
+    /// text `as_str` hands back (mirrors the workspace rule's Display property).
+    #[test]
+    fn an_accepted_name_displays_exactly_as_stored(n in clean_name(256), pad in "[ \t\n]{0,3}") {
+        let raw = format!("{pad}{n}{pad}");
+        let accepted = ProjectName::try_new(&raw).expect("a clean name of at most 256 scalars");
+        prop_assert_eq!(format!("{accepted}"), n.as_str());
+        prop_assert_eq!(accepted.to_string(), accepted.as_str());
+    }
+
     /// The length gate sits at 256 trimmed scalars for any clean name.
     #[test]
     fn the_length_gate_sits_at_256_trimmed_scalars(n in clean_name(300), pad in "[ \t]{0,3}") {
