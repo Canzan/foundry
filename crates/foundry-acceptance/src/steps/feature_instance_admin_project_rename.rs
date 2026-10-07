@@ -43,19 +43,19 @@ use sqlx::PgPool;
 use std::time::Duration;
 
 const TEST_NOW: &str = "2026-01-15T12:00:00Z";
-const PRIYA_EMAIL: &str = "priya@canzan.test";
-const PRIYA_PASSWORD: &str = "priya-correct-horse-battery-staple";
-const MARCO_EMAIL: &str = "marco@canzan.test";
-const MARCO_PASSWORD: &str = "marco-correct-horse-battery-staple";
+pub(crate) const PRIYA_EMAIL: &str = "priya@canzan.test";
+pub(crate) const PRIYA_PASSWORD: &str = "priya-correct-horse-battery-staple";
+pub(crate) const MARCO_EMAIL: &str = "marco@canzan.test";
+pub(crate) const MARCO_PASSWORD: &str = "marco-correct-horse-battery-staple";
 
 /// DESIGN-pinned seams (component-boundaries.md). If DELIVER moves these, the
 /// row partial and this module move in the same change.
-fn rename_url(project_id: &str) -> String {
+pub(crate) fn rename_url(project_id: &str) -> String {
     format!("/admin/instance/projects/{project_id}/rename")
 }
-const DASHBOARD_PATH: &str = "/admin/instance/workspaces";
-const ERROR_MARKER: &str = "project-rename-error";
-const ROW_MARKER: &str = "data-project-row";
+pub(crate) const DASHBOARD_PATH: &str = "/admin/instance/workspaces";
+pub(crate) const ERROR_MARKER: &str = "project-rename-error";
+pub(crate) const ROW_MARKER: &str = "data-project-row";
 
 fn now_anchor() -> time::OffsetDateTime {
     time::OffsetDateTime::parse(TEST_NOW, &time::format_description::well_known::Rfc3339)
@@ -70,7 +70,7 @@ fn client() -> reqwest::Client {
         .expect("build reqwest client")
 }
 
-async fn ensure_harness(world: &mut FoundryWorld) {
+pub(crate) async fn ensure_harness(world: &mut FoundryWorld) {
     if world.harness.is_none() {
         world.harness = Some(InProcHarness::spawn(now_anchor()).await);
     }
@@ -79,15 +79,15 @@ async fn ensure_harness(world: &mut FoundryWorld) {
     }
 }
 
-fn harness(world: &FoundryWorld) -> &InProcHarness {
+pub(crate) fn harness(world: &FoundryWorld) -> &InProcHarness {
     world.harness.as_ref().expect("harness spawned by a Given")
 }
 
-fn pool(world: &FoundryWorld) -> PgPool {
+pub(crate) fn pool(world: &FoundryWorld) -> PgPool {
     harness(world).app.state.store.pool().clone()
 }
 
-fn http(world: &FoundryWorld) -> reqwest::Client {
+pub(crate) fn http(world: &FoundryWorld) -> reqwest::Client {
     world.http.as_ref().expect("http client").clone()
 }
 
@@ -104,7 +104,7 @@ async fn dashboard_get_as(world: &FoundryWorld, email: &str, password: &str) -> 
     .await
 }
 
-async fn record_outcome(world: &mut FoundryWorld, outcome: PostOutcome) {
+pub(crate) async fn record_outcome(world: &mut FoundryWorld, outcome: PostOutcome) {
     world.last_status = Some(outcome.status);
     world.last_headers = Some(outcome.headers);
     world.last_body = Some(outcome.body);
@@ -149,7 +149,7 @@ fn assert_project_delta(before: &ProjectSnapshot, after: &ProjectSnapshot, expec
     );
 }
 
-fn project_id_of(world: &FoundryWorld, seeded_name: &str) -> uuid::Uuid {
+pub(crate) fn project_id_of(world: &FoundryWorld, seeded_name: &str) -> uuid::Uuid {
     *world
         .iapr_project_ids
         .get(seeded_name)
@@ -158,7 +158,7 @@ fn project_id_of(world: &FoundryWorld, seeded_name: &str) -> uuid::Uuid {
 
 /// The STORED `(team_slug, project_slug)` pair captured from the database at
 /// seed time — never re-derived from a (possibly renamed) name.
-fn stored_slugs_of(world: &FoundryWorld, seeded_name: &str) -> (String, String) {
+pub(crate) fn stored_slugs_of(world: &FoundryWorld, seeded_name: &str) -> (String, String) {
     world
         .iapr_stored_slugs
         .get(seeded_name)
@@ -192,7 +192,7 @@ async fn seed_user(world: &FoundryWorld, email: &str, display: &str, password: &
     id
 }
 
-async fn seed_membership(
+pub(crate) async fn seed_membership(
     world: &FoundryWorld,
     workspace_id: uuid::Uuid,
     user_id: uuid::Uuid,
@@ -210,7 +210,7 @@ async fn seed_membership(
     .expect("insert membership");
 }
 
-async fn seed_workspace(world: &mut FoundryWorld, name: &str) -> uuid::Uuid {
+pub(crate) async fn seed_workspace(world: &mut FoundryWorld, name: &str) -> uuid::Uuid {
     if let Some(id) = world.iapr_workspace_ids.get(name) {
         return *id;
     }
@@ -225,7 +225,7 @@ async fn seed_workspace(world: &mut FoundryWorld, name: &str) -> uuid::Uuid {
     id
 }
 
-async fn seed_team(
+pub(crate) async fn seed_team(
     world: &mut FoundryWorld,
     workspace_id: uuid::Uuid,
     name: &str,
@@ -305,7 +305,7 @@ async fn seed_project(
 /// derivation point) — mirrors what the production create path mints. This is
 /// input to the INSERT, never an assertion oracle; assertions use the
 /// read-back stored slugs.
-fn creation_slug(name: &str) -> String {
+pub(crate) fn creation_slug(name: &str) -> String {
     name.chars()
         .map(|c| {
             if c.is_ascii_alphanumeric() {
@@ -489,7 +489,7 @@ async fn marco_requests_dashboard(world: &mut FoundryWorld) {
 /// Snapshot the target row, then drive the rename POST as the given signed-in
 /// persona (real session cookie + fresh double-submit `_csrf` via
 /// `signed_in_post`).
-async fn send_rename_as(
+pub(crate) async fn send_rename_as(
     world: &mut FoundryWorld,
     email: &str,
     password: &str,
@@ -510,7 +510,11 @@ async fn send_rename_as(
     record_outcome(world, outcome).await;
 }
 
-async fn priya_renames_project(world: &mut FoundryWorld, project_name: &str, new_name: &str) {
+pub(crate) async fn priya_renames_project(
+    world: &mut FoundryWorld,
+    project_name: &str,
+    new_name: &str,
+) {
     world.iapr_expected_name = Some(new_name.to_string());
     send_rename_as(world, PRIYA_EMAIL, PRIYA_PASSWORD, project_name, new_name).await;
 }
@@ -735,7 +739,7 @@ async fn section_says_no_projects(world: &mut FoundryWorld, ws_name: String) {
 /// Fetch the canonical never-existed answer: a signed-out GET to a path no
 /// route has ever served. The fallback and every instance-admin refusal must be
 /// byte-identical (ADR-002 idiom, D5).
-async fn never_existed_answer(world: &mut FoundryWorld) -> (StatusCode, String) {
+pub(crate) async fn never_existed_answer(world: &mut FoundryWorld) -> (StatusCode, String) {
     let http = http(world);
     let base = harness(world).base_url();
     let resp = http
@@ -1136,7 +1140,7 @@ async fn dashboard_open_in_browser(world: &mut FoundryWorld) {
 }
 
 /// XPath to the `[data-project-row]` element whose text mentions the project.
-fn row_xpath(project_name: &str) -> String {
+pub(crate) fn row_xpath(project_name: &str) -> String {
     format!("//*[@data-project-row][contains(., \"{project_name}\")]")
 }
 

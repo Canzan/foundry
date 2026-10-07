@@ -4471,3 +4471,206 @@ mod workspace_name_one_source_tests {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// project-name-rule DDD-12 — `project-name-one-source`
+// ---------------------------------------------------------------------------
+//
+// SCAFFOLD: true — DISTILL 2026-10-06. Not wired into `source_violations` and
+// every gold test below is `#[ignore]`d. DELIVER: slice 01 implements clause (a)
+// (the copy literal; parameterise the `workspace-name-one-source` scan helper by
+// rule id and prefix), slice 02 adds clause (b) (no `insert_project(` call in
+// the app/api doors), wires the rule into `source_violations` and the PASSED
+// banner, and removes the ignores.
+
+/// `project-name-one-source` (project-name-rule DDD-12).
+///
+/// (a) the literal prefix `"Project name must` appears in no `.rs` under
+/// `crates/{foundry-app,foundry-services,foundry-api,foundry-store}/src`
+/// (comments and in-file `#[cfg(test)]` included) — its one production home is
+/// `ProjectNameError`'s `Display` in `crates/foundry-core/src` (DDD-4).
+///
+/// (b) `insert_project(` has no call site under
+/// `crates/{foundry-app,foundry-api}/src`: the one mint point is
+/// `foundry_services::projects::create_project` (DDD-5/9). The store's
+/// definition, the services caller and test callers are not flagged.
+#[cfg_attr(not(test), allow(dead_code))]
+fn check_project_name_one_source(_root: &Path) -> Vec<String> {
+    panic!("SCAFFOLD: check-arch project-name-one-source is not implemented yet (DDD-12)")
+}
+
+#[cfg(test)]
+mod project_name_one_source_tests {
+    //! Injected-violation gold tests for `project-name-one-source` (DDD-12), the
+    //! `workspace_name_one_source_tests` idiom: a staged tree, the rule run
+    //! against it, the violations named by `file:line`.
+
+    use super::check_project_name_one_source;
+
+    fn stage(files: &[(&str, &str)]) -> tempfile::TempDir {
+        let dir = tempfile::tempdir().expect("tempdir");
+        for (rel_path, body) in files {
+            let path = dir.path().join(rel_path);
+            std::fs::create_dir_all(path.parent().expect("parent")).expect("mkdir");
+            std::fs::write(&path, body).expect("write fixture");
+        }
+        dir
+    }
+
+    fn flagged_at(violations: &[String], location: &str) -> bool {
+        violations.iter().any(|v| v.contains(location))
+    }
+
+    /// The copy's one production home, as DELIVER will write it.
+    const CORE_COPY: &str = "#[derive(Debug, thiserror::Error)]\npub enum ProjectNameError {\n    \
+        #[error(\"Project name must not be empty\")]\n    Empty,\n}\n";
+
+    #[test]
+    #[ignore = "SCAFFOLD: project-name-one-source clause (a), slice 01"]
+    fn the_copy_in_foundry_core_is_its_one_home() {
+        let tree = stage(&[("crates/foundry-core/src/project_name.rs", CORE_COPY)]);
+        let violations = check_project_name_one_source(tree.path());
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+
+    #[test]
+    #[ignore = "SCAFFOLD: project-name-one-source clause (a), slice 01"]
+    fn a_second_copy_in_any_adapter_service_or_store_crate_is_flagged() {
+        let tree = stage(&[
+            ("crates/foundry-core/src/project_name.rs", CORE_COPY),
+            (
+                "crates/foundry-app/src/projects.rs",
+                "fn a() {}\nlet m = \"Project name must be unique within the team\";\n",
+            ),
+            (
+                "crates/foundry-services/src/projects.rs",
+                "/// Trimmed name empty -> 422 \"Project name must not be empty\".\nEmptyName,\n",
+            ),
+            (
+                "crates/foundry-api/src/lib.rs",
+                "\n\nlet _ = format!(\"Project name must {}\", x);\n",
+            ),
+            (
+                "crates/foundry-store/src/lib.rs",
+                "#[cfg(test)]\nmod t { const M: &str = \"Project name must be at most 256 characters\"; }\n",
+            ),
+        ]);
+        let violations = check_project_name_one_source(tree.path());
+        assert_eq!(violations.len(), 4, "{violations:?}");
+        assert!(
+            flagged_at(&violations, "crates/foundry-app/src/projects.rs:2"),
+            "{violations:?}"
+        );
+        assert!(
+            flagged_at(&violations, "crates/foundry-services/src/projects.rs:1"),
+            "a doc comment quoting the copy is a second copy too: {violations:?}"
+        );
+        assert!(
+            flagged_at(&violations, "crates/foundry-api/src/lib.rs:3"),
+            "{violations:?}"
+        );
+        assert!(
+            flagged_at(&violations, "crates/foundry-store/src/lib.rs:2"),
+            "an in-file test quoting the copy is flagged; assert via to_string(): {violations:?}"
+        );
+    }
+
+    #[test]
+    #[ignore = "SCAFFOLD: project-name-one-source clause (a), slice 01"]
+    fn expected_strings_in_the_acceptance_suite_and_crate_tests_are_not_flagged() {
+        let tree = stage(&[
+            ("crates/foundry-core/src/project_name.rs", CORE_COPY),
+            (
+                "crates/foundry-acceptance/src/steps/feature_project_name_rule.rs",
+                "let m = \"Project name must not be empty\";\n",
+            ),
+            (
+                "crates/foundry-core/tests/project_name.rs",
+                "assert_eq!(m, \"Project name must be at most 256 characters\");\n",
+            ),
+            (
+                "crates/foundry-services/tests/create_project_use_case.rs",
+                "let _ = \"Project name must be unique within the team\";\n",
+            ),
+        ]);
+        let violations = check_project_name_one_source(tree.path());
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+
+    #[test]
+    #[ignore = "SCAFFOLD: project-name-one-source clause (a), slice 01"]
+    fn the_workspace_copy_and_other_project_copy_are_not_this_rules_business() {
+        let tree = stage(&[
+            ("crates/foundry-core/src/project_name.rs", CORE_COPY),
+            (
+                "crates/foundry-app/src/projects.rs",
+                "let a = \"Project key must not be empty\";\nlet b = \"Workspace name must not be empty\";\n",
+            ),
+        ]);
+        let violations = check_project_name_one_source(tree.path());
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+
+    #[test]
+    #[ignore = "SCAFFOLD: project-name-one-source clause (b), slice 02"]
+    fn a_door_that_inserts_a_project_itself_is_flagged() {
+        let tree = stage(&[
+            ("crates/foundry-core/src/project_name.rs", CORE_COPY),
+            (
+                "crates/foundry-app/src/projects.rs",
+                "async fn f() {\n    state.store.insert_project(id, ws, team, name, slug, key).await;\n}\n",
+            ),
+            (
+                "crates/foundry-api/src/projects.rs",
+                "let _ = store\n    .insert_project(\n        a,\n    );\n",
+            ),
+        ]);
+        let violations = check_project_name_one_source(tree.path());
+        assert_eq!(violations.len(), 2, "{violations:?}");
+        assert!(
+            flagged_at(&violations, "crates/foundry-app/src/projects.rs:2"),
+            "{violations:?}"
+        );
+        assert!(
+            flagged_at(&violations, "crates/foundry-api/src/projects.rs:2"),
+            "{violations:?}"
+        );
+    }
+
+    #[test]
+    #[ignore = "SCAFFOLD: project-name-one-source clause (b), slice 02"]
+    fn the_store_definition_the_use_case_and_test_callers_are_not_flagged() {
+        let tree = stage(&[
+            ("crates/foundry-core/src/project_name.rs", CORE_COPY),
+            (
+                "crates/foundry-store/src/lib.rs",
+                "pub async fn insert_project(\n    &self,\n) {}\n",
+            ),
+            (
+                "crates/foundry-services/src/projects.rs",
+                "store.insert_project(id, ws, team, name.as_str(), slug, key).await?;\n",
+            ),
+            (
+                "crates/foundry-store/tests/projects.rs",
+                "store.insert_project(a).await;\n",
+            ),
+            (
+                "crates/foundry-app/src/projects.rs",
+                "// the use-case calls insert_project( on our behalf\n",
+            ),
+        ]);
+        let violations = check_project_name_one_source(tree.path());
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+
+    #[test]
+    #[ignore = "SCAFFOLD: project-name-one-source, slice 01"]
+    fn a_missing_crates_directory_fails_the_rule() {
+        let tree = stage(&[("README.md", "nothing here\n")]);
+        let violations = check_project_name_one_source(tree.path());
+        assert!(
+            !violations.is_empty(),
+            "a missing crates directory must FAIL the guard, never pass it vacuously"
+        );
+    }
+}

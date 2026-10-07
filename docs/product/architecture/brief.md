@@ -99,13 +99,38 @@ See `adr-oidc-003-lazy-discovery.md`.
 
 A project's `name` is a mutable display label; its `slug` (and `key_prefix`,
 and every issue key minted from it) is immutable URL identity, minted exactly
-once at creation by `foundry_core::slugify` and never derived again. Render
+once at creation and never derived again. Render
 paths take slugs from the validated request path or stored columns — never from
 `slugify(name)` at render time (the latent defect the instance-admin-project-rename
 wave removed from `build_board_page`). Enforced in `cargo xtask check-arch`:
 defining `fn slugify(` under `crates/foundry-app/src` fails the build.
 See `adr-project-rename-001-request-slugs-not-derived.md` and
 `adr-project-rename-002-rename-write-placement.md`.
+
+One rule governs a project name on **both user doors** (`project-name-rule`,
+designed 2026-10-06): the team-member create form and the instance-admin rename.
+Both parse through `foundry_core::ProjectName::try_new`, which trims, then refuses
+an empty name, then any control character, then more than 256 Unicode scalars. The
+control-character set is the workspace rule's, from **one shared predicate** in
+`foundry-core` that `WorkspaceName` and `ProjectName` both call, so the two sets
+cannot drift. "Unique within the team" has one definition, `ProjectName`'s sibling
+check: a case-insensitive name match, or a non-empty derived slug equal to a
+sibling's stored slug (an empty derived slug identifies nothing and is skipped).
+The four refusal strings are `ProjectNameError`'s `Display`; doors render
+`to_string()`. Rename keeps its byte-equal no-op first, so legacy names stay a
+quiet success. Create is now a `foundry-services` use-case
+(`Services::create_project`, which takes a `ProjectName`), and it is the **one
+place a project slug is minted**: `foundry_core::mint_project_slug` uses
+`slugify(name)` when that is non-empty, otherwise the lower-cased key prefix with
+the lowest free `-N` suffix from 2 (`jp`, `jp-2`, …), so every new project has a
+reachable board. A concurrent create that takes the same fallback slug is retried
+with a fresh read (bounded), never reported as a duplicate name. Existing slugs,
+including legacy empty ones, are never rewritten. `cargo xtask check-arch`
+(`project-name-one-source`) fails the build on the `"Project name must` literal
+outside `foundry-core`, or on a call to `insert_project(` from `foundry-app` or
+`foundry-api`. The store stays `&str` with no DB CHECK. See
+`adr-project-name-001-one-rule-and-create-use-case.md` and
+`adr-project-name-002-fallback-slug-mint.md`.
 
 A workspace's `name` is likewise a display label. Workspaces have no slug, so a
 rename moves no URL. An instance-admin rename (`instance-admin-workspace-rename`,
@@ -136,7 +161,7 @@ seed legacy names. `Store::create_initial_workspace` is a test-seeding seam with
 production caller. `cargo xtask check-arch` (`workspace-name-one-source`) fails the
 build on a second copy of the refusal text outside `foundry-core`, or on a production
 call to that seeder. There is no DB CHECK yet; that is a separate follow-up. Project
-names keep their own rule. See `adr-workspace-name-001-one-rule-as-core-value-object.md`
+names have their own rule (above), sharing this one's control-character predicate. See `adr-workspace-name-001-one-rule-as-core-value-object.md`
 and `adr-workspace-name-002-bootstrap-name-check-before-claim.md`.
 
 ### Dialog layers close by one mechanism, many declarative triggers

@@ -18,6 +18,15 @@ outcomes:
   - display-name
   - instance-admin
   - slug-stable
+  amended: 'project-name-rule DISTILL (2026-10-06): the rename composes the shared
+    project-name rule (OUT-19); RenameProjectError::{EmptyName,NameTooLong,DuplicateName}
+    become InvalidName(ProjectNameError) with a fourth refusal, "Project name must
+    not contain control characters", after empty and before length; the slug arm
+    of uniqueness skips an empty derived slug; the copy has one source (ProjectNameError
+    Display); the no-op still runs first, so a byte-equal legacy name (over-long,
+    containing a tab, or a case-duplicate) is still a quiet 200 (DESIGN DDD-7/8)'
+  related:
+  - OUT-19
 - id: OUT-2
   kind: operation
   feature: instance-admin-project-rename
@@ -529,4 +538,49 @@ outcomes:
   artifact: crates/foundry-acceptance/tests/features/instance-workspace-name-rule.feature
   related:
   - OUT-17
+  superseded_by: null
+- id: OUT-19
+  kind: specification
+  summary: One project-name rule, one uniqueness meaning and one copy at both doors
+    that name a project (the team member's create form and the instance-admin rename),
+    and one create-time address mint that never leaves a project without a board
+  feature: project-name-rule
+  inputs:
+  - shape: raw name &str -> foundry_core::ProjectName::try_new(raw), reached from
+      POST /team/{team_slug}/projects (form name, after the signed-in, team-found
+      and team-member gates, before the key prefix) and POST /admin/instance/projects/{project_id}/rename
+      (after the instance-admin gate, the id parse, the project lookup and the no-op
+      check); the ProjectName sibling check over the team (name, stored slug) pairs
+      (rename excludes itself); foundry_core::mint_project_slug(&ProjectName, &ProjectKey,
+      team stored slugs) called once by foundry_services::projects::create_project
+  output:
+    shape: 'Ok(ProjectName) holding the trimmed value (str::trim), which is what is
+      stored | ProjectNameError::{Empty, ControlCharacter, TooLong, NotUnique}, in
+      that order: Empty if the trimmed value is empty; ControlCharacter if it contains
+      a Cc character, U+202A-202E, U+2066-2069, U+2028 or U+2029 (the same predicate
+      WorkspaceName uses; every other Cf allowed); TooLong if more than 256 Unicode
+      scalars; NotUnique if a same-team sibling name is equal under to_lowercase,
+      or the non-empty slugify(name) equals a sibling stored slug (an empty derived
+      slug is never a slug match). Display is the copy both doors show byte for byte:
+      "Project name must not be empty" / "Project name must not contain control characters"
+      / "Project name must be at most 256 characters" / "Project name must be unique
+      within the team". Doors: create plain POST -> 422 create page, one p.error,
+      name and key kept; create htmx -> 422 bare project-create-error fragment; rename
+      -> 422 project-rename-error fragment; NUL is a 422, never a 500; authz refusals
+      keep their answers and come first; a refusal writes no project, lane or key.
+      Mint: Derived(slugify(name)) when non-empty, else KeyFallback(first of key.lower(),
+      key.lower()-2, -3 ... not among the team stored slugs); never empty, never -1;
+      a lost fallback race is retried at most 3 times, then a logged 500; a rename
+      never changes a slug'
+  keywords:
+  - project
+  - display-name
+  - control-characters
+  - uniqueness
+  - fallback-slug
+  - parity
+  artifact: crates/foundry-acceptance/tests/features/project-name-rule.feature
+  related:
+  - OUT-1
+  - OUT-18
   superseded_by: null

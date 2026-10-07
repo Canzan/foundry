@@ -136,6 +136,19 @@ pub struct FoundryWorld {
     /// Dead-link comparisons made, and every one that differed from the baseline.
     pub iwnr_dead_link_report: Option<(usize, Vec<String>)>,
 
+    // ---- project-name-rule (pnr) ----
+    /// The project universe captured just before the last attempt at either door.
+    pub pnr_before: Option<crate::steps::feature_project_name_rule::ProjectUniverse>,
+    /// The last create as sent (team address, name, key prefix).
+    pub pnr_attempt: Option<crate::steps::feature_project_name_rule::CreateAttempt>,
+    /// The parity matrix's verdict at each door, in visiting order.
+    pub pnr_verdicts: Vec<(
+        crate::steps::feature_project_name_rule::Door,
+        crate::steps::feature_project_name_rule::Verdict,
+    )>,
+    /// Gate comparisons made, and every one that differed from the baseline.
+    pub pnr_gate_report: Option<(usize, Vec<String>)>,
+
     // ---- board-lane-management (blm) ----
     /// Seeded ids, captured at Given time.
     pub blm_workspace_id: Option<uuid::Uuid>,

@@ -199,6 +199,78 @@ jobs:
           adds the control-character refusal to it and keeps that job's no-op
           precedence for legacy names unchanged.
 
+  - id: job-project-naming
+    title: Name a project right at whichever door it is created or renamed through
+    job_story: >
+      When I name a project, whether creating a board for my team at
+      /team/{team}/projects/new or correcting a name from the instance
+      dashboard, I want both doors to refuse the same bad names for the same
+      stated reason (blank, longer than 256 characters, carrying an invisible
+      control character, or already used in the team), and to mean the same
+      thing by "unique within the team", so no project starts life with a
+      name the other door would refuse, and the team never sees two projects
+      it cannot tell apart.
+    dimensions:
+      functional: >
+        One rule (trim, non-empty, no control characters from the workspace
+        rule's set, at most 256 Unicode scalars, team-scoped uniqueness by
+        case-insensitive name or slug) with one set of refusal messages on
+        both doors. A refusal creates nothing and keeps the key prefix free
+        for the retry.
+      emotional: >
+        Stop discovering after the fact that the board I just made carries a
+        pasted tab, or sits next to a lookalike of a project that was renamed.
+        Trust that the door I happen to use does not decide what is allowed.
+      social: >
+        Teammates picking a project in the new-issue dialog see one
+        "Identity Platform", not two, and every board heading reads as one
+        clean line.
+    forces:
+      push: >
+        The member-facing create form trims and checks for blank, and nothing
+        else: no length cap, no control-character check, and uniqueness by
+        slug only. So after a rename, create mints a case-insensitive
+        duplicate (project-rename residual D7). The admin rename door refuses
+        names create accepts. A NUL produces "internal error" on both doors.
+        The workspace doors already refuse control characters (v0.10.0).
+      pull: >
+        The rule and copy the rename door already shows, applied at create,
+        plus the workspace rule's control-character refusal on both.
+      anxiety: >
+        That a valid emoji, accented or Persian name gets refused; that
+        existing long, tab-containing or duplicate legacy names suddenly break
+        or block an untouched rename; that a refused create burns the key
+        prefix.
+      habit: >
+        Typing or pasting any name and asking an instance admin to rename it
+        later. The rule must refuse with a stated reason and leave legacy
+        names alone.
+    opportunity:
+      importance: medium
+      satisfaction: low
+      note: >
+        Single-job feature; no comparative scoring table. Satisfaction low:
+        the two doors disagree on length and uniqueness, and neither refuses
+        control characters. Sibling, not an extension:
+        job-instance-workspace-naming's object is the workspace and its actor
+        is always the super-admin, whereas the create door here is a team
+        member's; job-instance-project-rename's situation is drift, this job's
+        is creation at either door with one consistent rule. Grounded in code
+        reading, not interviews (no DISCOVER), the same recorded risk as its
+        siblings.
+    validated_by: docs/feature/project-name-rule/feature-delta.md
+    relates_to:
+      - job: job-instance-project-rename
+        relation: >
+          Sibling. The rename door is one of this job's two doors. This job
+          adds the control-character refusal there, keeps its no-op
+          precedence, and extends its uniqueness definition to create
+          (closing that feature's D7 residual).
+      - job: job-instance-workspace-naming
+        relation: >
+          Same shape for a different object. This job reuses that job's
+          control-character set and copy pattern verbatim.
+
   - id: job-dismiss-edit-dialog
     title: Back out of an issue's edit dialog without saving, the way every other app allows
     job_story: >
