@@ -1,0 +1,408 @@
+{
+  "roadmap": {
+    "project_id": "project-name-rule",
+    "created_at": "2026-10-06T00:00:00Z",
+    "total_steps": 7,
+    "goal": "Apply one project-name rule (trim, then empty, then no control character from the shared D3 set, then at most 256 Unicode scalars, then unique within the team by case-insensitive name or non-empty derived slug) with one copy source at both user doors (team-member create, instance-admin rename), so every refusal states the same reason, leaves nothing behind and never becomes a 500, and give every new project a non-empty, team-unique slug (the lower-cased key prefix with the lowest free -N suffix when the name derives none).",
+    "sources": [
+      "docs/feature/project-name-rule/feature-delta.md",
+      "docs/product/architecture/adr-project-name-001-one-rule-and-create-use-case.md",
+      "docs/product/architecture/adr-project-name-002-fallback-slug-mint.md",
+      "crates/foundry-acceptance/tests/features/project-name-rule.feature",
+      "crates/foundry-core/tests/project_name.rs",
+      "crates/foundry-services/tests/create_project_use_case.rs",
+      "xtask/src/check_arch.rs"
+    ],
+    "scenario_ownership_invariant": "All 31 DISTILL acceptance scenarios (74 outline rows) are owned by exactly one step (01-01: 0 acceptance + 13 core unit tests; 01-02: 8 + 5 check-arch gold tests; 02-01: 6 + 1 core + 1 services + 2 check-arch gold tests; 02-02: 3; 03-01: 4 + 4 core; 04-01: 8 + 5 core + 5 services; 05-01: 2). Scaffold totals: 23 core (crates/foundry-core/tests/project_name.rs), 6 services (crates/foundry-services/tests/create_project_use_case.rs), 7 check-arch gold tests (xtask/src/check_arch.rs mod project_name_one_source_tests). DELIVER un-pends a scenario and un-ignores a scaffold only in the step that owns it, in the DISTILL order. Scenario 20 sits in the US-PNR-03 Rule block but is owned by 02-01 (it turns GREEN when the cap reaches create). Scenario 21 is expected to stay RED until 03-01: 01-01 ports collides_with_sibling verbatim (no empty-slug skip) and 03-01 adds the skip. The two parity outlines (22, 23) are deliberately moved from DISTILL's slice-03 position to the final step 05-01: the ZWJ-family create row derives a non-empty slug but the matrix is only meaningful once every create-side change (rule, uniqueness, mint) has landed; they stay @pending until 05-01 even if they pass earlier. Burn-down: grep -cE '^[[:space:]]*@.*@pending' crates/foundry-acceptance/tests/features/project-name-rule.feature (31 now, 0 at 05-01), grep -n 'SCAFFOLD' crates/foundry-core/tests/project_name.rs crates/foundry-services/tests/create_project_use_case.rs, and grep -n 'SCAFFOLD' xtask/src/check_arch.rs restricted to the project_name_one_source section."
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "One rule, one predicate, one copy source, composed by rename (US-PNR-01, D2-D5, D8, D10, DDD-1/2/3/4/7/8/12a)",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "Shared D3 predicate and ProjectName core value object",
+          "description": "In crates/foundry-core: create the neutral module name_chars.rs with pub(crate) fn is_refused_name_char(c: char) -> bool, MOVING (not changing) the D3 predicate out of workspace_name.rs (char::is_control, U+202A-202E, U+2066-2069, U+2028, U+2029); WorkspaceName::try_new now calls it, its behaviour unchanged. Create project_name.rs re-exported from lib.rs, following the WorkspaceName / ProjectKey idiom: pub PROJECT_NAME_MAX_CHARS = 256; ProjectName (private String field) with try_new(raw: &str) -> Result<ProjectName, ProjectNameError> (str::trim, then Empty, then ControlCharacter via is_refused_name_char over the trimmed value, then TooLong when chars().count() > 256), as_str(), Display, derived_slug() (slugify of the name, may be empty) and ensure_unique_among(&[(String, String)]) -> Result<(), ProjectNameError> PORTED VERBATIM from foundry-services collides_with_sibling (to_lowercase name arm OR slugify(name) == sibling stored slug; NO empty-slug skip yet, 03-01 adds it; the doc comment states that self-exclusion is the caller's job via list_team_sibling_projects' exclude id). ProjectNameError is a flat Copy enum {Empty, ControlCharacter, TooLong, NotUnique} whose thiserror Display is the D4 copy verbatim ('Project name must not be empty' / 'Project name must not contain control characters' / 'Project name must be at most 256 characters' / 'Project name must be unique within the team'); try_new never yields NotUnique. In crates/foundry-core/tests/project_name.rs replace the scaffold imports with foundry_core paths for everything that now exists; KEEP a reduced shim only for MintedSlug and mint_project_slug (SCAFFOLD_MINT) until 04-01; un-ignore the 13 slice-01 tests one at a time (each RED for the right reason before GREEN).",
+          "criteria": [
+            "The 13 slice-01 project_name tests pass un-ignored; the shim no longer defines ProjectName, ProjectNameError or PROJECT_NAME_MAX_CHARS",
+            "Every exact pair holds: 256/257 ASCII and \u65e5, padded 256 accepted; U+001F/0020, U+007E/007F, U+009F/00A0, U+2027/2028/2029, U+202A, U+202E/202F, U+2065/2066, U+2069/206A; U+200B/200C/200D/FEFF/00AD allowed",
+            "For every char the project and workspace rules agree on ControlCharacter (one predicate, DDD-1); precedence is Empty, ControlCharacter, TooLong; each to_string() equals its D4 string byte for byte",
+            "workspace_name core tests and the iwnr lane stay green unchanged; foundry-core gains no I/O and no dependency",
+            "Workspace build, fmt, clippy -D warnings, check-arch, xtask smoke and the default acceptance lane green"
+          ],
+          "estimate": "0.5 day",
+          "dependencies": [],
+          "files_to_modify": [
+            "crates/foundry-core/src/name_chars.rs",
+            "crates/foundry-core/src/workspace_name.rs",
+            "crates/foundry-core/src/project_name.rs",
+            "crates/foundry-core/src/lib.rs",
+            "crates/foundry-core/tests/project_name.rs"
+          ],
+          "test_file": "crates/foundry-core/tests/project_name.rs",
+          "scenario_name": [
+            "the_cap_is_256_scalars",
+            "the_c0_and_c1_control_boundaries",
+            "the_line_and_paragraph_separators",
+            "the_bidi_embedding_override_and_isolate_boundaries",
+            "other_format_characters_stay_allowed",
+            "whitespace_at_the_edges_is_trimmed_and_other_edge_controls_are_refused",
+            "empty_comes_before_control_and_control_before_length",
+            "each_refusal_reads_the_d4_copy_byte_for_byte",
+            "the_derived_address_is_slugify_of_the_name",
+            "the_project_and_workspace_rules_refuse_exactly_the_same_characters",
+            "the_rule_alone_never_says_not_unique",
+            "an_accepted_name_is_the_trimmed_input",
+            "the_length_gate_sits_at_256_trimmed_scalars"
+          ],
+          "lane_commands": [
+            "timeout 600 cargo test -p foundry-core --test project_name",
+            "timeout 600 cargo test -p foundry-core --test workspace_name",
+            "timeout 600 cargo test -p foundry-core",
+            "timeout 900 cargo fmt --all -- --check && timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "timeout 600 cargo xtask check-arch",
+            "timeout 1800 cargo xtask smoke",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && timeout 300 target/debug/foundry --help (rebuild + warm the binary BEFORE any lane; acceptance does not rebuild it; the warm-up absorbs the macOS first-exec stall)",
+            "FOUNDRY_ACCEPTANCE_TAGS=iwnr CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (the D3 predicate moved; workspace behaviour must be byte-identical)",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance (default lane; foundry-core is shared by every crate)"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): unit tests for new pure logic (is_refused_name_char, ProjectName::try_new, derived_slug, ensure_unique_among) MUST be property-based (proptest) with state-delta discipline where state mutates; single-example unit tests are FALLBACK only with a # bypass: comment, EXCEPT the DoD-6 exact boundary examples, which are mandatory mutation-killing pairs (precedent lesson: a proptest range need not sample the boundary). Acceptance scenarios are the cucumber .feature file (already authored by DISTILL \u2014 un-pend, do not re-author). Integration/browser tests stay single-example \u2014 they verify wiring. Contract shape: pure function (return-only) for every item in this step. No acceptance scenario is un-pended here (scenario_name lists the 13 core tests this step un-ignores). Review resolution: the predicate lives in foundry_core::name_chars as pub(crate) is_refused_name_char (not pub); both value objects call it; the agreement property pins it. ensure_unique_among is ported WITHOUT the empty-slug skip so that 03-01's an_empty_derived_address_is_never_an_address_match and scenario 21 go RED for the right reason; do not un-ignore the four slice-03 uniqueness tests here even if three of them would pass. Do NOT yet remove MAX_NAME_SCALARS or collides_with_sibling from foundry-services (01-02 does). Named faults killed: controls checked before trim; all of Cf refused; Cc, separator and bidi bounds off by one at each pair; length counted in bytes or before trimming; precedence reordered; try_new answering NotUnique; a second predicate drifting from WorkspaceName's; Display drifting from D4. DDD-13/D14: the value object never logs. Lessons: write raw strings (escapes, not normalised literals) wherever whitespace or invisibles matter; the module and accessor names are the crafter's, the behaviour is the contract. MUTATION: per-feature gate >= 80% kill rate on modified files (cargo mutants --in-diff <feature diff> --file crates/foundry-core/src/name_chars.rs --file crates/foundry-core/src/project_name.rs); every predicate bound and the 256 cap must be killed by an exact boundary pair, not by luck of the proptest range."
+        },
+        {
+          "id": "01-02",
+          "name": "Rename composes the rule; one copy source; check-arch clause (a)",
+          "description": "In crates/foundry-services/src/projects.rs: classify_rename becomes trim -> byte-equal no-op -> ProjectName::try_new -> ensure_unique_among(siblings) (DDD-8: the admin re-check, context read and sibling read stay BEFORE the classifier, so an unknown id with a bad name is still 404); RenameProjectError::{EmptyName, NameTooLong, DuplicateName} collapse into InvalidName(ProjectNameError) (DDD-7); MAX_NAME_SCALARS and collides_with_sibling are deleted (moved to core); the doc comments (:45-51) lose the quoted copy; rewrite classify_rename_properties (:163-361) against InvalidName and add the legacy no-op properties (byte-equal stored name with a TAB, and with 300 scalars, is NoOp \u2014 D8), a TAB name whose slug collides -> InvalidName(ControlCharacter), and a case-only self rename -> Write. In crates/foundry-app/src/instance_admin.rs submit_project_rename (:518-529) collapse the copy arms into one InvalidName(e) => rename_error_fragment(MARKER, &e.to_string()); rewrite response_helper_tests::rename_error_fragment_is_a_422_with_marker_and_copy (:659, :672) to assert via ProjectNameError::Empty.to_string(). In crates/foundry-app/src/projects.rs replace the three literals (:165, :188, :238) with ProjectNameError::{Empty, NotUnique}.to_string() (copy only; create behaviour unchanged in this step). In xtask/src/check_arch.rs parameterise the workspace-name-one-source scan helper by rule id and literal prefix, implement check_project_name_one_source clause (a) (the literal \"Project name must appears in no .rs under crates/{foundry-app,foundry-services,foundry-api,foundry-store}/src, doc comments and in-file #[cfg(test)] included; fails closed when crates/ is missing), wire it into run and the PASSED banner, and un-ignore the five slice-01 gold tests. Then un-pend the eight rename scenarios in the DISTILL order.",
+          "criteria": [
+            "Interior TAB, U+007F, U+202E, U+2066, U+2028 or NUL answers 422 project-rename-error with exactly the control copy (never 'internal error'); name unchanged, project universe unchanged",
+            "First applicable copy wins: 300 + TAB control, 257 ASCII or \u65e5 length, blank empty, case-equal sibling unique; ZWJ, ZWNJ, padded and 256 \u00d7 \u65e5 accepted",
+            "Untouched legacy TAB, U+202E, 300-scalar and case-duplicate names are a quiet 200 with no write; unknown id and non-admin answers stay the byte-identical never-existed 404 whatever the name",
+            "check-arch project-name-one-source clause (a) runs in cargo xtask check-arch with its 5 gold tests un-ignored; no 'Project name must' literal remains in app/services/api/store src",
+            "Owned scenarios (incl. @needs-browser, actually run) green in the pnr lane; iapr, iwnr, us-07, us-r01, default lanes, fmt, clippy, smoke green"
+          ],
+          "estimate": "0.5 day",
+          "dependencies": [
+            "01-01"
+          ],
+          "files_to_modify": [
+            "crates/foundry-services/src/projects.rs",
+            "crates/foundry-app/src/instance_admin.rs",
+            "crates/foundry-app/src/projects.rs",
+            "xtask/src/check_arch.rs",
+            "crates/foundry-acceptance/tests/features/project-name-rule.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/project-name-rule.feature",
+          "scenario_name": [
+            "A project name with an invisible character inside it is refused inside the row",
+            "A null character in the new name is refused with the reason, not an internal error",
+            "The reason given is the first one that applies",
+            "Joined, accented, long and padded names are accepted and the board stays where it was",
+            "An untouched name from before the rule can be left as it is",
+            "A rename aimed at a project that does not exist is answered like a missing page, whatever the name",
+            "A non-admin's rename is answered like a missing page before the name is looked at",
+            "A pasted tab is explained inside the row on the real page"
+          ],
+          "lane_commands": [
+            "timeout 600 cargo test -p foundry-services projects",
+            "timeout 600 cargo test -p foundry-app instance_admin",
+            "timeout 600 cargo test -p xtask project_name_one_source",
+            "timeout 600 cargo test -p xtask workspace_name_one_source (the shared scan helper was parameterised)",
+            "timeout 600 cargo xtask check-arch",
+            "timeout 900 cargo fmt --all -- --check && timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "timeout 1800 cargo xtask smoke",
+            "docker info (Docker up: Postgres testcontainer + selenium/standalone-chrome for the @needs-browser scenario)",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && timeout 300 target/debug/foundry --help (rebuild + warm BEFORE the lanes)",
+            "FOUNDRY_ACCEPTANCE_TAGS=pnr CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo test -p foundry-acceptance --test acceptance (confirm the @needs-browser count in the summary is non-zero)",
+            "FOUNDRY_ACCEPTANCE_TAGS=iapr CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo test -p foundry-acceptance --test acceptance (shipped rename copy now comes from core; must stay byte-identical)",
+            "FOUNDRY_ACCEPTANCE_TAGS=iwnr CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance",
+            "FOUNDRY_ACCEPTANCE_TAGS=us-07 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo test -p foundry-acceptance --test acceptance (create copy literals replaced)",
+            "FOUNDRY_ACCEPTANCE_TAGS=us-r01 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo test -p foundry-acceptance --test acceptance (us-r01-project-create.feature, @remaining-surfaces create fragment)",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance (default lane)"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): unit tests for new pure logic (classify_rename) MUST be property-based (proptest) with state-delta discipline where state mutates; single-example unit tests are FALLBACK only with a # bypass: comment. Acceptance scenarios are the cucumber .feature file (already authored by DISTILL \u2014 un-pend, do not re-author). Integration/browser tests stay single-example \u2014 they verify wiring. Contract shape: classify_rename pure; rename_project bounded-change (one projects.name). Un-pend in DISTILL order: 1, 2, 4, then the guards 3, 5, 6, 7, then 8 (@needs-browser; a browser cannot type a tab, so the step sets the value the way a paste lands, then presses the row's own submit). Update in THIS commit the shipped tests on the DISTILL list for slice 01 (instance_admin.rs response_helper test :659/:672; services doc comments :45-51 and classify_rename_properties EmptyName :211, NameTooLong :236/:359, DuplicateName :286/:300; the three create literals in foundry-app/src/projects.rs) \u2014 clause (a) flags them otherwise (DESIGN OQ-D4). Named faults killed: rename runs the rule before the no-op (5) or before the lookup (6); length before control (4); NUL reaching Postgres as a 500 (2); a door rendering its own copy (check-arch a). The handler renders err.to_string() and must never match a ProjectNameError variant to choose copy (DDD-4), so a future arm reaches both doors with no edit. Self-exclusion stays the caller's job: rename keeps passing its own id as list_team_sibling_projects' exclude. DDD-13/D14: a refusal NEVER logs the raw name (no tracing field, no Debug of the form). Leave clause (b) and its 2 gold tests ignored (02-01). Lessons: seed fixtures (legacy names via SQL) BEFORE the universe snapshot; compare raw body text where whitespace matters; assert on attribute markers ([data-error-slot], data-hx-fragment), not on prose position. MUTATION: >= 80% on modified files (cargo mutants --in-diff, scoped to foundry-services/src/projects.rs, instance_admin.rs, foundry-app/src/projects.rs, check_arch.rs) with exact boundary pairs: byte-equal no-op vs a case-only change; legacy-TAB no-op vs an edited TAB name; case-only self rename written (self excluded)."
+        }
+      ]
+    },
+    {
+      "id": "02",
+      "name": "Create runs through one use-case and the rule (US-PNR-02, D2, D5, D9-D13, DDD-5/6/7/11/12b/14a, ADR-PROJECT-NAME-001)",
+      "steps": [
+        {
+          "id": "02-01",
+          "name": "create_project use-case, DuplicateSlug, clause (b), Sandbox name pin",
+          "description": "In crates/foundry-services/src/projects.rs add create_project + Services::create_project with CreateProjectRequest { workspace_id, team_id, name: ProjectName, key_prefix: &str (handler-trimmed) }, CreatedProject { project_id, slug: MintedSlug } and CreateProjectError { InvalidName(ProjectNameError), InvalidKey(ProjectKeyError), DuplicateKey, FallbackSlugContention, Store } (DDD-7). Order (DDD-6): today's slug-only pre-check moved in unchanged (it is replaced by the sibling check in 03-01; OQ-D5) -> ProjectKey::try_new -> slug = MintedSlug::Derived(name.derived_slug()) (today's behaviour; 04-01 adds the mint) -> insert_project; keep the internal read-check-mint-insert step callable with scripted sibling lists (create_project_with_sibling_reads, in-crate #[cfg(test)] or #[doc(hidden)] pub) for 04-01. Add pub enum MintedSlug { Derived, KeyFallback } with as_str() to foundry-core (beside slugify or in project_name.rs). In crates/foundry-store/src/lib.rs rename ProjectInsertError::DuplicateName -> DuplicateSlug (:1607, :1617, :3369); the 23505 mapping still tells the slug index from the key index by Postgres's auto-generated constraint names (constraint naming is a recorded follow-up, no migration). In crates/foundry-app/src/projects.rs submit_create (:154-243): after the unchanged gates (signed-out redirect, team-not-found 404, non-member uniform 404) parse ProjectName::try_new, then delegate; render InvalidName(e) with the shipped name_error_response (plain POST: 422 form re-render, name retained TRIMMED and key retained; htmx: bare project-create-error fragment), InvalidKey with key_error_response, DuplicateKey with duplicate_key_response, FallbackSlugContention and Store with internal_error; the handler no longer calls insert_project. In xtask/src/check_arch.rs add clause (b): insert_project( has no call site under crates/{foundry-app,foundry-api}/src (comment lines excluded, multi-line calls caught); un-ignore its 2 gold tests. In crates/foundry-core/tests/project_name.rs un-ignore the_seeded_sandbox_project_name_passes_the_rule (D13 name half). In crates/foundry-services/tests/create_project_use_case.rs delete mod scaffold, import the real paths, un-ignore a_create_with_a_latin_name_keeps_its_own_address_and_gets_its_lanes. Then un-pend six create scenarios in the DISTILL order.",
+          "criteria": [
+            "257 a, A + 256 \u00d7 \u65e5, padded 257: 422 page, one p.error with the length copy, trimmed name and key OPS retained; zero projects or lanes added",
+            "TAB, U+2028, U+202E, NUL and blank names get 422 with the D4 copy (NUL never a 500); htmx gets the bare project-create-error fragment, no <html",
+            "After a refused create with key OPS, 'Homelab Ops' with OPS lands on /team/backend/project/homelab-ops; a bad name with key 'ops' gets the name copy, not the key copy",
+            "check-arch clause (b) runs with its 2 gold tests un-ignored; no insert_project( call remains in app/api src; Sandbox/GEN passes ProjectName::try_new; services 1a passes on real Postgres",
+            "Owned scenarios green in the pnr lane; us-07, us-r01, blm, form-error-display-contract, us-05, iapr, default lanes, fmt, clippy, smoke green"
+          ],
+          "estimate": "1 day",
+          "dependencies": [
+            "01-02"
+          ],
+          "files_to_modify": [
+            "crates/foundry-services/src/projects.rs",
+            "crates/foundry-core/src/project_name.rs",
+            "crates/foundry-core/src/lib.rs",
+            "crates/foundry-store/src/lib.rs",
+            "crates/foundry-app/src/projects.rs",
+            "xtask/src/check_arch.rs",
+            "crates/foundry-core/tests/project_name.rs",
+            "crates/foundry-services/tests/create_project_use_case.rs",
+            "crates/foundry-acceptance/tests/features/project-name-rule.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/project-name-rule.feature",
+          "scenario_name": [
+            "A name past 256 characters is refused, kept in the form, and nothing is created",
+            "A blank or invisible-character name is refused and nothing is created",
+            "A refusal sent from the page without reloading it comes back as the bare message",
+            "The corrected name succeeds with the same key prefix",
+            "A name problem is reported before a key problem",
+            "A long name that repeats a sibling's is refused for its length first"
+          ],
+          "lane_commands": [
+            "timeout 600 cargo test -p foundry-core --test project_name",
+            "timeout 900 cargo test -p foundry-services --test create_project_use_case (Docker up: per-test Postgres testcontainer)",
+            "timeout 900 cargo test -p foundry-services --test rename_project_use_case",
+            "timeout 600 cargo test -p xtask project_name_one_source",
+            "timeout 600 cargo xtask check-arch",
+            "timeout 900 cargo fmt --all -- --check && timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "timeout 1800 cargo xtask smoke",
+            "docker info (Postgres testcontainer + selenium/standalone-chrome)",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && timeout 300 target/debug/foundry --help (rebuild + warm BEFORE the lanes)",
+            "FOUNDRY_ACCEPTANCE_TAGS=pnr CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo test -p foundry-acceptance --test acceptance",
+            "FOUNDRY_ACCEPTANCE_TAGS=us-07 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo test -p foundry-acceptance --test acceptance (us-07-project-create.feature: dup-name and the I-P3 key outline through the new seam)",
+            "FOUNDRY_ACCEPTANCE_TAGS=us-r01 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo test -p foundry-acceptance --test acceptance (us-r01-project-create.feature, @remaining-surfaces: the empty-key htmx create fragment)",
+            "FOUNDRY_ACCEPTANCE_TAGS=blm CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo test -p foundry-acceptance --test acceptance (board-lane-management.feature: 'Reading List' create seeds the three lanes)",
+            "FOUNDRY_ACCEPTANCE_TAGS=form-error-display-contract CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1200 cargo test -p foundry-acceptance --test acceptance",
+            "FOUNDRY_ACCEPTANCE_TAGS=us-05 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo test -p foundry-acceptance --test acceptance (bootstrap seeds Sandbox/GEN; the @us-05 tag also matches scenarios in other features \u2014 expected)",
+            "FOUNDRY_ACCEPTANCE_TAGS=iapr CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo test -p foundry-acceptance --test acceptance",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance (default lane)"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): unit tests for new pure logic MUST be property-based (proptest) with state-delta discipline where state mutates; single-example unit tests are FALLBACK only with a # bypass: comment. Acceptance scenarios are the cucumber .feature file (already authored by DISTILL \u2014 un-pend, do not re-author). Integration/browser tests stay single-example \u2014 they verify wiring. EXEMPT FROM PARADIGM: seam extraction plus adapter wiring (typed ProjectName port, gate order, shipped 422/409 shapes) \u2014 compensate with the property-based tests on the adjacent pure rule (01-01). Contract shape: create_project bounded-change \u2014 one projects row plus its seeded lanes, all-or-nothing; refusal writes zero rows. Un-pend in DISTILL order: 10, 11, 12, 13, 15, then 20 (it goes GREEN here: the cap reaches create before uniqueness). Update in THIS commit the shipped tests on the DISTILL list for slice 02: the ProjectInsertError::DuplicateName arm in foundry-app/src/projects.rs (:231) and the store's variant (:1607, :1617, :3369) renamed DuplicateSlug; the only production insert_project( call (:214) moves into create_project (clause b). No in-seam membership re-check (create is not a cross-tenant write; the handler gate is byte-pinned, DDD-6). OQ-D6: the 422 re-render retains the TRIMMED name in value (scenario 10 row 3). Named faults killed: refused create writes a project or lanes or burns the key prefix (10, 11, 13); create answers a full page to htmx or a fragment to a plain POST (10, 12); re-render drops or untrims the name or key (10); key checked before name (15); NUL reaching Postgres (11); a door inserting with its own slug (check-arch b). DDD-13/D14: refusals log nothing and never the raw name; internal_error(\"insert_project\", ...) for other DB errors unchanged. Lessons: fixtures before snapshots (the ProjectUniverse snapshot is taken after the Givens); compare the raw value attribute where padding matters; the create slot is a bare p.error \u2014 if you add a marker (e.g. data-create-error) narrow CREATE_ERROR_CSS in feature_project_name_rule.rs in the same commit. MUTATION: >= 80% on modified files (services projects.rs create path, foundry-app/src/projects.rs, store insert_project mapping, check_arch.rs) with exact boundary pairs: 256 vs 257 at create (9 vs 10), name-bad+key-bad vs name-ok+key-bad (15), slug index vs key index violation (DuplicateSlug vs DuplicateKey)."
+        },
+        {
+          "id": "02-02",
+          "name": "Create guards and the visible refusal on the real form",
+          "description": "Un-pend the three remaining US-PNR-02 scenarios, which pin shipped behaviour the 02-01 seam move could break and the visible refusal in Chrome: the 256-scalar boundary accepts (256 a, A + 255 \u00d7 \u65e5, padded 256) and opens a board headed with the trimmed name; every caller who may not create in the team (Marco non-member, a signed-out visitor, Priya to an unknown team) gets an answer (status, Location, body) byte-identical to the answer for 'Homelab Ops' for each of four unfit names (12 comparisons), nothing moved; and the length refusal shows in the create form's p.error in the real browser with the typed name and key still in the inputs. Expected to be pure assertion enablement; fix any divergence in submit_create or create_project. Then rerun every neighbour lane that creates projects.",
+          "criteria": [
+            "256 a, A + 255 \u00d7 \u65e5 and padded 256 each redirect to /team/backend/project/<stored slug>; exactly +1 project with its lanes; the board answers 200 headed with the trimmed name",
+            "For 300-char, TAB, NUL and blank names, non-member, signed-out and unknown-team answers are byte-identical to the 'Homelab Ops' answer (12 comparisons counted); nothing moved",
+            "In Chrome, p.error reads 'Project name must be at most 256 characters' and the inputs still hold the typed name and key (no maxlength, D12)",
+            "Zero @pending lines remain in the US-PNR-02 Rule block",
+            "pnr (browser count non-zero), us-07, us-r01, blm, form-error-display-contract and default lanes green; fmt, clippy, smoke green"
+          ],
+          "estimate": "0.25 day",
+          "dependencies": [
+            "02-01"
+          ],
+          "files_to_modify": [
+            "crates/foundry-acceptance/tests/features/project-name-rule.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/project-name-rule.feature",
+          "scenario_name": [
+            "A name of up to 256 characters creates the project and opens its board",
+            "A caller who may not create in the team gets today's answer, whatever the name",
+            "The refusal is shown in the create form on the real page, ready to correct"
+          ],
+          "lane_commands": [
+            "timeout 900 cargo fmt --all -- --check && timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "timeout 1800 cargo xtask smoke",
+            "docker info (Postgres testcontainer + selenium/standalone-chrome for the @needs-browser scenario)",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && timeout 300 target/debug/foundry --help (rebuild + warm BEFORE the lanes)",
+            "FOUNDRY_ACCEPTANCE_TAGS=pnr CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo test -p foundry-acceptance --test acceptance (confirm the @needs-browser count is non-zero)",
+            "FOUNDRY_ACCEPTANCE_TAGS=us-07 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo test -p foundry-acceptance --test acceptance",
+            "FOUNDRY_ACCEPTANCE_TAGS=us-r01 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo test -p foundry-acceptance --test acceptance",
+            "FOUNDRY_ACCEPTANCE_TAGS=blm CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo test -p foundry-acceptance --test acceptance",
+            "FOUNDRY_ACCEPTANCE_TAGS=form-error-display-contract CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1200 cargo test -p foundry-acceptance --test acceptance",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance (default lane)"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): unit tests for new pure logic MUST be property-based (proptest) with state-delta discipline where state mutates; single-example unit tests are FALLBACK only with a # bypass: comment. Acceptance scenarios are the cucumber .feature file (already authored by DISTILL \u2014 un-pend, do not re-author). Integration/browser tests stay single-example \u2014 they verify wiring. EXEMPT FROM PARADIGM: guard enablement plus one browser check over a finite caller set (byte-identity comparisons) \u2014 the quantified invariants live in the core proptests (01-01). Un-pend in DISTILL order: the guards 9, 14, then 16 (@needs-browser). Split from 02-01 to keep each step at <= 8 scenarios and to give the browser scenario its own verification run. Named faults killed: the 256/257 boundary off by one at create or padding counted (9); the rule run before an authz gate, creating a 422 oracle for outsiders (14, D10); a client-side maxlength silently truncating (16, D12). The 14 oracle compares status, Location and body byte for byte \u2014 keep raw bodies, never normalised. DDD-13/D14: no refusal arm logs the raw name. Lessons: fixtures before snapshots; raw text where whitespace matters; attribute markers over prose. MUTATION: no new production code expected; if a fix is needed, >= 80% on the touched file with the 256/257 pair and the member vs non-member pair."
+        }
+      ]
+    },
+    {
+      "id": "03",
+      "name": "One meaning of unique on both doors, D7 closed (US-PNR-03, D6, DDD-3)",
+      "steps": [
+        {
+          "id": "03-01",
+          "name": "Shared sibling check on create; empty-slug skip on both doors",
+          "description": "In crates/foundry-core/src/project_name.rs add the D6 empty-slug skip to ensure_unique_among: the slug arm applies only when derived_slug() is non-empty (the guard sits on the empty case ONLY; the name arm is unaffected). In crates/foundry-services/src/projects.rs create_project replaces the moved find_project_by_slug pre-check with Store::list_team_sibling_projects(team_id, exclude = the fresh project id, which excludes nothing) + name.ensure_unique_among(&siblings) -> InvalidName(NotUnique); the order stays siblings -> check -> key -> mint -> insert (D5: uniqueness after the pure arms, name before key). Rename already calls the same method (01-02), so both doors now share one definition and the empty-slug skip. The UNIQUE (team_id, slug) violation for a Derived slug still maps to InvalidName(NotUnique) (race backstop, accepted). In crates/foundry-core/tests/project_name.rs un-ignore the four slice-03 uniqueness tests. Then un-pend four scenarios in the DISTILL order.",
+          "criteria": [
+            "Backend holding 'Identity Platform' at auth-v2: creating 'identity platform' (IDP) answers 422 uniqueness copy; the team still has exactly one Identity Platform in any case; nothing moved",
+            "'Auth V2!' (AV2) still gets the uniqueness copy; Frontend creating 'Identity Platform' lands on /team/frontend/project/identity-platform",
+            "Renaming Sandbox to '\ud83d\ude80' beside a legacy empty-slug project answers 200, only the name changed, board still at sandbox",
+            "The 4 slice-03 core uniqueness tests pass un-ignored: name arm alone, slug arm alone (incl. ZWSP), empty-slug skip paired with a non-empty match, empty siblings",
+            "Owned scenarios green in the pnr lane; iapr, us-07, us-r01, blm, default lanes, check-arch, fmt, clippy, smoke green"
+          ],
+          "estimate": "0.5 day",
+          "dependencies": [
+            "02-02"
+          ],
+          "files_to_modify": [
+            "crates/foundry-core/src/project_name.rs",
+            "crates/foundry-services/src/projects.rs",
+            "crates/foundry-core/tests/project_name.rs",
+            "crates/foundry-acceptance/tests/features/project-name-rule.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/project-name-rule.feature",
+          "scenario_name": [
+            "A name the team already uses under a different address is refused",
+            "A name with no address of its own is not a duplicate of an old project that has none either",
+            "A name whose address the team already uses is still refused",
+            "The same name in another team is accepted"
+          ],
+          "lane_commands": [
+            "timeout 600 cargo test -p foundry-core --test project_name",
+            "timeout 600 cargo test -p foundry-services projects",
+            "timeout 900 cargo test -p foundry-services --test create_project_use_case --test rename_project_use_case (Docker up)",
+            "timeout 600 cargo xtask check-arch",
+            "timeout 900 cargo fmt --all -- --check && timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "timeout 1800 cargo xtask smoke",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && timeout 300 target/debug/foundry --help (rebuild + warm BEFORE the lanes)",
+            "FOUNDRY_ACCEPTANCE_TAGS=pnr CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo test -p foundry-acceptance --test acceptance",
+            "FOUNDRY_ACCEPTANCE_TAGS=iapr CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo test -p foundry-acceptance --test acceptance ('Sandbox!' slug refusal and duplicate arms on rename)",
+            "FOUNDRY_ACCEPTANCE_TAGS=us-07 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo test -p foundry-acceptance --test acceptance ('Duplicate project name within the same team is rejected' now via the sibling check)",
+            "FOUNDRY_ACCEPTANCE_TAGS=us-r01 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo test -p foundry-acceptance --test acceptance",
+            "FOUNDRY_ACCEPTANCE_TAGS=blm CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo test -p foundry-acceptance --test acceptance",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance (default lane)"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): unit tests for new pure logic (ensure_unique_among's empty-slug skip) MUST be property-based (proptest) with state-delta discipline where state mutates; single-example unit tests are FALLBACK only with a # bypass: comment, EXCEPT the DoD-6 uniqueness pairs, which are mandatory exact examples. Acceptance scenarios are the cucumber .feature file (already authored by DISTILL \u2014 un-pend, do not re-author). Integration/browser tests stay single-example \u2014 they verify wiring. Contract shape: ensure_unique_among pure; create_project bounded-change. RED first: an_empty_derived_address_is_never_an_address_match and scenario 21 fail for the right reason (uniqueness copy) before the skip lands; the other three core tests and scenarios 18, 19 are GREEN_ALREADY guards. Un-pend in DISTILL order: 17, 21, then the guards 18, 19. The parity outlines 22 and 23 are NOT un-pended here (owned by 05-01). Self-exclusion is the caller's job (review resolution): create passes the fresh id, rename its own id; never filter inside the method. Named faults killed: name arm missing on create (17); case-sensitive name compare; empty-slug skip missing (21) or swallowing the non-empty arm (18); uniqueness scoped to the workspace (19). CHANGELOG: create now refuses a case-insensitive duplicate of a renamed sibling (behaviour change, recorded at finalize). DDD-13/D14: no refusal logs the raw name. Lessons: fixtures before snapshots (the legacy empty-slug row is seeded by SQL before the snapshot); raw text where whitespace matters. MUTATION: >= 80% on modified files (project_name.rs, services projects.rs) with exact boundary pairs: '\ud83d\ude80' beside a stored '' accepted vs 'Auth V2!' beside auth-v2 refused (the guard on the empty case only); 'identity platform' vs 'Identity Platform' (case fold); same name in another team accepted."
+        }
+      ]
+    },
+    {
+      "id": "04",
+      "name": "Every new project gets a board you can open (US-PNR-04, D7, D15-D17, DDD-9/10/14b, ADR-PROJECT-NAME-002)",
+      "steps": [
+        {
+          "id": "04-01",
+          "name": "mint_project_slug, bounded fallback retry, FallbackSlugContention, Sandbox mint pin",
+          "description": "In crates/foundry-core (beside slugify in lib.rs, or in project_name.rs) add pure mint_project_slug(name: &ProjectName, key: &ProjectKey, team_slugs: &[String]) -> MintedSlug: Derived(name.derived_slug()) when non-empty (verbatim, no taken-set lookup: the sibling check already refused a derived collision); otherwise KeyFallback(first of k, k-2, k-3, ... not in team_slugs), k = key lower-cased; never '', never -1, lowest free (not max+1); a legacy '' sibling is ignored. slugify is unchanged. In crates/foundry-services/src/projects.rs create_project mints after the key parse from the slug column of the same sibling read, then inserts; on ProjectInsertError::DuplicateSlug for a KeyFallback slug it re-reads siblings, re-runs ensure_unique_among, re-mints and re-inserts, at most 3 attempts in total, each attempt its own transaction; exhaustion -> FallbackSlugContention with one tracing::warn! carrying team id and attempt count only (never the name or slug); a Derived slug's violation stays InvalidName(NotUnique), no retry. In crates/foundry-app/src/projects.rs map FallbackSlugContention to internal_error and redirect success to the minted slug. In crates/foundry-core/tests/project_name.rs delete the remaining shim and the SCAFFOLD header marker and un-ignore the five slice-04 tests (D13 mint half included). In crates/foundry-services/tests/create_project_use_case.rs remove the SCAFFOLD header marker and un-ignore the five slice-04 tests (1b, stale retry, exhaustion, Derived arm, concurrent same-name). Then un-pend eight scenarios in the DISTILL order.",
+          "criteria": [
+            "'\u65e5\u672c\u8a9e\u30dc\u30fc\u30c9' with JP lands on /team/backend/project/jp headed with the name, and /jp/report opens; '\ud83d\ude80' RKT then lands on rkt, also beside a legacy empty-slug project",
+            "'\ud83d\udee0' OPS beside ops lands on ops-2; {jp, jp-2} -> jp-3; {jp-2} -> jp; {jp, jp-1} -> jp-2; '\u03a9mega 2' -> mega-2 and 'Caf\u00e9 Roadmap' -> caf-roadmap unchanged",
+            "Renaming the jp project to 'Japanese Board' keeps /team/backend/project/jp; a later 'JP' create gets the uniqueness copy (D17), nothing moved",
+            "Services: stale read retries to jp-2 never NotUnique; 3 lost races -> FallbackSlugContention with zero rows; Derived collision -> InvalidName(NotUnique), zero rows; no SCAFFOLD marker left in either test file",
+            "Owned scenarios green in the pnr lane; iapr, us-07, us-r01, blm, us-05, default lanes, check-arch, fmt, clippy, smoke green"
+          ],
+          "estimate": "1 day",
+          "dependencies": [
+            "03-01"
+          ],
+          "files_to_modify": [
+            "crates/foundry-core/src/lib.rs",
+            "crates/foundry-core/src/project_name.rs",
+            "crates/foundry-services/src/projects.rs",
+            "crates/foundry-app/src/projects.rs",
+            "crates/foundry-core/tests/project_name.rs",
+            "crates/foundry-services/tests/create_project_use_case.rs",
+            "crates/foundry-acceptance/tests/features/project-name-rule.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/project-name-rule.feature",
+          "scenario_name": [
+            "A project named in Japanese lands on its own board",
+            "Two projects without Latin letters can live in one team",
+            "The fallback address takes the next free number when its first choice is used",
+            "The fallback address takes the lowest free number, never \"-1\"",
+            "An old project with no address does not block a new one",
+            "Renaming such a project keeps its address",
+            "A name that spells a fallback address already taken is refused",
+            "Names with Latin letters or digits keep today's addresses"
+          ],
+          "lane_commands": [
+            "timeout 600 cargo test -p foundry-core --test project_name",
+            "timeout 900 cargo test -p foundry-services --test create_project_use_case (Docker up: per-test Postgres testcontainer)",
+            "timeout 600 cargo test -p foundry-services projects",
+            "timeout 600 cargo xtask check-arch",
+            "timeout 900 cargo fmt --all -- --check && timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "timeout 1800 cargo xtask smoke",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && timeout 300 target/debug/foundry --help (rebuild + warm BEFORE the lanes)",
+            "FOUNDRY_ACCEPTANCE_TAGS=pnr CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo test -p foundry-acceptance --test acceptance",
+            "FOUNDRY_ACCEPTANCE_TAGS=iapr CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo test -p foundry-acceptance --test acceptance (rename never re-mints)",
+            "FOUNDRY_ACCEPTANCE_TAGS=us-07 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo test -p foundry-acceptance --test acceptance",
+            "FOUNDRY_ACCEPTANCE_TAGS=us-r01 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo test -p foundry-acceptance --test acceptance",
+            "FOUNDRY_ACCEPTANCE_TAGS=blm CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo test -p foundry-acceptance --test acceptance",
+            "FOUNDRY_ACCEPTANCE_TAGS=us-05 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo test -p foundry-acceptance --test acceptance (seeded Sandbox keeps its sandbox address)",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance (default lane)"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): unit tests for new pure logic (mint_project_slug) MUST be property-based (proptest) with state-delta discipline where state mutates; single-example unit tests are FALLBACK only with a # bypass: comment, EXCEPT the DoD-6 mint pairs, which are mandatory exact examples. Acceptance scenarios are the cucumber .feature file (already authored by DISTILL \u2014 un-pend, do not re-author). Integration/browser tests stay single-example \u2014 they verify wiring. Contract shape: mint_project_slug pure (total, never refuses); create_project bounded-change \u2014 each attempt all-or-nothing, an exhausted retry writes zero projects and lanes and changes no existing slug. Un-pend order: core mint tests + D13 mint half + the fallback property; services 1b, then the four retry tests; then scenarios 24, 25, 26, 27, 30, 29, 31, then the guard 28. The retry is driven deterministically through the scripted-sibling-read seam (OQ-D3); acceptance covers only the sequential -2/-3/lowest-free cases. Review resolution: DuplicateSlug vs DuplicateKey still relies on Postgres's auto-generated constraint names; the services retry tests pin it; naming the constraints is a follow-up needing a migration, not done here. Named faults killed: always the key prefix (28); suffix starting at 1 or at max+1 (27); a fallback that refuses or reuses a taken address (26, 30); '' ever stored (24, KPI-5); rename re-minting (29); a Derived collision retried into a suffix, or a lost fallback race shown as the uniqueness copy (services). DDD-13/D14: refusals log nothing; contention logs one warn with team id and attempt count, never the name or slug. Lessons: fixtures before snapshots (seed 'Ops' / legacy '' rows before the universe snapshot); raw text where whitespace matters; assert redirect Location exactly. MUTATION: >= 80% on modified files (mint in foundry-core, services projects.rs retry loop, foundry-app/src/projects.rs mapping) with exact boundary pairs: mega-2 verbatim vs jp fallback; {jp} -> jp-2; {jp, jp-2} -> jp-3; {jp-2} -> jp; {jp, jp-1} -> jp-2; attempts 3 vs 4 (exhaustion bound); KeyFallback retried vs Derived not retried."
+        }
+      ]
+    },
+    {
+      "id": "05",
+      "name": "KPI-2 parity and burn-down: same verdict and same words at both doors (D2, D4, D14, KPI-2, KPI-3)",
+      "steps": [
+        {
+          "id": "05-01",
+          "name": "Two-door parity outlines; zero @pending; zero SCAFFOLD; D14 logging review",
+          "description": "Un-pend the two parity outlines: each door (create in Backend with key PAR, rename of Sandbox) is reduced to Refused(copy) or Accepted(stored); the 11 refusal rows ('', blank, 257 a, A + 256 \u00d7 \u65e5, TAB, U+202E, U+2028, NUL, 150 + TAB + 150, 'identity platform', 'Auth V2!') must equal the expected copy at both doors with nothing moved; the 4 acceptance rows ('[TAB]Kitchen Board[NEWLINE]', the ZWJ family, 256 a, interior NBSP) must store the same value at both doors, read back from the store. Expected to be pure assertion enablement; fix any divergence in the owning door's code. Then the burn-down: zero @pending tag lines in project-name-rule.feature, zero SCAFFOLD markers in crates/foundry-core/tests/project_name.rs, crates/foundry-services/tests/create_project_use_case.rs and the project_name_one_source section of xtask/src/check_arch.rs; the D14 / DDD-13 logging review (grep the rename, create and contention arms: no tracing field, Debug or format of the raw name or slug); the per-feature mutation report.",
+          "criteria": [
+            "All 11 refusal rows give the same D4 copy at create and rename with nothing moved (KPI-2: 2 of 2 doors); NUL is the control copy, never 'internal error' (KPI-3)",
+            "All 4 acceptance rows store the same trimmed value at both doors, read back from the store",
+            "grep -cE '^[[:space:]]*@.*@pending' on project-name-rule.feature prints 0; zero SCAFFOLD markers for this feature in core, services and check-arch",
+            "No refusal arm logs the raw name; contention logs team id and attempt count only; mutation kill rate >= 80% on every modified production file",
+            "Full pnr lane (browser scenarios actually run) plus iapr, iwnr, us-07, us-r01, blm, form-error-display-contract, us-05 and default lanes green; check-arch, fmt, clippy, xtask ci green"
+          ],
+          "estimate": "0.25 day",
+          "dependencies": [
+            "04-01"
+          ],
+          "files_to_modify": [
+            "crates/foundry-acceptance/tests/features/project-name-rule.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/project-name-rule.feature",
+          "scenario_name": [
+            "Both doors refuse the same name in the same words",
+            "Both doors accept the same name and store it the same way"
+          ],
+          "lane_commands": [
+            "timeout 600 cargo xtask check-arch",
+            "timeout 900 cargo fmt --all -- --check && timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "timeout 1800 cargo test -p foundry-core -p foundry-services -p xtask (Docker up)",
+            "docker info (Postgres testcontainer + selenium/standalone-chrome)",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && timeout 300 target/debug/foundry --help (rebuild + warm BEFORE the lanes)",
+            "FOUNDRY_ACCEPTANCE_TAGS=pnr CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (expect 74 scenarios passed, 0 skipped; @needs-browser count non-zero)",
+            "for t in iapr iwnr us-07 us-r01 blm form-error-display-contract us-05; do FOUNDRY_ACCEPTANCE_TAGS=$t CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance || break; done",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance (default lane)",
+            "timeout 60 grep -cE '^[[:space:]]*@.*@pending' crates/foundry-acceptance/tests/features/project-name-rule.feature (expect 0)",
+            "timeout 60 grep -n 'SCAFFOLD' crates/foundry-core/tests/project_name.rs crates/foundry-services/tests/create_project_use_case.rs (expect no output); timeout 60 grep -n 'SCAFFOLD' xtask/src/check_arch.rs (expect no hit in the project_name_one_source section)",
+            "timeout 60 grep -nE 'tracing::|warn!|info!|error!|debug!' crates/foundry-app/src/projects.rs crates/foundry-app/src/instance_admin.rs crates/foundry-services/src/projects.rs (D14 review: no raw name or slug field in any refusal or contention arm)",
+            "timeout 3600 cargo mutants --in-diff <feature diff> --file <each modified production file> (per-feature gate >= 80%)",
+            "FOUNDRY_XTASK_INCLUDE_DOCKER=1 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 5400 cargo xtask ci (before push; without the env var the browser lane is silently skipped)"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): unit tests for new pure logic MUST be property-based (proptest) with state-delta discipline where state mutates; single-example unit tests are FALLBACK only with a # bypass: comment. Acceptance scenarios are the cucumber .feature file (already authored by DISTILL \u2014 un-pend, do not re-author). Integration/browser tests stay single-example \u2014 they verify wiring. EXEMPT FROM PARADIGM: cross-door parity matrix over a finite door set (exact copy strings) \u2014 the quantified invariant lives in the core proptests (01-01). Un-pend in order: 22, then 23. DISTILL placed these at the end of slice 03; this roadmap moves them to the final step so the matrix runs once every create-side change (rule, uniqueness, mint) has landed; they may already pass after 03-01 but stay @pending until here. Named faults killed: a door rendering its own copy (22, and check-arch a); a door storing the raw instead of the trimmed value (23 Kitchen Board); NUL reaching Postgres at either door (22); create accepting what rename refuses (22, the KPI-2 baseline). D14 / DDD-13 review (DISTILL open item): the acceptance harness does not capture tracing, so before closing DELIVER inspect every refusal arm in submit_create, create_project, submit_project_rename and rename_project and confirm none logs the raw name; the contention warn carries team id and attempt count only. Optional (DISTILL open item, no user decision needed): one @pnr /api/v1 read of a fallback-slug project with a machine token if the reviewer asks. Lessons: fixtures before snapshots; raw text where whitespace matters (the [TAB]...[NEWLINE] row); attribute markers over prose. MUTATION: per-feature gate >= 80% kill rate over every production file modified by 01-01..04-01 (cargo mutants --in-diff, scoped per file); surviving mutants on a predicate bound, the 256 cap, the empty-slug guard, the suffix start or the retry bound must be killed with an exact boundary pair, not waived. Lane caveats: us-04 rolling-upgrade in the default lane is a known concurrency flake (rerun it alone before calling it a regression); xtask ci silently skips the browser lane without Docker (FOUNDRY_XTASK_INCLUDE_DOCKER=1); another session may share this worktree \u2014 check for running lanes/containers first."
+        }
+      ]
+    }
+  ],
+  "implementation_scope": {
+    "source_directories": [
+      "crates/foundry-core/src/",
+      "crates/foundry-services/src/",
+      "crates/foundry-app/src/",
+      "crates/foundry-store/src/",
+      "xtask/src/"
+    ],
+    "test_directories": [
+      "crates/foundry-core/tests/",
+      "crates/foundry-services/tests/",
+      "crates/foundry-acceptance/tests/",
+      "crates/foundry-acceptance/src/steps/"
+    ],
+    "excluded_patterns": [
+      "target/**",
+      "crates/foundry-store/migrations/**",
+      "crates/foundry-app/static/**"
+    ]
+  },
+  "validation": {
+    "status": "approved",
+    "reviewer": "nw-acceptance-designer-reviewer",
+    "date": "2026-10-06"
+  }
+}
