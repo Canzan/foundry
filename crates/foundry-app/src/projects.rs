@@ -34,7 +34,7 @@ use axum::http::header::{
 };
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
-use foundry_core::{slugify, ProjectKey, ProjectKeyError};
+use foundry_core::{slugify, ProjectKey, ProjectKeyError, ProjectNameError};
 use foundry_store::{ProjectChangeRow, ProjectInsertError, ProjectRow};
 use serde::Deserialize;
 use std::collections::BTreeMap;
@@ -162,7 +162,7 @@ pub async fn submit_create(
             &headers,
             raw_name,
             raw_key,
-            "Project name must not be empty",
+            &ProjectNameError::Empty.to_string(),
             is_htmx,
             nav,
         );
@@ -185,7 +185,7 @@ pub async fn submit_create(
                 &headers,
                 raw_name,
                 raw_key,
-                "Project name must be unique within the team",
+                &ProjectNameError::NotUnique.to_string(),
                 is_htmx,
                 nav,
             );
@@ -235,7 +235,7 @@ pub async fn submit_create(
             &headers,
             raw_name,
             raw_key,
-            "Project name must be unique within the team",
+            &ProjectNameError::NotUnique.to_string(),
             is_htmx,
             nav,
         ),

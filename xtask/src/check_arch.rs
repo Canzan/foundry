@@ -98,6 +98,7 @@ fn source_violations(root: &Path) -> Vec<String> {
     violations.extend(check_stylesheet_colour_seam(root));
     violations.extend(check_stylesheet_dark_block_parity(root));
     violations.extend(check_workspace_name_one_source(root));
+    violations.extend(check_project_name_one_source(root));
     violations
 }
 
@@ -136,7 +137,7 @@ pub fn run(args: Vec<String>) -> ExitCode {
     let verdict = verdict(&args);
     match &verdict {
         Verdict::Passed => println!(
-            "check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, the lanes position constraint is still DEFERRABLE, no board-*.js registers a keydown listener, nothing outside migration 0017 UPDATEs users.provisioned_at (D9), both publish workflows stamp every image with its commit and the Dockerfile hands it to build.rs (AC-8), every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, no colour literal outside the three stylesheet token regions, the three stylesheet token regions declare the identical colour-token set, the workspace-name refusal copy lives only in foundry-core and no production door calls create_initial_workspace, dependency direction)"
+            "check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, the lanes position constraint is still DEFERRABLE, no board-*.js registers a keydown listener, nothing outside migration 0017 UPDATEs users.provisioned_at (D9), both publish workflows stamp every image with its commit and the Dockerfile hands it to build.rs (AC-8), every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, no colour literal outside the three stylesheet token regions, the three stylesheet token regions declare the identical colour-token set, the workspace-name refusal copy lives only in foundry-core and no production door calls create_initial_workspace, the project-name refusal copy lives only in foundry-core, dependency direction)"
         ),
         Verdict::UnparseableArguments(message) => eprintln!("check-arch: {message}"),
         Verdict::Violations(violations) => {
@@ -4205,9 +4206,9 @@ mod tests {
 // instance-workspace-name-rule DDD-12 — `workspace-name-one-source`
 // ---------------------------------------------------------------------------
 
-/// The adapter and service crates that must never state the workspace-name
-/// copy themselves (DDD-12a).
-const WORKSPACE_NAME_COPY_FORBIDDEN_IN: [&str; 4] = [
+/// The adapter, service and store crates that must never state a name-rule
+/// refusal copy themselves (workspace DDD-12a, project DDD-12a).
+const NAME_COPY_FORBIDDEN_IN: [&str; 4] = [
     "foundry-app",
     "foundry-services",
     "foundry-api",
@@ -4239,16 +4240,59 @@ const WORKSPACE_NAME_COPY_PREFIX: &str = "\"Workspace name must";
 /// every production door names a workspace through `WorkspaceName`. The seam's
 /// definition in foundry-store and its test callers are not flagged.
 fn check_workspace_name_one_source(root: &Path) -> Vec<String> {
+    scan_one_source(
+        root,
+        &WORKSPACE_NAME_ONE_SOURCE,
+        &|crate_name, file, contents| {
+            if WORKSPACE_SEAM_FORBIDDEN_IN.contains(&crate_name) {
+                workspace_seam_call_violations_in(root, file, contents)
+            } else {
+                Vec::new()
+            }
+        },
+    )
+}
+
+/// A "the refusal copy has one home" rule: no `.rs` under the
+/// [`NAME_COPY_FORBIDDEN_IN`] crates' `src` may contain `copy_prefix`.
+struct OneSourceRule {
+    /// Rule id, the prefix of every violation it reports.
+    id: &'static str,
+    /// The literal opening of the copy, quote included.
+    copy_prefix: &'static str,
+    /// Where the copy lives instead, for the violation message.
+    home: &'static str,
+    /// The design reference the messages cite.
+    reference: &'static str,
+}
+
+const WORKSPACE_NAME_ONE_SOURCE: OneSourceRule = OneSourceRule {
+    id: "workspace-name-one-source",
+    copy_prefix: WORKSPACE_NAME_COPY_PREFIX,
+    home: "WorkspaceNameError's Display in foundry-core",
+    reference: "DDD-3/DDD-12",
+};
+
+/// Per-file extra clauses a one-source rule adds on top of the copy scan.
+type ExtraClause<'a> = dyn Fn(&str, &Path, &str) -> Vec<String> + 'a;
+
+/// The shared scan behind every one-source rule: walk each forbidden crate's
+/// `src`, flag every line stating the copy (`file:line`), and run `extra` on
+/// each file. A missing `crates/`, an unreadable directory or file fails the
+/// rule — it never passes vacuously.
+fn scan_one_source(root: &Path, rule: &OneSourceRule, extra: &ExtraClause<'_>) -> Vec<String> {
     let crates_dir = root.join("crates");
     if !crates_dir.is_dir() {
         return vec![format!(
-            "workspace-name-one-source: cannot list {} — no crate could be checked for a \
-             second copy of the workspace-name refusal (DDD-12).",
-            crates_dir.display()
+            "{}: cannot list {} — no crate could be checked for a second copy of the \
+             refusal ({}).",
+            rule.id,
+            crates_dir.display(),
+            rule.reference
         )];
     }
     let mut violations = Vec::new();
-    for crate_name in WORKSPACE_NAME_COPY_FORBIDDEN_IN {
+    for crate_name in NAME_COPY_FORBIDDEN_IN {
         let src = crates_dir.join(crate_name).join("src");
         if !src.is_dir() {
             continue;
@@ -4256,26 +4300,53 @@ fn check_workspace_name_one_source(root: &Path) -> Vec<String> {
         let (sources, unreadable) = files_under(&src, "rs", &|_| false);
         for dir in &unreadable {
             violations.push(format!(
-                "workspace-name-one-source: cannot list {} — it could not be checked for a \
-                 second copy of the workspace-name refusal (DDD-12).",
-                rel(root, dir)
+                "{}: cannot list {} — it could not be checked for a second copy of the \
+                 refusal ({}).",
+                rule.id,
+                rel(root, dir),
+                rule.reference
             ));
         }
         for file in &sources {
             let Ok(contents) = std::fs::read_to_string(file) else {
                 violations.push(format!(
-                    "workspace-name-one-source: cannot read {} (DDD-12).",
-                    rel(root, file)
+                    "{}: cannot read {} ({}).",
+                    rule.id,
+                    rel(root, file),
+                    rule.reference
                 ));
                 continue;
             };
-            violations.extend(workspace_name_copy_violations_in(root, file, &contents));
-            if WORKSPACE_SEAM_FORBIDDEN_IN.contains(&crate_name) {
-                violations.extend(workspace_seam_call_violations_in(root, file, &contents));
-            }
+            violations.extend(copy_violations_in(root, rule, file, &contents));
+            violations.extend(extra(crate_name, file, &contents));
         }
     }
     violations
+}
+
+/// The copy violations in one file, each naming `file:line`.
+fn copy_violations_in(
+    root: &Path,
+    rule: &OneSourceRule,
+    file: &Path,
+    contents: &str,
+) -> Vec<String> {
+    contents
+        .lines()
+        .enumerate()
+        .filter(|(_, line)| line.contains(rule.copy_prefix))
+        .map(|(line_no, _)| {
+            format!(
+                "{}: {}:{} states the refusal copy — its one home is {}; render \
+                 `err.to_string()` instead ({})",
+                rule.id,
+                rel(root, file),
+                line_no + 1,
+                rule.home,
+                rule.reference,
+            )
+        })
+        .collect()
 }
 
 /// The DDD-12b violations in one file: each line calling the test-seeding seam,
@@ -4295,24 +4366,6 @@ fn workspace_seam_call_violations_in(root: &Path, file: &Path, contents: &str) -
                 "workspace-name-one-source: {}:{} calls the test-seeding seam \
                  `create_initial_workspace` from a production door — it applies no \
                  workspace-name rule; name the workspace through `WorkspaceName` (DDD-7/DDD-12)",
-                rel(root, file),
-                line_no + 1,
-            )
-        })
-        .collect()
-}
-
-/// The DDD-12a violations in one file, each naming `file:line`.
-fn workspace_name_copy_violations_in(root: &Path, file: &Path, contents: &str) -> Vec<String> {
-    contents
-        .lines()
-        .enumerate()
-        .filter(|(_, line)| line.contains(WORKSPACE_NAME_COPY_PREFIX))
-        .map(|(line_no, _)| {
-            format!(
-                "workspace-name-one-source: {}:{} states the workspace-name refusal copy — \
-                 its one home is WorkspaceNameError's Display in foundry-core; render \
-                 `err.to_string()` instead (DDD-3/DDD-12)",
                 rel(root, file),
                 line_no + 1,
             )
@@ -4476,12 +4529,18 @@ mod workspace_name_one_source_tests {
 // project-name-rule DDD-12 — `project-name-one-source`
 // ---------------------------------------------------------------------------
 //
-// SCAFFOLD: true — DISTILL 2026-10-06. Not wired into `source_violations` and
-// every gold test below is `#[ignore]`d. DELIVER: slice 01 implements clause (a)
-// (the copy literal; parameterise the `workspace-name-one-source` scan helper by
-// rule id and prefix), slice 02 adds clause (b) (no `insert_project(` call in
-// the app/api doors), wires the rule into `source_violations` and the PASSED
-// banner, and removes the ignores.
+// Clause (a) is implemented and wired (slice 01). DELIVER slice 02 adds clause
+// (b) (no `insert_project(` call in the app/api doors) and removes its ignores.
+
+/// The opening of every D4 project-name refusal, quote included.
+const PROJECT_NAME_COPY_PREFIX: &str = "\"Project name must";
+
+const PROJECT_NAME_ONE_SOURCE: OneSourceRule = OneSourceRule {
+    id: "project-name-one-source",
+    copy_prefix: PROJECT_NAME_COPY_PREFIX,
+    home: "ProjectNameError's Display in foundry-core",
+    reference: "DDD-4/DDD-12",
+};
 
 /// `project-name-one-source` (project-name-rule DDD-12).
 ///
@@ -4490,13 +4549,12 @@ mod workspace_name_one_source_tests {
 /// (comments and in-file `#[cfg(test)]` included) — its one production home is
 /// `ProjectNameError`'s `Display` in `crates/foundry-core/src` (DDD-4).
 ///
-/// (b) `insert_project(` has no call site under
+/// (b) — not yet checked; DELIVER slice 02 — `insert_project(` has no call site under
 /// `crates/{foundry-app,foundry-api}/src`: the one mint point is
 /// `foundry_services::projects::create_project` (DDD-5/9). The store's
 /// definition, the services caller and test callers are not flagged.
-#[cfg_attr(not(test), allow(dead_code))]
-fn check_project_name_one_source(_root: &Path) -> Vec<String> {
-    panic!("SCAFFOLD: check-arch project-name-one-source is not implemented yet (DDD-12)")
+fn check_project_name_one_source(root: &Path) -> Vec<String> {
+    scan_one_source(root, &PROJECT_NAME_ONE_SOURCE, &|_, _, _| Vec::new())
 }
 
 #[cfg(test)]
@@ -4526,7 +4584,6 @@ mod project_name_one_source_tests {
         #[error(\"Project name must not be empty\")]\n    Empty,\n}\n";
 
     #[test]
-    #[ignore = "SCAFFOLD: project-name-one-source clause (a), slice 01"]
     fn the_copy_in_foundry_core_is_its_one_home() {
         let tree = stage(&[("crates/foundry-core/src/project_name.rs", CORE_COPY)]);
         let violations = check_project_name_one_source(tree.path());
@@ -4534,7 +4591,6 @@ mod project_name_one_source_tests {
     }
 
     #[test]
-    #[ignore = "SCAFFOLD: project-name-one-source clause (a), slice 01"]
     fn a_second_copy_in_any_adapter_service_or_store_crate_is_flagged() {
         let tree = stage(&[
             ("crates/foundry-core/src/project_name.rs", CORE_COPY),
@@ -4576,7 +4632,6 @@ mod project_name_one_source_tests {
     }
 
     #[test]
-    #[ignore = "SCAFFOLD: project-name-one-source clause (a), slice 01"]
     fn expected_strings_in_the_acceptance_suite_and_crate_tests_are_not_flagged() {
         let tree = stage(&[
             ("crates/foundry-core/src/project_name.rs", CORE_COPY),
@@ -4598,7 +4653,6 @@ mod project_name_one_source_tests {
     }
 
     #[test]
-    #[ignore = "SCAFFOLD: project-name-one-source clause (a), slice 01"]
     fn the_workspace_copy_and_other_project_copy_are_not_this_rules_business() {
         let tree = stage(&[
             ("crates/foundry-core/src/project_name.rs", CORE_COPY),
@@ -4664,7 +4718,6 @@ mod project_name_one_source_tests {
     }
 
     #[test]
-    #[ignore = "SCAFFOLD: project-name-one-source, slice 01"]
     fn a_missing_crates_directory_fails_the_rule() {
         let tree = stage(&[("README.md", "nothing here\n")]);
         let violations = check_project_name_one_source(tree.path());

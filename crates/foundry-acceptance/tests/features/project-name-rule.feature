@@ -67,7 +67,7 @@ Feature: One rule for naming a project, at both doors
       Given Priya is the instance super-admin
       And workspace "Canzan Labs" has a team "Backend" with projects "Auth v2" (AUTH) and "Sandbox" (SBX)
 
-    @pending @us-pnr-01 @error @real-io @contract-shape:unbounded-preservation
+    @us-pnr-01 @error @real-io @contract-shape:unbounded-preservation
     Scenario Outline: A project name with an invisible character inside it is refused inside the row
       When Priya renames project "Sandbox" to the pasted name "<pasted>"
       Then the rename is refused saying "Project name must not contain control characters"
@@ -81,13 +81,13 @@ Feature: One rule for naming a project, at both doors
         | Ops[U+2066]Stacking  |
         | Reading[U+2028]List  |
 
-    @pending @us-pnr-01 @error @kpi @real-io @contract-shape:unbounded-preservation
+    @us-pnr-01 @error @kpi @real-io @contract-shape:unbounded-preservation
     Scenario: A null character in the new name is refused with the reason, not an internal error
       When Priya renames project "Sandbox" to the pasted name "Identity[NUL]Platform"
       Then the rename is refused saying "Project name must not contain control characters"
       And no project changed and nothing was created
 
-    @pending @us-pnr-01 @edge @guard @real-io @contract-shape:bounded-change
+    @us-pnr-01 @edge @guard @real-io @contract-shape:bounded-change
     Scenario Outline: Joined, accented, long and padded names are accepted and the board stays where it was
       When Priya renames project "Sandbox" to the pasted name "<pasted>"
       Then project "Sandbox" is now named "<stored>", and its board still opens at its original address
@@ -99,7 +99,7 @@ Feature: One rule for naming a project, at both doors
         | [TAB]Sandbox Experiments[NEWLINE] | Sandbox Experiments          |
         | [256×日]                          | [256×日]                     |
 
-    @pending @us-pnr-01 @error @real-io @contract-shape:unbounded-preservation
+    @us-pnr-01 @error @real-io @contract-shape:unbounded-preservation
     Scenario Outline: The reason given is the first one that applies
       When Priya renames project "Sandbox" to the pasted name "<pasted>"
       Then the rename is refused saying "<refusal>"
@@ -114,7 +114,7 @@ Feature: One rule for naming a project, at both doors
         | [257×日]            | Project name must be at most 256 characters       |
         | auth V2             | Project name must be unique within the team       |
 
-    @pending @us-pnr-01 @edge @guard @real-io @contract-shape:unbounded-preservation
+    @us-pnr-01 @edge @guard @real-io @contract-shape:unbounded-preservation
     Scenario Outline: An untouched name from before the rule can be left as it is
       Given project "<legacy>" (<key>) was named before the rule existed
       When Priya renames project "<legacy>" to the pasted name "<legacy>"
@@ -128,20 +128,20 @@ Feature: One rule for naming a project, at both doors
         | [300×x]         | LNG |
         | sandbox         | SBL |
 
-    @pending @us-pnr-01 @error @security @guard @real-io @contract-shape:unbounded-preservation
+    @us-pnr-01 @error @security @guard @real-io @contract-shape:unbounded-preservation
     Scenario: A rename aimed at a project that does not exist is answered like a missing page, whatever the name
       When Priya sends a rename with the pasted name "Sand[TAB]box" aimed at a project id that matches nothing
       Then the answer is byte-identical to a never-existed address
       And no project changed and nothing was created
 
-    @pending @us-pnr-01 @error @security @guard @real-io @contract-shape:unbounded-preservation
+    @us-pnr-01 @error @security @guard @real-io @contract-shape:unbounded-preservation
     Scenario: A non-admin's rename is answered like a missing page before the name is looked at
       Given Marco is a signed-in member who is not an instance admin
       When Marco sends the rename for "Sandbox" with the pasted name "Sand[TAB]box"
       Then the answer is byte-identical to a never-existed address
       And no project changed and nothing was created
 
-    @pending @us-pnr-01 @needs-browser @error @real-io @contract-shape:unbounded-preservation
+    @us-pnr-01 @needs-browser @error @real-io @contract-shape:unbounded-preservation
     Scenario: A pasted tab is explained inside the row on the real page
       Given Priya has the instance dashboard open in her browser
       When she pastes "Auth[TAB]Platform" over the "Auth v2" project name in her browser and submits it

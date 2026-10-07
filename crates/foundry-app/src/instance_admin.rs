@@ -514,19 +514,11 @@ pub async fn submit_project_rename(
         Err(RenameProjectError::Forbidden) | Err(RenameProjectError::NotFound) => {
             resource_not_found_page()
         }
-        // Handler-owned copy, service-owned classification (D4/D6 verbatim).
-        Err(RenameProjectError::EmptyName) => rename_error_fragment(
-            PROJECT_RENAME_ERROR_MARKER,
-            "Project name must not be empty",
-        ),
-        Err(RenameProjectError::NameTooLong) => rename_error_fragment(
-            PROJECT_RENAME_ERROR_MARKER,
-            "Project name must be at most 256 characters",
-        ),
-        Err(RenameProjectError::DuplicateName) => rename_error_fragment(
-            PROJECT_RENAME_ERROR_MARKER,
-            "Project name must be unique within the team",
-        ),
+        // The copy's one home is ProjectNameError's Display (DDD-4): never
+        // match a rule variant here, so a new arm reaches this door unedited.
+        Err(RenameProjectError::InvalidName(err)) => {
+            rename_error_fragment(PROJECT_RENAME_ERROR_MARKER, &err.to_string())
+        }
         Err(RenameProjectError::Store(err)) => internal_error("rename_project", err),
     }
 }
@@ -654,10 +646,8 @@ mod response_helper_tests {
     /// `[data-error-slot]`, D6) and the exact copy the handler chose.
     #[tokio::test]
     async fn rename_error_fragment_is_a_422_with_marker_and_copy() {
-        let resp = rename_error_fragment(
-            PROJECT_RENAME_ERROR_MARKER,
-            "Project name must not be empty",
-        );
+        let copy = foundry_core::ProjectNameError::Empty.to_string();
+        let resp = rename_error_fragment(PROJECT_RENAME_ERROR_MARKER, &copy);
         assert_eq!(
             resp.status(),
             StatusCode::UNPROCESSABLE_ENTITY,
@@ -669,7 +659,7 @@ mod response_helper_tests {
             "the fragment must carry the byte-stable scraper marker; body was:\n{body}"
         );
         assert!(
-            body.contains("Project name must not be empty"),
+            body.contains(&copy),
             "the fragment must carry the handler's copy verbatim; body was:\n{body}"
         );
     }

@@ -3,18 +3,18 @@
 //!
 //! Contract signatures DESIGN fixed in
 //! `docs/feature/instance-admin-project-rename/design/component-boundaries.md`.
-//! The ordered behaviour (the order pins the observable 422 precedence):
-//! `is_instance_admin` (defence-in-depth, the `provision_workspace` idiom) →
-//! context fetch → trim → no-op → empty → length → duplicate → update.
-//! Check-then-write; the TOCTOU window is accepted and bounded
-//! (data-models.md §4).
+//! The ordered behaviour (the order pins the observable 422 precedence,
+//! project-name-rule D5/D8/DDD-8): `is_instance_admin` (defence-in-depth, the
+//! `provision_workspace` idiom) → context fetch → sibling read → trim → no-op →
+//! the one project-name rule (`foundry_core::ProjectName`: empty → control →
+//! length → unique within the team) → update. Check-then-write; the TOCTOU
+//! window is accepted and bounded (data-models.md §4).
 //!
-//! Duplicate rule (D4): with `t` = trimmed new name, refuse when any sibling
-//! `(name, slug)` satisfies `t.to_lowercase() == name.to_lowercase()` OR
-//! `foundry_core::slugify(t) == slug`. Self is excluded by the query, so a
-//! case-only rename of a project onto itself is a VALID rename, and an
-//! exact-match self rename is the earlier NoOp.
+//! Self-exclusion is this caller's job: the sibling read excludes the project's
+//! own id, so a case-only rename of a project onto itself is a VALID rename, and
+//! an exact-match self rename is the earlier NoOp.
 
+use foundry_core::{ProjectName, ProjectNameError};
 use foundry_store::Store;
 
 /// The rename request as the driving adapter hands it over.
@@ -35,25 +35,20 @@ pub enum RenameOutcome {
     NoOp { name: String },
 }
 
-/// Typed refusals; the HANDLER owns the mapping to user-facing copy (the three
-/// exact 422 messages) and to the uniform non-enumerable 404 (D5/D6).
+/// Typed refusals. The handler maps `Forbidden`/`NotFound` to the uniform
+/// non-enumerable 404 (D5/D6) and renders `InvalidName`'s `Display` — the copy's
+/// one home is `ProjectNameError` in foundry-core (DDD-4/DDD-7).
 pub enum RenameProjectError {
     /// Actor is not an instance admin → handler renders uniform 404.
     Forbidden,
     /// Unknown project id (or lost race with a delete) → uniform 404.
     NotFound,
-    /// Trimmed name empty → 422 "Project name must not be empty".
-    EmptyName,
-    /// More than 256 chars (Unicode scalar count, mirroring the `issues.title`
-    /// CHECK semantics) → 422 "Project name must be at most 256 characters".
-    NameTooLong,
-    /// Case-insensitive name match OR `slugify(new)` == sibling stored slug,
-    /// self excluded → 422 "Project name must be unique within the team".
-    DuplicateName,
+    /// The new name breaks the project-name rule → 422 with its `Display`.
+    InvalidName(ProjectNameError),
     Store(foundry_store::StoreError),
 }
 
-/// What the pure D4 classification decides once the store reads are in hand.
+/// What the pure classification decides once the store reads are in hand.
 enum RenameDecision {
     /// Trimmed input byte-equal to the current name — write nothing.
     NoOp { name: String },
@@ -64,8 +59,8 @@ enum RenameDecision {
 /// The pure, store-free heart of the ordered-check contract: given the raw
 /// input plus everything the store reads returned — the current name and the
 /// team's OTHER projects' `(name, slug)` pairs (self excluded upstream by the
-/// query) — decide trim → no-op → empty → length (256 Unicode scalars) →
-/// duplicate. The order pins the observable 422 precedence.
+/// query) — decide trim → no-op → rule → uniqueness. The no-op precedes the
+/// rule, so an untouched legacy name is never refused (D8).
 fn classify_rename(
     raw_new_name: &str,
     current_name: &str,
@@ -77,32 +72,12 @@ fn classify_rename(
             name: trimmed.to_string(),
         });
     }
-    if trimmed.is_empty() {
-        return Err(RenameProjectError::EmptyName);
-    }
-    if trimmed.chars().count() > MAX_NAME_SCALARS {
-        return Err(RenameProjectError::NameTooLong);
-    }
-    if collides_with_sibling(trimmed, siblings) {
-        return Err(RenameProjectError::DuplicateName);
-    }
+    let name = ProjectName::try_new(trimmed).map_err(RenameProjectError::InvalidName)?;
+    name.ensure_unique_among(siblings)
+        .map_err(RenameProjectError::InvalidName)?;
     Ok(RenameDecision::Write {
-        name: trimmed.to_string(),
+        name: name.as_str().to_string(),
     })
-}
-
-/// Unicode-scalar cap on a project name — `trimmed.chars().count()`, mirroring
-/// the `issues.title` CHECK semantics (data-models.md §2).
-const MAX_NAME_SCALARS: usize = 256;
-
-/// D4 duplicate arm: case-insensitive match against a sibling NAME, or the
-/// derived slug colliding with a sibling's STORED slug.
-fn collides_with_sibling(trimmed: &str, siblings: &[(String, String)]) -> bool {
-    let lowered = trimmed.to_lowercase();
-    let derived_slug = foundry_core::slugify(trimmed);
-    siblings
-        .iter()
-        .any(|(name, slug)| name.to_lowercase() == lowered || *slug == derived_slug)
 }
 
 /// Rename a project's DISPLAY NAME only (D1: `slug`, `key_prefix`, and every
@@ -158,10 +133,11 @@ impl crate::Services {
 /// driving port — its inputs are exactly what the store reads hand over, so no
 /// store double is needed at this seam). Universe per case: the single decision
 /// value (`NoOp`/`Write{name}`/typed error) — the full observable surface of a
-/// pure function. Test budget: 5 distinct behaviours × 2 = 10 max; 5 written.
+/// pure function. Test budget: 8 distinct behaviours × 2 = 16 max; 8 written.
 #[cfg(test)]
 mod classify_rename_properties {
     use super::*;
+    use foundry_core::ProjectNameError;
     use proptest::prelude::*;
 
     /// A display-name-ish token with no leading/trailing whitespace — the
@@ -181,9 +157,33 @@ mod classify_rename_properties {
         )
     }
 
+    /// One character of the refused set (D3): Unicode Cc (TAB, NUL, DEL, …),
+    /// the bidi controls, and the line/paragraph separators.
+    fn refused_char() -> impl Strategy<Value = char> {
+        prop_oneof![
+            Just('\t'),
+            Just('\u{0}'),
+            Just('\u{7F}'),
+            Just('\u{1B}'),
+            Just('\u{202A}'),
+            Just('\u{202E}'),
+            Just('\u{2066}'),
+            Just('\u{2069}'),
+            Just('\u{2028}'),
+            Just('\u{2029}'),
+        ]
+    }
+
     /// A current name guaranteed disjoint from every generated sibling/new
     /// name (longer than the 22-char strategy ceiling).
     const CURRENT: &str = "QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ current";
+
+    fn is_invalid(
+        decision: &Result<RenameDecision, RenameProjectError>,
+        expected: ProjectNameError,
+    ) -> bool {
+        matches!(decision, Err(RenameProjectError::InvalidName(e)) if *e == expected)
+    }
 
     /// Flip the case of every alphabetic char — same name under the
     /// case-insensitive rule, different bytes.
@@ -203,13 +203,13 @@ mod classify_rename_properties {
 
     proptest! {
         /// Behaviour 1 — whatever the siblings, input that trims to nothing
-        /// is refused as EmptyName.
+        /// is refused as InvalidName(Empty).
         #[test]
         fn whitespace_only_input_is_empty(raw in "[ \t\r\n]{0,8}", sibs in siblings()) {
             let decision = classify_rename(&raw, CURRENT, &sibs);
             prop_assert!(
-                matches!(decision, Err(RenameProjectError::EmptyName)),
-                "{raw:?} trims to empty and must classify EmptyName"
+                is_invalid(&decision, ProjectNameError::Empty),
+                "{raw:?} trims to empty and must classify InvalidName(Empty)"
             );
         }
 
@@ -233,8 +233,8 @@ mod classify_rename_properties {
                 }
             } else {
                 prop_assert!(
-                    matches!(decision, Err(RenameProjectError::NameTooLong)),
-                    "{scalars} scalars must classify NameTooLong"
+                    is_invalid(&decision, ProjectNameError::TooLong),
+                    "{scalars} scalars must classify InvalidName(TooLong)"
                 );
             }
         }
@@ -261,15 +261,14 @@ mod classify_rename_properties {
         /// Behaviour 4 — the D4 duplicate rule over arbitrary sibling sets:
         /// a case-mangled sibling NAME, and a punctuation-mangled name whose
         /// derived SLUG collides with a sibling's STORED slug, are both
-        /// refused. Slug arm hardened at 03-01: punctuation in ANY position —
-        /// leading, trailing, and replacing every space — with the letter
-        /// case flipped on top, not just the single trailing-'!' shape.
+        /// refused. Punctuation in ANY position — leading, trailing, and
+        /// replacing every space — with the letter case flipped on top.
         /// `slugify` collapses each non-alphanumeric run to one '-' and
         /// strips the ends, so every such mangle derives the sibling's stored
         /// slug byte-for-byte, while the punctuation guarantees the NAME arm
         /// cannot be the one firing (sibling names carry none).
         #[test]
-        fn sibling_name_or_slug_collision_is_duplicate(
+        fn sibling_name_or_slug_collision_is_not_unique(
             sibs in siblings(),
             pick in any::<proptest::sample::Index>(),
             lead in "[!?.,;:*#@&+=]{0,2}",
@@ -278,26 +277,22 @@ mod classify_rename_properties {
         ) {
             prop_assume!(!sibs.is_empty());
             let (target_name, _) = &sibs[pick.index(sibs.len())];
-            // Case arm: same letters, different case.
             let case_mangled = flip_case(target_name);
             prop_assert!(
-                matches!(
-                    classify_rename(&case_mangled, CURRENT, &sibs),
-                    Err(RenameProjectError::DuplicateName)
+                is_invalid(
+                    &classify_rename(&case_mangled, CURRENT, &sibs),
+                    ProjectNameError::NotUnique
                 ),
                 "{case_mangled:?} case-matches sibling {target_name:?} and must be refused"
             );
-            // Slug arm: a name sharing no case-insensitive byte-identity with
-            // any sibling (trail is non-empty, so at least one punctuation
-            // char is always present) whose derived slug IS a sibling's.
             let slug_mangled = format!(
                 "{lead}{}{trail}",
                 flip_case(target_name).replace(' ', &sep)
             );
             prop_assert!(
-                matches!(
-                    classify_rename(&slug_mangled, CURRENT, &sibs),
-                    Err(RenameProjectError::DuplicateName)
+                is_invalid(
+                    &classify_rename(&slug_mangled, CURRENT, &sibs),
+                    ProjectNameError::NotUnique
                 ),
                 "{slug_mangled:?} slug-collides with sibling {target_name:?} and must be refused"
             );
@@ -334,13 +329,71 @@ mod classify_rename_properties {
                 _ => prop_assert!(false, "a non-colliding name must be written"),
             }
         }
+
+        /// Behaviour 6 — a refused character anywhere inside the trimmed name
+        /// is InvalidName(ControlCharacter), and control is checked BEFORE
+        /// length (the over-long name carrying one still reads "control")
+        /// and BEFORE uniqueness (its slug collides with a sibling's).
+        #[test]
+        fn an_interior_refused_char_is_control_before_length_and_uniqueness(
+            left in "[A-Za-z]{1,10}",
+            right in "[A-Za-z]{1,10}",
+            bad in refused_char(),
+            long in any::<bool>(),
+        ) {
+            let left = if long { "a".repeat(300) } else { left };
+            let raw = format!("{left}{bad}{right}");
+            // The slug ignores the refused char's run, so the sibling below
+            // collides on the slug arm.
+            let sibling_name = format!("{left} {right}");
+            let sibs = vec![(sibling_name.clone(), foundry_core::slugify(&sibling_name))];
+            prop_assert!(
+                is_invalid(&classify_rename(&raw, CURRENT, &sibs), ProjectNameError::ControlCharacter),
+                "{raw:?} carries a refused char and must classify InvalidName(ControlCharacter)"
+            );
+        }
+
+        /// Behaviour 7 — a legacy stored name the rule would now refuse (a
+        /// refused char, or past 256 scalars) re-submitted byte-equal is a
+        /// quiet NoOp (D8: the no-op precedes the rule).
+        #[test]
+        fn an_untouched_legacy_name_is_noop(
+            left in "[A-Za-z]{1,10}",
+            right in "[A-Za-z]{1,10}",
+            bad in refused_char(),
+            scalars in 257usize..400,
+            pad in "[ ]{0,3}",
+        ) {
+            for legacy in [format!("{left}{bad}{right}"), "x".repeat(scalars)] {
+                let raw = format!("{pad}{legacy}{pad}");
+                match classify_rename(&raw, &legacy, &[]) {
+                    Ok(RenameDecision::NoOp { name }) => prop_assert_eq!(
+                        name, legacy, "NoOp must carry the stored legacy name"
+                    ),
+                    _ => prop_assert!(false, "an untouched legacy name must be a NoOp"),
+                }
+            }
+        }
+
+        /// Behaviour 8 — the edited legacy name is NOT a no-op: one byte off a
+        /// stored TAB name and the rule applies (ControlCharacter).
+        #[test]
+        fn an_edited_legacy_control_name_is_refused(
+            left in "[A-Za-z]{1,10}",
+            right in "[A-Za-z]{1,10}",
+            extra in "[A-Za-z]",
+        ) {
+            let legacy = format!("{left}\t{right}");
+            let edited = format!("{legacy}{extra}");
+            prop_assert!(
+                is_invalid(&classify_rename(&edited, &legacy, &[]), ProjectNameError::ControlCharacter),
+                "{edited:?} differs from the stored name and must meet the rule"
+            );
+        }
     }
 
     /// Exact-boundary pin for the length gate (behaviour 2's edge): EXACTLY
     /// 256 scalars is the last ACCEPTED length, 257 the first refusal.
-    /// Mutation testing (DELIVER Phase 5) showed the `1usize..400` proptest
-    /// range is not guaranteed to sample 256 itself, letting a `>` → `>=`
-    /// mutant survive; this example makes the off-by-one kill deterministic.
     /// # bypass: exact boundary pin — single-example by design
     #[test]
     fn exactly_256_scalars_accepted_257_refused() {
@@ -352,13 +405,12 @@ mod classify_rename_properties {
             ),
             _ => panic!("a 256-scalar name must be accepted (the cap is inclusive)"),
         }
-        let over_cap = "a".repeat(257);
         assert!(
-            matches!(
-                classify_rename(&over_cap, CURRENT, &[]),
-                Err(RenameProjectError::NameTooLong)
+            is_invalid(
+                &classify_rename(&"a".repeat(257), CURRENT, &[]),
+                ProjectNameError::TooLong
             ),
-            "257 scalars must classify NameTooLong"
+            "257 scalars must classify InvalidName(TooLong)"
         );
     }
 }
