@@ -246,20 +246,20 @@ Feature: One rule for naming a project, at both doors
       And workspace "Canzan Labs" has a team "Backend" with projects "Auth v2" (AUTH) and "Sandbox" (SBX)
       And Priya has renamed project "Auth v2" to "Identity Platform"
 
-    @pending @us-pnr-03 @driving_port @error @real-io @contract-shape:unbounded-preservation
+    @us-pnr-03 @driving_port @error @real-io @contract-shape:unbounded-preservation
     Scenario: A name the team already uses under a different address is refused
       When Priya creates a project named "identity platform" with key prefix "IDP"
       Then the create form is shown again saying "Project name must be unique within the team"
       And no project changed and nothing was created
       And team "Backend" has exactly one project named "Identity Platform" in any letter case
 
-    @pending @us-pnr-03 @error @guard @real-io @contract-shape:unbounded-preservation
+    @us-pnr-03 @error @guard @real-io @contract-shape:unbounded-preservation
     Scenario: A name whose address the team already uses is still refused
       When Priya creates a project named "Auth V2!" with key prefix "AV2"
       Then the create form is shown again saying "Project name must be unique within the team"
       And no project changed and nothing was created
 
-    @pending @us-pnr-03 @edge @guard @real-io @contract-shape:bounded-change
+    @us-pnr-03 @edge @guard @real-io @contract-shape:bounded-change
     Scenario: The same name in another team is accepted
       Given workspace "Canzan Labs" also has a team "Frontend" with no projects
       When Priya creates a project named "Identity Platform" with key prefix "IDF" in team "Frontend"
@@ -272,7 +272,7 @@ Feature: One rule for naming a project, at both doors
       Then the create form is shown again saying "Project name must be at most 256 characters"
       And no project changed and nothing was created
 
-    @pending @us-pnr-03 @edge @real-io @contract-shape:bounded-change
+    @us-pnr-03 @edge @real-io @contract-shape:bounded-change
     Scenario: A name with no address of its own is not a duplicate of an old project that has none either
       Given project "Ωμέγα" (OMG) was created before this fix and has no board address
       When Priya renames project "Sandbox" to the pasted name "🚀"

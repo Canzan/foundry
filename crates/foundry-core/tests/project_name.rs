@@ -218,7 +218,6 @@ fn the_seeded_sandbox_project_mints_its_shipped_address() {
 // ---------------------------------------------------------------- uniqueness (D6, DDD-3)
 
 #[test]
-#[ignore = "SCAFFOLD: slice 03 (DDD-3)"]
 fn a_case_insensitive_name_match_alone_is_not_unique() {
     // The renamed sibling keeps its old address: only the name arm can see it.
     let team = siblings(&[("Identity Platform", "auth-v2"), ("Sandbox", "sandbox")]);
@@ -233,7 +232,6 @@ fn a_case_insensitive_name_match_alone_is_not_unique() {
 }
 
 #[test]
-#[ignore = "SCAFFOLD: slice 03 (DDD-3)"]
 fn a_derived_address_match_alone_is_not_unique() {
     let team = siblings(&[("Identity Platform", "auth-v2")]);
     assert_eq!(name("Auth V2!").ensure_unique_among(&team), Err(NotUnique));
@@ -245,7 +243,6 @@ fn a_derived_address_match_alone_is_not_unique() {
 }
 
 #[test]
-#[ignore = "SCAFFOLD: slice 03 (D6 empty-address skip)"]
 fn an_empty_derived_address_is_never_an_address_match() {
     let legacy = siblings(&[("Ωμέγα", ""), ("Identity Platform", "auth-v2")]);
     assert_eq!(name("🚀").ensure_unique_among(&legacy), Ok(()));
@@ -260,7 +257,6 @@ fn an_empty_derived_address_is_never_an_address_match() {
 }
 
 #[test]
-#[ignore = "SCAFFOLD: slice 03 (DDD-3)"]
 fn distinct_names_and_addresses_are_unique_and_no_siblings_is_unique() {
     let team = siblings(&[("Identity Platform", "auth-v2"), ("Sandbox", "sandbox")]);
     assert_eq!(name("Homelab Ops").ensure_unique_among(&team), Ok(()));

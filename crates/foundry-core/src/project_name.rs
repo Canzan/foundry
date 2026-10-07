@@ -65,7 +65,9 @@ impl ProjectName {
     /// The one sibling uniqueness check (D6, DDD-3). `siblings` are the team's
     /// other projects as `(name, stored slug)`. Refuses `NotUnique` when a
     /// sibling's name equals this one under `to_lowercase`, or when this name's
-    /// derived address equals a sibling's stored address.
+    /// derived address equals a sibling's stored address. An empty derived
+    /// address never matches on the address arm (D6): a name without an address
+    /// of its own is not a duplicate of a legacy project stored with none.
     ///
     /// Self-exclusion is the caller's job: pass the siblings from
     /// `list_team_sibling_projects` with the project's own id excluded.
@@ -75,9 +77,10 @@ impl ProjectName {
     ) -> Result<(), ProjectNameError> {
         let lowered = self.0.to_lowercase();
         let derived_slug = self.derived_slug();
-        let collides = siblings
-            .iter()
-            .any(|(name, slug)| name.to_lowercase() == lowered || *slug == derived_slug);
+        let has_address = !derived_slug.is_empty();
+        let collides = siblings.iter().any(|(name, slug)| {
+            name.to_lowercase() == lowered || (has_address && *slug == derived_slug)
+        });
         if collides {
             Err(ProjectNameError::NotUnique)
         } else {

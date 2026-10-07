@@ -170,9 +170,11 @@ pub enum CreateProjectError {
 /// Create a project with its seeded lanes, all or nothing — the one place a
 /// project row is inserted (check-arch `project-name-one-source` (b)).
 ///
-/// Order (DDD-6): sibling read → address check → `ProjectKey::try_new` → mint →
-/// insert. The address check precedes the key so a taken name is reported
-/// before a key problem.
+/// Order (DDD-6, D5): sibling read → [`ProjectName::ensure_unique_among`] (the
+/// same check rename runs) → `ProjectKey::try_new` → mint → insert. The
+/// uniqueness check precedes the key so a taken name is reported before a key
+/// problem. The fresh id is passed as the excluded sibling, so it excludes
+/// nothing.
 pub async fn create_project(
     store: &Store,
     request: CreateProjectRequest<'_>,
@@ -190,23 +192,20 @@ pub async fn create_project_with_sibling_reads(
     request: CreateProjectRequest<'_>,
     scripted: Vec<Vec<(String, String)>>,
 ) -> Result<CreatedProject, CreateProjectError> {
-    let slug = request.name.derived_slug();
-    let taken = match scripted.first() {
-        Some(siblings) => siblings
-            .iter()
-            .any(|(_, sibling_slug)| *sibling_slug == slug),
-        None => store
-            .find_project_by_slug(request.team_id, &slug)
-            .await
-            .map_err(CreateProjectError::Store)?
-            .is_some(),
-    };
-    if taken {
-        return Err(CreateProjectError::InvalidName(ProjectNameError::NotUnique));
-    }
-    let key = ProjectKey::try_new(request.key_prefix).map_err(CreateProjectError::InvalidKey)?;
-    let minted = MintedSlug::Derived(slug);
     let project_id = uuid::Uuid::now_v7();
+    let siblings = match scripted.into_iter().next() {
+        Some(siblings) => siblings,
+        None => store
+            .list_team_sibling_projects(request.team_id, project_id)
+            .await
+            .map_err(CreateProjectError::Store)?,
+    };
+    request
+        .name
+        .ensure_unique_among(&siblings)
+        .map_err(CreateProjectError::InvalidName)?;
+    let key = ProjectKey::try_new(request.key_prefix).map_err(CreateProjectError::InvalidKey)?;
+    let minted = MintedSlug::Derived(request.name.derived_slug());
     store
         .insert_project(
             project_id,
