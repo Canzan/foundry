@@ -2,21 +2,17 @@
 //! 9/10/11, ADR-PROJECT-NAME-001/002), driven against a REAL Postgres (@real-io)
 //! — the `rename_project_use_case` idiom.
 //!
-//! SCAFFOLD: true — DISTILL 2026-10-06. Every test is `#[ignore]`d and runs
-//! against the `mod scaffold` shim below, whose bodies panic. DELIVER (slice 02
-//! for the use-case, slice 04 for the mint and the retry) implements
-//! `foundry_services::projects::create_project` + `Services::create_project`,
-//! deletes `mod scaffold`, imports the real paths, and removes the ignores.
+//! The use-case landed in slice 02 (behaviour 1a runs); the mint and the retry
+//! land in slice 04, which removes the remaining ignores.
 //!
 //! WHY HERE AND NOT IN THE ACCEPTANCE SUITE (DESIGN OQ-D3): the fallback-address
 //! race (two creates in one team taking the same key-prefix address within
 //! milliseconds) is not drivable deterministically over HTTP. DESIGN's seam: the
 //! use-case's internal "read siblings → check → mint → insert" step can be handed
-//! a STALE sibling list, so the unique index fires on a chosen attempt. The shim
-//! names that seam `create_project_with_sibling_reads`: attempt `i` uses
-//! `scripted[i]` instead of reading the store while a scripted list remains, then
-//! reads the store. The crafter keeps the step callable from a test — an in-crate
-//! `#[cfg(test)]` module (move these tests there) or a `#[doc(hidden)] pub` fn.
+//! a STALE sibling list, so the unique index fires on a chosen attempt. That seam
+//! is the `#[doc(hidden)] pub` `create_project_with_sibling_reads`: attempt `i`
+//! uses `scripted[i]` instead of reading the store while a scripted list remains,
+//! then reads the store.
 //!
 //! Behaviours (5, six tests):
 //!   1. A plain create mints the derived address (1a, slice 02) or the
@@ -41,87 +37,10 @@ use testcontainers_modules::postgres::Postgres;
 use testcontainers_modules::testcontainers::runners::AsyncRunner;
 use testcontainers_modules::testcontainers::ImageExt;
 
-use scaffold::{
+use foundry_core::{MintedSlug, ProjectName, ProjectNameError};
+use foundry_services::projects::{
     create_project, create_project_with_sibling_reads, CreateProjectError, CreateProjectRequest,
-    ProjectName, ProjectNameError,
 };
-
-const SCAFFOLD_USE_CASE: &str =
-    "SCAFFOLD: foundry_services::projects::create_project is not implemented yet (DDD-5/10)";
-const SCAFFOLD_RULE: &str = "SCAFFOLD: foundry_core::ProjectName is not implemented yet (DDD-2)";
-
-/// The target API, as DESIGN fixed it (DDD-6/7). DELIVER deletes this module and
-/// imports `foundry_core::{ProjectName, ProjectNameError, MintedSlug}` and
-/// `foundry_services::projects::{create_project, CreateProjectRequest,
-/// CreateProjectError, CreatedProject}`.
-mod scaffold {
-    #![allow(dead_code)]
-    use super::{SCAFFOLD_RULE, SCAFFOLD_USE_CASE};
-    use foundry_store::Store;
-
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    pub enum ProjectNameError {
-        Empty,
-        ControlCharacter,
-        TooLong,
-        NotUnique,
-    }
-
-    #[derive(Debug, Clone, PartialEq, Eq)]
-    pub struct ProjectName(String);
-
-    impl ProjectName {
-        pub fn try_new(_raw: &str) -> Result<Self, ProjectNameError> {
-            panic!("{SCAFFOLD_RULE}")
-        }
-    }
-
-    #[derive(Debug, Clone, PartialEq, Eq)]
-    pub enum MintedSlug {
-        Derived(String),
-        KeyFallback(String),
-    }
-
-    pub struct CreateProjectRequest<'a> {
-        pub workspace_id: uuid::Uuid,
-        pub team_id: uuid::Uuid,
-        pub name: ProjectName,
-        /// Handler-trimmed raw key prefix (key copy stays handler-owned).
-        pub key_prefix: &'a str,
-    }
-
-    #[derive(Debug, Clone, PartialEq, Eq)]
-    pub struct CreatedProject {
-        pub project_id: uuid::Uuid,
-        pub slug: MintedSlug,
-    }
-
-    #[derive(Debug)]
-    pub enum CreateProjectError {
-        InvalidName(ProjectNameError),
-        InvalidKey(foundry_core::ProjectKeyError),
-        DuplicateKey,
-        FallbackSlugContention,
-        Store(foundry_store::StoreError),
-    }
-
-    pub async fn create_project(
-        _store: &Store,
-        _request: CreateProjectRequest<'_>,
-    ) -> Result<CreatedProject, CreateProjectError> {
-        panic!("{SCAFFOLD_USE_CASE}")
-    }
-
-    pub async fn create_project_with_sibling_reads(
-        _store: &Store,
-        _request: CreateProjectRequest<'_>,
-        _scripted: Vec<Vec<(String, String)>>,
-    ) -> Result<CreatedProject, CreateProjectError> {
-        panic!("{SCAFFOLD_USE_CASE}")
-    }
-}
-
-use scaffold::MintedSlug;
 
 struct Harness {
     _container: testcontainers_modules::testcontainers::ContainerAsync<Postgres>,
@@ -235,10 +154,8 @@ fn parsed(raw: &str) -> ProjectName {
     ProjectName::try_new(raw).unwrap_or_else(|e| panic!("{raw:?} must be a valid name: {e:?}"))
 }
 
-/// Behaviour 1a. The name is parsed BEFORE the container starts, so a scaffold
-/// run panics without leaving a container behind.
+/// Behaviour 1a. The name is parsed BEFORE the container starts.
 #[tokio::test]
-#[ignore = "SCAFFOLD: slice 02 (DDD-5/6)"]
 async fn a_create_with_a_latin_name_keeps_its_own_address_and_gets_its_lanes() {
     let homelab = parsed("Homelab Ops");
     let h = seeded_harness().await;

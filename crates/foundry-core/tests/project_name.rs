@@ -201,7 +201,6 @@ fn each_refusal_reads_the_d4_copy_byte_for_byte() {
 }
 
 #[test]
-#[ignore = "SCAFFOLD: slice 02 (D13, DDD-14 name half)"]
 fn the_seeded_sandbox_project_name_passes_the_rule() {
     assert_eq!(name("Sandbox").as_str(), "Sandbox");
 }

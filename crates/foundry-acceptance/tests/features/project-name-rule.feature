@@ -166,7 +166,7 @@ Feature: One rule for naming a project, at both doors
         | A[255×日]            | A[255×日]  |
         | [SPACE][256×a][TAB]  | [256×a]    |
 
-    @pending @us-pnr-02 @driving_port @error @real-io @contract-shape:unbounded-preservation
+    @us-pnr-02 @driving_port @error @real-io @contract-shape:unbounded-preservation
     Scenario Outline: A name past 256 characters is refused, kept in the form, and nothing is created
       When Priya creates a project named "<pasted>" with key prefix "OPS"
       Then the create form is shown again saying "Project name must be at most 256 characters"
@@ -179,7 +179,7 @@ Feature: One rule for naming a project, at both doors
         | A[256×日]              | A[256×日]  |
         | [SPACE][257×a][SPACE]  | [257×a]    |
 
-    @pending @us-pnr-02 @error @kpi @real-io @contract-shape:unbounded-preservation
+    @us-pnr-02 @error @kpi @real-io @contract-shape:unbounded-preservation
     Scenario Outline: A blank or invisible-character name is refused and nothing is created
       When Priya creates a project named "<pasted>" with key prefix "OPS"
       Then the create form is shown again saying "<refusal>"
@@ -193,13 +193,13 @@ Feature: One rule for naming a project, at both doors
         | Homelab[NUL]Ops       | Project name must not contain control characters  |
         | [SPACE][SPACE][SPACE] | Project name must not be empty                    |
 
-    @pending @us-pnr-02 @error @real-io @contract-shape:unbounded-preservation
+    @us-pnr-02 @error @real-io @contract-shape:unbounded-preservation
     Scenario: A refusal sent from the page without reloading it comes back as the bare message
       When Priya creates a project named "[257×a]" with key prefix "OPS" from the page without reloading it
       Then the create refusal comes back as the bare message "Project name must be at most 256 characters"
       And no project changed and nothing was created
 
-    @pending @us-pnr-02 @driving_port @real-io @contract-shape:bounded-change
+    @us-pnr-02 @driving_port @real-io @contract-shape:bounded-change
     Scenario: The corrected name succeeds with the same key prefix
       Given Priya's create of "[257×a]" with key prefix "OPS" was refused for its name
       When Priya creates a project named "Homelab Ops" with key prefix "OPS"
@@ -218,7 +218,7 @@ Feature: One rule for naming a project, at both doors
         | a signed-out visitor | Backend  |
         | Priya                | Research |
 
-    @pending @us-pnr-02 @error @real-io @contract-shape:unbounded-preservation
+    @us-pnr-02 @error @real-io @contract-shape:unbounded-preservation
     Scenario Outline: A name problem is reported before a key problem
       When Priya creates a project named "<pasted>" with key prefix "<key>"
       Then the create form is shown again saying "<refusal>"
@@ -265,7 +265,7 @@ Feature: One rule for naming a project, at both doors
       When Priya creates a project named "Identity Platform" with key prefix "IDF" in team "Frontend"
       Then she lands on the board at "/team/frontend/project/identity-platform" headed "Identity Platform"
 
-    @pending @us-pnr-03 @error @real-io @contract-shape:unbounded-preservation
+    @us-pnr-03 @error @real-io @contract-shape:unbounded-preservation
     Scenario: A long name that repeats a sibling's is refused for its length first
       Given project "[300×a]" (LNG) was named before the rule existed
       When Priya creates a project named "[300×A]" with key prefix "LNH"

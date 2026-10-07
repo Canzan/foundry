@@ -91,3 +91,22 @@ impl fmt::Display for ProjectName {
         f.write_str(&self.0)
     }
 }
+
+/// The address a create stores for a new project, tagged with how it was minted
+/// (DDD-9). `Derived` is `slugify` of the name — today's address, the one every
+/// Latin-lettered name keeps. `KeyFallback` is the key-prefix address a name
+/// without one of its own takes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MintedSlug {
+    Derived(String),
+    KeyFallback(String),
+}
+
+impl MintedSlug {
+    /// The address itself, whichever way it was minted.
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Derived(slug) | Self::KeyFallback(slug) => slug,
+        }
+    }
+}

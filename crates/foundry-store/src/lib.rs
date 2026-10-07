@@ -1604,7 +1604,7 @@ impl Store {
                         return Err(ProjectInsertError::DuplicateKey);
                     }
                     if constraint.contains("slug") {
-                        return Err(ProjectInsertError::DuplicateName);
+                        return Err(ProjectInsertError::DuplicateSlug);
                     }
                     // Fallback when the constraint name is generic (older
                     // Postgres versions strip the index name): look at
@@ -1614,7 +1614,7 @@ impl Store {
                         return Err(ProjectInsertError::DuplicateKey);
                     }
                     if msg.contains("slug") {
-                        return Err(ProjectInsertError::DuplicateName);
+                        return Err(ProjectInsertError::DuplicateSlug);
                     }
                     return Err(ProjectInsertError::Other(StoreError::Sqlx(
                         sqlx::Error::Database(db_err),
@@ -3365,8 +3365,8 @@ fn is_lane_fk_violation(err: &sqlx::Error) -> bool {
 pub enum ProjectInsertError {
     #[error("project key already exists in workspace")]
     DuplicateKey,
-    #[error("project name already exists in team")]
-    DuplicateName,
+    #[error("project slug already exists in team")]
+    DuplicateSlug,
     #[error(transparent)]
     Other(#[from] StoreError),
 }

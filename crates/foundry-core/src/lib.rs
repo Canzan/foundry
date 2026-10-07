@@ -19,7 +19,7 @@ pub use workspace_name::{WorkspaceName, WorkspaceNameError, WORKSPACE_NAME_MAX_C
 mod name_chars;
 
 pub mod project_name;
-pub use project_name::{ProjectName, ProjectNameError, PROJECT_NAME_MAX_CHARS};
+pub use project_name::{MintedSlug, ProjectName, ProjectNameError, PROJECT_NAME_MAX_CHARS};
 
 /// Marker IDs. Strong-typed wrappers around UUIDs to prevent
 /// accidental cross-aggregate ID mix-ups at the type system level.

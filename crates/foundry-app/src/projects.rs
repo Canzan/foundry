@@ -3,7 +3,8 @@
 //! Routes (mounted in `lib::build_router`):
 //!
 //! - `GET  /team/{team_slug}/projects/new`  → HTML form (name + key prefix + CSRF)
-//! - `POST /team/{team_slug}/projects`      → validate, insert, 303 → board
+//! - `POST /team/{team_slug}/projects`      → gates, `ProjectName`, then
+//!   `foundry_services::projects::create_project`, 303 → board
 //! - `GET  /team/{team_slug}/project/{slug}` → minimal empty board view
 //!
 //! Authorization: requires a signed-in user; the user must be a member
@@ -34,8 +35,9 @@ use axum::http::header::{
 };
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
-use foundry_core::{slugify, ProjectKey, ProjectKeyError, ProjectNameError};
-use foundry_store::{ProjectChangeRow, ProjectInsertError, ProjectRow};
+use foundry_core::{ProjectKeyError, ProjectName};
+use foundry_services::projects::{CreateProjectError, CreateProjectRequest};
+use foundry_store::{ProjectChangeRow, ProjectRow};
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use time::format_description::well_known::Rfc3339;
@@ -154,30 +156,12 @@ pub async fn submit_create(
     let raw_name = form.name.trim();
     let raw_key = form.key_prefix.trim();
 
-    if raw_name.is_empty() {
-        return name_error_response(
-            &team_slug,
-            &team.name,
-            &state,
-            &headers,
-            raw_name,
-            raw_key,
-            &ProjectNameError::Empty.to_string(),
-            is_htmx,
-            nav,
-        );
-    }
-
-    let slug = slugify(raw_name);
-
-    // Check name uniqueness within team BEFORE key validation. The
-    // feature contract treats name duplication as the more actionable
-    // error — a user with a colliding key only sees the key error if
-    // their name is otherwise valid. Race-free: the unique index on
-    // (team_id, slug) still rejects on insert if another writer slips
-    // in between this check and the INSERT below.
-    match state.store.find_project_by_slug(team.id, &slug).await {
-        Ok(Some(_)) => {
+    // The one project-name rule, parsed AFTER the gates above (signed-out,
+    // team-not-found, non-member — unchanged) and BEFORE anything is read or
+    // written, so a refused name creates nothing and leaves the key free (D5).
+    let name = match ProjectName::try_new(raw_name) {
+        Ok(name) => name,
+        Err(err) => {
             return name_error_response(
                 &team_slug,
                 &team.name,
@@ -185,61 +169,57 @@ pub async fn submit_create(
                 &headers,
                 raw_name,
                 raw_key,
-                &ProjectNameError::NotUnique.to_string(),
+                &err.to_string(),
                 is_htmx,
                 nav,
             );
         }
-        Ok(None) => {}
-        Err(err) => return internal_error("find_project_by_slug", err),
-    }
-
-    // I-P3: domain validation. The empty / wrong-length / non-uppercase
-    // cases all map to 422 with an inline explanation so the property
-    // outline assertions pass.
-    let key = match ProjectKey::try_new(raw_key) {
-        Ok(k) => k,
-        Err(err) => {
-            let message = key_error_message(err);
-            return key_error_response(
-                &team_slug, &team.name, &state, &headers, raw_name, raw_key, message, is_htmx, nav,
-            );
-        }
     };
 
-    let project_id = uuid::Uuid::now_v7();
-
-    match state
-        .store
-        .insert_project(
-            project_id,
-            user.workspace_id,
-            team.id,
-            raw_name,
-            &slug,
-            key.as_str(),
-        )
-        .await
-    {
-        Ok(()) => {
-            let location = format!("/team/{team_slug}/project/{slug}");
+    let outcome = foundry_services::Services::new(state.store.clone())
+        .create_project(CreateProjectRequest {
+            workspace_id: user.workspace_id,
+            team_id: team.id,
+            name,
+            key_prefix: raw_key,
+        })
+        .await;
+    match outcome {
+        Ok(created) => {
+            let location = format!("/team/{team_slug}/project/{}", created.slug.as_str());
             redirect_to(&location)
         }
-        Err(ProjectInsertError::DuplicateKey) => duplicate_key_response(
-            &team_slug, &team.name, &state, &headers, raw_name, raw_key, is_htmx, nav,
-        ),
-        Err(ProjectInsertError::DuplicateName) => name_error_response(
+        Err(CreateProjectError::InvalidName(err)) => name_error_response(
             &team_slug,
             &team.name,
             &state,
             &headers,
             raw_name,
             raw_key,
-            &ProjectNameError::NotUnique.to_string(),
+            &err.to_string(),
             is_htmx,
             nav,
         ),
-        Err(ProjectInsertError::Other(err)) => internal_error("insert_project", err),
+        // I-P3: the empty / wrong-length / non-uppercase key cases all map to
+        // 422 with an inline explanation.
+        Err(CreateProjectError::InvalidKey(err)) => key_error_response(
+            &team_slug,
+            &team.name,
+            &state,
+            &headers,
+            raw_name,
+            raw_key,
+            key_error_message(err),
+            is_htmx,
+            nav,
+        ),
+        Err(CreateProjectError::DuplicateKey) => duplicate_key_response(
+            &team_slug, &team.name, &state, &headers, raw_name, raw_key, is_htmx, nav,
+        ),
+        Err(CreateProjectError::FallbackSlugContention) => {
+            internal_error("create_project", "fallback slug contention")
+        }
+        Err(CreateProjectError::Store(err)) => internal_error("insert_project", err),
     }
 }
 

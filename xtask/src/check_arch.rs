@@ -137,7 +137,7 @@ pub fn run(args: Vec<String>) -> ExitCode {
     let verdict = verdict(&args);
     match &verdict {
         Verdict::Passed => println!(
-            "check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, the lanes position constraint is still DEFERRABLE, no board-*.js registers a keydown listener, nothing outside migration 0017 UPDATEs users.provisioned_at (D9), both publish workflows stamp every image with its commit and the Dockerfile hands it to build.rs (AC-8), every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, no colour literal outside the three stylesheet token regions, the three stylesheet token regions declare the identical colour-token set, the workspace-name refusal copy lives only in foundry-core and no production door calls create_initial_workspace, the project-name refusal copy lives only in foundry-core, dependency direction)"
+            "check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, the lanes position constraint is still DEFERRABLE, no board-*.js registers a keydown listener, nothing outside migration 0017 UPDATEs users.provisioned_at (D9), both publish workflows stamp every image with its commit and the Dockerfile hands it to build.rs (AC-8), every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, no colour literal outside the three stylesheet token regions, the three stylesheet token regions declare the identical colour-token set, the workspace-name refusal copy lives only in foundry-core and no production door calls create_initial_workspace, the project-name refusal copy lives only in foundry-core and no door calls insert_project, dependency direction)"
         ),
         Verdict::UnparseableArguments(message) => eprintln!("check-arch: {message}"),
         Verdict::Violations(violations) => {
@@ -4529,8 +4529,8 @@ mod workspace_name_one_source_tests {
 // project-name-rule DDD-12 — `project-name-one-source`
 // ---------------------------------------------------------------------------
 //
-// Clause (a) is implemented and wired (slice 01). DELIVER slice 02 adds clause
-// (b) (no `insert_project(` call in the app/api doors) and removes its ignores.
+// Clause (a): the copy has one home (slice 01). Clause (b): no `insert_project(`
+// call in the app/api doors (slice 02).
 
 /// The opening of every D4 project-name refusal, quote included.
 const PROJECT_NAME_COPY_PREFIX: &str = "\"Project name must";
@@ -4549,12 +4549,60 @@ const PROJECT_NAME_ONE_SOURCE: OneSourceRule = OneSourceRule {
 /// (comments and in-file `#[cfg(test)]` included) — its one production home is
 /// `ProjectNameError`'s `Display` in `crates/foundry-core/src` (DDD-4).
 ///
-/// (b) — not yet checked; DELIVER slice 02 — `insert_project(` has no call site under
-/// `crates/{foundry-app,foundry-api}/src`: the one mint point is
-/// `foundry_services::projects::create_project` (DDD-5/9). The store's
-/// definition, the services caller and test callers are not flagged.
+/// (b) `insert_project(` has no call site under `crates/{foundry-app,foundry-api}/src`:
+/// the one mint point is `foundry_services::projects::create_project` (DDD-5/9).
+/// A call split across lines (`insert_project` then `(` on the next) is still a
+/// call. Comment lines, the store's definition, the services caller and test
+/// callers are not flagged.
 fn check_project_name_one_source(root: &Path) -> Vec<String> {
-    scan_one_source(root, &PROJECT_NAME_ONE_SOURCE, &|_, _, _| Vec::new())
+    scan_one_source(
+        root,
+        &PROJECT_NAME_ONE_SOURCE,
+        &|crate_name, file, contents| {
+            if PROJECT_INSERT_FORBIDDEN_IN.contains(&crate_name) {
+                project_insert_call_violations_in(root, file, contents)
+            } else {
+                Vec::new()
+            }
+        },
+    )
+}
+
+/// The doors that must create a project through the use-case, never the store.
+const PROJECT_INSERT_FORBIDDEN_IN: [&str; 2] = ["foundry-app", "foundry-api"];
+
+/// The store method only `create_project` may call (DDD-5/9).
+const PROJECT_INSERT_SEAM: &str = "insert_project";
+
+/// The DDD-12b violations in one file: each `insert_project` CALL — the name,
+/// optional whitespace (newlines included), then `(` — named `file:line`. A
+/// longer identifier containing the name, a `fn insert_project` definition and
+/// any occurrence on a `//` comment line are not calls.
+fn project_insert_call_violations_in(root: &Path, file: &Path, contents: &str) -> Vec<String> {
+    let is_ident = |c: char| c.is_alphanumeric() || c == '_';
+    contents
+        .match_indices(PROJECT_INSERT_SEAM)
+        .filter(|(at, _)| {
+            let before = &contents[..*at];
+            let after = &contents[at + PROJECT_INSERT_SEAM.len()..];
+            let line_start = before.rfind('\n').map_or(0, |i| i + 1);
+            let joined_to_ident = before.chars().next_back().is_some_and(is_ident)
+                || after.chars().next().is_some_and(is_ident);
+            !joined_to_ident
+                && after.trim_start().starts_with('(')
+                && !before.trim_end().ends_with("fn")
+                && !contents[line_start..].trim_start().starts_with("//")
+        })
+        .map(|(at, _)| {
+            format!(
+                "project-name-one-source: {}:{} calls `insert_project` from a door — it \
+                 applies no project-name rule and mints no address; create through \
+                 `foundry_services::projects::create_project` (DDD-5/DDD-12)",
+                rel(root, file),
+                contents[..at].matches('\n').count() + 1,
+            )
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -4666,7 +4714,6 @@ mod project_name_one_source_tests {
     }
 
     #[test]
-    #[ignore = "SCAFFOLD: project-name-one-source clause (b), slice 02"]
     fn a_door_that_inserts_a_project_itself_is_flagged() {
         let tree = stage(&[
             ("crates/foundry-core/src/project_name.rs", CORE_COPY),
@@ -4692,7 +4739,6 @@ mod project_name_one_source_tests {
     }
 
     #[test]
-    #[ignore = "SCAFFOLD: project-name-one-source clause (b), slice 02"]
     fn the_store_definition_the_use_case_and_test_callers_are_not_flagged() {
         let tree = stage(&[
             ("crates/foundry-core/src/project_name.rs", CORE_COPY),

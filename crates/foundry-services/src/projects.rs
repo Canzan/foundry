@@ -1,7 +1,8 @@
-//! `foundry_services::projects` — project mutations for the instance-admin
-//! surface (`instance-admin-project-rename`, ADR-PROJECT-RENAME-002).
+//! `foundry_services::projects` — project mutations: the instance-admin rename
+//! (`instance-admin-project-rename`, ADR-PROJECT-RENAME-002) and the team
+//! member's create (`project-name-rule` DDD-5/6/7, below the rename).
 //!
-//! Contract signatures DESIGN fixed in
+//! Rename — contract signatures DESIGN fixed in
 //! `docs/feature/instance-admin-project-rename/design/component-boundaries.md`.
 //! The ordered behaviour (the order pins the observable 422 precedence,
 //! project-name-rule D5/D8/DDD-8): `is_instance_admin` (defence-in-depth, the
@@ -14,8 +15,8 @@
 //! own id, so a case-only rename of a project onto itself is a VALID rename, and
 //! an exact-match self rename is the earlier NoOp.
 
-use foundry_core::{ProjectName, ProjectNameError};
-use foundry_store::Store;
+use foundry_core::{MintedSlug, ProjectKey, ProjectKeyError, ProjectName, ProjectNameError};
+use foundry_store::{ProjectInsertError, Store};
 
 /// The rename request as the driving adapter hands it over.
 pub struct RenameProjectRequest<'a> {
@@ -127,6 +128,106 @@ impl crate::Services {
     ) -> Result<RenameOutcome, RenameProjectError> {
         rename_project(&self.store, request).await
     }
+
+    /// Delegates to [`create_project`].
+    pub async fn create_project(
+        &self,
+        request: CreateProjectRequest<'_>,
+    ) -> Result<CreatedProject, CreateProjectError> {
+        create_project(&self.store, request).await
+    }
+}
+
+/// The create request as the driving adapter hands it over (DDD-6). The name
+/// is already a [`ProjectName`]: the door parses it before anything is read.
+pub struct CreateProjectRequest<'a> {
+    pub workspace_id: uuid::Uuid,
+    pub team_id: uuid::Uuid,
+    pub name: ProjectName,
+    /// Handler-trimmed raw key prefix; parsed here by `ProjectKey::try_new`.
+    pub key_prefix: &'a str,
+}
+
+/// A created project: its id and the address it was stored under.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CreatedProject {
+    pub project_id: uuid::Uuid,
+    pub slug: MintedSlug,
+}
+
+/// Typed refusals of a create (DDD-7). The handler renders `InvalidName`'s and
+/// `InvalidKey`'s `Display`; a refusal writes nothing and leaves the key free.
+#[derive(Debug)]
+pub enum CreateProjectError {
+    InvalidName(ProjectNameError),
+    InvalidKey(ProjectKeyError),
+    DuplicateKey,
+    /// The key-prefix fallback address lost every bounded retry (DDD-10).
+    FallbackSlugContention,
+    Store(foundry_store::StoreError),
+}
+
+/// Create a project with its seeded lanes, all or nothing — the one place a
+/// project row is inserted (check-arch `project-name-one-source` (b)).
+///
+/// Order (DDD-6): sibling read → address check → `ProjectKey::try_new` → mint →
+/// insert. The address check precedes the key so a taken name is reported
+/// before a key problem.
+pub async fn create_project(
+    store: &Store,
+    request: CreateProjectRequest<'_>,
+) -> Result<CreatedProject, CreateProjectError> {
+    create_project_with_sibling_reads(store, request, Vec::new()).await
+}
+
+/// [`create_project`] with the sibling read scriptable (DESIGN OQ-D3): attempt
+/// `i` checks against `scripted[i]` instead of reading the store while a
+/// scripted list remains, so a test can hand the check a STALE view and make
+/// the unique index fire on insert. Not for production callers.
+#[doc(hidden)]
+pub async fn create_project_with_sibling_reads(
+    store: &Store,
+    request: CreateProjectRequest<'_>,
+    scripted: Vec<Vec<(String, String)>>,
+) -> Result<CreatedProject, CreateProjectError> {
+    let slug = request.name.derived_slug();
+    let taken = match scripted.first() {
+        Some(siblings) => siblings
+            .iter()
+            .any(|(_, sibling_slug)| *sibling_slug == slug),
+        None => store
+            .find_project_by_slug(request.team_id, &slug)
+            .await
+            .map_err(CreateProjectError::Store)?
+            .is_some(),
+    };
+    if taken {
+        return Err(CreateProjectError::InvalidName(ProjectNameError::NotUnique));
+    }
+    let key = ProjectKey::try_new(request.key_prefix).map_err(CreateProjectError::InvalidKey)?;
+    let minted = MintedSlug::Derived(slug);
+    let project_id = uuid::Uuid::now_v7();
+    store
+        .insert_project(
+            project_id,
+            request.workspace_id,
+            request.team_id,
+            request.name.as_str(),
+            minted.as_str(),
+            key.as_str(),
+        )
+        .await
+        .map_err(|err| match err {
+            ProjectInsertError::DuplicateKey => CreateProjectError::DuplicateKey,
+            ProjectInsertError::DuplicateSlug => {
+                CreateProjectError::InvalidName(ProjectNameError::NotUnique)
+            }
+            ProjectInsertError::Other(err) => CreateProjectError::Store(err),
+        })?;
+    Ok(CreatedProject {
+        project_id,
+        slug: minted,
+    })
 }
 
 /// Property tests over the PURE classification (the domain function IS its own
