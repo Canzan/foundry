@@ -278,7 +278,7 @@ Feature: One rule for naming a project, at both doors
       When Priya renames project "Sandbox" to the pasted name "🚀"
       Then project "Sandbox" is now named "🚀", and its board still opens at its original address
 
-    @pending @us-pnr-01 @us-pnr-02 @us-pnr-03 @kpi @error @real-io @contract-shape:unbounded-preservation
+    @us-pnr-01 @us-pnr-02 @us-pnr-03 @kpi @error @real-io @contract-shape:unbounded-preservation
     Scenario Outline: Both doors refuse the same name in the same words
       When Priya offers the project name "<pasted>" at both doors
       Then both doors refuse it saying "<refusal>"
@@ -298,7 +298,7 @@ Feature: One rule for naming a project, at both doors
         | identity platform     | Project name must be unique within the team       |
         | Auth V2!              | Project name must be unique within the team       |
 
-    @pending @us-pnr-01 @us-pnr-02 @us-pnr-03 @kpi @edge @real-io @contract-shape:bounded-change
+    @us-pnr-01 @us-pnr-02 @us-pnr-03 @kpi @edge @real-io @contract-shape:bounded-change
     Scenario Outline: Both doors accept the same name and store it the same way
       Given workspace "Canzan Labs" also has a team "Frontend" with no projects
       When Priya offers the project name "<pasted>" at both doors, creating it in team "Frontend"
