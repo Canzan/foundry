@@ -4753,6 +4753,33 @@ mod project_name_one_source_tests {
     }
 
     #[test]
+    fn a_longer_name_that_ends_in_insert_project_is_not_the_store_call() {
+        let tree = stage(&[
+            ("crates/foundry-core/src/project_name.rs", CORE_COPY),
+            (
+                "crates/foundry-app/src/projects.rs",
+                "async fn f() {\n    state.store.bulk_insert_project(a).await;\n    \
+                 let x = reinsert_project(b);\n}\n",
+            ),
+        ]);
+        let violations = check_project_name_one_source(tree.path());
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+
+    #[test]
+    fn a_comment_mentioning_the_store_call_past_the_first_line_is_not_flagged() {
+        let tree = stage(&[
+            ("crates/foundry-core/src/project_name.rs", CORE_COPY),
+            (
+                "crates/foundry-app/src/projects.rs",
+                "fn a() {}\n    // the use-case calls insert_project( for us\n",
+            ),
+        ]);
+        let violations = check_project_name_one_source(tree.path());
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+
+    #[test]
     fn a_missing_crates_directory_fails_the_rule() {
         let tree = stage(&[("README.md", "nothing here\n")]);
         let violations = check_project_name_one_source(tree.path());

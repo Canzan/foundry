@@ -14,14 +14,15 @@
 //! uses `scripted[i]` instead of reading the store while a scripted list remains,
 //! then reads the store.
 //!
-//! Behaviours (5, six tests):
+//! Behaviours (5, seven tests):
 //!   1. A plain create mints the derived address (1a, slice 02) or the
 //!      key-prefix fallback (1b, slice 04) and inserts the project with its lanes.
 //!   2. A stale read makes the fallback address collide on insert → the use-case
 //!      re-reads, re-checks, re-mints and lands on the next free address — never
 //!      the uniqueness refusal (ADR-PROJECT-NAME-002 §3).
 //!   3. Three stale-forced collisions exhaust the retry → FallbackSlugContention,
-//!      and no row is written (D9).
+//!      and no row is written (D9); two lost races still leave the third attempt,
+//!      which lands — the bound is exactly three, pinned from both sides.
 //!   4. A DERIVED address colliding on insert keeps today's meaning → NotUnique,
 //!      no retry, no row.
 //!   5. A genuine concurrent same-name create, seen only on the re-read, gets
@@ -242,6 +243,35 @@ async fn three_lost_races_end_in_contention_and_write_nothing() {
         before,
         "an exhausted retry must write nothing (D9)"
     );
+}
+
+/// Behaviour 3, lower side of the bound: two stale reads lose on `jp` and `jp-2`;
+/// the THIRD attempt reads the store and lands on `jp-3`. A bound of two would
+/// give up with contention instead.
+#[tokio::test]
+async fn two_lost_races_still_leave_a_third_attempt_that_lands() {
+    let japanese = parsed("日本語ボード");
+    let h = seeded_harness().await;
+    seed_sibling(&h, "JP", "jp", "JPA").await;
+    seed_sibling(&h, "JP 2", "jp-2", "JPB").await;
+
+    let stale = |slugs: &[&str]| -> Vec<(String, String)> {
+        slugs
+            .iter()
+            .map(|s| (format!("stale {s}"), (*s).to_string()))
+            .collect()
+    };
+    let created = create_project_with_sibling_reads(
+        &h.store,
+        request(&h, japanese, "JP"),
+        vec![stale(&[]), stale(&["jp"])],
+    )
+    .await
+    .unwrap_or_else(|e| panic!("the third attempt must land, not give up: {e:?}"));
+    assert_eq!(created.slug, MintedSlug::KeyFallback("jp-3".into()));
+    assert!(team_projects(&h)
+        .await
+        .contains(&("日本語ボード".into(), "jp-3".into(), "JP".into())));
 }
 
 /// Behaviour 4: a DERIVED address that collides on insert (the stale read hid
