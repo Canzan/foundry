@@ -8,6 +8,8 @@
 use std::fmt;
 use thiserror::Error;
 
+use crate::name_chars::is_refused_name_char;
+
 /// The longest workspace name accepted, counted in Unicode scalar values of the
 /// trimmed input (`chars().count()`), never in bytes.
 pub const WORKSPACE_NAME_MAX_CHARS: usize = 24;
@@ -38,7 +40,7 @@ impl WorkspaceName {
         if trimmed.is_empty() {
             return Err(WorkspaceNameError::Empty);
         }
-        if trimmed.chars().any(is_refused) {
+        if trimmed.chars().any(is_refused_name_char) {
             return Err(WorkspaceNameError::ControlCharacter);
         }
         if trimmed.chars().count() > WORKSPACE_NAME_MAX_CHARS {
@@ -56,16 +58,4 @@ impl fmt::Display for WorkspaceName {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.0)
     }
-}
-
-/// The D4 refused set: Cc (`char::is_control`), the bidi embeddings and
-/// overrides (U+202A-202E), the bidi isolates (U+2066-2069), and the line and
-/// paragraph separators (U+2028, U+2029). Every other format character (ZWJ,
-/// ZWNJ, ZWSP, LRM, RLM, soft hyphen, U+FEFF, ...) is allowed.
-fn is_refused(c: char) -> bool {
-    c.is_control()
-        || matches!(
-            c,
-            '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}' | '\u{2028}' | '\u{2029}'
-        )
 }

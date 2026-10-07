@@ -1,5 +1,27 @@
 {
-  "schema_version": "5.0",
+  "schema_version": "3.0",
   "feature_id": "project-name-rule",
-  "events": []
+  "events": [
+    {
+      "sid": "01-01",
+      "p": "RED",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-10-07T05:09:21Z"
+    },
+    {
+      "sid": "01-01",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-10-07T05:09:58Z"
+    },
+    {
+      "sid": "01-01",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-10-07T05:34:29Z"
+    }
+  ]
 }

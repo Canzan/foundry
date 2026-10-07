@@ -2,11 +2,12 @@
 //! project-name rule and the one create-time address mint (project-name-rule,
 //! DESIGN DDD-1/2/3/4/9/14, ADR-PROJECT-NAME-001/002).
 //!
-//! SCAFFOLD: true — DISTILL 2026-10-06. Every test is `#[ignore]`d and runs
-//! against the `mod scaffold` shim below, whose bodies panic. DELIVER: create the
-//! types in `foundry-core` (slice 01: rule, copy, uniqueness, derived address;
-//! slice 04: the mint), delete `mod scaffold`, replace `use scaffold::…` with
-//! `use foundry_core::…`, and remove the ignores slice by slice.
+//! SCAFFOLD: partial — DISTILL 2026-10-06; DELIVER 01-01 landed the rule, copy,
+//! uniqueness check and derived address in `foundry-core` and un-ignored slice 01.
+//! The mint still runs against the `mod scaffold` shim below, whose body panics.
+//! DELIVER: create the mint in `foundry-core` (slice 04), delete `mod scaffold`,
+//! replace `use scaffold::…` with `use foundry_core::…`, and remove the remaining
+//! ignores slice by slice.
 //!
 //! The rule under test (D2, D3, D5, DDD-2): `try_new(raw)` trims (`str::trim`),
 //! then refuses Empty, then ControlCharacter (exactly `WorkspaceName`'s set,
@@ -26,66 +27,23 @@
 
 use proptest::prelude::*;
 
-use foundry_core::{ProjectKey, WorkspaceName, WorkspaceNameError};
-use scaffold::{
-    mint_project_slug, MintedSlug, ProjectName, ProjectNameError, PROJECT_NAME_MAX_CHARS,
+use foundry_core::{
+    ProjectKey, ProjectName, ProjectNameError, WorkspaceName, WorkspaceNameError,
+    PROJECT_NAME_MAX_CHARS,
 };
+use scaffold::{mint_project_slug, MintedSlug};
 
 use ProjectNameError::{ControlCharacter, Empty, NotUnique, TooLong};
 
-const SCAFFOLD_RULE: &str =
-    "SCAFFOLD: foundry_core::ProjectName is not implemented yet (DDD-2/3/4)";
 const SCAFFOLD_MINT: &str =
     "SCAFFOLD: foundry_core::mint_project_slug is not implemented yet (DDD-9)";
 
-/// The target API, as DESIGN fixed it. DELIVER deletes this module.
+/// The remaining target API (slice 04 mint), as DESIGN fixed it. DELIVER 04-01
+/// deletes this module.
 mod scaffold {
     #![allow(dead_code)]
-    use super::{SCAFFOLD_MINT, SCAFFOLD_RULE};
-    use foundry_core::ProjectKey;
-    use std::fmt;
-
-    pub const PROJECT_NAME_MAX_CHARS: usize = 256;
-
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    pub enum ProjectNameError {
-        Empty,
-        ControlCharacter,
-        TooLong,
-        NotUnique,
-    }
-
-    impl fmt::Display for ProjectNameError {
-        fn fmt(&self, _f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            panic!("{SCAFFOLD_RULE}")
-        }
-    }
-
-    #[derive(Debug, Clone, PartialEq, Eq)]
-    pub struct ProjectName(String);
-
-    impl ProjectName {
-        pub fn try_new(_raw: &str) -> Result<Self, ProjectNameError> {
-            panic!("{SCAFFOLD_RULE}")
-        }
-
-        pub fn as_str(&self) -> &str {
-            &self.0
-        }
-
-        /// `slugify` of the name — the address the name derives (may be empty).
-        pub fn derived_slug(&self) -> String {
-            panic!("{SCAFFOLD_RULE}")
-        }
-
-        /// The one uniqueness check (DDD-3): siblings are `(name, stored slug)`.
-        pub fn ensure_unique_among(
-            &self,
-            _siblings: &[(String, String)],
-        ) -> Result<(), ProjectNameError> {
-            panic!("{SCAFFOLD_RULE}")
-        }
-    }
+    use super::SCAFFOLD_MINT;
+    use foundry_core::{ProjectKey, ProjectName};
 
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub enum MintedSlug {
@@ -152,7 +110,6 @@ fn taken(slugs: &[&str]) -> Vec<String> {
 // ---------------------------------------------------------------- the rule: exact pairs
 
 #[test]
-#[ignore = "SCAFFOLD: slice 01 (DDD-2)"]
 fn the_cap_is_256_scalars() {
     assert_eq!(PROJECT_NAME_MAX_CHARS, 256);
     let a256 = "a".repeat(256);
@@ -167,7 +124,6 @@ fn the_cap_is_256_scalars() {
 }
 
 #[test]
-#[ignore = "SCAFFOLD: slice 01 (DDD-1/2)"]
 fn the_c0_and_c1_control_boundaries() {
     check(&interior('\u{1F}'), Err(ControlCharacter));
     check(&interior('\u{20}'), Ok("Ops Board"));
@@ -181,7 +137,6 @@ fn the_c0_and_c1_control_boundaries() {
 }
 
 #[test]
-#[ignore = "SCAFFOLD: slice 01 (DDD-1/2)"]
 fn the_line_and_paragraph_separators() {
     check(&interior('\u{2027}'), Ok("Ops\u{2027}Board"));
     check(&interior('\u{2028}'), Err(ControlCharacter));
@@ -189,7 +144,6 @@ fn the_line_and_paragraph_separators() {
 }
 
 #[test]
-#[ignore = "SCAFFOLD: slice 01 (DDD-1/2)"]
 fn the_bidi_embedding_override_and_isolate_boundaries() {
     check(&interior('\u{202A}'), Err(ControlCharacter));
     check(&interior('\u{202E}'), Err(ControlCharacter));
@@ -201,7 +155,6 @@ fn the_bidi_embedding_override_and_isolate_boundaries() {
 }
 
 #[test]
-#[ignore = "SCAFFOLD: slice 01 (D3)"]
 fn other_format_characters_stay_allowed() {
     for c in ['\u{200B}', '\u{200C}', '\u{200D}', '\u{FEFF}', '\u{00AD}'] {
         let raw = interior(c);
@@ -214,7 +167,6 @@ fn other_format_characters_stay_allowed() {
 }
 
 #[test]
-#[ignore = "SCAFFOLD: slice 01 (D2/D5)"]
 fn whitespace_at_the_edges_is_trimmed_and_other_edge_controls_are_refused() {
     check("\tSandbox Experiments\n", Ok("Sandbox Experiments"));
     check("\u{1}Sandbox", Err(ControlCharacter));
@@ -222,7 +174,6 @@ fn whitespace_at_the_edges_is_trimmed_and_other_edge_controls_are_refused() {
 }
 
 #[test]
-#[ignore = "SCAFFOLD: slice 01 (D5)"]
 fn empty_comes_before_control_and_control_before_length() {
     check("", Err(Empty));
     check("   ", Err(Empty));
@@ -233,7 +184,6 @@ fn empty_comes_before_control_and_control_before_length() {
 }
 
 #[test]
-#[ignore = "SCAFFOLD: slice 01 (DDD-4)"]
 fn each_refusal_reads_the_d4_copy_byte_for_byte() {
     assert_eq!(Empty.to_string(), "Project name must not be empty");
     assert_eq!(
@@ -323,7 +273,6 @@ fn distinct_names_and_addresses_are_unique_and_no_siblings_is_unique() {
 }
 
 #[test]
-#[ignore = "SCAFFOLD: slice 01 (DDD-3 derived address)"]
 fn the_derived_address_is_slugify_of_the_name() {
     assert_eq!(name("Ωmega 2").derived_slug(), "mega-2");
     assert_eq!(name("Homelab Ops").derived_slug(), "homelab-ops");
@@ -425,7 +374,6 @@ proptest! {
     /// DDD-1: one predicate. For every scalar, the workspace rule and the project
     /// rule agree on whether it is a control character (at an interior index).
     #[test]
-    #[ignore = "SCAFFOLD: slice 01 (DDD-1 predicate parity)"]
     fn the_project_and_workspace_rules_refuse_exactly_the_same_characters(c in any::<char>()) {
         let raw = format!("a{c}b");
         let workspace = WorkspaceName::try_new(&raw)
@@ -439,7 +387,6 @@ proptest! {
 
     /// DDD-4: `try_new` never answers NotUnique — only the sibling check does.
     #[test]
-    #[ignore = "SCAFFOLD: slice 01 (DDD-4)"]
     fn the_rule_alone_never_says_not_unique(chars in prop::collection::vec(any::<char>(), 0..300)) {
         let raw: String = chars.into_iter().collect();
         prop_assert_ne!(ProjectName::try_new(&raw).err(), Some(NotUnique));
@@ -447,7 +394,6 @@ proptest! {
 
     /// D2: an accepted name is the trimmed input, unchanged.
     #[test]
-    #[ignore = "SCAFFOLD: slice 01 (D2)"]
     fn an_accepted_name_is_the_trimmed_input(chars in prop::collection::vec(any::<char>(), 0..300)) {
         let raw: String = chars.into_iter().collect();
         if let Ok(n) = ProjectName::try_new(&raw) {
@@ -457,7 +403,6 @@ proptest! {
 
     /// The length gate sits at 256 trimmed scalars for any clean name.
     #[test]
-    #[ignore = "SCAFFOLD: slice 01 (D2)"]
     fn the_length_gate_sits_at_256_trimmed_scalars(n in clean_name(300), pad in "[ \t]{0,3}") {
         let raw = format!("{pad}{n}{pad}");
         let got = ProjectName::try_new(&raw);
