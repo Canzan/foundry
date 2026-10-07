@@ -36,7 +36,9 @@ use axum::http::header::{
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
 use foundry_core::{ProjectKeyError, ProjectName};
-use foundry_services::projects::{CreateProjectError, CreateProjectRequest};
+use foundry_services::projects::{
+    CreateProjectError, CreateProjectRequest, FALLBACK_SLUG_ATTEMPTS,
+};
 use foundry_store::{ProjectChangeRow, ProjectRow};
 use serde::Deserialize;
 use std::collections::BTreeMap;
@@ -217,7 +219,13 @@ pub async fn submit_create(
             &team_slug, &team.name, &state, &headers, raw_name, raw_key, is_htmx, nav,
         ),
         Err(CreateProjectError::FallbackSlugContention) => {
-            internal_error("create_project", "fallback slug contention")
+            // DDD-13: team id and attempt count only — never the name or address.
+            tracing::warn!(
+                team_id = %team.id,
+                attempts = FALLBACK_SLUG_ATTEMPTS,
+                "create_project: fallback address contention exhausted the retry"
+            );
+            (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response()
         }
         Err(CreateProjectError::Store(err)) => internal_error("insert_project", err),
     }

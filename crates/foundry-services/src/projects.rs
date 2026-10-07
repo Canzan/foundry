@@ -15,7 +15,9 @@
 //! own id, so a case-only rename of a project onto itself is a VALID rename, and
 //! an exact-match self rename is the earlier NoOp.
 
-use foundry_core::{MintedSlug, ProjectKey, ProjectKeyError, ProjectName, ProjectNameError};
+use foundry_core::{
+    mint_project_slug, MintedSlug, ProjectKey, ProjectKeyError, ProjectName, ProjectNameError,
+};
 use foundry_store::{ProjectInsertError, Store};
 
 /// The rename request as the driving adapter hands it over.
@@ -182,18 +184,50 @@ pub async fn create_project(
     create_project_with_sibling_reads(store, request, Vec::new()).await
 }
 
+/// How many create attempts a key-prefix fallback address gets before the
+/// create gives up with [`CreateProjectError::FallbackSlugContention`]
+/// (ADR-PROJECT-NAME-002 §3). Counts the first attempt.
+pub const FALLBACK_SLUG_ATTEMPTS: usize = 3;
+
 /// [`create_project`] with the sibling read scriptable (DESIGN OQ-D3): attempt
 /// `i` checks against `scripted[i]` instead of reading the store while a
 /// scripted list remains, so a test can hand the check a STALE view and make
 /// the unique index fire on insert. Not for production callers.
+///
+/// Each attempt reads the siblings, runs the check, parses the key, mints from
+/// the same read and inserts in its own transaction. Only a `KeyFallback`
+/// address losing on the slug index is retried (DDD-10); a `Derived` one keeps
+/// today's `NotUnique`.
 #[doc(hidden)]
 pub async fn create_project_with_sibling_reads(
     store: &Store,
     request: CreateProjectRequest<'_>,
     scripted: Vec<Vec<(String, String)>>,
 ) -> Result<CreatedProject, CreateProjectError> {
+    let mut scripted = scripted.into_iter();
+    for _ in 0..FALLBACK_SLUG_ATTEMPTS {
+        match attempt_create(store, &request, scripted.next()).await? {
+            Attempt::Created(created) => return Ok(created),
+            Attempt::FallbackTaken => continue,
+        }
+    }
+    Err(CreateProjectError::FallbackSlugContention)
+}
+
+/// One attempt's outcome when it did not refuse.
+enum Attempt {
+    Created(CreatedProject),
+    /// The minted `KeyFallback` address was taken between the read and the insert.
+    FallbackTaken,
+}
+
+async fn attempt_create(
+    store: &Store,
+    request: &CreateProjectRequest<'_>,
+    scripted: Option<Vec<(String, String)>>,
+) -> Result<Attempt, CreateProjectError> {
     let project_id = uuid::Uuid::now_v7();
-    let siblings = match scripted.into_iter().next() {
+    let siblings = match scripted {
         Some(siblings) => siblings,
         None => store
             .list_team_sibling_projects(request.team_id, project_id)
@@ -205,8 +239,9 @@ pub async fn create_project_with_sibling_reads(
         .ensure_unique_among(&siblings)
         .map_err(CreateProjectError::InvalidName)?;
     let key = ProjectKey::try_new(request.key_prefix).map_err(CreateProjectError::InvalidKey)?;
-    let minted = MintedSlug::Derived(request.name.derived_slug());
-    store
+    let team_slugs: Vec<String> = siblings.into_iter().map(|(_, slug)| slug).collect();
+    let minted = mint_project_slug(&request.name, &key, &team_slugs);
+    let inserted = store
         .insert_project(
             project_id,
             request.workspace_id,
@@ -215,18 +250,21 @@ pub async fn create_project_with_sibling_reads(
             minted.as_str(),
             key.as_str(),
         )
-        .await
-        .map_err(|err| match err {
-            ProjectInsertError::DuplicateKey => CreateProjectError::DuplicateKey,
-            ProjectInsertError::DuplicateSlug => {
-                CreateProjectError::InvalidName(ProjectNameError::NotUnique)
-            }
-            ProjectInsertError::Other(err) => CreateProjectError::Store(err),
-        })?;
-    Ok(CreatedProject {
-        project_id,
-        slug: minted,
-    })
+        .await;
+    match (inserted, &minted) {
+        (Ok(()), _) => Ok(Attempt::Created(CreatedProject {
+            project_id,
+            slug: minted,
+        })),
+        (Err(ProjectInsertError::DuplicateSlug), MintedSlug::KeyFallback(_)) => {
+            Ok(Attempt::FallbackTaken)
+        }
+        (Err(ProjectInsertError::DuplicateSlug), MintedSlug::Derived(_)) => {
+            Err(CreateProjectError::InvalidName(ProjectNameError::NotUnique))
+        }
+        (Err(ProjectInsertError::DuplicateKey), _) => Err(CreateProjectError::DuplicateKey),
+        (Err(ProjectInsertError::Other(err)), _) => Err(CreateProjectError::Store(err)),
+    }
 }
 
 /// Property tests over the PURE classification (the domain function IS its own

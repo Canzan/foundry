@@ -2,13 +2,6 @@
 //! project-name rule and the one create-time address mint (project-name-rule,
 //! DESIGN DDD-1/2/3/4/9/14, ADR-PROJECT-NAME-001/002).
 //!
-//! SCAFFOLD: partial — DISTILL 2026-10-06; DELIVER 01-01 landed the rule, copy,
-//! uniqueness check and derived address in `foundry-core` and un-ignored slice 01.
-//! The mint still runs against the `mod scaffold` shim below, whose body panics.
-//! DELIVER: create the mint in `foundry-core` (slice 04), delete `mod scaffold`,
-//! replace `use scaffold::…` with `use foundry_core::…`, and remove the remaining
-//! ignores slice by slice.
-//!
 //! The rule under test (D2, D3, D5, DDD-2): `try_new(raw)` trims (`str::trim`),
 //! then refuses Empty, then ControlCharacter (exactly `WorkspaceName`'s set,
 //! through ONE shared predicate, DDD-1), then TooLong (more than 256 Unicode
@@ -28,45 +21,11 @@
 use proptest::prelude::*;
 
 use foundry_core::{
-    ProjectKey, ProjectName, ProjectNameError, WorkspaceName, WorkspaceNameError,
-    PROJECT_NAME_MAX_CHARS,
+    mint_project_slug, MintedSlug, ProjectKey, ProjectName, ProjectNameError, WorkspaceName,
+    WorkspaceNameError, PROJECT_NAME_MAX_CHARS,
 };
-use scaffold::{mint_project_slug, MintedSlug};
 
 use ProjectNameError::{ControlCharacter, Empty, NotUnique, TooLong};
-
-const SCAFFOLD_MINT: &str =
-    "SCAFFOLD: foundry_core::mint_project_slug is not implemented yet (DDD-9)";
-
-/// The remaining target API (slice 04 mint), as DESIGN fixed it. DELIVER 04-01
-/// deletes this module.
-mod scaffold {
-    #![allow(dead_code)]
-    use super::SCAFFOLD_MINT;
-    use foundry_core::{ProjectKey, ProjectName};
-
-    #[derive(Debug, Clone, PartialEq, Eq)]
-    pub enum MintedSlug {
-        Derived(String),
-        KeyFallback(String),
-    }
-
-    impl MintedSlug {
-        pub fn as_str(&self) -> &str {
-            match self {
-                Self::Derived(s) | Self::KeyFallback(s) => s,
-            }
-        }
-    }
-
-    pub fn mint_project_slug(
-        _name: &ProjectName,
-        _key: &ProjectKey,
-        _team_slugs: &[String],
-    ) -> MintedSlug {
-        panic!("{SCAFFOLD_MINT}")
-    }
-}
 
 /// Assert one example: `raw` either parses to exactly `stored` or is refused with `err`.
 fn check(raw: &str, expected: Result<&str, ProjectNameError>) {
@@ -206,7 +165,6 @@ fn the_seeded_sandbox_project_name_passes_the_rule() {
 }
 
 #[test]
-#[ignore = "SCAFFOLD: slice 04 (D13, DDD-14 mint half)"]
 fn the_seeded_sandbox_project_mints_its_shipped_address() {
     assert_eq!(
         mint_project_slug(&name("Sandbox"), &key("GEN"), &[]),
@@ -278,7 +236,6 @@ fn the_derived_address_is_slugify_of_the_name() {
 // ---------------------------------------------------------------- the mint (D15, DDD-9)
 
 #[test]
-#[ignore = "SCAFFOLD: slice 04 (DDD-9)"]
 fn a_name_with_its_own_address_keeps_it() {
     assert_eq!(
         mint_project_slug(&name("Ωmega 2"), &key("OMG"), &taken(&["mega-2"])),
@@ -292,7 +249,6 @@ fn a_name_with_its_own_address_keeps_it() {
 }
 
 #[test]
-#[ignore = "SCAFFOLD: slice 04 (DDD-9)"]
 fn a_name_without_an_address_takes_the_key_prefix_in_lower_case() {
     let jp = name("日本語ボード");
     let k = key("JP");
@@ -325,7 +281,6 @@ fn a_name_without_an_address_takes_the_key_prefix_in_lower_case() {
 }
 
 #[test]
-#[ignore = "SCAFFOLD: slice 04 (DDD-9)"]
 fn a_six_letter_key_and_a_legacy_empty_address_are_handled() {
     assert_eq!(
         mint_project_slug(&name("🚀"), &key("AUTHWS"), &[]),
@@ -411,7 +366,6 @@ proptest! {
     /// D15: a fallback address is never empty, never already taken, never `-1`,
     /// and is the LOWEST free candidate (every lower candidate is taken).
     #[test]
-    #[ignore = "SCAFFOLD: slice 04 (DDD-9)"]
     fn a_fallback_address_is_the_lowest_free_candidate(
         k in "[A-Z]{2,6}",
         taken_slugs in prop::collection::vec(slug_token(), 0..8),

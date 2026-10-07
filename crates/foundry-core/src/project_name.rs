@@ -9,7 +9,7 @@ use std::fmt;
 use thiserror::Error;
 
 use crate::name_chars::is_refused_name_char;
-use crate::slugify;
+use crate::{slugify, ProjectKey};
 
 /// The longest project name accepted, counted in Unicode scalar values of the
 /// trimmed input (`chars().count()`), never in bytes.
@@ -112,4 +112,30 @@ impl MintedSlug {
             Self::Derived(slug) | Self::KeyFallback(slug) => slug,
         }
     }
+}
+
+/// The one create-time address mint (D15, DDD-9, ADR-PROJECT-NAME-002). Total:
+/// never refuses, never returns `""`.
+///
+/// `Derived(name.derived_slug())` when that is non-empty, used verbatim (the
+/// sibling check owns derived collisions). Otherwise `KeyFallback` of the first
+/// of `k`, `k-2`, `k-3`, … (`k` = the key lower-cased) not among `team_slugs`,
+/// the team's stored addresses. The suffix starts at 2, never 1, and the lowest
+/// free candidate wins, not the one after the highest.
+pub fn mint_project_slug(
+    name: &ProjectName,
+    key: &ProjectKey,
+    team_slugs: &[String],
+) -> MintedSlug {
+    let derived = name.derived_slug();
+    if !derived.is_empty() {
+        return MintedSlug::Derived(derived);
+    }
+    let base = key.as_str().to_ascii_lowercase();
+    let is_free = |candidate: &String| !team_slugs.contains(candidate);
+    let fallback = std::iter::once(base.clone())
+        .chain((2u32..).map(|n| format!("{base}-{n}")))
+        .find(is_free)
+        .expect("a finite team leaves some candidate free");
+    MintedSlug::KeyFallback(fallback)
 }

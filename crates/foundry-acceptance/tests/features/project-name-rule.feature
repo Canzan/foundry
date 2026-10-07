@@ -318,25 +318,25 @@ Feature: One rule for naming a project, at both doors
       Given Priya is the instance super-admin
       And workspace "Canzan Labs" has a team "Backend" with projects "Auth v2" (AUTH) and "Sandbox" (SBX)
 
-    @pending @us-pnr-04 @driving_port @kpi @real-io @contract-shape:bounded-change
+    @us-pnr-04 @driving_port @kpi @real-io @contract-shape:bounded-change
     Scenario: A project named in Japanese lands on its own board
       When Priya creates a project named "日本語ボード" with key prefix "JP"
       Then she lands on the board at "/team/backend/project/jp" headed "日本語ボード"
       And its change report opens at "/team/backend/project/jp/report" headed "日本語ボード"
 
-    @pending @us-pnr-04 @driving_port @real-io @contract-shape:bounded-change
+    @us-pnr-04 @driving_port @real-io @contract-shape:bounded-change
     Scenario: Two projects without Latin letters can live in one team
       Given Priya has created a project named "日本語ボード" with key prefix "JP"
       When Priya creates a project named "🚀" with key prefix "RKT"
       Then she lands on the board at "/team/backend/project/rkt" headed "🚀"
 
-    @pending @us-pnr-04 @edge @real-io @contract-shape:bounded-change
+    @us-pnr-04 @edge @real-io @contract-shape:bounded-change
     Scenario: The fallback address takes the next free number when its first choice is used
       Given Priya has created a project named "Ops" with key prefix "OPN"
       When Priya creates a project named "🛠" with key prefix "OPS"
       Then she lands on the board at "/team/backend/project/ops-2" headed "🛠"
 
-    @pending @us-pnr-04 @edge @real-io @contract-shape:bounded-change
+    @us-pnr-04 @edge @real-io @contract-shape:bounded-change
     Scenario Outline: The fallback address takes the lowest free number, never "-1"
       Given Priya has created a project named "<first>" with key prefix "<first_key>"
       And Priya has created a project named "<second>" with key prefix "<second_key>"
@@ -348,7 +348,7 @@ Feature: One rule for naming a project, at both doors
         | JP    | JPX       | JP 2   | JPY        | /team/backend/project/jp-3 |
         | JP 2  | JPY       | Ops    | OPN        | /team/backend/project/jp   |
 
-    @pending @us-pnr-04 @edge @guard @real-io @contract-shape:bounded-change
+    @us-pnr-04 @edge @guard @real-io @contract-shape:bounded-change
     Scenario Outline: Names with Latin letters or digits keep today's addresses
       When Priya creates a project named "<name>" with key prefix "<key>"
       Then she lands on the board at "<address>" headed "<name>"
@@ -358,20 +358,20 @@ Feature: One rule for naming a project, at both doors
         | Ωmega 2       | OMG | /team/backend/project/mega-2     |
         | Café Roadmap  | CAF | /team/backend/project/caf-roadmap |
 
-    @pending @us-pnr-04 @real-io @contract-shape:bounded-change
+    @us-pnr-04 @real-io @contract-shape:bounded-change
     Scenario: Renaming such a project keeps its address
       Given Priya has created a project named "日本語ボード" with key prefix "JP"
       When Priya renames project "日本語ボード" to the pasted name "Japanese Board"
       Then project "日本語ボード" is now named "Japanese Board", and its board still opens at its original address
       And the board at "/team/backend/project/jp" is headed "Japanese Board"
 
-    @pending @us-pnr-04 @edge @real-io @contract-shape:bounded-change
+    @us-pnr-04 @edge @real-io @contract-shape:bounded-change
     Scenario: An old project with no address does not block a new one
       Given project "Ωμέγα" (OMG) was created before this fix and has no board address
       When Priya creates a project named "🚀" with key prefix "RKT"
       Then she lands on the board at "/team/backend/project/rkt" headed "🚀"
 
-    @pending @us-pnr-04 @error @edge @real-io @contract-shape:unbounded-preservation
+    @us-pnr-04 @error @edge @real-io @contract-shape:unbounded-preservation
     Scenario: A name that spells a fallback address already taken is refused
       Given Priya has created a project named "日本語ボード" with key prefix "JP"
       When Priya creates a project named "JP" with key prefix "JPX"

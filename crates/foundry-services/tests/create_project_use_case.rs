@@ -2,8 +2,8 @@
 //! 9/10/11, ADR-PROJECT-NAME-001/002), driven against a REAL Postgres (@real-io)
 //! — the `rename_project_use_case` idiom.
 //!
-//! The use-case landed in slice 02 (behaviour 1a runs); the mint and the retry
-//! land in slice 04, which removes the remaining ignores.
+//! The use-case landed in slice 02 (behaviour 1a); the mint and the bounded
+//! retry landed in slice 04.
 //!
 //! WHY HERE AND NOT IN THE ACCEPTANCE SUITE (DESIGN OQ-D3): the fallback-address
 //! race (two creates in one team taking the same key-prefix address within
@@ -178,7 +178,6 @@ async fn a_create_with_a_latin_name_keeps_its_own_address_and_gets_its_lanes() {
 
 /// Behaviour 1b: a name without an address takes the key prefix.
 #[tokio::test]
-#[ignore = "SCAFFOLD: slice 04 (DDD-9)"]
 async fn a_create_without_a_latin_name_takes_the_key_prefix_address() {
     let japanese = parsed("日本語ボード");
     let h = seeded_harness().await;
@@ -196,7 +195,6 @@ async fn a_create_without_a_latin_name_takes_the_key_prefix_address() {
 /// the existing `jp`, mints `jp`, and loses on the unique index; the retry reads
 /// the store and lands on `jp-2`. Never the uniqueness refusal.
 #[tokio::test]
-#[ignore = "SCAFFOLD: slice 04 (DDD-10 retry)"]
 async fn a_stale_fallback_address_is_retried_to_the_next_free_one() {
     let japanese = parsed("日本語ボード");
     let h = seeded_harness().await;
@@ -215,7 +213,6 @@ async fn a_stale_fallback_address_is_retried_to_the_next_free_one() {
 /// Behaviour 3 (DDD-10 bound): three stale reads, three collisions (`jp`, `jp-2`,
 /// `jp-3` all taken) → FallbackSlugContention, and nothing is written.
 #[tokio::test]
-#[ignore = "SCAFFOLD: slice 04 (DDD-10 bound)"]
 async fn three_lost_races_end_in_contention_and_write_nothing() {
     let japanese = parsed("日本語ボード");
     let h = seeded_harness().await;
@@ -250,7 +247,6 @@ async fn three_lost_races_end_in_contention_and_write_nothing() {
 /// Behaviour 4: a DERIVED address that collides on insert (the stale read hid
 /// the sibling from the check) is the uniqueness refusal — no retry, no row.
 #[tokio::test]
-#[ignore = "SCAFFOLD: slice 04 (DDD-10 Derived arm)"]
 async fn a_derived_address_collision_is_not_unique_and_writes_nothing() {
     let auth = parsed("Auth V2!");
     let h = seeded_harness().await;
@@ -272,7 +268,6 @@ async fn a_derived_address_collision_is_not_unique_and_writes_nothing() {
 /// Behaviour 5: the re-read re-runs the sibling check, so a genuine concurrent
 /// create of the SAME name gets the true refusal instead of a suffix.
 #[tokio::test]
-#[ignore = "SCAFFOLD: slice 04 (DDD-10 re-check)"]
 async fn a_concurrent_create_of_the_same_name_is_refused_on_the_retry() {
     let japanese = parsed("日本語ボード");
     let h = seeded_harness().await;
