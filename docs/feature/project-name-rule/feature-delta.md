@@ -1072,3 +1072,81 @@ Docker running (the shared Postgres testcontainer; per-test containers for the s
 - The create page's refusal slot is a bare `p.error` (no data attribute); the steps require exactly one on the page. If DELIVER adds a marker (for example `data-create-error`), narrow `CREATE_ERROR_CSS` in the same commit.
 - A browser cannot type a tab, so scenario 8 sets the input's value the way a paste lands, then presses the row's own submit button (the iwnr idiom).
 - None of the above needs a user decision.
+
+## Wave: DELIVER
+
+### [REF] Implementation summary
+
+- **The rule:** `foundry_core::ProjectName::try_new` trims, then refuses an empty name, the shared D3
+  characters (`name_chars::is_refused_name_char`, also used by `WorkspaceName`), and more than 256
+  characters. `ensure_unique_among` is the one uniqueness check, with the empty-slug skip.
+  `ProjectNameError::Display` is the only copy.
+- **Rename** composes the rule after its context read and no-op (`InvalidName`).
+- **Create:** after the unchanged gates, create parses `ProjectName` and calls
+  `Services::create_project`. That reads siblings, checks uniqueness, parses the key, mints the slug
+  with `mint_project_slug` (Derived or KeyFallback), and inserts, retrying up to 3 times on a lost
+  fallback race.
+- **Enforcement:** check-arch `project-name-one-source` keeps the copy in core and `insert_project(` out
+  of the app and API crates.
+
+### [REF] Files modified
+
+- **Production:**
+  - foundry-core `name_chars.rs` (new), `project_name.rs` (new), `workspace_name.rs`, `lib.rs`
+  - foundry-services `projects.rs`, plus `Cargo.toml` (the `test-support` feature)
+  - foundry-app `projects.rs`, `instance_admin.rs`
+  - foundry-store `lib.rs` (`DuplicateSlug`)
+  - `xtask/src/check_arch.rs`
+- **Tests:**
+  - `crates/foundry-core/tests/project_name.rs` (24)
+  - `crates/foundry-services/tests/create_project_use_case.rs` (7), and the classifier proptests
+  - xtask one-source gold tests
+  - `project-name-rule.feature` and its step module (74 rows)
+- **Docs:** this section, the evolution doc, `CHANGELOG.md`, and `deliver/mutation/mutation-report.md`
+
+### [REF] Scenarios green
+
+74 of 74 rows in `project-name-rule.feature`, with zero `@pending` tag lines, as of 2026-10-07.
+
+| Lane | Result |
+|---|---|
+| iapr | 21/21 |
+| iwnr | 61/61 |
+| us-07 | 30/30 |
+| us-r01 | 2/2 |
+| blm | 24/24 |
+| form-error-display-contract | 6/6 |
+| us-05 | 23/23 |
+| Default (at 05-01) | 838/839; the one failure was the sqlx `'\0'` flake, which passed on rerun |
+
+### [REF] DoD check
+
+All nine items pass:
+- scenarios on both doors and the parity outlines;
+- nothing written on refusal, and the key stays free;
+- no 500 on NUL;
+- the fallback slug reaches a working board and report;
+- check-arch;
+- mutation 98.4% with exact boundary pairs;
+- the CHANGELOG (`### Changed` and `### Fixed`, no API/CLI change), the brief, jobs.yaml and OUT-19.
+
+### [REF] Quality gates
+
+- **Refactor (`a728447`):** the scripted create seam is gated behind `test-support`; resolver 2 keeps
+  dev-only features out of release. The check-arch one-source rules are data-driven.
+- **Adversarial review:** APPROVED. Every question was answered with file:line evidence, including
+  that a key clash is never misread as a slug clash (the store checks `key_prefix` first).
+- **Mutation:** 62/63 viable killed (98.4%), up from 93.7% after three survivor tests.
+- **DES integrity:** all 7 steps complete.
+- **CI:** `cargo xtask ci` with `FOUNDRY_XTASK_INCLUDE_DOCKER=1` (2026-10-07): all gates green. That covers fmt, clippy, check-arch, the release build, workspace tests, cargo-deny, and acceptance on all tags including browser and docker-compose: 1073/1073 scenarios, 7300 steps, with no flakes.
+
+### [WHY] Upstream Issues
+
+- **Roadmap warm-up:** `foundry --help` and `--version` exit 2, which stopped `&&` chains. Changed to
+  `build && { warm || true; }`.
+- **DISTILL oracle:** the page-wide `p.error` was scoped to the create form's adjacent slot (`c1aa43a`),
+  and `ProjectName`'s `Display` was pinned.
+- **DESIGN review:** the claim that a crate-private function couldn't be shared was false; `pub(crate)`
+  is visible crate-wide. The other two points were resolved in "Review resolutions".
+- **Deviation:** the contention warning is logged in the handler, because foundry-services has no
+  `tracing` dependency. It still carries only the team id and attempt count.

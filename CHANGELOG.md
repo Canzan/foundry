@@ -7,6 +7,46 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 
 ## [Unreleased]
 
+Project names now follow one rule on both doors, and every new project gets a
+working address (project-name-rule).
+
+### Changed
+
+- **One project-name rule for create and rename.** The team create form and the
+  instance-admin rename apply the same rule and refuse a bad name with the same
+  words. The name is trimmed, must not be empty, must not contain control
+  characters, must be at most 256 characters, and must be unique within the
+  team.
+  - **Create is stricter.** It used to accept any length and invisible
+    characters, and it checked only the address for duplicates. It now refuses a
+    name longer than 256 characters, a name containing control characters
+    (newline, tab, NUL, bidi override and isolate characters, U+2028/2029, the
+    same set as workspace names), and a name that matches another project in
+    the team ignoring case, even if that project was renamed and lives at a
+    different address. The new message is "Project name must not contain control
+    characters".
+  - **Rename refuses control characters** too. Resubmitting an existing name
+    unchanged is still a quiet success, even if it predates the rule.
+  - **A refused create leaves nothing behind**, so the key prefix stays free for
+    the corrected retry. The form keeps the name and key you typed.
+  - **A NUL in a name** used to cause an internal error. It is now refused like
+    any other bad name.
+
+### Fixed
+
+- **Projects named without Latin letters or digits get a working address.** A
+  name such as "日本語ボード" or "🚀" used to get an empty address, so its board
+  could not be opened and a second such project was wrongly refused as a
+  duplicate. Such a project's address is now its key prefix in lower case, for
+  example `/team/backend/project/jp`, then `jp-2`, `jp-3` and so on if the team
+  already uses it. Names with Latin letters keep the addresses they get today.
+  Existing projects keep their addresses.
+
+### Migration notes
+
+- No database migration, and no existing project name or address is rewritten.
+  No API or CLI change: neither writes project names.
+
 ## [v0.10.0] - 2026-10-06
 
 Every way of naming a workspace now follows one rule, and control characters
