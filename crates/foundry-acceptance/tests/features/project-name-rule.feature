@@ -155,7 +155,7 @@ Feature: One rule for naming a project, at both doors
       Given Priya is the instance super-admin
       And workspace "Canzan Labs" has a team "Backend" with projects "Auth v2" (AUTH) and "Sandbox" (SBX)
 
-    @pending @us-pnr-02 @driving_port @edge @guard @real-io @contract-shape:bounded-change
+    @us-pnr-02 @driving_port @edge @guard @real-io @contract-shape:bounded-change
     Scenario Outline: A name of up to 256 characters creates the project and opens its board
       When Priya creates a project named "<pasted>" with key prefix "OPS"
       Then she lands on the new project's board, headed "<stored>"
@@ -205,7 +205,7 @@ Feature: One rule for naming a project, at both doors
       When Priya creates a project named "Homelab Ops" with key prefix "OPS"
       Then she lands on the board at "/team/backend/project/homelab-ops" headed "Homelab Ops"
 
-    @pending @us-pnr-02 @error @security @guard @real-io @contract-shape:unbounded-preservation
+    @us-pnr-02 @error @security @guard @real-io @contract-shape:unbounded-preservation
     Scenario Outline: A caller who may not create in the team gets today's answer, whatever the name
       Given Marco is a signed-in member who is not an instance admin
       When <caller> sends creates to team "<team>" with unfit names and with an acceptable name
@@ -231,7 +231,7 @@ Feature: One rule for naming a project, at both doors
         | Sandbox               | ops | Project name must be unique within the team       |
         | [SPACE]               | ops | Project name must not be empty                    |
 
-    @pending @us-pnr-02 @needs-browser @error @real-io @contract-shape:unbounded-preservation
+    @us-pnr-02 @needs-browser @error @real-io @contract-shape:unbounded-preservation
     Scenario: The refusal is shown in the create form on the real page, ready to correct
       Given Priya has the new-project form for team "Backend" open in her browser
       When she types the name "[257×a]" and the key prefix "OPS" into the form in her browser and submits it
