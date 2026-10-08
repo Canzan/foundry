@@ -160,9 +160,28 @@ stays uniform. The store stays `&str` and does not validate, because fixtures mu
 seed legacy names. `Store::create_initial_workspace` is a test-seeding seam with no
 production caller. `cargo xtask check-arch` (`workspace-name-one-source`) fails the
 build on a second copy of the refusal text outside `foundry-core`, or on a production
-call to that seeder. There is no DB CHECK yet; that is a separate follow-up. Project
+call to that seeder. Project
 names have their own rule (above), sharing this one's control-character predicate. See `adr-workspace-name-001-one-rule-as-core-value-object.md`
 and `adr-workspace-name-002-bootstrap-name-check-before-claim.md`.
+
+The database also enforces the pure arms of both name rules, on **new name writes only**
+(`name-db-checks`, designed 2026-10-08). The arms are: trimmed, non-empty, no refused
+character, and at most 24 or 256 characters. Migrations 0019 (workspaces) and 0020
+(projects) add one shared `IMMUTABLE` verdict function, `foundry_name_rule_violation`, which
+states the Rust rule with explicit code-point sets: `str::trim`'s 25 White_Space points and
+`name_chars`' refused ranges, with no `\s`. They also add one trigger function and two
+triggers per table: `BEFORE INSERT`, and `BEFORE UPDATE OF name WHEN (OLD.name IS DISTINCT
+FROM NEW.name)`. These are triggers rather than CHECK constraints, because a CHECK is
+re-checked on every UPDATE of a row. Under a CHECK, a legacy project name would refuse every
+new issue (`next_issue_number`). A refusal is SQLSTATE 23514, and the arm is named as the
+constraint (for example `workspaces_name_no_control_chars` or `projects_name_max_256_chars`).
+psql shows the native CHECK wording. App doors never meet the refusal, because the database
+rule equals the app rule. A real-Postgres property test pins that equality arm for arm. The
+migration refuses a non-UTF8 database and self-checks the substrate's trim, regex and length
+semantics before it installs the rule. Legacy rows are never scanned. A full `pg_restore`
+loads data before it creates the triggers. Fixtures that need a legacy row use one
+test-support seam, which disables that table's two name triggers inside one transaction
+(check-arch `name-rule-legacy-seam`). See `adr-name-db-001-name-write-trigger.md`.
 
 ### Dialog layers close by one mechanism, many declarative triggers
 

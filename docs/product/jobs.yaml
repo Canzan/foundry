@@ -271,6 +271,78 @@ jobs:
           Same shape for a different object. This job reuses that job's
           control-character set and copy pattern verbatim.
 
+  - id: job-name-rule-below-the-app
+    title: Have the database refuse a workspace or project name the app would refuse, when I write it by hand
+    job_story: >
+      When I work beneath the app, repairing a row with a hand-typed UPDATE in
+      psql over ssh, running a one-off script, or restoring a backup, I want
+      the database itself to refuse a workspace or project name that every
+      app door refuses, and to tell me which rule it broke, so a name I write
+      by hand cannot become the one label in the sidebar or on a board that
+      the app would never have allowed. Names already stored must keep
+      working.
+    dimensions:
+      functional: >
+        The pure name rules (non-empty, stored trimmed, no refused character,
+        at most 24 or 256 characters) hold for every new name write, whatever
+        the client. Each refusal names the rule it broke. Rows that broke the
+        rule before the change still load, render, rename, take new issues
+        and restore.
+      emotional: >
+        Stop worrying that a quick repair at the psql prompt quietly
+        undoes the rule the app was built to keep, and stop worrying that
+        the upgrade breaks a legacy row.
+      social: >
+        Members never see a name in their sidebar or on a board that came
+        in through a side door. A second operator who opens psql inherits
+        the same guard rails.
+    forces:
+      push: >
+        Since v0.10.0 (workspaces) and v0.11.0 (projects) every app door
+        refuses bad names, but `workspaces.name` and `projects.name` are
+        plain `TEXT NOT NULL`. A hand-typed `UPDATE … SET name = E'House\tHold'`
+        or a 40-character name is accepted silently. The rename job's own
+        forces name psql as the habit the app must displace, so psql is
+        still a door, and it has no rule.
+      pull: >
+        The same rule as the app, enforced by Postgres, with an error that
+        names the broken arm. No app door changes.
+      anxiety: >
+        That the upgrade migration scans or rewrites legacy rows, or fails
+        on them. That a legacy name blocks unrelated writes such as issue
+        numbering. That a restore of an old backup is refused. That the
+        database refuses something the app accepted, which would turn a
+        valid name into a 500.
+      habit: >
+        Fixing things in psql because it is fast for a single operator, and
+        seeding odd names directly in test fixtures. The guard must leave
+        both possible for rows that predate it.
+    opportunity:
+      importance: medium
+      satisfaction: low
+      note: >
+        Single-job feature; no comparative scoring table. Sibling of
+        job-instance-workspace-naming and job-project-naming rather than an
+        extension of either. Those jobs' situations are naming at an app
+        door. Their actors are the super-admin and a team member, and each
+        covers one object. This job's situation is working below every app
+        door. Its actor is the operator holding database credentials, and it
+        covers both objects with one guarantee. Extending both would rewrite
+        two validated job stories to add a door neither one describes.
+        Grounded in code reading and the follow-up D record, not interviews,
+        the same recorded risk as its siblings.
+    validated_by: docs/feature/name-db-checks/feature-delta.md
+    relates_to:
+      - job: job-instance-workspace-naming
+        relation: >
+          The database enforces that job's pure arms (not uniqueness) as a
+          backstop under all four doors. It closes the "hand-typed psql"
+          gap that job recorded as follow-up D.
+      - job: job-project-naming
+        relation: >
+          The same backstop for that job's pure arms. Uniqueness stays in
+          the app.
+
   - id: job-dismiss-edit-dialog
     title: Back out of an issue's edit dialog without saving, the way every other app allows
     job_story: >

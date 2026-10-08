@@ -149,6 +149,14 @@ pub struct FoundryWorld {
     /// Gate comparisons made, and every one that differed from the baseline.
     pub pnr_gate_report: Option<(usize, Vec<String>)>,
 
+    // ---- name-db-checks (ndc) ----
+    /// The name universe captured just before the last write.
+    pub ndc_before: Option<crate::steps::feature_name_db_checks::NameUniverse>,
+    /// The operator's last statement at the database prompt, and its answer.
+    pub ndc_write: Option<crate::steps::feature_name_db_checks::DbWrite>,
+    /// The last issue filed on a board: `(project name, title)`.
+    pub ndc_filed: Option<(String, String)>,
+
     // ---- board-lane-management (blm) ----
     /// Seeded ids, captured at Given time.
     pub blm_workspace_id: Option<uuid::Uuid>,

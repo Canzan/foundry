@@ -29,6 +29,7 @@ personas:
       - docs/feature/instance-admin-workspace-rename/feature-delta.md
       - docs/feature/instance-workspace-name-rule/feature-delta.md
       - docs/feature/project-name-rule/feature-delta.md
+      - docs/feature/name-db-checks/feature-delta.md
 
     situation: >
       Runs foundry on her own cluster alongside Grafana, Portainer, ArgoCD and
@@ -81,6 +82,7 @@ personas:
       - job-instance-workspace-rename
       - job-instance-workspace-naming
       - job-project-naming
+      - job-name-rule-below-the-app
       - job-dismiss-edit-dialog
       - job-board-lane-shaping
       - job-canzan-theme

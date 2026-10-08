@@ -4789,3 +4789,207 @@ mod project_name_one_source_tests {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// name-db-checks DDD-12 — `name-rule-legacy-seam` (SCAFFOLD)
+// ---------------------------------------------------------------------------
+//
+// SCAFFOLD: true — DISTILL 2026-10-08. `check_name_rule_legacy_seam` panics and
+// is NOT wired into `source_violations`; its gold tests are ignored. DELIVER
+// (slice 01, with the seam) implements the rule over the shared scan helpers,
+// wires it, adds its phrase to the PASSED banner and un-ignores the tests.
+//
+// (a) the legacy seam (`seed_row_predating_name_rule`, working name — DELIVER may
+//     rename it here, in the seam, in `feature_name_db_checks.rs` and in the store
+//     test scaffolds together) has no CALL under
+//     `crates/{foundry-app,foundry-services,foundry-api}/src`; its definition and
+//     test callers are not flagged, nor are comment lines or longer identifiers.
+// (b) the trigger switch (`DISABLE TRIGGER`, any letter case) and
+//     `session_replication_role` appear in no `.rs` under `crates/` except the
+//     seam's own file (`crates/foundry-store/src/name_rule_legacy_seam.rs`, working
+//     path) — comments included, tests included: one greppable bypass (D8, DDD-11).
+// A missing `crates/` or an unreadable directory fails the rule.
+
+/// `name-rule-legacy-seam` (name-db-checks DDD-12). SCAFFOLD: panics until DELIVER.
+#[cfg_attr(not(test), allow(dead_code))]
+fn check_name_rule_legacy_seam(root: &Path) -> Vec<String> {
+    let _ = root;
+    panic!(
+        "SCAFFOLD: check-arch name-rule-legacy-seam is not implemented yet (name-db-checks DDD-12)"
+    )
+}
+
+#[cfg(test)]
+mod name_rule_legacy_seam_tests {
+    //! Injected-violation gold tests for `name-rule-legacy-seam` (DDD-12), the
+    //! `project_name_one_source_tests` idiom: a staged tree, the rule run against
+    //! it, the violations named by `file:line`.
+
+    use super::check_name_rule_legacy_seam;
+
+    fn stage(files: &[(&str, &str)]) -> tempfile::TempDir {
+        let dir = tempfile::tempdir().expect("tempdir");
+        for (rel_path, body) in files {
+            let path = dir.path().join(rel_path);
+            std::fs::create_dir_all(path.parent().expect("parent")).expect("mkdir");
+            std::fs::write(&path, body).expect("write fixture");
+        }
+        dir
+    }
+
+    fn flagged_at(violations: &[String], location: &str) -> bool {
+        violations.iter().any(|v| v.contains(location))
+    }
+
+    /// The seam's own file, as DELIVER will write it (working path and name).
+    const SEAM_FILE: &str = "crates/foundry-store/src/name_rule_legacy_seam.rs";
+    const SEAM: &str = "//! Never `session_replication_role` (superuser, skips FKs).\n\
+        #[cfg(feature = \"test-support\")]\n\
+        pub async fn seed_row_predating_name_rule(pool: &PgPool, table: NameRuleTable) {\n    \
+        let off = format!(\"ALTER TABLE {t} DISABLE TRIGGER {t}_name_rule_on_insert\", t = table.name());\n}\n";
+
+    #[test]
+    #[ignore = "SCAFFOLD: slice 01 — check-arch name-rule-legacy-seam (DDD-12)"]
+    fn the_seam_its_definition_and_its_test_callers_pass() {
+        let tree = stage(&[
+            (SEAM_FILE, SEAM),
+            (
+                "crates/foundry-store/tests/name_rule_in_database.rs",
+                "seed_row_predating_name_rule(&pool, NameRuleTable::Workspaces).await;\n",
+            ),
+            (
+                "crates/foundry-acceptance/src/steps/feature_name_db_checks.rs",
+                "foundry_store::seed_row_predating_name_rule(&pool, table).await;\n",
+            ),
+        ]);
+        let violations = check_name_rule_legacy_seam(tree.path());
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+
+    #[test]
+    #[ignore = "SCAFFOLD: slice 01 — check-arch name-rule-legacy-seam clause (a) (DDD-12)"]
+    fn a_door_that_calls_the_seam_is_flagged() {
+        let tree = stage(&[
+            (SEAM_FILE, SEAM),
+            (
+                "crates/foundry-app/src/instance_admin.rs",
+                "fn a() {}\nstore.seed_row_predating_name_rule(&pool, t).await;\n",
+            ),
+            (
+                "crates/foundry-services/src/workspaces.rs",
+                "let _ = foundry_store::seed_row_predating_name_rule\n    (&pool, t);\n",
+            ),
+            (
+                "crates/foundry-api/src/lib.rs",
+                "\n\nseed_row_predating_name_rule(&p, t).await;\n",
+            ),
+        ]);
+        let violations = check_name_rule_legacy_seam(tree.path());
+        assert_eq!(violations.len(), 3, "{violations:?}");
+        assert!(
+            flagged_at(&violations, "crates/foundry-app/src/instance_admin.rs:2"),
+            "{violations:?}"
+        );
+        assert!(
+            flagged_at(&violations, "crates/foundry-services/src/workspaces.rs:1"),
+            "a call split across lines is still a call: {violations:?}"
+        );
+        assert!(
+            flagged_at(&violations, "crates/foundry-api/src/lib.rs:3"),
+            "{violations:?}"
+        );
+    }
+
+    #[test]
+    #[ignore = "SCAFFOLD: slice 01 — check-arch name-rule-legacy-seam clause (a) (DDD-12)"]
+    fn a_comment_or_a_longer_name_in_a_door_is_not_a_seam_call() {
+        let tree = stage(&[
+            (SEAM_FILE, SEAM),
+            (
+                "crates/foundry-app/src/instance_admin.rs",
+                "// tests seed legacy rows with seed_row_predating_name_rule( only\n\
+                 let x = reseed_row_predating_name_rule_count(a);\n",
+            ),
+        ]);
+        let violations = check_name_rule_legacy_seam(tree.path());
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+
+    #[test]
+    #[ignore = "SCAFFOLD: slice 01 — check-arch name-rule-legacy-seam clause (b) (DDD-12)"]
+    fn a_trigger_switch_or_replica_mode_outside_the_seam_file_is_flagged() {
+        let tree = stage(&[
+            (SEAM_FILE, SEAM),
+            (
+                "crates/foundry-store/src/lib.rs",
+                "fn a() {}\nlet s = \"ALTER TABLE projects DISABLE TRIGGER projects_name_rule_on_insert\";\n",
+            ),
+            (
+                "crates/foundry-acceptance/src/steps/feature_x.rs",
+                "sqlx::query(\"alter table workspaces disable trigger all\");\n",
+            ),
+            (
+                "crates/foundry-app/tests/fixtures.rs",
+                "\n\n\nsqlx::query(\"SET session_replication_role = replica\");\n",
+            ),
+            (
+                "crates/foundry-store/tests/seed.rs",
+                "// a fixture once did: DISABLE TRIGGER workspaces_name_rule_on_rename\n",
+            ),
+        ]);
+        let violations = check_name_rule_legacy_seam(tree.path());
+        assert_eq!(violations.len(), 4, "{violations:?}");
+        assert!(
+            flagged_at(&violations, "crates/foundry-store/src/lib.rs:2"),
+            "{violations:?}"
+        );
+        assert!(
+            flagged_at(
+                &violations,
+                "crates/foundry-acceptance/src/steps/feature_x.rs:1"
+            ),
+            "letter case does not matter to SQL: {violations:?}"
+        );
+        assert!(
+            flagged_at(&violations, "crates/foundry-app/tests/fixtures.rs:4"),
+            "{violations:?}"
+        );
+        assert!(
+            flagged_at(&violations, "crates/foundry-store/tests/seed.rs:1"),
+            "comments count: one greppable bypass: {violations:?}"
+        );
+    }
+
+    #[test]
+    #[ignore = "SCAFFOLD: slice 01 — check-arch name-rule-legacy-seam clause (b) (DDD-12)"]
+    fn migrations_docs_and_files_outside_crates_are_not_this_rules_business() {
+        let tree = stage(&[
+            (SEAM_FILE, SEAM),
+            (
+                "crates/foundry-store/migrations/0019_workspace_name_rule.sql",
+                "-- undo: DROP TRIGGER IF EXISTS …; never DISABLE TRIGGER in production\n",
+            ),
+            (
+                "docs/feature/name-db-checks/feature-delta.md",
+                "session_replication_role is rejected (D8 d)\n",
+            ),
+            (
+                "xtask/src/check_arch.rs",
+                "const SWITCH: &str = \"DISABLE TRIGGER\";\n",
+            ),
+        ]);
+        let violations = check_name_rule_legacy_seam(tree.path());
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+
+    #[test]
+    #[ignore = "SCAFFOLD: slice 01 — check-arch name-rule-legacy-seam (DDD-12)"]
+    fn a_missing_crates_directory_fails_the_rule() {
+        let tree = stage(&[("README.md", "nothing here\n")]);
+        let violations = check_name_rule_legacy_seam(tree.path());
+        assert!(
+            !violations.is_empty(),
+            "a missing crates directory must FAIL the guard, never pass it vacuously"
+        );
+    }
+}

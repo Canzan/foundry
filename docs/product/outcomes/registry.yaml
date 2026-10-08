@@ -584,3 +584,40 @@ outcomes:
   - OUT-1
   - OUT-18
   superseded_by: null
+- id: OUT-20
+  kind: invariant
+  summary: The database refuses every new workspace or project name that the app's
+    pure name rule refuses, names the broken arm, and never touches a name written
+    before the rule or a write that does not change the name
+  feature: name-db-checks
+  inputs:
+  - shape: 'any SQL client (psql, a script, a restore) writing workspaces.name or projects.name:
+      INSERT (trigger <table>_name_rule_on_insert) or UPDATE OF name whose value changes
+      (trigger <table>_name_rule_on_rename, WHEN OLD.name IS DISTINCT FROM NEW.name);
+      both call foundry_enforce_name_rule(cap) -> foundry_name_rule_violation(name text,
+      max_chars int) IMMUTABLE, cap 24 (workspaces, migration 0019) or 256 (projects,
+      0020)'
+  output:
+    shape: 'NULL verdict -> the row is stored byte for byte | otherwise SQLSTATE 23514
+      with CONSTRAINT <table>_name_<arm>, MESSAGE new row for relation "<table>" violates
+      check constraint "<table>_name_<arm>", TABLE, COLUMN name, SCHEMA, a HINT naming
+      the mirrored foundry_core type and no DETAIL; the row is unchanged. Arms in the
+      app order after trimming exactly str::trim''s 25 White_Space points: not_empty,
+      no_control_chars (Cc, U+202A-202E, U+2066-2069, U+2028, U+2029), max_24_chars
+      / max_256_chars (char_length, UTF8 only), then trimmed when trimming changed
+      the value. Parity: the verdict equals WorkspaceName/ProjectName::try_new arm for
+      arm (never stricter, never looser). Uniqueness stays in the app. Rows stored
+      before 0019/0020 are never scanned; an UPDATE of another column (next_issue_number),
+      a same-value write and pg_restore --clean of any dump never meet the rule'
+  keywords:
+  - workspace
+  - project
+  - display-name
+  - database
+  - trigger
+  - legacy
+  artifact: crates/foundry-acceptance/tests/features/name-db-checks.feature
+  related:
+  - OUT-18
+  - OUT-19
+  superseded_by: null

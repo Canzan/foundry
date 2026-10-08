@@ -90,7 +90,7 @@ Feature: Correcting a stale workspace name from the instance dashboard, with the
 
   @us-iawr-01 @edge @real-io @contract-shape:unbounded-preservation
   Scenario: An over-long name from before the limit can be left as it is
-    Given workspace "Canzan Labs Platform Engineering and Site Reliability" exists with no projects
+    Given workspace "Canzan Labs Platform Engineering and Site Reliability" was named before the rule existed
     When Priya renames workspace "Canzan Labs Platform Engineering and Site Reliability" to "Canzan Labs Platform Engineering and Site Reliability"
     Then the workspace row she gets back shows "Canzan Labs Platform Engineering and Site Reliability" and carries no error
     And no workspace changed and nothing new went on record
@@ -228,7 +228,7 @@ Feature: Correcting a stale workspace name from the instance dashboard, with the
 
   @us-iawr-01 @needs-browser @edge @kpi @real-io @contract-shape:pure-function
   Scenario Outline: A long workspace name stays on one line in the sidebar
-    Given workspace "Canzan Labs Platform Engineering and Site Reliability" exists with no projects
+    Given workspace "Canzan Labs Platform Engineering and Site Reliability" was named before the rule existed
     And Lena is a member of workspace "Canzan Labs Platform Engineering and Site Reliability"
     When Lena opens a page in her workspace on a <screen> screen
     Then the sidebar shows the workspace name on one line ending in an ellipsis
