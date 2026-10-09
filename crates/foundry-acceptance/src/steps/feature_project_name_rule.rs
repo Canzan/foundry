@@ -59,6 +59,7 @@ use crate::support::harness::{establish_session, signed_in_get, signed_in_post, 
 use crate::world::FoundryWorld;
 use cucumber::{given, then, when};
 use fantoccini::Locator;
+use foundry_store::{seed_row_predating_name_rule, NameRuleTable};
 use reqwest::StatusCode;
 use scraper::{Html, Selector};
 use std::collections::BTreeMap;
@@ -579,6 +580,8 @@ async fn assert_landed(
 
 /// Seed a project the way it was before this feature (raw SQL, as a restore or
 /// an old replica would leave it) in Backend, with its lanes, and register it.
+/// Since migration 0020 the database refuses such a name, so it goes in through
+/// the test-support legacy seam (name-db-checks DDD-10/13, F3-F6).
 async fn seed_old_project(world: &mut FoundryWorld, name: &str, key: &str, slug: &str) {
     let workspace = *world
         .iapr_workspace_ids
@@ -589,7 +592,7 @@ async fn seed_old_project(world: &mut FoundryWorld, name: &str, key: &str, slug:
         .get(DEFAULT_TEAM)
         .expect("the Background seeds Backend");
     let id = uuid::Uuid::now_v7();
-    sqlx::query(
+    let write = sqlx::query(
         "INSERT INTO projects (id, team_id, workspace_id, name, slug, key_prefix)
               VALUES ($1, $2, $3, $4, $5, $6)",
     )
@@ -598,10 +601,10 @@ async fn seed_old_project(world: &mut FoundryWorld, name: &str, key: &str, slug:
     .bind(workspace)
     .bind(name)
     .bind(slug)
-    .bind(key)
-    .execute(&pool(world))
-    .await
-    .expect("insert a project from before the rule");
+    .bind(key);
+    seed_row_predating_name_rule(&pool(world), NameRuleTable::Projects, write)
+        .await
+        .expect("seed a project from before the rule through the legacy seam");
     crate::support::harness::seed_lanes_for_project(&pool(world), id).await;
     world.iapr_project_ids.insert(name.to_string(), id);
     world.iapr_stored_slugs.insert(

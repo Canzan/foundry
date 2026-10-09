@@ -483,7 +483,6 @@ async fn rename(
 /// DoD 3: the rule applies over a database already holding legacy names, scans
 /// and rewrites none of them, and re-running the set is a no-op.
 #[tokio::test]
-#[ignore = "SCAFFOLD: slice 01/02 — migrations 0019 and 0020 (DDD-7, DoD 3)"]
 async fn migrations_0019_and_0020_apply_over_legacy_rows_rewrite_none_and_rerun_is_a_noop() {
     let c = container().await;
     let pool = connect(&c, "postgres").await;
@@ -521,7 +520,6 @@ async fn migrations_0019_and_0020_apply_over_legacy_rows_rewrite_none_and_rerun_
 /// DDD-4/5/7: the triggers fire BEFORE INSERT and BEFORE UPDATE OF name only when
 /// the name changes, carry each table's cap, and every object says what it mirrors.
 #[tokio::test]
-#[ignore = "SCAFFOLD: slice 01/02 — migrations 0019 and 0020 (DDD-4/5/7)"]
 async fn the_triggers_fire_only_on_new_name_writes_with_each_tables_cap_and_say_what_they_mirror() {
     let (pool, _c) = migrated().await;
     require_rule_installed(&pool).await;
@@ -622,7 +620,6 @@ async fn the_triggers_fire_only_on_new_name_writes_with_each_tables_cap_and_say_
 /// Every arm, on INSERT and on UPDATE, on both tables: refused with the full
 /// error contract, and nothing moves.
 #[tokio::test]
-#[ignore = "SCAFFOLD: slice 01/02 — migrations 0019 and 0020 (DDD-4/6)"]
 async fn a_bad_name_write_is_refused_per_arm_and_table_and_nothing_changes() {
     let (pool, _c, legacy) = staged_with_legacy_rows().await;
     require_rule_installed(&pool).await;
@@ -681,7 +678,6 @@ async fn a_bad_name_write_is_refused_per_arm_and_table_and_nothing_changes() {
 /// D3 (never stricter) and D1 (uniqueness stays in the app): fit names, a
 /// case-duplicate project and a same-named workspace are stored byte for byte.
 #[tokio::test]
-#[ignore = "SCAFFOLD: slice 01/02 — migrations 0019 and 0020 (D1, D3)"]
 async fn fit_names_are_stored_byte_exact_and_uniqueness_is_left_to_the_app() {
     let (pool, _c, legacy) = staged_with_legacy_rows().await;
     require_rule_installed(&pool).await;
@@ -718,7 +714,6 @@ async fn fit_names_are_stored_byte_exact_and_uniqueness_is_left_to_the_app() {
 /// counter (through the store's own new-issue path), another workspace column,
 /// a same-value name write, the store's no-op rename.
 #[tokio::test]
-#[ignore = "SCAFFOLD: slice 01/02 — migrations 0019 and 0020 (D6, DDD-5)"]
 async fn writes_that_do_not_change_a_legacy_name_never_meet_the_rule() {
     let (pool, _c, legacy) = staged_with_legacy_rows().await;
     require_rule_installed(&pool).await;
@@ -779,7 +774,6 @@ async fn writes_that_do_not_change_a_legacy_name_never_meet_the_rule() {
 /// A legacy row is not exempt from the rule on a NEW name: another bad name is
 /// refused, a fit name is accepted through the store's own renames.
 #[tokio::test]
-#[ignore = "SCAFFOLD: slice 01/02 — migrations 0019 and 0020 (D6)"]
 async fn a_legacy_row_renamed_to_another_bad_name_is_refused_and_to_a_fit_name_is_accepted() {
     let (pool, _c, legacy) = staged_with_legacy_rows().await;
     require_rule_installed(&pool).await;
@@ -828,7 +822,6 @@ async fn a_legacy_row_renamed_to_another_bad_name_is_refused_and_to_a_fit_name_i
 /// DDD-4: `SET search_path FROM CURRENT` keeps the rule bound when the caller's
 /// session has an empty search_path (pg_restore's), with qualified statements.
 #[tokio::test]
-#[ignore = "SCAFFOLD: slice 01/02 — migrations 0019 and 0020 (DDD-4)"]
 async fn the_rule_holds_under_an_empty_search_path() {
     let (pool, _c, legacy) = staged_with_legacy_rows().await;
     require_rule_installed(&pool).await;
@@ -923,7 +916,6 @@ fn do_blocks(sql: &str) -> Vec<String> {
 /// by one that passes everything (a drifted substrate's answer), each migration's
 /// self-check must refuse.
 #[tokio::test]
-#[ignore = "SCAFFOLD: slice 01/02 — the 0019/0020 self-check DO blocks (DDD-8)"]
 async fn the_apply_time_self_check_refuses_a_verdict_function_that_passes_everything() {
     let (pool, _c) = migrated().await;
     require_rule_installed(&pool).await;
@@ -966,7 +958,6 @@ async fn the_apply_time_self_check_refuses_a_verdict_function_that_passes_everyt
 /// rule refuses — and both of the table's triggers are enabled again afterwards,
 /// also when the write itself fails.
 #[tokio::test]
-#[ignore = "SCAFFOLD: slice 01/02 — the legacy seam (DDD-10)"]
 async fn the_legacy_seam_stores_exactly_the_callers_row_and_leaves_both_triggers_enabled() {
     let (pool, _c) = migrated().await;
     require_rule_installed(&pool).await;

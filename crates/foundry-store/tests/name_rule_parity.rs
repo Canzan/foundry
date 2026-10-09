@@ -17,10 +17,10 @@
 //! (`unnest … WITH ORDINALITY`) without INSERTs; `name_rule_in_database.rs` proves
 //! the triggers wire it to every name write.
 //!
-//! SCAFFOLD: true — every test is `#[ignore = "SCAFFOLD: …"]` and starts with
-//! [`require_rule_installed`], which fails with a SCAFFOLD message until migration
-//! 0019 installs the verdict function. DELIVER un-ignores per slice (workspaces in
-//! slice 01, projects in slice 02); the bodies need no other change.
+//! Every database test starts with [`require_rule_installed`], which fails with
+//! a SCAFFOLD message if migration 0019 has not installed the verdict function.
+//! The workspace half (cap 24) was un-pended in slice 01, the project half
+//! (cap 256, the cap migration 0020's triggers pass) in slice 02.
 //!
 //! WHY-NEW-FILE: crates/foundry-store/tests/name_rule_parity.rs
 //!   CLOSEST-EXISTING: crates/foundry-core/tests/workspace_name.rs
@@ -334,7 +334,6 @@ async fn workspace_verdicts_match_workspace_name_arm_for_arm_over_10k_generated_
 }
 
 #[tokio::test]
-#[ignore = "SCAFFOLD: slice 02 — migration 0019's function at cap 256 (DDD-1/16)"]
 async fn project_verdicts_match_project_name_arm_for_arm_over_10k_generated_names() {
     bulk_parity(Table::Projects).await;
 }
@@ -483,7 +482,6 @@ async fn workspace_boundary_code_points_and_lengths_match_exactly() {
 }
 
 #[tokio::test]
-#[ignore = "SCAFFOLD: slice 02 — migration 0019's function at cap 256 (DDD-2/3, DoD 2)"]
 async fn project_boundary_code_points_and_lengths_match_exactly() {
     exact_pairs(Table::Projects).await;
 }

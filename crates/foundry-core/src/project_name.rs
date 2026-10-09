@@ -3,7 +3,11 @@
 //!
 //! Every path that accepts a project name constructs one of these. The
 //! refused-character set is shared with `WorkspaceName` through
-//! [`crate::name_chars`]; there is no second statement of it.
+//! [`crate::name_chars`]; there is no second statement of it. The database
+//! enforces the same rule, arm for arm at [`PROJECT_NAME_MAX_CHARS`], on every
+//! new name write: migration
+//! `crates/foundry-store/migrations/0020_project_name_rule.sql` (over 0019's
+//! verdict function; name-db-checks DDD-1..5, DDD-16); change both together.
 
 use std::fmt;
 use thiserror::Error;
