@@ -100,6 +100,24 @@ impl NameRuleTable {
         ]
     }
 
+    /// The mirrored `foundry_core` type and its cap (DDD-4, OQ-D6).
+    fn rust_type_and_cap(self) -> (&'static str, u32) {
+        match self {
+            Self::Workspaces => ("WorkspaceName", 24),
+            Self::Projects => ("ProjectName", 256),
+        }
+    }
+
+    /// The exact one-line HINT the refusal carries (migration 0019's
+    /// `foundry_enforce_name_rule`, shared by 0020).
+    fn hint(self) -> String {
+        let (rust_type, cap) = self.rust_type_and_cap();
+        format!(
+            "The name must be a valid foundry_core::{rust_type}: trimmed, not empty, \
+             no control characters, at most {cap} characters."
+        )
+    }
+
     fn of_arm(arm: &str) -> Self {
         if arm.starts_with("workspaces_") {
             Self::Workspaces
@@ -148,7 +166,13 @@ pub enum DbAnswer {
         constraint: Option<String>,
         table: Option<String>,
         column: Option<String>,
+        /// The schema the refused row would have lived in (DDD-4: `SCHEMA` set).
+        schema: Option<String>,
         message: String,
+        /// The one-line HINT naming the mirrored Rust type (DDD-4).
+        hint: Option<String>,
+        /// Must stay `None`: the refusal never carries a DETAIL row dump (DDD-4).
+        detail: Option<String>,
     },
     /// Any other failure (connection, a non-Postgres error).
     Other(String),
@@ -176,6 +200,8 @@ pub enum LegacyRow {
         name: String,
         slug: String,
         key_prefix: String,
+        /// The issue counter as history left it (past the project's last issue).
+        next_issue_number: i32,
     },
 }
 
@@ -220,16 +246,18 @@ async fn seed_through_legacy_seam(pool: &PgPool, row: &LegacyRow) {
             name,
             slug,
             key_prefix,
+            next_issue_number,
         } => sqlx::query(
-            "INSERT INTO projects (id, team_id, workspace_id, name, slug, key_prefix)
-                  VALUES ($1, $2, $3, $4, $5, $6)",
+            "INSERT INTO projects (id, team_id, workspace_id, name, slug, key_prefix, next_issue_number)
+                  VALUES ($1, $2, $3, $4, $5, $6, $7)",
         )
         .bind(*id)
         .bind(*team_id)
         .bind(*workspace_id)
         .bind(name.clone())
         .bind(slug.clone())
-        .bind(key_prefix.clone()),
+        .bind(key_prefix.clone())
+        .bind(*next_issue_number),
     };
     let written =
         foundry_store::seed_row_predating_name_rule(pool, row.table().seam_table(), write)
@@ -317,7 +345,10 @@ fn answer_of(result: Result<sqlx::postgres::PgQueryResult, sqlx::Error>) -> DbAn
                 constraint: pg.constraint().map(str::to_string),
                 table: pg.table().map(str::to_string),
                 column: pg.column().map(str::to_string),
+                schema: pg.schema().map(str::to_string),
                 message: pg.message().to_string(),
+                hint: pg.hint().map(str::to_string),
+                detail: pg.detail().map(str::to_string),
             },
             None => DbAnswer::Other(db.to_string()),
         },
@@ -370,7 +401,16 @@ fn team_id(world: &FoundryWorld, name: &str) -> uuid::Uuid {
 // Oracles
 // ===========================================================================
 
-fn assert_refused_under(answer: &DbAnswer, arm: &str) {
+/// The schema the session's unqualified writes land in (the scenario schema, or
+/// `public` on the restored instance): the refusal must name it (DDD-4).
+async fn current_schema(pool: &PgPool) -> String {
+    sqlx::query_scalar("SELECT current_schema()::text")
+        .fetch_one(pool)
+        .await
+        .expect("read the session's current schema")
+}
+
+fn assert_refused_under(answer: &DbAnswer, arm: &str, expected_schema: &str) {
     let table = NameRuleTable::of_arm(arm);
     assert!(
         table.arms().iter().any(|a| a == arm),
@@ -383,7 +423,10 @@ fn assert_refused_under(answer: &DbAnswer, arm: &str) {
             constraint,
             table: refused_table,
             column,
+            schema,
             message,
+            hint,
+            detail,
         } => {
             assert_eq!(
                 code, "23514",
@@ -411,6 +454,21 @@ fn assert_refused_under(answer: &DbAnswer, arm: &str) {
                     table.table()
                 ),
                 "the operator reads the native check-violation line (DDD-4)"
+            );
+            assert_eq!(
+                schema.as_deref(),
+                Some(expected_schema),
+                "the refusal must name the schema of the refused row (DDD-4); got {answer:?}"
+            );
+            assert_eq!(
+                hint.as_deref(),
+                Some(table.hint().as_str()),
+                "the refusal must carry the one-line HINT naming the mirrored type (DDD-4)"
+            );
+            assert_eq!(
+                detail.as_deref(),
+                None,
+                "the refusal must never carry a DETAIL: row values are not logged (DDD-4)"
             );
         }
         other => panic!(
@@ -526,6 +584,11 @@ async fn project_stored_before_the_upgrade(
             name: name.clone(),
             slug: slug.clone(),
             key_prefix: key.clone(),
+            // The counter is part of the row history wrote: set inside the seam, so
+            // no UPDATE of projects runs here. The first UPDATE of this row is the
+            // scenario's own write (the board's filing, a rename), which is where a
+            // rule firing on other-column writes must be caught (D6, DDD-5).
+            next_issue_number: last + 1,
         },
     )
     .await;
@@ -546,13 +609,6 @@ async fn project_stored_before_the_upgrade(
     .execute(&pool)
     .await
     .expect("seed the legacy project's last issue");
-    // An UPDATE of another column: the rule must never fire on it (D6, DDD-5).
-    sqlx::query("UPDATE projects SET next_issue_number = $1 WHERE id = $2")
-        .bind(last + 1)
-        .bind(id)
-        .execute(&pool)
-        .await
-        .expect("set the legacy project's issue counter past its last issue");
     world.iapr_project_ids.insert(name.clone(), id);
     world
         .iapr_stored_slugs
@@ -697,7 +753,8 @@ async fn priya_files_on_board(world: &mut FoundryWorld, title: String, raw_proje
 
 #[then(regex = r#"^the database refuses it under the rule "([^"]+)"$"#)]
 async fn database_refuses_under(world: &mut FoundryWorld, arm: String) {
-    assert_refused_under(&last_write(world).answer, &arm);
+    let schema = current_schema(&pool(world)).await;
+    assert_refused_under(&last_write(world).answer, &arm, &schema);
 }
 
 #[then(regex = r"^no workspace or project changed$")]
@@ -909,7 +966,7 @@ async fn restored_refuses(world: &mut FoundryWorld, label: String, raw: String, 
     let id = workspace_id(world, &expand_name(&label));
     let before = capture_name_universe(&pool).await;
     let answer = rename_by_hand(&pool, NameRuleTable::Workspaces, id, &expand_name(&raw)).await;
-    assert_refused_under(&answer, &arm);
+    assert_refused_under(&answer, &arm, &current_schema(&pool).await);
     assert_nothing_moved(&before, &capture_name_universe(&pool).await);
 }
 
