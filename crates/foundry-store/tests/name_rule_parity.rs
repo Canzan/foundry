@@ -17,8 +17,9 @@
 //! (`unnest … WITH ORDINALITY`) without INSERTs; `name_rule_in_database.rs` proves
 //! the triggers wire it to every name write.
 //!
-//! Every database test starts with [`require_rule_installed`], which fails with
-//! a SCAFFOLD message if migration 0019 has not installed the verdict function.
+//! Every database test starts with [`require_rule_installed`], the RED gate that
+//! fails with a readable message if migration 0019 has not installed the verdict
+//! function.
 //! The workspace half (cap 24) was un-pended in slice 01, the project half
 //! (cap 256, the cap migration 0020's triggers pass) in slice 02.
 //!
@@ -161,7 +162,7 @@ async fn migrated() -> (PgPool, ContainerAsync<Postgres>) {
 }
 
 /// RED gate: the verdict function exists. Until migration 0019 lands this fails
-/// with a SCAFFOLD message, never with an undefined-function database error.
+/// with a readable RED-gate message, never with an undefined-function database error.
 async fn require_rule_installed(pool: &PgPool) {
     let (present,): (bool,) = sqlx::query_as(
         "SELECT to_regprocedure('foundry_name_rule_violation(text, integer)') IS NOT NULL",
@@ -171,7 +172,7 @@ async fn require_rule_installed(pool: &PgPool) {
     .expect("look the verdict function up");
     assert!(
         present,
-        "SCAFFOLD: migration 0019 has not installed foundry_name_rule_violation(text, integer) \
+        "RED gate: migration 0019 has not installed foundry_name_rule_violation(text, integer) \
          yet (name-db-checks DDD-1/DDD-7)"
     );
 }

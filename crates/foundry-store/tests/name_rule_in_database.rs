@@ -26,12 +26,12 @@
 //! at 0018, insert plainly, migrate on. Only the seam tests and the post-0020
 //! dump (DDD-14 1) go through the seam.
 //!
-//! SCAFFOLD: true — the tests not yet un-pended are `#[ignore = "SCAFFOLD: …"]`.
 //! [`seam_insert_workspace`] / [`seam_insert_project`] call the DDD-10
-//! test-support seam; one placeholder still panics until DELIVER builds it:
-//! [`previous_release_boot`] (the DDD-14 4 boot-path migrator entry over a staged
-//! dir). Every other test reaches [`require_rule_installed`] (or the 0019 file
-//! lookup) and fails there with a SCAFFOLD message until 0019/0020 land.
+//! test-support seam; [`previous_release_boot`] calls the DDD-14 4 test-support
+//! boot-path migrator entry over a staged dir. Every database test starts at
+//! [`require_rule_installed`] (or the 0019 file lookup), the RED gate that fails
+//! with a readable message, never an undefined-object error, if 0019/0020 are
+//! missing.
 //!
 //! WHY-NEW-FILE: crates/foundry-store/tests/name_rule_in_database.rs
 //!   CLOSEST-EXISTING: crates/foundry-store/tests/workspace_rename_with_audit.rs
@@ -45,8 +45,8 @@
 //! server). Integration level, example-based (Mandates 9/11).
 
 use foundry_store::{
-    run_migrations, run_migrations_from_dir, seed_row_predating_name_rule, NameRuleTable, Store,
-    WorkspaceRenameWrite,
+    run_boot_migrations_from_dir, run_migrations, run_migrations_from_dir,
+    seed_row_predating_name_rule, NameRuleTable, Store, WorkspaceRenameWrite,
 };
 use sqlx::postgres::{PgDatabaseError, PgPoolOptions};
 use sqlx::PgPool;
@@ -72,7 +72,7 @@ const TRIGGERS: [(&str, &str); 4] = [
 ];
 
 // ---------------------------------------------------------------------------
-// The legacy seam, and the placeholder (SCAFFOLD) DELIVER still replaces
+// The legacy seam and the previous release's boot
 // ---------------------------------------------------------------------------
 
 /// The DDD-10 test-support legacy seam storing a workspace "that predates the
@@ -106,18 +106,16 @@ async fn seam_insert_project(pool: &PgPool, row: &ProjectSeed) -> Result<(), Str
         .map_err(|e| e.to_string())
 }
 
-/// SCAFFOLD (DDD-14 4): what the previous release (v0.11.0) does at boot — the
-/// boot loop (`run_migrator_timed`, which skips applied versions it does not
-/// know) over migrations up to 0018 only. NOT `run_migrations_from_dir`: its
+/// DDD-14 (4): what the previous release (v0.11.0) does at boot — the boot loop
+/// (`run_migrator_timed`, which skips applied versions it does not know) over
+/// migrations up to 0018 only. NOT `run_migrations_from_dir`: its
 /// `Migrator::run` errors on applied-but-unknown versions, which an old binary's
-/// boot does not. DELIVER: call the test-support entry over `run_migrator_timed`.
+/// boot does not.
 async fn previous_release_boot(pool: &PgPool, staged: &Path) -> Result<(), String> {
-    let _ = pool;
-    panic!(
-        "SCAFFOLD: the boot-path migrator entry for a staged dir (name-db-checks DDD-14 4) \
-         does not exist yet — DELIVER adds it over run_migrator_timed ({})",
-        staged.display()
-    )
+    run_boot_migrations_from_dir(pool, staged)
+        .await
+        .map(|_| ())
+        .map_err(|e| e.to_string())
 }
 
 // ---------------------------------------------------------------------------
@@ -203,7 +201,7 @@ async fn stand_at_0018(pool: &PgPool) {
 }
 
 /// RED gate: 0019 and 0020 are installed. Until they land this fails with a
-/// SCAFFOLD message, never with an undefined-object database error.
+/// readable RED-gate message, never with an undefined-object database error.
 async fn require_rule_installed(pool: &PgPool) {
     let (verdict, enforce, triggers): (bool, bool, i64) = sqlx::query_as(
         "SELECT to_regprocedure('foundry_name_rule_violation(text, integer)') IS NOT NULL,
@@ -217,7 +215,7 @@ async fn require_rule_installed(pool: &PgPool) {
     .expect("look the rule up");
     assert!(
         verdict && enforce && triggers == 4,
-        "SCAFFOLD: migrations 0019/0020 have not installed the name rule yet \
+        "RED gate: migrations 0019/0020 have not installed the name rule yet \
          (verdict fn {verdict}, enforce fn {enforce}, {triggers} of 4 triggers; \
          name-db-checks DDD-1/4/5/7)"
     );
@@ -870,7 +868,7 @@ async fn migration_0019_refuses_a_database_that_is_not_utf8() {
         production_migrations_dir()
             .join("0019_workspace_name_rule.sql")
             .is_file(),
-        "SCAFFOLD: migration 0019_workspace_name_rule.sql does not exist yet (DDD-7/8)"
+        "RED gate: migration 0019_workspace_name_rule.sql does not exist yet (DDD-7/8)"
     );
     let outcome = run_migrations(&pool).await;
     assert!(
@@ -1061,7 +1059,6 @@ async fn restore(c: &ContainerAsync<Postgres>, database: &str, file: &str) {
 /// restores with exit 0, names byte-identical, the four triggers enabled, and a
 /// bad write is still refused.
 #[tokio::test]
-#[ignore = "SCAFFOLD: slice 03 — restore of a post-0020 dump (DDD-14 1)"]
 async fn a_post_upgrade_dump_holding_legacy_rows_restores_byte_identical_with_the_rule_on() {
     let (pool, c) = migrated().await;
     require_rule_installed(&pool).await;
@@ -1094,7 +1091,6 @@ async fn a_post_upgrade_dump_holding_legacy_rows_restores_byte_identical_with_th
 /// boot re-applies 0019/0020 over them cleanly. The legacy rows are untouched and
 /// the rule holds.
 #[tokio::test]
-#[ignore = "SCAFFOLD: slice 03 — restore of a pre-0019 dump, then boot (DDD-14 2)"]
 async fn a_pre_upgrade_dump_restores_over_a_migrated_database_and_the_next_boot_reapplies_the_rule()
 {
     let c = container().await;
@@ -1134,7 +1130,6 @@ async fn a_pre_upgrade_dump_restores_over_a_migrated_database_and_the_next_boot_
 /// database — its boot loop ignores 19 and 20 — its probe passes, and it writes
 /// valid names.
 #[tokio::test]
-#[ignore = "SCAFFOLD: slice 03 — rollback simulation (DDD-14 4, DDD-15)"]
 async fn the_previous_release_boots_against_the_migrated_database_and_writes_valid_names() {
     let (pool, _c) = migrated().await;
     require_rule_installed(&pool).await;
@@ -1181,7 +1176,6 @@ async fn the_previous_release_boots_against_the_migrated_database_and_writes_val
 /// leaves a healthy store that writes any name; the documented re-arm (forget
 /// versions 19 and 20, boot) brings the rule back over the rows written meanwhile.
 #[tokio::test]
-#[ignore = "SCAFFOLD: slice 03 — the CHANGELOG undo and re-arm (DDD-15)"]
 async fn the_documented_undo_and_rearm_work() {
     let (pool, _c) = migrated().await;
     require_rule_installed(&pool).await;

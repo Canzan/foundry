@@ -3621,6 +3621,22 @@ pub async fn run_migrations(pool: &PgPool) -> Result<(), StoreError> {
     run_migrator_timed(&migrator, &mut conn).await.map(|_| ())
 }
 
+/// name-db-checks DDD-14 (4), test-support only: the BOOT loop
+/// ([`run_migrator_timed`]) over a caller-given migrations directory, so a dir
+/// staged to an older version stands in for an older binary's boot. Unlike
+/// [`run_migrations_from_dir`] (whose `Migrator::run` rejects applied versions
+/// it does not know) this skips them, as the shipped boot does. Touches only
+/// the schema of the given pool.
+#[cfg(feature = "test-support")]
+pub async fn run_boot_migrations_from_dir(
+    pool: &PgPool,
+    dir: &std::path::Path,
+) -> Result<MigrationReport, StoreError> {
+    let migrator = sqlx::migrate::Migrator::new(dir).await?;
+    let mut conn = pool.acquire().await?;
+    run_migrator_timed(&migrator, &mut conn).await
+}
+
 /// Slice 8 (ADR-020) — iterate a `Migrator` and apply each PENDING
 /// migration individually, recording one
 /// `migration_apply_duration_seconds{migration_id}` histogram

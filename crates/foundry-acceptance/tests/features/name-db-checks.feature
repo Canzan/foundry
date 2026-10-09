@@ -262,7 +262,7 @@ Feature: The database refuses a name every app door refuses, and leaves older na
   # ======================================================================= US-NDC-03
   Rule: A backup that holds names from before the upgrade still restores and verifies
 
-    @pending @us-ndc-03 @needs-pgclient @driving_port @edge @guard @real-io @contract-shape:unbounded-preservation
+    @us-ndc-03 @needs-pgclient @driving_port @edge @guard @real-io @contract-shape:unbounded-preservation
     Scenario: A backup holding names from before the upgrade restores, and the rule still holds afterwards
       Given workspace "Canzan Labs Platform Engineering Group" was stored before the upgrade
       And project "Homelab[TAB]Ops" (OPS) was stored before the upgrade, with OPS-7 its last issue
@@ -271,7 +271,7 @@ Feature: The database refuses a name every app door refuses, and leaves older na
       And the name rule is switched on in the restored instance
       And renaming workspace "Household" to "House[TAB]Hold" by hand in the restored instance is refused under the rule "workspaces_name_no_control_chars"
 
-    @pending @us-ndc-03 @needs-pgclient @driving_adapter @edge @guard @real-io @contract-shape:unbounded-preservation
+    @us-ndc-03 @needs-pgclient @driving_adapter @edge @guard @real-io @contract-shape:unbounded-preservation
     Scenario: Verifying a backup that holds names from before the upgrade reports it healthy
       Given workspace "Canzan Labs Platform Engineering Group" was stored before the upgrade
       And project "Homelab[TAB]Ops" (OPS) was stored before the upgrade, with OPS-7 its last issue
