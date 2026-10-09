@@ -169,7 +169,7 @@ Feature: The database refuses a name every app door refuses, and leaves older na
   # ======================================================================= US-NDC-02
   Rule: A hand-typed project name that breaks the rule is refused, and older projects still take new issues
 
-    @pending @us-ndc-02 @driving_port @error @real-io @contract-shape:unbounded-preservation
+    @us-ndc-02 @driving_port @error @real-io @contract-shape:unbounded-preservation
     Scenario Outline: A hand-typed project rename that breaks the rule is refused under the rule's name, and nothing changes
       When the operator renames project "Sandbox" to "<typed>" at the database prompt
       Then the database refuses it under the rule "<rule>"
@@ -186,7 +186,7 @@ Feature: The database refuses a name every app door refuses, and leaves older na
         |                    | projects_name_not_empty        |
         | [SPACE][NBSP]      | projects_name_not_empty        |
 
-    @pending @us-ndc-02 @error @real-io @contract-shape:unbounded-preservation
+    @us-ndc-02 @error @real-io @contract-shape:unbounded-preservation
     Scenario Outline: A hand-added project whose name breaks the rule is refused, and nothing is added
       When the operator adds project "<typed>" (HLO) to team "Backend" at the database prompt
       Then the database refuses it under the rule "<rule>"
@@ -198,13 +198,13 @@ Feature: The database refuses a name every app door refuses, and leaves older na
         | [257×a]            | projects_name_max_256_chars    |
         | Home[U+0085]lab    | projects_name_no_control_chars |
 
-    @pending @us-ndc-02 @error @real-io @contract-shape:unbounded-preservation
+    @us-ndc-02 @error @real-io @contract-shape:unbounded-preservation
     Scenario: A hand-typed project rename that also moves the issue counter is refused as a whole
       When the operator renames project "Sandbox" to "Sand[TAB]box" and moves its issue counter on by 5 in the same statement at the database prompt
       Then the database refuses it under the rule "projects_name_no_control_chars"
       And no workspace or project changed
 
-    @pending @us-ndc-02 @edge @guard @real-io @contract-shape:bounded-change
+    @us-ndc-02 @edge @guard @real-io @contract-shape:bounded-change
     Scenario Outline: A project name the app would accept is stored exactly as typed, even beside a sibling of the same name
       When the operator renames project "Sandbox" to "<typed>" at the database prompt
       Then the database stores exactly "<typed>" and nothing else changed
@@ -216,7 +216,7 @@ Feature: The database refuses a name every app door refuses, and leaves older na
         | Sand[ZWNJ]box  |
         | auth v2        |
 
-    @pending @us-ndc-02 @edge @guard @real-io @contract-shape:bounded-change
+    @us-ndc-02 @edge @guard @real-io @contract-shape:bounded-change
     Scenario Outline: A hand-added project with a fit name is stored exactly as typed
       When the operator adds project "<typed>" (HLO) to team "Backend" at the database prompt
       Then the database stores exactly "<typed>" and nothing else changed
