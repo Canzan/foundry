@@ -1,0 +1,118 @@
+{
+  "roadmap": {
+    "project_id": "fix-hide-unreachable-boards",
+    "created_at": "2026-10-09T00:00:00Z",
+    "total_steps": 2
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "Regression test and fix",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "RED: a workspace member on no team is offered boards that 404",
+          "criteria": [
+            "New feature file crates/foundry-acceptance/tests/features/fix-hide-unreachable-boards.feature, feature tag @fix-hub, scenarios @real-io: a workspace member who belongs to NO team (seeded through the shipped member-invite accept flow, never a direct team_memberships insert) signs in and opens the dashboard",
+            "Then neither the dashboard 'Your projects' list nor the rail Board href links to /team/general/project/sandbox, and the no-team empty state is shown (copy along the lines of \"You're not on any team yet — ask a workspace admin to add you.\"); the dashboard still returns 200 with the 'Welcome back, <name>' greeting",
+            "Guard scenario (green today, must stay green): the team lead who IS on team general still sees Sandbox listed, the rail Board href is /team/general/project/sandbox, and GET on that href returns 200",
+            "Store regression in crates/foundry-store/tests/list_projects_for_workspace.rs: given two teams in one workspace and a user on only one of them, the member-scoped project list returns only that team's projects; a user on no team gets an empty list",
+            "RED for the right reason, recorded in the execution log: the no-team scenario fails because Sandbox and the Board href /team/general/project/sandbox ARE rendered (the board itself 404s for that member via resolve_board_project -> is_team_member); the store test fails because the unfiltered query returns the other team's project (or fails to compile only on the new user-id argument — record which)",
+            "Committed RED artifacts keep every lane green: the failing scenario is tagged @pending and the failing store test is #[ignore = \"fix-hide-unreachable-boards 01-02\"]; no production code changes in this step"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/fix-hide-unreachable-boards.feature",
+          "scenario_name": "A workspace member on no team is not offered a board they cannot open",
+          "description": "Regression-first for the user-approved fix direction 'hide boards you can't open'. The dashboard 'Your projects' list (signin.rs ~412) and the rail Board link (nav.rs resolve_board_href ~193-208) both read Store::list_projects_for_workspace (store lib.rs ~877-891, WHERE p.workspace_id = $1, no membership filter), while the board gate (resolve_board_project -> Store::is_team_member, lib.rs ~1540) is team-scoped. OIDC-provisioned and invite-accepted members get no team_memberships row, so they are shown projects and a Board link that 404. This step proves it at both the acceptance and the store level.",
+          "dependencies": [],
+          "estimate": "0.25 day",
+          "files_to_modify": [
+            "crates/foundry-acceptance/tests/features/fix-hide-unreachable-boards.feature",
+            "crates/foundry-acceptance/src/steps/feature_fix_hide_unreachable_boards.rs",
+            "crates/foundry-acceptance/src/lib.rs",
+            "crates/foundry-acceptance/tests/acceptance.rs",
+            "crates/foundry-store/tests/list_projects_for_workspace.rs"
+          ],
+          "lane_commands": [
+            "docker info (Docker up: per-test postgres:16-alpine testcontainers and the shared acceptance Postgres)",
+            "timeout 1800 cargo test -p foundry-store --test list_projects_for_workspace -- --include-ignored (expect the new member-scoped test RED; record the failure)",
+            "timeout 1800 cargo test -p foundry-store --test list_projects_for_workspace (green with the RED test ignored)",
+            "timeout 900 cargo fmt --all -- --check && timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "timeout 600 cargo xtask check-arch",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; } (rebuild + warm the binary BEFORE any lane; acceptance does not rebuild it; the warm-up absorbs the macOS first-exec stall)",
+            "FOUNDRY_ACCEPTANCE_TAGS=fix-hub CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo test -p foundry-acceptance --test acceptance (with @pending temporarily removed: the no-team scenario RED for the right reason, the lead guard GREEN; then restore @pending)",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance (default lane; the guard runs, the RED scenario is @pending)"
+          ],
+          "implementation_notes": "Seed the no-team member through the shipped invite path (reuse the us-member-invites accept steps, e.g. 'Sam has accepted his member invite and is signed in on ...', or the invite-accept-flow helpers) so the precondition is the real production path that omits team_memberships — a direct team_memberships/workspace_memberships insert would hide the defect. The lead is the bootstrap/team-general member already used by the navigation-bar and dashboard features. Assert on observable HTML (href values, listed project names, empty-state copy) and HTTP status only. The store test may express the member-scoped call with the user id the fix will add; if that makes the RED a compile failure, keep the RED honest by first running against the unfiltered query and recording the wrong row. EXEMPT FROM PARADIGM: single-shot UI flow and a two-team SQL filter; the Rust codebase uses example-based tests by default (CLAUDE.md Development Paradigm), no Hypothesis. Build with CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false; bound every lane with timeout; clean leftover testcontainers after."
+        },
+        {
+          "id": "01-02",
+          "name": "GREEN: dashboard and rail list only the projects of teams the user is on",
+          "criteria": [
+            "The dashboard 'Your projects' list and resolve_board_href read a member-scoped project list: projects in the acting workspace whose team the acting user belongs to (JOIN team_memberships on the session user id), same (team_slug, project_slug, name, key_prefix) shape and ORDER BY p.name; no unfiltered workspace-wide project list remains reachable from these two call sites",
+            "A member on no team sees the no-team empty state (\"You're not on any team yet — ask a workspace admin to add you.\") with NO link to /team/general/projects/new; a team member whose teams hold no projects keeps the existing 'No projects yet — create your first project' copy; the 'Welcome back, <name>' greeting is unchanged",
+            "The rail Board href falls back to / when the member-scoped list is empty (the existing board_href_for_first_project rule) — never a board the user cannot open",
+            "Instance-admin listings (list_projects_for_instance, instance_dashboard.html 'No projects yet.') are untouched and stay unfiltered",
+            "@pending removed and #[ignore] removed: the fix-hub scenarios and the store regression are GREEN; the lead guard stays GREEN",
+            "keycloak-sso and keycloak-sso-provisioning stay green WITHOUT changing their expectations: evidence — 'arrives signed in to the board' / 'arrive at their board signed in as themselves' assert only a 303 to / and the dashboard greeting (feature_keycloak_sso_provisioning.rs ~507-528, feature_keycloak_sso.rs ~788-868), and seed_team_project's team membership (feature_keycloak_sso.rs ~352-372, used at feature_keycloak_sso_provisioning.rs ~719) is a deliberate Given — the precondition for filing an issue, which the team-scoped gate requires — not a mask of this defect. If any of them turns red, record the evidence before changing an expectation",
+            "fmt, clippy -D warnings, check-arch, smoke, store tests, navigation-bar, dashboard-enhancements, member-invite, invite-accept, keycloak-sso lanes and the default lane all pass"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/fix-hide-unreachable-boards.feature",
+          "scenario_name": "A workspace member on no team is not offered a board they cannot open",
+          "description": "Approved fix 'hide boards you can't open': make the project list behind the dashboard and the rail Board link team-membership-scoped for the session user, so both surfaces offer only boards the team-scoped gate will open; add the no-team empty state. The gate itself, routes and migrations are unchanged (no new migration; latest stays 0020).",
+          "dependencies": [
+            "01-01"
+          ],
+          "estimate": "0.5 day",
+          "files_to_modify": [
+            "crates/foundry-store/src/lib.rs",
+            "crates/foundry-store/tests/list_projects_for_workspace.rs",
+            "crates/foundry-app/src/signin.rs",
+            "crates/foundry-app/src/nav.rs",
+            "crates/foundry-app/templates/dashboard_root.html",
+            "crates/foundry-acceptance/tests/features/fix-hide-unreachable-boards.feature",
+            "crates/foundry-acceptance/src/steps/feature_fix_hide_unreachable_boards.rs",
+            "CHANGELOG.md"
+          ],
+          "lane_commands": [
+            "docker info (Docker up)",
+            "timeout 2400 cargo test -p foundry-store (list_projects_for_workspace regression GREEN, nothing ignored)",
+            "timeout 1800 cargo test -p foundry-app (nav.rs board_href_for_first_project table stays green)",
+            "timeout 900 cargo fmt --all -- --check && timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "timeout 600 cargo xtask check-arch",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo xtask smoke",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; } (rebuild + warm BEFORE the lanes)",
+            "FOUNDRY_ACCEPTANCE_TAGS=fix-hub CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo test -p foundry-acceptance --test acceptance (all scenarios GREEN, none @pending)",
+            "FOUNDRY_ACCEPTANCE_TAGS=keycloak-sso CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (includes keycloak-sso-provisioning)",
+            "FOUNDRY_ACCEPTANCE_TAGS=navigation-bar CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (Board deep-link)",
+            "FOUNDRY_ACCEPTANCE_TAGS=dashboard-enhancements CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance",
+            "FOUNDRY_ACCEPTANCE_TAGS=workspace-member-invites CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance",
+            "FOUNDRY_ACCEPTANCE_TAGS=invite-accept-flow CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance (default lane; us-04 rolling-upgrade is a known flake, rerun alone before calling it a regression)",
+            "timeout 3600 cargo mutants --in-diff <feature diff> --file crates/foundry-store/src/lib.rs --file crates/foundry-app/src/nav.rs --file crates/foundry-app/src/signin.rs (per-feature gate >= 80%)"
+          ],
+          "implementation_notes": "Only two call sites read list_projects_for_workspace (signin.rs ~412, nav.rs ~199); both have the session user id in hand (NavContext::home_for/board_for already take user_id). Prefer making the member scope non-optional at the store boundary (the session user id is a required input) so no future caller can reintroduce the unfiltered dashboard read; the crafter chooses the exact name/signature and updates the existing store test callers. Telling 'on no team' apart from 'on a team with no projects' needs one additional observable fact about the session user's team memberships — crafter's choice of how, but it must not issue an unbounded query per render. The existing empty state hard-codes /team/general/projects/new, which is itself a dead link for a no-team member — it must not render for them. Named faults to seed after GREEN: membership JOIN removed; JOIN on the wrong user id; no-team branch shows the create link; Board href computed from an unfiltered list. CHANGELOG under Fixed. EXEMPT FROM PARADIGM: SQL membership filter and single-shot dashboard render; compensate with the two-team store test plus the existing pure board_href_for_first_project table test. Build with CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false; bound every lane with timeout; clean leftover testcontainers after."
+        }
+      ]
+    }
+  ],
+  "implementation_scope": {
+    "source_directories": [
+      "crates/foundry-store/src/",
+      "crates/foundry-app/src/",
+      "crates/foundry-app/templates/"
+    ],
+    "test_directories": [
+      "crates/foundry-store/tests/",
+      "crates/foundry-acceptance/"
+    ],
+    "excluded_patterns": [
+      "target/**"
+    ]
+  },
+  "validation": {
+    "status": "approved",
+    "reviewer": "orchestrator (bugfix roadmap, self-approved per this repo's bugfix convention; user approved RCA fix direction 'hide boards you can't open')",
+    "approved_at": "2026-10-09T00:00:00Z",
+    "note": "Bugfix roadmaps in this repo are self-approved by the orchestrator (precedents: fix-backup-verify-fail-open, fix-comment-delete-csrf); the fix direction itself is user-approved."
+  }
+}
