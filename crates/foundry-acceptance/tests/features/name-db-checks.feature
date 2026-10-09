@@ -226,33 +226,33 @@ Feature: The database refuses a name every app door refuses, and leaves older na
         | Homelab Ops |
         | [256×a]     |
 
-    @pending @us-ndc-02 @driving_port @edge @guard @kpi @real-io @contract-shape:bounded-change
+    @us-ndc-02 @driving_port @edge @guard @kpi @real-io @contract-shape:bounded-change
     Scenario: A project stored before the upgrade with a tab in its name still takes new issues
       Given project "Homelab[TAB]Ops" (OPS) was stored before the upgrade, with OPS-7 its last issue
       When Priya files "Replace UPS battery" on the "Homelab[TAB]Ops" board
       Then the issue is created as OPS-8 and shows on that board
       And project "Homelab[TAB]Ops" kept its name, address and key prefix
 
-    @pending @us-ndc-02 @edge @guard @real-io @contract-shape:unbounded-preservation
+    @us-ndc-02 @edge @guard @real-io @contract-shape:unbounded-preservation
     Scenario: A project stored before the upgrade can be left as it is at the dashboard
       Given project "Homelab[TAB]Ops" (OPS) was stored before the upgrade, with OPS-7 its last issue
       When Priya renames project "Homelab[TAB]Ops" to the pasted name "Homelab[TAB]Ops"
       Then the row she gets back still shows "Homelab[TAB]Ops" and carries no error
       And no project changed and nothing was created
 
-    @pending @us-ndc-02 @edge @real-io @contract-shape:bounded-change
+    @us-ndc-02 @edge @real-io @contract-shape:bounded-change
     Scenario: A project stored before the upgrade is renamed on the dashboard to a fit name
       Given project "Homelab[TAB]Ops" (OPS) was stored before the upgrade, with OPS-7 its last issue
       When Priya renames project "Homelab[TAB]Ops" to the pasted name "Homelab Ops"
       Then project "Homelab[TAB]Ops" is now named "Homelab Ops", and its board still opens at its original address
 
-    @pending @us-ndc-02 @edge @guard @real-io @contract-shape:unbounded-preservation
+    @us-ndc-02 @edge @guard @real-io @contract-shape:unbounded-preservation
     Scenario: A project stored before the upgrade keeps its name when it is rewritten unchanged by hand
       Given project "Homelab[TAB]Ops" (OPS) was stored before the upgrade, with OPS-7 its last issue
       When the operator renames project "Homelab[TAB]Ops" to "Homelab[TAB]Ops" at the database prompt
       Then the database accepts it and nothing changed
 
-    @pending @us-ndc-02 @error @real-io @contract-shape:unbounded-preservation
+    @us-ndc-02 @error @real-io @contract-shape:unbounded-preservation
     Scenario: A project stored before the upgrade cannot be renamed by hand to another name that breaks the rule
       Given project "[300×x]" (LNG) was stored before the upgrade, with LNG-1 its last issue
       When the operator renames project "[300×x]" to "[299×x]" at the database prompt
