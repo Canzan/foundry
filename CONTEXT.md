@@ -12,7 +12,7 @@
 
 ## Next Steps
 
-- After dev applies 0019/0020: confirm the boot succeeded and the legacy count stays 0. A release containing them would be v0.12.0 (cut only on request).
+- 0019/0020 are NOT applied anywhere yet: dev deploys release tags, not `main`. They apply when a release (v0.12.0, cut only on request) deploys; then confirm the boot, the 4 triggers, and a legacy count of 0.
 - Approve foundry v0.10.0 and v0.11.0, and canzan-lift v0.4.2, for prod; then check the prod footer `data-commit="ec17c64"`.
 - Follow-ups: name the projects unique constraints; repair any legacy `slug = ''` projects (user decision).
 - Still owed by the user: one manual Keycloak sign-in, and the card-pointer-drag device evidence.
