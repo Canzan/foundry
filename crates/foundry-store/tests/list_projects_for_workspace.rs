@@ -155,3 +155,80 @@ async fn empty_workspace_yields_no_projects() {
         "a project-less workspace must yield an empty list, got {projects:?}"
     );
 }
+
+async fn seed_user(store: &Store, workspace_id: uuid::Uuid, email: &str) -> uuid::Uuid {
+    let id = uuid::Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO users (id, email_lower, email_display, display_name, password_hash)
+              VALUES ($1, $2, $2, $2, 'unused-hash')",
+    )
+    .bind(id)
+    .bind(email)
+    .execute(store.pool())
+    .await
+    .expect("insert user");
+    sqlx::query(
+        "INSERT INTO workspace_memberships (workspace_id, user_id, role) VALUES ($1, $2, 'member')",
+    )
+    .bind(workspace_id)
+    .bind(id)
+    .execute(store.pool())
+    .await
+    .expect("insert workspace membership");
+    id
+}
+
+async fn join_team(store: &Store, team_id: uuid::Uuid, user_id: uuid::Uuid) {
+    sqlx::query("INSERT INTO team_memberships (team_id, user_id, role) VALUES ($1, $2, 'member')")
+        .bind(team_id)
+        .bind(user_id)
+        .execute(store.pool())
+        .await
+        .expect("insert team membership");
+}
+
+/// fix-hide-unreachable-boards — the dashboard list and the rail Board link must only
+/// offer boards the member can open. The board gate is team-scoped
+/// (`Store::is_team_member`), so the list must be too: a user on ONE of two teams sees
+/// only that team's projects, and a workspace member on NO team (the invite-accept /
+/// OIDC-provisioned shape) sees none.
+///
+/// RED in 01-01 against the unfiltered `WHERE p.workspace_id = $1` query: the other
+/// team's project leaks in. 01-02 adds the member scope (the user id) and un-ignores.
+#[tokio::test]
+#[ignore = "fix-hide-unreachable-boards 01-02"]
+async fn lists_only_projects_of_the_members_teams() {
+    let (base, _guard) = fresh_postgres().await;
+    let store = migrated_store(&base).await;
+
+    let acme = seed_workspace(&store, "Acme").await;
+    let general = seed_team(&store, acme, "General", "general").await;
+    let platform = seed_team(&store, acme, "Platform", "platform").await;
+    seed_project(&store, general, acme, "Sandbox", "sandbox", "SBX").await;
+    seed_project(&store, platform, acme, "Infra", "infra", "INF").await;
+
+    let general_member = seed_user(&store, acme, "gail@acme.example").await;
+    join_team(&store, general, general_member).await;
+    let _no_team_member = seed_user(&store, acme, "nora@acme.example").await;
+
+    let gails = store
+        .list_projects_for_workspace(acme)
+        .await
+        .expect("list projects query succeeds");
+    let gail_names: Vec<&str> = gails.iter().map(|p| p.2.as_str()).collect();
+    assert_eq!(
+        gail_names,
+        vec!["Sandbox"],
+        "a member of team general only must be offered only general's projects \
+         (the board gate 404s the rest): {gails:?}"
+    );
+
+    let noras = store
+        .list_projects_for_workspace(acme)
+        .await
+        .expect("list projects query succeeds");
+    assert!(
+        noras.is_empty(),
+        "a workspace member on no team must be offered no project: {noras:?}"
+    );
+}

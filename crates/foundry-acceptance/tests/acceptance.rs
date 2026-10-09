@@ -58,6 +58,8 @@ use foundry_acceptance::steps::feature_dashboard_enhancements as _feature_dashbo
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_fix_comment_delete_csrf as _feature_fix_comment_delete_csrf;
 #[allow(unused_imports)]
+use foundry_acceptance::steps::feature_fix_hide_unreachable_boards as _feature_fix_hide_unreachable_boards;
+#[allow(unused_imports)]
 use foundry_acceptance::steps::feature_form_error_display as _feature_form_error_display;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_instance_admin_project_rename as _feature_iapr;

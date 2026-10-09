@@ -23,6 +23,7 @@ pub mod steps {
     pub mod feature_card_ranking_within_status;
     pub mod feature_dashboard_enhancements;
     pub mod feature_fix_comment_delete_csrf;
+    pub mod feature_fix_hide_unreachable_boards;
     pub mod feature_form_error_display;
     pub mod feature_instance_admin_project_rename;
     pub mod feature_instance_admin_workspace_rename;
