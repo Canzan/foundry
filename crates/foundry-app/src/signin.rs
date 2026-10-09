@@ -390,8 +390,9 @@ pub async fn dashboard_root(
         Some(u) => {
             // US-R04 / US-01: the signed-in landing renders through the shared
             // base layout. Keeps `<h1>Foundry</h1>`, greets the user by name +
-            // names the acting workspace (US-01), and lists the acting
-            // workspace's projects — all scoped by the SESSION user_id /
+            // names the acting workspace (US-01), and lists the projects of the
+            // teams the user is on (fix-hide-unreachable-boards: never a board the
+            // team-scoped gate would 404) — all scoped by the SESSION user_id /
             // workspace_id (never a path/query id — ADR-002).
             //
             // D1 (AC-01.4): the greeting degrades to a NEUTRAL fallback and the
@@ -409,7 +410,7 @@ pub async fn dashboard_root(
             let (display_name, workspace_name) = greeting_or_neutral(greeting);
             let projects: Vec<crate::views::ProjectLink> = state
                 .store
-                .list_projects_for_workspace(u.workspace_id)
+                .list_projects_for_workspace(u.workspace_id, u.user_id)
                 .await
                 .unwrap_or_else(|err| {
                     tracing::error!(%err, "dashboard: list_projects_for_workspace failed");
@@ -425,6 +426,20 @@ pub async fn dashboard_root(
                     },
                 )
                 .collect();
+            // fix-hide-unreachable-boards: an empty list has two meanings — on no
+            // team (ask an admin; the create link would be a dead end) vs a team
+            // with no projects (create one). Only asked when the list is empty, so
+            // a populated dashboard issues no extra read. On lookup error keep the
+            // pre-fix copy (`true`) rather than tell a team member they're teamless.
+            let on_a_team = !projects.is_empty()
+                || state
+                    .store
+                    .is_on_any_team(u.workspace_id, u.user_id)
+                    .await
+                    .unwrap_or_else(|err| {
+                        tracing::error!(%err, "dashboard: is_on_any_team failed");
+                        true
+                    });
             // US-03: the instance-admin link renders only for an instance
             // super-admin, scoped by the SESSION user_id (never a path/query id —
             // ADR-002). Fail-closed: on lookup error we default to `false` so the
@@ -467,6 +482,7 @@ pub async fn dashboard_root(
                 display_name,
                 workspace_name,
                 projects,
+                on_a_team,
                 is_instance_admin,
                 csrf,
                 nav,

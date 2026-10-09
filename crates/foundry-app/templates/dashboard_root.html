@@ -8,7 +8,9 @@
 
   <section class="dash__section">
     <h2>Your projects</h2>
-    {% if projects.is_empty() %}
+    {% if !on_a_team %}
+    <p class="dash__empty">You're not on any team yet — ask a workspace admin to add you.</p>
+    {% else if projects.is_empty() %}
     <p class="dash__empty">No projects yet — <a href="/team/general/projects/new">create your first project</a>.</p>
     {% else %}
     <ul class="card-grid">

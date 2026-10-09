@@ -96,7 +96,7 @@ impl NavContext {
                 None
             })
             .unwrap_or_else(|| ("there".to_string(), "your workspace".to_string()));
-        let board_href = resolve_board_href(state, workspace_id).await;
+        let board_href = resolve_board_href(state, workspace_id, user_id).await;
         Self::for_page(
             workspace_name,
             display_name,
@@ -137,7 +137,7 @@ impl NavContext {
                 None
             })
             .unwrap_or_else(|| ("there".to_string(), "your workspace".to_string()));
-        let board_href = resolve_board_href(state, workspace_id).await;
+        let board_href = resolve_board_href(state, workspace_id, user_id).await;
         Self::for_page(
             workspace_name,
             display_name,
@@ -185,7 +185,9 @@ pub(crate) fn board_href_for_first_project(first: Option<(&str, &str)>) -> Strin
 
 /// Resolve the Board primary-nav deep-link target (ADR-003) for an authed render.
 /// Reuses the SAME deterministic first-project query family the dashboard already
-/// issues for "Your projects" (`list_projects_for_workspace`, `ORDER BY p.name`) —
+/// issues for "Your projects" (`list_projects_for_workspace`, `ORDER BY p.name`,
+/// member-scoped to the SESSION user so it never points at a board the team gate
+/// would 404 — fix-hide-unreachable-boards) —
 /// no new ordering invented — and applies the pure [`board_href_for_first_project`]
 /// rule: the first project's board, else the dashboard `/`. One cheap read per
 /// render; on lookup error it degrades to `/` (never 500s), mirroring the
@@ -193,10 +195,11 @@ pub(crate) fn board_href_for_first_project(first: Option<(&str, &str)>) -> Strin
 pub(crate) async fn resolve_board_href(
     state: &crate::AppState,
     workspace_id: uuid::Uuid,
+    user_id: uuid::Uuid,
 ) -> String {
     let projects = state
         .store
-        .list_projects_for_workspace(workspace_id)
+        .list_projects_for_workspace(workspace_id, user_id)
         .await
         .unwrap_or_else(|err| {
             tracing::error!(%err, "nav: list_projects_for_workspace failed; Board falls back to /");

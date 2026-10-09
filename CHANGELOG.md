@@ -37,6 +37,18 @@ new name write (name-db-checks).
     takes new issues, can be renamed to a fit name, and survives a write that
     leaves its name as it is. Only a change of name meets the rule.
 
+### Fixed
+
+- **The dashboard and the Board link only offer boards you can open.** "Your
+  projects" and the rail's Board link now list only the projects of the teams
+  you are on. Before, a member who joined through an invite link or single
+  sign-on, and so was on no team yet, was shown every project in the workspace
+  and a Board link that opened a "not found" page. A member on no team now sees
+  "You're not on any team yet — ask a workspace admin to add you." instead of a
+  create-project link they couldn't use, and the Board link goes to the
+  dashboard. The instance-admin project list still shows every project. No
+  database migration.
+
 ### Migration notes
 
 - **`0019_workspace_name_rule`** adds two functions,

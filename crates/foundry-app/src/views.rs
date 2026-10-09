@@ -1021,8 +1021,14 @@ pub struct DashboardRoot {
     /// The acting workspace's name (auto-escaped) — resolved from the SESSION
     /// `workspace_id`. A neutral fallback on lookup failure (AC-01.4 / D1).
     pub workspace_name: String,
-    /// Projects in the acting workspace, rendered as board links.
+    /// Projects of the teams the SESSION user is on in the acting workspace,
+    /// rendered as board links (fix-hide-unreachable-boards).
     pub projects: Vec<ProjectLink>,
+    /// fix-hide-unreachable-boards: whether the SESSION user is on any team of the
+    /// acting workspace. Picks the empty state: `false` renders the no-team copy
+    /// (ask a workspace admin) with NO create-project link — that link would be a
+    /// dead end for a member on no team.
+    pub on_a_team: bool,
     /// US-03: whether the SESSION user is an instance super-admin. Gates the
     /// "Instance admin" quick-action link to `/admin/instance/workspaces`. Resolved
     /// from `Store::is_instance_admin(session user_id)`; fail-closed to `false` on

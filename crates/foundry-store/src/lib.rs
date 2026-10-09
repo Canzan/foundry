@@ -868,26 +868,55 @@ impl Store {
         Ok(rows)
     }
 
-    /// List every project in one workspace for the dashboard project index,
-    /// as `(team_slug, project_slug, name, key_prefix)` ordered by name.
+    /// List the projects `user_id` can open in one workspace — the dashboard
+    /// project index and the rail Board link — as
+    /// `(team_slug, project_slug, name, key_prefix)` ordered by name.
     ///
-    /// Tenant-scoped by `workspace_id` (the caller passes the SESSION-resolved
-    /// acting workspace, never a path/query id), so it can only ever surface
-    /// the acting tenant's own projects.
+    /// Tenant-scoped by `workspace_id` AND member-scoped by `user_id` (both the
+    /// SESSION-resolved ids, never a path/query id — ADR-002): only projects of
+    /// teams the user belongs to come back, matching the team-scoped board gate
+    /// (`is_team_member`), so the list never offers a board that 404s
+    /// (fix-hide-unreachable-boards). The user id is required on purpose: there
+    /// is no unfiltered workspace-wide variant for these surfaces.
     pub async fn list_projects_for_workspace(
         &self,
         workspace_id: uuid::Uuid,
+        user_id: uuid::Uuid,
     ) -> Result<Vec<(String, String, String, String)>, StoreError> {
         let rows: Vec<(String, String, String, String)> = sqlx::query_as(
             "SELECT t.slug, p.slug, p.name, p.key_prefix \
-             FROM projects p JOIN teams t ON p.team_id = t.id \
+             FROM projects p \
+             JOIN teams t ON p.team_id = t.id \
+             JOIN team_memberships tm ON tm.team_id = t.id AND tm.user_id = $2 \
              WHERE p.workspace_id = $1 \
              ORDER BY p.name",
         )
         .bind(workspace_id)
+        .bind(user_id)
         .fetch_all(&self.pool)
         .await?;
         Ok(rows)
+    }
+
+    /// Is `user_id` on at least one team of `workspace_id`? One bounded EXISTS
+    /// read that tells the dashboard's two empty states apart: a member on no
+    /// team (who must ask an admin) vs a team member whose teams hold no
+    /// projects (who can create one).
+    pub async fn is_on_any_team(
+        &self,
+        workspace_id: uuid::Uuid,
+        user_id: uuid::Uuid,
+    ) -> Result<bool, StoreError> {
+        let row: (bool,) = sqlx::query_as(
+            "SELECT EXISTS (SELECT 1 FROM team_memberships tm \
+                              JOIN teams t ON t.id = tm.team_id \
+                             WHERE t.workspace_id = $1 AND tm.user_id = $2)",
+        )
+        .bind(workspace_id)
+        .bind(user_id)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(row.0)
     }
 
     /// dashboard-enhancements US-01 — the ONE tenant-scoped read the signed-in

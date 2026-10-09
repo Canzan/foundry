@@ -24,7 +24,7 @@ Feature: Hide boards a member cannot open
     Given Dana Reyes is signed in as an admin of the "Northwind" workspace
     And the "Northwind" workspace has a project "Sandbox" on team "general" led by Dana
 
-  @pending @us-01 @error
+  @us-01 @error
   Scenario: A workspace member on no team is not offered a board they cannot open
     When Dana invites "sam.okafor@northwind.example" to "Northwind"
     And Sam opens his invite link and sets a password meeting the strength policy

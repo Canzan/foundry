@@ -119,8 +119,14 @@ async fn lists_workspace_projects_ordered_by_name_and_isolated() {
     let globex_team = seed_team(&store, globex, "General", "general").await;
     seed_project(&store, globex_team, globex, "Foreign", "foreign", "FGN").await;
 
+    // The acting user is on BOTH teams, so only the workspace scope can keep
+    // the foreign tenant's project out.
+    let user = seed_user(&store, acme, "ada@acme.example").await;
+    join_team(&store, acme_team, user).await;
+    join_team(&store, globex_team, user).await;
+
     let projects = store
-        .list_projects_for_workspace(acme)
+        .list_projects_for_workspace(acme, user)
         .await
         .expect("list projects query succeeds");
 
@@ -144,9 +150,10 @@ async fn empty_workspace_yields_no_projects() {
     let store = migrated_store(&base).await;
 
     let acme = seed_workspace(&store, "Acme").await;
+    let user = seed_user(&store, acme, "ada@acme.example").await;
 
     let projects = store
-        .list_projects_for_workspace(acme)
+        .list_projects_for_workspace(acme, user)
         .await
         .expect("list projects query succeeds");
 
@@ -196,7 +203,6 @@ async fn join_team(store: &Store, team_id: uuid::Uuid, user_id: uuid::Uuid) {
 /// RED in 01-01 against the unfiltered `WHERE p.workspace_id = $1` query: the other
 /// team's project leaks in. 01-02 adds the member scope (the user id) and un-ignores.
 #[tokio::test]
-#[ignore = "fix-hide-unreachable-boards 01-02"]
 async fn lists_only_projects_of_the_members_teams() {
     let (base, _guard) = fresh_postgres().await;
     let store = migrated_store(&base).await;
@@ -209,10 +215,10 @@ async fn lists_only_projects_of_the_members_teams() {
 
     let general_member = seed_user(&store, acme, "gail@acme.example").await;
     join_team(&store, general, general_member).await;
-    let _no_team_member = seed_user(&store, acme, "nora@acme.example").await;
+    let no_team_member = seed_user(&store, acme, "nora@acme.example").await;
 
     let gails = store
-        .list_projects_for_workspace(acme)
+        .list_projects_for_workspace(acme, general_member)
         .await
         .expect("list projects query succeeds");
     let gail_names: Vec<&str> = gails.iter().map(|p| p.2.as_str()).collect();
@@ -224,7 +230,7 @@ async fn lists_only_projects_of_the_members_teams() {
     );
 
     let noras = store
-        .list_projects_for_workspace(acme)
+        .list_projects_for_workspace(acme, no_team_member)
         .await
         .expect("list projects query succeeds");
     assert!(
