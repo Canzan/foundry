@@ -2,11 +2,10 @@
 
 ## Current Task
 
-v0.12.0 (`bff7a80`) is live on dev: `Foundry v0.12.0 · 2026-10-09`. It ships two changes:
-- **name-db-checks:** migrations 0019/0020 add triggers enforcing the workspace (24) and project (256) name rules on new name writes; SQLSTATE 23514 names the arm. Verified on dev: migration 20, 4 triggers enabled, 0 legacy violations.
+v0.12.0 (`bff7a80`) is live on dev AND prod: `Foundry v0.12.0 · 2026-10-09`. It ships two changes:
+- **name-db-checks:** migrations 0019/0020 add triggers enforcing the workspace (24) and project (256) name rules on new name writes; SQLSTATE 23514 names the arm. Verified read-only on dev and prod: migration 20, 4 triggers enabled, 0 legacy violations.
 - **fix-hide-unreachable-boards:** the dashboard and the rail Board link list only projects in the user's teams, and a member on no team gets an empty state.
 
-Prod runs v0.11.0 (`ec17c64`); v0.12.0 awaits approval.
 
 ## Key Decisions
 
@@ -16,7 +15,7 @@ Prod runs v0.11.0 (`ec17c64`); v0.12.0 awaits approval.
 
 ## Next Steps
 
-- Approve foundry v0.12.0 and canzan-lift v0.4.2 for prod. After prod applies 0019/0020, run the CHANGELOG's legacy-count query.
+- Approve canzan-lift v0.4.2 for prod (if not yet done).
 - Follow-ups:
   - a way to join teams (admin "add to team", or a default-team policy);
   - show the signed-in account, and link a Keycloak identity to an existing account;
