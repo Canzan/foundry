@@ -49,21 +49,30 @@ in `crates/foundry-store/tests/`; "ndc" is the `@ndc` acceptance lane
 | 19 | A DETAIL carrying the row's name added to the RAISE | ndc: "the refusal must never carry a DETAIL: row values are not logged (DDD-4)" | 5d8a855 |
 | 20 | HINT text no longer names the mirrored type | ndc: "the refusal must carry the one-line HINT naming the mirrored type (DDD-4)" | 5d8a855 |
 | 21 | Counter-aware `WHEN` (fires on the issue counter) | ndc refusal of a hand rename to another bad name | 02-02 (d32449e) |
-| 22 | UTF8 guard removed (`IF false`) | **survived** `migration_0019_refuses_a_database_that_is_not_utf8` | 03-02, run now. See below |
+| 22 | UTF8 guard removed (`IF false`; rerun with the whole `DO $encoding_guard$` block deleted) | killed by `migration_0019_refuses_a_database_that_is_not_utf8`: the guard's own MESSAGE (and HINT) asserted; the mutant fails on `conversion between UTF8 and SQL_ASCII is not supported` | Survived in 03-02. Killed after the test was strengthened, run now. See below |
 
 ### Mutation 22: the UTF8 guard
 
-With the guard removed, 0019 still fails on a SQL_ASCII database, so the test
-(refused, no function left, version 19 not recorded) still passes. A direct
-psql run of the mutated file against a SQL_ASCII database shows why: the
-verdict function's `\u` escapes above U+007F do not convert
+With the guard removed, 0019 still fails on a SQL_ASCII database: the verdict
+function's `\u` escapes above U+007F do not convert
 (`ERROR: conversion between UTF8 and SQL_ASCII is not supported`), inside the
-same transaction. Refusing the database is therefore over-determined. What
-the guard adds is the readable refusal (SQLSTATE 0A000, "needs a UTF8
-database", the HINT), and no test pins that. This is a test-strength finding
-for nw-acceptance-designer: assert the refusal's SQLSTATE or message in
-`migration_0019_refuses_a_database_that_is_not_utf8`. It is not a gap in the
-rule itself.
+same transaction. So refusing the database is over-determined, and in 03-02
+the test (refused, no function left, version 19 not recorded) still passed
+without the guard. What the guard adds is the readable refusal, and no test
+pinned it.
+
+`migration_0019_refuses_a_database_that_is_not_utf8` now also asserts the
+guard's own refusal: SQLSTATE `0A000`, the MESSAGE `migration 0019 (workspace
+name rule) needs a UTF8 database; server_encoding is SQL_ASCII`, and the HINT
+`Create the database WITH ENCODING 'UTF8'.`. The earlier assertions stay. The
+SQLSTATE alone would not kill the mutant: the conversion failure is also
+`0A000` (feature_not_supported). The MESSAGE assertion kills it.
+
+Evidence: with the `DO $encoding_guard$` block deleted from 0019, the test
+fails with `left: "conversion between UTF8 and SQL_ASCII is not supported"`
+against the expected guard message. With 0019 restored byte-identical (sha1
+`766c8e3c3fe5ac8f48c08686d633e69fc36c45dd`), `name_rule_in_database` passes
+15/15.
 
 ## How the SQL arms are pinned
 

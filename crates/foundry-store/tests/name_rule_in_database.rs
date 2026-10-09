@@ -46,8 +46,9 @@
 
 use foundry_store::{
     run_boot_migrations_from_dir, run_migrations, run_migrations_from_dir,
-    seed_row_predating_name_rule, NameRuleTable, Store, WorkspaceRenameWrite,
+    seed_row_predating_name_rule, NameRuleTable, Store, StoreError, WorkspaceRenameWrite,
 };
+use sqlx::migrate::MigrateError;
 use sqlx::postgres::{PgDatabaseError, PgPoolOptions};
 use sqlx::PgPool;
 use std::collections::BTreeMap;
@@ -874,10 +875,37 @@ async fn migration_0019_refuses_a_database_that_is_not_utf8() {
             .is_file(),
         "RED gate: migration 0019_workspace_name_rule.sql does not exist yet (DDD-7/8)"
     );
-    let outcome = run_migrations(&pool).await;
-    assert!(
-        outcome.is_err(),
-        "0019 must refuse a SQL_ASCII database (DDD-8); it applied"
+    let err = run_migrations(&pool)
+        .await
+        .expect_err("0019 must refuse a SQL_ASCII database (DDD-8); it applied");
+    // The refusal is the encoding guard's own, not a later conversion failure
+    // on the verdict function's escapes (mutation 22: without the guard 0019
+    // still fails here, unreadably).
+    let db = match &err {
+        StoreError::MigrationFailed(
+            MigrateError::ExecuteMigration(sqlx::Error::Database(db), 19)
+            | MigrateError::Execute(sqlx::Error::Database(db)),
+        )
+        | StoreError::Sqlx(sqlx::Error::Database(db)) => db,
+        other => panic!("the refusal must come from the database; got {other:?}"),
+    };
+    let pg = db
+        .try_downcast_ref::<PgDatabaseError>()
+        .unwrap_or_else(|| panic!("a Postgres error; got {db}"));
+    assert_eq!(
+        pg.code(),
+        "0A000",
+        "the guard refuses with feature_not_supported (DDD-8); got {pg:?}"
+    );
+    assert_eq!(
+        pg.message(),
+        "migration 0019 (workspace name rule) needs a UTF8 database; server_encoding is SQL_ASCII",
+        "the guard's own message names the encoding (DDD-8)"
+    );
+    assert_eq!(
+        pg.hint(),
+        Some("Create the database WITH ENCODING 'UTF8'."),
+        "the guard's HINT says how to fix it (DDD-8)"
     );
     let (verdict, latest): (bool, i64) = sqlx::query_as(
         "SELECT to_regprocedure('foundry_name_rule_violation(text, integer)') IS NOT NULL,
