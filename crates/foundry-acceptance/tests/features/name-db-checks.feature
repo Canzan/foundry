@@ -69,7 +69,7 @@ Feature: The database refuses a name every app door refuses, and leaves older na
   # ======================================================================= US-NDC-01
   Rule: A hand-typed workspace name that breaks the rule is refused by the database, which names the rule
 
-    @pending @us-ndc-01 @driving_port @error @real-io @contract-shape:unbounded-preservation
+    @us-ndc-01 @driving_port @error @real-io @contract-shape:unbounded-preservation
     Scenario Outline: A hand-typed workspace rename that breaks the rule is refused under the rule's name, and nothing changes
       When the operator renames workspace "Household" to "<typed>" at the database prompt
       Then the database refuses it under the rule "<rule>"
@@ -87,7 +87,7 @@ Feature: The database refuses a name every app door refuses, and leaves older na
         | [U+3000]Globex                         | workspaces_name_trimmed          |
         |                                        | workspaces_name_not_empty        |
 
-    @pending @us-ndc-01 @error @real-io @contract-shape:unbounded-preservation
+    @us-ndc-01 @error @real-io @contract-shape:unbounded-preservation
     Scenario Outline: The reason given is the first rule the name breaks, in the app's order
       When the operator renames workspace "Household" to "<typed>" at the database prompt
       Then the database refuses it under the rule "<rule>"
@@ -102,7 +102,7 @@ Feature: The database refuses a name every app door refuses, and leaves older na
         | Glo[U+2028]bex                         | workspaces_name_no_control_chars |
         | [24×x][SPACE]                          | workspaces_name_trimmed          |
 
-    @pending @us-ndc-01 @error @real-io @contract-shape:unbounded-preservation
+    @us-ndc-01 @error @real-io @contract-shape:unbounded-preservation
     Scenario Outline: A hand-added workspace whose name breaks the rule is refused, and nothing is added
       When the operator adds a workspace named "<typed>" at the database prompt
       Then the database refuses it under the rule "<rule>"
@@ -115,13 +115,13 @@ Feature: The database refuses a name every app door refuses, and leaves older na
         | Glo[NEWLINE]bex       | workspaces_name_no_control_chars |
         |                       | workspaces_name_not_empty        |
 
-    @pending @us-ndc-01 @error @real-io @contract-shape:bounded-change
+    @us-ndc-01 @error @real-io @contract-shape:bounded-change
     Scenario: After a refused hand-typed name, the corrected name lands
       Given the operator's rename of workspace "Household" to "[SPACE]Globex" at the database prompt was refused
       When the operator renames workspace "Household" to "Globex" at the database prompt
       Then the database stores exactly "Globex" and nothing else changed
 
-    @pending @us-ndc-01 @edge @guard @real-io @contract-shape:bounded-change
+    @us-ndc-01 @edge @guard @real-io @contract-shape:bounded-change
     Scenario Outline: A workspace name the app would accept is stored exactly as typed
       When the operator renames workspace "Household" to "<typed>" at the database prompt
       Then the database stores exactly "<typed>" and nothing else changed
@@ -136,7 +136,7 @@ Feature: The database refuses a name every app door refuses, and leaves older na
         | [24×😀]                  |
         | Canzan Labs              |
 
-    @pending @us-ndc-01 @edge @guard @real-io @contract-shape:bounded-change
+    @us-ndc-01 @edge @guard @real-io @contract-shape:bounded-change
     Scenario Outline: A hand-added workspace with a fit name is stored exactly as typed
       When the operator adds a workspace named "<typed>" at the database prompt
       Then the database stores exactly "<typed>" and nothing else changed
