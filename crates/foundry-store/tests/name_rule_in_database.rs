@@ -110,11 +110,15 @@ async fn seam_insert_project(pool: &PgPool, row: &ProjectSeed) -> Result<(), Str
 /// (`run_migrator_timed`, which skips applied versions it does not know) over
 /// migrations up to 0018 only. NOT `run_migrations_from_dir`: its
 /// `Migrator::run` errors on applied-but-unknown versions, which an old binary's
-/// boot does not.
-async fn previous_release_boot(pool: &PgPool, staged: &Path) -> Result<(), String> {
+/// boot does not. Returns what that boot saw, as `(applied, already_applied)`
+/// version lists.
+async fn previous_release_boot(
+    pool: &PgPool,
+    staged: &Path,
+) -> Result<(Vec<i64>, Vec<i64>), String> {
     run_boot_migrations_from_dir(pool, staged)
         .await
-        .map(|_| ())
+        .map(|report| (report.applied, report.already_applied))
         .map_err(|e| e.to_string())
 }
 
@@ -1133,9 +1137,19 @@ async fn a_pre_upgrade_dump_restores_over_a_migrated_database_and_the_next_boot_
 async fn the_previous_release_boots_against_the_migrated_database_and_writes_valid_names() {
     let (pool, _c) = migrated().await;
     require_rule_installed(&pool).await;
-    previous_release_boot(&pool, &staged_migrations("0018"))
+    let (applied, already_applied) = previous_release_boot(&pool, &staged_migrations("0018"))
         .await
         .expect("the old boot loop is a no-op success over 0019/0020");
+    assert_eq!(
+        applied,
+        Vec::<i64>::new(),
+        "the old boot applies nothing over a database migrated through 0020"
+    );
+    assert_eq!(
+        already_applied,
+        (1..=18).collect::<Vec<i64>>(),
+        "the old boot finds every migration it knows already applied, and never sees 0019/0020"
+    );
     let store = Store::from_pool(pool.clone());
     store.probe().await.expect("the old probe passes (DDD-9)");
     let workspace = uuid::Uuid::now_v7();
