@@ -99,6 +99,7 @@ fn source_violations(root: &Path) -> Vec<String> {
     violations.extend(check_stylesheet_dark_block_parity(root));
     violations.extend(check_workspace_name_one_source(root));
     violations.extend(check_project_name_one_source(root));
+    violations.extend(check_name_rule_legacy_seam(root));
     violations
 }
 
@@ -137,7 +138,7 @@ pub fn run(args: Vec<String>) -> ExitCode {
     let verdict = verdict(&args);
     match &verdict {
         Verdict::Passed => println!(
-            "check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, the lanes position constraint is still DEFERRABLE, no board-*.js registers a keydown listener, nothing outside migration 0017 UPDATEs users.provisioned_at (D9), both publish workflows stamp every image with its commit and the Dockerfile hands it to build.rs (AC-8), every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, no colour literal outside the three stylesheet token regions, the three stylesheet token regions declare the identical colour-token set, the workspace-name refusal copy lives only in foundry-core and no production door calls create_initial_workspace, the project-name refusal copy lives only in foundry-core and no door calls insert_project, dependency direction)"
+            "check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, the lanes position constraint is still DEFERRABLE, no board-*.js registers a keydown listener, nothing outside migration 0017 UPDATEs users.provisioned_at (D9), both publish workflows stamp every image with its commit and the Dockerfile hands it to build.rs (AC-8), every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, no colour literal outside the three stylesheet token regions, the three stylesheet token regions declare the identical colour-token set, the workspace-name refusal copy lives only in foundry-core and no production door calls create_initial_workspace, the project-name refusal copy lives only in foundry-core and no door calls insert_project, no production door calls seed_row_predating_name_rule and no crate but its seam file disables a trigger or sets session_replication_role, dependency direction)"
         ),
         Verdict::UnparseableArguments(message) => eprintln!("check-arch: {message}"),
         Verdict::Violations(violations) => {
@@ -4563,17 +4564,33 @@ const PROJECT_INSERT_FORBIDDEN_IN: [&str; 2] = ["foundry-app", "foundry-api"];
 /// The store method only `create_project` may call (DDD-5/9).
 const PROJECT_INSERT_SEAM: &str = "insert_project";
 
-/// The DDD-12b violations in one file: each `insert_project` CALL — the name,
-/// optional whitespace (newlines included), then `(` — named `file:line`. A
-/// longer identifier containing the name, a `fn insert_project` definition and
-/// any occurrence on a `//` comment line are not calls.
+/// The DDD-12b violations in one file: each `insert_project` CALL, named
+/// `file:line` (see [`call_sites`] for what counts as a call).
 fn project_insert_call_violations_in(root: &Path, file: &Path, contents: &str) -> Vec<String> {
+    call_sites(contents, PROJECT_INSERT_SEAM)
+        .into_iter()
+        .map(|line| {
+            format!(
+                "project-name-one-source: {}:{line} calls `insert_project` from a door — it \
+                 applies no project-name rule and mints no address; create through \
+                 `foundry_services::projects::create_project` (DDD-5/DDD-12)",
+                rel(root, file),
+            )
+        })
+        .collect()
+}
+
+/// The 1-based line of every CALL of `name` in a Rust source: the name, optional
+/// whitespace (newlines included), then `(`. A longer identifier containing the
+/// name, a `fn name` definition and any occurrence on a `//` comment line are
+/// not calls. A call split across lines is reported at the line naming it.
+fn call_sites(contents: &str, name: &str) -> Vec<usize> {
     let is_ident = |c: char| c.is_alphanumeric() || c == '_';
     contents
-        .match_indices(PROJECT_INSERT_SEAM)
+        .match_indices(name)
         .filter(|(at, _)| {
             let before = &contents[..*at];
-            let after = &contents[at + PROJECT_INSERT_SEAM.len()..];
+            let after = &contents[at + name.len()..];
             let line_start = before.rfind('\n').map_or(0, |i| i + 1);
             let joined_to_ident = before.chars().next_back().is_some_and(is_ident)
                 || after.chars().next().is_some_and(is_ident);
@@ -4582,15 +4599,7 @@ fn project_insert_call_violations_in(root: &Path, file: &Path, contents: &str) -
                 && !before.trim_end().ends_with("fn")
                 && !contents[line_start..].trim_start().starts_with("//")
         })
-        .map(|(at, _)| {
-            format!(
-                "project-name-one-source: {}:{} calls `insert_project` from a door — it \
-                 applies no project-name rule and mints no address; create through \
-                 `foundry_services::projects::create_project` (DDD-5/DDD-12)",
-                rel(root, file),
-                contents[..at].matches('\n').count() + 1,
-            )
-        })
+        .map(|(at, _)| contents[..at].matches('\n').count() + 1)
         .collect()
 }
 
@@ -4791,32 +4800,121 @@ mod project_name_one_source_tests {
 }
 
 // ---------------------------------------------------------------------------
-// name-db-checks DDD-12 — `name-rule-legacy-seam` (SCAFFOLD)
+// name-db-checks DDD-12 — `name-rule-legacy-seam`
 // ---------------------------------------------------------------------------
-//
-// SCAFFOLD: true — DISTILL 2026-10-08. `check_name_rule_legacy_seam` panics and
-// is NOT wired into `source_violations`; its gold tests are ignored. DELIVER
-// (slice 01, with the seam) implements the rule over the shared scan helpers,
-// wires it, adds its phrase to the PASSED banner and un-ignores the tests.
-//
-// (a) the legacy seam (`seed_row_predating_name_rule`, working name — DELIVER may
-//     rename it here, in the seam, in `feature_name_db_checks.rs` and in the store
-//     test scaffolds together) has no CALL under
-//     `crates/{foundry-app,foundry-services,foundry-api}/src`; its definition and
-//     test callers are not flagged, nor are comment lines or longer identifiers.
-// (b) the trigger switch (`DISABLE TRIGGER`, any letter case) and
-//     `session_replication_role` appear in no `.rs` under `crates/` except the
-//     seam's own file (`crates/foundry-store/src/name_rule_legacy_seam.rs`, working
-//     path) — comments included, tests included: one greppable bypass (D8, DDD-11).
-// A missing `crates/` or an unreadable directory fails the rule.
 
-/// `name-rule-legacy-seam` (name-db-checks DDD-12). SCAFFOLD: panics until DELIVER.
-#[cfg_attr(not(test), allow(dead_code))]
+/// The test-only seam that seeds a row predating the name rule (DDD-11).
+const LEGACY_SEAM_CALL: &str = "seed_row_predating_name_rule";
+
+/// The seam's own file — the one `.rs` allowed to switch the name-rule trigger.
+const LEGACY_SEAM_FILE: &str = "crates/foundry-store/src/name_rule_legacy_seam.rs";
+
+/// The production doors that must never call the legacy seam (DDD-12a).
+const LEGACY_SEAM_FORBIDDEN_IN: [&str; 3] = ["foundry-app", "foundry-services", "foundry-api"];
+
+/// The trigger bypasses, lowercase with single spaces: SQL keywords are
+/// case-insensitive, so lines are compared folded (DDD-12b, D8).
+const NAME_RULE_BYPASSES: [&str; 2] = ["disable trigger", "session_replication_role"];
+
+/// `name-rule-legacy-seam` (name-db-checks DDD-12).
+///
+/// (a) `seed_row_predating_name_rule` has no CALL under
+/// `crates/{foundry-app,foundry-services,foundry-api}/src` (a call split across
+/// lines included); its definition, test callers, comment lines and longer
+/// identifiers are not flagged.
+///
+/// (b) `DISABLE TRIGGER` (any letter case) and `session_replication_role` appear
+/// in no `.rs` under `crates/` except [`LEGACY_SEAM_FILE`] — comments and tests
+/// included: one greppable bypass (D8, DDD-11).
+///
+/// A missing `crates/`, an unreadable directory or file fails the rule.
 fn check_name_rule_legacy_seam(root: &Path) -> Vec<String> {
-    let _ = root;
-    panic!(
-        "SCAFFOLD: check-arch name-rule-legacy-seam is not implemented yet (name-db-checks DDD-12)"
-    )
+    let crates_dir = root.join("crates");
+    if !crates_dir.is_dir() {
+        return vec![format!(
+            "name-rule-legacy-seam: cannot list {} — no crate could be checked for a \
+             name-rule bypass (DDD-12).",
+            crates_dir.display()
+        )];
+    }
+    let (sources, unreadable) = files_under(&crates_dir, "rs", &|_| false);
+    let mut violations: Vec<String> = unreadable
+        .iter()
+        .map(|dir| {
+            format!(
+                "name-rule-legacy-seam: cannot list {} — it could not be checked for a \
+                 name-rule bypass (DDD-12).",
+                rel(root, dir)
+            )
+        })
+        .collect();
+    for file in &sources {
+        let Ok(contents) = std::fs::read_to_string(file) else {
+            violations.push(format!(
+                "name-rule-legacy-seam: cannot read {} (DDD-12).",
+                rel(root, file)
+            ));
+            continue;
+        };
+        if is_production_door(&crates_dir, file) {
+            violations.extend(legacy_seam_call_violations_in(root, file, &contents));
+        }
+        if rel(root, file) != LEGACY_SEAM_FILE {
+            violations.extend(name_rule_bypass_violations_in(root, file, &contents));
+        }
+    }
+    violations
+}
+
+/// Whether `file` sits under the `src` of a crate the legacy seam is closed to.
+fn is_production_door(crates_dir: &Path, file: &Path) -> bool {
+    LEGACY_SEAM_FORBIDDEN_IN
+        .iter()
+        .any(|crate_name| file.starts_with(crates_dir.join(crate_name).join("src")))
+}
+
+/// The DDD-12a violations in one file: each legacy-seam call, named `file:line`.
+fn legacy_seam_call_violations_in(root: &Path, file: &Path, contents: &str) -> Vec<String> {
+    call_sites(contents, LEGACY_SEAM_CALL)
+        .into_iter()
+        .map(|line| {
+            format!(
+                "name-rule-legacy-seam: {}:{line} calls the test-only seam \
+                 `seed_row_predating_name_rule` from a production door — it switches the \
+                 name-rule trigger off; production writes go through the rule (DDD-11/DDD-12)",
+                rel(root, file),
+            )
+        })
+        .collect()
+}
+
+/// The DDD-12b violations in one file: each line naming a trigger bypass,
+/// compared lowercase with whitespace runs folded to one space.
+fn name_rule_bypass_violations_in(root: &Path, file: &Path, contents: &str) -> Vec<String> {
+    contents
+        .lines()
+        .enumerate()
+        .filter(|(_, line)| {
+            let folded = line
+                .to_lowercase()
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ");
+            NAME_RULE_BYPASSES
+                .iter()
+                .any(|bypass| folded.contains(bypass))
+        })
+        .map(|(line_no, _)| {
+            format!(
+                "name-rule-legacy-seam: {}:{} switches the name-rule trigger off (DISABLE \
+                 TRIGGER / session_replication_role) — the one bypass lives in {} (D8, \
+                 DDD-11/DDD-12)",
+                rel(root, file),
+                line_no + 1,
+                LEGACY_SEAM_FILE,
+            )
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -4849,7 +4947,6 @@ mod name_rule_legacy_seam_tests {
         let off = format!(\"ALTER TABLE {t} DISABLE TRIGGER {t}_name_rule_on_insert\", t = table.name());\n}\n";
 
     #[test]
-    #[ignore = "SCAFFOLD: slice 01 — check-arch name-rule-legacy-seam (DDD-12)"]
     fn the_seam_its_definition_and_its_test_callers_pass() {
         let tree = stage(&[
             (SEAM_FILE, SEAM),
@@ -4867,7 +4964,6 @@ mod name_rule_legacy_seam_tests {
     }
 
     #[test]
-    #[ignore = "SCAFFOLD: slice 01 — check-arch name-rule-legacy-seam clause (a) (DDD-12)"]
     fn a_door_that_calls_the_seam_is_flagged() {
         let tree = stage(&[
             (SEAM_FILE, SEAM),
@@ -4901,7 +4997,6 @@ mod name_rule_legacy_seam_tests {
     }
 
     #[test]
-    #[ignore = "SCAFFOLD: slice 01 — check-arch name-rule-legacy-seam clause (a) (DDD-12)"]
     fn a_comment_or_a_longer_name_in_a_door_is_not_a_seam_call() {
         let tree = stage(&[
             (SEAM_FILE, SEAM),
@@ -4916,7 +5011,6 @@ mod name_rule_legacy_seam_tests {
     }
 
     #[test]
-    #[ignore = "SCAFFOLD: slice 01 — check-arch name-rule-legacy-seam clause (b) (DDD-12)"]
     fn a_trigger_switch_or_replica_mode_outside_the_seam_file_is_flagged() {
         let tree = stage(&[
             (SEAM_FILE, SEAM),
@@ -4961,7 +5055,6 @@ mod name_rule_legacy_seam_tests {
     }
 
     #[test]
-    #[ignore = "SCAFFOLD: slice 01 — check-arch name-rule-legacy-seam clause (b) (DDD-12)"]
     fn migrations_docs_and_files_outside_crates_are_not_this_rules_business() {
         let tree = stage(&[
             (SEAM_FILE, SEAM),
@@ -4983,7 +5076,6 @@ mod name_rule_legacy_seam_tests {
     }
 
     #[test]
-    #[ignore = "SCAFFOLD: slice 01 — check-arch name-rule-legacy-seam (DDD-12)"]
     fn a_missing_crates_directory_fails_the_rule() {
         let tree = stage(&[("README.md", "nothing here\n")]);
         let violations = check_name_rule_legacy_seam(tree.path());
