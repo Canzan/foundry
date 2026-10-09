@@ -19,14 +19,9 @@
 //!
 //! LEGACY ROWS go through ONE seam (DESIGN DDD-10): a `foundry-store` test-support
 //! function that writes a row "that predates the rule" with the table's two name
-//! triggers switched off for that one transaction. It does not exist yet, so
-//! [`seed_through_legacy_seam`] is a SCAFFOLD placeholder that panics naming the
-//! seam — every scenario seeding a legacy row is RED at that call, for the right
-//! reason. DELIVER replaces its body with the seam call; nothing else in this
-//! module moves.
-//!
-//! __SCAFFOLD__
-//! SCAFFOLD: true (only [`seed_through_legacy_seam`]; every other step is real)
+//! triggers switched off for that one transaction
+//! (`foundry_store::seed_row_predating_name_rule`), called only from
+//! [`seed_through_legacy_seam`].
 //!
 //! STATE DELTA (Mandate 8): every write captures the [`NameUniverse`] — every
 //! workspace `(id, name)`, every project `(name, address, key prefix, issue
@@ -194,25 +189,61 @@ impl LegacyRow {
 }
 
 // ===========================================================================
-// The legacy seam (SCAFFOLD, DDD-10)
+// The legacy seam (DDD-10)
 // ===========================================================================
 
-/// SCAFFOLD (DELIVER, DDD-10): store `row` the way history wrote it — with the
-/// table's two name triggers switched off for this one transaction only.
-///
-/// DELIVER replaces this body with the call to the `foundry-store` test-support
-/// seam (working name `seed_row_predating_name_rule`, with the closed
-/// `NameRuleTable` enum; rename it here, in the store test scaffolds and in the
-/// check-arch rule together if DELIVER picks another name), passing
-/// [`LegacyRow::table`] and the row's INSERT. It must NOT be a plain INSERT: once
-/// 0019/0020 land, a plain INSERT of these names is refused (that is the feature).
+impl NameRuleTable {
+    /// The store seam's own closed enum for this table.
+    fn seam_table(self) -> foundry_store::NameRuleTable {
+        match self {
+            Self::Workspaces => foundry_store::NameRuleTable::Workspaces,
+            Self::Projects => foundry_store::NameRuleTable::Projects,
+        }
+    }
+}
+
+/// Store `row` the way history wrote it, through the `foundry-store` test-support
+/// seam (DDD-10): the table's two name triggers are switched off for that one
+/// transaction only. A plain INSERT of these names is refused after 0019/0020.
+/// The row is never printed (names are not logged).
 async fn seed_through_legacy_seam(pool: &PgPool, row: &LegacyRow) {
-    let _ = pool;
-    panic!(
-        "SCAFFOLD: the legacy seam (name-db-checks DDD-10) does not exist yet — \
-         DELIVER adds foundry-store's test-support seed_row_predating_name_rule \
-         (NameRuleTable::{:?}) and calls it here to store {row:?}",
-        row.table()
+    let write = match row {
+        LegacyRow::Workspace { id, name } => {
+            sqlx::query("INSERT INTO workspaces (id, name) VALUES ($1, $2)")
+                .bind(*id)
+                .bind(name.clone())
+        }
+        LegacyRow::Project {
+            id,
+            workspace_id,
+            team_id,
+            name,
+            slug,
+            key_prefix,
+        } => sqlx::query(
+            "INSERT INTO projects (id, team_id, workspace_id, name, slug, key_prefix)
+                  VALUES ($1, $2, $3, $4, $5, $6)",
+        )
+        .bind(*id)
+        .bind(*team_id)
+        .bind(*workspace_id)
+        .bind(name.clone())
+        .bind(slug.clone())
+        .bind(key_prefix.clone()),
+    };
+    let written =
+        foundry_store::seed_row_predating_name_rule(pool, row.table().seam_table(), write)
+            .await
+            .unwrap_or_else(|e| {
+                panic!(
+                    "the legacy seam could not store a {} row: {e}",
+                    row.table().table()
+                )
+            });
+    assert_eq!(
+        written.rows_affected(),
+        1,
+        "the legacy seam stores exactly one row"
     );
 }
 

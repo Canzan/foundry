@@ -146,20 +146,20 @@ Feature: The database refuses a name every app door refuses, and leaves older na
         | Globex  |
         | [24×日] |
 
-    @pending @us-ndc-01 @edge @guard @real-io @contract-shape:unbounded-preservation
+    @us-ndc-01 @edge @guard @real-io @contract-shape:unbounded-preservation
     Scenario: A workspace stored before the upgrade keeps its name when it is rewritten unchanged by hand
       Given workspace "Canzan Labs Platform Engineering Group" was stored before the upgrade
       When the operator renames workspace "Canzan Labs Platform Engineering Group" to "Canzan Labs Platform Engineering Group" at the database prompt
       Then the database accepts it and nothing changed
 
-    @pending @us-ndc-01 @error @real-io @contract-shape:unbounded-preservation
+    @us-ndc-01 @error @real-io @contract-shape:unbounded-preservation
     Scenario: A workspace stored before the upgrade cannot be renamed by hand to another name that breaks the rule
       Given workspace "Canzan[TAB]Labs" was stored before the upgrade
       When the operator renames workspace "Canzan[TAB]Labs" to "Canzan[TAB]Labs Ops" at the database prompt
       Then the database refuses it under the rule "workspaces_name_no_control_chars"
       And no workspace or project changed
 
-    @pending @us-ndc-01 @edge @real-io @contract-shape:bounded-change
+    @us-ndc-01 @edge @real-io @contract-shape:bounded-change
     Scenario: A workspace stored before the upgrade is renamed on the dashboard to a fit name, and the rename is on record
       Given workspace "Canzan Labs Platform Engineering Group" was stored before the upgrade
       When Priya renames workspace "Canzan Labs Platform Engineering Group" to "Canzan Platform"
