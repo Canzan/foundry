@@ -68,11 +68,11 @@ new name write (name-db-checks).
     projects), turns a bad name typed at that older door into a 500 instead
     of a stored bad name.
   - **After upgrading, count the names that break the rule** (read-only; it
-    lists only the arms with at least one row, so no output means none). On
-    production, over the documented ssh path:
+    lists only the arms with at least one row, so no output means none). Run it
+    with `psql` against the foundry database, for example:
 
     ```sh
-    kubectl -n databases exec -i pg-1 -c postgres -- psql -d foundry -At <<'SQL'
+    psql "$DATABASE_URL" -At <<'SQL'
     BEGIN READ ONLY;
     SELECT 'workspaces' AS tbl, foundry_name_rule_violation(name, 24) AS arm, count(*)
       FROM workspaces WHERE foundry_name_rule_violation(name, 24) IS NOT NULL GROUP BY 2
@@ -90,7 +90,7 @@ new name write (name-db-checks).
     the app's logs for it after the release:
 
     ```sh
-    kubectl -n foundry logs -l app.kubernetes.io/name=foundry-app --all-containers --prefix --since=168h \
+    kubectl -n foundry logs -l app.kubernetes.io/name=foundry --all-containers --prefix --since=168h \
       | grep -E '(workspaces|projects)_name_(not_empty|trimmed|no_control_chars|max_24_chars|max_256_chars)'
     ```
 
