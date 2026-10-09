@@ -885,3 +885,65 @@ Added **OUT-20** (`kind: invariant`, `feature: name-db-checks`, `related: [OUT-1
 - The HINT text (OQ-D6) is asserted only as "names the mirrored type" (`WorkspaceName` / `ProjectName`), so DELIVER is free to word it.
 - The trigger-shape assertion reads `pg_get_triggerdef` text (`BEFORE UPDATE OF name ON`, `(old.name IS DISTINCT FROM new.name)`, `foundry_enforce_name_rule('24')`): Postgres 16's rendering. A Postgres upgrade that changes the rendering moves this test, not the rule.
 - None of the above needs a user decision.
+
+## Wave: DELIVER
+
+### [REF] Implementation summary
+
+- **The rule in the database:** migrations 0019 (functions plus workspaces triggers, UTF8 guard,
+  self-check) and 0020 (projects triggers, self-check at 256/257). They enforce the app's name rule on
+  every new name write: `BEFORE INSERT`, and `BEFORE UPDATE OF name` WHEN the name changes. A
+  violation raises SQLSTATE 23514 with CONSTRAINT `<table>_name_<arm>`, SCHEMA and a HINT, and no
+  DETAIL.
+- **The legacy seam:** a test-support store seam (`seed_row_predating_name_rule`) seeds legacy rows
+  for the scenarios that need them. check-arch keeps it out of production code.
+- **The boot entry:** a test-support boot-path entry proves the previous release still boots.
+
+### [REF] Files modified
+
+- **Migrations:** `crates/foundry-store/migrations/0019_workspace_name_rule.sql`, `0020_project_name_rule.sql`.
+- **Store:** `src/name_rule_legacy_seam.rs` (new), `src/lib.rs` (the test-support module and
+  `run_boot_migrations_from_dir`), `Cargo.toml` (self dev-dependency), `deny.toml` (the wrapper for
+  that self edge).
+- **xtask:** `check_arch.rs` (`name-rule-legacy-seam`, with a shared `call_sites` helper).
+- **Acceptance:**
+  - `feature_name_db_checks.rs`, plus fixture switches in `feature_instance_workspace_name_rule.rs`
+    and `feature_project_name_rule.rs`;
+  - `compose_harness.rs` (F7 name; the port is re-resolved on every health poll);
+  - the `.feature`, at 0 `@pending`.
+- **Tests:** `crates/foundry-store/tests/name_rule_parity.rs` (7), `name_rule_in_database.rs` (15).
+- **Docs:** CHANGELOG, the ADR amendments, brief, the evolution doc, `deliver/mutation/mutation-report.md`.
+
+### [REF] Scenarios green
+
+| Lane | Result |
+|---|---|
+| ndc | 57/57 (338 steps) |
+| pnr | 74/74 |
+| iawr | 27/27 |
+| iwnr | 61/61 |
+| us-03 | 72/72 |
+| us-04 | 38/38 |
+| us-08 | 10/10 |
+| Default (at 02-03) | 894/894 |
+| Full CI | 1130/1130 |
+
+### [REF] Quality gates
+
+- **Refactor:** none beyond the per-step L1 tidy-ups. The Rust surface is two test-only helpers.
+- **Adversarial review:** APPROVED. Parity, write paths, the seam's transactional behaviour, the
+  migrations, the error contract and the CHANGELOG were checked against the SQL.
+- **Mutation:** Rust 100% (27/27, 3/3, 1/1). The SQL hand-mutation table (22 rows) is all killed or
+  equivalent.
+- **DES integrity:** all 9 steps complete.
+- **CI:** `cargo xtask ci` with `FOUNDRY_XTASK_INCLUDE_DOCKER=1` (2026-10-09): all gates green. That covers fmt, clippy, check-arch, the release build, workspace tests, cargo-deny, and acceptance on all tags including browser and docker-compose: 1130/1130 scenarios, 7638 steps, with no flakes.
+
+### [WHY] Upstream Issues
+
+- **Oracle strength:** the refusal oracle didn't check SCHEMA, HINT or the absence of DETAIL. The
+  legacy-project Given leaked the "every UPDATE" fault into setup. Both fixed in `5d8a855`.
+- **Boot entry:** the rollback test only checked Ok (`7fb29e9`).
+- **UTF8 guard:** the test didn't distinguish the guard from a conversion error (`a46a331`).
+- **Roadmap:** smoke lines lacked the strip override; the warm-up exits 2 by design.
+- **Deviations:** the `deny.toml` wrapper for the store's self dev-dependency, and the compose
+  harness port fix.
