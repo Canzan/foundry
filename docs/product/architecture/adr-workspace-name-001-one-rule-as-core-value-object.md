@@ -79,3 +79,14 @@ fixtures must still be able to seed legacy over-length and tab-containing names.
   callers and tests, in the slice that lands it.
 - Neutral: the store remains able to write any name. Until follow-up D, the guarantee is
   "every production door", not "every row".
+
+## Amendment (2026-10-09, name-db-checks)
+
+Follow-up D shipped as triggers, not a `CHECK … NOT VALID` (ADR-NAME-DB-001). Migration 0019
+installs `workspaces_name_rule_on_insert` and `workspaces_name_rule_on_rename` (`UPDATE OF
+name`, only when the name changes) over the shared verdict function
+`foundry_name_rule_violation`. A write that breaks a pure arm is refused with SQLSTATE 23514
+and the arm as the constraint (`workspaces_name_<arm>`). The guarantee becomes "every door and
+every new name write". Rows stored before 0019 are not scanned and keep their names. Decisions
+4 and 5 stand: the value object is still the user-facing rule and the store still takes `&str`;
+fixtures that need a legacy name use the test-support seam `seed_row_predating_name_rule`.

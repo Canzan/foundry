@@ -128,7 +128,8 @@ with a fresh read (bounded), never reported as a duplicate name. Existing slugs,
 including legacy empty ones, are never rewritten. `cargo xtask check-arch`
 (`project-name-one-source`) fails the build on the `"Project name must` literal
 outside `foundry-core`, or on a call to `insert_project(` from `foundry-app` or
-`foundry-api`. The store stays `&str` with no DB CHECK. See
+`foundry-api`. The store stays `&str` with no DB CHECK; the database rule is a trigger
+(below). See
 `adr-project-name-001-one-rule-and-create-use-case.md` and
 `adr-project-name-002-fallback-slug-mint.md`.
 
@@ -157,7 +158,7 @@ legacy name stays a quiet success. The provisioning use-case takes a `WorkspaceN
 so an unchecked name cannot reach it. The bootstrap claim checks the name before its
 transaction, and answers with the rule only for a live link, so a dead link's refusal
 stays uniform. The store stays `&str` and does not validate, because fixtures must
-seed legacy names. `Store::create_initial_workspace` is a test-seeding seam with no
+seed legacy names (since `name-db-checks`, through the legacy seam below). `Store::create_initial_workspace` is a test-seeding seam with no
 production caller. `cargo xtask check-arch` (`workspace-name-one-source`) fails the
 build on a second copy of the refusal text outside `foundry-core`, or on a production
 call to that seeder. Project
@@ -170,8 +171,8 @@ character, and at most 24 or 256 characters. Migrations 0019 (workspaces) and 00
 (projects) add one shared `IMMUTABLE` verdict function, `foundry_name_rule_violation`, which
 states the Rust rule with explicit code-point sets: `str::trim`'s 25 White_Space points and
 `name_chars`' refused ranges, with no `\s`. They also add one trigger function and two
-triggers per table: `BEFORE INSERT`, and `BEFORE UPDATE OF name WHEN (OLD.name IS DISTINCT
-FROM NEW.name)`. These are triggers rather than CHECK constraints, because a CHECK is
+triggers per table: `BEFORE INSERT` (`<table>_name_rule_on_insert`), and `BEFORE UPDATE OF
+name WHEN (OLD.name IS DISTINCT FROM NEW.name)` (`<table>_name_rule_on_rename`). These are triggers rather than CHECK constraints, because a CHECK is
 re-checked on every UPDATE of a row. Under a CHECK, a legacy project name would refuse every
 new issue (`next_issue_number`). A refusal is SQLSTATE 23514, and the arm is named as the
 constraint (for example `workspaces_name_no_control_chars` or `projects_name_max_256_chars`).

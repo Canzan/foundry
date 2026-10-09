@@ -7,6 +7,116 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 
 ## [Unreleased]
 
+The database now enforces the workspace-name and project-name rules on every
+new name write (name-db-checks).
+
+### Changed
+
+- **A bad name written straight to the database is refused.** A workspace or
+  project name written by hand in `psql`, by a script or by another tool now
+  meets the same rule as the app's doors: trimmed, not empty, no control
+  characters, and at most 24 characters for a workspace or 256 for a project.
+  The database refuses a bad insert or rename with SQLSTATE 23514 (the
+  `check_violation` code) and names the rule it broke as the constraint, for
+  example:
+
+  ```
+  ERROR:  new row for relation "workspaces" violates check constraint "workspaces_name_trimmed"
+  HINT:  The name must be a valid foundry_core::WorkspaceName: trimmed, not empty, no control characters, at most 24 characters.
+  ```
+
+  The rule names are `<table>_name_not_empty`, `<table>_name_trimmed`,
+  `<table>_name_no_control_chars`, `workspaces_name_max_24_chars` and
+  `projects_name_max_256_chars`. The refusal never carries a DETAIL, so the
+  refused name is not written to the database log.
+  - **The app is unchanged.** The database rule is the app rule, so no app
+    door reaches the refusal and no copy changes. Uniqueness stays the app's
+    job.
+  - **Existing names are untouched.** No row is checked or rewritten. A
+    workspace or project stored with a name that breaks the rule keeps working,
+    takes new issues, can be renamed to a fit name, and survives a write that
+    leaves its name as it is. Only a change of name meets the rule.
+
+### Migration notes
+
+- **`0019_workspace_name_rule`** adds two functions,
+  `foundry_name_rule_violation(text, integer)` (the verdict) and
+  `foundry_enforce_name_rule()` (the trigger function), and two triggers on
+  `workspaces`: `workspaces_name_rule_on_insert` (`BEFORE INSERT`) and
+  `workspaces_name_rule_on_rename` (`BEFORE UPDATE OF name`, only when the name
+  changes). **`0020_project_name_rule`** adds `projects_name_rule_on_insert` and
+  `projects_name_rule_on_rename` on `projects` over the same functions.
+  - **No row is scanned or rewritten.** These are triggers, not CHECK
+    constraints, so there is nothing to `VALIDATE`. `CREATE TRIGGER` takes a
+    brief SHARE ROW EXCLUSIVE lock on each table.
+  - **Both apply at boot** under `Store::migrate`'s `MIGRATION_LOCK_ID`
+    advisory lock, so concurrent replicas apply them once. Each migration
+    checks the database's trim, regex and length behaviour before it installs
+    the rule, and refuses to apply if they differ.
+  - **Check before upgrading that the database is UTF8.** 0019 refuses a
+    non-UTF8 database, inside its own transaction, and the boot fails:
+
+    ```sql
+    SELECT pg_encoding_to_char(encoding) FROM pg_database WHERE datname = current_database();
+    ```
+
+  - **Rolling deploys are safe.** v0.11.0 replicas already write only valid
+    names on every door, so they never meet the refusal during the overlap.
+  - **Rollback floor: v0.11.0.** v0.11.0 boots against the migrated database
+    and ignores migrations 19 and 20. Rolling back further, to a binary
+    without the app rules (before v0.10.0 for workspaces, before v0.11.0 for
+    projects), turns a bad name typed at that older door into a 500 instead
+    of a stored bad name.
+  - **After upgrading, count the names that break the rule** (read-only; it
+    lists only the arms with at least one row, so no output means none). On
+    production, over the documented ssh path:
+
+    ```sh
+    kubectl -n databases exec -i pg-1 -c postgres -- psql -d foundry -At <<'SQL'
+    BEGIN READ ONLY;
+    SELECT 'workspaces' AS tbl, foundry_name_rule_violation(name, 24) AS arm, count(*)
+      FROM workspaces WHERE foundry_name_rule_violation(name, 24) IS NOT NULL GROUP BY 2
+    UNION ALL
+    SELECT 'projects', foundry_name_rule_violation(name, 256), count(*)
+      FROM projects WHERE foundry_name_rule_violation(name, 256) IS NOT NULL GROUP BY 2;
+    COMMIT;
+    SQL
+    ```
+
+    Such names keep working. Rename them on the dashboard if you want them
+    gone.
+  - **Watch for refusals reaching the app.** One should never happen; if it
+    does, it shows as an internal error whose log line names the rule. Search
+    the app's logs for it after the release:
+
+    ```sh
+    kubectl -n foundry logs -l app.kubernetes.io/name=foundry-app --all-containers --prefix --since=168h \
+      | grep -E '(workspaces|projects)_name_(not_empty|trimmed|no_control_chars|max_24_chars|max_256_chars)'
+    ```
+
+    No output is the expected result. Any hit is a bug: please report it.
+  - **Backups.** A full `pg_restore` (for example with `--clean --if-exists`)
+    loads table data before it creates the triggers, so names that break the
+    rule restore unchanged. A data-only restore
+    (`pg_restore -a`) into an already-migrated database fires the triggers on
+    every row; run it with `--disable-triggers` to load such names.
+  - **Undo.** The migrations are forward-only. To remove the rule by hand:
+
+    ```sql
+    DROP TRIGGER IF EXISTS workspaces_name_rule_on_insert ON workspaces;
+    DROP TRIGGER IF EXISTS workspaces_name_rule_on_rename ON workspaces;
+    DROP TRIGGER IF EXISTS projects_name_rule_on_insert ON projects;
+    DROP TRIGGER IF EXISTS projects_name_rule_on_rename ON projects;
+    DROP FUNCTION IF EXISTS foundry_enforce_name_rule(), foundry_name_rule_violation(text, integer);
+    ```
+
+    To put it back, delete the two migration records and restart Foundry,
+    which re-applies both (their bodies are safe to re-run):
+
+    ```sql
+    DELETE FROM _sqlx_migrations WHERE version IN (19, 20);
+    ```
+
 ## [v0.11.0] - 2026-10-07
 
 Project names now follow one rule on both doors, and every new project gets a

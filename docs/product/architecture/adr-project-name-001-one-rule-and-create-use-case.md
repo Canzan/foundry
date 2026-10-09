@@ -80,3 +80,14 @@ workspace rule in a `foundry-core` value object whose error `Display` is the cop
 - Negative: `foundry-core` holds a second set of user-facing strings. Accepted, as for workspaces.
 - Negative: create's code path moves crates (handler shrinks, service grows) across slices 02-04.
 - Neutral: the guarantee is "every production door", not "every row" (no DB CHECK, D12).
+
+## Amendment (2026-10-09, name-db-checks)
+
+Item 8 and the neutral consequence above are superseded for the pure arms (ADR-NAME-DB-001).
+Migration 0020 installs `projects_name_rule_on_insert` and `projects_name_rule_on_rename`
+(`UPDATE OF name`, only when the name changes) over 0019's shared functions at cap 256. A
+write that breaks a pure arm is refused with SQLSTATE 23514 and the arm as the constraint
+(`projects_name_<arm>`). The guarantee becomes "every door and every new name write". Still
+not in the database: uniqueness within the team and the slug, which stay with the app.
+Store signatures stay `&str`, and rows stored before 0020 keep their names and keep taking
+issues, because the trigger never fires on a write that leaves the name unchanged.
