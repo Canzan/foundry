@@ -69,6 +69,13 @@ impl ComposeStack {
         }
     }
 
+    /// The project's 8 random hex digits (the part after `foundry-at-`).
+    fn project_suffix(&self) -> &str {
+        self.project_name
+            .strip_prefix("foundry-at-")
+            .unwrap_or(&self.project_name)
+    }
+
     /// Build a `docker compose -p <project>` command, with the env vars
     /// that the compose file expects. `FOUNDRY_HOST_PORT=0` asks docker
     /// for an ephemeral host port per stack so concurrent scenarios don't
@@ -110,17 +117,21 @@ impl ComposeStack {
     /// previous `reqwest::blocking` + `thread::sleep` version panicked
     /// with "Cannot start a runtime from within a runtime" on the second
     /// poll attempt.
+    ///
+    /// The host port is re-resolved on every poll: right after `docker compose
+    /// restart` the ephemeral port reads as `0` until the container is up again.
     pub async fn wait_for_foundry_healthy(&self, timeout: Duration) -> anyhow::Result<()> {
-        let port = self.host_port_for("foundry", 3000)?;
-        let url = format!("http://127.0.0.1:{port}/healthz");
         let deadline = Instant::now() + timeout;
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(2))
             .build()?;
         while Instant::now() < deadline {
-            if let Ok(resp) = client.get(&url).send().await {
-                if resp.status().is_success() {
-                    return Ok(());
+            if let Ok(port @ 1..) = self.host_port_for("foundry", 3000) {
+                let url = format!("http://127.0.0.1:{port}/healthz");
+                if let Ok(resp) = client.get(&url).send().await {
+                    if resp.status().is_success() {
+                        return Ok(());
+                    }
                 }
             }
             tokio::time::sleep(Duration::from_millis(500)).await;
@@ -217,9 +228,11 @@ impl ComposeStack {
     /// function stays synchronous — earlier versions opened a nested
     /// tokio runtime via sqlx and panicked inside cucumber-rs.
     pub fn pre_claim_admin(&self) -> anyhow::Result<()> {
+        // `pre-claimed-<8 hex>` (20 characters): a valid WorkspaceName, so the
+        // name rule of migration 0019 accepts it (name-db-checks DDD-13, F7).
         let sql = format!(
             "INSERT INTO workspaces (id, name) VALUES (gen_random_uuid(), 'pre-claimed-{}');",
-            self.project_name
+            self.project_suffix()
         );
         let out = self
             .compose()

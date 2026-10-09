@@ -15,7 +15,8 @@ path = "src/lib.rs"
 [features]
 default = []
 # Exposes test-only seams (e.g. `run_migrations_from_dir` migration
-# delay knob used by the US-04 advisory-lock-race acceptance scenario).
+# delay knob used by the US-04 advisory-lock-race acceptance scenario, and
+# the name-db-checks legacy seam `seed_row_predating_name_rule`).
 # foundry-acceptance enables this through its `foundry-store` dep.
 test-support = []
 
@@ -44,3 +45,7 @@ proptest = "1"
 # The reset-token contract is defined over the SHA-256 of the raw token — the
 # store only ever sees the hash — so its test has to compute the same digest.
 sha2 = { workspace = true }
+# The crate's own tests reach its test-only seams (the name-db-checks legacy
+# seam) through a self dev-dependency with `test-support` (the foundry-app
+# precedent); release builds never contain them.
+foundry-store = { path = ".", features = ["test-support"] }

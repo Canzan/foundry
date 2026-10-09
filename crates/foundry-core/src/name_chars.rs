@@ -7,6 +7,10 @@
 /// overrides (U+202A-202E), the bidi isolates (U+2066-2069), and the line and
 /// paragraph separators (U+2028, U+2029). Every other format character (ZWJ,
 /// ZWNJ, ZWSP, LRM, RLM, soft hyphen, U+FEFF, ...) is allowed.
+///
+/// Mirrored in SQL, range for range, by `foundry_name_rule_violation` in
+/// `crates/foundry-store/migrations/0019_workspace_name_rule.sql`
+/// (name-db-checks DDD-3); change both together.
 pub(crate) fn is_refused_name_char(c: char) -> bool {
     c.is_control()
         || matches!(

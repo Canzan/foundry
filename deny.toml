@@ -85,9 +85,12 @@ allow-wildcard-paths = true
 # until Feature B extracts foundry-web), and the acceptance harness.
 # (foundry-web's extraction in Feature B will REMOVE foundry-app from this list,
 # tightening the rule to adapters-go-through-services everywhere.)
+# foundry-store itself is listed for its self dev-dependency with
+# `test-support` (its own tests reach the name-db-checks legacy seam); that edge
+# is the crate testing itself, not an adapter reaching past the seam.
 [[bans.deny]]
 name = "foundry-store"
-wrappers = ["foundry-services", "foundry-app", "foundry-acceptance"]
+wrappers = ["foundry-services", "foundry-app", "foundry-acceptance", "foundry-store"]
 
 # Rule 2 — no reversed edge: the shared seam must not depend on the JSON
 # driving adapter (the acyclic shape that ruled out folding services into the

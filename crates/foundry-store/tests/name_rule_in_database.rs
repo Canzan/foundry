@@ -26,9 +26,9 @@
 //! at 0018, insert plainly, migrate on. Only the seam tests and the post-0020
 //! dump (DDD-14 1) go through the seam.
 //!
-//! SCAFFOLD: true — every test is `#[ignore = "SCAFFOLD: …"]`. Two placeholders
-//! panic until DELIVER builds what they stand for: [`seam_insert_workspace`] /
-//! [`seam_insert_project`] (the DDD-10 test-support seam) and
+//! SCAFFOLD: true — the tests not yet un-pended are `#[ignore = "SCAFFOLD: …"]`.
+//! [`seam_insert_workspace`] / [`seam_insert_project`] call the DDD-10
+//! test-support seam; one placeholder still panics until DELIVER builds it:
 //! [`previous_release_boot`] (the DDD-14 4 boot-path migrator entry over a staged
 //! dir). Every other test reaches [`require_rule_installed`] (or the 0019 file
 //! lookup) and fails there with a SCAFFOLD message until 0019/0020 land.
@@ -44,7 +44,10 @@
 //! `pg_restore` run inside the container, so the client always matches the
 //! server). Integration level, example-based (Mandates 9/11).
 
-use foundry_store::{run_migrations, run_migrations_from_dir, Store, WorkspaceRenameWrite};
+use foundry_store::{
+    run_migrations, run_migrations_from_dir, seed_row_predating_name_rule, NameRuleTable, Store,
+    WorkspaceRenameWrite,
+};
 use sqlx::postgres::{PgDatabaseError, PgPoolOptions};
 use sqlx::PgPool;
 use std::collections::BTreeMap;
@@ -69,29 +72,38 @@ const TRIGGERS: [(&str, &str); 4] = [
 ];
 
 // ---------------------------------------------------------------------------
-// Placeholders (SCAFFOLD) — DELIVER replaces each body
+// The legacy seam, and the placeholder (SCAFFOLD) DELIVER still replaces
 // ---------------------------------------------------------------------------
 
-/// SCAFFOLD (DDD-10): the test-support legacy seam storing a workspace "that
-/// predates the rule". DELIVER: call foundry-store's
-/// `seed_row_predating_name_rule(pool, NameRuleTable::Workspaces, …)` (reached
-/// through the crate's self dev-dependency with `test-support`); `Err` carries the
-/// write's error text.
+/// The DDD-10 test-support legacy seam storing a workspace "that predates the
+/// rule" (reached through the crate's self dev-dependency with `test-support`);
+/// `Err` carries the write's error text.
 async fn seam_insert_workspace(pool: &PgPool, id: uuid::Uuid, name: &str) -> Result<(), String> {
-    let _ = (pool, id);
-    panic!(
-        "SCAFFOLD: the legacy seam (name-db-checks DDD-10) does not exist yet — \
-         DELIVER adds seed_row_predating_name_rule(NameRuleTable::Workspaces) for {name:?}"
-    )
+    let write = sqlx::query("INSERT INTO workspaces (id, name) VALUES ($1, $2)")
+        .bind(id)
+        .bind(name);
+    seed_row_predating_name_rule(pool, NameRuleTable::Workspaces, write)
+        .await
+        .map(|_| ())
+        .map_err(|e| e.to_string())
 }
 
-/// SCAFFOLD (DDD-10): as [`seam_insert_workspace`], for a project.
+/// As [`seam_insert_workspace`], for a project.
 async fn seam_insert_project(pool: &PgPool, row: &ProjectSeed) -> Result<(), String> {
-    let _ = pool;
-    panic!(
-        "SCAFFOLD: the legacy seam (name-db-checks DDD-10) does not exist yet — \
-         DELIVER adds seed_row_predating_name_rule(NameRuleTable::Projects) for {row:?}"
+    let write = sqlx::query(
+        "INSERT INTO projects (id, team_id, workspace_id, name, slug, key_prefix)
+              VALUES ($1, $2, $3, $4, $5, $6)",
     )
+    .bind(row.id)
+    .bind(row.team_id)
+    .bind(row.workspace_id)
+    .bind(&row.name)
+    .bind(&row.slug)
+    .bind(&row.key_prefix);
+    seed_row_predating_name_rule(pool, NameRuleTable::Projects, write)
+        .await
+        .map(|_| ())
+        .map_err(|e| e.to_string())
 }
 
 /// SCAFFOLD (DDD-14 4): what the previous release (v0.11.0) does at boot — the
@@ -850,7 +862,6 @@ async fn the_rule_holds_under_an_empty_search_path() {
 /// DDD-8 / OQ-D1: 0019 refuses a database whose encoding is not UTF8, inside its
 /// own transaction: nothing of the rule is left and version 19 is not recorded.
 #[tokio::test]
-#[ignore = "SCAFFOLD: slice 01 — migration 0019's encoding guard (DDD-8)"]
 async fn migration_0019_refuses_a_database_that_is_not_utf8() {
     let c = container().await;
     let admin = connect(&c, "postgres").await;

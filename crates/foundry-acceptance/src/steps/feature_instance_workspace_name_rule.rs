@@ -54,6 +54,7 @@ use assert_cmd::Command as AssertCommand;
 use cucumber::{given, then, when};
 use fantoccini::Locator;
 use foundry_app::Clock;
+use foundry_store::{seed_row_predating_name_rule, NameRuleTable};
 use reqwest::StatusCode;
 use scraper::{Html, Selector};
 use sha2::{Digest, Sha256};
@@ -542,17 +543,18 @@ fn assert_one_refusal(body: &str, css: &str, copy: &str, what: &str) {
 // Given
 // ===========================================================================
 
-/// Store fixture (DDD-6: the store does not validate): a name written the way a
-/// pre-rule door or a restore would have left it.
+/// Store fixture: a name written the way a pre-rule door or a restore would have
+/// left it. Since migration 0019 the database refuses such a name, so it goes in
+/// through the test-support legacy seam (name-db-checks DDD-10/13, F2).
 #[given(regex = r#"^workspace "([^"]+)" was named before the rule existed$"#)]
 async fn legacy_workspace(world: &mut FoundryWorld, name: String) {
     let name = decode_invisibles(&name);
-    sqlx::query("INSERT INTO workspaces (id, name) VALUES ($1, $2)")
+    let write = sqlx::query("INSERT INTO workspaces (id, name) VALUES ($1, $2)")
         .bind(uuid::Uuid::now_v7())
-        .bind(&name)
-        .execute(&pool(world))
+        .bind(&name);
+    seed_row_predating_name_rule(&pool(world), NameRuleTable::Workspaces, write)
         .await
-        .expect("seed a legacy workspace name");
+        .expect("seed a legacy workspace name through the legacy seam");
 }
 
 #[given(

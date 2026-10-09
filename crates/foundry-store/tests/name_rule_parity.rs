@@ -329,7 +329,6 @@ async fn bulk_parity(table: Table) {
 }
 
 #[tokio::test]
-#[ignore = "SCAFFOLD: slice 01 — migration 0019 (DDD-1/16)"]
 async fn workspace_verdicts_match_workspace_name_arm_for_arm_over_10k_generated_names() {
     bulk_parity(Table::Workspaces).await;
 }
@@ -479,7 +478,6 @@ async fn exact_pairs(table: Table) {
 }
 
 #[tokio::test]
-#[ignore = "SCAFFOLD: slice 01 — migration 0019 (DDD-2/3, DoD 2)"]
 async fn workspace_boundary_code_points_and_lengths_match_exactly() {
     exact_pairs(Table::Workspaces).await;
 }
@@ -493,7 +491,6 @@ async fn project_boundary_code_points_and_lengths_match_exactly() {
 /// DDD-1: a NULL name has no verdict (`NOT NULL` owns NULLs), and the function
 /// is IMMUTABLE, so it is a pure function of its two arguments.
 #[tokio::test]
-#[ignore = "SCAFFOLD: slice 01 — migration 0019 (DDD-1)"]
 async fn the_verdict_function_is_pure_and_leaves_null_to_not_null() {
     let (pool, _container) = migrated().await;
     require_rule_installed(&pool).await;

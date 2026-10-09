@@ -3,7 +3,10 @@
 //!
 //! Every path that accepts a workspace name (onboarding, the instance-admin
 //! rename, the CLI) constructs one of these; there is no second statement of
-//! the rule anywhere in the codebase.
+//! the rule anywhere in the codebase. The database enforces the same rule, arm
+//! for arm, on every new name write: migration
+//! `crates/foundry-store/migrations/0019_workspace_name_rule.sql`
+//! (name-db-checks DDD-1..5); change both together.
 
 use std::fmt;
 use thiserror::Error;

@@ -10,10 +10,14 @@
 pub mod attachments;
 pub mod issue_delete;
 pub mod lanes;
+#[cfg(feature = "test-support")]
+pub mod name_rule_legacy_seam;
 pub mod verify_export;
 
 pub use attachments::{AttachmentInsertError, AttachmentRow, AttachmentSummary};
 pub use lanes::{InsertedIssue, LaneDeleteFate, LaneDeleteOutcome, LaneRow};
+#[cfg(feature = "test-support")]
+pub use name_rule_legacy_seam::{seed_row_predating_name_rule, NameRuleTable};
 pub use verify_export::{verify_workspace_export, ArchiveContents, ArchivedTable, VerifyReport};
 
 use sqlx::postgres::PgPoolOptions;
