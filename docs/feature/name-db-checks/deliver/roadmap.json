@@ -1,0 +1,454 @@
+{
+  "roadmap": {
+    "project_id": "name-db-checks",
+    "created_at": "2026-10-08T00:00:00Z",
+    "total_steps": 9,
+    "goal": "Enforce the pure arms of the workspace-name and project-name rules in PostgreSQL for new name writes only (the stored value already trimmed by str::trim's 25 White_Space points, non-empty, no character from the shared name_chars refused set, at most 24 / 256 code points), through one IMMUTABLE verdict function and one trigger function wired BEFORE INSERT and BEFORE UPDATE OF name WHEN the name changes on workspaces (migration 0019) and projects (migration 0020), refusing with SQLSTATE 23514 and the arm name (<table>_name_<arm>), arm-exact with the app (never stricter, never looser), while every legacy row keeps every capability (list, render, quiet no-op, rename, new issues, restore, backup-verify, rollback to v0.11.0) and every legacy test fixture is seeded through one check-arch-gated test-support seam.",
+    "sources": [
+      "docs/feature/name-db-checks/feature-delta.md",
+      "docs/feature/name-db-checks/slices/slice-01-workspace-name-rule-in-the-database.md",
+      "docs/feature/name-db-checks/slices/slice-02-project-name-rule-in-the-database.md",
+      "docs/feature/name-db-checks/slices/slice-03-restore-and-rollback-with-legacy-names.md",
+      "docs/product/architecture/adr-name-db-001-name-write-trigger.md",
+      "docs/product/architecture/adr-workspace-name-001-one-rule-as-core-value-object.md",
+      "docs/product/architecture/adr-project-name-001-one-rule-and-create-use-case.md",
+      "crates/foundry-acceptance/tests/features/name-db-checks.feature",
+      "crates/foundry-acceptance/src/steps/feature_name_db_checks.rs",
+      "crates/foundry-store/tests/name_rule_parity.rs",
+      "crates/foundry-store/tests/name_rule_in_database.rs",
+      "xtask/src/check_arch.rs"
+    ],
+    "scenario_ownership_invariant": "All 21 DISTILL acceptance scenarios (57 outline rows) in name-db-checks.feature are owned by exactly one step, numbered as in the DISTILL scenario table: 01-01: 0 acceptance + 6 check-arch gold tests; 01-02: 0 acceptance + 3 parity + 1 in-database store test; 01-03: 6 (1, 20, 2, 3, 4, 5 = 29 rows); 01-04: 3 (6, 7, 8); 02-01: 0 acceptance + 2 parity + 9 in-database store tests; 02-02: 5 (9, 10, 21, 11, 12 = 18 rows); 02-03: 5 (13, 14, 15, 16, 17); 03-01: 2 (18, 19) + 4 in-database store tests; 03-02: 0 (docs, burn-down, mutation report). Scaffold totals: 5 parity tests (crates/foundry-store/tests/name_rule_parity.rs), 14 in-database tests (crates/foundry-store/tests/name_rule_in_database.rs), 6 check-arch gold tests (xtask/src/check_arch.rs mod name_rule_legacy_seam_tests), 1 acceptance placeholder (feature_name_db_checks.rs seed_through_legacy_seam). The nine in-database tests marked 'slice 01/02' gate on all four triggers (require_rule_installed counts 4), so this roadmap un-ignores them in 02-01 once 0020 lands instead of narrowing them per table; slice 01's workspace triggers are pinned meanwhile by the workspace parity tests, the SQL_ASCII test and scenarios 1-8 and 20. DELIVER un-pends a scenario and un-ignores a scaffold only in the step that owns it, in the DISTILL order. Burn-down: grep -cE '^[[:space:]]*@.*@pending' crates/foundry-acceptance/tests/features/name-db-checks.feature (21 now, 0 at 03-01), grep -n 'SCAFFOLD' crates/foundry-store/tests/name_rule_parity.rs crates/foundry-store/tests/name_rule_in_database.rs crates/foundry-acceptance/src/steps/feature_name_db_checks.rs, and grep -n 'SCAFFOLD' xtask/src/check_arch.rs restricted to the name-rule-legacy-seam section."
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "The workspace rule in the database (US-NDC-01, D1-D8, DDD-1..13, migration 0019, the legacy seam)",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "check-arch name-rule-legacy-seam (clauses a and b) with its gold tests",
+          "description": "In xtask/src/check_arch.rs replace the SCAFFOLD body of check_name_rule_legacy_seam with an implementation over the shared scan helpers the workspace-name-one-source and project-name-one-source rules already use (the OneSourceRule idiom). Clause (a): a call of seed_row_predating_name_rule under crates/{foundry-app,foundry-services,foundry-api}/src is flagged at file:line (a multi-line call included; comment lines and longer identifiers that merely end in the name are not). Clause (b): 'DISABLE TRIGGER' (any case) and 'session_replication_role' in any .rs under crates/ except crates/foundry-store/src/name_rule_legacy_seam.rs are flagged, comments and tests included; .sql, .md and files under xtask/ are not this rule's business; a missing crates/ directory fails the rule (fail closed). Wire it into source_violations / run and add its phrase to the PASSED banner. Remove the section's SCAFFOLD markers and un-ignore the six gold tests one at a time. The shipped tree passes: no seam exists yet and no .rs under crates/ mentions either phrase today.",
+          "criteria": [
+            "The 6 name_rule_legacy_seam gold tests pass un-ignored; no SCAFFOLD marker remains in the name-rule-legacy-seam section of check_arch.rs",
+            "A seam call in an app, services or api src file (single- or multi-line) is reported at file:line; a comment or a longer identifier is not",
+            "DISABLE TRIGGER in any case, or session_replication_role, in any crates/ .rs other than the seam file is reported; migrations, docs and xtask are not; a missing crates/ fails",
+            "cargo xtask check-arch runs the new rule, names it in the PASSED banner, and passes on the shipped tree",
+            "Every other xtask test (the shared scan helpers) and the default acceptance lane stay green; fmt, clippy -D warnings, smoke green"
+          ],
+          "estimate": "0.25 day",
+          "dependencies": [],
+          "files_to_modify": [
+            "xtask/src/check_arch.rs"
+          ],
+          "test_file": "xtask/src/check_arch.rs",
+          "scenario_name": [
+            "the_seam_its_definition_and_its_test_callers_pass",
+            "a_door_that_calls_the_seam_is_flagged",
+            "a_comment_or_a_longer_name_in_a_door_is_not_a_seam_call",
+            "a_trigger_switch_or_replica_mode_outside_the_seam_file_is_flagged",
+            "migrations_docs_and_files_outside_crates_are_not_this_rules_business",
+            "a_missing_crates_directory_fails_the_rule"
+          ],
+          "lane_commands": [
+            "timeout 600 cargo test -p xtask name_rule_legacy_seam",
+            "timeout 900 cargo test -p xtask (the shared scan helpers are used by every one-source rule)",
+            "timeout 600 cargo xtask check-arch",
+            "timeout 900 cargo fmt --all -- --check && timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "timeout 1800 cargo xtask smoke",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; } (rebuild + warm the binary BEFORE any lane; acceptance does not rebuild it; the warm-up absorbs the macOS first-exec stall)",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance (default lane)"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): unit tests for new pure logic MUST be property-based (proptest) with state-delta discipline where state mutates; single-example unit tests are FALLBACK only with a # bypass: comment. Acceptance scenarios are the cucumber .feature file (already authored by DISTILL \u2014 un-pend, do not re-author). Integration/browser tests stay single-example \u2014 they verify wiring. EXEMPT FROM PARADIGM: a static source scan over injected-violation temp trees (exact file:line findings) \u2014 compensate with the gold tests as exact examples, as every prior check-arch rule does. Contract shape: check_name_rule_legacy_seam pure over a directory snapshot (returns findings, writes nothing). This step lands FIRST so the gate exists before the seam does (Earned Trust: the bypass is fenced before it is built). If DELIVER renames the seam, its file or NameRuleTable, change the check-arch constants, the gold tests, the acceptance placeholder and the store placeholders in the same commit (DISTILL working names). Named faults killed: the seam reachable from a production door (clause a); a second ad-hoc bypass via DISABLE TRIGGER or replica mode anywhere else (clause b); a rule that silently passes when crates/ is missing. Lessons: reuse the parameterised scan helper (project-name-rule 01-02 precedent), do not fork it; mask comments the way the shared helper already does. MUTATION: >= 80% kill rate on the new check-arch code (timeout 1800 cargo mutants --in-diff <step diff> --file xtask/src/check_arch.rs); every clause boundary (seam file excluded vs any other file; comment vs code; case-insensitive match) must be killed by a gold test."
+        },
+        {
+          "id": "01-02",
+          "name": "Migration 0019, legacy seam, fixtures F2/F7, workspace parity",
+          "description": "NEW crates/foundry-store/migrations/0019_workspace_name_rule.sql, re-runnable throughout (DDD-7): (1) the encoding guard, RAISE when server_encoding is not UTF8 (DDD-8, OQ-D1); (2) CREATE OR REPLACE FUNCTION foundry_name_rule_violation(name text, max_chars integer) RETURNS text IMMUTABLE (DDD-1/2/3): NULL in -> NULL; trim = btrim(name, <the 25 White_Space points>); on the trimmed value '' -> not_empty, then one bracket of \\u escapes U+0001-001F, 007F-009F, 2028-202E, 2066-2069 -> no_control_chars, then char_length > cap -> max_<cap>_chars; all pass but trimmed <> input -> trimmed; no \\s, no [[:space:]], no regex flags, no current_setting; (3) CREATE OR REPLACE FUNCTION foundry_enforce_name_rule() plpgsql, SET search_path FROM CURRENT, cap from TG_ARGV[0], RAISE ERRCODE check_violation with CONSTRAINT <table>_name_<arm>, the native MESSAGE ('new row for relation \"<table>\" violates check constraint \"<arm name>\"'), TABLE/COLUMN/SCHEMA set, a one-line HINT naming the mirrored type (WorkspaceName / ProjectName; wording is DELIVER's, OQ-D6) and NO DETAIL; (4) DROP TRIGGER IF EXISTS then CREATE TRIGGER workspaces_name_rule_on_insert (BEFORE INSERT FOR EACH ROW) and workspaces_name_rule_on_rename (BEFORE UPDATE OF name FOR EACH ROW WHEN (OLD.name IS DISTINCT FROM NEW.name)), both EXECUTE FUNCTION foundry_enforce_name_rule('24'); (5) COMMENT ON each function and trigger ('mirrors foundry_core::WorkspaceName'); (6) a DO self-check block over the substrate traps of DDD-8 (edge NBSP / U+0085 -> trimmed; U+180E and U+FEFF allowed; edge U+2028 -> trimmed, interior -> no_control_chars; U+009F refused; interior NBSP and U+202F allowed; 24 vs 25 astral characters; '' and all-White_Space -> not_empty). NEW crates/foundry-store/src/name_rule_legacy_seam.rs, declared in lib.rs behind #[cfg(feature = \"test-support\")]: pub enum NameRuleTable { Workspaces, Projects } (closed) and seed_row_predating_name_rule(<pool or executor>, NameRuleTable, <the caller's write>) which in ONE transaction runs ALTER TABLE <t> DISABLE TRIGGER <t>_name_rule_on_insert and <t>_name_rule_on_rename BY NAME, the caller's write, ENABLE both, then commits (a failed write rolls the whole transaction back, so the triggers are never left disabled); never DISABLE TRIGGER ALL (it would skip FKs and needs superuser), never session_replication_role. crates/foundry-store/Cargo.toml gains a self dev-dependency with features = [\"test-support\"] (the foundry-app precedent); confirm foundry-acceptance already enables foundry-store/test-support. NameRuleTable::Projects lands now but has no triggers to switch until 0020: nothing calls it before 02-01. Fixtures (DDD-13): F2, crates/foundry-acceptance/src/steps/feature_instance_workspace_name_rule.rs legacy_workspace (:550, step 'workspace \"...\" was named before the rule existed', which also serves F1 at instance-admin-workspace-rename.feature:93/:231) -> the seam with NameRuleTable::Workspaces; F7, crates/foundry-acceptance/src/support/compose_harness.rs:221 -> 'pre-claimed-<8 hex>' (20 characters; incidental, NOT the seam). Doc pointers (doc comments only) to 0019 in crates/foundry-core/src/name_chars.rs and workspace_name.rs. Store tests: replace the seam_insert_workspace and seam_insert_project placeholders in name_rule_in_database.rs with the seam (their tests stay ignored until 02-01); un-ignore the three slice-01 tests in name_rule_parity.rs and migration_0019_refuses_a_database_that_is_not_utf8 in name_rule_in_database.rs, one at a time. Then OQ-D3: run the default lane and the neighbour lanes and classify every 23514 before fixing it (legacy premise -> the seam; incidental -> a valid name), recording each classification in the step's commit message.",
+          "criteria": [
+            "Bulk parity: >= 10,000 generated names judged by foundry_name_rule_violation at cap 24 agree arm for arm with WorkspaceName::try_new (0 disagreements; a failure prints escaped code points); every exact pair (25 White_Space points at each edge, inside and alone; U+0001/001F/0020, 007E/007F/009F/00A0, 2027-202A/202E/202F, 2065/2066/2069/206A; 8 allowed format points; precedence; 23/24/25 of x, \u00e9, \u65e5, \ud83d\ude00, padded) agrees literal, app and database",
+            "The verdict function is IMMUTABLE (provolatile 'i') and NULL in gives NULL out; 0019 on a SQL_ASCII database fails inside its own transaction, leaving no function and version 18 as the latest",
+            "seed_row_predating_name_rule exists only under the test-support feature, switches the two named triggers off and on inside one transaction, and check-arch name-rule-legacy-seam passes with the seam file present",
+            "F2 seeds through the seam and F7 writes a 20-character name; the iwnr, iawr, us-03, us-04, us-05 and docker-compose lanes stay green; every 23514 surfaced by the default lane is classified before it is fixed (none expected beyond F1/F2/F7)",
+            "Default lane, cargo test -p foundry-store, check-arch, fmt, clippy -D warnings and smoke green; a re-run boot over a 0019 schema is a no-op"
+          ],
+          "estimate": "1 day",
+          "dependencies": [
+            "01-01"
+          ],
+          "files_to_modify": [
+            "crates/foundry-store/migrations/0019_workspace_name_rule.sql",
+            "crates/foundry-store/src/name_rule_legacy_seam.rs",
+            "crates/foundry-store/src/lib.rs",
+            "crates/foundry-store/Cargo.toml",
+            "crates/foundry-core/src/name_chars.rs",
+            "crates/foundry-core/src/workspace_name.rs",
+            "crates/foundry-acceptance/src/steps/feature_instance_workspace_name_rule.rs",
+            "crates/foundry-acceptance/src/support/compose_harness.rs",
+            "crates/foundry-store/tests/name_rule_parity.rs",
+            "crates/foundry-store/tests/name_rule_in_database.rs"
+          ],
+          "test_file": "crates/foundry-store/tests/name_rule_parity.rs",
+          "scenario_name": [
+            "workspace_verdicts_match_workspace_name_arm_for_arm_over_10k_generated_names",
+            "workspace_boundary_code_points_and_lengths_match_exactly",
+            "the_verdict_function_is_pure_and_leaves_null_to_not_null",
+            "migration_0019_refuses_a_database_that_is_not_utf8"
+          ],
+          "lane_commands": [
+            "docker info (Docker up: per-test postgres:16-alpine testcontainers, the shared acceptance Postgres, the us-03 client container, the compose stack)",
+            "timeout 1800 cargo test -p foundry-store --test name_rule_parity",
+            "timeout 1800 cargo test -p foundry-store --test name_rule_in_database (1 passed + the pure do_blocks cutter; 13 still ignored)",
+            "timeout 2400 cargo test -p foundry-store (every store test runs the shipped migrations, now including 0019; workspace_rename_with_audit.rs is the staged F8 model)",
+            "timeout 600 cargo test -p foundry-core",
+            "timeout 600 cargo xtask check-arch",
+            "timeout 900 cargo fmt --all -- --check && timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "timeout 1800 cargo xtask smoke",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; } (rebuild + warm BEFORE the lanes)",
+            "FOUNDRY_ACCEPTANCE_TAGS=iwnr CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (F2 now through the seam)",
+            "FOUNDRY_ACCEPTANCE_TAGS=iawr CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (F1 rides on the F2 step)",
+            "FOUNDRY_ACCEPTANCE_TAGS=us-05 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo test -p foundry-acceptance --test acceptance (bootstrap seeds the Sandbox workspace through the new INSERT trigger)",
+            "FOUNDRY_ACCEPTANCE_TAGS=us-03 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (@needs-pgclient included by positive selection: restore of a schema that now carries triggers)",
+            "FOUNDRY_ACCEPTANCE_TAGS=us-04 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (migrations under the advisory lock; known concurrency flake: rerun alone before calling it a regression)",
+            "FOUNDRY_ACCEPTANCE_TAGS=docker-compose CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance (F7: us-01 pre-claimed workspace on the real compose stack; builds the shared image)",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance (default lane: every scenario schema now carries 0019; classify any 23514, OQ-D3)"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): unit tests for new pure logic MUST be property-based (proptest) with state-delta discipline where state mutates; single-example unit tests are FALLBACK only with a # bypass: comment. Acceptance scenarios are the cucumber .feature file (already authored by DISTILL \u2014 un-pend, do not re-author). Integration/browser tests stay single-example \u2014 they verify wiring. The pure logic of this step is SQL (the verdict function); its property test is the DISTILL bulk parity (TestRunner over the DDD-16 alphabet, >= 10k names per run, batches of 1,000 through unnest WITH ORDINALITY), already authored \u2014 un-ignore, do not re-author; OQ-D4 is settled by the scaffold (a seeded TestRunner loop). Contract shapes: verdict function pure (return-only, IMMUTABLE); enforce trigger a guard (returns NEW unchanged or raises; mutation set empty); seed_row_predating_name_rule bounded-change {the one caller row; the two triggers' enable state, restored before commit}. WHY THE SEAM LANDS WITH 0019: the moment 0019 exists every scenario schema refuses the raw F1/F2 legacy inserts, so the migration, the seam and the fixture switch must be one commit to keep the default lane green; the seam cannot precede 0019 (it disables triggers by name). The seam runs on the scenario's own pool and schema (the acceptance harness gives each scenario one); the ALTER is transactional and serialised by its lock, so no concurrent scenario sees its rule absent (DDD-10; C7c). Never log names: the trigger's MESSAGE, HINT and the seam's error carry the table and arm, never the row's name (no DETAIL row dump, DDD-4; D14 of the precedents). Migration immutability: sqlx checksums freeze a migration file once a database has applied it, and dev auto-deploys from main, so 0019 may be edited freely until the slice is pushed and never after; finish the self-check before pushing. Do NOT add a Store::probe check for the triggers (DDD-9: the documented undo would become an outage). Named faults killed here: \\s / [[:space:]] / btrim(name) / regex trim instead of the 25-point set (parity exact pairs); a stricter arm (any Cf refused, octet_length) or a looser one (off-by-one U+007F-009F, 2028-202E, 2066-2069 bounds); precedence reordered; a non-IMMUTABLE verdict; no encoding guard. Lessons: write invisible characters as escapes, never as literals (raw strings in Rust, U& or E'' escapes in SQL); seed fixtures before any universe snapshot; acceptance runs the prebuilt foundry binary, so rebuild + warm before every lane; bound every lane with timeout and clear leftover containers if a run is killed; another session may share this worktree, so check for running lanes and containers first. MUTATION: cargo-mutants cannot mutate SQL. The Rust surface (name_rule_legacy_seam.rs) gets >= 80% (timeout 1800 cargo mutants --in-diff <step diff> --file crates/foundry-store/src/name_rule_legacy_seam.rs; its kill test is the seam store test un-ignored in 02-01, so record this step's survivors and re-run there). The SQL arms are pinned instead by the bulk parity (arm-exact) plus the exact boundary pairs, the self-check drift test (02-01) and the SQL_ASCII test; additionally hand-mutate a scratch copy of 0019 once per arm class (each range bound +/-1, one White_Space point dropped, precedence swapped, WHEN dropped, OF name dropped) and confirm a named test goes red, recording the table in the mutation report (03-02)."
+        },
+        {
+          "id": "01-03",
+          "name": "Bad hand-typed workspace names refused; fit names stored exactly",
+          "description": "Un-pend the US-NDC-01 refusal and guard scenarios, in the DISTILL order 1, 20, 2, 3, then the guards 4, 5: a hand-typed UPDATE of a workspace name that breaks an arm is refused with 23514 under that arm's name and nothing changes (9 rows); the reason given is the first arm the name breaks in the app's order (6 rows); a hand INSERT of a bad workspace is refused and nothing is added (4 rows); after a refused write the corrected name lands; names the app accepts (ZWJ family, 24-character multi-byte, ZWSP, interior NBSP, a name equal to another workspace's) are stored byte-exact by UPDATE (7 rows) and INSERT (2 rows). Expected to be assertion enablement over 0019; fix any divergence in 0019 (still unpushed) rather than in the steps.",
+          "criteria": [
+            "Each refused row answers SQLSTATE 23514 with CONSTRAINT workspaces_name_<arm>, the native message and a HINT naming WorkspaceName, and the NameUniverse is unchanged",
+            "Precedence matches WorkspaceName::try_new: control or length on the trimmed value before trimmed; empty before everything",
+            "A refused ' Globex' followed by 'Globex' stores 'Globex'; every fit row is stored byte-for-byte, including a duplicate of another workspace's name (uniqueness stays in the app)",
+            "Owned scenarios green in the ndc lane; iwnr, iawr and the default lane green; fmt, clippy, check-arch, smoke green"
+          ],
+          "estimate": "0.25 day",
+          "dependencies": [
+            "01-02"
+          ],
+          "files_to_modify": [
+            "crates/foundry-acceptance/tests/features/name-db-checks.feature",
+            "crates/foundry-store/migrations/0019_workspace_name_rule.sql"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/name-db-checks.feature",
+          "scenario_name": [
+            "A hand-typed workspace rename that breaks the rule is refused under the rule's name, and nothing changes",
+            "After a refused hand-typed name, the corrected name lands",
+            "The reason given is the first rule the name breaks, in the app's order",
+            "A hand-added workspace whose name breaks the rule is refused, and nothing is added",
+            "A workspace name the app would accept is stored exactly as typed",
+            "A hand-added workspace with a fit name is stored exactly as typed"
+          ],
+          "lane_commands": [
+            "timeout 900 cargo fmt --all -- --check && timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "timeout 600 cargo xtask check-arch",
+            "timeout 1800 cargo xtask smoke",
+            "timeout 1800 cargo test -p foundry-store --test name_rule_parity (if 0019 changed)",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; } (rebuild + warm BEFORE the lanes)",
+            "FOUNDRY_ACCEPTANCE_TAGS=ndc CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance",
+            "FOUNDRY_ACCEPTANCE_TAGS=iwnr CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance",
+            "FOUNDRY_ACCEPTANCE_TAGS=iawr CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance (default lane; classify any 23514, OQ-D3)"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): unit tests for new pure logic MUST be property-based (proptest) with state-delta discipline where state mutates; single-example unit tests are FALLBACK only with a # bypass: comment. Acceptance scenarios are the cucumber .feature file (already authored by DISTILL \u2014 un-pend, do not re-author). Integration/browser tests stay single-example \u2014 they verify wiring. EXEMPT FROM PARADIGM: finite example tables over a closed SQL refusal contract \u2014 the quantified invariant is the bulk parity property in name_rule_parity.rs (01-02). Contract shapes: refusals unbounded-preservation (nothing moves); accepted writes bounded-change (exactly one row under exactly the typed name). Un-pend order: 1, 20, 2, 3, then the guards 4, 5. RED first: 1, 20, 2, 3 were MISSING_FUNCTIONALITY at DISTILL and pass now only because 0019 exists; 4, 5 are GREEN_ALREADY guards (D3: never stricter than the app). Named faults killed: refusal contract drift (another SQLSTATE, arm name, message wording, missing TABLE/COLUMN/SCHEMA/HINT, a DETAIL row dump) via assert_refused_under; precedence reordered (2); a stricter arm refusing Cf, interior NBSP or counting bytes ('\u00c5ngstr\u00f6m \u00d8resund Soci\u00e9t\u00e9' is 24 characters, 28 bytes; [24x\ud83d\ude00]) (4, 5); database uniqueness (4, 'Canzan Labs'). Never log names: no step prints the row; the refusal carries the arm only. Lessons: the NameUniverse snapshot is taken after the Givens; names with invisibles use the pnr expand_name marks, never pasted literals; compare raw text. MUTATION: no new Rust production code expected; if 0019 changes, re-run the parity tests and the hand-mutation table for the touched arm."
+        },
+        {
+          "id": "01-04",
+          "name": "Legacy workspaces via the acceptance seam keep working",
+          "description": "In crates/foundry-acceptance/src/steps/feature_name_db_checks.rs replace the SCAFFOLD body of seed_through_legacy_seam with the DDD-10 seam call (seed_row_predating_name_rule with the NameRuleTable taken from the LegacyRow, the row's INSERT as the caller's write; it must not be a plain INSERT after 0019) and remove the file's __SCAFFOLD__ / SCAFFOLD: true header markers. Project LegacyRows also route here but are first exercised in 02-03 (no project triggers before 0020). Then un-pend 6, 7, 8 in order: a workspace stored before the upgrade keeps its name when it is rewritten unchanged by hand (the WHEN guard); it cannot be renamed by hand to another bad name (the verdict reads NEW, not OLD); it is renamed on the dashboard to a fit name and the rename is on record (iawr audit row).",
+          "criteria": [
+            "A same-value hand UPDATE of a legacy 'Canzan Labs Platform Engineering Group' row succeeds and nothing changes",
+            "A hand UPDATE of that legacy row to another bad name is refused under the arm's name; the legacy name is unchanged",
+            "The dashboard rename of the legacy row to 'Canzan Labs' answers success, stores the new name and records one workspace_rename_events row",
+            "feature_name_db_checks.rs carries no SCAFFOLD marker; check-arch name-rule-legacy-seam still passes (acceptance is not a production door)",
+            "Owned scenarios green in the ndc lane; iawr, iwnr and the default lane green; fmt, clippy, smoke green"
+          ],
+          "estimate": "0.25 day",
+          "dependencies": [
+            "01-03"
+          ],
+          "files_to_modify": [
+            "crates/foundry-acceptance/src/steps/feature_name_db_checks.rs",
+            "crates/foundry-acceptance/tests/features/name-db-checks.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/name-db-checks.feature",
+          "scenario_name": [
+            "A workspace stored before the upgrade keeps its name when it is rewritten unchanged by hand",
+            "A workspace stored before the upgrade cannot be renamed by hand to another name that breaks the rule",
+            "A workspace stored before the upgrade is renamed on the dashboard to a fit name, and the rename is on record"
+          ],
+          "lane_commands": [
+            "timeout 600 cargo xtask check-arch",
+            "timeout 900 cargo fmt --all -- --check && timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "timeout 1800 cargo xtask smoke",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; } (rebuild + warm BEFORE the lanes)",
+            "FOUNDRY_ACCEPTANCE_TAGS=ndc CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance",
+            "FOUNDRY_ACCEPTANCE_TAGS=iawr CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (the dashboard rename steps are reused)",
+            "FOUNDRY_ACCEPTANCE_TAGS=iwnr CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance (default lane)"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): unit tests for new pure logic MUST be property-based (proptest) with state-delta discipline where state mutates; single-example unit tests are FALLBACK only with a # bypass: comment. Acceptance scenarios are the cucumber .feature file (already authored by DISTILL \u2014 un-pend, do not re-author). Integration/browser tests stay single-example \u2014 they verify wiring. EXEMPT FROM PARADIGM: three single legacy-row guards over one seam call \u2014 the quantified invariant (arm-exact parity) lives in name_rule_parity.rs; the seam's own bounded-change contract is pinned by the store seam test (02-01). Contract shapes: 6 and 7 unbounded-preservation; 8 bounded-change (one name, one audit row). Un-pend order: 6, 7, 8 (DISTILL seam probe: 6 and 8 pass once the seam exists, 7 needs the verdict read from NEW). Named faults killed: no WHEN (OLD.name IS DISTINCT FROM NEW.name), so an unchanged rewrite of a legacy name is refused (6); the verdict read from OLD, or legacy rows exempted from new names (7, 8); the seam step left as a plain INSERT (it would 23514 now). Never log names: the seam step does not print the legacy row. Lessons: seed the legacy row before the universe snapshot; the iawr dashboard steps compare raw bodies. MUTATION: test-support step code only; no production Rust changes in this step."
+        }
+      ]
+    },
+    {
+      "id": "02",
+      "name": "The project rule in the database, legacy projects still take issues (US-NDC-02, D6, OQ-1 (a'), DDD-5/13, migration 0020)",
+      "steps": [
+        {
+          "id": "02-01",
+          "name": "Migration 0020, fixtures F3-F6, project parity, store tests",
+          "description": "NEW crates/foundry-store/migrations/0020_project_name_rule.sql over 0019's two functions (no redefinition needed; keep the body re-runnable): DROP TRIGGER IF EXISTS then CREATE TRIGGER projects_name_rule_on_insert (BEFORE INSERT FOR EACH ROW) and projects_name_rule_on_rename (BEFORE UPDATE OF name FOR EACH ROW WHEN (OLD.name IS DISTINCT FROM NEW.name)), both EXECUTE FUNCTION foundry_enforce_name_rule('256'); COMMENT ON each trigger ('mirrors foundry_core::ProjectName'); a DO self-check block asserting 256 characters pass and 257 give max_256_chars (multi-byte included). Fixtures F3-F6 (DDD-13): crates/foundry-acceptance/src/steps/feature_project_name_rule.rs seed_old_project (:582; both legacy steps and every caller, including the valid '\u03a9\u03bc\u03ad\u03b3\u03b1' slug = '' rows, which are harmless) -> the seam with NameRuleTable::Projects. Doc pointer (doc comment only) to 0020 in crates/foundry-core/src/project_name.rs. Un-ignore the two slice-02 parity tests and the nine 'slice 01/02' tests of name_rule_in_database.rs (require_rule_installed now finds all four triggers), one at a time. Then OQ-D3 for projects: run the default lane and the project neighbours and classify every 23514 (dynamic format! project names in about 60 seeding sites were not audited one by one).",
+          "criteria": [
+            "Bulk parity at cap 256 agrees arm for arm with ProjectName::try_new over >= 10,000 generated names; every exact pair including 255/256/257 of x, \u00e9, \u65e5, \ud83d\ude00 and padded agrees literal, app and database",
+            "0019 and 0020 apply staged over legacy rows at 0018, rewrite none, record versions 19 and 20 once, and a re-run is a no-op; the four triggers exist, are enabled ('O'), fire only on INSERT and UPDATE OF name WHEN the name changes, carry caps '24' / '256' and their COMMENTs, and no body or WHEN reads current_setting",
+            "Every arm x INSERT/UPDATE x table refusal is 23514 with CONSTRAINT, TABLE, COLUMN, SCHEMA, the native message, a HINT naming the type and no DETAIL; nothing changes; fit names and case-duplicates are stored byte-exact",
+            "A legacy project's new issue (Store::insert_issue_with_outbox), another-column UPDATE, same-value name write and store no-op all succeed; a legacy row renamed to another bad name is refused and to a fit name accepted; the rule holds under search_path = ''; each DO self-check refuses an always-NULL verdict function; the seam stores exactly the caller's row, leaves all four triggers enabled after success and failure, and still enforces FKs",
+            "F3-F6 seed through the seam; pnr, iapr, us-07, us-08, blm, us-05 and the default lane green; cargo test -p foundry-store, check-arch, fmt, clippy, smoke green"
+          ],
+          "estimate": "0.75 day",
+          "dependencies": [
+            "01-04"
+          ],
+          "files_to_modify": [
+            "crates/foundry-store/migrations/0020_project_name_rule.sql",
+            "crates/foundry-core/src/project_name.rs",
+            "crates/foundry-acceptance/src/steps/feature_project_name_rule.rs",
+            "crates/foundry-store/tests/name_rule_parity.rs",
+            "crates/foundry-store/tests/name_rule_in_database.rs"
+          ],
+          "test_file": "crates/foundry-store/tests/name_rule_in_database.rs",
+          "scenario_name": [
+            "project_verdicts_match_project_name_arm_for_arm_over_10k_generated_names",
+            "project_boundary_code_points_and_lengths_match_exactly",
+            "migrations_0019_and_0020_apply_over_legacy_rows_rewrite_none_and_rerun_is_a_noop",
+            "the_triggers_fire_only_on_new_name_writes_with_each_tables_cap_and_say_what_they_mirror",
+            "a_bad_name_write_is_refused_per_arm_and_table_and_nothing_changes",
+            "fit_names_are_stored_byte_exact_and_uniqueness_is_left_to_the_app",
+            "writes_that_do_not_change_a_legacy_name_never_meet_the_rule",
+            "a_legacy_row_renamed_to_another_bad_name_is_refused_and_to_a_fit_name_is_accepted",
+            "the_rule_holds_under_an_empty_search_path",
+            "the_apply_time_self_check_refuses_a_verdict_function_that_passes_everything",
+            "the_legacy_seam_stores_exactly_the_callers_row_and_leaves_both_triggers_enabled"
+          ],
+          "lane_commands": [
+            "docker info (Docker up: per-test postgres:16-alpine testcontainers and the shared acceptance Postgres)",
+            "timeout 1800 cargo test -p foundry-store --test name_rule_parity",
+            "timeout 2400 cargo test -p foundry-store --test name_rule_in_database (10 passed + the cutter; 4 slice-03 tests still ignored)",
+            "timeout 2400 cargo test -p foundry-store",
+            "timeout 600 cargo test -p foundry-core",
+            "timeout 600 cargo xtask check-arch",
+            "timeout 900 cargo fmt --all -- --check && timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "timeout 1800 cargo xtask smoke",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; } (rebuild + warm BEFORE the lanes)",
+            "FOUNDRY_ACCEPTANCE_TAGS=pnr CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (F3-F6 through the seam)",
+            "FOUNDRY_ACCEPTANCE_TAGS=iapr CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo test -p foundry-acceptance --test acceptance",
+            "FOUNDRY_ACCEPTANCE_TAGS=us-07 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo test -p foundry-acceptance --test acceptance (project create through the INSERT trigger)",
+            "FOUNDRY_ACCEPTANCE_TAGS=us-08 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo test -p foundry-acceptance --test acceptance (issue filing UPDATEs next_issue_number; the rule must never fire)",
+            "FOUNDRY_ACCEPTANCE_TAGS=blm CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo test -p foundry-acceptance --test acceptance (test-side next_issue_number UPDATE and stage_subset use)",
+            "FOUNDRY_ACCEPTANCE_TAGS=us-05 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo test -p foundry-acceptance --test acceptance (bootstrap seeds the Sandbox project)",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance (default lane: every scenario schema now carries 0020; classify any 23514, OQ-D3)"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): unit tests for new pure logic MUST be property-based (proptest) with state-delta discipline where state mutates; single-example unit tests are FALLBACK only with a # bypass: comment. Acceptance scenarios are the cucumber .feature file (already authored by DISTILL \u2014 un-pend, do not re-author). Integration/browser tests stay single-example \u2014 they verify wiring. The property here is the projects half of the DISTILL bulk parity (authored; un-ignore). The nine in-database tests are integration-level wiring tests (single-example by design, Mandates 9/11). Contract shapes: the project triggers are guards (mutation set empty); the seam bounded-change. WHY 0020, F3-F6 AND THE FOUR-TRIGGER TESTS TOGETHER: the moment 0020 exists every scenario schema refuses the raw seed_old_project inserts, and require_rule_installed counts four triggers, so the nine 'slice 01/02' tests become runnable only now (the DISTILL note; this roadmap un-ignores them after 0020 instead of narrowing them per table). The DISTILL test-side UPDATEs of projects.next_issue_number need no change (the rule fires only on UPDATE OF name). Named faults killed: the rule on every UPDATE (no OF name, or a row-level CHECK NOT VALID) breaking legacy issue numbering (writes_that_do_not_change_a_legacy_name_never_meet_the_rule + the triggerdef check); no WHEN guard (same-value writes); a GUC bypass (current_setting in a body or WHEN); the seam disabling all triggers or leaving them disabled; no SET search_path FROM CURRENT (empty search_path test); a no-op self-check (drift test); database uniqueness. Never log names: refusals carry the arm only. Migration immutability: 0020 may change until pushed, never after (sqlx checksums; dev auto-deploys). Known caveat (DISTILL open item): the trigger-shape test reads pg_get_triggerdef text as Postgres 16 renders it. Lessons: fixtures before snapshots; raw escapes for invisibles; rebuild + warm before every lane; us-04 is a known default-lane flake, rerun alone before calling it a regression; bound every run with timeout. MUTATION: cargo-mutants cannot mutate SQL; re-run cargo mutants on crates/foundry-store/src/name_rule_legacy_seam.rs now that its kill test (the seam store test) is un-ignored, >= 80% (timeout 1800 cargo mutants --in-diff <feature diff> --file crates/foundry-store/src/name_rule_legacy_seam.rs). Pin 0020's SQL by the project parity, the 256/257 exact pairs and the self-check drift test; extend the hand-mutation table (cap '256' -> '255'/'257', WHEN dropped, OF name dropped) for the 03-02 report."
+        },
+        {
+          "id": "02-02",
+          "name": "Bad hand-typed project names refused whole; fit names stored",
+          "description": "Un-pend in the DISTILL order 9, 10, 21, then the guards 11, 12: a hand-typed UPDATE of a project name that breaks an arm is refused with 23514 under that arm's name and nothing changes (8 rows); a hand INSERT of a bad project is refused and nothing is added (3 rows); a hand-typed rename that also moves the issue counter is refused as a whole (counter unchanged); names the app accepts (256 x \u65e5, 256 x \ud83d\ude00, ZWJ, a case-duplicate 'auth v2' of a sibling) are stored byte-exact by UPDATE (4 rows) and INSERT (2 rows). Expected to be assertion enablement over 0020; fix any divergence in 0020 (still unpushed).",
+          "criteria": [
+            "Each refused row answers SQLSTATE 23514 with CONSTRAINT projects_name_<arm>, the native message and a HINT naming ProjectName; the NameUniverse (names, addresses, key prefixes, counters, issue count) is unchanged",
+            "An UPDATE setting both name and next_issue_number with a bad name is refused whole: the counter does not move",
+            "Every fit row, including 'auth v2' beside 'Auth V2', is stored byte-for-byte (uniqueness stays in the app, D1)",
+            "Owned scenarios green in the ndc lane; pnr, iapr and the default lane green; fmt, clippy, check-arch, smoke green"
+          ],
+          "estimate": "0.25 day",
+          "dependencies": [
+            "02-01"
+          ],
+          "files_to_modify": [
+            "crates/foundry-acceptance/tests/features/name-db-checks.feature",
+            "crates/foundry-store/migrations/0020_project_name_rule.sql"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/name-db-checks.feature",
+          "scenario_name": [
+            "A hand-typed project rename that breaks the rule is refused under the rule's name, and nothing changes",
+            "A hand-added project whose name breaks the rule is refused, and nothing is added",
+            "A hand-typed project rename that also moves the issue counter is refused as a whole",
+            "A project name the app would accept is stored exactly as typed, even beside a sibling of the same name",
+            "A hand-added project with a fit name is stored exactly as typed"
+          ],
+          "lane_commands": [
+            "timeout 900 cargo fmt --all -- --check && timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "timeout 600 cargo xtask check-arch",
+            "timeout 1800 cargo xtask smoke",
+            "timeout 2400 cargo test -p foundry-store --test name_rule_parity --test name_rule_in_database (if 0020 changed)",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; } (rebuild + warm BEFORE the lanes)",
+            "FOUNDRY_ACCEPTANCE_TAGS=ndc CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance",
+            "FOUNDRY_ACCEPTANCE_TAGS=pnr CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance",
+            "FOUNDRY_ACCEPTANCE_TAGS=iapr CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo test -p foundry-acceptance --test acceptance",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance (default lane)"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): unit tests for new pure logic MUST be property-based (proptest) with state-delta discipline where state mutates; single-example unit tests are FALLBACK only with a # bypass: comment. Acceptance scenarios are the cucumber .feature file (already authored by DISTILL \u2014 un-pend, do not re-author). Integration/browser tests stay single-example \u2014 they verify wiring. EXEMPT FROM PARADIGM: finite example tables over a closed SQL refusal contract \u2014 the quantified invariant is the projects bulk parity in name_rule_parity.rs (02-01). Contract shapes: refusals unbounded-preservation; accepted writes bounded-change. Un-pend order: 9, 10, 21, then the guards 11, 12 (scenario 21 un-pends with 9-10, per DISTILL). Named faults killed: the rule skipped when the statement also sets other columns (a WHEN or function comparing more than the name, or a trigger on a narrower column list) (21); a stricter-than-app arm or byte counting ([256x\u65e5], [256x\ud83d\ude00]) (11, 12); database uniqueness on name or lower(name) (11, 'auth v2'); refusal contract drift (assert_refused_under). Never log names. Lessons: universe snapshot after the Givens; invisibles via expand_name marks. MUTATION: no new Rust production code expected; if 0020 changes, re-run parity and the hand-mutation rows for 0020."
+        },
+        {
+          "id": "02-03",
+          "name": "Legacy projects keep every capability, including new issues",
+          "description": "Un-pend in the DISTILL order 13 (the risk-2 probe), 14, 15, 16, 17, all seeded through seed_through_legacy_seam with NameRuleTable::Projects (now backed by 0020's triggers): a project stored before the upgrade as 'Homelab[TAB]Ops' (OPS, last issue OPS-7) still takes 'Replace UPS battery' as OPS-8, shown on its board; the dashboard's byte-equal resubmission is a quiet success with no write; the dashboard rename to 'Homelab Ops' succeeds; an unchanged hand rewrite succeeds; a hand rename to another bad name is refused. Expected to be assertion enablement; a failure here is a release blocker, not a fixture problem.",
+          "criteria": [
+            "Filing 'Replace UPS battery' on the legacy OPS board creates exactly OPS-8 (one issue, one counter step) and the board GET shows it",
+            "Resubmitting 'Homelab[TAB]Ops' on the dashboard is a quiet success that writes nothing; renaming it to 'Homelab Ops' stores the new name",
+            "A same-value hand UPDATE of the legacy project succeeds; a hand UPDATE to another bad name is refused under the arm's name and the legacy name stays",
+            "Zero @pending lines remain in the US-NDC-02 Rule block",
+            "Owned scenarios green in the ndc lane; pnr, iapr, us-08 and the default lane green; fmt, clippy, check-arch, smoke green"
+          ],
+          "estimate": "0.25 day",
+          "dependencies": [
+            "02-02"
+          ],
+          "files_to_modify": [
+            "crates/foundry-acceptance/tests/features/name-db-checks.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/name-db-checks.feature",
+          "scenario_name": [
+            "A project stored before the upgrade with a tab in its name still takes new issues",
+            "A project stored before the upgrade can be left as it is at the dashboard",
+            "A project stored before the upgrade is renamed on the dashboard to a fit name",
+            "A project stored before the upgrade keeps its name when it is rewritten unchanged by hand",
+            "A project stored before the upgrade cannot be renamed by hand to another name that breaks the rule"
+          ],
+          "lane_commands": [
+            "timeout 900 cargo fmt --all -- --check && timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "timeout 600 cargo xtask check-arch",
+            "timeout 1800 cargo xtask smoke",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; } (rebuild + warm BEFORE the lanes)",
+            "FOUNDRY_ACCEPTANCE_TAGS=ndc CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance",
+            "FOUNDRY_ACCEPTANCE_TAGS=pnr CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance",
+            "FOUNDRY_ACCEPTANCE_TAGS=iapr CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo test -p foundry-acceptance --test acceptance (dashboard project rename steps are reused)",
+            "FOUNDRY_ACCEPTANCE_TAGS=us-08 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo test -p foundry-acceptance --test acceptance (issue filing)",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance (default lane)"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): unit tests for new pure logic MUST be property-based (proptest) with state-delta discipline where state mutates; single-example unit tests are FALLBACK only with a # bypass: comment. Acceptance scenarios are the cucumber .feature file (already authored by DISTILL \u2014 un-pend, do not re-author). Integration/browser tests stay single-example \u2014 they verify wiring. EXEMPT FROM PARADIGM: legacy-row capability guards over real HTTP doors (single examples by design) \u2014 the quantified invariant lives in the projects bulk parity (02-01). Contract shapes: 13 bounded-change (one issue, one counter); 14, 16, 17 unbounded-preservation; 15 bounded-change (one name). Un-pend order: 13, 14, 15, 16, 17. Scenario 13 is the only test of risk 2 at the door (no shipped scenario filed an issue on a legacy-violating project): if it fails, the fix is in 0020's trigger shape, never in the fixture. Named faults killed: the rule on every UPDATE (13: a legacy project's new issue becomes a 500); no WHEN guard (16); verdict read from OLD or legacy rows exempted from new names (15, 17); the store no-op broken (14). Never log names: the board and dashboard paths are unchanged (D7). Lessons: seed the legacy row through the seam before the universe snapshot; the issue door needs a real session + CSRF; compare raw bodies where the TAB matters. MUTATION: no production Rust code expected."
+        }
+      ]
+    },
+    {
+      "id": "03",
+      "name": "Restore, backup-verify, rollback and the operator's upgrade notes (US-NDC-03, D9, D10, DDD-14/15)",
+      "steps": [
+        {
+          "id": "03-01",
+          "name": "Boot-path migrator entry; restore, rollback and undo proofs",
+          "description": "In crates/foundry-store/src/lib.rs add a test-support-only entry (#[cfg(feature = \"test-support\")]) that runs the BOOT loop (run_migrator_timed: skips applied versions it does not know) over a caller-given migrations directory, so a staged-to-0018 dir stands in for the v0.11.0 binary's boot (NOT run_migrations_from_dir, whose Migrator::run errors on applied-but-unknown versions; about 10 LOC, DDD-14 4). Replace the previous_release_boot placeholder in name_rule_in_database.rs with it and remove that file's SCAFFOLD header marker; remove name_rule_parity.rs's SCAFFOLD header marker. Un-ignore the four slice-03 store tests one at a time: a post-0020 pg_dump -Fc holding seam-seeded legacy rows restores with --clean --if-exists byte-identical with the four triggers back and enabled and a bad write refused; a pre-0019 dump (staged to 0018, legacy rows inserted plainly) restores over a migrated database and the next boot re-applies 0019/0020 over the leftover functions; the previous release's boot loop over the migrated database is a no-op success, Store::probe passes and it provisions 'Globex' and inserts 'Homelab Ops'; the documented undo (DROP TRIGGER IF EXISTS x4, DROP FUNCTION IF EXISTS both) leaves the app working and the re-arm (delete _sqlx_migrations rows 19 and 20, reboot) restores the rule. Then un-pend 18 and 19 (@needs-pgclient, the us-03 client container): a backup holding legacy names restores and the rule still holds; backup-verify on it reports 'status: OK' and exits 0.",
+          "criteria": [
+            "Post-0020 dump: pg_restore --clean --if-exists exits 0, every legacy name is byte-identical, the four triggers exist with tgenabled 'O', and a hand-typed bad name is refused afterwards",
+            "Pre-0019 dump: restores over a 0020 schema and the next boot applies 0019/0020 cleanly over the leftover functions; the legacy rows are untouched and the rule holds",
+            "Rollback: the boot loop over migrations up to 0018 against the migrated database succeeds without error, Store::probe passes, and valid names are written; the undo leaves the app working and the re-arm restores all four triggers",
+            "foundry doctor backup-verify on the legacy-name backup prints 'status: OK' and exits 0; zero @pending tag lines remain in name-db-checks.feature (21 scenarios, 57 rows, all run)",
+            "No SCAFFOLD marker remains in name_rule_parity.rs, name_rule_in_database.rs or feature_name_db_checks.rs; us-03, us-04, ndc and default lanes green; fmt, clippy, check-arch, smoke green"
+          ],
+          "estimate": "0.75 day",
+          "dependencies": [
+            "02-03"
+          ],
+          "files_to_modify": [
+            "crates/foundry-store/src/lib.rs",
+            "crates/foundry-store/tests/name_rule_in_database.rs",
+            "crates/foundry-store/tests/name_rule_parity.rs",
+            "crates/foundry-acceptance/tests/features/name-db-checks.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/name-db-checks.feature",
+          "scenario_name": [
+            "A backup holding names from before the upgrade restores, and the rule still holds afterwards",
+            "Verifying a backup that holds names from before the upgrade reports it healthy",
+            "a_post_upgrade_dump_holding_legacy_rows_restores_byte_identical_with_the_rule_on",
+            "a_pre_upgrade_dump_restores_over_a_migrated_database_and_the_next_boot_reapplies_the_rule",
+            "the_previous_release_boots_against_the_migrated_database_and_writes_valid_names",
+            "the_documented_undo_and_rearm_work"
+          ],
+          "lane_commands": [
+            "docker info (Docker up: per-test postgres:16-alpine with in-container pg_dump/pg_restore; the us-03 postgres:16-alpine client container and restore target)",
+            "timeout 2400 cargo test -p foundry-store --test name_rule_in_database (14 passed + the cutter; 0 ignored)",
+            "timeout 1800 cargo test -p foundry-store --test name_rule_parity (5 + 2 guards passed; 0 ignored)",
+            "timeout 2400 cargo test -p foundry-store",
+            "timeout 600 cargo xtask check-arch",
+            "timeout 900 cargo fmt --all -- --check && timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "timeout 1800 cargo xtask smoke",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; } (rebuild + warm BEFORE the lanes; scenario 19 runs the binary as a subprocess)",
+            "FOUNDRY_ACCEPTANCE_TAGS=ndc CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (all 21 scenarios / 57 rows; @needs-pgclient included by positive selection)",
+            "FOUNDRY_ACCEPTANCE_TAGS=us-03 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (shared backup/restore/backup-verify steps)",
+            "FOUNDRY_ACCEPTANCE_TAGS=us-04 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (rolling upgrade; known flake, rerun alone before calling it a regression)",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance (default lane)",
+            "timeout 60 grep -cE '^[[:space:]]*@.*@pending' crates/foundry-acceptance/tests/features/name-db-checks.feature (expect 0)"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): unit tests for new pure logic MUST be property-based (proptest) with state-delta discipline where state mutates; single-example unit tests are FALLBACK only with a # bypass: comment. Acceptance scenarios are the cucumber .feature file (already authored by DISTILL \u2014 un-pend, do not re-author). Integration/browser tests stay single-example \u2014 they verify wiring. EXEMPT FROM PARADIGM: restore, rollback and undo are single-shot substrate flows (dump, restore, boot) over real Postgres \u2014 the quantified invariant is the bulk parity (01-02, 02-01). Contract shapes: the boot-path entry bounded-change (the schema of the given pool only); restore scenarios unbounded-preservation (names byte-identical). Un-pend order: the boot-path entry, then the store tests post-0020 dump, pre-0019 dump + boot, rollback, undo/re-arm, then scenarios 18, 19. DDD-14 (2) and (4) are store-level only: the acceptance harness migrates every scenario schema to the latest version before any Given, so a schema at 0018 and an old binary are not reachable there; OQ-D5 (a real v0.11.0 image against a migrated dev database) stays optional dogfood. Not tested on purpose: a data-only pg_restore -a (its COPY fires the triggers; the CHANGELOG names --disable-triggers, 03-02). The boot-path entry is test-support only and is not a production door; it needs no check-arch clause (the feature gate keeps it out of release builds). Named faults killed: triggers placed in pre-data or not restored (18; post-0020 dump test); non-re-runnable bodies (CREATE FUNCTION without OR REPLACE, CREATE TRIGGER without DROP IF EXISTS) (pre-0019 dump + boot; undo/re-arm); a probe that requires the triggers (undo/re-arm; DDD-9); an old binary that cannot boot past unknown versions (rollback). Never log names: backup-verify output and restore logs carry no row names. Lessons: acceptance uses the prebuilt foundry binary, so rebuild + warm right before (a build immediately before the lane makes subprocess scenarios time out cold); the us-03 lane needs Docker and the pinned postgres:16-alpine client (never brew-install a client); kill any leftover containers if a run is interrupted; xtask ci silently skips the browser and pgclient lanes without FOUNDRY_XTASK_INCLUDE_DOCKER=1. MUTATION: >= 80% on the boot-path entry in crates/foundry-store/src/lib.rs (timeout 1800 cargo mutants --in-diff <step diff> --file crates/foundry-store/src/lib.rs); its kill test is the rollback test."
+        },
+        {
+          "id": "03-02",
+          "name": "CHANGELOG notes, ADR amendments, burn-down, mutation report",
+          "description": "Documentation and close-out; no production behaviour change. CHANGELOG.md [Unreleased] 'Migration notes' for 0019/0020 cover: what is added (two functions, four triggers; arm names <table>_name_{not_empty,trimmed,no_control_chars,max_24_chars|max_256_chars}, SQLSTATE 23514) and that no row is scanned or rewritten; the brief SHARE ROW EXCLUSIVE lock per table at CREATE TRIGGER; that both migrations apply at boot under Store::migrate's MIGRATION_LOCK_ID advisory lock (platform review); rolling-deploy safety (v0.11.0 replicas already write only valid names); the rollback floor v0.11.0 and the older-binary caveat (a bad name at an older door becomes a 500, not a stored bad name); the pre-upgrade UTF8 check SELECT pg_encoding_to_char(encoding) FROM pg_database WHERE datname = current_database() and that 0019 refuses a non-UTF8 database (platform review); the read-only legacy-count query, run inside BEGIN READ ONLY, as a post-upgrade step (platform review); VALIDATE not applicable (triggers never scan); the undo (DROP TRIGGER IF EXISTS x4, DROP FUNCTION IF EXISTS foundry_enforce_name_rule(), foundry_name_rule_violation(text, integer)) and the re-arm (delete _sqlx_migrations rows 19 and 20, reboot); that a data-only restore needs pg_restore --disable-triggers; and KPI-4's measurement (a log search for '<table>_name_' refusals reaching the app as internal errors, platform review high finding). Amend ADR-WORKSPACE-NAME-001 and ADR-PROJECT-NAME-001: their 'no DB CHECK / store unchanged' consequence becomes 'every door and every new name write', pointing at ADR-NAME-DB-001. docs/product/architecture/brief.md 'Names are labels; slugs are identity' gains the one database sentence (DoD 9). Then the burn-down (zero @pending, zero SCAFFOLD for this feature), the never-log-names review, the per-feature mutation report including the SQL hand-mutation table, and FOUNDRY_XTASK_INCLUDE_DOCKER=1 cargo xtask ci before push.",
+          "criteria": [
+            "CHANGELOG [Unreleased] migration notes state every DoD/US-NDC-03 item plus the four platform-review items: MIGRATION_LOCK_ID advisory lock, the pre-upgrade UTF8 query, the post-upgrade read-only legacy-count query, and the KPI-4 log search",
+            "ADR-WORKSPACE-NAME-001 and ADR-PROJECT-NAME-001 carry dated amendment notes; brief.md carries the database sentence; ADR-NAME-DB-001 is unchanged except a status line if needed",
+            "grep -cE '^[[:space:]]*@.*@pending' on name-db-checks.feature prints 0; no SCAFFOLD marker for this feature in store tests, acceptance steps or the name-rule-legacy-seam section of check_arch.rs",
+            "Mutation kill rate >= 80% on every modified Rust production file (seam, boot-path entry, check-arch rule); the SQL hand-mutation table shows every arm mutation killed by a named test; no trigger message, HINT or seam error carries a name",
+            "FOUNDRY_XTASK_INCLUDE_DOCKER=1 cargo xtask ci green (browser and pgclient lanes actually run), plus check-arch, fmt, clippy and the default lane"
+          ],
+          "estimate": "0.5 day",
+          "dependencies": [
+            "03-01"
+          ],
+          "files_to_modify": [
+            "CHANGELOG.md",
+            "docs/product/architecture/adr-workspace-name-001-one-rule-as-core-value-object.md",
+            "docs/product/architecture/adr-project-name-001-one-rule-and-create-use-case.md",
+            "docs/product/architecture/brief.md"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/name-db-checks.feature",
+          "scenario_name": [],
+          "lane_commands": [
+            "timeout 600 cargo xtask check-arch",
+            "timeout 900 cargo fmt --all -- --check && timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "timeout 2400 cargo test -p foundry-store -p foundry-core -p xtask (Docker up)",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; } (rebuild + warm BEFORE the lanes)",
+            "FOUNDRY_ACCEPTANCE_TAGS=ndc CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (expect 57 scenarios passed, 0 skipped)",
+            "for t in iawr iwnr iapr pnr us-03 us-05 us-07 us-08 blm; do FOUNDRY_ACCEPTANCE_TAGS=$t CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance || break; done",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance (default lane)",
+            "timeout 60 grep -cE '^[[:space:]]*@.*@pending' crates/foundry-acceptance/tests/features/name-db-checks.feature (expect 0)",
+            "timeout 60 grep -n 'SCAFFOLD' crates/foundry-store/tests/name_rule_parity.rs crates/foundry-store/tests/name_rule_in_database.rs crates/foundry-acceptance/src/steps/feature_name_db_checks.rs (expect no output); timeout 60 grep -n 'SCAFFOLD' xtask/src/check_arch.rs (expect no hit in the name-rule-legacy-seam section)",
+            "timeout 60 grep -nE 'MESSAGE|HINT|DETAIL|RAISE' crates/foundry-store/migrations/0019_workspace_name_rule.sql crates/foundry-store/migrations/0020_project_name_rule.sql (never-log-names review: no NEW.name in any message part)",
+            "timeout 3600 cargo mutants --in-diff <feature diff> --file crates/foundry-store/src/name_rule_legacy_seam.rs --file crates/foundry-store/src/lib.rs --file xtask/src/check_arch.rs (per-feature gate >= 80%)",
+            "FOUNDRY_XTASK_INCLUDE_DOCKER=1 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 5400 cargo xtask ci (before push; without the env var the browser and pgclient lanes are silently skipped)"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): unit tests for new pure logic MUST be property-based (proptest) with state-delta discipline where state mutates; single-example unit tests are FALLBACK only with a # bypass: comment. Acceptance scenarios are the cucumber .feature file (already authored by DISTILL \u2014 un-pend, do not re-author). Integration/browser tests stay single-example \u2014 they verify wiring. EXEMPT FROM PARADIGM: documentation, burn-down and reports, no new code \u2014 the quantified invariants live in the parity properties (01-02, 02-01). The four platform-review DELIVER action items are mandatory content of the CHANGELOG notes (KPI-4 log search; MIGRATION_LOCK_ID advisory lock; pre-upgrade UTF8 query; post-upgrade read-only legacy-count query); quote the queries exactly so an operator can paste them. The legacy-count query uses BEGIN READ ONLY and the documented kubectl exec path (D11); DoD 8's dogfood (count on dev and prod, one bad-name psql write on dev inside BEGIN ... ROLLBACK) is recorded in the evolution doc at finalize, and prod deploys stay held for approval (never deploy prod from this step). Mutation report: cargo-mutants cannot mutate SQL; the report states how the SQL arms are pinned (arm-exact bulk parity at both caps, exact boundary pairs for every range bound, White_Space point and 23/24/25 and 255/256/257 length, the refusal-contract and trigger-shape tests, the self-check drift test) and includes the hand-mutation table collected in 01-02 and 02-01 (each mutated arm -> the test that went red). Surviving Rust mutants on the seam's trigger names, its transaction boundary, the boot entry or a check-arch clause boundary must be killed with an exact test, not waived. Never log names: confirm no RAISE part interpolates NEW.name and the seam's errors carry no row name. Lane caveats: us-04 rolling-upgrade in the default lane is a known concurrency flake (rerun alone); GitHub CI has been red since June, so a red remote run is not evidence of a regression; another session may share the worktree, check for running lanes and containers first; push means git push only, never open a PR. MUTATION: per-feature gate >= 80% over every Rust production file modified by 01-01..03-01."
+        }
+      ]
+    }
+  ],
+  "implementation_scope": {
+    "source_directories": [
+      "crates/foundry-store/src/",
+      "crates/foundry-store/migrations/",
+      "crates/foundry-core/src/",
+      "xtask/src/"
+    ],
+    "test_directories": [
+      "crates/foundry-store/tests/",
+      "crates/foundry-acceptance/tests/",
+      "crates/foundry-acceptance/src/steps/",
+      "crates/foundry-acceptance/src/support/"
+    ],
+    "excluded_patterns": [
+      "target/**",
+      "crates/foundry-app/static/**"
+    ]
+  },
+  "validation": {
+    "status": "approved",
+    "reviewer": "nw-acceptance-designer-reviewer + orchestrator",
+    "date": "2026-10-08",
+    "note": "Reviewer flagged 02-01 owning 11 tests (>8). Overruled: the 8-scenario sizing limit applies to acceptance scenarios; 02-01 owns 0 acceptance scenarios and 11 store-level tests (precedent: project-name-rule 01-01 owned 13 core tests, approved). All other checks passed."
+  }
+}
