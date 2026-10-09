@@ -7,8 +7,11 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 
 ## [Unreleased]
 
+## [v0.12.0] - 2026-10-09
+
 The database now enforces the workspace-name and project-name rules on every
-new name write (name-db-checks).
+new name write (name-db-checks), and the dashboard offers only boards you can
+open (fix-hide-unreachable-boards). `git log v0.11.0..v0.12.0` is the full list.
 
 ### Changed
 
@@ -628,7 +631,8 @@ followed it.
 - A `comments_visible` SQL VIEW for defense-in-depth against missed
   soft-delete filters is deferred to v0.3 (ADR-017).
 
-[Unreleased]: https://github.com/Canzan/foundry/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/Canzan/foundry/compare/v0.12.0...HEAD
+[v0.12.0]: https://github.com/Canzan/foundry/compare/v0.11.0...v0.12.0
 [v0.11.0]: https://github.com/Canzan/foundry/compare/v0.10.0...v0.11.0
 [v0.10.0]: https://github.com/Canzan/foundry/compare/v0.9.0...v0.10.0
 [v0.9.0]: https://github.com/Canzan/foundry/compare/v0.8.0...v0.9.0
