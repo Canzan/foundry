@@ -349,6 +349,22 @@ textarea {
   align-items: flex-start;
 }
 
+/* The board's action row: the report link, then New issue and the Search
+   button keyboard.js inserts right after it (as a DOM sibling, so there is no
+   whitespace between them to space them), then the lanes. */
+.board-actions {
+  margin-bottom: 12px;
+}
+
+button[data-action="new-issue"],
+button[data-action="search"] {
+  margin-bottom: 16px;
+}
+
+button[data-action="new-issue"] + button[data-action="search"] {
+  margin-left: 8px;
+}
+
 /* The elevation ladder, and it reads the same way in both palettes: the page is
    `--cz-bg`, a lane is RECESSED onto `--cz-bg-2`, a card is RAISED onto
    `--cz-surface`. */
