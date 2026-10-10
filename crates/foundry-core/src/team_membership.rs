@@ -44,12 +44,12 @@ pub enum TeamAccess {
 }
 
 impl TeamAccess {
-    /// The six-row table. Slices 01-03: a lead gets `View`; slice 04 flips that
-    /// one arm to `Manage`.
+    /// The six-row table: a workspace admin or a lead of this team manages it,
+    /// a member views it, anyone else gets nothing (slice 04 gave leads `Manage`).
     pub fn of(is_workspace_admin: bool, role: Option<TeamRole>) -> Self {
         match (is_workspace_admin, role) {
             (true, _) => Self::Manage,
-            (false, Some(TeamRole::Lead)) => Self::View,
+            (false, Some(TeamRole::Lead)) => Self::Manage,
             (false, Some(TeamRole::Member)) => Self::View,
             (false, None) => Self::None,
         }
@@ -80,8 +80,8 @@ mod tests {
             (true, Some(TeamRole::Lead), TeamAccess::Manage),
             (false, None, TeamAccess::None),
             (false, Some(TeamRole::Member), TeamAccess::View),
-            // Slice 01-03: a lead views; slice 04 makes this Manage.
-            (false, Some(TeamRole::Lead), TeamAccess::View),
+            // Slice 04: a lead manages her own team.
+            (false, Some(TeamRole::Lead), TeamAccess::Manage),
         ];
         for (is_admin, role, expected) in table {
             assert_eq!(

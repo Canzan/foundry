@@ -27,7 +27,7 @@ Feature: A team lead manages her own team, and only her own team
       | Marco Bianchi | marco.bianchi@canzan.dev | member         | Ops as Member                  |        |
     And Globex is another workspace, whose team Payments is led by Hugo Weber (hugo.weber@globex.example)
 
-  @us-tm-05 @driving_port @kpi @contract-shape:bounded-change @pending
+  @us-tm-05 @driving_port @kpi @contract-shape:bounded-change
   Scenario: A team lead puts a workspace member on her own team
     When Lena opens Backend's members page
     Then the page offers adding, changing roles and removing
@@ -35,7 +35,7 @@ Feature: A team lead manages her own team, and only her own team
     Then she sees "Added Tomás Rivera (tomas.rivera@canzan.dev) to Backend as a member."
     And Tomás Rivera is now a Member of Backend, and nothing else changed
 
-  @us-tm-05 @contract-shape:bounded-change @pending
+  @us-tm-05 @contract-shape:bounded-change
   Scenario: A team lead hands leadership over and steps down
     Given Lena has made Sam Okafor a lead of Backend
     When Lena makes herself a member of Backend
@@ -43,13 +43,13 @@ Feature: A team lead manages her own team, and only her own team
     And Lena Park is now a Member of Backend, and nothing else changed
     And the page offers no way to add, change a role or remove anyone
 
-  @us-tm-05 @contract-shape:bounded-change @pending
+  @us-tm-05 @contract-shape:bounded-change
   Scenario: A team lead takes a teammate off her team
     When Lena removes Sam Okafor from Backend
     Then she sees "Removed Sam Okafor (sam.okafor@canzan.dev) from Backend."
     And Sam Okafor is no longer on Backend, and nothing else changed
 
-  @us-tm-05 @error @kpi @contract-shape:unbounded-preservation @pending
+  @us-tm-05 @error @kpi @contract-shape:unbounded-preservation
   Scenario Outline: A team's only lead cannot step down or leave it
     Given Lena Park is Backend's only lead
     When Lena <action> Backend
@@ -61,20 +61,20 @@ Feature: A team lead manages her own team, and only her own team
       | makes herself a member of |
       | removes herself from      |
 
-  @us-tm-05 @edge @contract-shape:bounded-change @pending
+  @us-tm-05 @edge @contract-shape:bounded-change
   Scenario: A team lead can take a workspace admin off her team
     When Lena removes Priya Raman from Backend
     Then she sees "Removed Priya Raman (priya.raman@canzan.dev) from Backend."
     And Priya Raman is no longer on Backend, and nothing else changed
 
-  @us-tm-05 @edge @contract-shape:bounded-change @pending
+  @us-tm-05 @edge @contract-shape:bounded-change
   Scenario: A team lead can make a workspace admin on her team a member again
     Given Lena has made Priya Raman a lead of Backend
     When Lena makes Priya Raman a member of Backend
     Then she sees "Priya Raman (priya.raman@canzan.dev) is now a member of Backend."
     And Priya Raman is now a Member of Backend, and nothing else changed
 
-  @us-tm-05 @error @kpi @contract-shape:unbounded-preservation @pending
+  @us-tm-05 @error @kpi @contract-shape:unbounded-preservation
   Scenario Outline: A team lead cannot change a team she does not lead
     When Lena submits <request>
     Then the answer is the page that never existed
@@ -90,12 +90,12 @@ Feature: A team lead manages her own team, and only her own team
       | making Jeff a member of General    | General |
       | removing Jeff from General         | General |
 
-  @us-tm-05 @edge @contract-shape:unbounded-preservation @pending
+  @us-tm-05 @edge @contract-shape:unbounded-preservation
   Scenario: A team lead sees a team she is only a member of without any way to change it
     When Lena opens Ops's members page
     Then the page offers no way to add, change a role or remove anyone
 
-  @us-tm-05 @error @contract-shape:unbounded-preservation @pending
+  @us-tm-05 @error @contract-shape:unbounded-preservation
   Scenario: A lead who has since been made a member cannot act from a page she opened as a lead
     Given Lena opened Backend's members page earlier
     And Priya has made Sam Okafor a lead of Backend
