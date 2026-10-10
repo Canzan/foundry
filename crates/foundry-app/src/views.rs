@@ -763,8 +763,28 @@ pub struct MemberInviteSent {
 #[template(path = "teams_index.html")]
 pub struct TeamsIndexPage {
     pub nav: crate::nav::NavContext,
+    pub csrf: String,
     pub is_workspace_admin: bool,
     pub teams: Vec<TeamIndexRow>,
+    /// The "Default team for new members" setting; `Some` only for a workspace
+    /// admin (OQ-3, DDD-17).
+    pub default_form: Option<DefaultTeamForm>,
+    pub notice: Option<String>,
+}
+
+/// The default-team select (DDD-14): "No team" (empty value), then every team
+/// of the workspace by slug, with the current default selected.
+#[derive(Debug, Clone)]
+pub struct DefaultTeamForm {
+    pub options: Vec<DefaultTeamOption>,
+}
+
+/// One option of the default-team select.
+#[derive(Debug, Clone)]
+pub struct DefaultTeamOption {
+    pub value: String,
+    pub label: String,
+    pub selected: bool,
 }
 
 /// One row of the teams page: "{team} · {n} member(s)".

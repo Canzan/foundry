@@ -30,7 +30,7 @@ Feature: A workspace admin picks a default team, and an invited newcomer lands o
       | Marco Bianchi | marco.bianchi@canzan.dev     | member         | Ops as Member                  |                        |
     And Globex is another workspace, whose team Payments is led by Hugo Weber (hugo.weber@globex.example)
 
-  @us-tm-06 @driving_port @contract-shape:bounded-change @pending
+  @us-tm-06 @driving_port @contract-shape:bounded-change
   Scenario: A workspace admin picks the default team for new members, and no one already here is moved
     When Priya sets General as the default team for new members
     Then she sees "New members will join General."
@@ -38,7 +38,7 @@ Feature: A workspace admin picks a default team, and an invited newcomer lands o
     And the teams page shows General as the default team for new members
     And Jeff's Keycloak account is still on no team
 
-  @us-tm-06 @edge @contract-shape:bounded-change @pending
+  @us-tm-06 @edge @contract-shape:bounded-change
   Scenario: A workspace admin clears the default team
     Given Priya has set General as the default team for new members
     When Priya sets No team as the default team for new members
@@ -46,21 +46,21 @@ Feature: A workspace admin picks a default team, and an invited newcomer lands o
     And Canzan Labs's default team is now No team, and nothing else changed
     And the teams page shows No team as the default team for new members
 
-  @us-tm-06 @kpi @contract-shape:bounded-change @pending
+  @us-tm-06 @kpi @contract-shape:bounded-change
   Scenario: An invited newcomer lands on the default team and opens its board
     Given Priya has set General as the default team for new members
     When Tomás Rivera accepts an invite to Canzan Labs at tomas.rivera@canzan.dev
     Then Tomás Rivera has a new account in Canzan Labs and is a Member of General, and nothing else changed
     And Tomás Rivera sees Sandbox on his dashboard and opens its board
 
-  @us-tm-06 @edge @contract-shape:bounded-change @pending
+  @us-tm-06 @edge @contract-shape:bounded-change
   Scenario: Without a default team, an invited newcomer lands as today
     Given Canzan Labs has no default team
     When Tomás Rivera accepts an invite to Canzan Labs at tomas.rivera@canzan.dev
     Then Tomás Rivera has a new account in Canzan Labs and is on no team, and nothing else changed
     And Tomás Rivera's dashboard says "You're not on any team yet — ask a workspace admin to add you."
 
-  @us-tm-06 @error @contract-shape:bounded-change @pending
+  @us-tm-06 @error @contract-shape:bounded-change
   Scenario: A default team that no longer exists never stops a newcomer joining
     Given the Onboarding team, once Canzan Labs's default, has since been deleted by hand
     When Tomás Rivera accepts an invite to Canzan Labs at tomas.rivera@canzan.dev
@@ -68,7 +68,7 @@ Feature: A workspace admin picks a default team, and an invited newcomer lands o
     And Tomás Rivera is signed in
     And the teams page shows No team as the default team for new members
 
-  @us-tm-06 @error @kpi @contract-shape:unbounded-preservation @pending
+  @us-tm-06 @error @kpi @contract-shape:unbounded-preservation
   Scenario Outline: Only a workspace admin can set the default, and only to one of Canzan Labs's teams
     Given Priya has set General as the default team for new members
     When <who> submits <team> as Canzan Labs's default team
@@ -84,7 +84,7 @@ Feature: A workspace admin picks a default team, and an invited newcomer lands o
       | Priya                | Payments                   |
       | Priya                | a team that does not exist |
 
-  @us-tm-06 @edge @contract-shape:unbounded-preservation @pending
+  @us-tm-06 @edge @contract-shape:unbounded-preservation
   Scenario: Only a workspace admin is offered the default team setting
     When Lena opens the teams page
     Then the teams page has no default team setting

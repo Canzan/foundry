@@ -3,6 +3,7 @@
 {% block app_content %}
 <main class="teams">
   <h1>Teams</h1>
+  {% if let Some(notice) = notice %}<p class="notice" role="status">{{ notice }}</p>{% endif %}
   {% if teams.is_empty() && !is_workspace_admin %}
   <p class="dash__empty">You're not on any team yet — ask a workspace admin to add you.</p>
   {% else %}
@@ -11,6 +12,19 @@
     <li><a href="/team/{{ team.slug }}/members">{{ team.label() }}</a></li>
     {% endfor %}
   </ul>
+  {% endif %}
+  {% if let Some(form) = default_form %}
+  <form method="post" action="/teams/default">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <label>Default team for new members
+      <select name="team">
+        {% for o in form.options %}
+        <option value="{{ o.value }}"{% if o.selected %} selected{% endif %}>{{ o.label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <button type="submit">Save</button>
+  </form>
   {% endif %}
 </main>
 {% endblock %}

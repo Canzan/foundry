@@ -15,6 +15,8 @@
 //!   GET  /teams                  — a workspace admin sees every team; anyone else
 //!                                  their own teams, or the shipped no-team copy.
 //!   GET  /team/{slug}/members    — needs View (members list); Manage adds the form.
+//!   POST /teams/default          — workspace admins only; `team` is a slug of the
+//!                                  acting workspace, or empty for "No team" (DDD-14).
 //!   POST /team/{slug}/members    — needs Manage; `user_id` names a workspace member.
 //!   POST /team/{slug}/members/{user_id}/role — needs Manage; `role` is lead|member.
 //!                                  A last lead is a 409 with the members page (DDD-8).
@@ -31,7 +33,8 @@ use crate::bootstrap::{resource_not_found_page, SessionUser};
 use crate::csrf::{ensure_csrf_cookie, response_with_optional_cookie};
 use crate::session::SESSION_KEY_USER_ID;
 use crate::views::{
-    TeamCandidateOption, TeamIndexRow, TeamMemberLine, TeamMembersPage, TeamsIndexPage,
+    DefaultTeamForm, DefaultTeamOption, TeamCandidateOption, TeamIndexRow, TeamMemberLine,
+    TeamMembersPage, TeamsIndexPage,
 };
 use crate::AppState;
 use askama::Template;
@@ -41,7 +44,7 @@ use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
 use foundry_core::TeamRole;
 use foundry_services::teams::{
-    AddMemberResult, RemoveMemberResult, RoleChangeResult, TeamError, TeamMembersView,
+    AddMemberResult, RemoveMemberResult, RoleChangeResult, TeamError, TeamMembersView, TeamsIndex,
 };
 use foundry_services::{Principal, Services};
 use serde::Deserialize;
@@ -87,6 +90,10 @@ pub enum TeamNotice {
         email: String,
         team: String,
     },
+    /// "New members will join {team}."
+    DefaultSet { team: String },
+    /// "New members join no team."
+    DefaultCleared,
 }
 
 impl fmt::Display for TeamNotice {
@@ -125,6 +132,8 @@ impl fmt::Display for TeamNotice {
                     "{name} ({email}) is the last lead of {team}. Make someone else a lead first."
                 )
             }
+            Self::DefaultSet { team } => write!(f, "New members will join {team}."),
+            Self::DefaultCleared => f.write_str("New members join no team."),
         }
     }
 }
@@ -133,6 +142,14 @@ impl fmt::Display for TeamNotice {
 pub struct AddMemberForm {
     #[serde(default)]
     pub user_id: Option<String>,
+    #[serde(rename = "_csrf", default)]
+    _csrf: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DefaultTeamFormData {
+    #[serde(default)]
+    pub team: Option<String>,
     #[serde(rename = "_csrf", default)]
     _csrf: Option<String>,
 }
@@ -156,25 +173,37 @@ pub async fn show_teams(
         return resource_not_found_page();
     };
     let services = Services::new(state.store.clone());
-    let index = match services.list_teams(&principal_of(&user)).await {
-        Ok(index) => index,
+    match services.list_teams(&principal_of(&user)).await {
+        Ok(index) => teams_page(&state, &headers, &user, index, None).await,
+        Err(err) => refusal(err),
+    }
+}
+
+// -------------------------------------------------------- POST /teams/default
+
+pub async fn submit_default(
+    State(state): State<AppState>,
+    session: Session,
+    headers: HeaderMap,
+    Form(form): Form<DefaultTeamFormData>,
+) -> Response {
+    let Some(user) = signed_in_user(&session).await else {
+        return resource_not_found_page();
+    };
+    let services = Services::new(state.store.clone());
+    let raw_team_slug = form.team.as_deref().unwrap_or("");
+    let choice = match services
+        .choose_default_team(&principal_of(&user), raw_team_slug)
+        .await
+    {
+        Ok(choice) => choice,
         Err(err) => return refusal(err),
     };
-    let (csrf, set_cookie) = ensure_csrf_cookie(&state, &headers);
-    let page = TeamsIndexPage {
-        nav: nav_for(&state, &user, csrf).await,
-        is_workspace_admin: index.is_workspace_admin,
-        teams: index
-            .teams
-            .into_iter()
-            .map(|t| TeamIndexRow {
-                slug: t.slug,
-                name: t.name,
-                member_count: t.member_count,
-            })
-            .collect(),
+    let notice = match choice.chosen {
+        Some(team) => TeamNotice::DefaultSet { team: team.name },
+        None => TeamNotice::DefaultCleared,
     };
-    render(page.render(), StatusCode::OK, set_cookie)
+    teams_page(&state, &headers, &user, choice.index, Some(notice)).await
 }
 
 // ---------------------------------------------------- GET /team/{slug}/members
@@ -311,6 +340,53 @@ pub async fn submit_remove(
 }
 
 // ------------------------------------------------------------------ internals
+
+async fn teams_page(
+    state: &AppState,
+    headers: &HeaderMap,
+    user: &SessionUser,
+    index: TeamsIndex,
+    notice: Option<TeamNotice>,
+) -> Response {
+    let default_form = index.is_workspace_admin.then(|| default_form(&index));
+    let (csrf, set_cookie) = ensure_csrf_cookie(state, headers);
+    let page = TeamsIndexPage {
+        nav: nav_for(state, user, csrf.clone()).await,
+        csrf,
+        is_workspace_admin: index.is_workspace_admin,
+        teams: index
+            .teams
+            .into_iter()
+            .map(|t| TeamIndexRow {
+                slug: t.slug,
+                name: t.name,
+                member_count: t.member_count,
+            })
+            .collect(),
+        default_form,
+        notice: notice.map(|n| n.to_string()),
+    };
+    render(page.render(), StatusCode::OK, set_cookie)
+}
+
+/// "No team" (empty value), then every team of the workspace, with the current
+/// default selected (DDD-14, DDD-17).
+fn default_form(index: &TeamsIndex) -> DefaultTeamForm {
+    let current = index.default_team.as_ref().map(|t| t.slug.as_str());
+    let no_team = DefaultTeamOption {
+        value: String::new(),
+        label: "No team".to_string(),
+        selected: current.is_none(),
+    };
+    let teams = index.teams.iter().map(|t| DefaultTeamOption {
+        value: t.slug.clone(),
+        label: t.name.clone(),
+        selected: current == Some(t.slug.as_str()),
+    });
+    DefaultTeamForm {
+        options: std::iter::once(no_team).chain(teams).collect(),
+    }
+}
 
 async fn members_page(
     state: &AppState,
@@ -534,6 +610,22 @@ mod team_notice_copy {
         assert_eq!(
             notice.to_string(),
             "Removed Tomás Rivera (tomas.rivera@canzan.dev) from Backend."
+        );
+    }
+
+    #[test]
+    fn default_set() {
+        let notice = TeamNotice::DefaultSet {
+            team: "General".into(),
+        };
+        assert_eq!(notice.to_string(), "New members will join General.");
+    }
+
+    #[test]
+    fn default_cleared() {
+        assert_eq!(
+            TeamNotice::DefaultCleared.to_string(),
+            "New members join no team."
         );
     }
 

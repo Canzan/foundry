@@ -8,8 +8,8 @@
 //! 404. Tenancy comes only from the principal's workspace (D10).
 //!
 //! The read use-cases ([`list_teams`], [`team_members`]) have no write method on
-//! their path (Principle 12); [`add_member`], [`change_role`] and [`remove_member`]
-//! are the writers.
+//! their path (Principle 12); [`add_member`], [`change_role`], [`remove_member`]
+//! and [`set_default_team`] are the writers.
 
 use crate::Principal;
 use foundry_core::{TeamAccess, TeamRole};
@@ -35,11 +35,28 @@ impl From<StoreError> for TeamError {
 }
 
 /// The teams page: which teams the caller sees, and whether they see them as a
-/// workspace admin (all teams) or as a member (their own).
+/// workspace admin (all teams) or as a member (their own). `default_team` is
+/// read only for a workspace admin, the one caller offered the setting (OQ-3).
 #[derive(Debug, Clone)]
 pub struct TeamsIndex {
     pub is_workspace_admin: bool,
     pub teams: Vec<TeamSummary>,
+    pub default_team: Option<DefaultTeam>,
+}
+
+/// The team an invited newcomer lands on (ADR-TEAM-MEMBERSHIP-002).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DefaultTeam {
+    pub slug: String,
+    pub name: String,
+}
+
+/// The outcome of setting the default: the team now chosen (`None` for "No
+/// team"), with the teams page re-read after the write (DDD-9, DDD-14).
+#[derive(Debug, Clone)]
+pub struct DefaultTeamChoice {
+    pub chosen: Option<DefaultTeam>,
+    pub index: TeamsIndex,
 }
 
 /// A team's members page, as the caller may see it. `candidates` is empty unless
@@ -118,9 +135,59 @@ pub async fn list_teams(store: &Store, principal: &Principal) -> Result<TeamsInd
         TeamScope::MemberOf(principal.user_id())
     };
     let teams = store.list_teams(principal.workspace_id(), scope).await?;
+    let default_team = if is_workspace_admin {
+        store
+            .default_team(principal.workspace_id())
+            .await?
+            .map(|(slug, name)| DefaultTeam { slug, name })
+    } else {
+        None
+    };
     Ok(TeamsIndex {
         is_workspace_admin,
         teams,
+        default_team,
+    })
+}
+
+/// `POST /teams/default` (DDD-14): workspace admins only. `raw_team_slug` is a
+/// team slug resolved in the acting workspace, or empty for "No team"; an
+/// unknown or foreign slug is `NotFound` with no write. Nobody already in the
+/// workspace is moved (OQ-8).
+pub async fn set_default_team(
+    store: &Store,
+    principal: &Principal,
+    raw_team_slug: &str,
+) -> Result<DefaultTeamChoice, TeamError> {
+    let is_workspace_admin = store
+        .is_workspace_admin(principal.workspace_id(), principal.user_id())
+        .await?;
+    if !is_workspace_admin {
+        return Err(TeamError::NotFound);
+    }
+    let chosen = if raw_team_slug.is_empty() {
+        None
+    } else {
+        Some(
+            store
+                .team_access_facts(principal.workspace_id(), raw_team_slug, principal.user_id())
+                .await?
+                .ok_or(TeamError::NotFound)?,
+        )
+    };
+    store
+        .set_default_team(
+            principal.workspace_id(),
+            chosen.as_ref().map(|facts| facts.team_id),
+        )
+        .await?;
+    let index = list_teams(store, principal).await?;
+    Ok(DefaultTeamChoice {
+        chosen: chosen.map(|facts| DefaultTeam {
+            slug: facts.team_slug,
+            name: facts.team_name,
+        }),
+        index,
     })
 }
 

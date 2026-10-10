@@ -206,6 +206,16 @@ impl Services {
         teams::list_teams(&self.store, principal).await
     }
 
+    /// team-membership `POST /teams/default` — delegates to
+    /// [`teams::set_default_team`].
+    pub async fn choose_default_team(
+        &self,
+        principal: &Principal,
+        raw_team_slug: &str,
+    ) -> Result<teams::DefaultTeamChoice, teams::TeamError> {
+        teams::set_default_team(&self.store, principal, raw_team_slug).await
+    }
+
     /// team-membership `GET /team/{slug}/members` — delegates to
     /// [`teams::team_members`].
     pub async fn team_members(
