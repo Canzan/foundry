@@ -33,4 +33,4 @@ through then leads straight to a board.
 
 ## Dependencies
 
-- Slice 05 (the setting). **Blocked on OQ-5 and OQ-6.**
+- Slice 05 (the setting). OQ-5 and OQ-6 resolved to the recommended answers (2026-10-09).

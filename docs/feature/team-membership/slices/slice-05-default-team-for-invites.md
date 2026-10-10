@@ -35,4 +35,4 @@ boards on their first dashboard.
 
 ## Dependencies
 
-- Slice 01. **Blocked on OQ-3 to OQ-8.** If OQ-10 splits the default team out, this brief moves to the new feature unchanged.
+- Slice 01. OQ-3 to OQ-8 resolved to the recommended answers, and OQ-10 keeps it in this feature (2026-10-09).
