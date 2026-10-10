@@ -30,6 +30,7 @@ personas:
       - docs/feature/instance-workspace-name-rule/feature-delta.md
       - docs/feature/project-name-rule/feature-delta.md
       - docs/feature/name-db-checks/feature-delta.md
+      - docs/feature/team-membership/feature-delta.md
 
     situation: >
       Runs foundry on her own cluster alongside Grafana, Portainer, ArgoCD and
@@ -52,6 +53,11 @@ personas:
       - Single-digit-operator instance. There is no analytics tooling and no
         second user to average over; every product measurement on this persona
         is either a store query, an acceptance assertion, or her own report.
+      - Has two foundry accounts since Keycloak provisioning (added by
+        team-membership, 2026-10-09): the bootstrap password account (workspace
+        admin, team lead) and a provisioned SSO account with a different email.
+        The two can share a display name, so only the email tells them apart.
+        Evidence: docs/evolution/2026-10-09-fix-hide-unreachable-boards.md.
 
     environments:
       # Added by canzan-theme-system (2026-08-29). Prior waves never needed to
@@ -89,6 +95,7 @@ personas:
       - job-issue-card-delete
       - job-board-card-move
       - job-confirm-release-serving
+      - job-team-membership
 
   - id: persona-team-member-foil
     name: Marco

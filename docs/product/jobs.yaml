@@ -784,3 +784,70 @@ jobs:
           compile time from build-args, then git, then `unknown`. This lets the
           operator spot a stale or dev build that shares a version number.
           Targeted for v0.8.0.
+
+  - id: job-team-membership
+    title: Put the right people on a team, so everyone reaches the boards they belong on
+    job_story: >
+      When someone in my workspace cannot open a team's boards (my own
+      Keycloak account the first time it signed in, a teammate I just invited,
+      a newcomer whose work moved to Backend), I want to see who is on the team
+      and put them on it, change who leads it, or take them off, or have
+      newcomers land on a team automatically, so everyone reaches the boards
+      they belong on without me opening psql or running a test-user command,
+      and no team is ever left with nobody in charge.
+    dimensions:
+      functional: >
+        From one page per team, see its members and roles, and add a workspace
+        member, promote or demote, or remove someone, as a workspace admin on
+        any team or as a lead on my own. A team always keeps at least one lead.
+        Optionally, a default team catches every newcomer from an invite or a
+        Keycloak sign-in.
+      emotional: >
+        Stop being told to "ask a workspace admin" when I am the workspace
+        admin. Stop reaching for psql to let a teammate see a board.
+      social: >
+        A teammate's first sign-in shows them the team's boards, not a polite
+        refusal. A team lead can staff their own team without asking.
+    forces:
+      push: >
+        Nothing in the product writes team_memberships. Only bootstrap (first
+        user becomes lead of General) and `foundry doctor add-test-user` (every
+        team in every workspace) do. Invite accept and Keycloak provisioning add
+        a workspace membership only. On 2026-10-09 the operator's own Keycloak
+        account was provisioned onto no team and got a 404 on Sandbox. The fix
+        (v0.12.0) now tells such members to "ask a workspace admin to add you",
+        but no admin can.
+      pull: >
+        A members list per team with an Add control, the way every team tool
+        works, and a default team so the next newcomer never meets the dead
+        end at all.
+      anxiety: >
+        That the new pages tell outsiders which teams exist. That removing or
+        demoting the last lead locks a team out of its own management,
+        especially when two leads demote each other at once. That a default
+        team quietly grants board access nobody chose, or breaks sign-in when
+        it goes missing.
+      habit: >
+        psql and `add-test-user` work for a single operator. The product path
+        must be scoped (one person, one team) and safer (authz, a
+        never-leaderless rule), not merely prettier, to displace them.
+    opportunity:
+      importance: high
+      satisfaction: low
+      note: >
+        Single-job feature; no comparative scoring table (the skill requires
+        one only when multiple jobs compete). Importance high: without it, a
+        workspace member reaches no board at all, so the capability is absent
+        rather than awkward, and the dashboard now advertises a remedy that
+        does not exist. Satisfaction low: zero product paths. Not an extension
+        of job-sso-signin. That job ends at an authenticated session, and this
+        one starts there and ends at the board. Grounded in the 2026-10-09
+        incident and code reading, not interviews (no DISCOVER), the same
+        recorded risk as its siblings.
+    validated_by: docs/feature/team-membership/feature-delta.md
+    relates_to:
+      - job: job-sso-signin
+        relation: >
+          Downstream. Keycloak provisioning (keycloak-sso D3a) creates the
+          no-team member this job rescues. The default team (US-TM-07) closes
+          that gap for future newcomers.
