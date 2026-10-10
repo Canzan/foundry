@@ -852,3 +852,362 @@ consolidated review runs at the end of DISTILL.
   - **WS strategy = D: not fired.**
   - Neither expansion is rendered. Both are offered at handoff.
 - Upstream changes: none to DISCOVER (none exists). This closes the first follow-up of `docs/evolution/2026-10-09-fix-hide-unreachable-boards.md`.
+
+## Wave: DESIGN
+
+Architect: Morgan (nw-solution-architect) | Date: 2026-10-09 | Scope: application | Mode: propose (orchestrator-dispatched; all OQs resolved to recommendations, D1-D17 locked) | Paradigm: OOP (CLAUDE.md, unchanged) | Density: lean, Tier-1 [REF] only, no expansion menu (DESIGN declares no ask-intelligent triggers) | Per-wave review: invoked (trigger: security-boundary change, a new authority path, and a contested concurrency ADR). Result: conditionally approved, 0 critical, 1 high. The high issue (DDD-11 statement order) was resolved by pinning the five-statement order and its rationale in DDD-11. Mediums resolved: the facts-read projection is pinned in DDD-16, and the user-delete consequence is recorded as OQ-D9. Orphan count stays OQ-D4 (expected 0; a large count would surface there before slice 02 ships).
+
+### [REF] Prior Wave Consultation
+
+| Artifact | Status |
+|---|---|
+| DISCUSS above: D1-D17, OQ-1 to OQ-10 resolved, INV-1 to INV-8, US-TM-01 to US-TM-07 | ✓ No contradiction. Four refinements (Changed Assumptions 1-4). |
+| `slices/slice-01..06` | ✓ All six read in full. |
+| `docs/product/architecture/brief.md` | ✓ Extended in this wave: "Teams, team authority and the never-leaderless guard" under Application Architecture. |
+| `adr-name-db-001`, `adr-workspace-rename-001`, `adr-board-lane-002`, `adr-board-lane-003`, `adr-project-name-001` | ✓ Trigger idiom (23514 + named arm, `SET search_path FROM CURRENT`, re-runnable body, probe-unchanged rationale), locked-read transaction, `FOR UPDATE` serialisation with the SERIALIZABLE and advisory-lock rejections, use-case placement. All reused. |
+| `adr-oidc-001/002/003` | ⊘ Not reopened. Provisioning was read from code (`oidc.rs::callback`/`provision`, `Store::provision_federated_member`) and from the brief's keycloak-sso addenda. Nothing here touches the crate boundary, the state carrier or discovery. |
+| House format: `name-db-checks`, `project-name-rule` DESIGN sections | ✓ |
+| `docs/product/outcomes/registry.yaml` | ✓ Manual Tier-1 scan (see Outcome Collision Check). The CLI was not run: no shell in this session. |
+| `docs/feature/{id}/discuss/*`, `spike/findings.md` | ⊘ Lean layout. No spike. |
+
+Code read: `foundry-store/src/lib.rs`:
+- `probe` :210, `create_member_and_consume` :454, `provision_federated_member` :548
+- `list_projects_for_workspace` :881, `is_on_any_team` :905, `find_team_by_slug` :1537, `is_team_member` :1569
+- `is_workspace_admin` :2570, `provision_workspace` :2644, `grant_all_memberships` :2937, `remove_workspace_member` :2967
+- `team_belongs_to_workspace` :3195, `TeamRow` :3277, `seed_initial_workspace` :3455, `TENANT_TABLES` :109
+
+Also `migrations/0001_init.sql` (whole), `0010` and `0019` (head).
+
+`foundry-app/src/`:
+- `member_invites.rs` (whole)
+- `lib.rs` router :382-740
+- `oidc.rs` :160-300
+- `invites_accept.rs` :130-180
+- `signin.rs` dashboard :395-490
+- `nav.rs` :1-140
+- `projects.rs` :160-190 (the `Services::new(state.store.clone())` idiom)
+- `bootstrap.rs::resource_not_found_page` :407
+- `templates/dashboard_root.html`
+
+`foundry-services/src/lib.rs` :1-370 and `workspaces.rs` :1-120. `xtask/src/check_arch.rs`: LAYER-1e :388-455, provisioned-marker scanner :1095-1150, `project-name-one-source` :4526-4580.
+
+Grep facts:
+- No production `DELETE FROM` or `UPDATE` of `team_memberships` exists anywhere, fixtures included.
+- The only whole-workspace delete is the recipient-notification-preferences acceptance step (`feature_recipient_notification_preferences.rs:1705`).
+- No store read lists teams or team members today.
+- `POST /workspace/members/remove` has no UI form. It is a scripted, plain-text endpoint used by two acceptance lanes.
+
+### [REF] DDD List (design decisions)
+
+| ID | Decision | Options | Verdict | One-line rationale |
+|---|---|---|---|---|
+| DDD-1 | **Shape** | (a) extend the modular monolith with a `teams` vertical: a pure policy in `foundry-core`, use-cases in `foundry-services::teams`, store methods, an app handler module; (b) handlers straight to store, as `member_invites.rs` does | **(a)** | Four verbs share one policy and one invariant. The use-case seam (ADR-PROJECT-NAME-001) is where both get a single home. No new crate, no new dependency. |
+| DDD-2 | **Routes (D16 finalised)** | `GET /teams`, `POST /teams/default`, `GET /team/{team_slug}/members`, `POST /team/{team_slug}/members` (body `user_id`), `POST /team/{team_slug}/members/{user_id}/role` (body `role=lead\|member`), `POST /team/{team_slug}/members/{user_id}/remove` | **Locked as proposed** | Follows `/team/{slug}/…` and the GET+POST-on-the-shared-layer idiom. All are plain HTML forms with no htmx, so the scripting-disabled lane is native. `{user_id}` is taken as a `String` and parsed in the handler. A non-UUID is the uniform 404, never axum's 400 (lane `{side}` precedent, DD6). |
+| DDD-3 | **One authority policy** | (a) pure `foundry_core::TeamAccess::of(is_workspace_admin, Option<TeamRole>) → {None, View, Manage}`, fed by one `Store::team_access_facts(ws, slug, user)` read, applied only inside `foundry_services::teams`; (b) a gate per handler; (c) a store boolean | **(a)** | One six-row truth table for four verbs. Slice 04 changes one arm (`Some(Lead)`: View → Manage). See ADR-TEAM-MEMBERSHIP-003. |
+| DDD-4 | **Authz matrix** | See [REF] Authorization Matrix | **Locked** | D2, D5, D9, D11, D12, OQ-1. |
+| DDD-5 | **Gate order (every team route)** | session (none → 404) → facts by (session workspace, slug) (none → 404) → `TeamAccess` (GET needs View, POST needs Manage, else 404) → parse `{user_id}` (bad → 404) → target is a member of the acting workspace (else 404) → verb | **Locked** | Every refusal before the verb is byte-identical to `resource_not_found_page()` (D5). Signed out is a 404, not a sign-in redirect (D5 lists it). Tenancy comes only from `SessionUser.workspace_id` (D10). |
+| DDD-6 | **Never leaderless (INV-1 to INV-4, INV-8)** | (a) store `FOR NO KEY UPDATE` on the team row(s) in id order, an exact pre-read, a typed `LastLead`, **plus** a `BEFORE` row trigger taking the same lock as the backstop for any caller; (b) store lock only; (c) trigger only; (d) SERIALIZABLE with retry; (e) an advisory lock; (f) a deferred constraint trigger | **(a)** | The serialised fresh-snapshot read is exact, and the trigger makes INV-8 hold for psql and future code. The name-rule precedent put "every caller" rules in triggers, and lane-002 rejected (d) and (e). See ADR-TEAM-MEMBERSHIP-001. Migration 0021 (slice 02). |
+| DDD-7 | **What counts as a lead** | (a) any `team_memberships` row with `role = 'lead'`, after 0021 deletes orphan team rows (users no longer in the team's workspace); (b) only leads who are still workspace members (the trigger joins `workspace_memberships`) | **(a)** | One definition everywhere: the trigger, the pre-read, the members list and the counts. Orphans confer nothing and are expected to be 0. OQ-9 accepted the rule that applies here. (b) makes a membership-row delete silently de-lead a team. |
+| DDD-8 | **Last-lead refusal shape (D6)** | Team routes: **409**, the members page re-rendered with "{team} needs at least one lead. Make someone else a lead first.", zero writes. `POST /workspace/members/remove`: **409 `text/plain`** with "{name} ({email}) is the last lead of {team}. Make someone else a lead first.", zero writes, no `member_removed` notification | **Locked** | The actor is authorized and sees the team, so this is a stated reason, not a 404 (D6). The workspace-removal route already answers in plain text (200 "member removed", 400, 404), so the refusal keeps its shape. |
+| DDD-9 | **Other write outcomes (D13)** | 200 with the members page re-rendered and the D15 copy for: Added, AlreadyOn, RoleChanged, RoleUnchanged (same copy as changed, no write), Removed. Stale target (in the workspace, not on the team) on role or remove: 200 re-render, no copy, no write. No post-redirect-get | **Locked** | Every write is idempotent, so re-POSTing on reload is harmless, and a re-render carries the message without session flash storage. The re-render recomputes `TeamAccess` after the write, so a lead who demotes themselves loses the controls on that response (US-TM-05 example 2). |
+| DDD-10 | **INV-5 (add vs workspace removal)** | Add transaction: `SELECT … FROM workspace_memberships WHERE (ws, target) FOR KEY SHARE` (none → `NotWorkspaceMember` → 404), then `INSERT … ON CONFLICT DO NOTHING` (0 rows → `AlreadyOn`). Workspace removal locks that row `FOR UPDATE` **first** | **Locked** | KEY SHARE conflicts with the removal's row lock. If the add holds it, the removal waits, then sees and deletes the new team row. If the removal holds it, the add's lock read finds no row and refuses. Nobody is left on a team of a workspace they are not in. |
+| DDD-11 | **OQ-9 workspace removal** | `Store::remove_workspace_member` EXTENDED into one transaction, in exactly this statement order: (1) `SELECT … FROM workspace_memberships WHERE (ws, user) FOR UPDATE` (none → `NotMember`); (2) `SELECT t.id … FOR NO KEY UPDATE OF t` on the person's teams in W, `ORDER BY t.id`; (3) the sole-lead read ordered by team name, giving `LastLead{team}` with rollback; (4) `DELETE FROM team_memberships` for the person in W's teams (trigger-checked); (5) `DELETE FROM workspace_memberships`. Returns `Removed{…} \| NotMember \| LastLead{team_name}` | **Locked** | Step 1 comes first so a concurrent add (DDD-10) has either committed before step 4's fresh snapshot or is refused. Step 5 comes last so the person is still a member while the trigger checks step 4. The same lock and trigger as DDD-6 (slice 03's hypothesis holds by construction). The handler keeps its admin gate and email lookup. It notifies only on `Removed`, and a `NotMember` stays the 404. |
+| DDD-12 | **Default-team schema** | (a) `workspaces.default_team_id UUID NULL` + `teams UNIQUE (workspace_id, id)` + `FK (id, default_team_id) → teams (workspace_id, id) ON DELETE SET NULL (default_team_id)`; (b) a separate `workspace_default_teams` table; (c) `teams.is_default` + a partial unique index | **(a)** | INV-7 and OQ-6 become schema facts, the setting is one cell, and `TENANT_TABLES` is untouched. (b) moves the fixed-ten export set. (c) needs a two-row write protocol. See ADR-TEAM-MEMBERSHIP-002. Migration 0022 (slice 05). |
+| DDD-13 | **Default placement (OQ-5, D17)** | One private store helper `place_on_default_team(tx, ws, user)` (`INSERT … SELECT default_team_id … ON CONFLICT DO NOTHING`, role `member`). It is called right after the `workspace_memberships` INSERT in `create_member_and_consume` and in `provision_federated_member`'s `Created` branch, **inside a savepoint**. Any error rolls back the savepoint, logs a `warn` (ids only) and lets the outer transaction commit | **Locked** | It is atomic with the membership when it succeeds and can never fail the accept or sign-in. Not called on the `Existing` (link) branch or the first-admin invite path. The invite's single-use guard (step 1) and expiry are untouched. |
+| DDD-14 | **Setting the default** | `POST /teams/default`, admin only (else 404). The form field `team` = a team slug resolved in the acting workspace, or empty for "No team". One `UPDATE workspaces`. Unknown slug → 404, no write. Copy "New members will join {team}." / "New members join no team." on a 200 re-render of `/teams` | **Locked** | Slug, not id: D10's resolution idiom, no UUID parsed from the body. A foreign workspace's team is unreachable by construction, and the composite FK backs it (Changed Assumptions 2). |
+| DDD-15 | **Probe** | `Store::probe` refuses readiness without `workspaces.default_team_id` (from slice 05). Unchanged for 0021 | **Locked** | Probe precedent 0017/0018: the new code reads the column on `/teams` and both newcomer doors. The 0021 trigger is a backstop the app does not depend on (ADR-NAME-DB-001 decision 5). |
+| DDD-16 | **Read models** | `team_access_facts(ws, slug, user)` → `Option<{team_id, team_name, team_slug, is_workspace_admin: bool, role: Option<TeamRole>}>`: one SELECT from `teams` (by `workspace_id, slug`) with an `EXISTS` admin subquery and a `LEFT JOIN team_memberships` on (team, user), so `role` is NULL when the user is not on the team; `list_teams(ws, scope: All \| MemberOf(user))` → slug, name, member count, by name; `list_team_members(team)` → user id, display name, email, role, ordered leads first, then display name, then email; `list_team_candidates(ws, team)` → workspace members not on the team, by display name then email; `default_team(ws)` → `Option<(slug, name)>` | **Locked** | The Add list is computed in the acting workspace only (Shared Artifacts, D10). The member count is the team's row count (DDD-7 makes rows = members). |
+| DDD-17 | **Views and templates** | `views::TeamsIndexPage { nav, csrf, is_admin, on_a_team, teams, default_form, notice }` → `teams_index.html`; `views::TeamMembersPage { nav, csrf, team_slug, team_name, can_manage, members, candidates, notice }` → `team_members.html`, both `{% extends "app_shell.html" %}`, `NavSection::Home` via `NavContext::home_for`. Dashboard: a "Teams" `<li>` in Quick actions, first item | **Locked** | Rows render "{name} · {email} · {Lead\|Member}". Candidate options render "{name} — {email}" (D8). Controls are rendered only when `can_manage`. The empty-candidates copy replaces the Add form. `/teams` with no team and not admin renders the shipped no-team string unchanged. |
+| DDD-18 | **Copy home (D15, OQ-9)** | One presentation enum in `foundry-app` (for example `TeamNotice`) whose `Display` holds the eleven strings (D15's ten plus OQ-9's), used by `teams.rs` and `member_invites.rs`; byte-exact unit tests | **Locked** | One crate, one type. A check-arch copy rule is not warranted: a single door, and DISTILL pins the bytes. |
+| DDD-19 | **check-arch `team-membership-one-seam`** | (a) no SQL `INSERT INTO`/`UPDATE`/`DELETE FROM team_memberships` in any `.rs` under `crates/*/src` except `crates/foundry-store/src` (`foundry-acceptance` and `tests/` excluded as fixtures); (b) `add_team_member(`, `set_team_role(`, `remove_team_member(` have no call site under `crates/{foundry-app,foundry-api}/src`. One injected-violation gold test per clause | **Locked** | (a) keeps every membership write behind the store, the lock and the trigger. (b) keeps every write behind the use-case and its policy (ADR-003). It reuses `call_sites` and the provisioned-marker SQL scanner. |
+| DDD-20 | **Logging** | Refusals (404, last-lead) log nothing. A placement failure logs one `warn` with the workspace and user ids, never the email. A trigger 23514 mapped by the store (never expected on store paths) logs one `warn` with the team id | **Locked** | Precedent DDD-13 of project-name-rule: no personal data in logs. |
+| DDD-21 | **Migrations and rolling deploy** | 0021 (slice 02): orphan cleanup with `RAISE NOTICE` count, the function, two triggers, comments, a re-runnable body. 0022 (slice 05): the constraint, column and FK, additive | **Locked** | Old replicas never remove a lead (no pre-feature code path writes team rows except inserts), so they never meet 0021. An old replica ignores `default_team_id`, and its accept lands the newcomer on no team (today's behaviour). Rollback floor = the previous release: neither migration changes anything an older binary reads. |
+| DDD-22 | **Authority timing (INV-6)** | Facts are read once per request, at the start of the use-case. No in-transaction re-check of the actor | **Locked** | INV-6 asks for per-request evaluation against current rows. The remaining window is the milliseconds between the read and the write, for reversible actions. This matches project-create's accepted posture (ADR-PROJECT-NAME-001 item 6). |
+| DDD-23 | **Lead acting on a workspace admin** | No special case. A lead may demote or remove anyone on their team, a workspace admin included | **Locked** | Leads are peers (OQ-2), and the admin can reverse it. This answers slice 04's learning hypothesis ("any verb needs a special case"): none does. |
+
+### [REF] Authorization Matrix
+
+`Manage` = workspace admin of the acting workspace, or lead of this team (lead arm from slice 04). `View` = on the team. Anything else, including an instance admin with no workspace-admin row (OQ-1), is the uniform 404.
+
+| Route | Signed out | Not on team, not admin (Marco) | Member of team | Lead of team (from slice 04) | Workspace admin | Unknown or foreign slug |
+|---|---|---|---|---|---|---|
+| `GET /teams` | 404 | own teams, or no-team copy | own teams | own teams | all teams + default select | n/a |
+| `POST /teams/default` | 404 | 404 | 404 | 404 | write | unknown `team` slug → 404 |
+| `GET /team/{slug}/members` | 404 | 404 | list, read-only | list + controls | list + controls | 404 |
+| `POST /team/{slug}/members` | 404 | 404 | 404 | add | add | 404 |
+| `POST …/members/{user_id}/role` | 404 | 404 | 404 | role | role | 404 |
+| `POST …/members/{user_id}/remove` | 404 | 404 | 404 | remove | remove | 404 |
+| `GET /team/{slug}/project/{p}` (unchanged) | shipped | 404 | board | board | **404 unless on team** (D9) | 404 |
+
+Target refusals on the three POSTs: a malformed `{user_id}`, an unknown user, or a user not in the acting workspace → 404 with zero writes (D5, D7). A valid workspace member who is not on the team → 200 stale re-render for role and remove (DDD-9). For add, that is the normal case.
+
+### [REF] Contract Shapes (Principle 12)
+
+| Component | Shape | Universe / assertion |
+|---|---|---|
+| `TeamRole::parse`, `TeamAccess::of` | pure function | six-row example table; an unknown role string is refused |
+| `teams::list_teams`, `teams::team_members` (GET use-cases) | read-only. The read use-cases are separate functions with no write method on their path | zero rows changed (row-count snapshot) |
+| `add_team_member` | bounded-change: at most one `team_memberships` INSERT (`member`) | refusal or `AlreadyOn`: table byte-identical |
+| `set_team_role` | bounded-change: at most one `team_memberships.role` | `LastLead` / `RoleUnchanged` / stale: table byte-identical |
+| `remove_team_member` | bounded-change: at most one `team_memberships` DELETE | `LastLead` / stale: table byte-identical |
+| `remove_workspace_member` (extended) | bounded-change: the person's team rows in W plus one `workspace_memberships` row | `LastLead` / `NotMember`: both tables byte-identical |
+| `set_default_team` | bounded-change: one `workspaces.default_team_id` | refusal: `workspaces` byte-identical |
+| `place_on_default_team` | bounded-change inside the caller's transaction: at most one `team_memberships` row for the new user | savepoint failure: the account and workspace membership still commit |
+| Migration 0021 | bounded-change: deletes orphan team rows only, then installs DDL | non-orphan rows byte-identical (store migration test) |
+
+No new external dependency, so no new driven adapter. Earned Trust is the substrate-fact gold tests in ADR-TEAM-MEMBERSHIP-001 and -002, plus the DDD-15 probe line.
+
+### [REF] Component Decomposition (per slice)
+
+| Slice | Component | Path | Change |
+|---|---|---|---|
+| 01 | `TeamRole`, `TeamAccess` (lead arm = View until 04), example tests | `crates/foundry-core/src/team_membership.rs`, re-exported from `lib.rs` | CREATE (no team types exist) |
+| 01 | `team_access_facts`, `list_teams`, `list_team_members`, `list_team_candidates`, `add_team_member` (DDD-10) + outcome enums | `crates/foundry-store/src/lib.rs` (or a `teams.rs` submodule, crafter's choice) | EXTEND |
+| 01 | `teams::{list_teams, team_members, add_member}`, `TeamError`, outcomes; `Services` delegations | `crates/foundry-services/src/teams.rs`, `lib.rs` | CREATE module / EXTEND |
+| 01 | Handlers `show_teams`, `show_members`, `submit_add`; `TeamNotice` copy | `crates/foundry-app/src/teams.rs` (WHY-NEW-FILE header, as `member_invites.rs`) | CREATE |
+| 01 | `TeamsIndexPage`, `TeamMembersPage`; templates; dashboard "Teams" `<li>` | `crates/foundry-app/src/views.rs`, `templates/teams_index.html`, `templates/team_members.html`, `templates/dashboard_root.html` | EXTEND / CREATE |
+| 01 | Three routes on the shared layer | `crates/foundry-app/src/lib.rs` `build_router` | EXTEND |
+| 01 | check-arch `team-membership-one-seam` (a) and (b) for `add_team_member`, gold tests | `xtask/src/check_arch.rs` | EXTEND |
+| 02 | Migration 0021 (orphan cleanup, `foundry_team_keeps_a_lead()`, two triggers) | `crates/foundry-store/migrations/0021_team_lead_guard.sql` | CREATE |
+| 02 | `set_team_role` (lock, pre-read, 23514 mapping) + substrate-fact gold tests + the 100-run race | `crates/foundry-store/src/lib.rs`, `crates/foundry-store/tests/team_lead_guard.rs` | EXTEND / CREATE test |
+| 02 | `teams::change_role`; handler `submit_role`; route | services `teams.rs`, app `teams.rs`, `lib.rs` | EXTEND |
+| 02 | check-arch (b) gains `set_team_role` | `xtask/src/check_arch.rs` | EXTEND |
+| 03 | `remove_team_member`; `remove_workspace_member` → transactional with outcome enum (DDD-11) | `crates/foundry-store/src/lib.rs` | EXTEND |
+| 03 | `teams::remove_member`; handler `submit_remove`; route; `submit_remove_member` maps `LastLead` → 409 text | services `teams.rs`, app `teams.rs`, `member_invites.rs`, `lib.rs` | EXTEND |
+| 03 | check-arch (b) gains `remove_team_member` | `xtask/src/check_arch.rs` | EXTEND |
+| 04 | `TeamAccess::of` lead arm → Manage (one arm + table rows) | `crates/foundry-core/src/team_membership.rs` | EXTEND |
+| 05 | Migration 0022; `Store::probe` line; `default_team`, `set_default_team`, `place_on_default_team` helper; `create_member_and_consume` calls it in a savepoint | `migrations/0022_workspace_default_team.sql`, `crates/foundry-store/src/lib.rs` | CREATE / EXTEND |
+| 05 | `teams::set_default_team`; handler `submit_default`; `/teams` select; route | services `teams.rs`, app `teams.rs`, `teams_index.html`, `lib.rs` | EXTEND |
+| 06 | `provision_federated_member` `Created` branch calls the helper in a savepoint | `crates/foundry-store/src/lib.rs` | EXTEND |
+
+No slice ships more than four new components (DISCUSS taste test). No new crate and no new dependency.
+
+### [REF] Driving Ports
+
+1. `GET /teams` (new): index + default select (admin, slice 05).
+2. `POST /teams/default` (new, slice 05).
+3. `GET /team/{team_slug}/members` (new).
+4. `POST /team/{team_slug}/members` (new): add.
+5. `POST /team/{team_slug}/members/{user_id}/role` (new, slice 02).
+6. `POST /team/{team_slug}/members/{user_id}/remove` (new, slice 03).
+7. `GET /` (delta): the "Teams" quick action.
+8. `POST /invites/accept` (delta, slice 05) and `oidc::CALLBACK_PATH` (delta, slice 06): placement inside the store transaction. No handler change.
+9. `POST /workspace/members/remove` (delta, slice 03): 409 `text/plain` on `LastLead`. It deletes team rows on `Removed`.
+10. `GET /team/{team_slug}/project/{project_slug}` (unchanged): newly 200 for added members, and 404 again after removal (no session refresh, because the gate reads rows per request).
+
+### [REF] Driven Ports and Adapters
+
+`foundry_store::Store` (Postgres 16 via sqlx) is the only driven port.
+
+New methods:
+- `team_access_facts`
+- `list_teams`
+- `list_team_members`
+- `list_team_candidates`
+- `add_team_member`
+- `set_team_role`
+- `remove_team_member`
+- `default_team`
+- `set_default_team`
+
+Extended:
+- `remove_workspace_member`
+- `create_member_and_consume`
+- `provision_federated_member`
+- `probe`
+
+The private helper `place_on_default_team` is shared by the two newcomer paths. The schema adds two triggers (0021) and one FK (0022).
+
+External integrations: Keycloak, unchanged (the shipped keycloak-sso lane, 46, is the contract guard). No new external integration, so **no new contract tests** are needed.
+
+### [REF] Technology Choices
+
+None new. Rust workspace toolchain, axum, askama, sqlx 0.8 on Postgres 16 (`postgres:16-alpine` pinned in the harness and in production), `thiserror`. Postgres-feature dependencies, each proven by a gold test:
+- the plpgsql BEFORE ROW trigger visibility rule;
+- the `FOR NO KEY UPDATE` / `FOR KEY SHARE` conflict table;
+- `ON DELETE SET NULL (column_list)`, which needs Postgres 15 or later; an older server fails migration 0022 loudly.
+
+Enforcement: `cargo xtask check-arch` (DDD-19), the exhaustive `TeamAccess` match, and the 0021 trigger.
+
+### [REF] Decisions Table
+
+| ID | Locked decision |
+|---|---|
+| DDD-1 | `teams` vertical across core (policy), services (use-cases), store, app; no new crate |
+| DDD-2 | D16 routes as proposed; plain forms; `{user_id}` parse failure = uniform 404 |
+| DDD-3 | One pure `TeamAccess::of(admin, role)`; one facts read; applied only in `foundry_services::teams` |
+| DDD-4 | Authorization Matrix above |
+| DDD-5 | session → (ws, slug) facts → access → path id → target in workspace → verb; all refusals uniform 404 |
+| DDD-6 | Team-row `FOR NO KEY UPDATE` (id order) + exact pre-read + typed `LastLead`; 0021 BEFORE trigger, same lock, 23514 `team_memberships_team_keeps_a_lead` |
+| DDD-7 | Lead = a lead row; 0021 deletes orphan team rows first |
+| DDD-8 | Last-lead: 409 members page with D15 copy; workspace removal: 409 text/plain with OQ-9 copy, no notification |
+| DDD-9 | Other outcomes 200 re-render, no PRG; stale target re-renders without copy; access recomputed after the write |
+| DDD-10 | Add takes `FOR KEY SHARE` on the target's workspace membership; workspace removal locks it `FOR UPDATE` first |
+| DDD-11 | `remove_workspace_member` is one guarded transaction returning `Removed \| NotMember \| LastLead{team}` |
+| DDD-12 | `workspaces.default_team_id` + `teams UNIQUE (workspace_id, id)` + composite FK `ON DELETE SET NULL (default_team_id)`; 0022 |
+| DDD-13 | `place_on_default_team` helper, savepoint, both newcomer doors, never on link or first-admin |
+| DDD-14 | `POST /teams/default` takes a slug or empty; admin only; one UPDATE |
+| DDD-15 | Probe checks `default_team_id`; unchanged for 0021 |
+| DDD-16 | Five reads; members ordered leads first, then name, then email |
+| DDD-17 | `TeamsIndexPage`, `TeamMembersPage`; dashboard "Teams" first quick action |
+| DDD-18 | One `TeamNotice` copy enum in foundry-app |
+| DDD-19 | check-arch `team-membership-one-seam` (a) SQL writes only in store, (b) team-write methods not called from app/api |
+| DDD-20 | Refusals log nothing; placement failure warns with ids only |
+| DDD-21 | 0021 (slice 02) + 0022 (slice 05); rolling-deploy safe |
+| DDD-22 | Authority read once per request |
+| DDD-23 | No special case for a lead acting on a workspace admin |
+
+### [REF] Reuse Analysis
+
+| Existing Component | File | Overlap | Decision | Justification |
+|---|---|---|---|---|
+| `is_workspace_admin` | `foundry-store/src/lib.rs:2570` | Admin fact | REUSE for `/teams` and `/teams/default`; its predicate is inlined into `team_access_facts` | The facts read needs admin and role in one round trip. Same SQL predicate, `ROLE_ADMIN`. |
+| `find_team_by_slug` / `TeamRow` | `:1537`, `:3277` | (ws, slug) → team | REUSE idiom; method unchanged | Boards keep using it. `team_access_facts` adds the two authority facts the team pages need. |
+| `is_team_member` | `:1569` | Membership fact | REUSE unchanged (boards, D9) | Board authz is deliberately unchanged. The team pages need the role, which it does not return. |
+| `team_belongs_to_workspace` | `:3195` | Team-in-workspace check | NOT REUSED | The default form resolves a slug in the session workspace (DDD-14), and the composite FK enforces INV-7. |
+| `is_on_any_team`, `list_projects_for_workspace` | `:905`, `:881` | Dashboard team state | REUSE unchanged | They read rows per request, so an add or remove shows on the next dashboard with no change. `/teams` reuses `is_on_any_team` semantics through `list_teams(MemberOf)` being empty. |
+| `grant_all_memberships`, `seed_initial_workspace` | `:2937`, `:3455` | Team-row writers | UNCHANGED | Inserts only; never meets the 0021 trigger. Bootstrap leaves the default unset (OQ-4). |
+| `remove_workspace_member` | `:2967` | Workspace removal | EXTEND (DDD-11) | OQ-9 widens this exact method. A second removal method would let the old one keep leaving lead rows. |
+| `create_member_and_consume`, `provision_federated_member` | `:454`, `:548` | Newcomer transactions | EXTEND (DDD-13) | OQ-5 requires placement in their transaction. One shared private helper. |
+| `Store::probe` | `:210` | Schema substrate check | EXTEND (DDD-15) | The 0017/0018 idiom. |
+| `member_invites::submit_remove_member` | `foundry-app/src/member_invites.rs:248` | Workspace removal door | EXTEND (409 arm) | Same gate, same lookups; one new outcome arm. |
+| `member_invites::require_workspace_admin` | `member_invites.rs:314` | Admin gate | NOT REUSED | Team routes gate inside the use-case (ADR-003). The workspace-name lookup it bundles is not needed. |
+| `signin::ensure_csrf_cookie`, `bootstrap::resource_not_found_page`, `NavContext::home_for` | `signin.rs`, `bootstrap.rs:407`, `nav.rs:83` | CSRF mint, uniform 404, rail | REUSE unchanged | The byte-identical 404 is the D5 oracle guarantee. |
+| `Services` + use-case module idiom | `foundry-services/src/lib.rs:35`, `workspaces.rs`, `projects.rs` | Use-case seam | EXTEND (new `teams` module + delegations) | ADR-PROJECT-NAME-001 placement. No team use-case exists. |
+| `dashboard_root.html` Quick actions | `templates/dashboard_root.html:31` | Dashboard links | EXTEND (one `<li>`) | D12. The no-team string is unchanged. |
+| Lane `FOR UPDATE` serialisation | ADR-BOARD-LANE-002/003, `delete_lane_with_fate` | Per-aggregate lock | REUSE idiom | Same READ COMMITTED + row-lock argument, applied to the team row. |
+| Name-rule trigger idiom | `0019`/`0020`, ADR-NAME-DB-001 | "Every caller" DB rule | REUSE idiom | 23514, a named constraint, `SET search_path FROM CURRENT`, a re-runnable body, probe unchanged. |
+| `users.active_workspace_id … ON DELETE SET NULL` | `0010` | Self-clearing pointer | REUSE idiom | A composite FK is added for INV-7. |
+| check-arch `call_sites`, `OneSourceRule`, provisioned-marker SQL scanner | `xtask/src/check_arch.rs:1102`, `:4536` | Seam and SQL-write guards | EXTEND (new rule reusing the helpers) | Same mechanism, new subject. |
+
+CREATE NEW, each with no existing alternative:
+- `foundry_core::team_membership`: no team-role or authority type exists.
+- `foundry_services::teams`: no team use-case exists.
+- `foundry-app/src/teams.rs`: no team page exists. It differs from `member_invites.rs` in authz (team-scoped, two levels) and route family.
+- Two templates.
+- Migrations 0021 and 0022.
+- One check-arch rule.
+
+Zero unjustified CREATE NEW.
+
+### [REF] Outcome Collision Check
+
+`nwave-ai outcomes check-delta docs/feature/team-membership/feature-delta.md` was **not run**: this session has no shell. A manual Tier-1 scan of `docs/product/outcomes/registry.yaml` (OUT-1 to OUT-20) for the keywords team, membership, lead, default, invite and provision finds **no collision**. No OUT row covers team membership, team authority, a default team or newcomer placement. The nearest is **OUT-5** (*"A board always keeps at least one lane"*). It has the same last-X-refusal shape but a different aggregate, so it is related, not a duplicate. DISTILL runs the CLI and adds the rows (OQ-D2).
+
+### [REF] C4 System Context (L1, delta)
+
+```mermaid
+C4Context
+  title System Context: team membership (team-membership)
+  Person(admin, "Workspace admin (Priya)", "Puts workspace members on teams, sets the default team")
+  Person(lead, "Team lead (Lena)", "Manages her own team's members and leads")
+  Person(newcomer, "Newcomer (Tomás)", "Joins by invite or first Keycloak sign-in")
+  System(foundry, "foundry", "Self-hosted issue tracker (modular Rust monolith)")
+  System_Ext(kc, "Keycloak", "OIDC identity provider (unchanged)")
+  Rel(admin, foundry, "Manages team membership and the default team through", "HTTPS forms")
+  Rel(lead, foundry, "Adds, promotes and removes teammates through", "HTTPS forms")
+  Rel(newcomer, foundry, "Accepts an invite or signs in through", "HTTPS")
+  Rel(foundry, kc, "Verifies first sign-in identity with", "OIDC, RS256")
+  Rel(foundry, newcomer, "Shows the default team's boards on the first dashboard to")
+```
+
+### [REF] C4 Container (L2, delta)
+
+```mermaid
+C4Container
+  title Container: where team membership lives
+  Person(user, "Admin / lead / member", "Browser, scripting optional")
+  Container_Boundary(f, "foundry") {
+    Container(app, "foundry-app", "Rust / axum + askama", "teams.rs handlers (/teams, /team/{slug}/members…), member_invites.rs (409 last lead), invites_accept.rs, oidc.rs, TeamNotice copy")
+    Container(svc, "foundry-services", "Rust", "teams:: list_teams, team_members, add_member, change_role, remove_member, set_default_team")
+    Container(core, "foundry-core", "Rust, no I/O", "TeamRole, TeamAccess::of (the one authority policy)")
+    Container(store, "foundry-store", "Rust / sqlx", "team_access_facts, team reads, add/set_role/remove (team-row lock + pre-read), remove_workspace_member (guarded), place_on_default_team (savepoint)")
+    ContainerDb(pg, "PostgreSQL 16", "", "team_memberships + lead-guard triggers (0021); workspaces.default_team_id composite FK (0022)")
+  }
+  System_Ext(kc, "Keycloak", "OIDC")
+  Rel(user, app, "Submits team forms to", "HTTPS form POST, _csrf")
+  Rel(app, svc, "Delegates team reads and writes to")
+  Rel(svc, core, "Decides authority with")
+  Rel(svc, store, "Reads facts from and writes membership through")
+  Rel(app, store, "Accepts invites, provisions and removes workspace members through")
+  Rel(app, kc, "Exchanges the sign-in code with")
+  Rel(store, pg, "Locks team rows in, and writes rows guarded by triggers to")
+```
+
+### [REF] C4 Component (L3: the team-membership write path)
+
+```mermaid
+C4Component
+  title Component: one team write, from form to guarded row
+  Container_Boundary(appb, "foundry-app") {
+    Component(h, "teams.rs handlers", "axum", "Session → path parse → map TeamError::NotFound to the uniform 404 → render TeamMembersPage + TeamNotice")
+  }
+  Container_Boundary(svcb, "foundry-services") {
+    Component(uc, "teams use-cases", "Rust", "facts → TeamAccess → target-in-workspace → store write → outcome")
+  }
+  Container_Boundary(coreb, "foundry-core") {
+    Component(pol, "TeamAccess::of", "pure fn", "admin or lead → Manage; member → View; else None")
+  }
+  Container_Boundary(storeb, "foundry-store") {
+    Component(facts, "team_access_facts", "one SELECT", "team by (ws, slug), is admin, role")
+    Component(w, "add / set_role / remove", "one transaction each", "FOR KEY SHARE target membership (add) or FOR NO KEY UPDATE team row (role, remove) → exact pre-read → write → map 23514 to LastLead")
+  }
+  ContainerDb(trg, "team_memberships lead guard", "plpgsql BEFORE triggers", "Same team-row lock; refuses removing the last lead; exempt when the team row is gone")
+  Rel(h, uc, "Calls with the session principal")
+  Rel(uc, facts, "Reads authority facts from")
+  Rel(uc, pol, "Classifies access with")
+  Rel(uc, w, "Writes through")
+  Rel(w, trg, "Fires, as the backstop for every caller")
+```
+
+### [REF] Quality Attributes / NFRs
+
+- **Security (D5, D10, OQ-1).** One policy (DDD-3) and one gate order (DDD-5). Every refusal is `resource_not_found_page()` byte-for-byte. Tenancy comes from the session only, and `{user_id}` is verified as a member of the acting workspace before any write. Board authz is unchanged (D9). check-arch (b) stops a door from writing without the policy.
+- **Integrity.** INV-1 to INV-4 and INV-8 hold through the lock, the exact read and the trigger (DDD-6). INV-5 holds through the workspace-membership row lock (DDD-10). INV-7 holds through the composite FK (DDD-12). Every write is idempotent (D13).
+- **Reliability (D17).** Placement runs in a savepoint and never fails an accept or a sign-in. The probe refuses readiness without the 0022 column.
+- **Performance.** Every page is a constant number of indexed reads: the PK `(team_id, user_id)` and `UNIQUE (workspace_id, slug)`. The team-row lock is per team, held only for a two-to-four-statement transaction, and does not block adds or project creates (`NO KEY` vs `KEY SHARE`).
+- **Testability.** The policy is pure. The substrate facts are proven at store level. The race runs 100 times at store level.
+- **Deployability.** Two forward-only migrations. Rolling-deploy safe (DDD-21).
+
+### [REF] Test Seams (for DISTILL / DELIVER)
+
+- **Core:** `TeamAccess::of` over all six inputs (the slice 01 table, then the slice 04 table, which differs in exactly one row). `TeamRole::parse("lead"/"member"/"Lead"/"")`.
+- **Store, real Postgres (`foundry-store/tests/team_lead_guard.rs`):**
+  - Sole-lead demote → `LastLead`, row unchanged.
+  - Two-lead demote → ok.
+  - One statement demoting both leads → 23514 named `team_memberships_team_keeps_a_lead`.
+  - Deleting a team or workspace with a lead → succeeds (cascade exemption).
+  - Promote in a leaderless team → ok.
+  - An add during a demote is not blocked (`NO KEY` vs `KEY SHARE`, with a timeout assertion).
+  - **The race:** two connections, a barrier, demote/demote and remove/demote of the last two leads, at least 100 iterations, exactly one success and zero 500-class errors each time.
+  - INV-5: add vs workspace removal raced both ways, never an orphan.
+  - 0021: orphans deleted, non-orphans byte-identical.
+  - 0022: foreign default → 23503; team delete nulls only the default; workspace delete with a default set succeeds; a placement forced to fail inside the savepoint leaves the account and membership committed.
+- **Acceptance:** the KPI-4 authz matrix (above) on every route, both verbs, with row-count assertions. One HTTP-level concurrency scenario per INV-2/INV-3 (run several times, not 100; the 100-run guarantee sits at store level, OQ-D3).
+
+### [REF] Open Questions (for DISTILL / DELIVER)
+
+- **OQ-D1 (DISTILL):** pin the statuses: 404 for every refusal, 409 for last lead (page, and text for workspace removal), 200 otherwise. A tokenless POST is refused by the shipped `csrf_middleware` before any handler runs. That is the middleware's response, outside the 404 matrix, as on the lane routes.
+- **OQ-D2 (DISTILL):** run `nwave-ai outcomes check-delta`. Add the OUT rows: an operation (manage team membership, input shapes as DDD-2), an invariant (a team never loses its last lead, `related: [OUT-5]`), and an operation (newcomer placement on the default team).
+- **OQ-D3 (DISTILL):** DoD 3's "100 repeated races" is satisfied at store level, where the race is deterministic with a barrier. Acceptance carries one HTTP race scenario per verb pair, repeated a few times, not 100 (`ab-test-needs-repeats` lesson: lanes are flaky under load).
+- **OQ-D4 (DELIVER, before slice 02 ships):** read-only count on dev and prod of orphan team rows (`team_memberships` whose user has no `workspace_memberships` row in the team's workspace). It is expected to be 0. Record it in the CHANGELOG migration note for 0021.
+- **OQ-D5 (DELIVER):** the LAYER-1e detector flags `*_in_workspace(` calls that take a parsed UUID. Name the new store methods without that suffix, and keep the session `workspace_id` as the first argument (DDD-16 names comply).
+- **OQ-D6 (DELIVER):** the shipped recipient-notification-preferences "workspace is deleted" scenario is now the regression guard for the trigger's cascade exemption. It must stay green.
+- **OQ-D7 (DELIVER):** confirm `export_workspace_gold` does not pin the `workspaces` row's key set (0022 adds `default_team_id`).
+- **OQ-D9 (future features, recorded):** a user hard-delete (`users … ON DELETE CASCADE`) of a sole lead will be refused by the 0021 trigger, because the team row still exists. No user delete exists. That feature must remove or reassign leadership first (ADR-TEAM-MEMBERSHIP-001, Consequences).
+- **OQ-D8 (DISTILL):** a lead removing or demoting a workspace admin on their team is allowed (DDD-23). Include one scenario so the absence of a special case is pinned.
+
+### [REF] Changed Assumptions
+
+1. Original (DISCUSS DoD 8): *"Upgrade: slices 01-04 need no migration. Slice 05's migration is additive, rolling-deploy safe (an older replica ignores the default), and its CHANGELOG migration notes say so."* New: slice 02 ships migration **0021** (the lead-guard triggers, plus a one-time deletion of orphaned team rows). Slice 05 ships **0022** (additive, as stated). DISCUSS anticipated this ("No schema change in slices 01-04, unless DESIGN's INV-1 mechanism needs one"). INV-8 is why it does: a store-only guard protects only the callers that remember it.
+2. Original (US-TM-06 slice-05 AC): *"Lena (not admin), or a Globex team id → uniform 404, and the default is unchanged."* New: *"Lena (not admin), or a team that is not one of Canzan Labs's teams → uniform 404, and the default is unchanged."* The form submits a team **slug**, resolved in the acting workspace (D10), so a Globex team cannot be named at all. The composite FK makes a cross-workspace default impossible for every caller. The intent and the observable refusal are unchanged.
+3. Original (DISCUSS Membership inventory): *"`POST /workspace/members/remove` deletes the `workspace_memberships` row only. The person's `team_memberships` rows stay, including a `lead` row."* New: from slice 02, migration 0021 deletes any such leftover rows once (OQ-9's accepted rule applied to legacy data, expected count 0, OQ-D4). From slice 03, the route removes them as part of the removal and refuses a last lead with a **409 `text/plain`** body carrying the OQ-9 copy (the route's existing plain-text response family). It sends no `member_removed` notification on refusal.
+4. Original (D16): *"They work with scripting disabled (plain forms; htmx optional)."* New: plain forms only. No htmx is used on these pages, and each write re-renders the full page (no post-redirect-get, which the idempotent writes of D13 make safe). This narrows an option and changes no AC.
+
+No story's acceptance intent changes, so no separate `upstream-changes.md` is created (lean layout, house precedent).
+
+### [REF] Handoff
+
+- **DISTILL:** pinned seams are the eleven `TeamNotice` strings (D15 + OQ-9), the statuses (OQ-D1), the Authorization Matrix, the DOM of `team_members.html` (rows "{name} · {email} · {role}", candidate options "{name} — {email}", controls only when `can_manage`), and `/teams` "{team} · {n} member(s)". See OQ-D1, D2, D3, D8.
+- **DEVOPS:** two forward-only migrations (0021 slice 02, 0022 slice 05) with CHANGELOG notes, a probe delta (0022 column), Postgres 15 or later required (pinned 16). No new external integration, so no new contract tests. Paradigm OOP (`nw-software-crafter`).
+- **ADRs:** `docs/product/architecture/adr-team-membership-001-never-leaderless-lock-and-trigger.md`, `adr-team-membership-002-default-team-column-composite-fk.md`, `adr-team-membership-003-one-team-authority-policy.md`.

@@ -428,6 +428,66 @@ rendered by `{{ crate::views::site_footer()|safe }}`.
 See `docs/feature/release-version-footer/feature-delta.md` (DESIGN DDD-1..17 and its revision,
 DELIVER 2026-10-04).
 
+### Teams, team authority and the never-leaderless guard
+
+**Designed (team-membership DESIGN, 2026-10-09).** A team is a workspace's unit of board access.
+`team_memberships(team_id, user_id, role IN ('lead','member'))` is the **only** board gate
+(`Store::is_team_member`, unchanged). Managing a team grants no board access to it.
+
+**Authority.** Who may view or manage a team's membership has one definition: the pure
+`foundry_core::TeamAccess::of(is_workspace_admin, Option<TeamRole>)`.
+- A workspace admin, or the team's lead, may **manage**.
+- A member may **view**.
+- Anyone else, including an instance admin with no workspace-admin row, gets the uniform 404.
+
+Its two facts come from one store read keyed by (session workspace, team slug). It is applied
+only inside the `foundry_services::teams` use-cases. Handlers in `foundry-app/src/teams.rs`
+(`/teams`, `/team/{slug}/members…`) never compute authority. check-arch
+`team-membership-one-seam` keeps it that way:
+- SQL that writes `team_memberships` lives only in `foundry-store`.
+- The store's team-write methods are never called from `foundry-app` or `foundry-api`.
+
+**Never leaderless.** A team that has a lead keeps one through every write. Every write that can
+remove a lead (demote, remove from team, workspace removal) first takes
+`FOR NO KEY UPDATE` on the team row(s), in team-id order. At READ COMMITTED, the read that follows
+is exact, so the store refuses the last lead with a typed outcome, and concurrent demotions cannot
+both succeed. Migration 0021's `BEFORE` row triggers on `team_memberships` take the **same** lock
+and refuse the same write with SQLSTATE 23514, constraint `team_memberships_team_keeps_a_lead`,
+for any caller: psql, scripts, future code. They exempt a team that is itself being deleted (a
+cascade).
+
+`FOR NO KEY UPDATE` does not conflict with foreign-key `KEY SHARE`, so the lock never blocks adding
+a member or creating a project.
+
+Removing someone from a workspace removes their team rows in it and is refused while they are any
+team's last lead. Before installing the triggers, 0021 deletes any team rows of users who have
+already left the team's workspace. After that, "lead" means a lead row, everywhere.
+
+An add locks the target's `workspace_memberships` row `FOR KEY SHARE`, and workspace removal
+locks it `FOR UPDATE` first, so nobody can end up on a team of a workspace they are not in.
+
+**Default team.** `workspaces.default_team_id` is nullable, with the composite FK
+`(id, default_team_id) → teams (workspace_id, id) ON DELETE SET NULL (default_team_id)`
+(migration 0022, Postgres 15 or later). The default is therefore always one of the workspace's
+own teams or none, for every caller, and it clears itself when its team goes.
+
+Member-invite accept and Keycloak provisioning (`Created` only) place the newcomer on it as
+Member. They do this through one store helper, inside a savepoint in their own transaction. A
+placement failure is logged and rolled back to the savepoint, and never fails the accept or the
+sign-in. Linking an existing account, and the first-admin invite, place nobody. `Store::probe`
+refuses readiness without the column.
+
+Consequences every future feature inherits:
+- A new membership writer is a store method plus a services caller. It is never SQL in a door.
+- A future team delete or user hard-delete meets the trigger. The cascade exemption covers team
+  and workspace deletes. A user hard-delete of a sole lead is refused until that feature decides.
+- A future multi-team writer must lock team rows in id order, or risk 40P01 against the store's
+  paths.
+
+See `adr-team-membership-001-never-leaderless-lock-and-trigger.md`,
+`adr-team-membership-002-default-team-column-composite-fk.md` and
+`adr-team-membership-003-one-team-authority-policy.md`.
+
 ### Crate graph
 
 ```mermaid
