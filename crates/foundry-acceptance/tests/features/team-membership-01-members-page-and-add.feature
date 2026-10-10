@@ -132,7 +132,7 @@ Feature: A workspace admin sees who is on a team and puts a workspace member on 
     And Tomás Rivera is now a Member of Backend, and nothing else changed
     And Tomás Rivera sees Identity Platform on his dashboard and opens its board
 
-  @us-tm-02 @edge @contract-shape:unbounded-preservation @pending
+  @us-tm-02 @edge @contract-shape:unbounded-preservation
   Scenario: Only workspace members who are not on the team are offered, each by name and address
     Given Jeff's Keycloak account "jeff@unintelligent-design.us" has signed in for the first time
     When Jeff opens General's members page
@@ -144,13 +144,13 @@ Feature: A workspace admin sees who is on a team and puts a workspace member on 
       | Sam Okafor — sam.okafor@canzan.dev         |
       | Tomás Rivera — tomas.rivera@canzan.dev     |
 
-  @us-tm-02 @edge @contract-shape:unbounded-preservation @pending
+  @us-tm-02 @edge @contract-shape:unbounded-preservation
   Scenario: When everyone is already on the team, there is nobody to add
     Given everyone in Canzan Labs is on Ops
     When Priya opens Ops's members page
     Then Add a member is replaced by "Everyone in this workspace is already on Ops."
 
-  @us-tm-02 @edge @contract-shape:unbounded-preservation @pending
+  @us-tm-02 @edge @contract-shape:unbounded-preservation
   Scenario: Adding someone already on the team, from an older page, changes nothing and says so
     Given Priya opened Backend's members page earlier
     And Priya has added Tomás Rivera to Backend
@@ -159,7 +159,7 @@ Feature: A workspace admin sees who is on a team and puts a workspace member on 
     And no one's membership changed
     And Backend's members page lists "Tomás Rivera · tomas.rivera@canzan.dev · Member" once
 
-  @us-tm-02 @error @kpi @contract-shape:unbounded-preservation @pending
+  @us-tm-02 @error @kpi @contract-shape:unbounded-preservation
   Scenario Outline: Someone who is not a Canzan Labs member cannot be added
     When Priya submits an add of <target> to Backend
     Then the answer is the page that never existed
@@ -172,7 +172,7 @@ Feature: A workspace admin sees who is on a team and puts a workspace member on 
       | someone who never existed |
       | a garbled name            |
 
-  @us-tm-02 @error @kpi @contract-shape:unbounded-preservation @pending
+  @us-tm-02 @error @kpi @contract-shape:unbounded-preservation
   Scenario Outline: Someone without the right cannot add anyone to a team
     When <who> submits an add of Tomás Rivera to <team>
     Then the answer is the page that never existed
@@ -187,7 +187,7 @@ Feature: A workspace admin sees who is on a team and puts a workspace member on 
       | Lena                 | General |
       | Hugo                 | Backend |
 
-  @us-tm-02 @error @kpi @contract-shape:unbounded-preservation @pending
+  @us-tm-02 @error @kpi @contract-shape:unbounded-preservation
   Scenario: An add aimed at another workspace's team or at a team that does not exist is refused the same way
     When Priya submits an add of Tomás Rivera to Payments
     Then the answer is the page that never existed
@@ -197,7 +197,7 @@ Feature: A workspace admin sees who is on a team and puts a workspace member on 
     Then the answer is the page that never existed
     And no one's membership changed
 
-  @us-tm-02 @error @contract-shape:unbounded-preservation @pending
+  @us-tm-02 @error @contract-shape:unbounded-preservation
   Scenario: Someone who left the workspace cannot be added from a page opened before they left
     Given Priya opened Backend's members page earlier
     And Tomás Rivera has since left Canzan Labs
@@ -205,7 +205,7 @@ Feature: A workspace admin sees who is on a team and puts a workspace member on 
     Then the answer is the page that never existed
     And no one's membership changed
 
-  @us-tm-02 @error @contract-shape:unbounded-preservation @pending
+  @us-tm-02 @error @contract-shape:unbounded-preservation
   Scenario: An add sent without the page's token is turned away, and nothing changes
     When Priya submits an add of Tomás Rivera to Backend without the page's token
     Then the answer is turned away as a forged form

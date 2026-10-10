@@ -100,6 +100,7 @@ fn source_violations(root: &Path) -> Vec<String> {
     violations.extend(check_workspace_name_one_source(root));
     violations.extend(check_project_name_one_source(root));
     violations.extend(check_name_rule_legacy_seam(root));
+    violations.extend(check_team_membership_one_seam(root));
     violations
 }
 
@@ -5083,5 +5084,341 @@ mod name_rule_legacy_seam_tests {
             !violations.is_empty(),
             "a missing crates directory must FAIL the guard, never pass it vacuously"
         );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// team-membership DDD-19 — `team-membership-one-seam`
+// ---------------------------------------------------------------------------
+
+/// The store's team-membership writes: no door may call them directly — every
+/// write goes through a `foundry-services` use-case and its policy (ADR-003).
+/// 02-01 adds `set_team_role`, 03-01 adds `remove_team_member`.
+const TEAM_WRITE_SEAMS: [&str; 1] = ["add_team_member"];
+
+/// The doors whose `src` must not call a [`TEAM_WRITE_SEAMS`] method.
+const TEAM_WRITE_SEAMS_FORBIDDEN_IN: [&str; 2] = ["foundry-app", "foundry-api"];
+
+/// The crates whose `src` may hold SQL writing `team_memberships`: the store
+/// (its one home) and the acceptance harness (fixtures seed rows directly).
+const TEAM_MEMBERSHIP_SQL_ALLOWED_IN: [&str; 2] = ["foundry-store", "foundry-acceptance"];
+
+/// `team-membership-one-seam` (team-membership DDD-19).
+///
+/// (a) no SQL `INSERT INTO` / `UPDATE` / `DELETE FROM team_memberships` in any
+/// `.rs` under `crates/*/src` except [`TEAM_MEMBERSHIP_SQL_ALLOWED_IN`] — case
+/// and line breaks inside one string literal do not matter; comments do not
+/// count; each crate's `tests/` is outside `src` and so out of scope.
+///
+/// (b) no [`TEAM_WRITE_SEAMS`] method has a call site under
+/// `crates/{foundry-app,foundry-api}/src`.
+///
+/// A missing `crates/`, an unreadable directory or file fails the rule.
+fn check_team_membership_one_seam(root: &Path) -> Vec<String> {
+    let crates_dir = root.join("crates");
+    let Ok(entries) = std::fs::read_dir(&crates_dir) else {
+        return vec![format!(
+            "team-membership-one-seam: cannot list {} — no crate could be checked for a \
+             team_memberships write outside the store (DDD-19).",
+            crates_dir.display()
+        )];
+    };
+    let mut crate_dirs: Vec<PathBuf> = entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.join("src").is_dir())
+        .collect();
+    crate_dirs.sort();
+
+    let mut violations = Vec::new();
+    for crate_dir in crate_dirs {
+        let crate_name = crate_dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        let scan_sql = !TEAM_MEMBERSHIP_SQL_ALLOWED_IN.contains(&crate_name);
+        let scan_calls = TEAM_WRITE_SEAMS_FORBIDDEN_IN.contains(&crate_name);
+        if !(scan_sql || scan_calls) {
+            continue;
+        }
+        let (sources, unreadable) = files_under(&crate_dir.join("src"), "rs", &|_| false);
+        for dir in &unreadable {
+            violations.push(format!(
+                "team-membership-one-seam: cannot list {} — it could not be checked for a \
+                 team_memberships write (DDD-19).",
+                rel(root, dir)
+            ));
+        }
+        for file in &sources {
+            let Ok(contents) = std::fs::read_to_string(file) else {
+                violations.push(format!(
+                    "team-membership-one-seam: cannot read {} (DDD-19).",
+                    rel(root, file)
+                ));
+                continue;
+            };
+            if scan_sql {
+                violations.extend(team_membership_sql_violations_in(root, file, &contents));
+            }
+            if scan_calls {
+                violations.extend(team_write_call_violations_in(root, file, &contents));
+            }
+        }
+    }
+    violations
+}
+
+/// The DDD-19a violations in one file: each SQL write of `team_memberships`,
+/// named `file:line`.
+fn team_membership_sql_violations_in(root: &Path, file: &Path, contents: &str) -> Vec<String> {
+    rust_string_literals(contents)
+        .iter()
+        .flat_map(|(first_line, sql)| {
+            team_memberships_writes(sql)
+                .into_iter()
+                .map(move |offset| first_line + offset)
+        })
+        .map(|line| {
+            format!(
+                "team-membership-one-seam: {}:{line} writes team_memberships in SQL outside \
+                 foundry-store — every membership write goes through the store, its lock and \
+                 the lead trigger (DDD-19, ADR-TEAM-MEMBERSHIP-001)",
+                rel(root, file),
+            )
+        })
+        .collect()
+}
+
+/// The 0-based line offsets, within `sql`, of every `INSERT INTO` / `UPDATE` /
+/// `DELETE FROM` naming `team_memberships` as its target. SQL comments are
+/// stripped first; the verb may sit on an earlier line than the table.
+fn team_memberships_writes(sql: &str) -> Vec<usize> {
+    const TABLE: &str = "team_memberships";
+    let code = strip_sql_comments(sql).to_ascii_lowercase();
+    // The word ending just before `end`, and where it starts.
+    let word_before = |end: usize| {
+        let text = code[..end].trim_end();
+        let start = text.rfind(char::is_whitespace).map_or(0, |i| i + 1);
+        (&text[start..], start)
+    };
+    let mut offsets = Vec::new();
+    let mut from = 0;
+    while let Some(at) = find_sql_word(&code, TABLE, from) {
+        from = at + TABLE.len();
+        let (last, last_at) = word_before(at);
+        let (verb, verb_at) = word_before(last_at);
+        let statement_at = match (last, verb) {
+            ("update", _) => Some(last_at),
+            ("into", "insert") | ("from", "delete") => Some(verb_at),
+            _ => None,
+        };
+        if let Some(statement_at) = statement_at {
+            offsets.push(code[..statement_at].matches('\n').count());
+        }
+    }
+    offsets
+}
+
+/// The DDD-19b violations in one file: each call of a team-write seam, named
+/// `file:line`.
+fn team_write_call_violations_in(root: &Path, file: &Path, contents: &str) -> Vec<String> {
+    TEAM_WRITE_SEAMS
+        .iter()
+        .flat_map(|seam| {
+            call_sites(contents, seam)
+                .into_iter()
+                .map(move |line| (seam, line))
+        })
+        .map(|(seam, line)| {
+            format!(
+                "team-membership-one-seam: {}:{line} calls `{seam}` from a door — team writes \
+                 go through the foundry-services use-case and its policy (DDD-19, ADR-003)",
+                rel(root, file),
+            )
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod team_membership_one_seam_tests {
+    //! Injected-violation gold tests for `team-membership-one-seam` (DDD-19), the
+    //! `name_rule_legacy_seam_tests` idiom: a staged tree, the rule run against
+    //! it, the violations named by `file:line`.
+
+    use super::check_team_membership_one_seam;
+
+    fn stage(files: &[(&str, &str)]) -> tempfile::TempDir {
+        let dir = tempfile::tempdir().expect("tempdir");
+        for (rel_path, body) in files {
+            let path = dir.path().join(rel_path);
+            std::fs::create_dir_all(path.parent().expect("parent")).expect("mkdir");
+            std::fs::write(&path, body).expect("write fixture");
+        }
+        dir
+    }
+
+    fn flagged_at(violations: &[String], location: &str) -> bool {
+        violations.iter().any(|v| v.contains(location))
+    }
+
+    /// The store's own writes, as shipped: the one place SQL may write the table.
+    const STORE_TEAMS: &str = "pub async fn add_team_member(&self) {\n    \
+        sqlx::query(\n        \"INSERT INTO team_memberships (team_id, user_id, role)\n         \
+        SELECT $1, $2, 'member' ON CONFLICT DO NOTHING\",\n    );\n}\n";
+
+    // ---- clause (a): SQL writing team_memberships lives only in foundry-store/src
+
+    #[test]
+    fn a_team_memberships_write_in_store_src_acceptance_or_tests_passes() {
+        let tree = stage(&[
+            ("crates/foundry-store/src/teams.rs", STORE_TEAMS),
+            (
+                "crates/foundry-store/src/bootstrap.rs",
+                "sqlx::query(\"DELETE FROM team_memberships WHERE user_id = $1\");\n",
+            ),
+            (
+                "crates/foundry-acceptance/src/steps/feature_x.rs",
+                "sqlx::query(\"INSERT INTO team_memberships (team_id, user_id, role) VALUES ($1, $2, 'lead')\");\n",
+            ),
+            (
+                "crates/foundry-acceptance/src/support/team_membership.rs",
+                "sqlx::query(\"UPDATE team_memberships SET role = $3\");\n",
+            ),
+            (
+                "crates/foundry-store/tests/team_lead_guard.rs",
+                "sqlx::query(\"UPDATE team_memberships SET role = 'member' WHERE team_id = $1\");\n",
+            ),
+            (
+                "crates/foundry-services/tests/write_use_cases.rs",
+                "sqlx::query(\"INSERT INTO team_memberships (team_id, user_id, role) VALUES ($1, $2, 'member')\");\n",
+            ),
+        ]);
+        let violations = check_team_membership_one_seam(tree.path());
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+
+    #[test]
+    fn a_team_memberships_write_in_any_other_crates_src_is_flagged() {
+        let tree = stage(&[
+            ("crates/foundry-store/src/teams.rs", STORE_TEAMS),
+            (
+                "crates/foundry-app/src/teams.rs",
+                "fn a() {}\nsqlx::query(\"INSERT INTO team_memberships (team_id, user_id, role) VALUES ($1, $2, 'member')\");\n",
+            ),
+            (
+                "crates/foundry-services/src/teams.rs",
+                "\n\nlet _ = sqlx::query(r#\"\n    update\n    Team_Memberships SET role = 'lead'\"#);\n",
+            ),
+            (
+                "crates/foundry-api/src/lib.rs",
+                "sqlx::query(\"DELETE   FROM team_memberships WHERE user_id = $1\");\n",
+            ),
+        ]);
+        let violations = check_team_membership_one_seam(tree.path());
+        assert_eq!(violations.len(), 3, "{violations:?}");
+        assert!(
+            flagged_at(&violations, "crates/foundry-app/src/teams.rs:2"),
+            "{violations:?}"
+        );
+        assert!(
+            flagged_at(&violations, "crates/foundry-services/src/teams.rs:4"),
+            "letter case and line breaks do not matter to SQL; the verb's line is named: {violations:?}"
+        );
+        assert!(
+            flagged_at(&violations, "crates/foundry-api/src/lib.rs:1"),
+            "{violations:?}"
+        );
+    }
+
+    #[test]
+    fn a_read_a_comment_or_another_table_outside_the_store_is_not_a_write() {
+        let tree = stage(&[
+            ("crates/foundry-store/src/teams.rs", STORE_TEAMS),
+            (
+                "crates/foundry-app/src/teams.rs",
+                "// sqlx::query(\"DELETE FROM team_memberships\")\n\
+                 const READ: &str = \"SELECT user_id FROM team_memberships WHERE team_id = $1\";\n\
+                 const OTHER: &str = \"DELETE FROM team_memberships_archive WHERE id = $1\";\n\
+                 const JOIN: &str = \"UPDATE teams SET name = $1 FROM team_memberships tm WHERE tm.team_id = teams.id\";\n",
+            ),
+        ]);
+        let violations = check_team_membership_one_seam(tree.path());
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+
+    // ---- clause (b): the store's team writes have no call site in app or api src
+
+    #[test]
+    fn a_team_write_called_from_app_or_api_src_is_flagged() {
+        let tree = stage(&[
+            ("crates/foundry-store/src/teams.rs", STORE_TEAMS),
+            (
+                "crates/foundry-app/src/teams.rs",
+                "fn a() {}\nlet _ = state.store.add_team_member(ws, team, user).await;\n",
+            ),
+            (
+                "crates/foundry-api/src/lib.rs",
+                "\nlet _ = store\n    .add_team_member\n    (ws, team, user);\n",
+            ),
+        ]);
+        let violations = check_team_membership_one_seam(tree.path());
+        assert_eq!(violations.len(), 2, "{violations:?}");
+        assert!(
+            flagged_at(&violations, "crates/foundry-app/src/teams.rs:2"),
+            "{violations:?}"
+        );
+        assert!(
+            flagged_at(&violations, "crates/foundry-api/src/lib.rs:3"),
+            "a call split across lines is still a call: {violations:?}"
+        );
+    }
+
+    #[test]
+    fn a_team_write_called_from_services_store_or_tests_passes() {
+        let tree = stage(&[
+            ("crates/foundry-store/src/teams.rs", STORE_TEAMS),
+            (
+                "crates/foundry-services/src/teams.rs",
+                "let added = self.store.add_team_member(ws, facts.team_id, user_id).await?;\n",
+            ),
+            (
+                "crates/foundry-store/tests/team_lead_guard.rs",
+                "s1.add_team_member(ws, team, tomas).await;\n",
+            ),
+            (
+                "crates/foundry-app/tests/teams.rs",
+                "store.add_team_member(ws, team, tomas).await;\n",
+            ),
+            (
+                "crates/foundry-app/src/teams.rs",
+                "// the use-case calls add_team_member( behind the policy\n\
+                 let r = services.add_member_to_team(principal, slug, user_id).await;\n",
+            ),
+        ]);
+        let violations = check_team_membership_one_seam(tree.path());
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+
+    #[test]
+    fn a_missing_crates_directory_fails_the_rule() {
+        let tree = stage(&[("README.md", "nothing here\n")]);
+        let violations = check_team_membership_one_seam(tree.path());
+        assert!(
+            !violations.is_empty(),
+            "a missing crates directory must FAIL the guard, never pass it vacuously"
+        );
+    }
+
+    #[test]
+    fn the_shipped_tree_passes() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("workspace root")
+            .to_path_buf();
+        let store = std::fs::read_to_string(root.join("crates/foundry-store/src/teams.rs"))
+            .expect("store teams");
+        assert!(
+            store.contains("INSERT INTO team_memberships"),
+            "ANTI-VACUITY: the store is expected to write team_memberships"
+        );
+        let violations = check_team_membership_one_seam(&root);
+        assert!(violations.is_empty(), "{violations:?}");
     }
 }
