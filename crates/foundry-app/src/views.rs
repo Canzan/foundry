@@ -809,6 +809,7 @@ pub struct TeamMembersPage {
 /// A members-page row: "{name} · {email} · {Lead|Member}" (D8).
 #[derive(Debug, Clone)]
 pub struct TeamMemberLine {
+    pub user_id: String,
     pub name: String,
     pub email: String,
     pub role_label: &'static str,

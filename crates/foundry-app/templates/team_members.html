@@ -7,7 +7,25 @@
   <h2>Members</h2>
   <ul class="team-members__list">
     {% for m in members %}
-    <li>{{ m.name }} · {{ m.email }} · {{ m.role_label }}</li>
+    <li>
+      <span class="team-members__who">{{ m.name }} · {{ m.email }} · {{ m.role_label }}</span>
+      {% if can_manage %}
+      <form method="post" action="/team/{{ team_slug }}/members/{{ m.user_id }}/role">
+        <input type="hidden" name="_csrf" value="{{ csrf }}">
+        <label>Role
+          <select name="role">
+            <option value="lead"{% if m.role_label == "Lead" %} selected{% endif %}>Lead</option>
+            <option value="member"{% if m.role_label == "Member" %} selected{% endif %}>Member</option>
+          </select>
+        </label>
+        <button type="submit">Change role</button>
+      </form>
+      <form method="post" action="/team/{{ team_slug }}/members/{{ m.user_id }}/remove">
+        <input type="hidden" name="_csrf" value="{{ csrf }}">
+        <button type="submit">Remove</button>
+      </form>
+      {% endif %}
+    </li>
     {% endfor %}
   </ul>
   {% if can_manage %}

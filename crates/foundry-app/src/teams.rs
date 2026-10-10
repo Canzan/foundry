@@ -198,6 +198,7 @@ async fn members_page(
             .members
             .into_iter()
             .map(|row| TeamMemberLine {
+                user_id: row.person.user_id.to_string(),
                 name: row.person.display_name,
                 email: row.person.email,
                 role_label: role_label(row.role),

@@ -56,7 +56,7 @@ Feature: A workspace admin sees who is on a team and puts a workspace member on 
 
   # ------------------------------------------------------------------- US-TM-01
 
-  @us-tm-01 @driving_port @contract-shape:unbounded-preservation @pending
+  @us-tm-01 @driving_port @contract-shape:unbounded-preservation
   Scenario: A workspace admin finds a team and sees who is on it, leads first
     When Priya follows Teams from her dashboard
     Then the teams page lists exactly:
@@ -70,7 +70,7 @@ Feature: A workspace admin sees who is on a team and puts a workspace member on 
       | Sam Okafor · sam.okafor@canzan.dev · Member   |
     And no one's membership changed
 
-  @us-tm-01 @edge @contract-shape:unbounded-preservation @pending
+  @us-tm-01 @edge @contract-shape:unbounded-preservation
   Scenario: A workspace admin sees the members of a team she is not on, but still cannot open its board
     When Priya opens Ops's members page
     Then Ops's members page lists, in this order:
@@ -80,7 +80,7 @@ Feature: A workspace admin sees who is on a team and puts a workspace member on 
     And the page offers adding, changing roles and removing
     And Priya's visit to the Runbooks board gets the page that never existed
 
-  @us-tm-01 @edge @contract-shape:unbounded-preservation @pending
+  @us-tm-01 @edge @contract-shape:unbounded-preservation
   Scenario: A team member sees their own team, without any way to change it
     When Sam opens the teams page
     Then the teams page lists exactly:
@@ -89,13 +89,13 @@ Feature: A workspace admin sees who is on a team and puts a workspace member on 
     Then Backend's members page lists "Sam Okafor · sam.okafor@canzan.dev · Member"
     And the page offers no way to add, change a role or remove anyone
 
-  @us-tm-01 @edge @contract-shape:unbounded-preservation @pending
+  @us-tm-01 @edge @contract-shape:unbounded-preservation
   Scenario: Someone on no team is told so on the teams page
     When Tomás opens the teams page
     Then he sees "You're not on any team yet — ask a workspace admin to add you."
     And the teams page lists no team
 
-  @us-tm-01 @error @kpi @contract-shape:unbounded-preservation @pending
+  @us-tm-01 @error @kpi @contract-shape:unbounded-preservation
   Scenario Outline: Someone who may not see a team's members gets the page that never existed
     When <who> asks for the members page of <team>
     Then the answer is the page that never existed
@@ -109,7 +109,7 @@ Feature: A workspace admin sees who is on a team and puts a workspace member on 
       | Lena                 | General |
       | Hugo                 | Backend |
 
-  @us-tm-01 @error @kpi @contract-shape:unbounded-preservation @pending
+  @us-tm-01 @error @kpi @contract-shape:unbounded-preservation
   Scenario: Another workspace's team and a team that does not exist look the same from Canzan Labs
     When Priya asks for the members page of Payments
     Then the answer is the page that never existed
@@ -117,7 +117,7 @@ Feature: A workspace admin sees who is on a team and puts a workspace member on 
     When Priya asks for the members page of a team that does not exist
     Then the answer is the page that never existed
 
-  @us-tm-01 @error @contract-shape:unbounded-preservation @pending
+  @us-tm-01 @error @contract-shape:unbounded-preservation
   Scenario: A signed-out visitor learns nothing from the teams page
     When a signed-out visitor opens the teams page
     Then the answer is the page that never existed
