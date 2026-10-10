@@ -2,24 +2,18 @@
 
 ## Current Task
 
-v0.12.0 (`bff7a80`) is live on dev AND prod: `Foundry v0.12.0 · 2026-10-09`. It ships two changes:
-- **name-db-checks:** migrations 0019/0020 add triggers enforcing the workspace (24) and project (256) name rules on new name writes; SQLSTATE 23514 names the arm. Verified read-only on dev and prod: migration 20, 4 triggers enabled, 0 legacy violations.
-- **fix-hide-unreachable-boards:** the dashboard and the rail Board link list only projects in the user's teams, and a member on no team gets an empty state.
-
+**team-membership:** DELIVER is in progress, at step 02-01 of 12. Everything is committed locally and NOT pushed (the user says no pushes until told).
+- Done: DISCUSS, DESIGN, DISTILL, the roadmap, and slice 01 (01-01 `11785f0`, 01-02 `2e9a5f8`, 01-03 `3643a45`). An admin can see teams and members and add a member to a team.
+- 02-01 (migration 0021, the never-leaderless trigger, plus `set_team_role`) is uncommitted in the working tree. It is waiting on a test fix: one new test uses `DISABLE TRIGGER`, which check-arch bans; switch it to `DROP TRIGGER`. Then rerun smoke and mutation testing and des-commit.
 
 ## Key Decisions
 
-- The name rules are enforced by triggers on name writes (BEFORE INSERT / UPDATE OF name WHEN changed), not CHECK, so legacy rows keep taking issues. Tests seed legacy rows via a test-support seam that check-arch fences off.
-- Dev deploys release tags, not `main`. Prod is held for approval.
-- The 404 on dev was a second, Keycloak-provisioned account (jeff@unintelligent-design.us) on no team. The bootstrap account jeffabailey@gmail.com is unchanged (team lead, workspace admin, instance admin).
+- The user resolved every OQ to its recommendation: leads are peers; workspace removal cleans up team rows and refuses removing a last lead; the default team stays in this feature, with no backfill.
+- Never leaderless: the store takes `FOR NO KEY UPDATE` on the team row, plus a DB trigger (23514 `team_memberships_team_keeps_a_lead`), per ADR-TEAM-MEMBERSHIP-001. The default team is `workspaces.default_team_id` with a composite FK (ADR-002).
+- Unreleased locally: the `e68b7a0` board button-spacing fix. v0.12.0 is live on dev and prod.
 
 ## Next Steps
 
-- Unpushed on local `main`, by the user's choice (commit, no build): `e68b7a0` fix(board), spacing between New issue and Search and around the board's action row (stylesheet re-hashed to `foundry.8d661015.css`; kb/blm/cpd/pwa lanes green). It ships with the next push + release (v0.12.1).
-- Approve canzan-lift v0.4.2 for prod (if not yet done).
-- Follow-ups:
-  - a way to join teams (admin "add to team", or a default-team policy);
-  - show the signed-in account, and link a Keycloak identity to an existing account;
-  - the fix-hub test gaps (no-team create link, empty-team member, rail Board link off `/`);
-  - name the projects unique constraints.
-- Still owed by the user: one manual Keycloak sign-in, and the card-pointer-drag device evidence.
+- Finish 02-01, then 02-02 through 06-02 (`docs/feature/team-membership/deliver/roadmap.json`), then finalize (evolution doc, no push).
+- Owed after a release: the orphan team-row count on dev and prod before 0021; the dogfood test (add jeff@unintelligent-design.us to General on dev, then open Sandbox).
+- Docker: the jeffbaileyblog zsh-wasm-playground pytest leaks `zswp-oracle` containers (`docker run --rm -it … zsh -l` never exits); about 1,500 were stopped with the user's OK.
