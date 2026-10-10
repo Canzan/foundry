@@ -20,16 +20,16 @@
 //! this feature's code.
 //!
 //! The workspace removal is reached through `remove_workspace_member`, whose
-//! outcome DDD-11 extends to `Removed | NotMember | LastLead { team }`. Until
-//! then [`remove_from_workspace`] reads today's row count; DELIVER 03-01 swaps
-//! its body for the new outcome enum (marked `SCAFFOLD`).
+//! outcome DDD-11 extends to `Removed | NotMember | LastLead { team }`;
+//! [`remove_from_workspace`] maps it to the tests' own enum.
 //!
 //! Real Postgres (testcontainers `postgres:16-alpine`, matching production);
 //! integration level, example-based, with the races repeated (Mandates 9/11).
 
 use foundry_core::TeamRole;
 use foundry_store::{
-    run_migrations, run_migrations_from_dir, RemoveTeamMemberOutcome, SetTeamRoleOutcome, Store,
+    run_migrations, run_migrations_from_dir, RemoveTeamMemberOutcome, RemoveWorkspaceMemberOutcome,
+    SetTeamRoleOutcome, Store,
 };
 use sqlx::postgres::{PgDatabaseError, PgPoolOptions};
 use sqlx::PgPool;
@@ -269,7 +269,7 @@ async fn backend() -> Backend {
 }
 
 // ---------------------------------------------------------------------------
-// The workspace-removal door, until DDD-11 lands
+// The workspace-removal door (DDD-11)
 // ---------------------------------------------------------------------------
 
 /// The outcome DDD-11 gives `remove_workspace_member`.
@@ -280,19 +280,18 @@ enum WorkspaceRemoval {
     LastLead(String),
 }
 
-/// SCAFFOLD: true — today `remove_workspace_member` returns a row count and can
-/// neither refuse a last lead nor delete team rows. DELIVER 03-01 replaces this
-/// body with the extended method's outcome enum.
+/// The extended method's outcome (DDD-11), as the tests compare it.
 async fn remove_from_workspace(
     store: &Store,
     ws: uuid::Uuid,
     user: uuid::Uuid,
 ) -> Result<WorkspaceRemoval, foundry_store::StoreError> {
-    let removed = store.remove_workspace_member(ws, user).await?;
-    Ok(if removed == 0 {
-        WorkspaceRemoval::NotMember
-    } else {
-        WorkspaceRemoval::Removed
+    Ok(match store.remove_workspace_member(ws, user).await? {
+        RemoveWorkspaceMemberOutcome::Removed => WorkspaceRemoval::Removed,
+        RemoveWorkspaceMemberOutcome::NotMember => WorkspaceRemoval::NotMember,
+        RemoveWorkspaceMemberOutcome::LastLead { team_name, .. } => {
+            WorkspaceRemoval::LastLead(team_name)
+        }
     })
 }
 
@@ -568,7 +567,6 @@ async fn migration_0021_deletes_orphan_team_rows_and_leaves_every_other_row_alon
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-#[ignore = "pending: team-membership 03-01"]
 async fn removing_the_only_lead_is_refused_as_last_lead_and_changes_nothing() {
     let b = backend().await;
     let before = team_rows(&b.pool).await;
@@ -581,7 +579,6 @@ async fn removing_the_only_lead_is_refused_as_last_lead_and_changes_nothing() {
 }
 
 #[tokio::test]
-#[ignore = "pending: team-membership 03-01"]
 async fn removing_a_member_deletes_exactly_their_row_and_a_repeat_changes_nothing() {
     let b = backend().await;
     let mut expected = team_rows(&b.pool).await;
@@ -596,7 +593,6 @@ async fn removing_a_member_deletes_exactly_their_row_and_a_repeat_changes_nothin
 
 /// The 100-run race of INV-3: a removal and a demotion of the last two leads.
 #[tokio::test]
-#[ignore = "pending: team-membership 03-01"]
 async fn a_removal_racing_a_demotion_of_the_last_two_leads_leaves_exactly_one_lead_every_time() {
     let b = backend().await;
     for run in 1..=RACE_RUNS {
@@ -635,7 +631,6 @@ async fn a_removal_racing_a_demotion_of_the_last_two_leads_leaves_exactly_one_le
 
 /// The 100-run race of INV-3: two removals of the last two leads.
 #[tokio::test]
-#[ignore = "pending: team-membership 03-01"]
 async fn two_removals_of_the_last_two_leads_leave_exactly_one_lead_every_time() {
     let b = backend().await;
     for run in 1..=RACE_RUNS {
@@ -668,7 +663,6 @@ async fn two_removals_of_the_last_two_leads_leave_exactly_one_lead_every_time() 
 /// OQ-9: removing someone from a workspace takes them off that workspace's teams
 /// and no other workspace's.
 #[tokio::test]
-#[ignore = "pending: team-membership 03-01"]
 async fn removal_from_a_workspace_takes_the_person_off_its_teams_only() {
     let b = backend().await;
     let other = workspace(&b.pool, "Household").await;
@@ -698,7 +692,6 @@ async fn removal_from_a_workspace_takes_the_person_off_its_teams_only() {
 }
 
 #[tokio::test]
-#[ignore = "pending: team-membership 03-01"]
 async fn removal_from_a_workspace_of_a_teams_only_lead_is_refused_and_changes_nothing() {
     let b = backend().await;
     let (teams_before, members_before) = (team_rows(&b.pool).await, workspace_rows(&b.pool).await);
@@ -714,7 +707,6 @@ async fn removal_from_a_workspace_of_a_teams_only_lead_is_refused_and_changes_no
 /// The 100-run race of INV-1/INV-3 through OQ-9's door: removing one of the last
 /// two leads from the workspace while the other is demoted.
 #[tokio::test]
-#[ignore = "pending: team-membership 03-01"]
 async fn a_workspace_removal_racing_a_demotion_of_the_last_two_leads_leaves_exactly_one_lead() {
     let b = backend().await;
     for run in 1..=RACE_RUNS {
@@ -758,7 +750,6 @@ async fn a_workspace_removal_racing_a_demotion_of_the_last_two_leads_leaves_exac
 /// INV-5 (DDD-10 with DDD-11): an add racing a removal from the workspace never
 /// leaves anyone on a team of a workspace they are not in, whichever wins.
 #[tokio::test]
-#[ignore = "pending: team-membership 03-01"]
 async fn an_add_racing_a_workspace_removal_never_leaves_someone_on_a_team_outside_their_workspace()
 {
     let b = backend().await;

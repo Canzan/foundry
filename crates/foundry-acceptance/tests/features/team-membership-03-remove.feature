@@ -97,19 +97,19 @@ Feature: A workspace admin takes someone off a team without leaving it leaderles
       | someone who never existed |
       | a garbled name            |
 
-  @us-tm-04 @driving_port @contract-shape:bounded-change @pending
+  @us-tm-04 @driving_port @contract-shape:bounded-change
   Scenario: Removing someone from the workspace also takes them off its teams
     When Priya removes Sam Okafor from Canzan Labs
     Then Sam Okafor is no longer in Canzan Labs or on any of its teams, and nothing else changed
     And Backend's members page no longer lists Sam Okafor
 
-  @us-tm-04 @edge @contract-shape:bounded-change @pending
+  @us-tm-04 @edge @contract-shape:bounded-change
   Scenario: A lead who shares the lead with someone else can be removed from the workspace
     Given Priya has made Sam Okafor a lead of Backend
     When Priya removes Lena Park from Canzan Labs
     Then Lena Park is no longer in Canzan Labs or on any of its teams, and nothing else changed
 
-  @us-tm-04 @error @kpi @contract-shape:unbounded-preservation @pending
+  @us-tm-04 @error @kpi @contract-shape:unbounded-preservation
   Scenario: The last lead of a team cannot be removed from the workspace
     Given Lena Park is Backend's only lead
     When Priya removes Lena Park from Canzan Labs

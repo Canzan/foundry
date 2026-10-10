@@ -8,15 +8,15 @@
 //!
 //! Shipped (slice 02): `set_team_role` (below).
 //!
+//! Shipped (slice 03): `remove_team_member` (below) and the guarded workspace
+//! removal `Store::remove_workspace_member` (in `lib.rs`, DDD-11), whose outcome
+//! type lives here.
+//!
 //! The remaining methods are RED scaffolds created by DISTILL 2026-10-09; they
 //! panic until DELIVER implements them, so the store gold tests
 //! (`tests/team_lead_guard.rs`, `tests/workspace_default_team.rs`) fail RED, not
 //! BROKEN, when un-ignored. Nothing in the app calls them yet.
 //!
-//! - `remove_team_member` (slice 03): as `set_team_role`, the team row
-//!   `FOR NO KEY UPDATE`, the exact pre-read, a typed `LastLead`, and the 0021
-//!   trigger's 23514 `team_memberships_team_keeps_a_lead` mapped to `LastLead`
-//!   (DDD-6, ADR-TEAM-MEMBERSHIP-001).
 //! - `default_team` / `set_default_team` (slice 05): `workspaces.default_team_id`
 //!   behind the 0022 composite foreign key (DDD-12, DDD-14).
 //!
@@ -103,6 +103,21 @@ pub enum RemoveTeamMemberOutcome {
     LastLead,
 }
 
+/// The outcome of [`Store::remove_workspace_member`] (OQ-9, DDD-11).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RemoveWorkspaceMemberOutcome {
+    /// Their workspace membership and their rows on its teams were deleted.
+    Removed,
+    /// They are not a member of the workspace; nothing was written.
+    NotMember,
+    /// They are the last lead of `team_name` (the first such team by name);
+    /// nothing was written. `person` is them, as the refusal copy names them.
+    LastLead {
+        team_name: String,
+        person: TeamPerson,
+    },
+}
+
 type PersonTuple = (uuid::Uuid, String, String);
 
 fn person_from((user_id, display_name, email): PersonTuple) -> TeamPerson {
@@ -120,6 +135,33 @@ fn is_lead_rule_refusal(err: &sqlx::Error) -> bool {
         db.code().as_deref() == Some("23514")
             && db.constraint() == Some("team_memberships_team_keeps_a_lead")
     })
+}
+
+/// Their role on `team_id` and whether anyone else leads it, read exactly: the
+/// team row is locked `FOR NO KEY UPDATE` first, so every lead-removing write on
+/// a team is totally ordered and this read sees the previous holder's commit
+/// (DDD-6, ADR-TEAM-MEMBERSHIP-001). `None`: they are not on the team.
+async fn lock_team_and_read_standing(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    team_id: uuid::Uuid,
+    user_id: uuid::Uuid,
+) -> Result<Option<(String, bool)>, StoreError> {
+    sqlx::query("SELECT 1 FROM teams WHERE id = $1 FOR NO KEY UPDATE")
+        .bind(team_id)
+        .execute(&mut **tx)
+        .await?;
+    Ok(sqlx::query_as(
+        "SELECT tm.role,
+                EXISTS (SELECT 1 FROM team_memberships o
+                         WHERE o.team_id = tm.team_id AND o.user_id <> tm.user_id
+                           AND o.role = 'lead')
+           FROM team_memberships tm
+          WHERE tm.team_id = $1 AND tm.user_id = $2",
+    )
+    .bind(team_id)
+    .bind(user_id)
+    .fetch_optional(&mut **tx)
+    .await?)
 }
 
 impl Store {
@@ -298,22 +340,7 @@ impl Store {
         role: TeamRole,
     ) -> Result<SetTeamRoleOutcome, StoreError> {
         let mut tx = self.pool.begin().await?;
-        sqlx::query("SELECT 1 FROM teams WHERE id = $1 FOR NO KEY UPDATE")
-            .bind(team_id)
-            .execute(&mut *tx)
-            .await?;
-        let standing: Option<(String, bool)> = sqlx::query_as(
-            "SELECT tm.role,
-                    EXISTS (SELECT 1 FROM team_memberships o
-                             WHERE o.team_id = tm.team_id AND o.user_id <> tm.user_id
-                               AND o.role = 'lead')
-               FROM team_memberships tm
-              WHERE tm.team_id = $1 AND tm.user_id = $2",
-        )
-        .bind(team_id)
-        .bind(user_id)
-        .fetch_optional(&mut *tx)
-        .await?;
+        let standing = lock_team_and_read_standing(&mut tx, team_id, user_id).await?;
         let outcome = match standing {
             None => SetTeamRoleOutcome::NotOnTeam,
             Some((current, _)) if current == role.as_str() => SetTeamRoleOutcome::Unchanged,
@@ -346,13 +373,46 @@ impl Store {
         }
     }
 
-    /// Take someone off `team_id` (slice 03).
+    /// Take someone off `team_id` (slice 03, DDD-6, ADR-TEAM-MEMBERSHIP-001). The
+    /// same shape as [`Store::set_team_role`]: the team row `FOR NO KEY UPDATE`,
+    /// an exact read of their role and of the other leads, and a removal of the
+    /// last lead returns [`RemoveTeamMemberOutcome::LastLead`] and writes nothing.
     pub async fn remove_team_member(
         &self,
-        _team_id: uuid::Uuid,
-        _user_id: uuid::Uuid,
+        team_id: uuid::Uuid,
+        user_id: uuid::Uuid,
     ) -> Result<RemoveTeamMemberOutcome, StoreError> {
-        panic!("Not yet implemented -- RED scaffold (team-membership 03-01: remove_team_member)")
+        let mut tx = self.pool.begin().await?;
+        let standing = lock_team_and_read_standing(&mut tx, team_id, user_id).await?;
+        let outcome = match standing {
+            None => RemoveTeamMemberOutcome::NotOnTeam,
+            Some((role, false)) if role == TeamRole::Lead.as_str() => {
+                RemoveTeamMemberOutcome::LastLead
+            }
+            Some(_) => RemoveTeamMemberOutcome::Removed,
+        };
+        if outcome != RemoveTeamMemberOutcome::Removed {
+            tx.rollback().await?;
+            return Ok(outcome);
+        }
+        let deleted =
+            sqlx::query("DELETE FROM team_memberships WHERE team_id = $1 AND user_id = $2")
+                .bind(team_id)
+                .bind(user_id)
+                .execute(&mut *tx)
+                .await;
+        match deleted {
+            Ok(_) => {
+                tx.commit().await?;
+                Ok(RemoveTeamMemberOutcome::Removed)
+            }
+            Err(err) if is_lead_rule_refusal(&err) => {
+                tracing::warn!(%team_id, "the lead guard refused a removal the store's pre-read allowed");
+                tx.rollback().await?;
+                Ok(RemoveTeamMemberOutcome::LastLead)
+            }
+            Err(err) => Err(err.into()),
+        }
     }
 
     /// The workspace's default team for new members, as `(slug, name)` (slice 05).

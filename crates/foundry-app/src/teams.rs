@@ -70,6 +70,13 @@ pub enum TeamNotice {
     },
     /// "{team} needs at least one lead. Make someone else a lead first."
     NeedsALead { team: String },
+    /// OQ-9: "{name} ({email}) is the last lead of {team}. Make someone else a
+    /// lead first." (`POST /workspace/members/remove`'s 409).
+    LastLeadOf {
+        name: String,
+        email: String,
+        team: String,
+    },
 }
 
 impl fmt::Display for TeamNotice {
@@ -97,6 +104,12 @@ impl fmt::Display for TeamNotice {
                 write!(
                     f,
                     "{team} needs at least one lead. Make someone else a lead first."
+                )
+            }
+            Self::LastLeadOf { name, email, team } => {
+                write!(
+                    f,
+                    "{name} ({email}) is the last lead of {team}. Make someone else a lead first."
                 )
             }
         }
@@ -443,6 +456,19 @@ mod team_notice_copy {
         assert_eq!(
             notice.to_string(),
             "Backend needs at least one lead. Make someone else a lead first."
+        );
+    }
+
+    #[test]
+    fn last_lead_of() {
+        let notice = TeamNotice::LastLeadOf {
+            name: "Lena Park".into(),
+            email: "lena.park@canzan.dev".into(),
+            team: "Backend".into(),
+        };
+        assert_eq!(
+            notice.to_string(),
+            "Lena Park (lena.park@canzan.dev) is the last lead of Backend. Make someone else a lead first."
         );
     }
 

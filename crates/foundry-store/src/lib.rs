@@ -19,7 +19,9 @@ pub use attachments::{AttachmentInsertError, AttachmentRow, AttachmentSummary};
 pub use lanes::{InsertedIssue, LaneDeleteFate, LaneDeleteOutcome, LaneRow};
 #[cfg(feature = "test-support")]
 pub use name_rule_legacy_seam::{seed_row_predating_name_rule, NameRuleTable};
-pub use teams::{AddTeamMemberOutcome, RemoveTeamMemberOutcome, SetTeamRoleOutcome};
+pub use teams::{
+    AddTeamMemberOutcome, RemoveTeamMemberOutcome, RemoveWorkspaceMemberOutcome, SetTeamRoleOutcome,
+};
 pub use verify_export::{verify_workspace_export, ArchiveContents, ArchivedTable, VerifyReport};
 
 use sqlx::postgres::PgPoolOptions;
@@ -2963,22 +2965,93 @@ impl Store {
         Ok((ws.rows_affected(), teams.rows_affected()))
     }
 
-    /// Remove a member from a workspace (notification-delivery-providers US-06 —
-    /// the `member_removed` trigger). Returns the number of memberships deleted
-    /// (0 ⇒ the user was not a member of that workspace).
+    /// Remove a member from a workspace, and from its teams (notification-delivery-
+    /// providers US-06 — the `member_removed` trigger; team-membership OQ-9,
+    /// DDD-11, ADR-TEAM-MEMBERSHIP-001). One transaction, in exactly this order:
+    ///
+    /// 1. their workspace membership `FOR UPDATE` (none: `NotMember`) — first, so
+    ///    a concurrent add (`FOR KEY SHARE`, DDD-10) has either committed before
+    ///    step 4's fresh snapshot or waits and then finds no membership;
+    /// 2. their teams in this workspace `FOR NO KEY UPDATE`, in team-id order;
+    /// 3. the exact read of the teams they are the only lead of, by team name
+    ///    (any: `LastLead`, nothing written);
+    /// 4. their team rows in this workspace only (the 0021 trigger checks them);
+    /// 5. the workspace membership — last, so they are still a member while
+    ///    step 4 is checked.
     pub async fn remove_workspace_member(
         &self,
         workspace_id: uuid::Uuid,
         user_id: uuid::Uuid,
-    ) -> Result<u64, StoreError> {
-        let result = sqlx::query(
-            "DELETE FROM workspace_memberships WHERE workspace_id = $1 AND user_id = $2",
+    ) -> Result<teams::RemoveWorkspaceMemberOutcome, StoreError> {
+        use teams::RemoveWorkspaceMemberOutcome as Outcome;
+        let mut tx = self.pool.begin().await?;
+        let member: Option<(i32,)> = sqlx::query_as(
+            "SELECT 1 FROM workspace_memberships
+              WHERE workspace_id = $1 AND user_id = $2
+                FOR UPDATE",
         )
         .bind(workspace_id)
         .bind(user_id)
-        .execute(&self.pool)
+        .fetch_optional(&mut *tx)
         .await?;
-        Ok(result.rows_affected())
+        if member.is_none() {
+            tx.rollback().await?;
+            return Ok(Outcome::NotMember);
+        }
+        sqlx::query(
+            "SELECT t.id FROM teams t
+               JOIN team_memberships tm ON tm.team_id = t.id
+              WHERE t.workspace_id = $1 AND tm.user_id = $2
+              ORDER BY t.id
+                FOR NO KEY UPDATE OF t",
+        )
+        .bind(workspace_id)
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
+        let sole_lead: Option<(String, String, String)> = sqlx::query_as(
+            "SELECT t.name, u.display_name, u.email_display
+               FROM team_memberships tm
+               JOIN teams t ON t.id = tm.team_id
+               JOIN users u ON u.id = tm.user_id
+              WHERE t.workspace_id = $1 AND tm.user_id = $2 AND tm.role = 'lead'
+                AND NOT EXISTS (SELECT 1 FROM team_memberships o
+                                 WHERE o.team_id = tm.team_id AND o.user_id <> tm.user_id
+                                   AND o.role = 'lead')
+              ORDER BY t.name, t.id
+              LIMIT 1",
+        )
+        .bind(workspace_id)
+        .bind(user_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if let Some((team_name, display_name, email)) = sole_lead {
+            tx.rollback().await?;
+            return Ok(Outcome::LastLead {
+                team_name,
+                person: teams::TeamPerson {
+                    user_id,
+                    display_name,
+                    email,
+                },
+            });
+        }
+        sqlx::query(
+            "DELETE FROM team_memberships tm
+              USING teams t
+              WHERE t.id = tm.team_id AND t.workspace_id = $1 AND tm.user_id = $2",
+        )
+        .bind(workspace_id)
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query("DELETE FROM workspace_memberships WHERE workspace_id = $1 AND user_id = $2")
+            .bind(workspace_id)
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(Outcome::Removed)
     }
 
     // ----- US-10 (slice 7) tombstone GC + admin-undelete -----------------

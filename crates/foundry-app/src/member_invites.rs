@@ -46,6 +46,7 @@
 use crate::bootstrap::{resource_not_found_page, SessionUser};
 use crate::csrf::{build_csrf_cookie, extract_csrf_cookie, generate_token};
 use crate::session::SESSION_KEY_USER_ID;
+use crate::teams::TeamNotice;
 use crate::views::{MemberInviteForm, MemberInviteSent};
 use crate::AppState;
 use askama::Template;
@@ -53,6 +54,7 @@ use axum::extract::{Form, State};
 use axum::http::header::{HeaderMap, HeaderValue, COOKIE, SET_COOKIE};
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
+use foundry_store::RemoveWorkspaceMemberOutcome;
 use serde::Deserialize;
 use tower_sessions::Session;
 
@@ -241,7 +243,9 @@ pub async fn submit_invite(
 /// US-06 — the `member_removed` trigger). Admin-gated by the SHIPPED
 /// `is_workspace_admin` (a non-admin / signed-out caller gets the non-enumerable
 /// uniform 404, NFR-1). CSRF is enforced by the surrounding `csrf_middleware`.
-/// Performs the real state change (deletes the workspace membership), then emits
+/// Performs the real state change (deletes the workspace membership and their
+/// rows on its teams, team-membership OQ-9; a team's last lead is refused with a
+/// 409 and no notification, DDD-8/DDD-11), then emits
 /// ONE structured notification to the removed person best-effort through the
 /// config-selected providers (`notify()` is infallible — a delivery problem is
 /// contained and never fails this request, NFR-5), exactly like the invite idiom.
@@ -269,24 +273,35 @@ pub async fn submit_remove_member(
         }
     };
 
-    let removed = match state
+    let outcome = match state
         .store
         .remove_workspace_member(admin.workspace_id, target.id)
         .await
     {
-        Ok(count) => count,
+        Ok(outcome) => outcome,
         Err(err) => {
             tracing::error!(%err, "remove_workspace_member failed");
             return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
         }
     };
 
-    // D1: the target exists globally but was NOT a member of the acting workspace
-    // ⇒ 0 memberships deleted. Nothing changed, so we must NOT emit a false
-    // `member_removed` to a non-member. Refuse with the SHIPPED non-enumerable 404
-    // (consistent with this surface's other refusals) and do NOT notify.
-    if removed == 0 {
-        return resource_not_found_page();
+    match outcome {
+        RemoveWorkspaceMemberOutcome::Removed => {}
+        // D1: the target exists globally but was NOT a member of the acting
+        // workspace. Nothing changed, so we must NOT emit a false `member_removed`
+        // to a non-member. Refuse with the SHIPPED non-enumerable 404 (consistent
+        // with this surface's other refusals) and do NOT notify.
+        RemoveWorkspaceMemberOutcome::NotMember => return resource_not_found_page(),
+        // OQ-9 (DDD-8, DDD-11): they are a team's last lead. Nothing changed: a
+        // 409 in this route's plain-text family, and no notification.
+        RemoveWorkspaceMemberOutcome::LastLead { team_name, person } => {
+            let notice = TeamNotice::LastLeadOf {
+                name: person.display_name,
+                email: person.email,
+                team: team_name,
+            };
+            return (StatusCode::CONFLICT, notice.to_string()).into_response();
+        }
     }
 
     // A membership was actually removed — best-effort, non-fatal delivery through

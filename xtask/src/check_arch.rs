@@ -5094,7 +5094,7 @@ mod name_rule_legacy_seam_tests {
 /// The store's team-membership writes: no door may call them directly — every
 /// write goes through a `foundry-services` use-case and its policy (ADR-003).
 /// 02-01 adds `set_team_role`, 03-01 adds `remove_team_member`.
-const TEAM_WRITE_SEAMS: [&str; 2] = ["add_team_member", "set_team_role"];
+const TEAM_WRITE_SEAMS: [&str; 3] = ["add_team_member", "set_team_role", "remove_team_member"];
 
 /// The doors whose `src` must not call a [`TEAM_WRITE_SEAMS`] method.
 const TEAM_WRITE_SEAMS_FORBIDDEN_IN: [&str; 2] = ["foundry-app", "foundry-api"];
@@ -5388,6 +5388,28 @@ mod team_membership_one_seam_tests {
         assert!(
             flagged_at(&violations, "crates/foundry-app/src/teams.rs:3")
                 && violations[0].contains("`set_team_role`"),
+            "{violations:?}"
+        );
+    }
+
+    #[test]
+    fn a_team_removal_called_from_api_src_is_flagged() {
+        let tree = stage(&[
+            ("crates/foundry-store/src/teams.rs", STORE_TEAMS),
+            (
+                "crates/foundry-api/src/teams.rs",
+                "fn a() {}\nfn b() {}\n\nlet _ = state.store.remove_team_member(team, user).await;\n",
+            ),
+            (
+                "crates/foundry-services/src/teams.rs",
+                "let removed = self.store.remove_team_member(facts.team_id, user_id).await?;\n",
+            ),
+        ]);
+        let violations = check_team_membership_one_seam(tree.path());
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert!(
+            flagged_at(&violations, "crates/foundry-api/src/teams.rs:4")
+                && violations[0].contains("`remove_team_member`"),
             "{violations:?}"
         );
     }
