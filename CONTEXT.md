@@ -2,8 +2,9 @@
 
 ## Current Task
 
-**team-membership:** DELIVER is in progress; 4 of 12 steps are done, and 02-02 is next. Everything is committed locally and NOT pushed (the user says no pushes until told).
-- Done: DISCUSS, DESIGN, DISTILL, the roadmap, slice 01 (01-01 `11785f0`, 01-02 `2e9a5f8`, 01-03 `3643a45`; an admin can see teams and members and add a member to a team), and 02-01 `021cd47` (migration 0021 never-leaderless trigger plus `set_team_role`; mutation 100%).
+**team-membership:** DELIVER is in progress; 8 of 12 steps are committed, and 05-01 is finishing (uncommitted in the tree).
+- Done: DISCUSS, DESIGN, DISTILL, the roadmap, and slices 01-04: admins list teams and members, add (01-0x), change roles with the last lead protected (02-01 `021cd47`, 02-02 `6118e23`), remove from team and guarded workspace removal (03-01 `1ec818f`, 03-02 `a41fd2c`, hardening `eda1755`), and team leads manage their own team (04-01 `ea653cf`). Mutation is 100% on every step.
+- 05-01 (migration 0022, the default team, invite placement, the probe line) passes its store tests; lanes, smoke and the commit are running. Left: 05-02 (default-team setting on /teams), 06-01 (Keycloak newcomers placed), 06-02 (CHANGELOG and burn-down), then finalize.
 - Under machine load, smoke needs `RUST_TEST_THREADS=1`; otherwise Docker container start-up flakes (PortNotExposed/PoolTimedOut).
 
 ## Key Decisions
