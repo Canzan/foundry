@@ -2,9 +2,9 @@
 
 ## Current Task
 
-**team-membership:** DELIVER is in progress, at step 02-01 of 12. Everything is committed locally and NOT pushed (the user says no pushes until told).
-- Done: DISCUSS, DESIGN, DISTILL, the roadmap, and slice 01 (01-01 `11785f0`, 01-02 `2e9a5f8`, 01-03 `3643a45`). An admin can see teams and members and add a member to a team.
-- 02-01 (migration 0021, the never-leaderless trigger, plus `set_team_role`) is uncommitted in the working tree. It is waiting on a test fix: one new test uses `DISABLE TRIGGER`, which check-arch bans; switch it to `DROP TRIGGER`. Then rerun smoke and mutation testing and des-commit.
+**team-membership:** DELIVER is in progress; 4 of 12 steps are done, and 02-02 is next. Everything is committed locally and NOT pushed (the user says no pushes until told).
+- Done: DISCUSS, DESIGN, DISTILL, the roadmap, slice 01 (01-01 `11785f0`, 01-02 `2e9a5f8`, 01-03 `3643a45`; an admin can see teams and members and add a member to a team), and 02-01 `021cd47` (migration 0021 never-leaderless trigger plus `set_team_role`; mutation 100%).
+- Under machine load, smoke needs `RUST_TEST_THREADS=1`; otherwise Docker container start-up flakes (PortNotExposed/PoolTimedOut).
 
 ## Key Decisions
 
