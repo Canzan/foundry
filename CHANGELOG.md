@@ -53,6 +53,38 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
     is the only lead of a team is refused until leadership moves to someone
     else. No user delete exists today.
 
+- **`0022_workspace_default_team`** adds the default team for new members. It
+  adds the nullable column `workspaces.default_team_id`, a unique constraint
+  `teams_workspace_id_id_key UNIQUE (workspace_id, id)` (redundant as
+  uniqueness, but the target of the next key), and the foreign key
+  `workspaces_default_team_same_workspace`: `(id, default_team_id)` references
+  `teams (workspace_id, id)` `ON DELETE SET NULL (default_team_id)`. A default
+  must be one of the workspace's own teams; naming another workspace's team is
+  refused with SQLSTATE `23503`. Deleting the default team clears only the
+  default. A newcomer who accepts a member invite lands on the default team as a
+  member. If that placement fails, the newcomer still joins the workspace, on
+  no team, and one warning with ids only is logged.
+  - **Unset on upgrade, no backfill.** Every existing workspace has no default,
+    so behaviour is unchanged until an admin picks one, and picking one moves
+    nobody already in the workspace.
+  - **Postgres 15 or later is required** for the column-list `SET NULL`.
+    Production and the test harness run 16. An older server refuses 0022 loudly
+    rather than install a weaker key.
+  - **Readiness:** `Store::probe` now requires `workspaces.default_team_id`, so
+    a binary from this release refuses `/readyz` against a schema without it.
+  - **Rolling deploys are safe.** An older replica never reads the column. Its
+    `INSERT INTO workspaces` leaves it NULL, and an invite accept it serves
+    lands the newcomer on no team, which is today's behaviour.
+  - **Rollback floor: the previous release.** It boots against the migrated
+    database, ignores migration 22 and never reads the column. To remove it by
+    hand (the foreign key first, then the column, then the unique key):
+
+    ```sql
+    ALTER TABLE workspaces DROP CONSTRAINT IF EXISTS workspaces_default_team_same_workspace;
+    ALTER TABLE workspaces DROP COLUMN IF EXISTS default_team_id;
+    ALTER TABLE teams DROP CONSTRAINT IF EXISTS teams_workspace_id_id_key;
+    ```
+
 ## [v0.12.0] - 2026-10-09
 
 The database now enforces the workspace-name and project-name rules on every

@@ -12,16 +12,10 @@
 //! removal `Store::remove_workspace_member` (in `lib.rs`, DDD-11), whose outcome
 //! type lives here.
 //!
-//! The remaining methods are RED scaffolds created by DISTILL 2026-10-09; they
-//! panic until DELIVER implements them, so the store gold tests
-//! (`tests/team_lead_guard.rs`, `tests/workspace_default_team.rs`) fail RED, not
-//! BROKEN, when un-ignored. Nothing in the app calls them yet.
-//!
-//! - `default_team` / `set_default_team` (slice 05): `workspaces.default_team_id`
-//!   behind the 0022 composite foreign key (DDD-12, DDD-14).
-//!
-//! The private `place_on_default_team` helper (DDD-13) is DELIVER's to add.
-// SCAFFOLD: true
+//! Shipped (slice 05): the default team for new members, `default_team` and
+//! `set_default_team`: `workspaces.default_team_id` behind the 0022 composite
+//! foreign key (DDD-12, DDD-14), and the crate-private placement helper
+//! `place_on_default_team` (DDD-13), run in a savepoint by the newcomer paths.
 
 use crate::{Store, StoreError};
 use foundry_core::TeamRole;
@@ -418,17 +412,68 @@ impl Store {
     /// The workspace's default team for new members, as `(slug, name)` (slice 05).
     pub async fn default_team(
         &self,
-        _workspace_id: uuid::Uuid,
+        workspace_id: uuid::Uuid,
     ) -> Result<Option<(String, String)>, StoreError> {
-        panic!("Not yet implemented -- RED scaffold (team-membership 05-01: default_team)")
+        Ok(sqlx::query_as(
+            "SELECT t.slug, t.name FROM workspaces w JOIN teams t ON t.id = w.default_team_id
+              WHERE w.id = $1",
+        )
+        .bind(workspace_id)
+        .fetch_optional(&self.pool)
+        .await?)
     }
 
-    /// Set (or, with `None`, clear) the workspace's default team (slice 05).
+    /// Set (or, with `None`, clear) the workspace's default team (slice 05). One
+    /// UPDATE; the last writer wins. A team of another workspace is refused by
+    /// the database (`workspaces_default_team_same_workspace`, INV-7).
     pub async fn set_default_team(
         &self,
-        _workspace_id: uuid::Uuid,
-        _team_id: Option<uuid::Uuid>,
+        workspace_id: uuid::Uuid,
+        team_id: Option<uuid::Uuid>,
     ) -> Result<(), StoreError> {
-        panic!("Not yet implemented -- RED scaffold (team-membership 05-01: set_default_team)")
+        sqlx::query("UPDATE workspaces SET default_team_id = $2 WHERE id = $1")
+            .bind(workspace_id)
+            .bind(team_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
     }
+}
+
+/// Put a newcomer on their workspace's default team, as `member`, inside the
+/// caller's transaction (DDD-13, ADR-TEAM-MEMBERSHIP-002). Best-effort (D17):
+/// the statement runs in a savepoint; if it fails, the savepoint is rolled back,
+/// one warning carrying ids only is logged (DDD-20), and the caller's
+/// transaction goes on to commit the account and membership. No default set
+/// places nobody. Only a savepoint that cannot be opened or rolled back (a dead
+/// connection) is an error.
+pub(crate) async fn place_on_default_team(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    workspace_id: uuid::Uuid,
+    user_id: uuid::Uuid,
+) -> Result<(), StoreError> {
+    let mut savepoint = sqlx::Connection::begin(&mut **tx).await?;
+    let placed = sqlx::query(
+        "INSERT INTO team_memberships (team_id, user_id, role)
+         SELECT w.default_team_id, $2, 'member' FROM workspaces w
+          WHERE w.id = $1 AND w.default_team_id IS NOT NULL
+         ON CONFLICT (team_id, user_id) DO NOTHING",
+    )
+    .bind(workspace_id)
+    .bind(user_id)
+    .execute(&mut *savepoint)
+    .await;
+    match placed {
+        Ok(_) => savepoint.commit().await?,
+        Err(err) => {
+            savepoint.rollback().await?;
+            tracing::warn!(
+                %workspace_id,
+                %user_id,
+                error = %err,
+                "placing a newcomer on the default team failed; they joined on no team"
+            );
+        }
+    }
+    Ok(())
 }

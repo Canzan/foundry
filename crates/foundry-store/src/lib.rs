@@ -305,6 +305,23 @@ impl Store {
                 rename_cols.0
             )));
         }
+        // team-membership DDD-15: `/teams` and both newcomer paths read
+        // `workspaces.default_team_id`; against a pre-0022 schema refuse
+        // readiness rather than fail every invite accept. Scoped as above.
+        let default_team: (i64,) = sqlx::query_as(
+            "SELECT count(*)::bigint
+               FROM information_schema.columns
+              WHERE table_schema = current_schema()
+                AND table_name = 'workspaces'
+                AND column_name = 'default_team_id'",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        if default_team.0 < 1 {
+            return Err(ProbeError::Failed(
+                "workspaces table missing migration-0022 column default_team_id".to_string(),
+            ));
+        }
         Ok(ProbeReport {
             select_one_ok: true,
             round_trip_ms: started.elapsed().as_millis(),
@@ -519,6 +536,10 @@ impl Store {
         .bind(ROLE_MEMBER)
         .execute(&mut *tx)
         .await?;
+
+        // (3b) The workspace's default team, as `member`, best-effort in a
+        // savepoint (team-membership DDD-13, D17): a failure never fails the accept.
+        teams::place_on_default_team(&mut tx, workspace_id, new_user_id).await?;
 
         // (4) Set used_by now the FK target (the new user) exists.
         sqlx::query("UPDATE invites SET used_by = $2 WHERE id = $1")

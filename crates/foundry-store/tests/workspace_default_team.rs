@@ -20,9 +20,12 @@
 //! Real Postgres (testcontainers `postgres:16-alpine`); integration level,
 //! example-based (Mandates 9/11).
 
-use foundry_store::{run_migrations, FederatedProvisionOutcome, MemberConsumeOutcome, Store};
+use foundry_store::{
+    run_migrations, run_migrations_from_dir, FederatedProvisionOutcome, MemberConsumeOutcome, Store,
+};
 use sqlx::postgres::{PgDatabaseError, PgPoolOptions};
 use sqlx::PgPool;
+use std::path::PathBuf;
 use std::time::Duration;
 use testcontainers_modules::postgres::Postgres;
 use testcontainers_modules::testcontainers::runners::AsyncRunner;
@@ -246,7 +249,6 @@ async fn with_no_default_a_first_provisioning_places_the_newcomer_on_no_team() {
 
 /// INV-7: a default naming another workspace's team is refused by the database.
 #[tokio::test]
-#[ignore = "pending: team-membership 05-01"]
 async fn a_default_team_from_another_workspace_is_refused_by_the_database() {
     let (store, _c) = migrated().await;
     let pool = store.pool().clone();
@@ -270,7 +272,6 @@ async fn a_default_team_from_another_workspace_is_refused_by_the_database() {
 /// OQ-6: deleting the default team clears only the default; the workspace and
 /// its other teams are untouched.
 #[tokio::test]
-#[ignore = "pending: team-membership 05-01"]
 async fn deleting_the_default_team_clears_only_the_default() {
     let (store, _c) = migrated().await;
     let pool = store.pool().clone();
@@ -299,7 +300,6 @@ async fn deleting_the_default_team_clears_only_the_default() {
 }
 
 #[tokio::test]
-#[ignore = "pending: team-membership 05-01"]
 async fn a_workspace_with_a_default_set_can_still_be_deleted() {
     let (store, _c) = migrated().await;
     let pool = store.pool().clone();
@@ -315,7 +315,6 @@ async fn a_workspace_with_a_default_set_can_still_be_deleted() {
 }
 
 #[tokio::test]
-#[ignore = "pending: team-membership 05-01"]
 async fn the_default_team_is_set_read_back_and_cleared() {
     let (store, _c) = migrated().await;
     let pool = store.pool().clone();
@@ -341,7 +340,6 @@ async fn the_default_team_is_set_read_back_and_cleared() {
 
 /// OQ-8: setting a default puts nobody already in the workspace on it.
 #[tokio::test]
-#[ignore = "pending: team-membership 05-01"]
 async fn setting_a_default_does_not_backfill_existing_members() {
     let (store, _c) = migrated().await;
     let pool = store.pool().clone();
@@ -361,7 +359,6 @@ async fn setting_a_default_does_not_backfill_existing_members() {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-#[ignore = "pending: team-membership 05-01"]
 async fn an_invite_accept_places_the_newcomer_on_the_default_team_as_member() {
     let (store, _c) = migrated().await;
     let pool = store.pool().clone();
@@ -389,7 +386,6 @@ async fn an_invite_accept_places_the_newcomer_on_the_default_team_as_member() {
 
 /// D17: a placement that fails never fails the accept.
 #[tokio::test]
-#[ignore = "pending: team-membership 05-01"]
 async fn a_failed_placement_never_fails_the_invite_accept() {
     let (store, _c) = migrated().await;
     let pool = store.pool().clone();
@@ -418,6 +414,65 @@ async fn a_failed_placement_never_fails_the_invite_accept() {
         places_of(&pool, "tomas.rivera@canzan.dev").await.is_empty(),
         "on no team"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Slice 05: readiness (05-01, DDD-15; DELIVER-authored)
+// ---------------------------------------------------------------------------
+
+/// A private copy of the production migrations up to and including `through`.
+fn staged_migrations(through: &str) -> PathBuf {
+    let manifest =
+        std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is always set by cargo");
+    let production = PathBuf::from(manifest).join("migrations");
+    let dir = std::env::temp_dir().join(format!("foundry-tm05-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&dir).expect("stage dir");
+    for entry in std::fs::read_dir(&production).expect("read migrations") {
+        let name = entry
+            .expect("entry")
+            .file_name()
+            .to_string_lossy()
+            .into_owned();
+        if name.ends_with(".sql") && name.get(..4).is_some_and(|v| v <= through) {
+            std::fs::copy(production.join(&name), dir.join(&name)).expect("stage file");
+        }
+    }
+    dir
+}
+
+/// DDD-15: both newcomer paths and `/teams` read `workspaces.default_team_id`,
+/// so a schema staged at 0021 refuses readiness, and 0022 makes it ready.
+#[tokio::test]
+async fn the_probe_refuses_a_schema_without_the_default_team_column() {
+    let c = Postgres::default()
+        .with_tag("16-alpine")
+        .start()
+        .await
+        .expect("start postgres container");
+    let host = c.get_host().await.expect("container host");
+    let port = c.get_host_port_ipv4(5432).await.expect("container port");
+    let pool = PgPoolOptions::new()
+        .max_connections(4)
+        .acquire_timeout(Duration::from_secs(10))
+        .connect(&format!(
+            "postgres://postgres:postgres@{host}:{port}/postgres"
+        ))
+        .await
+        .expect("connect pool");
+    run_migrations_from_dir(&pool, &staged_migrations("0021"))
+        .await
+        .expect("stand at 0021");
+    let store = Store::from_pool(pool.clone());
+    let err = store
+        .probe()
+        .await
+        .expect_err("a schema without workspaces.default_team_id must not be ready");
+    assert!(
+        err.to_string().contains("default_team_id"),
+        "names the missing column: {err}"
+    );
+    run_migrations(&pool).await.expect("0022 applies over 0021");
+    store.probe().await.expect("a schema at 0022 is ready");
 }
 
 // ---------------------------------------------------------------------------

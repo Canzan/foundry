@@ -105,6 +105,8 @@ async fn probe_column_check_is_scoped_to_current_schema() {
             "CREATE TABLE sibling.workspace_rename_events (id uuid PRIMARY KEY, \
          workspace_id uuid, actor_id uuid, old_name text, new_name text, \
          created_at timestamptz)",
+            // ...and migration 0022's workspaces.default_team_id (DDD-15).
+            "CREATE TABLE sibling.workspaces (id uuid PRIMARY KEY, default_team_id uuid)",
         ],
     )
     .await;
@@ -159,6 +161,8 @@ async fn probe_refuses_a_schema_without_the_provisioned_marker() {
             "CREATE TABLE current.workspace_rename_events (id uuid PRIMARY KEY, \
              workspace_id uuid, actor_id uuid, old_name text, new_name text, \
              created_at timestamptz)"
+                .to_string(),
+            "CREATE TABLE current.workspaces (id uuid PRIMARY KEY, default_team_id uuid)"
                 .to_string(),
         ])
         .collect();
