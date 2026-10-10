@@ -8,12 +8,13 @@
 //! 404. Tenancy comes only from the principal's workspace (D10).
 //!
 //! The read use-cases ([`list_teams`], [`team_members`]) have no write method on
-//! their path (Principle 12); [`add_member`] is the only writer.
+//! their path (Principle 12); [`add_member`] and [`change_role`] are the writers.
 
 use crate::Principal;
-use foundry_core::TeamAccess;
+use foundry_core::{TeamAccess, TeamRole};
 use foundry_store::teams::{
-    AddTeamMemberOutcome, TeamAccessFacts, TeamMemberRow, TeamPerson, TeamScope, TeamSummary,
+    AddTeamMemberOutcome, SetTeamRoleOutcome, TeamAccessFacts, TeamMemberRow, TeamPerson,
+    TeamScope, TeamSummary,
 };
 use foundry_store::{Store, StoreError};
 
@@ -63,6 +64,27 @@ pub enum AddMemberResult {
 pub struct AddedMember {
     pub result: AddMemberResult,
     pub person: TeamPerson,
+    pub page: TeamMembersView,
+}
+
+/// What a role change did (D6, D13, DDD-8/9). `Changed` and `Unchanged` carry
+/// the person, as the page now lists them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RoleChangeResult {
+    Changed(TeamPerson),
+    /// They already held the role; nothing was written.
+    Unchanged(TeamPerson),
+    /// A workspace member no longer on the team; nothing was written.
+    NotOnTeam,
+    /// The demotion would leave the team without a lead; nothing was written.
+    LastLead,
+}
+
+/// The outcome of a role change, with the page re-read after it (DDD-9).
+#[derive(Debug, Clone)]
+pub struct RoleChange {
+    pub result: RoleChangeResult,
+    pub role: TeamRole,
     pub page: TeamMembersView,
 }
 
@@ -119,17 +141,62 @@ pub async fn add_member(
     };
     // Access is recomputed after the write (DDD-9).
     let page = team_members(store, principal, &facts.team_slug).await?;
-    let person = page
-        .members
-        .iter()
-        .find(|row| row.person.user_id == user_id)
-        .map(|row| row.person.clone())
-        .ok_or(TeamError::NotFound)?;
+    let person = page.member(user_id)?;
     Ok(AddedMember {
         result,
         person,
         page,
     })
+}
+
+/// `POST /team/{slug}/members/{user_id}/role`: needs `Manage`; the path id and
+/// the role (raw values) must parse, and the target must be a member of the
+/// acting workspace (DDD-5). Every refusal before the verb is `NotFound`.
+pub async fn change_role(
+    store: &Store,
+    principal: &Principal,
+    team_slug: &str,
+    raw_user_id: &str,
+    raw_role: &str,
+) -> Result<RoleChange, TeamError> {
+    let (facts, access) = resolve_access(store, principal, team_slug).await?;
+    if !access.can_manage() {
+        return Err(TeamError::NotFound);
+    }
+    let user_id = uuid::Uuid::parse_str(raw_user_id).map_err(|_| TeamError::NotFound)?;
+    let role = TeamRole::parse(raw_role).ok_or(TeamError::NotFound)?;
+    let before = members_view(store, principal, facts.clone(), access).await?;
+    if !before.lists_in_workspace(user_id) {
+        return Err(TeamError::NotFound);
+    }
+    let outcome = store.set_team_role(facts.team_id, user_id, role).await?;
+    // Access is recomputed after the write (DDD-9).
+    let page = team_members(store, principal, &facts.team_slug).await?;
+    let result = match outcome {
+        SetTeamRoleOutcome::Changed => RoleChangeResult::Changed(page.member(user_id)?),
+        SetTeamRoleOutcome::Unchanged => RoleChangeResult::Unchanged(page.member(user_id)?),
+        SetTeamRoleOutcome::NotOnTeam => RoleChangeResult::NotOnTeam,
+        SetTeamRoleOutcome::LastLead => RoleChangeResult::LastLead,
+    };
+    Ok(RoleChange { result, role, page })
+}
+
+impl TeamMembersView {
+    /// Whether `user_id` is on the team or offered to it, i.e. a member of the
+    /// acting workspace (a manager's view lists both).
+    fn lists_in_workspace(&self, user_id: uuid::Uuid) -> bool {
+        self.members.iter().any(|row| row.person.user_id == user_id)
+            || self.candidates.iter().any(|p| p.user_id == user_id)
+    }
+
+    /// The person on the team with `user_id`, as the page lists them.
+    fn member(&self, user_id: uuid::Uuid) -> Result<TeamPerson, TeamError> {
+        self.members
+            .iter()
+            .find(|row| row.person.user_id == user_id)
+            .map(|row| row.person.clone())
+            .ok_or(TeamError::NotFound)
+    }
 }
 
 /// The one facts read and the one policy (ADR-TEAM-MEMBERSHIP-003).

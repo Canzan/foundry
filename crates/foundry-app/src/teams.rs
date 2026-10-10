@@ -16,6 +16,8 @@
 //!                                  their own teams, or the shipped no-team copy.
 //!   GET  /team/{slug}/members    — needs View (members list); Manage adds the form.
 //!   POST /team/{slug}/members    — needs Manage; `user_id` names a workspace member.
+//!   POST /team/{slug}/members/{user_id}/role — needs Manage; `role` is lead|member.
+//!                                  A last lead is a 409 with the members page (DDD-8).
 //!
 //! Gate order (DDD-5): session (none → 404) → the services use-case (facts by
 //! session workspace + slug, access, target id parse, target in workspace) → verb.
@@ -36,7 +38,7 @@ use axum::http::header::HeaderMap;
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
 use foundry_core::TeamRole;
-use foundry_services::teams::{AddMemberResult, TeamError, TeamMembersView};
+use foundry_services::teams::{AddMemberResult, RoleChangeResult, TeamError, TeamMembersView};
 use foundry_services::{Principal, Services};
 use serde::Deserialize;
 use std::fmt;
@@ -59,6 +61,15 @@ pub enum TeamNotice {
     },
     /// "Everyone in this workspace is already on {team}."
     EveryoneOn { team: String },
+    /// "{name} ({email}) is now a lead of {team}." / "... a member of {team}."
+    NowA {
+        name: String,
+        email: String,
+        role: TeamRole,
+        team: String,
+    },
+    /// "{team} needs at least one lead. Make someone else a lead first."
+    NeedsALead { team: String },
 }
 
 impl fmt::Display for TeamNotice {
@@ -73,6 +84,21 @@ impl fmt::Display for TeamNotice {
             Self::EveryoneOn { team } => {
                 write!(f, "Everyone in this workspace is already on {team}.")
             }
+            Self::NowA {
+                name,
+                email,
+                role,
+                team,
+            } => {
+                let role = role.as_str();
+                write!(f, "{name} ({email}) is now a {role} of {team}.")
+            }
+            Self::NeedsALead { team } => {
+                write!(
+                    f,
+                    "{team} needs at least one lead. Make someone else a lead first."
+                )
+            }
         }
     }
 }
@@ -81,6 +107,14 @@ impl fmt::Display for TeamNotice {
 pub struct AddMemberForm {
     #[serde(default)]
     pub user_id: Option<String>,
+    #[serde(rename = "_csrf", default)]
+    _csrf: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RoleForm {
+    #[serde(default)]
+    pub role: Option<String>,
     #[serde(rename = "_csrf", default)]
     _csrf: Option<String>,
 }
@@ -171,6 +205,46 @@ pub async fn submit_add(
     members_page(&state, &headers, &user, added.page, Some(notice)).await
 }
 
+// ------------------------------------ POST /team/{slug}/members/{user_id}/role
+
+/// The path id stays a `String` so a non-UUID is the uniform 404, never axum's
+/// 400 (DDD-5).
+pub async fn submit_role(
+    State(state): State<AppState>,
+    session: Session,
+    headers: HeaderMap,
+    Path((team_slug, raw_user_id)): Path<(String, String)>,
+    Form(form): Form<RoleForm>,
+) -> Response {
+    let Some(user) = signed_in_user(&session).await else {
+        return resource_not_found_page();
+    };
+    let services = Services::new(state.store.clone());
+    let raw_role = form.role.as_deref().unwrap_or("");
+    let change = match services
+        .change_member_role(&principal_of(&user), &team_slug, &raw_user_id, raw_role)
+        .await
+    {
+        Ok(change) => change,
+        Err(err) => return refusal(err),
+    };
+    let team = change.page.team_name.clone();
+    let (status, notice) = match change.result {
+        RoleChangeResult::Changed(person) | RoleChangeResult::Unchanged(person) => (
+            StatusCode::OK,
+            Some(TeamNotice::NowA {
+                name: person.display_name,
+                email: person.email,
+                role: change.role,
+                team,
+            }),
+        ),
+        RoleChangeResult::NotOnTeam => (StatusCode::OK, None),
+        RoleChangeResult::LastLead => (StatusCode::CONFLICT, Some(TeamNotice::NeedsALead { team })),
+    };
+    members_page_with_status(&state, &headers, &user, change.page, notice, status).await
+}
+
 // ------------------------------------------------------------------ internals
 
 async fn members_page(
@@ -179,6 +253,17 @@ async fn members_page(
     user: &SessionUser,
     view: TeamMembersView,
     notice: Option<TeamNotice>,
+) -> Response {
+    members_page_with_status(state, headers, user, view, notice, StatusCode::OK).await
+}
+
+async fn members_page_with_status(
+    state: &AppState,
+    headers: &HeaderMap,
+    user: &SessionUser,
+    view: TeamMembersView,
+    notice: Option<TeamNotice>,
+    status: StatusCode,
 ) -> Response {
     let can_manage = view.access.can_manage();
     let nobody_to_add = (can_manage && view.candidates.is_empty()).then(|| {
@@ -216,7 +301,7 @@ async fn members_page(
         notice: notice.map(|n| n.to_string()),
         nobody_to_add,
     };
-    render(page.render(), StatusCode::OK, set_cookie)
+    render(page.render(), status, set_cookie)
 }
 
 /// The D15 role labels.
@@ -319,6 +404,45 @@ mod team_notice_copy {
         assert_eq!(
             notice.to_string(),
             "Everyone in this workspace is already on Backend."
+        );
+    }
+
+    #[test]
+    fn now_a_lead() {
+        let notice = TeamNotice::NowA {
+            name: "Sam Okafor".into(),
+            email: "sam.okafor@canzan.dev".into(),
+            role: TeamRole::Lead,
+            team: "Backend".into(),
+        };
+        assert_eq!(
+            notice.to_string(),
+            "Sam Okafor (sam.okafor@canzan.dev) is now a lead of Backend."
+        );
+    }
+
+    #[test]
+    fn now_a_member() {
+        let notice = TeamNotice::NowA {
+            name: "Lena Park".into(),
+            email: "lena.park@canzan.dev".into(),
+            role: TeamRole::Member,
+            team: "Backend".into(),
+        };
+        assert_eq!(
+            notice.to_string(),
+            "Lena Park (lena.park@canzan.dev) is now a member of Backend."
+        );
+    }
+
+    #[test]
+    fn needs_a_lead() {
+        let notice = TeamNotice::NeedsALead {
+            team: "Backend".into(),
+        };
+        assert_eq!(
+            notice.to_string(),
+            "Backend needs at least one lead. Make someone else a lead first."
         );
     }
 

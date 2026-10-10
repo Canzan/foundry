@@ -12,13 +12,13 @@
       {% if can_manage %}
       <form method="post" action="/team/{{ team_slug }}/members/{{ m.user_id }}/role">
         <input type="hidden" name="_csrf" value="{{ csrf }}">
-        <label>Role
-          <select name="role">
-            <option value="lead"{% if m.role_label == "Lead" %} selected{% endif %}>Lead</option>
-            <option value="member"{% if m.role_label == "Member" %} selected{% endif %}>Member</option>
-          </select>
-        </label>
-        <button type="submit">Change role</button>
+        {% if m.role_label == "Lead" %}
+        <input type="hidden" name="role" value="member">
+        <button type="submit">Make member</button>
+        {% else %}
+        <input type="hidden" name="role" value="lead">
+        <button type="submit">Make lead</button>
+        {% endif %}
       </form>
       <form method="post" action="/team/{{ team_slug }}/members/{{ m.user_id }}/remove">
         <input type="hidden" name="_csrf" value="{{ csrf }}">
