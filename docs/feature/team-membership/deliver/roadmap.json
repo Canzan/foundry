@@ -1,0 +1,697 @@
+{
+  "roadmap": {
+    "project_id": "team-membership",
+    "created_at": "2026-10-09T00:00:00Z",
+    "total_steps": 12,
+    "goal": "A workspace admin, or a team's lead, can see who is on a team and put a workspace member on it, change a member's role, or take someone off it, through /teams and /team/{slug}/members under one pure authority policy (TeamAccess) applied only in foundry_services::teams, with every refusal byte-identical to the uniform 404; a team that has a lead can never be left without one, under concurrency and for any caller (team-row FOR NO KEY UPDATE + exact pre-read + the migration 0021 BEFORE triggers); workspace removal takes the person's team rows and refuses a last lead (OQ-9); and a workspace can name a default team (migration 0022, composite FK) so invitees and first-time Keycloak sign-ins land on it, best-effort inside a savepoint, never failing the join.",
+    "sources": [
+      "docs/feature/team-membership/feature-delta.md",
+      "docs/feature/team-membership/distill/red-classification.md",
+      "docs/feature/team-membership/slices/slice-01-members-page-and-admin-add.md",
+      "docs/feature/team-membership/slices/slice-02-change-role-never-leaderless.md",
+      "docs/feature/team-membership/slices/slice-03-remove-from-team.md",
+      "docs/feature/team-membership/slices/slice-04-team-lead-manages-own-team.md",
+      "docs/feature/team-membership/slices/slice-05-default-team-for-invites.md",
+      "docs/feature/team-membership/slices/slice-06-default-team-for-keycloak.md",
+      "docs/product/architecture/adr-team-membership-001-never-leaderless-lock-and-trigger.md",
+      "docs/product/architecture/adr-team-membership-002-default-team-column-composite-fk.md",
+      "docs/product/architecture/adr-team-membership-003-one-team-authority-policy.md",
+      "docs/product/architecture/brief.md",
+      "crates/foundry-acceptance/tests/features/team-membership-01-members-page-and-add.feature",
+      "crates/foundry-acceptance/tests/features/team-membership-02-change-role.feature",
+      "crates/foundry-acceptance/tests/features/team-membership-03-remove.feature",
+      "crates/foundry-acceptance/tests/features/team-membership-04-team-lead.feature",
+      "crates/foundry-acceptance/tests/features/team-membership-05-default-team-invites.feature",
+      "crates/foundry-acceptance/tests/features/team-membership-06-default-team-keycloak.feature",
+      "crates/foundry-acceptance/src/steps/feature_team_membership.rs",
+      "crates/foundry-acceptance/src/steps/feature_team_membership_default_team.rs",
+      "crates/foundry-acceptance/src/support/team_membership.rs",
+      "crates/foundry-store/src/teams.rs",
+      "crates/foundry-core/src/team_membership.rs",
+      "crates/foundry-store/tests/team_lead_guard.rs",
+      "crates/foundry-store/tests/workspace_default_team.rs",
+      "xtask/src/check_arch.rs"
+    ],
+    "scenario_ownership_invariant": "All 57 DISTILL acceptance scenarios (87 outline rows) are owned by exactly one step, numbered as in the DISTILL scenario table: 01-01: 2 (1, 9 = 2 rows); 01-02: 7 (2-8 = 10 rows); 01-03: 8 (10-17 = 14 rows) + the new check-arch gold tests; 02-01: 0 acceptance + 9 store tests (team_lead_guard.rs, 'pending: team-membership 02-01'); 02-02: 11 (18-28 = 16 rows); 03-01: 3 (36-38 = 3 rows) + 8 store tests (team_lead_guard.rs, '03-01'); 03-02: 7 (29-35 = 12 rows); 04-01: 9 (39-47 = 15 rows); 05-01: 0 acceptance + 7 store tests (workspace_default_team.rs, '05-01') + a new probe test; 05-02: 7 (48-54 = 11 rows); 06-01: 3 (55-57 = 4 rows) + 3 store tests (workspace_default_team.rs, '06-01'); 06-02: 0 (docs, burn-down, mutation report). Totals: 57 scenarios / 87 rows; 17 + 10 = 27 ignored store tests; the 4 store tests GREEN at DISTILL (two lock substrate facts, two no-default guards) stay green throughout. Scaffolds removed: crates/foundry-core/src/team_membership.rs at 01-01, crates/foundry-store/tests/team_lead_guard.rs::remove_from_workspace at 03-01, crates/foundry-store/src/teams.rs at 05-01 (its last panic). DELIVER un-pends a scenario and un-ignores a store test only in the step that owns it, in DISTILL order. Burn-down: grep -cE '^[[:space:]]*@.*@pending' crates/foundry-acceptance/tests/features/team-membership-0*.feature (57 now, 0 at 06-01); grep -c '#\\[ignore = \"pending: team-membership' crates/foundry-store/tests/team_lead_guard.rs crates/foundry-store/tests/workspace_default_team.rs (17 + 10 now, 0 at 06-01); grep -n 'SCAFFOLD' over the three team-membership scaffold files (3 now, 0 at 05-01). Note: a crate-wide grep -rn 'SCAFFOLD: true' crates/ also lists other features' scaffolds (lanes, notification providers, mwt); only the three files above are this feature's."
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "Members page and admin add, the walking skeleton (US-TM-01, US-TM-02, slice 01, DDD-1..5, 9, 10, 16-20)",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "Walking skeleton: admin adds Keycloak account to General, board opens",
+          "description": "Thinnest end-to-end path (the D4 dogfood): dashboard Teams quick action, /teams, General's members page, Add, and the added Keycloak account opens Sandbox. Lands TeamRole/TeamAccess, the facts and list reads, add_team_member, the teams use-cases, handlers, views, templates and three routes. Un-pends scenario 1 first, then 9.",
+          "criteria": [
+            "Scenario 1 green: the bootstrap admin follows Teams to General, adds the Keycloak account, sees the Added copy, and that account's dashboard lists Sandbox and its board answers 200",
+            "Scenario 9 green: an admin's Add writes exactly one Member row (state delta) and the added member opens the team's board without signing in again",
+            "The six-row team-access table and role parsing pass as unit examples; the Added copy matches D15 byte for byte",
+            "Every refusal on the three new routes is byte-identical to the uniform 404; no SCAFFOLD marker remains in foundry-core team_membership.rs",
+            "tm-01 (1, 9), fix-hub, us-dash, us-nav, keycloak-sso and default lanes green; store tests, fmt, clippy -D warnings, check-arch and smoke green"
+          ],
+          "estimate": "1 day",
+          "dependencies": [],
+          "files_to_modify": [
+            "crates/foundry-core/src/team_membership.rs",
+            "crates/foundry-core/src/lib.rs",
+            "crates/foundry-store/src/teams.rs",
+            "crates/foundry-services/src/teams.rs",
+            "crates/foundry-services/src/lib.rs",
+            "crates/foundry-app/src/teams.rs",
+            "crates/foundry-app/src/lib.rs",
+            "crates/foundry-app/src/views.rs",
+            "crates/foundry-app/templates/teams_index.html",
+            "crates/foundry-app/templates/team_members.html",
+            "crates/foundry-app/templates/dashboard_root.html",
+            "crates/foundry-acceptance/tests/features/team-membership-01-members-page-and-add.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/team-membership-01-members-page-and-add.feature",
+          "scenario_name": [
+            "Jeff puts his own Keycloak account on General, and it opens the Sandbox board",
+            "A workspace admin puts a member on a team, and the member can open the team's board"
+          ],
+          "lane_commands": [
+            "docker info (Docker up: per-test postgres:16-alpine testcontainers and the shared acceptance Postgres)",
+            "timeout 900 cargo test -p foundry-core team_membership",
+            "timeout 2400 cargo test -p foundry-store --test team_lead_guard --test workspace_default_team (2 + 2 GREEN substrate/guard tests stay green; 17 + 10 still ignored)",
+            "timeout 900 cargo fmt --all -- --check",
+            "timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "timeout 600 cargo xtask check-arch",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; } (rebuild + warm BEFORE any lane; acceptance runs the prebuilt binary)",
+            "FOUNDRY_ACCEPTANCE_TAGS=tm-01 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (expect scenarios 1 and 9 passed; 15 still @pending)",
+            "FOUNDRY_ACCEPTANCE_TAGS=fix-hub CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (no-team dashboard copy unchanged)",
+            "FOUNDRY_ACCEPTANCE_TAGS=us-dash CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (quick actions gain Teams)",
+            "FOUNDRY_ACCEPTANCE_TAGS=us-nav CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (rail on the new pages)",
+            "FOUNDRY_ACCEPTANCE_TAGS=keycloak-sso CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (scenario 1 reuses the Keycloak first sign-in legs)",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance (default lane)"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): unit tests for new pure logic MUST be property-based (proptest) with state-delta discipline where state mutates; single-example unit tests are FALLBACK only with a # bypass: comment. Acceptance scenarios are the cucumber .feature files (already authored by DISTILL \u2014 un-pend, do not re-author). Integration/browser tests stay single-example \u2014 they verify wiring. EXEMPT FROM PARADIGM: TeamAccess::of is total over a finite 2 x 3 domain (is_workspace_admin x Option<TeamRole>), so the six-row example table IS the exhaustive property; TeamRole::parse ('lead', 'member', 'Lead', '') and the TeamNotice bytes are exact-string contracts. Compensate with the acceptance state deltas. WALKING SKELETON FIRST: un-pend scenario 1 alone and make it green before anything else in slice 01, then scenario 9 (same door). Confirm the RED first: red-classification.md records scenario 1 stopping at 'no Teams quick action' after the Keycloak first sign-in and the 'on no team, Sandbox 404' precondition passed. If a scenario fails AFTER that recorded point for a reason that is not the feature (a selector, a parsing assumption), fix the driver crates/foundry-acceptance/src/support/team_membership.rs against DESIGN's pinned DOM (DDD-17): rows '{name} \u00b7 {email} \u00b7 {Lead|Member}', candidates '{name} \u2014 {email}' in select[name=user_id] inside the form posting to /team/{slug}/members, /teams rows '{team} \u00b7 {n} member(s)' linking to the members page. SHAPE (DDD-1/3/5): foundry_core::team_membership gains TeamAccess {None, View, Manage} and TeamAccess::of(is_workspace_admin, Option<TeamRole>) with the slice-01 table (Some(Lead) = View until 04-01); re-export from foundry-core lib.rs. Store reads in crates/foundry-store/src/teams.rs (crafter may keep them there): team_access_facts(ws, slug, user) -> Option<{team_id, team_name, team_slug, is_workspace_admin, role}> as ONE SELECT (teams by (workspace_id, slug), EXISTS admin subquery, LEFT JOIN team_memberships), list_teams(ws, All | MemberOf(user)) with member counts by name, list_team_members(team) leads first then display name then email, list_team_candidates(ws, team) by display name then email (DDD-16). add_team_member (DDD-10): SELECT ... FROM workspace_memberships WHERE (ws, target) FOR KEY SHARE (none -> NotWorkspaceMember), then INSERT ... ON CONFLICT DO NOTHING as 'member' (0 rows -> AlreadyOn). foundry-services: NEW teams module (list_teams, team_members, add_member, TeamError, outcomes) + Services delegations; the policy is applied ONLY here (ADR-TEAM-MEMBERSHIP-003); the read use-cases have no write method on their path (Principle 12: read driving ports split from write). foundry-app: NEW teams.rs (WHY-NEW-FILE header, as member_invites.rs) with show_teams, show_members, submit_add and the TeamNotice copy enum (DDD-18; add a variant only when its verb lands, so -D warnings never sees a dead variant; byte-exact unit tests per variant); views TeamsIndexPage / TeamMembersPage ({% extends \"app_shell.html\" %}, NavContext::home_for); routes GET /teams, GET and POST /team/{team_slug}/members on the shared layer (CSRF). Dashboard: a 'Teams' <li> as the FIRST quick action; the no-team string is unchanged. GATE ORDER (DDD-5, every team route): session (none -> 404, not a sign-in redirect) -> facts by (session workspace, slug) (none -> 404) -> TeamAccess (GET needs View, POST needs Manage) -> parse user_id from the body as a String (non-UUID -> uniform 404, never axum's 400) -> target is a member of the acting workspace (else 404) -> verb. Every refusal is bootstrap::resource_not_found_page() byte for byte (D5); tenancy only from SessionUser.workspace_id (D10). Writes re-render the page with 200 and the D15 copy, no post-redirect-get; access is recomputed after the write (DDD-9). Plain forms, no htmx. Board authz is unchanged (D9): is_team_member keeps gating boards. OQ-D5 NAMING: the LAYER-1e detector flags *_in_workspace( calls that take a parsed UUID; name the new store methods without that suffix and keep the session workspace_id as the first argument (DDD-16's names comply). LOGGING (DDD-20): refusals log nothing; never log an email. CONTRACT SHAPES: TeamRole/TeamAccess pure; GET use-cases read-only (zero rows changed); add_team_member bounded-change (at most one 'member' INSERT; refusal or AlreadyOn leaves team_memberships byte-identical). SCAFFOLDS: remove '// SCAFFOLD: true' from crates/foundry-core/src/team_membership.rs (TeamAccess now exists); crates/foundry-store/src/teams.rs keeps its marker until 05-01 (set_team_role, remove_team_member, default_team, set_default_team still panic). The check-arch team-membership-one-seam rule lands in 01-03, once its subject (the services call site of add_team_member) exists and the shipped tree can be proven to pass. LANES (exact): warm-up 'CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; }'; lane 'FOUNDRY_ACCEPTANCE_TAGS=tm-01 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance'; default lane 'env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance'; gates: store tests 'timeout 2400 cargo test -p foundry-store --test team_lead_guard --test workspace_default_team', 'timeout 900 cargo fmt --all -- --check', 'timeout 1800 cargo clippy --workspace --all-targets -- -D warnings', 'timeout 600 cargo xtask check-arch', smoke 'CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke'; neighbours fix-hub, us-dash, us-nav, keycloak-sso (same lane command with the tag). Lessons: rebuild + warm right before every lane (a cold binary times out subprocess scenarios); bound every run with timeout and clear leftover containers if a run is killed; another session may share the worktree, check running lanes and containers first; us-04 in the default lane is a known flake, rerun it alone before calling it a regression. MUTATION: >= 80% on the step's Rust production code (timeout 1800 cargo mutants --in-diff <step diff> --file crates/foundry-core/src/team_membership.rs --file crates/foundry-store/src/teams.rs --file crates/foundry-services/src/teams.rs --file crates/foundry-app/src/teams.rs); every arm of the access table and every gate in DDD-5 must be killed by a named test. COMMIT: one local commit (git commit only). NEVER git push and never open a PR: the user has said no pushes until told."
+        },
+        {
+          "id": "01-02",
+          "name": "Teams index and members page: scopes, read-only view, refusals",
+          "description": "Completes the read side: /teams scoped to the caller's own teams for non-admins, the shipped no-team copy, a read-only list for plain members, an admin view that grants no board access (D9), and the uniform 404 for signed-out, unauthorized, unknown and foreign-slug requests. Un-pends 2-8 (10 rows).",
+          "criteria": [
+            "An admin's teams page lists every Canzan Labs team as '{team} \u00b7 {n} member(s)'; a members list shows leads first, then by name, each as name \u00b7 email \u00b7 role",
+            "A plain member's teams page lists only their teams and their members list renders no Add, role or Remove control; someone on no team sees the shipped no-team copy",
+            "An admin reads Ops's members page while Ops's board still answers the uniform 404",
+            "Signed out, Marco, an unknown slug and Globex's slug each get a body byte-identical to the uniform 404, the universe unchanged, while each row's control proves the team exists",
+            "tm-01 (1-9), us-dash, us-nav, fix-hub, mwt-slice-04 and default lanes green; fmt, clippy -D warnings, check-arch, smoke green"
+          ],
+          "estimate": "0.5 day",
+          "dependencies": [
+            "01-01"
+          ],
+          "files_to_modify": [
+            "crates/foundry-store/src/teams.rs",
+            "crates/foundry-services/src/teams.rs",
+            "crates/foundry-app/src/teams.rs",
+            "crates/foundry-app/templates/teams_index.html",
+            "crates/foundry-app/templates/team_members.html",
+            "crates/foundry-acceptance/tests/features/team-membership-01-members-page-and-add.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/team-membership-01-members-page-and-add.feature",
+          "scenario_name": [
+            "A workspace admin finds a team and sees who is on it, leads first",
+            "A workspace admin sees the members of a team she is not on, but still cannot open its board",
+            "A team member sees their own team, without any way to change it",
+            "Someone on no team is told so on the teams page",
+            "Someone who may not see a team's members gets the page that never existed",
+            "Another workspace's team and a team that does not exist look the same from Canzan Labs",
+            "A signed-out visitor learns nothing from the teams page"
+          ],
+          "lane_commands": [
+            "timeout 900 cargo fmt --all -- --check",
+            "timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "timeout 600 cargo xtask check-arch",
+            "timeout 2400 cargo test -p foundry-store --test team_lead_guard --test workspace_default_team",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; }",
+            "FOUNDRY_ACCEPTANCE_TAGS=tm-01 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (expect 1-9 passed, 13 rows)",
+            "FOUNDRY_ACCEPTANCE_TAGS=us-dash CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance",
+            "FOUNDRY_ACCEPTANCE_TAGS=us-nav CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance",
+            "FOUNDRY_ACCEPTANCE_TAGS=fix-hub CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance",
+            "FOUNDRY_ACCEPTANCE_TAGS=mwt-slice-04 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (non-enumerability neighbour)",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance (default lane)"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): unit tests for new pure logic MUST be property-based (proptest) with state-delta discipline where state mutates; single-example unit tests are FALLBACK only with a # bypass: comment. Acceptance scenarios are the cucumber .feature files (already authored by DISTILL \u2014 un-pend, do not re-author). Integration/browser tests stay single-example \u2014 they verify wiring. EXEMPT FROM PARADIGM: closed authorization matrix over named actors (signed out, Marco, Sam, Hugo, unknown and foreign slug) \u2014 the quantified invariant is the exhaustive TeamAccess table (01-01) plus the fail-closed universe delta on every row. Contract shape: every scenario here is unbounded-preservation (read-only; zero rows changed). Un-pend order: 2, 3, 4, 5, then the refusals 6, 7, 8. What lands if 01-01 did not already: list_teams(ws, MemberOf(user)) for non-admins (empty -> the shipped no-team string from dashboard_root.html, unchanged, D12); can_manage = false renders the list with NO Add / role / Remove form (D11; controls render only when can_manage); an admin who is not on Ops sees Ops's list but the unchanged board gate still 404s (D9). RED reasons per red-classification.md: 2 stopped at 'no Teams quick action', 3 at '/team/ops/members 404', 4 and 5 at '/teams 404', 6-8 on the CONTROL (the refusal bytes already matched because no route existed); a refusal that passes only because a route is missing proves nothing, so each control (the hidden team's page answering for an authorized caller) must be green. Signed out on GET /teams and on the members page is the uniform 404, not a sign-in redirect (D5, DDD-5). Logging: refusals log nothing (DDD-20). LANES (exact): warm-up 'CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; }'; lane 'FOUNDRY_ACCEPTANCE_TAGS=tm-01 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance'; default lane 'env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance'; gates: store tests 'timeout 2400 cargo test -p foundry-store --test team_lead_guard --test workspace_default_team', 'timeout 900 cargo fmt --all -- --check', 'timeout 1800 cargo clippy --workspace --all-targets -- -D warnings', 'timeout 600 cargo xtask check-arch', smoke 'CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke'; neighbours us-dash, us-nav, fix-hub, mwt-slice-04. Lessons: rebuild + warm before every lane; bound every run with timeout; check for a concurrent session first. MUTATION: >= 80% on the diff (timeout 1800 cargo mutants --in-diff <step diff> --file crates/foundry-services/src/teams.rs --file crates/foundry-app/src/teams.rs --file crates/foundry-store/src/teams.rs); the All vs MemberOf scope and the can_manage branch must each be killed by a scenario. COMMIT: one local commit (git commit only). NEVER git push: the user has said no pushes until told."
+        },
+        {
+          "id": "01-03",
+          "name": "Add list, idempotent re-add, add refusals; check-arch one-seam rule",
+          "description": "Add-door edges and refusals: candidates (workspace members not on the team, '{name} \u2014 {email}'), the empty-list copy, idempotent re-add, bad targets, unauthorized callers, foreign or unknown slugs, a target who left the workspace, and the CSRF 403. Adds check-arch team-membership-one-seam with gold tests. Un-pends 10-17 (14 rows).",
+          "criteria": [
+            "The Add list offers exactly the acting workspace's members not on the team, as '{name} \u2014 {email}'; when none remain, 'Everyone in this workspace is already on {team}.' replaces it",
+            "A re-add from an older page shows the 'already on' copy and writes nothing; an unknown, garbled or other-workspace target gets the uniform 404 with zero rows written",
+            "A non-manager's add, an add to a foreign or unknown slug, or for someone who left the workspace gets the uniform 404; a tokenless add gets the shipped 403",
+            "check-arch team-membership-one-seam flags team_memberships SQL writes outside foundry-store/src and add_team_member calls from app or api src; its injected-violation gold tests pass; the shipped tree passes",
+            "All 17 tm-01 scenarios green, zero @pending in file 01; workspace-member-invites, mwt-slice-04 and default lanes green; fmt, clippy -D warnings, smoke green"
+          ],
+          "estimate": "0.75 day",
+          "dependencies": [
+            "01-02"
+          ],
+          "files_to_modify": [
+            "crates/foundry-store/src/teams.rs",
+            "crates/foundry-app/src/teams.rs",
+            "crates/foundry-app/templates/team_members.html",
+            "xtask/src/check_arch.rs",
+            "crates/foundry-acceptance/tests/features/team-membership-01-members-page-and-add.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/team-membership-01-members-page-and-add.feature",
+          "scenario_name": [
+            "Only workspace members who are not on the team are offered, each by name and address",
+            "When everyone is already on the team, there is nobody to add",
+            "Adding someone already on the team, from an older page, changes nothing and says so",
+            "Someone who is not a Canzan Labs member cannot be added",
+            "Someone without the right cannot add anyone to a team",
+            "An add aimed at another workspace's team or at a team that does not exist is refused the same way",
+            "Someone who left the workspace cannot be added from a page opened before they left",
+            "An add sent without the page's token is turned away, and nothing changes",
+            "xtask/src/check_arch.rs::team_membership_one_seam gold tests (new, DELIVER-authored: clause (a) SQL write in an app src file flagged, in foundry-store/src and in foundry-acceptance not flagged; clause (b) add_team_member( call in app/api src flagged, in foundry-services not flagged)"
+          ],
+          "lane_commands": [
+            "timeout 900 cargo test -p xtask team_membership_one_seam",
+            "timeout 900 cargo test -p xtask (the shared call_sites / SQL scanner helpers serve every rule)",
+            "timeout 600 cargo xtask check-arch",
+            "timeout 900 cargo fmt --all -- --check",
+            "timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "timeout 2400 cargo test -p foundry-store --test team_lead_guard --test workspace_default_team",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; }",
+            "FOUNDRY_ACCEPTANCE_TAGS=tm-01 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (expect all 17 scenarios / 26 rows passed)",
+            "FOUNDRY_ACCEPTANCE_TAGS=workspace-member-invites CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (scenario 16 uses the workspace-removal door as a precondition)",
+            "FOUNDRY_ACCEPTANCE_TAGS=mwt-slice-04 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance (default lane)",
+            "timeout 60 grep -cE '^[[:space:]]*@.*@pending' crates/foundry-acceptance/tests/features/team-membership-01-members-page-and-add.feature (expect 0)"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): unit tests for new pure logic MUST be property-based (proptest) with state-delta discipline where state mutates; single-example unit tests are FALLBACK only with a # bypass: comment. Acceptance scenarios are the cucumber .feature files (already authored by DISTILL \u2014 un-pend, do not re-author). Integration/browser tests stay single-example \u2014 they verify wiring. EXEMPT FROM PARADIGM: the check-arch rule is a static source scan over injected-violation temp trees (exact file:line findings), and the add refusals are a closed actor x target matrix \u2014 compensate with one gold test per clause boundary and the fail-closed universe delta on every row. SIZING EXCEPTION (8 scenarios, 14 rows; >= 8 needs a recorded rationale): all eight are the same driving port (POST /team/{slug}/members) behind the one DDD-5 gate order shipped in 01-01; they are expected to be assertion enablement plus two small production deltas (the empty-candidates copy and the AlreadyOn copy). Splitting them into an 'add edges' step and an 'add refusals' step would add a third refusal-only step whose AC structure duplicates 01-02 and 02-02/03-02, which the roadmap rules forbid; the outline rows are cheap enumerations of one gate. Contract shapes: 10, 11 unbounded-preservation (reads); 12-17 unbounded-preservation (refusal or no-op: team_memberships byte-identical). Un-pend order: 10, 11, 12, then the refusals 13, 14, 15, 16, 17. Scenario 16 is INV-5 at the door: the target left the workspace after the page was rendered, so add_team_member's FOR KEY SHARE read finds no row -> NotWorkspaceMember -> uniform 404 (authority and target are evaluated per request, INV-6). Scenario 17: a tokenless POST is refused by the shipped csrf_middleware with 403 'CSRF token missing or mismatched' before any handler runs (OQ-D1), outside the 404 matrix. Copy (D15, locked): 'Everyone in this workspace is already on {team}.' and '{name} ({email}) is already on {team}.' as TeamNotice variants with byte-exact unit tests. CHECK-ARCH (DDD-19): add rule team-membership-one-seam to xtask/src/check_arch.rs reusing the shared helpers (call_sites, the OneSourceRule idiom, the provisioned-marker SQL scanner; do not fork them): clause (a) no SQL 'INSERT INTO' / 'UPDATE' / 'DELETE FROM' team_memberships in any .rs under crates/*/src except crates/foundry-store/src (foundry-acceptance and tests/ excluded as fixtures); clause (b) add_team_member( has no call site under crates/{foundry-app,foundry-api}/src (02-01 adds set_team_role(, 03-01 adds remove_team_member(). Wire it into the run and name it in the PASSED banner; a missing crates/ directory fails closed. Write the injected-violation gold tests (one per clause plus the allowed-path counter-examples) in the rule's test module. Verify the shipped tree passes: bootstrap and grant_all_memberships write team rows only inside foundry-store/src. Earned Trust: the rule is what keeps every membership write behind the store, the lock and (from 02-01) the trigger, and behind the one policy. LANES (exact): warm-up 'CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; }'; lane 'FOUNDRY_ACCEPTANCE_TAGS=tm-01 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance'; default lane 'env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance'; gates: store tests 'timeout 2400 cargo test -p foundry-store --test team_lead_guard --test workspace_default_team', 'timeout 900 cargo fmt --all -- --check', 'timeout 1800 cargo clippy --workspace --all-targets -- -D warnings', 'timeout 600 cargo xtask check-arch' (plus 'timeout 900 cargo test -p xtask'), smoke 'CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke'; neighbours workspace-member-invites, mwt-slice-04. MUTATION: >= 80% (timeout 1800 cargo mutants --in-diff <step diff> --file xtask/src/check_arch.rs --file crates/foundry-app/src/teams.rs --file crates/foundry-store/src/teams.rs); every clause boundary (store src allowed vs any other src; acceptance excluded; app/api vs services) killed by a gold test. COMMIT: one local commit (git commit only). NEVER git push: the user has said no pushes until told."
+        }
+      ]
+    },
+    {
+      "id": "02",
+      "name": "Change role, never leaderless (US-TM-03, slice 02, DDD-6/7/8/21, ADR-TEAM-MEMBERSHIP-001, migration 0021)",
+      "steps": [
+        {
+          "id": "02-01",
+          "name": "Migration 0021 lead guard and set_team_role, store-proven",
+          "description": "NEW 0021_team_lead_guard.sql: one-time orphan team-row cleanup with a RAISE NOTICE count, foundry_team_keeps_a_lead() and two BEFORE triggers (23514 team_memberships_team_keeps_a_lead, cascade exemption), re-runnable. Implement set_team_role: team row FOR NO KEY UPDATE, exact pre-read, typed LastLead, 23514 mapped. Un-ignores nine 02-01 store tests; adds the 0021 CHANGELOG migration note.",
+          "criteria": [
+            "Demoting the only lead returns LastLead and writes nothing; promote, hand-over and same-role repeat change exactly one role or none; a role change for someone off the team changes nothing",
+            "One statement demoting both leads, or a hand delete of the last lead, is refused with 23514 naming team_memberships_team_keeps_a_lead; deleting a team or workspace with a lead succeeds",
+            "Two concurrent demotions of the last two leads leave exactly one lead in every one of at least 100 runs, with no 500-class error",
+            "0021 over a schema staged at 0020 deletes only orphan team rows, non-orphans byte-identical; a re-run is a no-op; Store::probe is unchanged",
+            "The nine 02-01 store tests pass un-ignored; recipient-unsubscribe, tm-01 and default lanes green; fmt, clippy -D warnings, check-arch, smoke green"
+          ],
+          "estimate": "1 day",
+          "dependencies": [
+            "01-03"
+          ],
+          "files_to_modify": [
+            "crates/foundry-store/migrations/0021_team_lead_guard.sql",
+            "crates/foundry-store/src/teams.rs",
+            "crates/foundry-store/tests/team_lead_guard.rs",
+            "xtask/src/check_arch.rs",
+            "CHANGELOG.md"
+          ],
+          "test_file": "crates/foundry-store/tests/team_lead_guard.rs",
+          "scenario_name": [
+            "making_the_only_lead_a_member_is_refused_as_last_lead_and_changes_nothing",
+            "a_promotion_then_a_hand_over_change_exactly_one_role_each_and_a_repeat_changes_nothing",
+            "a_role_change_for_someone_not_on_the_team_changes_nothing",
+            "a_team_with_no_lead_can_be_given_one",
+            "one_statement_demoting_both_leads_is_refused_by_the_database_naming_the_rule",
+            "a_hand_delete_of_the_last_lead_is_refused_by_the_database",
+            "deleting_a_team_or_a_workspace_that_has_a_lead_succeeds",
+            "two_demotions_of_the_last_two_leads_leave_exactly_one_lead_every_time",
+            "migration_0021_deletes_orphan_team_rows_and_leaves_every_other_row_alone"
+          ],
+          "lane_commands": [
+            "docker info (Docker up: per-test postgres:16-alpine testcontainers)",
+            "timeout 2400 cargo test -p foundry-store --test team_lead_guard (expect 11 passed: 9 un-ignored + the 2 GREEN substrate facts; 8 still ignored for 03-01)",
+            "timeout 2400 cargo test -p foundry-store (every store test now runs the shipped migrations, 0021 included)",
+            "timeout 900 cargo test -p xtask team_membership_one_seam",
+            "timeout 600 cargo xtask check-arch",
+            "timeout 900 cargo fmt --all -- --check",
+            "timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; }",
+            "FOUNDRY_ACCEPTANCE_TAGS=tm-01 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (adds still pass under the trigger)",
+            "FOUNDRY_ACCEPTANCE_TAGS=recipient-unsubscribe CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (OQ-D6: the 'workspace is deleted' scenario guards the cascade exemption)",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance (default lane: every scenario schema now carries 0021)"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): unit tests for new pure logic MUST be property-based (proptest) with state-delta discipline where state mutates; single-example unit tests are FALLBACK only with a # bypass: comment. Acceptance scenarios are the cucumber .feature files (already authored by DISTILL \u2014 un-pend, do not re-author). Integration/browser tests stay single-example \u2014 they verify wiring. EXEMPT FROM PARADIGM: store gold tests on real Postgres are integration wiring (Mandates 9/11); the 100-run race is a repeated example with a barrier, not generated input. Store-level sizing: 0 acceptance scenarios and 9 store tests; the 8-scenario limit applies to acceptance scenarios (house precedent: name-db-checks 02-01, 11 store tests, approved). MIGRATION 0021 (DDD-6/7/21, ADR-TEAM-MEMBERSHIP-001, the name-rule trigger idiom of ADR-NAME-DB-001): (1) DELETE orphan team rows (team_memberships whose user has no workspace_memberships row in the team's workspace) and RAISE NOTICE the count; (2) CREATE OR REPLACE FUNCTION foundry_team_keeps_a_lead() plpgsql, SET search_path FROM CURRENT, taking the same team-row lock as the store, refusing with ERRCODE check_violation and CONSTRAINT team_memberships_team_keeps_a_lead when a write would leave a team that had a lead with none, and exempting cascades (the team or workspace row being deleted); messages carry the team id, never a name or email; (3) DROP TRIGGER IF EXISTS then CREATE the two BEFORE row triggers (role UPDATE, DELETE); (4) COMMENT ON each; the body must be re-runnable. A lead is any role = 'lead' row (DDD-7). set_team_role (DDD-6): one transaction, SELECT the team row FOR NO KEY UPDATE (ids in order where more than one), the exact fresh-snapshot pre-read of the lead count, typed LastLead with rollback, else UPDATE; Unchanged / NotOnTeam write nothing; a 23514 from the trigger (never expected on this path) maps to LastLead and logs one warn with the team id (DDD-20). The two GREEN-at-DISTILL substrate tests (an add is not blocked by the team lock; a read after the lock wait sees the holder's commit) must stay green: NO KEY UPDATE vs KEY SHARE is the reason adds and project creates are never blocked. LEARNING GATE (slice-02 hypothesis): if the 100-run demote/demote race EVER ends with zero leads or a 500-class error, STOP; slices 03 and 04 must not start until the mechanism is fixed. OQ-D6: the shipped recipient-notification-preferences 'workspace is deleted' scenario (recipient-notification-preferences.feature:281, lane tag recipient-unsubscribe) is now the regression guard for the trigger's cascade exemption and MUST stay green in this step and every later one. OQ-D4 (owed, not done here): a read-only count of orphan team rows on dev and prod was due before 0021 ships. The user has said no deploys, so record it as OWED: the 0021 CHANGELOG note carries the query to run inside BEGIN READ ONLY (SELECT count(*) FROM team_memberships tm JOIN teams t ON t.id = tm.team_id WHERE NOT EXISTS (SELECT 1 FROM workspace_memberships wm WHERE wm.workspace_id = t.workspace_id AND wm.user_id = tm.user_id)), expected 0, and 06-02 lists it among the finalize items. CHANGELOG [Unreleased] 'Migration notes' for 0021: what is added (the function, two triggers, the constraint name, SQLSTATE 23514), the one-time orphan deletion and its NOTICE count, the OQ-D4 pre-upgrade count query (owed), rolling-deploy safety (no pre-feature code path removes or demotes a lead, so old replicas never meet the triggers), rollback floor = the previous release (nothing an older binary reads changes), and OQ-D9's consequence (a future user hard-delete of a sole lead is refused until leadership moves). CHECK-ARCH: clause (b) of team-membership-one-seam gains set_team_role( with one injected-violation gold test. Store::probe is NOT extended for 0021 (DDD-15: the trigger is a backstop the app does not depend on). Migration immutability: sqlx checksums freeze 0021 once any database applies it; edit it freely until it is pushed, never after. LANES (exact): warm-up 'CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; }'; lane 'FOUNDRY_ACCEPTANCE_TAGS=tm-01 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance' (no tm-02 scenario is un-pended in this step) and 'FOUNDRY_ACCEPTANCE_TAGS=recipient-unsubscribe ...' (same command); default lane 'env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance'; gates: store tests 'timeout 2400 cargo test -p foundry-store --test team_lead_guard' then 'timeout 2400 cargo test -p foundry-store', 'timeout 900 cargo fmt --all -- --check', 'timeout 1800 cargo clippy --workspace --all-targets -- -D warnings', 'timeout 600 cargo xtask check-arch', smoke 'CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke'. MUTATION: cargo-mutants cannot mutate SQL; >= 80% on crates/foundry-store/src/teams.rs (timeout 1800 cargo mutants --in-diff <step diff> --file crates/foundry-store/src/teams.rs --file xtask/src/check_arch.rs). Pin 0021 by hand-mutating a scratch copy once per guard (drop the cascade exemption, drop the lock, compare > instead of >=) and confirming a named store test goes red; keep the table for the 06-02 report. COMMIT: one local commit (git commit only). NEVER git push: the user has said no pushes until told. OQ-D6 guards: the cascade exemption is proven twice, directly by team_lead_guard.rs (deleting a team or a workspace whose team has a lead cascades) and end-to-end by the recipient-unsubscribe 'workspace is deleted' scenario. The tm-01 lane here is a regression check that adds still work under the 0021 trigger, not coverage for this step."
+        },
+        {
+          "id": "02-02",
+          "name": "Role changes on the members page, last lead refused",
+          "description": "teams::change_role use-case, submit_role handler, POST /team/{slug}/members/{user_id}/role and Make lead / Make member controls (Manage only). 409 members page with the last-lead copy; 200 re-render otherwise; an unknown role and bad targets are the uniform 404. Un-pends 18-28 (16 rows).",
+          "criteria": [
+            "Make lead and Make member show '{name} ({email}) is now a lead/member of {team}.' and change exactly one role; a same-role submit shows the copy and writes nothing",
+            "Demoting the last lead answers 409 with '{team} needs at least one lead. Make someone else a lead first.' and nothing changes; a leaderless team can be given a lead",
+            "Two demotions of the last two leads at the same moment, repeated 5 times, end with one 200, one 409 and exactly one lead each time",
+            "Non-managers, foreign or unknown slugs, garbled or outside targets and an unknown role get the uniform 404 with zero writes; a stale target re-renders without copy",
+            "All 11 tm-02 scenarios green; tm-01 and default lanes green; fmt, clippy -D warnings, check-arch, smoke green"
+          ],
+          "estimate": "0.75 day",
+          "dependencies": [
+            "02-01"
+          ],
+          "files_to_modify": [
+            "crates/foundry-services/src/teams.rs",
+            "crates/foundry-services/src/lib.rs",
+            "crates/foundry-app/src/teams.rs",
+            "crates/foundry-app/src/lib.rs",
+            "crates/foundry-app/templates/team_members.html",
+            "crates/foundry-acceptance/tests/features/team-membership-02-change-role.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/team-membership-02-change-role.feature",
+          "scenario_name": [
+            "A workspace admin makes a member a lead",
+            "A workspace admin hands leadership over by making the previous lead a member",
+            "The last lead cannot be made a member",
+            "Making a lead a lead again changes nothing and says so",
+            "A role change for a workspace member who is not on the team changes nothing",
+            "Two leads made members at the same moment leave the team with exactly one lead",
+            "A team that has no lead can be given one",
+            "Someone without the right cannot change a role",
+            "A role change naming someone outside the workspace, or no one, is refused",
+            "A role that does not exist is refused, and nothing changes",
+            "A role change aimed at another workspace's team is refused the same way"
+          ],
+          "lane_commands": [
+            "timeout 900 cargo fmt --all -- --check",
+            "timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "timeout 600 cargo xtask check-arch",
+            "timeout 2400 cargo test -p foundry-store --test team_lead_guard --test workspace_default_team",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; }",
+            "FOUNDRY_ACCEPTANCE_TAGS=tm-02 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (expect 11 scenarios / 16 rows passed)",
+            "FOUNDRY_ACCEPTANCE_TAGS=tm-01 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance (default lane)"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): unit tests for new pure logic MUST be property-based (proptest) with state-delta discipline where state mutates; single-example unit tests are FALLBACK only with a # bypass: comment. Acceptance scenarios are the cucumber .feature files (already authored by DISTILL \u2014 un-pend, do not re-author). Integration/browser tests stay single-example \u2014 they verify wiring. EXEMPT FROM PARADIGM: one HTTP verb over a closed role set and a closed actor matrix; the quantified invariant (never leaderless, 100 races) is proven at store level in 02-01. SIZING EXCEPTION (11 scenarios, 16 rows; >= 8 needs a recorded rationale): one route, one use-case and one handler; the refusal rows (25-28) run through the DDD-5 gate order already proven in slice 01 and need no production code beyond the route, so a separate refusal-only step would be zero-code and would repeat the AC structure of 01-02 / 01-03 / 03-02 (forbidden: 3+ steps with identical AC structure). DISTILL's recommended un-pend order also treats 18-28 as one batch after the store tests. Contract shapes: 18, 19, 23, 24 bounded-change (exactly one role); 20-22, 25-28 unbounded-preservation. Un-pend order: 18, 19, 20, 21, 22, 24, then the race 23, then the refusals 25, 26, 27, 28. Statuses (OQ-D1, DDD-8/9): 200 re-render with copy for RoleChanged and RoleUnchanged (same copy, no write); 200 re-render WITHOUT copy and no write for a stale target (a workspace member not on the team, 22); 409 with the members page and '{team} needs at least one lead. Make someone else a lead first.' for LastLead; the uniform 404 for everything refused before the verb. Role body field 'role' = 'lead' | 'member' parsed via TeamRole::parse; any other value (scenario 27, 'owner') is the uniform 404 (DISTILL upstream note: D5 covers it). The re-render recomputes TeamAccess after the write (DDD-9). Race scenario 23 repeats 5 times at HTTP level (OQ-D3); the 100-run guarantee is 02-01's store test. Copy (D15): '{name} ({email}) is now a lead of {team}.' / '... is now a member of {team}.' and the last-lead string as TeamNotice variants with byte-exact unit tests. Self-demotion of a sole lead is the same refusal (INV-4). Dogfood (slice-02 brief) is owed, not run: no deploys. LANES (exact): warm-up 'CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; }'; lane 'FOUNDRY_ACCEPTANCE_TAGS=tm-02 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance' (and tm-01 the same way); default lane 'env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance'; gates: store tests 'timeout 2400 cargo test -p foundry-store --test team_lead_guard --test workspace_default_team', 'timeout 900 cargo fmt --all -- --check', 'timeout 1800 cargo clippy --workspace --all-targets -- -D warnings', 'timeout 600 cargo xtask check-arch', smoke 'CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke'. The HTTP race is load-sensitive: if 23 flakes in the default lane, rerun tm-02 alone >= 3 times before calling it a regression. MUTATION: >= 80% (timeout 1800 cargo mutants --in-diff <step diff> --file crates/foundry-services/src/teams.rs --file crates/foundry-app/src/teams.rs); the 409 vs 200 vs 404 mapping and the Unchanged no-write branch must each be killed. COMMIT: one local commit (git commit only). NEVER git push: the user has said no pushes until told."
+        }
+      ]
+    },
+    {
+      "id": "03",
+      "name": "Remove from team and from workspace, never leaderless (US-TM-04, slice 03, OQ-9, DDD-8/10/11)",
+      "steps": [
+        {
+          "id": "03-01",
+          "name": "Store removals and guarded workspace removal",
+          "description": "Implement remove_team_member (same lock, pre-read and 23514 mapping) and extend remove_workspace_member into DDD-11's five-statement transaction returning Removed | NotMember | LastLead{team}; the workspace-removal door answers 409 text/plain with the OQ-9 copy and no notification. Switch the store test scaffold; un-ignore eight 03-01 tests; un-pend 36-38.",
+          "criteria": [
+            "Removing the only lead returns LastLead and writes nothing; removing a member deletes exactly their row and a repeat changes nothing",
+            "Remove/demote, remove/remove and workspace-removal/demote races on the last two leads leave exactly one lead in every one of at least 100 runs",
+            "An add racing a workspace removal never leaves anyone on a team of a workspace they are not in, over at least 100 runs",
+            "Workspace removal deletes the person's team rows in that workspace only; for a last lead it answers 409 text/plain with the OQ-9 copy, writes nothing, notifies no one",
+            "Eight store tests un-ignored and passing; tm-03 (36-38), recipient-unsubscribe, notification-delivery, workspace-member-invites and default lanes green; fmt, clippy, check-arch, smoke green"
+          ],
+          "estimate": "1 day",
+          "dependencies": [
+            "02-02"
+          ],
+          "files_to_modify": [
+            "crates/foundry-store/src/teams.rs",
+            "crates/foundry-store/src/lib.rs",
+            "crates/foundry-store/tests/team_lead_guard.rs",
+            "crates/foundry-app/src/member_invites.rs",
+            "crates/foundry-app/src/teams.rs",
+            "xtask/src/check_arch.rs",
+            "crates/foundry-acceptance/tests/features/team-membership-03-remove.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/team-membership-03-remove.feature",
+          "scenario_name": [
+            "Removing someone from the workspace also takes them off its teams",
+            "A lead who shares the lead with someone else can be removed from the workspace",
+            "The last lead of a team cannot be removed from the workspace",
+            "crates/foundry-store/tests/team_lead_guard.rs::removing_the_only_lead_is_refused_as_last_lead_and_changes_nothing",
+            "crates/foundry-store/tests/team_lead_guard.rs::removing_a_member_deletes_exactly_their_row_and_a_repeat_changes_nothing",
+            "crates/foundry-store/tests/team_lead_guard.rs::a_removal_racing_a_demotion_of_the_last_two_leads_leaves_exactly_one_lead_every_time",
+            "crates/foundry-store/tests/team_lead_guard.rs::two_removals_of_the_last_two_leads_leave_exactly_one_lead_every_time",
+            "crates/foundry-store/tests/team_lead_guard.rs::removal_from_a_workspace_takes_the_person_off_its_teams_only",
+            "crates/foundry-store/tests/team_lead_guard.rs::removal_from_a_workspace_of_a_teams_only_lead_is_refused_and_changes_nothing",
+            "crates/foundry-store/tests/team_lead_guard.rs::a_workspace_removal_racing_a_demotion_of_the_last_two_leads_leaves_exactly_one_lead",
+            "crates/foundry-store/tests/team_lead_guard.rs::an_add_racing_a_workspace_removal_never_leaves_someone_on_a_team_outside_their_workspace"
+          ],
+          "lane_commands": [
+            "docker info",
+            "timeout 2400 cargo test -p foundry-store --test team_lead_guard (expect 19 passed, 0 ignored)",
+            "timeout 2400 cargo test -p foundry-store",
+            "timeout 900 cargo test -p xtask team_membership_one_seam",
+            "timeout 600 cargo xtask check-arch",
+            "timeout 900 cargo fmt --all -- --check",
+            "timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; }",
+            "FOUNDRY_ACCEPTANCE_TAGS=tm-03 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (expect 36-38 passed; 29-35 still @pending)",
+            "FOUNDRY_ACCEPTANCE_TAGS=recipient-unsubscribe CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (uses the workspace-removal door; OQ-D6 guard)",
+            "FOUNDRY_ACCEPTANCE_TAGS=notification-delivery CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (uses the workspace-removal door and member_removed)",
+            "FOUNDRY_ACCEPTANCE_TAGS=workspace-member-invites CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance",
+            "FOUNDRY_ACCEPTANCE_TAGS=tm-01 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (scenario 16 crosses the extended removal)",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance (default lane)"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): unit tests for new pure logic MUST be property-based (proptest) with state-delta discipline where state mutates; single-example unit tests are FALLBACK only with a # bypass: comment. Acceptance scenarios are the cucumber .feature files (already authored by DISTILL \u2014 un-pend, do not re-author). Integration/browser tests stay single-example \u2014 they verify wiring. EXEMPT FROM PARADIGM: store gold tests and the 100-run races are integration examples on real Postgres; the three acceptance scenarios are single door flows. Sizing: 3 acceptance scenarios + 8 store tests (the 8-scenario limit is for acceptance scenarios; precedent name-db-checks 02-01). remove_team_member (DDD-6): the same team-row FOR NO KEY UPDATE, exact pre-read, typed LastLead, 23514 mapped to LastLead with one warn (team id); NotOnTeam writes nothing. remove_workspace_member EXTENDED (DDD-11), one transaction in EXACTLY this order: (1) SELECT ... FROM workspace_memberships WHERE (ws, user) FOR UPDATE (none -> NotMember); (2) SELECT t.id ... FOR NO KEY UPDATE OF t on the person's teams in W, ORDER BY t.id; (3) the sole-lead read ordered by team name -> LastLead{team} with rollback; (4) DELETE FROM team_memberships for the person in W's teams (trigger-checked); (5) DELETE FROM workspace_memberships. Step 1 first so a concurrent add (DDD-10's FOR KEY SHARE) has either committed before step 4's fresh snapshot or is refused; step 5 last so the person is still a member while the trigger checks step 4. Returns Removed{...} | NotMember | LastLead{team_name}. Door (member_invites::submit_remove_member, DDD-8): keeps its admin gate and email lookup; Removed -> today's 200 'member removed' and the member_removed notification; NotMember -> the shipped 404; LastLead -> 409 text/plain '{name} ({email}) is the last lead of {team}. Make someone else a lead first.' with NO notification. The OQ-9 string is a TeamNotice variant in foundry-app/src/teams.rs (DDD-18: one copy enum used by teams.rs and member_invites.rs), byte-exact unit test. SCAFFOLD: crates/foundry-store/tests/team_lead_guard.rs::remove_from_workspace (marked SCAFFOLD: true, ~line 283) maps today's row count; switch it to the new outcome enum and delete the marker (and the module doc's 'marked SCAFFOLD' sentence). RED reasons per red-classification.md: 36 stopped on the state delta (Sam's Backend row survived), 37 on 'no role form' (now shipped), 38 on '200 member removed' instead of 409. CHECK-ARCH: clause (b) gains remove_team_member( with one injected-violation gold test. OQ-D6: recipient-unsubscribe stays green (the 'workspace is deleted' scenario). LANES (exact): warm-up 'CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; }'; lane 'FOUNDRY_ACCEPTANCE_TAGS=tm-03 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance'; default lane 'env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance'; gates: store tests 'timeout 2400 cargo test -p foundry-store --test team_lead_guard' then 'timeout 2400 cargo test -p foundry-store', 'timeout 900 cargo fmt --all -- --check', 'timeout 1800 cargo clippy --workspace --all-targets -- -D warnings', 'timeout 600 cargo xtask check-arch', smoke 'CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke'; neighbours recipient-unsubscribe, notification-delivery, workspace-member-invites, tm-01. MUTATION: >= 80% (timeout 1800 cargo mutants --in-diff <step diff> --file crates/foundry-store/src/teams.rs --file crates/foundry-store/src/lib.rs --file crates/foundry-app/src/member_invites.rs --file xtask/src/check_arch.rs); survivors on the statement order, the lock clauses or the notification-on-Removed-only branch must be killed with an exact test, not waived. COMMIT: one local commit (git commit only). NEVER git push: the user has said no pushes until told."
+        },
+        {
+          "id": "03-02",
+          "name": "Remove from the members page, last lead refused",
+          "description": "teams::remove_member use-case, submit_remove handler, POST /team/{slug}/members/{user_id}/remove and Remove controls (Manage only). Removed copy and immediate board loss; 409 for the last lead; a stale target re-renders; refusals are the uniform 404. Un-pends 29-35 (12 rows); zero @pending left in file 03.",
+          "criteria": [
+            "Remove shows 'Removed {name} ({email}) from {team}.', deletes exactly one row, and the removed member's dashboard drops the project while its board answers the uniform 404 at once",
+            "Removing one of two leads leaves the other as Lead; removing the last lead answers 409 with the last-lead copy and nothing changes",
+            "A removal and a demotion of the last two leads at the same moment, repeated 5 times, end with exactly one lead each time",
+            "A stale removal re-renders the list with no write; non-managers and garbled or outside targets get the uniform 404 with zero writes",
+            "All 10 tm-03 scenarios green; tm-01, tm-02, fix-hub and default lanes green; fmt, clippy -D warnings, check-arch, smoke green"
+          ],
+          "estimate": "0.5 day",
+          "dependencies": [
+            "03-01"
+          ],
+          "files_to_modify": [
+            "crates/foundry-services/src/teams.rs",
+            "crates/foundry-services/src/lib.rs",
+            "crates/foundry-app/src/teams.rs",
+            "crates/foundry-app/src/lib.rs",
+            "crates/foundry-app/templates/team_members.html",
+            "crates/foundry-acceptance/tests/features/team-membership-03-remove.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/team-membership-03-remove.feature",
+          "scenario_name": [
+            "A workspace admin takes a member off a team, and the member loses its board at once",
+            "Taking one of two leads off a team leaves the other in charge",
+            "The last lead cannot be taken off the team",
+            "Removing someone who has already left the team, from an older page, changes nothing",
+            "A removal and a demotion at the same moment leave the team with exactly one lead",
+            "Someone without the right cannot take anyone off a team",
+            "A removal naming someone outside the workspace, or no one, is refused"
+          ],
+          "lane_commands": [
+            "timeout 900 cargo fmt --all -- --check",
+            "timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "timeout 600 cargo xtask check-arch",
+            "timeout 2400 cargo test -p foundry-store --test team_lead_guard --test workspace_default_team",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; }",
+            "FOUNDRY_ACCEPTANCE_TAGS=tm-03 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (expect 10 scenarios / 15 rows passed)",
+            "FOUNDRY_ACCEPTANCE_TAGS=tm-02 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance",
+            "FOUNDRY_ACCEPTANCE_TAGS=tm-01 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance",
+            "FOUNDRY_ACCEPTANCE_TAGS=fix-hub CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (no-team dashboard after a last-team removal)",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance (default lane)",
+            "timeout 60 grep -cE '^[[:space:]]*@.*@pending' crates/foundry-acceptance/tests/features/team-membership-03-remove.feature (expect 0)"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): unit tests for new pure logic MUST be property-based (proptest) with state-delta discipline where state mutates; single-example unit tests are FALLBACK only with a # bypass: comment. Acceptance scenarios are the cucumber .feature files (already authored by DISTILL \u2014 un-pend, do not re-author). Integration/browser tests stay single-example \u2014 they verify wiring. EXEMPT FROM PARADIGM: one HTTP verb over a closed actor/target matrix; the never-leaderless property under concurrency is 03-01's 100-run store races. Contract shapes: 29, 30, 33 bounded-change (at most one DELETE); 31, 32, 34, 35 unbounded-preservation. Un-pend order: 29, 30, 31, 32, then the race 33 (HTTP, 5 repeats, OQ-D3), then the refusals 34, 35. Statuses: 200 re-render with 'Removed {name} ({email}) from {team}.'; 200 re-render with no copy and no write for a stale target (32, DDD-9); 409 members page with the last-lead copy (31); the uniform 404 before the verb. Board loss is immediate because the board gate reads rows per request (no session refresh). Copy: the Removed variant of TeamNotice with a byte-exact unit test. LANES (exact): warm-up 'CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; }'; lane 'FOUNDRY_ACCEPTANCE_TAGS=tm-03 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance' (and tm-01, tm-02, fix-hub the same way); default lane 'env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance'; gates: store tests 'timeout 2400 cargo test -p foundry-store --test team_lead_guard --test workspace_default_team', 'timeout 900 cargo fmt --all -- --check', 'timeout 1800 cargo clippy --workspace --all-targets -- -D warnings', 'timeout 600 cargo xtask check-arch', smoke 'CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke'. HTTP race 33 is load-sensitive: rerun tm-03 alone >= 3 times before calling a default-lane failure a regression. MUTATION: >= 80% (timeout 1800 cargo mutants --in-diff <step diff> --file crates/foundry-services/src/teams.rs --file crates/foundry-app/src/teams.rs). COMMIT: one local commit (git commit only). NEVER git push: the user has said no pushes until told."
+        }
+      ]
+    },
+    {
+      "id": "04",
+      "name": "A team lead manages their own team (US-TM-05, slice 04, DDD-3 lead arm, DDD-23, OQ-D8)",
+      "steps": [
+        {
+          "id": "04-01",
+          "name": "Team leads manage their own team, and only it",
+          "description": "Flip one arm of the team-access policy: a lead of this team gets Manage (add, role, remove), not View. No route, handler or store change. Un-pends 39-47: a lead adds, hands over, removes, acts on a workspace admin (OQ-D8), and is refused on other teams and from a stale page.",
+          "criteria": [
+            "The access table's lead row reads Manage and the other five rows are unchanged, as unit examples",
+            "A lead adds a workspace member, hands leadership over and steps down, losing the controls on that response, and removes a teammate, each with the D15 copy",
+            "A lead can remove or demote a workspace admin on her team with no special case; the team's only lead cannot step down or leave it (409, nothing changes)",
+            "On a team she does not lead every verb is the uniform 404 with zero writes; a team she only belongs to shows no controls; her stale page is refused",
+            "All 9 tm-04 scenarios green; tm-01, tm-02, tm-03 and default lanes green; fmt, clippy -D warnings, check-arch, smoke green"
+          ],
+          "estimate": "0.5 day",
+          "dependencies": [
+            "03-02"
+          ],
+          "files_to_modify": [
+            "crates/foundry-core/src/team_membership.rs",
+            "crates/foundry-acceptance/tests/features/team-membership-04-team-lead.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/team-membership-04-team-lead.feature",
+          "scenario_name": [
+            "A team lead puts a workspace member on her own team",
+            "A team lead hands leadership over and steps down",
+            "A team lead takes a teammate off her team",
+            "A team's only lead cannot step down or leave it",
+            "A team lead can take a workspace admin off her team",
+            "A team lead can make a workspace admin on her team a member again",
+            "A team lead cannot change a team she does not lead",
+            "A team lead sees a team she is only a member of without any way to change it",
+            "A lead who has since been made a member cannot act from a page she opened as a lead"
+          ],
+          "lane_commands": [
+            "timeout 900 cargo test -p foundry-core team_membership",
+            "timeout 900 cargo fmt --all -- --check",
+            "timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "timeout 600 cargo xtask check-arch",
+            "timeout 2400 cargo test -p foundry-store --test team_lead_guard --test workspace_default_team",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; }",
+            "FOUNDRY_ACCEPTANCE_TAGS=tm-04 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (expect 9 scenarios / 15 rows passed)",
+            "FOUNDRY_ACCEPTANCE_TAGS=tm-01 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (scenario 14's lead-of-another-team rows must stay refused)",
+            "FOUNDRY_ACCEPTANCE_TAGS=tm-02 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance",
+            "FOUNDRY_ACCEPTANCE_TAGS=tm-03 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance (default lane)"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): unit tests for new pure logic MUST be property-based (proptest) with state-delta discipline where state mutates; single-example unit tests are FALLBACK only with a # bypass: comment. Acceptance scenarios are the cucumber .feature files (already authored by DISTILL \u2014 un-pend, do not re-author). Integration/browser tests stay single-example \u2014 they verify wiring. EXEMPT FROM PARADIGM: the change is one arm of a total function over a six-input domain; the updated six-row table is exhaustive (exactly one row differs from slice 01's, Some(Lead): View -> Manage). SIZING EXCEPTION (9 scenarios, 15 rows; >= 8 needs a recorded rationale): the production change is one match arm in crates/foundry-core/src/team_membership.rs and nothing else (ADR-TEAM-MEMBERSHIP-003 designed slice 04 to be exactly this); all nine scenarios exercise that one arm across the three verbs that already ship, so splitting would produce steps with no code and an identical AC structure. Un-pend order: 39, 40, 41, 42, then the OQ-D8 pair 43, 44, then the refusals 45, 46, 47. Contract shapes: 39-41, 43, 44 bounded-change; 42, 45-47 unbounded-preservation. DDD-23: no special case when a lead acts on a workspace admin (leads are peers, OQ-2; the admin can reverse it); a lead may demote or remove herself unless she is the last lead (INV-4, 409). Scenario 40: the re-render recomputes TeamAccess after the write (DDD-9), so a lead who makes herself a member loses the controls on that same response. Scenario 47: authority is read per request (INV-6, DDD-22); a page rendered while she was lead proves nothing. Scenario 45 (6 rows) is the lead-of-another-team matrix: Lena on General and on Ops (where she is only a Member) must remain the uniform 404 for every POST. If any scenario needs more than the arm flip, stop and record why: slice 04's learning hypothesis was 'no verb needs a special case'. LANES (exact): warm-up 'CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; }'; lane 'FOUNDRY_ACCEPTANCE_TAGS=tm-04 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance' (and tm-01, tm-02, tm-03 the same way: their lead-of-another-team rows must stay 404); default lane 'env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance'; gates: store tests 'timeout 2400 cargo test -p foundry-store --test team_lead_guard --test workspace_default_team', 'timeout 900 cargo fmt --all -- --check', 'timeout 1800 cargo clippy --workspace --all-targets -- -D warnings', 'timeout 600 cargo xtask check-arch', smoke 'CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke'. MUTATION: >= 80% on crates/foundry-core/src/team_membership.rs (timeout 900 cargo mutants --in-diff <step diff> --file crates/foundry-core/src/team_membership.rs); every arm must be killed by a unit example. COMMIT: one local commit (git commit only). NEVER git push: the user has said no pushes until told."
+        }
+      ]
+    },
+    {
+      "id": "05",
+      "name": "Default team for invites (US-TM-06, slice 05, DDD-12/13/14/15, ADR-TEAM-MEMBERSHIP-002, migration 0022)",
+      "steps": [
+        {
+          "id": "05-01",
+          "name": "Migration 0022 default team, probe line, invite placement",
+          "description": "NEW 0022_workspace_default_team.sql: teams UNIQUE (workspace_id, id), workspaces.default_team_id and the composite FK ON DELETE SET NULL (default_team_id). Store: default_team, set_default_team, the shared placement helper called in a savepoint from invite accept, and the Store::probe line. Un-ignores seven 05-01 store tests; adds the 0022 migration note.",
+          "criteria": [
+            "A default naming another workspace's team is refused with 23503 workspaces_default_team_same_workspace; deleting the default team clears only the default; a workspace with a default can be deleted",
+            "The default is set, read back and cleared; setting it moves no existing member; an invite accept places the newcomer on the default team as Member",
+            "A placement forced to fail never fails the invite accept: the account and workspace membership commit, no team row is written, one warn carries ids only",
+            "Store::probe refuses readiness on a schema without workspaces.default_team_id and passes after 0022; the workspace export gold test still passes",
+            "Seven store tests un-ignored and passing, both no-default guards green; tm-01..tm-04, invite-accept-flow, workspace-member-invites and default lanes green; fmt, clippy, check-arch, smoke green"
+          ],
+          "estimate": "1 day",
+          "dependencies": [
+            "04-01"
+          ],
+          "files_to_modify": [
+            "crates/foundry-store/migrations/0022_workspace_default_team.sql",
+            "crates/foundry-store/src/teams.rs",
+            "crates/foundry-store/src/lib.rs",
+            "crates/foundry-store/tests/workspace_default_team.rs",
+            "crates/foundry-store/tests/export_workspace_gold.rs",
+            "CHANGELOG.md"
+          ],
+          "test_file": "crates/foundry-store/tests/workspace_default_team.rs",
+          "scenario_name": [
+            "a_default_team_from_another_workspace_is_refused_by_the_database",
+            "deleting_the_default_team_clears_only_the_default",
+            "a_workspace_with_a_default_set_can_still_be_deleted",
+            "the_default_team_is_set_read_back_and_cleared",
+            "setting_a_default_does_not_backfill_existing_members",
+            "an_invite_accept_places_the_newcomer_on_the_default_team_as_member",
+            "a_failed_placement_never_fails_the_invite_accept",
+            "a new probe test (DELIVER-authored): Store::probe refuses a schema staged at 0021 (no workspaces.default_team_id)"
+          ],
+          "lane_commands": [
+            "docker info",
+            "timeout 2400 cargo test -p foundry-store --test workspace_default_team (expect 9 passed + the probe test; 3 still ignored for 06-01)",
+            "timeout 1800 cargo test -p foundry-store --test export_workspace_gold (OQ-D7)",
+            "timeout 2400 cargo test -p foundry-store (every store test runs 0022)",
+            "timeout 600 cargo xtask check-arch",
+            "timeout 900 cargo fmt --all -- --check",
+            "timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke (boots through the extended probe)",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; }",
+            "FOUNDRY_ACCEPTANCE_TAGS=tm-05 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (all still @pending; expect 0 run, no hook error)",
+            "FOUNDRY_ACCEPTANCE_TAGS=invite-accept-flow CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (accept now runs the savepoint placement)",
+            "FOUNDRY_ACCEPTANCE_TAGS=workspace-member-invites CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance",
+            "for t in tm-01 tm-02 tm-03 tm-04; do FOUNDRY_ACCEPTANCE_TAGS=$t CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance || break; done",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance (default lane: every scenario schema now carries 0022; the probe must pass)"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): unit tests for new pure logic MUST be property-based (proptest) with state-delta discipline where state mutates; single-example unit tests are FALLBACK only with a # bypass: comment. Acceptance scenarios are the cucumber .feature files (already authored by DISTILL \u2014 un-pend, do not re-author). Integration/browser tests stay single-example \u2014 they verify wiring. EXEMPT FROM PARADIGM: schema facts (23503, ON DELETE SET NULL (column_list)) and savepoint behaviour are single-shot substrate flows on real Postgres. Sizing: 0 acceptance scenarios, 7 store tests + 1 probe test. MIGRATION 0022 (DDD-12, ADR-TEAM-MEMBERSHIP-002): ALTER TABLE teams ADD CONSTRAINT ... UNIQUE (workspace_id, id); ALTER TABLE workspaces ADD COLUMN default_team_id UUID NULL; the composite FK (id, default_team_id) -> teams (workspace_id, id) ON DELETE SET NULL (default_team_id) named workspaces_default_team_same_workspace. Additive; unset on upgrade (OQ-4); no backfill (OQ-8). ON DELETE SET NULL (column_list) needs Postgres 15 or later; production and the harness pin 16; an older server fails 0022 loudly (state it in the CHANGELOG). PROBE LINE (DDD-15, Earned Trust, platform-review low finding): Store::probe refuses readiness when workspaces.default_team_id is missing, following the 0017/0018 idiom (schema-scoped column check, see tests/probe_schema_scoping.rs); pin it with a NEW store test that stages migrations through 0021 and asserts probe().is_err(), then migrates and asserts it passes (precedent: workspace_rename_with_audit.rs ~487-495, machine_tokens_repo.rs probe_fails_on_a_pre_0007_schema). Wire then probe then use: a binary that reads the column refuses to start on a schema without it. Store: default_team(ws) -> Option<(slug, name)>; set_default_team(ws, Option<team>) as one UPDATE workspaces; the private placement helper (DDD-13): INSERT INTO team_memberships ... SELECT default_team_id ... ON CONFLICT DO NOTHING as 'member', called right after the workspace_memberships INSERT in create_member_and_consume INSIDE A SAVEPOINT; any error rolls back the savepoint, logs one warn with workspace and user ids (never the email, DDD-20) and lets the outer transaction commit (D17). Never called on the first-admin invite path; the invite's single-use guard and expiry are untouched. The two no-default guards (with_no_default_*) must stay green. OQ-D7: confirm crates/foundry-store/tests/export_workspace_gold.rs does not pin the workspaces row's key set; if it does, update the gold for the new default_team_id key (null) and record why in the commit; TENANT_TABLES is untouched. SCAFFOLD: crates/foundry-store/src/teams.rs no longer has a panicking method after this step; delete its '// SCAFFOLD: true' marker and reword the module doc's 'RED scaffolds' sentence. CHANGELOG [Unreleased] 'Migration notes' for 0022: additive and rolling-deploy safe (an older replica ignores default_team_id and its accept lands the newcomer on no team, today's behaviour), unset on upgrade with no backfill, Postgres >= 15 required, Store::probe now requires the column (rollback to the previous release is safe: it never reads it), and the team UNIQUE (workspace_id, id) constraint. Migration immutability: edit 0022 freely until pushed, never after. LANES (exact): warm-up 'CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; }'; lane 'FOUNDRY_ACCEPTANCE_TAGS=tm-05 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance' (no tm-05 scenario is un-pended yet; tm-01..tm-04 and invite-accept-flow, workspace-member-invites the same way); default lane 'env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance'; gates: store tests 'timeout 2400 cargo test -p foundry-store --test workspace_default_team' then 'timeout 2400 cargo test -p foundry-store', 'timeout 900 cargo fmt --all -- --check', 'timeout 1800 cargo clippy --workspace --all-targets -- -D warnings', 'timeout 600 cargo xtask check-arch', smoke 'CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke'. MUTATION: >= 80% (timeout 1800 cargo mutants --in-diff <step diff> --file crates/foundry-store/src/teams.rs --file crates/foundry-store/src/lib.rs); the savepoint rollback branch and the probe check must each be killed by a named test. COMMIT: one local commit (git commit only). NEVER git push: the user has said no pushes until told."
+        },
+        {
+          "id": "05-02",
+          "name": "Default team setting on /teams; invitees land on it",
+          "description": "teams::set_default_team use-case, submit_default handler, POST /teams/default and the admin-only 'Default team for new members' select on /teams (a team slug, or empty for No team). 200 re-render with copy; non-admins and slugs outside the acting workspace get the uniform 404. Un-pends 48-54 (11 rows).",
+          "criteria": [
+            "An admin sets General as the default and sees 'New members will join General.' with nobody already in the workspace moved; clearing it shows 'New members join no team.'",
+            "An invited newcomer lands on the default team as Member and opens its board; with no default, or a deleted one, they join on no team and are never refused",
+            "A non-admin's default change, or a slug that is not one of the acting workspace's teams, gets the uniform 404 and the default is unchanged",
+            "Only a workspace admin's teams page shows the default team setting, with the current default selected",
+            "All 7 tm-05 scenarios green; tm-01..tm-04, invite-accept-flow, workspace-member-invites and default lanes green; fmt, clippy -D warnings, check-arch, smoke green"
+          ],
+          "estimate": "0.75 day",
+          "dependencies": [
+            "05-01"
+          ],
+          "files_to_modify": [
+            "crates/foundry-services/src/teams.rs",
+            "crates/foundry-services/src/lib.rs",
+            "crates/foundry-app/src/teams.rs",
+            "crates/foundry-app/src/lib.rs",
+            "crates/foundry-app/src/views.rs",
+            "crates/foundry-app/templates/teams_index.html",
+            "crates/foundry-acceptance/tests/features/team-membership-05-default-team-invites.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/team-membership-05-default-team-invites.feature",
+          "scenario_name": [
+            "A workspace admin picks the default team for new members, and no one already here is moved",
+            "A workspace admin clears the default team",
+            "An invited newcomer lands on the default team and opens its board",
+            "Without a default team, an invited newcomer lands as today",
+            "A default team that no longer exists never stops a newcomer joining",
+            "Only a workspace admin can set the default, and only to one of Canzan Labs's teams",
+            "Only a workspace admin is offered the default team setting"
+          ],
+          "lane_commands": [
+            "timeout 900 cargo fmt --all -- --check",
+            "timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "timeout 600 cargo xtask check-arch",
+            "timeout 2400 cargo test -p foundry-store --test team_lead_guard --test workspace_default_team",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; }",
+            "FOUNDRY_ACCEPTANCE_TAGS=tm-05 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (expect 7 scenarios / 11 rows passed)",
+            "FOUNDRY_ACCEPTANCE_TAGS=invite-accept-flow CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance",
+            "FOUNDRY_ACCEPTANCE_TAGS=workspace-member-invites CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance",
+            "for t in tm-01 tm-02 tm-03 tm-04; do FOUNDRY_ACCEPTANCE_TAGS=$t CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance || break; done",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance (default lane)"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): unit tests for new pure logic MUST be property-based (proptest) with state-delta discipline where state mutates; single-example unit tests are FALLBACK only with a # bypass: comment. Acceptance scenarios are the cucumber .feature files (already authored by DISTILL \u2014 un-pend, do not re-author). Integration/browser tests stay single-example \u2014 they verify wiring. EXEMPT FROM PARADIGM: one admin setting over a closed set of teams and actors; the cross-workspace invariant (INV-7) is a schema fact proven in 05-01. Contract shapes: 48-52 bounded-change (48, 49: one workspaces.default_team_id; 50: one account, one workspace row, one team row; 51, 52: no team row); 53, 54 unbounded-preservation. Un-pend order: 48, 49, 50, then the guard 51 (GREEN_ALREADY at DISTILL; it must stay green with placement in place), 52, then the refusals 53, 54. DDD-14: POST /teams/default, admin only (else uniform 404), form field 'team' = a team slug resolved in the acting workspace, or empty for 'No team'; an unknown or foreign slug is the uniform 404 with no write (Changed Assumption 2: a Globex team cannot be named at all, and the composite FK backs it for every caller). One UPDATE workspaces. 200 re-render of /teams with 'New members will join {team}.' / 'New members join no team.' (TeamNotice variants, byte-exact unit tests). TeamsIndexPage gains default_form (DDD-17): the select lists the workspace's teams plus 'No team' with the current default selected, rendered only for a workspace admin (54). Scenario 52: a deleted default is cleared by the FK (ON DELETE SET NULL), so the newcomer joins with no team and is never refused (D17, OQ-6). No backfill on set (OQ-8, scenario 48). LANES (exact): warm-up 'CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; }'; lane 'FOUNDRY_ACCEPTANCE_TAGS=tm-05 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance' (and tm-01..tm-04, invite-accept-flow, workspace-member-invites the same way); default lane 'env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance'; gates: store tests 'timeout 2400 cargo test -p foundry-store --test team_lead_guard --test workspace_default_team', 'timeout 900 cargo fmt --all -- --check', 'timeout 1800 cargo clippy --workspace --all-targets -- -D warnings', 'timeout 600 cargo xtask check-arch', smoke 'CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke'. MUTATION: >= 80% (timeout 1800 cargo mutants --in-diff <step diff> --file crates/foundry-services/src/teams.rs --file crates/foundry-app/src/teams.rs --file crates/foundry-app/src/views.rs); the admin-only gate and the empty-slug branch must each be killed. COMMIT: one local commit (git commit only). NEVER git push: the user has said no pushes until told."
+        }
+      ]
+    },
+    {
+      "id": "06",
+      "name": "Default team for Keycloak newcomers, and close-out (US-TM-07, slice 06, DDD-13, DoD 6/9)",
+      "steps": [
+        {
+          "id": "06-01",
+          "name": "Keycloak first sign-in lands on the default team",
+          "description": "Call the shared placement helper, inside a savepoint, from provision_federated_member's Created branch only (never the Existing link branch). Un-ignores the three 06-01 store tests and un-pends 55-57 (4 rows); the no-default row of 57 is a guard that must stay green.",
+          "criteria": [
+            "A newcomer's first Keycloak sign-in places them on the original workspace's default team as Member, and its board opens in that session",
+            "Signing in with Keycloak to an existing account adds no team; an unset or deleted default never stops or fails a first sign-in",
+            "A placement forced to fail never fails provisioning: the account and workspace membership commit and one warn carries ids only",
+            "Three store tests un-ignored and passing; zero @pending lines across the six team-membership features and zero pending ignores in both store test files",
+            "tm-01..tm-06, keycloak-sso, keycloak-sso-provisioning and default lanes green; fmt, clippy -D warnings, check-arch, smoke green"
+          ],
+          "estimate": "0.5 day",
+          "dependencies": [
+            "05-02"
+          ],
+          "files_to_modify": [
+            "crates/foundry-store/src/lib.rs",
+            "crates/foundry-store/tests/workspace_default_team.rs",
+            "crates/foundry-acceptance/tests/features/team-membership-06-default-team-keycloak.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/team-membership-06-default-team-keycloak.feature",
+          "scenario_name": [
+            "A newcomer's first Keycloak sign-in lands them on the default team",
+            "Signing in with Keycloak to an existing account adds no team",
+            "An unset or missing default never stops a first Keycloak sign-in",
+            "crates/foundry-store/tests/workspace_default_team.rs::a_first_provisioning_places_the_newcomer_on_the_original_workspaces_default_team",
+            "crates/foundry-store/tests/workspace_default_team.rs::linking_an_existing_account_places_no_one",
+            "crates/foundry-store/tests/workspace_default_team.rs::a_failed_placement_never_fails_provisioning"
+          ],
+          "lane_commands": [
+            "docker info",
+            "timeout 2400 cargo test -p foundry-store --test workspace_default_team (expect 12 + the probe test passed, 0 ignored)",
+            "timeout 2400 cargo test -p foundry-store --test provision_federated_member",
+            "timeout 900 cargo fmt --all -- --check",
+            "timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "timeout 600 cargo xtask check-arch",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; }",
+            "FOUNDRY_ACCEPTANCE_TAGS=tm-06 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (expect 3 scenarios / 4 rows passed)",
+            "FOUNDRY_ACCEPTANCE_TAGS=keycloak-sso CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (the shipped Keycloak contract guard)",
+            "FOUNDRY_ACCEPTANCE_TAGS=keycloak-sso-provisioning CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance",
+            "FOUNDRY_ACCEPTANCE_TAGS=team-membership CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance (all 57 scenarios / 87 rows)",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance (default lane)",
+            "timeout 60 grep -cE '^[[:space:]]*@.*@pending' crates/foundry-acceptance/tests/features/team-membership-0*.feature (expect 0 per file)",
+            "timeout 60 grep -c '#\\[ignore = \"pending: team-membership' crates/foundry-store/tests/team_lead_guard.rs crates/foundry-store/tests/workspace_default_team.rs (expect 0 and 0)"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): unit tests for new pure logic MUST be property-based (proptest) with state-delta discipline where state mutates; single-example unit tests are FALLBACK only with a # bypass: comment. Acceptance scenarios are the cucumber .feature files (already authored by DISTILL \u2014 un-pend, do not re-author). Integration/browser tests stay single-example \u2014 they verify wiring. EXEMPT FROM PARADIGM: two door flows through the Keycloak double over a real socket; no new pure logic (the helper is 05-01's). Contract shapes: 55, 57 bounded-change (one account, one workspace row, at most one team row); 56 unbounded-preservation. Store: in provision_federated_member's Created branch, right after the workspace_memberships INSERT, call the 05-01 placement helper inside a savepoint (DDD-13); NOT on the Existing (link) branch. Provisioning targets the original (oldest) workspace, so only that workspace's default applies (OQ-5). A failed placement rolls back the savepoint, logs one warn with ids only, and provisioning commits (D17). Un-pend order: store tests first (first provisioning places, linking places no one, sabotaged placement), then 55, 56, 57 (57's 'no default team' row was GREEN_ALREADY at DISTILL and must stay green; its 'deleted' row is MF). External integration: Keycloak is unchanged; the shipped keycloak-sso lanes are the contract guard (no new contract tests, DESIGN). After this step every @pending and every 'pending: team-membership' ignore is gone; the full team-membership lane (all six tags) runs here. LANES (exact): warm-up 'CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; }'; lane 'FOUNDRY_ACCEPTANCE_TAGS=tm-06 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance' (and keycloak-sso, keycloak-sso-provisioning the same way; the whole feature with FOUNDRY_ACCEPTANCE_TAGS=team-membership and timeout 3600); default lane 'env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance'; gates: store tests 'timeout 2400 cargo test -p foundry-store --test workspace_default_team' and '--test provision_federated_member', 'timeout 900 cargo fmt --all -- --check', 'timeout 1800 cargo clippy --workspace --all-targets -- -D warnings', 'timeout 600 cargo xtask check-arch', smoke 'CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke'. MUTATION: >= 80% on the diff in crates/foundry-store/src/lib.rs (timeout 1800 cargo mutants --in-diff <step diff> --file crates/foundry-store/src/lib.rs); a mutant that calls the helper on the link branch must be killed by linking_an_existing_account_places_no_one. COMMIT: one local commit (git commit only). NEVER git push: the user has said no pushes until told."
+        },
+        {
+          "id": "06-02",
+          "name": "CHANGELOG, burn-down, mutation report, finalize items owed",
+          "description": "Close-out, no behaviour change. CHANGELOG [Unreleased] entries for Teams, the members page, lead powers, the workspace-removal last-lead refusal and the default team; review the 0021/0022 migration notes. Burn-down to zero @pending, pending ignores and team-membership SCAFFOLD markers; per-feature mutation report; Docker-inclusive xtask ci; record owed finalize items.",
+          "criteria": [
+            "CHANGELOG [Unreleased] lists Teams, the members page, lead powers, the workspace-removal last-lead 409 and the default team, plus migration notes for 0021 and 0022",
+            "Zero @pending in the six team-membership features, zero 'pending: team-membership' ignores, and no SCAFFOLD marker in the three team-membership scaffold files",
+            "Mutation kill rate is at least 80% on every Rust production file the feature modified; survivors on lock order, savepoint or check-arch clause boundaries are killed, not waived",
+            "FOUNDRY_XTASK_INCLUDE_DOCKER=1 cargo xtask ci, the default lane, the team-membership lane, fmt, clippy -D warnings, check-arch and smoke are green",
+            "Owed finalize items recorded: OQ-D4 orphan counts on dev and prod, the D4 dogfood, KPI-1 and KPI-3 baselines; nothing deployed, nothing pushed"
+          ],
+          "estimate": "0.5 day",
+          "dependencies": [
+            "06-01"
+          ],
+          "files_to_modify": [
+            "CHANGELOG.md"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/team-membership-01-members-page-and-add.feature",
+          "scenario_name": [],
+          "lane_commands": [
+            "timeout 600 cargo xtask check-arch",
+            "timeout 900 cargo fmt --all -- --check",
+            "timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "timeout 3600 cargo test -p foundry-store -p foundry-core -p foundry-services -p xtask (Docker up)",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; }",
+            "for t in tm-01 tm-02 tm-03 tm-04 tm-05 tm-06; do FOUNDRY_ACCEPTANCE_TAGS=$t CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance || break; done",
+            "for t in fix-hub us-dash us-nav workspace-member-invites invite-accept-flow keycloak-sso keycloak-sso-provisioning recipient-unsubscribe notification-delivery mwt-slice-04; do FOUNDRY_ACCEPTANCE_TAGS=$t CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance || break; done",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance (default lane)",
+            "timeout 60 grep -cE '^[[:space:]]*@.*@pending' crates/foundry-acceptance/tests/features/team-membership-0*.feature (expect 0 per file)",
+            "timeout 60 grep -c '#\\[ignore = \"pending: team-membership' crates/foundry-store/tests/team_lead_guard.rs crates/foundry-store/tests/workspace_default_team.rs (expect 0 and 0)",
+            "timeout 60 grep -n 'SCAFFOLD' crates/foundry-store/src/teams.rs crates/foundry-core/src/team_membership.rs crates/foundry-store/tests/team_lead_guard.rs (expect no output)",
+            "timeout 3600 cargo mutants --in-diff <feature diff> --file crates/foundry-core/src/team_membership.rs --file crates/foundry-store/src/teams.rs --file crates/foundry-store/src/lib.rs --file crates/foundry-services/src/teams.rs --file crates/foundry-app/src/teams.rs --file crates/foundry-app/src/member_invites.rs --file crates/foundry-app/src/views.rs --file xtask/src/check_arch.rs (per-feature gate >= 80%)",
+            "FOUNDRY_XTASK_INCLUDE_DOCKER=1 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 5400 cargo xtask ci (without the env var the browser and Docker lanes are silently skipped)"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): unit tests for new pure logic MUST be property-based (proptest) with state-delta discipline where state mutates; single-example unit tests are FALLBACK only with a # bypass: comment. Acceptance scenarios are the cucumber .feature files (already authored by DISTILL \u2014 un-pend, do not re-author). Integration/browser tests stay single-example \u2014 they verify wiring. EXEMPT FROM PARADIGM: documentation, burn-down and reports; no new code. CHANGELOG [Unreleased] (DoD 9): 'Added' entries for the Teams quick action and /teams index, the members page with Add / Make lead / Make member / Remove for workspace admins (and, from slice 04, the team's own leads), the never-leaderless guarantee (409 with the stated reason), and the 'Default team for new members' setting that places invitees and first-time Keycloak sign-ins on it; a 'Changed' entry for POST /workspace/members/remove (it now also removes the person's team rows in that workspace and answers 409 text/plain for a team's last lead, with no member_removed notification). Review the 0021 (02-01) and 0022 (05-01) 'Migration notes' for completeness: the OQ-D4 count query marked OWED, Postgres >= 15, rolling-deploy safety, rollback floor, probe delta, no backfill. Burn-down: zero @pending, zero 'pending: team-membership' ignores, and no SCAFFOLD marker in the three files DISTILL scaffolded (a crate-wide grep also lists other features' scaffolds; ignore those). Mutation report: per-feature >= 80% over every Rust production file modified by 01-01..06-01; cargo-mutants cannot mutate SQL, so the report states how 0021 and 0022 are pinned (the 02-01/03-01 store tests and the 100-run races, the 0022 FK tests, the probe test) and includes the 0021 hand-mutation table from 02-01. FINALIZE ITEMS OWED (record them in the execution log / evolution doc at finalize; the user has said no deploys and no pushes, so none is done here): (1) OQ-D4: the read-only orphan-row count on dev and prod (inside BEGIN READ ONLY, the query in the 0021 migration note), due before 0021 ships, expected 0; (2) the D4 dogfood on dev (add jeff@unintelligent-design.us to General as jeffabailey@gmail.com; the Keycloak session's /team/general/project/sandbox answers 200); (3) KPI-1 (members on no team) and KPI-3 (teams with no lead) baselines by read-only query on dev and prod; (4) the slice-02 role dogfood and the slice-05 default-team dogfood; (5) mark the fix-hide-unreachable-boards evolution doc's first follow-up closed in this feature's evolution doc. Prod stays held for approval. Lane caveats: GitHub CI has been red since June, so a red remote run is not evidence of a regression; us-04 in the default lane is a known flake (rerun alone); another session may share the worktree. LANES (exact): warm-up 'CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; }'; lanes 'FOUNDRY_ACCEPTANCE_TAGS=tm-0N CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance' for N = 1..6; default lane 'env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance'; gates: store tests 'timeout 3600 cargo test -p foundry-store -p foundry-core -p foundry-services -p xtask', 'timeout 900 cargo fmt --all -- --check', 'timeout 1800 cargo clippy --workspace --all-targets -- -D warnings', 'timeout 600 cargo xtask check-arch', smoke 'CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke', then 'FOUNDRY_XTASK_INCLUDE_DOCKER=1 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 5400 cargo xtask ci'. COMMIT: one local commit (git commit only). NEVER git push and never open a PR: the user has said no pushes until told."
+        }
+      ]
+    }
+  ],
+  "implementation_scope": {
+    "source_directories": [
+      "crates/foundry-core/src/",
+      "crates/foundry-store/src/",
+      "crates/foundry-store/migrations/",
+      "crates/foundry-services/src/",
+      "crates/foundry-app/src/",
+      "crates/foundry-app/templates/",
+      "xtask/src/"
+    ],
+    "test_directories": [
+      "crates/foundry-store/tests/",
+      "crates/foundry-acceptance/tests/",
+      "crates/foundry-acceptance/src/steps/",
+      "crates/foundry-acceptance/src/support/"
+    ],
+    "excluded_patterns": [
+      "target/**",
+      "crates/foundry-app/static/**"
+    ]
+  },
+  "validation": {
+    "status": "approved",
+    "reviewer": "nw-acceptance-designer-reviewer",
+    "date": "2026-10-09",
+    "verdict": "conditionally_approved; orchestrator overruled all three conditions with evidence",
+    "overruled": [
+      "BLOCKER scenario-9 ownership: ownership is by scenario name; 01-01 names 'A workspace admin puts a member on a team, and the member can open the team's board', which is the scenario at feature line 129. No renumbering needed.",
+      "HIGH 02-01 acceptance tags: the tm-01 lane is a labelled regression check (adds still pass under 0021), not coverage; the step's own proof is the 9 store tests.",
+      "HIGH external recipient-unsubscribe guard: team_lead_guard.rs already proves the cascade exemption directly (lines ~487-509); the scenario is a second, end-to-end guard. Note added to 02-01."
+    ]
+  }
+}
