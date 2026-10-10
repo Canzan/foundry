@@ -2,7 +2,7 @@
 
 ## Current Task
 
-**team-membership:** DELIVER is in progress; 9 of 12 steps are committed (05-01 `ca34629`: migration 0022, default team, invite placement); 05-02 is next.
+**team-membership:** DELIVER is in progress; 10 of 12 steps are committed (05-01 `ca34629`: migration 0022 and invite placement; 05-02 `ab637e5`: the default-team setting on /teams); 06-01 is next.
 - Done: DISCUSS, DESIGN, DISTILL, the roadmap, and slices 01-04: admins list teams and members, add (01-0x), change roles with the last lead protected (02-01 `021cd47`, 02-02 `6118e23`), remove from team and guarded workspace removal (03-01 `1ec818f`, 03-02 `a41fd2c`, hardening `eda1755`), and team leads manage their own team (04-01 `ea653cf`). Mutation is 100% on every step.
 - 05-01 (migration 0022, the default team, invite placement, the probe line) passes its store tests; lanes, smoke and the commit are running. Left: 05-02 (default-team setting on /teams), 06-01 (Keycloak newcomers placed), 06-02 (CHANGELOG and burn-down), then finalize.
 - Under machine load, smoke needs `RUST_TEST_THREADS=1`; otherwise Docker container start-up flakes (PortNotExposed/PoolTimedOut).
