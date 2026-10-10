@@ -15,6 +15,7 @@ v0.12.0 (`bff7a80`) is live on dev AND prod: `Foundry v0.12.0 · 2026-10-09`. It
 
 ## Next Steps
 
+- Unpushed on local `main`, by the user's choice (commit, no build): `e68b7a0` fix(board), spacing between New issue and Search and around the board's action row (stylesheet re-hashed to `foundry.8d661015.css`; kb/blm/cpd/pwa lanes green). It ships with the next push + release (v0.12.1).
 - Approve canzan-lift v0.4.2 for prod (if not yet done).
 - Follow-ups:
   - a way to join teams (admin "add to team", or a default-team policy);
