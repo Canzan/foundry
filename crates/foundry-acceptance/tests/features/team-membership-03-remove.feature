@@ -29,7 +29,7 @@ Feature: A workspace admin takes someone off a team without leaving it leaderles
       | Marco Bianchi | marco.bianchi@canzan.dev | member         | Ops as Member                  |        |
     And Globex is another workspace, whose team Payments is led by Hugo Weber (hugo.weber@globex.example)
 
-  @us-tm-04 @driving_port @kpi @contract-shape:bounded-change @pending
+  @us-tm-04 @driving_port @kpi @contract-shape:bounded-change
   Scenario: A workspace admin takes a member off a team, and the member loses its board at once
     Given Priya has added Tomás Rivera to Backend
     And Tomás Rivera can see Identity Platform on his dashboard and open its board
@@ -39,7 +39,7 @@ Feature: A workspace admin takes someone off a team without leaving it leaderles
     And Tomás Rivera's next visit to the Identity Platform board gets the page that never existed
     And Tomás Rivera's dashboard says "You're not on any team yet — ask a workspace admin to add you."
 
-  @us-tm-04 @contract-shape:bounded-change @pending
+  @us-tm-04 @contract-shape:bounded-change
   Scenario: Taking one of two leads off a team leaves the other in charge
     Given Priya has made Sam Okafor a lead of Backend
     When Priya removes Lena Park from Backend
@@ -47,7 +47,7 @@ Feature: A workspace admin takes someone off a team without leaving it leaderles
     And Lena Park is no longer on Backend, and nothing else changed
     And Backend's members page lists "Sam Okafor · sam.okafor@canzan.dev · Lead"
 
-  @us-tm-04 @error @kpi @contract-shape:unbounded-preservation @pending
+  @us-tm-04 @error @kpi @contract-shape:unbounded-preservation
   Scenario: The last lead cannot be taken off the team
     Given Lena Park is Backend's only lead
     When Priya removes Lena Park from Backend
@@ -55,7 +55,7 @@ Feature: A workspace admin takes someone off a team without leaving it leaderles
     And no one's membership changed
     And Backend's members page lists "Lena Park · lena.park@canzan.dev · Lead"
 
-  @us-tm-04 @edge @contract-shape:unbounded-preservation @pending
+  @us-tm-04 @edge @contract-shape:unbounded-preservation
   Scenario: Removing someone who has already left the team, from an older page, changes nothing
     Given Priya opened Backend's members page earlier
     And Priya has removed Sam Okafor from Backend
@@ -63,14 +63,14 @@ Feature: A workspace admin takes someone off a team without leaving it leaderles
     Then she gets Backend's members page back, with nothing to report
     And no one's membership changed
 
-  @us-tm-04 @error @kpi @concurrency @contract-shape:bounded-change @pending
+  @us-tm-04 @error @kpi @concurrency @contract-shape:bounded-change
   Scenario: A removal and a demotion at the same moment leave the team with exactly one lead
     Given Lena Park and Sam Okafor are Backend's only leads
     When Priya removes Lena Park and makes Sam Okafor a member at the same moment, 5 times over
     Then each time, exactly one went through and the other was told "Backend needs at least one lead. Make someone else a lead first."
     And each time, Backend was left with exactly one lead
 
-  @us-tm-04 @error @kpi @contract-shape:unbounded-preservation @pending
+  @us-tm-04 @error @kpi @contract-shape:unbounded-preservation
   Scenario Outline: Someone without the right cannot take anyone off a team
     When <who> submits removing Sam Okafor from Backend
     Then the answer is the page that never existed
@@ -84,7 +84,7 @@ Feature: A workspace admin takes someone off a team without leaving it leaderles
       | Sam                  |
       | Hugo                 |
 
-  @us-tm-04 @error @kpi @contract-shape:unbounded-preservation @pending
+  @us-tm-04 @error @kpi @contract-shape:unbounded-preservation
   Scenario Outline: A removal naming someone outside the workspace, or no one, is refused
     When Priya submits removing <target> from Backend
     Then the answer is the page that never existed

@@ -779,6 +779,10 @@ pub fn build_router(state: AppState) -> Router {
             "/team/{team_slug}/members/{user_id}/role",
             post(teams::submit_role),
         )
+        .route(
+            "/team/{team_slug}/members/{user_id}/remove",
+            post(teams::submit_remove),
+        )
         .route("/", get(signin::dashboard_root))
         // Non-enumerability (ADR-002, web-provisioning-flow): a path with NO
         // route is refused with the SAME uniform `resource_not_found_page()` the

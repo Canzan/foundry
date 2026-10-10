@@ -18,6 +18,8 @@
 //!   POST /team/{slug}/members    — needs Manage; `user_id` names a workspace member.
 //!   POST /team/{slug}/members/{user_id}/role — needs Manage; `role` is lead|member.
 //!                                  A last lead is a 409 with the members page (DDD-8).
+//!   POST /team/{slug}/members/{user_id}/remove — needs Manage; a last lead is the
+//!                                  same 409; a stale target re-renders with no copy.
 //!
 //! Gate order (DDD-5): session (none → 404) → the services use-case (facts by
 //! session workspace + slug, access, target id parse, target in workspace) → verb.
@@ -38,7 +40,9 @@ use axum::http::header::HeaderMap;
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
 use foundry_core::TeamRole;
-use foundry_services::teams::{AddMemberResult, RoleChangeResult, TeamError, TeamMembersView};
+use foundry_services::teams::{
+    AddMemberResult, RemoveMemberResult, RoleChangeResult, TeamError, TeamMembersView,
+};
 use foundry_services::{Principal, Services};
 use serde::Deserialize;
 use std::fmt;
@@ -70,6 +74,12 @@ pub enum TeamNotice {
     },
     /// "{team} needs at least one lead. Make someone else a lead first."
     NeedsALead { team: String },
+    /// "Removed {name} ({email}) from {team}."
+    Removed {
+        name: String,
+        email: String,
+        team: String,
+    },
     /// OQ-9: "{name} ({email}) is the last lead of {team}. Make someone else a
     /// lead first." (`POST /workspace/members/remove`'s 409).
     LastLeadOf {
@@ -105,6 +115,9 @@ impl fmt::Display for TeamNotice {
                     f,
                     "{team} needs at least one lead. Make someone else a lead first."
                 )
+            }
+            Self::Removed { name, email, team } => {
+                write!(f, "Removed {name} ({email}) from {team}.")
             }
             Self::LastLeadOf { name, email, team } => {
                 write!(
@@ -256,6 +269,45 @@ pub async fn submit_role(
         RoleChangeResult::LastLead => (StatusCode::CONFLICT, Some(TeamNotice::NeedsALead { team })),
     };
     members_page_with_status(&state, &headers, &user, change.page, notice, status).await
+}
+
+// ---------------------------------- POST /team/{slug}/members/{user_id}/remove
+
+/// The path id stays a `String` so a non-UUID is the uniform 404, never axum's
+/// 400 (DDD-5).
+pub async fn submit_remove(
+    State(state): State<AppState>,
+    session: Session,
+    headers: HeaderMap,
+    Path((team_slug, raw_user_id)): Path<(String, String)>,
+) -> Response {
+    let Some(user) = signed_in_user(&session).await else {
+        return resource_not_found_page();
+    };
+    let services = Services::new(state.store.clone());
+    let removal = match services
+        .remove_member_from_team(&principal_of(&user), &team_slug, &raw_user_id)
+        .await
+    {
+        Ok(removal) => removal,
+        Err(err) => return refusal(err),
+    };
+    let team = removal.page.team_name.clone();
+    let (status, notice) = match removal.result {
+        RemoveMemberResult::Removed(person) => (
+            StatusCode::OK,
+            Some(TeamNotice::Removed {
+                name: person.display_name,
+                email: person.email,
+                team,
+            }),
+        ),
+        RemoveMemberResult::NotOnTeam => (StatusCode::OK, None),
+        RemoveMemberResult::LastLead => {
+            (StatusCode::CONFLICT, Some(TeamNotice::NeedsALead { team }))
+        }
+    };
+    members_page_with_status(&state, &headers, &user, removal.page, notice, status).await
 }
 
 // ------------------------------------------------------------------ internals
@@ -469,6 +521,19 @@ mod team_notice_copy {
         assert_eq!(
             notice.to_string(),
             "Lena Park (lena.park@canzan.dev) is the last lead of Backend. Make someone else a lead first."
+        );
+    }
+
+    #[test]
+    fn removed() {
+        let notice = TeamNotice::Removed {
+            name: "Tomás Rivera".into(),
+            email: "tomas.rivera@canzan.dev".into(),
+            team: "Backend".into(),
+        };
+        assert_eq!(
+            notice.to_string(),
+            "Removed Tomás Rivera (tomas.rivera@canzan.dev) from Backend."
         );
     }
 

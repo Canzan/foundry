@@ -239,6 +239,17 @@ impl Services {
         teams::change_role(&self.store, principal, team_slug, raw_user_id, raw_role).await
     }
 
+    /// team-membership `POST /team/{slug}/members/{user_id}/remove` — delegates
+    /// to [`teams::remove_member`].
+    pub async fn remove_member_from_team(
+        &self,
+        principal: &Principal,
+        team_slug: &str,
+        raw_user_id: &str,
+    ) -> Result<teams::MemberRemoval, teams::TeamError> {
+        teams::remove_member(&self.store, principal, team_slug, raw_user_id).await
+    }
+
     /// multi-workspace-provisioning (US-MWT07, ADR-002/003) — provision a NEW
     /// isolated workspace + its first admin, gated by the INSTANCE super-admin
     /// authority. Delegates to [`provisioning::provision_workspace`].

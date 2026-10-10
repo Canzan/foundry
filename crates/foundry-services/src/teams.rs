@@ -8,13 +8,14 @@
 //! 404. Tenancy comes only from the principal's workspace (D10).
 //!
 //! The read use-cases ([`list_teams`], [`team_members`]) have no write method on
-//! their path (Principle 12); [`add_member`] and [`change_role`] are the writers.
+//! their path (Principle 12); [`add_member`], [`change_role`] and [`remove_member`]
+//! are the writers.
 
 use crate::Principal;
 use foundry_core::{TeamAccess, TeamRole};
 use foundry_store::teams::{
-    AddTeamMemberOutcome, SetTeamRoleOutcome, TeamAccessFacts, TeamMemberRow, TeamPerson,
-    TeamScope, TeamSummary,
+    AddTeamMemberOutcome, RemoveTeamMemberOutcome, SetTeamRoleOutcome, TeamAccessFacts,
+    TeamMemberRow, TeamPerson, TeamScope, TeamSummary,
 };
 use foundry_store::{Store, StoreError};
 
@@ -85,6 +86,24 @@ pub enum RoleChangeResult {
 pub struct RoleChange {
     pub result: RoleChangeResult,
     pub role: TeamRole,
+    pub page: TeamMembersView,
+}
+
+/// What a removal did (D13, DDD-8/9). `Removed` carries the person as the page
+/// listed them before the write.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RemoveMemberResult {
+    Removed(TeamPerson),
+    /// A workspace member no longer on the team; nothing was written.
+    NotOnTeam,
+    /// The removal would leave the team without a lead; nothing was written.
+    LastLead,
+}
+
+/// The outcome of a removal, with the page re-read after it (DDD-9).
+#[derive(Debug, Clone)]
+pub struct MemberRemoval {
+    pub result: RemoveMemberResult,
     pub page: TeamMembersView,
 }
 
@@ -181,12 +200,47 @@ pub async fn change_role(
     Ok(RoleChange { result, role, page })
 }
 
+/// `POST /team/{slug}/members/{user_id}/remove`: needs `Manage`; the path id (a
+/// raw value) must parse and name a member of the acting workspace (DDD-5).
+/// Every refusal before the verb is `NotFound`.
+pub async fn remove_member(
+    store: &Store,
+    principal: &Principal,
+    team_slug: &str,
+    raw_user_id: &str,
+) -> Result<MemberRemoval, TeamError> {
+    let (facts, access) = resolve_access(store, principal, team_slug).await?;
+    if !access.can_manage() {
+        return Err(TeamError::NotFound);
+    }
+    let user_id = uuid::Uuid::parse_str(raw_user_id).map_err(|_| TeamError::NotFound)?;
+    let before = members_view(store, principal, facts.clone(), access).await?;
+    let person = before.listed(user_id).ok_or(TeamError::NotFound)?;
+    let result = match store.remove_team_member(facts.team_id, user_id).await? {
+        RemoveTeamMemberOutcome::Removed => RemoveMemberResult::Removed(person),
+        RemoveTeamMemberOutcome::NotOnTeam => RemoveMemberResult::NotOnTeam,
+        RemoveTeamMemberOutcome::LastLead => RemoveMemberResult::LastLead,
+    };
+    // Access is recomputed after the write (DDD-9).
+    let page = team_members(store, principal, &facts.team_slug).await?;
+    Ok(MemberRemoval { result, page })
+}
+
 impl TeamMembersView {
     /// Whether `user_id` is on the team or offered to it, i.e. a member of the
     /// acting workspace (a manager's view lists both).
     fn lists_in_workspace(&self, user_id: uuid::Uuid) -> bool {
-        self.members.iter().any(|row| row.person.user_id == user_id)
-            || self.candidates.iter().any(|p| p.user_id == user_id)
+        self.listed(user_id).is_some()
+    }
+
+    /// The person with `user_id` as the page lists them, on the team or offered.
+    fn listed(&self, user_id: uuid::Uuid) -> Option<TeamPerson> {
+        self.members
+            .iter()
+            .map(|row| &row.person)
+            .chain(self.candidates.iter())
+            .find(|p| p.user_id == user_id)
+            .cloned()
     }
 
     /// The person on the team with `user_id`, as the page lists them.
