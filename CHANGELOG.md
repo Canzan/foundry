@@ -7,6 +7,50 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 
 ## [Unreleased]
 
+### Added
+
+- **Teams.** The dashboard's quick actions now start with **Teams**, which
+  opens `/teams`. A workspace admin sees every team in the workspace; anyone
+  else sees the teams they are on, or "You're not on any team yet — ask a
+  workspace admin to add you." Each team links to its members page.
+- **A members page for every team** at `/team/{team}/members`. It lists the
+  team's people, leads first and then by name, each shown as display name and
+  email. A workspace admin can **Add** a workspace member to the team (as a
+  member), **Make lead**, **Make member** and **Remove**. A team's own leads can
+  do the same for their team. Anyone else on the team sees the page read-only.
+  Each change re-renders the page with a one-line notice, for example
+  "Added Lena Park (lena.park@canzan.dev) to Backend as a member." Someone who
+  may not see the team, or a person who is not in the workspace, gets the same
+  "not found" page as a team that does not exist. Instance admins get no
+  access from being instance admins.
+- **A team is never left without a lead.** Making the last lead a member, or
+  removing them, is refused with `409 Conflict` and the members page saying
+  "{team} needs at least one lead. Make someone else a lead first." Nothing is
+  written. Two admins demoting the last two leads at the same moment cannot
+  both win. The database refuses such a write from any other tool as well (see
+  `0021_team_lead_guard` below). A team that has never had a lead is not
+  forced to get one.
+- **A default team for new members.** A workspace admin can pick a "Default
+  team for new members" on `/teams`, or set it back to none. A newcomer who
+  accepts a member invite, or who signs in with Keycloak for the first time and
+  so gets a new account, joins the workspace and lands on that team as a
+  member, and so can open its boards straight away. Linking an existing
+  account to Keycloak and accepting the first-admin invite place no one. Picking
+  a default moves nobody already in the workspace. If the placement fails, the
+  newcomer still joins, on no team, and one warning with ids only is logged.
+
+### Changed
+
+- **`POST /workspace/members/remove` also takes the person off the
+  workspace's teams.** Removing someone from a workspace now deletes their team
+  rows in that workspace in the same transaction; before, the rows stayed
+  behind, granting nothing (0021 deletes the leftovers, see below). If the
+  person is the last lead of any team in the workspace, the removal is refused
+  with `409 Conflict`, `text/plain`, saying
+  "{name} ({email}) is the last lead of {team}. Make someone else a lead
+  first." Nothing is removed and no `member_removed` notification is sent. Make
+  someone else a lead of that team first.
+
 ### Migration notes
 
 - **`0021_team_lead_guard`** adds one function, `foundry_team_keeps_a_lead()`,
@@ -37,6 +81,11 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
     SQL
     ```
 
+  - **No other row is touched and nothing is backfilled.** Teams that have no
+    lead today keep none; the guard only stops a team losing its last one.
+  - **No new Postgres requirement and no readiness change.** `Store::probe` is
+    unchanged by 0021; the app's own check, not the trigger, is what users
+    meet, and the trigger is the backstop for other tools.
   - **Rolling deploys are safe.** No earlier release removes or demotes a team
     lead, so old replicas never meet the triggers during the overlap.
   - **Rollback floor: the previous release.** It boots against the migrated
@@ -61,8 +110,9 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
   `teams (workspace_id, id)` `ON DELETE SET NULL (default_team_id)`. A default
   must be one of the workspace's own teams; naming another workspace's team is
   refused with SQLSTATE `23503`. Deleting the default team clears only the
-  default. A newcomer who accepts a member invite lands on the default team as a
-  member. If that placement fails, the newcomer still joins the workspace, on
+  default. A newcomer who accepts a member invite, or whose first Keycloak
+  sign-in creates their account, lands on the default team as a member. If
+  that placement fails, the newcomer still joins the workspace, on
   no team, and one warning with ids only is logged.
   - **Unset on upgrade, no backfill.** Every existing workspace has no default,
     so behaviour is unchanged until an admin picks one, and picking one moves
@@ -73,8 +123,9 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
   - **Readiness:** `Store::probe` now requires `workspaces.default_team_id`, so
     a binary from this release refuses `/readyz` against a schema without it.
   - **Rolling deploys are safe.** An older replica never reads the column. Its
-    `INSERT INTO workspaces` leaves it NULL, and an invite accept it serves
-    lands the newcomer on no team, which is today's behaviour.
+    `INSERT INTO workspaces` leaves it NULL, and an invite accept or first
+    Keycloak sign-in it serves lands the newcomer on no team, which is today's
+    behaviour.
   - **Rollback floor: the previous release.** It boots against the migrated
     database, ignores migration 22 and never reads the column. To remove it by
     hand (the foreign key first, then the column, then the unique key):
