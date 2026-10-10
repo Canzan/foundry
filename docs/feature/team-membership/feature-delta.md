@@ -1211,3 +1211,240 @@ No story's acceptance intent changes, so no separate `upstream-changes.md` is cr
 - **DISTILL:** pinned seams are the eleven `TeamNotice` strings (D15 + OQ-9), the statuses (OQ-D1), the Authorization Matrix, the DOM of `team_members.html` (rows "{name} · {email} · {role}", candidate options "{name} — {email}", controls only when `can_manage`), and `/teams` "{team} · {n} member(s)". See OQ-D1, D2, D3, D8.
 - **DEVOPS:** two forward-only migrations (0021 slice 02, 0022 slice 05) with CHANGELOG notes, a probe delta (0022 column), Postgres 15 or later required (pinned 16). No new external integration, so no new contract tests. Paradigm OOP (`nw-software-crafter`).
 - **ADRs:** `docs/product/architecture/adr-team-membership-001-never-leaderless-lock-and-trigger.md`, `adr-team-membership-002-default-team-column-composite-fk.md`, `adr-team-membership-003-one-team-authority-policy.md`.
+
+## Wave: DISTILL
+
+Acceptance designer: Quinn (nw-acceptance-designer) | Date: 2026-10-09 | Language: Rust (`[lang-mode] rust`, cucumber-rs 0.21, store tests on testcontainers `postgres:16-alpine`) | Rigor: `adr-025-scaffolded-red` (every scenario `@pending` and classified RED; DELIVER only un-pends) | Density: lean, Tier-1 [REF] only | Policy: inherit (`docs/architecture/atdd-infrastructure-policy.md`; one Driving row appended for the team pages) | State-delta port: the driver's typed universe (`support/team_membership.rs::assert_state_delta`), the repo's Rust reading of Mandate 8, as in the precedents | `[policy-mode] inherit` `[port-mode] inherited`.
+
+### [REF] Prior Wave Consultation and reconciliation
+
+| Artifact | Status |
+|---|---|
+| This file: DISCUSS (D1-D17, OQ-1 to OQ-10 and "Resolved by the user", INV-1 to INV-8, US-TM-01 to US-TM-07, KPIs, DoD) and DESIGN (DDD-1 to DDD-23, Authorization Matrix, Contract Shapes, Component Decomposition, Test Seams, OQ-D1 to OQ-D9, Changed Assumptions 1-4) | + read in full |
+| `slices/slice-01..06` | + read (learning hypotheses and dogfood steps) |
+| `docs/product/architecture/brief.md` ("Teams, team authority and the never-leaderless guard"), ADR-TEAM-MEMBERSHIP-001/002/003 | + read |
+| `docs/product/kpi-contracts.yaml`, `docs/product/journeys/*.yaml` (format) | + read; no team-membership entry existed (added below); no SSOT journey (DISCUSS: UX depth lightweight) |
+| `docs/product/outcomes/registry.yaml` | + read (OUT-1 to OUT-20) |
+| House precedent: `name-db-checks.feature` + `feature_name_db_checks.rs`, `fix-hide-unreachable-boards.feature` + `feature_fix_hide_unreachable_boards.rs`, `src/lib.rs` and `tests/acceptance.rs` registration, `@pending` filtering and `FOUNDRY_ACCEPTANCE_TAGS`, `support/harness.rs` (sessions, CSRF), member-invites issue/accept, keycloak-sso-provisioning (Keycloak double, `begin/finish_federated_sign_in`), `issue-card-delete/distill/red-classification.md` | + read |
+| Store gold-test precedent: `tests/list_projects_for_workspace.rs`, `tests/name_rule_in_database.rs` (staged migrations, RED gates), `tests/provision_federated_member.rs` | + read |
+| `docs/feature/team-membership/{discuss,design,devops}/wave-decisions.md` | - not present (lean layout; reconciled inside this file) |
+| DEVOPS wave | - none. **Warning**: no DEVOPS wave ran; the house lanes are the environment (default lane; `FOUNDRY_ACCEPTANCE_TAGS=team-membership`; no browser or Docker-compose lane needed) |
+
+**Reconciliation passed — 0 contradictions.** Checked every DISCUSS decision against DESIGN. DESIGN's four Changed Assumptions are refinements DISCUSS anticipated (0021 in slice 02, "unless DESIGN's INV-1 mechanism needs one"; the default form names a slug, so "a Globex team id" becomes "a team that is not one of Canzan Labs's", same refusal; OQ-9's team-row removal; plain forms only). D5 (every refusal is the uniform 404) and D6 (the last-lead refusal is a stated reason) agree with DDD-8's 409. The 409 `text/plain` on `POST /workspace/members/remove` keeps that route's shipped plain-text family, consistent with OQ-9's copy.
+
+### [REF] Scenario list
+
+Six feature files under `crates/foundry-acceptance/tests/features/`, one per slice: `team-membership-01-members-page-and-add.feature` (`@tm-01`), `-02-change-role` (`@tm-02`), `-03-remove` (`@tm-03`), `-04-team-lead` (`@tm-04`), `-05-default-team-invites` (`@tm-05`), `-06-default-team-keycloak` (`@tm-06`). Every feature carries `@team-membership @tm-0N @real-io`; every scenario carries `@pending`, a story tag and a `@contract-shape:` tag. One Background per file (Canzan Labs as the instance's original workspace with General/Sandbox, Backend/Identity Platform, Ops/Runbooks; the roster; Globex/Payments led by Hugo Weber). **57 scenarios, 87 rows** with outline rows expanded.
+
+| File | Scenarios | Rows | `@error` | `@edge` | error + edge |
+|---|---|---|---|---|---|
+| 01 | 17 | 26 | 8 | 6 | 14 of 17 |
+| 02 | 11 | 16 | 6 | 3 | 9 of 11 |
+| 03 | 10 | 15 | 5 | 2 | 7 of 10 |
+| 04 | 9 | 15 | 3 | 3 | 6 of 9 |
+| 05 | 7 | 11 | 2 | 3 | 5 of 7 |
+| 06 | 3 | 4 | 1 | 1 | 2 of 3 |
+| **All** | **57** | **87** | **25 (44%)** | **18** | **43 of 57 (75%); 73 of 87 rows (84%)** |
+
+| # | File | Scenario | Tags | Rows |
+|---|---|---|---|---|
+| 1 | 01 | Jeff puts his own Keycloak account on General, and it opens the Sandbox board | @walking_skeleton @driving_port @us-tm-02 @kpi @contract-shape:bounded-change | 1 |
+| 2 | 01 | A workspace admin finds a team and sees who is on it, leads first | @us-tm-01 @driving_port @contract-shape:unbounded-preservation | 1 |
+| 3 | 01 | A workspace admin sees the members of a team she is not on, but still cannot open its board | @us-tm-01 @edge @contract-shape:unbounded-preservation | 1 |
+| 4 | 01 | A team member sees their own team, without any way to change it | @us-tm-01 @edge @contract-shape:unbounded-preservation | 1 |
+| 5 | 01 | Someone on no team is told so on the teams page | @us-tm-01 @edge @contract-shape:unbounded-preservation | 1 |
+| 6 | 01 | Someone who may not see a team's members gets the page that never existed | @us-tm-01 @error @kpi @contract-shape:unbounded-preservation | 4 |
+| 7 | 01 | Another workspace's team and a team that does not exist look the same from Canzan Labs | @us-tm-01 @error @kpi @contract-shape:unbounded-preservation | 1 |
+| 8 | 01 | A signed-out visitor learns nothing from the teams page | @us-tm-01 @error @contract-shape:unbounded-preservation | 1 |
+| 9 | 01 | A workspace admin puts a member on a team, and the member can open the team's board | @us-tm-02 @kpi @contract-shape:bounded-change | 1 |
+| 10 | 01 | Only workspace members who are not on the team are offered, each by name and address | @us-tm-02 @edge @contract-shape:unbounded-preservation | 1 |
+| 11 | 01 | When everyone is already on the team, there is nobody to add | @us-tm-02 @edge @contract-shape:unbounded-preservation | 1 |
+| 12 | 01 | Adding someone already on the team, from an older page, changes nothing and says so | @us-tm-02 @edge @contract-shape:unbounded-preservation | 1 |
+| 13 | 01 | Someone who is not a Canzan Labs member cannot be added | @us-tm-02 @error @kpi @contract-shape:unbounded-preservation | 3 |
+| 14 | 01 | Someone without the right cannot add anyone to a team | @us-tm-02 @error @kpi @contract-shape:unbounded-preservation | 5 |
+| 15 | 01 | An add aimed at another workspace's team or at a team that does not exist is refused the same way | @us-tm-02 @error @kpi @contract-shape:unbounded-preservation | 1 |
+| 16 | 01 | Someone who left the workspace cannot be added from a page opened before they left | @us-tm-02 @error @contract-shape:unbounded-preservation | 1 |
+| 17 | 01 | An add sent without the page's token is turned away, and nothing changes | @us-tm-02 @error @contract-shape:unbounded-preservation | 1 |
+| 18 | 02 | A workspace admin makes a member a lead | @us-tm-03 @driving_port @contract-shape:bounded-change | 1 |
+| 19 | 02 | A workspace admin hands leadership over by making the previous lead a member | @us-tm-03 @contract-shape:bounded-change | 1 |
+| 20 | 02 | The last lead cannot be made a member | @us-tm-03 @error @kpi @contract-shape:unbounded-preservation | 1 |
+| 21 | 02 | Making a lead a lead again changes nothing and says so | @us-tm-03 @edge @contract-shape:unbounded-preservation | 1 |
+| 22 | 02 | A role change for a workspace member who is not on the team changes nothing | @us-tm-03 @edge @contract-shape:unbounded-preservation | 1 |
+| 23 | 02 | Two leads made members at the same moment leave the team with exactly one lead | @us-tm-03 @error @kpi @concurrency @contract-shape:bounded-change | 1 |
+| 24 | 02 | A team that has no lead can be given one | @us-tm-03 @edge @contract-shape:bounded-change | 1 |
+| 25 | 02 | Someone without the right cannot change a role | @us-tm-03 @error @kpi @contract-shape:unbounded-preservation | 4 |
+| 26 | 02 | A role change naming someone outside the workspace, or no one, is refused | @us-tm-03 @error @kpi @contract-shape:unbounded-preservation | 3 |
+| 27 | 02 | A role that does not exist is refused, and nothing changes | @us-tm-03 @error @contract-shape:unbounded-preservation | 1 |
+| 28 | 02 | A role change aimed at another workspace's team is refused the same way | @us-tm-03 @error @contract-shape:unbounded-preservation | 1 |
+| 29 | 03 | A workspace admin takes a member off a team, and the member loses its board at once | @us-tm-04 @driving_port @kpi @contract-shape:bounded-change | 1 |
+| 30 | 03 | Taking one of two leads off a team leaves the other in charge | @us-tm-04 @contract-shape:bounded-change | 1 |
+| 31 | 03 | The last lead cannot be taken off the team | @us-tm-04 @error @kpi @contract-shape:unbounded-preservation | 1 |
+| 32 | 03 | Removing someone who has already left the team, from an older page, changes nothing | @us-tm-04 @edge @contract-shape:unbounded-preservation | 1 |
+| 33 | 03 | A removal and a demotion at the same moment leave the team with exactly one lead | @us-tm-04 @error @kpi @concurrency @contract-shape:bounded-change | 1 |
+| 34 | 03 | Someone without the right cannot take anyone off a team | @us-tm-04 @error @kpi @contract-shape:unbounded-preservation | 4 |
+| 35 | 03 | A removal naming someone outside the workspace, or no one, is refused | @us-tm-04 @error @kpi @contract-shape:unbounded-preservation | 3 |
+| 36 | 03 | Removing someone from the workspace also takes them off its teams | @us-tm-04 @driving_port @contract-shape:bounded-change | 1 |
+| 37 | 03 | A lead who shares the lead with someone else can be removed from the workspace | @us-tm-04 @edge @contract-shape:bounded-change | 1 |
+| 38 | 03 | The last lead of a team cannot be removed from the workspace | @us-tm-04 @error @kpi @contract-shape:unbounded-preservation | 1 |
+| 39 | 04 | A team lead puts a workspace member on her own team | @us-tm-05 @driving_port @kpi @contract-shape:bounded-change | 1 |
+| 40 | 04 | A team lead hands leadership over and steps down | @us-tm-05 @contract-shape:bounded-change | 1 |
+| 41 | 04 | A team lead takes a teammate off her team | @us-tm-05 @contract-shape:bounded-change | 1 |
+| 42 | 04 | A team's only lead cannot step down or leave it | @us-tm-05 @error @kpi @contract-shape:unbounded-preservation | 2 |
+| 43 | 04 | A team lead can take a workspace admin off her team | @us-tm-05 @edge @contract-shape:bounded-change | 1 |
+| 44 | 04 | A team lead can make a workspace admin on her team a member again | @us-tm-05 @edge @contract-shape:bounded-change | 1 |
+| 45 | 04 | A team lead cannot change a team she does not lead | @us-tm-05 @error @kpi @contract-shape:unbounded-preservation | 6 |
+| 46 | 04 | A team lead sees a team she is only a member of without any way to change it | @us-tm-05 @edge @contract-shape:unbounded-preservation | 1 |
+| 47 | 04 | A lead who has since been made a member cannot act from a page she opened as a lead | @us-tm-05 @error @contract-shape:unbounded-preservation | 1 |
+| 48 | 05 | A workspace admin picks the default team for new members, and no one already here is moved | @us-tm-06 @driving_port @contract-shape:bounded-change | 1 |
+| 49 | 05 | A workspace admin clears the default team | @us-tm-06 @edge @contract-shape:bounded-change | 1 |
+| 50 | 05 | An invited newcomer lands on the default team and opens its board | @us-tm-06 @kpi @contract-shape:bounded-change | 1 |
+| 51 | 05 | Without a default team, an invited newcomer lands as today | @us-tm-06 @edge @contract-shape:bounded-change | 1 |
+| 52 | 05 | A default team that no longer exists never stops a newcomer joining | @us-tm-06 @error @contract-shape:bounded-change | 1 |
+| 53 | 05 | Only a workspace admin can set the default, and only to one of Canzan Labs's teams | @us-tm-06 @error @kpi @contract-shape:unbounded-preservation | 5 |
+| 54 | 05 | Only a workspace admin is offered the default team setting | @us-tm-06 @edge @contract-shape:unbounded-preservation | 1 |
+| 55 | 06 | A newcomer's first Keycloak sign-in lands them on the default team | @us-tm-07 @driving_port @kpi @contract-shape:bounded-change | 1 |
+| 56 | 06 | Signing in with Keycloak to an existing account adds no team | @us-tm-07 @edge @contract-shape:unbounded-preservation | 1 |
+| 57 | 06 | An unset or missing default never stops a first Keycloak sign-in | @us-tm-07 @error @contract-shape:bounded-change | 2 |
+
+Coverage, story by story: US-TM-01 → 2-8; US-TM-02 → 1 (the dogfood), 9-17; US-TM-03 → 18-28; US-TM-04 → 29-35, with OQ-9 → 36-38; US-TM-05 → 39-47, with OQ-D8 → 43-44 (a lead takes a workspace admin off her team, and makes one a member again); US-TM-06 → 48-54; US-TM-07 → 55-57. Every UAT scenario of DISCUSS maps to at least one scenario here, and every Acceptance Criterion to at least one assertion. The DISCUSS DoD counted 30 UAT scenarios; DISTILL adds the authorization matrix, the targets, the controls and the edges.
+
+Pinned by these scenarios:
+
+- **OQ-D1 statuses**: 200 for every write that goes through, and for a no-op or a stale target (DDD-9); **409** for a last lead (the members page with "{team} needs at least one lead. Make someone else a lead first.", and `text/plain` "{name} ({email}) is the last lead of {team}. Make someone else a lead first." on `POST /workspace/members/remove`); the **uniform 404, byte-identical to a page that never existed**, for every refusal on both verbs; and a tokenless POST is the shipped CSRF layer's **403** ("CSRF token missing or mismatched"), outside the 404 matrix (scenario 17).
+- **The D15 copy**, byte for byte, through the decoded page text: all eleven strings appear in a `Then` (Added / already on / now a lead / now a member / Removed / needs at least one lead / Everyone … already on / New members will join / New members join no team / the OQ-9 last-lead string / the shipped no-team string).
+- **The Authorization Matrix (KPI-4)**: signed out, Marco (not on the team), Sam (a plain member), Lena (a lead of another team; slice 04 widens her own team to Manage), Hugo (another workspace's admin), an unknown slug and a foreign slug, on `GET` members and on the three POSTs plus `POST /teams/default`; targets that are malformed, unknown or in another workspace; an unknown role. Every row asserts the byte-identical 404, an unchanged universe, and a control proving the hidden team exists.
+- **The default team for both newcomer doors**: placement as Member (50, 55), no default (51, 57a), a deleted default (52, 57b), never refused or failed (D17), linking an existing account places no one (56), no backfill (48), the setting refused to non-admins and to slugs outside the acting workspace (53).
+- **The dogfood shape (D4)** is the walking skeleton (1): an SSO-provisioned account on no team, added to General by the bootstrap account, opens Sandbox in the same session (no re-sign-in).
+- **OQ-D3**: the HTTP races (23, 33) repeat 5 times each; the 100-run proof is at store level.
+
+### [REF] WS strategy
+
+Architecture of Reference (project-level), not a per-feature A-D choice: driving ports real (the in-process axum router with the shipped session and CSRF layers), driven-internal real (Postgres 16, per-scenario schema), driven-external faked over a real socket (the Keycloak OIDC double, `support::oidc_issuer`). The one walking skeleton (scenario 1, `@walking_skeleton @driving_port`) is the D4 dogfood: dashboard → Teams → General's members page → Add → the added account's dashboard lists Sandbox and its board opens.
+
+**The skeleton is `@pending` at hand-off, not GREEN.** None of its routes exists (it stops at "no Teams quick action on the dashboard"), and DISTILL wires no route. This follows the house precedent recorded in `fix-hide-unreachable-boards.feature`: its defect scenario was `@pending` in step 01-01, RED captured, and un-pended by the step that made it pass. **DELIVER step 01-01 un-pends scenario 1 first** and makes it green before anything else in slice 01. The rest of the suite stays green at hand-off because every other scenario is `@pending` too.
+
+### [REF] Adapter coverage
+
+| Adapter | `@real-io` scenario | Covered by |
+|---|---|---|
+| `foundry_store::Store` on Postgres 16 (driven internal; the only driven port, DESIGN) | YES | every scenario (per-scenario schema); store gold tests on their own containers |
+| Migration 0021 (lead-guard triggers, orphan cleanup) | YES | `team_lead_guard.rs` (trigger refusal, cascade exemption, orphan cleanup on a schema staged at 0020) |
+| Migration 0022 (`workspaces.default_team_id`, composite FK) | YES | `workspace_default_team.rs` (23503 on a foreign default, delete clears only the default, workspace delete) |
+| Keycloak OIDC provider (driven external, faked over a real socket, RS256) | YES | 1, 10 (provisioned account), 55-57 (first sign-in placement), 56 (link) |
+| Invite issue and accept (shipped doors) | YES | 50-52 |
+| Notifier (`member_removed`, recorded by `DeliveryRecorder`) | YES | 38 (no notice on a refused removal) |
+
+No row is missing. DESIGN adds no new external integration.
+
+### [REF] Driving adapter coverage
+
+| Route (DESIGN Driving Ports) | HTTP scenarios |
+|---|---|
+| `GET /teams` | 2, 4, 5, 8, 48 (select), 54 |
+| `POST /teams/default` | 48, 49, 53 |
+| `GET /team/{team_slug}/members` | 1, 2, 3, 4, 6, 7, 10, 11, 39, 46, and every control |
+| `POST /team/{team_slug}/members` (add) | 1, 9, 12-17, 39, 45, 47 |
+| `POST /team/{team_slug}/members/{user_id}/role` | 18-28, 40, 42, 44, 45 |
+| `POST /team/{team_slug}/members/{user_id}/remove` | 29-35, 41-43, 45 |
+| `GET /` (the "Teams" quick action; projects after an add or remove) | 1, 2, 9, 29, 50, 51, 55 |
+| `POST /invites/accept` (placement) | 50, 51, 52 |
+| `oidc::CALLBACK_PATH` (placement; link) | 1, 10, 55, 56, 57 |
+| `POST /workspace/members/remove` (OQ-9) | 16 (precondition), 36, 37, 38 |
+| `GET /team/{team_slug}/project/{project_slug}` (unchanged) | 1, 3, 9, 29, 50, 55 |
+
+Every route DESIGN names has at least one scenario through its HTTP door; writes made "from a page" submit the page's own form, so a route that exists but is not wired into its page fails.
+
+### [REF] Scaffolds (Mandate 7)
+
+| File | Marker | What DELIVER does |
+|---|---|---|
+| `crates/foundry-store/src/teams.rs` (new; `pub mod teams` + re-exports in `lib.rs`) | `SCAFFOLD: true`; `add_team_member`, `set_team_role`, `remove_team_member`, `default_team`, `set_default_team` panic `Not yet implemented -- RED scaffold (team-membership NN-NN: …)`; `AddTeamMemberOutcome`, `SetTeamRoleOutcome`, `RemoveTeamMemberOutcome` are real | 01-01: `add_team_member` (DDD-10); 02-01: `set_team_role` + migration 0021 (DDD-6); 03-01: `remove_team_member` + extend `remove_workspace_member` (DDD-11); 05-01: `default_team`, `set_default_team` + 0022 + `place_on_default_team`. Add the reads (DDD-16) as needed. Signatures are DISTILL's working choice; if DELIVER changes one, it changes the store tests with it |
+| `crates/foundry-core/src/team_membership.rs` (new; `pub use TeamRole`) | `SCAFFOLD: true` (the module lacks `TeamAccess`) | 01-01: `TeamRole::parse`, `TeamAccess::of` with the six-row example table (ADR-003) |
+| `crates/foundry-store/tests/team_lead_guard.rs::remove_from_workspace` | `SCAFFOLD: true` | 03-01: map the extended `remove_workspace_member` outcome (`Removed \| NotMember \| LastLead { team }`) instead of today's row count |
+
+No app scaffold: the acceptance steps reach the product only over HTTP, so no route, handler, template or service symbol is referenced before it exists. Production behaviour is unchanged (nothing calls the new store methods). `grep -rn "SCAFFOLD: true" crates/` lists the three; zero should remain after DELIVER.
+
+### [REF] Test placement
+
+- Acceptance: the six `.feature` files above; steps in `crates/foundry-acceptance/src/steps/feature_team_membership.rs` (Background, slices 01-04) and `feature_team_membership_default_team.rs` (slices 05-06), registered in `src/lib.rs` and force-linked in `tests/acceptance.rs` like every precedent; the driver in `src/support/team_membership.rs`; one World field `tm: TmState`. Reused unchanged: `support::harness` (sessions), `support::oidc_issuer` and `feature_keycloak_sso_provisioning::{begin,finish}_federated_sign_in`, the shipped invite doors.
+- Store: `crates/foundry-store/tests/team_lead_guard.rs` (DESIGN's name) and `tests/workspace_default_team.rs`, real Postgres per test (the `list_projects_for_workspace.rs` / `name_rule_in_database.rs` idiom, staged migrations for 0021's cleanup).
+- Unit tests (`TeamAccess::of`, `TeamRole::parse`, the `TeamNotice` bytes) are DELIVER's (Test Seams, Core).
+
+### [REF] Pre-requisites
+
+- DESIGN's driving ports and pinned DOM (DDD-2, DDD-17): row text "{name} · {email} · {Lead|Member}"; the Add form posting `user_id` from `select[name=user_id]` with options "{name} — {email}" to `/team/{slug}/members`; role forms posting `role` to `…/{user_id}/role`; Remove forms posting to `…/{user_id}/remove`; the "Teams" dashboard link; `/teams` rows "{team} · {n} member(s)" linking to the members page; the default form posting `team` (slug, or empty for "No team") to `/teams/default` with the current default selected.
+- Shipped: sessions and CSRF, `resource_not_found_page` (the uniform 404 the router fallback also serves), member invites, keycloak-sso provisioning (`FOUNDRY_OIDC_PROVISION_ROLE` semantics through `with_provision_role`), v0.12.0's membership-filtered dashboard.
+- Environment: no DEVOPS wave; the default acceptance lane and the store tests need Docker (testcontainers). No browser, compose or pg-client lane is involved.
+
+### [REF] RED classification
+
+`docs/feature/team-membership/distill/red-classification.md`. Acceptance: 87 rows, **85 MISSING_FUNCTIONALITY, 2 GREEN_ALREADY guards (51 and the "no default" row of 57, both D17's floor), 0 BROKEN**. Store: 31 tests, **27 MISSING_FUNCTIONALITY (scaffold panic, RED gate or assertion), 4 GREEN now and not ignored (two Postgres substrate facts, two no-default guards), 0 BROKEN**. Every refusal scenario is RED on its control, never green by an unrouted 404.
+
+### [REF] Store gold tests
+
+| Test | Pending until |
+|---|---|
+| `team_lead_guard.rs`: sole-lead demote → `LastLead`, nothing written; promote / no-op repeat / hand-over; role change for someone not on the team; promote in a leaderless team; one statement demoting both leads → 23514 `team_memberships_team_keeps_a_lead`; hand delete of the last lead refused; team and workspace delete with a lead (cascade exemption); **100-run demote/demote race**; 0021 deletes orphans only | 02-01 |
+| `team_lead_guard.rs`: sole-lead remove → `LastLead`; remove and repeat; **100-run remove/demote and remove/remove races**; workspace removal leaves that workspace's teams only; workspace removal of a sole lead → `LastLead("backend")`, nothing written; **100-run workspace-removal/demote race**; **100-run add/workspace-removal race (INV-5)** | 03-01 |
+| `team_lead_guard.rs`: an add is not blocked by the team lock; a read after the lock wait sees the holder's commit (ADR-001 Earned Trust 3, 4) | GREEN now |
+| `workspace_default_team.rs`: foreign default → 23503 `workspaces_default_team_same_workspace`; deleting the default clears only it; workspace delete with a default; set / read / clear; no backfill; invite accept places as member; a sabotaged placement never fails the accept | 05-01 |
+| `workspace_default_team.rs`: first provisioning places on the original workspace's default only; linking places no one; a sabotaged placement never fails provisioning | 06-01 |
+| `workspace_default_team.rs`: with no default, an invite accept and a first provisioning place no one | GREEN now |
+
+### [REF] Mandate compliance and completeness
+
+- **CM-A (Mandate 1)**: acceptance enters only through HTTP doors (the routes above); store tests enter through public `Store` methods, migrations and SQL (the operator's door for INV-8). No step imports an app or service type.
+- **CM-B (Mandate 2, Pillar 1)**: the Gherkin speaks of teams, members pages, leads, the default team, invites and Keycloak sign-ins. Statuses, routes, SQL and selectors live in the driver.
+- **CM-C (Mandate 3)**: 1 walking skeleton + 56 focused scenarios.
+- **CM-E (Mandate 8)**: every `When` captures the universe (every team row, workspace row, account, team, default team); every write's `Then` is a fail-closed state delta (`assert_state_delta(world, &[Change…])`), so a refusal or a no-op proves zero writes and an accepted write proves exactly its declared rows.
+- **CM-F/CM-H (Mandates 9, 11)**: layer 3, example-only; sad paths enumerated as named examples; no PBT. The 100-run races are repeated examples, not generated inputs.
+- **CM-G (Mandate 10)**: no Tier B. The journeys chain (Pillar 2: "has added", "has made … a lead", "opened … earlier") but the input space is a closed roster and a closed verb set, covered by the outlines; the state space that matters (concurrent lead removal) is covered by the store races.
+- **Pillar 3**: production composition root (`spawn_app` through `InProcHarness::spawn_with_oidc`), only the identity provider faked.
+- **Mandate 12 (Rust reading)**: (1) the typed vocabulary lives in `support/team_membership.rs` (`TeamRole`, `WorkspaceRole`, `Actor`, `Target`, `TeamName`, `Forged`, `FromPage`, `Race`, `Universe`, `Change`, `Answer`), the house's equivalent of `domain_types.py`; (2) the driver's services take these types; (3) every step body is one statement, a call into the driver, with no control flow; (4) **step-reuse ratio (informational): 263 step lines over 72 step definitions = 3.65×** (491 steps executed across the 87 rows = 6.8×); 72 new definitions, plus reuse of the Keycloak sign-in legs and the harness.
+- **Completeness (15 items): 15 of 15, COMPLETE.** C1a (no team on the teams page; nobody to add; a team with no lead) · C1b (the last lead: two leads → one → refused) · C2a (state: absent → Member ⇄ Lead → absent, per team; documented in the feature headers and INV-1) · C2b (illegal event per state: demote or remove the only lead; role change or remove for someone absent; re-add someone present) · C3 (teams page with 0, 1 and 3 teams; Add list with 0 and 6 people) · C4a (re-add, same-role write, stale remove) · C4b (remove or role change for someone never on the team) · C5a (actor × verb × team matrix; default set / unset / deleted × invite / Keycloak / link) · C5b (managing a team grants no board access, scenario 3) · C6a (garbled id, unknown id, foreign id, unknown role, unknown slug) · C6b (each declared answer: 404, 409 page, 409 text, 403 CSRF) · C6c (refusals byte-identical; races assert never a 500) · C7a (a failed placement inside the savepoint, store) · C7b (stale pages after a workspace removal or a demotion, INV-5/INV-6; the savepoint's partial rollback) · C7c (HTTP races ×5, store races ×100). No SPECIFICATION_AMBIGUITY blocker.
+
+### [REF] Outcomes registry
+
+`nwave-ai outcomes check` against the registry before this wave: **NO COLLISIONS** for all three. Appended by hand in the OUT-20 shape (the `register` command re-flows every entry, as name-db-checks recorded): **OUT-21** (operation: see and manage a team's membership through the one authority policy; related OUT-22), **OUT-22** (invariant: a team never loses its last lead, any door, concurrently; related **OUT-5**, OUT-21), **OUT-23** (operation: the default team and newcomer placement; related OUT-21). `kpi-contracts.yaml` gains `team-membership` (TM-KPI-1 to 5, instruments linked to these scenarios, all `owed`).
+
+### [REF] Recommended un-pend order
+
+1. **01-01** (slice 01): scenario 1 first (the skeleton); then 2-17; store: nothing new (the add's race is 03-01's). check-arch DDD-19 (a)/(b) with `add_team_member`.
+2. **02-01** (slice 02): migration 0021 and `set_team_role` → the 02-01 store tests (the 100-run race is the slice's learning hypothesis: stop if it ever ends with zero leads); then 18-28.
+3. **03-01** (slice 03): `remove_team_member`, the extended `remove_workspace_member` (switch the store test's `remove_from_workspace`) → the 03-01 store tests; then 29-38.
+4. **04-01** (slice 04): the lead arm of `TeamAccess::of` → 39-47.
+5. **05-01** (slice 05): migration 0022, the setting, invite placement → the 05-01 store tests; then 48-54 (51 is a guard that must stay green).
+6. **06-01** (slice 06): provisioning placement → the 06-01 store tests; then 55-57 (57's first row is a guard).
+
+Burn-down: `grep -cE '^\s*@.*@pending' crates/foundry-acceptance/tests/features/team-membership-0*.feature` = 57 now, 0 at the end; `grep -c '#\[ignore = "pending: team-membership' crates/foundry-store/tests/{team_lead_guard,workspace_default_team}.rs` = 17 + 10 now, 0 at the end.
+
+### [REF] Upstream notes (no user decision needed)
+
+- **An unknown role value** (`role=owner`) has no status in DESIGN. Scenario 27 pins the uniform 404 under D5 ("every refused request on the new team routes"). If DESIGN meant a 400, change scenario 27.
+- **The store write signatures** were not pinned by DESIGN (DDD-16 pins only the reads). DISTILL chose `add_team_member(workspace, team, user)`, `set_team_role(team, user, TeamRole)`, `remove_team_member(team, user)`, `default_team(workspace) -> Option<(slug, name)>`, `set_default_team(workspace, Option<team>)`.
+- **Role control markup**: DESIGN pins the route and the `role` field, not whether the control is a button or a select. The driver submits the row's role form with `role` set, which works for either.
+- **Persona choices**: DISCUSS's examples make Sam the sole lead in the last-lead examples; the scenarios use Lena, Backend's lead in the Background (same rule). In slices 05-06 Tomás is the newcomer, so he is not in those rosters.
+- **The 0022 universe**: until 0022 exists, the driver reads every default as unset, so slices 01-04 do not depend on slice 05's migration.
+
+### [REF] Lanes and gates at hand-off (`@pending` restored, 2026-10-09)
+
+| Lane / gate | Result |
+|---|---|
+| Default acceptance lane (`env -u FOUNDRY_ACCEPTANCE_TAGS cargo test -p foundry-acceptance --test acceptance`, `foundry` rebuilt and warmed first) | **GREEN**: 79 features, 896 scenarios, 5907 steps, all passed (the 57 team-membership scenarios are `@pending`) |
+| `FOUNDRY_ACCEPTANCE_TAGS=team-membership` | 0 scenarios (all pending); with `@pending` lifted: 87 rows, 85 RED, 2 GREEN guards, 0 BROKEN |
+| `cargo test -p foundry-store --test team_lead_guard --test workspace_default_team` | 2 passed, 17 ignored / 2 passed, 10 ignored; `--include-ignored`: 27 RED, 0 BROKEN |
+| `cargo build --workspace --tests` | clean |
+| `cargo clippy --workspace --all-targets -- -D warnings` | clean |
+| `cargo fmt --all -- --check` | clean |
+| `cargo xtask check-arch` | PASSED (DDD-19's `team-membership-one-seam` rule is DELIVER's, with `add_team_member`) |
+
+Only the containers these runs started were created, and none was left behind.
+
+### [REF] End-of-DISTILL review (four reviewers in parallel)
+
+| Reviewer | Wave | Verdict | Findings and resolution |
+|---|---|---|---|
+| nw-product-owner-reviewer | DISCUSS | approved | 0 findings. DoR 8/8 for all 7 stories; 0 contradictions with DESIGN or DISTILL. |
+| nw-solution-architect-reviewer | DESIGN | approved | 0 findings. Every DDD traced to a scenario or store test. Notes for DELIVER: OQ-D4 orphan count before slice 02 ships; OQ-D7 (`export_workspace_gold` and the 0022 column). |
+| nw-platform-architect-reviewer | DEVOPS (none) | conditionally approved | High: "OQ-D2 outcome rows not in the registry" → **already resolved in this wave** (OUT-21, OUT-22, OUT-23 appended; `outcomes check` NO COLLISIONS; see Outcomes registry). Low (DELIVER 05-01): add the DDD-15 probe line. Low: keep the recipient-notification-preferences "workspace is deleted" scenario green as OQ-D6's guard (green in the default lane above). |
+| nw-acceptance-designer-reviewer | DISTILL | approved | 0 blockers, 0 high, 0 low. Contract-shape tags complete; walking skeleton user-centric; controls keep refusals honest. |

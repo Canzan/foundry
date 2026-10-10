@@ -368,6 +368,9 @@ pub struct FoundryWorld {
     // ---- card-pointer-drag (US-CPD-01..03) ----
     pub cpd: crate::steps::feature_card_pointer_drag::CpdState,
 
+    // ---- team-membership (US-TM-01..07) ----
+    pub tm: crate::support::team_membership::TmState,
+
     // ---- US-05+ in-process harness ----
     pub harness: Option<InProcHarness>,
     pub http: Option<reqwest::Client>,

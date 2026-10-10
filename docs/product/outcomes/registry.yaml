@@ -621,3 +621,105 @@ outcomes:
   - OUT-18
   - OUT-19
   superseded_by: null
+- id: OUT-21
+  kind: operation
+  summary: A workspace admin, or the team's lead, sees who is on a team and adds a workspace
+    member to it, changes a member's role or takes someone off it; everyone else learns
+    nothing
+  feature: team-membership
+  inputs:
+  - shape: 'GET /teams; GET /team/{team_slug}/members; POST /team/{team_slug}/members
+      (user_id); POST /team/{team_slug}/members/{user_id}/role (role = lead | member);
+      POST /team/{team_slug}/members/{user_id}/remove; all session + double-submit _csrf,
+      plain forms; the team resolved by (session workspace, slug), never a workspace id
+      from the request'
+  output:
+    shape: 'One policy TeamAccess::of(is_workspace_admin, Option<TeamRole>) -> None | View
+      | Manage (admin or lead of this team -> Manage, member -> View). 200 re-rendered
+      members page with the D15 copy: "Added {name} ({email}) to {team} as a member."
+      / "{name} ({email}) is already on {team}." / "{name} ({email}) is now a lead|member
+      of {team}." (also on a same-role no-op) / "Removed {name} ({email}) from {team}."
+      / "Everyone in this workspace is already on {team}."; a stale target re-renders
+      with no copy and no write; rows "{name} · {email} · Lead|Member", leads first then
+      by name; the Add list is the workspace''s members not on the team as "{name} —
+      {email}". Every refusal (signed out, no right, unknown or foreign slug, malformed,
+      unknown or foreign user id, unknown role) is the byte-identical uniform 404 with
+      zero writes; a tokenless POST is the CSRF layer''s 403. Board access is unchanged:
+      team membership is still its only gate. An add commits only while the target is
+      still a member of the workspace (INV-5)'
+  keywords:
+  - team
+  - membership
+  - lead
+  - authorization
+  - uniform-404
+  - members-page
+  artifact: crates/foundry-acceptance/tests/features/team-membership-01-members-page-and-add.feature
+  related:
+  - OUT-22
+  superseded_by: null
+- id: OUT-22
+  kind: invariant
+  summary: A team that has a lead never loses its last lead, through any door, under
+    concurrent writes, and a person removed from a workspace leaves its teams
+  feature: team-membership
+  inputs:
+  - shape: 'Every write that can remove a lead: Store::set_team_role (demote), Store::remove_team_member,
+      Store::remove_workspace_member (OQ-9), and any SQL client updating or deleting
+      a team_memberships lead row'
+  output:
+    shape: 'The store takes the team row FOR NO KEY UPDATE (team-id order), re-reads
+      the leads and returns LastLead without writing when the write would leave a team
+      that has a lead with none: 409 members page "{team} needs at least one lead. Make
+      someone else a lead first." on the team routes, 409 text/plain "{name} ({email})
+      is the last lead of {team}. Make someone else a lead first." (no notice sent) on
+      POST /workspace/members/remove. Migration 0021''s BEFORE triggers take the same
+      lock and refuse any other caller with SQLSTATE 23514, CONSTRAINT team_memberships_team_keeps_a_lead;
+      a team or workspace being deleted is exempt; promoting in a leaderless team is
+      allowed. Two concurrent demotions, or a removal and a demotion, of the last two
+      leads: exactly one succeeds, never a 500 (100 store runs). Removal from a workspace
+      deletes the person''s team rows in that workspace only'
+  keywords:
+  - invariant
+  - last-lead
+  - leaderless
+  - concurrency
+  - trigger
+  - team
+  artifact: crates/foundry-store/tests/team_lead_guard.rs
+  related:
+  - OUT-5
+  - OUT-21
+  superseded_by: null
+- id: OUT-23
+  kind: operation
+  summary: A workspace admin picks a default team, and a newcomer who joins by invite
+    or by a first Keycloak sign-in lands on it as a member, never refused because of
+    it
+  feature: team-membership
+  inputs:
+  - shape: 'POST /teams/default (team = a slug of the acting workspace, or empty for
+      No team; workspace admin only); POST /invites/accept (create_member_and_consume);
+      the Keycloak callback (provision_federated_member, Created branch)'
+  output:
+    shape: 'workspaces.default_team_id behind the composite FK (id, default_team_id)
+      -> teams (workspace_id, id) ON DELETE SET NULL (default_team_id) (migration 0022):
+      a default is one of the workspace''s own teams or none, deleting the team clears
+      only the default. "New members will join {team}." / "New members join no team."
+      on /teams; anyone else, or a slug not of the acting workspace -> uniform 404, no
+      write. Invite accept and a first provisioning place the newcomer on the default
+      team as member inside their own transaction, best-effort in a savepoint: with
+      no default, a deleted default or a failed placement the account and workspace
+      membership still commit and the newcomer lands on no team. Linking an existing
+      account and the first-admin invite place no one. No backfill of existing members'
+  keywords:
+  - default-team
+  - onboarding
+  - invite
+  - keycloak
+  - provisioning
+  - composite-fk
+  artifact: crates/foundry-acceptance/tests/features/team-membership-05-default-team-invites.feature
+  related:
+  - OUT-21
+  superseded_by: null

@@ -122,6 +122,10 @@ use foundry_acceptance::steps::feature_release_version_footer as _feature_rvf;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_remaining_surfaces as _feature_remaining;
 #[allow(unused_imports)]
+use foundry_acceptance::steps::feature_team_membership as _feature_tm;
+#[allow(unused_imports)]
+use foundry_acceptance::steps::feature_team_membership_default_team as _feature_tm_default;
+#[allow(unused_imports)]
 use foundry_acceptance::steps::feature_token_management_api as _feature_tma;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_web_provisioning_flow as _feature_web_provisioning;
