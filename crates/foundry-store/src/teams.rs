@@ -6,12 +6,14 @@
 //! `FOR KEY SHARE` on the target's workspace membership, then
 //! `INSERT … ON CONFLICT DO NOTHING` as `member` (DDD-10).
 //!
+//! Shipped (slice 02): `set_team_role` (below).
+//!
 //! The remaining methods are RED scaffolds created by DISTILL 2026-10-09; they
 //! panic until DELIVER implements them, so the store gold tests
 //! (`tests/team_lead_guard.rs`, `tests/workspace_default_team.rs`) fail RED, not
 //! BROKEN, when un-ignored. Nothing in the app calls them yet.
 //!
-//! - `set_team_role` (slice 02) and `remove_team_member` (slice 03): the team row
+//! - `remove_team_member` (slice 03): as `set_team_role`, the team row
 //!   `FOR NO KEY UPDATE`, the exact pre-read, a typed `LastLead`, and the 0021
 //!   trigger's 23514 `team_memberships_team_keeps_a_lead` mapped to `LastLead`
 //!   (DDD-6, ADR-TEAM-MEMBERSHIP-001).
@@ -109,6 +111,15 @@ fn person_from((user_id, display_name, email): PersonTuple) -> TeamPerson {
         display_name,
         email,
     }
+}
+
+/// The 0021 trigger's refusal: SQLSTATE 23514 naming
+/// `team_memberships_team_keeps_a_lead` (ADR-TEAM-MEMBERSHIP-001 decision 4).
+fn is_lead_rule_refusal(err: &sqlx::Error) -> bool {
+    err.as_database_error().is_some_and(|db| {
+        db.code().as_deref() == Some("23514")
+            && db.constraint() == Some("team_memberships_team_keeps_a_lead")
+    })
 }
 
 impl Store {
@@ -274,14 +285,65 @@ impl Store {
         })
     }
 
-    /// Make someone on `team_id` a lead or a member (slice 02).
+    /// Make someone on `team_id` a lead or a member (slice 02, DDD-6,
+    /// ADR-TEAM-MEMBERSHIP-001). One transaction: the team row `FOR NO KEY
+    /// UPDATE` (so lead-removing writes on a team are totally ordered, while adds
+    /// and project creates, which take `FOR KEY SHARE`, never wait), then an exact
+    /// read of their role and of the other leads. A demotion of the last lead
+    /// returns [`SetTeamRoleOutcome::LastLead`] and writes nothing.
     pub async fn set_team_role(
         &self,
-        _team_id: uuid::Uuid,
-        _user_id: uuid::Uuid,
-        _role: TeamRole,
+        team_id: uuid::Uuid,
+        user_id: uuid::Uuid,
+        role: TeamRole,
     ) -> Result<SetTeamRoleOutcome, StoreError> {
-        panic!("Not yet implemented -- RED scaffold (team-membership 02-01: set_team_role)")
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("SELECT 1 FROM teams WHERE id = $1 FOR NO KEY UPDATE")
+            .bind(team_id)
+            .execute(&mut *tx)
+            .await?;
+        let standing: Option<(String, bool)> = sqlx::query_as(
+            "SELECT tm.role,
+                    EXISTS (SELECT 1 FROM team_memberships o
+                             WHERE o.team_id = tm.team_id AND o.user_id <> tm.user_id
+                               AND o.role = 'lead')
+               FROM team_memberships tm
+              WHERE tm.team_id = $1 AND tm.user_id = $2",
+        )
+        .bind(team_id)
+        .bind(user_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let outcome = match standing {
+            None => SetTeamRoleOutcome::NotOnTeam,
+            Some((current, _)) if current == role.as_str() => SetTeamRoleOutcome::Unchanged,
+            Some((_, false)) if role == TeamRole::Member => SetTeamRoleOutcome::LastLead,
+            Some(_) => SetTeamRoleOutcome::Changed,
+        };
+        if outcome != SetTeamRoleOutcome::Changed {
+            tx.rollback().await?;
+            return Ok(outcome);
+        }
+        let updated = sqlx::query(
+            "UPDATE team_memberships SET role = $3 WHERE team_id = $1 AND user_id = $2",
+        )
+        .bind(team_id)
+        .bind(user_id)
+        .bind(role.as_str())
+        .execute(&mut *tx)
+        .await;
+        match updated {
+            Ok(_) => {
+                tx.commit().await?;
+                Ok(SetTeamRoleOutcome::Changed)
+            }
+            Err(err) if is_lead_rule_refusal(&err) => {
+                tracing::warn!(%team_id, "the lead guard refused a demotion the store's pre-read allowed");
+                tx.rollback().await?;
+                Ok(SetTeamRoleOutcome::LastLead)
+            }
+            Err(err) => Err(err.into()),
+        }
     }
 
     /// Take someone off `team_id` (slice 03).

@@ -7,6 +7,52 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 
 ## [Unreleased]
 
+### Migration notes
+
+- **`0021_team_lead_guard`** adds one function, `foundry_team_keeps_a_lead()`,
+  and two triggers on `team_memberships`: `team_memberships_lead_guard_on_delete`
+  (`BEFORE DELETE`, only for a lead row) and
+  `team_memberships_lead_guard_on_update` (`BEFORE UPDATE OF role, team_id`,
+  only when a lead row stops being a lead of its team). A write that would
+  leave a team that had a lead with none is refused with SQLSTATE `23514` and
+  constraint `team_memberships_team_keeps_a_lead`. The function locks the team
+  row `FOR NO KEY UPDATE`, the same lock the store takes, so adds and project
+  creates never wait on it. Deleting a team or a workspace is exempt: a team
+  that is gone needs no lead.
+  - **It deletes rows once.** Before it installs the triggers, 0021 deletes the
+    team rows of people who are no longer members of the team's workspace (left
+    behind by earlier workspace removals). Such rows grant nothing. It reports
+    the count with a `NOTICE` (expected 0) and refuses to apply if any remain.
+  - **Before upgrading, count those rows** (read-only; expected `0`). The dev
+    and prod counts are still owed (OQ-D4), since nothing has been deployed yet:
+
+    ```sh
+    psql "$DATABASE_URL" -At <<'SQL'
+    BEGIN READ ONLY;
+    SELECT count(*)
+      FROM team_memberships tm JOIN teams t ON t.id = tm.team_id
+     WHERE NOT EXISTS (SELECT 1 FROM workspace_memberships wm
+                        WHERE wm.workspace_id = t.workspace_id AND wm.user_id = tm.user_id);
+    COMMIT;
+    SQL
+    ```
+
+  - **Rolling deploys are safe.** No earlier release removes or demotes a team
+    lead, so old replicas never meet the triggers during the overlap.
+  - **Rollback floor: the previous release.** It boots against the migrated
+    database and ignores migration 21. Nothing an older binary reads changes.
+    The deleted orphan rows do not come back. To remove the guard by hand:
+
+    ```sql
+    DROP TRIGGER IF EXISTS team_memberships_lead_guard_on_delete ON team_memberships;
+    DROP TRIGGER IF EXISTS team_memberships_lead_guard_on_update ON team_memberships;
+    DROP FUNCTION IF EXISTS foundry_team_keeps_a_lead();
+    ```
+
+  - **A consequence for later work (OQ-D9):** a future hard delete of a user who
+    is the only lead of a team is refused until leadership moves to someone
+    else. No user delete exists today.
+
 ## [v0.12.0] - 2026-10-09
 
 The database now enforces the workspace-name and project-name rules on every

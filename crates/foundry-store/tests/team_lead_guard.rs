@@ -382,7 +382,6 @@ async fn a_read_after_waiting_for_the_team_lock_sees_the_holders_commit() {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-#[ignore = "pending: team-membership 02-01"]
 async fn making_the_only_lead_a_member_is_refused_as_last_lead_and_changes_nothing() {
     let b = backend().await;
     let before = team_rows(&b.pool).await;
@@ -396,7 +395,6 @@ async fn making_the_only_lead_a_member_is_refused_as_last_lead_and_changes_nothi
 }
 
 #[tokio::test]
-#[ignore = "pending: team-membership 02-01"]
 async fn a_promotion_then_a_hand_over_change_exactly_one_role_each_and_a_repeat_changes_nothing() {
     let b = backend().await;
     let mut expected = team_rows(&b.pool).await;
@@ -424,7 +422,6 @@ async fn a_promotion_then_a_hand_over_change_exactly_one_role_each_and_a_repeat_
 }
 
 #[tokio::test]
-#[ignore = "pending: team-membership 02-01"]
 async fn a_role_change_for_someone_not_on_the_team_changes_nothing() {
     let b = backend().await;
     let tomas = person(&b.pool, b.ws, "tomas.rivera@canzan.dev").await;
@@ -435,7 +432,6 @@ async fn a_role_change_for_someone_not_on_the_team_changes_nothing() {
 }
 
 #[tokio::test]
-#[ignore = "pending: team-membership 02-01"]
 async fn a_team_with_no_lead_can_be_given_one() {
     let b = backend().await;
     let design = team(&b.pool, b.ws, "design").await;
@@ -449,7 +445,6 @@ async fn a_team_with_no_lead_can_be_given_one() {
 /// on its second row (a BEFORE ROW trigger sees the first row's effect, ADR-001
 /// fact 1).
 #[tokio::test]
-#[ignore = "pending: team-membership 02-01"]
 async fn one_statement_demoting_both_leads_is_refused_by_the_database_naming_the_rule() {
     let b = backend().await;
     require_lead_guard_installed(&b.pool).await;
@@ -469,7 +464,6 @@ async fn one_statement_demoting_both_leads_is_refused_by_the_database_naming_the
 }
 
 #[tokio::test]
-#[ignore = "pending: team-membership 02-01"]
 async fn a_hand_delete_of_the_last_lead_is_refused_by_the_database() {
     let b = backend().await;
     require_lead_guard_installed(&b.pool).await;
@@ -486,7 +480,6 @@ async fn a_hand_delete_of_the_last_lead_is_refused_by_the_database() {
 /// ADR-001 fact 2: a team (or workspace) that is being deleted needs no lead, so
 /// the cascade is exempt.
 #[tokio::test]
-#[ignore = "pending: team-membership 02-01"]
 async fn deleting_a_team_or_a_workspace_that_has_a_lead_succeeds() {
     let b = backend().await;
     require_lead_guard_installed(&b.pool).await;
@@ -512,7 +505,6 @@ async fn deleting_a_team_or_a_workspace_that_has_a_lead_succeeds() {
 
 /// The 100-run race of INV-2: two demotions of the last two leads.
 #[tokio::test]
-#[ignore = "pending: team-membership 02-01"]
 async fn two_demotions_of_the_last_two_leads_leave_exactly_one_lead_every_time() {
     let b = backend().await;
     for run in 1..=RACE_RUNS {
@@ -546,7 +538,6 @@ async fn two_demotions_of_the_last_two_leads_leave_exactly_one_lead_every_time()
 /// longer in the team's workspace (left by the pre-OQ-9 removal); every other
 /// row is untouched.
 #[tokio::test]
-#[ignore = "pending: team-membership 02-01"]
 async fn migration_0021_deletes_orphan_team_rows_and_leaves_every_other_row_alone() {
     let c = container().await;
     let pool = connect(&c).await;
@@ -796,4 +787,208 @@ async fn an_add_racing_a_workspace_removal_never_leaves_someone_on_a_team_outsid
             "run {run}: nobody stays on a team of a workspace they left"
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// Slice 02 hardening (02-01): the guard's seams under fault injection
+// ---------------------------------------------------------------------------
+//
+// ADR-001 decision 4: the store's own lock and exact pre-read mean the 0021
+// trigger's refusal is never reached on the store path, so the store's mapping
+// of that refusal to `LastLead`, and the trigger's own team lock, are exercised
+// here by injecting faults into this test's private database.
+
+/// How long each hand-typed demotion holds its transaction open after its UPDATE,
+/// so both UPDATEs overlap before either commits (the window the trigger's lock
+/// must close).
+const HAND_DEMOTION_HOLD: Duration = Duration::from_millis(40);
+
+/// A BEFORE UPDATE trigger on `team_memberships` that refuses every row update
+/// with `sqlstate`, naming `constraint`: a stand-in for the 0021 guard firing on
+/// a write the store's pre-read allowed.
+async fn inject_update_refusal(pool: &PgPool, sqlstate: &str, constraint: &str) {
+    sqlx::query(&format!(
+        "CREATE OR REPLACE FUNCTION test_injected_refusal() RETURNS trigger
+         LANGUAGE plpgsql AS $f$
+         BEGIN
+             RAISE EXCEPTION USING ERRCODE = '{sqlstate}',
+                 MESSAGE = 'injected refusal', CONSTRAINT = '{constraint}';
+         END
+         $f$"
+    ))
+    .execute(pool)
+    .await
+    .expect("create the injected refusal");
+    sqlx::query(
+        "CREATE OR REPLACE TRIGGER zz_test_injected_refusal
+             BEFORE UPDATE ON team_memberships
+             FOR EACH ROW EXECUTE FUNCTION test_injected_refusal()",
+    )
+    .execute(pool)
+    .await
+    .expect("install the injected refusal");
+}
+
+/// The database's 23514 naming the lead rule, reached by a write the store's
+/// pre-read allowed, is the typed `LastLead`, and nothing is written. Both a
+/// promotion and a demotion of one of two leads pass the pre-read.
+#[tokio::test]
+async fn the_databases_lead_rule_refusal_of_a_write_the_store_allowed_is_last_lead_and_changes_nothing(
+) {
+    let b = backend().await;
+    let tomas = person(&b.pool, b.ws, "tomas.rivera@canzan.dev").await;
+    place(&b.pool, b.team, tomas, "lead").await;
+    inject_update_refusal(&b.pool, "23514", LEAD_RULE).await;
+    let before = team_rows(&b.pool).await;
+
+    let promotion = b.store.set_team_role(b.team, b.sam, TeamRole::Lead).await;
+    assert_eq!(promotion.expect("no error"), SetTeamRoleOutcome::LastLead);
+    assert_eq!(team_rows(&b.pool).await, before, "a refusal writes nothing");
+
+    let demotion = b.store.set_team_role(b.team, tomas, TeamRole::Member).await;
+    assert_eq!(demotion.expect("no error"), SetTeamRoleOutcome::LastLead);
+    assert_eq!(team_rows(&b.pool).await, before, "a refusal writes nothing");
+}
+
+/// Only the lead rule's own refusal is `LastLead`: a check violation naming any
+/// other constraint, or another SQLSTATE naming the lead rule, is an error the
+/// caller sees, and nothing is written.
+#[tokio::test]
+async fn a_refusal_that_is_not_the_lead_rule_is_an_error_not_last_lead() {
+    let b = backend().await;
+    for (sqlstate, constraint) in [
+        ("23514", "team_memberships_role_check"),
+        ("P0001", LEAD_RULE),
+    ] {
+        inject_update_refusal(&b.pool, sqlstate, constraint).await;
+        let before = team_rows(&b.pool).await;
+        let outcome = b.store.set_team_role(b.team, b.sam, TeamRole::Lead).await;
+        let err = match outcome {
+            Err(foundry_store::StoreError::Sqlx(err)) => err,
+            other => panic!("{sqlstate} naming {constraint}: expected an error, got {other:?}"),
+        };
+        let db = err
+            .as_database_error()
+            .unwrap_or_else(|| panic!("expected the database's refusal, got {err:?}"));
+        assert_eq!(db.code().as_deref(), Some(sqlstate), "{db:?}");
+        assert_eq!(db.constraint(), Some(constraint), "{db:?}");
+        assert_eq!(team_rows(&b.pool).await, before, "an error writes nothing");
+    }
+}
+
+/// The store decides the last lead by its own pre-read, not by leaning on the
+/// database: with the 0021 demotion guard dropped from this test's private
+/// database, demoting the only lead is still `LastLead` and writes nothing.
+#[tokio::test]
+async fn the_store_refuses_the_last_leads_demotion_even_with_the_database_guard_switched_off() {
+    let b = backend().await;
+    require_lead_guard_installed(&b.pool).await;
+    sqlx::query("DROP TRIGGER team_memberships_lead_guard_on_update ON team_memberships")
+        .execute(&b.pool)
+        .await
+        .expect("drop the database's demotion guard");
+    let before = team_rows(&b.pool).await;
+    let outcome = b
+        .store
+        .set_team_role(b.team, b.lena, TeamRole::Member)
+        .await;
+    assert_eq!(outcome.expect("no error"), SetTeamRoleOutcome::LastLead);
+    assert_eq!(team_rows(&b.pool).await, before, "a refusal writes nothing");
+}
+
+/// How a hand-typed demotion ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HandDemotion {
+    Committed,
+    /// 23514 naming the lead rule.
+    RefusedByLeadRule,
+    /// 40P01: ADR-001's caveat (the trigger takes a row lock, then the team
+    /// lock), a legitimate way for the database to refuse one side.
+    Deadlocked,
+}
+
+/// One hand-typed `UPDATE … SET role = 'member'` in its own connection and
+/// transaction, skipping the store, held open after the UPDATE so a concurrent
+/// one overlaps it.
+async fn hand_demotion(
+    pool: PgPool,
+    team: uuid::Uuid,
+    user: uuid::Uuid,
+    gate: Arc<Barrier>,
+) -> HandDemotion {
+    let mut tx = pool.begin().await.expect("begin");
+    gate.wait().await;
+    let written = sqlx::query(
+        "UPDATE team_memberships SET role = 'member' WHERE team_id = $1 AND user_id = $2",
+    )
+    .bind(team)
+    .bind(user)
+    .execute(&mut *tx)
+    .await;
+    let finished = match written {
+        Ok(_) => {
+            tokio::time::sleep(HAND_DEMOTION_HOLD).await;
+            tx.commit().await
+        }
+        Err(err) => Err(err),
+    };
+    let Err(err) = finished else {
+        return HandDemotion::Committed;
+    };
+    let pg = err
+        .as_database_error()
+        .map(|db| db.downcast_ref::<PgDatabaseError>())
+        .unwrap_or_else(|| panic!("expected the database's refusal, got {err:?}"));
+    match pg.code() {
+        "23514" => {
+            assert_eq!(pg.constraint(), Some(LEAD_RULE), "{pg:?}");
+            HandDemotion::RefusedByLeadRule
+        }
+        "40P01" => HandDemotion::Deadlocked,
+        _ => panic!("unexpected refusal: {pg:?}"),
+    }
+}
+
+/// INV-8 under concurrency: two hand-typed demotions of the last two leads, from
+/// two connections, skipping the store. The trigger's own team lock orders them,
+/// so the second sees the first's commit and is refused; without that lock both
+/// counted the other as a lead and the team was left with none. A run passes on
+/// one commit plus one lead-rule refusal (or one 40P01 deadlock, ADR-001's
+/// caveat), and exactly one lead left.
+#[tokio::test]
+async fn two_hand_typed_demotions_of_the_last_two_leads_leave_exactly_one_lead_every_time() {
+    let b = backend().await;
+    require_lead_guard_installed(&b.pool).await;
+    let (mut refused, mut deadlocked) = (0usize, 0usize);
+    for run in 1..=RACE_RUNS {
+        place(&b.pool, b.team, b.lena, "lead").await;
+        place(&b.pool, b.team, b.sam, "lead").await;
+        let barrier = Arc::new(Barrier::new(2));
+        let one = tokio::spawn(hand_demotion(
+            b.pool.clone(),
+            b.team,
+            b.lena,
+            barrier.clone(),
+        ));
+        let two = tokio::spawn(hand_demotion(b.pool.clone(), b.team, b.sam, barrier));
+        let outcomes = [one.await.expect("task"), two.await.expect("task")];
+        let committed = outcomes
+            .iter()
+            .filter(|o| **o == HandDemotion::Committed)
+            .count();
+        assert_eq!(
+            committed, 1,
+            "run {run}: exactly one demotion commits; got {outcomes:?}"
+        );
+        assert_eq!(leads(&b.pool, b.team).await, 1, "run {run}: one lead left");
+        if outcomes.contains(&HandDemotion::Deadlocked) {
+            deadlocked += 1;
+        } else {
+            refused += 1;
+        }
+    }
+    eprintln!(
+        "hand-typed demotion race: {RACE_RUNS} runs, {refused} lead-rule refusals, \
+         {deadlocked} deadlocks"
+    );
 }

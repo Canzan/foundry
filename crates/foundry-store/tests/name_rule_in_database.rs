@@ -507,8 +507,9 @@ async fn migrations_0019_and_0020_apply_over_legacy_rows_rewrite_none_and_rerun_
         "no legacy row is rewritten (D4)"
     );
     assert_eq!(triggers(&pool).await, all_four_enabled());
+    // Scoped to 19 and 20, not `>= 19`: later migrations (0021, 0022, ...) also apply here.
     let (applied,): (Vec<i64>,) = sqlx::query_as(
-        "SELECT array_agg(version ORDER BY version) FROM _sqlx_migrations WHERE version >= 19",
+        "SELECT array_agg(version ORDER BY version) FROM _sqlx_migrations WHERE version IN (19, 20)",
     )
     .fetch_one(&pool)
     .await
