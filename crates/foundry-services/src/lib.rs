@@ -198,6 +198,35 @@ impl Services {
         tokens::revoke_token(&self.store, principal, jti).await
     }
 
+    /// team-membership `GET /teams` — delegates to [`teams::list_teams`].
+    pub async fn list_teams(
+        &self,
+        principal: &Principal,
+    ) -> Result<teams::TeamsIndex, teams::TeamError> {
+        teams::list_teams(&self.store, principal).await
+    }
+
+    /// team-membership `GET /team/{slug}/members` — delegates to
+    /// [`teams::team_members`].
+    pub async fn team_members(
+        &self,
+        principal: &Principal,
+        team_slug: &str,
+    ) -> Result<teams::TeamMembersView, teams::TeamError> {
+        teams::team_members(&self.store, principal, team_slug).await
+    }
+
+    /// team-membership `POST /team/{slug}/members` — delegates to
+    /// [`teams::add_member`].
+    pub async fn add_member_to_team(
+        &self,
+        principal: &Principal,
+        team_slug: &str,
+        raw_user_id: &str,
+    ) -> Result<teams::AddedMember, teams::TeamError> {
+        teams::add_member(&self.store, principal, team_slug, raw_user_id).await
+    }
+
     /// multi-workspace-provisioning (US-MWT07, ADR-002/003) — provision a NEW
     /// isolated workspace + its first admin, gated by the INSTANCE super-admin
     /// authority. Delegates to [`provisioning::provision_workspace`].
@@ -616,5 +645,6 @@ pub mod comments;
 pub mod issues;
 pub mod lanes;
 pub mod projects;
+pub mod teams;
 pub mod tokens;
 pub mod workspaces;

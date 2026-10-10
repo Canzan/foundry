@@ -42,7 +42,7 @@ Feature: A workspace admin sees who is on a team and puts a workspace member on 
 
   # ------------------------------------------------------------- walking skeleton
 
-  @walking_skeleton @driving_port @us-tm-02 @kpi @contract-shape:bounded-change @pending
+  @walking_skeleton @driving_port @us-tm-02 @kpi @contract-shape:bounded-change
   Scenario: Jeff puts his own Keycloak account on General, and it opens the Sandbox board
     Given Jeff's Keycloak account "jeff@unintelligent-design.us" has signed in for the first time
     And Jeff's Keycloak account is on no team and cannot open the Sandbox board
@@ -125,7 +125,7 @@ Feature: A workspace admin sees who is on a team and puts a workspace member on 
 
   # ------------------------------------------------------------------- US-TM-02
 
-  @us-tm-02 @kpi @contract-shape:bounded-change @pending
+  @us-tm-02 @kpi @contract-shape:bounded-change
   Scenario: A workspace admin puts a member on a team, and the member can open the team's board
     When Priya adds Tomás Rivera to Backend
     Then she sees "Added Tomás Rivera (tomas.rivera@canzan.dev) to Backend as a member."

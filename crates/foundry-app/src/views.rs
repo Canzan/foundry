@@ -756,6 +756,72 @@ pub struct MemberInviteSent {
     pub nav: crate::nav::NavContext,
 }
 
+/// team-membership `GET /teams` (DDD-17): the teams the caller sees, each linking
+/// to its members page. A caller on no team who is not a workspace admin gets the
+/// shipped no-team copy instead.
+#[derive(Debug, Clone, Template)]
+#[template(path = "teams_index.html")]
+pub struct TeamsIndexPage {
+    pub nav: crate::nav::NavContext,
+    pub is_workspace_admin: bool,
+    pub teams: Vec<TeamIndexRow>,
+}
+
+/// One row of the teams page: "{team} · {n} member(s)".
+#[derive(Debug, Clone)]
+pub struct TeamIndexRow {
+    pub slug: String,
+    pub name: String,
+    pub member_count: i64,
+}
+
+impl TeamIndexRow {
+    /// "General · 1 member" / "Backend · 3 members".
+    pub fn label(&self) -> String {
+        let noun = if self.member_count == 1 {
+            "member"
+        } else {
+            "members"
+        };
+        format!("{} · {} {noun}", self.name, self.member_count)
+    }
+}
+
+/// team-membership `GET|POST /team/{slug}/members` (DDD-17): who is on the team,
+/// and, when the caller may manage it, the Add form (or the D15 copy that
+/// replaces it when nobody is left to add).
+#[derive(Debug, Clone, Template)]
+#[template(path = "team_members.html")]
+pub struct TeamMembersPage {
+    pub nav: crate::nav::NavContext,
+    pub csrf: String,
+    pub team_slug: String,
+    pub team_name: String,
+    pub can_manage: bool,
+    pub members: Vec<TeamMemberLine>,
+    pub candidates: Vec<TeamCandidateOption>,
+    /// The D15 copy for the write just made, if any.
+    pub notice: Option<String>,
+    /// The D15 copy shown instead of the Add form when nobody is left to add.
+    pub nobody_to_add: Option<String>,
+}
+
+/// A members-page row: "{name} · {email} · {Lead|Member}" (D8).
+#[derive(Debug, Clone)]
+pub struct TeamMemberLine {
+    pub name: String,
+    pub email: String,
+    pub role_label: &'static str,
+}
+
+/// An Add-list option: "{name} — {email}", valued by the person's id.
+#[derive(Debug, Clone)]
+pub struct TeamCandidateOption {
+    pub user_id: String,
+    pub name: String,
+    pub email: String,
+}
+
 /// The POST /forgot-password success page. Extends `base.html` (Phase-4 FIX 3)
 /// so the confirmation links the same vendored `/static` stylesheet as every
 /// other surface, replacing the prior inline `format!` bare-`<head>` HTML.

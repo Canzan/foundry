@@ -1,0 +1,16 @@
+{% extends "app_shell.html" %}
+{% block title %}Teams{% endblock %}
+{% block app_content %}
+<main class="teams">
+  <h1>Teams</h1>
+  {% if teams.is_empty() && !is_workspace_admin %}
+  <p class="dash__empty">You're not on any team yet — ask a workspace admin to add you.</p>
+  {% else %}
+  <ul class="teams__list">
+    {% for team in teams %}
+    <li><a href="/team/{{ team.slug }}/members">{{ team.label() }}</a></li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</main>
+{% endblock %}

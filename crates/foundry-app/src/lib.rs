@@ -35,6 +35,7 @@ pub mod rate_limit;
 pub mod reset_password;
 pub mod session;
 pub mod signin;
+pub mod teams;
 pub mod unsubscribe;
 pub mod views;
 
@@ -763,6 +764,16 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/admin/instance/workspaces/{workspace_id}/rename",
             post(instance_admin::submit_workspace_rename),
+        )
+        // team-membership 01-01 (DDD-2): the teams index and a team's members page,
+        // on the SHARED layer (UNDER `csrf_middleware` + `session_layer`). Authority
+        // is applied inside `foundry_services::teams` (ADR-TEAM-MEMBERSHIP-003);
+        // every refusal is the uniform 404 (DDD-5). Tenancy comes only from the
+        // session workspace, so these are LAYER-1e safe.
+        .route("/teams", get(teams::show_teams))
+        .route(
+            "/team/{team_slug}/members",
+            get(teams::show_members).post(teams::submit_add),
         )
         .route("/", get(signin::dashboard_root))
         // Non-enumerability (ADR-002, web-provisioning-flow): a path with NO

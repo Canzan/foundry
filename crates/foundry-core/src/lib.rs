@@ -19,7 +19,7 @@ pub use workspace_name::{WorkspaceName, WorkspaceNameError, WORKSPACE_NAME_MAX_C
 mod name_chars;
 
 pub mod team_membership;
-pub use team_membership::TeamRole;
+pub use team_membership::{TeamAccess, TeamRole};
 
 pub mod project_name;
 pub use project_name::{
