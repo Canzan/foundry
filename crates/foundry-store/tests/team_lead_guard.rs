@@ -798,6 +798,17 @@ const HAND_DEMOTION_HOLD: Duration = Duration::from_millis(40);
 /// with `sqlstate`, naming `constraint`: a stand-in for the 0021 guard firing on
 /// a write the store's pre-read allowed.
 async fn inject_update_refusal(pool: &PgPool, sqlstate: &str, constraint: &str) {
+    inject_refusal(pool, "UPDATE", sqlstate, constraint).await;
+}
+
+/// The same stand-in, refusing every row delete (slice 03 hardening).
+async fn inject_delete_refusal(pool: &PgPool, sqlstate: &str, constraint: &str) {
+    inject_refusal(pool, "DELETE", sqlstate, constraint).await;
+}
+
+/// A BEFORE `event` trigger on `team_memberships` that refuses every row with
+/// `sqlstate`, naming `constraint`.
+async fn inject_refusal(pool: &PgPool, event: &str, sqlstate: &str, constraint: &str) {
     sqlx::query(&format!(
         "CREATE OR REPLACE FUNCTION test_injected_refusal() RETURNS trigger
          LANGUAGE plpgsql AS $f$
@@ -810,11 +821,11 @@ async fn inject_update_refusal(pool: &PgPool, sqlstate: &str, constraint: &str) 
     .execute(pool)
     .await
     .expect("create the injected refusal");
-    sqlx::query(
+    sqlx::query(&format!(
         "CREATE OR REPLACE TRIGGER zz_test_injected_refusal
-             BEFORE UPDATE ON team_memberships
-             FOR EACH ROW EXECUTE FUNCTION test_injected_refusal()",
-    )
+             BEFORE {event} ON team_memberships
+             FOR EACH ROW EXECUTE FUNCTION test_injected_refusal()"
+    ))
     .execute(pool)
     .await
     .expect("install the injected refusal");
@@ -982,4 +993,104 @@ async fn two_hand_typed_demotions_of_the_last_two_leads_leave_exactly_one_lead_e
         "hand-typed demotion race: {RACE_RUNS} runs, {refused} lead-rule refusals, \
          {deadlocked} deadlocks"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Slice 03 hardening (03-01): the removal's seams under fault injection
+// ---------------------------------------------------------------------------
+//
+// The same seams as the 02-01 hardening above, on the DELETE path: the store's
+// own pre-read decides the last lead, and only the lead rule's own refusal of a
+// removal the pre-read allowed is `LastLead`.
+
+/// The store decides the last lead by its own pre-read, not by leaning on the
+/// database: with the 0021 delete guard dropped from this test's private
+/// database, removing the only lead is still `LastLead` and deletes nothing.
+#[tokio::test]
+async fn the_store_refuses_the_last_leads_removal_even_with_the_database_guard_switched_off() {
+    let b = backend().await;
+    require_lead_guard_installed(&b.pool).await;
+    sqlx::query("DROP TRIGGER team_memberships_lead_guard_on_delete ON team_memberships")
+        .execute(&b.pool)
+        .await
+        .expect("drop the database's delete guard");
+    let before = team_rows(&b.pool).await;
+    let outcome = b.store.remove_team_member(b.team, b.lena).await;
+    assert_eq!(
+        outcome.expect("no error"),
+        RemoveTeamMemberOutcome::LastLead
+    );
+    assert_eq!(
+        team_rows(&b.pool).await,
+        before,
+        "a refusal deletes nothing"
+    );
+    assert_eq!(leads(&b.pool, b.team).await, 1, "the team keeps its lead");
+}
+
+/// The last-lead rule protects a team that has a lead: on a team with no lead
+/// there is no lead to keep, so removing a member deletes exactly their row.
+#[tokio::test]
+async fn removing_a_member_of_a_team_with_no_lead_deletes_exactly_their_row() {
+    let b = backend().await;
+    let platform = team(&b.pool, b.ws, "platform").await;
+    let tomas = person(&b.pool, b.ws, "tomas.rivera@canzan.dev").await;
+    place(&b.pool, platform, b.sam, "member").await;
+    place(&b.pool, platform, tomas, "member").await;
+    let mut expected = team_rows(&b.pool).await;
+    let outcome = b.store.remove_team_member(platform, b.sam).await;
+    assert_eq!(outcome.expect("no error"), RemoveTeamMemberOutcome::Removed);
+    expected.remove(&(platform, b.sam));
+    assert_eq!(
+        team_rows(&b.pool).await,
+        expected,
+        "exactly one row deleted"
+    );
+}
+
+/// The database's 23514 naming the lead rule, reached by a removal the store's
+/// pre-read allowed (a member of a team that keeps its lead), is the typed
+/// `LastLead`, and nothing is deleted.
+#[tokio::test]
+async fn the_databases_lead_rule_refusal_of_a_removal_the_store_allowed_is_last_lead_and_deletes_nothing(
+) {
+    let b = backend().await;
+    inject_delete_refusal(&b.pool, "23514", LEAD_RULE).await;
+    let before = team_rows(&b.pool).await;
+    let outcome = b.store.remove_team_member(b.team, b.sam).await;
+    assert_eq!(
+        outcome.expect("no error"),
+        RemoveTeamMemberOutcome::LastLead
+    );
+    assert_eq!(
+        team_rows(&b.pool).await,
+        before,
+        "a refusal deletes nothing"
+    );
+}
+
+/// Only the lead rule's own refusal of a removal is `LastLead`: a check
+/// violation naming any other constraint, or another SQLSTATE naming the lead
+/// rule, is an error the caller sees, and nothing is deleted.
+#[tokio::test]
+async fn a_removal_refusal_that_is_not_the_lead_rule_is_an_error_not_last_lead() {
+    let b = backend().await;
+    for (sqlstate, constraint) in [
+        ("23514", "team_memberships_role_check"),
+        ("P0001", LEAD_RULE),
+    ] {
+        inject_delete_refusal(&b.pool, sqlstate, constraint).await;
+        let before = team_rows(&b.pool).await;
+        let outcome = b.store.remove_team_member(b.team, b.sam).await;
+        let err = match outcome {
+            Err(foundry_store::StoreError::Sqlx(err)) => err,
+            other => panic!("{sqlstate} naming {constraint}: expected an error, got {other:?}"),
+        };
+        let db = err
+            .as_database_error()
+            .unwrap_or_else(|| panic!("expected the database's refusal, got {err:?}"));
+        assert_eq!(db.code().as_deref(), Some(sqlstate), "{db:?}");
+        assert_eq!(db.constraint(), Some(constraint), "{db:?}");
+        assert_eq!(team_rows(&b.pool).await, before, "an error deletes nothing");
+    }
 }
