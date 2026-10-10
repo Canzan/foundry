@@ -623,6 +623,11 @@ impl Store {
         .execute(&mut *tx)
         .await?;
 
+        // The original workspace's default team, as `member`, best-effort in a
+        // savepoint (team-membership DDD-13, D17, OQ-5): a failure never fails the
+        // sign-in. Never on the `Existing` (link) branch above.
+        teams::place_on_default_team(&mut tx, workspace_id, user_id).await?;
+
         tx.commit().await?;
         Ok(FederatedProvisionOutcome::Created {
             user_id,

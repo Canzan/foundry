@@ -480,7 +480,6 @@ async fn the_probe_refuses_a_schema_without_the_default_team_column() {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-#[ignore = "pending: team-membership 06-01"]
 async fn a_first_provisioning_places_the_newcomer_on_the_original_workspaces_default_team() {
     let (store, _c) = migrated().await;
     let pool = store.pool().clone();
@@ -516,7 +515,6 @@ async fn a_first_provisioning_places_the_newcomer_on_the_original_workspaces_def
 }
 
 #[tokio::test]
-#[ignore = "pending: team-membership 06-01"]
 async fn linking_an_existing_account_places_no_one() {
     let (store, _c) = migrated().await;
     let pool = store.pool().clone();
@@ -544,7 +542,6 @@ async fn linking_an_existing_account_places_no_one() {
 }
 
 #[tokio::test]
-#[ignore = "pending: team-membership 06-01"]
 async fn a_failed_placement_never_fails_provisioning() {
     let (store, _c) = migrated().await;
     let pool = store.pool().clone();
