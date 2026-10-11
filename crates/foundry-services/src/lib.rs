@@ -226,6 +226,15 @@ impl Services {
         teams::team_members(&self.store, principal, team_slug).await
     }
 
+    /// team-lifecycle `POST /teams` — delegates to [`teams::create_team`].
+    pub async fn create_team(
+        &self,
+        principal: &Principal,
+        raw_name: &str,
+    ) -> Result<teams::CreatedTeam, teams::CreateTeamError> {
+        teams::create_team(&self.store, principal, raw_name).await
+    }
+
     /// team-membership `POST /team/{slug}/members` — delegates to
     /// [`teams::add_member`].
     pub async fn add_member_to_team(

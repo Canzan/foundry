@@ -14,6 +14,10 @@
 //!
 //!   GET  /teams                  — a workspace admin sees every team; anyone else
 //!                                  their own teams, or the shipped no-team copy.
+//!   POST /teams                  — workspace admins only (team-lifecycle DDD-16):
+//!                                  creates the team led by the caller, then
+//!                                  renders its members page; a name refusal is a
+//!                                  422 teams page with the text kept.
 //!   GET  /team/{slug}/members    — needs View (members list); Manage adds the form.
 //!   POST /teams/default          — workspace admins only; `team` is a slug of the
 //!                                  acting workspace, or empty for "No team" (DDD-14).
@@ -33,8 +37,8 @@ use crate::bootstrap::{resource_not_found_page, SessionUser};
 use crate::csrf::{ensure_csrf_cookie, response_with_optional_cookie};
 use crate::session::SESSION_KEY_USER_ID;
 use crate::views::{
-    DefaultTeamForm, DefaultTeamOption, TeamCandidateOption, TeamIndexRow, TeamMemberLine,
-    TeamMembersPage, TeamsIndexPage,
+    CreateTeamForm, DefaultTeamForm, DefaultTeamOption, TeamCandidateOption, TeamIndexRow,
+    TeamMemberLine, TeamMembersPage, TeamsIndexPage,
 };
 use crate::AppState;
 use askama::Template;
@@ -44,7 +48,8 @@ use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
 use foundry_core::TeamRole;
 use foundry_services::teams::{
-    AddMemberResult, RemoveMemberResult, RoleChangeResult, TeamError, TeamMembersView, TeamsIndex,
+    AddMemberResult, CreateTeamError, RemoveMemberResult, RoleChangeResult, TeamError,
+    TeamMembersView, TeamsIndex,
 };
 use foundry_services::{Principal, Services};
 use serde::Deserialize;
@@ -94,6 +99,10 @@ pub enum TeamNotice {
     DefaultSet { team: String },
     /// "New members join no team."
     DefaultCleared,
+    /// team-lifecycle D12: "Created {team}. You're its lead."
+    Created { team: String },
+    /// team-lifecycle D12: a workspace admin's teams page with no team.
+    NoTeamsYet,
 }
 
 impl fmt::Display for TeamNotice {
@@ -134,6 +143,10 @@ impl fmt::Display for TeamNotice {
             }
             Self::DefaultSet { team } => write!(f, "New members will join {team}."),
             Self::DefaultCleared => f.write_str("New members join no team."),
+            Self::Created { team } => write!(f, "Created {team}. You're its lead."),
+            Self::NoTeamsYet => {
+                f.write_str("This workspace has no teams yet. Create one to start a project.")
+            }
         }
     }
 }
@@ -142,6 +155,14 @@ impl fmt::Display for TeamNotice {
 pub struct AddMemberForm {
     #[serde(default)]
     pub user_id: Option<String>,
+    #[serde(rename = "_csrf", default)]
+    _csrf: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateTeamFormData {
+    #[serde(default)]
+    pub name: Option<String>,
     #[serde(rename = "_csrf", default)]
     _csrf: Option<String>,
 }
@@ -176,6 +197,52 @@ pub async fn show_teams(
     match services.list_teams(&principal_of(&user)).await {
         Ok(index) => teams_page(&state, &headers, &user, index, None).await,
         Err(err) => refusal(err),
+    }
+}
+
+// ----------------------------------------------------------------- POST /teams
+
+/// Gate order (DDD-16): session (none → 404) → the use-case (workspace admin,
+/// else the uniform 404) → the name rule. Created → 200 members page of the new
+/// team; a name refusal → 422 teams page with the text kept. Refusals log
+/// nothing (DDD-25).
+pub async fn submit_create(
+    State(state): State<AppState>,
+    session: Session,
+    headers: HeaderMap,
+    Form(form): Form<CreateTeamFormData>,
+) -> Response {
+    let Some(user) = signed_in_user(&session).await else {
+        return resource_not_found_page();
+    };
+    let services = Services::new(state.store.clone());
+    let principal = principal_of(&user);
+    let typed = form.name.unwrap_or_default();
+    match services.create_team(&principal, &typed).await {
+        Ok(created) => match services.team_members(&principal, &created.slug).await {
+            Ok(view) => {
+                let notice = TeamNotice::Created { team: created.name };
+                members_page(&state, &headers, &user, view, Some(notice)).await
+            }
+            Err(err) => refusal(err),
+        },
+        Err(CreateTeamError::NotFound) => resource_not_found_page(),
+        Err(CreateTeamError::InvalidName(reason)) => match services.list_teams(&principal).await {
+            Ok(index) => {
+                let create = CreateTeamForm {
+                    typed,
+                    error: Some(reason.to_string()),
+                };
+                let status = StatusCode::UNPROCESSABLE_ENTITY;
+                teams_page_with(&state, &headers, &user, index, None, create, status).await
+            }
+            Err(err) => refusal(err),
+        },
+        Err(CreateTeamError::SlugContention) => {
+            tracing::error!("team create lost its fallback address on every attempt");
+            (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response()
+        }
+        Err(CreateTeamError::Store(err)) => refusal(TeamError::Store(err)),
     }
 }
 
@@ -348,7 +415,25 @@ async fn teams_page(
     index: TeamsIndex,
     notice: Option<TeamNotice>,
 ) -> Response {
-    let default_form = index.is_workspace_admin.then(|| default_form(&index));
+    let create = CreateTeamForm::default();
+    teams_page_with(state, headers, user, index, notice, create, StatusCode::OK).await
+}
+
+/// The teams page; a workspace admin also gets `create` (the create form) and,
+/// when the workspace has no team, the no-teams-yet copy.
+async fn teams_page_with(
+    state: &AppState,
+    headers: &HeaderMap,
+    user: &SessionUser,
+    index: TeamsIndex,
+    notice: Option<TeamNotice>,
+    create: CreateTeamForm,
+    status: StatusCode,
+) -> Response {
+    let is_admin = index.is_workspace_admin;
+    let default_form = is_admin.then(|| default_form(&index));
+    let no_teams_yet =
+        (is_admin && index.teams.is_empty()).then(|| TeamNotice::NoTeamsYet.to_string());
     let (csrf, set_cookie) = ensure_csrf_cookie(state, headers);
     let page = TeamsIndexPage {
         nav: nav_for(state, user, csrf.clone()).await,
@@ -364,9 +449,11 @@ async fn teams_page(
             })
             .collect(),
         default_form,
+        create_form: is_admin.then_some(create),
+        no_teams_yet,
         notice: notice.map(|n| n.to_string()),
     };
-    render(page.render(), StatusCode::OK, set_cookie)
+    render(page.render(), status, set_cookie)
 }
 
 /// "No team" (empty value), then every team of the workspace, with the current
@@ -407,6 +494,7 @@ async fn members_page_with_status(
     status: StatusCode,
 ) -> Response {
     let can_manage = view.access.can_manage();
+    let on_team = view.on_team;
     let nobody_to_add = (can_manage && view.candidates.is_empty()).then(|| {
         TeamNotice::EveryoneOn {
             team: view.team_name.clone(),
@@ -420,6 +508,7 @@ async fn members_page_with_status(
         team_slug: view.team_slug,
         team_name: view.team_name,
         can_manage,
+        on_team,
         members: view
             .members
             .into_iter()
@@ -626,6 +715,20 @@ mod team_notice_copy {
         assert_eq!(
             TeamNotice::DefaultCleared.to_string(),
             "New members join no team."
+        );
+    }
+
+    #[test]
+    fn created() {
+        let notice = TeamNotice::Created { team: "Ops".into() };
+        assert_eq!(notice.to_string(), "Created Ops. You're its lead.");
+    }
+
+    #[test]
+    fn no_teams_yet() {
+        assert_eq!(
+            TeamNotice::NoTeamsYet.to_string(),
+            "This workspace has no teams yet. Create one to start a project."
         );
     }
 

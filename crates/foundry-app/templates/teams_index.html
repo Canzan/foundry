@@ -6,12 +6,22 @@
   {% if let Some(notice) = notice %}<p class="notice" role="status">{{ notice }}</p>{% endif %}
   {% if teams.is_empty() && !is_workspace_admin %}
   <p class="dash__empty">You're not on any team yet — ask a workspace admin to add you.</p>
+  {% else if let Some(empty) = no_teams_yet %}
+  <p class="dash__empty">{{ empty }}</p>
   {% else %}
   <ul class="teams__list">
     {% for team in teams %}
     <li><a href="/team/{{ team.slug }}/members">{{ team.label() }}</a></li>
     {% endfor %}
   </ul>
+  {% endif %}
+  {% if let Some(create) = create_form %}
+  <form method="post" action="/teams" class="teams__create">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    {% if let Some(error) = create.error %}<p class="error">{{ error }}</p>{% endif %}
+    <label>Team name <input type="text" name="name" value="{{ create.typed }}"></label>
+    <button type="submit">Create team</button>
+  </form>
   {% endif %}
   {% if let Some(form) = default_form %}
   <form method="post" action="/teams/default">

@@ -168,7 +168,6 @@ async fn race(
 }
 
 #[tokio::test]
-#[ignore = "pending: team-lifecycle 01-01"]
 async fn an_admin_creates_a_team_she_leads_at_its_derived_address() {
     let l = labs().await;
     let created = create_team(&l.store, &human(&l, l.priya), "  Platform  ")
@@ -189,7 +188,6 @@ async fn an_admin_creates_a_team_she_leads_at_its_derived_address() {
 }
 
 #[tokio::test]
-#[ignore = "pending: team-lifecycle 01-01"]
 async fn a_non_admin_is_the_uniform_not_found_and_a_bad_name_is_its_reason() {
     let l = labs().await;
     let refused = create_team(&l.store, &human(&l, l.lena), "Platform").await;
@@ -211,7 +209,10 @@ async fn a_non_admin_is_the_uniform_not_found_and_a_bad_name_is_its_reason() {
     create_team(&l.store, &human(&l, l.priya), "Backend")
         .await
         .expect("Backend");
-    let duplicate = create_team(&l.store, &human(&l, l.jeff), "Back-End").await;
+    // "Backend!" is a different name case-insensitively, but slugify drops the
+    // trailing "!" and derives `backend`, Backend's stored slug (D6's slug arm).
+    // ("Back-End" would not collide: slugify keeps the hyphen, `back-end`.)
+    let duplicate = create_team(&l.store, &human(&l, l.jeff), "Backend!").await;
     assert!(
         matches!(
             duplicate,
@@ -220,8 +221,8 @@ async fn a_non_admin_is_the_uniform_not_found_and_a_bad_name_is_its_reason() {
         "a colliding derived slug is not unique (D6): {duplicate:?}"
     );
     assert_eq!(
-        teams_named(&l, &["Back-End"]).await,
-        vec![("Back-End".to_string(), vec![])]
+        teams_named(&l, &["Backend!"]).await,
+        vec![("Backend!".to_string(), vec![])]
     );
 }
 

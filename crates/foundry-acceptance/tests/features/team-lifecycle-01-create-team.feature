@@ -45,7 +45,7 @@ Feature: A workspace admin creates a team, leads it, and starts a project on it
 
   # ------------------------------------------------------------- walking skeleton
 
-  @walking_skeleton @driving_port @us-tl-01 @kpi @contract-shape:bounded-change @pending
+  @walking_skeleton @driving_port @us-tl-01 @kpi @contract-shape:bounded-change
   Scenario: Priya starts Homelab's first team, leads it, and opens its first board
     Given Homelab is a newly provisioned workspace with no teams, whose workspace admin is Priya Raman
     And Priya is working in Homelab
@@ -60,7 +60,7 @@ Feature: A workspace admin creates a team, leads it, and starts a project on it
 
   # ------------------------------------------------------------------- US-TL-01
 
-  @us-tl-01 @driving_port @kpi @contract-shape:bounded-change @pending
+  @us-tl-01 @driving_port @kpi @contract-shape:bounded-change
   Scenario: A workspace admin adds a team next to the others and leads it, and only its people see it
     When Priya creates the team "Platform" from the teams page
     Then she sees "Created Platform. You're its lead."

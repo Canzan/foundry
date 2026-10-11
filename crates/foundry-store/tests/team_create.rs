@@ -138,7 +138,6 @@ async fn labs() -> Labs {
 }
 
 #[tokio::test]
-#[ignore = "pending: team-lifecycle 01-01"]
 async fn an_admins_create_writes_the_team_and_her_lead_row_and_nothing_else() {
     let l = labs().await;
     let (teams_before, rows_before) = teams_and_rows(&l.pool).await;
@@ -173,7 +172,6 @@ async fn an_admins_create_writes_the_team_and_her_lead_row_and_nothing_else() {
 }
 
 #[tokio::test]
-#[ignore = "pending: team-lifecycle 01-01"]
 async fn a_non_admin_or_someone_outside_the_workspace_creates_nothing() {
     let l = labs().await;
     let before = teams_and_rows(&l.pool).await;
@@ -191,7 +189,6 @@ async fn a_non_admin_or_someone_outside_the_workspace_creates_nothing() {
 }
 
 #[tokio::test]
-#[ignore = "pending: team-lifecycle 01-01"]
 async fn a_taken_slug_is_a_duplicate_and_nothing_is_written() {
     let l = labs().await;
     l.store
@@ -201,7 +198,7 @@ async fn a_taken_slug_is_a_duplicate_and_nothing_is_written() {
     let before = teams_and_rows(&l.pool).await;
     let outcome = l
         .store
-        .create_team_with_lead(l.ws, l.jeff, "Back-End", "backend")
+        .create_team_with_lead(l.ws, l.jeff, "Backend!", "backend")
         .await
         .expect("no error");
     assert_eq!(outcome, TeamCreateOutcome::DuplicateSlug);
@@ -215,7 +212,6 @@ async fn a_taken_slug_is_a_duplicate_and_nothing_is_written() {
 /// INV-TL-4 at the store: two creates of the same slug at the same moment give
 /// one team (the unique index), the other `DuplicateSlug`, never an error.
 #[tokio::test]
-#[ignore = "pending: team-lifecycle 01-01"]
 async fn two_creates_of_one_slug_at_once_give_one_team_in_100_runs() {
     let l = labs().await;
     for run in 1..=RACE_RUNS {
@@ -267,7 +263,6 @@ async fn two_creates_of_one_slug_at_once_give_one_team_in_100_runs() {
 /// the removal is refused: she is now a team's last lead) or the removal does
 /// (and the create is `NotAdmin`).
 #[tokio::test]
-#[ignore = "pending: team-lifecycle 01-01"]
 async fn a_create_racing_the_creators_removal_never_leaves_a_lead_outside_the_workspace() {
     let l = labs().await;
     for run in 1..=RACE_RUNS {
@@ -307,6 +302,90 @@ async fn a_create_racing_the_creators_removal_never_leaves_a_lead_outside_the_wo
         assert_eq!(
             strays, 0,
             "run {run}: no team row for someone outside the workspace"
+        );
+    }
+}
+
+/// DDD-4: the uniqueness rule and the slug mint read exactly the acting
+/// workspace's teams, as `(name, stored slug)`, and nothing of another tenant.
+#[tokio::test]
+async fn the_siblings_are_exactly_this_workspaces_teams_by_name_and_stored_slug() {
+    let l = labs().await;
+    assert_eq!(
+        l.store.list_team_siblings(l.ws).await.expect("no error"),
+        vec![],
+        "a workspace with no teams has no siblings"
+    );
+    l.store
+        .create_team_with_lead(l.ws, l.priya, "Backend", "backend")
+        .await
+        .expect("no error");
+    l.store
+        .create_team_with_lead(l.ws, l.priya, "インフラ", "team")
+        .await
+        .expect("no error");
+    let globex = workspace(&l.pool, "Globex").await;
+    let hugo = person(&l.pool, globex, "hugo.weber@globex.example", "admin").await;
+    l.store
+        .create_team_with_lead(globex, hugo, "Payments", "payments")
+        .await
+        .expect("no error");
+    let mut siblings = l.store.list_team_siblings(l.ws).await.expect("no error");
+    siblings.sort();
+    assert_eq!(
+        siblings,
+        vec![
+            ("Backend".to_string(), "backend".to_string()),
+            ("インフラ".to_string(), "team".to_string()),
+        ],
+        "exactly Canzan Labs's teams, with their stored slugs; never Globex's"
+    );
+}
+
+/// Install a BEFORE INSERT trigger on `teams` that refuses every insert with
+/// `errcode` and `constraint` (a fault injection; the schema is this test's own).
+async fn refuse_team_inserts(pool: &PgPool, errcode: &str, constraint: &str) {
+    sqlx::raw_sql(&format!(
+        "CREATE FUNCTION team_create_test_refuse() RETURNS trigger LANGUAGE plpgsql AS $f$
+         BEGIN
+             RAISE EXCEPTION 'injected refusal' USING ERRCODE = '{errcode}', CONSTRAINT = '{constraint}';
+         END
+         $f$;
+         CREATE TRIGGER team_create_test_refuse BEFORE INSERT ON teams
+             FOR EACH ROW EXECUTE FUNCTION team_create_test_refuse();"
+    ))
+    .execute(pool)
+    .await
+    .expect("install the injected refusal");
+}
+
+/// Only `teams_workspace_id_slug_key`'s unique violation is `DuplicateSlug`.
+/// Any other refusal of the team insert (a check, a raised exception, a unique
+/// violation of another constraint, another code naming the slug index) is an
+/// error, never a quiet "slug taken", and writes nothing.
+#[tokio::test]
+async fn an_insert_refused_for_any_other_reason_is_an_error_not_a_duplicate() {
+    for (errcode, constraint) in [
+        ("P0001", "teams_injected"),
+        ("23514", "teams_name_injected"),
+        ("23505", "teams_other_key"),
+        ("23514", "teams_workspace_id_slug_key"),
+    ] {
+        let l = labs().await;
+        refuse_team_inserts(&l.pool, errcode, constraint).await;
+        let before = teams_and_rows(&l.pool).await;
+        let result = l
+            .store
+            .create_team_with_lead(l.ws, l.priya, "Platform", "platform")
+            .await;
+        assert!(
+            result.is_err(),
+            "{errcode} on {constraint} must surface as an error, not {result:?}"
+        );
+        assert_eq!(
+            teams_and_rows(&l.pool).await,
+            before,
+            "{errcode}: nothing written"
         );
     }
 }

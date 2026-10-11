@@ -482,12 +482,15 @@ pub(crate) async fn place_on_default_team(
 // team-lifecycle (DESIGN DDD-5, DDD-7, DDD-8, DDD-10, DDD-13, DDD-21;
 // ADR-TEAM-LIFECYCLE-001/002/003)
 //
+// Shipped (team-lifecycle 01-01): `list_team_siblings` and
+// `create_team_with_lead` (DDD-4, DDD-5).
+//
 // SCAFFOLD: true — RED scaffold written by DISTILL (2026-10-11). The outcome
 // types are real (the store gold tests in `tests/team_create.rs`,
-// `tests/team_delete.rs` and `tests/team_rename.rs` match on them); every method
-// panics until its DELIVER step. Nothing in production calls these methods yet,
-// so no shipped behaviour changes. Signatures are DISTILL's working choice: if
-// DELIVER changes one, it changes the store tests with it.
+// `tests/team_delete.rs` and `tests/team_rename.rs` match on them); every
+// method not yet shipped panics until its DELIVER step. Nothing in production
+// calls those yet, so no shipped behaviour changes. Signatures are DISTILL's
+// working choice: if DELIVER changes one, it changes the store tests with it.
 // ===========================================================================
 
 /// The outcome of [`Store::create_team_with_lead`] (DDD-5, INV-TL-7).
@@ -540,26 +543,85 @@ pub enum TeamRenameWrite {
     NotFound,
 }
 
+/// `teams_workspace_id_slug_key` refusing an insert: SQLSTATE 23505 on that
+/// constraint, and only that one.
+fn is_team_slug_taken(err: &sqlx::Error) -> bool {
+    err.as_database_error().is_some_and(|db| {
+        db.code().as_deref() == Some("23505")
+            && db.constraint() == Some("teams_workspace_id_slug_key")
+    })
+}
+
 impl Store {
     /// The workspace's teams as `(name, stored slug)`, for the uniqueness rule
     /// and the slug mint (DDD-4).
     pub async fn list_team_siblings(
         &self,
-        _workspace_id: uuid::Uuid,
+        workspace_id: uuid::Uuid,
     ) -> Result<Vec<(String, String)>, StoreError> {
-        panic!("Not yet implemented -- RED scaffold (team-lifecycle 01-01: list_team_siblings)")
+        Ok(
+            sqlx::query_as("SELECT name, slug FROM teams WHERE workspace_id = $1")
+                .bind(workspace_id)
+                .fetch_all(&self.pool)
+                .await?,
+        )
     }
 
     /// One transaction (DDD-5): the creator's admin row `FOR KEY SHARE`, then
     /// `INSERT teams` (app-minted v7 id), then the creator's `lead` row.
+    ///
+    /// The `KEY SHARE` lock orders this create against a removal of the creator
+    /// (`remove_workspace_member` takes `FOR UPDATE`): either the removal waits
+    /// and then sees her lead row (`LastLead`), or this create waits and then
+    /// finds no admin row (`NotAdmin`). A taken slug is the
+    /// `teams_workspace_id_slug_key` unique index refusing (`DuplicateSlug`),
+    /// with nothing written (INV-TL-7: born led or not at all).
     pub async fn create_team_with_lead(
         &self,
-        _workspace_id: uuid::Uuid,
-        _creator_id: uuid::Uuid,
-        _name: &str,
-        _slug: &str,
+        workspace_id: uuid::Uuid,
+        creator_id: uuid::Uuid,
+        name: &str,
+        slug: &str,
     ) -> Result<TeamCreateOutcome, StoreError> {
-        panic!("Not yet implemented -- RED scaffold (team-lifecycle 01-01: create_team_with_lead)")
+        let mut tx = self.pool.begin().await?;
+        let is_admin: Option<(i32,)> = sqlx::query_as(
+            "SELECT 1 FROM workspace_memberships
+              WHERE workspace_id = $1 AND user_id = $2 AND role = 'admin'
+                FOR KEY SHARE",
+        )
+        .bind(workspace_id)
+        .bind(creator_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if is_admin.is_none() {
+            tx.rollback().await?;
+            return Ok(TeamCreateOutcome::NotAdmin);
+        }
+        let team_id = uuid::Uuid::now_v7();
+        let inserted =
+            sqlx::query("INSERT INTO teams (id, workspace_id, name, slug) VALUES ($1, $2, $3, $4)")
+                .bind(team_id)
+                .bind(workspace_id)
+                .bind(name)
+                .bind(slug)
+                .execute(&mut *tx)
+                .await;
+        match inserted {
+            Ok(_) => {}
+            Err(err) if is_team_slug_taken(&err) => {
+                tx.rollback().await?;
+                return Ok(TeamCreateOutcome::DuplicateSlug);
+            }
+            Err(err) => return Err(err.into()),
+        }
+        sqlx::query("INSERT INTO team_memberships (team_id, user_id, role) VALUES ($1, $2, $3)")
+            .bind(team_id)
+            .bind(creator_id)
+            .bind(TeamRole::Lead.as_str())
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(TeamCreateOutcome::Created { team_id })
     }
 
     /// The first team the user is on, by name then slug (DDD-21); `None` when

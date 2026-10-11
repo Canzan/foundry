@@ -769,7 +769,19 @@ pub struct TeamsIndexPage {
     /// The "Default team for new members" setting; `Some` only for a workspace
     /// admin (OQ-3, DDD-17).
     pub default_form: Option<DefaultTeamForm>,
+    /// The create form (team-lifecycle DDD-17); `Some` only for a workspace
+    /// admin.
+    pub create_form: Option<CreateTeamForm>,
+    /// The no-teams-yet copy for a workspace admin of a workspace with no team.
+    pub no_teams_yet: Option<String>,
     pub notice: Option<String>,
+}
+
+/// The team create form: the text typed (kept on a 422) and the refusal copy.
+#[derive(Debug, Clone, Default)]
+pub struct CreateTeamForm {
+    pub typed: String,
+    pub error: Option<String>,
 }
 
 /// The default-team select (DDD-14): "No team" (empty value), then every team
@@ -818,6 +830,8 @@ pub struct TeamMembersPage {
     pub team_slug: String,
     pub team_name: String,
     pub can_manage: bool,
+    /// The caller is on the team: offer New project (DDD-21).
+    pub on_team: bool,
     pub members: Vec<TeamMemberLine>,
     pub candidates: Vec<TeamCandidateOption>,
     /// The D15 copy for the write just made, if any.

@@ -770,7 +770,7 @@ pub fn build_router(state: AppState) -> Router {
         // is applied inside `foundry_services::teams` (ADR-TEAM-MEMBERSHIP-003);
         // every refusal is the uniform 404 (DDD-5). Tenancy comes only from the
         // session workspace, so these are LAYER-1e safe.
-        .route("/teams", get(teams::show_teams))
+        .route("/teams", get(teams::show_teams).post(teams::submit_create))
         .route("/teams/default", post(teams::submit_default))
         .route(
             "/team/{team_slug}/members",

@@ -12,10 +12,10 @@
 //! and [`set_default_team`] are the writers.
 
 use crate::Principal;
-use foundry_core::{TeamAccess, TeamRole};
+use foundry_core::{mint_team_slug, MintedTeamSlug, TeamAccess, TeamName, TeamNameError, TeamRole};
 use foundry_store::teams::{
     AddTeamMemberOutcome, RemoveTeamMemberOutcome, SetTeamRoleOutcome, TeamAccessFacts,
-    TeamMemberRow, TeamPerson, TeamScope, TeamSummary,
+    TeamCreateOutcome, TeamMemberRow, TeamPerson, TeamScope, TeamSummary,
 };
 use foundry_store::{Store, StoreError};
 
@@ -66,6 +66,9 @@ pub struct TeamMembersView {
     pub team_slug: String,
     pub team_name: String,
     pub access: TeamAccess,
+    /// The caller has a row on this team (lead or member): the members page
+    /// offers New project (DDD-21).
+    pub on_team: bool,
     pub members: Vec<TeamMemberRow>,
     pub candidates: Vec<TeamPerson>,
 }
@@ -352,6 +355,7 @@ async fn members_view(
         team_slug: facts.team_slug,
         team_name: facts.team_name,
         access,
+        on_team: facts.role.is_some(),
         members,
         candidates,
     })
@@ -359,15 +363,8 @@ async fn members_view(
 
 // ===========================================================================
 // team-lifecycle: the create use-case (DESIGN DDD-4, ADR-TEAM-LIFECYCLE-001
-// decision 3)
-//
-// SCAFFOLD: true — RED scaffold written by DISTILL (2026-10-11). The types are
-// real (`tests/team_lifecycle_use_cases.rs` matches on them); `create_team`
-// panics until DELIVER 01-01. Nothing in production calls it yet. DESIGN's
-// Component Decomposition has `TeamError` gain `InvalidName` and
-// `SlugContention`; DISTILL keeps the scaffold in its own error type so no
-// shipped `match` on `TeamError` changes before DELIVER. Folding it into
-// `TeamError` is DELIVER's choice (the use-case test changes with it).
+// decision 3). Its error stays its own type, `CreateTeamError`, so no shipped
+// `match` on `TeamError` changes.
 // ===========================================================================
 
 /// Why a team create did not happen.
@@ -376,10 +373,16 @@ pub enum CreateTeamError {
     /// The caller is not an admin of the acting workspace: the uniform 404.
     NotFound,
     /// The name broke the rule, or is not unique within the workspace (422).
-    InvalidName(foundry_core::TeamNameError),
+    InvalidName(TeamNameError),
     /// The fallback slug was lost on every bounded retry (a logged 500).
     SlugContention,
     Store(StoreError),
+}
+
+impl From<StoreError> for CreateTeamError {
+    fn from(err: StoreError) -> Self {
+        CreateTeamError::Store(err)
+    }
 }
 
 /// The team a create wrote, with its minted slug.
@@ -390,13 +393,56 @@ pub struct CreatedTeam {
     pub slug: String,
 }
 
+/// How many create attempts a fallback address gets before the create gives up
+/// with [`CreateTeamError::SlugContention`] (ADR-PROJECT-NAME-002 §3's idiom).
+/// Counts the first attempt.
+pub const TEAM_SLUG_ATTEMPTS: usize = 3;
+
 /// `POST /teams`: admin check, the one name rule, then per attempt (at most 3):
 /// siblings, uniqueness, mint, `Store::create_team_with_lead`. A derived-slug
-/// clash is `NotUnique`; a fallback-slug clash is retried.
+/// clash is `NotUnique`; a fallback-slug clash is retried. The ONE place a team
+/// slug is minted.
 pub async fn create_team(
-    _store: &Store,
-    _principal: &Principal,
-    _raw_name: &str,
+    store: &Store,
+    principal: &Principal,
+    raw_name: &str,
 ) -> Result<CreatedTeam, CreateTeamError> {
-    panic!("Not yet implemented -- RED scaffold (team-lifecycle 01-01: teams::create_team)")
+    let workspace_id = principal.workspace_id();
+    if !store
+        .is_workspace_admin(workspace_id, principal.user_id())
+        .await?
+    {
+        return Err(CreateTeamError::NotFound);
+    }
+    let name = TeamName::try_new(raw_name).map_err(CreateTeamError::InvalidName)?;
+    for _ in 0..TEAM_SLUG_ATTEMPTS {
+        let siblings = store.list_team_siblings(workspace_id).await?;
+        name.ensure_unique_among(&siblings)
+            .map_err(CreateTeamError::InvalidName)?;
+        let taken: Vec<String> = siblings.into_iter().map(|(_, slug)| slug).collect();
+        let minted = mint_team_slug(&name, &taken);
+        let outcome = store
+            .create_team_with_lead(
+                workspace_id,
+                principal.user_id(),
+                name.as_str(),
+                minted.as_str(),
+            )
+            .await?;
+        match (outcome, &minted) {
+            (TeamCreateOutcome::Created { team_id }, _) => {
+                return Ok(CreatedTeam {
+                    team_id,
+                    name: name.as_str().to_string(),
+                    slug: minted.as_str().to_string(),
+                })
+            }
+            (TeamCreateOutcome::NotAdmin, _) => return Err(CreateTeamError::NotFound),
+            (TeamCreateOutcome::DuplicateSlug, MintedTeamSlug::Derived(_)) => {
+                return Err(CreateTeamError::InvalidName(TeamNameError::NotUnique))
+            }
+            (TeamCreateOutcome::DuplicateSlug, MintedTeamSlug::Fallback(_)) => continue,
+        }
+    }
+    Err(CreateTeamError::SlugContention)
 }

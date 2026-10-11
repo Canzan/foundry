@@ -79,18 +79,37 @@ impl ProjectName {
         &self,
         siblings: &[(String, String)],
     ) -> Result<(), ProjectNameError> {
-        let lowered = self.0.to_lowercase();
-        let derived_slug = self.derived_slug();
-        let has_address = !derived_slug.is_empty();
-        let collides = siblings.iter().any(|(name, slug)| {
-            name.to_lowercase() == lowered || (has_address && *slug == derived_slug)
-        });
-        if collides {
+        if collides_with_sibling(&self.0, siblings) {
             Err(ProjectNameError::NotUnique)
         } else {
             Ok(())
         }
     }
+}
+
+/// The sibling uniqueness definition shared by the project and team name rules
+/// (D6; team-lifecycle DDD-3): `name` collides when a sibling's name equals it
+/// under `to_lowercase`, or when its derived address ([`slugify`]) equals a
+/// sibling's stored address. An empty derived address never matches on the
+/// address arm.
+pub(crate) fn collides_with_sibling(name: &str, siblings: &[(String, String)]) -> bool {
+    let lowered = name.to_lowercase();
+    let derived_slug = slugify(name);
+    let has_address = !derived_slug.is_empty();
+    siblings.iter().any(|(sibling, slug)| {
+        sibling.to_lowercase() == lowered || (has_address && *slug == derived_slug)
+    })
+}
+
+/// The lowest-free address search shared by the project and team mints
+/// (ADR-PROJECT-NAME-002; team-lifecycle DDD-4): the first of `base`, `base-2`,
+/// `base-3`, … not among `taken`. The suffix starts at 2, never 1, and the
+/// lowest free candidate wins, not the one after the highest.
+pub(crate) fn lowest_free_slug(base: &str, taken: &[String]) -> String {
+    std::iter::once(base.to_string())
+        .chain((2u32..).map(|n| format!("{base}-{n}")))
+        .find(|candidate| !taken.contains(candidate))
+        .expect("a finite sibling set leaves some candidate free")
 }
 
 impl fmt::Display for ProjectName {
@@ -136,10 +155,5 @@ pub fn mint_project_slug(
         return MintedSlug::Derived(derived);
     }
     let base = key.as_str().to_ascii_lowercase();
-    let is_free = |candidate: &String| !team_slugs.contains(candidate);
-    let fallback = std::iter::once(base.clone())
-        .chain((2u32..).map(|n| format!("{base}-{n}")))
-        .find(is_free)
-        .expect("a finite team leaves some candidate free");
-    MintedSlug::KeyFallback(fallback)
+    MintedSlug::KeyFallback(lowest_free_slug(&base, team_slugs))
 }
