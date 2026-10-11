@@ -527,12 +527,10 @@ pub(crate) async fn place_on_default_team(
 // `delete_team_if_empty` (DDD-7, DDD-8, DDD-10), and the 23503 mappings of
 // DDD-9 (`is_fk_violation`).
 //
-// SCAFFOLD: true — RED scaffold written by DISTILL (2026-10-11). The outcome
-// types are real (the store gold tests in `tests/team_create.rs`,
-// `tests/team_delete.rs` and `tests/team_rename.rs` match on them); every
-// method not yet shipped panics until its DELIVER step. Nothing in production
-// calls those yet, so no shipped behaviour changes. Signatures are DISTILL's
-// working choice: if DELIVER changes one, it changes the store tests with it.
+// Shipped (team-lifecycle 04-01): `rename_team_with_audit` (DDD-13, DDD-14).
+//
+// The store gold tests in `tests/team_create.rs`, `tests/team_delete.rs` and
+// `tests/team_rename.rs` match on the outcome types below.
 // ===========================================================================
 
 /// The outcome of [`Store::create_team_with_lead`] (DDD-5, INV-TL-7).
@@ -589,6 +587,13 @@ pub enum TeamRenameWrite {
 /// and the delete's refusal (DDD-8, DDD-10).
 const TEAM_PROJECTS_SQL: &str =
     "SELECT name, key_prefix FROM projects WHERE team_id = $1 ORDER BY name, key_prefix";
+
+/// The 0024 team name rule refusing a write: SQLSTATE 23514 from
+/// `foundry_enforce_name_rule()` (team-lifecycle DDD-6).
+fn is_name_rule_refusal(err: &sqlx::Error) -> bool {
+    err.as_database_error()
+        .is_some_and(|db| db.code().as_deref() == Some("23514"))
+}
 
 /// `teams_workspace_id_slug_key` refusing an insert: SQLSTATE 23505 on that
 /// constraint, and only that one.
@@ -779,16 +784,74 @@ impl Store {
         Ok(TeamDeleteOutcome::Deleted { name, slug })
     }
 
-    /// ADR-TEAM-LIFECYCLE-003 decision 2: the team row `FOR NO KEY UPDATE`; a
-    /// byte-equal name writes nothing; else `UPDATE teams SET name` (never the
-    /// slug) and the `renamed` record, in one transaction.
+    /// ADR-TEAM-LIFECYCLE-003 decision 2, in one transaction:
+    ///
+    /// 1. the team row `FOR NO KEY UPDATE`, workspace-scoped (none: `NotFound`).
+    ///    It serialises concurrent renames, so the record's old name is the one
+    ///    read under the lock, and it conflicts with the delete's `FOR UPDATE`,
+    ///    so a rename and a delete are totally ordered; it does not block a
+    ///    member add or a project create (their FK `KEY SHARE`);
+    /// 2. a byte-equal name writes nothing (`Unchanged`, D15; a case-only change
+    ///    is a rename);
+    /// 3. `UPDATE teams SET name`, never the slug (D4, INV-TL-5);
+    /// 4. the `renamed` record, so the name commits with it or not at all
+    ///    (INV-TL-9). Its `created_at` is `clock_timestamp()`, the time of the
+    ///    write under the lock, not `now()`, the transaction's start: a rename
+    ///    that waited on the lock began first but happened second, and its
+    ///    record must order after the one it chains from.
+    ///
+    /// A 0024 name-rule refusal (23514) is not expected here, because the
+    /// use-case validates first: it logs one `warn` with the team id (DDD-25)
+    /// and is returned as the error.
     pub async fn rename_team_with_audit(
         &self,
-        _workspace_id: uuid::Uuid,
-        _team_id: uuid::Uuid,
-        _actor_id: uuid::Uuid,
-        _new_name: &str,
+        workspace_id: uuid::Uuid,
+        team_id: uuid::Uuid,
+        actor_id: uuid::Uuid,
+        new_name: &str,
     ) -> Result<TeamRenameWrite, StoreError> {
-        panic!("Not yet implemented -- RED scaffold (team-lifecycle 04-01: rename_team_with_audit)")
+        let mut tx = self.pool.begin().await?;
+        let locked: Option<(String, String)> = sqlx::query_as(
+            "SELECT name, slug FROM teams WHERE workspace_id = $1 AND id = $2 FOR NO KEY UPDATE",
+        )
+        .bind(workspace_id)
+        .bind(team_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some((old_name, slug)) = locked else {
+            tx.rollback().await?;
+            return Ok(TeamRenameWrite::NotFound);
+        };
+        if old_name == new_name {
+            tx.rollback().await?;
+            return Ok(TeamRenameWrite::Unchanged);
+        }
+        sqlx::query("UPDATE teams SET name = $2 WHERE id = $1")
+            .bind(team_id)
+            .bind(new_name)
+            .execute(&mut *tx)
+            .await
+            .inspect_err(|err| {
+                if is_name_rule_refusal(err) {
+                    tracing::warn!(%team_id, "the team name rule refused a rename the use-case allowed");
+                }
+            })?;
+        sqlx::query(
+            "INSERT INTO team_lifecycle_events
+                    (id, workspace_id, team_id, team_slug, kind, actor_id, name, new_name,
+                     created_at)
+             VALUES ($1, $2, $3, $4, 'renamed', $5, $6, $7, clock_timestamp())",
+        )
+        .bind(uuid::Uuid::now_v7())
+        .bind(workspace_id)
+        .bind(team_id)
+        .bind(&slug)
+        .bind(actor_id)
+        .bind(&old_name)
+        .bind(new_name)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(TeamRenameWrite::Renamed { old_name })
     }
 }

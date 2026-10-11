@@ -9,10 +9,9 @@
 //! no-op, the case-only rename, atomicity with the record, chained old names
 //! under concurrent renames, and the total order against a delete.
 //!
-//! RED scaffold: `rename_team_with_audit` and `delete_team_if_empty` panic
-//! (`src/teams.rs`) and migration 0023 does not exist; every test is
-//! `#[ignore = "pending: team-lifecycle 04-01"]` and passes
-//! `require_lifecycle_records_installed` first.
+//! Shipped at team-lifecycle 04-01 (written RED by DISTILL). Every test still
+//! passes `require_lifecycle_records_installed` first, so a tree without
+//! migration 0023 fails for that reason and no other.
 //!
 //! Real Postgres (testcontainers `postgres:16-alpine`); integration level,
 //! example-based, races repeated 100 times (Mandates 9/11).
@@ -196,7 +195,6 @@ async fn labs() -> Labs {
 }
 
 #[tokio::test]
-#[ignore = "pending: team-lifecycle 04-01"]
 async fn a_rename_changes_the_name_only_and_records_the_old_name() {
     let l = labs().await;
     require_lifecycle_records_installed(&l.pool).await;
@@ -232,7 +230,6 @@ async fn a_rename_changes_the_name_only_and_records_the_old_name() {
 }
 
 #[tokio::test]
-#[ignore = "pending: team-lifecycle 04-01"]
 async fn a_byte_equal_name_writes_nothing_and_a_case_only_change_is_a_rename() {
     let l = labs().await;
     require_lifecycle_records_installed(&l.pool).await;
@@ -262,7 +259,6 @@ async fn a_byte_equal_name_writes_nothing_and_a_case_only_change_is_a_rename() {
 }
 
 #[tokio::test]
-#[ignore = "pending: team-lifecycle 04-01"]
 async fn another_workspaces_team_or_an_unknown_team_is_not_found_and_nothing_changes() {
     let l = labs().await;
     require_lifecycle_records_installed(&l.pool).await;
@@ -281,7 +277,6 @@ async fn another_workspaces_team_or_an_unknown_team_is_not_found_and_nothing_cha
 /// INV-TL-9: a rename whose record cannot be written (an actor the record
 /// cannot name) rolls the name back.
 #[tokio::test]
-#[ignore = "pending: team-lifecycle 04-01"]
 async fn a_rename_whose_record_cannot_be_written_keeps_the_old_name() {
     let l = labs().await;
     require_lifecycle_records_installed(&l.pool).await;
@@ -301,7 +296,6 @@ async fn a_rename_whose_record_cannot_be_written_keeps_the_old_name() {
 /// ADR-003 decision 2: concurrent renames are serialised by the lock, so the
 /// two records chain: Backend → first, first → second.
 #[tokio::test]
-#[ignore = "pending: team-lifecycle 04-01"]
 async fn two_renames_at_once_record_chained_old_names_in_100_runs() {
     let l = labs().await;
     require_lifecycle_records_installed(&l.pool).await;
@@ -356,7 +350,6 @@ async fn two_renames_at_once_record_chained_old_names_in_100_runs() {
 /// rename commits first (and the delete's record carries the new name) or the
 /// delete does (and the rename is `NotFound`).
 #[tokio::test]
-#[ignore = "pending: team-lifecycle 04-01"]
 async fn a_rename_racing_a_delete_is_ordered_in_100_runs() {
     let l = labs().await;
     require_lifecycle_records_installed(&l.pool).await;
