@@ -190,6 +190,41 @@
       "s": "EXECUTED",
       "d": "PASS",
       "t": "2026-10-11T19:11:16Z"
+    },
+    {
+      "sid": "03-01",
+      "p": "RED",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-10-11T19:14:59Z"
+    },
+    {
+      "sid": "03-01",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-10-11T19:16:40Z"
+    },
+    {
+      "sid": "03-01",
+      "p": "COMMIT",
+      "s": "SKIPPED",
+      "d": "BLOCKED_BY_DEPENDENCY: name-db-checks restore step (feature_name_db_checks.rs:920) pins four triggers; escalated to nw-acceptance-designer",
+      "t": "2026-10-11T19:55:12Z"
+    },
+    {
+      "sid": "03-01",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-10-11T20:56:57Z"
+    },
+    {
+      "sid": "03-01",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-10-11T20:57:07Z"
     }
   ]
 }

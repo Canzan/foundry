@@ -2,7 +2,7 @@
 
 ## Current Task
 
-**team-lifecycle** (create, rename and delete teams): DELIVER is in progress; 7 of 13 steps are done; slice 02 (delete) is complete: 02-04 `7730426` refuses while projects exist (409) and a vanished team's project create gets the uniform 404. 03-01 (migration 0024, the DB team-name rule) is next. Committed locally and NOT pushed. Done:
+**team-lifecycle** (create, rename and delete teams): DELIVER is in progress; 8 of 13 steps are done: slice 02 (delete) is complete (02-04 `7730426`: refused while projects exist), and 03-01 `48c1045` adds migration 0024, the DB team-name rule. 03-02 (the name rule at the create form) is next. Committed locally and NOT pushed. Done:
 - slice 01: admins create teams and lead them (`f14e979`, `23d2174`, `25857a7`, `e44a2da`);
 - 02-01: migration 0023 (the `team_lifecycle_events` audit table), a delete that never loses a project (store-proven, 100-run race), and requests that lose their team answer 404/422 instead of 500.
 
