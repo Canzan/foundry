@@ -512,6 +512,65 @@ tip `16608ee`). Every component below shipped as designed; nothing was deferred.
 Open from this section: H8 (a placement warning with no default set is untested; see the
 team-membership evolution doc), and OQ-D9 (a future user hard-delete meets the trigger).
 
+#### Team lifecycle: create, rename, delete
+
+**Designed (team-lifecycle DESIGN, 2026-10-11); not yet delivered.** A workspace admin creates and
+deletes teams. An admin or the team's lead renames them. All three are plain forms in the teams
+vertical: `POST /teams`, `POST /team/{slug}/rename`, and `GET`/`POST /team/{slug}/delete`.
+
+**One team-name rule.** It is the third name rule, built like the other two.
+- `foundry_core::TeamName` trims, then refuses empty, then the shared refused character, then more
+  than 64 scalars.
+- "Unique within the workspace" is the project rule's definition: a case-insensitive name match, or
+  a non-empty derived slug equal to a sibling's stored slug. It uses one helper that `ProjectName`
+  shares.
+- The copy is `TeamNameError`'s `Display`. check-arch `team-name-one-source` keeps the
+  `"Team name must` literal in `foundry-core`.
+- Migration 0024 adds `teams_name_rule_on_insert` and `_on_rename` over 0019's functions at cap 64,
+  on new writes only, so legacy names stay.
+
+**Slugs are identity here too.**
+- `foundry_services::teams::create_team` is the one place a team slug is minted:
+  `foundry_core::mint_team_slug` gives `slugify(name)`, or `team`, `team-2`, … when that is empty.
+- A concurrent create that takes the same fallback slug is retried, at most three attempts.
+- Rename writes the name only. No render path derives a team slug from a name.
+
+**Born led.** `Store::create_team_with_lead` writes the team and the creator's lead row in one
+transaction. The creator's admin membership is locked `FOR KEY SHARE` first.
+
+**A delete never loses a project.** A team with any project cannot be deleted from the product.
+`Store::delete_team_if_empty`:
+1. locks the team row `FOR UPDATE`. That conflicts with the FK `KEY SHARE` that every project insert
+   takes. `FOR NO KEY UPDATE` would not;
+2. lists its projects in a **new statement**, which sees every project committed before the lock,
+   and refuses with that list;
+3. only then deletes the team, which cascades memberships (the 0021 guard is exempt) and scoped
+   tokens, and clears the default (0022);
+4. records the delete.
+
+A project create racing the delete either commits first, and the delete is refused, or finds the
+team gone. Its 23503 maps to the uniform 404, as do member adds and default sets that lose their
+team. The confirm page's counts are advisory.
+
+psql can still cascade-delete a team with projects. That is a deliberate operator act. check-arch
+`team-lifecycle-one-seam` keeps `INSERT`, `UPDATE` and `DELETE` on `teams` in `foundry-store`, so
+the guarded method is the only production deleter.
+
+**Audit.** `team_lifecycle_events` (0023) holds one append-only row per effective rename (old →
+new, `old` from a `FOR NO KEY UPDATE` read) and per delete (name, slug). It is written in the
+write's transaction and keyed by workspace, with no FK to `teams`, so it outlives the team. Like
+`workspace_rename_events`, it is not in `TENANT_TABLES`. `Store::probe` requires it.
+
+**Authority.** `TeamAccess` gains `Administer` (workspace admin):
+- `can_manage` (rename, membership) is unchanged;
+- `can_delete` is admin only;
+- create checks `is_workspace_admin`, as `/teams/default` does.
+
+See `adr-team-lifecycle-001-team-name-rule-and-create-use-case.md`,
+`adr-team-lifecycle-002-delete-refuses-while-projects-exist.md`,
+`adr-team-lifecycle-003-team-lifecycle-events-and-rename-transaction.md` and
+`adr-team-lifecycle-004-team-access-administer-arm.md`.
+
 ### Crate graph
 
 ```mermaid

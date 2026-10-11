@@ -719,3 +719,450 @@ peer review was not invoked. The consolidated review runs at the end of DISTILL.
   - **WS strategy = D: not fired.**
   - No expansion is rendered. All are offered at handoff.
 - Upstream changes: none to DISCOVER (none exists). This closes team-membership's "Team create, rename and delete" follow-up (D14).
+
+## Wave: DESIGN
+
+Architect: Morgan (nw-solution-architect) | Date: 2026-10-11 | Scope: application | Mode: propose
+(orchestrator-dispatched; every OQ resolved to its recommendation, D1-D16 locked) | Paradigm: OOP
+(CLAUDE.md, unchanged) | Density: lean, Tier-1 [REF] only, no expansion menu (DESIGN declares no
+ask-intelligent triggers) | Per-wave review: not invoked. The consolidated review runs at the end of
+DISTILL. The contested decision, the delete race mechanism, carries its proof and negative controls
+in ADR-TEAM-LIFECYCLE-002.
+
+### [REF] Prior Wave Consultation
+
+| Artifact | Status |
+|---|---|
+| DISCUSS above: D1-D16, OQ-1 to OQ-7 (resolved 2026-10-11), INV-TL-1 to INV-TL-9, US-TL-01 to US-TL-05 | ✓ Two contradictions found and resolved (Changed Assumptions 1, 2). |
+| `slices/slice-01..04` | ✓ All four read in full. |
+| `docs/product/architecture/brief.md`: "Names are labels; slugs are identity", "Teams, team authority and the never-leaderless guard" | ✓ Extended: "Team lifecycle" under the Teams section. |
+| `adr-team-membership-001/002/003` | ✓ The lead guard's cascade exemption (fact 2), the self-clearing default, and `TeamAccess` (amended by ADR-TEAM-LIFECYCLE-004). |
+| `adr-project-name-001/002` | ✓ Value object, shared predicate, uniqueness definition, one mint, bounded retry. Reused. |
+| `adr-project-rename-001/002` | ✓ Slugs never re-derived. The accepted duplicate-label race is reused for INV-TL-5. |
+| `adr-workspace-name-001`, `adr-workspace-rename-001/002` | ✓ Copy is the `Display`. Locked, audited rename transaction. Audit table kept out of `TENANT_TABLES`. |
+| `adr-name-db-001` | ✓ The trigger idiom and 0019's functions are reused at cap 64. |
+| `adr-issue-delete-001/002` | ✓ GET confirm + POST, scripting-free. |
+| House format: team-membership DESIGN section | ✓ Followed. |
+| `docs/product/outcomes/registry.yaml` | ✓ Manual scan (see Outcome Collision Check). |
+| `docs/feature/team-lifecycle/discuss/*`, `spike/findings.md` | ⊘ Lean layout. No spike. |
+
+Code read:
+- `foundry-core`: `lib.rs` (`slugify` :283, module list), `name_chars.rs`, `project_name.rs`,
+  `team_membership.rs` (`workspace_name.rs` via ADR-WORKSPACE-NAME-001).
+- `foundry-store/src/teams.rs`: whole file.
+- `foundry-store/src/lib.rs`: `TENANT_TABLES` :113, `probe` :214, `list_projects_for_workspace`
+  :911, `is_on_any_team` :935, `rename_workspace_with_audit` :1483, `find_team_by_slug` :1567,
+  `insert_project` :1621, the seed team insert :3583, `list_team_sibling_projects` :4277.
+- `foundry-services/src/teams.rs` (whole), `projects.rs` :125-276 (`create_with_retry`),
+  `tokens.rs` :110-190, `lib.rs` :195-272.
+- `foundry-app/src/teams.rs` (whole), `signin.rs` :420-493, `admin_tokens.rs` :250-291, router
+  `lib.rs` :565, :773-786; templates `teams_index.html`, `team_members.html`, `dashboard_root.html`.
+- `xtask/src/check_arch.rs`: `team-membership-one-seam` :5091-5237, the one-source rules
+  :4208/:4528, `name-rule-legacy-seam` :4804.
+- Migrations: `0001` (teams, projects), `0007` :31, `0019` (functions), `0020`, `0021`, `0022`.
+
+Grep facts:
+- No `INSERT INTO`, `UPDATE` or `DELETE FROM teams` exists in any crate `src` except
+  `foundry-store` (the seed) and `foundry-acceptance` (fixtures).
+- No `fn slugify(` call derives a team slug at render time. The one app call,
+  `admin_tokens.rs:284`, normalises typed input (OQ-D4).
+- `TeamAccess` is matched only inside `team_membership.rs`. Every other caller uses its predicates.
+- Psql-style team deletes exist in `delete_team_by_hand` and two store tests. The one whole-workspace
+  delete is `feature_recipient_notification_preferences.rs:1705`.
+
+### [REF] DDD List (design decisions)
+
+| ID | Decision | Options | Verdict | One-line rationale |
+|---|---|---|---|---|
+| DDD-1 | **Shape** | Extend the shipped `teams` vertical: core rule and policy, `foundry-services::teams` use-cases, store methods in `store/src/teams.rs`, `foundry-app/src/teams.rs` handlers | **Extend** | team-membership DDD-1 built this vertical for exactly these verbs. No new crate, module family or dependency. |
+| DDD-2 | **Team name value object (D6, OQ-2)** | (a) `foundry_core::TeamName` + `TeamNameError` (`Display` = D12 copy), `TEAM_NAME_MAX_CHARS = 64`, over the shared `is_refused_name_char` and a uniqueness helper extracted from `ProjectName`; (b) `ProjectName` with a cap parameter; (c) a services-side free function | **(a)** | Three small value objects over two shared helpers: one predicate, one uniqueness definition, one copy source per rule. ADR-TEAM-LIFECYCLE-001. |
+| DDD-3 | **Slug mint (D7, OQ-3)** | `foundry_core::mint_team_slug(name, workspace_slugs)`: `slugify(name)` if non-empty, else the lowest free of `team`, `team-2`, …; the suffix search is extracted from `mint_project_slug` | **Locked** | One pure, total mint. Lands in slice 01 (the empty-slug case needs no wrong copy); slice 03 proves it. |
+| DDD-4 | **Create use-case (D3, INV-TL-4, INV-TL-7)** | `teams::create_team`: admin check → `TeamName::try_new` → per attempt: siblings → `ensure_unique_among` → mint → `Store::create_team_with_lead`; a derived-slug 23505 is `NotUnique`; a fallback 23505 is retried (≤3 attempts) | **Locked** | ADR-PROJECT-NAME-002's mechanism with `team` as the base. It is the one place a team slug is minted. |
+| DDD-5 | **Born led** | `create_team_with_lead`, one transaction: (1) creator's admin row `FOR KEY SHARE` (none → `NotAdmin`); (2) `INSERT teams`; (3) `INSERT team_memberships … 'lead'`; commit | **Locked** | INV-TL-7. Step 1 is DDD-10's idiom: a concurrent workspace removal cannot leave a lead outside the workspace. |
+| DDD-6 | **DB name rule (OQ-7)** | (a) `teams_name_rule_on_insert` / `_on_rename` over 0019's functions at `'64'`, plus `CREATE OR REPLACE` of `foundry_enforce_name_rule()` adding the `'teams' → 'TeamName'` HINT arm; (b) reuse the trigger function unchanged (HINT would read `foundry_core::teams`); (c) a CHECK | **(a)** | The verdict function is reused unchanged. Only the HINT label needs the table. (c) is ADR-NAME-DB-001's rejected option. |
+| DDD-7 | **Delete mechanism (D9, INV-TL-1)** | (a) `Store::delete_team_if_empty`: `SELECT … teams … FOR UPDATE` → (new statement) list projects → `DELETE FROM teams` → record; (b) projects FK `RESTRICT`/`NO ACTION`; (c) a `BEFORE DELETE ON teams` trigger; (d) one `DELETE … WHERE NOT EXISTS`; (e) `FOR NO KEY UPDATE` + check | **(a)** | `FOR UPDATE` conflicts with the FK `KEY SHARE` that every project insert takes, and the check runs in a fresh statement after the lock. (b) breaks the cascading workspace delete. (c) is the designated backstop. (d) and (e) are pinned negative controls. ADR-TEAM-LIFECYCLE-002. |
+| DDD-8 | **Delete statement order** | (1) lock team (ws-scoped; none → `NotFound`); (2) projects by name, key (any → `HasProjects{(name,key)…}`); (3) `DELETE FROM teams`; (4) record; (5) commit | **Locked** | (2) after (1) is what makes the read exact. The team row is gone before the RI cascade reaches `team_memberships`, so 0021 is exempt (INV-TL-8). |
+| DDD-9 | **INV-TL-2 mappings** | 23503 by constraint name. `projects_team_id_fkey` → `ProjectInsertError::TeamGone` → 404. `team_memberships_team_id_fkey` → `AddTeamMemberOutcome::TeamGone` → 404. `workspaces_default_team_same_workspace` → 404. `machine_tokens_scope_team_id_fkey` → the shipped 422 `scope_team_not_in_workspace` | **Locked** | Every writer that waits behind the delete lock answers its normal "no such team" outcome, never a 500. |
+| DDD-10 | **Confirm page (D8, INV-TL-3)** | `GET /team/{slug}/delete` reads `Store::team_delete_facts(team_id)` with no lock: member count, `is_default`, scoped-token count, projects. Projects present: 200 refusal page, no button. POST decides by DDD-8 alone | **Locked** | Counts are advisory. A stale confirm gets the 409 refusal naming the new project. |
+| DDD-11 | **Audit table (OQ-6, INV-TL-9)** | (a) one `team_lifecycle_events` (`kind` renamed\|deleted, `team_id` with no FK, `team_slug`, `name`, `new_name`, `actor_id`, a shape CHECK), workspace-scoped `ON DELETE CASCADE`; (b) FK to teams `SET NULL`; (c) two tables | **(a)** | It outlives the team with its correlation id. Typed by a CHECK. ADR-TEAM-LIFECYCLE-003. Migration 0023. |
+| DDD-12 | **Audit vs export** | Not in `TENANT_TABLES` (stays ten); not in `KNOWN_FOUNDRY_TABLES`; in every whole-instance `pg_dump` | **Locked** | ADR-WORKSPACE-RENAME-002: a departed actor would dangle in the membership-bounded `users` closure. |
+| DDD-13 | **Rename write (D4, D15)** | `Store::rename_team_with_audit`: `SELECT name … FOR NO KEY UPDATE` (ws-scoped) → byte-equal = `Unchanged` → `UPDATE teams SET name` (never slug) → record → commit | **Locked** | Exact old name under the lock. Serialises against delete (`FOR UPDATE`), not against adds or project creates. |
+| DDD-14 | **Rename classification and race (INV-TL-5)** | `classify_team_rename(raw, current, siblings_without_self)`: trim → no-op → `try_new` → `ensure_unique_among`. Uniqueness is check-then-write; duplicate *labels* under a concurrent rename or create are accepted | **Accepted residual** | ADR-PROJECT-RENAME-002 posture. Identity (the slug) cannot be corrupted. The record's old name stays exact (DDD-13). |
+| DDD-15 | **Authority (D2, OQ-1)** | (a) `TeamAccess` gains `Administer` (admin); `can_manage` = Manage\|Administer; `can_delete` = Administer; create uses `is_workspace_admin` (as `/teams/default`); (b) explicit `facts.is_workspace_admin` in delete | **(a)** | One table still answers every team verb. No shipped behaviour changes. ADR-TEAM-LIFECYCLE-004 (amends ADR-TEAM-MEMBERSHIP-003). |
+| DDD-16 | **Gate order** | session (none → 404) → create: `is_workspace_admin`; team routes: facts by (session ws, slug) → access predicate → verb. Every refusal before the verb is `resource_not_found_page()` | **Locked** | team-membership DDD-5, unchanged. D5, D11. |
+| DDD-17 | **Routes (D13 finalised)** | `POST /teams` (on the shipped `/teams` GET route), `POST /team/{team_slug}/rename` (field `name`), `GET`/`POST /team/{team_slug}/delete` | **Locked as proposed** | Plain forms on the shared CSRF layer. One full-page carrier each (the members page is full-page, so no htmx fragment is needed). |
+| DDD-18 | **Statuses** | See [REF] Statuses | **Locked** | 404 for every unauthorized refusal, 422 for name refusals (the project and workspace rename precedent), 409 for "still has projects" (team-membership DDD-8), 200 re-render otherwise, with no post-redirect-get (DDD-9 there). |
+| DDD-19 | **check-arch** | (a) new `team-lifecycle-one-seam`: (i) no SQL `INSERT INTO`/`UPDATE`/`DELETE FROM` `teams` or `team_lifecycle_events` outside `foundry-store` (and `foundry-acceptance`) src; (ii) `create_team_with_lead(`, `rename_team_with_audit(`, `delete_team_if_empty(` have no call site in `foundry-app`/`foundry-api` src. (b) new `team-name-one-source`: the `"Team name must` literal appears only in `foundry-core` | **Locked** | Reuses `team_memberships_writes` (generalised over the table name), `call_sites`, and the one-source scanner. One injected-violation gold test per clause. The shipped JOIN example `UPDATE teams SET name … FROM team_memberships` becomes a flagged `teams` write in the new rule's test. |
+| DDD-20 | **Copy home (D12)** | Name refusals: `TeamNameError::Display` (core). Every other D12 string (Created, Renamed, Deleted, no-teams-yet, the confirm heading and lines, the projects refusal and its list format) is a `TeamNotice` variant in `foundry-app`, with byte tests | **Locked** | The DDD-18 precedent of team-membership, plus the core rule for the two-door name copy. |
+| DDD-21 | **D14 links** | Members page: **New project** when `on_team` (`facts.role.is_some()`). Dashboard: `is_on_any_team` → `Store::first_team_slug(ws, user) -> Option<String>` (`ORDER BY t.name, t.slug LIMIT 1`); `on_a_team` = `Some`; the empty-state link is `/team/{slug}/projects/new` | **Locked** | The link can only name a team the caller is on. An admin not on the team sees no **New project** (project create would 404). |
+| DDD-22 | **Write responses** | Create → 200 members page of the new team with "Created {team}. You're its lead.". Rename → 200 members page with the notice. Delete → 200 `/teams` with "Deleted {team}.". Refusals re-render with the input kept | **Locked** | team-membership DDD-9 (no PRG, no flash storage). A reload re-POSTs harmlessly: create meets the uniqueness refusal (D16), and delete meets the 404 (the team is gone). |
+| DDD-23 | **Probe** | `Store::probe` requires `team_lifecycle_events`' columns (from slice 02). Unchanged for 0024 | **Locked** | 0018 precedent for a table written in a transaction. ADR-NAME-DB-001 decision 5 for triggers. |
+| DDD-24 | **Migrations and rolling deploy** | 0023 (slice 02): table, CHECK, index, additive. 0024 (slice 03): two triggers, the trigger-function HINT arm, self-check | **Locked** | Old replicas never write the audit table. Their only `teams` writer is bootstrap's compliant "General". Rollback floor = v0.13.0: neither migration changes anything an older binary reads. |
+| DDD-25 | **Logging** | Refusals log nothing. A 23503 mapping logs nothing (an expected race). A 0021 or 0024 trigger refusal on a store path logs one `warn` with the team id. Slug-contention exhaustion logs one `error` with no name | **Locked** | team-membership DDD-20 / project-name-rule DDD-13: no personal data in logs. |
+
+### [REF] Authorization Matrix
+
+`Manage` = workspace admin or lead of this team. `Administer` = workspace admin. "On team" = any
+role on the team.
+
+| Route | Signed out | Marco (not on team) | Sam (member) | Lena (lead, not admin) | Priya (workspace admin) | Instance admin only | Unknown/foreign slug |
+|---|---|---|---|---|---|---|---|
+| `GET /teams` | 404 | own teams / no-team copy | own teams | own teams | all teams + **create form** (+ empty-state copy when none) + default select | own teams | n/a |
+| `POST /teams` | 404 | 404 | 404 | 404 | create | 404 | n/a |
+| `GET /team/{slug}/members` | 404 | 404 | list + **New project** | list + controls + **Rename** + **New project** | list + controls + **Rename** + **Delete team** (+ **New project** if on team) | 404 | 404 |
+| `POST /team/{slug}/rename` | 404 | 404 | 404 | rename | rename | 404 | 404 |
+| `GET /team/{slug}/delete` | 404 | 404 | 404 | 404 | confirm / refusal | 404 | 404 |
+| `POST /team/{slug}/delete` | 404 | 404 | 404 | 404 | delete / 409 | 404 | 404 |
+
+### [REF] Statuses
+
+| Route | Outcome | Status and body |
+|---|---|---|
+| `POST /teams` | created | 200, the new team's members page, "Created {team}. You're its lead." |
+| | name refusal (any `TeamNameError`) | 422, `/teams` re-rendered with the `Display` copy and the input kept |
+| | not admin, signed out | 404 uniform, 0 rows |
+| | fallback slug lost every retry | 500, logged (not reachable at homelab scale) |
+| `POST /team/{slug}/rename` | renamed | 200, members page, "Renamed {old} to {new}." |
+| | byte-equal | 200, members page, no notice, no record |
+| | name refusal | 422, members page with the copy and the input kept |
+| | not Manage, unknown, vanished mid-request | 404 uniform |
+| `GET /team/{slug}/delete` | admin, no projects | 200 confirm page (heading, member line, default line if default, token line if tokens > 0, **Delete team** + **Cancel**) |
+| | admin, projects | 200 refusal page ("{team} still has {n} project(s): {list}. …"), no **Delete team** |
+| | anyone else, unknown | 404 uniform |
+| `POST /team/{slug}/delete` | deleted | 200 `/teams` with "Deleted {team}." |
+| | projects at commit | 409, the refusal page, nothing changed |
+| | not admin, unknown, already gone | 404 uniform |
+| `POST /team/{slug}/projects` (shipped) | team deleted under the create | 404 uniform (new `TeamGone` mapping) |
+| Any POST without a CSRF token | refused by the shipped `csrf_middleware` | its response, outside the 404 matrix (as on every shipped route) |
+
+### [REF] Contract Shapes (Principle 12)
+
+| Component | Shape | Universe / assertion |
+|---|---|---|
+| `TeamName::try_new`, `ensure_unique_among`, `mint_team_slug`, `classify_team_rename`, `TeamAccess::of` | pure function | example tables plus a property test (TeamName's control verdict equals ProjectName's and WorkspaceName's for every scalar) |
+| `teams::delete_preview` (GET), `list_teams`, `team_members` | read-only. The GET use-case has no write method on its path | zero rows changed (row-count snapshot) |
+| `create_team_with_lead` | bounded-change: exactly one `teams` row + one `team_memberships` lead row, or none | refusal: `teams` and `team_memberships` byte-identical |
+| `rename_team_with_audit` | bounded-change: one `teams.name` + one `team_lifecycle_events` row | `Unchanged`/`NotFound`: both tables byte-identical; `teams.slug` never changes (asserted on every rename) |
+| `delete_team_if_empty` | bounded-change: one `teams` row and its declared cascade (its `team_memberships`, its scoped `machine_tokens`, `workspaces.default_team_id` → NULL) + one record | `HasProjects`/`NotFound`: every table byte-identical; `projects` row count never decreases (the race test's oracle) |
+| Migration 0023 | additive DDL | no existing row touched |
+| Migration 0024 | DDL + function replace | no existing row scanned or changed; 0019/0020 parity tests stay green |
+
+No new external dependency, so there is no new driven adapter. Earned Trust is the substrate-fact
+gold tests named in ADR-TEAM-LIFECYCLE-001/002/003, plus the DDD-23 probe line and 0024's self-check.
+
+### [REF] Component Decomposition (per slice)
+
+| Slice | Component | Path | Change |
+|---|---|---|---|
+| 01 | `TeamName`, `TeamNameError`, `TEAM_NAME_MAX_CHARS`, `mint_team_slug`; extract the uniqueness and lowest-free helpers from `project_name.rs` | `crates/foundry-core/src/team_name.rs`, `project_name.rs`, `lib.rs` | CREATE / EXTEND |
+| 01 | `list_team_siblings(ws)`, `create_team_with_lead` + `TeamCreateOutcome {Created, DuplicateSlug, NotAdmin}`, `first_team_slug` (replaces `is_on_any_team`) | `crates/foundry-store/src/teams.rs`, `lib.rs` | EXTEND |
+| 01 | `teams::create_team`; `TeamError` gains `InvalidName(TeamNameError)` and `SlugContention`; `TeamMembersView.on_team`; `Services::create_team` | `crates/foundry-services/src/teams.rs`, `lib.rs` | EXTEND |
+| 01 | `submit_create`; `TeamNotice::{Created, NoTeamsYet}`; create form + empty state on `/teams`; **New project** on the members page; dashboard link | `crates/foundry-app/src/teams.rs`, `views.rs`, `signin.rs`, `templates/teams_index.html`, `team_members.html`, `dashboard_root.html` | EXTEND |
+| 01 | `/teams` gains `.post(teams::submit_create)` | `crates/foundry-app/src/lib.rs` | EXTEND |
+| 01 | check-arch `team-name-one-source`; `team-lifecycle-one-seam` (i) and (ii) for `create_team_with_lead`; gold tests | `xtask/src/check_arch.rs` | EXTEND |
+| 02 | Migration 0023; probe line | `crates/foundry-store/migrations/0023_team_lifecycle_events.sql`, store `lib.rs` | CREATE / EXTEND |
+| 02 | `TeamAccess::Administer`, `can_delete` (three table rows change) | `crates/foundry-core/src/team_membership.rs` | EXTEND |
+| 02 | `team_delete_facts`, `delete_team_if_empty` + `TeamDeleteOutcome`; 23503 mappings in `insert_project`, `add_team_member`, `set_default_team`, `insert_machine_token`; race gold tests | store `teams.rs`, `lib.rs`, `tests/team_delete.rs` | EXTEND / CREATE test |
+| 02 | `teams::{delete_preview, delete_team}`; `CreateProjectError::TeamGone`; token mint mapping | services `teams.rs`, `projects.rs`, `tokens.rs`, `lib.rs` | EXTEND |
+| 02 | `show_delete`, `submit_delete`; `TeamNotice` delete copy; `team_delete.html`; **Delete team** link; `projects::submit_create` maps `TeamGone` → 404; routes | app `teams.rs`, `projects.rs`, `views.rs`, `templates/team_delete.html`, `lib.rs` | EXTEND / CREATE template |
+| 02 | check-arch (ii) gains `delete_team_if_empty` | `xtask/src/check_arch.rs` | EXTEND |
+| 03 | Migration 0024; extend `name_rule_in_database.rs` parity to `teams` at 64; create-race tests; `NameRuleTable::Teams` only if a fixture needs a pre-rule name (OQ-D5) | `migrations/0024_team_name_rule.sql`, store tests | CREATE / EXTEND |
+| 04 | `rename_team_with_audit` + `TeamRenameWrite`; `classify_team_rename`, `teams::rename_team`; `submit_rename`; Rename form (prefilled); `TeamNotice::Renamed`; route; check-arch (ii) gains `rename_team_with_audit` | store `teams.rs`, services `teams.rs`, app `teams.rs`, `team_members.html`, `lib.rs`, `xtask` | EXTEND |
+
+No slice ships more than four new components. No new crate and no new dependency.
+
+### [REF] Driving Ports
+
+1. `GET /teams` (delta): the create form and the no-teams copy for a workspace admin.
+2. `POST /teams` (new).
+3. `GET /team/{team_slug}/members` (delta): **New project**, **Rename**, **Delete team** per the matrix.
+4. `POST /team/{team_slug}/rename` (new, slice 04).
+5. `GET` and `POST /team/{team_slug}/delete` (new, slice 02).
+6. `GET /` (delta): the empty-state link targets `first_team_slug`.
+7. `POST /team/{team_slug}/projects` (delta, slice 02): `TeamGone` → 404. `POST /teams/default`,
+   `POST /team/{slug}/members`, and the token mint (delta, slice 02): their 23503 mappings.
+
+### [REF] Driven Ports and Adapters
+
+`foundry_store::Store` (Postgres 16 via sqlx) is the only driven port.
+
+- New methods: `list_team_siblings`, `create_team_with_lead`, `first_team_slug`,
+  `team_delete_facts`, `delete_team_if_empty`, `rename_team_with_audit`.
+- Extended: `insert_project` (`TeamGone`), `add_team_member` (`TeamGone`), `set_default_team`
+  (`TeamGone`), `insert_machine_token` (23503), `probe`.
+- Replaced: `is_on_any_team` by `first_team_slug` (one caller, `signin.rs`).
+- Schema: one table (0023), two triggers and one function replacement (0024).
+
+External integrations: none new. Keycloak is unchanged, so **no contract tests** are needed.
+
+### [REF] Technology Choices
+
+None new. The Rust workspace toolchain, axum, askama, sqlx 0.8, and Postgres 16 (pinned). The
+Postgres facts relied on, each proven by a gold test:
+- `FOR UPDATE` conflicts with an FK `KEY SHARE`, and `FOR NO KEY UPDATE` does not;
+- at READ COMMITTED, a statement after a lock wait sees the predecessor's commit, but a
+  single-statement `DELETE … WHERE NOT EXISTS` keeps its starting snapshot (the RI cascade does not);
+- an RI cascade runs after its parent row's deletion is visible (0021 fact 2);
+- the default FK constraint names reported with 23503;
+- U+0000 is refused in `text` with 22021 before any trigger.
+
+Enforcement: `cargo xtask check-arch` (DDD-19), the exhaustive `TeamAccess` match, the 0024
+triggers, and the 0023 shape CHECK.
+
+### [REF] Decisions Table
+
+| ID | Locked decision |
+|---|---|
+| DDD-1 | Extend the shipped `teams` vertical; no new crate |
+| DDD-2 | `foundry_core::TeamName`, cap 64, shared predicate, shared uniqueness helper |
+| DDD-3 | `mint_team_slug`: derived, else `team`, `team-2`, … |
+| DDD-4 | `teams::create_team` is the one slug mint; bounded retry on a fallback clash only |
+| DDD-5 | `create_team_with_lead`: admin row `KEY SHARE` → team → lead, one transaction |
+| DDD-6 | 0024: `teams_name_rule_on_insert`/`_on_rename` at `'64'`; HINT arm added to `foundry_enforce_name_rule()` |
+| DDD-7 | Delete = team row `FOR UPDATE`, then a fresh project read; refuse on any project |
+| DDD-8 | Delete order: lock → projects → `DELETE FROM teams` → record → commit |
+| DDD-9 | 23503 by constraint → `TeamGone`/404 (project, member, default) and 422 (token) |
+| DDD-10 | Confirm page counts are advisory; POST decides; stale confirm → 409 |
+| DDD-11 | `team_lifecycle_events` (0023), no FK to teams, shape CHECK |
+| DDD-12 | Audit table not in `TENANT_TABLES` / `KNOWN_FOUNDRY_TABLES` |
+| DDD-13 | `rename_team_with_audit`: `FOR NO KEY UPDATE`, byte-equal no-op, name only, record |
+| DDD-14 | Rename uniqueness is check-then-write; duplicate-label race accepted |
+| DDD-15 | `TeamAccess::Administer`; `can_delete`; create via `is_workspace_admin` |
+| DDD-16 | Gate order of team-membership DDD-5; every refusal the uniform 404 |
+| DDD-17 | `POST /teams`, `POST /team/{slug}/rename`, `GET`/`POST /team/{slug}/delete` |
+| DDD-18 | 404 refusals, 422 name refusals, 409 projects, 200 otherwise |
+| DDD-19 | check-arch `team-lifecycle-one-seam` + `team-name-one-source` |
+| DDD-20 | Name copy in `TeamNameError`; all other copy in `TeamNotice` |
+| DDD-21 | **New project** when on the team; dashboard link via `first_team_slug` |
+| DDD-22 | 200 re-render, no PRG |
+| DDD-23 | Probe requires the 0023 table |
+| DDD-24 | 0023 (slice 02), 0024 (slice 03); rolling-deploy safe |
+| DDD-25 | Refusals and race mappings log nothing; no names in logs |
+
+### [REF] Reuse Analysis
+
+| Existing Component | File | Overlap | Decision | Justification |
+|---|---|---|---|---|
+| `name_chars::is_refused_name_char` | `foundry-core/src/name_chars.rs` | Refused set | REUSE unchanged | The one predicate (ADR-PROJECT-NAME-001). |
+| `ProjectName::ensure_unique_among` | `foundry-core/src/project_name.rs:78` | Uniqueness definition | EXTEND (extract a crate-private helper both call) | A second copy is the drift the project rule removed. |
+| `mint_project_slug` lowest-free search | `project_name.rs:129` | Fallback suffix | EXTEND (extract a helper) | Same algorithm, different base (`team` vs the key). |
+| `slugify` | `foundry-core/src/lib.rs:283` | Derived slug | REUSE unchanged | Minted once (D7). |
+| `create_with_retry` / `FALLBACK_SLUG_ATTEMPTS` | `foundry-services/src/projects.rs:187-276` | Bounded retry | REUSE idiom (same constant value, 3) | The loop shape is mirrored. Generalising across two use-cases with different refusal types costs more than about 20 lines. |
+| `foundry_name_rule_violation`, `foundry_enforce_name_rule()` | `0019` | DB rule | REUSE (verdict unchanged; trigger function gains one HINT arm) | ADR-NAME-DB-001's one-function design. |
+| `TeamAccess` / `resolve_access` / `team_access_facts` | core `team_membership.rs`, services `teams.rs:324`, store `teams.rs:164` | Authority | EXTEND (one level, one predicate) | One policy (ADR-TEAM-MEMBERSHIP-003). The facts read already returns `role`, so `on_team` is free. |
+| `is_workspace_admin` | store `lib.rs:2600` | Create gate | REUSE unchanged | The precedent for workspace-level team settings. |
+| `add_team_member`'s `FOR KEY SHARE` idiom | store `teams.rs:284` | Creator still in workspace | REUSE idiom in `create_team_with_lead` | Same INV-5 argument. |
+| `lock_team_and_read_standing` | store `teams.rs:138` | Team-row lock | NOT REUSED for delete | It takes `FOR NO KEY UPDATE`, which is exactly the wrong strength for delete (ADR-002 trap (a)). Rename reuses the strength, not the helper (it reads the name, not a standing). |
+| `rename_workspace_with_audit` | store `lib.rs:1483` | Locked audited rename | REUSE idiom | Same transaction shape, team table. |
+| `workspace_rename_events` (0018) | migration | Audit record | NOT EXTENDED; new sibling table | Different aggregate. Its rows cascade with the workspace and carry no slug or kind. |
+| `find_team_by_slug`, `is_team_member` | store `lib.rs:1567`, `:1599` | Team lookups | REUSE unchanged | Boards and project create keep them. |
+| `is_on_any_team` | store `lib.rs:935` | Dashboard team state | EXTEND (replaced by `first_team_slug`, `Some` ⇔ true) | One caller. The link needs the slug, and two reads would be redundant. |
+| `insert_project`, `ProjectInsertError` | store `lib.rs:1621`, `:3499` | Project create | EXTEND (`TeamGone`) | INV-TL-2. |
+| `set_default_team`, `insert_machine_token` | store `teams.rs:429`, `lib.rs:3260` | Child writers | EXTEND (23503 mapping) | INV-TL-2. |
+| `is_lead_rule_refusal` | store `teams.rs:127` | Constraint-named error mapping | REUSE idiom (a sibling `is_fk_violation(err, constraint)`) | Same pattern. |
+| `teams::list_teams`, `team_members`, `members_view` | services `teams.rs` | Page models | EXTEND | Create, rename and delete return these re-read models (DDD-22). |
+| `TeamNotice`, `teams_page`, `members_page_with_status`, `refusal` | app `teams.rs` | Copy, rendering, 404 | EXTEND | One copy enum per crate (team-membership DDD-18). |
+| `resource_not_found_page`, `ensure_csrf_cookie`, `csrf_middleware` | app | 404, CSRF | REUSE unchanged | D5 oracle. |
+| `team-membership-one-seam` helpers (`team_memberships_writes`, `call_sites`), one-source scanner | `xtask/src/check_arch.rs:5192`, `:4276` | Seam and copy guards | EXTEND (generalise the table name) | Same mechanism, new subjects. |
+| Issue-delete GET+POST confirm | ADR-ISSUE-DELETE-002 | Confirm shape | REUSE idiom (full-page carrier only) | The members page is a full page, so there is no fragment carrier. |
+| 0021 lead guard, 0022 SET NULL | migrations | Cascade behaviour | REUSE unchanged | Proven to exempt and to clear (ADR-TEAM-MEMBERSHIP-001/002 facts). |
+
+CREATE NEW, each with no existing alternative:
+- `foundry_core::team_name`: no team-name type exists, and the copy differs from `ProjectName`'s.
+- `team_lifecycle_events` (0023): no record outlives a deleted parent today.
+- Migration 0024: the triggers are per table by design.
+- `team_delete.html`: no team confirm page exists.
+- Two check-arch rules: new subjects.
+- Store methods `create_team_with_lead`, `delete_team_if_empty`, `rename_team_with_audit`,
+  `team_delete_facts`, `list_team_siblings`: no team writer exists beyond the seed, and no team
+  read lists siblings or counts delete consequences.
+
+Zero unjustified CREATE NEW.
+
+### [REF] Outcome Collision Check
+
+`nwave-ai outcomes check-delta docs/feature/team-lifecycle/feature-delta.md` was **not run**:
+this session has no shell. A manual Tier-1 scan of `docs/product/outcomes/registry.yaml` (OUT-1 to
+OUT-23) for the keywords team, create, rename, delete, slug, name rule and audit finds **no
+collision**. No row covers team create, rename or delete. Related, not duplicates:
+- OUT-19 / OUT-18: the project and workspace name rules (siblings of the team-name rule).
+- OUT-20: the DB name rule, which gains `teams` at 64 (an amendment, not a new row).
+- OUT-17: the audited workspace rename (same shape, different aggregate).
+- OUT-1, OUT-7: label-only renames, slug stable.
+- OUT-11: the GET+POST delete confirm.
+- OUT-22: the lead guard, whose cascade exemption the delete relies on.
+- OUT-23: the default team clearing itself.
+- OUT-21: the members page, which gains controls.
+
+DISTILL runs the CLI and adds the rows (OQ-D2).
+
+### [REF] C4 System Context (L1, delta)
+
+```mermaid
+C4Context
+  title System Context: team lifecycle (team-lifecycle)
+  Person(admin, "Workspace admin (Priya)", "Creates, renames and deletes teams")
+  Person(lead, "Team lead (Lena)", "Renames her own team; starts projects on it")
+  Person(member, "Team member (Sam)", "Starts projects; loses access when the team is deleted")
+  Person(operator, "Operator (psql)", "Reads the team lifecycle records")
+  System(foundry, "foundry", "Self-hosted issue tracker (modular Rust monolith)")
+  System_Ext(kc, "Keycloak", "OIDC identity provider (unchanged)")
+  Rel(admin, foundry, "Creates, renames and deletes teams through", "HTTPS forms")
+  Rel(lead, foundry, "Renames teams and creates projects through", "HTTPS forms")
+  Rel(member, foundry, "Opens boards and creates projects through", "HTTPS")
+  Rel(operator, foundry, "Queries rename and delete records in", "psql")
+  Rel(foundry, kc, "Verifies sign-in identity with", "OIDC")
+```
+
+### [REF] C4 Container (L2, delta)
+
+```mermaid
+C4Container
+  title Container: where team lifecycle lives
+  Person(user, "Admin / lead / member", "Browser, scripting optional")
+  Container_Boundary(f, "foundry") {
+    Container(app, "foundry-app", "Rust / axum + askama", "teams.rs: submit_create, submit_rename, show_delete, submit_delete; TeamNotice copy; dashboard first-team link; projects.rs TeamGone → 404")
+    Container(svc, "foundry-services", "Rust", "teams:: create_team (one slug mint, bounded retry), rename_team, delete_preview, delete_team")
+    Container(core, "foundry-core", "Rust, no I/O", "TeamName (cap 64), mint_team_slug, classify_team_rename, TeamAccess (+Administer)")
+    Container(store, "foundry-store", "Rust / sqlx", "create_team_with_lead, rename_team_with_audit (FOR NO KEY UPDATE), delete_team_if_empty (FOR UPDATE + fresh read), team_delete_facts, first_team_slug; 23503 mappings")
+    ContainerDb(pg, "PostgreSQL 16", "", "teams + name triggers (0024); team_lifecycle_events (0023); 0021 lead guard and 0022 SET NULL on cascade")
+  }
+  Rel(user, app, "Submits team forms to", "HTTPS form POST, _csrf")
+  Rel(app, svc, "Delegates team create, rename and delete to")
+  Rel(svc, core, "Validates names, mints slugs and decides authority with")
+  Rel(svc, store, "Reads siblings and facts from, and writes teams through")
+  Rel(app, store, "Reads the dashboard's first team from")
+  Rel(store, pg, "Locks team rows in, writes teams and records to")
+```
+
+### [REF] Quality Attributes / NFRs
+
+- **Integrity.**
+  - INV-TL-1 holds by the FK `KEY SHARE` that every project insert already takes, against the
+    delete's `FOR UPDATE` (DDD-7/8).
+  - INV-TL-2 holds by the 23503 mappings (DDD-9).
+  - INV-TL-7 holds by one transaction (DDD-5).
+  - INV-TL-8 holds by 0021's exemption (DDD-8).
+  - INV-TL-9 holds by the same-transaction record with no FK to teams (DDD-11).
+  - The slug is never written after create (DDD-13; check-arch keeps `UPDATE teams` in the store).
+- **Security.** One policy (DDD-15) and one gate order (DDD-16). Every refusal is
+  `resource_not_found_page()` byte for byte. Tenancy comes from the session only. Delete is admin-only
+  in the policy table.
+- **Reliability.** No racing writer answers 500 (DDD-9). The probe refuses readiness without 0023.
+- **Performance.** Each page and write is a constant number of indexed reads on `teams (workspace_id,
+  slug)`, `projects (team_id, slug)` and the memberships PK. The delete lock is held for a
+  four-statement transaction.
+- **Auditability.** Exactly one record per effective rename and per delete, outliving the team.
+- **Deployability.** Two forward-only migrations, rolling-deploy safe (DDD-24).
+
+### [REF] Test Seams (for DISTILL / DELIVER)
+
+- **Core:**
+  - `TeamName` arm order and boundaries: 64 and 65, astral, padded.
+  - The control verdict equals `ProjectName`'s and `WorkspaceName`'s for every scalar (property).
+  - `mint_team_slug`: derived; `team`; `team-2` when `team` is taken; lowest free (`team`, `team-3`
+    taken gives `team-2`).
+  - `classify_team_rename`: no-op before refusals; case-only is a rename.
+  - `TeamAccess` six-row table with `Administer`.
+- **Store, real Postgres:**
+  - `tests/team_delete.rs`: the ADR-002 facts, both negative controls, and the at-least-100-run
+    delete-versus-create barrier race (0 projects lost, 0 unmapped errors). Delete of a sole-lead
+    team succeeds. The default is nulled. Scoped tokens are gone.
+  - Each 23503 mapping, triggered by a held lock and a barrier.
+  - `tests/team_create.rs`: same-name, fallback-same-name and fallback-different-name races (at
+    least 100 runs). Create versus the creator's workspace removal.
+  - Rename: atomicity with an unknown actor, chained old names, no-op writes nothing, slug unchanged.
+  - 0024: arms, legacy-row survival, parity at 64.
+- **Acceptance:**
+  - The Authorization Matrix on every route and verb, with row-count assertions.
+  - The Statuses table.
+  - One HTTP-level stale-confirm scenario and one HTTP race scenario, run several times, not 100.
+    The 100-run guarantee sits at store level (team-membership OQ-D3 precedent).
+
+### [REF] Open Questions (for DISTILL / DELIVER)
+
+- **OQ-D1 (DISTILL):** pin the Statuses table. A CSRF-less POST stays the middleware's response.
+- **OQ-D2 (DISTILL):** run `nwave-ai outcomes check-delta`. Add rows:
+  - team create (operation);
+  - "a team delete never destroys a project" (invariant, `related: [OUT-22, OUT-23, OUT-11]`);
+  - team rename (operation, `related: [OUT-17, OUT-1]`).
+
+  Amend OUT-20 for `teams` at 64.
+- **OQ-D3 (DISTILL):** the dashboard's `first_team_slug` lookup-error path. Proposed: keep today's
+  fail-open `on_a_team = true` and render the empty-state sentence without the link. It never
+  links a team the caller is not on.
+- **OQ-D4 (future, recorded):** `admin_tokens::resolve_scope` resolves a typed team *name* by
+  `find_team_by_slug(slugify(raw))`. After a rename, or for a fallback-slug team, a typed name no
+  longer resolves and gets the shipped 422. The UI picker submits ids, so no shipped flow breaks.
+  A follow-up should resolve by stored slug or by case-insensitive name. Out of scope (D4 guarantees
+  URLs and existing token scopes, which bind by id).
+- **OQ-D5 (DELIVER):** extend `NameRuleTable` with `Teams` only if a fixture needs a pre-0024 team
+  name. The about 40 acceptance sites use compliant names (DISCUSS OQ-7).
+- **OQ-D6 (DELIVER, before slice 03 ships):** read-only counts on dev and prod of team names that
+  break the rule, and of case-insensitive duplicate team names per workspace. Both are expected to be
+  0. Record them in the CHANGELOG migration note for 0024 (legacy rows stay).
+- **OQ-D7 (DELIVER):** the shipped `team-membership-one-seam` gold test uses `UPDATE teams SET name
+  … FROM team_memberships` as a non-violation. It stays a non-violation there, and becomes the
+  positive case of `team-lifecycle-one-seam` (i).
+
+### [REF] Changed Assumptions
+
+1. **Concurrent creates of the same non-Latin name.** Original (US-TL-04 Domain Example 5 and slice
+   03 AC 4): *"Two concurrent "インフラ" creates both succeed, as `team` and `team-2`."* and
+   *"Concurrent "インフラ" creates both succeed."*
+
+   New: two concurrent creates of the **same** name give one team, and the other caller sees "Team
+   name must be unique within the workspace". Two concurrent creates of **different** non-Latin names
+   ("インフラ" and "運用") both succeed, as `team` and `team-2`.
+
+   Rationale: D6 makes a case-insensitive name match a refusal, and sequentially the second
+   "インフラ" is refused. The example would make the outcome depend on timing, and INV-TL-4's first
+   clause already says same-name creates give exactly one team. ADR-PROJECT-NAME-002's retry re-runs
+   the sibling check, which yields exactly this. DISTILL writes the race scenario with two different
+   non-Latin names. The intent ("a fallback race never shows a false duplicate") is unchanged.
+2. **NUL in the DB-rule scenario.** Original (US-TL-04 scenario 5 and slice 03 AC 5): *"A psql INSERT
+   with a NUL in `teams.name` is refused with SQLSTATE 23514."*
+
+   New: a psql write with U+0001 (or U+202E, or 65 characters) is refused with 23514 and the named
+   arm (`teams_name_no_control_chars`, `teams_name_max_64_chars`). A NUL is refused earlier by
+   Postgres itself (22021: U+0000 cannot be stored in `text`, ADR-NAME-DB-001), and an app door
+   refuses it as a control character before any write.
+3. **INV-TL-2, token mint.** Original: *"any write racing a delete gets the team's normal outcome or
+   the uniform 404, never a 500. That covers … a token mint scoped to the team"*.
+
+   New: the token mint answers its shipped 422 `scope_team_not_in_workspace`. That is its normal
+   outcome for a team that is not one of the workspace's, and the token admin surface has no
+   uniform-404 shape for a form field. It is never a 500.
+4. **DoD 8 migrations.** Original: *"an additive migration only, if OQ-6 or OQ-7 needs one"*.
+
+   New: two migrations. 0023 (slice 02) is additive. 0024 (slice 03) adds triggers and **replaces**
+   the shared `foundry_enforce_name_rule()` with an identical body plus one HINT arm. Both are
+   rolling-deploy safe, and the CHANGELOG notes say so.
+
+No other story's acceptance intent changes. Changes 1 and 2 edit one example and one AC each.
+Following the house precedent (lean layout), no separate `upstream-changes.md` is created. DISTILL
+applies the two edits.
+
+### [REF] Handoff
+
+- **DISTILL:** the pinned seams are:
+  - the Authorization Matrix and the Statuses table;
+  - the `TeamNameError` and `TeamNotice` strings (D12, byte-exact);
+  - the confirm page's DOM (heading, member line, conditional default and token lines, **Delete
+    team** / **Cancel**, refusal with the "Name (KEY)" list ordered by name then key);
+  - the members page controls per the matrix;
+  - Changed Assumptions 1-2.
+
+  See OQ-D1 to OQ-D3.
+- **DEVOPS:**
+  - Two forward-only migrations: 0023 in slice 02, 0024 in slice 03.
+  - A probe delta (0023).
+  - CHANGELOG notes covering the rolling-deploy window (an old replica's project create racing a
+    delete may answer 500, and loses nothing) and OQ-D6's counts.
+  - No new external integration, so no contract tests.
+  - Paradigm OOP (`nw-software-crafter`).
+- **ADRs:**
+  - `docs/product/architecture/adr-team-lifecycle-001-team-name-rule-and-create-use-case.md`
+  - `adr-team-lifecycle-002-delete-refuses-while-projects-exist.md`
+  - `adr-team-lifecycle-003-team-lifecycle-events-and-rename-transaction.md`
+  - `adr-team-lifecycle-004-team-access-administer-arm.md`
