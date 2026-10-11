@@ -46,6 +46,42 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
     DROP TABLE IF EXISTS team_lifecycle_events;
     ```
 
+- **`0024_team_name_rule`** adds two triggers on `teams`:
+  `teams_name_rule_on_insert` (`BEFORE INSERT`) and `teams_name_rule_on_rename`
+  (`BEFORE UPDATE OF name`, only when the name changes). Both apply the name
+  rule of 0019 at the team cap of 64 characters, reusing
+  `foundry_name_rule_violation(text, integer)` unchanged. A new or renamed team
+  name that breaks the rule is refused with SQLSTATE `23514` and one of the
+  constraint names `teams_name_not_empty`, `teams_name_trimmed`,
+  `teams_name_no_control_chars` or `teams_name_max_64_chars`. The HINT reads
+  "The name must be a valid foundry_core::TeamName: trimmed, not empty, no
+  control characters, at most 64 characters."
+  - **The shared trigger function is replaced.** `foundry_enforce_name_rule()`
+    is re-created with the same body plus one HINT line for `teams`.
+    Workspaces and projects keep their rules, caps and HINTs.
+  - **No row is scanned or rewritten.** The rule applies to new writes only.
+    A team name stored before 0024 that breaks the rule stays as it is, and
+    writes that keep it (the slug, or the same name) still succeed. Renaming
+    it to another bad name is refused. The migration checks its own result
+    and refuses to apply if the verdict at 64 or either trigger differs.
+  - **Counted before this release, read-only, on 2026-10-11:** dev and prod
+    each hold 1 team, with 0 team names that break the rule and 0
+    case-insensitive duplicate team names within a workspace.
+  - **Rolling deploys are safe.** The only team write an older replica makes
+    is the bootstrap's `General`, which the rule accepts.
+  - **Rollback floor: v0.13.0.** Nothing an older binary reads changes. To
+    remove the rule by hand (the extra HINT line is inert without a `teams`
+    trigger and may stay):
+
+    ```sql
+    DROP TRIGGER IF EXISTS teams_name_rule_on_insert ON teams;
+    DROP TRIGGER IF EXISTS teams_name_rule_on_rename ON teams;
+    ```
+
+    The v0.12.0 undo of the whole name rule (drop the triggers, then both
+    functions) now drops these two triggers too, before the functions. To
+    re-arm, forget versions 19, 20 and 24 in `_sqlx_migrations` and boot.
+
 ## [v0.13.0] - 2026-10-10
 
 Teams you can manage from the product: a Teams page and per-team member lists, adding

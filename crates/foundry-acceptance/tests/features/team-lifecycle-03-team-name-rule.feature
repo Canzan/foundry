@@ -117,7 +117,7 @@ Feature: Every team name follows one rule, and a name in any script gets a worki
     Then each time, both teams were created, at the addresses "team" and "team-2"
     And no answer was a server error
 
-  @us-tl-04 @error @adapter-integration @contract-shape:unbounded-preservation @pending
+  @us-tl-04 @error @adapter-integration @contract-shape:unbounded-preservation
   Scenario Outline: A team name typed at the database prompt that breaks the rule is refused under the rule's name
     When the operator adds a team named "<typed>" to Canzan Labs at the database prompt
     Then the database refuses the team name under the rule "<rule>"
@@ -131,7 +131,7 @@ Feature: Every team name follows one rule, and a name in any script gets a worki
       | [SPACE]             | teams_name_not_empty         |
       | [SPACE]Platform     | teams_name_trimmed           |
 
-  @us-tl-04 @error @adapter-integration @contract-shape:unbounded-preservation @pending
+  @us-tl-04 @error @adapter-integration @contract-shape:unbounded-preservation
   Scenario Outline: A team renamed at the database prompt to a name that breaks the rule is refused
     When the operator renames team Backend to "<typed>" at the database prompt
     Then the database refuses the team name under the rule "<rule>"
@@ -142,7 +142,7 @@ Feature: Every team name follows one rule, and a name in any script gets a worki
       | Backend[U+202E]     | teams_name_no_control_chars  |
       | [65×a]              | teams_name_max_64_chars      |
 
-  @us-tl-04 @edge @adapter-integration @contract-shape:bounded-change @pending
+  @us-tl-04 @edge @adapter-integration @contract-shape:bounded-change
   Scenario: A team name the app would accept is stored at the database prompt exactly as typed
     When the operator adds a team named "[64×日]" to Canzan Labs at the database prompt
     Then the database stores the team name exactly as typed, and nothing else changed

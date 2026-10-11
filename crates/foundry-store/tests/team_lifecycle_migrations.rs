@@ -299,7 +299,6 @@ async fn the_probe_refuses_a_schema_without_the_lifecycle_record() {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-#[ignore = "pending: team-lifecycle 03-01"]
 async fn a_new_team_name_that_breaks_the_rule_is_refused_under_its_arm() {
     require_0024();
     let (pool, _c) = fresh().await;
@@ -333,7 +332,6 @@ async fn a_new_team_name_that_breaks_the_rule_is_refused_under_its_arm() {
 }
 
 #[tokio::test]
-#[ignore = "pending: team-lifecycle 03-01"]
 async fn a_legacy_team_name_is_never_scanned_and_survives_writes_that_keep_it() {
     require_0024();
     let (pool, _c) = fresh().await;
@@ -375,7 +373,6 @@ async fn a_legacy_team_name_is_never_scanned_and_survives_writes_that_keep_it() 
 /// their rule, their caps and their HINT; the teams triggers are installed and
 /// enabled; and re-applying the migration's body is a no-op.
 #[tokio::test]
-#[ignore = "pending: team-lifecycle 03-01"]
 async fn migration_0024_keeps_the_other_rules_installs_both_triggers_and_reruns_cleanly() {
     require_0024();
     let (pool, _c) = fresh().await;

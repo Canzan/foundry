@@ -940,10 +940,18 @@ async fn rule_switched_on_in_restored(world: &mut FoundryWorld) {
                     .map(move |name| (t.table().to_string(), name, "O".to_string()))
             })
             .collect();
+    // team-lifecycle migration 0024 (DESIGN DDD-6) adds the teams pair. They are
+    // named here, not through `NameRuleTable` (DESIGN OQ-D5: no `Teams` arm in
+    // the store unless a fixture needs a pre-0024 team name).
+    expected.extend(
+        ["teams_name_rule_on_insert", "teams_name_rule_on_rename"]
+            .into_iter()
+            .map(|name| ("teams".to_string(), name.to_string(), "O".to_string())),
+    );
     expected.sort();
     assert_eq!(
         triggers, expected,
-        "after a restore the four name triggers must exist and be enabled (D9, DDD-14)"
+        "after a restore every name trigger (workspaces, projects and teams) must exist and be enabled (D9, DDD-14)"
     );
     let (verdict, enforce): (bool, bool) = sqlx::query_as(
         "SELECT to_regprocedure('foundry_name_rule_violation(text, integer)') IS NOT NULL,

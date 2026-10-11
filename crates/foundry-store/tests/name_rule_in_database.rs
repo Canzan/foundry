@@ -1,6 +1,8 @@
 //! name-db-checks (DISCUSS D1-D12; DESIGN DDD-4/5/7/8/10/14/15, ADR-NAME-DB-001):
 //! the name rule is wired to every NEW name write on `workspaces` and `projects`,
-//! and to nothing else.
+//! and to nothing else. team-lifecycle's 0024 (DDD-6) adds the two `teams`
+//! triggers at `'64'`: the pin is six triggers, and the teams parity rows sit
+//! beside the workspace and project ones.
 //!
 //! - Migrations 0019 (verdict + enforce functions, UTF8 guard, apply-time
 //!   self-check, the two `workspaces` triggers at `'24'`) and 0020 (the two
@@ -64,10 +66,13 @@ const LEGACY_LONG: &str = "Canzan Labs Platform Engineering and Site Reliability
 const LEGACY_TAB_WORKSPACE: &str = "Canzan\tLabs";
 const LEGACY_TAB_PROJECT: &str = "Homelab\tOps";
 
-/// The four triggers DDD-5 names, `(table, trigger)`.
-const TRIGGERS: [(&str, &str); 4] = [
+/// The six triggers DDD-5 names (0019, 0020, and team-lifecycle's 0024 at
+/// DDD-6), `(table, trigger)`.
+const TRIGGERS: [(&str, &str); 6] = [
     ("projects", "projects_name_rule_on_insert"),
     ("projects", "projects_name_rule_on_rename"),
+    ("teams", "teams_name_rule_on_insert"),
+    ("teams", "teams_name_rule_on_rename"),
     ("workspaces", "workspaces_name_rule_on_insert"),
     ("workspaces", "workspaces_name_rule_on_rename"),
 ];
@@ -219,10 +224,10 @@ async fn require_rule_installed(pool: &PgPool) {
     .await
     .expect("look the rule up");
     assert!(
-        verdict && enforce && triggers == 4,
-        "RED gate: migrations 0019/0020 have not installed the name rule yet \
-         (verdict fn {verdict}, enforce fn {enforce}, {triggers} of 4 triggers; \
-         name-db-checks DDD-1/4/5/7)"
+        verdict && enforce && triggers == 6,
+        "RED gate: migrations 0019/0020/0024 have not installed the name rule yet \
+         (verdict fn {verdict}, enforce fn {enforce}, {triggers} of 6 triggers; \
+         name-db-checks DDD-1/4/5/7, team-lifecycle DDD-6)"
     );
 }
 
@@ -366,10 +371,11 @@ async fn insert_legacy_rows(pool: &PgPool) -> Legacy {
     }
 }
 
-/// Every name in both tables plus each project's issue counter (the universe).
+/// Every name in the three ruled tables plus each project's issue counter (the universe).
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Names {
     workspaces: BTreeMap<uuid::Uuid, String>,
+    teams: BTreeMap<uuid::Uuid, String>,
     projects: BTreeMap<uuid::Uuid, (String, i32)>,
 }
 
@@ -378,6 +384,10 @@ async fn names(pool: &PgPool) -> Names {
         .fetch_all(pool)
         .await
         .expect("read workspaces");
+    let teams: Vec<(uuid::Uuid, String)> = sqlx::query_as("SELECT id, name FROM teams")
+        .fetch_all(pool)
+        .await
+        .expect("read teams");
     let projects: Vec<(uuid::Uuid, String, i32)> =
         sqlx::query_as("SELECT id, name, next_issue_number FROM projects")
             .fetch_all(pool)
@@ -385,6 +395,7 @@ async fn names(pool: &PgPool) -> Names {
             .expect("read projects");
     Names {
         workspaces: workspaces.into_iter().collect(),
+        teams: teams.into_iter().collect(),
         projects: projects
             .into_iter()
             .map(|(id, name, n)| (id, (name, n)))
@@ -406,7 +417,7 @@ async fn triggers(pool: &PgPool) -> Vec<(String, String, String)> {
     .expect("read the name-rule triggers")
 }
 
-fn all_four_enabled() -> Vec<(String, String, String)> {
+fn all_six_enabled() -> Vec<(String, String, String)> {
     TRIGGERS
         .iter()
         .map(|(t, n)| (t.to_string(), n.to_string(), "O".to_string()))
@@ -418,15 +429,12 @@ fn all_four_enabled() -> Vec<(String, String, String)> {
 // ---------------------------------------------------------------------------
 
 fn assert_refused(result: Result<sqlx::postgres::PgQueryResult, sqlx::Error>, arm: &str) {
-    let table = if arm.starts_with("workspaces_") {
-        "workspaces"
+    let (table, rust_type) = if arm.starts_with("workspaces_") {
+        ("workspaces", "WorkspaceName")
+    } else if arm.starts_with("teams_") {
+        ("teams", "TeamName")
     } else {
-        "projects"
-    };
-    let rust_type = if table == "workspaces" {
-        "WorkspaceName"
-    } else {
-        "ProjectName"
+        ("projects", "ProjectName")
     };
     let err = match result {
         Ok(done) => panic!(
@@ -506,7 +514,7 @@ async fn migrations_0019_and_0020_apply_over_legacy_rows_rewrite_none_and_rerun_
         before,
         "no legacy row is rewritten (D4)"
     );
-    assert_eq!(triggers(&pool).await, all_four_enabled());
+    assert_eq!(triggers(&pool).await, all_six_enabled());
     // Scoped to 19 and 20, not `>= 19`: later migrations (0021, 0022, ...) also apply here.
     let (applied,): (Vec<i64>,) = sqlx::query_as(
         "SELECT array_agg(version ORDER BY version) FROM _sqlx_migrations WHERE version IN (19, 20)",
@@ -527,7 +535,7 @@ async fn migrations_0019_and_0020_apply_over_legacy_rows_rewrite_none_and_rerun_
 async fn the_triggers_fire_only_on_new_name_writes_with_each_tables_cap_and_say_what_they_mirror() {
     let (pool, _c) = migrated().await;
     require_rule_installed(&pool).await;
-    assert_eq!(triggers(&pool).await, all_four_enabled());
+    assert_eq!(triggers(&pool).await, all_six_enabled());
     for (table, trigger) in TRIGGERS {
         let (def, comment): (String, Option<String>) = sqlx::query_as(
             "SELECT pg_get_triggerdef(t.oid), obj_description(t.oid, 'pg_trigger')
@@ -540,15 +548,10 @@ async fn the_triggers_fire_only_on_new_name_writes_with_each_tables_cap_and_say_
         .fetch_one(&pool)
         .await
         .unwrap_or_else(|e| panic!("read {trigger}: {e}"));
-        let cap = if table == "workspaces" {
-            "'24'"
-        } else {
-            "'256'"
-        };
-        let rust_type = if table == "workspaces" {
-            "foundry_core::WorkspaceName"
-        } else {
-            "foundry_core::ProjectName"
+        let (cap, rust_type) = match table {
+            "workspaces" => ("'24'", "foundry_core::WorkspaceName"),
+            "teams" => ("'64'", "foundry_core::TeamName"),
+            _ => ("'256'", "foundry_core::ProjectName"),
         };
         assert!(
             def.contains("BEFORE"),
@@ -676,6 +679,28 @@ async fn a_bad_name_write_is_refused_per_arm_and_table_and_nothing_changes() {
             arm,
         );
     }
+    let over_long_team = "x".repeat(65);
+    let team_cases: [(&str, &str); 5] = [
+        ("", "teams_name_not_empty"),
+        (" Backend", "teams_name_trimmed"),
+        ("Backend\u{00A0}", "teams_name_trimmed"),
+        ("Back\tend", "teams_name_no_control_chars"),
+        (over_long_team.as_str(), "teams_name_max_64_chars"),
+    ];
+    for (name, arm) in team_cases {
+        assert_refused(rename(&pool, "teams", legacy.team, name).await, arm);
+        assert_refused(
+            sqlx::query(
+                "INSERT INTO teams (id, workspace_id, name, slug) VALUES ($1, $2, $3, 'new')",
+            )
+            .bind(uuid::Uuid::now_v7())
+            .bind(legacy.household)
+            .bind(name)
+            .execute(&pool)
+            .await,
+            arm,
+        );
+    }
     assert_eq!(names(&pool).await, before, "a refusal moves nothing");
 }
 
@@ -708,6 +733,14 @@ async fn fit_names_are_stored_byte_exact_and_uniqueness_is_left_to_the_app() {
     rename(&pool, "projects", legacy.sandbox, &"日".repeat(256))
         .await
         .expect("256 three-byte characters are accepted");
+    rename(&pool, "teams", legacy.team, &"日".repeat(64))
+        .await
+        .expect("64 three-byte characters are accepted for a team (never stricter than TeamName)");
+    assert_eq!(
+        names(&pool).await.teams[&legacy.team],
+        "日".repeat(64),
+        "stored byte for byte"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -950,7 +983,11 @@ fn do_blocks(sql: &str) -> Vec<String> {
 async fn the_apply_time_self_check_refuses_a_verdict_function_that_passes_everything() {
     let (pool, _c) = migrated().await;
     require_rule_installed(&pool).await;
-    for file in ["0019_workspace_name_rule.sql", "0020_project_name_rule.sql"] {
+    for file in [
+        "0019_workspace_name_rule.sql",
+        "0020_project_name_rule.sql",
+        "0024_team_name_rule.sql",
+    ] {
         let sql = std::fs::read_to_string(production_migrations_dir().join(file))
             .unwrap_or_else(|e| panic!("read {file}: {e}"));
         let blocks = do_blocks(&sql);
@@ -1000,14 +1037,14 @@ async fn the_legacy_seam_stores_exactly_the_callers_row_and_leaves_both_triggers
     let mut expected = before.clone();
     expected.workspaces.insert(id, LEGACY_LONG.to_string());
     assert_eq!(names(&pool).await, expected, "exactly the caller's row");
-    assert_eq!(triggers(&pool).await, all_four_enabled());
+    assert_eq!(triggers(&pool).await, all_six_enabled());
 
     let team = insert_team(&pool, id).await;
     let project = project_seed(id, team, LEGACY_TAB_PROJECT, "OPS");
     seam_insert_project(&pool, &project)
         .await
         .expect("the seam stores a legacy project");
-    assert_eq!(triggers(&pool).await, all_four_enabled());
+    assert_eq!(triggers(&pool).await, all_six_enabled());
 
     let orphan = project_seed(id, uuid::Uuid::now_v7(), "Orphan", "ORP");
     assert!(
@@ -1020,7 +1057,7 @@ async fn the_legacy_seam_stores_exactly_the_callers_row_and_leaves_both_triggers
     assert!(failing.is_err(), "a duplicate id fails inside the seam");
     assert_eq!(
         triggers(&pool).await,
-        all_four_enabled(),
+        all_six_enabled(),
         "a failed seam write leaves both triggers enabled (the transaction rolls back)"
     );
     assert_refused(
@@ -1112,7 +1149,7 @@ async fn a_post_upgrade_dump_holding_legacy_rows_restores_byte_identical_with_th
     let restored = connect(&c, "restored").await;
 
     assert_eq!(names(&restored).await, source, "names byte-identical (D9)");
-    assert_eq!(triggers(&restored).await, all_four_enabled());
+    assert_eq!(triggers(&restored).await, all_six_enabled());
     assert_refused(
         rename(&restored, "workspaces", ws, "House\tHold").await,
         "workspaces_name_no_control_chars",
@@ -1161,7 +1198,7 @@ async fn a_pre_upgrade_dump_restores_into_a_fresh_database_and_the_next_boot_rea
         source,
         "the legacy rows are untouched (D9)"
     );
-    assert_eq!(triggers(&restored).await, all_four_enabled());
+    assert_eq!(triggers(&restored).await, all_six_enabled());
     assert_refused(
         rename(&restored, "workspaces", legacy.household, "House\tHold").await,
         "workspaces_name_no_control_chars",
@@ -1219,14 +1256,15 @@ async fn the_previous_release_boots_against_the_migrated_database_and_writes_val
         .expect("the old release creates a valid project");
     assert_eq!(
         triggers(&pool).await,
-        all_four_enabled(),
+        all_six_enabled(),
         "the rule is untouched"
     );
 }
 
-/// DDD-15: the documented undo (drop the four triggers, then both functions)
+/// DDD-15: the documented undo (drop the six triggers, then both functions)
 /// leaves a healthy store that writes any name; the documented re-arm (forget
-/// versions 19 and 20, boot) brings the rule back over the rows written meanwhile.
+/// versions 19, 20 and 24, boot) brings the rule back over the rows written
+/// meanwhile.
 #[tokio::test]
 async fn the_documented_undo_and_rearm_work() {
     let (pool, _c) = migrated().await;
@@ -1236,6 +1274,8 @@ async fn the_documented_undo_and_rearm_work() {
          DROP TRIGGER IF EXISTS workspaces_name_rule_on_rename ON workspaces;
          DROP TRIGGER IF EXISTS projects_name_rule_on_insert ON projects;
          DROP TRIGGER IF EXISTS projects_name_rule_on_rename ON projects;
+         DROP TRIGGER IF EXISTS teams_name_rule_on_insert ON teams;
+         DROP TRIGGER IF EXISTS teams_name_rule_on_rename ON teams;
          DROP FUNCTION IF EXISTS foundry_enforce_name_rule(), foundry_name_rule_violation(text, integer);",
     )
     .execute(&pool)
@@ -1250,15 +1290,15 @@ async fn the_documented_undo_and_rearm_work() {
         .await
         .expect("with the rule undone, any name is stored");
 
-    sqlx::query("DELETE FROM _sqlx_migrations WHERE version IN (19, 20)")
+    sqlx::query("DELETE FROM _sqlx_migrations WHERE version IN (19, 20, 24)")
         .execute(&pool)
         .await
-        .expect("forget 19 and 20");
+        .expect("forget 19, 20 and 24");
     run_migrations(&pool)
         .await
         .expect("the re-runnable bodies re-arm the rule (DDD-7)");
     require_rule_installed(&pool).await;
-    assert_eq!(triggers(&pool).await, all_four_enabled());
+    assert_eq!(triggers(&pool).await, all_six_enabled());
     assert_eq!(
         names(&pool).await.workspaces[&during],
         "Written\tduring the undo",
