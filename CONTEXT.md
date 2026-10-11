@@ -2,15 +2,19 @@
 
 ## Current Task
 
-**team-lifecycle** (create, rename and delete teams): DELIVER is in progress; slice 01 is done (01-01 `f14e979`, 01-02 `23d2174`, 01-03 `25857a7`+`e44a2da`), and 02-01 (migration 0023 and a delete that never loses a project) is next. It is committed locally and NOT pushed. The user decided: refuse delete while the team has projects; a lead may rename; audit rename and delete; a DB name rule at cap 64. Earlier: team-membership shipped in v0.13.0 (dev live; prod awaiting approval).
+**team-lifecycle** (create, rename and delete teams): DELIVER is paused after **02-01** (`d803331`); 4 of 13 steps are done, committed locally and NOT pushed. Done:
+- slice 01: admins create teams and lead them (`f14e979`, `23d2174`, `25857a7`, `e44a2da`);
+- 02-01: migration 0023 (the `team_lifecycle_events` audit table), a delete that never loses a project (store-proven, 100-run race), and requests that lose their team answer 404/422 instead of 500.
+
+**Resume:** `/nw:continue team-lifecycle` from step **02-02** (the delete page). The step contexts are in `docs/feature/team-lifecycle/deliver/roadmap.json`; owed items are in `deliver/finalize-owed.md`. Earlier: team-membership shipped in v0.13.0 (live on dev; prod awaiting approval).
 
 ## Key Decisions
 
-- Never-leaderless is a team-row `FOR NO KEY UPDATE` lock plus a DB trigger (ADR-TEAM-MEMBERSHIP-001); the default team is a composite-FK column (ADR-002).
-- Under machine load, run smoke with `RUST_TEST_THREADS=1` and mutants with `-j 1`; never run hand mutation in parallel with lanes.
+- The user decided: refuse delete while the team has projects; a lead may rename; audit rename and delete; a DB team-name rule at cap 64.
+- 0023 keeps its foreign keys, so a pre-0023 dump can no longer be restored OVER an upgraded database. The upgrading boot logs one warning (not on a fresh install), and the CHANGELOG says to restore old dumps into a fresh database.
 
 ## Next Steps
 
-- Done before release: 0 orphan team rows on dev and prod (OQ-D4); KPI-1 baseline dev 1 (the SSO account) / prod 0; KPI-3 0/0. Owed: the dogfood on dev (as jeffabailey, add jeff@unintelligent-design.us to General, then open Sandbox), and approving prod.
-- Follow-ups: H8 log-capture test; team create/rename/delete; per-invite team; show signed-in account; name projects constraints.
-- The jeffbaileyblog zsh-wasm-playground pytest leaks `zswp-oracle` containers.
+- 02-02 to 04-04, then finalize.
+- At release, ask the user which pre-0023 backups to delete (per-workspace backup files and/or the homelab CNPG backups). The user said to delete the old backups; nothing has been deleted yet.
+- Follow-ups are in `docs/feature/team-lifecycle/deliver/finalize-owed.md`.

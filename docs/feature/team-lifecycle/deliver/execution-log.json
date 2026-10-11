@@ -92,6 +92,41 @@
       "s": "EXECUTED",
       "d": "PASS",
       "t": "2026-10-11T13:25:48Z"
+    },
+    {
+      "sid": "02-01",
+      "p": "RED",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-10-11T13:29:48Z"
+    },
+    {
+      "sid": "02-01",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-10-11T13:37:33Z"
+    },
+    {
+      "sid": "02-01",
+      "p": "COMMIT",
+      "s": "SKIPPED",
+      "d": "BLOCKED_BY_DEPENDENCY: existing test name_rule_in_database.rs::a_pre_upgrade_dump_restores_over_a_migrated_database_and_the_next_boot_reapplies_the_rule fails under 0023 FKs; escalated to architect and acceptance designer",
+      "t": "2026-10-11T13:52:17Z"
+    },
+    {
+      "sid": "02-01",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-10-11T16:03:08Z"
+    },
+    {
+      "sid": "02-01",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-10-11T16:03:24Z"
     }
   ]
 }

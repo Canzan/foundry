@@ -1,0 +1,2 @@
+- 01-02: the first_team_slug tie-break (ORDER BY name, slug) is untested when a user is on two teams; add a store test (acceptance designer).
+- 02-01: is_fk_violation '&&→||' survives (needs a 23503 on another constraint, e.g. insert_project with a foreign workspace id); Store::migrate→Ok(()) only caught by smoke; merged locked DELETE is an equivalent mutant.
