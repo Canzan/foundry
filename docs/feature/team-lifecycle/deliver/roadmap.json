@@ -1,0 +1,746 @@
+{
+  "roadmap": {
+    "project_id": "team-lifecycle",
+    "created_at": "2026-10-11T00:00:00Z",
+    "total_steps": 13,
+    "goal": "A workspace admin can create a team (born led by its creator, under one TeamName rule with a never-empty, never-changing slug: slugify, else team, team-2, ...), delete it through a GET confirm page and a POST that refuse while the team has any project, decided at commit time under the team row FOR UPDATE so a racing project create is never destroyed (INV-TL-1) and no racing writer answers 500 (INV-TL-2), and an admin or the team's lead can rename it, name only, slug and every link unchanged; rename and delete each write one team_lifecycle_events record (migration 0023, probe line) and the database refuses a bad new team name under its arm (migration 0024); every unauthorized refusal is byte-identical to the uniform 404, tenancy comes only from the session, and a provisioned workspace with zero teams is no longer a dead end (New project on the members page, the dashboard link to a team the caller is on).",
+    "sources": [
+      "docs/feature/team-lifecycle/feature-delta.md",
+      "docs/feature/team-lifecycle/distill/red-classification.md",
+      "docs/feature/team-lifecycle/slices/slice-01-admin-creates-team.md",
+      "docs/feature/team-lifecycle/slices/slice-02-delete-team-never-loses-a-project.md",
+      "docs/feature/team-lifecycle/slices/slice-03-team-name-rule-and-fallback-slug.md",
+      "docs/feature/team-lifecycle/slices/slice-04-rename-team-keeps-its-urls.md",
+      "docs/product/architecture/adr-team-lifecycle-001-team-name-rule-and-create-use-case.md",
+      "docs/product/architecture/adr-team-lifecycle-002-delete-refuses-while-projects-exist.md",
+      "docs/product/architecture/adr-team-lifecycle-003-team-lifecycle-events-and-rename-transaction.md",
+      "docs/product/architecture/adr-team-lifecycle-004-team-access-administer-arm.md",
+      "docs/product/architecture/brief.md",
+      "docs/feature/team-membership/deliver/roadmap.json",
+      "crates/foundry-acceptance/tests/features/team-lifecycle-01-create-team.feature",
+      "crates/foundry-acceptance/tests/features/team-lifecycle-02-delete-team.feature",
+      "crates/foundry-acceptance/tests/features/team-lifecycle-03-team-name-rule.feature",
+      "crates/foundry-acceptance/tests/features/team-lifecycle-04-rename-team.feature",
+      "crates/foundry-acceptance/src/steps/feature_team_lifecycle.rs",
+      "crates/foundry-acceptance/src/support/team_lifecycle.rs",
+      "crates/foundry-core/src/team_name.rs",
+      "crates/foundry-store/src/teams.rs",
+      "crates/foundry-services/src/teams.rs",
+      "crates/foundry-store/tests/team_create.rs",
+      "crates/foundry-store/tests/team_delete.rs",
+      "crates/foundry-store/tests/team_rename.rs",
+      "crates/foundry-store/tests/team_lifecycle_migrations.rs",
+      "crates/foundry-store/tests/name_rule_in_database.rs",
+      "crates/foundry-store/tests/probe_schema_scoping.rs",
+      "crates/foundry-services/tests/team_lifecycle_use_cases.rs",
+      "crates/foundry-app/src/projects.rs",
+      "xtask/src/check_arch.rs"
+    ],
+    "scenario_ownership_invariant": "All 53 DISTILL acceptance scenarios (95 outline rows) and all 34 pending store/use-case tests are owned by exactly one step, by name, numbered as in the DISTILL scenario table: 01-01: 2 (1, 2 = 2 rows) + 5 store tests (team_create.rs, 'pending: team-lifecycle 01-01') + 2 use-case tests (team_lifecycle_use_cases.rs, '01-01'); 01-02: 3 (3, 4, 5 = 6 rows); 01-03: 6 (6-11 = 12 rows) + the new check-arch gold tests; 02-01: 0 acceptance + 10 store tests (team_delete.rs, '02-01') + 3 migration tests (team_lifecycle_migrations.rs, '02-01') + 1 use-case test (team_lifecycle_use_cases.rs, '02-01'); 02-02: 7 (12, 13, 17, 19, 20, 21, 22 = 17 rows); 02-03: 6 (14, 15, 16, 18, 23, 24 = 6 rows); 02-04: 5 (25-29 = 5 rows); 03-01: 3 (39-41 = 8 rows) + 3 migration tests (team_lifecycle_migrations.rs, '03-01'); 03-02: 9 (30-38 = 17 rows) + 4 use-case tests (team_lifecycle_use_cases.rs, '03-01'); 04-01: 0 acceptance + 6 store tests (team_rename.rs, '04-01'); 04-02: 6 (42, 43, 44, 45, 48, 49 = 8 rows); 04-03: 6 (46, 47, 50, 51, 52, 53 = 14 rows); 04-04: 0 (docs, burn-down, mutation report, full CI). Totals: 53 scenarios / 95 rows; 5 + 10 + 6 + 6 + 7 = 34 ignored tests (the ignore reason '03-01' on the use-case races is DISTILL's slice-03 label; this roadmap gives them to step 03-02, the step that un-pends the matching HTTP races 36-38). The 8 tests GREEN at DISTILL (team_delete.rs: four substrate facts, the hand cascade, negative controls (a) and (b); team_lifecycle_migrations.rs: the 22021 NUL fact) and the 3 GREEN_ALREADY acceptance guards (5's admin-not-on-team row, 49's member row, 41) stay green throughout; both negative controls must keep LOSING the project. Scaffolds removed: crates/foundry-core/src/team_name.rs and the crates/foundry-services/src/teams.rs section at 01-01, the crates/foundry-store/src/teams.rs section at 04-01 (its last panic, rename_team_with_audit). DELIVER un-pends a scenario and un-ignores a test only in the step that owns it, in DISTILL order. Burn-down: grep -cE '^[[:space:]]*@.*@pending' crates/foundry-acceptance/tests/features/team-lifecycle-0*.feature (11 + 18 + 12 + 12 = 53 now, 0 at 04-03); grep -c '#\\[ignore = \"pending: team-lifecycle' crates/foundry-store/tests/team_create.rs crates/foundry-store/tests/team_delete.rs crates/foundry-store/tests/team_rename.rs crates/foundry-store/tests/team_lifecycle_migrations.rs crates/foundry-services/tests/team_lifecycle_use_cases.rs (5 + 10 + 6 + 6 + 7 = 34 now, 0 at 04-01); grep -rn 'SCAFFOLD: true \u2014 RED scaffold written by DISTILL (2026-10-11)' crates/ (3 now, 0 at 04-01; other features' older SCAFFOLD markers are not this feature's)."
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "Admin creates a team, leads it, and starts a project on it, the walking skeleton (US-TL-01, slice 01, DDD-1..5, 15-22, 25)",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "Walking skeleton: Priya creates Homelab's first team, leads it, opens its first board",
+          "description": "Store first, then the door. Lands TeamName (all four arms, D12 Display) over the shared predicate and the uniqueness helper extracted from ProjectName, mint_team_slug, create_team_with_lead and list_team_siblings, the create_team use-case, POST /teams, the create form and no-teams-yet copy on /teams, the Created notice and New project on the members page. Un-ignores team_create.rs (5) and two use-case tests, then un-pends scenario 1, then 2.",
+          "criteria": [
+            "An admin's create writes exactly one team and her one Lead row together; a non-admin or outsider creates nothing; a taken slug is DuplicateSlug with nothing written",
+            "Over 100 runs each, two creates of one slug give one team with one lead, and a create racing the creator's workspace removal never leaves a lead outside the workspace",
+            "The create use-case puts the creator as Lead at the derived address; a non-admin is NotFound; an empty, control or 65-scalar name returns its TeamNameError; a colliding derived slug is NotUnique",
+            "Scenarios 1 and 2 green: Homelab's admin reads the no-teams-yet copy, creates Ops, sees 'Created Ops. You're its lead.', follows New project and opens the Homelab Ops board",
+            "No DISTILL SCAFFOLD marker remains in core team_name.rs or the services teams.rs section; tl-01 (1, 2), tm-01, us-07, us-dash, default lanes, store and use-case suites, fmt, clippy, check-arch, smoke green"
+          ],
+          "estimate": "1 day",
+          "dependencies": [],
+          "files_to_modify": [
+            "crates/foundry-core/src/team_name.rs",
+            "crates/foundry-core/src/project_name.rs",
+            "crates/foundry-core/src/lib.rs",
+            "crates/foundry-store/src/teams.rs",
+            "crates/foundry-store/src/lib.rs",
+            "crates/foundry-services/src/teams.rs",
+            "crates/foundry-services/src/lib.rs",
+            "crates/foundry-app/src/teams.rs",
+            "crates/foundry-app/src/lib.rs",
+            "crates/foundry-app/src/views.rs",
+            "crates/foundry-app/templates/teams_index.html",
+            "crates/foundry-app/templates/team_members.html",
+            "crates/foundry-store/tests/team_create.rs",
+            "crates/foundry-services/tests/team_lifecycle_use_cases.rs",
+            "crates/foundry-acceptance/tests/features/team-lifecycle-01-create-team.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/team-lifecycle-01-create-team.feature",
+          "scenario_name": [
+            "Priya starts Homelab's first team, leads it, and opens its first board",
+            "A workspace admin adds a team next to the others and leads it, and only its people see it",
+            "crates/foundry-store/tests/team_create.rs::an_admins_create_writes_the_team_and_her_lead_row_and_nothing_else",
+            "crates/foundry-store/tests/team_create.rs::a_non_admin_or_someone_outside_the_workspace_creates_nothing",
+            "crates/foundry-store/tests/team_create.rs::a_taken_slug_is_a_duplicate_and_nothing_is_written",
+            "crates/foundry-store/tests/team_create.rs::two_creates_of_one_slug_at_once_give_one_team_in_100_runs",
+            "crates/foundry-store/tests/team_create.rs::a_create_racing_the_creators_removal_never_leaves_a_lead_outside_the_workspace",
+            "crates/foundry-services/tests/team_lifecycle_use_cases.rs::an_admin_creates_a_team_she_leads_at_its_derived_address",
+            "crates/foundry-services/tests/team_lifecycle_use_cases.rs::a_non_admin_is_the_uniform_not_found_and_a_bad_name_is_its_reason"
+          ],
+          "lane_commands": [
+            "docker info (Docker up: per-test postgres:16-alpine testcontainers and the shared acceptance Postgres)",
+            "timeout 900 cargo test -p foundry-core team_name project_name",
+            "RUST_TEST_THREADS=1 timeout 2400 cargo test -p foundry-store --test team_create (expect 5 passed, 0 ignored)",
+            "RUST_TEST_THREADS=1 timeout 1800 cargo test -p foundry-services --test team_lifecycle_use_cases (expect 2 passed; 5 still ignored)",
+            "RUST_TEST_THREADS=1 timeout 2400 cargo test -p foundry-store --test team_delete --test team_rename --test team_lifecycle_migrations (8 GREEN substrate/negative-control tests stay green; the rest still ignored)",
+            "timeout 900 cargo test -p foundry-services --test create_project_use_case (the extracted uniqueness / lowest-free helpers keep the project rule)",
+            "timeout 900 cargo fmt --all -- --check",
+            "timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "timeout 600 cargo xtask check-arch",
+            "RUST_TEST_THREADS=1 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; } (rebuild + warm BEFORE any lane; acceptance runs the prebuilt binary)",
+            "FOUNDRY_ACCEPTANCE_TAGS=tl-01 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (expect scenarios 1 and 2 passed; 9 still @pending)",
+            "FOUNDRY_ACCEPTANCE_TAGS=tm-01 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (teams index and members page unchanged for the shipped verbs)",
+            "FOUNDRY_ACCEPTANCE_TAGS=us-07 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (project create, the skeleton's second half)",
+            "FOUNDRY_ACCEPTANCE_TAGS=pnr CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (project-name-rule: the helpers extracted from ProjectName)",
+            "FOUNDRY_ACCEPTANCE_TAGS=us-dash CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance (default lane)"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): unit tests for new pure logic MUST be property-based (proptest) with state-delta discipline where state mutates; single-example unit tests are FALLBACK only with a # bypass: comment. Acceptance scenarios are the cucumber .feature files (already authored by DISTILL -- un-pend, do not re-author). Integration/browser tests stay single-example -- they verify wiring. PARADIGM APPLIES to TeamName (property: TeamName's control verdict equals ProjectName's and WorkspaceName's for every scalar, DESIGN Test Seams) and mint_team_slug (property: never empty; derived slug when slugify is non-empty; else the lowest free of team, team-2, ... over generated taken-sets). EXEMPT FROM PARADIGM for the store tests (real-Postgres integration, the 100-run races are repeated examples with a barrier) and the D12 Display strings (exact-string contracts, byte-exact unit tests). ORDER (store before door, then the WALKING SKELETON): (1) un-ignore the five team_create.rs tests and make them green; (2) the two 01-01 use-case tests; (3) un-pend scenario 1 ALONE and make it green; (4) scenario 2. Confirm the RED first: red-classification.md records scenario 1 stopping at '/teams in Homelab has no no-teams-yet copy' after the Homelab seed, the workspace switch and the Teams follow passed. If a scenario fails after that recorded point for a reason that is not the feature (a selector, a parse), fix the driver crates/foundry-acceptance/src/support/team_lifecycle.rs against DISTILL Pre-requisites' pinned DOM (create form posts 'name' to /teams; members page h1 is the team name, notice is .notice, New project links /team/{slug}/projects/new). CORE (DDD-2/3): NEW crates/foundry-core/src/team_name.rs is DISTILL's scaffold: implement TeamName::try_new (trim, then empty, then is_refused_name_char, then > TEAM_NAME_MAX_CHARS = 64 Unicode scalars) and ensure_unique_among (case-insensitive name match or a non-empty derived slug equal to a sibling's stored slug) over a crate-private helper EXTRACTED from ProjectName::ensure_unique_among (project_name.rs:78), and mint_team_slug over the lowest-free search extracted from mint_project_slug (project_name.rs:129); ProjectName keeps byte-identical behaviour (pnr lane, create_project_use_case.rs). TeamNameError::Display is the D12 copy: 'Team name must not be empty' / 'must not contain control characters' / 'must be at most 64 characters' / 'must be unique within the workspace'. Remove the '// SCAFFOLD: true' marker from team_name.rs. STORE (DDD-5, DISTILL signatures): list_team_siblings(ws) (name, slug); create_team_with_lead(ws, creator, name, slug) -> TeamCreateOutcome {Created{team_id}, DuplicateSlug, NotAdmin}, ONE transaction: (1) the creator's admin workspace_memberships row FOR KEY SHARE (none -> NotAdmin; DDD-10's idiom, so a concurrent workspace removal cannot leave a lead outside the workspace); (2) INSERT teams (a 23505 on teams_workspace_id_slug_key -> DuplicateSlug, nothing written); (3) INSERT team_memberships ... 'lead'; commit (INV-TL-7: born led). first_team_slug stays a scaffold panic until 01-02; team_delete_facts / delete_team_if_empty until 02-01; rename_team_with_audit until 04-01, so the store section keeps its SCAFFOLD marker. SERVICES (DDD-4): teams::create_team(store, principal, raw): is_workspace_admin (else NotFound, the uniform 404) -> TeamName::try_new -> per attempt (max 3, FALLBACK_SLUG_ATTEMPTS idiom of projects.rs::create_with_retry): siblings -> ensure_unique_among -> mint_team_slug -> create_team_with_lead; DuplicateSlug on a derived slug = NotUnique; on a fallback slug = retry; exhaustion = SlugContention (500, one error log, no name, DDD-25). This is the ONE place a team slug is minted. Fold CreateTeamError into TeamError (InvalidName, SlugContention) or keep it: DELIVER's choice (DISTILL scaffold note); if folded, the use-case test's match changes with it (test owner). Remove the services section's SCAFFOLD marker. Services::create_team delegation. TeamMembersView gains on_team (facts.role.is_some()). APP (DDD-16/17/20/22): POST /teams on the shipped /teams route (.post(teams::submit_create)), shared CSRF layer. Gate order: session (none -> uniform 404) -> is_workspace_admin (else uniform 404) -> rule. Created -> 200 members page of the new team with TeamNotice::Created 'Created {team}. You're its lead.'; name refusals -> 422 /teams re-render with the Display copy and the input kept (scenario 6 is owned by 01-03, but the branch lands here because the same handler serves both). TeamNotice::NoTeamsYet 'This workspace has no teams yet. Create one to start a project.' on /teams for an admin of a workspace with no teams, with the create form (Team name field, Create team button) rendered for admins only. Members page: New project link to /team/{slug}/projects/new when on_team (DDD-21), never for an admin who is not on the team (project create would 404). Byte-exact unit tests per TeamNotice variant; add a variant only when its verb lands so -D warnings never sees a dead one. LOGGING: refusals log nothing (DDD-25). CONTRACT SHAPES: TeamName / mint_team_slug pure; create_team_with_lead bounded-change (exactly one teams row + one lead row, or none). Earned Trust: the 100-run same-slug race and the create-vs-removal race are this step's substrate proof; if either ever ends with two teams, a leaderless team or a lead outside the workspace, STOP. TEST OWNERSHIP: the DISTILL tests are the acceptance designer's; DELIVER only un-ignores them. LANES (exact): warm-up 'CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; }'; lane 'FOUNDRY_ACCEPTANCE_TAGS=tl-01 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance'; default lane 'env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance'; gates: 'RUST_TEST_THREADS=1 timeout 2400 cargo test -p foundry-store --test team_create', 'RUST_TEST_THREADS=1 timeout 1800 cargo test -p foundry-services --test team_lifecycle_use_cases', 'timeout 900 cargo fmt --all -- --check', 'timeout 1800 cargo clippy --workspace --all-targets -- -D warnings', 'timeout 600 cargo xtask check-arch', smoke 'RUST_TEST_THREADS=1 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke'; neighbours tm-01, us-07, pnr, us-dash. Lessons: rebuild + warm right before every lane; bound every run with timeout and clear leftover containers if a run is killed; another session may share the worktree, check running lanes and containers first; us-04 in the default lane is a known flake, rerun it alone before calling it a regression; run store suites and smoke with RUST_TEST_THREADS=1 under load. MUTATION: >= 80% (timeout 1800 cargo mutants --in-diff <step diff> --file crates/foundry-core/src/team_name.rs --file crates/foundry-core/src/project_name.rs --file crates/foundry-store/src/teams.rs --file crates/foundry-services/src/teams.rs --file crates/foundry-app/src/teams.rs); every TeamName arm boundary (64/65, padded, astral), the derived-vs-fallback retry branch and the admin gate killed by a named test. COMMIT: one local commit (git commit only). NEVER git push and never open a PR: the user has said no pushes until told."
+        },
+        {
+          "id": "01-02",
+          "name": "New project and the dashboard link reach a team the caller is on (D14)",
+          "description": "Replace is_on_any_team with first_team_slug (ORDER BY name, slug LIMIT 1) and point the dashboard's 'create your first project' link at that team instead of the hardcoded /team/general/projects/new (D14). New project shows for everyone on the team and never for an admin who is not on it. Un-pends 3, 4, 5 (6 rows).",
+          "criteria": [
+            "A new team's lead is sent from her dashboard to her team's project form, never to /team/general/projects/new",
+            "A member of a team with no projects follows the dashboard link to that team's project form and it answers 200",
+            "The lead, a member and the creator are offered New project; a workspace admin who is not on the team is not (the GREEN guard stays green)",
+            "No template or handler holds the literal /team/general/projects/new; a failed first-team lookup renders the empty-state sentence without a link (OQ-D3)",
+            "tl-01 (1-5), fix-hub, us-dash, us-nav, us-07 and default lanes green; fmt, clippy -D warnings, check-arch, smoke green"
+          ],
+          "estimate": "0.5 day",
+          "dependencies": [
+            "01-01"
+          ],
+          "files_to_modify": [
+            "crates/foundry-store/src/teams.rs",
+            "crates/foundry-store/src/lib.rs",
+            "crates/foundry-app/src/signin.rs",
+            "crates/foundry-app/templates/dashboard_root.html",
+            "crates/foundry-app/templates/team_members.html",
+            "crates/foundry-acceptance/tests/features/team-lifecycle-01-create-team.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/team-lifecycle-01-create-team.feature",
+          "scenario_name": [
+            "A new team's lead is sent from the dashboard to that team's project form, not to one she cannot use",
+            "A member of a team with no projects is sent to that team's project form",
+            "Everyone on a team is offered New project, and an admin who is not on it is not"
+          ],
+          "lane_commands": [
+            "timeout 900 cargo fmt --all -- --check",
+            "timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "timeout 600 cargo xtask check-arch",
+            "RUST_TEST_THREADS=1 timeout 2400 cargo test -p foundry-store --test team_create --test team_delete --test team_rename --test team_lifecycle_migrations",
+            "timeout 1800 cargo test -p foundry-app signin (the OQ-D3 lookup-error branch)",
+            "RUST_TEST_THREADS=1 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; }",
+            "FOUNDRY_ACCEPTANCE_TAGS=tl-01 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (expect 1-5 passed, 8 rows; 6 still @pending)",
+            "FOUNDRY_ACCEPTANCE_TAGS=fix-hub CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (the no-team dashboard copy is unchanged)",
+            "FOUNDRY_ACCEPTANCE_TAGS=us-dash CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (the empty-state link)",
+            "FOUNDRY_ACCEPTANCE_TAGS=us-nav CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance",
+            "FOUNDRY_ACCEPTANCE_TAGS=us-07 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance (default lane)"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): unit tests for new pure logic MUST be property-based (proptest) with state-delta discipline where state mutates; single-example unit tests are FALLBACK only with a # bypass: comment. Acceptance scenarios are the cucumber .feature files (already authored by DISTILL -- un-pend, do not re-author). Integration/browser tests stay single-example -- they verify wiring. EXEMPT FROM PARADIGM: one read (first_team_slug) and two render branches over named actors; no pure logic is added. Contract shape: all three scenarios are unbounded-preservation (reads; zero rows changed). Un-pend order: 3, 4, then 5. D14 (THE HARDCODED DASHBOARD LINK): crates/foundry-app/templates/dashboard_root.html:14 links the empty state to /team/general/projects/new, which is a 404 in every provisioned workspace and for anyone not on General (red-classification: scenario 4 stops there for Tomas). DDD-21: Store::first_team_slug(ws, user) -> Option<String> ('SELECT t.slug ... JOIN team_memberships ... ORDER BY t.name, t.slug LIMIT 1') REPLACES is_on_any_team (store lib.rs:936, one caller, signin.rs:437): on_a_team = first.is_some(), and the link is /team/{slug}/projects/new. Delete is_on_any_team (no dead code under -D warnings). The link text stays 'create your first project'; the no-team string is unchanged (fix-hub). OQ-D3: on a lookup error keep today's fail-open on_a_team = true and render the empty-state sentence WITHOUT the link (it can never name a team the caller is not on); an acceptance scenario cannot force the read to fail, so pin it with a unit test on the dashboard model (DISTILL upstream note). Remove the first_team_slug scaffold panic from the store section (the section keeps its marker: delete and rename methods still panic). New project (landed in 01-01) is checked here across roles: Lena (lead), Sam (member), the creator see it; Jeff, an admin not on Backend, does not (GREEN_ALREADY guard row of 5; it must stay green). LANES (exact): warm-up 'CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; }'; lane 'FOUNDRY_ACCEPTANCE_TAGS=tl-01 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance'; default lane 'env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance'; gates: 'RUST_TEST_THREADS=1 timeout 2400 cargo test -p foundry-store --test team_create --test team_delete --test team_rename --test team_lifecycle_migrations', 'timeout 900 cargo fmt --all -- --check', 'timeout 1800 cargo clippy --workspace --all-targets -- -D warnings', 'timeout 600 cargo xtask check-arch', smoke 'RUST_TEST_THREADS=1 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke'; neighbours fix-hub, us-dash, us-nav, us-07. Lessons: rebuild + warm before every lane; bound every run with timeout; check for a concurrent session first. MUTATION: >= 80% (timeout 1800 cargo mutants --in-diff <step diff> --file crates/foundry-store/src/teams.rs --file crates/foundry-store/src/lib.rs --file crates/foundry-app/src/signin.rs); the ORDER BY tie-break, the Some/None branch and the error branch each killed. COMMIT: one local commit (git commit only). NEVER git push and never open a PR."
+        },
+        {
+          "id": "01-03",
+          "name": "Create refusals and check-arch team-name-one-source and team-lifecycle-one-seam",
+          "description": "The create door's edges and refusals: duplicate (case-insensitive name or colliding derived slug) and empty names answer 422 with the input kept, a double submit makes no second team, every non-admin (lead, member, outsider, instance admin, other workspace's admin, signed out) gets the uniform 404, a tokenless POST the shipped 403. Adds check-arch team-name-one-source and team-lifecycle-one-seam (i)/(ii) with gold tests (OQ-D7). Un-pends 6-11 (12 rows).",
+          "criteria": [
+            "A duplicate or empty name answers 422 with its D12 copy, the field keeps the typed text, and zero rows are written; a second submit of the create form makes no second team",
+            "Lena, Sam, Marco, Ines, Hugo and a signed-out visitor posting a create each get the uniform 404 with zero rows written, while Priya's create form still answers",
+            "An instance admin who is not a workspace admin is offered no create form; a tokenless create gets the shipped 403 and nothing changes",
+            "check-arch team-name-one-source and team-lifecycle-one-seam (i)/(ii) flag their injected violations, the team-membership JOIN example is a positive case of (i) (OQ-D7), and the shipped tree passes",
+            "All 11 tl-01 scenarios green, zero @pending in file 01; tm-01, default lanes, xtask tests, fmt, clippy -D warnings, smoke green"
+          ],
+          "estimate": "0.75 day",
+          "dependencies": [
+            "01-02"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/src/teams.rs",
+            "crates/foundry-app/templates/teams_index.html",
+            "xtask/src/check_arch.rs",
+            "crates/foundry-acceptance/tests/features/team-lifecycle-01-create-team.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/team-lifecycle-01-create-team.feature",
+          "scenario_name": [
+            "A name already used in the workspace is refused, and the text is kept",
+            "An empty name is refused",
+            "Sending the create form a second time makes no second team",
+            "Only a workspace admin can create a team",
+            "An instance admin who is not a workspace admin is not offered the form either",
+            "A create sent without the page's token is turned away, and nothing changes",
+            "xtask/src/check_arch.rs::team_name_one_source and ::team_lifecycle_one_seam gold tests (new, DELIVER-authored: one injected violation per clause, the allowed-path counter-examples, and OQ-D7's JOIN as a positive case of (i))"
+          ],
+          "lane_commands": [
+            "timeout 900 cargo test -p xtask team_name_one_source team_lifecycle_one_seam",
+            "timeout 900 cargo test -p xtask (team-membership-one-seam's gold tests still pass with the generalised scanner; the JOIN stays a non-violation there)",
+            "timeout 600 cargo xtask check-arch",
+            "timeout 900 cargo fmt --all -- --check",
+            "timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "RUST_TEST_THREADS=1 timeout 2400 cargo test -p foundry-store --test team_create --test team_delete --test team_rename --test team_lifecycle_migrations",
+            "RUST_TEST_THREADS=1 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; }",
+            "FOUNDRY_ACCEPTANCE_TAGS=tl-01 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (expect all 11 scenarios / 20 rows passed)",
+            "FOUNDRY_ACCEPTANCE_TAGS=tm-01 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance (default lane)",
+            "timeout 60 grep -cE '^[[:space:]]*@.*@pending' crates/foundry-acceptance/tests/features/team-lifecycle-01-create-team.feature (expect 0)"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): unit tests for new pure logic MUST be property-based (proptest) with state-delta discipline where state mutates; single-example unit tests are FALLBACK only with a # bypass: comment. Acceptance scenarios are the cucumber .feature files (already authored by DISTILL -- un-pend, do not re-author). Integration/browser tests stay single-example -- they verify wiring. EXEMPT FROM PARADIGM: the check-arch rules are static source scans over injected-violation temp trees (exact file:line findings), and the create refusals are a closed actor matrix plus exact strings; compensate with one gold test per clause boundary and the fail-closed universe delta on every row. Contract shapes: 6-11 unbounded-preservation (refusal or no-op: teams and team_memberships byte-identical). Un-pend order: 6, 7, 8, then the refusals 9, 10, 11. RED reasons (red-classification.md): 6-8 'no create form'; 9 POST /teams answered 405 (now routed, so the refusal must be the uniform 404 from the gate, never 405 or 400); 10, 11 RED only on their CONTROL (Ines already saw no form; the CSRF 403 already held) -- a refusal that passes only because a route is missing proves nothing, so each control (Priya's teams page still offers creating a team; the same create with the page's token goes through) must be green. Statuses (DDD-18): 422 for every TeamNameError with /teams re-rendered, the Display copy, and the input kept in 'name'; uniform 404 (bootstrap::resource_not_found_page() byte for byte) for every non-admin, the instance admin without a workspace-admin row, the other workspace's admin (tenancy from SessionUser.workspace_id only, D11) and signed out; 403 'CSRF token missing or mismatched' from the shipped csrf_middleware before any handler (OQ-D1). Scenario 8 (D16): a double submit is not deduplicated; the second POST meets the uniqueness refusal, one team. CHECK-ARCH (DDD-19, the known issue): add to xtask/src/check_arch.rs, reusing the shared helpers (generalise team_memberships_writes over the table name, call_sites, the one-source scanner at :4276; do not fork them): (a) rule team-lifecycle-one-seam: (i) no SQL 'INSERT INTO' / 'UPDATE' / 'DELETE FROM' on teams or team_lifecycle_events in any .rs under crates/*/src except crates/foundry-store/src (foundry-acceptance and tests/ excluded as fixtures); (ii) create_team_with_lead( has no call site under crates/{foundry-app,foundry-api}/src (02-01 adds delete_team_if_empty(, 04-01 adds rename_team_with_audit(); (b) rule team-name-one-source: the literal 'Team name must' appears only in crates/foundry-core/src (same exclusions as the shipped one-source rules). Wire both into the run and name them in the PASSED banner; a missing crates/ directory fails closed. Gold tests: one injected violation per clause, the allowed-path counter-examples (store src, acceptance, foundry-services for (ii), foundry-core for (b)), and OQ-D7: the shipped team-membership-one-seam gold test a_read_a_comment_or_another_table_outside_the_store_is_not_a_write (check_arch.rs:5331) uses 'UPDATE teams SET name = $1 FROM team_memberships tm ...' as a NON-violation; it stays a non-violation there, and the same line in an app src file becomes the POSITIVE case of team-lifecycle-one-seam (i) (flagged as a teams write). Verify the shipped tree passes: the only teams writers are the seed in foundry-store and create_team_with_lead. Earned Trust: the rules keep every team write behind the store's lock and transaction, and every team-name string in the one Display. TEST OWNERSHIP: the check-arch gold tests are DELIVER-authored (team-membership precedent); if the dispatched crafter is not permitted to author tests, the acceptance designer writes them before GREEN. LANES (exact): warm-up 'CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; }'; lane 'FOUNDRY_ACCEPTANCE_TAGS=tl-01 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance'; default lane 'env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance'; gates: 'timeout 900 cargo test -p xtask', 'timeout 600 cargo xtask check-arch', 'RUST_TEST_THREADS=1 timeout 2400 cargo test -p foundry-store --test team_create --test team_delete --test team_rename --test team_lifecycle_migrations', 'timeout 900 cargo fmt --all -- --check', 'timeout 1800 cargo clippy --workspace --all-targets -- -D warnings', smoke 'RUST_TEST_THREADS=1 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke'; neighbour tm-01. Lessons: rebuild + warm before every lane; bound every run with timeout; check for a concurrent session first. MUTATION: >= 80% (timeout 1800 cargo mutants --in-diff <step diff> --file xtask/src/check_arch.rs --file crates/foundry-app/src/teams.rs); every clause boundary (store src allowed vs any other src; acceptance excluded; app/api vs services; core vs elsewhere for the literal) killed by a gold test. COMMIT: one local commit (git commit only). NEVER git push and never open a PR."
+        }
+      ]
+    },
+    {
+      "id": "02",
+      "name": "Delete a team after a confirm page; never lose a project (US-TL-02, US-TL-03, slice 02, DDD-7..12, 15, 23, 24, ADR-TEAM-LIFECYCLE-002/003/004, migration 0023)",
+      "steps": [
+        {
+          "id": "02-01",
+          "name": "Migration 0023, probe line, delete_team_if_empty and the 23503 mappings, store-proven",
+          "description": "NEW 0023_team_lifecycle_events.sql (one table, shape CHECK, no FK to teams, workspace-scoped cascade) and the Store::probe line (probe_schema_scoping.rs extended). team_delete_facts and delete_team_if_empty (team FOR UPDATE, fresh project read, DELETE, record). 23503 by constraint name: TeamGone on project insert, add and default set; the token mint answers its shipped 422, not 500. Un-ignores 14 tests; adds the 0023 CHANGELOG note.",
+          "criteria": [
+            "A team with no projects is deleted with exactly its memberships, scoped tokens, the default cleared and one record that outlives it; a team with projects is refused naming each by name then key, and nothing changes",
+            "Over 100 delete-versus-project-create races: 0 projects lost, 0 unmapped errors; a delete waiting on a create refuses naming the new project; both negative controls still lose the project",
+            "A project create, an add and a default set waiting on a delete answer TeamGone; a token mint racing a delete answers the shipped 422 scope_team_not_in_workspace, never Internal",
+            "0023 is additive over a schema at 0022 holding rows; its shape CHECK refuses incoherent records; Store::probe refuses a schema without team_lifecycle_events and probe_schema_scoping.rs stays green",
+            "14 tests un-ignored and green; tm-01..tm-03, tm-05, us-07, machine-token-admin, recipient-unsubscribe and default lanes green; fmt, clippy, check-arch, smoke green"
+          ],
+          "estimate": "1 day",
+          "dependencies": [
+            "01-03"
+          ],
+          "files_to_modify": [
+            "crates/foundry-store/migrations/0023_team_lifecycle_events.sql",
+            "crates/foundry-store/src/teams.rs",
+            "crates/foundry-store/src/lib.rs",
+            "crates/foundry-services/src/projects.rs",
+            "crates/foundry-services/src/teams.rs",
+            "crates/foundry-services/src/tokens.rs",
+            "xtask/src/check_arch.rs",
+            "CHANGELOG.md",
+            "crates/foundry-store/tests/team_delete.rs",
+            "crates/foundry-store/tests/team_lifecycle_migrations.rs",
+            "crates/foundry-store/tests/probe_schema_scoping.rs",
+            "crates/foundry-services/tests/team_lifecycle_use_cases.rs"
+          ],
+          "test_file": "crates/foundry-store/tests/team_delete.rs",
+          "scenario_name": [
+            "the_confirm_facts_count_members_default_tokens_and_projects",
+            "a_team_with_no_projects_is_deleted_with_its_rows_tokens_and_default_and_one_record",
+            "a_team_with_projects_is_refused_naming_each_by_name_then_key_and_nothing_changes",
+            "another_workspaces_team_or_an_unknown_team_is_not_found_and_nothing_changes",
+            "a_delete_whose_record_cannot_be_written_deletes_nothing",
+            "the_delete_record_outlives_the_team_with_its_id_name_and_slug",
+            "a_delete_waiting_on_a_project_create_refuses_naming_the_new_project",
+            "a_project_create_waiting_on_a_delete_answers_team_gone",
+            "an_add_and_a_default_set_waiting_on_a_delete_answer_team_gone",
+            "the_delete_versus_project_create_race_never_loses_a_project_in_100_runs",
+            "crates/foundry-store/tests/team_lifecycle_migrations.rs::migration_0023_is_additive_over_a_schema_holding_rows",
+            "crates/foundry-store/tests/team_lifecycle_migrations.rs::the_record_shape_check_refuses_an_incoherent_record_and_has_no_link_to_teams",
+            "crates/foundry-store/tests/team_lifecycle_migrations.rs::the_probe_refuses_a_schema_without_the_lifecycle_record",
+            "crates/foundry-services/tests/team_lifecycle_use_cases.rs::a_token_mint_racing_a_team_delete_answers_the_shipped_422"
+          ],
+          "lane_commands": [
+            "docker info (Docker up: per-test postgres:16-alpine testcontainers)",
+            "RUST_TEST_THREADS=1 timeout 2400 cargo test -p foundry-store --test team_delete (expect 17 passed, 0 ignored: 10 un-ignored + 7 GREEN substrate/negative-control facts)",
+            "RUST_TEST_THREADS=1 timeout 1800 cargo test -p foundry-store --test team_lifecycle_migrations (expect 4 passed; 3 still ignored for 03-01)",
+            "RUST_TEST_THREADS=1 timeout 1200 cargo test -p foundry-store --test probe_schema_scoping (every healthy schema carries team_lifecycle_events)",
+            "RUST_TEST_THREADS=1 timeout 1800 cargo test -p foundry-services --test team_lifecycle_use_cases (expect 3 passed; 4 still ignored for 03-02)",
+            "RUST_TEST_THREADS=1 timeout 3600 cargo test -p foundry-store (every store test now runs 0023 and the extended probe)",
+            "RUST_TEST_THREADS=1 timeout 1800 cargo test -p foundry-services (create_project_use_case and the token tests see the new mappings)",
+            "timeout 900 cargo test -p xtask team_lifecycle_one_seam",
+            "timeout 600 cargo xtask check-arch",
+            "timeout 900 cargo fmt --all -- --check",
+            "timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "RUST_TEST_THREADS=1 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke (boots through the extended probe)",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; }",
+            "FOUNDRY_ACCEPTANCE_TAGS=tl-02 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (all still @pending; expect 0 run, no hook error)",
+            "for t in tm-01 tm-02 tm-03 tm-05; do FOUNDRY_ACCEPTANCE_TAGS=$t CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance || break; done (add, role, remove and default set keep their outcomes with the TeamGone arms)",
+            "FOUNDRY_ACCEPTANCE_TAGS=us-07 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (project create through the extended insert_project)",
+            "FOUNDRY_ACCEPTANCE_TAGS=machine-token-admin CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (the token mint's shipped 422 contract)",
+            "FOUNDRY_ACCEPTANCE_TAGS=recipient-unsubscribe CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (the whole-workspace delete cascades the new table)",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance (default lane: every scenario schema now carries 0023; the probe must pass)"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): unit tests for new pure logic MUST be property-based (proptest) with state-delta discipline where state mutates; single-example unit tests are FALLBACK only with a # bypass: comment. Acceptance scenarios are the cucumber .feature files (already authored by DISTILL -- un-pend, do not re-author). Integration/browser tests stay single-example -- they verify wiring. EXEMPT FROM PARADIGM: store gold tests on real Postgres are integration wiring; the 100-run race is a repeated example with a barrier, not generated input. STORE-LEVEL SIZING: 0 acceptance scenarios and 14 store/use-case tests; the 8-scenario limit applies to acceptance scenarios (house precedents: team-membership 02-01 with 9 store tests and name-db-checks 02-01 with 11, both approved). The 14 share one mechanism (DDD-7/8/9) and one migration; splitting the 23503 mappings away from the delete would leave a step whose tests cannot run (they race the delete). Un-ignore order: the 0023 and probe tests first, then confirm facts, delete, refusal, NotFound, atomicity, record-outlives, then the waits, then the 100-run race, then the token mint. MIGRATION 0023 (DDD-11/24, ADR-TEAM-LIFECYCLE-003): CREATE TABLE team_lifecycle_events (id, workspace_id REFERENCES workspaces ON DELETE CASCADE, kind 'renamed' | 'deleted', team_id uuid with NO FK to teams, team_slug, name, new_name NULL, actor_id, created_at DEFAULT now()), a shape CHECK (renamed requires new_name, deleted forbids it), an index on (workspace_id, created_at); additive; not in TENANT_TABLES (stays ten) and not in admin_cli KNOWN_FOUNDRY_TABLES (DDD-12, ADR-WORKSPACE-RENAME-002). PROBE LINE (DDD-23, Earned Trust): Store::probe refuses readiness when team_lifecycle_events or its columns are missing, scoped to current_schema() (the 0017/0018/0022 idiom). PROBE_SCHEMA_SCOPING (the team-membership lesson, KNOWN ISSUE): crates/foundry-store/tests/probe_schema_scoping.rs builds minimal schemas by hand and its HEALTHY schemas must carry every table the probe inspects; when 0022's probe line landed, 'sibling' and 'current' each had to gain workspaces.default_team_id or the pass branches broke for the wrong reason. Here, add 'CREATE TABLE sibling.team_lifecycle_events (...probed columns...)' and the same for 'current' in probe_refuses_a_schema_without_the_provisioned_marker (and any other healthy schema in the file), and confirm both tests still fail and pass for their own reasons. STORE (DDD-7/8/10, ADR-TEAM-LIFECYCLE-002): team_delete_facts(team) -> TeamDeleteFacts {member count, is_default, scoped-token count, projects by name then key}, no lock, read-only; delete_team_if_empty(ws, team, actor) -> TeamDeleteOutcome, ONE transaction in EXACTLY this order: (1) SELECT ... FROM teams WHERE workspace_id = $ws AND id = $team FOR UPDATE (none -> NotFound) -- FOR UPDATE, NOT FOR NO KEY UPDATE: only FOR UPDATE conflicts with the FK KEY SHARE every project insert takes (do NOT reuse lock_team_and_read_standing, ADR-002 trap (a)); (2) in a NEW statement, the team's projects by name, key (any -> HasProjects{(name, key)...}, rollback); (3) DELETE FROM teams (the RI cascade takes team_memberships -- 0021 exempt because the team row is already gone, INV-TL-8 -- scoped machine_tokens, and 0022 nulls workspaces.default_team_id); (4) INSERT the 'deleted' record (actor, name, slug, team id); commit. Negative controls (a) FOR NO KEY UPDATE + check and (b) a single DELETE ... WHERE NOT EXISTS must keep LOSING the project; if either stops, the server semantics moved and the ADR must be re-argued. INV-TL-2 MAPPINGS (DDD-9, KNOWN ISSUES 'TeamGone' and 'token mint 500 -> 422'): a sibling helper is_fk_violation(err, constraint) next to is_lead_rule_refusal (teams.rs:127). insert_project: 23503 projects_team_id_fkey -> NEW ProjectInsertError::TeamGone (lib.rs:3500); add_team_member: 23503 team_memberships_team_id_fkey -> NEW AddTeamMemberOutcome::TeamGone (teams.rs:69); set_default_team: 23503 workspaces_default_team_same_workspace -> TeamGone; insert_machine_token (lib.rs:3265): 23503 machine_tokens_scope_team_id_fkey -> a typed error that services/tokens.rs::mint_token maps to the SHIPPED Validation{scope_team_not_in_workspace} (422). Today that race answers ServiceError::Internal, a 500 (red-classification: a real RED, not a scaffold). Services: projects.rs gains CreateProjectError::TeamGone (the app maps it to the uniform 404 in 02-04; until then it falls to the handler's existing error arm, which no shipped scenario reaches); teams.rs maps add and default-set TeamGone to TeamError::NotFound (uniform 404). A 23503 mapping logs nothing (DDD-25: an expected race). LEARNING GATE (slice-02 hypothesis): if the 100-run race EVER loses a project or ends with an unmapped error, STOP; 02-02..02-04 must not start until the mechanism is fixed. CHECK-ARCH: team-lifecycle-one-seam (ii) gains delete_team_if_empty( with one injected-violation gold test. CHANGELOG [Unreleased] 'Migration notes' for 0023: what is added (the table, its CHECK, the index; not in TENANT_TABLES, so not in the per-workspace export, but in every whole-instance pg_dump), Store::probe now requires it (rollback to v0.13.0 is safe: an older binary never reads it), additive and rolling-deploy safe (old replicas never write it), and the rolling-deploy caveat from DESIGN Handoff (an OLD replica's project create racing a NEW replica's delete may answer 500, and loses nothing). Migration immutability: edit 0023 freely until pushed, never after. TEST OWNERSHIP: probe_schema_scoping.rs is a test file; if the dispatched crafter is not permitted to edit tests, the acceptance designer (test owner) authors the fixture extension before GREEN. LANES (exact): warm-up 'CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; }'; lanes 'FOUNDRY_ACCEPTANCE_TAGS=<tag> CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance' for tm-01, tm-02, tm-03, tm-05, us-07, machine-token-admin, recipient-unsubscribe (regression checks, not coverage; no tl-02 scenario is un-pended here); default lane 'env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance'; gates: 'RUST_TEST_THREADS=1 timeout 2400 cargo test -p foundry-store --test team_delete' then 'RUST_TEST_THREADS=1 timeout 3600 cargo test -p foundry-store', 'RUST_TEST_THREADS=1 timeout 1800 cargo test -p foundry-services', 'timeout 900 cargo fmt --all -- --check', 'timeout 1800 cargo clippy --workspace --all-targets -- -D warnings', 'timeout 600 cargo xtask check-arch', smoke 'RUST_TEST_THREADS=1 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke'. Lessons: rebuild + warm before every lane; bound every run with timeout and clear leftover containers if killed; check for a concurrent session first; us-04 is a known default-lane flake. MUTATION: cargo-mutants cannot mutate SQL; >= 80% on the Rust diff (timeout 1800 cargo mutants --in-diff <step diff> --file crates/foundry-store/src/teams.rs --file crates/foundry-store/src/lib.rs --file crates/foundry-services/src/projects.rs --file crates/foundry-services/src/teams.rs --file crates/foundry-services/src/tokens.rs --file xtask/src/check_arch.rs); survivors on the statement order, the lock strength, a constraint name or the 422 mapping are killed with an exact test, not waived. Pin the SQL by hand-mutating a scratch copy once per guard (FOR UPDATE -> FOR NO KEY UPDATE; project read before the lock; drop the record INSERT) and confirming a named test goes red; keep the table for the 04-04 report. COMMIT: one local commit (git commit only). NEVER git push and never open a PR."
+        },
+        {
+          "id": "02-02",
+          "name": "Delete page and delete for a workspace admin; the delete door's refusal matrix",
+          "description": "TeamAccess gains Administer (ADR-TEAM-LIFECYCLE-004). delete_preview and delete_team use-cases, show_delete and submit_delete, GET and POST /team/{slug}/delete, NEW team_delete.html (heading, member line, Delete team, Cancel link), the Delete team link on the members page for an admin, Deleted notice on /teams. Every non-admin, unknown or foreign slug is the uniform 404 on both verbs. Un-pends 12, 13, 17, 19-22 (17 rows).",
+          "criteria": [
+            "The team-access table gains Administer for a workspace admin; can_manage is Manage or Administer and can_delete is Administer only; every shipped team-membership verb behaves as before",
+            "The delete page shows 'Delete Bakcend?', the member line, Delete team and a Cancel link back to the members page, and changes nothing",
+            "Confirming deletes Bakcend with its memberships and one delete record, and /teams shows 'Deleted Bakcend.' without it",
+            "Lena, Sam, Marco, Ines, Hugo, signed out, an unknown slug and Globex's slug get the byte-identical 404 on GET and POST with zero rows written, each control green; a tokenless delete gets the shipped 403",
+            "tl-02 (12, 13, 17, 19-22), tl-01, tm-01..tm-04 and default lanes green; fmt, clippy -D warnings, check-arch, smoke green"
+          ],
+          "estimate": "1 day",
+          "dependencies": [
+            "02-01"
+          ],
+          "files_to_modify": [
+            "crates/foundry-core/src/team_membership.rs",
+            "crates/foundry-services/src/teams.rs",
+            "crates/foundry-services/src/lib.rs",
+            "crates/foundry-app/src/teams.rs",
+            "crates/foundry-app/src/lib.rs",
+            "crates/foundry-app/src/views.rs",
+            "crates/foundry-app/templates/team_delete.html",
+            "crates/foundry-app/templates/team_members.html",
+            "crates/foundry-acceptance/tests/features/team-lifecycle-02-delete-team.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/team-lifecycle-02-delete-team.feature",
+          "scenario_name": [
+            "The delete page says exactly what goes with the team, and changes nothing",
+            "A workspace admin deletes a team that has no projects",
+            "Cancel goes back to the team, and nothing changes",
+            "Only a workspace admin may open a team's delete page",
+            "Only a workspace admin may delete a team",
+            "Another workspace's team and a team that does not exist look the same from Canzan Labs",
+            "A delete sent without the page's token is turned away, and nothing changes"
+          ],
+          "lane_commands": [
+            "timeout 900 cargo test -p foundry-core team_membership",
+            "timeout 900 cargo fmt --all -- --check",
+            "timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "timeout 600 cargo xtask check-arch",
+            "RUST_TEST_THREADS=1 timeout 2400 cargo test -p foundry-store --test team_create --test team_delete --test team_rename --test team_lifecycle_migrations",
+            "RUST_TEST_THREADS=1 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; }",
+            "FOUNDRY_ACCEPTANCE_TAGS=tl-02 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (expect 7 scenarios / 17 rows passed; 11 still @pending)",
+            "FOUNDRY_ACCEPTANCE_TAGS=tl-01 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance",
+            "for t in tm-01 tm-02 tm-03 tm-04; do FOUNDRY_ACCEPTANCE_TAGS=$t CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance || break; done (the Administer arm changes no shipped verb)",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance (default lane)"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): unit tests for new pure logic MUST be property-based (proptest) with state-delta discipline where state mutates; single-example unit tests are FALLBACK only with a # bypass: comment. Acceptance scenarios are the cucumber .feature files (already authored by DISTILL -- un-pend, do not re-author). Integration/browser tests stay single-example -- they verify wiring. EXEMPT FROM PARADIGM: TeamAccess::of stays total over a finite 2 x 3 domain, so the six-row example table (now with Administer) IS the exhaustive property; the predicates (can_view, can_manage, can_delete) get one row each per level. The door is a closed actor matrix; compensate with the fail-closed universe delta on every row. Contract shapes: 12, 17, 19-22 unbounded-preservation; 13 bounded-change (one team and its declared cascade + one record). Un-pend order: 12, 13, 17, then the refusals 19, 20, 21, 22. CORE (DDD-15, ADR-TEAM-LIFECYCLE-004, amends ADR-TEAM-MEMBERSHIP-003): TeamAccess {None, View, Manage, Administer}; of(is_workspace_admin = true, _) -> Administer; Some(Lead) -> Manage; Some(Member) -> View; can_manage = Manage | Administer (so every shipped add / role / remove / members-page control is unchanged, tm-01..04 prove it); can_delete = Administer. Match exhaustively; no wildcard. SERVICES: teams::delete_preview (read-only; no write method on its path, Principle 12) returns the facts or HasProjects; teams::delete_team calls delete_team_if_empty and maps Deleted -> the re-read /teams model, NotFound -> NotFound, HasProjects -> HasProjects (rendered in 02-04). APP (DDD-16/17/18/22): GET and POST /team/{team_slug}/delete on the shared CSRF layer; gate order session (none -> uniform 404) -> facts by (session workspace, slug) (none -> uniform 404) -> can_delete (else uniform 404) -> verb. GET: 200 team_delete.html ({% extends \"app_shell.html\" %}): first h1 'Delete {team}?', the member line '{team} has {n} member(s) and no projects. They lose access to {team}. This can't be undone.', a form posting to /team/{slug}/delete with the Delete team button, and Cancel as a LINK back to /team/{slug}/members (the issue-delete full-page precedent, DISTILL-pinned). The conditional default and token lines land in 02-03; the projects refusal in 02-04. POST Deleted -> 200 /teams re-render with TeamNotice::Deleted 'Deleted {team}.' (no PRG; a reload meets the uniform 404 because the team is gone). Members page: Delete team link only when can_delete. Byte-exact unit tests per new TeamNotice variant. Plain forms, no htmx, scripting-free. RED reasons: 12, 13, 17 'no Delete team link'; 19-22 RED on their CONTROL ('Priya still finds Bakcend's delete page', 'Hugo still finds Payments's delete page', the same delete with the page's token goes through); each control must be green. Tokenless POST: 403 'CSRF token missing or mismatched' from the shipped middleware (OQ-D1). Logging: refusals log nothing. LANES (exact): warm-up 'CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; }'; lane 'FOUNDRY_ACCEPTANCE_TAGS=tl-02 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance' (and tl-01, tm-01..tm-04 the same way); default lane 'env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance'; gates: 'RUST_TEST_THREADS=1 timeout 2400 cargo test -p foundry-store --test team_create --test team_delete --test team_rename --test team_lifecycle_migrations', 'timeout 900 cargo fmt --all -- --check', 'timeout 1800 cargo clippy --workspace --all-targets -- -D warnings', 'timeout 600 cargo xtask check-arch', smoke 'RUST_TEST_THREADS=1 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke'. Lessons: rebuild + warm before every lane; bound every run with timeout; check for a concurrent session first. MUTATION: >= 80% (timeout 1800 cargo mutants --in-diff <step diff> --file crates/foundry-core/src/team_membership.rs --file crates/foundry-services/src/teams.rs --file crates/foundry-app/src/teams.rs --file crates/foundry-app/src/views.rs); every TeamAccess arm and predicate, and the can_delete gate on both verbs, killed by a named test. COMMIT: one local commit (git commit only). NEVER git push and never open a PR."
+        },
+        {
+          "id": "02-03",
+          "name": "What goes with a deleted team: no-team landing, the default, scoped tokens, a reusable address, stale pages",
+          "description": "The confirm page's conditional lines (the default-team warning, the scoped-token count) and the cascade's visible consequences: a member whose only team is gone lands on the no-team page, the default reads 'No team', scoped tokens go, the slug can be created again and reaches only the new team's people, and a re-sent confirm or a stale add finds nothing. Un-pends 14, 15, 16, 18, 23, 24 (6 rows).",
+          "criteria": [
+            "After Bakcend is deleted, Sam (on no other team) sees the shipped no-team dashboard line, and Tomas keeps Ops",
+            "Deleting the default team first shows the default warning line, and afterwards the teams page shows 'No team' as the default",
+            "A team's scoped tokens are counted on the delete page ('{k} machine token(s) scoped to {team} will stop working.') and are gone after the delete",
+            "A deleted team's name and address can be created again, and its old address reaches only the new team's people",
+            "A re-sent confirm and an add from a page opened before the delete get the uniform 404 and change nothing; tl-02, tm-05, machine-token-admin, fix-hub and default lanes green"
+          ],
+          "estimate": "0.5 day",
+          "dependencies": [
+            "02-02"
+          ],
+          "files_to_modify": [
+            "crates/foundry-services/src/teams.rs",
+            "crates/foundry-app/src/teams.rs",
+            "crates/foundry-app/templates/team_delete.html",
+            "crates/foundry-acceptance/tests/features/team-lifecycle-02-delete-team.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/team-lifecycle-02-delete-team.feature",
+          "scenario_name": [
+            "A member whose only team was deleted lands on the no-team page, and one with another team keeps it",
+            "Deleting the default team warns first and leaves no default",
+            "A team's machine tokens are named on the delete page and go with the team",
+            "After a team is deleted its name and address can be used again, and only the new team's people reach it",
+            "A confirm sent again for a team already deleted finds nothing, and changes nothing",
+            "An add sent from a members page opened before the team was deleted finds nothing"
+          ],
+          "lane_commands": [
+            "timeout 900 cargo fmt --all -- --check",
+            "timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "timeout 600 cargo xtask check-arch",
+            "RUST_TEST_THREADS=1 timeout 2400 cargo test -p foundry-store --test team_create --test team_delete --test team_rename --test team_lifecycle_migrations",
+            "RUST_TEST_THREADS=1 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; }",
+            "FOUNDRY_ACCEPTANCE_TAGS=tl-02 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (expect 13 scenarios / 23 rows passed; 5 still @pending)",
+            "FOUNDRY_ACCEPTANCE_TAGS=tm-05 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (default team set and read)",
+            "FOUNDRY_ACCEPTANCE_TAGS=machine-token-admin CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (scoped tokens)",
+            "FOUNDRY_ACCEPTANCE_TAGS=fix-hub CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (the no-team dashboard line)",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance (default lane)"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): unit tests for new pure logic MUST be property-based (proptest) with state-delta discipline where state mutates; single-example unit tests are FALLBACK only with a # bypass: comment. Acceptance scenarios are the cucumber .feature files (already authored by DISTILL -- un-pend, do not re-author). Integration/browser tests stay single-example -- they verify wiring. EXEMPT FROM PARADIGM: two conditional copy lines (exact strings, byte-exact unit tests) and schema-fact consequences proven on real Postgres in 02-01. Contract shapes: 15, 16, 18 bounded-change (the delete's declared cascade, named in the Gherkin when it carries tokens or the default; 18 also one create); 14, 23, 24 unbounded-preservation. Un-pend order: 14, 15, 16, 18, then the stale pages 23, 24. CONFIRM PAGE (DDD-10, D8, INV-TL-3): from the 02-01 facts (advisory, read without a lock), render the default line '{team} is the default team for new members. After it is deleted, new members will join no team.' ONLY when is_default, and the token line '{k} machine token(s) scoped to {team} will stop working.' ONLY when k > 0 (TeamNotice variants, byte-exact unit tests; DESIGN Statuses table). The counts are advisory: the POST decides by DDD-8 alone. CONSEQUENCES are schema facts already proven in 02-01 and 0021/0022 (ADR-TEAM-MEMBERSHIP-001/002): workspaces.default_team_id clears itself (ON DELETE SET NULL (default_team_id)), so /teams' default select reads 'No team' (15); scoped machine_tokens cascade (16); Sam, on no other team, sees the shipped 'You're not on any team yet -- ask a workspace admin to add you.' line while Tomas keeps Ops (14, D10; DISTILL gives Bakcend two members for this); the slug is free again and authz is per request, so the old address reaches only the new team's people (18, D10, INV-TL-6). STALE PAGES: a re-sent confirm after the delete (23) and an add posted from a members page opened before the delete (24) both stop at the facts lookup -> the uniform 404, nothing written; under a true race the add reaches the store and answers AddTeamMemberOutcome::TeamGone -> TeamError::NotFound -> the same 404 (02-01's mapping). LANES (exact): warm-up 'CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; }'; lane 'FOUNDRY_ACCEPTANCE_TAGS=tl-02 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance' (and tm-05, machine-token-admin, fix-hub the same way); default lane 'env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance'; gates: 'RUST_TEST_THREADS=1 timeout 2400 cargo test -p foundry-store --test team_create --test team_delete --test team_rename --test team_lifecycle_migrations', 'timeout 900 cargo fmt --all -- --check', 'timeout 1800 cargo clippy --workspace --all-targets -- -D warnings', 'timeout 600 cargo xtask check-arch', smoke 'RUST_TEST_THREADS=1 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke'. Lessons: rebuild + warm before every lane; bound every run with timeout; check for a concurrent session first. MUTATION: >= 80% (timeout 1800 cargo mutants --in-diff <step diff> --file crates/foundry-app/src/teams.rs --file crates/foundry-services/src/teams.rs); the is_default and k > 0 conditions each killed. COMMIT: one local commit (git commit only). NEVER git push and never open a PR."
+        },
+        {
+          "id": "02-04",
+          "name": "A team with projects is never deleted; a project create on a vanished team is the uniform 404",
+          "description": "The projects refusal: a 200 refusal page on GET with no Delete team button, a 409 on POST decided at commit time (including a project created after the page was opened), and the HTTP delete-versus-create race. projects.rs maps TeamGone to the uniform 404 and its 'Team not found' page becomes the uniform 404 (DISTILL upstream note). Un-pends 25-29; zero @pending in file 02.",
+          "criteria": [
+            "A team with projects shows '{team} still has {n} project(s): {list}. A team with projects can't be deleted.' listing every project as 'Name (KEY)' by name then key, with no Delete team button",
+            "A delete posted for a team with a project, including one created after the delete page was opened, answers 409 with that refusal and nothing changes",
+            "A delete racing a project create, repeated 5 times, leaves the team with its project or the team gone and the create a 404, never a 5xx, and never removes a project",
+            "A project create whose team is gone, at the lookup or at insert, answers a body byte-identical to the uniform 404, never 'Team not found' or a 500",
+            "All 18 tl-02 scenarios green, zero @pending in file 02; us-07, pnr, fix-hub and default lanes green; fmt, clippy -D warnings, check-arch, smoke green"
+          ],
+          "estimate": "0.75 day",
+          "dependencies": [
+            "02-03"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/src/teams.rs",
+            "crates/foundry-app/src/projects.rs",
+            "crates/foundry-app/templates/team_delete.html",
+            "crates/foundry-acceptance/tests/features/team-lifecycle-02-delete-team.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/team-lifecycle-02-delete-team.feature",
+          "scenario_name": [
+            "A team with a project shows why it cannot be deleted",
+            "Every project of the team is named, by name and key",
+            "A delete sent for a team that has a project is refused, and nothing is lost",
+            "A confirm sent from a page opened before a project appeared is refused",
+            "A delete racing a project create never destroys the project"
+          ],
+          "lane_commands": [
+            "timeout 900 cargo fmt --all -- --check",
+            "timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "timeout 600 cargo xtask check-arch",
+            "RUST_TEST_THREADS=1 timeout 2400 cargo test -p foundry-store --test team_create --test team_delete --test team_rename --test team_lifecycle_migrations",
+            "RUST_TEST_THREADS=1 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; }",
+            "FOUNDRY_ACCEPTANCE_TAGS=tl-02 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (expect all 18 scenarios / 28 rows passed)",
+            "FOUNDRY_ACCEPTANCE_TAGS=us-07 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (project create's unknown-team 404 now has the uniform body)",
+            "FOUNDRY_ACCEPTANCE_TAGS=pnr CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance",
+            "FOUNDRY_ACCEPTANCE_TAGS=fix-hub CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance (default lane)",
+            "timeout 60 grep -cE '^[[:space:]]*@.*@pending' crates/foundry-acceptance/tests/features/team-lifecycle-02-delete-team.feature (expect 0)"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): unit tests for new pure logic MUST be property-based (proptest) with state-delta discipline where state mutates; single-example unit tests are FALLBACK only with a # bypass: comment. Acceptance scenarios are the cucumber .feature files (already authored by DISTILL -- un-pend, do not re-author). Integration/browser tests stay single-example -- they verify wiring. EXEMPT FROM PARADIGM: the refusal copy and its list format are exact strings; the never-lose-a-project invariant is quantified at store level (02-01's 100-run race); the HTTP race here is a repeated example (5 runs, OQ-D3 / team-membership OQ-D3 precedent). Compensate with a unit property on the list formatter (any non-empty set of (name, key) renders every pair once, ordered by name then key, joined by ', '). Contract shapes: 25-28 unbounded-preservation; 29 bounded-change (at most one project create, or one team delete, never both). Un-pend order: 25, 26, 27, 28, then the race 29. REFUSAL (DDD-10/18, OQ-4 (a), D9): GET with projects -> 200 team_delete.html refusal variant '{team} still has {n} project(s): {list}. A team with projects can't be deleted.' where list is 'Identity Platform (AUTH), Homelab Ops (OPS)' style, ordered by name then key, and NO Delete team button; POST HasProjects at commit -> 409 with the same refusal page, nothing changed (27; 28 is the stale confirm: the page was opened before Lena created Brand Refresh, and the commit-time read names BRAND, INV-TL-1/3). The refusal is shown only to a workspace admin (everyone else stops at the 02-02 gate). TeamNotice variant with byte-exact tests for n = 1 and n = 2. KNOWN ISSUE (DISTILL upstream note, 'Team not found'): a project create that arrives after the delete committed stops at the shipped find_team_by_slug lookup in crates/foundry-app/src/projects.rs (lines 81 and 124), whose 404 is team_not_found_page (:617, 'Team not found' and it echoes the slug) instead of bootstrap::resource_not_found_page(). Make it the uniform 404: the one-line change is team_not_found_page's body returning resource_not_found_page() (or the two call sites calling it directly; then delete the dead helper). Leave keyboard.rs and comments.rs's own 'Team not found' pages alone (out of scope; record them as a follow-up in 04-04). Also map services CreateProjectError::TeamGone (02-01) to the same uniform 404 in projects::submit_create (DDD-9: the insert-time branch). Scenario 29 is written as 'the create found no team' (status 404, never a 5xx); with both branches uniform, the acceptance designer (test owner) MAY tighten it to byte-identity, but DELIVER does not re-author it. Check the us-07 and pnr lanes for any assertion on the old 'Team not found' body. RED reasons: 25, 26, 28 'no Delete team link' (now shipped), 27 '404 instead of the 409 refusal', 29 'run 1, the delete answers 404'. The HTTP race is load-sensitive: if 29 flakes in the default lane, rerun tl-02 alone >= 3 times before calling it a regression. LANES (exact): warm-up 'CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; }'; lane 'FOUNDRY_ACCEPTANCE_TAGS=tl-02 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance' (and us-07, pnr, fix-hub the same way); default lane 'env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance'; gates: 'RUST_TEST_THREADS=1 timeout 2400 cargo test -p foundry-store --test team_create --test team_delete --test team_rename --test team_lifecycle_migrations', 'timeout 900 cargo fmt --all -- --check', 'timeout 1800 cargo clippy --workspace --all-targets -- -D warnings', 'timeout 600 cargo xtask check-arch', smoke 'RUST_TEST_THREADS=1 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke'. Dogfood (slice-02 brief) is owed, not run: no deploys. MUTATION: >= 80% (timeout 1800 cargo mutants --in-diff <step diff> --file crates/foundry-app/src/teams.rs --file crates/foundry-app/src/projects.rs); the 409 vs 200 vs 404 mapping, the button-suppression branch and the TeamGone arm each killed. COMMIT: one local commit (git commit only). NEVER git push and never open a PR."
+        }
+      ]
+    },
+    {
+      "id": "03",
+      "name": "One team-name rule on every door and in the database; a name in any script gets a working address (US-TL-04, slice 03, DDD-2/3/4/6, ADR-TEAM-LIFECYCLE-001, migration 0024)",
+      "steps": [
+        {
+          "id": "03-01",
+          "name": "Migration 0024: the database refuses a bad new team name under its arm",
+          "description": "NEW 0024_team_name_rule.sql: teams_name_rule_on_insert and teams_name_rule_on_rename over 0019's verdict at '64', and a CREATE OR REPLACE of foundry_enforce_name_rule() with an identical body plus the teams -> TeamName HINT arm, with a self-check. Extends name_rule_in_database.rs (four triggers become six). Un-ignores the three 03-01 migration tests and un-pends 39-41 (8 rows); adds the 0024 CHANGELOG note with the OQ-D6 counts.",
+          "criteria": [
+            "A new or renamed team name with U+0001, U+202E, 65 scalars, empty or padded text is refused with 23514 under its named arm, the HINT naming foundry_core::TeamName and 64; 64 CJK scalars are stored as typed",
+            "A legacy team name is never scanned and survives other-column and same-value writes, but not a rename to another bad name",
+            "Workspaces and projects keep their rules and HINTs under the replaced function; both team triggers are enabled; the migration body re-runs cleanly",
+            "name_rule_in_database.rs pins six triggers and teams parity at 64, and passes in full; the three 03-01 migration tests pass un-ignored",
+            "The 0024 CHANGELOG note records the OQ-D6 counts; tl-03 (39-41), ndc, iwnr, pnr and default lanes green; fmt, clippy, check-arch, smoke green"
+          ],
+          "estimate": "0.75 day",
+          "dependencies": [
+            "02-04"
+          ],
+          "files_to_modify": [
+            "crates/foundry-store/migrations/0024_team_name_rule.sql",
+            "crates/foundry-store/tests/name_rule_in_database.rs",
+            "crates/foundry-store/tests/team_lifecycle_migrations.rs",
+            "CHANGELOG.md",
+            "crates/foundry-acceptance/tests/features/team-lifecycle-03-team-name-rule.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/team-lifecycle-03-team-name-rule.feature",
+          "scenario_name": [
+            "A team name typed at the database prompt that breaks the rule is refused under the rule's name",
+            "A team renamed at the database prompt to a name that breaks the rule is refused",
+            "A team name the app would accept is stored at the database prompt exactly as typed",
+            "crates/foundry-store/tests/team_lifecycle_migrations.rs::a_new_team_name_that_breaks_the_rule_is_refused_under_its_arm",
+            "crates/foundry-store/tests/team_lifecycle_migrations.rs::a_legacy_team_name_is_never_scanned_and_survives_writes_that_keep_it",
+            "crates/foundry-store/tests/team_lifecycle_migrations.rs::migration_0024_keeps_the_other_rules_installs_both_triggers_and_reruns_cleanly"
+          ],
+          "lane_commands": [
+            "docker info",
+            "RUST_TEST_THREADS=1 timeout 1800 cargo test -p foundry-store --test team_lifecycle_migrations (expect 7 passed, 0 ignored)",
+            "RUST_TEST_THREADS=1 timeout 2400 cargo test -p foundry-store --test name_rule_in_database (all_four_enabled is now six; parity at 64 for teams)",
+            "RUST_TEST_THREADS=1 timeout 3600 cargo test -p foundry-store (every store test runs 0024; fixtures write compliant team names)",
+            "timeout 900 cargo fmt --all -- --check",
+            "timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "timeout 600 cargo xtask check-arch",
+            "RUST_TEST_THREADS=1 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; }",
+            "FOUNDRY_ACCEPTANCE_TAGS=tl-03 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (expect 39-41 passed, 8 rows; 9 still @pending)",
+            "FOUNDRY_ACCEPTANCE_TAGS=ndc CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (name-db-checks: the replaced trigger function)",
+            "FOUNDRY_ACCEPTANCE_TAGS=iwnr CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (workspace name rule)",
+            "FOUNDRY_ACCEPTANCE_TAGS=pnr CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (project name rule)",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance (default lane: about 40 acceptance sites write teams directly and must stay compliant)"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): unit tests for new pure logic MUST be property-based (proptest) with state-delta discipline where state mutates; single-example unit tests are FALLBACK only with a # bypass: comment. Acceptance scenarios are the cucumber .feature files (already authored by DISTILL -- un-pend, do not re-author). Integration/browser tests stay single-example -- they verify wiring. EXEMPT FROM PARADIGM: SQL triggers are schema facts on real Postgres (exact SQLSTATE, constraint and HINT strings); the 'never stricter than TeamName' parity is the 64-CJK guard (41) plus name_rule_in_database.rs parity. Store and DB step first in slice 03 (before the app-door step 03-02). Contract shapes: 39, 40 unbounded-preservation; 41 bounded-change (one teams row, GREEN_ALREADY guard: must stay green). Un-ignore the three migration tests first, then 39, 40, 41. MIGRATION 0024 (DDD-6/24, ADR-NAME-DB-001 idiom, Changed Assumptions 2 and 4): (1) CREATE OR REPLACE FUNCTION foundry_enforce_name_rule() with a body IDENTICAL to 0019's plus ONE HINT arm mapping 'teams' -> 'TeamName' (so the HINT reads foundry_core::TeamName, not foundry_core::teams); (2) DROP TRIGGER IF EXISTS then CREATE teams_name_rule_on_insert (BEFORE INSERT) and teams_name_rule_on_rename (BEFORE UPDATE OF name, WHEN (NEW.name IS DISTINCT FROM OLD.name)) passing '64'; the verdict function foundry_name_rule_violation is reused UNCHANGED; (3) a self-check DO block; (4) COMMENT ON each. Arms: teams_name_no_control_chars (U+0001, U+202E), teams_name_max_64_chars, teams_name_not_empty, teams_name_trimmed (DISTILL upstream note: the fourth arm DESIGN CA2 did not list; ' Platform' pins it). A NUL never reaches the rule: Postgres refuses U+0000 in text with 22021 (the GREEN fact a_nul_in_a_team_name_is_refused_by_postgres_itself_before_any_rule stays green). No existing row is scanned or changed (legacy names stay). KNOWN ISSUE (name_rule_in_database.rs): crates/foundry-store/tests/name_rule_in_database.rs pins EXACTLY the four 0019/0020 triggers via all_four_enabled() (:409, asserted at :509, :530, :1003, :1010, :1023, :1115, :1155, :1213, :1252); it goes red the moment 0024 lands. Extend it in this step: the expected set becomes six (add the two teams triggers; rename the helper accordingly) and add teams to its parity table at cap 64 (DESIGN Component Decomposition, DISTILL recommended order). This is a TEST change owned by the acceptance designer: if the dispatched crafter is not permitted to edit test files, dispatch nw-acceptance-designer to author the extension before GREEN; DELIVER must not weaken the existing four-trigger assertions. OQ-D5: extend NameRuleTable with Teams only if a fixture needs a pre-0024 team name (expected: none; the about 40 acceptance sites use compliant names). CHANGELOG [Unreleased] 'Migration notes' for 0024 (KNOWN ISSUE, OQ-D6): the two triggers and their constraint names, SQLSTATE 23514, the HINT, the REPLACE of the shared foundry_enforce_name_rule() (identical body plus one HINT arm; workspaces and projects unchanged), rules apply to new writes only (legacy names stay), rolling-deploy safe (old replicas' only teams writer is bootstrap's compliant 'General'), rollback floor v0.13.0 (nothing an older binary reads changes), and the OQ-D6 pre-upgrade counts ALREADY TAKEN on 2026-10-11, read-only: dev and prod each have 1 team, 0 team names that break the rule, and 0 case-insensitive duplicate team names per workspace. Migration immutability: edit 0024 freely until pushed, never after. LANES (exact): warm-up 'CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; }'; lane 'FOUNDRY_ACCEPTANCE_TAGS=tl-03 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance' (and ndc, iwnr, pnr the same way); default lane 'env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance'; gates: 'RUST_TEST_THREADS=1 timeout 1800 cargo test -p foundry-store --test team_lifecycle_migrations', 'RUST_TEST_THREADS=1 timeout 2400 cargo test -p foundry-store --test name_rule_in_database', then 'RUST_TEST_THREADS=1 timeout 3600 cargo test -p foundry-store', 'timeout 900 cargo fmt --all -- --check', 'timeout 1800 cargo clippy --workspace --all-targets -- -D warnings', 'timeout 600 cargo xtask check-arch', smoke 'RUST_TEST_THREADS=1 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke'. Lessons: rebuild + warm before every lane; bound every run with timeout; check for a concurrent session first. MUTATION: no Rust production file changes in this step (cargo-mutants cannot mutate SQL). Pin 0024 by hand-mutating a scratch copy once per guard (drop the WHEN clause, pass '65', drop the HINT arm) and confirming a named test goes red; keep the table for the 04-04 report. COMMIT: one local commit (git commit only). NEVER git push and never open a PR."
+        },
+        {
+          "id": "03-02",
+          "name": "The rule at the create door: every arm, the 64 boundary, collisions, the fallback address, concurrent creates",
+          "description": "Proves at the create door what 01-01 landed: non-Latin names get team, team-2 and the lowest free address; every refused arm (control, bidi, tab, NUL, 65, empty) answers 422 with its copy; 64 scalars in Latin and CJK are accepted; slug and case collisions are refused; concurrent creates give one team for one name and two for two non-Latin names, never a 500. Un-ignores the four use-case races; un-pends 30-38 (17 rows); zero @pending in file 03.",
+          "criteria": [
+            "'\u30a4\u30f3\u30d5\u30e9' then '\u904b\u7528' get /team/team/members and /team/team-2/members, and with legacy team and team-3 taken the next fallback is team-2",
+            "Control, bidi, tab, NUL, 65-scalar and empty names answer 422 with their D12 copy and create nothing; 64 scalars in Latin and in CJK are created",
+            "'Back-End' next to Backend and a case-only variant are refused as not unique; TeamName's control verdict equals ProjectName's and WorkspaceName's for every scalar (property)",
+            "Over 100 runs each, two creates of 'Infra' or of '\u30a4\u30f3\u30d5\u30e9' give one team and one NotUnique, and '\u30a4\u30f3\u30d5\u30e9' with '\u904b\u7528' give both at team and team-2; the HTTP races (x5) never answer 5xx",
+            "All 12 tl-03 scenarios green, zero @pending in file 03; use-case suite 0 ignored; tl-01, pnr and default lanes green; fmt, clippy, check-arch, smoke green"
+          ],
+          "estimate": "0.75 day",
+          "dependencies": [
+            "03-01"
+          ],
+          "files_to_modify": [
+            "crates/foundry-core/src/team_name.rs",
+            "crates/foundry-core/src/project_name.rs",
+            "crates/foundry-services/src/teams.rs",
+            "crates/foundry-services/tests/team_lifecycle_use_cases.rs",
+            "crates/foundry-acceptance/tests/features/team-lifecycle-03-team-name-rule.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/team-lifecycle-03-team-name-rule.feature",
+          "scenario_name": [
+            "A name with no Latin letters gets a working team page",
+            "A second name with no Latin letters gets the next free address",
+            "The fallback address is the lowest free one",
+            "A name that breaks the rule is refused with its reason, and nothing is created",
+            "A name of exactly 64 characters is accepted",
+            "A name whose address or letters would collide is refused",
+            "Two admins creating the same name at once get one team",
+            "Two admins creating the same name with no Latin letters at once get one team",
+            "Two admins creating different names with no Latin letters at once both get a team",
+            "crates/foundry-services/tests/team_lifecycle_use_cases.rs::names_with_no_latin_letters_take_the_lowest_free_fallback_address",
+            "crates/foundry-services/tests/team_lifecycle_use_cases.rs::two_creates_of_the_same_name_at_once_give_one_team_in_100_runs",
+            "crates/foundry-services/tests/team_lifecycle_use_cases.rs::two_creates_of_the_same_non_latin_name_at_once_give_one_team_in_100_runs",
+            "crates/foundry-services/tests/team_lifecycle_use_cases.rs::two_creates_of_different_non_latin_names_at_once_both_succeed_in_100_runs"
+          ],
+          "lane_commands": [
+            "timeout 900 cargo test -p foundry-core team_name project_name (the parity property and the mint)",
+            "RUST_TEST_THREADS=1 timeout 2400 cargo test -p foundry-services --test team_lifecycle_use_cases (expect 7 passed, 0 ignored)",
+            "timeout 900 cargo test -p foundry-services --test create_project_use_case",
+            "RUST_TEST_THREADS=1 timeout 2400 cargo test -p foundry-store --test team_create --test team_delete --test team_rename --test team_lifecycle_migrations",
+            "timeout 900 cargo fmt --all -- --check",
+            "timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "timeout 600 cargo xtask check-arch",
+            "RUST_TEST_THREADS=1 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; }",
+            "FOUNDRY_ACCEPTANCE_TAGS=tl-03 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (expect all 12 scenarios / 25 rows passed)",
+            "FOUNDRY_ACCEPTANCE_TAGS=tl-01 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance",
+            "FOUNDRY_ACCEPTANCE_TAGS=pnr CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (the shared helpers)",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance (default lane)",
+            "timeout 60 grep -cE '^[[:space:]]*@.*@pending' crates/foundry-acceptance/tests/features/team-lifecycle-03-team-name-rule.feature (expect 0)"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): unit tests for new pure logic MUST be property-based (proptest) with state-delta discipline where state mutates; single-example unit tests are FALLBACK only with a # bypass: comment. Acceptance scenarios are the cucumber .feature files (already authored by DISTILL -- un-pend, do not re-author). Integration/browser tests stay single-example -- they verify wiring. PARADIGM APPLIES: the TeamName parity property (for every Unicode scalar, TeamName's control verdict equals ProjectName's and WorkspaceName's; DESIGN Test Seams) and the mint properties (never empty; lowest free suffix from 2 over generated taken-sets; 'team', 'team-3' taken gives 'team-2') land in team_name.rs's test module if 01-01 did not already add them. EXEMPT for the use-case races (repeated examples with a barrier) and the HTTP races (5 runs). SIZING EXCEPTION (9 scenarios, 17 rows; >= 8 needs a recorded rationale): DESIGN and the DISTILL scaffold map put the whole rule, the fallback mint and the bounded retry in 01-01 ('DESIGN may land every arm here, and slice 03 then proves the rest'; DDD-3 'lands in slice 01, slice 03 proves it'), so this step is expected to be assertion enablement on ONE driving port (POST /teams) and one use-case, with production deltas only where a proof finds a gap. Splitting it into 'fallback', 'arms' and 'races' steps would create two or three steps with no production code and the same AC structure ('a create of X answers Y and writes Z'), which the roadmap rules forbid; the outline rows are cheap enumerations of the one rule. Slice 03's learning hypothesis (the project fallback mechanism transfers to teams) is answered here as one unit. Contract shapes: 30-32, 34, 36-38 bounded-change (one team + one lead row per successful create); 33, 35 unbounded-preservation. Un-pend order: the four use-case tests first (fallback, then the three 100-run races), then 30, 31, 32, 33, 34, 35, then the HTTP races 36, 37, 38. CHANGED ASSUMPTION 1 (DESIGN, applied at DISTILL): two concurrent creates of the SAME name give one team and one 'Team name must be unique within the workspace', for 'Infra' and '\u30a4\u30f3\u30d5\u30e9' alike (the retry re-runs the sibling check, ADR-PROJECT-NAME-002); two concurrent creates of DIFFERENT non-Latin names ('\u30a4\u30f3\u30d5\u30e9', '\u904b\u7528') both succeed as team and team-2 (a fallback 23505 is retried, never reported as a duplicate name). Scenario 33's NUL row is the app door refusing U+0000 as a control character before any write (CA2). 422 + input kept for every refused arm (DDD-18). If a proof shows the retry exhausting under these races, raise FALLBACK_SLUG_ATTEMPTS only with a recorded reason (the slice-03 hypothesis says that is a user decision if it persists). SlugContention exhaustion logs one error with no name (DDD-25). The HTTP races are load-sensitive: rerun tl-03 alone >= 3 times before calling a default-lane failure a regression. TEST OWNERSHIP: the use-case tests are DISTILL's; if CreateTeamError was folded into TeamError in 01-01, the test file's match was updated then. LANES (exact): warm-up 'CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; }'; lane 'FOUNDRY_ACCEPTANCE_TAGS=tl-03 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance' (and tl-01, pnr the same way); default lane 'env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance'; gates: 'RUST_TEST_THREADS=1 timeout 2400 cargo test -p foundry-services --test team_lifecycle_use_cases', 'RUST_TEST_THREADS=1 timeout 2400 cargo test -p foundry-store --test team_create --test team_delete --test team_rename --test team_lifecycle_migrations', 'timeout 900 cargo fmt --all -- --check', 'timeout 1800 cargo clippy --workspace --all-targets -- -D warnings', 'timeout 600 cargo xtask check-arch', smoke 'RUST_TEST_THREADS=1 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke'. Lessons: rebuild + warm before every lane; bound every run with timeout; check for a concurrent session first. MUTATION: >= 80% (timeout 1800 cargo mutants --in-diff <step diff> --file crates/foundry-core/src/team_name.rs --file crates/foundry-core/src/project_name.rs --file crates/foundry-services/src/teams.rs); if the diff is test-only, run it over 01-01's team_name.rs and services create_team and record survivors on the arm order, the 64 boundary and the derived-vs-fallback retry branch, each killed. COMMIT: one local commit (git commit only). NEVER git push and never open a PR."
+        }
+      ]
+    },
+    {
+      "id": "04",
+      "name": "Rename a team, every link keeps working; close-out (US-TL-05, slice 04, DDD-13/14/15/20, ADR-TEAM-LIFECYCLE-003, DoD 6/9)",
+      "steps": [
+        {
+          "id": "04-01",
+          "name": "rename_team_with_audit, store-proven; the last store scaffold goes",
+          "description": "Implement rename_team_with_audit: team row FOR NO KEY UPDATE (ws-scoped), exact old name, byte-equal = Unchanged with no write, UPDATE teams SET name (never slug), one 'renamed' record, commit. Removes the store section's SCAFFOLD marker (its last panic). check-arch (ii) gains rename_team_with_audit(. Un-ignores the six team_rename.rs tests.",
+          "criteria": [
+            "A rename changes the name only, leaves the slug and team_memberships untouched, and writes one record carrying the locked old name",
+            "A byte-equal name writes nothing and a case-only change is a rename; another workspace's or an unknown team is NotFound with nothing changed; an unwritable record keeps the old name",
+            "Over 100 runs, two concurrent renames record chained old names, and a rename racing a delete is totally ordered (the delete record carries the new name, or the rename is NotFound)",
+            "No DISTILL SCAFFOLD marker remains anywhere in crates/; check-arch (ii) flags an injected rename_team_with_audit( call in app src",
+            "Six tests un-ignored, zero 'pending: team-lifecycle' ignores remain; tl-02, tl-01 and default lanes green; fmt, clippy, check-arch, smoke green"
+          ],
+          "estimate": "0.5 day",
+          "dependencies": [
+            "03-02"
+          ],
+          "files_to_modify": [
+            "crates/foundry-store/src/teams.rs",
+            "crates/foundry-store/tests/team_rename.rs",
+            "xtask/src/check_arch.rs"
+          ],
+          "test_file": "crates/foundry-store/tests/team_rename.rs",
+          "scenario_name": [
+            "a_rename_changes_the_name_only_and_records_the_old_name",
+            "a_byte_equal_name_writes_nothing_and_a_case_only_change_is_a_rename",
+            "another_workspaces_team_or_an_unknown_team_is_not_found_and_nothing_changes",
+            "a_rename_whose_record_cannot_be_written_keeps_the_old_name",
+            "two_renames_at_once_record_chained_old_names_in_100_runs",
+            "a_rename_racing_a_delete_is_ordered_in_100_runs"
+          ],
+          "lane_commands": [
+            "docker info",
+            "RUST_TEST_THREADS=1 timeout 2400 cargo test -p foundry-store --test team_rename (expect 6 passed, 0 ignored)",
+            "RUST_TEST_THREADS=1 timeout 2400 cargo test -p foundry-store --test team_create --test team_delete --test team_lifecycle_migrations",
+            "RUST_TEST_THREADS=1 timeout 3600 cargo test -p foundry-store",
+            "timeout 900 cargo test -p xtask team_lifecycle_one_seam",
+            "timeout 600 cargo xtask check-arch",
+            "timeout 900 cargo fmt --all -- --check",
+            "timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "RUST_TEST_THREADS=1 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; }",
+            "FOUNDRY_ACCEPTANCE_TAGS=tl-02 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (delete still serialises against the new rename lock)",
+            "FOUNDRY_ACCEPTANCE_TAGS=tl-04 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (all still @pending; expect 0 run, no hook error)",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance (default lane)",
+            "timeout 60 grep -rn 'SCAFFOLD: true \u2014 RED scaffold written by DISTILL (2026-10-11)' crates/ (expect no output)",
+            "timeout 60 grep -c '#\\[ignore = \"pending: team-lifecycle' crates/foundry-store/tests/team_create.rs crates/foundry-store/tests/team_delete.rs crates/foundry-store/tests/team_rename.rs crates/foundry-store/tests/team_lifecycle_migrations.rs crates/foundry-services/tests/team_lifecycle_use_cases.rs (expect 0 for each)"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): unit tests for new pure logic MUST be property-based (proptest) with state-delta discipline where state mutates; single-example unit tests are FALLBACK only with a # bypass: comment. Acceptance scenarios are the cucumber .feature files (already authored by DISTILL -- un-pend, do not re-author). Integration/browser tests stay single-example -- they verify wiring. EXEMPT FROM PARADIGM: store gold tests on real Postgres and repeated-example 100-run races. Store before door: this is slice 04's store step; no tl-04 scenario is un-pended here. Sizing: 0 acceptance scenarios, 6 store tests. STORE (DDD-13, ADR-TEAM-LIFECYCLE-003, the rename_workspace_with_audit idiom at store lib.rs:1483): rename_team_with_audit(ws, team, actor, new_name) -> TeamRenameWrite, ONE transaction: (1) SELECT name FROM teams WHERE workspace_id = $ws AND id = $team FOR NO KEY UPDATE (none -> NotFound) -- the strength, not the helper lock_team_and_read_standing (it reads a standing, not the name); NO KEY UPDATE serialises against delete's FOR UPDATE but not against adds or project creates; (2) byte-equal to new_name -> Unchanged, nothing written (D15; a case-only change is a rename); (3) UPDATE teams SET name = $new (NEVER slug, D4, INV-TL-5; a 23514 from 0024 is not expected on this path because the services door validates first: map it, log one warn with the team id, DDD-25); (4) INSERT the 'renamed' record (actor, old name from step 1, new name, slug, team id); commit. The record's old name is exact because it is read under the lock (chained old names over 100 concurrent runs). INV-TL-8: a rename touches no team_memberships row. SCAFFOLD (KNOWN ISSUE: every marker gone by the last step): rename_team_with_audit was the store section's last panicking method, so delete its '// SCAFFOLD: true \u2014 RED scaffold written by DISTILL (2026-10-11)' marker at crates/foundry-store/src/teams.rs (~:485) and reword the section doc; after this step no DISTILL scaffold marker remains (core team_name.rs and the services section went at 01-01). CHECK-ARCH: team-lifecycle-one-seam (ii) gains rename_team_with_audit( with one injected-violation gold test. LANES (exact): warm-up 'CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; }'; lane 'FOUNDRY_ACCEPTANCE_TAGS=tl-02 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance' (regression check); default lane 'env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance'; gates: 'RUST_TEST_THREADS=1 timeout 2400 cargo test -p foundry-store --test team_rename' then 'RUST_TEST_THREADS=1 timeout 3600 cargo test -p foundry-store', 'timeout 900 cargo test -p xtask', 'timeout 900 cargo fmt --all -- --check', 'timeout 1800 cargo clippy --workspace --all-targets -- -D warnings', 'timeout 600 cargo xtask check-arch', smoke 'RUST_TEST_THREADS=1 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke'. Lessons: rebuild + warm before every lane; bound every run with timeout and clear leftover containers if killed; check for a concurrent session first. MUTATION: >= 80% (timeout 1800 cargo mutants --in-diff <step diff> --file crates/foundry-store/src/teams.rs --file xtask/src/check_arch.rs); the byte-equal branch, the NotFound branch and the record's old-name source each killed; hand-mutate the SQL once (SET slug as well; FOR SHARE instead of FOR NO KEY UPDATE) and confirm a named test goes red. COMMIT: one local commit (git commit only). NEVER git push and never open a PR."
+        },
+        {
+          "id": "04-02",
+          "name": "Rename on the members page: admin and lead, links keep working, case-only and no-op",
+          "description": "classify_team_rename (core), teams::rename_team, submit_rename, POST /team/{slug}/rename (field 'name'), the prefilled Rename form for Manage, TeamNotice::Renamed. The slug and every URL under it are unchanged; a lead renames her own team (OQ-1); a case-only change is a rename; a byte-equal name is a silent no-op. Un-pends 42-45, 48, 49 (8 rows).",
+          "criteria": [
+            "Priya renames Backend to 'Platform Engineering', sees 'Renamed Backend to Platform Engineering.', Teams lists it, and /team/backend/members and /team/backend/project/auth still open",
+            "Lena, Backend's lead and not an admin, renames her own team with the same result",
+            "'ops' to 'Ops' is a real rename and a team never collides with itself; submitting the name unchanged re-renders with no notice and records nothing",
+            "A renamed team's old derived address still refuses its old name on create; Rename is offered to the lead and an admin, Delete team only to the admin, neither to a member",
+            "tl-04 (42-45, 48, 49), tl-01, tl-02, tm-01, us-07 and default lanes green; fmt, clippy -D warnings, check-arch, smoke green"
+          ],
+          "estimate": "0.75 day",
+          "dependencies": [
+            "04-01"
+          ],
+          "files_to_modify": [
+            "crates/foundry-core/src/team_name.rs",
+            "crates/foundry-services/src/teams.rs",
+            "crates/foundry-services/src/lib.rs",
+            "crates/foundry-app/src/teams.rs",
+            "crates/foundry-app/src/lib.rs",
+            "crates/foundry-app/templates/team_members.html",
+            "crates/foundry-acceptance/tests/features/team-lifecycle-04-rename-team.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/team-lifecycle-04-rename-team.feature",
+          "scenario_name": [
+            "A workspace admin renames a team and every link to it keeps working",
+            "A team's lead renames her own team",
+            "A change of letter case is a real rename, and a team never collides with itself",
+            "Submitting the same name changes nothing and records nothing",
+            "A renamed team's old address still holds its old name's place",
+            "Rename is offered to the team's lead and to a workspace admin; Delete team only to the admin"
+          ],
+          "lane_commands": [
+            "timeout 900 cargo test -p foundry-core team_name (classify_team_rename)",
+            "timeout 900 cargo fmt --all -- --check",
+            "timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "timeout 600 cargo xtask check-arch",
+            "RUST_TEST_THREADS=1 timeout 2400 cargo test -p foundry-store --test team_create --test team_delete --test team_rename --test team_lifecycle_migrations",
+            "RUST_TEST_THREADS=1 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; }",
+            "FOUNDRY_ACCEPTANCE_TAGS=tl-04 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (expect 6 scenarios / 8 rows passed; 6 still @pending)",
+            "FOUNDRY_ACCEPTANCE_TAGS=tl-01 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance",
+            "FOUNDRY_ACCEPTANCE_TAGS=tl-02 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (members page controls per role)",
+            "FOUNDRY_ACCEPTANCE_TAGS=tm-01 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (the members page and /teams read the new name)",
+            "FOUNDRY_ACCEPTANCE_TAGS=us-07 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (board URLs under the slug)",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance (default lane)"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): unit tests for new pure logic MUST be property-based (proptest) with state-delta discipline where state mutates; single-example unit tests are FALLBACK only with a # bypass: comment. Acceptance scenarios are the cucumber .feature files (already authored by DISTILL -- un-pend, do not re-author). Integration/browser tests stay single-example -- they verify wiring. PARADIGM APPLIES to classify_team_rename(raw, current, siblings_without_self) (DDD-14): properties -- a raw that trims to the byte-equal current name is always Unchanged, before any refusal (no-op first); a case-only change is never Unchanged and never NotUnique against itself; the verdict on a changed name equals TeamName::try_new + ensure_unique_among over the siblings (create/rename parity, KPI-TL-6). Contract shapes: 42-44 bounded-change (one teams.name + one record; slug asserted unchanged); 45, 48, 49 unbounded-preservation. Un-pend order: 42, 43, 44, 45, then 48, 49. SERVICES: teams::rename_team: facts by (session ws, slug) -> can_manage (Manage or Administer: an admin or this team's lead, OQ-1, no new arm) else NotFound -> classify -> Unchanged (no store call) | refusal (422, owned by 04-03) | rename_team_with_audit; re-read the members model after the write (the heading and /teams read the new name; nothing caches it). APP (DDD-17/20/22): POST /team/{team_slug}/rename, field 'name', on the shared CSRF layer; Renamed -> 200 members page with TeamNotice::Renamed 'Renamed {old} to {new}.' (byte-exact unit test); Unchanged -> 200 members page with NO notice and no record (D15). The Rename form (Team name field prefilled with the current name, Rename button) renders when can_manage; Delete team only when can_delete (02-02); a plain member sees neither (49's GREEN_ALREADY row must stay green). D4: the slug and every URL under it (/team/backend/members, /team/backend/project/auth) are unchanged after a rename; no render path re-derives a team slug from its name (slice-04 hypothesis; DESIGN grep found none, admin_tokens.rs:284 normalises typed input only, OQ-D4 recorded as a follow-up). 48 (D6, accepted): after General is renamed Platform, creating 'General' is still refused because its derived slug 'general' is taken. INV-TL-5 residual (DDD-14, ADR-PROJECT-RENAME-002 posture): uniqueness is check-then-write; duplicate labels under a concurrent rename or create are accepted, identity cannot be corrupted. LANES (exact): warm-up 'CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; }'; lane 'FOUNDRY_ACCEPTANCE_TAGS=tl-04 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance' (and tl-01, tl-02, tm-01, us-07 the same way); default lane 'env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance'; gates: 'RUST_TEST_THREADS=1 timeout 2400 cargo test -p foundry-store --test team_create --test team_delete --test team_rename --test team_lifecycle_migrations', 'timeout 900 cargo fmt --all -- --check', 'timeout 1800 cargo clippy --workspace --all-targets -- -D warnings', 'timeout 600 cargo xtask check-arch', smoke 'RUST_TEST_THREADS=1 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke'. Dogfood (slice-04 brief: rename, then open a pre-rename bookmark) is owed, not run: no deploys. MUTATION: >= 80% (timeout 1800 cargo mutants --in-diff <step diff> --file crates/foundry-core/src/team_name.rs --file crates/foundry-services/src/teams.rs --file crates/foundry-app/src/teams.rs); the no-op-first order, the self-exclusion and the can_manage gate each killed. COMMIT: one local commit (git commit only). NEVER git push and never open a PR."
+        },
+        {
+          "id": "04-03",
+          "name": "Rename refusals: the rule's own words, the matrix, a demoted lead's stale page, CSRF",
+          "description": "The rename door's refusals: a name in use or one that breaks the rule answers 422 with the same words as a create and the input kept; Sam, Marco, Ines, Hugo, signed out, a lead of another team, an unknown and a foreign slug get the uniform 404; a lead demoted since she opened the page is refused; a tokenless rename gets the shipped 403. Un-pends 46, 47, 50-53 (14 rows); zero @pending across all four files.",
+          "criteria": [
+            "Renaming Ops to 'general' answers 422 'Team name must be unique within the workspace', the field keeps the text, and Ops keeps its name",
+            "A rename with a control character, 65 scalars or an empty name answers 422 with byte-identical words to the create refusal, and nothing changes",
+            "Sam, Marco, Ines, Hugo, signed out, an unknown slug and Globex's slug get the uniform 404 with zero rows written, each control proving the rename form exists",
+            "A lead who has since been made a member is refused from the page she opened as lead; a tokenless rename gets the shipped 403 and nothing changes",
+            "All 53 team-lifecycle scenarios green and zero @pending in the four files; tm-04 and default lanes green; fmt, clippy -D warnings, check-arch, smoke green"
+          ],
+          "estimate": "0.5 day",
+          "dependencies": [
+            "04-02"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/src/teams.rs",
+            "crates/foundry-app/templates/team_members.html",
+            "crates/foundry-acceptance/tests/features/team-lifecycle-04-rename-team.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/team-lifecycle-04-rename-team.feature",
+          "scenario_name": [
+            "A rename to a name already in use is refused, and the team keeps its name",
+            "A rename that breaks the rule is refused with the same words as a create",
+            "Someone without the right cannot rename a team",
+            "A rename aimed at another workspace's team or at a team that does not exist is refused the same way",
+            "A lead who has since been made a member cannot rename from a page she opened as a lead",
+            "A rename sent without the page's token is turned away, and nothing changes"
+          ],
+          "lane_commands": [
+            "timeout 900 cargo fmt --all -- --check",
+            "timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "timeout 600 cargo xtask check-arch",
+            "RUST_TEST_THREADS=1 timeout 2400 cargo test -p foundry-store --test team_create --test team_delete --test team_rename --test team_lifecycle_migrations",
+            "RUST_TEST_THREADS=1 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; }",
+            "FOUNDRY_ACCEPTANCE_TAGS=tl-04 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (expect all 12 scenarios / 22 rows passed)",
+            "FOUNDRY_ACCEPTANCE_TAGS=team-lifecycle CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance (all 53 scenarios / 95 rows)",
+            "FOUNDRY_ACCEPTANCE_TAGS=tm-04 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance (the role change that demotes Lena)",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance (default lane)",
+            "timeout 60 grep -cE '^[[:space:]]*@.*@pending' crates/foundry-acceptance/tests/features/team-lifecycle-0*.feature (expect 0 per file)"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): unit tests for new pure logic MUST be property-based (proptest) with state-delta discipline where state mutates; single-example unit tests are FALLBACK only with a # bypass: comment. Acceptance scenarios are the cucumber .feature files (already authored by DISTILL -- un-pend, do not re-author). Integration/browser tests stay single-example -- they verify wiring. EXEMPT FROM PARADIGM: a closed actor matrix and exact strings; the create/rename verdict parity is 04-02's classify_team_rename property. Contract shapes: all six unbounded-preservation (teams and team_lifecycle_events byte-identical). Un-pend order: 46, 47, then 50, 51, 52, 53. 422 (DDD-18): a TeamNameError on rename re-renders the members page with the Display copy (the same TeamNameError::Display the create door uses: one source, enforced by team-name-one-source) and the Rename field keeps the typed input. 404: the DDD-16 gate (session -> facts by (session ws, slug) -> can_manage) answers bootstrap::resource_not_found_page() byte for byte for Sam (member), Marco, Ines (instance admin, not a workspace admin), Hugo (Globex), signed out, Lena on a team she does not lead, an unknown slug and Globex's Payments; RED was on each CONTROL ('Priya still finds Backend's rename form'), which must be green. 52 (INV-TL-6, DDD-16): authority is read per request against current rows, so the form Lena opened while lead proves nothing after the shipped role change made her a member. 53: tokenless POST -> the shipped csrf_middleware 403 (OQ-D1). Logging: refusals log nothing. After this step every @pending is gone (the store/use-case ignores went at 04-01). LANES (exact): warm-up 'CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; }'; lane 'FOUNDRY_ACCEPTANCE_TAGS=tl-04 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance' (and tm-04 the same way; the whole feature with FOUNDRY_ACCEPTANCE_TAGS=team-lifecycle and timeout 3600); default lane 'env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance'; gates: 'RUST_TEST_THREADS=1 timeout 2400 cargo test -p foundry-store --test team_create --test team_delete --test team_rename --test team_lifecycle_migrations', 'timeout 900 cargo fmt --all -- --check', 'timeout 1800 cargo clippy --workspace --all-targets -- -D warnings', 'timeout 600 cargo xtask check-arch', smoke 'RUST_TEST_THREADS=1 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke'. Lessons: rebuild + warm before every lane; bound every run with timeout; check for a concurrent session first. MUTATION: >= 80% (timeout 1800 cargo mutants --in-diff <step diff> --file crates/foundry-app/src/teams.rs); the 422-vs-404 mapping and the input-kept branch each killed. COMMIT: one local commit (git commit only). NEVER git push and never open a PR."
+        },
+        {
+          "id": "04-04",
+          "name": "CHANGELOG, burn-down, mutation report, full Docker-inclusive CI, finalize items owed",
+          "description": "Close-out, no behaviour change. CHANGELOG [Unreleased] entries for team create, delete, rename and the name rule, the changed project-create 404 and token-mint 422, and a review of the 0023/0024 migration notes (OQ-D6 counts). Burn-down to zero @pending, pending ignores and DISTILL SCAFFOLD markers; per-feature mutation report; FOUNDRY_XTASK_INCLUDE_DOCKER=1 RUST_TEST_THREADS=1 cargo xtask ci; record owed items.",
+          "criteria": [
+            "CHANGELOG [Unreleased] lists team create, delete with its confirm page and projects refusal, rename by an admin or the lead, and the team-name rule, plus migration notes for 0023 and 0024 with the OQ-D6 counts",
+            "Zero @pending in the four team-lifecycle features, zero 'pending: team-lifecycle' ignores in the five gold-test files, and no DISTILL SCAFFOLD marker in crates/",
+            "Mutation kill rate is at least 80% on every Rust production file the feature modified; survivors on lock strength, statement order, constraint names or check-arch clause boundaries are killed, not waived",
+            "FOUNDRY_XTASK_INCLUDE_DOCKER=1 RUST_TEST_THREADS=1 cargo xtask ci, the default lane, the team-lifecycle lane, the neighbour lanes, fmt, clippy, check-arch and smoke are green",
+            "Owed finalize items recorded: the slice dogfoods on dev and the KPI-TL-1 baselines; nothing deployed, nothing pushed"
+          ],
+          "estimate": "0.5 day",
+          "dependencies": [
+            "04-03"
+          ],
+          "files_to_modify": [
+            "CHANGELOG.md"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/team-lifecycle-01-create-team.feature",
+          "scenario_name": [],
+          "lane_commands": [
+            "timeout 600 cargo xtask check-arch",
+            "timeout 900 cargo fmt --all -- --check",
+            "timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "RUST_TEST_THREADS=1 timeout 3600 cargo test -p foundry-store -p foundry-core -p foundry-services -p xtask (Docker up)",
+            "RUST_TEST_THREADS=1 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; }",
+            "for t in tl-01 tl-02 tl-03 tl-04; do FOUNDRY_ACCEPTANCE_TAGS=$t CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance || break; done",
+            "for t in tm-01 tm-02 tm-03 tm-04 tm-05 tm-06 us-07 pnr ndc iwnr workspace-member-invites keycloak-sso fix-hub us-dash us-nav machine-token-admin recipient-unsubscribe; do FOUNDRY_ACCEPTANCE_TAGS=$t CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance || break; done (DoD 1 neighbours)",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance (default lane)",
+            "timeout 60 grep -cE '^[[:space:]]*@.*@pending' crates/foundry-acceptance/tests/features/team-lifecycle-0*.feature (expect 0 per file)",
+            "timeout 60 grep -c '#\\[ignore = \"pending: team-lifecycle' crates/foundry-store/tests/team_create.rs crates/foundry-store/tests/team_delete.rs crates/foundry-store/tests/team_rename.rs crates/foundry-store/tests/team_lifecycle_migrations.rs crates/foundry-services/tests/team_lifecycle_use_cases.rs (expect 0 for each)",
+            "timeout 60 grep -rn 'SCAFFOLD: true \u2014 RED scaffold written by DISTILL (2026-10-11)' crates/ (expect no output)",
+            "timeout 3600 cargo mutants --in-diff <feature diff> --file crates/foundry-core/src/team_name.rs --file crates/foundry-core/src/project_name.rs --file crates/foundry-core/src/team_membership.rs --file crates/foundry-store/src/teams.rs --file crates/foundry-store/src/lib.rs --file crates/foundry-services/src/teams.rs --file crates/foundry-services/src/projects.rs --file crates/foundry-services/src/tokens.rs --file crates/foundry-app/src/teams.rs --file crates/foundry-app/src/projects.rs --file crates/foundry-app/src/signin.rs --file crates/foundry-app/src/views.rs --file xtask/src/check_arch.rs (per-feature gate >= 80%)",
+            "FOUNDRY_XTASK_INCLUDE_DOCKER=1 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false RUST_TEST_THREADS=1 timeout 5400 cargo xtask ci (without FOUNDRY_XTASK_INCLUDE_DOCKER=1 the browser and Docker lanes are silently skipped)"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): unit tests for new pure logic MUST be property-based (proptest) with state-delta discipline where state mutates; single-example unit tests are FALLBACK only with a # bypass: comment. Acceptance scenarios are the cucumber .feature files (already authored by DISTILL -- un-pend, do not re-author). Integration/browser tests stay single-example -- they verify wiring. EXEMPT FROM PARADIGM: documentation, burn-down and reports; no new code. CHANGELOG [Unreleased] (DoD 9): 'Added' -- a workspace admin creates a team on /teams (born led by its creator; one TeamName rule, cap 64; a name in any script gets an address: team, team-2, ...), New project on the members page for anyone on the team, the dashboard's first-project link to a team the caller is on; delete through a confirm page that names the members, the default-team warning and the scoped tokens, refused while the team has any project (also at commit time, under concurrency); rename by a workspace admin or the team's lead, name only, every link unchanged; rename and delete records (team_lifecycle_events, read with psql); the database refuses a bad new team name. 'Changed' -- the dashboard's empty-state link no longer points at /team/general/projects/new (D14); a project create whose team is gone answers the uniform 404 instead of 'Team not found'; a token mint racing a team delete answers the shipped 422 scope_team_not_in_workspace instead of a 500; an add or default-team set racing a delete answers the uniform 404. Review the 0023 (02-01) and 0024 (03-01) 'Migration notes' for completeness: additive / triggers + function REPLACE, Store::probe requires 0023, rolling-deploy safety and the old-replica project-create caveat (may 500, loses nothing), rollback floor v0.13.0, legacy names untouched, and the OQ-D6 counts already taken on 2026-10-11 (dev and prod: 1 team each, 0 rule violations, 0 case-insensitive duplicates). Burn-down: zero @pending, zero 'pending: team-lifecycle' ignores, zero DISTILL scaffold markers (04-01 removed the last); other features' older SCAFFOLD markers are not this feature's. Mutation report: per-feature >= 80% over every Rust production file modified by 01-01..04-03; cargo-mutants cannot mutate SQL, so the report states how 0023 and 0024 are pinned (the 02-01 and 04-01 store tests, the 100-run races, the shape CHECK test, the probe test, the 0024 arm tests and name_rule_in_database.rs parity) and includes the hand-mutation tables from 02-01, 03-01 and 04-01. FINALIZE ITEMS OWED (record in the execution log / evolution doc; the user has said no deploys and no pushes, so none is done here): (1) KPI-TL-1 baseline on dev and prod by read-only query (workspaces with no teams row); (2) slice-01 dogfood on dev: in a provisioned zero-team workspace, create a team and a project and open its board; (3) slice-02 dogfood: delete a typo team, see a team with a project refused, project counts equal before and after; (4) slice-04 dogfood: rename a team and reopen a pre-rename bookmark; (5) follow-ups: OQ-D4 (admin_tokens resolve_scope by typed name), keyboard.rs and comments.rs 'Team not found' pages, OQ-4 (b)/(c) project delete or move if KPI-TL-5 shows demand; (6) mark team-membership's 'Team create, rename and delete' follow-up closed in this feature's evolution doc. Prod stays held for approval. Lane caveats: GitHub CI has been red since June, so a red remote run is not evidence of a regression; us-04 in the default lane is a known flake (rerun alone); another session may share the worktree; bound every run with timeout. LANES (exact): warm-up 'CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; }'; lanes 'FOUNDRY_ACCEPTANCE_TAGS=tl-0N CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance' for N = 1..4 and the DoD 1 neighbours; default lane 'env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance'; gates: 'RUST_TEST_THREADS=1 timeout 3600 cargo test -p foundry-store -p foundry-core -p foundry-services -p xtask', 'timeout 900 cargo fmt --all -- --check', 'timeout 1800 cargo clippy --workspace --all-targets -- -D warnings', 'timeout 600 cargo xtask check-arch', smoke 'RUST_TEST_THREADS=1 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke', then full CI 'FOUNDRY_XTASK_INCLUDE_DOCKER=1 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false RUST_TEST_THREADS=1 timeout 5400 cargo xtask ci'. COMMIT: one local commit (git commit only). NEVER git push and never open a PR: the user has said no pushes until told."
+        }
+      ]
+    }
+  ],
+  "implementation_scope": {
+    "source_directories": [
+      "crates/foundry-core/src/",
+      "crates/foundry-store/src/",
+      "crates/foundry-store/migrations/",
+      "crates/foundry-services/src/",
+      "crates/foundry-app/src/",
+      "crates/foundry-app/templates/",
+      "xtask/src/"
+    ],
+    "test_directories": [
+      "crates/foundry-store/tests/",
+      "crates/foundry-services/tests/",
+      "crates/foundry-acceptance/tests/",
+      "crates/foundry-acceptance/src/steps/",
+      "crates/foundry-acceptance/src/support/"
+    ],
+    "excluded_patterns": [
+      "target/**",
+      "crates/foundry-app/static/**"
+    ]
+  },
+  "validation": {
+    "status": "approved",
+    "reviewer": "nw-acceptance-designer-reviewer",
+    "date": "2026-10-11",
+    "verdict": "approved, 0 blockers, 0 high, 0 findings"
+  }
+}
