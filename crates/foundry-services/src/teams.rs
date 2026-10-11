@@ -14,8 +14,8 @@
 use crate::Principal;
 use foundry_core::{mint_team_slug, MintedTeamSlug, TeamAccess, TeamName, TeamNameError, TeamRole};
 use foundry_store::teams::{
-    AddTeamMemberOutcome, RemoveTeamMemberOutcome, SetTeamRoleOutcome, TeamAccessFacts,
-    TeamCreateOutcome, TeamMemberRow, TeamPerson, TeamScope, TeamSummary,
+    AddTeamMemberOutcome, RemoveTeamMemberOutcome, SetDefaultTeamOutcome, SetTeamRoleOutcome,
+    TeamAccessFacts, TeamCreateOutcome, TeamMemberRow, TeamPerson, TeamScope, TeamSummary,
 };
 use foundry_store::{Store, StoreError};
 
@@ -178,12 +178,15 @@ pub async fn set_default_team(
                 .ok_or(TeamError::NotFound)?,
         )
     };
-    store
+    let written = store
         .set_default_team(
             principal.workspace_id(),
             chosen.as_ref().map(|facts| facts.team_id),
         )
         .await?;
+    if written == SetDefaultTeamOutcome::TeamGone {
+        return Err(TeamError::NotFound);
+    }
     let index = list_teams(store, principal).await?;
     Ok(DefaultTeamChoice {
         chosen: chosen.map(|facts| DefaultTeam {
@@ -226,7 +229,9 @@ pub async fn add_member(
     {
         AddTeamMemberOutcome::Added => AddMemberResult::Added,
         AddTeamMemberOutcome::AlreadyOn => AddMemberResult::AlreadyOn,
-        AddTeamMemberOutcome::NotWorkspaceMember => return Err(TeamError::NotFound),
+        AddTeamMemberOutcome::NotWorkspaceMember | AddTeamMemberOutcome::TeamGone => {
+            return Err(TeamError::NotFound)
+        }
     };
     // Access is recomputed after the write (DDD-9).
     let page = team_members(store, principal, &facts.team_slug).await?;

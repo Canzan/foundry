@@ -107,6 +107,10 @@ async fn probe_column_check_is_scoped_to_current_schema() {
          created_at timestamptz)",
             // ...and migration 0022's workspaces.default_team_id (DDD-15).
             "CREATE TABLE sibling.workspaces (id uuid PRIMARY KEY, default_team_id uuid)",
+            // ...and migration 0023's team_lifecycle_events (team-lifecycle DDD-23).
+            "CREATE TABLE sibling.team_lifecycle_events (id uuid PRIMARY KEY, \
+         workspace_id uuid, team_id uuid, team_slug text, kind text, actor_id uuid, \
+         name text, new_name text)",
         ],
     )
     .await;
@@ -163,6 +167,10 @@ async fn probe_refuses_a_schema_without_the_provisioned_marker() {
              created_at timestamptz)"
                 .to_string(),
             "CREATE TABLE current.workspaces (id uuid PRIMARY KEY, default_team_id uuid)"
+                .to_string(),
+            "CREATE TABLE current.team_lifecycle_events (id uuid PRIMARY KEY, \
+             workspace_id uuid, team_id uuid, team_slug text, kind text, actor_id uuid, \
+             name text, new_name text)"
                 .to_string(),
         ])
         .collect();

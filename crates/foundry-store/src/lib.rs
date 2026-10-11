@@ -13,6 +13,7 @@ pub mod lanes;
 #[cfg(feature = "test-support")]
 pub mod name_rule_legacy_seam;
 pub mod teams;
+pub mod upgrade_warnings;
 pub mod verify_export;
 
 pub use attachments::{AttachmentInsertError, AttachmentRow, AttachmentSummary};
@@ -21,8 +22,10 @@ pub use lanes::{InsertedIssue, LaneDeleteFate, LaneDeleteOutcome, LaneRow};
 pub use name_rule_legacy_seam::{seed_row_predating_name_rule, NameRuleTable};
 pub use teams::{
     AddTeamMemberOutcome, RemoveTeamMemberOutcome, RemoveWorkspaceMemberOutcome,
-    SetTeamRoleOutcome, TeamCreateOutcome, TeamDeleteFacts, TeamDeleteOutcome, TeamRenameWrite,
+    SetDefaultTeamOutcome, SetTeamRoleOutcome, TeamCreateOutcome, TeamDeleteFacts,
+    TeamDeleteOutcome, TeamRenameWrite,
 };
+pub use upgrade_warnings::{upgrade_warnings, UPGRADE_WARNING_0023};
 pub use verify_export::{verify_workspace_export, ArchiveContents, ArchivedTable, VerifyReport};
 
 use sqlx::postgres::PgPoolOptions;
@@ -204,7 +207,14 @@ impl Store {
             .bind(MIGRATION_LOCK_ID)
             .execute(&mut *conn)
             .await;
-        result.map(|_report| ())
+        // team-lifecycle (user decision 2026-10-11): an upgrade through 0023
+        // tells the operator, once, that older dumps no longer restore over
+        // this database.
+        result.map(|report| {
+            for warning in upgrade_warnings(&report) {
+                tracing::warn!("{warning}");
+            }
+        })
     }
 
     /// Liveness probe: `SELECT 1` round-trip + slice-5 migration-0006
@@ -322,6 +332,26 @@ impl Store {
             return Err(ProbeError::Failed(
                 "workspaces table missing migration-0022 column default_team_id".to_string(),
             ));
+        }
+        // team-lifecycle DDD-23: a team delete (and, from slice 04, a rename)
+        // writes `team_lifecycle_events` in its transaction; against a pre-0023
+        // schema refuse readiness rather than turn the first delete into a 500.
+        // Scoped as above.
+        let lifecycle_cols: (i64,) = sqlx::query_as(
+            "SELECT count(*)::bigint
+               FROM information_schema.columns
+              WHERE table_schema = current_schema()
+                AND table_name = 'team_lifecycle_events'
+                AND column_name IN ('id', 'workspace_id', 'team_id', 'team_slug',
+                                    'kind', 'actor_id', 'name', 'new_name')",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        if lifecycle_cols.0 < 8 {
+            return Err(ProbeError::Failed(format!(
+                "team_lifecycle_events missing migration-0023 columns (found {} of 8)",
+                lifecycle_cols.0
+            )));
         }
         Ok(ProbeReport {
             select_one_ok: true,
@@ -1628,6 +1658,11 @@ impl Store {
         .execute(&mut *tx)
         .await;
         match result {
+            // INV-TL-2 (DDD-9): the team was deleted while this insert waited on
+            // its foreign-key lock — an expected race, mapped and not logged.
+            Err(err) if crate::teams::is_fk_violation(&err, "projects_team_id_fkey") => {
+                Err(ProjectInsertError::TeamGone)
+            }
             Ok(_) => {
                 crate::lanes::seed_creation_lanes(&mut tx, project_id, workspace_id)
                     .await
@@ -3250,7 +3285,7 @@ impl Store {
         expires_at: time::OffsetDateTime,
         label: &str,
         created_by: uuid::Uuid,
-    ) -> Result<(), StoreError> {
+    ) -> Result<(), MachineTokenInsertError> {
         sqlx::query(
             "INSERT INTO machine_tokens
                   (jti, user_id, workspace_id, scope_team_id, expires_at, label, created_by)
@@ -3264,7 +3299,16 @@ impl Store {
         .bind(label)
         .bind(created_by)
         .execute(&self.pool)
-        .await?;
+        .await
+        .map_err(|err| {
+            // INV-TL-2 (DDD-9): the scope team was deleted while this insert
+            // waited on its foreign-key lock — an expected race, not logged.
+            if crate::teams::is_fk_violation(&err, "machine_tokens_scope_team_id_fkey") {
+                MachineTokenInsertError::ScopeTeamGone
+            } else {
+                MachineTokenInsertError::Other(StoreError::Sqlx(err))
+            }
+        })?;
         Ok(())
     }
 
@@ -3481,6 +3525,21 @@ pub enum ProjectInsertError {
     DuplicateKey,
     #[error("project slug already exists in team")]
     DuplicateSlug,
+    /// The team was deleted before the insert committed (23503
+    /// `projects_team_id_fkey`, team-lifecycle DDD-9); nothing was written.
+    #[error("the project's team no longer exists")]
+    TeamGone,
+    #[error(transparent)]
+    Other(#[from] StoreError),
+}
+
+/// Errors specific to registering a machine token (team-lifecycle DDD-9).
+#[derive(Debug, Error)]
+pub enum MachineTokenInsertError {
+    /// The scope team was deleted before the insert committed (23503
+    /// `machine_tokens_scope_team_id_fkey`); nothing was written.
+    #[error("the token's scope team no longer exists")]
+    ScopeTeamGone,
     #[error(transparent)]
     Other(#[from] StoreError),
 }
@@ -3775,7 +3834,8 @@ pub async fn run_boot_migrations_from_dir(
 ///
 /// Returns the [`MigrationReport`] of newly-applied vs already-applied
 /// versions so callers that need it (the runtime test path) can read
-/// the breakdown; the production `migrate()` path discards it.
+/// the breakdown; the production `migrate()` path reads it only for
+/// [`upgrade_warnings`].
 async fn run_migrator_timed(
     migrator: &sqlx::migrate::Migrator,
     conn: &mut sqlx::PgConnection,

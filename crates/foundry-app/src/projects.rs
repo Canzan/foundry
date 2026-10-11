@@ -228,6 +228,9 @@ pub async fn submit_create(
             (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response()
         }
         Err(CreateProjectError::Store(err)) => internal_error("insert_project", err),
+        // team-lifecycle 02-04 maps this to the uniform 404; until then it keeps
+        // today's answer for a project whose team vanished mid-create.
+        Err(CreateProjectError::TeamGone) => internal_error("insert_project", "team gone"),
     }
 }
 

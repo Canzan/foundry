@@ -7,6 +7,45 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 
 ## [Unreleased]
 
+### Migration notes
+
+- **`0023_team_lifecycle_events`** adds one table, `team_lifecycle_events`: an
+  append-only record of each team delete (and, later, each team rename), with
+  `id`, `workspace_id` (`ON DELETE CASCADE` with its workspace), `team_id`,
+  `team_slug`, `kind` (`renamed` or `deleted`), `actor_id` (references
+  `users`, no `ON DELETE` action), `name`, `new_name` and `created_at`. It
+  also adds the CHECK `team_lifecycle_events_kind_shape` (a rename names a
+  different new name; a delete names none) and the index
+  `idx_team_lifecycle_events_workspace_created` on `(workspace_id, created_at)`.
+  `team_id` has no foreign key to `teams`, so a delete record outlives the team.
+  - **Additive.** The table is new and empty; no existing row is read or
+    written. The migration checks its own result and refuses to apply if the
+    columns, the CHECK or the absence of a link to `teams` differ.
+  - **Not in the per-workspace export.** The table is not one of the ten
+    `TENANT_TABLES`, so `export-workspace` and `verify-export` are unchanged.
+    The rows are in every whole-instance `pg_dump`.
+  - **Readiness:** `Store::probe` now requires `team_lifecycle_events`, so a
+    binary from this release refuses `/readyz` against a schema without it.
+  - **Rolling deploys are safe.** An older replica never reads or writes the
+    table. One caveat for the overlap: a project create served by an older
+    replica that races a team delete served by a newer one may answer `500`
+    instead of "not found". No project is lost.
+  - **Backups taken before 0023 no longer restore over the upgraded
+    database.** `team_lifecycle_events` references `workspaces` and `users`,
+    so `pg_restore --clean` of an older dump cannot drop those tables and
+    fails. The boot that upgrades a database through 0023 logs this once, as a
+    warning; a fresh install does not. Discard pre-0023 backups once the
+    upgrade is verified, and take a new backup. If you must restore an older
+    dump, restore it into a fresh database, or run
+    `DROP TABLE team_lifecycle_events;` first. Dumps taken after 0023 restore
+    as before.
+  - **Rollback to v0.13.0 is safe.** It boots against the migrated database
+    and never reads the table. To remove it by hand:
+
+    ```sql
+    DROP TABLE IF EXISTS team_lifecycle_events;
+    ```
+
 ## [v0.13.0] - 2026-10-10
 
 Teams you can manage from the product: a Teams page and per-team member lists, adding

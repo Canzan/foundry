@@ -1119,13 +1119,23 @@ async fn a_post_upgrade_dump_holding_legacy_rows_restores_byte_identical_with_th
     );
 }
 
-/// DDD-14 (2): a pre-0019 dump (schema at 0018, legacy rows) restores over a
-/// post-0020 database; the leftover functions are not in its archive, and the next
-/// boot re-applies 0019/0020 over them cleanly. The legacy rows are untouched and
-/// the rule holds.
+/// DDD-14 (2), name-db-checks D9: a pre-0019 dump (schema at 0018, legacy rows)
+/// restores into a FRESH database, and the next boot migrates it to the latest
+/// and re-applies the name rule. The legacy rows come back untouched and the
+/// rule holds.
+///
+/// Restore target changed by team-lifecycle (user decision 2026-10-11, DELIVER
+/// 02-01): migration 0023's `team_lifecycle_events` keeps its foreign keys to
+/// `workspaces` and `users` (ADR-TEAM-LIFECYCLE-003), so `pg_restore --clean`
+/// of a pre-0023 dump OVER an upgraded database can no longer drop
+/// `workspaces_pkey` / `users_pkey`. Restoring a pre-0023 dump over an upgraded
+/// database is no longer supported; the supported path, which this test pins,
+/// is a restore into a fresh database (the boot warns about it when 0023
+/// applies, and the CHANGELOG says so). The fresh target, not "drop the table
+/// first", is the shape kept here because it is the path operators are told to
+/// take; the other is a documented workaround.
 #[tokio::test]
-async fn a_pre_upgrade_dump_restores_over_a_migrated_database_and_the_next_boot_reapplies_the_rule()
-{
+async fn a_pre_upgrade_dump_restores_into_a_fresh_database_and_the_next_boot_reapplies_the_rule() {
     let c = container().await;
     let admin = connect(&c, "postgres").await;
     create_database(&admin, "before_upgrade", "").await;
@@ -1135,26 +1145,25 @@ async fn a_pre_upgrade_dump_restores_over_a_migrated_database_and_the_next_boot_
     let source = names(&old).await;
     dump(&c, "before_upgrade", "/tmp/pre.dump").await;
 
-    run_migrations(&admin)
+    create_database(&admin, "restored", "").await;
+    restore(&c, "restored", "/tmp/pre.dump").await;
+    let restored = connect(&c, "restored").await;
+    run_migrations(&restored)
         .await
-        .expect("the target is fully migrated");
-    restore(&c, "postgres", "/tmp/pre.dump").await;
-    run_migrations(&admin)
-        .await
-        .expect("the next boot re-applies 0019/0020 over the leftover functions");
-    run_migrations(&admin)
+        .expect("the next boot migrates the restored 0018 schema to the latest");
+    run_migrations(&restored)
         .await
         .expect("and is a no-op after that");
 
-    require_rule_installed(&admin).await;
+    require_rule_installed(&restored).await;
     assert_eq!(
-        names(&admin).await,
+        names(&restored).await,
         source,
         "the legacy rows are untouched (D9)"
     );
-    assert_eq!(triggers(&admin).await, all_four_enabled());
+    assert_eq!(triggers(&restored).await, all_four_enabled());
     assert_refused(
-        rename(&admin, "workspaces", legacy.household, "House\tHold").await,
+        rename(&restored, "workspaces", legacy.household, "House\tHold").await,
         "workspaces_name_no_control_chars",
     );
 }

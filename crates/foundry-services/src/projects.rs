@@ -166,6 +166,9 @@ pub enum CreateProjectError {
     DuplicateKey,
     /// The key-prefix fallback address lost every bounded retry (DDD-10).
     FallbackSlugContention,
+    /// The team was deleted while the create waited on it (team-lifecycle
+    /// DDD-9, INV-TL-2); nothing was written.
+    TeamGone,
     Store(foundry_store::StoreError),
 }
 
@@ -271,6 +274,7 @@ async fn attempt_create(
             Err(CreateProjectError::InvalidName(ProjectNameError::NotUnique))
         }
         (Err(ProjectInsertError::DuplicateKey), _) => Err(CreateProjectError::DuplicateKey),
+        (Err(ProjectInsertError::TeamGone), _) => Err(CreateProjectError::TeamGone),
         (Err(ProjectInsertError::Other(err)), _) => Err(CreateProjectError::Store(err)),
     }
 }

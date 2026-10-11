@@ -74,6 +74,20 @@ pub enum AddTeamMemberOutcome {
     /// The person is not (or no longer) a member of the workspace; nothing was
     /// written (the uniform 404 at the door).
     NotWorkspaceMember,
+    /// The team was deleted while the add waited on its foreign-key lock
+    /// (23503 `team_memberships_team_id_fkey`, team-lifecycle DDD-9); nothing
+    /// was written (the uniform 404 at the door).
+    TeamGone,
+}
+
+/// The outcome of [`Store::set_default_team`] (slice 05; team-lifecycle DDD-9).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SetDefaultTeamOutcome {
+    /// The default now names the chosen team, or none.
+    Set,
+    /// The chosen team was deleted while the write waited on its foreign-key
+    /// lock (23503 `workspaces_default_team_same_workspace`); nothing changed.
+    TeamGone,
 }
 
 /// The outcome of [`Store::set_team_role`] (D6, D13, DDD-9).
@@ -128,6 +142,16 @@ fn is_lead_rule_refusal(err: &sqlx::Error) -> bool {
     err.as_database_error().is_some_and(|db| {
         db.code().as_deref() == Some("23514")
             && db.constraint() == Some("team_memberships_team_keeps_a_lead")
+    })
+}
+
+/// SQLSTATE 23503 on `constraint`, and only that one: a child write whose parent
+/// row was deleted while the write waited on the parent's `KEY SHARE`
+/// (team-lifecycle DDD-9, INV-TL-2). An expected race: callers map it to their
+/// normal outcome and log nothing (DDD-25).
+pub(crate) fn is_fk_violation(err: &sqlx::Error, constraint: &str) -> bool {
+    err.as_database_error().is_some_and(|db| {
+        db.code().as_deref() == Some("23503") && db.constraint() == Some(constraint)
     })
 }
 
@@ -311,8 +335,15 @@ impl Store {
         .bind(user_id)
         .bind(TeamRole::Member.as_str())
         .execute(&mut *tx)
-        .await?
-        .rows_affected();
+        .await;
+        let inserted = match inserted {
+            Ok(done) => done.rows_affected(),
+            Err(err) if is_fk_violation(&err, "team_memberships_team_id_fkey") => {
+                tx.rollback().await?;
+                return Ok(AddTeamMemberOutcome::TeamGone);
+            }
+            Err(err) => return Err(err.into()),
+        };
         tx.commit().await?;
         Ok(if inserted == 0 {
             AddTeamMemberOutcome::AlreadyOn
@@ -425,18 +456,25 @@ impl Store {
 
     /// Set (or, with `None`, clear) the workspace's default team (slice 05). One
     /// UPDATE; the last writer wins. A team of another workspace is refused by
-    /// the database (`workspaces_default_team_same_workspace`, INV-7).
+    /// the database (`workspaces_default_team_same_workspace`, INV-7); a team
+    /// deleted while the write waited is [`SetDefaultTeamOutcome::TeamGone`].
     pub async fn set_default_team(
         &self,
         workspace_id: uuid::Uuid,
         team_id: Option<uuid::Uuid>,
-    ) -> Result<(), StoreError> {
-        sqlx::query("UPDATE workspaces SET default_team_id = $2 WHERE id = $1")
+    ) -> Result<SetDefaultTeamOutcome, StoreError> {
+        let updated = sqlx::query("UPDATE workspaces SET default_team_id = $2 WHERE id = $1")
             .bind(workspace_id)
             .bind(team_id)
             .execute(&self.pool)
-            .await?;
-        Ok(())
+            .await;
+        match updated {
+            Ok(_) => Ok(SetDefaultTeamOutcome::Set),
+            Err(err) if is_fk_violation(&err, "workspaces_default_team_same_workspace") => {
+                Ok(SetDefaultTeamOutcome::TeamGone)
+            }
+            Err(err) => Err(err.into()),
+        }
     }
 }
 
@@ -484,6 +522,10 @@ pub(crate) async fn place_on_default_team(
 //
 // Shipped (team-lifecycle 01-01): `list_team_siblings` and
 // `create_team_with_lead` (DDD-4, DDD-5).
+//
+// Shipped (team-lifecycle 02-01): `team_delete_facts` and
+// `delete_team_if_empty` (DDD-7, DDD-8, DDD-10), and the 23503 mappings of
+// DDD-9 (`is_fk_violation`).
 //
 // SCAFFOLD: true — RED scaffold written by DISTILL (2026-10-11). The outcome
 // types are real (the store gold tests in `tests/team_create.rs`,
@@ -542,6 +584,11 @@ pub enum TeamRenameWrite {
     /// No such team in the workspace (or it was deleted first); nothing written.
     NotFound,
 }
+
+/// A team's projects as `(name, key)`, by name then key: the confirm page's list
+/// and the delete's refusal (DDD-8, DDD-10).
+const TEAM_PROJECTS_SQL: &str =
+    "SELECT name, key_prefix FROM projects WHERE team_id = $1 ORDER BY name, key_prefix";
 
 /// `teams_workspace_id_slug_key` refusing an insert: SQLSTATE 23505 on that
 /// constraint, and only that one.
@@ -645,24 +692,91 @@ impl Store {
         Ok(slug)
     }
 
-    /// The confirm page's advisory facts, read with no lock (DDD-10).
+    /// The confirm page's advisory facts, read with no lock (DDD-10). Every
+    /// scoped token is counted, revoked or not: the delete removes them all.
     pub async fn team_delete_facts(
         &self,
-        _team_id: uuid::Uuid,
+        team_id: uuid::Uuid,
     ) -> Result<TeamDeleteFacts, StoreError> {
-        panic!("Not yet implemented -- RED scaffold (team-lifecycle 02-01: team_delete_facts)")
+        let (member_count, is_default, scoped_token_count): (i64, bool, i64) = sqlx::query_as(
+            "SELECT (SELECT count(*) FROM team_memberships WHERE team_id = $1),
+                    EXISTS (SELECT 1 FROM workspaces WHERE default_team_id = $1),
+                    (SELECT count(*) FROM machine_tokens WHERE scope_team_id = $1)",
+        )
+        .bind(team_id)
+        .fetch_one(&self.pool)
+        .await?;
+        let projects = sqlx::query_as(TEAM_PROJECTS_SQL)
+            .bind(team_id)
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(TeamDeleteFacts {
+            member_count,
+            is_default,
+            scoped_token_count,
+            projects,
+        })
     }
 
-    /// ADR-TEAM-LIFECYCLE-002 decision 1, in exactly this order: the team row
-    /// `FOR UPDATE`; then, in a new statement, its projects; then `DELETE FROM
-    /// teams`; then the `deleted` record; then commit.
+    /// ADR-TEAM-LIFECYCLE-002 decision 1, in exactly this order, in one
+    /// transaction:
+    ///
+    /// 1. the team row `FOR UPDATE` — NOT `FOR NO KEY UPDATE`: only `FOR UPDATE`
+    ///    conflicts with the `KEY SHARE` every project insert's foreign-key
+    ///    check takes, so no project can commit on this team until we end;
+    /// 2. its projects, in a NEW statement — after a lock wait it sees the
+    ///    project the waited-on create committed (one `DELETE … WHERE NOT
+    ///    EXISTS` would keep its starting snapshot and cascade over it);
+    /// 3. `DELETE FROM teams` — the cascade takes the memberships (0021 exempts
+    ///    a team that is gone) and the scoped tokens, and 0022 clears the
+    ///    default;
+    /// 4. the `deleted` record (INV-TL-9), so the delete commits with it or not
+    ///    at all.
     pub async fn delete_team_if_empty(
         &self,
-        _workspace_id: uuid::Uuid,
-        _team_id: uuid::Uuid,
-        _actor_id: uuid::Uuid,
+        workspace_id: uuid::Uuid,
+        team_id: uuid::Uuid,
+        actor_id: uuid::Uuid,
     ) -> Result<TeamDeleteOutcome, StoreError> {
-        panic!("Not yet implemented -- RED scaffold (team-lifecycle 02-01: delete_team_if_empty)")
+        let mut tx = self.pool.begin().await?;
+        let team: Option<(String, String)> = sqlx::query_as(
+            "SELECT name, slug FROM teams WHERE workspace_id = $1 AND id = $2 FOR UPDATE",
+        )
+        .bind(workspace_id)
+        .bind(team_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some((name, slug)) = team else {
+            tx.rollback().await?;
+            return Ok(TeamDeleteOutcome::NotFound);
+        };
+        let projects: Vec<(String, String)> = sqlx::query_as(TEAM_PROJECTS_SQL)
+            .bind(team_id)
+            .fetch_all(&mut *tx)
+            .await?;
+        if !projects.is_empty() {
+            tx.rollback().await?;
+            return Ok(TeamDeleteOutcome::HasProjects { projects });
+        }
+        sqlx::query("DELETE FROM teams WHERE id = $1")
+            .bind(team_id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query(
+            "INSERT INTO team_lifecycle_events
+                    (id, workspace_id, team_id, team_slug, kind, actor_id, name)
+             VALUES ($1, $2, $3, $4, 'deleted', $5, $6)",
+        )
+        .bind(uuid::Uuid::now_v7())
+        .bind(workspace_id)
+        .bind(team_id)
+        .bind(&slug)
+        .bind(actor_id)
+        .bind(&name)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(TeamDeleteOutcome::Deleted { name, slug })
     }
 
     /// ADR-TEAM-LIFECYCLE-003 decision 2: the team row `FOR NO KEY UPDATE`; a

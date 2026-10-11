@@ -632,7 +632,6 @@ async fn negative_control_single_delete_where_not_exists_loses_a_project() {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-#[ignore = "pending: team-lifecycle 02-01"]
 async fn the_confirm_facts_count_members_default_tokens_and_projects() {
     let l = labs().await;
     require_lifecycle_records_installed(&l.pool).await;
@@ -666,7 +665,6 @@ async fn the_confirm_facts_count_members_default_tokens_and_projects() {
 }
 
 #[tokio::test]
-#[ignore = "pending: team-lifecycle 02-01"]
 async fn a_team_with_no_projects_is_deleted_with_its_rows_tokens_and_default_and_one_record() {
     let l = labs().await;
     require_lifecycle_records_installed(&l.pool).await;
@@ -714,7 +712,6 @@ async fn a_team_with_no_projects_is_deleted_with_its_rows_tokens_and_default_and
 }
 
 #[tokio::test]
-#[ignore = "pending: team-lifecycle 02-01"]
 async fn a_team_with_projects_is_refused_naming_each_by_name_then_key_and_nothing_changes() {
     let l = labs().await;
     require_lifecycle_records_installed(&l.pool).await;
@@ -739,7 +736,6 @@ async fn a_team_with_projects_is_refused_naming_each_by_name_then_key_and_nothin
 }
 
 #[tokio::test]
-#[ignore = "pending: team-lifecycle 02-01"]
 async fn another_workspaces_team_or_an_unknown_team_is_not_found_and_nothing_changes() {
     let l = labs().await;
     require_lifecycle_records_installed(&l.pool).await;
@@ -758,7 +754,6 @@ async fn another_workspaces_team_or_an_unknown_team_is_not_found_and_nothing_cha
 /// INV-TL-9: the record commits with the delete or not at all. An actor the
 /// record cannot name (no such user) rolls the whole delete back.
 #[tokio::test]
-#[ignore = "pending: team-lifecycle 02-01"]
 async fn a_delete_whose_record_cannot_be_written_deletes_nothing() {
     let l = labs().await;
     require_lifecycle_records_installed(&l.pool).await;
@@ -778,7 +773,6 @@ async fn a_delete_whose_record_cannot_be_written_deletes_nothing() {
 /// INV-TL-9: the record outlives the team (no FK to `teams`) and keeps its id,
 /// name and slug as text.
 #[tokio::test]
-#[ignore = "pending: team-lifecycle 02-01"]
 async fn the_delete_record_outlives_the_team_with_its_id_name_and_slug() {
     let l = labs().await;
     require_lifecycle_records_installed(&l.pool).await;
@@ -809,7 +803,6 @@ async fn the_delete_record_outlives_the_team_with_its_id_name_and_slug() {
 /// INV-TL-1, order "create first": a delete that waits on a create's KEY SHARE
 /// reads the committed project afterwards and refuses, naming it.
 #[tokio::test]
-#[ignore = "pending: team-lifecycle 02-01"]
 async fn a_delete_waiting_on_a_project_create_refuses_naming_the_new_project() {
     let l = labs().await;
     require_lifecycle_records_installed(&l.pool).await;
@@ -847,7 +840,6 @@ async fn a_delete_waiting_on_a_project_create_refuses_naming_the_new_project() {
 /// delete's lock finds the team gone and answers `TeamGone` (the uniform 404),
 /// never an unmapped error.
 #[tokio::test]
-#[ignore = "pending: team-lifecycle 02-01"]
 async fn a_project_create_waiting_on_a_delete_answers_team_gone() {
     let l = labs().await;
     let mut delete = l.pool.begin().await.expect("begin delete");
@@ -887,7 +879,6 @@ async fn a_project_create_waiting_on_a_delete_answers_team_gone() {
 /// INV-TL-2: an add or a default set racing the delete answers its team-gone
 /// outcome (the uniform 404), never an unmapped error.
 #[tokio::test]
-#[ignore = "pending: team-lifecycle 02-01"]
 async fn an_add_and_a_default_set_waiting_on_a_delete_answer_team_gone() {
     let l = labs().await;
     for writer in ["add", "default"] {
@@ -935,7 +926,6 @@ async fn an_add_and_a_default_set_waiting_on_a_delete_answer_team_gone() {
 /// refused) or neither (the create answered TeamGone). Never a lost project,
 /// never an unmapped error.
 #[tokio::test]
-#[ignore = "pending: team-lifecycle 02-01"]
 async fn the_delete_versus_project_create_race_never_loses_a_project_in_100_runs() {
     let l = labs().await;
     require_lifecycle_records_installed(&l.pool).await;

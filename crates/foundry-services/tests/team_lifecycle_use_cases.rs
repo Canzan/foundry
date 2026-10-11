@@ -322,7 +322,6 @@ async fn two_creates_of_different_non_latin_names_at_once_both_succeed_in_100_ru
 /// delete commits while the mint waits on the foreign key answers the shipped
 /// 422 `scope_team_not_in_workspace`, never a 500.
 #[tokio::test]
-#[ignore = "pending: team-lifecycle 02-01"]
 async fn a_token_mint_racing_a_team_delete_answers_the_shipped_422() {
     let l = labs().await;
     let design = uuid::Uuid::now_v7();

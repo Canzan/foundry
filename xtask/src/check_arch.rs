@@ -141,7 +141,7 @@ pub fn run(args: Vec<String>) -> ExitCode {
     let verdict = verdict(&args);
     match &verdict {
         Verdict::Passed => println!(
-            "check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, the lanes position constraint is still DEFERRABLE, no board-*.js registers a keydown listener, nothing outside migration 0017 UPDATEs users.provisioned_at (D9), both publish workflows stamp every image with its commit and the Dockerfile hands it to build.rs (AC-8), every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, no colour literal outside the three stylesheet token regions, the three stylesheet token regions declare the identical colour-token set, the workspace-name refusal copy lives only in foundry-core and no production door calls create_initial_workspace, the project-name refusal copy lives only in foundry-core and no door calls insert_project, no production door calls seed_row_predating_name_rule and no crate but its seam file disables a trigger or sets session_replication_role, the team-name refusal copy lives only in foundry-core, teams and team_lifecycle_events are written only by foundry-store and no door calls create_team_with_lead, dependency direction)"
+            "check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, the lanes position constraint is still DEFERRABLE, no board-*.js registers a keydown listener, nothing outside migration 0017 UPDATEs users.provisioned_at (D9), both publish workflows stamp every image with its commit and the Dockerfile hands it to build.rs (AC-8), every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, no colour literal outside the three stylesheet token regions, the three stylesheet token regions declare the identical colour-token set, the workspace-name refusal copy lives only in foundry-core and no production door calls create_initial_workspace, the project-name refusal copy lives only in foundry-core and no door calls insert_project, no production door calls seed_row_predating_name_rule and no crate but its seam file disables a trigger or sets session_replication_role, the team-name refusal copy lives only in foundry-core, teams and team_lifecycle_events are written only by foundry-store and no door calls create_team_with_lead or delete_team_if_empty, dependency direction)"
         ),
         Verdict::UnparseableArguments(message) => eprintln!("check-arch: {message}"),
         Verdict::Violations(violations) => {
@@ -5565,9 +5565,9 @@ fn check_team_name_one_source(root: &Path) -> Vec<String> {
 }
 
 /// The store's team-lifecycle writes, which no door may call: every create,
-/// rename and delete goes through its `foundry-services` use-case. 02-01 adds
-/// `delete_team_if_empty`, 04-01 adds `rename_team_with_audit`.
-const TEAM_LIFECYCLE_SEAMS: [&str; 1] = ["create_team_with_lead"];
+/// rename and delete goes through its `foundry-services` use-case. 02-01
+/// added `delete_team_if_empty`; 04-01 adds `rename_team_with_audit`.
+const TEAM_LIFECYCLE_SEAMS: [&str; 2] = ["create_team_with_lead", "delete_team_if_empty"];
 
 const TEAM_LIFECYCLE_ONE_SEAM: OneSeamRule = OneSeamRule {
     id: "team-lifecycle-one-seam",
@@ -5915,6 +5915,30 @@ mod team_lifecycle_one_seam_tests {
         assert!(
             flagged_at(&violations, "crates/foundry-api/src/lib.rs:3"),
             "a call split across lines is still a call: {violations:?}"
+        );
+    }
+
+    /// 02-01: the guarded delete is a seam too — a door calling it directly
+    /// skips the `Administer` policy (ADR-TEAM-LIFECYCLE-002 decision 7).
+    #[test]
+    fn a_team_delete_called_from_app_or_api_src_is_flagged() {
+        let tree = stage(&[
+            ("crates/foundry-store/src/teams.rs", STORE_TEAMS),
+            (
+                "crates/foundry-app/src/teams.rs",
+                "fn a() {}\nlet _ = state.store.delete_team_if_empty(ws, team, actor).await;\n",
+            ),
+            (
+                "crates/foundry-services/src/teams.rs",
+                "let outcome = store.delete_team_if_empty(ws, team, actor).await?;\n",
+            ),
+        ]);
+        let violations = check_team_lifecycle_one_seam(tree.path());
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert!(
+            flagged_at(&violations, "crates/foundry-app/src/teams.rs:2")
+                && violations[0].contains("`delete_team_if_empty`"),
+            "{violations:?}"
         );
     }
 

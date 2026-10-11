@@ -28,7 +28,10 @@
 //!
 //! Real Postgres (testcontainers `postgres:16-alpine`); example-based.
 
-use foundry_store::{run_migrations, run_migrations_from_dir, Store};
+use foundry_store::{
+    run_boot_migrations_from_dir, run_migrations, run_migrations_from_dir, upgrade_warnings,
+    MigrationReport, Store, UPGRADE_WARNING_0023,
+};
 use sqlx::postgres::{PgDatabaseError, PgPoolOptions};
 use sqlx::PgPool;
 use std::path::PathBuf;
@@ -196,7 +199,6 @@ async fn a_nul_in_a_team_name_is_refused_by_postgres_itself_before_any_rule() {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-#[ignore = "pending: team-lifecycle 02-01"]
 async fn migration_0023_is_additive_over_a_schema_holding_rows() {
     require_0023();
     let (pool, _c) = fresh().await;
@@ -219,7 +221,6 @@ async fn migration_0023_is_additive_over_a_schema_holding_rows() {
 }
 
 #[tokio::test]
-#[ignore = "pending: team-lifecycle 02-01"]
 async fn the_record_shape_check_refuses_an_incoherent_record_and_has_no_link_to_teams() {
     require_0023();
     let (pool, _c) = fresh().await;
@@ -274,7 +275,6 @@ async fn the_record_shape_check_refuses_an_incoherent_record_and_has_no_link_to_
 }
 
 #[tokio::test]
-#[ignore = "pending: team-lifecycle 02-01"]
 async fn the_probe_refuses_a_schema_without_the_lifecycle_record() {
     require_0023();
     let (pool, _c) = fresh().await;
@@ -418,4 +418,124 @@ async fn migration_0024_keeps_the_other_rules_installs_both_triggers_and_reruns_
         .await
         .expect_err("still refused after a re-run");
     assert_team_rule(&err, "teams_name_no_control_chars");
+}
+
+// ---------------------------------------------------------------------------
+// The upgrade warning for 0023 (user decision 2026-10-11, DELIVER 02-01)
+// ---------------------------------------------------------------------------
+//
+// 0023's foreign keys from `team_lifecycle_events` to `workspaces` and `users`
+// make `pg_restore --clean` of a pre-0023 dump over an upgraded database fail.
+// The user kept the keys; "handled during upgrading as a warning": a boot that
+// UPGRADES a database through 0023 (applies 23 while earlier migrations were
+// already present before that boot) warns that such a dump is restored into a
+// fresh database (or the table dropped first). A fresh install that applies
+// 1..23 in one boot has no older dump and does not warn.
+// `foundry_store::upgrade_warnings(&MigrationReport) -> Vec<&'static str>` is
+// the contract (`applied` = this boot's versions, `already_applied` = the
+// versions present before it); `UPGRADE_WARNING_0023` is its one source of
+// text, and the boot logs each returned warning at `warn`.
+
+/// The warning text says what happened and what the operator does about it.
+#[test]
+fn the_0023_warning_names_the_migration_the_table_and_the_supported_restore() {
+    for phrase in [
+        "0023",
+        "team_lifecycle_events",
+        "fresh database",
+        "drop team_lifecycle_events",
+    ] {
+        assert!(
+            UPGRADE_WARNING_0023.contains(phrase),
+            "the 0023 upgrade warning must say {phrase:?}: {UPGRADE_WARNING_0023}"
+        );
+    }
+}
+
+/// The pure contract over a report: exactly one warning when this boot applied
+/// 0023 on top of migrations that were already present; none for a fresh
+/// install, a boot that applied nothing, or a boot that did not apply 0023.
+#[test]
+fn a_report_warns_once_exactly_when_this_boot_upgraded_through_0023() {
+    let report = |applied: Vec<i64>, already_applied: Vec<i64>| MigrationReport {
+        applied,
+        already_applied,
+    };
+    assert_eq!(
+        upgrade_warnings(&report(vec![22, 23], (1..=21).collect())),
+        vec![UPGRADE_WARNING_0023],
+        "an upgrade from 0021 through 0023 warns once"
+    );
+    assert_eq!(
+        upgrade_warnings(&report(vec![23], (1..=22).collect())),
+        vec![UPGRADE_WARNING_0023],
+        "an upgrade from 0022 to 0023 warns once"
+    );
+    assert!(
+        upgrade_warnings(&report((1..=23).collect(), vec![])).is_empty(),
+        "a fresh install applies 0023 with nothing before it: no old dump, no warning"
+    );
+    assert!(
+        upgrade_warnings(&report(vec![], (1..=23).collect())).is_empty(),
+        "a boot that applies nothing warns nothing"
+    );
+    assert!(
+        upgrade_warnings(&report(vec![24], (1..=23).collect())).is_empty(),
+        "a later migration alone warns nothing"
+    );
+    assert!(
+        upgrade_warnings(&report(vec![21, 22], (1..=20).collect())).is_empty(),
+        "an upgrade that stops before 0023 warns nothing"
+    );
+}
+
+/// Through the boot loop on real databases: a fresh boot straight to the latest
+/// warns nothing; the staged upgrade (0021, then 0022, then the boot that
+/// applies 0023) warns exactly once, on that boot; the next boot warns nothing.
+#[tokio::test]
+async fn only_the_boot_that_upgrades_through_0023_warns_and_a_fresh_install_does_not() {
+    require_0023();
+    let (fresh_pool, _fresh) = fresh().await;
+    let install = run_boot_migrations_from_dir(&fresh_pool, &production_migrations_dir())
+        .await
+        .expect("a fresh install boots to the latest");
+    assert!(
+        install.applied.contains(&23) && install.already_applied.is_empty(),
+        "{install:?}"
+    );
+    assert!(
+        upgrade_warnings(&install).is_empty(),
+        "a fresh install warns nothing: {install:?}"
+    );
+
+    let (pool, _c) = fresh().await;
+    let to_0021 = run_boot_migrations_from_dir(&pool, &staged_migrations("0021"))
+        .await
+        .expect("boot at 0021");
+    assert!(upgrade_warnings(&to_0021).is_empty(), "{to_0021:?}");
+    let to_0022 = run_boot_migrations_from_dir(&pool, &staged_migrations("0022"))
+        .await
+        .expect("boot at 0022");
+    assert_eq!(to_0022.applied, vec![22]);
+    assert!(
+        upgrade_warnings(&to_0022).is_empty(),
+        "applying only 0022 warns nothing"
+    );
+    let upgrade = run_boot_migrations_from_dir(&pool, &production_migrations_dir())
+        .await
+        .expect("the upgrade boot");
+    assert!(upgrade.applied.contains(&23), "{upgrade:?}");
+    assert_eq!(
+        upgrade_warnings(&upgrade),
+        vec![UPGRADE_WARNING_0023],
+        "the boot that upgrades through 0023 warns exactly once"
+    );
+    let again = run_boot_migrations_from_dir(&pool, &production_migrations_dir())
+        .await
+        .expect("the next boot");
+    assert!(again.applied.is_empty(), "{again:?}");
+    assert!(
+        upgrade_warnings(&again).is_empty(),
+        "a boot that applies nothing warns nothing"
+    );
 }

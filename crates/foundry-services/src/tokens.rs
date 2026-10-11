@@ -15,7 +15,7 @@
 //! PASSED to `mint_token` (DD4), never stored in `Services`.
 
 use crate::{Principal, ServiceError};
-use foundry_store::Store;
+use foundry_store::{MachineTokenInsertError, Store};
 
 /// Server cap on token lifetime (DD8 / OD4-RATIFIED — "e.g. 1y").
 pub const MAX_TTL_DAYS: i64 = 365;
@@ -128,10 +128,7 @@ pub async fn mint_token(
                 .await
                 .map_err(|_| ServiceError::Internal)?;
             if !belongs {
-                return Err(ServiceError::Validation {
-                    code: "scope_team_not_in_workspace".to_string(),
-                    message: "The chosen team is not in this workspace".to_string(),
-                });
+                return Err(scope_team_not_in_workspace());
             }
             Some(team_id)
         }
@@ -173,7 +170,12 @@ pub async fn mint_token(
             principal.user_id(),
         )
         .await
-        .map_err(|_| ServiceError::Internal)?;
+        .map_err(|err| match err {
+            // INV-TL-2: the team was deleted while the insert waited on it — the
+            // same refusal as a team that is not in this workspace (step 3).
+            MachineTokenInsertError::ScopeTeamGone => scope_team_not_in_workspace(),
+            MachineTokenInsertError::Other(_) => ServiceError::Internal,
+        })?;
 
     // 7. Return the one-time value — it travels to the handler, renders once,
     //    and drops (DD7). The team name is resolved for the display label
@@ -187,6 +189,15 @@ pub async fn mint_token(
         scope_team_name,
         expires_at,
     })
+}
+
+/// The shipped 422 for a team scope that is not (or no longer) a team of the
+/// acting workspace (DD9; team-lifecycle INV-TL-2).
+fn scope_team_not_in_workspace() -> ServiceError {
+    ServiceError::Validation {
+        code: "scope_team_not_in_workspace".to_string(),
+        message: "The chosen team is not in this workspace".to_string(),
+    }
 }
 
 /// Resolve a team's display name by id (DD9 scope labelling). `None` in ⇒ `None`
