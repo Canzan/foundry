@@ -7,6 +7,13 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 
 ## [Unreleased]
 
+## [v0.13.0] - 2026-10-10
+
+Teams you can manage from the product: a Teams page and per-team member lists, adding
+people, making them lead or member, and removing them, with every team always keeping a
+lead; plus a default team for new members (team-membership). `git log v0.12.0..v0.13.0` is
+the full list.
+
 ### Added
 
 - **Teams.** The dashboard's quick actions now start with **Teams**, which
@@ -51,6 +58,12 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
   first." Nothing is removed and no `member_removed` notification is sent. Make
   someone else a lead of that team first.
 
+### Fixed
+
+- **Board action row spacing.** The New issue and Search buttons on a board no
+  longer touch, and the Change report link, the buttons and the lanes are
+  spaced apart. The stylesheet is re-hashed to `foundry.8d661015.css`.
+
 ### Migration notes
 
 - **`0021_team_lead_guard`** adds one function, `foundry_team_keeps_a_lead()`,
@@ -67,8 +80,8 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
     team rows of people who are no longer members of the team's workspace (left
     behind by earlier workspace removals). Such rows grant nothing. It reports
     the count with a `NOTICE` (expected 0) and refuses to apply if any remain.
-  - **Before upgrading, count those rows** (read-only; expected `0`). The dev
-    and prod counts are still owed (OQ-D4), since nothing has been deployed yet:
+  - **Before upgrading, count those rows** (read-only; expected `0`). Counted on
+    2026-10-10 before v0.13.0: dev 0, prod 0 (OQ-D4):
 
     ```sh
     psql "$DATABASE_URL" -At <<'SQL'
@@ -760,7 +773,8 @@ followed it.
 - A `comments_visible` SQL VIEW for defense-in-depth against missed
   soft-delete filters is deferred to v0.3 (ADR-017).
 
-[Unreleased]: https://github.com/Canzan/foundry/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/Canzan/foundry/compare/v0.13.0...HEAD
+[v0.13.0]: https://github.com/Canzan/foundry/compare/v0.12.0...v0.13.0
 [v0.12.0]: https://github.com/Canzan/foundry/compare/v0.11.0...v0.12.0
 [v0.11.0]: https://github.com/Canzan/foundry/compare/v0.10.0...v0.11.0
 [v0.10.0]: https://github.com/Canzan/foundry/compare/v0.9.0...v0.10.0
