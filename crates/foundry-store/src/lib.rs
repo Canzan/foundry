@@ -929,27 +929,6 @@ impl Store {
         Ok(rows)
     }
 
-    /// Is `user_id` on at least one team of `workspace_id`? One bounded EXISTS
-    /// read that tells the dashboard's two empty states apart: a member on no
-    /// team (who must ask an admin) vs a team member whose teams hold no
-    /// projects (who can create one).
-    pub async fn is_on_any_team(
-        &self,
-        workspace_id: uuid::Uuid,
-        user_id: uuid::Uuid,
-    ) -> Result<bool, StoreError> {
-        let row: (bool,) = sqlx::query_as(
-            "SELECT EXISTS (SELECT 1 FROM team_memberships tm \
-                              JOIN teams t ON t.id = tm.team_id \
-                             WHERE t.workspace_id = $1 AND tm.user_id = $2)",
-        )
-        .bind(workspace_id)
-        .bind(user_id)
-        .fetch_one(&self.pool)
-        .await?;
-        Ok(row.0)
-    }
-
     /// dashboard-enhancements US-01 — the ONE tenant-scoped read the signed-in
     /// dashboard greeting needs: `(display_name, workspace_name)` for the SESSION
     /// `user_id` + `workspace_id` (the caller passes the trusted `SessionUser`

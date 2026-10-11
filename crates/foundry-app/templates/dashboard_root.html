@@ -8,11 +8,14 @@
 
   <section class="dash__section">
     <h2>Your projects</h2>
-    {% if !on_a_team %}
+    {% match section %}
+    {% when DashboardProjectsSection::NoTeam %}
     <p class="dash__empty">You're not on any team yet — ask a workspace admin to add you.</p>
-    {% else if projects.is_empty() %}
-    <p class="dash__empty">No projects yet — <a href="/team/general/projects/new">create your first project</a>.</p>
-    {% else %}
+    {% when DashboardProjectsSection::CreateOn with (team_slug) %}
+    <p class="dash__empty">No projects yet — <a href="/team/{{ team_slug }}/projects/new">create your first project</a>.</p>
+    {% when DashboardProjectsSection::CreateUnlinked %}
+    <p class="dash__empty">No projects yet — create your first project.</p>
+    {% when DashboardProjectsSection::Listed %}
     <ul class="card-grid">
       {% for p in projects %}
       <li class="card">
@@ -23,7 +26,7 @@
       </li>
       {% endfor %}
     </ul>
-    {% endif %}
+    {% endmatch %}
   </section>
 
   <section class="dash__section">

@@ -1125,11 +1125,8 @@ pub struct DashboardRoot {
     /// Projects of the teams the SESSION user is on in the acting workspace,
     /// rendered as board links (fix-hide-unreachable-boards).
     pub projects: Vec<ProjectLink>,
-    /// fix-hide-unreachable-boards: whether the SESSION user is on any team of the
-    /// acting workspace. Picks the empty state: `false` renders the no-team copy
-    /// (ask a workspace admin) with NO create-project link — that link would be a
-    /// dead end for a member on no team.
-    pub on_a_team: bool,
+    /// What "Your projects" shows: the list, or one of its empty states.
+    pub section: DashboardProjectsSection,
     /// US-03: whether the SESSION user is an instance super-admin. Gates the
     /// "Instance admin" quick-action link to `/admin/instance/workspaces`. Resolved
     /// from `Store::is_instance_admin(session user_id)`; fail-closed to `false` on
@@ -1144,6 +1141,22 @@ pub struct DashboardRoot {
     /// once per page. The dashboard is the `Home` section; `base.html` →
     /// `app_shell.html` injects `partials/sidebar.html`, which reads `nav.*`.
     pub nav: crate::nav::NavContext,
+}
+
+/// The dashboard's "Your projects" section (fix-hide-unreachable-boards, D14).
+/// An empty list has three meanings, and the create link may only ever name a
+/// team the SESSION user is on (DDD-21).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DashboardProjectsSection {
+    /// The user's projects, rendered as board links.
+    Listed,
+    /// On no team: ask a workspace admin (no create link — it would dead-end).
+    NoTeam,
+    /// On a team with no projects: link that team's new project form.
+    CreateOn(String),
+    /// The first-team lookup failed (OQ-D3): keep the "create" sentence, but
+    /// with no link, since the team is unknown.
+    CreateUnlinked,
 }
 
 /// One project row on the dashboard project index.

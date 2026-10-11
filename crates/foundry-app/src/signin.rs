@@ -426,20 +426,18 @@ pub async fn dashboard_root(
                     },
                 )
                 .collect();
-            // fix-hide-unreachable-boards: an empty list has two meanings — on no
-            // team (ask an admin; the create link would be a dead end) vs a team
-            // with no projects (create one). Only asked when the list is empty, so
-            // a populated dashboard issues no extra read. On lookup error keep the
-            // pre-fix copy (`true`) rather than tell a team member they're teamless.
-            let on_a_team = !projects.is_empty()
-                || state
-                    .store
-                    .is_on_any_team(u.workspace_id, u.user_id)
-                    .await
-                    .unwrap_or_else(|err| {
-                        tracing::error!(%err, "dashboard: is_on_any_team failed");
-                        true
-                    });
+            // fix-hide-unreachable-boards + D14 (DDD-21): an empty list means
+            // either no team (ask an admin) or a team with no projects (create
+            // one ON that team — the link may only name a team the user is on).
+            // Only asked when the list is empty, so a populated dashboard issues
+            // no extra read.
+            let section = if projects.is_empty() {
+                projects_section_from_lookup(
+                    state.store.first_team_slug(u.workspace_id, u.user_id).await,
+                )
+            } else {
+                crate::views::DashboardProjectsSection::Listed
+            };
             // US-03: the instance-admin link renders only for an instance
             // super-admin, scoped by the SESSION user_id (never a path/query id —
             // ADR-002). Fail-closed: on lookup error we default to `false` so the
@@ -482,7 +480,7 @@ pub async fn dashboard_root(
                 display_name,
                 workspace_name,
                 projects,
-                on_a_team,
+                section,
                 is_instance_admin,
                 csrf,
                 nav,
@@ -519,6 +517,23 @@ fn greeting_or_neutral(loaded: Option<(String, String)>) -> (String, String) {
             NEUTRAL_DISPLAY_NAME.to_string(),
             NEUTRAL_WORKSPACE_NAME.to_string(),
         ),
+    }
+}
+
+/// Map the first-team read to the dashboard's empty state (DDD-21). On a
+/// lookup error keep the fail-open "on a team" copy but drop the link (OQ-D3):
+/// never tell a team member they are teamless, never name a team they are not on.
+fn projects_section_from_lookup<E: std::fmt::Display>(
+    lookup: Result<Option<String>, E>,
+) -> crate::views::DashboardProjectsSection {
+    use crate::views::DashboardProjectsSection as Section;
+    match lookup {
+        Ok(Some(team_slug)) => Section::CreateOn(team_slug),
+        Ok(None) => Section::NoTeam,
+        Err(err) => {
+            tracing::error!(%err, "dashboard: first_team_slug failed");
+            Section::CreateUnlinked
+        }
     }
 }
 
@@ -668,6 +683,73 @@ mod tests {
             ("there".to_string(), "your workspace".to_string()),
             "an absent/failed identity lookup must yield the neutral fallback greeting"
         );
+    }
+
+    /// OQ-D3: a failed first-team lookup keeps today's fail-open "on a team"
+    /// copy but renders the empty-state sentence WITHOUT a link — the page can
+    /// never name a team the caller is not on. An acceptance scenario cannot
+    /// force the read to fail, so the contract is pinned here.
+    #[test]
+    fn a_failed_first_team_lookup_renders_the_sentence_without_a_link() {
+        let state = projects_section_from_lookup(Err::<Option<String>, _>("pool timed out"));
+        assert_eq!(
+            state,
+            crate::views::DashboardProjectsSection::CreateUnlinked
+        );
+        let body = dashboard_with(state).render().expect("renders");
+        assert!(
+            body.contains("No projects yet — create your first project."),
+            "the empty-state sentence must still render: {body}"
+        );
+        assert!(
+            !body.contains("/projects/new"),
+            "no create link may render when the team is unknown: {body}"
+        );
+        assert!(
+            !body.contains("You're not on any team yet"),
+            "a lookup error must not tell a team member they are teamless: {body}"
+        );
+    }
+
+    /// DDD-21: the first team found is the one the link names; none found is
+    /// the no-team copy (fix-hub, unchanged).
+    #[test]
+    fn the_first_team_lookup_picks_the_linked_or_no_team_section() {
+        let found = projects_section_from_lookup(Ok::<_, String>(Some("ops".to_string())));
+        assert_eq!(
+            found,
+            crate::views::DashboardProjectsSection::CreateOn("ops".to_string())
+        );
+        let body = dashboard_with(found).render().expect("renders");
+        assert!(body.contains(
+            "No projects yet — <a href=\"/team/ops/projects/new\">create your first project</a>."
+        ));
+        let none = projects_section_from_lookup(Ok::<_, String>(None));
+        assert_eq!(none, crate::views::DashboardProjectsSection::NoTeam);
+        let body = dashboard_with(none).render().expect("renders");
+        assert!(body.contains("You're not on any team yet — ask a workspace admin to add you."));
+        assert!(!body.contains("/projects/new"));
+    }
+
+    fn dashboard_with(
+        section: crate::views::DashboardProjectsSection,
+    ) -> crate::views::DashboardRoot {
+        crate::views::DashboardRoot {
+            display_name: "Priya".to_string(),
+            workspace_name: "Homelab".to_string(),
+            projects: Vec::new(),
+            section,
+            is_instance_admin: false,
+            csrf: "t".to_string(),
+            nav: crate::nav::NavContext::for_page(
+                "Homelab".to_string(),
+                "Priya".to_string(),
+                false,
+                "t".to_string(),
+                crate::nav::NavSection::Home,
+                "/".to_string(),
+            ),
+        }
     }
 
     /// The happy path: a resolved pair is rendered verbatim (auto-escaping in the

@@ -68,7 +68,7 @@ Feature: A workspace admin creates a team, leads it, and starts a project on it
     And Priya's teams page lists "Platform · 1 member"
     And Lena's teams page does not list "Platform"
 
-  @us-tl-01 @edge @kpi @contract-shape:unbounded-preservation @pending
+  @us-tl-01 @edge @kpi @contract-shape:unbounded-preservation
   Scenario: A new team's lead is sent from the dashboard to that team's project form, not to one she cannot use
     Given Homelab is a newly provisioned workspace with no teams, whose workspace admin is Priya Raman
     And Priya is working in Homelab
@@ -77,13 +77,13 @@ Feature: A workspace admin creates a team, leads it, and starts a project on it
     Then she gets Ops's new project form
     And no team, project or membership changed
 
-  @us-tl-01 @edge @contract-shape:unbounded-preservation @pending
+  @us-tl-01 @edge @contract-shape:unbounded-preservation
   Scenario: A member of a team with no projects is sent to that team's project form
     When Tomás follows "create your first project" from his dashboard
     Then he gets Design's new project form
     And no team, project or membership changed
 
-  @us-tl-01 @edge @contract-shape:unbounded-preservation @pending
+  @us-tl-01 @edge @contract-shape:unbounded-preservation
   Scenario Outline: Everyone on a team is offered New project, and an admin who is not on it is not
     When <who> opens <team>'s members page
     Then the members page <offers> New project

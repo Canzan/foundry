@@ -625,13 +625,24 @@ impl Store {
     }
 
     /// The first team the user is on, by name then slug (DDD-21); `None` when
-    /// they are on no team. Replaces `is_on_any_team` on the dashboard.
+    /// they are on no team. Picks the dashboard's empty state and link.
     pub async fn first_team_slug(
         &self,
-        _workspace_id: uuid::Uuid,
-        _user_id: uuid::Uuid,
+        workspace_id: uuid::Uuid,
+        user_id: uuid::Uuid,
     ) -> Result<Option<String>, StoreError> {
-        panic!("Not yet implemented -- RED scaffold (team-lifecycle 01-01: first_team_slug)")
+        let slug: Option<String> = sqlx::query_scalar(
+            "SELECT t.slug FROM teams t \
+               JOIN team_memberships tm ON tm.team_id = t.id AND tm.user_id = $2 \
+              WHERE t.workspace_id = $1 \
+              ORDER BY t.name, t.slug \
+              LIMIT 1",
+        )
+        .bind(workspace_id)
+        .bind(user_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(slug)
     }
 
     /// The confirm page's advisory facts, read with no lock (DDD-10).
