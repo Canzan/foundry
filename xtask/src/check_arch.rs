@@ -101,6 +101,8 @@ fn source_violations(root: &Path) -> Vec<String> {
     violations.extend(check_project_name_one_source(root));
     violations.extend(check_name_rule_legacy_seam(root));
     violations.extend(check_team_membership_one_seam(root));
+    violations.extend(check_team_name_one_source(root));
+    violations.extend(check_team_lifecycle_one_seam(root));
     violations
 }
 
@@ -139,7 +141,7 @@ pub fn run(args: Vec<String>) -> ExitCode {
     let verdict = verdict(&args);
     match &verdict {
         Verdict::Passed => println!(
-            "check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, the lanes position constraint is still DEFERRABLE, no board-*.js registers a keydown listener, nothing outside migration 0017 UPDATEs users.provisioned_at (D9), both publish workflows stamp every image with its commit and the Dockerfile hands it to build.rs (AC-8), every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, no colour literal outside the three stylesheet token regions, the three stylesheet token regions declare the identical colour-token set, the workspace-name refusal copy lives only in foundry-core and no production door calls create_initial_workspace, the project-name refusal copy lives only in foundry-core and no door calls insert_project, no production door calls seed_row_predating_name_rule and no crate but its seam file disables a trigger or sets session_replication_role, dependency direction)"
+            "check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, the lanes position constraint is still DEFERRABLE, no board-*.js registers a keydown listener, nothing outside migration 0017 UPDATEs users.provisioned_at (D9), both publish workflows stamp every image with its commit and the Dockerfile hands it to build.rs (AC-8), every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, no colour literal outside the three stylesheet token regions, the three stylesheet token regions declare the identical colour-token set, the workspace-name refusal copy lives only in foundry-core and no production door calls create_initial_workspace, the project-name refusal copy lives only in foundry-core and no door calls insert_project, no production door calls seed_row_predating_name_rule and no crate but its seam file disables a trigger or sets session_replication_role, the team-name refusal copy lives only in foundry-core, teams and team_lifecycle_events are written only by foundry-store and no door calls create_team_with_lead, dependency direction)"
         ),
         Verdict::UnparseableArguments(message) => eprintln!("check-arch: {message}"),
         Verdict::Violations(violations) => {
@@ -4245,6 +4247,10 @@ fn check_workspace_name_one_source(root: &Path) -> Vec<String> {
     scan_one_source(root, &WORKSPACE_NAME_ONE_SOURCE)
 }
 
+/// The seam-call violations in one file (`root`, `file`, `contents`), each
+/// naming `file:line`.
+type SeamCallsIn = fn(&Path, &Path, &str) -> Vec<String>;
+
 /// A "the refusal copy has one home" rule: no `.rs` under the
 /// [`NAME_COPY_FORBIDDEN_IN`] crates' `src` may contain `copy_prefix`, and no
 /// `.rs` under the `seam_forbidden_in` crates' `src` may call the rule's
@@ -4260,8 +4266,9 @@ struct OneSourceRule {
     reference: &'static str,
     /// The crates whose `src` must not call the seam.
     seam_forbidden_in: &'static [&'static str],
-    /// The seam-call violations in one file, each naming `file:line`.
-    seam_calls_in: fn(&Path, &Path, &str) -> Vec<String>,
+    /// The seam-call violations in one file, each naming `file:line`; `None`
+    /// when the rule guards the copy only.
+    seam_calls_in: Option<SeamCallsIn>,
 }
 
 const WORKSPACE_NAME_ONE_SOURCE: OneSourceRule = OneSourceRule {
@@ -4270,7 +4277,7 @@ const WORKSPACE_NAME_ONE_SOURCE: OneSourceRule = OneSourceRule {
     home: "WorkspaceNameError's Display in foundry-core",
     reference: "DDD-3/DDD-12",
     seam_forbidden_in: &WORKSPACE_SEAM_FORBIDDEN_IN,
-    seam_calls_in: workspace_seam_call_violations_in,
+    seam_calls_in: Some(workspace_seam_call_violations_in),
 };
 
 /// The shared scan behind every one-source rule: walk each forbidden crate's
@@ -4315,8 +4322,10 @@ fn scan_one_source(root: &Path, rule: &OneSourceRule) -> Vec<String> {
                 continue;
             };
             violations.extend(copy_violations_in(root, rule, file, &contents));
-            if rule.seam_forbidden_in.contains(&crate_name) {
-                violations.extend((rule.seam_calls_in)(root, file, &contents));
+            if let Some(seam_calls_in) = rule.seam_calls_in {
+                if rule.seam_forbidden_in.contains(&crate_name) {
+                    violations.extend(seam_calls_in(root, file, &contents));
+                }
             }
         }
     }
@@ -4540,7 +4549,7 @@ const PROJECT_NAME_ONE_SOURCE: OneSourceRule = OneSourceRule {
     home: "ProjectNameError's Display in foundry-core",
     reference: "DDD-4/DDD-12",
     seam_forbidden_in: &PROJECT_INSERT_FORBIDDEN_IN,
-    seam_calls_in: project_insert_call_violations_in,
+    seam_calls_in: Some(project_insert_call_violations_in),
 };
 
 /// `project-name-one-source` (project-name-rule DDD-12).
@@ -5103,6 +5112,19 @@ const TEAM_WRITE_SEAMS_FORBIDDEN_IN: [&str; 2] = ["foundry-app", "foundry-api"];
 /// (its one home) and the acceptance harness (fixtures seed rows directly).
 const TEAM_MEMBERSHIP_SQL_ALLOWED_IN: [&str; 2] = ["foundry-store", "foundry-acceptance"];
 
+const TEAM_MEMBERSHIP_ONE_SEAM: OneSeamRule = OneSeamRule {
+    id: "team-membership-one-seam",
+    tables: &["team_memberships"],
+    sql_allowed_in: &TEAM_MEMBERSHIP_SQL_ALLOWED_IN,
+    sql_why: "every membership write goes through the store, its lock and the lead trigger \
+              (DDD-19, ADR-TEAM-MEMBERSHIP-001)",
+    seams: &TEAM_WRITE_SEAMS,
+    seams_forbidden_in: &TEAM_WRITE_SEAMS_FORBIDDEN_IN,
+    seam_why: "team writes go through the foundry-services use-case and its policy (DDD-19, \
+               ADR-003)",
+    reference: "DDD-19",
+};
+
 /// `team-membership-one-seam` (team-membership DDD-19).
 ///
 /// (a) no SQL `INSERT INTO` / `UPDATE` / `DELETE FROM team_memberships` in any
@@ -5115,12 +5137,45 @@ const TEAM_MEMBERSHIP_SQL_ALLOWED_IN: [&str; 2] = ["foundry-store", "foundry-acc
 ///
 /// A missing `crates/`, an unreadable directory or file fails the rule.
 fn check_team_membership_one_seam(root: &Path) -> Vec<String> {
+    scan_one_seam(root, &TEAM_MEMBERSHIP_ONE_SEAM)
+}
+
+/// A "these tables have one writer" rule: no `.rs` under a `crates/*/src` outside
+/// `sql_allowed_in` may hold SQL writing one of `tables`, and no `.rs` under the
+/// `seams_forbidden_in` crates' `src` may call one of the store's `seams`.
+struct OneSeamRule {
+    /// Rule id, the prefix of every violation it reports.
+    id: &'static str,
+    /// The tables only the store may write.
+    tables: &'static [&'static str],
+    /// The crates whose `src` may hold SQL writing `tables`.
+    sql_allowed_in: &'static [&'static str],
+    /// Why the SQL write belongs in the store, for the violation message.
+    sql_why: &'static str,
+    /// The store's write methods no door may call.
+    seams: &'static [&'static str],
+    /// The doors whose `src` must not call a seam.
+    seams_forbidden_in: &'static [&'static str],
+    /// Why the seam call belongs in the use-case, for the violation message.
+    seam_why: &'static str,
+    /// The design reference the fail-closed messages cite.
+    reference: &'static str,
+}
+
+/// The shared scan behind every one-seam rule: walk each crate's `src`, flag
+/// every SQL write of a guarded table outside the allowed crates and every seam
+/// call in the closed doors, each named `file:line`. A missing `crates/`, an
+/// unreadable directory or file fails the rule — it never passes vacuously.
+fn scan_one_seam(root: &Path, rule: &OneSeamRule) -> Vec<String> {
     let crates_dir = root.join("crates");
+    let tables = rule.tables.join(" or ");
     let Ok(entries) = std::fs::read_dir(&crates_dir) else {
         return vec![format!(
-            "team-membership-one-seam: cannot list {} — no crate could be checked for a \
-             team_memberships write outside the store (DDD-19).",
-            crates_dir.display()
+            "{}: cannot list {} — no crate could be checked for a {tables} write outside the \
+             store ({}).",
+            rule.id,
+            crates_dir.display(),
+            rule.reference
         )];
     };
     let mut crate_dirs: Vec<PathBuf> = entries
@@ -5133,64 +5188,74 @@ fn check_team_membership_one_seam(root: &Path) -> Vec<String> {
     let mut violations = Vec::new();
     for crate_dir in crate_dirs {
         let crate_name = crate_dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
-        let scan_sql = !TEAM_MEMBERSHIP_SQL_ALLOWED_IN.contains(&crate_name);
-        let scan_calls = TEAM_WRITE_SEAMS_FORBIDDEN_IN.contains(&crate_name);
+        let scan_sql = !rule.sql_allowed_in.contains(&crate_name);
+        let scan_calls = rule.seams_forbidden_in.contains(&crate_name);
         if !(scan_sql || scan_calls) {
             continue;
         }
         let (sources, unreadable) = files_under(&crate_dir.join("src"), "rs", &|_| false);
         for dir in &unreadable {
             violations.push(format!(
-                "team-membership-one-seam: cannot list {} — it could not be checked for a \
-                 team_memberships write (DDD-19).",
-                rel(root, dir)
+                "{}: cannot list {} — it could not be checked for a {tables} write ({}).",
+                rule.id,
+                rel(root, dir),
+                rule.reference
             ));
         }
         for file in &sources {
             let Ok(contents) = std::fs::read_to_string(file) else {
                 violations.push(format!(
-                    "team-membership-one-seam: cannot read {} (DDD-19).",
-                    rel(root, file)
+                    "{}: cannot read {} ({}).",
+                    rule.id,
+                    rel(root, file),
+                    rule.reference
                 ));
                 continue;
             };
             if scan_sql {
-                violations.extend(team_membership_sql_violations_in(root, file, &contents));
+                violations.extend(sql_write_violations_in(root, rule, file, &contents));
             }
             if scan_calls {
-                violations.extend(team_write_call_violations_in(root, file, &contents));
+                violations.extend(seam_call_violations_in(root, rule, file, &contents));
             }
         }
     }
     violations
 }
 
-/// The DDD-19a violations in one file: each SQL write of `team_memberships`,
+/// The SQL-clause violations in one file: each SQL write of a guarded table,
 /// named `file:line`.
-fn team_membership_sql_violations_in(root: &Path, file: &Path, contents: &str) -> Vec<String> {
-    rust_string_literals(contents)
+fn sql_write_violations_in(
+    root: &Path,
+    rule: &OneSeamRule,
+    file: &Path,
+    contents: &str,
+) -> Vec<String> {
+    let literals = rust_string_literals(contents);
+    rule.tables
         .iter()
-        .flat_map(|(first_line, sql)| {
-            team_memberships_writes(sql)
-                .into_iter()
-                .map(move |offset| first_line + offset)
+        .flat_map(|table| {
+            literals.iter().flat_map(move |(first_line, sql)| {
+                sql_writes_of(sql, table)
+                    .into_iter()
+                    .map(move |offset| (table, first_line + offset))
+            })
         })
-        .map(|line| {
+        .map(|(table, line)| {
             format!(
-                "team-membership-one-seam: {}:{line} writes team_memberships in SQL outside \
-                 foundry-store — every membership write goes through the store, its lock and \
-                 the lead trigger (DDD-19, ADR-TEAM-MEMBERSHIP-001)",
+                "{}: {}:{line} writes {table} in SQL outside foundry-store — {}",
+                rule.id,
                 rel(root, file),
+                rule.sql_why,
             )
         })
         .collect()
 }
 
 /// The 0-based line offsets, within `sql`, of every `INSERT INTO` / `UPDATE` /
-/// `DELETE FROM` naming `team_memberships` as its target. SQL comments are
-/// stripped first; the verb may sit on an earlier line than the table.
-fn team_memberships_writes(sql: &str) -> Vec<usize> {
-    const TABLE: &str = "team_memberships";
+/// `DELETE FROM` naming `table` as its target. SQL comments are stripped first;
+/// the verb may sit on an earlier line than the table.
+fn sql_writes_of(sql: &str, table: &str) -> Vec<usize> {
     let code = strip_sql_comments(sql).to_ascii_lowercase();
     // The word ending just before `end`, and where it starts.
     let word_before = |end: usize| {
@@ -5200,8 +5265,8 @@ fn team_memberships_writes(sql: &str) -> Vec<usize> {
     };
     let mut offsets = Vec::new();
     let mut from = 0;
-    while let Some(at) = find_sql_word(&code, TABLE, from) {
-        from = at + TABLE.len();
+    while let Some(at) = find_sql_word(&code, table, from) {
+        from = at + table.len();
         let (last, last_at) = word_before(at);
         let (verb, verb_at) = word_before(last_at);
         let statement_at = match (last, verb) {
@@ -5216,10 +5281,15 @@ fn team_memberships_writes(sql: &str) -> Vec<usize> {
     offsets
 }
 
-/// The DDD-19b violations in one file: each call of a team-write seam, named
-/// `file:line`.
-fn team_write_call_violations_in(root: &Path, file: &Path, contents: &str) -> Vec<String> {
-    TEAM_WRITE_SEAMS
+/// The seam-clause violations in one file: each call of a guarded store write,
+/// named `file:line` (see [`call_sites`] for what counts as a call).
+fn seam_call_violations_in(
+    root: &Path,
+    rule: &OneSeamRule,
+    file: &Path,
+    contents: &str,
+) -> Vec<String> {
+    rule.seams
         .iter()
         .flat_map(|seam| {
             call_sites(contents, seam)
@@ -5228,9 +5298,10 @@ fn team_write_call_violations_in(root: &Path, file: &Path, contents: &str) -> Ve
         })
         .map(|(seam, line)| {
             format!(
-                "team-membership-one-seam: {}:{line} calls `{seam}` from a door — team writes \
-                 go through the foundry-services use-case and its policy (DDD-19, ADR-003)",
+                "{}: {}:{line} calls `{seam}` from a door — {}",
+                rule.id,
                 rel(root, file),
+                rule.seam_why,
             )
         })
         .collect()
@@ -5463,6 +5534,445 @@ mod team_membership_one_seam_tests {
             "ANTI-VACUITY: the store is expected to write team_memberships"
         );
         let violations = check_team_membership_one_seam(&root);
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// team-lifecycle DDD-19 — `team-name-one-source` and `team-lifecycle-one-seam`
+// ---------------------------------------------------------------------------
+
+/// The opening of every team-name refusal, quote included.
+const TEAM_NAME_COPY_PREFIX: &str = "\"Team name must";
+
+const TEAM_NAME_ONE_SOURCE: OneSourceRule = OneSourceRule {
+    id: "team-name-one-source",
+    copy_prefix: TEAM_NAME_COPY_PREFIX,
+    home: "TeamNameError's Display in foundry-core",
+    reference: "team-lifecycle DDD-19",
+    seam_forbidden_in: &[],
+    seam_calls_in: None,
+};
+
+/// `team-name-one-source` (team-lifecycle DDD-19): the literal prefix
+/// `"Team name must` appears in no `.rs` under
+/// `crates/{foundry-app,foundry-services,foundry-api,foundry-store}/src`
+/// (comments and in-file `#[cfg(test)]` included) — its one production home is
+/// `TeamNameError`'s `Display` in `crates/foundry-core/src`. Test trees
+/// (`tests/`, the acceptance crate) may hold the expected strings.
+fn check_team_name_one_source(root: &Path) -> Vec<String> {
+    scan_one_source(root, &TEAM_NAME_ONE_SOURCE)
+}
+
+/// The store's team-lifecycle writes, which no door may call: every create,
+/// rename and delete goes through its `foundry-services` use-case. 02-01 adds
+/// `delete_team_if_empty`, 04-01 adds `rename_team_with_audit`.
+const TEAM_LIFECYCLE_SEAMS: [&str; 1] = ["create_team_with_lead"];
+
+const TEAM_LIFECYCLE_ONE_SEAM: OneSeamRule = OneSeamRule {
+    id: "team-lifecycle-one-seam",
+    tables: &["teams", "team_lifecycle_events"],
+    sql_allowed_in: &TEAM_MEMBERSHIP_SQL_ALLOWED_IN,
+    sql_why: "every team create, rename and delete goes through the store, its lock and the \
+              transaction that writes its audit record (team-lifecycle DDD-19)",
+    seams: &TEAM_LIFECYCLE_SEAMS,
+    seams_forbidden_in: &TEAM_WRITE_SEAMS_FORBIDDEN_IN,
+    seam_why: "team lifecycle writes go through the foundry-services use-case, its policy and \
+               its one slug mint (team-lifecycle DDD-1, DDD-19)",
+    reference: "team-lifecycle DDD-19",
+};
+
+/// `team-lifecycle-one-seam` (team-lifecycle DDD-19).
+///
+/// (i) no SQL `INSERT INTO` / `UPDATE` / `DELETE FROM` on `teams` or
+/// `team_lifecycle_events` in any `.rs` under `crates/*/src` except
+/// `foundry-store` (and the acceptance harness, whose fixtures seed rows) — a
+/// `teams` UPDATE joined to `team_memberships` is a `teams` write (OQ-D7).
+///
+/// (ii) no [`TEAM_LIFECYCLE_SEAMS`] method has a call site under
+/// `crates/{foundry-app,foundry-api}/src`.
+///
+/// A missing `crates/`, an unreadable directory or file fails the rule.
+fn check_team_lifecycle_one_seam(root: &Path) -> Vec<String> {
+    scan_one_seam(root, &TEAM_LIFECYCLE_ONE_SEAM)
+}
+
+#[cfg(test)]
+mod team_name_one_source_tests {
+    //! Injected-violation gold tests for `team-name-one-source` (team-lifecycle
+    //! DDD-19), the `project_name_one_source_tests` idiom: a staged tree, the
+    //! rule run against it, the violations named by `file:line`.
+
+    use super::check_team_name_one_source;
+
+    fn stage(files: &[(&str, &str)]) -> tempfile::TempDir {
+        let dir = tempfile::tempdir().expect("tempdir");
+        for (rel_path, body) in files {
+            let path = dir.path().join(rel_path);
+            std::fs::create_dir_all(path.parent().expect("parent")).expect("mkdir");
+            std::fs::write(&path, body).expect("write fixture");
+        }
+        dir
+    }
+
+    fn flagged_at(violations: &[String], location: &str) -> bool {
+        violations.iter().any(|v| v.contains(location))
+    }
+
+    /// The copy's one production home, as shipped.
+    const CORE_COPY: &str = "#[derive(Debug, thiserror::Error)]\npub enum TeamNameError {\n    \
+        #[error(\"Team name must not be empty\")]\n    Empty,\n}\n";
+
+    #[test]
+    fn the_copy_in_foundry_core_is_its_one_home() {
+        let tree = stage(&[("crates/foundry-core/src/team_name.rs", CORE_COPY)]);
+        let violations = check_team_name_one_source(tree.path());
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+
+    #[test]
+    fn a_second_copy_in_any_adapter_service_or_store_crate_is_flagged() {
+        let tree = stage(&[
+            ("crates/foundry-core/src/team_name.rs", CORE_COPY),
+            (
+                "crates/foundry-app/src/teams.rs",
+                "fn a() {}\nlet m = \"Team name must be unique within the workspace\";\n",
+            ),
+            (
+                "crates/foundry-services/src/teams.rs",
+                "/// Trimmed name empty -> 422 \"Team name must not be empty\".\nEmpty,\n",
+            ),
+            (
+                "crates/foundry-api/src/lib.rs",
+                "\n\nlet _ = format!(\"Team name must {}\", x);\n",
+            ),
+            (
+                "crates/foundry-store/src/teams.rs",
+                "#[cfg(test)]\nmod t { const M: &str = \"Team name must be at most 64 characters\"; }\n",
+            ),
+        ]);
+        let violations = check_team_name_one_source(tree.path());
+        assert_eq!(violations.len(), 4, "{violations:?}");
+        assert!(
+            flagged_at(&violations, "crates/foundry-app/src/teams.rs:2"),
+            "{violations:?}"
+        );
+        assert!(
+            flagged_at(&violations, "crates/foundry-services/src/teams.rs:1"),
+            "a doc comment quoting the copy is a second copy too: {violations:?}"
+        );
+        assert!(
+            flagged_at(&violations, "crates/foundry-api/src/lib.rs:3"),
+            "{violations:?}"
+        );
+        assert!(
+            flagged_at(&violations, "crates/foundry-store/src/teams.rs:2"),
+            "an in-file test quoting the copy is flagged; assert via to_string(): {violations:?}"
+        );
+        assert!(
+            violations
+                .iter()
+                .all(|v| v.starts_with("team-name-one-source: ")),
+            "{violations:?}"
+        );
+    }
+
+    #[test]
+    fn expected_strings_in_the_acceptance_suite_and_crate_tests_are_not_flagged() {
+        let tree = stage(&[
+            ("crates/foundry-core/src/team_name.rs", CORE_COPY),
+            (
+                "crates/foundry-acceptance/src/steps/feature_team_lifecycle.rs",
+                "let m = \"Team name must not be empty\";\n",
+            ),
+            (
+                "crates/foundry-core/tests/team_name.rs",
+                "assert_eq!(m, \"Team name must be at most 64 characters\");\n",
+            ),
+            (
+                "crates/foundry-app/tests/teams.rs",
+                "let _ = \"Team name must be unique within the workspace\";\n",
+            ),
+        ]);
+        let violations = check_team_name_one_source(tree.path());
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+
+    #[test]
+    fn the_project_and_workspace_copy_are_not_this_rules_business() {
+        let tree = stage(&[
+            ("crates/foundry-core/src/team_name.rs", CORE_COPY),
+            (
+                "crates/foundry-app/src/teams.rs",
+                "let a = \"Project name must not be empty\";\nlet b = \"Workspace name must not be empty\";\nlet c = \"Team names are listed here\";\n",
+            ),
+        ]);
+        let violations = check_team_name_one_source(tree.path());
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+
+    #[test]
+    fn a_missing_crates_directory_fails_the_rule() {
+        let tree = stage(&[("README.md", "nothing here\n")]);
+        let violations = check_team_name_one_source(tree.path());
+        assert!(
+            !violations.is_empty(),
+            "a missing crates directory must FAIL the guard, never pass it vacuously"
+        );
+    }
+
+    #[test]
+    fn the_shipped_tree_passes() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("workspace root")
+            .to_path_buf();
+        let core = std::fs::read_to_string(root.join("crates/foundry-core/src/team_name.rs"))
+            .expect("core team_name");
+        assert!(
+            core.contains("\"Team name must"),
+            "ANTI-VACUITY: foundry-core is expected to state the copy"
+        );
+        let violations = check_team_name_one_source(&root);
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+}
+
+#[cfg(test)]
+mod team_lifecycle_one_seam_tests {
+    //! Injected-violation gold tests for `team-lifecycle-one-seam` (team-lifecycle
+    //! DDD-19), the `team_membership_one_seam_tests` idiom: a staged tree, the
+    //! rule run against it, the violations named by `file:line`.
+
+    use super::{check_team_lifecycle_one_seam, check_team_membership_one_seam};
+
+    fn stage(files: &[(&str, &str)]) -> tempfile::TempDir {
+        let dir = tempfile::tempdir().expect("tempdir");
+        for (rel_path, body) in files {
+            let path = dir.path().join(rel_path);
+            std::fs::create_dir_all(path.parent().expect("parent")).expect("mkdir");
+            std::fs::write(&path, body).expect("write fixture");
+        }
+        dir
+    }
+
+    fn flagged_at(violations: &[String], location: &str) -> bool {
+        violations.iter().any(|v| v.contains(location))
+    }
+
+    /// The store's own writes, as shipped: the one place SQL may write the tables.
+    const STORE_TEAMS: &str = "pub async fn create_team_with_lead(&self) {\n    \
+        sqlx::query(\"INSERT INTO teams (id, workspace_id, name, slug) VALUES ($1, $2, $3, $4)\");\n    \
+        sqlx::query(\"INSERT INTO team_lifecycle_events (id, kind) VALUES ($1, 'created')\");\n}\n";
+
+    // ---- clause (i): SQL writing teams / team_lifecycle_events lives only in foundry-store/src
+
+    #[test]
+    fn a_team_write_in_store_src_acceptance_or_tests_passes() {
+        let tree = stage(&[
+            ("crates/foundry-store/src/teams.rs", STORE_TEAMS),
+            (
+                "crates/foundry-store/src/lib.rs",
+                "sqlx::query(\"UPDATE teams SET name = $1 WHERE id = $2\");\n",
+            ),
+            (
+                "crates/foundry-acceptance/src/steps/feature_x.rs",
+                "sqlx::query(\"INSERT INTO teams (id, workspace_id, name, slug) VALUES ($1, $2, 'Core', 'core')\");\n",
+            ),
+            (
+                "crates/foundry-acceptance/src/support/team_lifecycle.rs",
+                "sqlx::query(\"DELETE FROM team_lifecycle_events\");\n",
+            ),
+            (
+                "crates/foundry-store/tests/team_delete.rs",
+                "sqlx::query(\"DELETE FROM teams WHERE id = $1\");\n",
+            ),
+            (
+                "crates/foundry-services/tests/team_lifecycle_use_cases.rs",
+                "sqlx::query(\"DELETE FROM teams WHERE workspace_id = $1\");\n",
+            ),
+        ]);
+        let violations = check_team_lifecycle_one_seam(tree.path());
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+
+    #[test]
+    fn a_team_write_in_any_other_crates_src_is_flagged() {
+        let tree = stage(&[
+            ("crates/foundry-store/src/teams.rs", STORE_TEAMS),
+            (
+                "crates/foundry-app/src/teams.rs",
+                "fn a() {}\nsqlx::query(\"INSERT INTO teams (id, workspace_id, name, slug) VALUES ($1, $2, $3, $4)\");\n",
+            ),
+            (
+                "crates/foundry-services/src/teams.rs",
+                "\n\nlet _ = sqlx::query(r#\"\n    update\n    Teams SET name = 'x'\"#);\n",
+            ),
+            (
+                "crates/foundry-api/src/lib.rs",
+                "sqlx::query(\"DELETE   FROM teams WHERE id = $1\");\n",
+            ),
+            (
+                "crates/foundry-realtime/src/lib.rs",
+                "fn a() {}\nfn b() {}\nsqlx::query(\"INSERT INTO team_lifecycle_events (id) VALUES ($1)\");\n",
+            ),
+        ]);
+        let violations = check_team_lifecycle_one_seam(tree.path());
+        assert_eq!(violations.len(), 4, "{violations:?}");
+        assert!(
+            flagged_at(&violations, "crates/foundry-app/src/teams.rs:2"),
+            "{violations:?}"
+        );
+        assert!(
+            flagged_at(&violations, "crates/foundry-services/src/teams.rs:4"),
+            "letter case and line breaks do not matter to SQL; the verb's line is named: {violations:?}"
+        );
+        assert!(
+            flagged_at(&violations, "crates/foundry-api/src/lib.rs:1"),
+            "{violations:?}"
+        );
+        assert!(
+            flagged_at(&violations, "crates/foundry-realtime/src/lib.rs:3")
+                && violations
+                    .iter()
+                    .any(|v| v.contains("team_lifecycle_events")),
+            "the audit table is guarded too: {violations:?}"
+        );
+        assert!(
+            violations
+                .iter()
+                .all(|v| v.starts_with("team-lifecycle-one-seam: ")),
+            "{violations:?}"
+        );
+    }
+
+    /// OQ-D7: team-membership-one-seam's own counter-example — a `teams` UPDATE
+    /// joined to `team_memberships` — is not a membership write, but it IS a
+    /// `teams` write, so in app src it is this rule's positive case.
+    #[test]
+    fn the_team_membership_join_example_is_a_teams_write_outside_the_store() {
+        let tree = stage(&[
+            ("crates/foundry-store/src/teams.rs", STORE_TEAMS),
+            (
+                "crates/foundry-app/src/teams.rs",
+                "fn a() {}\n\
+                 const JOIN: &str = \"UPDATE teams SET name = $1 FROM team_memberships tm WHERE tm.team_id = teams.id\";\n",
+            ),
+        ]);
+        let violations = check_team_lifecycle_one_seam(tree.path());
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert!(
+            flagged_at(&violations, "crates/foundry-app/src/teams.rs:2")
+                && violations[0].contains("writes teams"),
+            "{violations:?}"
+        );
+        let membership = check_team_membership_one_seam(tree.path());
+        assert!(
+            membership.is_empty(),
+            "the JOIN stays a non-violation of team-membership-one-seam: {membership:?}"
+        );
+    }
+
+    #[test]
+    fn a_read_a_comment_or_another_table_outside_the_store_is_not_a_team_write() {
+        let tree = stage(&[
+            ("crates/foundry-store/src/teams.rs", STORE_TEAMS),
+            (
+                "crates/foundry-app/src/teams.rs",
+                "// sqlx::query(\"DELETE FROM teams\")\n\
+                 const READ: &str = \"SELECT id FROM teams WHERE slug = $1\";\n\
+                 const OTHER: &str = \"DELETE FROM teams_archive WHERE id = $1\";\n\
+                 const EVENTS: &str = \"SELECT kind FROM team_lifecycle_events\";\n\
+                 const PROJECTS: &str = \"UPDATE projects SET team_id = teams.id FROM teams\";\n",
+            ),
+        ]);
+        let violations = check_team_lifecycle_one_seam(tree.path());
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+
+    // ---- clause (ii): the store's team-lifecycle writes have no call site in app or api src
+
+    #[test]
+    fn a_team_lifecycle_write_called_from_app_or_api_src_is_flagged() {
+        let tree = stage(&[
+            ("crates/foundry-store/src/teams.rs", STORE_TEAMS),
+            (
+                "crates/foundry-app/src/teams.rs",
+                "fn a() {}\nlet _ = state.store.create_team_with_lead(ws, name, slug, actor).await;\n",
+            ),
+            (
+                "crates/foundry-api/src/lib.rs",
+                "\nlet _ = store\n    .create_team_with_lead\n    (ws, name, slug, actor);\n",
+            ),
+        ]);
+        let violations = check_team_lifecycle_one_seam(tree.path());
+        assert_eq!(violations.len(), 2, "{violations:?}");
+        assert!(
+            flagged_at(&violations, "crates/foundry-app/src/teams.rs:2")
+                && violations[0].contains("`create_team_with_lead`"),
+            "{violations:?}"
+        );
+        assert!(
+            flagged_at(&violations, "crates/foundry-api/src/lib.rs:3"),
+            "a call split across lines is still a call: {violations:?}"
+        );
+    }
+
+    #[test]
+    fn a_team_lifecycle_write_called_from_services_store_or_tests_passes() {
+        let tree = stage(&[
+            ("crates/foundry-store/src/teams.rs", STORE_TEAMS),
+            (
+                "crates/foundry-services/src/teams.rs",
+                "let created = self.store.create_team_with_lead(ws, &name, &slug, actor).await?;\n",
+            ),
+            (
+                "crates/foundry-store/tests/team_create.rs",
+                "store.create_team_with_lead(ws, &name, &slug, actor).await;\n",
+            ),
+            (
+                "crates/foundry-app/tests/teams.rs",
+                "store.create_team_with_lead(ws, &name, &slug, actor).await;\n",
+            ),
+            (
+                "crates/foundry-app/src/teams.rs",
+                "// the use-case calls create_team_with_lead( behind the policy\n\
+                 let r = services.create_team(&principal, &typed).await;\n",
+            ),
+        ]);
+        let violations = check_team_lifecycle_one_seam(tree.path());
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+
+    #[test]
+    fn a_missing_crates_directory_fails_the_rule() {
+        let tree = stage(&[("README.md", "nothing here\n")]);
+        let violations = check_team_lifecycle_one_seam(tree.path());
+        assert!(
+            !violations.is_empty(),
+            "a missing crates directory must FAIL the guard, never pass it vacuously"
+        );
+    }
+
+    #[test]
+    fn the_shipped_tree_passes() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("workspace root")
+            .to_path_buf();
+        let store = std::fs::read_to_string(root.join("crates/foundry-store/src/teams.rs"))
+            .expect("store teams");
+        assert!(
+            store.contains("INSERT INTO teams"),
+            "ANTI-VACUITY: the store is expected to write teams"
+        );
+        let services = std::fs::read_to_string(root.join("crates/foundry-services/src/teams.rs"))
+            .expect("services teams");
+        assert!(
+            services.contains("create_team_with_lead("),
+            "ANTI-VACUITY: the services use-case is expected to call the store's create"
+        );
+        let violations = check_team_lifecycle_one_seam(&root);
         assert!(violations.is_empty(), "{violations:?}");
     }
 }

@@ -95,7 +95,7 @@ Feature: A workspace admin creates a team, leads it, and starts a project on it
       | Priya | Backend | offers          |
       | Jeff  | Backend | does not offer  |
 
-  @us-tl-01 @error @contract-shape:unbounded-preservation @pending
+  @us-tl-01 @error @contract-shape:unbounded-preservation
   Scenario Outline: A name already used in the workspace is refused, and the text is kept
     When Priya creates the team "<typed>" from the teams page
     Then she is refused with "Team name must be unique within the workspace", and her text "<typed>" is kept
@@ -106,13 +106,13 @@ Feature: A workspace admin creates a team, leads it, and starts a project on it
       | backend |
       | GENERAL |
 
-  @us-tl-01 @error @contract-shape:unbounded-preservation @pending
+  @us-tl-01 @error @contract-shape:unbounded-preservation
   Scenario: An empty name is refused
     When Priya creates the team "[SPACE][SPACE][SPACE]" from the teams page
     Then she is refused with "Team name must not be empty", and her text "[SPACE][SPACE][SPACE]" is kept
     And no team, project or membership changed
 
-  @us-tl-01 @edge @kpi @contract-shape:unbounded-preservation @pending
+  @us-tl-01 @edge @kpi @contract-shape:unbounded-preservation
   Scenario: Sending the create form a second time makes no second team
     Given Priya has created the team "Platform"
     When she sends the create form for "Platform" a second time
@@ -135,13 +135,13 @@ Feature: A workspace admin creates a team, leads it, and starts a project on it
       | Ines                 |
       | Hugo                 |
 
-  @us-tl-01 @edge @contract-shape:unbounded-preservation @pending
+  @us-tl-01 @edge @contract-shape:unbounded-preservation
   Scenario: An instance admin who is not a workspace admin is not offered the form either
     When Ines opens the teams page
     Then the teams page offers no way to create a team
     And Priya's teams page still offers creating a team
 
-  @us-tl-01 @error @contract-shape:unbounded-preservation @pending
+  @us-tl-01 @error @contract-shape:unbounded-preservation
   Scenario: A create sent without the page's token is turned away, and nothing changes
     When Priya submits a team create named "Platform" without the page's token
     Then the answer is turned away as a forged form
