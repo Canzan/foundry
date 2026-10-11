@@ -37,7 +37,7 @@ Feature: Every team name follows one rule, and a name in any script gets a worki
       | Jeff Bailey   | jeffabailey@gmail.com    | admin          | General as Lead   | Jeff   |
       | Lena Park     | lena.park@canzan.dev     | member         | Backend as Lead   |        |
 
-  @us-tl-04 @driving_port @contract-shape:bounded-change @pending
+  @us-tl-04 @driving_port @contract-shape:bounded-change
   Scenario: A name with no Latin letters gets a working team page
     When Priya creates the team "インフラ" from the teams page
     Then she sees "Created インフラ. You're its lead."
@@ -52,7 +52,7 @@ Feature: Every team name follows one rule, and a name in any script gets a worki
     And Canzan Labs now has the team "運用" at the address "team-2", led by Priya Raman, and nothing else changed
     And the members page at the address "team-2" opens for Priya
 
-  @us-tl-04 @edge @contract-shape:bounded-change @pending
+  @us-tl-04 @edge @contract-shape:bounded-change
   Scenario: The fallback address is the lowest free one
     Given Canzan Labs also has these teams, made before team create existed:
       | team        | address |
@@ -87,7 +87,7 @@ Feature: Every team name follows one rule, and a name in any script gets a worki
       | [64×a]  | [64×a]  |
       | [64×日] | team    |
 
-  @us-tl-04 @error @contract-shape:unbounded-preservation @pending
+  @us-tl-04 @error @contract-shape:unbounded-preservation
   Scenario Outline: A name whose address or letters would collide is refused
     When Priya creates the team "<typed>" from the teams page
     Then she is refused with "Team name must be unique within the workspace", and her text "<typed>" is kept
@@ -99,19 +99,19 @@ Feature: Every team name follows one rule, and a name in any script gets a worki
       | BACKEND             |
       | [SPACE]backend[TAB] |
 
-  @us-tl-04 @error @kpi @concurrency @contract-shape:bounded-change @pending
+  @us-tl-04 @error @kpi @concurrency @contract-shape:bounded-change
   Scenario: Two admins creating the same name at once get one team
     When Priya and Jeff create the team "Infra" at the same moment, 5 times over
     Then each time, exactly one "Infra" team exists and the other admin was refused with "Team name must be unique within the workspace"
     And no answer was a server error
 
-  @us-tl-04 @error @concurrency @contract-shape:bounded-change @pending
+  @us-tl-04 @error @concurrency @contract-shape:bounded-change
   Scenario: Two admins creating the same name with no Latin letters at once get one team
     When Priya and Jeff create the team "インフラ" at the same moment, 5 times over
     Then each time, exactly one "インフラ" team exists and the other admin was refused with "Team name must be unique within the workspace"
     And no answer was a server error
 
-  @us-tl-04 @edge @concurrency @contract-shape:bounded-change @pending
+  @us-tl-04 @edge @concurrency @contract-shape:bounded-change
   Scenario: Two admins creating different names with no Latin letters at once both get a team
     When Priya creates the team "インフラ" at the same moment as Jeff creates "運用", 5 times over
     Then each time, both teams were created, at the addresses "team" and "team-2"

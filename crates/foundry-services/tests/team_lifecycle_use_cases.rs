@@ -18,9 +18,8 @@
 //! under it answers the shipped 422 `scope_team_not_in_workspace`, never the
 //! 500 it answers today (DESIGN Changed Assumption 3).
 //!
-//! RED scaffold: `teams::create_team` panics (`src/teams.rs`); every create
-//! test is `#[ignore = "pending: team-lifecycle 01-01 | 03-01"]`, the token
-//! test `#[ignore = "pending: team-lifecycle 02-01"]`.
+//! DISTILL scaffolded these RED; 01-01 landed the create, 02-01 the token
+//! mint, and 03-02 enabled the fallback and the three races. None is ignored.
 
 use foundry_core::TeamNameError;
 use foundry_services::teams::{create_team, CreateTeamError};
@@ -227,7 +226,6 @@ async fn a_non_admin_is_the_uniform_not_found_and_a_bad_name_is_its_reason() {
 }
 
 #[tokio::test]
-#[ignore = "pending: team-lifecycle 03-01"]
 async fn names_with_no_latin_letters_take_the_lowest_free_fallback_address() {
     let l = labs().await;
     let a = create_team(&l.store, &human(&l, l.priya), "インフラ")
@@ -241,7 +239,6 @@ async fn names_with_no_latin_letters_take_the_lowest_free_fallback_address() {
 
 /// INV-TL-4, Latin: one team, one `NotUnique`, never an error, 100 runs.
 #[tokio::test]
-#[ignore = "pending: team-lifecycle 03-01"]
 async fn two_creates_of_the_same_name_at_once_give_one_team_in_100_runs() {
     let l = labs().await;
     for run in 1..=RACE_RUNS {
@@ -270,7 +267,6 @@ async fn two_creates_of_the_same_name_at_once_give_one_team_in_100_runs() {
 /// re-runs the sibling check, so the second create is `NotUnique`, never a
 /// second team at `team-2`.
 #[tokio::test]
-#[ignore = "pending: team-lifecycle 03-01"]
 async fn two_creates_of_the_same_non_latin_name_at_once_give_one_team_in_100_runs() {
     let l = labs().await;
     for run in 1..=RACE_RUNS {
@@ -298,7 +294,6 @@ async fn two_creates_of_the_same_non_latin_name_at_once_give_one_team_in_100_run
 /// INV-TL-4, fallback, different names: both succeed, at distinct addresses;
 /// never a false duplicate, never `SlugContention`.
 #[tokio::test]
-#[ignore = "pending: team-lifecycle 03-01"]
 async fn two_creates_of_different_non_latin_names_at_once_both_succeed_in_100_runs() {
     let l = labs().await;
     for run in 1..=RACE_RUNS {
