@@ -615,16 +615,29 @@ pub async fn given_has_created_project(
 // The doors
 // ===========================================================================
 
-/// The page the actor has in front of them if it is `path` (200), else a fresh one.
-async fn page_at(world: &mut FoundryWorld, actor: &Actor, path: &str) -> Answer {
+/// The page the actor has in front of them if it is `path` (200) AND holds what
+/// the write needs (`holds`), else a fresh GET of `path`.
+///
+/// The path alone is not enough: writes answer with a 200 re-render at the POST
+/// path, no redirect (DDD-22). A create's answer is the NEW TEAM's members page
+/// served at `/teams`, so a later "creates … from the teams page" must not take
+/// it for the teams page (tl-03 scenario 31).
+async fn page_at(
+    world: &mut FoundryWorld,
+    actor: &Actor,
+    path: &str,
+    holds: impl Fn(&Answer) -> bool,
+) -> Answer {
     match world.tm.current.get(&tm::actor_key(actor)) {
-        Some(page) if page.path == path && page.status == StatusCode::OK => page.clone(),
+        Some(page) if page.path == path && page.status == StatusCode::OK && holds(page) => {
+            page.clone()
+        }
         _ => tm::open(world, actor, path).await,
     }
 }
 
 async fn send_create(world: &mut FoundryWorld, actor: &Actor, typed: &str) -> Answer {
-    let page = page_at(world, actor, "/teams").await;
+    let page = page_at(world, actor, "/teams", |p| has_form(p, "/teams")).await;
     let form = tm::form_at(&page, "/teams");
     let mut fields: Vec<(String, String)> = form
         .fields
@@ -673,7 +686,8 @@ async fn rename_from(
             .cloned()
             .expect("a Given opened that page earlier")
     } else {
-        page_at(world, actor, &members_path(&slug)).await
+        let rename = rename_path(&slug);
+        page_at(world, actor, &members_path(&slug), |p| has_form(p, &rename)).await
     };
     let form = tm::form_at(&page, &rename_path(&slug));
     let fields: Vec<(String, String)> = match typed {
@@ -773,7 +787,10 @@ pub async fn when_new_project_from_members_page(
     let actor = tm::resolve_actor(world, who);
     let slug = tm::team_ref(world, team).slug;
     capture_before(world).await;
-    let members = page_at(world, &actor, &members_path(&slug)).await;
+    let members = page_at(world, &actor, &members_path(&slug), |p| {
+        has_link(p, "New project")
+    })
+    .await;
     let href = tm::link_to(&members, "New project");
     let form_page = tm::open(world, &actor, &href).await;
     let form = tm::form_at(&form_page, &format!("/team/{slug}/projects"));
@@ -1140,12 +1157,22 @@ pub fn then_refused_with(world: &FoundryWorld, copy: &str, raw: &str) {
         "the refusal must say {copy:?}; {}",
         tm::describe(answer)
     );
-    let typed = expand(raw);
+    // An HTML parser turns U+0000 (raw or `&#0;`) into U+FFFD, so a kept NUL is
+    // read back as U+FFFD (tl-03 scenario 33, the `[NUL]` row); every other
+    // character is compared as typed.
+    let typed = expand(raw).replace('\0', "\u{FFFD}");
     assert!(
         field_values(answer, "name").contains(&typed),
         "the form must keep the text {typed:?}; name fields: {:?}",
         field_values(answer, "name")
     );
+}
+
+/// "she sees the team "…" created, with her as its lead": the create's 200
+/// page with "Created {name}. You're its lead.", the name expanded from the
+/// feature's marks (`[64×a]`), which team-membership's "she sees" does not do.
+pub fn then_sees_created(world: &FoundryWorld, raw: &str) {
+    tm::then_sees(world, &format!("Created {}. You're its lead.", expand(raw)));
 }
 
 pub async fn then_nothing_changed(world: &FoundryWorld) {

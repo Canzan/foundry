@@ -44,7 +44,7 @@ Feature: Every team name follows one rule, and a name in any script gets a worki
     And Canzan Labs now has the team "インフラ" at the address "team", led by Priya Raman, and nothing else changed
     And the members page at the address "team" opens for Priya
 
-  @us-tl-04 @contract-shape:bounded-change @pending
+  @us-tl-04 @contract-shape:bounded-change
   Scenario: A second name with no Latin letters gets the next free address
     Given Priya has created the team "インフラ"
     When Priya creates the team "運用" from the teams page
@@ -61,7 +61,7 @@ Feature: Every team name follows one rule, and a name in any script gets a worki
     When Priya creates the team "運用" from the teams page
     Then Canzan Labs now has the team "運用" at the address "team-2", led by Priya Raman, and nothing else changed
 
-  @us-tl-04 @error @contract-shape:unbounded-preservation @pending
+  @us-tl-04 @error @contract-shape:unbounded-preservation
   Scenario Outline: A name that breaks the rule is refused with its reason, and nothing is created
     When Priya creates the team "<typed>" from the teams page
     Then she is refused with "<reason>", and her text "<typed>" is kept
@@ -76,10 +76,10 @@ Feature: Every team name follows one rule, and a name in any script gets a worki
       | [65×日]              | Team name must be at most 64 characters        |
       | [SPACE][TAB]         | Team name must not be empty                    |
 
-  @us-tl-04 @edge @contract-shape:bounded-change @pending
+  @us-tl-04 @edge @contract-shape:bounded-change
   Scenario Outline: A name of exactly 64 characters is accepted
     When Priya creates the team "<typed>" from the teams page
-    Then she sees "Created <typed>. You're its lead."
+    Then she sees the team "<typed>" created, with her as its lead
     And Canzan Labs now has the team "<typed>" at the address "<address>", led by Priya Raman, and nothing else changed
 
     Examples:

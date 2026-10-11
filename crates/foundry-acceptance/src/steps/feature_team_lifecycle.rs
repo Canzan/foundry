@@ -256,6 +256,11 @@ async fn refused_with(world: &mut FoundryWorld, copy: String, typed: String) {
     tl::then_refused_with(world, &copy, &typed);
 }
 
+#[then(regex = r#"^(?:she|he) sees the team "([^"]+)" created, with (?:her|him) as its lead$"#)]
+async fn sees_created(world: &mut FoundryWorld, name: String) {
+    tl::then_sees_created(world, &name);
+}
+
 #[then(regex = r"^no team, project or membership changed$")]
 async fn nothing_changed(world: &mut FoundryWorld) {
     tl::then_nothing_changed(world).await;

@@ -401,3 +401,26 @@ proptest! {
         prop_assert_eq!(slug, lowest_free);
     }
 }
+
+/// `MintedSlug::as_str` is the address itself, whichever way it was minted:
+/// the stores and the board URL read it, so an empty or fixed string would
+/// mint a wrong address (cargo-mutants: `""` and `"xyzzy"` survived a
+/// foundry-core-only run).
+#[test]
+fn a_minted_slug_reads_back_as_its_address_for_both_kinds() {
+    assert_eq!(
+        MintedSlug::Derived("homelab-ops".into()).as_str(),
+        "homelab-ops"
+    );
+    assert_eq!(MintedSlug::KeyFallback("jp-2".into()).as_str(), "jp-2");
+    let minted = mint_project_slug(
+        &ProjectName::try_new("日本語").expect("a name"),
+        &ProjectKey::try_new("JP").expect("a key"),
+        &["jp".to_string()],
+    );
+    assert_eq!(
+        minted.as_str(),
+        "jp-2",
+        "a fallback mint reads back as its address"
+    );
+}
