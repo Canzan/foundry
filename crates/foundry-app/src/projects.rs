@@ -24,7 +24,7 @@
 //! keys are rejected with 422 Unprocessable Entity (the request is
 //! syntactically well-formed but fails business validation).
 
-use crate::bootstrap::{invalid_page, resource_not_found_page, SessionUser};
+use crate::bootstrap::{resource_not_found_page, SessionUser};
 use crate::csrf::{build_csrf_cookie, generate_token};
 use crate::session::SESSION_KEY_USER_ID;
 use crate::AppState;
@@ -78,7 +78,7 @@ pub async fn show_create_form(
         .await
     {
         Ok(Some(t)) => t,
-        Ok(None) => return team_not_found_page(&team_slug),
+        Ok(None) => return resource_not_found_page(),
         Err(err) => return internal_error("find_team_by_slug", err),
     };
     match state.store.is_team_member(team.id, user.user_id).await {
@@ -121,7 +121,7 @@ pub async fn submit_create(
         .await
     {
         Ok(Some(t)) => t,
-        Ok(None) => return team_not_found_page(&team_slug),
+        Ok(None) => return resource_not_found_page(),
         Err(err) => return internal_error("find_team_by_slug", err),
     };
     match state.store.is_team_member(team.id, user.user_id).await {
@@ -228,9 +228,8 @@ pub async fn submit_create(
             (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response()
         }
         Err(CreateProjectError::Store(err)) => internal_error("insert_project", err),
-        // team-lifecycle 02-04 maps this to the uniform 404; until then it keeps
-        // today's answer for a project whose team vanished mid-create.
-        Err(CreateProjectError::TeamGone) => internal_error("insert_project", "team gone"),
+        // DDD-9: the team was deleted between the lookup and the insert.
+        Err(CreateProjectError::TeamGone) => resource_not_found_page(),
     }
 }
 
@@ -615,15 +614,6 @@ fn redirect_to(location: &str) -> Response {
         hdrs.insert(LOCATION, v);
     }
     (StatusCode::SEE_OTHER, hdrs, "").into_response()
-}
-
-fn team_not_found_page(team_slug: &str) -> Response {
-    // Treat unknown team as 404 to avoid leaking membership info.
-    invalid_page(
-        StatusCode::NOT_FOUND,
-        "Team not found",
-        &format!("No team with slug {team_slug:?} exists in this workspace."),
-    )
 }
 
 fn internal_error<E: std::fmt::Display>(label: &str, err: E) -> Response {

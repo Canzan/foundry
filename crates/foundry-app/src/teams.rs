@@ -120,6 +120,13 @@ pub enum TeamNotice {
     DeleteTokens { team: String, tokens: i64 },
     /// team-lifecycle D12: "Deleted {team}."
     Deleted { team: String },
+    /// team-lifecycle D9/DDD-10: "{team} still has {n} project(s): {list}. A
+    /// team with projects can't be deleted." — the list is "Name (KEY)" by name
+    /// then key, joined by ", ".
+    HasProjects {
+        team: String,
+        projects: Vec<(String, String)>,
+    },
 }
 
 impl fmt::Display for TeamNotice {
@@ -182,6 +189,20 @@ impl fmt::Display for TeamNotice {
                 )
             }
             Self::Deleted { team } => write!(f, "Deleted {team}."),
+            Self::HasProjects { team, projects } => {
+                let mut ordered: Vec<&(String, String)> = projects.iter().collect();
+                ordered.sort();
+                let list = ordered
+                    .iter()
+                    .map(|(name, key)| format!("{name} ({key})"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                write!(
+                    f,
+                    "{team} still has {} project(s): {list}. A team with projects can't be deleted.",
+                    projects.len()
+                )
+            }
         }
     }
 }
@@ -492,10 +513,25 @@ pub async fn show_delete(
                     }
                     .to_string()
                 }),
+                refusal: None,
             };
             render(page.render(), StatusCode::OK, set_cookie)
         }
-        Ok(TeamDeletePreview::HasProjects { .. }) => projects_refusal_not_yet_rendered(),
+        Ok(TeamDeletePreview::HasProjects {
+            team_name,
+            projects,
+        }) => {
+            projects_refusal(
+                &state,
+                &headers,
+                &user,
+                team_slug,
+                team_name,
+                projects,
+                StatusCode::OK,
+            )
+            .await
+        }
         Err(err) => refusal(err),
     }
 }
@@ -519,17 +555,57 @@ pub async fn submit_delete(
             let notice = TeamNotice::Deleted { team: team_name };
             teams_page(&state, &headers, &user, index, Some(notice)).await
         }
-        Ok(TeamDeletion::HasProjects { .. }) => projects_refusal_not_yet_rendered(),
+        Ok(TeamDeletion::HasProjects {
+            team_name,
+            projects,
+        }) => {
+            projects_refusal(
+                &state,
+                &headers,
+                &user,
+                team_slug,
+                team_name,
+                projects,
+                StatusCode::CONFLICT,
+            )
+            .await
+        }
         Err(err) => refusal(err),
     }
 }
 
-/// team-lifecycle 02-04 renders the projects refusal (the 200 page and the
-/// 409); until then a team with projects keeps a logged 500 and is never
-/// deleted.
-fn projects_refusal_not_yet_rendered() -> Response {
-    tracing::error!("team delete refused for projects; the refusal page lands in 02-04");
-    (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response()
+/// The delete page's refusal variant (DDD-10, D9): the team's projects and no
+/// Delete team. 200 on GET; 409 when the commit-time read found projects.
+async fn projects_refusal(
+    state: &AppState,
+    headers: &HeaderMap,
+    user: &SessionUser,
+    team_slug: String,
+    team_name: String,
+    projects: Vec<(String, String)>,
+    status: StatusCode,
+) -> Response {
+    let (csrf, set_cookie) = ensure_csrf_cookie(state, headers);
+    let page = TeamDeletePage {
+        nav: nav_for(state, user, csrf.clone()).await,
+        csrf,
+        team_slug,
+        question: TeamNotice::DeleteQuestion {
+            team: team_name.clone(),
+        }
+        .to_string(),
+        member_line: String::new(),
+        default_line: None,
+        token_line: None,
+        refusal: Some(
+            TeamNotice::HasProjects {
+                team: team_name,
+                projects,
+            }
+            .to_string(),
+        ),
+    };
+    render(page.render(), status, set_cookie)
 }
 
 // ------------------------------------------------------------------ internals
@@ -910,8 +986,68 @@ mod team_notice_copy {
     }
 
     #[test]
+    fn has_one_project() {
+        let notice = TeamNotice::HasProjects {
+            team: "Backend".into(),
+            projects: vec![("Identity Platform".into(), "AUTH".into())],
+        };
+        assert_eq!(
+            notice.to_string(),
+            "Backend still has 1 project(s): Identity Platform (AUTH). A team with projects can't be deleted."
+        );
+    }
+
+    #[test]
+    fn has_two_projects() {
+        let notice = TeamNotice::HasProjects {
+            team: "Ops".into(),
+            projects: vec![
+                ("Reading List".into(), "READ".into()),
+                ("Homelab Ops".into(), "OPS".into()),
+            ],
+        };
+        assert_eq!(
+            notice.to_string(),
+            "Ops still has 2 project(s): Homelab Ops (OPS), Reading List (READ). A team with projects can't be deleted."
+        );
+    }
+
+    #[test]
     fn role_labels() {
         assert_eq!(role_label(TeamRole::Lead), "Lead");
         assert_eq!(role_label(TeamRole::Member), "Member");
+    }
+}
+
+#[cfg(test)]
+mod team_projects_list {
+    //! The refusal's list: any non-empty set of (name, key) renders every pair
+    //! once, ordered by name then key, joined by ", " (DDD-10).
+    use super::*;
+    use proptest::prelude::*;
+    use std::collections::BTreeSet;
+
+    fn pairs() -> impl Strategy<Value = BTreeSet<(String, String)>> {
+        prop::collection::btree_set(("[A-Z][a-z]{0,6}( [A-Z][a-z]{0,6})?", "[A-Z]{2,6}"), 1..8)
+    }
+
+    proptest! {
+        #[test]
+        fn every_project_named_once_by_name_then_key(set in pairs(), seed in any::<u64>()) {
+            let mut given: Vec<(String, String)> = set.iter().cloned().collect();
+            let len = given.len();
+            given.rotate_left(usize::try_from(seed).unwrap_or(0) % len);
+            given.reverse();
+            let text = TeamNotice::HasProjects { team: "Ops".into(), projects: given }.to_string();
+            let prefix = format!("Ops still has {len} project(s): ");
+            let suffix = ". A team with projects can't be deleted.";
+            prop_assert!(text.starts_with(&prefix), "{text}");
+            prop_assert!(text.ends_with(suffix), "{text}");
+            let list = &text[prefix.len()..text.len() - suffix.len()];
+            let rendered: Vec<&str> = list.split(", ").collect();
+            let expected: Vec<String> =
+                set.iter().map(|(name, key)| format!("{name} ({key})")).collect();
+            prop_assert_eq!(rendered, expected);
+        }
     }
 }

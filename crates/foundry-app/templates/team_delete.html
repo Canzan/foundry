@@ -3,6 +3,9 @@
 {% block app_content %}
 <main class="team-delete">
   <h1>{{ question }}</h1>
+  {% if let Some(line) = refusal %}
+  <p>{{ line }}</p>
+  {% else %}
   <p>{{ member_line }}</p>
   {% if let Some(line) = default_line %}<p>{{ line }}</p>{% endif %}
   {% if let Some(line) = token_line %}<p>{{ line }}</p>{% endif %}
@@ -10,6 +13,7 @@
     <input type="hidden" name="_csrf" value="{{ csrf }}">
     <button type="submit">Delete team</button>
   </form>
+  {% endif %}
   <p><a href="/team/{{ team_slug }}/members">Cancel</a></p>
 </main>
 {% endblock %}

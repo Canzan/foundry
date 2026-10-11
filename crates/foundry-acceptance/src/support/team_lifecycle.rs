@@ -568,6 +568,12 @@ pub async fn given_opened_delete_earlier(world: &mut FoundryWorld, who: &str, te
     world.tm.last_actor = Some(actor);
 }
 
+/// The delete as a precondition (Pillar 2). It ends by capturing this
+/// feature's before-image of the post-delete world, so a reused
+/// team-membership `When` that captures only its own image (e.g. "adds … from
+/// the page she opened earlier", scenario 24) is still judged fail-closed by
+/// "no team, project or membership changed". A `When` of this feature captures
+/// again, so nothing else changes.
 pub async fn given_has_deleted(world: &mut FoundryWorld, who: &str, team: &str) {
     let actor = tm::resolve_actor(world, who);
     let page = follow_delete_link(world, &actor, team).await;
@@ -578,6 +584,7 @@ pub async fn given_has_deleted(world: &mut FoundryWorld, who: &str, team: &str) 
         tm::describe(&answer)
     );
     tm::record(world, &actor, answer);
+    capture_before(world).await;
 }
 
 pub async fn given_has_renamed(world: &mut FoundryWorld, who: &str, team: &str, new_name: &str) {

@@ -160,7 +160,7 @@ Feature: A workspace admin deletes a team, told first what goes, and never loses
     Then the answer is the page that never existed
     And no team, project or membership changed
 
-  @us-tl-02 @error @contract-shape:unbounded-preservation @pending
+  @us-tl-02 @error @contract-shape:unbounded-preservation
   Scenario: An add sent from a members page opened before the team was deleted finds nothing
     Given Priya opened Bakcend's members page earlier
     And Priya has deleted Bakcend
@@ -170,14 +170,14 @@ Feature: A workspace admin deletes a team, told first what goes, and never loses
 
   # ------------------------------------------------------------------- US-TL-03
 
-  @us-tl-03 @driving_port @error @kpi @contract-shape:unbounded-preservation @pending
+  @us-tl-03 @driving_port @error @kpi @contract-shape:unbounded-preservation
   Scenario: A team with a project shows why it cannot be deleted
     When Priya follows Delete team on Backend's members page
     Then the delete page says "Backend still has 1 project(s): Identity Platform (AUTH). A team with projects can't be deleted."
     And the delete page offers no Delete team
     And no team, project or membership changed
 
-  @us-tl-03 @edge @contract-shape:unbounded-preservation @pending
+  @us-tl-03 @edge @contract-shape:unbounded-preservation
   Scenario: Every project of the team is named, by name and key
     Given Ops has these projects:
       | project      | key  |
@@ -187,14 +187,14 @@ Feature: A workspace admin deletes a team, told first what goes, and never loses
     Then the delete page says "Ops still has 2 project(s): Homelab Ops (OPS), Reading List (READ). A team with projects can't be deleted."
     And the delete page offers no Delete team
 
-  @us-tl-03 @error @kpi @contract-shape:unbounded-preservation @pending
+  @us-tl-03 @error @kpi @contract-shape:unbounded-preservation
   Scenario: A delete sent for a team that has a project is refused, and nothing is lost
     When Priya submits a delete of Backend
     Then she is told "Backend still has 1 project(s): Identity Platform (AUTH). A team with projects can't be deleted."
     And no team, project or membership changed
     And the Identity Platform board still opens for Lena
 
-  @us-tl-03 @error @kpi @contract-shape:unbounded-preservation @pending
+  @us-tl-03 @error @kpi @contract-shape:unbounded-preservation
   Scenario: A confirm sent from a page opened before a project appeared is refused
     Given Priya opened Design's delete page earlier
     And Lena has since created the project "Brand Refresh" with key BRAND on Design
@@ -203,7 +203,7 @@ Feature: A workspace admin deletes a team, told first what goes, and never loses
     And no team, project or membership changed
     And the Brand Refresh board still opens for Lena
 
-  @us-tl-03 @error @kpi @concurrency @contract-shape:bounded-change @pending
+  @us-tl-03 @error @kpi @concurrency @contract-shape:bounded-change
   Scenario: A delete racing a project create never destroys the project
     When Priya deletes Design at the same moment as Lena creates "Brand Refresh" with key BRAND on it, 5 times over
     Then each time, either the project was kept and the delete was refused, or the team was deleted and the create found no team
