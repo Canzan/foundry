@@ -855,6 +855,10 @@ pub struct TeamDeletePage {
     pub question: String,
     /// "{team} has {n} member(s) and no projects. ..."
     pub member_line: String,
+    /// "{team} is the default team for new members. ..." when it is the default.
+    pub default_line: Option<String>,
+    /// "{k} machine token(s) scoped to {team} will stop working." when k > 0.
+    pub token_line: Option<String>,
 }
 
 /// A members-page row: "{name} · {email} · {Lead|Member}" (D8).

@@ -59,13 +59,13 @@ Feature: A workspace admin deletes a team, told first what goes, and never loses
     And Bakcend is gone with everyone's place on it, one delete record names Priya Raman, and nothing else changed
     And Priya's teams page does not list "Bakcend"
 
-  @us-tl-02 @edge @contract-shape:unbounded-preservation @pending
+  @us-tl-02 @edge @contract-shape:unbounded-preservation
   Scenario: A member whose only team was deleted lands on the no-team page, and one with another team keeps it
     Given Priya has deleted Bakcend
     Then Sam Okafor's dashboard says "You're not on any team yet — ask a workspace admin to add you."
     And Tomás's teams page still lists Ops
 
-  @us-tl-02 @kpi @contract-shape:bounded-change @pending
+  @us-tl-02 @kpi @contract-shape:bounded-change
   Scenario: Deleting the default team warns first and leaves no default
     Given Priya has set Ops as the default team for new members
     When Priya follows Delete team on Ops's members page
@@ -75,7 +75,7 @@ Feature: A workspace admin deletes a team, told first what goes, and never loses
     And Ops is gone with everyone's place on it, Canzan Labs has no default team, one delete record names Priya Raman, and nothing else changed
     And the teams page shows No team as the default team for new members
 
-  @us-tl-02 @contract-shape:bounded-change @pending
+  @us-tl-02 @contract-shape:bounded-change
   Scenario: A team's machine tokens are named on the delete page and go with the team
     Given Design has 1 machine token scoped to it
     When Priya follows Delete team on Design's members page
@@ -91,7 +91,7 @@ Feature: A workspace admin deletes a team, told first what goes, and never loses
     Then she is back on Bakcend's members page
     And no team, project or membership changed
 
-  @us-tl-02 @edge @contract-shape:bounded-change @pending
+  @us-tl-02 @edge @contract-shape:bounded-change
   Scenario: After a team is deleted its name and address can be used again, and only the new team's people reach it
     Given Priya has deleted Bakcend
     When Priya creates the team "Bakcend" from the teams page
@@ -152,7 +152,7 @@ Feature: A workspace admin deletes a team, told first what goes, and never loses
     And no team, project or membership changed
     And the same delete with the page's token deletes Bakcend
 
-  @us-tl-02 @edge @contract-shape:unbounded-preservation @pending
+  @us-tl-02 @edge @contract-shape:unbounded-preservation
   Scenario: A confirm sent again for a team already deleted finds nothing, and changes nothing
     Given Priya opened Bakcend's delete page earlier
     And Priya has deleted Bakcend

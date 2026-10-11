@@ -112,6 +112,12 @@ pub enum TeamNotice {
     /// team-lifecycle D12: "{team} has {n} member(s) and no projects. They lose
     /// access to {team}. This can't be undone."
     DeleteMembers { team: String, members: i64 },
+    /// team-lifecycle D12: "{team} is the default team for new members. After
+    /// it is deleted, new members will join no team." (only when the default)
+    DeleteDefault { team: String },
+    /// team-lifecycle D12: "{k} machine token(s) scoped to {team} will stop
+    /// working." (only when k > 0)
+    DeleteTokens { team: String, tokens: i64 },
     /// team-lifecycle D12: "Deleted {team}."
     Deleted { team: String },
 }
@@ -164,6 +170,17 @@ impl fmt::Display for TeamNotice {
                 "{team} has {members} member(s) and no projects. They lose access to {team}. \
                  This can't be undone."
             ),
+            Self::DeleteDefault { team } => write!(
+                f,
+                "{team} is the default team for new members. After it is deleted, \
+                 new members will join no team."
+            ),
+            Self::DeleteTokens { team, tokens } => {
+                write!(
+                    f,
+                    "{tokens} machine token(s) scoped to {team} will stop working."
+                )
+            }
             Self::Deleted { team } => write!(f, "Deleted {team}."),
         }
     }
@@ -458,10 +475,23 @@ pub async fn show_delete(
                 }
                 .to_string(),
                 member_line: TeamNotice::DeleteMembers {
-                    team: team_name,
+                    team: team_name.clone(),
                     members: facts.member_count,
                 }
                 .to_string(),
+                default_line: facts.is_default.then(|| {
+                    TeamNotice::DeleteDefault {
+                        team: team_name.clone(),
+                    }
+                    .to_string()
+                }),
+                token_line: (facts.scoped_token_count > 0).then(|| {
+                    TeamNotice::DeleteTokens {
+                        team: team_name,
+                        tokens: facts.scoped_token_count,
+                    }
+                    .to_string()
+                }),
             };
             render(page.render(), StatusCode::OK, set_cookie)
         }
@@ -847,6 +877,27 @@ mod team_notice_copy {
         assert_eq!(
             notice.to_string(),
             "Bakcend has 2 member(s) and no projects. They lose access to Bakcend. This can't be undone."
+        );
+    }
+
+    #[test]
+    fn delete_default() {
+        let notice = TeamNotice::DeleteDefault { team: "Ops".into() };
+        assert_eq!(
+            notice.to_string(),
+            "Ops is the default team for new members. After it is deleted, new members will join no team."
+        );
+    }
+
+    #[test]
+    fn delete_tokens() {
+        let notice = TeamNotice::DeleteTokens {
+            team: "Design".into(),
+            tokens: 1,
+        };
+        assert_eq!(
+            notice.to_string(),
+            "1 machine token(s) scoped to Design will stop working."
         );
     }
 
