@@ -95,7 +95,7 @@ Feature: Every team name follows one rule, and a name in any script gets a worki
 
     Examples:
       | typed               |
-      | Back-End            |
+      | Backend!            |
       | BACKEND             |
       | [SPACE]backend[TAB] |
 

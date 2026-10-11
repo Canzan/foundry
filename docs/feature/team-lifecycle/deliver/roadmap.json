@@ -477,7 +477,7 @@
           "criteria": [
             "'\u30a4\u30f3\u30d5\u30e9' then '\u904b\u7528' get /team/team/members and /team/team-2/members, and with legacy team and team-3 taken the next fallback is team-2",
             "Control, bidi, tab, NUL, 65-scalar and empty names answer 422 with their D12 copy and create nothing; 64 scalars in Latin and in CJK are created",
-            "'Back-End' next to Backend and a case-only variant are refused as not unique; TeamName's control verdict equals ProjectName's and WorkspaceName's for every scalar (property)",
+            "'Backend!' next to Backend (slugify keeps hyphens, so 'Back-End' is unique) and a case-only variant are refused as not unique; TeamName's control verdict equals ProjectName's and WorkspaceName's for every scalar (property)",
             "Over 100 runs each, two creates of 'Infra' or of '\u30a4\u30f3\u30d5\u30e9' give one team and one NotUnique, and '\u30a4\u30f3\u30d5\u30e9' with '\u904b\u7528' give both at team and team-2; the HTTP races (x5) never answer 5xx",
             "All 12 tl-03 scenarios green, zero @pending in file 03; use-case suite 0 ignored; tl-01, pnr and default lanes green; fmt, clippy, check-arch, smoke green"
           ],

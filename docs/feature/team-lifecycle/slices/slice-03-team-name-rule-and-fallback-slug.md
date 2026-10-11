@@ -31,7 +31,7 @@ slugifies to nothing still gets a reachable team page.
 
 - [ ] "インフラ" → `/team/team/members`. Then "運用" → `/team/team-2/members`. Both open.
 - [ ] A U+202E name and a 65-character name are refused with their copy. A 64-character name is created.
-- [ ] "Back-End", where Backend exists → the uniqueness copy.
+- [ ] "Backend!" (which derives `backend`), where Backend exists → the uniqueness copy. *(Corrected at DISTILL: "Back-End" derives `back-end`, so it is unique.)*
 - [ ] 100 concurrent same-name races ("Infra", and "インフラ") give 1 team and 1 refusal each, with 0 responses of 500. Concurrent creates of "インフラ" and "運用" both succeed, as `team` and `team-2`. *(Corrected at DISTILL, DESIGN Changed Assumption 1.)*
 - [ ] (OQ-7) A psql INSERT or UPDATE with U+0001, U+202E or 65 characters in `teams.name` is refused with SQLSTATE 23514 and the named arm (`teams_name_no_control_chars`, `teams_name_max_64_chars`). A NUL is refused earlier by Postgres itself (22021). *(Corrected at DISTILL, DESIGN Changed Assumption 2.)*
 

@@ -69,7 +69,7 @@ Feature: A team is renamed, and every link to it keeps working
     Examples:
       | typed    |
       | general  |
-      | Back-End |
+      | Backend! |
 
   @us-tl-05 @error @contract-shape:unbounded-preservation @pending
   Scenario Outline: A rename that breaks the rule is refused with the same words as a create

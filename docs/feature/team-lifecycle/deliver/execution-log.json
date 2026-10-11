@@ -1,5 +1,41 @@
 {
-  "schema_version": "5.0",
+  "schema_version": "3.0",
   "feature_id": "team-lifecycle",
-  "events": []
+  "events": [
+    {
+      "sid": "01-01",
+      "p": "RED",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-10-11T10:15:26Z"
+    },
+    {
+      "sid": "01-01",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "FAIL",
+      "t": "2026-10-11T11:09:00Z"
+    },
+    {
+      "sid": "01-01",
+      "p": "COMMIT",
+      "s": "SKIPPED",
+      "d": "BLOCKED_BY_DEPENDENCY: DISTILL test team_lifecycle_use_cases.rs:213 asserts Back-End collides with Backend, but slugify gives back-end; escalated to nw-acceptance-designer, never commit with a failing test",
+      "t": "2026-10-11T11:09:48Z"
+    },
+    {
+      "sid": "01-01",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-10-11T11:41:16Z"
+    },
+    {
+      "sid": "01-01",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-10-11T11:41:32Z"
+    }
+  ]
 }

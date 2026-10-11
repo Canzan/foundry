@@ -473,7 +473,7 @@ non-Latin names make teams unreachable.
 1. **Non-Latin**: "インフラ" → slug `team`. Then "運用" → slug `team-2` (OQ-3).
 2. **Control**: "Platform" followed by U+202E and "Ops" → refused with the control copy. So is a pasted tab.
 3. **Cap**: a 64-character name is created, and a 65-character one is refused (OQ-2).
-4. **Collision by slug**: with Backend existing, "Back-End" (which slugifies to `backend`) → "Team name must be unique within the workspace".
+4. **Collision by slug**: with Backend existing, "Backend!" (which slugifies to `backend`) → "Team name must be unique within the workspace". *(Corrected at DISTILL: the example read "Back-End", but `slugify` keeps the hyphen, so "Back-End" derives `back-end` and is unique.)*
 5. **Race**: two admins create "Infra" at the same moment → one is created, and the other sees the uniqueness copy, never a 500. The same holds for two concurrent "インフラ" creates: one team, one uniqueness refusal. Two concurrent creates of *different* non-Latin names ("インフラ" and "運用") both succeed, as `team` and `team-2`. *(Corrected at DISTILL from DESIGN Changed Assumption 1.)*
 
 ##### UAT Scenarios (BDD)
@@ -492,7 +492,7 @@ non-Latin names make teams unreachable.
 ###### Scenario: A name whose URL would collide is refused
 
 - Given Backend exists
-- When Priya creates "Back-End"
+- When Priya creates "Backend!"
 - Then she sees "Team name must be unique within the workspace"
 
 ###### Scenario: Two admins creating the same name at once get one team
@@ -1195,6 +1195,7 @@ Acceptance designer: Quinn (nw-acceptance-designer) | Date: 2026-10-11 | Languag
 | 2 | US-TL-04 scenario 5 and AC 4; slice 03 AC 5 | Postgres refuses U+0000 in `text` (22021) before any trigger, so the database refusal is shown with U+0001, U+202E and 65 characters, with 23514 and the named arm; the app doors refuse a pasted NUL as a control character (CA 2). Scenarios 33 (`[NUL]` row), 39-40; the GREEN substrate test `a_nul_in_a_team_name_is_refused_by_postgres_itself_before_any_rule`. |
 | 3 | INV-TL-2 | A token mint racing a delete answers the token form's shipped 422 `scope_team_not_in_workspace`, never a 500 (CA 3). `a_token_mint_racing_a_team_delete_answers_the_shipped_422` (RED today: it answers `Internal`). |
 | 4 | DoD 8 | Two migrations: 0023 (additive) and 0024 (two triggers, and a REPLACE of the shared `foundry_enforce_name_rule()` with an identical body plus one HINT line) (CA 4). `team_lifecycle_migrations.rs`. |
+| 5 | US-TL-04 Domain Example 4 and scenario 3; slice 03 AC 3; feature files 03 (scenario 35) and 04 (scenario 46); `team_lifecycle_use_cases.rs` and `team_create.rs` | **Raised in DELIVER 01-01 (2026-10-11), not a DESIGN assumption.** The collision example "Back-End" was a false premise: the shipped `foundry_core::slugify` keeps a hyphen between alphanumerics, so "Back-End" derives `back-end`, a different case-insensitive name AND a different address from Backend, and is correctly unique. Replaced everywhere by "Backend!", which differs case-insensitively but derives `backend` (slugify drops the trailing non-alphanumeric). The intent is unchanged: a colliding derived slug gives `NotUnique` with the D12 copy. (`deliver/roadmap.json` still quotes "Back-End"; that file is DELIVER's.) |
 
 ### [REF] Scenario list
 
