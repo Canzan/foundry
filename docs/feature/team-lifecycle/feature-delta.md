@@ -815,6 +815,8 @@ role on the team.
 | `GET /team/{slug}/delete` | 404 | 404 | 404 | 404 | confirm / refusal | 404 | 404 |
 | `POST /team/{slug}/delete` | 404 | 404 | 404 | 404 | delete / 409 | 404 | 404 |
 
+An admin of **another** workspace (Hugo, Globex) is not a refused caller of `POST /teams`: tenancy comes from the session (D11), so his create makes a team, led by him, in **his own** workspace, and Canzan Labs gains nothing and lists nothing. *(Note added at DISTILL, correction 6.)*
+
 ### [REF] Statuses
 
 | Route | Outcome | Status and body |
@@ -1196,18 +1198,19 @@ Acceptance designer: Quinn (nw-acceptance-designer) | Date: 2026-10-11 | Languag
 | 3 | INV-TL-2 | A token mint racing a delete answers the token form's shipped 422 `scope_team_not_in_workspace`, never a 500 (CA 3). `a_token_mint_racing_a_team_delete_answers_the_shipped_422` (RED today: it answers `Internal`). |
 | 4 | DoD 8 | Two migrations: 0023 (additive) and 0024 (two triggers, and a REPLACE of the shared `foundry_enforce_name_rule()` with an identical body plus one HINT line) (CA 4). `team_lifecycle_migrations.rs`. |
 | 5 | US-TL-04 Domain Example 4 and scenario 3; slice 03 AC 3; feature files 03 (scenario 35) and 04 (scenario 46); `team_lifecycle_use_cases.rs` and `team_create.rs` | **Raised in DELIVER 01-01 (2026-10-11), not a DESIGN assumption.** The collision example "Back-End" was a false premise: the shipped `foundry_core::slugify` keeps a hyphen between alphanumerics, so "Back-End" derives `back-end`, a different case-insensitive name AND a different address from Backend, and is correctly unique. Replaced everywhere by "Backend!", which differs case-insensitively but derives `backend` (slugify drops the trailing non-alphanumeric). The intent is unchanged: a colliding derived slug gives `NotUnique` with the D12 copy. (`deliver/roadmap.json` still quotes "Back-End"; that file is DELIVER's.) |
+| 6 | Authorization Matrix (note under the table); feature file 01 (scenario 9 and the new scenario 9a) | **Raised in DELIVER 01-03 (2026-10-11).** Scenario 9's Hugo row expected his `POST /teams` to get the uniform 404, but Hugo is an admin of Globex and the acting workspace comes from his session (D11), so he legitimately creates "Platform" in Globex; refusing him would also refuse Priya's walking-skeleton create in Homelab. The row is removed from the outline (signed out, Marco, Sam, Lena and Ines stay as they were) and its intent, cross-tenant isolation, is its own scenario 9a: Hugo's create lands in Globex only (200, "Created Platform. You're its lead.", one Globex team led by him in the state delta), and Priya's teams page does not list it. |
 
 ### [REF] Scenario list
 
-Four feature files under `crates/foundry-acceptance/tests/features/`, one per slice: `team-lifecycle-01-create-team.feature` (`@tl-01`), `-02-delete-team` (`@tl-02`), `-03-team-name-rule` (`@tl-03`), `-04-rename-team` (`@tl-04`). Every feature carries `@team-lifecycle @tl-0N @real-io`; every scenario carries `@pending`, a story tag and a `@contract-shape:` tag. Each file has one Background built from team-membership's steps (Canzan Labs as the original workspace with its teams and boards, the roster, Globex/Payments led by Hugo Weber, and Ines Duarte as an instance admin who is not a workspace admin). **53 scenarios, 95 rows** with outline rows expanded.
+Four feature files under `crates/foundry-acceptance/tests/features/`, one per slice: `team-lifecycle-01-create-team.feature` (`@tl-01`), `-02-delete-team` (`@tl-02`), `-03-team-name-rule` (`@tl-03`), `-04-rename-team` (`@tl-04`). Every feature carries `@team-lifecycle @tl-0N @real-io`; every scenario carries `@pending`, a story tag and a `@contract-shape:` tag. Each file has one Background built from team-membership's steps (Canzan Labs as the original workspace with its teams and boards, the roster, Globex/Payments led by Hugo Weber, and Ines Duarte as an instance admin who is not a workspace admin). **54 scenarios, 95 rows** with outline rows expanded (scenario 9a was added in DELIVER 01-03, correction 6; the numbering below is otherwise DISTILL's).
 
 | File | Scenarios | Rows | `@error` | `@edge` | error + edge |
 |---|---|---|---|---|---|
-| 01 | 11 | 20 | 4 (10 rows) | 5 (8 rows) | 9 of 11 |
+| 01 | 12 | 20 | 4 (9 rows) | 6 (9 rows) | 10 of 12 |
 | 02 | 18 | 28 | 9 (19 rows) | 5 (5 rows) | 14 of 18 |
 | 03 | 12 | 25 | 6 (18 rows) | 4 (5 rows) | 10 of 12 |
 | 04 | 12 | 22 | 6 (14 rows) | 4 (6 rows) | 10 of 12 |
-| **All** | **53** | **95** | **25 (47%); 61 of 95 rows (64%)** | **18** | **43 of 53 (81%); 85 of 95 rows (89%)** |
+| **All** | **54** | **95** | **25 (46%); 60 of 95 rows (63%)** | **19** | **44 of 54 (81%); 85 of 95 rows (89%)** |
 
 | # | File | Scenario | Tags | Rows |
 |---|---|---|---|---|
@@ -1219,7 +1222,8 @@ Four feature files under `crates/foundry-acceptance/tests/features/`, one per sl
 | 6 | 01 | A name already used in the workspace is refused, and the text is kept | @us-tl-01 @error @contract-shape:unbounded-preservation | 2 |
 | 7 | 01 | An empty name is refused | @us-tl-01 @error @contract-shape:unbounded-preservation | 1 |
 | 8 | 01 | Sending the create form a second time makes no second team | @us-tl-01 @edge @kpi @contract-shape:unbounded-preservation | 1 |
-| 9 | 01 | Only a workspace admin can create a team | @us-tl-01 @error @kpi @contract-shape:unbounded-preservation | 6 |
+| 9 | 01 | Only a workspace admin can create a team | @us-tl-01 @error @kpi @contract-shape:unbounded-preservation | 5 |
+| 9a | 01 | Another workspace's admin creates a team in their own workspace only, and Canzan Labs never sees it | @us-tl-01 @edge @kpi @contract-shape:bounded-change | 1 |
 | 10 | 01 | An instance admin who is not a workspace admin is not offered the form either | @us-tl-01 @edge @contract-shape:unbounded-preservation | 1 |
 | 11 | 01 | A create sent without the page's token is turned away, and nothing changes | @us-tl-01 @error @contract-shape:unbounded-preservation | 1 |
 | 12 | 02 | The delete page says exactly what goes with the team, and changes nothing | @us-tl-02 @driving_port @contract-shape:unbounded-preservation | 1 |
@@ -1271,7 +1275,7 @@ Pinned by these scenarios:
 
 - **The Statuses table (OQ-D1)**: 200 for a create, rename or delete that goes through, the confirm page, the "still has projects" page and the byte-equal no-op ("she sees", "the delete page says", "with no notice"); **422** for every name refusal, with the input kept ("is refused with …, and her text … is kept"); **409** for a delete with a project at commit time ("is told", 27, 28); the **uniform 404, byte-identical to a page that never existed**, for every refusal on both verbs; the shipped CSRF layer's **403** for a tokenless POST (11, 22, 53), outside the 404 matrix.
 - **The D12 / DDD-20 copy**, byte for byte through the decoded page text: Created, the four `TeamNameError` strings, Renamed, the no-teams-yet line, the confirm heading, member line, default line and token line, the projects refusal for one and two projects (by name then key), Deleted, the shipped no-team dashboard line, and the "{team} · {n} member(s)" plurals.
-- **The Authorization Matrix (KPI-TL-4)**: signed out, Marco (on no team), Sam (a member), Lena (a lead: allowed to rename her own team, refused create and delete, refused rename of a team she does not lead), Ines (an instance admin who is not a workspace admin), Hugo (Globex's admin), an unknown slug and Globex's team, on `POST /teams`, `GET` and `POST /team/{slug}/delete` and `POST /team/{slug}/rename`; the members page controls per role (5, 49). Every refusal row asserts the byte-identical 404, an unchanged universe, and a control proving the hidden door or team exists.
+- **The Authorization Matrix (KPI-TL-4)**: signed out, Marco (on no team), Sam (a member), Lena (a lead: allowed to rename her own team, refused create and delete, refused rename of a team she does not lead), Ines (an instance admin who is not a workspace admin), Hugo (Globex's admin, refused on Canzan Labs's teams; his own create lands in Globex only, 9a), an unknown slug and Globex's team, on `POST /teams`, `GET` and `POST /team/{slug}/delete` and `POST /team/{slug}/rename`; the members page controls per role (5, 49). Every refusal row asserts the byte-identical 404, an unchanged universe, and a control proving the hidden door or team exists.
 - **Create**: born led (D3, the delta names the lead row), **New project** on the members page and the dashboard link to a team the caller is on (D14: 1, 3, 4, 5), the provisioned-workspace dead end (1, 3: Homelab is seeded as `provision_workspace` leaves it, and Priya reaches it through the shipped `/workspace/switch`).
 - **Delete**: the confirm page's three consequences (12, 15, 16), the refusal while projects exist as a 200 page on GET (25, 26) and a 409 on POST (27), including a project created after the confirm page was opened (28) and a concurrent create (29, 5 runs); the default clears (15), the only-team member lands on the no-team page while a member with another team keeps it (14), scoped tokens go (16), the slug is reusable and the old address reaches only the new team's people (18), one delete record (13, 15, 16), a stale confirm after the delete and a stale add after the delete (23, 24).
 - **Rename**: name only at the same address with every link working (42), a lead's rename (43), a case-only change is a rename and a team never collides with itself (44), a byte-equal name is a no-op with no record (45), the same rule and copy as create (46, 47), a renamed team's old derived slug still blocks its old name (48), a lead demoted since she opened the page is refused (52), one rename record (42-44).
@@ -1362,7 +1366,7 @@ No app scaffold and no route: the acceptance steps reach the product only over H
 
 - **CM-A (Mandate 1)**: acceptance enters only through HTTP doors (the routes above) and the operator's SQL door; store tests through public `Store` methods, migrations and SQL; use-case tests through `foundry_services::teams::create_team` and `tokens::mint_token`. No step imports an app, service or store type.
 - **CM-B (Mandate 2, Pillar 1)**: the Gherkin speaks of teams, members pages, leads, delete pages, projects, machine tokens, the default team and the database prompt. Statuses, routes, SQL and selectors live in the driver. (The one technical noun, "machine token", is the product's own label on `/admin/tokens`.)
-- **CM-C (Mandate 3)**: 1 walking skeleton + 52 focused scenarios.
+- **CM-C (Mandate 3)**: 1 walking skeleton + 53 focused scenarios.
 - **CM-E (Mandate 8)**: every `When` captures the universe (team-membership's plus every team's name and address, project, machine token and lifecycle record); every write's `Then` is a fail-closed state delta (`assert_state_delta(world, &[Change…])`), and a delete's cascade is derived from the before-image and must be named in the Gherkin when it carries tokens or the default.
 - **CM-F/CM-H (Mandates 9, 11)**: layer 3, example-only; sad paths enumerated as named examples; no PBT. The 100-run races are repeated examples, not generated inputs; the `TeamName` parity property is a DELIVER unit test (layer 1).
 - **CM-G (Mandate 10)**: no Tier B. The journeys chain (Pillar 2: "has created", "has deleted", "opened … earlier", "has renamed") but the input space that matters is a closed set of arms and actors, covered by the outlines; the state space that matters (concurrency) is covered by the store and use-case races.
@@ -1382,7 +1386,7 @@ No app scaffold and no route: the acceptance steps reach the product only over H
 4. **03-01** (slice 03): migration 0024 and `name_rule_in_database.rs` parity extended to teams (its `all_four_enabled` becomes six) → the 0024 tests and the 03-01 use-case races; then 30-41.
 5. **04-01** (slice 04): `rename_team_with_audit`, `classify_team_rename`, the Rename form and route → `team_rename.rs`; then 42-53.
 
-Burn-down: `grep -cE '^\s*@.*@pending' crates/foundry-acceptance/tests/features/team-lifecycle-0*.feature` = 53 now, 0 at the end; `grep -c '^#\[ignore = "pending: team-lifecycle'` over the five gold-test files = 34 now, 0 at the end.
+Burn-down: `grep -cE '^\s*@.*@pending' crates/foundry-acceptance/tests/features/team-lifecycle-0*.feature` = 53 at DISTILL (54 scenarios after 9a), 0 at the end; `grep -c '^#\[ignore = "pending: team-lifecycle'` over the five gold-test files = 34 now, 0 at the end.
 
 ### [REF] Upstream notes (no user decision needed)
 

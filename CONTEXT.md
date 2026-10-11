@@ -2,7 +2,7 @@
 
 ## Current Task
 
-team-membership shipped in **v0.13.0** (`730b573`), live on dev (migration 22, both lead-guard triggers on, default_team_id + composite FK present, 0 leaderless teams); prod is still v0.12.0, awaiting approval. It adds `/teams`, members pages, add/role/remove for admins and team leads, never-leaderless (409 + migration 0021 trigger), guarded workspace removal, and a default team for invites and first Keycloak sign-ins (migration 0022). Gates: DES 12/12, 100% viable mutants, CI 1219/1219 in one run, review approved.
+**team-lifecycle** (create, rename and delete teams): DELIVER is in progress; slice 01 is done (01-01 `f14e979`, 01-02 `23d2174`, 01-03 `25857a7`+`e44a2da`), and 02-01 (migration 0023 and a delete that never loses a project) is next. It is committed locally and NOT pushed. The user decided: refuse delete while the team has projects; a lead may rename; audit rename and delete; a DB name rule at cap 64. Earlier: team-membership shipped in v0.13.0 (dev live; prod awaiting approval).
 
 ## Key Decisions
 
