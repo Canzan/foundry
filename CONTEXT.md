@@ -2,19 +2,36 @@
 
 ## Current Task
 
-**team-membership:** DELIVER is in progress; 11 of 12 steps are committed (05-01 `ca34629`, 05-02 `ab637e5`: the default team; 06-01 `42096e9`: Keycloak newcomers placed). All 87 team-membership rows are green; 06-02 (CHANGELOG, burn-down) is next.
-- Done: DISCUSS, DESIGN, DISTILL, the roadmap, and slices 01-04: admins list teams and members, add (01-0x), change roles with the last lead protected (02-01 `021cd47`, 02-02 `6118e23`), remove from team and guarded workspace removal (03-01 `1ec818f`, 03-02 `a41fd2c`, hardening `eda1755`), and team leads manage their own team (04-01 `ea653cf`). Mutation is 100% on every step.
-- 05-01 (migration 0022, the default team, invite placement, the probe line) passes its store tests; lanes, smoke and the commit are running. Left: 05-02 (default-team setting on /teams), 06-01 (Keycloak newcomers placed), 06-02 (CHANGELOG and burn-down), then finalize.
-- Under machine load, smoke needs `RUST_TEST_THREADS=1`; otherwise Docker container start-up flakes (PortNotExposed/PoolTimedOut).
+**team-membership is delivered and finalized, committed locally and NOT pushed** (the user says no pushes or releases until told). It adds:
+- `/teams` and per-team members pages;
+- add, make lead/member, and remove, for workspace admins and a team's own leads;
+- never leaderless: 409, plus migration 0021's DB trigger;
+- workspace removal clears team rows and refuses removing a last lead;
+- a default team for new members (migration 0022), used by invites and first Keycloak sign-ins.
+
+Commits run `e4c8bcd` → `16608ee`, plus finalize. Evolution doc: `docs/evolution/2026-10-10-team-membership.md`.
+
+Gates:
+- all 12 DES steps complete;
+- 100% of viable mutants killed;
+- full CI 1219/1219 in one run;
+- adversarial review approved.
+
+Also unpushed: `e68b7a0`, the board button spacing fix.
 
 ## Key Decisions
 
-- The user resolved every OQ to its recommendation: leads are peers; workspace removal cleans up team rows and refuses removing a last lead; the default team stays in this feature, with no backfill.
-- Never leaderless: the store takes `FOR NO KEY UPDATE` on the team row, plus a DB trigger (23514 `team_memberships_team_keeps_a_lead`), per ADR-TEAM-MEMBERSHIP-001. The default team is `workspaces.default_team_id` with a composite FK (ADR-002).
-- Unreleased locally: the `e68b7a0` board button-spacing fix. v0.12.0 is live on dev and prod.
+- Leads are peers. Never-leaderless is enforced by a team-row `FOR NO KEY UPDATE` lock in the store plus a DB trigger (23514 `team_memberships_team_keeps_a_lead`), per ADR-TEAM-MEMBERSHIP-001.
+- The default team is `workspaces.default_team_id` with a composite FK (same workspace) and `ON DELETE SET NULL` (ADR-002). Placement is in a savepoint and never fails sign-up.
+- Under machine load, run smoke with `RUST_TEST_THREADS=1` and cargo-mutants with `-j 1`. Don't run hand mutation in parallel with lanes.
 
 ## Next Steps
 
-- Finish 02-01, then 02-02 through 06-02 (`docs/feature/team-membership/deliver/roadmap.json`), then finalize (evolution doc, no push).
-- Owed after a release: the orphan team-row count on dev and prod before 0021; the dogfood test (add jeff@unintelligent-design.us to General on dev, then open Sandbox).
-- Docker: the jeffbaileyblog zsh-wasm-playground pytest leaks `zswp-oracle` containers (`docker run --rm -it … zsh -l` never exits); about 1,500 were stopped with the user's OK.
+- On "push"/release (v0.13.0): run the read-only orphan team-row count on dev and prod before 0021 (OQ-D4). Then dogfood on dev: add jeff@unintelligent-design.us to General and open Sandbox. Record the KPI-1 and KPI-3 baselines.
+- Follow-ups:
+  - H8: a log-capturing test for spurious placement warnings;
+  - team create/rename/delete;
+  - per-invite team choice;
+  - show the signed-in account and link the Keycloak identity;
+  - name the projects constraints.
+- The jeffbaileyblog zsh-wasm-playground pytest leaks `zswp-oracle` containers; fix it in that repo.

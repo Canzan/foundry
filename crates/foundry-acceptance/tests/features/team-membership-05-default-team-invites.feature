@@ -4,9 +4,10 @@
 # has since been deleted, they land on no team, which is today's behaviour. Setting
 # a default never puts existing members on it (OQ-8).
 #
-# DISTILL 2026-10-09: every scenario @pending (ADR-025 scaffolded RED). The invite
-# is issued and accepted through the shipped doors (POST /workspace/invites, then
-# GET and POST /invites/accept); only the team placement is new.
+# Authored @pending in DISTILL 2026-10-09 (ADR-025 scaffolded RED); un-pended in
+# DELIVER 05-02. The invite is issued and accepted through the shipped doors (POST
+# /workspace/invites, then GET and POST /invites/accept); only the team placement is
+# new.
 #
 # Harness and oracles as in team-membership-01: see that file's header. Tomás is the
 # newcomer here, so he is not in the roster.

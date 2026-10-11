@@ -8,16 +8,17 @@
 //! goes through, the other is the typed `LastLead`, nothing errors, and the team
 //! ends with exactly one lead.
 //!
-//! RED scaffolds: the store methods (`src/teams.rs`) panic until DELIVER lands
-//! them, and every test that needs them or migration 0021 is
-//! `#[ignore = "pending: team-membership NN-NN"]`, so the suite stays green. Run
-//! them with `--include-ignored` to see them RED. Tests that need 0021 first pass
-//! `require_lead_guard_installed`, a readable RED gate, never an
-//! undefined-object error.
+//! Authored in DISTILL as RED scaffolds: the store methods (`src/teams.rs`)
+//! panicked, and every test that needed them or migration 0021 was
+//! `#[ignore = "pending: team-membership NN-NN"]`. Un-ignored in DELIVER 02-01
+//! (0021, `set_team_role`) and 03-01 (`remove_team_member`, the guarded
+//! `remove_workspace_member`); the removal-guard hardening tests were added
+//! after 03-01. Tests that need 0021 still pass `require_lead_guard_installed`
+//! first, a readable gate, never an undefined-object error.
 //!
-//! GREEN today, not ignored: the two Postgres substrate facts the lock relies on
-//! (ADR-001 Earned Trust 3 and 4). They pin the pinned server's behaviour, not
-//! this feature's code.
+//! Never ignored: the two Postgres substrate facts the lock relies on (ADR-001
+//! Earned Trust 3 and 4). They pin the pinned server's behaviour, not this
+//! feature's code.
 //!
 //! The workspace removal is reached through `remove_workspace_member`, whose
 //! outcome DDD-11 extends to `Removed | NotMember | LastLead { team }`;

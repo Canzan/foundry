@@ -4,7 +4,8 @@
 # (DDD-23), unless that leaves the team without a lead (INV-4). Authority is read
 # per request (INV-6): a page opened as a lead proves nothing after a demotion.
 #
-# DISTILL 2026-10-09: every scenario @pending (ADR-025 scaffolded RED).
+# Authored @pending in DISTILL 2026-10-09 (ADR-025 scaffolded RED); un-pended in
+# DELIVER 04-01.
 #
 # Harness and oracles as in team-membership-01: see that file's header.
 

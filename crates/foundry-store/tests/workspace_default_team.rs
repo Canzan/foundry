@@ -11,11 +11,12 @@
 //!   link (`Existing`). It is best-effort: a placement that fails rolls back its
 //!   savepoint and the account and workspace membership still commit (D17).
 //!
-//! RED scaffolds: `default_team` / `set_default_team` panic until DELIVER 05-01;
-//! every test that needs them or 0022 is `#[ignore = "pending: team-membership
-//! NN-NN"]` and passes `require_default_column` first (a readable RED gate). The
-//! two guards that pin today's behaviour with no default (D17's floor) are GREEN
-//! now and not ignored.
+//! Authored in DISTILL as RED scaffolds: `default_team` / `set_default_team`
+//! panicked and every test that needed them or 0022 was `#[ignore = "pending:
+//! team-membership NN-NN"]`. Un-ignored in DELIVER 05-01 (0022, the setting,
+//! invite placement) and 06-01 (provisioning placement). Tests that need 0022
+//! still pass `require_default_column` first (a readable gate). The two guards
+//! that pin the no-default behaviour (D17's floor) were never ignored.
 //!
 //! Real Postgres (testcontainers `postgres:16-alpine`); integration level,
 //! example-based (Mandates 9/11).

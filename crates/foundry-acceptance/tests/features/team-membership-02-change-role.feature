@@ -1,11 +1,11 @@
 # Feature: team-membership, slice 02 (US-TM-03) — a workspace admin changes who leads
 # a team, and a team can never lose its last lead (D6, INV-1 to INV-4).
 #
-# DISTILL 2026-10-09: every scenario @pending (ADR-025 scaffolded RED). The race is
-# repeated 5 times over HTTP (OQ-D3); the 100-run proof of the same guarantee is the
-# store's (crates/foundry-store/tests/team_lead_guard.rs). A last-lead refusal is a
-# stated reason (409, the members page re-rendered with the D15 copy), never a 404,
-# because the actor may manage the team (DDD-8).
+# Authored @pending in DISTILL 2026-10-09 (ADR-025 scaffolded RED); un-pended in
+# DELIVER 02-02. The race is repeated 5 times over HTTP (OQ-D3); the 100-run proof
+# of the same guarantee is the store's (crates/foundry-store/tests/team_lead_guard.rs).
+# A last-lead refusal is a stated reason (409, the members page re-rendered with the
+# D15 copy), never a 404, because the actor may manage the team (DDD-8).
 #
 # Harness and oracles as in team-membership-01: see that file's header.
 

@@ -3,12 +3,12 @@
 # it; that member can then open the team's boards. This closes the incident
 # recorded by fix-hide-unreachable-boards: an SSO-provisioned account on no team.
 #
-# DISTILL 2026-10-09 (ADR-025 scaffolded RED): every scenario is @pending, the
-# walking skeleton included, because none of the routes exist yet (the house
-# precedent: fix-hide-unreachable-boards' scenario was @pending in step 01-01 and
-# un-pended by it). DELIVER step 01-01 un-pends the skeleton first. The RED
-# classification of every scenario is in docs/feature/team-membership/distill/
-# red-classification.md.
+# Authored @pending in DISTILL 2026-10-09 (ADR-025 scaffolded RED), the walking
+# skeleton included, because none of the routes existed then (the house precedent:
+# fix-hide-unreachable-boards' scenario was @pending in step 01-01 and un-pended by
+# it). Un-pended in DELIVER 01-01 (the skeleton first), 01-02 and 01-03. The RED
+# classification each scenario had at hand-off is in docs/feature/team-membership/
+# distill/red-classification.md.
 #
 # Harness: the in-process router (real session, real double-submit CSRF), real
 # Postgres (per-scenario schema), and the in-process Keycloak double over a real

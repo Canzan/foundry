@@ -430,7 +430,8 @@ DELIVER 2026-10-04).
 
 ### Teams, team authority and the never-leaderless guard
 
-**Designed (team-membership DESIGN, 2026-10-09).** A team is a workspace's unit of board access.
+**Designed (team-membership DESIGN, 2026-10-09); delivered 2026-10-10 (`11785f0` → `16608ee`, not
+yet released).** A team is a workspace's unit of board access.
 `team_memberships(team_id, user_id, role IN ('lead','member'))` is the **only** board gate
 (`Store::is_team_member`, unchanged). Managing a team grants no board access to it.
 
@@ -487,6 +488,29 @@ Consequences every future feature inherits:
 See `adr-team-membership-001-never-leaderless-lock-and-trigger.md`,
 `adr-team-membership-002-default-team-column-composite-fk.md` and
 `adr-team-membership-003-one-team-authority-policy.md`.
+
+**Shipped component inventory (team-membership).** Recorded at the DELIVER finalize (2026-10-10,
+tip `16608ee`). Every component below shipped as designed; nothing was deferred.
+
+| Design element | Shipped as | Where | DDD | Status |
+|---|---|---|---|---|
+| Authority policy | `TeamRole` (`parse`, `as_str`), `TeamAccess::of(is_admin, Option<TeamRole>)` → `None \| View \| Manage`; the lead arm is Manage from 04-01 | `crates/foundry-core/src/team_membership.rs` | 3 | shipped |
+| Facts and reads | `team_access_facts`, `list_teams(TeamScope)`, `list_team_members`, `list_team_candidates`, `default_team` | `crates/foundry-store/src/teams.rs` | 16 | shipped |
+| Team writes | `add_team_member` (`FOR KEY SHARE` on the target's workspace membership), `set_team_role`, `remove_team_member` (team row `FOR NO KEY UPDATE`, exact pre-read, 23514 → `LastLead`) | `crates/foundry-store/src/teams.rs` | 6, 10 | shipped |
+| Guarded workspace removal | `remove_workspace_member` → `Removed \| NotMember \| LastLead { team }`, five statements in DDD-11's order | `crates/foundry-store/src/lib.rs`, `teams.rs` | 11 | shipped |
+| Lead-guard triggers | `foundry_team_keeps_a_lead()`, `team_memberships_lead_guard_on_delete` / `_on_update`, 23514 `team_memberships_team_keeps_a_lead`, cascade-exempt; one-time orphan cleanup | `migrations/0021_team_lead_guard.sql` | 6, 7, 21 | shipped |
+| Default team | `workspaces.default_team_id`, `teams_workspace_id_id_key`, FK `workspaces_default_team_same_workspace` `ON DELETE SET NULL (default_team_id)`; `set_default_team` | `migrations/0022_workspace_default_team.sql`, store `teams.rs` | 12, 14 | shipped |
+| Newcomer placement | `place_on_default_team` (`pub(crate)`), in a savepoint, from `create_member_and_consume` and `provision_federated_member`'s `Created` branch only | store `teams.rs`, `lib.rs` | 13 | shipped |
+| Readiness | `Store::probe` requires `workspaces.default_team_id` | store `lib.rs` | 15 | shipped |
+| Use-cases | `teams::{list_teams, team_members, add_member, change_role, remove_member, set_default_team}`, `TeamError`; `Services` delegations | `crates/foundry-services/src/teams.rs`, `lib.rs` | 1, 3, 5, 22 | shipped |
+| Handlers and copy | `show_teams`, `submit_default`, `show_members`, `submit_add`, `submit_role`, `submit_remove`; `TeamNotice` (the eleven strings) | `crates/foundry-app/src/teams.rs` | 2, 5, 8, 9, 18 | shipped |
+| Workspace-removal door | `submit_remove_member`: 409 `text/plain` OQ-9 copy, no `member_removed` notification | `crates/foundry-app/src/member_invites.rs` | 8, 11 | shipped |
+| Views | `TeamsIndexPage`, `TeamIndexRow`, `TeamMembersPage`; `teams_index.html`, `team_members.html`; the dashboard "Teams" quick action | `crates/foundry-app/src/views.rs`, `templates/` | 17 | shipped |
+| Routes | `GET /teams`, `POST /teams/default`, `GET`/`POST /team/{team_slug}/members`, `POST …/{user_id}/role`, `POST …/{user_id}/remove` | `crates/foundry-app/src/lib.rs` | 2 | shipped |
+| Seam rule | check-arch `team-membership-one-seam` (a) SQL writes only in the store, (b) `add_team_member(`, `set_team_role(`, `remove_team_member(` never called from app or api | `xtask/src/check_arch.rs` | 19 | shipped |
+
+Open from this section: H8 (a placement warning with no default set is untested; see the
+team-membership evolution doc), and OQ-D9 (a future user hard-delete meets the trigger).
 
 ### Crate graph
 

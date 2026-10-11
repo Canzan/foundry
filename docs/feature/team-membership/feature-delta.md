@@ -1448,3 +1448,101 @@ Only the containers these runs started were created, and none was left behind.
 | nw-solution-architect-reviewer | DESIGN | approved | 0 findings. Every DDD traced to a scenario or store test. Notes for DELIVER: OQ-D4 orphan count before slice 02 ships; OQ-D7 (`export_workspace_gold` and the 0022 column). |
 | nw-platform-architect-reviewer | DEVOPS (none) | conditionally approved | High: "OQ-D2 outcome rows not in the registry" → **already resolved in this wave** (OUT-21, OUT-22, OUT-23 appended; `outcomes check` NO COLLISIONS; see Outcomes registry). Low (DELIVER 05-01): add the DDD-15 probe line. Low: keep the recipient-notification-preferences "workspace is deleted" scenario green as OQ-D6's guard (green in the default lane above). |
 | nw-acceptance-designer-reviewer | DISTILL | approved | 0 blockers, 0 high, 0 low. Contract-shape tags complete; walking skeleton user-centric; controls keep refusals honest. |
+
+## Wave: DELIVER
+
+Crafter: nw-software-crafter (OOP, CLAUDE.md), orchestrated through DES | Dates: 2026-10-10 |
+Roadmap: `deliver/roadmap.json` (12 steps, `ecd08ae`) | Log: `deliver/execution-log.json` (all 12
+steps RED → GREEN → COMMIT, PASS) | Finalized: 2026-10-10, evolution doc
+`docs/evolution/2026-10-10-team-membership.md` | Feature dir PRESERVED | **Nothing pushed or
+deployed** (the user said no pushes or releases until told).
+
+### [REF] Implementation summary
+
+| Step | What landed | Commit |
+|---|---|---|
+| 01-01 | Walking skeleton (scenario 1, the D4 shape): `TeamRole`, `TeamAccess::of`, `team_access_facts`, the list reads, `add_team_member` (DDD-10), `/teams`, the members page, Add, the dashboard "Teams" quick action | `11785f0` |
+| 01-02 | `/teams` scoped to own teams for non-admins, the shipped no-team copy, read-only list for members, admin view grants no board (D9), uniform-404 refusals | `2e9a5f8` |
+| 01-03 | Add list ("{name} — {email}"), empty-list copy, idempotent re-add, target and caller refusals, CSRF 403; check-arch `team-membership-one-seam` (a)/(b) | `3643a45` |
+| 02-01 | Migration 0021 (orphan cleanup, `foundry_team_keeps_a_lead()`, two `BEFORE` triggers); `set_team_role` (team lock, exact pre-read, 23514 → `LastLead`); 100-run demote/demote race | `021cd47` |
+| 02-02 | `teams::change_role`, `POST …/{user_id}/role`, Make lead / Make member; 409 last-lead page | `6118e23` |
+| 03-01 | `remove_team_member`; `remove_workspace_member` as DDD-11's five-statement transaction (`Removed \| NotMember \| LastLead{team}`); 409 `text/plain` on `POST /workspace/members/remove` | `1ec818f` |
+| — | Removal-guard hardening (acceptance designer): guard-dropped and injected-refusal store tests | `eda1755` |
+| 03-02 | `teams::remove_member`, `POST …/{user_id}/remove`, Remove; immediate board loss | `a41fd2c` |
+| 04-01 | `TeamAccess::of` lead arm View → Manage; no route, handler or store change | `ea653cf` |
+| 05-01 | Migration 0022 (`default_team_id`, composite FK `ON DELETE SET NULL (default_team_id)`); probe line; `default_team`, `set_default_team`, `place_on_default_team` (savepoint) in invite accept | `ca34629` |
+| 05-02 | `teams::set_default_team`, `POST /teams/default`, the admin-only select on `/teams` | `ab637e5` |
+| 06-01 | Placement in `provision_federated_member`'s `Created` branch only | `42096e9` |
+| 06-02 | CHANGELOG `[Unreleased]`, burn-down (0 `@pending`, 0 ignored, 0 `SCAFFOLD: true`), mutation report | `16608ee` |
+
+Escalations, each resolved through the acceptance designer (the test owner), never by the crafter
+editing tests outside its step: the `name_rule_in_database.rs` version pin (`>= 19` → `IN (19,
+20)`); `DISABLE TRIGGER` in a hardening test (banned by check-arch DDD-12b) → `DROP TRIGGER`; the
+0022 probe line vs `probe_schema_scoping.rs`'s healthy schemas (a `workspaces(id,
+default_team_id)` table added to the healthy sides only); the 02-01 and 03-01 mutation survivors
+(killed by fault-injection and guard-dropped store tests); the trigger's own lock (SQL M1, proven
+by a 100-run hand-typed SQL race).
+
+### [REF] Files modified
+
+| Category | Files |
+|---|---|
+| Core (policy) | `crates/foundry-core/src/team_membership.rs`, `crates/foundry-core/src/lib.rs` |
+| Store | `crates/foundry-store/src/teams.rs`, `crates/foundry-store/src/lib.rs` (`remove_workspace_member`, `create_member_and_consume`, `provision_federated_member`, `probe`) |
+| Migrations (new) | `crates/foundry-store/migrations/0021_team_lead_guard.sql`, `crates/foundry-store/migrations/0022_workspace_default_team.sql` |
+| Services | `crates/foundry-services/src/teams.rs`, `crates/foundry-services/src/lib.rs` |
+| App | `crates/foundry-app/src/teams.rs`, `crates/foundry-app/src/views.rs`, `crates/foundry-app/src/lib.rs` (routes), `crates/foundry-app/src/member_invites.rs` (409 arm) |
+| Templates | `crates/foundry-app/templates/teams_index.html`, `team_members.html` (new), `dashboard_root.html` |
+| Architecture rules | `xtask/src/check_arch.rs` (`team-membership-one-seam`) |
+| Store tests | `crates/foundry-store/tests/team_lead_guard.rs`, `workspace_default_team.rs` (un-ignored, hardened); `name_rule_in_database.rs`, `probe_schema_scoping.rs` (escalations) |
+| Acceptance | the six `crates/foundry-acceptance/tests/features/team-membership-0*.feature` (un-pended; header comments updated at finalize). Step definitions and driver unchanged since DISTILL |
+| Docs | `CHANGELOG.md`, `deliver/*`, finalize: this section, `docs/evolution/2026-10-10-team-membership.md`, `docs/product/architecture/brief.md`, `docs/product/kpi-contracts.yaml` |
+
+### [REF] Scenarios green
+
+- team-membership: **57 of 57 scenarios, 87 of 87 rows** (tm-01 26, tm-02 16, tm-03 15, tm-04
+  15, tm-05 11, tm-06 4). 0 `@pending` left.
+- Store: `team_lead_guard.rs` 27/27 and `workspace_default_team.rs` 13/13, 0 ignored (DISTILL's
+  31 plus the acceptance designer's added and hardening tests; re-run at finalize).
+- Full CI: 1219/1219 scenarios across 92 features, 8285 steps; workspace tests 523 passed.
+
+### [REF] DoD check (against DISCUSS DoD)
+
+| # | DoD item | Status | Evidence |
+|---|---|---|---|
+| 1 | All UAT scenarios pass; neighbouring lanes green | PASS | 87/87 rows; full CI 1219/1219 (every neighbour lane included) |
+| 2 | Authz matrix, byte-identical 404 | PASS | every `@error @kpi` outline in tm-01..05, each with a control proving the hidden team exists |
+| 3 | INV-1 to INV-6 races at least 100 times, 0 leaderless | PASS | store races 100 runs each (demote/demote, remove/demote, remove/remove, workspace-removal/demote, add/workspace-removal) + the 100-run SQL race; HTTP races 5 runs each (OQ-D3) |
+| 4 | Nothing written on a refusal | PASS | fail-closed `assert_state_delta` on every write scenario |
+| 5 | Pages work with scripting disabled | PASS (by construction) | plain HTML forms, no script in `teams_index.html` or `team_members.html` (Changed Assumption 4); every scenario drives the forms over HTTP with no browser. No team-membership scenario runs in the browser lanes |
+| 6 | check-arch, smoke per commit; full CI before push; mutation at least 80% | PASS | each step's gates in the log; full CI green; mutation 100% of viable on every Rust file (SQL hand tables 11/11 and 8/9) |
+| 7 | D4 dogfood on dev; KPI-1 and KPI-3 baselines | **OWED** | nothing deployed. The acceptance walking skeleton is the HTTP-level stand-in |
+| 8 | Upgrade notes | PASS (amended) | 0021 and 0022 (Changed Assumption 1), both rolling-deploy safe, CHANGELOG migration notes with rollback SQL |
+| 9 | Documentation | PASS | CHANGELOG `[Unreleased]`; brief.md Teams section (DESIGN, inventory at finalize); OUT-21..23; `jobs.yaml` and the persona; the fix-hide-unreachable-boards follow-up "a way to join teams" closed in the evolution doc |
+
+### [REF] Demo evidence
+
+The acceptance scenarios are the HTTP-level demo. They drive the production composition root
+through the real router, sessions, CSRF and Postgres, with only Keycloak faked over a real socket.
+Scenario 1 is the D4 dogfood in shape: an SSO-provisioned account on no team is added to General
+by the bootstrap account and opens Sandbox in the same session. **The live dogfood is owed**:
+the D4 dogfood on dev and the slice-02, -05 and -06 dogfoods, once the user allows a release.
+
+### [REF] Quality gates
+
+| Gate | Result |
+|---|---|
+| DES integrity | all 12 steps have complete traces |
+| Roadmap review | conditionally approved; 1 blocker and 2 highs overruled with evidence (scenario ownership is by name; the tm-01 lane in 02-01 is a labelled regression check; the cascade exemption is also proven in `team_lead_guard.rs`) |
+| Adversarial review | APPROVED; 0 blocker/high/medium; 1 low (H8) |
+| Mutation | 100% of viable mutants on every Rust production file changed; 0021 11/11; 0022 8/9 (H8 survives: not equivalent, needs a log-capturing test) |
+| Full CI | `FOUNDRY_XTASK_INCLUDE_DOCKER=1 cargo xtask ci` in one uninterrupted run: 1219/1219 scenarios, 92 features, 8285 steps; 523 workspace tests |
+| Environment | ~1,500 leaked `zswp-oracle` containers from another session stopped with the user's approval; `RUST_TEST_THREADS=1` and cargo-mutants `-j 1` under load 30-100; PortNotExposed/PoolTimedOut flakes on untouched tests rerun |
+
+### [REF] Pre-requisites (for release)
+
+- **OQ-D4**: the read-only orphan team-row count on dev and prod before 0021 ships (expected 0;
+  query in the CHANGELOG).
+- Postgres 15 or later for 0022 (dev and prod run 16).
+- The user's go-ahead to push and release. Then the D4 dogfood, the KPI-1 and KPI-3 baselines,
+  and the slice-02, -05 and -06 dogfoods on dev; prod after approval.

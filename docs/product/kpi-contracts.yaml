@@ -359,12 +359,19 @@ features:
     job: job-team-membership
     source: docs/feature/team-membership/feature-delta.md   # "## Wave: DISCUSS / [REF] Outcome KPIs"
     distill: docs/feature/team-membership/feature-delta.md  # "## Wave: DISTILL"
+    deliver: docs/feature/team-membership/feature-delta.md  # "## Wave: DELIVER / [REF] DoD check (against DISCUSS DoD)"
+    evolution: docs/evolution/2026-10-10-team-membership.md
     runtime_telemetry: none   # homelab: read-only queries and acceptance oracles, no analytics
     lane: "default lane: FOUNDRY_ACCEPTANCE_TAGS=team-membership (per slice: tm-01 .. tm-06); store: cargo test -p foundry-store --test team_lead_guard --test workspace_default_team"
     # No DEVOPS wave ran. Instruments below are DISTILL's scenario links (2026-10-09).
-    # Every scenario is @pending (ADR-025); DELIVER un-pends slice by slice and records
-    # `measured:` at finalize.
-    status: owed
+    # Values recorded at DELIVER finalize (2026-10-10): the acceptance and store halves
+    # are measured; every dev/prod half (baselines, dogfoods) is owed, because nothing is
+    # deployed or pushed (the user: no pushes or releases until told).
+    status: measured-locally  # KPI-4 measured; KPI-1, 2, 3 acceptance/store-measured with baselines and dogfoods owed; KPI-5 owed
+    measured_at: "2026-10-10 finalize, main, tip 16608ee (06-02); not pushed"
+    measured_lane: "FOUNDRY_ACCEPTANCE_TAGS=team-membership: 57/57 scenarios, 87/87 rows; store: team_lead_guard 27/27, workspace_default_team 13/13, 0 ignored"
+    final_gate: "GREEN: FOUNDRY_XTASK_INCLUDE_DOCKER=1 cargo xtask ci in one uninterrupted run: all gates; acceptance (all tags) 1219/1219 scenarios across 92 features, 8285 steps; workspace tests 523 passed"
+    ci_github: "not run: nothing pushed"
     kpis:
       - id: TM-KPI-1
         name: Workspace members who should reach a team's boards are on a team
@@ -375,7 +382,10 @@ features:
           - {kind: acceptance, ref: "team-membership-01 walking skeleton (@kpi): an SSO-provisioned account on no team is added to General and opens Sandbox", oracle: "state delta: exactly one Member row; the same session's dashboard lists Sandbox and the board answers 200"}
           - {kind: dogfood, ref: "read-only query on dev and prod: workspace members with no team_memberships row in that workspace (slice-01 DoD)"}
         gate: hard
-        status: owed
+        status: measured
+        measured:
+          value: "Acceptance 100%: the walking skeleton (tm-01 scenario 1) and scenario 9 green; the added account's dashboard lists Sandbox and the board answers 200 in the same session"
+          owed: ["the D4 dogfood on dev (add jeff@unintelligent-design.us to General as jeffabailey@gmail.com; /team/general/project/sandbox answers 200)", "the dev and prod baselines (members on no team), then the count 1 day after the dogfood"]
       - id: TM-KPI-2
         name: A newcomer opens a board on their first session when a default is set
         type: leading
@@ -386,7 +396,11 @@ features:
           - {kind: acceptance, ref: "the D17 floor: no default or a deleted default lands on no team, never refused (05, 06 @error/@edge)", oracle: "account and workspace row only; signed in"}
           - {kind: dogfood, ref: "one real newcomer on dev with General as default (slices 05 and 06 DoD)"}
         gate: hard
-        status: owed
+        status: measured
+        measured:
+          value: "Acceptance 100%: tm-05 'An invited newcomer lands on the default team and opens its board' and tm-06 'A newcomer's first Keycloak sign-in lands them on the default team' green; the D17 floor (no default, deleted default, link places no one) green in tm-05/06 and workspace_default_team.rs"
+          fault: "0022/placement hand table 8/9 killed (savepoint dropped, placement call removed, role 'lead', FK variants, probe line); H8 (the NOT NULL predicate dropped) survives: same user outcome, a spurious warn per newcomer with no default; needs a log-capturing store test"
+          owed: ["the slice-05 dogfood (set General as default, invite a real address, accept, Sandbox opens)", "the slice-06 dogfood (a fresh Keycloak user with the provision role sees Sandbox on the first page)"]
       - id: TM-KPI-3
         name: No team loses its last lead through the product
         type: guardrail
@@ -397,7 +411,11 @@ features:
           - {kind: acceptance, ref: "crates/foundry-store/tests/team_lead_guard.rs: demote/demote, remove/demote, remove/remove, workspace-removal/demote, 100 runs each", oracle: "exactly one Changed/Removed and one LastLead, no error, one lead left"}
           - {kind: dogfood, ref: "read-only query: teams without a lead row, on dev and prod"}
         gate: hard
-        status: owed
+        status: measured
+        measured:
+          value: "Store: 100 runs each of demote/demote, remove/demote, remove/remove, workspace-removal/demote and add/workspace-removal (INV-5), exactly one success and one LastLead and one lead left every run; a 100-run hand-typed SQL demotion race proves the trigger's own lock. HTTP: the two @concurrency races, 5 runs each, green; every last-lead refusal 409 with zero writes"
+          fault: "0021 hand table 11/11 killed (M1 trigger lock removed: killed only by the hand-typed SQL race); remove_workspace_member hand table 6/6; Rust 100% of viable"
+          owed: ["the dev and prod baseline: teams with no lead row (expected 0)", "the slice-02 dogfood (promote and demote on General; the sole-lead demote refused)"]
       - id: TM-KPI-4
         name: Callers without the right learn nothing and change nothing
         type: guardrail
@@ -406,7 +424,10 @@ features:
         instruments:
           - {kind: acceptance, ref: "every @error @kpi outline in team-membership-01..05 (signed out, Marco, a plain member, a lead of another team, a Globex admin, an unknown or foreign slug, a malformed, unknown or foreign user, an unknown role)", oracle: "status and body byte-identical to a page that never existed; the universe unchanged; a control proves the hidden team exists"}
         gate: hard
-        status: owed
+        status: measured
+        measured:
+          value: "100%: every @error @kpi outline row in tm-01..05 green: byte-identical 404, universe unchanged, control proves the team exists; the tokenless POST is the CSRF layer's 403 (outside the matrix, scenario 17)"
+          fault: "check-arch team-membership-one-seam 26/26 mutants caught; TeamAccess::of 11/11 (re-run after the 04-01 lead-arm flip)"
       - id: TM-KPI-5
         name: The operator manages membership without psql or add-test-user
         type: leading
@@ -416,3 +437,6 @@ features:
           - {kind: dogfood, ref: "operator report at each slice's dogfood"}
         gate: soft
         status: owed
+        measurement: owed
+        owner: "the user (operator report after release; single-operator instance)"
+        owed_note: "Nothing deployed as of 2026-10-10. The window opens at the first release carrying team-membership"

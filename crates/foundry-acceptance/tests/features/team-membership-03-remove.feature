@@ -2,7 +2,8 @@
 # someone off a team without leaving it leaderless; removing someone from the
 # workspace also takes them off its teams, and is refused for a team's last lead.
 #
-# DISTILL 2026-10-09: every scenario @pending (ADR-025 scaffolded RED). The
+# Authored @pending in DISTILL 2026-10-09 (ADR-025 scaffolded RED); un-pended in
+# DELIVER 03-01 (the workspace-removal scenarios) and 03-02. The
 # workspace removal is the shipped scripted door POST /workspace/members/remove (no
 # UI form): its refusal is a 409 in its own plain-text family (DDD-8), and it sends
 # no removal notice. Board access is read per request, so a removed member's very

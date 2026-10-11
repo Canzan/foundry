@@ -3,10 +3,11 @@
 # team. Linking an existing account adds no team. An unset or deleted default never
 # refuses or fails the sign-in.
 #
-# DISTILL 2026-10-09: every scenario @pending (ADR-025 scaffolded RED). The identity
-# provider is the in-process Keycloak double over a real socket (the keycloak-sso
-# lane's harness), with provisioning on for the "foundry-user" realm role. Canzan
-# Labs is the instance's original (oldest) workspace, so provisioning joins it.
+# Authored @pending in DISTILL 2026-10-09 (ADR-025 scaffolded RED); un-pended in
+# DELIVER 06-01. The identity provider is the in-process Keycloak double over a real
+# socket (the keycloak-sso lane's harness), with provisioning on for the
+# "foundry-user" realm role. Canzan Labs is the instance's original (oldest)
+# workspace, so provisioning joins it.
 #
 # Harness and oracles as in team-membership-01: see that file's header. Tomás is the
 # newcomer here, so he is not in the roster.
