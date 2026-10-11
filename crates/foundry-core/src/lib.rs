@@ -21,6 +21,9 @@ mod name_chars;
 pub mod team_membership;
 pub use team_membership::{TeamAccess, TeamRole};
 
+pub mod team_name;
+pub use team_name::{TeamName, TeamNameError, TEAM_NAME_MAX_CHARS};
+
 pub mod project_name;
 pub use project_name::{
     mint_project_slug, MintedSlug, ProjectName, ProjectNameError, PROJECT_NAME_MAX_CHARS,

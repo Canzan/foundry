@@ -13,7 +13,7 @@ slugifies to nothing still gets a reachable team page.
 - Every D6 arm on create, with the D12 copy: "Team name must not be empty", "Team name must not contain control characters", "Team name must be at most 64 characters" (OQ-2), and "Team name must be unique within the workspace".
 - One shared predicate. A core property test shows the same control-character verdict as `WorkspaceName` and `ProjectName`.
 - Fallback slug (OQ-3): when `slugify` is empty, the slug is `team`, then `team-N` with the lowest free N from 2. Never `""`.
-- Concurrency (INV-TL-4): concurrent same-name creates give one team, and the loser gets the uniqueness copy. Concurrent fallback creates both succeed, with a bounded retry.
+- Concurrency (INV-TL-4): concurrent same-name creates give one team, and the loser gets the uniqueness copy, for a Latin and a non-Latin name alike. Concurrent creates of different non-Latin names both succeed, with a bounded retry, as `team` and `team-2`.
 - (OQ-7) A database rule on `teams.name` over the shared `foundry_name_rule_violation` at cap 64. It fires on insert and on a name change only, so legacy rows are untouched.
 - A check-arch literal rule for `"Team name must`, if DESIGN follows the `workspace-name-one-source` precedent.
 
@@ -32,8 +32,8 @@ slugifies to nothing still gets a reachable team page.
 - [ ] "インフラ" → `/team/team/members`. Then "運用" → `/team/team-2/members`. Both open.
 - [ ] A U+202E name and a 65-character name are refused with their copy. A 64-character name is created.
 - [ ] "Back-End", where Backend exists → the uniqueness copy.
-- [ ] 100 concurrent same-name races give 1 team and 1 refusal each, with 0 responses of 500. Concurrent "インフラ" creates both succeed.
-- [ ] (OQ-7) A psql INSERT with a NUL in `teams.name` is refused with SQLSTATE 23514.
+- [ ] 100 concurrent same-name races ("Infra", and "インフラ") give 1 team and 1 refusal each, with 0 responses of 500. Concurrent creates of "インフラ" and "運用" both succeed, as `team` and `team-2`. *(Corrected at DISTILL, DESIGN Changed Assumption 1.)*
+- [ ] (OQ-7) A psql INSERT or UPDATE with U+0001, U+202E or 65 characters in `teams.name` is refused with SQLSTATE 23514 and the named arm (`teams_name_no_control_chars`, `teams_name_max_64_chars`). A NUL is refused earlier by Postgres itself (22021). *(Corrected at DISTILL, DESIGN Changed Assumption 2.)*
 
 ## Dependencies
 

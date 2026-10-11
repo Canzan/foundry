@@ -474,7 +474,7 @@ non-Latin names make teams unreachable.
 2. **Control**: "Platform" followed by U+202E and "Ops" → refused with the control copy. So is a pasted tab.
 3. **Cap**: a 64-character name is created, and a 65-character one is refused (OQ-2).
 4. **Collision by slug**: with Backend existing, "Back-End" (which slugifies to `backend`) → "Team name must be unique within the workspace".
-5. **Race**: two admins create "Infra" at the same moment → one is created, and the other sees the uniqueness copy, never a 500. Two concurrent "インフラ" creates both succeed, as `team` and `team-2`.
+5. **Race**: two admins create "Infra" at the same moment → one is created, and the other sees the uniqueness copy, never a 500. The same holds for two concurrent "インフラ" creates: one team, one uniqueness refusal. Two concurrent creates of *different* non-Latin names ("インフラ" and "運用") both succeed, as `team` and `team-2`. *(Corrected at DISTILL from DESIGN Changed Assumption 1.)*
 
 ##### UAT Scenarios (BDD)
 
@@ -502,15 +502,16 @@ non-Latin names make teams unreachable.
 
 ###### Scenario: The database refuses a bad team name from any caller
 
-- When a team name containing a NUL is written directly in psql
-- Then the write is refused by the team-name rule (OQ-7)
+- When a team name containing U+0001 (or U+202E, or 65 characters) is written directly in psql
+- Then the write is refused by the team-name rule with SQLSTATE 23514 and the named arm (OQ-7)
+- *(Corrected at DISTILL from DESIGN Changed Assumption 2: Postgres refuses a NUL in `text` with 22021 before any rule runs; the app doors refuse a pasted NUL as a control character.)*
 
 ##### Acceptance Criteria
 
 - [ ] Every arm of D6 gives its D12 copy on create, with the shared predicate (a core property test shows the same verdict as the workspace and project rules) (scenarios 2, 3).
 - [ ] An empty slugify result mints `team`, then `team-N` with the lowest free N from 2, never `""` (scenario 1; OQ-3).
-- [ ] Concurrent same-name creates give one team and one uniqueness refusal. Concurrent fallback creates both succeed. 0 responses of 500 over 100 runs (scenario 4; INV-TL-4).
-- [ ] (OQ-7) A new or changed `teams.name` that breaks a pure arm is refused by the database. Legacy rows are untouched (scenario 5).
+- [ ] Concurrent same-name creates give one team and one uniqueness refusal, for a Latin and a non-Latin name alike. Concurrent creates of different non-Latin names both succeed, as `team` and `team-2`. 0 responses of 500 over 100 runs (scenario 4; INV-TL-4). *(Corrected at DISTILL, DESIGN Changed Assumption 1.)*
+- [ ] (OQ-7) A new or changed `teams.name` that breaks a pure arm is refused by the database with 23514 and the named arm (shown with U+0001, U+202E and 65 characters; a NUL never reaches the rule, 22021). Legacy rows are untouched (scenario 5). *(Corrected at DISTILL, DESIGN Changed Assumption 2.)*
 
 ##### Outcome KPIs
 
@@ -608,7 +609,7 @@ These are invariant and concurrency requirements for DESIGN. They name the risks
 do not choose mechanisms.
 
 - **INV-TL-1 (no lost project):** a team delete commits only if the team has no project at commit time. A project create racing it either commits first, and the delete is refused with the projects copy, or finds the team gone and gets the uniform 404. No project row is ever removed by a team delete (D9).
-- **INV-TL-2 (no 500 from a vanished team):** any write racing a delete gets the team's normal outcome or the uniform 404, never a 500. That covers an add, role or remove, the default-team set, a token mint scoped to the team, a rename, and a project create. A newcomer accept or a Keycloak first sign-in racing the delete of the default team still succeeds (team-membership D17).
+- **INV-TL-2 (no 500 from a vanished team):** any write racing a delete gets the team's normal outcome or the uniform 404, never a 500. That covers an add, role or remove, the default-team set, a rename, and a project create. A token mint scoped to the team answers the token form's shipped 422 `scope_team_not_in_workspace` (its normal outcome for a team that is not one of the workspace's), never a 500. *(Corrected at DISTILL, DESIGN Changed Assumption 3.)* A newcomer accept or a Keycloak first sign-in racing the delete of the default team still succeeds (team-membership D17).
 - **INV-TL-3 (confirm-time truth):** the confirm page's counts are advisory. The commit-time state decides (the lane-delete precedent).
 - **INV-TL-4 (create uniqueness under concurrency):** concurrent creates of the same name, or of names with the same derived slug, give exactly one team, and the loser gets the uniqueness copy. Concurrent fallback-slug creates both succeed with distinct slugs (bounded retry, ADR-PROJECT-NAME-002).
 - **INV-TL-5 (rename races):** a rename can never change or corrupt a slug. Whether two concurrent renames, or a rename and a create, may leave two teams with case-insensitively equal names is DESIGN's call. ADR-PROJECT-RENAME-002 accepted that residual for projects. If DESIGN accepts it, record it.
@@ -644,7 +645,7 @@ store queries and the operator's own report, not analytics.
 5. The pages work with scripting disabled.
 6. `cargo xtask check-arch` and `cargo xtask smoke` pass before each commit. `FOUNDRY_XTASK_INCLUDE_DOCKER=1 cargo xtask ci` passes before push. Mutation kill rate is at least 80% on modified files.
 7. **Dogfood on dev**, after the user releases (dev auto-deploys release tags; prod is held for approval). In a provisioned workspace with zero teams, create a team and a project and open its board. Rename a team and re-open an old bookmark. Delete a typo team, and see a team with a project refused. Record KPI-TL-1 baselines (read-only) on dev and prod.
-8. Upgrade: an additive migration only, if OQ-6 or OQ-7 needs one. It is rolling-deploy safe, and the CHANGELOG migration notes say so.
+8. Upgrade: two migrations. 0023 (slice 02) is additive (the lifecycle record). 0024 (slice 03) adds the two `teams` name triggers and **replaces** the shared `foundry_enforce_name_rule()` with an identical body plus one HINT line (`teams` → `TeamName`). Both are rolling-deploy safe, and the CHANGELOG migration notes say so. *(Corrected at DISTILL, DESIGN Changed Assumption 4.)*
 9. Documentation: a CHANGELOG `[Unreleased]` entry. `brief.md`'s Teams section gains "Team lifecycle" (DESIGN). An outcomes registry row is added at DISTILL. `jobs.yaml` and the persona were done here.
 
 ### [REF] Out of Scope
@@ -1166,3 +1167,252 @@ applies the two edits.
   - `adr-team-lifecycle-002-delete-refuses-while-projects-exist.md`
   - `adr-team-lifecycle-003-team-lifecycle-events-and-rename-transaction.md`
   - `adr-team-lifecycle-004-team-access-administer-arm.md`
+
+## Wave: DISTILL
+
+Acceptance designer: Quinn (nw-acceptance-designer) | Date: 2026-10-11 | Language: Rust (`[lang-mode] rust`, cucumber-rs 0.21, store and use-case tests on testcontainers `postgres:16-alpine`) | Rigor: `adr-025-scaffolded-red` (every scenario `@pending`, the walking skeleton included, and classified RED; DELIVER only un-pends) | Density: lean, Tier-1 [REF] only | Policy: inherit (`docs/architecture/atdd-infrastructure-policy.md`; one Driving row appended for the team lifecycle pages) | State-delta port: the driver's typed universe (`support/team_lifecycle.rs::assert_state_delta`, over team-membership's), the repo's Rust reading of Mandate 8 | `[policy-mode] inherit` `[port-mode] inherited`.
+
+### [REF] Prior Wave Consultation and reconciliation
+
+| Artifact | Status |
+|---|---|
+| This file: DISCUSS (D1-D16, OQ-1 to OQ-7 and "Resolved by the user (2026-10-11)", INV-TL-1 to INV-TL-9, US-TL-01 to US-TL-05, KPIs, DoD) and DESIGN (DDD-1 to DDD-25, Authorization Matrix, Statuses, Contract Shapes, Component Decomposition, Test Seams, OQ-D1 to OQ-D7, Changed Assumptions 1-4) | + read in full |
+| `slices/slice-01..04` | + read; slice 03's ACs corrected (below) |
+| ADR-TEAM-LIFECYCLE-001/002/003/004, `docs/product/architecture/brief.md` (Teams, "Names are labels; slugs are identity") | + read |
+| `docs/product/kpi-contracts.yaml`, `docs/product/outcomes/registry.yaml` (OUT-1 to OUT-23), `docs/architecture/atdd-infrastructure-policy.md` | + read; TL-KPI-1..6 and OUT-24..26 added, OUT-20 amended, one policy row |
+| House precedent: the team-membership DISTILL (six feature files, `feature_team_membership*.rs`, `support/team_membership.rs`, `team_lead_guard.rs`, `workspace_default_team.rs`, `distill/red-classification.md`, the registration in `src/lib.rs`, `tests/acceptance.rs`, `support/mod.rs`, `world.rs`); name-db-checks (the operator's "database prompt" door) and project-name-rule (the `[N×c]` / `[U+XXXX]` name marks); `create_project_use_case.rs` (use-case races) | + read and followed |
+| Code read: `foundry-app` `projects.rs` (create, `team_not_found_page`), `signin.rs` (dashboard), `session.rs` (`/workspace/switch`), templates `teams_index.html`, `team_members.html`, `dashboard_root.html`, `partials/delete_issue_modal.html` (Cancel is an anchor); `foundry-store` `teams.rs`, `provision_workspace`, `insert_project`, `insert_machine_token`, `probe`; `foundry-services` `teams.rs`, `tokens.rs::mint_token`; migrations 0007, 0011, 0019 | + read |
+| `docs/feature/team-lifecycle/{discuss,design,devops}/wave-decisions.md` | - not present (lean layout; reconciled inside this file) |
+| DEVOPS wave | - none. **Warning**: no DEVOPS wave ran; the house lanes are the environment (default lane; `FOUNDRY_ACCEPTANCE_TAGS=team-lifecycle`; store and use-case tests need Docker; no browser or compose lane) |
+
+**Reconciliation passed — 0 unresolved contradictions.** Every DISCUSS decision was checked against DESIGN. DESIGN raised four contradictions itself and resolved them as Changed Assumptions 1-4; DISTILL applies them as written (below) and found no other. D13's proposed routes are DESIGN's DDD-17 unchanged. Two DISCUSS wording points, neither a decision conflict: the stale line "**Resolved by the user:** pending" under the OQs is superseded by the "Resolved by the user (2026-10-11)" paragraph above it; and US-TL-03's "Lena's create answered the uniform not-found page" holds only for the insert-time branch (see Upstream notes).
+
+### [REF] DESIGN corrections applied
+
+| # | Where (edited in place) | Correction (DESIGN Changed Assumption) |
+|---|---|---|
+| 1 | US-TL-04 Domain Example 5; US-TL-04 AC 3; slice 03 IN (Concurrency) and AC 4 | Two concurrent creates of the SAME name give one team and the uniqueness refusal, for "Infra" and for "インフラ" alike. Two concurrent creates of DIFFERENT non-Latin names ("インフラ", "運用") both succeed, as `team` and `team-2` (CA 1). Scenarios 36-38; `team_lifecycle_use_cases.rs` races 1-3. |
+| 2 | US-TL-04 scenario 5 and AC 4; slice 03 AC 5 | Postgres refuses U+0000 in `text` (22021) before any trigger, so the database refusal is shown with U+0001, U+202E and 65 characters, with 23514 and the named arm; the app doors refuse a pasted NUL as a control character (CA 2). Scenarios 33 (`[NUL]` row), 39-40; the GREEN substrate test `a_nul_in_a_team_name_is_refused_by_postgres_itself_before_any_rule`. |
+| 3 | INV-TL-2 | A token mint racing a delete answers the token form's shipped 422 `scope_team_not_in_workspace`, never a 500 (CA 3). `a_token_mint_racing_a_team_delete_answers_the_shipped_422` (RED today: it answers `Internal`). |
+| 4 | DoD 8 | Two migrations: 0023 (additive) and 0024 (two triggers, and a REPLACE of the shared `foundry_enforce_name_rule()` with an identical body plus one HINT line) (CA 4). `team_lifecycle_migrations.rs`. |
+
+### [REF] Scenario list
+
+Four feature files under `crates/foundry-acceptance/tests/features/`, one per slice: `team-lifecycle-01-create-team.feature` (`@tl-01`), `-02-delete-team` (`@tl-02`), `-03-team-name-rule` (`@tl-03`), `-04-rename-team` (`@tl-04`). Every feature carries `@team-lifecycle @tl-0N @real-io`; every scenario carries `@pending`, a story tag and a `@contract-shape:` tag. Each file has one Background built from team-membership's steps (Canzan Labs as the original workspace with its teams and boards, the roster, Globex/Payments led by Hugo Weber, and Ines Duarte as an instance admin who is not a workspace admin). **53 scenarios, 95 rows** with outline rows expanded.
+
+| File | Scenarios | Rows | `@error` | `@edge` | error + edge |
+|---|---|---|---|---|---|
+| 01 | 11 | 20 | 4 (10 rows) | 5 (8 rows) | 9 of 11 |
+| 02 | 18 | 28 | 9 (19 rows) | 5 (5 rows) | 14 of 18 |
+| 03 | 12 | 25 | 6 (18 rows) | 4 (5 rows) | 10 of 12 |
+| 04 | 12 | 22 | 6 (14 rows) | 4 (6 rows) | 10 of 12 |
+| **All** | **53** | **95** | **25 (47%); 61 of 95 rows (64%)** | **18** | **43 of 53 (81%); 85 of 95 rows (89%)** |
+
+| # | File | Scenario | Tags | Rows |
+|---|---|---|---|---|
+| 1 | 01 | Priya starts Homelab's first team, leads it, and opens its first board | @walking_skeleton @driving_port @us-tl-01 @kpi @contract-shape:bounded-change | 1 |
+| 2 | 01 | A workspace admin adds a team next to the others and leads it, and only its people see it | @us-tl-01 @driving_port @kpi @contract-shape:bounded-change | 1 |
+| 3 | 01 | A new team's lead is sent from the dashboard to that team's project form, not to one she cannot use | @us-tl-01 @edge @kpi @contract-shape:unbounded-preservation | 1 |
+| 4 | 01 | A member of a team with no projects is sent to that team's project form | @us-tl-01 @edge @contract-shape:unbounded-preservation | 1 |
+| 5 | 01 | Everyone on a team is offered New project, and an admin who is not on it is not | @us-tl-01 @edge @contract-shape:unbounded-preservation | 4 |
+| 6 | 01 | A name already used in the workspace is refused, and the text is kept | @us-tl-01 @error @contract-shape:unbounded-preservation | 2 |
+| 7 | 01 | An empty name is refused | @us-tl-01 @error @contract-shape:unbounded-preservation | 1 |
+| 8 | 01 | Sending the create form a second time makes no second team | @us-tl-01 @edge @kpi @contract-shape:unbounded-preservation | 1 |
+| 9 | 01 | Only a workspace admin can create a team | @us-tl-01 @error @kpi @contract-shape:unbounded-preservation | 6 |
+| 10 | 01 | An instance admin who is not a workspace admin is not offered the form either | @us-tl-01 @edge @contract-shape:unbounded-preservation | 1 |
+| 11 | 01 | A create sent without the page's token is turned away, and nothing changes | @us-tl-01 @error @contract-shape:unbounded-preservation | 1 |
+| 12 | 02 | The delete page says exactly what goes with the team, and changes nothing | @us-tl-02 @driving_port @contract-shape:unbounded-preservation | 1 |
+| 13 | 02 | A workspace admin deletes a team that has no projects | @us-tl-02 @kpi @contract-shape:bounded-change | 1 |
+| 14 | 02 | A member whose only team was deleted lands on the no-team page, and one with another team keeps it | @us-tl-02 @edge @contract-shape:unbounded-preservation | 1 |
+| 15 | 02 | Deleting the default team warns first and leaves no default | @us-tl-02 @kpi @contract-shape:bounded-change | 1 |
+| 16 | 02 | A team's machine tokens are named on the delete page and go with the team | @us-tl-02 @contract-shape:bounded-change | 1 |
+| 17 | 02 | Cancel goes back to the team, and nothing changes | @us-tl-02 @edge @contract-shape:unbounded-preservation | 1 |
+| 18 | 02 | After a team is deleted its name and address can be used again, and only the new team's people reach it | @us-tl-02 @edge @contract-shape:bounded-change | 1 |
+| 19 | 02 | Only a workspace admin may open a team's delete page | @us-tl-02 @error @kpi @contract-shape:unbounded-preservation | 6 |
+| 20 | 02 | Only a workspace admin may delete a team | @us-tl-02 @error @kpi @contract-shape:unbounded-preservation | 6 |
+| 21 | 02 | Another workspace's team and a team that does not exist look the same from Canzan Labs | @us-tl-02 @error @kpi @contract-shape:unbounded-preservation | 1 |
+| 22 | 02 | A delete sent without the page's token is turned away, and nothing changes | @us-tl-02 @error @contract-shape:unbounded-preservation | 1 |
+| 23 | 02 | A confirm sent again for a team already deleted finds nothing, and changes nothing | @us-tl-02 @edge @contract-shape:unbounded-preservation | 1 |
+| 24 | 02 | An add sent from a members page opened before the team was deleted finds nothing | @us-tl-02 @error @contract-shape:unbounded-preservation | 1 |
+| 25 | 02 | A team with a project shows why it cannot be deleted | @us-tl-03 @driving_port @error @kpi @contract-shape:unbounded-preservation | 1 |
+| 26 | 02 | Every project of the team is named, by name and key | @us-tl-03 @edge @contract-shape:unbounded-preservation | 1 |
+| 27 | 02 | A delete sent for a team that has a project is refused, and nothing is lost | @us-tl-03 @error @kpi @contract-shape:unbounded-preservation | 1 |
+| 28 | 02 | A confirm sent from a page opened before a project appeared is refused | @us-tl-03 @error @kpi @contract-shape:unbounded-preservation | 1 |
+| 29 | 02 | A delete racing a project create never destroys the project | @us-tl-03 @error @kpi @concurrency @contract-shape:bounded-change | 1 |
+| 30 | 03 | A name with no Latin letters gets a working team page | @us-tl-04 @driving_port @contract-shape:bounded-change | 1 |
+| 31 | 03 | A second name with no Latin letters gets the next free address | @us-tl-04 @contract-shape:bounded-change | 1 |
+| 32 | 03 | The fallback address is the lowest free one | @us-tl-04 @edge @contract-shape:bounded-change | 1 |
+| 33 | 03 | A name that breaks the rule is refused with its reason, and nothing is created | @us-tl-04 @error @contract-shape:unbounded-preservation | 6 |
+| 34 | 03 | A name of exactly 64 characters is accepted | @us-tl-04 @edge @contract-shape:bounded-change | 2 |
+| 35 | 03 | A name whose address or letters would collide is refused | @us-tl-04 @error @contract-shape:unbounded-preservation | 3 |
+| 36 | 03 | Two admins creating the same name at once get one team | @us-tl-04 @error @kpi @concurrency @contract-shape:bounded-change | 1 |
+| 37 | 03 | Two admins creating the same name with no Latin letters at once get one team | @us-tl-04 @error @concurrency @contract-shape:bounded-change | 1 |
+| 38 | 03 | Two admins creating different names with no Latin letters at once both get a team | @us-tl-04 @edge @concurrency @contract-shape:bounded-change | 1 |
+| 39 | 03 | A team name typed at the database prompt that breaks the rule is refused under the rule's name | @us-tl-04 @error @adapter-integration @contract-shape:unbounded-preservation | 5 |
+| 40 | 03 | A team renamed at the database prompt to a name that breaks the rule is refused | @us-tl-04 @error @adapter-integration @contract-shape:unbounded-preservation | 2 |
+| 41 | 03 | A team name the app would accept is stored at the database prompt exactly as typed | @us-tl-04 @edge @adapter-integration @contract-shape:bounded-change | 1 |
+| 42 | 04 | A workspace admin renames a team and every link to it keeps working | @us-tl-05 @driving_port @kpi @contract-shape:bounded-change | 1 |
+| 43 | 04 | A team's lead renames her own team | @us-tl-05 @kpi @contract-shape:bounded-change | 1 |
+| 44 | 04 | A change of letter case is a real rename, and a team never collides with itself | @us-tl-05 @edge @contract-shape:bounded-change | 1 |
+| 45 | 04 | Submitting the same name changes nothing and records nothing | @us-tl-05 @edge @contract-shape:unbounded-preservation | 1 |
+| 46 | 04 | A rename to a name already in use is refused, and the team keeps its name | @us-tl-05 @error @contract-shape:unbounded-preservation | 2 |
+| 47 | 04 | A rename that breaks the rule is refused with the same words as a create | @us-tl-05 @error @contract-shape:unbounded-preservation | 3 |
+| 48 | 04 | A renamed team's old address still holds its old name's place | @us-tl-05 @edge @contract-shape:unbounded-preservation | 1 |
+| 49 | 04 | Rename is offered to the team's lead and to a workspace admin; Delete team only to the admin | @us-tl-05 @edge @contract-shape:unbounded-preservation | 3 |
+| 50 | 04 | Someone without the right cannot rename a team | @us-tl-05 @error @kpi @contract-shape:unbounded-preservation | 6 |
+| 51 | 04 | A rename aimed at another workspace's team or at a team that does not exist is refused the same way | @us-tl-05 @error @kpi @contract-shape:unbounded-preservation | 1 |
+| 52 | 04 | A lead who has since been made a member cannot rename from a page she opened as a lead | @us-tl-05 @error @contract-shape:unbounded-preservation | 1 |
+| 53 | 04 | A rename sent without the page's token is turned away, and nothing changes | @us-tl-05 @error @contract-shape:unbounded-preservation | 1 |
+
+Coverage, story by story: US-TL-01 → 1-11 (DISCUSS scenario 1 → 1; 2 → 1, 3, 5; 3 → 6; 4 → 1, 10; 5 → 9; D14 → 3, 4, 5; D16 → 8); US-TL-02 → 12-24; US-TL-03 → 25-29; US-TL-04 → 30-41; US-TL-05 → 42-53. Every UAT scenario of DISCUSS maps to at least one scenario here and every Acceptance Criterion to at least one assertion. The DISCUSS DoD counted 22 UAT scenarios; DISTILL adds the authorization matrix, the controls, the boundaries, the races and the operator's door.
+
+Pinned by these scenarios:
+
+- **The Statuses table (OQ-D1)**: 200 for a create, rename or delete that goes through, the confirm page, the "still has projects" page and the byte-equal no-op ("she sees", "the delete page says", "with no notice"); **422** for every name refusal, with the input kept ("is refused with …, and her text … is kept"); **409** for a delete with a project at commit time ("is told", 27, 28); the **uniform 404, byte-identical to a page that never existed**, for every refusal on both verbs; the shipped CSRF layer's **403** for a tokenless POST (11, 22, 53), outside the 404 matrix.
+- **The D12 / DDD-20 copy**, byte for byte through the decoded page text: Created, the four `TeamNameError` strings, Renamed, the no-teams-yet line, the confirm heading, member line, default line and token line, the projects refusal for one and two projects (by name then key), Deleted, the shipped no-team dashboard line, and the "{team} · {n} member(s)" plurals.
+- **The Authorization Matrix (KPI-TL-4)**: signed out, Marco (on no team), Sam (a member), Lena (a lead: allowed to rename her own team, refused create and delete, refused rename of a team she does not lead), Ines (an instance admin who is not a workspace admin), Hugo (Globex's admin), an unknown slug and Globex's team, on `POST /teams`, `GET` and `POST /team/{slug}/delete` and `POST /team/{slug}/rename`; the members page controls per role (5, 49). Every refusal row asserts the byte-identical 404, an unchanged universe, and a control proving the hidden door or team exists.
+- **Create**: born led (D3, the delta names the lead row), **New project** on the members page and the dashboard link to a team the caller is on (D14: 1, 3, 4, 5), the provisioned-workspace dead end (1, 3: Homelab is seeded as `provision_workspace` leaves it, and Priya reaches it through the shipped `/workspace/switch`).
+- **Delete**: the confirm page's three consequences (12, 15, 16), the refusal while projects exist as a 200 page on GET (25, 26) and a 409 on POST (27), including a project created after the confirm page was opened (28) and a concurrent create (29, 5 runs); the default clears (15), the only-team member lands on the no-team page while a member with another team keeps it (14), scoped tokens go (16), the slug is reusable and the old address reaches only the new team's people (18), one delete record (13, 15, 16), a stale confirm after the delete and a stale add after the delete (23, 24).
+- **Rename**: name only at the same address with every link working (42), a lead's rename (43), a case-only change is a rename and a team never collides with itself (44), a byte-equal name is a no-op with no record (45), the same rule and copy as create (46, 47), a renamed team's old derived slug still blocks its old name (48), a lead demoted since she opened the page is refused (52), one rename record (42-44).
+- **Name rule**: control and bidi characters, tab and NUL at the app door, 64 / 65 scalars in Latin and CJK, empty, case-insensitive and slug-colliding uniqueness, the non-Latin fallback `team` / `team-2` and the lowest free address (30-35); the database rule on hand-typed SQL for insert and rename, every arm including `trimmed`, and "never stricter" (39-41).
+- **OQ-D3 / DESIGN Test Seams**: the HTTP races repeat 5 times each (29, 36-38); the 100-run proofs are at store and use-case level.
+
+### [REF] WS strategy
+
+Architecture of Reference (project-level), not a per-feature A-D choice: driving ports real (the in-process axum router with the shipped session and CSRF layers, spawned through `InProcHarness::spawn_with_oidc` by team-membership's Background), driven-internal real (Postgres 16, per-scenario schema), driven-external faked over a real socket (the Keycloak OIDC double, present but not exercised by this feature). The one walking skeleton (scenario 1, `@walking_skeleton @driving_port`) is the slice-01 dogfood: Homelab, as `/admin/instance/workspaces` leaves it (no team), its admin switches to it, follows Teams from the dashboard, reads "This workspace has no teams yet…", creates Ops, is its Lead, follows **New project**, creates Homelab Ops (OPS), and its board opens and her dashboard lists it.
+
+**The skeleton is `@pending` at hand-off, not GREEN**, as in team-membership: none of its routes exists, and DISTILL wires no route. **DELIVER step 01-01 un-pends scenario 1 first** and makes it green before anything else in slice 01. The suite stays green at hand-off because every other scenario is `@pending` too.
+
+### [REF] Adapter coverage
+
+| Adapter | `@real-io` scenario | Covered by |
+|---|---|---|
+| `foundry_store::Store` on Postgres 16 (driven internal; the only driven port, DESIGN) | YES | every scenario (per-scenario schema); store gold tests on their own containers |
+| Migration 0023 (`team_lifecycle_events`, shape CHECK) and the probe line | YES | 13, 15, 16, 42-44 (the record in the delta); `team_lifecycle_migrations.rs` (additive, shape, probe), `team_delete.rs` / `team_rename.rs` (atomicity, outlives the team) |
+| Migration 0024 (teams name triggers, the shared function's HINT arm) | YES | 39-41 (`@adapter-integration`, the operator's door); `team_lifecycle_migrations.rs` (arms, legacy survival, parity, re-run) |
+| 0021 lead guard's cascade exemption, 0022's self-clearing default (shipped, relied on) | YES | 13-16, 18 (a led team deletes; the default clears); `team_delete.rs` (hand cascade, sole lead) |
+| Project create (shipped door, the INV-TL-1 race partner) | YES | 1, 28, 29; `team_delete.rs` (`insert_project` → `TeamGone`) |
+| Machine tokens (shipped table; the token mint's 23503 mapping) | YES | 16 (scoped token goes); `team_lifecycle_use_cases.rs` (mint racing a delete → 422) |
+| Keycloak OIDC provider (driven external) | not exercised | DESIGN: no change to Keycloak; no contract test |
+
+No row is missing. DESIGN adds no new external integration.
+
+### [REF] Driving adapter coverage
+
+| Route (DESIGN Driving Ports) | HTTP scenarios |
+|---|---|
+| `GET /teams` (create form, no-teams-yet copy) | 1, 2, 10, and every create "from the teams page" |
+| `POST /teams` | 1, 2, 6-9, 11, 18, 30-38, 48 |
+| `GET /team/{team_slug}/members` (New project, Rename, Delete team) | 1, 5, 12-17, 25, 26, 42, 49, and every write "from the page" |
+| `POST /team/{team_slug}/rename` | 42-48, 50-53 |
+| `GET /team/{team_slug}/delete` | 12-17, 19, 21, 23, 25, 26, 28 |
+| `POST /team/{team_slug}/delete` | 13-16, 18, 20-24, 27-29 |
+| `GET /` (the first-project link, D14) | 1, 3, 4, 14 |
+| `POST /team/{team_slug}/projects` and `GET …/projects/new` (shipped; `TeamGone` → 404) | 1, 3, 4, 28, 29 |
+| `GET /team/{team_slug}/project/{project_slug}` (unchanged) | 1, 27, 28, 42 |
+| `POST /workspace/switch`, `POST /teams/default`, `POST /team/{slug}/members` (shipped) | 1, 3 / 15 / 24 |
+| The operator's database prompt (OQ-7) | 39-41 |
+
+Every route DESIGN names has at least one scenario through its HTTP door; writes made "from a page" submit the page's own form, so a route that exists but is not wired into its page fails.
+
+### [REF] Scaffolds (Mandate 7)
+
+| File | Marker | What DELIVER does |
+|---|---|---|
+| `crates/foundry-core/src/team_name.rs` (new; `pub use TeamName, TeamNameError, TEAM_NAME_MAX_CHARS` in `lib.rs`) | `SCAFFOLD: true`; `TeamNameError` is real (the use-case test matches on it), its `Display` and `TeamName::try_new` / `ensure_unique_among` panic `Not yet implemented -- RED scaffold (team-lifecycle 01-01: …)` | 01-01: the rule over the shared predicate and the extracted uniqueness helper, the D12 `Display`, `mint_team_slug` (not scaffolded: no test names it), check-arch `team-name-one-source` |
+| `crates/foundry-store/src/teams.rs` (a new section; re-exports in `lib.rs`) | `SCAFFOLD: true`; `TeamCreateOutcome`, `TeamDeleteFacts`, `TeamDeleteOutcome`, `TeamRenameWrite` are real; `list_team_siblings`, `create_team_with_lead`, `first_team_slug` (01-01), `team_delete_facts`, `delete_team_if_empty` (02-01), `rename_team_with_audit` (04-01) panic | per DESIGN Component Decomposition; plus 02-01's 23503 mappings in `insert_project`, `add_team_member`, `set_default_team` (no shipped enum changed at DISTILL; the store tests name the new outcome `TeamGone` through `Debug`) |
+| `crates/foundry-services/src/teams.rs` (a new section) | `SCAFFOLD: true`; `CreateTeamError`, `CreatedTeam` are real; `create_team` panics | 01-01: the use-case (admin check, rule, ≤3 attempts); 03-01 proves the races. DESIGN has `TeamError` gain `InvalidName`/`SlugContention`: folding `CreateTeamError` into it is DELIVER's choice (the use-case test changes with it) |
+
+No app scaffold and no route: the acceptance steps reach the product only over HTTP, so no route, handler, template or service symbol is referenced before it exists. Nothing in production calls the new methods, so no shipped behaviour changes. Signatures are DISTILL's working choice (DESIGN pinned their names and outcomes, not their parameter types): the store takes `name: &str` and `slug: &str`, so the store tests do not depend on the core rule.
+
+### [REF] Test placement
+
+- Acceptance: the four `.feature` files above; steps in `crates/foundry-acceptance/src/steps/feature_team_lifecycle.rs` (60 step definitions), registered in `src/lib.rs` and force-linked in `tests/acceptance.rs` like every precedent; the driver in `src/support/team_lifecycle.rs`; one World field `tl: TlState`. **Reused unchanged** from team-membership: the Background (three steps), "she sees", "she is told", "the answer is the page that never existed", "the answer is turned away as a forged form", "… opens the teams page", "… follows Teams from her dashboard", "… opens X's members page", "… asks for the members page of X", "… opened X's members page earlier", "… adds X to Y from the page she opened earlier", "… has made X a lead/member of Y", "… has set X as the default team for new members", "the teams page shows X as the default team…", "X's dashboard says …", "X's teams page still lists Y", "X's members page lists …". Eleven of team-membership's driver helpers became `pub` (`harness`, `http`, `ts`, `seed_workspace`, `seed_project`, `cookie_for`, `actor_key`, `into_answer`, `form_at`, `team_slug`, `require_ok`) and its 409 message was made neutral; no behaviour changed.
+- Store: `crates/foundry-store/tests/team_delete.rs`, `team_create.rs` (DESIGN's names), `team_rename.rs`, `team_lifecycle_migrations.rs`; use-case: `crates/foundry-services/tests/team_lifecycle_use_cases.rs` (the retry lives in the use-case; the `create_project_use_case.rs` precedent).
+- Unit tests (`TeamName` arms and the parity property, `mint_team_slug`, `classify_team_rename`, the `TeamAccess` table with `Administer`, the `TeamNotice` bytes) are DELIVER's (DESIGN Test Seams, Core).
+
+### [REF] Pre-requisites
+
+- DESIGN's driving ports and the DOM the driver reads (DDD-17, DDD-20, DDD-21, DDD-22): the create form on `/teams` posts `name` to `/teams`; the members page has a **New project** link (`/team/{slug}/projects/new`), a **Delete team** link (`/team/{slug}/delete`) and a Rename form posting `name` to `/team/{slug}/rename`, prefilled with the current name; the confirm page's first `h1` is "Delete {team}?", its Delete team button sits in a form posting to `/team/{slug}/delete`, and **Cancel is a link back to the members page** (the issue-delete full-page precedent); name refusals re-render the form with `name` holding the input; the dashboard's link text stays "create your first project"; the members page `h1` is the team name and its notice is `.notice`. DISTILL pinned the Cancel link and the field name `name` on create; DESIGN pinned the rest.
+- Shipped: sessions and CSRF, `/workspace/switch`, `resource_not_found_page` (the router fallback serves it too), team-membership v0.13.0 (`/teams`, members pages, `/teams/default`, `TeamAccess`, 0021, 0022), project create.
+- Environment: no DEVOPS wave; the default acceptance lane and the store and use-case tests need Docker (testcontainers). No browser, compose or pg-client lane is involved; "scripting disabled" holds by construction (plain forms driven over HTTP, no script).
+
+### [REF] RED classification
+
+`docs/feature/team-lifecycle/distill/red-classification.md`. Acceptance: 95 rows, **92 MISSING_FUNCTIONALITY, 3 GREEN_ALREADY guards (an admin not on a team is offered no New project; a member is offered neither Rename nor Delete team; the database never refuses a name the app accepts), 0 BROKEN**, 0 ambiguous or unmatched steps. Store and use-case: 42 tests, **34 MISSING_FUNCTIONALITY (scaffold panic, RED gate, the `TeamGone` assertion, or the token mint's 500), 8 GREEN now and not ignored (six Postgres substrate facts and the two negative controls), 0 BROKEN**. Every refusal scenario is RED on its control, never green by an unrouted 404 or 405.
+
+### [REF] Store and use-case gold tests
+
+| Test | Pending until |
+|---|---|
+| `team_delete.rs`: `FOR UPDATE` blocks a project insert; `FOR NO KEY UPDATE` does not; a read after the lock wait sees the committed project; the four FK constraint names on 23503 (`projects_team_id_fkey`, `team_memberships_team_id_fkey`, `workspaces_default_team_same_workspace`, `machine_tokens_scope_team_id_fkey`); a led team's hand delete cascades its rows and tokens and clears only its default | GREEN now (substrate facts, ADR-002 Earned Trust) |
+| `team_delete.rs`: **NEGATIVE CONTROL (a)** `FOR NO KEY UPDATE`, check, delete → the project committed in between is LOST; **NEGATIVE CONTROL (b)** one `DELETE … WHERE NOT EXISTS (projects)` waiting on the create's `KEY SHARE` → the committed project is LOST | GREEN now (each must keep losing the project) |
+| `team_delete.rs`: confirm facts (members, default, tokens, projects; no write); a delete with exactly its cascade and one record; refused with every project by name then key and nothing changed; foreign or unknown → `NotFound`; an unwritable record rolls the delete back (atomic); the record outlives the team; a delete waiting on a create refuses naming the new project; a create, an add and a default set waiting on a delete answer `TeamGone`; **the 100-run delete-versus-project-create barrier race: 0 lost projects, 0 unmapped errors** | 02-01 |
+| `team_create.rs`: born led (one team, one lead row, nothing else); a non-admin, a foreign admin or an unknown user creates nothing; a taken slug is `DuplicateSlug` with nothing written; **100-run same-slug race: one team, one lead**; **100-run create versus the creator's workspace removal: never a lead outside the workspace** | 01-01 |
+| `team_rename.rs`: name only, slug and team rows untouched, one record with the locked old name; byte-equal writes nothing, case-only renames; foreign or unknown → `NotFound`; an unwritable record rolls the name back; **100-run concurrent renames record chained old names**; **100-run rename versus delete is totally ordered** (the delete record carries the new name, or the rename is `NotFound`) | 04-01 |
+| `team_lifecycle_migrations.rs`: Postgres refuses U+0000 with 22021 before any rule | GREEN now |
+| `team_lifecycle_migrations.rs`: 0023 additive over a schema at 0022 holding rows; the shape CHECK refuses incoherent records, no FK to teams, cascades with the workspace; **the probe refuses a schema without `team_lifecycle_events`** | 02-01 |
+| `team_lifecycle_migrations.rs`: 0024 arms on insert and rename (`no_control_chars` ×2, `max_64_chars`, `not_empty`, `trimmed`; HINT names `foundry_core::TeamName` and 64; no DETAIL), 64 CJK accepted; a legacy name is never scanned and survives an other-column and a same-value write, but not a rename to another bad name; workspaces keep their rule and HINT (the replaced function), both triggers enabled, the body re-runs cleanly | 03-01 |
+| `team_lifecycle_use_cases.rs`: creator is lead at the derived address; non-admin → `NotFound`; empty / control / 65 → their `TeamNameError`; a colliding derived slug → `NotUnique` | 01-01 |
+| `team_lifecycle_use_cases.rs`: `team`, then `team-2`; **100-run "Infra" ×2 → one team, one `NotUnique`**; **100-run "インフラ" ×2 → one team, one `NotUnique`**; **100-run "インフラ" vs "運用" → both, at `team` and `team-2`** | 03-01 |
+| `team_lifecycle_use_cases.rs`: a token mint racing a delete answers the shipped 422 (today `Internal`) | 02-01 |
+
+### [REF] Mandate compliance and completeness
+
+- **CM-A (Mandate 1)**: acceptance enters only through HTTP doors (the routes above) and the operator's SQL door; store tests through public `Store` methods, migrations and SQL; use-case tests through `foundry_services::teams::create_team` and `tokens::mint_token`. No step imports an app, service or store type.
+- **CM-B (Mandate 2, Pillar 1)**: the Gherkin speaks of teams, members pages, leads, delete pages, projects, machine tokens, the default team and the database prompt. Statuses, routes, SQL and selectors live in the driver. (The one technical noun, "machine token", is the product's own label on `/admin/tokens`.)
+- **CM-C (Mandate 3)**: 1 walking skeleton + 52 focused scenarios.
+- **CM-E (Mandate 8)**: every `When` captures the universe (team-membership's plus every team's name and address, project, machine token and lifecycle record); every write's `Then` is a fail-closed state delta (`assert_state_delta(world, &[Change…])`), and a delete's cascade is derived from the before-image and must be named in the Gherkin when it carries tokens or the default.
+- **CM-F/CM-H (Mandates 9, 11)**: layer 3, example-only; sad paths enumerated as named examples; no PBT. The 100-run races are repeated examples, not generated inputs; the `TeamName` parity property is a DELIVER unit test (layer 1).
+- **CM-G (Mandate 10)**: no Tier B. The journeys chain (Pillar 2: "has created", "has deleted", "opened … earlier", "has renamed") but the input space that matters is a closed set of arms and actors, covered by the outlines; the state space that matters (concurrency) is covered by the store and use-case races.
+- **Pillar 3**: production composition root (`spawn_app` through `InProcHarness::spawn_with_oidc`), only the identity provider faked.
+- **Mandate 12 (Rust reading)**: (1) the typed vocabulary lives in `support/team_lifecycle.rs` (`RecordKind`, `Record`, `Universe`, `Change`, `DbAnswer`, `DeleteRace`, `CreateRace`, `TlState`) over team-membership's (`Actor`, `Answer`, `TeamRef`, `TeamRole`), the house's equivalent of `domain_types.py`; (2) the driver's services take these types; (3) every step body is one statement, a call into the driver, with no control flow; (4) **step-reuse ratio (informational): 236 step lines over 60 new step definitions = 3.9×**, with team-membership's Background and 16 of its phrases reused unchanged.
+- **Completeness (15 items): 15 of 15, COMPLETE.** C1a (a workspace with no teams; a team with no projects; a team with no lead) · C1b (one project vs two; 64 vs 65 scalars) · C2a (team: absent → created (led) → renamed* → deleted → its slug free again; documented in the feature headers and INV-TL-1..9) · C2b (illegal event per state: delete with a project, rename or delete of a deleted team, re-create of a live name) · C3 (0, 1, 2 projects; 0 and 1 scoped tokens; default or not) · C4a (double create submit, byte-equal rename, stale confirm after delete) · C4b (create, rename and delete of an unknown team) · C5a (actor × verb × team matrix; members-page controls per role) · C5b (managing or deleting grants no board; an admin not on a team is offered no New project) · C6a (empty, control, bidi, tab, NUL, over-long, case and slug collisions, unknown and foreign slugs) · C6b (each declared answer: 200, 422, 409, 404, 403) · C6c (refusals byte-identical; races assert never a 5xx) · C7a (an unwritable record rolls the write back, store) · C7b (stale pages after a delete, a project appearing after the confirm page, a demoted lead's page) · C7c (HTTP races ×5, store and use-case races ×100). No SPECIFICATION_AMBIGUITY blocker.
+
+### [REF] Outcomes registry
+
+`nwave-ai outcomes check` before this wave: **NO COLLISIONS** for all three. Appended by hand in the OUT-21..23 shape (the `register` command re-flows every entry, as name-db-checks and team-membership recorded): **OUT-24** (operation: a workspace admin creates a team, born led, under the one rule, with a never-empty, never-changing address; related OUT-19, OUT-20, OUT-21, OUT-22), **OUT-25** (invariant: a team delete never destroys a project, under any concurrency; related OUT-11, OUT-22, OUT-23, OUT-24), **OUT-26** (operation: an admin or the team's lead renames a team, address and links unchanged, recorded; related OUT-1, OUT-17, OUT-21, OUT-24). **OUT-20 amended** (as DESIGN said): `teams.name` joins at cap 64, 0024 replaces the shared trigger function with the TeamName HINT arm (`amended_by`, inputs widened, `related` gains OUT-24). `kpi-contracts.yaml` gains `team-lifecycle` (TL-KPI-1 to 6, instruments linked to these scenarios and tests, all `owed`).
+
+### [REF] Recommended un-pend order
+
+1. **01-01** (slice 01): scenario 1 first (the skeleton); core `TeamName` + `mint_team_slug`, store `create_team_with_lead` / `list_team_siblings` / `first_team_slug`, services `create_team`, `POST /teams`, New project, the dashboard link → `team_create.rs` and the 01-01 use-case tests; then 2-11. check-arch `team-name-one-source` and `team-lifecycle-one-seam` (i)/(ii).
+2. **02-01** (slice 02, store): migration 0023, the probe line, `TeamAccess::Administer`, `team_delete_facts`, `delete_team_if_empty`, the 23503 mappings (project, member, default, token) → `team_delete.rs`, the 0023 / probe migration tests, the token mint test. The 100-run race is the slice's learning hypothesis: stop if it ever loses a project.
+3. **02-02** (slice 02, web): the confirm page, Delete team, Cancel, the routes → 12-29.
+4. **03-01** (slice 03): migration 0024 and `name_rule_in_database.rs` parity extended to teams (its `all_four_enabled` becomes six) → the 0024 tests and the 03-01 use-case races; then 30-41.
+5. **04-01** (slice 04): `rename_team_with_audit`, `classify_team_rename`, the Rename form and route → `team_rename.rs`; then 42-53.
+
+Burn-down: `grep -cE '^\s*@.*@pending' crates/foundry-acceptance/tests/features/team-lifecycle-0*.feature` = 53 now, 0 at the end; `grep -c '^#\[ignore = "pending: team-lifecycle'` over the five gold-test files = 34 now, 0 at the end.
+
+### [REF] Upstream notes (no user decision needed)
+
+- **Project create on a vanished team has two 404 bodies.** DESIGN's Statuses give "404 uniform (new `TeamGone` mapping)" for a project create whose team is deleted under it. That holds at insert time. A create that arrives after the delete committed stops earlier, at the shipped `find_team_by_slug` lookup, whose 404 is `projects.rs::team_not_found_page` ("Team not found", not `resource_not_found_page`). Scenario 29 and the DISCUSS wording ("answered the uniform not-found page") are therefore asserted as "the create found no team": status 404, never a 5xx. Making the lookup branch uniform too is a one-line DELIVER choice; if DESIGN wants it, scenario 29 can then assert byte-identity.
+- **Store and use-case signatures** were not pinned by DESIGN beyond names and outcomes. DISTILL chose `create_team_with_lead(ws, creator, name: &str, slug: &str) -> TeamCreateOutcome::{Created{team_id}, DuplicateSlug, NotAdmin}`, `team_delete_facts(team) -> TeamDeleteFacts`, `delete_team_if_empty(ws, team, actor) -> TeamDeleteOutcome`, `rename_team_with_audit(ws, team, actor, new_name: &str) -> TeamRenameWrite`, and `teams::create_team(store, principal, raw) -> Result<CreatedTeam, CreateTeamError>`.
+- **`name_rule_in_database.rs`** pins exactly the four 0019/0020 triggers; it goes red when 0024 lands unless DELIVER 03-01 extends it (DESIGN Component Decomposition already says so).
+- **The `trimmed` arm**: 0019's verdict has a fourth arm, `trimmed`, which DESIGN's Changed Assumption 2 did not list. Scenario 39 pins `teams_name_trimmed` for a hand-typed " Platform" (the app door trims, so only the database meets it).
+- **The record's "when"** (OQ-6: actor · name · slug · when) is `created_at DEFAULT now()`; the scenarios assert actor, kind, slug, name and new name, not the timestamp.
+- **OQ-D3 (the dashboard's lookup-error path)** stays a DELIVER unit concern: an acceptance scenario cannot make the read fail.
+- **Persona choices**: DISCUSS's Bakcend has one member (Sam); the scenarios give it two (Sam, whose only team it is, and Tomás, who is also on Ops), so one scenario proves both D10 outcomes. Lena leads Design (the stale-confirm and race partner). Ines Duarte is the new "instance admin, not a workspace admin" persona of the matrix.
+
+### [REF] End-of-DISTILL review (four reviewers in parallel)
+
+| Reviewer | Wave | Verdict | Findings and resolution |
+|---|---|---|---|
+| nw-product-owner-reviewer | DISCUSS | approved | 0 blockers, 0 high, 2 low. DoR 10/10 for all 5 stories; the four DESIGN corrections applied consistently across DISCUSS, slice 03 and DISTILL; 0 cross-wave contradictions. Lows: no DEVOPS wave (recorded above, house lanes are the environment); OQ-D3's lookup-error path is a DELIVER unit concern (recorded in Upstream notes). |
+| nw-solution-architect-reviewer | DESIGN | approved | 0 findings. Every DDD traced to a scenario, a scaffold or a gold test; the delete mechanism and both negative controls confirmed; the two-404-bodies upstream note accepted. |
+| nw-platform-architect-reviewer | DEVOPS (none; environment and test infrastructure) | approved (cycle 2) | Cycle 1: needs_revision. 2 blockers and 3 highs asked DISTILL to execute migration and race tests whose production code is DELIVER's, or overlooked `team_delete.rs`. Answered with the rigor profile and the evidence: RED gates are honest, the 7 substrate and negative-control tests run GREEN, team-membership had the same shape. Cycle 2: 0 findings. DELIVER conditions recorded: the CHANGELOG migration notes for 0023/0024, the 100-run races green per slice, and the KPI baselines and dogfoods. |
+| nw-acceptance-designer-reviewer | DISTILL | approved | 0 blockers, 0 high, 0 low. Contract-shape tags complete; the walking skeleton is user-centric; refusal controls keep the refusals honest; the state deltas fail closed; 0 BROKEN. |
+
+### [REF] Lanes and gates at hand-off (`@pending` restored, 2026-10-11)
+
+| Lane / gate | Result |
+|---|---|
+| Default acceptance lane (`env -u FOUNDRY_ACCEPTANCE_TAGS cargo test -p foundry-acceptance --test acceptance`, `foundry` rebuilt and warmed first) | **GREEN**: 85 features, 983 scenarios, 6537 steps, all passed (the 53 team-lifecycle scenarios are `@pending`) |
+| `FOUNDRY_ACCEPTANCE_TAGS=team-lifecycle` | 0 scenarios (all pending); with `@pending` lifted: 95 rows, 92 RED, 3 GREEN guards, 0 BROKEN, 0 ambiguous steps |
+| `cargo test -p foundry-store --test team_create --test team_delete --test team_rename --test team_lifecycle_migrations` | 0 / 7 / 0 / 1 passed, 5 / 10 / 6 / 6 ignored; `--include-ignored`: 27 RED, 0 BROKEN |
+| `cargo test -p foundry-services --test team_lifecycle_use_cases` | 7 ignored; `--include-ignored`: 7 RED, 0 BROKEN |
+| `cargo build --workspace --tests` | clean |
+| `cargo clippy --workspace --all-targets -- -D warnings` | clean |
+| `cargo fmt --all -- --check` | clean |
+| `cargo xtask check-arch` | PASSED (DDD-19's `team-lifecycle-one-seam` and `team-name-one-source` rules are DELIVER 01-01's) |
+
+Only the containers these runs started were created, and none was left behind. Nothing committed or pushed.

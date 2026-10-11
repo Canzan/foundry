@@ -586,17 +586,21 @@ outcomes:
   superseded_by: null
 - id: OUT-20
   kind: invariant
-  summary: The database refuses every new workspace or project name that the app's
+  summary: The database refuses every new workspace, project or team name that the app's
     pure name rule refuses, names the broken arm, and never touches a name written
     before the rule or a write that does not change the name
   feature: name-db-checks
+  amended_by: 'team-lifecycle (2026-10-11 DISTILL; DESIGN DDD-6, ADR-TEAM-LIFECYCLE-001
+    decision 7, migration 0024): teams.name joins at cap 64, and the shared trigger
+    function gains one HINT arm (teams -> TeamName); the verdict function is unchanged'
   inputs:
-  - shape: 'any SQL client (psql, a script, a restore) writing workspaces.name or projects.name:
-      INSERT (trigger <table>_name_rule_on_insert) or UPDATE OF name whose value changes
-      (trigger <table>_name_rule_on_rename, WHEN OLD.name IS DISTINCT FROM NEW.name);
-      both call foundry_enforce_name_rule(cap) -> foundry_name_rule_violation(name text,
-      max_chars int) IMMUTABLE, cap 24 (workspaces, migration 0019) or 256 (projects,
-      0020)'
+  - shape: 'any SQL client (psql, a script, a restore) writing workspaces.name, projects.name
+      or teams.name: INSERT (trigger <table>_name_rule_on_insert) or UPDATE OF name whose
+      value changes (trigger <table>_name_rule_on_rename, WHEN OLD.name IS DISTINCT FROM
+      NEW.name); all call foundry_enforce_name_rule(cap) -> foundry_name_rule_violation(name
+      text, max_chars int) IMMUTABLE, cap 24 (workspaces, migration 0019), 256 (projects,
+      0020) or 64 (teams, 0024, which also replaces foundry_enforce_name_rule() with an
+      identical body plus the TeamName HINT arm)'
   output:
     shape: 'NULL verdict -> the row is stored byte for byte | otherwise SQLSTATE 23514
       with CONSTRAINT <table>_name_<arm>, MESSAGE new row for relation "<table>" violates
@@ -620,6 +624,7 @@ outcomes:
   related:
   - OUT-18
   - OUT-19
+  - OUT-24
   superseded_by: null
 - id: OUT-21
   kind: operation
@@ -722,4 +727,120 @@ outcomes:
   artifact: crates/foundry-acceptance/tests/features/team-membership-05-default-team-invites.feature
   related:
   - OUT-21
+  superseded_by: null
+- id: OUT-24
+  kind: operation
+  summary: A workspace admin creates a team under the one team-name rule and becomes its
+    lead in the same commit; the team gets an address that is never empty and never
+    changes
+  feature: team-lifecycle
+  inputs:
+  - shape: 'POST /teams (name) from the create form on GET /teams; session + double-submit
+      _csrf, plain form; the workspace is the session''s, never a request field'
+  output:
+    shape: 'Workspace admin only (TeamAccess-free check, as /teams/default); everyone else,
+      including an instance admin who is not a workspace admin and a signed-out visitor,
+      gets the byte-identical uniform 404 with zero writes; a tokenless POST is the CSRF
+      layer''s 403. foundry_core::TeamName: trim, then "Team name must not be empty" | "Team
+      name must not contain control characters" (the shared refused set) | "Team name must
+      be at most 64 characters" | "Team name must be unique within the workspace" (a
+      case-insensitive name, or a non-empty derived slug equal to a sibling''s stored
+      slug), each a 422 re-render of /teams with the input kept. On success 200, the new
+      team''s members page with "Created {team}. You''re its lead.": one teams row and the
+      creator''s lead row in one transaction (born led, INV-TL-7). The slug is slugify(name),
+      or the lowest free of team, team-2, team-3, ... when that is empty (one bounded retry
+      loop of 3 on a fallback clash); concurrent same-name creates give one team and one
+      uniqueness refusal, concurrent creates of different names that slugify to nothing
+      both succeed. The members page offers New project to anyone on the team; the dashboard''s
+      empty-state link targets the first team the caller is on. "This workspace has no teams
+      yet. Create one to start a project." for an admin of a workspace with none'
+  keywords:
+  - team
+  - create
+  - lead
+  - name-rule
+  - fallback-slug
+  - walking-skeleton
+  artifact: crates/foundry-acceptance/tests/features/team-lifecycle-01-create-team.feature
+  related:
+  - OUT-19
+  - OUT-20
+  - OUT-21
+  - OUT-22
+  superseded_by: null
+- id: OUT-25
+  kind: invariant
+  summary: A team delete never destroys a project, under any concurrency; a team with a
+    project is refused with every project named, and a team without one is deleted with
+    exactly its memberships, its scoped tokens and its place as the default, recorded
+  feature: team-lifecycle
+  inputs:
+  - shape: 'GET /team/{team_slug}/delete (the confirm page) and POST /team/{team_slug}/delete,
+      reached by the members page''s Delete team link; session + double-submit _csrf; any
+      concurrent project create on the same team (POST /team/{team_slug}/projects)'
+  output:
+    shape: 'Workspace admin only (TeamAccess::Administer); everyone else, an unknown slug
+      and another workspace''s team get the byte-identical uniform 404 on both verbs, zero
+      writes. GET with no projects: 200 confirm page "Delete {team}?", "{team} has {n}
+      member(s) and no projects. They lose access to {team}. This can''t be undone.", the
+      default-team warning and the "{k} machine token(s) scoped to {team} will stop working."
+      line only when they apply, Delete team and a Cancel link back; counts are advisory.
+      GET with projects: 200 "{team} still has {n} project(s): {Name (KEY), by name then
+      key}. A team with projects can''t be deleted." with no Delete team. POST decides at
+      commit time (Store::delete_team_if_empty: team row FOR UPDATE, then the projects in a
+      separate statement, then DELETE FROM teams, then one deleted record): any project ->
+      409 with the same copy, nothing changed; none -> 200 /teams "Deleted {team}." with
+      the team, its team rows and scoped tokens gone, the default cleared, and one
+      team_lifecycle_events row (actor, name, slug) that outlives the team. A project create
+      racing it either commits first (the delete is refused) or finds the team gone (404,
+      TeamGone); add, default set and token mint answer their normal outcome (404 / the
+      token form''s 422), never a 500. Proven by a 100-run store race and two negative
+      controls (FOR NO KEY UPDATE; one DELETE ... WHERE NOT EXISTS) that lose a project'
+  keywords:
+  - team
+  - delete
+  - project
+  - concurrency
+  - for-update
+  - audit
+  - uniform-404
+  artifact: crates/foundry-acceptance/tests/features/team-lifecycle-02-delete-team.feature
+  related:
+  - OUT-11
+  - OUT-22
+  - OUT-23
+  - OUT-24
+  superseded_by: null
+- id: OUT-26
+  kind: operation
+  summary: A workspace admin, or the team's lead, renames a team; its address and every
+    link to it stay, and each effective rename is recorded
+  feature: team-lifecycle
+  inputs:
+  - shape: 'POST /team/{team_slug}/rename (name) from the prefilled Rename form on the
+      members page; session + double-submit _csrf'
+  output:
+    shape: 'TeamAccess Manage (workspace admin or this team''s lead); a member, an outsider,
+      a lead of another team, an instance admin who is not a workspace admin, a signed-out
+      visitor, an unknown or foreign slug, and a lead demoted since the page was opened all
+      get the byte-identical uniform 404, zero writes. The same TeamName rule and copy as
+      create, the team itself excluded from uniqueness, 422 with the input kept. A
+      byte-equal name: 200 members page, no notice, no write, no record; a case-only change
+      is a rename. Otherwise 200 "Renamed {old} to {new}.": teams.name only (the slug never
+      changes, every /team/{slug}/... URL answers as before) and one renamed record with
+      the old name read under FOR NO KEY UPDATE, in one transaction; concurrent renames
+      chain their records, a rename and a delete are totally ordered. A renamed team''s old
+      derived slug still makes its old name non-unique'
+  keywords:
+  - team
+  - rename
+  - slug
+  - label
+  - audit
+  artifact: crates/foundry-acceptance/tests/features/team-lifecycle-04-rename-team.feature
+  related:
+  - OUT-1
+  - OUT-17
+  - OUT-21
+  - OUT-24
   superseded_by: null

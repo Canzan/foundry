@@ -55,6 +55,7 @@ pub mod steps {
     pub mod feature_recipient_notification_preferences;
     pub mod feature_release_version_footer;
     pub mod feature_remaining_surfaces;
+    pub mod feature_team_lifecycle;
     pub mod feature_team_membership;
     pub mod feature_team_membership_default_team;
     pub mod feature_token_management_api;

@@ -356,3 +356,47 @@ async fn members_view(
         candidates,
     })
 }
+
+// ===========================================================================
+// team-lifecycle: the create use-case (DESIGN DDD-4, ADR-TEAM-LIFECYCLE-001
+// decision 3)
+//
+// SCAFFOLD: true — RED scaffold written by DISTILL (2026-10-11). The types are
+// real (`tests/team_lifecycle_use_cases.rs` matches on them); `create_team`
+// panics until DELIVER 01-01. Nothing in production calls it yet. DESIGN's
+// Component Decomposition has `TeamError` gain `InvalidName` and
+// `SlugContention`; DISTILL keeps the scaffold in its own error type so no
+// shipped `match` on `TeamError` changes before DELIVER. Folding it into
+// `TeamError` is DELIVER's choice (the use-case test changes with it).
+// ===========================================================================
+
+/// Why a team create did not happen.
+#[derive(Debug)]
+pub enum CreateTeamError {
+    /// The caller is not an admin of the acting workspace: the uniform 404.
+    NotFound,
+    /// The name broke the rule, or is not unique within the workspace (422).
+    InvalidName(foundry_core::TeamNameError),
+    /// The fallback slug was lost on every bounded retry (a logged 500).
+    SlugContention,
+    Store(StoreError),
+}
+
+/// The team a create wrote, with its minted slug.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CreatedTeam {
+    pub team_id: uuid::Uuid,
+    pub name: String,
+    pub slug: String,
+}
+
+/// `POST /teams`: admin check, the one name rule, then per attempt (at most 3):
+/// siblings, uniqueness, mint, `Store::create_team_with_lead`. A derived-slug
+/// clash is `NotUnique`; a fallback-slug clash is retried.
+pub async fn create_team(
+    _store: &Store,
+    _principal: &Principal,
+    _raw_name: &str,
+) -> Result<CreatedTeam, CreateTeamError> {
+    panic!("Not yet implemented -- RED scaffold (team-lifecycle 01-01: teams::create_team)")
+}

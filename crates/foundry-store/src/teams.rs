@@ -477,3 +477,131 @@ pub(crate) async fn place_on_default_team(
     }
     Ok(())
 }
+
+// ===========================================================================
+// team-lifecycle (DESIGN DDD-5, DDD-7, DDD-8, DDD-10, DDD-13, DDD-21;
+// ADR-TEAM-LIFECYCLE-001/002/003)
+//
+// SCAFFOLD: true — RED scaffold written by DISTILL (2026-10-11). The outcome
+// types are real (the store gold tests in `tests/team_create.rs`,
+// `tests/team_delete.rs` and `tests/team_rename.rs` match on them); every method
+// panics until its DELIVER step. Nothing in production calls these methods yet,
+// so no shipped behaviour changes. Signatures are DISTILL's working choice: if
+// DELIVER changes one, it changes the store tests with it.
+// ===========================================================================
+
+/// The outcome of [`Store::create_team_with_lead`] (DDD-5, INV-TL-7).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TeamCreateOutcome {
+    /// One `teams` row and the creator's `lead` row were written together.
+    Created { team_id: uuid::Uuid },
+    /// `teams_workspace_id_slug_key` refused the slug; nothing was written.
+    DuplicateSlug,
+    /// The creator is not (or no longer) an admin of the workspace; nothing was
+    /// written.
+    NotAdmin,
+}
+
+/// What the delete confirm page states (DDD-10, INV-TL-3): read with no lock,
+/// so every number here is advisory.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TeamDeleteFacts {
+    pub member_count: i64,
+    /// The team is its workspace's default team for new members.
+    pub is_default: bool,
+    /// Machine tokens scoped to the team.
+    pub scoped_token_count: i64,
+    /// The team's projects as `(name, key)`, by name then key.
+    pub projects: Vec<(String, String)>,
+}
+
+/// The outcome of [`Store::delete_team_if_empty`] (DDD-7, DDD-8, INV-TL-1).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TeamDeleteOutcome {
+    /// The team, its memberships and its scoped tokens are gone, the default
+    /// cleared if it pointed here, and one `deleted` record was written.
+    Deleted { name: String, slug: String },
+    /// The team had projects at commit time, as `(name, key)` by name then key;
+    /// nothing was written.
+    HasProjects { projects: Vec<(String, String)> },
+    /// No such team in the workspace (or it is already gone); nothing written.
+    NotFound,
+}
+
+/// The outcome of [`Store::rename_team_with_audit`] (DDD-13, D15).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TeamRenameWrite {
+    /// The name changed (never the slug) and one `renamed` record was written
+    /// with `old_name`, the name read under the lock.
+    Renamed { old_name: String },
+    /// The new name is byte-equal to the stored one; nothing was written.
+    Unchanged,
+    /// No such team in the workspace (or it was deleted first); nothing written.
+    NotFound,
+}
+
+impl Store {
+    /// The workspace's teams as `(name, stored slug)`, for the uniqueness rule
+    /// and the slug mint (DDD-4).
+    pub async fn list_team_siblings(
+        &self,
+        _workspace_id: uuid::Uuid,
+    ) -> Result<Vec<(String, String)>, StoreError> {
+        panic!("Not yet implemented -- RED scaffold (team-lifecycle 01-01: list_team_siblings)")
+    }
+
+    /// One transaction (DDD-5): the creator's admin row `FOR KEY SHARE`, then
+    /// `INSERT teams` (app-minted v7 id), then the creator's `lead` row.
+    pub async fn create_team_with_lead(
+        &self,
+        _workspace_id: uuid::Uuid,
+        _creator_id: uuid::Uuid,
+        _name: &str,
+        _slug: &str,
+    ) -> Result<TeamCreateOutcome, StoreError> {
+        panic!("Not yet implemented -- RED scaffold (team-lifecycle 01-01: create_team_with_lead)")
+    }
+
+    /// The first team the user is on, by name then slug (DDD-21); `None` when
+    /// they are on no team. Replaces `is_on_any_team` on the dashboard.
+    pub async fn first_team_slug(
+        &self,
+        _workspace_id: uuid::Uuid,
+        _user_id: uuid::Uuid,
+    ) -> Result<Option<String>, StoreError> {
+        panic!("Not yet implemented -- RED scaffold (team-lifecycle 01-01: first_team_slug)")
+    }
+
+    /// The confirm page's advisory facts, read with no lock (DDD-10).
+    pub async fn team_delete_facts(
+        &self,
+        _team_id: uuid::Uuid,
+    ) -> Result<TeamDeleteFacts, StoreError> {
+        panic!("Not yet implemented -- RED scaffold (team-lifecycle 02-01: team_delete_facts)")
+    }
+
+    /// ADR-TEAM-LIFECYCLE-002 decision 1, in exactly this order: the team row
+    /// `FOR UPDATE`; then, in a new statement, its projects; then `DELETE FROM
+    /// teams`; then the `deleted` record; then commit.
+    pub async fn delete_team_if_empty(
+        &self,
+        _workspace_id: uuid::Uuid,
+        _team_id: uuid::Uuid,
+        _actor_id: uuid::Uuid,
+    ) -> Result<TeamDeleteOutcome, StoreError> {
+        panic!("Not yet implemented -- RED scaffold (team-lifecycle 02-01: delete_team_if_empty)")
+    }
+
+    /// ADR-TEAM-LIFECYCLE-003 decision 2: the team row `FOR NO KEY UPDATE`; a
+    /// byte-equal name writes nothing; else `UPDATE teams SET name` (never the
+    /// slug) and the `renamed` record, in one transaction.
+    pub async fn rename_team_with_audit(
+        &self,
+        _workspace_id: uuid::Uuid,
+        _team_id: uuid::Uuid,
+        _actor_id: uuid::Uuid,
+        _new_name: &str,
+    ) -> Result<TeamRenameWrite, StoreError> {
+        panic!("Not yet implemented -- RED scaffold (team-lifecycle 04-01: rename_team_with_audit)")
+    }
+}

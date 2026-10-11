@@ -371,6 +371,9 @@ pub struct FoundryWorld {
     // ---- team-membership (US-TM-01..07) ----
     pub tm: crate::support::team_membership::TmState,
 
+    // ---- team-lifecycle (US-TL-01..05) ----
+    pub tl: crate::support::team_lifecycle::TlState,
+
     // ---- US-05+ in-process harness ----
     pub harness: Option<InProcHarness>,
     pub http: Option<reqwest::Client>,

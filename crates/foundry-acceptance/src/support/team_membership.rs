@@ -255,7 +255,7 @@ pub struct TmState {
 // Harness access
 // ===========================================================================
 
-fn harness(world: &FoundryWorld) -> &InProcHarness {
+pub fn harness(world: &FoundryWorld) -> &InProcHarness {
     world
         .harness
         .as_ref()
@@ -266,14 +266,14 @@ pub fn pool(world: &FoundryWorld) -> PgPool {
     harness(world).app.state.store.pool().clone()
 }
 
-fn http(world: &FoundryWorld) -> reqwest::Client {
+pub fn http(world: &FoundryWorld) -> reqwest::Client {
     world
         .http
         .clone()
         .expect("the Background built an HTTP client")
 }
 
-fn ts(raw: &str) -> time::OffsetDateTime {
+pub fn ts(raw: &str) -> time::OffsetDateTime {
     time::OffsetDateTime::parse(raw, &time::format_description::well_known::Rfc3339)
         .expect("timestamp parses")
 }
@@ -349,7 +349,7 @@ pub async fn spawn_with_home_teams(world: &mut FoundryWorld, teams: &[(String, S
     }
 }
 
-async fn seed_workspace(world: &mut FoundryWorld, name: &str, created: &str) -> uuid::Uuid {
+pub async fn seed_workspace(world: &mut FoundryWorld, name: &str, created: &str) -> uuid::Uuid {
     let id = uuid::Uuid::now_v7();
     sqlx::query("INSERT INTO workspaces (id, name, created_at) VALUES ($1, $2, $3)")
         .bind(id)
@@ -382,7 +382,7 @@ async fn seed_team(world: &mut FoundryWorld, workspace: &str, name: &str) -> Tea
     team
 }
 
-async fn seed_project(world: &mut FoundryWorld, team: &str, name: &str, key: &str) {
+pub async fn seed_project(world: &mut FoundryWorld, team: &str, name: &str, key: &str) {
     let team = team_ref(world, team);
     let ws = workspace_id(world, &team.workspace);
     let id = uuid::Uuid::now_v7();
@@ -658,7 +658,7 @@ pub fn resolve_team(words: &str) -> TeamName {
     }
 }
 
-fn team_slug(world: &FoundryWorld, team: &TeamName) -> String {
+pub fn team_slug(world: &FoundryWorld, team: &TeamName) -> String {
     match team {
         TeamName::Known(name) => team_ref(world, name).slug,
         TeamName::Unknown => "no-such-team".to_string(),
@@ -673,7 +673,7 @@ fn target_value(world: &FoundryWorld, target: &Target) -> String {
     }
 }
 
-fn actor_key(actor: &Actor) -> String {
+pub fn actor_key(actor: &Actor) -> String {
     match actor {
         Actor::SignedOut => String::new(),
         Actor::Person(email) => email.clone(),
@@ -686,7 +686,7 @@ fn actor_key(actor: &Actor) -> String {
 
 /// Sign the actor in (once per scenario) and return the Cookie header every
 /// request of theirs carries: their session plus the scenario's CSRF cookie.
-async fn cookie_for(world: &mut FoundryWorld, actor: &Actor) -> String {
+pub async fn cookie_for(world: &mut FoundryWorld, actor: &Actor) -> String {
     let csrf = format!("foundry_csrf={}", world.tm.csrf);
     let Actor::Person(email) = actor else {
         return csrf;
@@ -716,7 +716,7 @@ pub fn adopt_session(world: &mut FoundryWorld, email: &str, session_pair: String
         .insert(email.to_ascii_lowercase(), session_pair);
 }
 
-async fn into_answer(path: &str, resp: reqwest::Response) -> Answer {
+pub async fn into_answer(path: &str, resp: reqwest::Response) -> Answer {
     let status = resp.status();
     let content_type = resp
         .headers()
@@ -878,7 +878,7 @@ pub fn forms(body: &str) -> Vec<PageForm> {
     out
 }
 
-fn form_at(answer: &Answer, action: &str) -> PageForm {
+pub fn form_at(answer: &Answer, action: &str) -> PageForm {
     forms(&answer.body)
         .into_iter()
         .find(|f| f.action == action)
@@ -1739,7 +1739,7 @@ pub async fn when_removes(
 }
 
 /// A Given that reuses a When and requires it to have gone through (Pillar 2).
-fn require_ok(world: &FoundryWorld, what: &str) {
+pub fn require_ok(world: &FoundryWorld, what: &str) {
     let answer = last(world);
     assert_eq!(
         answer.status,
@@ -1875,7 +1875,7 @@ pub fn then_is_told(world: &FoundryWorld, copy: &str) {
     assert_eq!(
         answer.status,
         StatusCode::CONFLICT,
-        "a last-lead refusal is a 409 with a stated reason (DDD-8); {}",
+        "a stated refusal is a 409 (team-membership DDD-8, team-lifecycle DDD-18); {}",
         describe(answer)
     );
     assert!(

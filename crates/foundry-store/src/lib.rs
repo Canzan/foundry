@@ -20,7 +20,8 @@ pub use lanes::{InsertedIssue, LaneDeleteFate, LaneDeleteOutcome, LaneRow};
 #[cfg(feature = "test-support")]
 pub use name_rule_legacy_seam::{seed_row_predating_name_rule, NameRuleTable};
 pub use teams::{
-    AddTeamMemberOutcome, RemoveTeamMemberOutcome, RemoveWorkspaceMemberOutcome, SetTeamRoleOutcome,
+    AddTeamMemberOutcome, RemoveTeamMemberOutcome, RemoveWorkspaceMemberOutcome,
+    SetTeamRoleOutcome, TeamCreateOutcome, TeamDeleteFacts, TeamDeleteOutcome, TeamRenameWrite,
 };
 pub use verify_export::{verify_workspace_export, ArchiveContents, ArchivedTable, VerifyReport};
 

@@ -122,6 +122,8 @@ use foundry_acceptance::steps::feature_release_version_footer as _feature_rvf;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_remaining_surfaces as _feature_remaining;
 #[allow(unused_imports)]
+use foundry_acceptance::steps::feature_team_lifecycle as _feature_tl;
+#[allow(unused_imports)]
 use foundry_acceptance::steps::feature_team_membership as _feature_tm;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_team_membership_default_team as _feature_tm_default;
