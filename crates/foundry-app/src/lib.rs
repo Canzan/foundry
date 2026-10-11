@@ -784,6 +784,12 @@ pub fn build_router(state: AppState) -> Router {
             "/team/{team_slug}/members/{user_id}/remove",
             post(teams::submit_remove),
         )
+        // team-lifecycle 02-02 (DDD-18, ADR-TEAM-LIFECYCLE-004): the delete
+        // page and the delete, both `Administer` only, else the uniform 404.
+        .route(
+            "/team/{team_slug}/delete",
+            get(teams::show_delete).post(teams::submit_delete),
+        )
         .route("/", get(signin::dashboard_root))
         // Non-enumerability (ADR-002, web-provisioning-flow): a path with NO
         // route is refused with the SAME uniform `resource_not_found_page()` the

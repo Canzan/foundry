@@ -235,6 +235,26 @@ impl Services {
         teams::create_team(&self.store, principal, raw_name).await
     }
 
+    /// team-lifecycle `GET /team/{slug}/delete` — delegates to
+    /// [`teams::delete_preview`].
+    pub async fn team_delete_preview(
+        &self,
+        principal: &Principal,
+        team_slug: &str,
+    ) -> Result<teams::TeamDeletePreview, teams::TeamError> {
+        teams::delete_preview(&self.store, principal, team_slug).await
+    }
+
+    /// team-lifecycle `POST /team/{slug}/delete` — delegates to
+    /// [`teams::delete_team`].
+    pub async fn delete_team(
+        &self,
+        principal: &Principal,
+        team_slug: &str,
+    ) -> Result<teams::TeamDeletion, teams::TeamError> {
+        teams::delete_team(&self.store, principal, team_slug).await
+    }
+
     /// team-membership `POST /team/{slug}/members` — delegates to
     /// [`teams::add_member`].
     pub async fn add_member_to_team(

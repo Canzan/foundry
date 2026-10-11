@@ -41,14 +41,17 @@ pub enum TeamAccess {
     View,
     /// See the members page and change it.
     Manage,
+    /// Everything `Manage` may, and delete the team (ADR-TEAM-LIFECYCLE-004).
+    Administer,
 }
 
 impl TeamAccess {
-    /// The six-row table: a workspace admin or a lead of this team manages it,
-    /// a member views it, anyone else gets nothing (slice 04 gave leads `Manage`).
+    /// The six-row table: a workspace admin administers it, a lead of this team
+    /// manages it, a member views it, anyone else gets nothing (slice 04 gave
+    /// leads `Manage`; ADR-TEAM-LIFECYCLE-004 gave admins `Administer`).
     pub fn of(is_workspace_admin: bool, role: Option<TeamRole>) -> Self {
         match (is_workspace_admin, role) {
-            (true, _) => Self::Manage,
+            (true, _) => Self::Administer,
             (false, Some(TeamRole::Lead)) => Self::Manage,
             (false, Some(TeamRole::Member)) => Self::View,
             (false, None) => Self::None,
@@ -60,9 +63,21 @@ impl TeamAccess {
         self != Self::None
     }
 
-    /// May change the team's membership.
+    /// May change the team's membership (and, from slice 04 of team-lifecycle,
+    /// rename it).
     pub fn can_manage(self) -> bool {
-        self == Self::Manage
+        match self {
+            Self::Manage | Self::Administer => true,
+            Self::None | Self::View => false,
+        }
+    }
+
+    /// May delete the team: a workspace admin only.
+    pub fn can_delete(self) -> bool {
+        match self {
+            Self::Administer => true,
+            Self::None | Self::View | Self::Manage => false,
+        }
     }
 }
 
@@ -75,9 +90,10 @@ mod tests {
     #[test]
     fn team_access_six_row_table() {
         let table = [
-            (true, None, TeamAccess::Manage),
-            (true, Some(TeamRole::Member), TeamAccess::Manage),
-            (true, Some(TeamRole::Lead), TeamAccess::Manage),
+            // ADR-TEAM-LIFECYCLE-004: a workspace admin administers every team.
+            (true, None, TeamAccess::Administer),
+            (true, Some(TeamRole::Member), TeamAccess::Administer),
+            (true, Some(TeamRole::Lead), TeamAccess::Administer),
             (false, None, TeamAccess::None),
             (false, Some(TeamRole::Member), TeamAccess::View),
             // Slice 04: a lead manages her own team.
@@ -92,14 +108,20 @@ mod tests {
         }
     }
 
+    /// One row per level: `(level, can_view, can_manage, can_delete)`.
     #[test]
-    fn view_and_manage_follow_the_access_level() {
-        assert!(!TeamAccess::None.can_view());
-        assert!(!TeamAccess::None.can_manage());
-        assert!(TeamAccess::View.can_view());
-        assert!(!TeamAccess::View.can_manage());
-        assert!(TeamAccess::Manage.can_view());
-        assert!(TeamAccess::Manage.can_manage());
+    fn view_manage_and_delete_follow_the_access_level() {
+        let table = [
+            (TeamAccess::None, false, false, false),
+            (TeamAccess::View, true, false, false),
+            (TeamAccess::Manage, true, true, false),
+            (TeamAccess::Administer, true, true, true),
+        ];
+        for (access, view, manage, delete) in table {
+            assert_eq!(access.can_view(), view, "{access:?}.can_view()");
+            assert_eq!(access.can_manage(), manage, "{access:?}.can_manage()");
+            assert_eq!(access.can_delete(), delete, "{access:?}.can_delete()");
+        }
     }
 
     #[test]

@@ -42,7 +42,7 @@ Feature: A workspace admin deletes a team, told first what goes, and never loses
 
   # ------------------------------------------------------------------- US-TL-02
 
-  @us-tl-02 @driving_port @contract-shape:unbounded-preservation @pending
+  @us-tl-02 @driving_port @contract-shape:unbounded-preservation
   Scenario: The delete page says exactly what goes with the team, and changes nothing
     When Priya follows Delete team on Bakcend's members page
     Then the delete page asks "Delete Bakcend?"
@@ -51,7 +51,7 @@ Feature: A workspace admin deletes a team, told first what goes, and never loses
     And the delete page offers Delete team and Cancel
     And no team, project or membership changed
 
-  @us-tl-02 @kpi @contract-shape:bounded-change @pending
+  @us-tl-02 @kpi @contract-shape:bounded-change
   Scenario: A workspace admin deletes a team that has no projects
     Given Priya opened Bakcend's delete page earlier
     When she confirms the delete from the page she opened earlier
@@ -84,7 +84,7 @@ Feature: A workspace admin deletes a team, told first what goes, and never loses
     Then she sees "Deleted Design."
     And Design is gone with everyone's place on it and its 1 machine token, one delete record names Priya Raman, and nothing else changed
 
-  @us-tl-02 @edge @contract-shape:unbounded-preservation @pending
+  @us-tl-02 @edge @contract-shape:unbounded-preservation
   Scenario: Cancel goes back to the team, and nothing changes
     When Priya follows Delete team on Bakcend's members page
     And she follows Cancel
@@ -100,7 +100,7 @@ Feature: A workspace admin deletes a team, told first what goes, and never loses
     When Sam asks for the members page of Bakcend
     Then the answer is the page that never existed
 
-  @us-tl-02 @error @kpi @contract-shape:unbounded-preservation @pending
+  @us-tl-02 @error @kpi @contract-shape:unbounded-preservation
   Scenario Outline: Only a workspace admin may open a team's delete page
     When <who> asks for the delete page of <team>
     Then the answer is the page that never existed
@@ -116,7 +116,7 @@ Feature: A workspace admin deletes a team, told first what goes, and never loses
       | Ines                 | Bakcend |
       | Hugo                 | Bakcend |
 
-  @us-tl-02 @error @kpi @contract-shape:unbounded-preservation @pending
+  @us-tl-02 @error @kpi @contract-shape:unbounded-preservation
   Scenario Outline: Only a workspace admin may delete a team
     When <who> submits a delete of <team>
     Then the answer is the page that never existed
@@ -132,7 +132,7 @@ Feature: A workspace admin deletes a team, told first what goes, and never loses
       | Ines                 | Bakcend |
       | Hugo                 | Bakcend |
 
-  @us-tl-02 @error @kpi @contract-shape:unbounded-preservation @pending
+  @us-tl-02 @error @kpi @contract-shape:unbounded-preservation
   Scenario: Another workspace's team and a team that does not exist look the same from Canzan Labs
     When Priya asks for the delete page of Payments
     Then the answer is the page that never existed
@@ -145,7 +145,7 @@ Feature: A workspace admin deletes a team, told first what goes, and never loses
     When Priya submits a delete of a team that does not exist
     Then the answer is the page that never existed
 
-  @us-tl-02 @error @contract-shape:unbounded-preservation @pending
+  @us-tl-02 @error @contract-shape:unbounded-preservation
   Scenario: A delete sent without the page's token is turned away, and nothing changes
     When Priya submits a delete of Bakcend without the page's token
     Then the answer is turned away as a forged form

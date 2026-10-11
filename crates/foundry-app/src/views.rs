@@ -830,6 +830,9 @@ pub struct TeamMembersPage {
     pub team_slug: String,
     pub team_name: String,
     pub can_manage: bool,
+    /// The caller is a workspace admin: offer Delete team
+    /// (ADR-TEAM-LIFECYCLE-004 decision 5).
+    pub can_delete: bool,
     /// The caller is on the team: offer New project (DDD-21).
     pub on_team: bool,
     pub members: Vec<TeamMemberLine>,
@@ -838,6 +841,20 @@ pub struct TeamMembersPage {
     pub notice: Option<String>,
     /// The D15 copy shown instead of the Add form when nobody is left to add.
     pub nobody_to_add: Option<String>,
+}
+
+/// team-lifecycle `GET /team/{slug}/delete` (DDD-10, D12): the question, what
+/// goes with the team, the Delete team form and Cancel back to the members page.
+#[derive(Debug, Clone, Template)]
+#[template(path = "team_delete.html")]
+pub struct TeamDeletePage {
+    pub nav: crate::nav::NavContext,
+    pub csrf: String,
+    pub team_slug: String,
+    /// "Delete {team}?"
+    pub question: String,
+    /// "{team} has {n} member(s) and no projects. ..."
+    pub member_line: String,
 }
 
 /// A members-page row: "{name} · {email} · {Lead|Member}" (D8).

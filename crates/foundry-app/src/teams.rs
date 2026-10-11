@@ -26,6 +26,10 @@
 //!                                  A last lead is a 409 with the members page (DDD-8).
 //!   POST /team/{slug}/members/{user_id}/remove — needs Manage; a last lead is the
 //!                                  same 409; a stale target re-renders with no copy.
+//!   GET  /team/{slug}/delete     — needs Administer (team-lifecycle DDD-10): the
+//!                                  confirm page; it writes nothing.
+//!   POST /team/{slug}/delete     — needs Administer (DDD-18): Deleted → 200 teams
+//!                                  page with "Deleted {team}." (no redirect).
 //!
 //! Gate order (DDD-5): session (none → 404) → the services use-case (facts by
 //! session workspace + slug, access, target id parse, target in workspace) → verb.
@@ -37,8 +41,8 @@ use crate::bootstrap::{resource_not_found_page, SessionUser};
 use crate::csrf::{ensure_csrf_cookie, response_with_optional_cookie};
 use crate::session::SESSION_KEY_USER_ID;
 use crate::views::{
-    CreateTeamForm, DefaultTeamForm, DefaultTeamOption, TeamCandidateOption, TeamIndexRow,
-    TeamMemberLine, TeamMembersPage, TeamsIndexPage,
+    CreateTeamForm, DefaultTeamForm, DefaultTeamOption, TeamCandidateOption, TeamDeletePage,
+    TeamIndexRow, TeamMemberLine, TeamMembersPage, TeamsIndexPage,
 };
 use crate::AppState;
 use askama::Template;
@@ -48,8 +52,8 @@ use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
 use foundry_core::TeamRole;
 use foundry_services::teams::{
-    AddMemberResult, CreateTeamError, RemoveMemberResult, RoleChangeResult, TeamError,
-    TeamMembersView, TeamsIndex,
+    AddMemberResult, CreateTeamError, RemoveMemberResult, RoleChangeResult, TeamDeletePreview,
+    TeamDeletion, TeamError, TeamMembersView, TeamsIndex,
 };
 use foundry_services::{Principal, Services};
 use serde::Deserialize;
@@ -103,6 +107,13 @@ pub enum TeamNotice {
     Created { team: String },
     /// team-lifecycle D12: a workspace admin's teams page with no team.
     NoTeamsYet,
+    /// team-lifecycle D12: the delete page's question, "Delete {team}?"
+    DeleteQuestion { team: String },
+    /// team-lifecycle D12: "{team} has {n} member(s) and no projects. They lose
+    /// access to {team}. This can't be undone."
+    DeleteMembers { team: String, members: i64 },
+    /// team-lifecycle D12: "Deleted {team}."
+    Deleted { team: String },
 }
 
 impl fmt::Display for TeamNotice {
@@ -147,6 +158,13 @@ impl fmt::Display for TeamNotice {
             Self::NoTeamsYet => {
                 f.write_str("This workspace has no teams yet. Create one to start a project.")
             }
+            Self::DeleteQuestion { team } => write!(f, "Delete {team}?"),
+            Self::DeleteMembers { team, members } => write!(
+                f,
+                "{team} has {members} member(s) and no projects. They lose access to {team}. \
+                 This can't be undone."
+            ),
+            Self::Deleted { team } => write!(f, "Deleted {team}."),
         }
     }
 }
@@ -406,6 +424,84 @@ pub async fn submit_remove(
     members_page_with_status(&state, &headers, &user, removal.page, notice, status).await
 }
 
+// ----------------------------------------------------- GET /team/{slug}/delete
+
+/// Gate order (DDD-5): session (none → 404) → the use-case (facts by session
+/// workspace + slug, `can_delete`, else the uniform 404) → the confirm page.
+/// Writes nothing.
+pub async fn show_delete(
+    State(state): State<AppState>,
+    session: Session,
+    headers: HeaderMap,
+    Path(team_slug): Path<String>,
+) -> Response {
+    let Some(user) = signed_in_user(&session).await else {
+        return resource_not_found_page();
+    };
+    let services = Services::new(state.store.clone());
+    match services
+        .team_delete_preview(&principal_of(&user), &team_slug)
+        .await
+    {
+        Ok(TeamDeletePreview::Confirm {
+            team_slug,
+            team_name,
+            facts,
+        }) => {
+            let (csrf, set_cookie) = ensure_csrf_cookie(&state, &headers);
+            let page = TeamDeletePage {
+                nav: nav_for(&state, &user, csrf.clone()).await,
+                csrf,
+                team_slug,
+                question: TeamNotice::DeleteQuestion {
+                    team: team_name.clone(),
+                }
+                .to_string(),
+                member_line: TeamNotice::DeleteMembers {
+                    team: team_name,
+                    members: facts.member_count,
+                }
+                .to_string(),
+            };
+            render(page.render(), StatusCode::OK, set_cookie)
+        }
+        Ok(TeamDeletePreview::HasProjects { .. }) => projects_refusal_not_yet_rendered(),
+        Err(err) => refusal(err),
+    }
+}
+
+// ---------------------------------------------------- POST /team/{slug}/delete
+
+/// Same gate order as [`show_delete`]; Deleted → 200 teams page with "Deleted
+/// {team}." and no redirect (DDD-18): a reload meets the uniform 404.
+pub async fn submit_delete(
+    State(state): State<AppState>,
+    session: Session,
+    headers: HeaderMap,
+    Path(team_slug): Path<String>,
+) -> Response {
+    let Some(user) = signed_in_user(&session).await else {
+        return resource_not_found_page();
+    };
+    let services = Services::new(state.store.clone());
+    match services.delete_team(&principal_of(&user), &team_slug).await {
+        Ok(TeamDeletion::Deleted { team_name, index }) => {
+            let notice = TeamNotice::Deleted { team: team_name };
+            teams_page(&state, &headers, &user, index, Some(notice)).await
+        }
+        Ok(TeamDeletion::HasProjects { .. }) => projects_refusal_not_yet_rendered(),
+        Err(err) => refusal(err),
+    }
+}
+
+/// team-lifecycle 02-04 renders the projects refusal (the 200 page and the
+/// 409); until then a team with projects keeps a logged 500 and is never
+/// deleted.
+fn projects_refusal_not_yet_rendered() -> Response {
+    tracing::error!("team delete refused for projects; the refusal page lands in 02-04");
+    (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response()
+}
+
 // ------------------------------------------------------------------ internals
 
 async fn teams_page(
@@ -494,6 +590,7 @@ async fn members_page_with_status(
     status: StatusCode,
 ) -> Response {
     let can_manage = view.access.can_manage();
+    let can_delete = view.access.can_delete();
     let on_team = view.on_team;
     let nobody_to_add = (can_manage && view.candidates.is_empty()).then(|| {
         TeamNotice::EveryoneOn {
@@ -508,6 +605,7 @@ async fn members_page_with_status(
         team_slug: view.team_slug,
         team_name: view.team_name,
         can_manage,
+        can_delete,
         on_team,
         members: view
             .members
@@ -730,6 +828,34 @@ mod team_notice_copy {
             TeamNotice::NoTeamsYet.to_string(),
             "This workspace has no teams yet. Create one to start a project."
         );
+    }
+
+    #[test]
+    fn delete_question() {
+        let notice = TeamNotice::DeleteQuestion {
+            team: "Bakcend".into(),
+        };
+        assert_eq!(notice.to_string(), "Delete Bakcend?");
+    }
+
+    #[test]
+    fn delete_members() {
+        let notice = TeamNotice::DeleteMembers {
+            team: "Bakcend".into(),
+            members: 2,
+        };
+        assert_eq!(
+            notice.to_string(),
+            "Bakcend has 2 member(s) and no projects. They lose access to Bakcend. This can't be undone."
+        );
+    }
+
+    #[test]
+    fn deleted() {
+        let notice = TeamNotice::Deleted {
+            team: "Bakcend".into(),
+        };
+        assert_eq!(notice.to_string(), "Deleted Bakcend.");
     }
 
     #[test]

@@ -1,0 +1,13 @@
+{% extends "app_shell.html" %}
+{% block title %}{{ question }}{% endblock %}
+{% block app_content %}
+<main class="team-delete">
+  <h1>{{ question }}</h1>
+  <p>{{ member_line }}</p>
+  <form method="post" action="/team/{{ team_slug }}/delete">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <button type="submit">Delete team</button>
+  </form>
+  <p><a href="/team/{{ team_slug }}/members">Cancel</a></p>
+</main>
+{% endblock %}

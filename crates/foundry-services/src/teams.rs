@@ -7,15 +7,17 @@
 //! and for insufficient access alike, so the adapter's refusal is one uniform
 //! 404. Tenancy comes only from the principal's workspace (D10).
 //!
-//! The read use-cases ([`list_teams`], [`team_members`]) have no write method on
-//! their path (Principle 12); [`add_member`], [`change_role`], [`remove_member`]
-//! and [`set_default_team`] are the writers.
+//! The read use-cases ([`list_teams`], [`team_members`], [`delete_preview`]) have
+//! no write method on their path (Principle 12); [`add_member`], [`change_role`],
+//! [`remove_member`], [`set_default_team`], [`create_team`] and [`delete_team`]
+//! are the writers.
 
 use crate::Principal;
 use foundry_core::{mint_team_slug, MintedTeamSlug, TeamAccess, TeamName, TeamNameError, TeamRole};
 use foundry_store::teams::{
     AddTeamMemberOutcome, RemoveTeamMemberOutcome, SetDefaultTeamOutcome, SetTeamRoleOutcome,
-    TeamAccessFacts, TeamCreateOutcome, TeamMemberRow, TeamPerson, TeamScope, TeamSummary,
+    TeamAccessFacts, TeamCreateOutcome, TeamDeleteFacts, TeamDeleteOutcome, TeamMemberRow,
+    TeamPerson, TeamScope, TeamSummary,
 };
 use foundry_store::{Store, StoreError};
 
@@ -450,4 +452,103 @@ pub async fn create_team(
         }
     }
     Err(CreateTeamError::SlugContention)
+}
+
+// ===========================================================================
+// team-lifecycle: the delete use-cases (DESIGN DDD-7, DDD-10, DDD-18,
+// ADR-TEAM-LIFECYCLE-002, ADR-TEAM-LIFECYCLE-004). Both need `Administer`
+// (`can_delete`); anything less is the uniform 404.
+// ===========================================================================
+
+/// What the delete page shows (DDD-10): the confirm, or why the team cannot go.
+/// Every number is advisory; the delete re-checks under its lock.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TeamDeletePreview {
+    /// The team has no project: offer the delete.
+    Confirm {
+        team_slug: String,
+        team_name: String,
+        facts: TeamDeleteFacts,
+    },
+    /// The team has projects, as `(name, key)` by name then key.
+    HasProjects {
+        team_name: String,
+        projects: Vec<(String, String)>,
+    },
+}
+
+/// What a delete did (DDD-18).
+#[derive(Debug, Clone)]
+pub enum TeamDeletion {
+    /// The team is gone; the teams page is re-read after the write.
+    Deleted {
+        team_name: String,
+        index: TeamsIndex,
+    },
+    /// The team had projects at commit time; nothing was written.
+    HasProjects {
+        team_name: String,
+        projects: Vec<(String, String)>,
+    },
+}
+
+/// `GET /team/{slug}/delete`: needs `Administer`. Read-only: no write method on
+/// its path (Principle 12).
+pub async fn delete_preview(
+    store: &Store,
+    principal: &Principal,
+    team_slug: &str,
+) -> Result<TeamDeletePreview, TeamError> {
+    let facts = administered_team(store, principal, team_slug).await?;
+    let delete_facts = store.team_delete_facts(facts.team_id).await?;
+    if !delete_facts.projects.is_empty() {
+        return Ok(TeamDeletePreview::HasProjects {
+            team_name: facts.team_name,
+            projects: delete_facts.projects,
+        });
+    }
+    Ok(TeamDeletePreview::Confirm {
+        team_slug: facts.team_slug,
+        team_name: facts.team_name,
+        facts: delete_facts,
+    })
+}
+
+/// `POST /team/{slug}/delete`: needs `Administer`, read once at the start
+/// (ADR-TEAM-LIFECYCLE-004 decision 6); the store's locked transaction decides
+/// between deleted and has-projects (ADR-TEAM-LIFECYCLE-002).
+pub async fn delete_team(
+    store: &Store,
+    principal: &Principal,
+    team_slug: &str,
+) -> Result<TeamDeletion, TeamError> {
+    let facts = administered_team(store, principal, team_slug).await?;
+    let outcome = store
+        .delete_team_if_empty(principal.workspace_id(), facts.team_id, principal.user_id())
+        .await?;
+    match outcome {
+        TeamDeleteOutcome::Deleted { name, .. } => Ok(TeamDeletion::Deleted {
+            team_name: name,
+            index: list_teams(store, principal).await?,
+        }),
+        TeamDeleteOutcome::HasProjects { projects } => Ok(TeamDeletion::HasProjects {
+            team_name: facts.team_name,
+            projects,
+        }),
+        TeamDeleteOutcome::NotFound => Err(TeamError::NotFound),
+    }
+}
+
+/// The team's facts when the caller may delete it (`Administer`); anything else
+/// is the uniform 404 (ADR-TEAM-LIFECYCLE-004 decision 2).
+async fn administered_team(
+    store: &Store,
+    principal: &Principal,
+    team_slug: &str,
+) -> Result<TeamAccessFacts, TeamError> {
+    let (facts, access) = resolve_access(store, principal, team_slug).await?;
+    if !access.can_delete() {
+        return Err(TeamError::NotFound);
+    }
+    Ok(facts)
 }
