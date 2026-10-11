@@ -1,2 +1,5 @@
 - 01-02: the first_team_slug tie-break (ORDER BY name, slug) is untested when a user is on two teams; add a store test (acceptance designer).
 - 02-01: is_fk_violation '&&→||' survives (needs a 23503 on another constraint, e.g. insert_project with a foreign workspace id); Store::migrate→Ok(()) only caught by smoke; merged locked DELETE is an equivalent mutant.
+- 04-01: `is_name_rule_refusal` (true/false) survives because it only decides whether to log a warn; no test captures logs. Same class as team-membership H8. Follow-up: a tracing-capture test harness covering both. Accepted as log-only for this delivery.
+- 04-01: stale `#[ignore = "pending: team-lifecycle…` quotes remain in the module-doc comments of team_create.rs, team_delete.rs and team_lifecycle_migrations.rs (no real ignores). Clean up at finalize.
+- 04-01 found and fixed: rename records now use clock_timestamp(), not now(), so concurrent renames chain in commit order.
