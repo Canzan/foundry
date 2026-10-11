@@ -851,3 +851,64 @@ jobs:
           Downstream. Keycloak provisioning (keycloak-sso D3a) creates the
           no-team member this job rescues. The default team (US-TM-07) closes
           that gap for future newcomers.
+
+  - id: job-team-lifecycle
+    title: Create, rename and delete teams, so every workspace reaches a board and its teams match the work
+    job_story: >
+      When the way my workspace's work is split changes (a provisioned
+      workspace with no teams at all, a team whose name no longer fits, a team
+      created by mistake), I want to create, rename or delete teams myself, so
+      every workspace can reach a board and its team list matches how we
+      actually work, without psql and without losing a project by accident.
+    dimensions:
+      functional: >
+        Create a team on /teams as a workspace admin and lead it; rename it
+        (admin, or its lead) without changing its URL; delete it through a
+        confirm page that states what goes, refused while it has projects.
+        One team-name rule on both doors, with a working slug for any script.
+      emotional: >
+        A provisioned workspace stops being a dead end. Deleting stops being
+        frightening, because it cannot take a project with it.
+      social: >
+        A team's name says what the team does today, and nobody's bookmarks
+        break when it changes.
+    forces:
+      push: >
+        The only production writer of teams is bootstrap (General in the
+        first workspace). Every workspace provisioned from
+        /admin/instance/workspaces has zero teams, so nobody there can join a
+        team, create a project or open a board. Every other team was psql,
+        with no name rule, and a psql delete cascades silently to every
+        project, issue, comment and attachment of the team.
+      pull: >
+        A "Create team" form, a rename field and a "Delete team" button, the
+        way every team tool works.
+      anxiety: >
+        That one delete destroys a team's projects with no undo. That a rename
+        breaks URLs. That two teams end up with the same name.
+      habit: >
+        psql works for a single operator. The product path must be safer (it
+        never destroys an unseen project, slugs stay put), not merely
+        prettier.
+    opportunity:
+      importance: high
+      satisfaction: low
+      note: >
+        Single-job feature; no comparative scoring table. Importance high:
+        a provisioned workspace cannot be used at all without a team.
+        Satisfaction low: zero product paths for create, rename or delete.
+        Not an extension of job-team-membership, which starts from a team
+        that exists; this job makes and retires the team itself. Grounded in
+        the team-membership follow-up (D14) and code reading, not interviews
+        (no DISCOVER), the same recorded risk as its siblings.
+    validated_by: docs/feature/team-lifecycle/feature-delta.md
+    relates_to:
+      - job: job-team-membership
+        relation: >
+          Upstream. A team must exist before anyone can be put on it; the
+          creator becomes its lead, so the never-leaderless guard protects it
+          from birth.
+      - job: job-project-naming
+        relation: >
+          Sibling rule. Team names reuse the project rule's shared character
+          predicate, its definition of "unique", and its fallback-slug mint.
