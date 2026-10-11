@@ -119,7 +119,7 @@ Feature: A workspace admin creates a team, leads it, and starts a project on it
     Then she is refused with "Team name must be unique within the workspace", and her text "Platform" is kept
     And no team, project or membership changed
 
-  @us-tl-01 @error @kpi @contract-shape:unbounded-preservation @pending
+  @us-tl-01 @error @kpi @contract-shape:unbounded-preservation
   Scenario Outline: Only a workspace admin can create a team
     When <who> submits a team create named "Platform"
     Then the answer is the page that never existed
@@ -133,7 +133,13 @@ Feature: A workspace admin creates a team, leads it, and starts a project on it
       | Sam                  |
       | Lena                 |
       | Ines                 |
-      | Hugo                 |
+
+  @us-tl-01 @edge @kpi @contract-shape:bounded-change
+  Scenario: Another workspace's admin creates a team in their own workspace only, and Canzan Labs never sees it
+    When Hugo creates the team "Platform" from the teams page
+    Then he sees "Created Platform. You're its lead."
+    And Globex now has the team "Platform" at the address "platform", led by Hugo Weber, and nothing else changed
+    And Priya's teams page does not list "Platform"
 
   @us-tl-01 @edge @contract-shape:unbounded-preservation
   Scenario: An instance admin who is not a workspace admin is not offered the form either

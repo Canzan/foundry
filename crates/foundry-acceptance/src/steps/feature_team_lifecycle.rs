@@ -262,7 +262,7 @@ async fn nothing_changed(world: &mut FoundryWorld) {
 }
 
 #[then(
-    regex = r#"^(Homelab|Canzan Labs) now has the team "([^"]+)" at the address "([^"]+)", led by ([A-Z]\w* [A-Z]\w*), and nothing else changed$"#
+    regex = r#"^(Homelab|Canzan Labs|Globex) now has the team "([^"]+)" at the address "([^"]+)", led by ([A-Z]\w* [A-Z]\w*), and nothing else changed$"#
 )]
 async fn now_has_team(
     world: &mut FoundryWorld,
