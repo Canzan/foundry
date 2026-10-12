@@ -2,19 +2,15 @@
 
 ## Current Task
 
-**team-lifecycle** (create, rename and delete teams): DELIVER is in progress; 9 of 13 steps are done: slices 01-03 are complete (create; delete, refused while projects exist; the team-name rule in app and DB, migration 0024; last commit `c30622a`). Slice 04 (rename) is in progress: 04-01 `30e043b` (store rename plus audit; clock_timestamp ordering fix) is done, 04-02 `cd52dd5` adds the rename UI for admins and leads, 04-03 `b36a8c9` adds the rename refusals, so all 95 tl rows are green; 04-04 (CHANGELOG, mutation report, full CI) is next. 12 of 13 steps are done. Committed locally and NOT pushed. Done:
-- slice 01: admins create teams and lead them (`f14e979`, `23d2174`, `25857a7`, `e44a2da`);
-- 02-01: migration 0023 (the `team_lifecycle_events` audit table), a delete that never loses a project (store-proven, 100-run race), and requests that lose their team answer 404/422 instead of 500.
-
-**Resume:** `/nw:continue team-lifecycle` picks up at the first step without a COMMIT/PASS. The step contexts are in `docs/feature/team-lifecycle/deliver/roadmap.json`; owed items are in `deliver/finalize-owed.md`. Earlier: team-membership shipped in v0.13.0 (live on dev; prod awaiting approval).
+**team-lifecycle** (create, rename and delete teams) is delivered and finalized (`0b961ea`→HEAD; evolution doc `docs/evolution/2026-10-12-team-lifecycle.md`), committed locally and NOT pushed: the user says no push or release until told. All 13 DES steps are complete, the adversarial review APPROVED it, and all 54 scenarios / 95 rows are green. Migrations 0023 (`team_lifecycle_events` audit) and 0024 (DB team-name rule). Earlier: team-membership shipped in v0.13.0 (live on dev; prod awaiting approval).
 
 ## Key Decisions
 
-- The user decided: refuse delete while the team has projects; a lead may rename; audit rename and delete; a DB team-name rule at cap 64.
-- 0023 keeps its foreign keys, so a pre-0023 dump can no longer be restored OVER an upgraded database. The upgrading boot logs one warning (not on a fresh install), and the CHANGELOG says to restore old dumps into a fresh database.
+- Delete is refused while the team has any project (team row `FOR UPDATE`, then projects re-read, proven by a 100-run race); a lead may rename; rename and delete are audited; the DB name rule caps at 64.
+- 0023 keeps its FKs, so pre-0023 dumps restore only into a FRESH database. The upgrading boot warns once; old backups are to be deleted (which ones is confirmed with the user at release).
 
 ## Next Steps
 
-- 02-02 to 04-04, then finalize.
-- At release, ask the user which pre-0023 backups to delete (per-workspace backup files and/or the homelab CNPG backups). The user said to delete the old backups; nothing has been deleted yet.
-- Follow-ups are in `docs/feature/team-lifecycle/deliver/finalize-owed.md`.
+- Before release (v0.14.0): one uninterrupted `FOUNDRY_XTASK_INCLUDE_DOCKER=1 cargo xtask ci` plus a final `cargo mutants` on store teams.rs. Blocked on 2026-10-12 by Docker Desktop connect flakes (PortNotExposed/PoolTimedOut) under heavy load.
+- At release: confirm which pre-0023 backups to delete; dogfood slices 01/02/04 on dev; take the KPI-TL baselines.
+- Follow-ups (see the evolution doc): delete records use `now()`, not `clock_timestamp()`; the `team_not_found_page` copies in keyboard.rs/comments.rs; OQ-D4; a tracing-capture harness (team-membership H8 plus W1).

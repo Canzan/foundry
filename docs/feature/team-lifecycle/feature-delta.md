@@ -1421,3 +1421,127 @@ Burn-down: `grep -cE '^\s*@.*@pending' crates/foundry-acceptance/tests/features/
 | `cargo xtask check-arch` | PASSED (DDD-19's `team-lifecycle-one-seam` and `team-name-one-source` rules are DELIVER 01-01's) |
 
 Only the containers these runs started were created, and none was left behind. Nothing committed or pushed.
+
+## Wave: DELIVER
+
+Crafter: nw-software-crafter (OOP, CLAUDE.md), orchestrated through DES | Dates: 2026-10-11 to
+2026-10-12 | Roadmap: `deliver/roadmap.json` (13 steps, `b791946`) | Log:
+`deliver/execution-log.json` (all 13 steps RED → GREEN → COMMIT, PASS; three COMMITs were first
+SKIPPED as BLOCKED_BY_DEPENDENCY and escalated) | Finalized: 2026-10-12, evolution doc
+`docs/evolution/2026-10-12-team-lifecycle.md` | Feature dir PRESERVED | **Nothing pushed or
+deployed** (`main` 41 ahead of `origin/main`). One uninterrupted full CI run and a final store
+mutation pass are owed before release.
+
+### [REF] Implementation summary
+
+| Step | What landed | Commit |
+|---|---|---|
+| 01-01 | Walking skeleton (scenario 1): `TeamName`/`TeamNameError`/`TEAM_NAME_MAX_CHARS`, `mint_team_slug`, `list_team_siblings`, `create_team_with_lead` (admin row `FOR KEY SHARE`, team, lead row), `teams::create_team` (≤3 attempts), `POST /teams`, the create form and no-teams copy, **New project** on the members page | `f14e979` |
+| 01-02 | `first_team_slug` replaces `is_on_any_team`. The dashboard's "create your first project" link names a team the caller is on | `23d2174` |
+| 01-03 | Create refusals; check-arch `team-name-one-source` and `team-lifecycle-one-seam`. Second commit: the create-door admin matrix and scenario 9a | `25857a7`, `e44a2da` |
+| 02-01 | Migration 0023 (`team_lifecycle_events`, shape CHECK, self-check), the probe line, `team_delete_facts`, `delete_team_if_empty` (`FOR UPDATE`, fresh project read, delete, record), 23503 mappings (`insert_project`, `add_team_member`, `set_default_team`, `insert_machine_token`), the 0023 upgrade warning (`upgrade_warnings.rs`); 100-run race | `d803331` |
+| 02-02 | `TeamAccess::Administer`, `can_delete`; `teams::{delete_preview, delete_team}`; `show_delete`, `submit_delete`, `team_delete.html`; the delete door's 404 matrix | `3e43e21` |
+| 02-03 | The confirm page's default-team and scoped-token lines; the no-team landing, the cleared default, the tokens removed, the reusable address, stale pages | `f8f8f7f` |
+| 02-04 | The projects refusal (200 page on GET, 409 at commit, "Name (KEY)" by name then key); `CreateProjectError::TeamGone` → uniform 404 | `7730426` |
+| 03-01 | Migration 0024 (`teams_name_rule_on_insert`/`_on_rename` at 64, the HINT arm, self-check); `name_rule_in_database.rs` parity extended to teams | `48c1045` |
+| 03-02 | The rule at the create door: every arm, the 64 boundary, the collisions, the fallback address, the create races (use-case 100-run ×3, HTTP ×5). Second commit: 31, 33, 34 un-pended | `e3ac58d`, `c30622a` |
+| 04-01 | `rename_team_with_audit` (`FOR NO KEY UPDATE`, byte-equal no-op, name only, record at `clock_timestamp()`); last store scaffold removed | `30e043b` |
+| 04-02 | `classify_team_rename`, `teams::rename_team`, `submit_rename`, the prefilled Rename form, `TeamNotice::Renamed`; links keep working; case-only and no-op | `cd52dd5` |
+| 04-03 | Rename refusals (422, text kept, the rule's own copy); the 404 matrix; a demoted lead's stale page; CSRF | `b36a8c9` |
+| 04-04 | CHANGELOG `[Unreleased]`; burn-down (0 `@pending`, 0 pending ignores, no team-lifecycle `SCAFFOLD`); mutation report | `a76ace2` |
+| — | Test owner: `first_team_slug` tie-break and `is_fk_violation` gaps; past-tense DISTILL comments | `5cc220e` |
+| — | Test owner: an add or a default set refused for another reason is an error, not `TeamGone` | `f4d5179` |
+
+Escalations, each resolved through the acceptance designer (the test owner), never by a crafter
+editing tests outside its step:
+- The "Back-End" slug premise (01-01; `slugify` keeps hyphens) became "Backend!" (DISTILL
+  correction 5).
+- Scenario 9's Hugo row became isolation scenario 9a (01-03; DISTILL correction 6).
+- The scenario-24 harness before-image gap.
+- `name_rule_in_database.rs`'s restore test, broken by 0023's FKs (02-01). The user decided to
+  keep the FKs, with an upgrade-only boot warning and a CHANGELOG restore note.
+- The name-db-checks restore step pinned four triggers (03-01); extended to six.
+- Three tl-03 harness defects:
+  - `page_at` reused a create's re-render at `/teams`;
+  - NUL was compared as U+FFFD;
+  - the `[64×a]` mark was expanded wrongly.
+- Mutation gaps:
+  - `MintedSlug::as_str`;
+  - the store create-path survivors;
+  - the `first_team_slug` tie-break;
+  - `is_fk_violation`;
+  - the add and default-set guards.
+
+### [REF] Files modified
+
+| Category | Files |
+|---|---|
+| Core | `crates/foundry-core/src/team_name.rs` (new), `project_name.rs` (shared uniqueness and lowest-free helpers), `team_membership.rs` (`Administer`), `lib.rs` |
+| Store | `crates/foundry-store/src/teams.rs`, `crates/foundry-store/src/lib.rs` (`insert_project`, `insert_machine_token`, `probe`, `migrate`), `crates/foundry-store/src/upgrade_warnings.rs` (new) |
+| Migrations (new) | `crates/foundry-store/migrations/0023_team_lifecycle_events.sql`, `crates/foundry-store/migrations/0024_team_name_rule.sql` |
+| Services | `crates/foundry-services/src/teams.rs`, `projects.rs` (`TeamGone`), `tokens.rs` (422 mapping), `lib.rs` |
+| App | `crates/foundry-app/src/teams.rs`, `projects.rs`, `signin.rs`, `views.rs`, `lib.rs` (routes) |
+| Templates | `crates/foundry-app/templates/teams_index.html`, `team_members.html`, `dashboard_root.html`, `team_delete.html` (new) |
+| Architecture rules | `xtask/src/check_arch.rs` (`team-name-one-source`, `team-lifecycle-one-seam`) |
+| Store and use-case tests | `crates/foundry-store/tests/team_create.rs`, `team_delete.rs`, `team_rename.rs`, `team_lifecycle_migrations.rs`; `crates/foundry-services/tests/team_lifecycle_use_cases.rs`; `name_rule_in_database.rs`, `probe_schema_scoping.rs` (escalations); `crates/foundry-core/tests/project_name.rs` |
+| Acceptance | the four `team-lifecycle-0*.feature` files (un-pended), `steps/feature_team_lifecycle.rs`, `support/team_lifecycle.rs`, `support/team_membership.rs`, `steps/feature_name_db_checks.rs` (six triggers), `world.rs`, `lib.rs`, `tests/acceptance.rs` |
+| Docs | `CHANGELOG.md`, `deliver/*`; at finalize: this section, `docs/evolution/2026-10-12-team-lifecycle.md`, `docs/product/architecture/brief.md`, `docs/product/kpi-contracts.yaml` |
+
+### [REF] Scenarios green
+
+- team-lifecycle: **54 of 54 scenarios, 95 of 95 rows, 697 steps** (tl-01 12 scenarios/20 rows,
+  tl-02 18/28, tl-03 12/25, tl-04 12/22). 0 `@pending` left.
+- Store: `team_create.rs` 8, `team_delete.rs` 20, `team_rename.rs` 6,
+  `team_lifecycle_migrations.rs` 10. Use-case: `team_lifecycle_use_cases.rs` 7. 0 ignored. That
+  is DISTILL's 42 plus the test owner's additions. Every 100-run race is green per step.
+- Full CI at 04-04 (run 1): acceptance 1313/1314. The one failure was a browser WaitTimeout that
+  passed alone. An uninterrupted green run is **owed**.
+
+### [REF] DoD check (against DISCUSS DoD)
+
+| # | DoD item | Status | Evidence |
+|---|---|---|---|
+| 1 | All UAT scenarios pass; neighbouring lanes green | PASS (CI rerun owed) | 95/95 rows. Each step ran its neighbour lanes. Full CI run 1 reached 1313/1314 (one browser timeout, green alone) |
+| 2 | Authz matrix on every new route and both verbs | PASS | `@error @kpi` outlines in tl-01, tl-02 and tl-04 (signed out, Marco, Sam, Lena, Ines, Hugo, unknown and foreign slugs), each with a control; scenario 9a for cross-tenant create |
+| 3 | INV-TL-1, -2, -4 races at least 100 times | PASS | store: delete-versus-project-create ×100 (0 lost, 0 unmapped), same-slug create ×100, create-versus-workspace-removal ×100, renames ×100 and rename-versus-delete ×100; use-case: "Infra" ×2, "インフラ" ×2, "インフラ" vs "運用" ×100 each; token mint racing a delete → 422; HTTP ×5 |
+| 4 | Nothing written on a refusal | PASS | fail-closed `assert_state_delta` on every write scenario |
+| 5 | Pages work with scripting disabled | PASS (by construction) | plain forms; Cancel is a link; every scenario drives the forms over HTTP with no browser |
+| 6 | check-arch and smoke per commit; full CI before push; mutation at least 80% | PARTIAL | per-step gates in the log; mutation: every changed Rust file passes, store `teams.rs` at least 80% counting `f4d5179`'s hand bite proofs (W1-W3 waived); **the uninterrupted CI and the final store mutation pass are owed** (Docker port publishing) |
+| 7 | Dogfood on dev; KPI-TL-1 baselines | **OWED** | nothing deployed; scenario 1 is the HTTP-level stand-in |
+| 8 | Upgrade: 0023 additive, 0024 triggers plus function replace; rolling-deploy safe | PASS (amended) | CHANGELOG migration notes with rollback SQL. They include the pre-0023 dump restore caveat (user decision 2026-10-11) and OQ-D6's counts (dev and prod: 1 team each, 0 rule breaks, 0 duplicates) |
+| 9 | Documentation | PASS | CHANGELOG `[Unreleased]`; brief.md "Team lifecycle" (DESIGN, inventory at finalize); OUT-24..26 and OUT-20 amended; `jobs.yaml`; team-membership's "Team create, rename and delete" follow-up closed in the evolution doc |
+
+### [REF] Demo evidence
+
+The acceptance scenarios are the HTTP-level demo. They drive the production composition root
+through the real router, sessions, CSRF and Postgres 16, with only Keycloak faked over a real
+socket. Scenario 1 is the slice-01 dogfood in shape: Homelab, as provisioning leaves it, with no
+team. Its admin switches to it, reads the no-teams copy, creates Ops, is its lead, follows **New
+project**, creates Homelab Ops (OPS), and the board answers 200. Scenarios 25-29 show the delete
+refusing a team with a project, including one created mid-confirm. Scenario 42 shows a rename
+keeping every link. **The live dogfoods are owed**: slices 01, 02 and 04 on dev after release,
+and prod after approval.
+
+### [REF] Quality gates
+
+| Gate | Result |
+|---|---|
+| DES integrity | all 13 steps complete |
+| End-of-DISTILL review | four reviewers approved (the platform reviewer on cycle 2) |
+| Roadmap review | approved, 0 findings |
+| Adversarial review | APPROVED, 0 blockers. The delete lock (`FOR UPDATE`, store `teams.rs:748`) and the rename lock (`FOR NO KEY UPDATE`, `clock_timestamp()`) were checked against the code |
+| Mutation | see `deliver/mutation-report.md`. Core, app, xtask and store `lib.rs`/`upgrade_warnings.rs` pass. Store `teams.rs` is at least 80% with the guards killed by `f4d5179` (hand bite proofs). SQL hand tables: 0023/delete 4/4 non-equivalent, 0024 6/6, rename 8/8, delete door 5/5, rename refusal 4/4. Waivers: W1 `is_name_rule_refusal` (log-only), W2 `Store::migrate` (smoke-only), W3 the merged locked DELETE (equivalent). The final cargo-mutants pass on store and services is **owed** |
+| Full CI | **owed**. Run 1 at 04-04: 1313/1314 (a browser WaitTimeout that passed alone). After a user-approved Docker Desktop restart (2026-10-12), later runs failed only at Postgres connect (PortNotExposed / PoolTimedOut), in an unmutated baseline and in untouched tests |
+| check-arch | PASSED at finalize |
+| Environment | the canzan-lift session's mutation runs held the load average at 30-70; Docker port publishing was intermittent; the hand-mutation agent and a lane-running crafter should not run at once |
+
+### [REF] Pre-requisites (for release)
+
+- One uninterrupted `FOUNDRY_XTASK_INCLUDE_DOCKER=1 cargo xtask ci`, and a final `cargo mutants`
+  pass on store `teams.rs` (and the services files).
+- The user confirms which pre-0023 backups to delete. Nothing is deleted before then.
+- The user's go-ahead to push and release. Then on dev: the slice-01, -02 and -04 dogfoods and
+  the KPI-TL-1 baseline (workspaces with zero teams), with project counts before and after each
+  dogfood delete. Prod after approval.
+- Postgres 16 (dev and prod run it). 0023 and 0024 are forward-only, rolling-deploy safe, with a
+  rollback floor of v0.13.0.

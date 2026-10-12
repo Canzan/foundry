@@ -445,12 +445,20 @@ features:
     job: job-team-lifecycle
     source: docs/feature/team-lifecycle/feature-delta.md   # "## Wave: DISCUSS / [REF] Outcome KPIs"
     distill: docs/feature/team-lifecycle/feature-delta.md  # "## Wave: DISTILL"
+    deliver: docs/feature/team-lifecycle/feature-delta.md  # "## Wave: DELIVER / [REF] DoD check (against DISCUSS DoD)"
+    evolution: docs/evolution/2026-10-12-team-lifecycle.md
     runtime_telemetry: none   # homelab: read-only queries and acceptance oracles, no analytics
     lane: "default lane: FOUNDRY_ACCEPTANCE_TAGS=team-lifecycle (per slice: tl-01 .. tl-04); store: cargo test -p foundry-store --test team_create --test team_delete --test team_rename --test team_lifecycle_migrations; use-case: cargo test -p foundry-services --test team_lifecycle_use_cases"
     # No DEVOPS wave ran. Instruments below are DISTILL's scenario links (2026-10-11).
-    # Every scenario is @pending (ADR-025); DELIVER un-pends slice by slice and records
-    # `measured:` at finalize.
-    status: owed
+    # Values recorded at DELIVER finalize (2026-10-12): the acceptance and store halves
+    # are measured; every dev/prod half (baselines, dogfoods) is owed, because nothing is
+    # deployed or pushed. The uninterrupted full CI and the final store mutation pass are
+    # also owed (Docker port publishing intermittent under load).
+    status: measured-locally  # KPI-3, 4, 6 measured (dogfoods owed); KPI-1 acceptance-measured with baselines owed; KPI-2, 5 owed
+    measured_at: "2026-10-12 finalize, main, tip f4d5179; not pushed"
+    measured_lane: "FOUNDRY_ACCEPTANCE_TAGS=team-lifecycle: 54/54 scenarios, 95/95 rows, 697 steps; store: team_create 8, team_delete 20, team_rename 6, team_lifecycle_migrations 10; use-case: team_lifecycle_use_cases 7; 0 ignored"
+    final_gate: "OWED: FOUNDRY_XTASK_INCLUDE_DOCKER=1 cargo xtask ci not yet green in one uninterrupted run. Run 1 at 04-04: acceptance 1313/1314 (one browser WaitTimeout, green alone); later runs failed only at Postgres connect (PortNotExposed / PoolTimedOut) in untouched tests"
+    ci_github: "not run: nothing pushed"
     kpis:
       - id: TL-KPI-1
         name: Every workspace with a member has at least one team
@@ -462,7 +470,10 @@ features:
           - {kind: acceptance, ref: "team-lifecycle-01 'A new team's lead is sent from the dashboard to that team's project form' (@kpi)", oracle: "the empty-state link opens /team/ops/projects/new, never /team/general/... (D14)"}
           - {kind: dogfood, ref: "read-only query on dev and prod: workspaces with no teams row (slice-01 DoD)"}
         gate: hard
-        status: owed
+        status: measured
+        measured:
+          value: "Acceptance 100%: tl-01 scenario 1 (walking skeleton: Homelab with no team, Priya creates Ops, leads it, New project, Homelab Ops board answers 200, dashboard lists OPS Homelab Ops) and scenarios 3-4 (the empty-state link opens a team the caller is on) green"
+          owed: ["the dev and prod baselines (workspaces with no teams row, read-only)", "the slice-01 dogfood on dev in a zero-team provisioned workspace, then the count 1 day after"]
       - id: TL-KPI-2
         name: The operator creates and renames teams without psql
         type: leading
@@ -473,6 +484,9 @@ features:
           - {kind: dogfood, ref: "operator report at each dogfood"}
         gate: soft
         status: owed
+        measurement: owed
+        owner: "the user (operator report after release; single-operator instance)"
+        owed_note: "The tl-01 create and tl-04 rename @kpi scenarios are green; the KPI itself is the operator's report. Nothing deployed as of 2026-10-12. The window opens at the first release carrying team-lifecycle"
       - id: TL-KPI-3
         name: Team deletes destroy no project
         type: guardrail
@@ -483,7 +497,11 @@ features:
           - {kind: acceptance, ref: "team-lifecycle-02 @kpi: refusal page, 409 on a stale confirm, and the HTTP race (5 runs, @concurrency)", oracle: "409 with the D12 projects copy and an unchanged universe; each race run kept-and-refused or deleted-and-404; no 5xx"}
           - {kind: dogfood, ref: "read-only project count before and after each dogfood delete"}
         gate: hard
-        status: owed
+        status: measured
+        measured:
+          value: "Store: the 100-run delete-versus-project-create race, every run kept-and-HasProjects or deleted-and-TeamGone, 0 lost projects, 0 unmapped errors; both NEGATIVE CONTROLS still lose the project. HTTP: scenarios 25-28 (refusal page, 409 at commit, stale confirm) and 29 (race, 5 runs) green, no 5xx"
+          fault: "0023/delete hand table: H1 (FOR UPDATE -> FOR NO KEY UPDATE), H2 (read before lock), H3 (no lock, one DELETE ... WHERE NOT EXISTS), H5 (record dropped) killed; H4 (merged read+delete under the kept FOR UPDATE) equivalent (W3). Delete door D1-D5 killed"
+          owed: ["the slice-02 dogfood on dev: delete a typo team, see a team with a project refused, project counts equal before and after"]
       - id: TL-KPI-4
         name: Callers without the right learn nothing and change nothing
         type: guardrail
@@ -492,7 +510,10 @@ features:
         instruments:
           - {kind: acceptance, ref: "every @error @kpi outline in team-lifecycle-01, -02 and -04 (signed out, Marco, a member, a lead (create and delete), an instance admin who is not a workspace admin, a Globex admin, an unknown and a foreign slug) on POST /teams, GET and POST /team/{slug}/delete, POST /team/{slug}/rename", oracle: "status and body byte-identical to a page that never existed; the universe unchanged; a control proves the hidden team or door exists"}
         gate: hard
-        status: owed
+        status: measured
+        measured:
+          value: "100%: every @error @kpi outline row in tl-01, tl-02 and tl-04 green: byte-identical 404, universe unchanged, control proves the team or door exists; a Globex admin's create lands in Globex only (9a); a demoted lead's stale rename is 404 (52); tokenless POSTs are the CSRF layer's 403 (outside the matrix)"
+          fault: "check-arch team-lifecycle-one-seam / team-name-one-source: 33 mutants, 100% caught; TeamAccess (Administer arm) 100%; rename refusal N4 (422 -> 404) killed"
       - id: TL-KPI-5
         name: Admins who try to delete a team with projects hit the refusal (demand signal for OQ-4 (b)/(c))
         type: leading
@@ -502,6 +523,9 @@ features:
           - {kind: dogfood, ref: "operator report"}
         gate: soft
         status: owed
+        measurement: owed
+        owner: "the user (operator count over the first 30 days after release)"
+        owed_note: "Nothing deployed as of 2026-10-12. Above 0 is evidence for OQ-4 (b)/(c), project delete or move"
       - id: TL-KPI-6
         name: Renamed teams keep every link working, and both doors give one verdict
         type: guardrail
@@ -512,4 +536,8 @@ features:
           - {kind: acceptance, ref: "team-lifecycle-03 and -04 rule outlines (the same copy on both doors) and team_lifecycle_migrations.rs (the database at cap 64)", oracle: "identical refusal copy per arm; 23514 with the named arm"}
           - {kind: unit, ref: "DELIVER: foundry-core property test, TeamName's control verdict equals ProjectName's and WorkspaceName's for every scalar"}
         gate: hard
-        status: owed
+        status: measured
+        measured:
+          value: "Acceptance 100%: tl-04 scenario 42 (members page and Identity Platform board answer 200 at the old address, slug unchanged in the delta), 43-48; tl-03/tl-04 rule outlines give the same copy per arm on both doors. Core: proptest the_control_verdict_equals_project_and_workspace_rules and the classify_team_rename / create parity property. DB: 23514 with the named arm at cap 64"
+          fault: "rename hand table R1-R8 killed (incl. R5 slug rewritten with the name); 0024 hand table S1-S6 killed; core team_name.rs 100% of viable"
+          owed: ["the slice-04 dogfood on dev: rename a team, reopen a bookmark taken before the rename"]

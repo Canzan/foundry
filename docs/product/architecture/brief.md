@@ -514,7 +514,8 @@ team-membership evolution doc), and OQ-D9 (a future user hard-delete meets the t
 
 #### Team lifecycle: create, rename, delete
 
-**Designed (team-lifecycle DESIGN, 2026-10-11); not yet delivered.** A workspace admin creates and
+**Designed (team-lifecycle DESIGN, 2026-10-11); delivered 2026-10-11/12 (`f14e979` → `a76ace2`, not
+yet released).** A workspace admin creates and
 deletes teams. An admin or the team's lead renames them. All three are plain forms in the teams
 vertical: `POST /teams`, `POST /team/{slug}/rename`, and `GET`/`POST /team/{slug}/delete`.
 
@@ -570,6 +571,36 @@ See `adr-team-lifecycle-001-team-name-rule-and-create-use-case.md`,
 `adr-team-lifecycle-002-delete-refuses-while-projects-exist.md`,
 `adr-team-lifecycle-003-team-lifecycle-events-and-rename-transaction.md` and
 `adr-team-lifecycle-004-team-access-administer-arm.md`.
+
+**Shipped component inventory (team-lifecycle).** Recorded at the DELIVER finalize (2026-10-12,
+tip `f4d5179`). Every component below shipped as designed. The one change: rename records are
+stamped with `clock_timestamp()`, not `now()`, so concurrent renames record in commit order (found
+in 04-01). Delete records keep the column default, `now()`.
+
+| Design element | Shipped as | Where | DDD | Status |
+|---|---|---|---|---|
+| Team-name rule | `TeamName` (`try_new`, `ensure_unique_among`), `TeamNameError` (the D12 `Display`), `TEAM_NAME_MAX_CHARS = 64`; uniqueness and lowest-free helpers shared with `ProjectName` | `crates/foundry-core/src/team_name.rs`, `project_name.rs` | 2 | shipped |
+| Slug mint and rename verdict | `mint_team_slug` → `MintedTeamSlug` (`slugify`, else `team`, `team-2`, …); `classify_team_rename` → `TeamRenameVerdict` | `crates/foundry-core/src/team_name.rs` | 3, 14 | shipped |
+| Authority | `TeamAccess::Administer`; `can_manage` = Manage \| Administer; `can_delete` = Administer | `crates/foundry-core/src/team_membership.rs` | 15 | shipped |
+| Create write | `list_team_siblings`, `create_team_with_lead` → `TeamCreateOutcome {Created, DuplicateSlug, NotAdmin}` (admin row `FOR KEY SHARE`, team, lead row) | `crates/foundry-store/src/teams.rs` | 5 | shipped |
+| Delete write | `team_delete_facts` (advisory), `delete_team_if_empty` → `TeamDeleteOutcome` (team `FOR UPDATE`, fresh project read, delete, record) | store `teams.rs` | 7, 8, 10 | shipped |
+| Rename write | `rename_team_with_audit` → `TeamRenameWrite` (`FOR NO KEY UPDATE`, byte-equal `Unchanged`, name only, record) | store `teams.rs` | 13 | shipped |
+| Vanished-team mappings | `is_fk_violation(err, constraint)`; 23503 → `TeamGone` in `insert_project`, `add_team_member`, `set_default_team`; `insert_machine_token` → the shipped 422 | store `teams.rs`, `lib.rs`; services `tokens.rs`, `projects.rs` | 9 | shipped |
+| Dashboard link | `first_team_slug` (`ORDER BY name, slug`), replacing `is_on_any_team` | store `teams.rs`; app `signin.rs`, `dashboard_root.html` | 21 | shipped |
+| Audit table | `team_lifecycle_events`, CHECK `team_lifecycle_events_kind_shape`, index on `(workspace_id, created_at)`, no FK to `teams`, apply-time self-check; not in `TENANT_TABLES` | `migrations/0023_team_lifecycle_events.sql` | 11, 12 | shipped |
+| Upgrade warning | `UPGRADE_WARNING_0023`, logged once by `Store::migrate` when a boot upgrades through 0023 (a pre-0023 dump no longer restores over the database; user decision 2026-10-11) | `crates/foundry-store/src/upgrade_warnings.rs` | 24 | shipped (added in DELIVER) |
+| DB name rule | `teams_name_rule_on_insert`, `teams_name_rule_on_rename` at `'64'`; `foundry_enforce_name_rule()` gains the `TeamName` HINT arm; self-check | `migrations/0024_team_name_rule.sql` | 6 | shipped |
+| Readiness | `Store::probe` requires `team_lifecycle_events` | store `lib.rs` | 23 | shipped |
+| Use-cases | `teams::{create_team, rename_team, delete_preview, delete_team}`; `CreateTeamError`, `RenameTeamError`, `TeamDeletePreview`, `TeamDeletion`; `CreateProjectError::TeamGone`; `Services` delegations | `crates/foundry-services/src/teams.rs`, `projects.rs`, `lib.rs` | 4, 9, 22 | shipped |
+| Handlers and copy | `submit_create`, `submit_rename`, `show_delete`, `submit_delete`; `TeamNotice` (Created, NoTeamsYet, Renamed, Deleted, the confirm lines, the projects refusal); `projects::submit_create` `TeamGone` → uniform 404 | `crates/foundry-app/src/teams.rs`, `projects.rs` | 18, 20, 22 | shipped |
+| Views | create form and no-teams copy on `teams_index.html`; **New project**, **Rename**, **Delete team** on `team_members.html`; `team_delete.html` (confirm or refusal, Cancel a link) | `crates/foundry-app/src/views.rs`, `templates/` | 8, 21 | shipped |
+| Routes | `POST /teams`, `POST /team/{team_slug}/rename`, `GET`/`POST /team/{team_slug}/delete` | `crates/foundry-app/src/lib.rs` | 17 | shipped |
+| Seam rules | check-arch `team-lifecycle-one-seam` ((i) `teams` and `team_lifecycle_events` writes only in the store; (ii) the three store writers never called from app or api) and `team-name-one-source` | `xtask/src/check_arch.rs` | 19 | shipped |
+
+Open from this section: OQ-D4 (`admin_tokens::resolve_scope` resolves a typed name by
+`slugify`); W1 (`is_name_rule_refusal`'s warn is untested, the same class as team-membership's
+H8); the `team_not_found_page` copies in `keyboard.rs` and `comments.rs`. See the team-lifecycle
+evolution doc.
 
 ### Crate graph
 
