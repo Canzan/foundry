@@ -912,3 +912,77 @@ jobs:
         relation: >
           Sibling rule. Team names reuse the project rule's shared character
           predicate, its definition of "unique", and its fallback-slug mint.
+
+  - id: job-project-lifecycle
+    title: Rename and retire a team's project from the team itself, without losing any of its work
+    job_story: >
+      When a project on my team no longer fits (its name has drifted, it was
+      created by mistake, or its work is over), I want to rename it or delete
+      it myself from the team's page, so our project list matches the work we
+      actually do, without asking an instance admin, without psql, and without
+      losing a single issue if I change my mind.
+    dimensions:
+      functional: >
+        As the team's lead or a workspace admin, rename a project (name only;
+        slug, key and issue ids unchanged) under the shipped project-name rule,
+        and delete it through a confirm page. A delete hides the project from
+        every list and every web and API address and erases nothing; the
+        instance operator can list deleted projects and restore one exactly.
+      emotional: >
+        Deleting stops being frightening, because nothing is erased and there
+        is a way back. Renaming stops being a request to someone who never
+        sees the team.
+      social: >
+        The team's project list, every dashboard and the new-issue picker show
+        only work the team actually does, and nobody's links or issue ids
+        break when a name changes.
+    forces:
+      push: >
+        Only an instance super-admin can rename a project, from an
+        instance-wide dashboard a lead never sees. No product delete exists,
+        so mistaken and finished projects stay on every dashboard and picker
+        forever, psql's delete cascades over every issue, comment and
+        attachment, and a team that ever held a project can never be deleted
+        (team-lifecycle TL-KPI-5).
+      pull: >
+        A Rename field and a Delete project link next to each project on the
+        team's page, the way the team's own rename and delete already work.
+      anxiety: >
+        That a delete takes the project's issues, comments and attachments
+        for good. That a rename breaks URLs or changes issue keys. That someone
+        without the right deletes a project. That a "deleted" project still
+        answers on a forgotten URL or through the API.
+      habit: >
+        Asking an instance admin, or psql. The product path must be safer
+        (nothing erased, a restore exists, slugs and keys stay put), not just
+        closer to hand.
+    opportunity:
+      importance: high
+      satisfaction: low
+      note: >
+        Single-job feature; no comparative scoring table. Importance high:
+        without a delete, every mistaken project is permanent and blocks its
+        team's deletion. Satisfaction low: zero delete paths, and the one
+        rename door is not the owner's. Not an extension of
+        job-instance-project-rename, whose actor is the instance super-admin
+        surveying every tenant; this job's actor is the team's own lead, and
+        it adds retirement and restore. Grounded in the user's locked
+        decisions (soft delete; lead or workspace admin), team-lifecycle's
+        follow-up and code reading, not interviews (no DISCOVER or DIVERGE),
+        the same recorded risk as its siblings.
+    validated_by: docs/feature/project-lifecycle/feature-delta.md
+    relates_to:
+      - job: job-instance-project-rename
+        relation: >
+          Sibling door. Both rename the same name under the same rule; this
+          job's door belongs to the team, that job's to the instance admin. If
+          the rename record is accepted (OQ-3), both doors write it.
+      - job: job-team-lifecycle
+        relation: >
+          Downstream. Its delete refuses a team with projects (its OQ-4); this
+          job's project delete is how a team gets emptied, and (OQ-1) deleted
+          projects stop blocking the team delete while being kept.
+      - job: job-project-naming
+        relation: >
+          Reuses that job's rule and copy unchanged on the new rename door,
+          and holds a deleted project's name, slug and key (OQ-4).

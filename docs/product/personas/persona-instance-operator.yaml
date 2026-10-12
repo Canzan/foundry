@@ -32,6 +32,7 @@ personas:
       - docs/feature/name-db-checks/feature-delta.md
       - docs/feature/team-membership/feature-delta.md
       - docs/feature/team-lifecycle/feature-delta.md
+      - docs/feature/project-lifecycle/feature-delta.md
 
     situation: >
       Runs foundry on her own cluster alongside Grafana, Portainer, ArgoCD and
@@ -98,6 +99,7 @@ personas:
       - job-confirm-release-serving
       - job-team-membership
       - job-team-lifecycle
+      - job-project-lifecycle
 
   - id: persona-team-member-foil
     name: Marco

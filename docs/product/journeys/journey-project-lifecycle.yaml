@@ -1,0 +1,232 @@
+# Product SSOT — journeys.
+#
+# Created by the project-lifecycle DISCUSS wave (2026-10-12). Fourth journey in
+# this directory; shape follows journey-issue-card-delete.yaml. Only the journey
+# this wave mapped is recorded. Steps and copy are the feature-delta's (D14 copy
+# is locked there; this file quotes it).
+
+schema_version: "0.1"
+
+journeys:
+  - id: journey-project-lifecycle
+    title: Rename or retire a team's project, and get it back if needed
+    persona: persona-instance-operator   # Priya, as workspace admin and as operator; Lena Park (lead) is the primary actor, inline
+    job: job-project-lifecycle
+    platform: web + cli
+    validated_by: docs/feature/project-lifecycle/feature-delta.md
+
+    goal: >
+      Keep a team's project list truthful: rename a project whose name drifted,
+      retire one that was a mistake or is finished, and, if that was wrong,
+      bring it back exactly as it was. Never lose an issue, a link or an issue
+      id along the way.
+
+    emotional_arc:
+      pattern: Problem Relief
+      start: >
+        Cluttered and dependent. A dead spike sits on every dashboard and in
+        every new-issue picker, and the only rename door belongs to an instance
+        admin the lead has to ask.
+      middle: >
+        In control, then wary, then reassured. The team page lists the team's
+        projects with Rename and Delete project. Finding a destructive control
+        raises "what do I lose?"; the confirm page answers it before the click:
+        nothing is erased, and the operator can restore it.
+      end: >
+        Tidy, and later relieved. The project is gone from every list and every
+        address. A week later, a restore brings it back whole, at its old
+        addresses, with its old issue ids.
+      transition_rules:
+        - The one wariness spike (step 3, finding Delete project) is resolved
+          on the confirm page (step 4), never carried past the commit.
+        - Success is shown, not merely reported. A rename shows the new row and
+          the old link still opens; a delete shows the list without the project;
+          a restore shows the board again.
+        - A refusal never explains itself to someone without the right. It is
+          the uniform not-found page (no oracle).
+
+    steps:
+      - id: 1
+        name: See the team's projects
+        action: >
+          Lena (lead of Backend) opens /team/backend/members. A new Projects
+          section lists "Identity Platform · AUTH" and "Auth v2 Spike · SPIKE",
+          each with a Project name field, Rename and Delete project.
+        mockup: |
+          +-- /team/backend/members -----------------------------------------+
+          | Backend                                                          |
+          | New project   [Team name: Backend      ] [Rename]                |
+          | Projects                                                         |
+          |   ${project} · ${KEY}  [Project name: ${project}] [Rename]       |
+          |                        Delete project                            |
+          |   Identity Platform · AUTH   [Identity Platform ] [Rename]       |
+          |   Auth v2 Spike · SPIKE      [Auth v2 Spike     ] [Rename]       |
+          | Members ...                                                      |
+          +------------------------------------------------------------------+
+        emotional_state:
+          entry: Cluttered, dependent on an instance admin
+          exit: In control
+        shared_artifacts: [project-name, project-key, project-slug]
+        integration_checkpoint: >
+          The list shows live projects only, and the controls only to Manage
+          (lead of this team or workspace admin). A member sees the list without
+          controls; everyone else gets the uniform 404 for the page as today.
+        failure_modes:
+          - A deleted project still appears in the list (INV-PL-2).
+          - Controls render for a member or for a lead of another team.
+          - Sam (member) posting a rename or delete gets anything but the uniform 404 (D4).
+          - Marco (no team), Hugo (Globex admin) or a signed-out visitor learns that the team or project exists (D4).
+          - A lead of another team (Lena on Ops) can rename or delete an Ops project (D-B).
+
+      - id: 2
+        name: Rename
+        action: >
+          Lena edits Identity Platform to "Identity & Access" and clicks Rename.
+        mockup: |
+          | Renamed Identity Platform to Identity & Access.                  |
+          |   Identity & Access · AUTH   [Identity & Access ] [Rename]       |
+          /team/backend/project/auth/issues/7  -> still opens AUTH-7
+        emotional_state:
+          entry: In control
+          exit: Confident — no link or issue id changed
+        shared_artifacts: [project-name, project-slug, project-key]
+        integration_checkpoint: >
+          The slug (auth) and key (AUTH) are byte-identical after the rename;
+          both rename doors give the same verdict and copy for the same name.
+        failure_modes:
+          - The slug is re-derived from the new name and every bookmark breaks.
+          - The team door and the instance door disagree on uniqueness.
+        gherkin: |
+          Scenario: A team's lead renames a project and every link to it keeps working
+            Given Lena leads Backend, which has Identity Platform (AUTH) at /team/backend/project/auth
+            When Lena renames it to "Identity & Access"
+            Then Lena sees "Renamed Identity Platform to Identity & Access."
+            And /team/backend/project/auth/issues/7 still opens AUTH-7
+
+      - id: 3
+        name: Find Delete project
+        action: Lena clicks Delete project on Auth v2 Spike.
+        mockup: |
+          GET /team/backend/project/auth-v2-spike/delete
+        emotional_state:
+          entry: Tidy-minded
+          exit: Wary — "what do I lose?"
+        shared_artifacts: [project-slug]
+        integration_checkpoint: >
+          Delete project is a link to a confirm page, never a one-click POST
+          from the list.
+        failure_modes:
+          - The delete fires from the list with no confirm.
+
+      - id: 4
+        name: Read the confirm
+        action: The confirm page states the consequence and that nothing is erased.
+        mockup: |
+          +-- /team/backend/project/auth-v2-spike/delete --------------------+
+          | Delete Auth v2 Spike?                                            |
+          | Auth v2 Spike (SPIKE) has 3 issue(s). After it is deleted,       |
+          | nobody can open its board, its issues or its report, and links   |
+          | to SPIKE issues stop working.                                    |
+          | Nothing is erased. The instance operator can restore Auth v2     |
+          | Spike with every issue, comment and attachment.                  |
+          |                          [Delete project]   Cancel               |
+          +------------------------------------------------------------------+
+        emotional_state:
+          entry: Wary
+          exit: Reassured
+        shared_artifacts: [project-name, project-key, issue-count]
+        integration_checkpoint: >
+          The issue count is advisory (read without a lock). The page works
+          with scripting disabled.
+        failure_modes:
+          - The page promises a restore that the operator cannot perform.
+
+      - id: 5
+        name: Delete
+        action: Lena clicks Delete project.
+        mockup: |
+          /team/backend/members: "Deleted Auth v2 Spike."
+          Projects: Identity & Access · AUTH
+          Sam's bookmark /team/backend/project/auth-v2-spike/issues/2 -> uniform 404
+          /api/v1/teams/backend/projects/auth-v2-spike/issues        -> API not-found
+        emotional_state:
+          entry: Reassured
+          exit: Tidy
+        shared_artifacts: [deleted-marker, uniform-404]
+        integration_checkpoint: >
+          THE structural checkpoint. Every web and API address under the
+          project answers byte-identically to one that never existed, for every
+          actor, and every list omits it; no row under it changes (INV-PL-1,
+          INV-PL-2).
+        failure_modes:
+          - One forgotten reader (the report, the SSE stream, the API, the
+            instance dashboard) still serves the project.
+          - A write racing the delete answers 500, or its row is lost.
+        gherkin: |
+          Scenario: Every address of a deleted project answers not-found, for everyone
+            Given Lena has deleted Auth v2 Spike (SPIKE)
+            When Lena, Sam and Priya each open its board, SPIKE-2, its report and its live updates
+            Then every request answers the uniform not-found page
+
+      - id: 6
+        name: Bring it back (operator)
+        action: >
+          A week later Lena asks for SPIKE back. Priya runs
+          foundry doctor list-deleted-projects, then restore-project <uuid>.
+        mockup: |
+          $ foundry doctor list-deleted-projects
+          project-id: ${project_id}
+          workspace: Canzan Labs
+          team: backend
+          name: Auth v2 Spike
+          key: SPIKE
+          issues: 3
+          deleted-at: 2026-10-05T09:12:03Z
+          deleted-by: lena@canzan.dev
+
+          $ foundry doctor restore-project ${project_id}
+          project-id: ${project_id}
+          status: restored
+        emotional_state:
+          entry: Regret, mild
+          exit: Relieved
+        shared_artifacts: [project-id, deleted-marker, project-key]
+        integration_checkpoint: >
+          After the restore every address answers as before the delete, and the
+          next issue filed is SPIKE-4. While deleted, the name, slug and key
+          stayed taken, so the restore could not collide.
+        failure_modes:
+          - Another project took SPIKE while it was deleted, and the restore
+            fails or renames.
+          - The restore leaves some reader still treating it as deleted.
+
+      - id: 7
+        name: Retire the team (OQ-1 (b))
+        action: >
+          Labs's only project, Prototype Graveyard (PROTO), is deleted. Priya
+          opens /team/labs/delete and confirms.
+        mockup: |
+          | Labs also has 1 deleted project(s): Prototype Graveyard (PROTO). |
+          | They are kept, but can't be restored after Labs is deleted, and  |
+          | their keys stay taken in Canzan Labs.                            |
+          /teams: "Deleted Labs."
+        emotional_state:
+          entry: Tidy-minded
+          exit: Done — the team list matches the work
+        shared_artifacts: [live-project-list]
+        integration_checkpoint: >
+          Only live projects block a team delete, decided at commit time; the
+          deleted project's rows survive the team.
+        failure_modes:
+          - A restore racing the team delete makes a live project that the
+            delete then destroys.
+
+    shared_artifacts:
+      project-name: {source_of_truth: projects.name, risk: MEDIUM}
+      project-slug: {source_of_truth: projects.slug (minted once), risk: HIGH}
+      project-key: {source_of_truth: projects.key_prefix, risk: HIGH}
+      project-id: {source_of_truth: projects.id, risk: LOW}
+      deleted-marker: {source_of_truth: "the project row's deleted marker (DESIGN names it)", risk: HIGH}
+      issue-count: {source_of_truth: issues by project_id, risk: LOW}
+      live-project-list: {source_of_truth: "projects by team_id, live only, at commit time", risk: HIGH}
+      uniform-404: {source_of_truth: resource_not_found_page; the API not-found, risk: HIGH}
