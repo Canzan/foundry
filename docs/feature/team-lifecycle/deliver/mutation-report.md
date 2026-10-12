@@ -33,7 +33,7 @@ rate is caught / viable at the last measurement, timeouts counted as caught.
 | `crates/foundry-core/src/team_name.rs` | 10 | 04-04 re-run, with the two files below: 27 mutants, 21 caught, 1 timeout, 0 missed, 5 unviable | 22/22 | pass |
 | `crates/foundry-core/src/project_name.rs` | 12 | 04-04 re-run (see above); 03-02 22/22 after the `MintedSlug::as_str` fix | 100% | pass |
 | `crates/foundry-core/src/team_membership.rs` | 5 | 04-04 re-run (see above); 02-02 core 4/4 | 100% | pass |
-| `crates/foundry-store/src/teams.rs` | 35 | 01-01 7/7, 01-02 3/3, 02-01 7/10 after hardening, 04-01 2/4 | 19/24 measured; 20/24 (83%) if 5cc220e kills `&&`->`\|\|`, as it is written to | closed by f4d5179 (hand bite proofs); remaining non-kills are W1 log-only. The final cargo-mutants re-run is OWED (Docker connect flakes) |
+| `crates/foundry-store/src/teams.rs` | 35 | final re-run 2026-10-12 (`cargo mutants -j 1 -p foundry-store -f crates/foundry-store/src/teams.rs --in-diff <feature diff>`, 1h 19m): 28 caught, 1 missed, 6 unviable, 0 timeouts | 28/29 (97%) | pass; the one miss is W1 (`is_name_rule_refusal -> true`, log-only). Confirms 5cc220e (`is_fk_violation` `&&`->`\|\|` caught) and f4d5179 (both guards at :341 and :473 caught `-> true` and `-> false`) |
 | `crates/foundry-store/src/lib.rs` | 9 | 01-01 3/3; 02-01 7/8 after hardening | 7/8 (88%) | pass, with W2 (`Store::migrate`, smoke-only) |
 | `crates/foundry-store/src/upgrade_warnings.rs` | 5 | 02-01 5/5 | 100% | pass |
 | `crates/foundry-services/src/teams.rs` | 17 | 02-02 2/2; 03-02 1/1; 04-02 2/2; the 03-02 race proofs | 5/5 measured | pass at the step figures; closing re-run owed |
@@ -161,6 +161,6 @@ Run in the tl-04 lane against a rebuilt binary.
 ## Owed (not done here)
 
 - Done (f4d5179): the acceptance designer's two store tests for the guard survivors (`an_add_refused_for_another_reason_is_an_error_not_team_gone`, `a_default_set_refused_for_another_reason_is_an_error_not_team_gone`; guard→true fails each).
-- Re-run cargo-mutants on store `teams.rs` and `lib.rs` (confirming 5cc220e)
-  and on the four services files once Docker publishes ports again.
+- DONE 2026-10-12: the cargo-mutants re-run on store `teams.rs` (28/29, see the table).
+- Still owed: the re-run on store `lib.rs` and the four services files.
 - A tracing-capture test harness that would kill W1 and team-membership's H8.
