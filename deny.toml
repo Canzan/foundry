@@ -29,6 +29,12 @@ ignore = [
     # Dev/test only. Migration path is bollard depending directly on
     # rustls-pki-types::PemObject; tracked upstream at bollard-rs.
     { id = "RUSTSEC-2025-0134", reason = "transitive dev-only via bollard/testcontainers; awaiting upstream migration to rustls-pki-types" },
+    # unsafe-libyaml (RUSTSEC-2024-0449, unmaintained, published 2026):
+    # pulled in only by serde_yaml_ng in foundry-acceptance (test-only;
+    # never reaches the production foundry binary). It parses our own
+    # checked-in YAML fixtures, never untrusted input. Revisit when
+    # serde_yaml_ng moves off it or a maintained YAML crate fits.
+    "RUSTSEC-2024-0449",
 ]
 
 [licenses]
