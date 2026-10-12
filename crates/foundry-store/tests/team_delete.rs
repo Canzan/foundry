@@ -1017,3 +1017,72 @@ async fn a_project_insert_refused_by_another_foreign_key_is_not_team_gone() {
     );
     assert_eq!(projects_of(&l.pool, l.design).await, 0, "nothing written");
 }
+
+/// Install (or replace) a fault-injection trigger `test_refuse` on `table`,
+/// firing `BEFORE {event}`, that refuses every row with `errcode` and
+/// `constraint`. CREATE OR REPLACE / DROP only: the schema is this test's own.
+async fn inject_refusal(pool: &PgPool, table: &str, event: &str, errcode: &str, constraint: &str) {
+    sqlx::raw_sql(&format!(
+        "CREATE OR REPLACE FUNCTION test_refuse() RETURNS trigger LANGUAGE plpgsql AS $f$
+         BEGIN
+             RAISE EXCEPTION 'injected refusal' USING ERRCODE = '{errcode}', CONSTRAINT = '{constraint}';
+         END
+         $f$;
+         DROP TRIGGER IF EXISTS test_refuse ON {table};
+         CREATE TRIGGER test_refuse BEFORE {event} ON {table}
+             FOR EACH ROW EXECUTE FUNCTION test_refuse();"
+    ))
+    .execute(pool)
+    .await
+    .expect("install the injected refusal");
+}
+
+/// DDD-9 maps exactly `team_memberships_team_id_fkey` to `TeamGone`. An add
+/// refused for any other reason (a 23503 on the user's key, a raised
+/// exception) is an error, never "the team is gone", and writes nothing.
+#[tokio::test]
+async fn an_add_refused_for_another_reason_is_an_error_not_team_gone() {
+    let l = labs().await;
+    for (errcode, constraint) in [
+        ("23503", "team_memberships_user_id_fkey"),
+        ("P0001", "team_memberships_injected"),
+    ] {
+        inject_refusal(&l.pool, "team_memberships", "INSERT", errcode, constraint).await;
+        let before = snapshot(&l.pool).await;
+        let result = l.store.add_team_member(l.ws, l.design, l.priya).await;
+        assert!(
+            result.is_err() && !names_team_gone(&result),
+            "{errcode} on {constraint} must be an error, not TeamGone: {result:?}"
+        );
+        assert_eq!(
+            snapshot(&l.pool).await,
+            before,
+            "{errcode}: nothing written"
+        );
+    }
+}
+
+/// DDD-9 maps exactly `workspaces_default_team_same_workspace` to `TeamGone`.
+/// A default set refused for any other reason (a 23503 on another key, a
+/// raised exception) is an error, never "the team is gone", and writes nothing.
+#[tokio::test]
+async fn a_default_set_refused_for_another_reason_is_an_error_not_team_gone() {
+    let l = labs().await;
+    for (errcode, constraint) in [
+        ("23503", "workspaces_other_fkey"),
+        ("P0001", "workspaces_injected"),
+    ] {
+        inject_refusal(&l.pool, "workspaces", "UPDATE", errcode, constraint).await;
+        let before = snapshot(&l.pool).await;
+        let result = l.store.set_default_team(l.ws, Some(l.design)).await;
+        assert!(
+            result.is_err() && !names_team_gone(&result),
+            "{errcode} on {constraint} must be an error, not TeamGone: {result:?}"
+        );
+        assert_eq!(
+            snapshot(&l.pool).await,
+            before,
+            "{errcode}: nothing written"
+        );
+    }
+}
