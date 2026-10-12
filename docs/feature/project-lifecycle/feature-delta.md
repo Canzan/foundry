@@ -155,6 +155,8 @@ and is kept whole on purpose (see Story Map).
 
 These need the user's answer. Each names the stories it touches.
 
+**Answered by the user, 2026-10-12: every recommendation accepted.** OQ-1 (b): a deleted project no longer blocks a team delete; its row is kept, detached. OQ-2: the slug and key stay fixed on rename. OQ-3: renames, deletes and restores are recorded in the same transaction, on both rename doors. OQ-4: a deleted project's name, slug and key stay taken. OQ-5: no typed-name confirmation. OQ-6: restore is CLI-only. These are now decisions; DESIGN must not reopen them.
+
 - **OQ-1: Does a soft-deleted project still block a team delete? (touches US-PL-05 only)** The options:
   - (a) **Yes, it still blocks.** The refusal names it ("Labs still has 1 project(s): Prototype Graveyard (PROTO), deleted. …"). Zero schema impact on teams, but a team can then never be deleted once it has held any project, because there is no purge (D-C). TL-KPI-5's demand stays unmet.
   - (b) **No, it no longer counts. The team delete keeps the deleted projects' rows, detached from the gone team.** Nothing is erased (D-A holds). A detached project can't be restored, because restoring needs a team and moving is out of scope (D-C): `restore-project` refuses it with exit 4 and the reason, and the data waits for a "restore into a team" follow-up. The confirm page says so before the delete. This needs `projects.team_id` to survive its team (a schema change DESIGN chooses: for example a nullable `team_id` allowed only on deleted rows).
