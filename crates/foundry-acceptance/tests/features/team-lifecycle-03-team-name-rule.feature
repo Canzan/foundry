@@ -2,8 +2,8 @@
 # rule, and a name in any script gets a working address (D6, D7, OQ-2, OQ-3,
 # OQ-7, INV-TL-4).
 #
-# DISTILL 2026-10-11: every scenario @pending (ADR-025 scaffolded RED). The
-# create races repeat 5 times over HTTP; the 100-run proofs are the use-case's
+# Authored @pending in DISTILL 2026-10-11 (ADR-025 scaffolded RED); un-pended in
+# DELIVER 03-01 and 03-02. The create races repeat 5 times over HTTP; the 100-run proofs are the use-case's
 # (crates/foundry-services/tests/team_lifecycle_use_cases.rs), and the database
 # rule's arms, legacy survival and parity are the store's
 # (crates/foundry-store/tests/team_lifecycle_migrations.rs).

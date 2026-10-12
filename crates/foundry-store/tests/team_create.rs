@@ -10,8 +10,11 @@
 //! the slug mint and the bounded fallback retry are the use-case's, proven in
 //! `crates/foundry-services/tests/team_lifecycle_use_cases.rs`.
 //!
-//! RED scaffold: `create_team_with_lead` panics (`src/teams.rs`); every test is
-//! `#[ignore = "pending: team-lifecycle 01-01"]`.
+//! Authored as RED scaffolds in DISTILL 2026-10-11 (`create_team_with_lead`
+//! panicked and every test was ignored as pending); un-ignored in DELIVER 01-01,
+//! when the store method shipped. The two mutation-gap tests (siblings, a
+//! non-slug refusal) were added during 01-01 and the first-team tie-break test
+//! at finalize.
 //!
 //! Real Postgres (testcontainers `postgres:16-alpine`); integration level,
 //! example-based, races repeated 100 times (Mandates 9/11).
@@ -388,4 +391,55 @@ async fn an_insert_refused_for_any_other_reason_is_an_error_not_a_duplicate() {
             "{errcode}: nothing written"
         );
     }
+}
+
+/// DDD-21: the dashboard's first-project link names the first team the user is
+/// on, by name then slug, in the acting workspace only; `None` on no team.
+#[tokio::test]
+async fn the_first_team_is_the_users_first_by_name_then_by_slug() {
+    let l = labs().await;
+    assert_eq!(
+        l.store
+            .first_team_slug(l.ws, l.priya)
+            .await
+            .expect("no error"),
+        None,
+        "on no team, no first team"
+    );
+    for (name, slug) in [("Zeta", "zeta"), ("Alpha", "alpha")] {
+        l.store
+            .create_team_with_lead(l.ws, l.priya, name, slug)
+            .await
+            .expect("no error");
+    }
+    let globex = workspace(&l.pool, "Globex").await;
+    join(&l.pool, globex, l.priya, "admin").await;
+    l.store
+        .create_team_with_lead(globex, l.priya, "Aardvark", "aardvark")
+        .await
+        .expect("no error");
+    assert_eq!(
+        l.store
+            .first_team_slug(l.ws, l.priya)
+            .await
+            .expect("no error"),
+        Some("alpha".to_string()),
+        "Alpha before Zeta (created second), and never another workspace's team"
+    );
+    // The name is not unique in the database (the rule is the app's), so a
+    // same-name pair is reachable; the slug breaks the tie.
+    for slug in ["ops-b", "ops-a"] {
+        l.store
+            .create_team_with_lead(l.ws, l.jeff, "Ops", slug)
+            .await
+            .expect("no error");
+    }
+    assert_eq!(
+        l.store
+            .first_team_slug(l.ws, l.jeff)
+            .await
+            .expect("no error"),
+        Some("ops-a".to_string()),
+        "same name: the lower slug (created second) wins"
+    );
 }

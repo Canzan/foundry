@@ -2,9 +2,10 @@
 # own lead, renames a team; its address and every link to it stay (D4, D6, D15,
 # OQ-1, OQ-6, INV-TL-5, INV-TL-6).
 #
-# DISTILL 2026-10-11: every scenario @pending (ADR-025 scaffolded RED). The
-# rename's atomic record, its locked old name under concurrent renames, and
-# rename versus delete are the store's (crates/foundry-store/tests/team_rename.rs).
+# Authored @pending in DISTILL 2026-10-11 (ADR-025 scaffolded RED); un-pended in
+# DELIVER 04-02 and 04-03. The rename's atomic record, its locked old name
+# under concurrent renames, and rename versus delete are the store's
+# (crates/foundry-store/tests/team_rename.rs).
 #
 # Statuses (DDD-18): a rename that goes through, and a byte-equal no-op, are the
 # 200 members page (the no-op with no notice and no record); a name refusal is

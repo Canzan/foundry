@@ -14,17 +14,16 @@
 //!   (`teams` → `TeamName`). Legacy rows are never scanned; workspaces and
 //!   projects keep their rule and their HINT (parity); a re-run is a no-op.
 //!
-//! GREEN today and never ignored: the substrate fact that Postgres refuses
+//! Never ignored, and green since DISTILL: the substrate fact that Postgres refuses
 //! U+0000 in `text` (22021) before any trigger runs, which is why the DB-rule
 //! scenarios use U+0001 (DESIGN Changed Assumption 2).
 //!
-//! RED gates: `require_0023` / `require_0024` assert the migration file exists
-//! first, a readable failure, never a missing-file panic. Every other test is
-//! `#[ignore = "pending: team-lifecycle 02-01 | 03-01"]`.
-//!
-//! The existing `name_rule_in_database.rs` asserts exactly the four 0019/0020
-//! triggers (`all_four_enabled`); 0024 makes it six. Extending that file's
-//! parity to `teams` is DELIVER 03-01's (DESIGN Component Decomposition).
+//! Authored as RED in DISTILL 2026-10-11 (ignored as pending, behind the
+//! `require_0023` / `require_0024` gates, which still assert the migration file
+//! exists first: a readable failure, never a missing-file panic); un-ignored in
+//! DELIVER 02-01 (0023 and the probe) and 03-01 (0024). The upgrade-warning
+//! tests were added in 02-01 (user decision 2026-10-11); `name_rule_in_database.rs`
+//! was extended to the teams triggers in 03-01.
 //!
 //! Real Postgres (testcontainers `postgres:16-alpine`); example-based.
 

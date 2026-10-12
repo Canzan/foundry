@@ -3,10 +3,12 @@
 # from the members page. This ends the dead end of every workspace provisioned
 # from the instance's workspaces page: no team, so no project and no board.
 #
-# DISTILL 2026-10-11: every scenario @pending (ADR-025 scaffolded RED), the
-# walking skeleton included, because none of the routes exists yet (the house
+# Authored @pending in DISTILL 2026-10-11 (ADR-025 scaffolded RED), the walking
+# skeleton included, because none of the routes existed then (the house
 # precedent: team-membership's skeleton was @pending and un-pended by its first
-# DELIVER step). The RED classification of each scenario is in
+# DELIVER step). Un-pended in DELIVER 01-01 (the skeleton first), 01-02 and
+# 01-03; the cross-workspace create (9a) was added in 01-03. The RED
+# classification each scenario had at hand-off is in
 # docs/feature/team-lifecycle/distill/red-classification.md.
 #
 # Harness and oracles as in team-membership-01 (see that file's header): the

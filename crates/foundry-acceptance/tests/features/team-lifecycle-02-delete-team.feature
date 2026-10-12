@@ -3,9 +3,9 @@
 # that has a project is never deleted, even when the project appears while the
 # confirm page is open (D8, D9, D10, OQ-4 (a), INV-TL-1 to INV-TL-3).
 #
-# DISTILL 2026-10-11: every scenario @pending (ADR-025 scaffolded RED). The race
-# is repeated 5 times over HTTP (DESIGN Test Seams); the 100-run proof of the
-# same guarantee, and the two negative controls that show why the lock and the
+# Authored @pending in DISTILL 2026-10-11 (ADR-025 scaffolded RED); un-pended in
+# DELIVER 02-02, 02-03 and 02-04. The race is repeated 5 times over HTTP
+# (DESIGN Test Seams); the 100-run proof of the same guarantee, and the two negative controls that show why the lock and the
 # check must be separate statements, are the store's
 # (crates/foundry-store/tests/team_delete.rs).
 #

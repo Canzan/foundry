@@ -7,7 +7,7 @@
 //! deterministic here (a barrier or a held lock, two connections) and the
 //! barrier race runs 100 times, which the HTTP lane cannot afford.
 //!
-//! Never ignored, and GREEN today: the Postgres substrate facts the delete
+//! Never ignored, and green since DISTILL: the Postgres substrate facts the delete
 //! relies on (ADR-002 "Earned Trust"), and the two NEGATIVE CONTROLS DESIGN
 //! names. The controls run the two wrong mechanisms by hand and show each one
 //! losing a project: (a) `FOR NO KEY UPDATE` then a check, and (b) one
@@ -16,13 +16,14 @@
 //! control ever stops losing the project, the server's semantics moved and the
 //! ADR's argument must be re-made.
 //!
-//! RED scaffolds: `delete_team_if_empty` and `team_delete_facts` panic
-//! (`src/teams.rs`), and migration 0023 does not exist; every test that needs
-//! them is `#[ignore = "pending: team-lifecycle 02-01"]` and passes
-//! `require_lifecycle_records_installed` first, a readable gate. The INV-TL-2
-//! mapping tests name the outcome DDD-9 adds (`TeamGone`) through its `Debug`
-//! name, so no shipped enum changes before DELIVER; DELIVER may switch them to
-//! the typed variant.
+//! Authored as RED scaffolds in DISTILL 2026-10-11 (`delete_team_if_empty` and
+//! `team_delete_facts` panicked, migration 0023 did not exist, and every test
+//! that needed them was ignored as pending); un-ignored in DELIVER 02-01, when
+//! 0023, the guarded delete and the 23503 mappings shipped. Tests that need the
+//! record table still pass `require_lifecycle_records_installed` first, a
+//! readable gate. The INV-TL-2 mapping tests name the `TeamGone` outcome
+//! (DDD-9) through its `Debug` name, as written in DISTILL; the test that a
+//! 23503 on another foreign key is NOT `TeamGone` was added at finalize.
 //!
 //! Real Postgres (testcontainers `postgres:16-alpine`, matching production);
 //! integration level, example-based, with the race repeated (Mandates 9/11).
@@ -986,4 +987,33 @@ async fn the_delete_versus_project_create_race_never_loses_a_project_in_100_runs
             other => panic!("run {run}: a project created and then lost, or an unmapped answer: {other:?} / {created:?}"),
         }
     }
+}
+
+/// DDD-9 maps exactly `projects_team_id_fkey` to `TeamGone`. A 23503 on another
+/// foreign key of the same insert (here `projects_workspace_id_fkey`: a
+/// workspace that does not exist) is not "the team is gone".
+#[tokio::test]
+async fn a_project_insert_refused_by_another_foreign_key_is_not_team_gone() {
+    let l = labs().await;
+    let result = l
+        .store
+        .insert_project(
+            uuid::Uuid::now_v7(),
+            uuid::Uuid::now_v7(),
+            l.design,
+            "Brand Refresh",
+            "brand-refresh",
+            "BRAND",
+        )
+        .await;
+    assert!(result.is_err(), "an unknown workspace refuses the insert");
+    assert!(
+        !names_team_gone(&result),
+        "a 23503 on projects_workspace_id_fkey must not read as TeamGone: {result:?}"
+    );
+    assert!(
+        format!("{result:?}").contains("projects_workspace_id_fkey"),
+        "the error is the workspace key's: {result:?}"
+    );
+    assert_eq!(projects_of(&l.pool, l.design).await, 0, "nothing written");
 }
