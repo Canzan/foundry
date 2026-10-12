@@ -7,6 +7,14 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 
 ## [Unreleased]
 
+## [v0.14.0] - 2026-10-12
+
+Create, rename and delete teams from the product (team-lifecycle): a workspace admin creates
+a team and leads it, an admin or the team's lead renames it without changing any link, and an
+admin deletes it, refused while the team still has projects. Team names follow one rule in
+the app and the database. Upgrading through 0023 changes how old backups restore; read the
+migration notes. `git log v0.13.0..v0.14.0` is the full list.
+
 ### Added
 
 - **Create a team.** A workspace admin can now create a team on `/teams` with
@@ -905,7 +913,8 @@ followed it.
 - A `comments_visible` SQL VIEW for defense-in-depth against missed
   soft-delete filters is deferred to v0.3 (ADR-017).
 
-[Unreleased]: https://github.com/Canzan/foundry/compare/v0.13.0...HEAD
+[Unreleased]: https://github.com/Canzan/foundry/compare/v0.14.0...HEAD
+[v0.14.0]: https://github.com/Canzan/foundry/compare/v0.13.0...v0.14.0
 [v0.13.0]: https://github.com/Canzan/foundry/compare/v0.12.0...v0.13.0
 [v0.12.0]: https://github.com/Canzan/foundry/compare/v0.11.0...v0.12.0
 [v0.11.0]: https://github.com/Canzan/foundry/compare/v0.10.0...v0.11.0
