@@ -26,6 +26,9 @@
 //!                                  A last lead is a 409 with the members page (DDD-8).
 //!   POST /team/{slug}/members/{user_id}/remove — needs Manage; a last lead is the
 //!                                  same 409; a stale target re-renders with no copy.
+//!   POST /team/{slug}/rename     — needs Manage (team-lifecycle DDD-17/22): Renamed
+//!                                  → 200 members page with "Renamed {old} to
+//!                                  {new}."; a byte-equal name → 200, no notice.
 //!   GET  /team/{slug}/delete     — needs Administer (team-lifecycle DDD-10): the
 //!                                  confirm page; it writes nothing.
 //!   POST /team/{slug}/delete     — needs Administer (DDD-18): Deleted → 200 teams
@@ -52,8 +55,8 @@ use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
 use foundry_core::TeamRole;
 use foundry_services::teams::{
-    AddMemberResult, CreateTeamError, RemoveMemberResult, RoleChangeResult, TeamDeletePreview,
-    TeamDeletion, TeamError, TeamMembersView, TeamsIndex,
+    AddMemberResult, CreateTeamError, RemoveMemberResult, RenameTeamError, RoleChangeResult,
+    TeamDeletePreview, TeamDeletion, TeamError, TeamMembersView, TeamRenaming, TeamsIndex,
 };
 use foundry_services::{Principal, Services};
 use serde::Deserialize;
@@ -120,6 +123,8 @@ pub enum TeamNotice {
     DeleteTokens { team: String, tokens: i64 },
     /// team-lifecycle D12: "Deleted {team}."
     Deleted { team: String },
+    /// team-lifecycle D12: "Renamed {old} to {new}."
+    Renamed { old: String, new: String },
     /// team-lifecycle D9/DDD-10: "{team} still has {n} project(s): {list}. A
     /// team with projects can't be deleted." — the list is "Name (KEY)" by name
     /// then key, joined by ", ".
@@ -189,6 +194,7 @@ impl fmt::Display for TeamNotice {
                 )
             }
             Self::Deleted { team } => write!(f, "Deleted {team}."),
+            Self::Renamed { old, new } => write!(f, "Renamed {old} to {new}."),
             Self::HasProjects { team, projects } => {
                 let mut ordered: Vec<&(String, String)> = projects.iter().collect();
                 ordered.sort();
@@ -217,6 +223,14 @@ pub struct AddMemberForm {
 
 #[derive(Debug, Deserialize)]
 pub struct CreateTeamFormData {
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(rename = "_csrf", default)]
+    _csrf: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RenameTeamFormData {
     #[serde(default)]
     pub name: Option<String>,
     #[serde(rename = "_csrf", default)]
@@ -460,6 +474,56 @@ pub async fn submit_remove(
         }
     };
     members_page_with_status(&state, &headers, &user, removal.page, notice, status).await
+}
+
+// ---------------------------------------------------- POST /team/{slug}/rename
+
+/// Gate order (DDD-16): session (none → 404) → the use-case (facts by session
+/// workspace + slug, `Manage`, else the uniform 404) → the name rule → the
+/// write. Renamed → 200 members page with the D12 copy; a byte-equal name →
+/// 200 members page with no notice (D15). The slug, and so every URL, stays.
+pub async fn submit_rename(
+    State(state): State<AppState>,
+    session: Session,
+    headers: HeaderMap,
+    Path(team_slug): Path<String>,
+    Form(form): Form<RenameTeamFormData>,
+) -> Response {
+    let Some(user) = signed_in_user(&session).await else {
+        return resource_not_found_page();
+    };
+    let services = Services::new(state.store.clone());
+    let principal = principal_of(&user);
+    let typed = form.name.unwrap_or_default();
+    match services.rename_team(&principal, &team_slug, &typed).await {
+        Ok(TeamRenaming::Renamed {
+            old_name,
+            new_name,
+            page,
+        }) => {
+            let notice = TeamNotice::Renamed {
+                old: old_name,
+                new: new_name,
+            };
+            members_page(&state, &headers, &user, page, Some(notice)).await
+        }
+        Ok(TeamRenaming::Unchanged { page }) => {
+            members_page(&state, &headers, &user, page, None).await
+        }
+        Err(RenameTeamError::NotFound) => resource_not_found_page(),
+        // A name refusal is a 422 members page (DDD-18); its copy and the kept
+        // text land with the refusal scenarios (step 04-03).
+        Err(RenameTeamError::InvalidName(_)) => {
+            match services.team_members(&principal, &team_slug).await {
+                Ok(view) => {
+                    let status = StatusCode::UNPROCESSABLE_ENTITY;
+                    members_page_with_status(&state, &headers, &user, view, None, status).await
+                }
+                Err(err) => refusal(err),
+            }
+        }
+        Err(RenameTeamError::Store(err)) => refusal(TeamError::Store(err)),
+    }
 }
 
 // ----------------------------------------------------- GET /team/{slug}/delete
@@ -983,6 +1047,18 @@ mod team_notice_copy {
             team: "Bakcend".into(),
         };
         assert_eq!(notice.to_string(), "Deleted Bakcend.");
+    }
+
+    #[test]
+    fn renamed() {
+        let notice = TeamNotice::Renamed {
+            old: "Backend".into(),
+            new: "Platform Engineering".into(),
+        };
+        assert_eq!(
+            notice.to_string(),
+            "Renamed Backend to Platform Engineering."
+        );
     }
 
     #[test]

@@ -9,15 +9,16 @@
 //!
 //! The read use-cases ([`list_teams`], [`team_members`], [`delete_preview`]) have
 //! no write method on their path (Principle 12); [`add_member`], [`change_role`],
-//! [`remove_member`], [`set_default_team`], [`create_team`] and [`delete_team`]
-//! are the writers.
+//! [`remove_member`], [`set_default_team`], [`create_team`], [`rename_team`] and
+//! [`delete_team`] are the writers.
 
 use crate::Principal;
+use foundry_core::team_name::{classify_team_rename, TeamRenameVerdict};
 use foundry_core::{mint_team_slug, MintedTeamSlug, TeamAccess, TeamName, TeamNameError, TeamRole};
 use foundry_store::teams::{
     AddTeamMemberOutcome, RemoveTeamMemberOutcome, SetDefaultTeamOutcome, SetTeamRoleOutcome,
     TeamAccessFacts, TeamCreateOutcome, TeamDeleteFacts, TeamDeleteOutcome, TeamMemberRow,
-    TeamPerson, TeamScope, TeamSummary,
+    TeamPerson, TeamRenameWrite, TeamScope, TeamSummary,
 };
 use foundry_store::{Store, StoreError};
 
@@ -452,6 +453,98 @@ pub async fn create_team(
         }
     }
     Err(CreateTeamError::SlugContention)
+}
+
+// ===========================================================================
+// team-lifecycle: the rename use-case (DESIGN DDD-13, DDD-14, DDD-15,
+// ADR-TEAM-LIFECYCLE-003). Needs `Manage` (an admin, or this team's lead); the
+// name is the only thing written, never the slug (D4).
+// ===========================================================================
+
+/// Why a team rename did not happen.
+#[derive(Debug)]
+pub enum RenameTeamError {
+    /// No such team in the acting workspace, or the caller may not manage it:
+    /// the uniform 404.
+    NotFound,
+    /// The new name broke the rule, or is not unique among the other teams (422).
+    InvalidName(TeamNameError),
+    Store(StoreError),
+}
+
+impl From<StoreError> for RenameTeamError {
+    fn from(err: StoreError) -> Self {
+        RenameTeamError::Store(err)
+    }
+}
+
+impl From<TeamError> for RenameTeamError {
+    fn from(err: TeamError) -> Self {
+        match err {
+            TeamError::NotFound => RenameTeamError::NotFound,
+            TeamError::Store(err) => RenameTeamError::Store(err),
+        }
+    }
+}
+
+/// What a rename did, with the members page re-read after it (DDD-22).
+#[derive(Debug, Clone)]
+pub enum TeamRenaming {
+    /// The name changed from `old_name` (as read under the lock) to `new_name`,
+    /// and one record was written.
+    Renamed {
+        old_name: String,
+        new_name: String,
+        page: TeamMembersView,
+    },
+    /// The name was byte-equal to the stored one: nothing written (D15).
+    Unchanged { page: TeamMembersView },
+}
+
+/// `POST /team/{slug}/rename`: facts by (session workspace, slug), `Manage`,
+/// then [`classify_team_rename`] over the workspace's OTHER teams (so a
+/// case-only change never collides with the team itself), then
+/// `Store::rename_team_with_audit`. A refused name never reaches the store.
+pub async fn rename_team(
+    store: &Store,
+    principal: &Principal,
+    team_slug: &str,
+    raw_name: &str,
+) -> Result<TeamRenaming, RenameTeamError> {
+    let (facts, access) = resolve_access(store, principal, team_slug).await?;
+    if !access.can_manage() {
+        return Err(RenameTeamError::NotFound);
+    }
+    let siblings: Vec<(String, String)> = store
+        .list_team_siblings(principal.workspace_id())
+        .await?
+        .into_iter()
+        .filter(|(_, slug)| *slug != facts.team_slug)
+        .collect();
+    let verdict = classify_team_rename(raw_name, &facts.team_name, &siblings)
+        .map_err(RenameTeamError::InvalidName)?;
+    let TeamRenameVerdict::Rename(name) = verdict else {
+        let page = members_view(store, principal, facts, access).await?;
+        return Ok(TeamRenaming::Unchanged { page });
+    };
+    let written = store
+        .rename_team_with_audit(
+            principal.workspace_id(),
+            facts.team_id,
+            principal.user_id(),
+            name.as_str(),
+        )
+        .await?;
+    let page = team_members(store, principal, &facts.team_slug).await?;
+    match written {
+        TeamRenameWrite::Renamed { old_name } => Ok(TeamRenaming::Renamed {
+            old_name,
+            new_name: name.as_str().to_string(),
+            page,
+        }),
+        TeamRenameWrite::Unchanged => Ok(TeamRenaming::Unchanged { page }),
+        TeamRenameWrite::NotFound => Err(RenameTeamError::NotFound),
+    }
 }
 
 // ===========================================================================

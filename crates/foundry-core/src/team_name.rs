@@ -104,6 +104,32 @@ pub fn mint_team_slug(name: &TeamName, taken: &[String]) -> MintedTeamSlug {
     }
 }
 
+/// What a rename asks for once the store reads are in hand (DDD-14).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TeamRenameVerdict {
+    /// The trimmed input is byte-equal to the current name: write nothing (D15).
+    Unchanged,
+    /// Store this name.
+    Rename(TeamName),
+}
+
+/// The one rename classification (DDD-14): trim, then the no-op, then
+/// [`TeamName::try_new`], then [`TeamName::ensure_unique_among`] over the
+/// workspace's OTHER teams. `siblings_without_self` must exclude the team being
+/// renamed, so a case-only change is a rename and never collides with itself.
+pub fn classify_team_rename(
+    raw: &str,
+    current: &str,
+    siblings_without_self: &[(String, String)],
+) -> Result<TeamRenameVerdict, TeamNameError> {
+    if raw.trim() == current {
+        return Ok(TeamRenameVerdict::Unchanged);
+    }
+    let name = TeamName::try_new(raw)?;
+    name.ensure_unique_among(siblings_without_self)?;
+    Ok(TeamRenameVerdict::Rename(name))
+}
+
 #[cfg(test)]
 mod team_name_rule {
     //! The four arms at their boundaries (64/65, padded, astral) and the D12
@@ -235,6 +261,77 @@ mod team_name_properties {
                 prop_assert_eq!(minted.as_str(), derived.as_str());
                 prop_assert_eq!(minted, MintedTeamSlug::Derived(derived));
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod team_rename_classification {
+    //! DDD-14: no-op first, case-only is a rename, and a changed name gets the
+    //! create rule's verdict (create/rename parity, KPI-TL-6).
+    use super::*;
+    use proptest::prelude::*;
+
+    /// Other teams: digit names, so none collides with a letters-only name.
+    fn others() -> impl Strategy<Value = Vec<(String, String)>> {
+        proptest::collection::btree_set(100u32..999, 0..5).prop_map(|ns| {
+            ns.into_iter()
+                .map(|n| (n.to_string(), n.to_string()))
+                .collect()
+        })
+    }
+
+    proptest! {
+        /// A raw that trims to the byte-equal current name is Unchanged before
+        /// any refusal: even an over-cap legacy name, and even when a sibling
+        /// would collide with it.
+        #[test]
+        fn a_byte_equal_name_is_unchanged_before_any_refusal(
+            current in "[a-zA-Z][a-zA-Z ]{0,80}[a-zA-Z]",
+            pad_left in "[ \t]{0,3}",
+            pad_right in "[ \t]{0,3}",
+            others in others(),
+        ) {
+            let mut siblings = others;
+            siblings.push((current.to_uppercase(), slugify(&current)));
+            let raw = format!("{pad_left}{current}{pad_right}");
+            prop_assert_eq!(
+                classify_team_rename(&raw, &current, &siblings),
+                Ok(TeamRenameVerdict::Unchanged)
+            );
+        }
+
+        /// A case-only change is never Unchanged and never collides with the
+        /// team itself: it is a rename to exactly the typed name.
+        #[test]
+        fn a_case_only_change_is_a_rename(
+            current in "[a-z][a-zA-Z ]{0,40}[a-zA-Z]",
+            others in others(),
+        ) {
+            let typed: String = current
+                .chars()
+                .map(|c| if c.is_ascii_lowercase() { c.to_ascii_uppercase() } else { c.to_ascii_lowercase() })
+                .collect();
+            prop_assert_ne!(&typed, &current);
+            let verdict = classify_team_rename(&typed, &current, &others);
+            prop_assert_eq!(verdict, Ok(TeamRenameVerdict::Rename(TeamName::try_new(&typed).unwrap())));
+        }
+
+        /// On a changed name the verdict is the create rule's: `try_new`, then
+        /// uniqueness over the other teams.
+        #[test]
+        fn a_changed_name_gets_the_create_verdict(
+            raw in "[ a-zA-Z0-9!\u{202E}]{0,70}",
+            current in "[a-zA-Z]{1,10}",
+            siblings in proptest::collection::vec(("[a-zA-Z0-9 ]{1,8}", "[a-z0-9-]{0,8}"), 0..5),
+        ) {
+            prop_assume!(raw.trim() != current);
+            let create = TeamName::try_new(&raw)
+                .and_then(|name| name.ensure_unique_among(&siblings).map(|()| name));
+            prop_assert_eq!(
+                classify_team_rename(&raw, &current, &siblings),
+                create.map(TeamRenameVerdict::Rename)
+            );
         }
     }
 }

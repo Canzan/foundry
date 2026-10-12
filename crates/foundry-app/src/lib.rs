@@ -784,6 +784,9 @@ pub fn build_router(state: AppState) -> Router {
             "/team/{team_slug}/members/{user_id}/remove",
             post(teams::submit_remove),
         )
+        // team-lifecycle 04-02 (DDD-17, ADR-TEAM-LIFECYCLE-003): the rename,
+        // `Manage` (an admin or the team's lead), else the uniform 404.
+        .route("/team/{team_slug}/rename", post(teams::submit_rename))
         // team-lifecycle 02-02 (DDD-18, ADR-TEAM-LIFECYCLE-004): the delete
         // page and the delete, both `Administer` only, else the uniform 404.
         .route(

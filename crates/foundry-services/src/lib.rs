@@ -235,6 +235,17 @@ impl Services {
         teams::create_team(&self.store, principal, raw_name).await
     }
 
+    /// team-lifecycle `POST /team/{slug}/rename` — delegates to
+    /// [`teams::rename_team`].
+    pub async fn rename_team(
+        &self,
+        principal: &Principal,
+        team_slug: &str,
+        raw_name: &str,
+    ) -> Result<teams::TeamRenaming, teams::RenameTeamError> {
+        teams::rename_team(&self.store, principal, team_slug, raw_name).await
+    }
+
     /// team-lifecycle `GET /team/{slug}/delete` — delegates to
     /// [`teams::delete_preview`].
     pub async fn team_delete_preview(

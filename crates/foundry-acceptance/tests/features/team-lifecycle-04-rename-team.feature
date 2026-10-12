@@ -33,7 +33,7 @@ Feature: A team is renamed, and every link to it keeps working
     And Globex is another workspace, whose team Payments is led by Hugo Weber (hugo.weber@globex.example)
     And Ines Duarte is an instance admin of this foundry, but not a workspace admin
 
-  @us-tl-05 @driving_port @kpi @contract-shape:bounded-change @pending
+  @us-tl-05 @driving_port @kpi @contract-shape:bounded-change
   Scenario: A workspace admin renames a team and every link to it keeps working
     When Priya renames Backend to "Platform Engineering"
     Then she sees "Renamed Backend to Platform Engineering."
@@ -42,19 +42,19 @@ Feature: A team is renamed, and every link to it keeps working
     And the members page at the address "backend" opens for Priya
     And the Identity Platform board still opens for Lena
 
-  @us-tl-05 @kpi @contract-shape:bounded-change @pending
+  @us-tl-05 @kpi @contract-shape:bounded-change
   Scenario: A team's lead renames her own team
     When Lena renames Backend to "Platform Engineering"
     Then she sees "Renamed Backend to Platform Engineering."
     And Backend is now called "Platform Engineering" at the same address, one rename record names Lena Park, and nothing else changed
 
-  @us-tl-05 @edge @contract-shape:bounded-change @pending
+  @us-tl-05 @edge @contract-shape:bounded-change
   Scenario: A change of letter case is a real rename, and a team never collides with itself
     When Priya renames Backend to "backend"
     Then she sees "Renamed Backend to backend."
     And Backend is now called "backend" at the same address, one rename record names Priya Raman, and nothing else changed
 
-  @us-tl-05 @edge @contract-shape:unbounded-preservation @pending
+  @us-tl-05 @edge @contract-shape:unbounded-preservation
   Scenario: Submitting the same name changes nothing and records nothing
     When Priya submits Backend's rename form unchanged
     Then she gets Backend's members page back with no notice
@@ -83,14 +83,14 @@ Feature: A team is renamed, and every link to it keeps working
       | Ops[U+202E]Team  | Team name must not contain control characters  |
       | [65×a]           | Team name must be at most 64 characters        |
 
-  @us-tl-05 @edge @contract-shape:unbounded-preservation @pending
+  @us-tl-05 @edge @contract-shape:unbounded-preservation
   Scenario: A renamed team's old address still holds its old name's place
     Given Priya has renamed General to "Platform"
     When Priya creates the team "General" from the teams page
     Then she is refused with "Team name must be unique within the workspace", and her text "General" is kept
     And no team, project or membership changed
 
-  @us-tl-05 @edge @contract-shape:unbounded-preservation @pending
+  @us-tl-05 @edge @contract-shape:unbounded-preservation
   Scenario Outline: Rename is offered to the team's lead and to a workspace admin; Delete team only to the admin
     When <who> opens Backend's members page
     Then the members page <rename> Rename
