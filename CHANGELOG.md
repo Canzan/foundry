@@ -7,10 +7,67 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 
 ## [Unreleased]
 
+### Added
+
+- **Create a team.** A workspace admin can now create a team on `/teams` with
+  **Create team**. The creator becomes the team's lead, and the page
+  re-renders with "Created {team}. You're its lead." A name the rule refuses
+  (see below) answers `422` with the reason above the field, which keeps what
+  was typed. Anyone who isn't a workspace admin sees no form, and a `POST`
+  from them gets the same "not found" page as a team that doesn't exist.
+  Instance admins get no access from being instance admins.
+- **New project on the members page.** Anyone on a team sees a **New project**
+  link on `/team/{team}/members`, which opens that team's new-project form.
+- **The dashboard's "create your first project" link names a team you're
+  on.** It used to point at `/team/general/projects/new` for everyone; it now
+  goes to the first team you're on (by name).
+- **Rename a team.** A workspace admin, or a lead of that team, can rename it
+  from its members page. The page re-renders with "Renamed {old} to {new}."
+  Only the name changes: the team's address (slug) stays the same, so every
+  link and bookmark keeps working. Submitting the same name writes nothing and
+  shows no notice; a change of case is a real rename. A name the rule refuses
+  answers `422` with the reason above the Rename field, which keeps what was
+  typed. Each rename writes one record to `team_lifecycle_events` (read it
+  with `psql`; there is no page for it yet).
+- **Delete a team.** A workspace admin sees **Delete team** on a team's members
+  page. It opens a confirm page at `/team/{team}/delete` that names the
+  people who will lose the team, warns when it is the workspace's default team
+  for new members ("After it is deleted, new members will join no team."), and
+  counts the machine tokens scoped to it, which will stop working. Confirming
+  deletes the team and re-renders `/teams` with "Deleted {team}." A team that
+  still has any project cannot be deleted: the confirm page shows
+  "{team} still has {n} project(s): {list}. A team with projects can't be
+  deleted." with no Delete button, and a delete that meets a project created
+  at the same moment answers `409 Conflict` and deletes nothing. Each delete
+  writes one record to `team_lifecycle_events`. Team leads cannot delete their
+  team; only workspace admins can.
+- **One rule for team names.** A team name is trimmed and must be non-empty,
+  at most 64 characters, free of control and bidirectional-override
+  characters, and unique within the workspace: no other team may have the
+  same name ignoring case, or a name that makes the same address. The
+  refusals read "Team name must not be empty", "Team name must not contain
+  control characters", "Team name must be at most 64 characters" and "Team
+  name must be unique within the workspace". A name in any script gets an
+  address: one with no ASCII letters or digits gets `team`, then `team-2`,
+  and so on. The database refuses a bad new team name from any other tool as
+  well (see `0024_team_name_rule` below).
+
+### Changed
+
+- **A project create on a team that no longer exists answers the uniform
+  `404`** "not found" page, the same page as any team you may not see. It
+  used to answer a separate "Team not found" page (or a `500` when the team
+  was deleted mid-request).
+- **A machine-token mint that races a team delete answers `422`** with the
+  existing `scope_team_not_in_workspace` error, the same answer as a team that
+  was never there, instead of a `500`. Adding someone to a team, or setting
+  the default team, while that team is being deleted answers the uniform
+  `404`.
+
 ### Migration notes
 
 - **`0023_team_lifecycle_events`** adds one table, `team_lifecycle_events`: an
-  append-only record of each team delete (and, later, each team rename), with
+  append-only record of each team rename and each team delete, with
   `id`, `workspace_id` (`ON DELETE CASCADE` with its workspace), `team_id`,
   `team_slug`, `kind` (`renamed` or `deleted`), `actor_id` (references
   `users`, no `ON DELETE` action), `name`, `new_name` and `created_at`. It
