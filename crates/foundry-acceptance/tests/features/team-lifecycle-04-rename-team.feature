@@ -60,7 +60,7 @@ Feature: A team is renamed, and every link to it keeps working
     Then she gets Backend's members page back with no notice
     And no team, project or membership changed
 
-  @us-tl-05 @error @contract-shape:unbounded-preservation @pending
+  @us-tl-05 @error @contract-shape:unbounded-preservation
   Scenario Outline: A rename to a name already in use is refused, and the team keeps its name
     When Priya renames Ops to "<typed>"
     Then she is refused with "Team name must be unique within the workspace", and her text "<typed>" is kept
@@ -71,7 +71,7 @@ Feature: A team is renamed, and every link to it keeps working
       | general  |
       | Backend! |
 
-  @us-tl-05 @error @contract-shape:unbounded-preservation @pending
+  @us-tl-05 @error @contract-shape:unbounded-preservation
   Scenario Outline: A rename that breaks the rule is refused with the same words as a create
     When Priya renames Ops to "<typed>"
     Then she is refused with "<reason>", and her text "<typed>" is kept
@@ -102,7 +102,7 @@ Feature: A team is renamed, and every link to it keeps working
       | Lena  | offers         | does not offer |
       | Sam   | does not offer | does not offer |
 
-  @us-tl-05 @error @kpi @contract-shape:unbounded-preservation @pending
+  @us-tl-05 @error @kpi @contract-shape:unbounded-preservation
   Scenario Outline: Someone without the right cannot rename a team
     When <who> submits a rename of <team> to "Platform"
     Then the answer is the page that never existed
@@ -118,7 +118,7 @@ Feature: A team is renamed, and every link to it keeps working
       | Ines                 | Backend |
       | Hugo                 | Backend |
 
-  @us-tl-05 @error @kpi @contract-shape:unbounded-preservation @pending
+  @us-tl-05 @error @kpi @contract-shape:unbounded-preservation
   Scenario: A rename aimed at another workspace's team or at a team that does not exist is refused the same way
     When Priya submits a rename of Payments to "Platform"
     Then the answer is the page that never existed
@@ -127,7 +127,7 @@ Feature: A team is renamed, and every link to it keeps working
     When Priya submits a rename of a team that does not exist to "Platform"
     Then the answer is the page that never existed
 
-  @us-tl-05 @error @contract-shape:unbounded-preservation @pending
+  @us-tl-05 @error @contract-shape:unbounded-preservation
   Scenario: A lead who has since been made a member cannot rename from a page she opened as a lead
     Given Lena opened Backend's members page earlier
     And Priya has made Sam Okafor a lead of Backend
@@ -136,7 +136,7 @@ Feature: A team is renamed, and every link to it keeps working
     Then the answer is the page that never existed
     And no team, project or membership changed
 
-  @us-tl-05 @error @contract-shape:unbounded-preservation @pending
+  @us-tl-05 @error @contract-shape:unbounded-preservation
   Scenario: A rename sent without the page's token is turned away, and nothing changes
     When Priya submits a rename of Backend to "Platform" without the page's token
     Then the answer is turned away as a forged form

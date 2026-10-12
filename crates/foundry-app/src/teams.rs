@@ -28,7 +28,9 @@
 //!                                  same 409; a stale target re-renders with no copy.
 //!   POST /team/{slug}/rename     — needs Manage (team-lifecycle DDD-17/22): Renamed
 //!                                  → 200 members page with "Renamed {old} to
-//!                                  {new}."; a byte-equal name → 200, no notice.
+//!                                  {new}."; a byte-equal name → 200, no notice;
+//!                                  a name refusal → 422 members page with the
+//!                                  create door's words and the text kept.
 //!   GET  /team/{slug}/delete     — needs Administer (team-lifecycle DDD-10): the
 //!                                  confirm page; it writes nothing.
 //!   POST /team/{slug}/delete     — needs Administer (DDD-18): Deleted → 200 teams
@@ -511,13 +513,17 @@ pub async fn submit_rename(
             members_page(&state, &headers, &user, page, None).await
         }
         Err(RenameTeamError::NotFound) => resource_not_found_page(),
-        // A name refusal is a 422 members page (DDD-18); its copy and the kept
-        // text land with the refusal scenarios (step 04-03).
-        Err(RenameTeamError::InvalidName(_)) => {
+        // A name refusal is a 422 members page (DDD-18) with the create door's
+        // words (`TeamNameError`'s Display) and the typed text kept.
+        Err(RenameTeamError::InvalidName(reason)) => {
             match services.team_members(&principal, &team_slug).await {
                 Ok(view) => {
+                    let rename = RenameField {
+                        typed,
+                        error: Some(reason.to_string()),
+                    };
                     let status = StatusCode::UNPROCESSABLE_ENTITY;
-                    members_page_with_status(&state, &headers, &user, view, None, status).await
+                    members_page_rendered(&state, &headers, &user, view, None, rename, status).await
                 }
                 Err(err) => refusal(err),
             }
@@ -751,12 +757,41 @@ async fn members_page(
     members_page_with_status(state, headers, user, view, notice, StatusCode::OK).await
 }
 
+/// The Rename field: the team's name, or — on a refused rename (DDD-18) — the
+/// text typed and the rule's own words.
+struct RenameField {
+    typed: String,
+    error: Option<String>,
+}
+
+impl RenameField {
+    fn showing(team_name: &str) -> Self {
+        Self {
+            typed: team_name.to_string(),
+            error: None,
+        }
+    }
+}
+
 async fn members_page_with_status(
     state: &AppState,
     headers: &HeaderMap,
     user: &SessionUser,
     view: TeamMembersView,
     notice: Option<TeamNotice>,
+    status: StatusCode,
+) -> Response {
+    let rename = RenameField::showing(&view.team_name);
+    members_page_rendered(state, headers, user, view, notice, rename, status).await
+}
+
+async fn members_page_rendered(
+    state: &AppState,
+    headers: &HeaderMap,
+    user: &SessionUser,
+    view: TeamMembersView,
+    notice: Option<TeamNotice>,
+    rename: RenameField,
     status: StatusCode,
 ) -> Response {
     let can_manage = view.access.can_manage();
@@ -774,6 +809,8 @@ async fn members_page_with_status(
         csrf,
         team_slug: view.team_slug,
         team_name: view.team_name,
+        rename_typed: rename.typed,
+        rename_error: rename.error,
         can_manage,
         can_delete,
         on_team,

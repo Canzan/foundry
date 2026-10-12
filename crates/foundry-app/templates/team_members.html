@@ -8,7 +8,8 @@
   {% if can_manage %}
   <form method="post" action="/team/{{ team_slug }}/rename" class="team-members__rename">
     <input type="hidden" name="_csrf" value="{{ csrf }}">
-    <label>Team name <input type="text" name="name" value="{{ team_name }}"></label>
+    {% if let Some(error) = rename_error %}<p class="error">{{ error }}</p>{% endif %}
+    <label>Team name <input type="text" name="name" value="{{ rename_typed }}"></label>
     <button type="submit">Rename</button>
   </form>
   {% endif %}

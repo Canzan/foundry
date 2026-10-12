@@ -829,6 +829,10 @@ pub struct TeamMembersPage {
     pub csrf: String,
     pub team_slug: String,
     pub team_name: String,
+    /// The Rename field's text: the team's name, or the text typed on a 422.
+    pub rename_typed: String,
+    /// The `TeamNameError` copy of a refused rename (DDD-18), if any.
+    pub rename_error: Option<String>,
     pub can_manage: bool,
     /// The caller is a workspace admin: offer Delete team
     /// (ADR-TEAM-LIFECYCLE-004 decision 5).
