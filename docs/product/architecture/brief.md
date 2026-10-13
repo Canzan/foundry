@@ -184,6 +184,15 @@ loads data before it creates the triggers. Fixtures that need a legacy row use o
 test-support seam, which disables that table's two name triggers inside one transaction
 (check-arch `name-rule-legacy-seam`). See `adr-name-db-001-name-write-trigger.md`.
 
+> **Amended, 2026-10-12 (project-lifecycle DESIGN, ADR-PROJECT-LIFECYCLE-003).** A project has a
+> **second rename door**: the team's members page, for the team's lead or a workspace admin. Both
+> doors run one services core (`apply_rename`), so they share the rule, the copy and the sibling
+> check. The sibling check now includes deleted projects, because a deleted project's name stays
+> taken. Both doors also share one locked, audited store write (`rename_project_with_audit`, which
+> writes a `project_lifecycle_events` record). The instance-admin rename is no longer an unlocked
+> `UPDATE`. Slugs and keys are still never written after create. See "Projects: one live view, soft
+> delete and restore" below.
+
 ### Dialog layers close by one mechanism, many declarative triggers
 
 Dialogs are `div.modal` fragments htmx-swaps into `#modal-root`; "closed" is a
@@ -601,6 +610,118 @@ Open from this section: OQ-D4 (`admin_tokens::resolve_scope` resolves a typed na
 `slugify`); W1 (`is_name_rule_refusal`'s warn is untested, the same class as team-membership's
 H8); the `team_not_found_page` copies in `keyboard.rs` and `comments.rs`. See the team-lifecycle
 evolution doc.
+
+> **Amended, 2026-10-12 (project-lifecycle DESIGN, ADR-PROJECT-LIFECYCLE-004).** "A team with any
+> project cannot be deleted" becomes "a team with any **live** project cannot be deleted". Between
+> the live-project check and `DELETE FROM teams`, `delete_team_if_empty` detaches **every**
+> remaining row of the team (`team_id` → NULL, `detached_from_team_id` → the team), so the cascade
+> reaches no project. CHECK `projects_team_or_detached` refuses to detach a live one. INV-TL-1 now
+> reads: no live project row, and no row of any project, is ever removed by a team delete. The
+> paragraphs above are left as written.
+
+### Projects: one live view, soft delete and restore
+
+**Designed (project-lifecycle DESIGN, 2026-10-12); not yet delivered.** A team's lead or a
+workspace admin renames and deletes a project from the team's members page
+(`POST /team/{t}/project/{p}/rename`, `GET`/`POST /team/{t}/project/{p}/delete`, gated by
+`TeamAccess::can_manage`). A delete is **soft**: the project disappears for everyone and nothing
+under it is erased. The instance operator lists and restores deleted projects with
+`foundry doctor list-deleted-projects` and `restore-project <uuid>`.
+
+**"Live" has one definition, in the database.**
+- `projects.deleted_at` / `deleted_by` (0026, the `comments` precedent) mark a deleted project.
+- The view `live_projects` (`SELECT * FROM projects WHERE deleted_at IS NULL`) is what every
+  production reader selects from: the four resolvers every web and API door goes through, the
+  lists, the issue joins, the lane internals and the instance dashboard.
+- A deleted project therefore resolves to `None`, exactly what an unknown slug gives. Every door
+  answers as it does for a project that never existed, with no per-route code.
+- The issue counter is `UPDATE live_projects … RETURNING`.
+
+**One module may see deleted projects.** `crates/foundry-store/src/project_lifecycle.rs` is the
+only place SQL names the base table for reads, updates or deletes. It holds:
+- the sibling read, which includes deleted projects, so a deleted project's name, slug and key stay
+  taken and a restore can never collide;
+- the team delete's lists and its detach;
+- the delete, the restore and the locked rename;
+- the write guard;
+- the CLI's deleted list;
+- the per-workspace export's `projects` query. The whole row carries the marker, which is the
+  "marked as deleted".
+
+check-arch `project-lifecycle-live-reads` fails the build when any SQL-bearing string literal
+anywhere else names the table `projects`, in any form (bare, quoted, schema-qualified, comma join).
+`INSERT INTO projects` and the acceptance harness are exempt. Any migration that adds a
+`projects` column must recreate the view: the view's `*` is fixed at creation. The migration
+self-checks and `Store::probe` refuse a mismatch.
+
+**No write reaches a deleted project.**
+- Every project-scoped store writer (issues, comments, attachments, lanes) opens its transaction
+  with `lock_live_project`, which is `FOR KEY SHARE` on the live row. On "gone" it returns the
+  writer's existing not-found outcome, so the door answers its not-found.
+- The delete locks the row `FOR UPDATE`, which conflicts with that `KEY SHARE`. A racing write
+  therefore commits before the delete (kept, hidden, restored with the project) or answers not
+  found. It never answers 500, and it never commits after the delete.
+- Issue create's guard is its first statement, the counter `UPDATE live_projects`, so it never
+  upgrades its own lock.
+- So a restore only clears the marker. No product write could have changed anything under the
+  project. The one exception is the comment-tombstone GC (D12), which keeps purging tombstones past
+  their 90-day window.
+- check-arch `project-lifecycle-write-guard` requires the guard in every store function that writes
+  issues, comments, attachments, lanes or change events, transactional or not. Exempt are
+  transaction-taking helpers (their callers are checked), the comment-tombstone GC and
+  `insert_project`.
+- Attachment download now refuses a path whose issue does not resolve. Before, it served an
+  attachment by id under any project slug of a team the caller is on.
+- **Lock order, every path:** team → project → children.
+
+**Records.** `project_lifecycle_events` (0025) holds one append-only row per effective rename (old
+→ new, read under `FOR NO KEY UPDATE`), per delete and per restore (`actor_id` NULL = the
+operator), written in the change's transaction. It has no FK to `projects` or `teams`, and is not
+in `TENANT_TABLES`. **Both rename doors** (team page and instance admin) share one services core,
+`apply_rename`, and one store write, `rename_project_with_audit`. They differ only in their
+authority gate. The shipped unlocked `update_project_name` is gone.
+
+**Team delete.** Only live projects block it. Deleted ones are detached (`team_id` NULL,
+`detached_from_team_id` set, CHECK `projects_team_or_detached`). They keep every row and their key,
+and cannot be restored until a "restore into a team" exists. A restore takes the team row
+`FOR KEY SHARE` before the project, so a restore racing a team delete either wins (the delete is
+refused, naming it) or finds the team gone.
+
+**For future features (consumers):**
+- **A new project reader** selects from `live_projects`. Seeing deleted projects is an edit to
+  `project_lifecycle.rs`, which a reviewer sees.
+- **A new project-scoped writer** opens its transaction with `lock_live_project`.
+- **A new `projects` column** recreates `live_projects` in the same migration.
+- **A project move or a "restore into a team"** must take the target team's `KEY SHARE` before the
+  project row (lock order), and clear `detached_from_team_id` together with setting `team_id`
+  (CHECK).
+- **A user hard-delete** meets `projects.deleted_by` and `project_lifecycle_events.actor_id`,
+  alongside 0018, 0021 and 0023 (team-membership OQ-D9).
+
+**Rolling deploy.** A v0.14.x replica ignores the marker until it is replaced, so do not delete or
+rename projects during that rollout. Nothing is lost. A dump taken before 0025 or 0026 restores into a
+fresh database, not over this one (`UPGRADE_WARNING_0025`, `_0026`).
+
+See `adr-project-lifecycle-001-live-projects-view-is-the-read-seam.md`,
+`adr-project-lifecycle-002-soft-delete-write-guard-and-restore.md`,
+`adr-project-lifecycle-003-project-lifecycle-events-and-one-rename-core.md` and
+`adr-project-lifecycle-004-team-delete-detaches-deleted-projects.md`.
+
+**Designed component inventory (project-lifecycle).** It becomes the shipped inventory at the
+DELIVER finalize.
+
+| Design element | Designed as | Where | DDD | Slice |
+|---|---|---|---|---|
+| Record table | `project_lifecycle_events`, CHECK `project_lifecycle_events_kind_shape`, no FK to projects or teams; `UPGRADE_WARNING_0025` | `migrations/0025_project_lifecycle_events.sql`, store `upgrade_warnings.rs` | 13, 14 | 01 |
+| Rename core | `rename_project_with_audit` → `ProjectRenameWrite`; services `apply_rename`, `rename_project`, `rename_team_project` | store `project_lifecycle.rs`; services `projects.rs` | 15, 16 | 01 |
+| Projects section | `list_team_projects`; `TeamMembersView.projects`; board-link rule pending the user's OQ-U1 (recommended: only when on the team); `TeamNotice` project strings | store, services `teams.rs`, app `teams.rs`, `team_members.html` | 25, 26 | 01 |
+| Live view | `deleted_at`, `deleted_by`, CHECK `projects_deleted_marker_shape`, view `live_projects`; reader sweep; key-prefix lookups re-keyed by id; `UPGRADE_WARNING_0026` | `migrations/0026_project_soft_delete.sql`, store `lib.rs`, `lanes.rs`, `teams.rs` | 2-5 | 02 |
+| Write guard | `lock_live_project` in every project-scoped writer | store `project_lifecycle.rs` and the writers | 7, 8 | 02 |
+| Delete | `soft_delete_project` → `ProjectDeleteOutcome`; services `delete_preview`, `delete_project`; `project_delete.html`; routes | store, services, app | 6, 12, 23 | 02 |
+| Restore CLI | `list_deleted_projects`, `restore_deleted_project` → `ProjectRestoreOutcome`; services `list_deleted_projects`, `restore_project`; `run_list_deleted_projects`, `run_restore_project` | store, services, app `admin_cli.rs`, `main.rs` | 9, 10 | 03 |
+| Detach | `team_id` nullable, `detached_from_team_id`, CHECK `projects_team_or_detached`; `delete_team_if_empty` detaches; `team_delete_facts` deleted list | `migrations/0027_project_detach.sql`, store `teams.rs`, `project_lifecycle.rs` | 19-21 | 04 |
+| Seam rules | check-arch `project-lifecycle-live-reads`, `project-lifecycle-write-guard`, `project-lifecycle-one-seam` | `xtask/src/check_arch.rs` | 22 | 01-03 |
+| Readiness | `Store::probe` requires the 0025, 0026 and 0027 objects | store `lib.rs` | 28 | 01, 02, 04 |
 
 ### Crate graph
 

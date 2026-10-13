@@ -806,3 +806,836 @@ Reviewer: nw-product-owner-reviewer, 2026-10-12.
 - Medium and low items also applied: US-PL-03 re-estimated at 1.5 days (US-PL-02 0.5 day; slice 02 still 2 days); the detached projects' keys staying taken is stated on the team delete page and in OQ-1 (b)'s cost; `${project_id}` added to Shared Artifacts; the `auth` slug's origin stated; US-PL-05's Before reworded; DoR item 8 worded as conditional; a scenario title reworded; the journey's sample timestamp and refusal failure modes fixed.
 - Not applied: a web database-unavailable scenario per write (medium). NFR-PL-4 states the all-or-nothing requirement on the shipped error page; DISTILL may add a scenario.
 - Iteration 2 was not run: no critical or high item remained after the fixes, and each fix is mechanical. Max-2-iterations rule respected.
+
+## Wave: DESIGN
+
+Architect: Morgan (nw-solution-architect) | Date: 2026-10-12 | Scope: application | Mode: propose
+(orchestrator-dispatched; D-A, D-B, D1-D17 and the user's answers to OQ-1 to OQ-6 are locked) |
+Paradigm: OOP (CLAUDE.md, unchanged) | Density: lean, Tier-1 [REF] only | Per-wave review:
+nw-solution-architect-reviewer (see [REF] Design Review).
+
+### [REF] Prior Wave Consultation
+
+| Artifact | Status |
+|---|---|
+| DISCUSS above: D-A, D-B, D-C, D1-D17, OQ-1 to OQ-6 (answered 2026-10-12), INV-PL-1 to INV-PL-9, NFR-PL-1 to NFR-PL-6, US-PL-01 to US-PL-05, DoD | ✓ Two story-level wording changes (Changed Assumptions 1, 2). No decision reopened. |
+| `slices/slice-01..04` | ✓ All four read in full. |
+| `docs/product/architecture/brief.md` ("Names are labels; slugs are identity", "Teams, team authority…", "Team lifecycle") | ✓ Extended with a new "Projects: one live view, soft delete and restore" section, plus addenda to the two sections it amends. |
+| `adr-team-lifecycle-001..004` | ✓ 002 is amended by ADR-PROJECT-LIFECYCLE-004 (statement order). 003 is the record precedent. 004's `can_manage` is reused with no new arm. |
+| `adr-team-membership-003` | ✓ One authority policy, applied in `foundry-services`. Reused. |
+| `adr-project-rename-001/002`, `adr-project-name-001/002` | ✓ Slugs are never re-derived. The rule, copy and `classify_rename` are reused. ADR-PROJECT-RENAME-002's write gains a lock and a record (amended by ADR-PROJECT-LIFECYCLE-003). Its duplicate-label residual is kept. |
+| `adr-issue-delete-002` | ✓ GET confirm + POST, scripting-free, full-page carrier only. |
+| `adr-workspace-rename-001/002` | ✓ Locked audited rename; the audit table stays out of `TENANT_TABLES`. |
+| `adr-name-db-001` | ✓ 0020's triggers are on `projects` and unchanged. The view does not affect them. |
+| `docs/feature/team-lifecycle/feature-delta.md` DESIGN | ✓ The format precedent, followed section for section. |
+| `docs/product/journeys/journey-project-lifecycle.yaml`, `docs/product/jobs.yaml` (`job-project-lifecycle`) | ✓ Step 5's "THE structural checkpoint" is DDD-3. |
+| `docs/product/outcomes/registry.yaml` | ✓ Manual scan (see Outcome Collision Check). |
+| CodeGraph (`codegraph explore`), the dual-graph MCP | ⊘ This session has no shell and no MCP tools. Code was read with Read/Grep, targeted at the files the brief named. |
+
+Code read:
+- `foundry-store`:
+  - `lib.rs`: `list_projects_for_workspace` :942, `export_workspace` :1009, `insert_project` :1631,
+    `find_project_by_slug` :1712, `insert_issue_attempt` :1804, `reposition_issue_with_outbox`
+    :1959, `list_project_changes` :2231, `update_issue_details` :2302, `issue_edit_view` :2373,
+    `find_issue_by_team_project_number` :2429, the comment writers :2753 and :2821, the
+    instance-rename deltas :4239-4346;
+  - `teams.rs` :560-858 (`TEAM_PROJECTS_SQL`, `team_delete_facts`, `delete_team_if_empty`,
+    `rename_team_with_audit`);
+  - `lanes.rs` :280-380, `verify_export.rs` (grep), `upgrade_warnings.rs`.
+- `foundry-services`: `projects.rs` (whole), `issues.rs` :1-610 (`resolve_member_project`,
+  `resolve_member_issue`), `lib.rs` :600-715 (`resolve_board_project`), `teams.rs` :555-648.
+- `foundry-app`: `events.rs` (whole), `nav.rs` :180-211, `admin_cli.rs` :427-540 (`run_restore_comment`),
+  router `lib.rs` :420-800.
+- `foundry-api`: `lib.rs` :295-351.
+- `xtask/src/check_arch.rs`: `check_app_tenant_scoping` :409, `team-lifecycle-one-seam` :5541-5602.
+- Migrations: 0001, 0006, 0009, 0023 (whole); grep of every `projects`/`team_id` reference.
+
+Grep facts:
+- 22 SQL sites in `crates/foundry-store/src` name `projects`. Outside the store, two places name
+  the table:
+  - `foundry-acceptance` fixtures;
+  - `foundry doctor backup-verify` (`admin_cli.rs:201-207, 366-374`), which counts every table of
+    a restored sandbox with `format!`-built SQL. This is a reviewed exception in rule 1.
+
+  The notifier never reads `projects`.
+- `undelete_comment` (`lib.rs:3259`, behind `restore-comment`) writes `comments`. It gets the guard
+  (ADR-PROJECT-LIFECYCLE-002 decision 2).
+- `find_project_by_slug` has 7 production call sites and `find_issue_by_team_project_number` has 5.
+  Every one of the about 23 web and 7 API project routes resolves through one of them, or through
+  the services resolvers built on them. The 23 are the about 21 in the router plus attachment
+  upload and download (`attachments.rs:52-59`), which DISCUSS's inventory missed.
+- `download_attachment` (`attachments.rs:232-238`) ignores `Ok(None)` from its defensive issue
+  lookup and then serves the attachment by (attachment id, workspace). See DDD-32.
+- `rename_lane` (`lanes.rs:543`) and `insert_attachment` (store `attachments.rs:55-68`) write with
+  no transaction.
+- The events route answers a **403 text/plain** "Not a member of team …" for an unknown project
+  (`events.rs:99-103`), not the uniform 404. This is Changed Assumption 1.
+- Three issue lookups (`reposition_issue_with_outbox`, `update_issue_details`, `issue_edit_view`)
+  select by `p.key_prefix = $1 AND i.number = $2` with no workspace predicate. `key_prefix` is
+  unique per workspace only (0001, and 0009 allows many workspaces). See DDD-5.
+
+### [REF] DDD List (design decisions)
+
+| ID | Decision | Options | Verdict | One-line rationale |
+|---|---|---|---|---|
+| DDD-1 | **Shape** | Extend the shipped project vertical: `foundry-services::projects` use-cases, one new store module `crates/foundry-store/src/project_lifecycle.rs`, handlers in `foundry-app/src/teams.rs` (they render the members page), CLI in `admin_cli.rs` | **Extend** | ADR-PROJECT-RENAME-002 named `services::projects` "the designated seam for any future project mutations". No new crate or dependency. |
+| DDD-2 | **Deleted marker (D-A)** | `projects.deleted_at timestamptz NULL`, `deleted_by uuid NULL → users(id)`, CHECK `projects_deleted_marker_shape` (both or neither) | **Locked** | The 0006 `comments` precedent. `list-deleted-projects` prints both. Migration 0026. |
+| DDD-3 | **THE read seam (INV-PL-2)** | (a) view `live_projects`, with every reader on it and only `project_lifecycle.rs` naming `projects`, enforced by check-arch; (b) an app-level resolver only; (c) row-level security; (d) per-reader `deleted_at IS NULL` plus a sweep; (e) rename the table, so the view is called `projects`; (f) move deleted rows to another table | **(a)** | One database definition of "live". The default for a new reader is the view, and naming the base table fails the build outside one reviewed module. (b) misses store-internal joins. (c) is silently bypassed by an owner or superuser role. (d) has no default. (e) ripples into OUT-20's trigger naming and the legacy seam. (f) cascades away children. ADR-PROJECT-LIFECYCLE-001. |
+| DDD-4 | **Reader sweep** | See [REF] Reader Inventory: 15 readers move to `live_projects`, 7 move into the module | **Locked** | Every door keeps calling the same resolver. A deleted project is `None`, the value an unknown slug already gives. |
+| DDD-5 | **Key-prefix issue lookups** | Re-key `reposition_issue_with_outbox`, `update_issue_details` and `issue_edit_view` by the resolved `project_id` | **Locked** | They are rewritten anyway (view and guard), and the guard needs the id. This removes a cross-workspace ambiguity in passing. Single-workspace behaviour is unchanged. |
+| DDD-6 | **Delete transaction** | `soft_delete_project`: live row `FOR UPDATE` (scoped to workspace and team) → set the marker → `deleted` record → commit; `NotFound` otherwise | **Locked** | `FOR UPDATE`, not `FOR NO KEY UPDATE`: only it conflicts with the writers' `KEY SHARE`. ADR-PROJECT-LIFECYCLE-002. |
+| DDD-7 | **Write guard (INV-PL-3, D17)** | (a) `lock_live_project(tx, id)` (`FOR KEY SHARE` on the live row) as the first statement of every project-scoped writer; (b) accept the race; (c) a DB trigger on child tables; (d) SERIALIZABLE or advisory locks | **(a)** | No write commits after a delete commits. Each writer reuses its shipped not-found outcome. The guard does not serialise writers against each other. `rename_lane` and `insert_attachment` (autocommit today) open a transaction. Issue create's guard is its first statement, `UPDATE live_projects` (counter, `FOR NO KEY UPDATE`), with no separate `KEY SHARE`, so it never upgrades its own row lock behind a queued delete. |
+| DDD-8 | **Lock order** | team → project → children, on every path | **Locked** | No lifecycle path takes a team lock after a project lock, so there is no deadlock among them. The one exception is outside the lifecycle: `insert_project` takes the team's FK `KEY SHARE` after inserting a row nobody else can see yet. |
+| DDD-9 | **Restore transaction (D11, INV-PL-4)** | `restore_deleted_project`: unlocked read → team `FOR KEY SHARE` → project `FOR UPDATE` (still deleted, same team) → clear the marker → `restored` record → commit. Outcomes `Restored`, `NotDeleted`, `NotFound`, `TeamGone { team_slug }` | **Locked** | Clearing the marker is the whole restore, because nothing can write a deleted project. The team lock orders it against a team delete (ADR-PROJECT-LIFECYCLE-004). |
+| DDD-10 | **Operator doors (D10)** | `foundry doctor list-deleted-projects` and `restore-project <uuid>` → `services::projects::{list_deleted_projects, restore_project}` → store. `run_restore_comment`'s runtime and exit codes. Typed outcomes, no SQL in `admin_cli.rs` | **Locked** | The operator shell is the authority (NFR-PL-6). The CLI goes through services, so check-arch's seam clause stays uniform. |
+| DDD-11 | **GC and queued mail (D12, D17)** | `gc_tombstoned_comments`, the outbox and the notifier are unchanged. A restore replays nothing | **Locked** | The guard (DDD-7) is what makes "none arises after it" exact. Consequence of D12, stated rather than hidden: a tombstoned comment that passes its 90-day window while the project is deleted is purged, so INV-PL-4's "every row equals its state at the delete" excludes such tombstones (see Changed Assumptions). |
+| DDD-12 | **Confirm page (D7)** | `GET …/delete` reads the live project and `count_issues_in_project`, with no lock. Read-only path. The POST decides | **Locked** | The team-lifecycle INV-TL-3 posture: the count is advisory. |
+| DDD-13 | **Record table (OQ-3)** | (a) one `project_lifecycle_events` table, `kind` renamed\|deleted\|restored, `actor_id` NULL only for `restored` (shape CHECK), no FK to `projects`/`teams`; (b) widen `team_lifecycle_events`; (c) three tables | **(a)** | It outlives the project, and the shape CHECK keeps it typed. Migration 0025, slice 01. ADR-PROJECT-LIFECYCLE-003. |
+| DDD-14 | **Record versus export** | Not in `TENANT_TABLES` (still ten) or `KNOWN_FOUNDRY_TABLES`; in every whole-instance dump. `UPGRADE_WARNING_0025` | **Locked** | ADR-WORKSPACE-RENAME-002, and the 0023 warning mechanism (user decision 2026-10-11). |
+| DDD-15 | **Rename write** | `rename_project_with_audit`: live row `FOR NO KEY UPDATE` → byte-equal `Unchanged` → `UPDATE … SET name` (never slug or key) → `renamed` record (`clock_timestamp()`) → commit | **Locked** | Exact old name under the lock. Totally ordered against delete. Replaces `update_project_name`. |
+| DDD-16 | **Two doors, one core (D3, D16, OQ-3)** | A private `apply_rename` (live context → siblings including deleted → `classify_rename` → write) behind two gates: `rename_project` (instance admin, unchanged signature) and `rename_team_project` (`TeamAccess::can_manage`) | **Locked** | One rule, one copy, one write and one record on both doors. The gates differ in inputs, so they stay two thin functions. |
+| DDD-17 | **Uniqueness (OQ-4, INV-PL-5, INV-PL-9)** | Siblings include deleted projects, on create and on both rename doors. Check-then-write; the duplicate-label race between *different* projects is an accepted residual | **Accepted residual** | ADR-PROJECT-RENAME-002 posture. Slug and key are held by the unique indexes, which include deleted rows, so a restore never collides. |
+| DDD-18 | **Authority (D-B) and gate order** | session (none → 404) → `team_access_facts` by (session workspace, team slug) → `can_manage` → the live project by (team, slug) → the verb. Every refusal before the verb is `resource_not_found_page()`. No new `TeamAccess` arm | **Locked** | team-membership DDD-5, ADR-TEAM-LIFECYCLE-004 decision 3. Authority is read once per request (INV-PL-8). |
+| DDD-19 | **Detach schema (OQ-1 (b))** | `team_id` nullable, `detached_from_team_id uuid NULL` (no FK), CHECK `projects_team_or_detached` (live ⇒ has team; detached ⇒ deleted and names its team). FK stays `CASCADE` | **Locked** | The rejected options were `SET NULL` + CHECK (it breaks workspace delete by firing order), dropping the FK, a team tombstone, and a holding team. Migration 0027. ADR-PROJECT-LIFECYCLE-004. |
+| DDD-20 | **Team delete order (INV-PL-6, amends ADR-TEAM-LIFECYCLE-002)** | team `FOR UPDATE` → live projects (fresh statement; any → `HasProjects`, live only) → **detach every remaining row of the team** → `DELETE FROM teams` → record (shape unchanged) → commit | **Locked** | The cascade reaches no project. A live row slipping through is a loud 23514, never a silent loss. |
+| DDD-21 | **Team delete page** | `team_delete_facts` gains `deleted_projects` and `workspace_name`. Live projects → refusal naming live only. None live and deleted > 0 → confirm plus the D14 "also has" line | **Locked** | D14 copy, read with no lock (advisory). |
+| DDD-22 | **check-arch** | Three new rules (see [REF] check-arch Rules): `project-lifecycle-live-reads`, `project-lifecycle-write-guard`, `project-lifecycle-one-seam` | **Locked** | Structural layer of Earned Trust. Each rule has injected-violation gold tests. |
+| DDD-23 | **Routes (D15 finalised)** | `POST /team/{team_slug}/project/{project_slug}/rename` (field `name`); `GET` and `POST /team/{team_slug}/project/{project_slug}/delete` | **Locked as proposed** | No collision: the issue delete is `…/issues/{n}/delete`. Plain forms on the shared CSRF layer. |
+| DDD-24 | **Statuses** | See [REF] Statuses | **Locked** | 404 for every unauthorized refusal, 422 for name refusals, 200 re-render otherwise. The team delete's 409 now names live projects only. |
+| DDD-25 | **Members page Projects section (D8)** | `TeamMembersView` gains `projects: Vec<TeamProjectRow { name, slug, key }>` from `list_team_projects` (live, by name then key). **Project name**, **Rename** and **Delete project** render for `can_manage`. The board-link rule is (a) every row links (D8 as written), or (b) a row links only when the viewer is on the team | **Locked except the link rule, which is pending OQ-U1 (recommended (b))** | Under (a), an admin who is not on the team gets a board link that 404s, and fix-hide-unreachable-boards forbids offering one (Changed Assumption 2). The `TeamMembersView` already carries `on_team`, so either answer is a template condition. Copy is unchanged. |
+| DDD-26 | **Copy home (D14)** | The new members-page and confirm strings are `TeamNotice` variants in `foundry-app` (one copy enum per crate, team-membership DDD-18). Name refusals stay `ProjectNameError::Display`. The CLI strings are constants in `admin_cli.rs`, with byte tests | **Locked** | Same homes as the team-lifecycle copy. |
+| DDD-27 | **Write responses** | Rename → 200 members page (with notice, or none for a no-op). Delete → 200 members page with "Deleted {project}.". No post-redirect-get | **Locked** | team-lifecycle DDD-22. A reload re-POSTs harmlessly: a rename is a no-op, and a delete meets the 404. |
+| DDD-28 | **Probe** | `Store::probe` requires `project_lifecycle_events` (slice 01), `projects.deleted_at` and the `live_projects` view (slice 02), `projects.detached_from_team_id` (slice 04) | **Locked** | The 0018 and 0023 precedent: a write path that needs the schema refuses readiness without it. |
+| DDD-29 | **Migrations and rolling deploy** | 0025 (slice 01), 0026 (slice 02), 0027 (slice 04), each additive and self-checked. `UPGRADE_WARNING_0025` and `_0026` (a pre-0025 or pre-0026 dump no longer restores with `--clean` over the database: 0025 adds FKs, and the 0026 view depends on `projects`). Rolling-deploy window accepted (see Quality Attributes) | **Locked** | team-lifecycle DDD-24, and the user's 2026-10-11 decision on 0023. |
+| DDD-30 | **Logging** | Refusals and race outcomes log nothing. A 23514 from the detach backstop logs one `error` with the team id (it means a broken invariant). No names in logs | **Locked** | team-lifecycle DDD-25. |
+| DDD-31 | **Export (D13)** | No change in what is selected. The export's `projects` query moves into `project_lifecycle.rs` as a `const`. `to_jsonb(t.*)` carries `deleted_at`, `deleted_by` and (slice 04) `detached_from_team_id`, which is the "marked as deleted". `verify-export` checks `projects` by `workspace_id` only, so detached rows pass | **Locked** | Zero new export code. `TENANT_TABLES` stays at ten. |
+| DDD-32 | **Attachment download (INV-PL-2)** | (a) `Ok(None)` from the defensive lookup → `resource_not_found_page()`, and the attachment looked up by (attachment id, resolved issue id); (b) rely on the differential oracle | **(a)** | Today the download serves an attachment through any project slug of a team the caller is on, and the unknown-slug answer is the same leak, so (b) cannot see it. This is a scoped fix to a shipped route. Every other resolver call site already treats `None` as not found (checked). ADR-PROJECT-LIFECYCLE-001 decision 5. |
+
+### [REF] Reader Inventory (DDD-4)
+
+| Store site (2026-10-12) | Consumer | After |
+|---|---|---|
+| `list_projects_for_workspace` (`lib.rs:942`) | dashboard "Your projects", nav Board link, new-issue project list | `live_projects` |
+| `find_project_by_slug` (`:1712`) | board, report (+ CSV), search, new-issue modal, SSE, the services resolvers (issues, lanes, board), API | `live_projects` |
+| `find_issue_by_team_project_number` (`:2429`) | issue page, comments, attachment upload and download, issue delete, history, API comments | `live_projects`; download now honours `None` (DDD-32) |
+| `find_attachment_in_workspace` (store `attachments.rs`) | attachment download | keyed by (attachment id, resolved issue id) (DDD-32) |
+| `list_projects_for_instance` (`:4272`) | instance dashboard (OUT-2) | `live_projects` |
+| `project_rename_context` (`:4296`) | instance rename door | `live_projects` (deleted id → `NotFound` → 404, D16) |
+| issue counter `UPDATE` (`:1824`) | issue create | `UPDATE live_projects … RETURNING` |
+| issue joins `:1973`, `:2315`, `:2381` | move, edit, edit form | `live_projects`, re-keyed by `project_id` (DDD-5) |
+| `list_project_changes` join (`:2251`) | report | `live_projects` |
+| comment sub-selects (`:2775`, `:2836`) | comment edit, delete | `live_projects` (the guard ran first) |
+| `lanes.rs:302, 361, 664` | lane fate, lane internals | `live_projects` (inside a guarded transaction) |
+| `list_team_projects` (new) | members page Projects section | `live_projects` |
+| `TEAM_PROJECTS_SQL` (`teams.rs:589`) | team delete page and POST | module; live list from `live_projects`, deleted list from `projects` |
+| `list_team_sibling_projects` (`:4317`) | create, both rename doors (OQ-4) | module, sees deleted |
+| export `projects` (`:1054`) | per-workspace export (D13) | module `const`, sees deleted |
+| `count_projects_by_name` (`:2409`) | acceptance only | module, sees every row |
+| `update_project_name` (`:4334`) | instance rename | removed; `rename_project_with_audit` in the module |
+| `insert_project` (`:1649`), bootstrap seed (`:3635`) | create, bootstrap | unchanged (`INSERT` creates a live row) |
+| new: `soft_delete_project`, `restore_deleted_project`, `list_deleted_projects`, `lock_live_project`, detach | lifecycle | module |
+
+### [REF] Authorization Matrix
+
+`Manage` = workspace admin or lead of this team (`TeamAccess::can_manage`). "On team" = any role on
+the team. The tenancy column (team-lifecycle lesson 5) is Hugo, a Globex admin.
+
+| Route | Signed out | Marco (on no team) | Sam (member) | Lena (lead, own team) | Lena on an Ops project (leads Backend only) | Priya (workspace admin) | Instance admin only | Hugo (Globex admin) | Unknown / foreign / deleted project |
+|---|---|---|---|---|---|---|---|---|---|
+| `GET /team/{t}/members` | 404 | 404 | Projects list (links, no controls) | list + **Project name**, **Rename**, **Delete project** | as Ops member or 404 (per team) | list + controls; board links **pending OQ-U1** ((a) always, (b) only if on team) | 404 | 404 | deleted projects are absent |
+| `POST /team/{t}/project/{p}/rename` | 404 | 404 | 404 | rename | 404 | rename | 404 | 404 | 404 |
+| `GET /team/{t}/project/{p}/delete` | 404 | 404 | 404 | confirm | 404 | confirm | 404 | 404 | 404 |
+| `POST /team/{t}/project/{p}/delete` | 404 | 404 | 404 | delete | 404 | delete | 404 | 404 | 404 |
+| `POST /admin/instance/projects/{id}/rename` (shipped) | shipped | 404 | 404 | 404 | 404 | 404 unless instance admin | rename (records) | 404 | deleted id → 404 |
+| every shipped `/team/{t}/project/{p}/…` and `/api/v1/teams/{t}/projects/{p}/…` | shipped | shipped | shipped | shipped | shipped | shipped | shipped | shipped | **deleted ≡ never existed**, byte-identical, every verb, every actor |
+| `GET`/`POST /team/{t}/delete` (shipped, amended) | 404 | 404 | 404 | 404 | 404 | confirm / refusal (live only) / delete | 404 | 404 | n/a |
+| `foundry doctor list-deleted-projects`, `restore-project` | operator shell with `DATABASE_URL` only | | | | | | | | |
+
+"Lena on an Ops project": Lena posting to `/team/ops/project/reading-list/…` is refused, because
+`can_manage` is computed for Ops, where Lena is not lead.
+
+Further rows and notes:
+- **Attachment upload and download** (`POST …/issues/{n}/attachments`,
+  `GET …/issues/{n}/attachments/{id}`) are in the "every shipped" row. For a deleted project they
+  answer the uniform 404 for every actor, asserted directly (DDD-32).
+- **`GET /admin/instance/workspaces`** (instance admin only, as shipped) lists no deleted project.
+  Every other actor gets the shipped refusal.
+- **INV-PL-8, a stale form.** A lead who was demoted, or removed from the team, after loading the
+  members page posts a rename or delete: the uniform 404 with zero writes. Authority is read per
+  request (DDD-18). The same holds for an admin demoted to member who is not on the team.
+
+### [REF] Statuses
+
+| Route | Outcome | Status and body |
+|---|---|---|
+| `POST /team/{t}/project/{p}/rename` | renamed | 200, members page, "Renamed {old} to {new}.", the row shows the new name |
+| | byte-equal | 200, members page, no notice, no record |
+| | name refusal (any `ProjectNameError`) | 422, members page, the `Display` copy in that project's row, typed text kept, nothing written |
+| | not `Manage`, unknown, deleted, foreign team, signed out, deleted mid-request | 404 uniform, 0 rows |
+| `GET /team/{t}/project/{p}/delete` | `Manage`, live | 200 full-page confirm (heading, count line, nothing-erased line, **Delete project** button, **Cancel** link to `/team/{t}/members`) |
+| | anyone else, unknown, deleted | 404 uniform |
+| `POST /team/{t}/project/{p}/delete` | deleted | 200, members page, "Deleted {project}." |
+| | not `Manage`, unknown, already deleted (double submit), signed out | 404 uniform, 0 rows |
+| `GET /team/{t}/delete` (amended) | admin, live projects | 200 refusal naming live projects only, no **Delete team** |
+| | admin, no live projects | 200 confirm, plus the D14 "also has {k} deleted project(s)" line when k > 0 |
+| `POST /team/{t}/delete` (amended) | no live project at commit | 200 `/teams`, "Deleted {team}.", deleted projects detached |
+| | live project at commit | 409, the refusal naming live projects only |
+| Every shipped project route, deleted project | any verb, any actor | byte-identical to the same route with a never-existed project slug |
+| Any project-scoped write racing a delete | guard first / delete first | the write's normal outcome (kept, hidden, restorable) / that route's not-found, never 500 |
+| `restore-project` | restored / not deleted, unknown, team gone / bad uuid / database | exit 0 / 4 / 2 / 3, stdout and stderr per D14 |
+| `list-deleted-projects` | some / none / database | exit 0 blocks / exit 0 `status: none` / exit 3 |
+| Any POST without a CSRF token | shipped `csrf_middleware` | its response, outside the 404 matrix |
+
+### [REF] Contract Shapes (Principle 12)
+
+| Component | Shape | Universe / assertion |
+|---|---|---|
+| `classify_rename`, `TeamAccess::of` | pure function (unchanged) | the shipped property suite |
+| `projects::rename_team_project`, `projects::rename_project` (via `apply_rename`) | bounded-change through `rename_project_with_audit` only | refusals: every table byte-identical |
+| `projects::delete_project` | bounded-change through `soft_delete_project` only | refusals: every table byte-identical |
+| `projects::restore_project` | bounded-change through `restore_deleted_project` only | refusals: every table byte-identical |
+| `teams::delete_preview` (amended) | read-only | zero rows changed |
+| `export_workspace` (unchanged) | read-only, `REPEATABLE READ READ ONLY` transaction; universe: the ten tenant tables of one workspace, **deleted and detached projects included** (D13) | the shipped export gold tests, plus a deleted project present with `deleted_at` set |
+| `projects::delete_preview`, `list_team_projects`, `list_deleted_projects`, `team_delete_facts` | read-only; no write method on the path | zero rows changed (row-count snapshot) |
+| `lock_live_project` | read plus row lock; writes nothing | returns `bool`; no row changed |
+| `rename_project_with_audit` | bounded-change: one `projects.name` + one record | `Unchanged`/`NotFound`: both tables byte-identical; `slug`, `key_prefix` never change |
+| `soft_delete_project` | bounded-change: `deleted_at`, `deleted_by` of one row + one record | every other table, and every other column of the row, byte-identical (row checksum of `issues`, `comments`, `issue_attachments`, `issue_change_events`, `lanes`, `outbox`) |
+| `restore_deleted_project` | bounded-change: clears the two marker columns + one record | refusal outcomes: every table byte-identical; `Restored`: equals the pre-delete snapshot, minus tombstoned comments the D12 GC purged meanwhile |
+| `delete_team_if_empty` (amended) | bounded-change: the team row and its declared cascade + `team_id`/`detached_from_team_id` of **every row with `team_id = $team`** (each a deleted project after the live check; a live row is refused by `projects_team_or_detached`) + one record | `HasProjects`/`NotFound`: byte-identical; the `projects` row count never decreases |
+| Migrations 0025, 0027 | additive DDL | no existing row changed (0027's CHECK only reads) |
+| Migration 0026 | additive DDL + a view | no existing row changed |
+
+No new external dependency, so there is no new driven adapter. Earned Trust is the substrate gold
+tests named in ADR-PROJECT-LIFECYCLE-001 to -004, the three migration self-checks, the probe lines,
+and the three check-arch rules.
+
+**Architect exception to Principle 12 (d) capability injection and (e) read/write port split,
+recorded for the user's acceptance.**
+- **What is not done.** The new use-cases take `&Store`, the codebase's single driven port, which
+  exposes reads and writes together. Every shipped `foundry-services` use-case has this shape
+  (`teams::*`, `projects::*`, `issues::*`). No narrow per-use-case capability trait is introduced,
+  and `delete_preview` is not on a separate read-only port.
+- **Why.** Splitting `Store` into capability traits is a cross-cutting refactor of every vertical,
+  and introducing it for one feature would create a second idiom beside the shipped one.
+- **Mitigations in this design:**
+  - Each read-only use-case (`delete_preview`, `list_team_projects`, `list_deleted_projects`,
+    `team_delete_facts`) is declared read-only and asserted by a zero-rows-changed test.
+  - Every lifecycle write is reachable only through one named store method, and
+    check-arch `project-lifecycle-one-seam` (ii) keeps the doors from calling those methods.
+  - Rule 2 keeps every child write guarded.
+- **Recommended follow-up, not in scope:** a capability split of `Store` (read ports per aggregate,
+  plus a write port per use-case family).
+
+### [REF] check-arch Rules (DDD-22)
+
+1. **`project-lifecycle-live-reads`** (slice 02, ADR-PROJECT-LIFECYCLE-001 decision 7). The rule
+   scans every `.rs` under `crates/*/src` except `crates/foundry-acceptance` and
+   `crates/foundry-store/src/project_lifecycle.rs`.
+   - It looks at every string literal (normal or raw, multi-line) that contains an SQL keyword.
+   - In those, the table name `projects` is a violation in any form: bare, quoted or
+     `public.`-qualified, after `FROM`, `JOIN` or `UPDATE`, in a comma join, after a line break, or
+     in a sub-select.
+   - `INSERT INTO projects` is the one exception.
+   - `live_projects` and `project_lifecycle_events` never match.
+   - Route strings carry no SQL keyword and are out of scope.
+   - Comments are not scanned.
+2. **`project-lifecycle-write-guard`** (slice 02, ADR-PROJECT-LIFECYCLE-002 decision 7). In
+   `crates/foundry-store/src`, every function body that writes `issues`, `comments`,
+   `issue_attachments`, `lanes` or `issue_change_events` must call `lock_live_project(`, **with or
+   without `.begin()`**.
+   - "Writes" means SQL `INSERT INTO`, `UPDATE` or `DELETE FROM` on those tables, with rule 1's
+     lexical rules (case, quotes, `public.`, line breaks).
+   - It also means a call to any transaction-taking helper that writes. A first pass computes that
+     set, which includes `renumber_column`, `delete_issues_with_outbox`, `move_cards_to_destination`
+     and `record_issue_change`.
+   - `format!`-interpolated table names in the store are themselves violations.
+   - Exempt: the transaction-taking helpers themselves (their callers are in scope), and
+     `insert_issue_attempt` **only while** its first SQL statement is `UPDATE live_projects`.
+   - Allow-list: `gc_tombstoned_comments` (D12) and `insert_project` (a new project).
+     `undelete_comment` is guarded, not allow-listed.
+   - Rule 1 additionally flags an exact `"projects"` literal outside the module. The one reviewed
+     exception is `KNOWN_FOUNDRY_TABLES` (`backup-verify`, a restored sandbox).
+3. **`project-lifecycle-one-seam`** (slice 01, extended in 02 and 03; the `OneSeamRule` of
+   team-lifecycle):
+   - (i) SQL writes on `projects`, `live_projects` or `project_lifecycle_events` only under
+     `crates/foundry-store/src` (and the acceptance harness);
+   - (ii) the store writers `rename_project_with_audit(` (01), `soft_delete_project(` (02) and
+     `restore_deleted_project(` (03) have no call site under `crates/{foundry-app,foundry-api}/src`.
+
+Each rule ships with injected-violation gold tests (one per clause, plus a clean-tree pass and a
+missing-`crates/` failure), in the `team_lifecycle_one_seam_tests` idiom.
+- Rule 1's gold tree includes a comma join, a line break between `FROM` and the name, and
+  `public.projects` (all flagged), plus a route string and `INSERT INTO projects` (neither flagged).
+- Rule 2's gold tree includes an unguarded autocommit `INSERT INTO issue_attachments` (flagged).
+
+### [REF] Data Model and Migration Plan
+
+Highest shipped migration: `0024_team_name_rule.sql`. Three new ones follow, in slice order.
+
+| Migration | Slice | Content | Self-check | Rolling-deploy / upgrade |
+|---|---|---|---|---|
+| `0025_project_lifecycle_events.sql` | 01 | Table `project_lifecycle_events` (ADR-PROJECT-LIFECYCLE-003 decision 1), shape CHECK, two indexes | 11 columns, the shape CHECK, no FK to `projects` or `teams` | Additive. Old replicas never write it. `UPGRADE_WARNING_0025` (new FKs to `workspaces` and `users`). |
+| `0026_project_soft_delete.sql` | 02 | `projects.deleted_at`, `deleted_by` (FK `users`), CHECK `projects_deleted_marker_shape`, `CREATE VIEW live_projects AS SELECT * FROM projects WHERE deleted_at IS NULL` | the view's column list equals the table's; the CHECK is installed | Additive. Old replicas ignore the marker (window accepted, below). `UPGRADE_WARNING_0026` (the view depends on `projects`, so `--clean` of an older dump cannot drop the table). |
+| `0027_project_detach.sql` | 04 | `team_id DROP NOT NULL`; `detached_from_team_id uuid NULL` (no FK); CHECK `projects_team_or_detached`; `CREATE OR REPLACE VIEW live_projects` | view parity again; the CHECK is installed; `projects_team_id_fkey` is still `ON DELETE CASCADE` | Metadata change plus a tens-of-rows CHECK scan. v0.14.x replicas refuse more team deletes (stricter), and only a hand-typed id reaches a detached row's NULL `team_id`. |
+
+Slice 03 needs no migration: the `restored` kind is in 0025's CHECK from the start.
+
+Rule for every later migration that adds a `projects` column: recreate `live_projects` in the same
+migration. The parity self-check and `Store::probe` make a forgotten one a refused boot.
+
+### [REF] Component Decomposition (per slice)
+
+| Slice | Component | Path | Change |
+|---|---|---|---|
+| 01 | Migration 0025; `UPGRADE_WARNING_0025`; probe line | `crates/foundry-store/migrations/0025_project_lifecycle_events.sql`, store `upgrade_warnings.rs`, `lib.rs` | CREATE / EXTEND |
+| 01 | Module `project_lifecycle.rs`: `rename_project_with_audit` + `ProjectRenameWrite`; `list_team_sibling_projects` (moved); `list_team_projects` (reads `projects` until 0026, then `live_projects`); `update_project_name` removed | `crates/foundry-store/src/project_lifecycle.rs`, `lib.rs` | CREATE / EXTEND |
+| 01 | `projects::{apply_rename (private), rename_team_project}`; `rename_project` re-pointed at the core; `TeamMembersView.projects` | `crates/foundry-services/src/projects.rs`, `teams.rs`, `lib.rs` | EXTEND |
+| 01 | `submit_project_rename`; `TeamNotice::{ProjectRenamed, NoProjectsYet}`; Projects section with per-row form; route | `crates/foundry-app/src/teams.rs`, `views.rs`, `templates/team_members.html`, `lib.rs` | EXTEND |
+| 01 | check-arch `project-lifecycle-one-seam` (i), (ii) for `rename_project_with_audit` | `xtask/src/check_arch.rs` | EXTEND |
+| 02 | Migration 0026; `UPGRADE_WARNING_0026`; probe lines | migrations, store | CREATE / EXTEND |
+| 02 | Reader sweep ([REF] Reader Inventory); re-key three issue lookups (DDD-5) | store `lib.rs`, `lanes.rs`, `teams.rs` | EXTEND |
+| 02 | `lock_live_project`; the guard in the about eleven writers; comment writers gain `project_id`; `soft_delete_project` + `ProjectDeleteOutcome` | store `project_lifecycle.rs`, `lib.rs`, `lanes.rs`, `attachments.rs`, `issue_delete.rs` callers | CREATE / EXTEND |
+| 02 | `projects::{delete_preview, delete_project}`; comment and attachment callers pass `project_id` | services `projects.rs`, `comments.rs`, `lib.rs`; app `comments.rs`, `attachments.rs` | EXTEND |
+| 02 | `show_project_delete`, `submit_project_delete`; `project_delete.html` (full page, extends `base.html`); `TeamNotice::{ProjectDeleted, ProjectDeleteHeading, ProjectDeleteCount, ProjectDeleteNothingErased}`; **Delete project** link; routes | app `teams.rs`, `views.rs`, `templates/`, `lib.rs` | EXTEND / CREATE template |
+| 02 | check-arch `project-lifecycle-live-reads`, `project-lifecycle-write-guard`; one-seam (ii) gains `soft_delete_project` | `xtask` | EXTEND |
+| 03 | `list_deleted_projects` + `DeletedProjectRow`; `restore_deleted_project` + `ProjectRestoreOutcome` | store `project_lifecycle.rs` | EXTEND |
+| 03 | `projects::{list_deleted_projects, restore_project}` | services | EXTEND |
+| 03 | `run_list_deleted_projects`, `run_restore_project`; `main.rs` dispatch; CLI copy constants | app `admin_cli.rs`, `main.rs` | EXTEND |
+| 03 | one-seam (ii) gains `restore_deleted_project` | `xtask` | EXTEND |
+| 04 | Migration 0027; probe line | migrations, store | CREATE / EXTEND |
+| 04 | `delete_team_if_empty` amended (DDD-20); `team_delete_facts` gains `deleted_projects`, `workspace_name`; the project SQL moves into the module | store `teams.rs`, `project_lifecycle.rs` | EXTEND |
+| 04 | `teams::delete_preview` (live-only refusal; confirm carries deleted list) | services `teams.rs` | EXTEND |
+| 04 | `TeamNotice::TeamAlsoHasDeletedProjects`; `team_delete.html` line | app `teams.rs`, `templates/team_delete.html` | EXTEND |
+
+No slice ships more than four new components. Slice 02's four are the view, the guard, the delete
+write and the confirm page. There is no new crate and no new dependency.
+
+### [REF] Driving Ports
+
+1. `GET /team/{team_slug}/members` (delta): the Projects section.
+2. `POST /team/{team_slug}/project/{project_slug}/rename` (new, slice 01).
+3. `GET` and `POST /team/{team_slug}/project/{project_slug}/delete` (new, slice 02).
+4. Every shipped `/team/{t}/project/{p}/…` and `/api/v1/teams/{t}/projects/{p}/…` route (delta by
+   store reads only, slice 02).
+5. `GET /`, the nav, `GET /admin/instance/workspaces`, `POST /admin/instance/projects/{id}/rename`
+   (delta: live reads; the instance rename writes the record from slice 01).
+6. `POST /team/{team_slug}/projects` (unchanged code; OQ-4 holds because the siblings include
+   deleted projects).
+7. `foundry doctor list-deleted-projects`, `foundry doctor restore-project <uuid>` (new, slice 03).
+8. `GET` and `POST /team/{team_slug}/delete` (delta, slice 04).
+
+### [REF] Driven Ports and Adapters
+
+`foundry_store::Store` (Postgres 16 via sqlx) is the only driven port.
+- New: `rename_project_with_audit`, `list_team_projects`, `soft_delete_project`,
+  `lock_live_project` (`pub(crate)`), `list_deleted_projects`, `restore_deleted_project`.
+- Moved: `list_team_sibling_projects`.
+- Removed: `update_project_name`.
+- Changed: about 15 readers (view), about 11 writers (guard), the comment writers' signatures, and
+  `delete_team_if_empty` and `team_delete_facts`.
+- Schema: one table (0025), two columns, a CHECK and a view (0026), one column and a CHECK (0027).
+
+External integrations: none new. Keycloak is unchanged, so **no contract tests** are needed.
+
+### [REF] Technology Choices
+
+None new. The Rust workspace toolchain, axum, askama, sqlx 0.8 and Postgres 16 (pinned). The
+Postgres facts relied on, each proven by a gold test:
+- `FOR UPDATE` conflicts with `FOR KEY SHARE`, and `FOR NO KEY UPDATE` does not;
+- at READ COMMITTED, a locking `SELECT` or an `UPDATE` that waited re-evaluates its predicate
+  against the committed version, so a guard or the counter finds no live row after a delete;
+- a simple view is automatically updatable, and `UPDATE … RETURNING` and row locks pass through it
+  to the base row;
+- `CREATE VIEW … AS SELECT *` fixes its column list at creation (hence the parity checks);
+- `UNIQUE (team_id, slug)` treats NULL `team_id` values as distinct;
+- the RI cascade of `DELETE FROM teams` touches no `projects` row once the detach has run.
+
+Enforcement: three check-arch rules, three migration self-checks, the probe, the shape CHECKs
+(`projects_deleted_marker_shape`, `projects_team_or_detached`,
+`project_lifecycle_events_kind_shape`), and the exhaustive `TeamAccess` match.
+
+### [REF] Decisions Table
+
+| ID | Locked decision |
+|---|---|
+| DDD-1 | Extend the project vertical; one new store module `project_lifecycle.rs` |
+| DDD-2 | `projects.deleted_at` + `deleted_by`, shape CHECK (0026) |
+| DDD-3 | `live_projects` view is the read seam; only the module names `projects` |
+| DDD-4 | 15 readers move to the view, 7 into the module |
+| DDD-5 | Key-prefix issue lookups re-keyed by `project_id` |
+| DDD-6 | Delete = live row `FOR UPDATE` → marker → record |
+| DDD-7 | Every project-scoped writer starts with `lock_live_project` (`FOR KEY SHARE`) |
+| DDD-8 | Lock order team → project → children |
+| DDD-9 | Restore = team `KEY SHARE` → project `FOR UPDATE` → clear the marker → record |
+| DDD-10 | CLI `list-deleted-projects`, `restore-project` through services; restore-comment's exits |
+| DDD-11 | GC, outbox and notifier unchanged; restore replays nothing |
+| DDD-12 | Confirm count advisory; GET read-only |
+| DDD-13 | `project_lifecycle_events` (0025), three kinds, shape CHECK, no FK to projects or teams |
+| DDD-14 | Record table not in `TENANT_TABLES`; `UPGRADE_WARNING_0025` |
+| DDD-15 | `rename_project_with_audit`: `FOR NO KEY UPDATE`, byte-equal no-op, name only, record |
+| DDD-16 | One rename core, two authority gates |
+| DDD-17 | Siblings include deleted; duplicate-label race accepted |
+| DDD-18 | `can_manage`; team-membership gate order; uniform 404 |
+| DDD-19 | `team_id` nullable, `detached_from_team_id`, CHECK `projects_team_or_detached` (0027) |
+| DDD-20 | Team delete: lock → live check → detach every remaining row → delete → record |
+| DDD-21 | Team delete page: live-only refusal; "also has deleted" line |
+| DDD-22 | check-arch `project-lifecycle-live-reads`, `-write-guard`, `-one-seam` |
+| DDD-23 | `POST …/project/{p}/rename`, `GET`/`POST …/project/{p}/delete` |
+| DDD-24 | 404 refusals, 422 name refusals, 200 otherwise; team delete 409 live-only |
+| DDD-25 | Projects section; board-link rule **pending OQ-U1** (recommended: only when on the team) |
+| DDD-26 | New copy in `TeamNotice`; CLI copy constants |
+| DDD-27 | 200 re-render, no PRG |
+| DDD-28 | Probe requires 0025, 0026 and 0027 objects per slice |
+| DDD-29 | 0025, 0026, 0027; upgrade warnings for 0025 and 0026; rollout window accepted |
+| DDD-30 | Refusals and races log nothing; the detach backstop logs an error |
+| DDD-31 | Export unchanged in scope; the whole row marks deleted |
+| DDD-32 | Attachment download honours `None` and is keyed by the resolved issue |
+
+### [REF] Reuse Analysis
+
+| Existing component | File | Overlap | Decision | Contract shape / universe / assertion |
+|---|---|---|---|---|
+| `find_project_by_slug`, `find_issue_by_team_project_number`, `resolve_member_project`, `resolve_board_project`, `resolve_member_issue` | store `lib.rs`; services `issues.rs`, `lib.rs` | Project resolution for every door | REUSE; the store SQL reads the view | read-only; deleted ⇒ `None`; differential acceptance outline over the route inventory |
+| `list_projects_for_workspace`, `list_projects_for_instance` | store `lib.rs` | Lists | REUSE; reads the view | read-only; deleted absent |
+| `classify_rename`, `ProjectName`, `ensure_unique_among` | services `projects.rs`, core | The rule | REUSE unchanged | pure; the shipped property suite |
+| `rename_project` (instance door) | services `projects.rs` | Rename use-case | EXTEND (delegates to the shared core) | bounded-change via `rename_project_with_audit` |
+| `update_project_name` | store `lib.rs:4334` | Rename write | REPLACE by `rename_project_with_audit` | bounded-change; unlocked write removed |
+| `rename_team_with_audit`, `team_lifecycle_events` (0023) | store `teams.rs`, migration | Locked audited rename, record table | REUSE idiom; NOT EXTENDED (sibling table) | ADR-PROJECT-LIFECYCLE-003 alternatives |
+| `delete_team_if_empty`, `team_delete_facts`, `TEAM_PROJECTS_SQL` | store `teams.rs` | Team delete | EXTEND (DDD-20, DDD-21) | bounded-change; `projects` count never decreases |
+| `TeamAccess::can_manage`, `team_access_facts`, `resolve_access` | core, store, services | Authority | REUSE unchanged | pure table; no new arm |
+| `comments.deleted_at` / `deleted_by` (0006), `undelete_comment`, `run_restore_comment` | migration, store, `admin_cli.rs` | Soft-delete marker, restore CLI | REUSE idiom (columns, exit codes, thread-isolated runtime) | CLI exit-code table |
+| `count_issues_in_project` | store `lib.rs:2397` | Confirm count | REUSE unchanged | read-only |
+| `insert_issue_attempt`'s `ProjectNotFound` and every writer's not-found outcome | store | Race refusal | REUSE (the guard returns into them) | each writer's shipped not-found → `ServiceError::NotFound` |
+| `resource_not_found_page`, `ensure_csrf_cookie`, `csrf_middleware`, the API not-found | app, api | 404, CSRF | REUSE unchanged | D4 oracle |
+| `TeamNotice`, `members_page_with_status`, `team_delete.html` | app `teams.rs` | Copy, rendering | EXTEND | byte tests per new string |
+| Issue-delete GET + POST confirm | ADR-ISSUE-DELETE-002 | Confirm shape | REUSE idiom (full-page carrier only) | scripting-disabled lane |
+| `OneSeamRule`, `scan_one_seam`, `call_sites` | `xtask/src/check_arch.rs` | Seam guards | EXTEND (new subjects) | injected-violation gold tests |
+| `upgrade_warnings.rs` | store | Restore-compat warning | EXTEND (two constants) | the shipped `tests/team_lifecycle_migrations.rs` idiom |
+| `export_workspace`, `verify_export` | store | D13 | REUSE unchanged in behaviour | the existing export gold tests stay green with the new columns |
+
+CREATE NEW, each with no existing alternative:
+- `live_projects` (0026): no definition of "live" exists.
+- `project_lifecycle_events` (0025): no record outlives a project today.
+- `project_lifecycle.rs`: the one module allowed to see deleted projects. Its existence is the rule.
+- `lock_live_project`: no writer guard exists.
+- `soft_delete_project`, `restore_deleted_project`, `list_deleted_projects`, `list_team_projects`:
+  no project delete, restore, deleted list or per-team list exists.
+- `project_delete.html`: no project confirm page exists.
+- Three check-arch rules: new subjects.
+
+Zero unjustified CREATE NEW.
+
+### [REF] Outcome Collision Check
+
+`nwave-ai outcomes check-delta` was **not run** (no shell). A manual scan of
+`docs/product/outcomes/registry.yaml` (OUT-1 to OUT-26) for project, rename, delete, restore, soft,
+audit and record finds **no collision**. No row covers a project delete or restore. Related:
+- OUT-1 (instance rename): **amended**. It now writes a record, and a deleted id is not found.
+- OUT-2 (instance list): **amended**. It omits deleted projects.
+- OUT-25 (team delete refuses with projects): **amended**. Only live projects refuse; deleted ones
+  are detached.
+- OUT-19 (the name rule): reused, with siblings including deleted projects.
+- OUT-11 (GET + POST confirm), OUT-17 and OUT-24..26 (audited lifecycle siblings).
+
+DISTILL runs the CLI, adds the rows and applies the amendments (OQ-D2).
+
+### [REF] C4 System Context (L1, delta)
+
+```mermaid
+C4Context
+  title System Context: project lifecycle (project-lifecycle)
+  Person(lead, "Team lead (Lena)", "Renames and deletes their team's projects")
+  Person(admin, "Workspace admin (Priya)", "Renames and deletes any team's projects; deletes teams")
+  Person(member, "Team member (Sam)", "Sees the team's projects; meets not-found on a deleted one")
+  Person(operator, "Instance operator (Priya, shell)", "Lists and restores deleted projects")
+  System_Ext(script, "Script with a machine token", "Calls /api/v1 project routes")
+  System(foundry, "foundry", "Self-hosted issue tracker (modular Rust monolith)")
+  System_Ext(kc, "Keycloak", "OIDC identity provider (unchanged)")
+  Rel(lead, foundry, "Renames and deletes projects through", "HTTPS forms")
+  Rel(admin, foundry, "Renames and deletes projects and teams through", "HTTPS forms")
+  Rel(member, foundry, "Opens boards and issues through", "HTTPS")
+  Rel(script, foundry, "Reads and writes issues through", "HTTPS JSON, bearer")
+  Rel(operator, foundry, "Restores deleted projects with", "foundry doctor CLI")
+  Rel(foundry, kc, "Verifies sign-in identity with", "OIDC")
+```
+
+### [REF] C4 Container (L2, delta)
+
+```mermaid
+C4Container
+  title Container: where project lifecycle lives
+  Person(user, "Lead / admin / member", "Browser, scripting optional")
+  Person(op, "Operator", "Shell with DATABASE_URL")
+  Container_Boundary(f, "foundry (one binary)") {
+    Container(app, "foundry-app", "Rust / axum + askama", "teams.rs: submit_project_rename, show_project_delete, submit_project_delete; Projects section; TeamNotice copy; admin_cli: list-deleted-projects, restore-project")
+    Container(api, "foundry-api", "Rust / axum", "/api/v1 project routes, unchanged code; deleted resolves as unknown")
+    Container(svc, "foundry-services", "Rust", "projects:: apply_rename, rename_project, rename_team_project, delete_preview, delete_project, list_deleted_projects, restore_project; teams:: delete_preview, delete_team")
+    Container(core, "foundry-core", "Rust, no I/O", "ProjectName, TeamAccess (unchanged)")
+    Container(store, "foundry-store", "Rust / sqlx", "project_lifecycle.rs (the only module naming projects); readers on live_projects; lock_live_project in every project write")
+    ContainerDb(pg, "PostgreSQL 16", "", "projects + deleted marker (0026) + detach (0027); live_projects view; project_lifecycle_events (0025)")
+  }
+  Rel(user, app, "Submits rename and delete forms to", "HTTPS form POST, _csrf")
+  Rel(op, app, "Runs doctor commands of", "CLI")
+  Rel(app, svc, "Delegates rename, delete, restore and lists to")
+  Rel(api, svc, "Resolves projects and writes issues through")
+  Rel(svc, core, "Validates names and decides authority with")
+  Rel(svc, store, "Reads live projects from, and writes lifecycle changes through")
+  Rel(store, pg, "Reads live_projects from; locks, marks and records in")
+```
+
+### [REF] C4 Component (L3, the read and write seam)
+
+```mermaid
+C4Component
+  title Component: how a deleted project becomes "never existed"
+  Container_Boundary(doors, "Doors (foundry-app, foundry-api)") {
+    Component(web, "Web project routes", "about 21 routes", "board, report, issues, comments, lanes, attachments, SSE")
+    Component(json, "API project routes", "7 routes", "issues, history, comments, tokens")
+    Component(lists, "Lists", "dashboard, nav, instance dashboard, members page", "")
+  }
+  Container_Boundary(svc, "foundry-services") {
+    Component(res, "Resolvers", "resolve_member_project, resolve_board_project, resolve_member_issue", "Authority, then project by slug")
+    Component(life, "projects lifecycle use-cases", "rename core, delete, restore", "can_manage or instance admin, then store")
+  }
+  Container_Boundary(st, "foundry-store") {
+    Component(readers, "Project readers", "find_project_by_slug, find_issue_by_team_project_number, list_*", "SQL on live_projects only (check-arch)")
+    Component(writers, "Project-scoped writers", "issues, comments, attachments, lanes", "First statement: lock_live_project")
+    Component(mod, "project_lifecycle.rs", "the only module naming projects", "delete, restore, rename, guard, siblings, deleted list, detach, export const")
+  }
+  ComponentDb(view, "live_projects", "view", "projects WHERE deleted_at IS NULL")
+  ComponentDb(tbl, "projects", "table", "every row, deleted marker, detach")
+  Rel(web, res, "Resolves the project through")
+  Rel(json, res, "Resolves the project through")
+  Rel(lists, readers, "Lists live projects from")
+  Rel(res, readers, "Looks up the project by slug in")
+  Rel(life, mod, "Locks, marks, restores and records through")
+  Rel(readers, view, "Selects from")
+  Rel(writers, mod, "Takes the live-project guard from")
+  Rel(view, tbl, "Filters")
+  Rel(mod, tbl, "Locks and updates")
+```
+
+### [REF] Quality Attributes / NFRs
+
+- **Integrity.**
+  - INV-PL-1 and INV-PL-4: the delete writes two columns and one record. The guard makes every
+    other row unwritable to product writes while the project is deleted, so the restore is exact
+    (DDD-6, DDD-7, DDD-9). The one exception is D12's tombstone GC: a tombstoned comment that passes
+    its 90-day window while the project is deleted does not come back (DDD-11).
+  - INV-PL-2: one view, one module, one rule (DDD-3, DDD-22).
+  - INV-PL-3: the guard plus each writer's shipped not-found outcome (DDD-7).
+  - INV-PL-5: the unique indexes include deleted rows, and the siblings include deleted projects
+    (DDD-17).
+  - INV-PL-6: lock order, the detach of every remaining row, and the CHECK backstop (DDD-19, DDD-20).
+  - INV-PL-7: same-transaction records and the shape CHECK (DDD-13).
+  - INV-PL-9: the slug and key are never written, and the duplicate-label residual is accepted
+    (DDD-17).
+- **Security.** One policy (`can_manage`) and one gate order. Every refusal is
+  `resource_not_found_page()` byte for byte. Tenancy comes from the session only (D9): project ids
+  reach the store from the resolution, never from a web request, except on the shipped
+  instance-admin door. A deleted project answers exactly as a never-existed one (no oracle). Restore
+  needs operator shell access. DDD-5 closes a cross-workspace ambiguity.
+- **Reliability.** No racing writer answers 500 (DDD-7). The probe refuses readiness without each
+  slice's schema. NFR-PL-4: every lifecycle write is one transaction, so a failure changes nothing.
+  The web door shows the shipped error page, and the CLI exits 3.
+- **Performance (NFR-PL-2).** The view is inlined by the planner, so its plans are the base-table
+  plans plus a `deleted_at IS NULL` filter on rows already found through `projects (team_id, slug)`
+  and the PK. At tens of projects, no index is added. The guard is one PK lookup with a row lock per
+  write. The no-regression check is the shipped `default` lane timing (DoD 7).
+- **Auditability.** Exactly one record per effective rename, delete and restore, on both rename
+  doors.
+- **Deployability.**
+  - Three forward-only migrations.
+  - **Rolling-deploy window (DoD 9), accepted.** Until the last v0.14.x replica is replaced, it reads
+    `projects` and serves a project deleted through a new replica. Its writes to that project land,
+    hidden, and come back with a restore. Its unlocked instance-admin rename could rename a deleted
+    project with no record, which is an INV-PL-4 and INV-PL-7 exception limited to the window.
+    Nothing is lost. The window is the rollout. The CHANGELOG says: do not delete or rename projects
+    while this release rolls out.
+  - **Rollback floor:** v0.14.0 runs on the new schema. After a rollback, deleted projects become
+    visible again (nothing lost), and detached ones stay unreachable.
+  - **Old dumps (team-lifecycle lesson 3):** a whole-instance dump taken before 0025 or 0026 cannot
+    be restored with `pg_restore --clean` over the upgraded database. Restore it into a fresh
+    database instead. `UPGRADE_WARNING_0025` and `_0026` are logged once at upgrade. A dump taken
+    after 0027 restores into a fresh database normally: the CHECKs are satisfied, and the view is
+    created after its table.
+- **Maintainability.** "Who may see deleted projects" is one file. "What live means" is one view.
+
+### [REF] Test Seams (for DISTILL / DELIVER)
+
+- **Core:** none new (the `TeamAccess` and `ProjectName` tables are unchanged).
+- **Store, real Postgres (`postgres:16`):**
+  - `tests/project_lifecycle.rs`:
+    - view parity (0026, 0027);
+    - the guard after a held then committed delete, and after a rolled-back one;
+    - negative control: a delete with `FOR NO KEY UPDATE`;
+    - a table-driven run of every guarded writer against a held delete;
+    - the at-least-100-run delete-versus-issue-create barrier race (0 unmapped errors, 0 lost
+      issues);
+    - the delete checksum snapshot (INV-PL-1);
+    - restore equals the pre-delete snapshot, scoped to live rows plus tombstones inside their GC
+      window, and the next number is unchanged (INV-PL-4, Changed Assumption 3);
+    - `undelete_comment` on a comment in a deleted project is refused with nothing written;
+    - every restore outcome;
+    - rename atomicity, chaining and no-op;
+    - rename versus delete, both orders;
+    - each shape CHECK.
+  - `tests/team_delete.rs` (extended):
+    - the detach CHECK refuses a live row;
+    - a team with only deleted projects is deleted and every row survives;
+    - a mixed team is refused, naming live projects only;
+    - the at-least-100-run restore-versus-team-delete barrier race (0 lost projects, 0 lost issues,
+      0 unmapped errors);
+    - the negative control from ADR-PROJECT-LIFECYCLE-004;
+    - the shipped delete-versus-create race stays green;
+    - a workspace delete cascades live, deleted and detached projects.
+- **check-arch:** the gold tests per rule ([REF] check-arch Rules).
+- **Acceptance:**
+  - the Authorization Matrix on every new route and both verbs, with row counts;
+  - the Statuses table;
+  - the **differential inventory outline** (PL-KPI-3): for every route in the inventory, every
+    verb and every actor (Lena, Sam, Priya, a machine token), the response for the deleted project
+    equals the response for a never-existed slug, byte for byte. Attachment download is also
+    asserted directly: the uniform 404 for a deleted project's attachment id (DDD-32);
+  - the before-and-after store counts (PL-KPI-2);
+  - the CLI exit codes and copy, through the real `foundry` binary (rebuilt before the lane);
+  - one HTTP-level delete-versus-create race run several times (the 100-run guarantee sits at
+    store level, as in team-lifecycle).
+
+### [REF] Open Questions (for DISTILL / DELIVER)
+
+- **OQ-D1 (DISTILL):** pin the Statuses table, and the differential oracle per route. The events
+  route is the known exception to "uniform 404" (Changed Assumption 1). DISTILL lists any other
+  route whose unknown-project answer differs from `resource_not_found_page`, for example the
+  `team_not_found_page` copies in `keyboard.rs` and `comments.rs` noted in the brief.
+- **OQ-D2 (DISTILL):** run `nwave-ai outcomes check-delta`. Add rows for project rename from the team
+  page, project delete (soft, hidden everywhere), project restore and the project record. Amend
+  OUT-1, OUT-2 and OUT-25.
+- **OQ-D3 (closed in DESIGN):** `insert_attachment` and `rename_lane` open a transaction and take
+  the guard (DDD-7).
+- **OQ-D4 (DELIVER, slice 02):** read-only counts on dev and prod before 0026, of projects per
+  workspace and of key prefixes shared across workspaces. The second count tells whether DDD-5's
+  ambiguity was ever live. Record both in the CHANGELOG note.
+- **OQ-D5 (closed in DESIGN):** rule 1 scans SQL-bearing string literals, not comments, so the doc
+  comments at `lanes.rs:353`, `lib.rs:1737` and `lib.rs:4331` that quote old SQL do not fail the
+  build. Update them when their code changes.
+- **OQ-D6 (DISTILL):** acceptance steps that assert "nothing erased" read the base table `projects`
+  (fixtures may; the rule exempts `foundry-acceptance`). Steps that assert "hidden" go through the
+  product doors, never SQL.
+
+### [REF] Open Questions for the user (DESIGN)
+
+- **OQ-U1: Board links on the Projects section for a workspace admin who is not on the team (D8).**
+  D8 says each project row links to its board "for anyone who can view the team". The board gate is
+  team membership (team-membership D9), so for Priya on Ops, who is a workspace admin but not an Ops
+  member, the link answers the uniform 404. fix-hide-unreachable-boards forbids offering a board
+  that 404s. D8 also says "DESIGN may move them; the copy stays", but whether the link shows is a
+  product behaviour, so it is put to the user. Options:
+  - (a) Keep D8 as written: a link that 404s for that admin.
+  - (b) **Recommended:** the same "{project} · {KEY}" text, linked only when the viewer is on the
+    team (team-lifecycle DDD-21's `on_team` rule, already used for **New project**). The controls
+    are unchanged.
+  - (c) Widen the board gate for workspace admins. This changes team-membership D9 and is out of
+    scope.
+
+  The design is written so that either answer is a template condition (DDD-25, Changed Assumption
+  2). DISTILL must not pin the Projects-section link rule until OQ-U1 is answered.
+- **OQ-U2: Accept the Principle 12 (d)/(e) exception?** The new use-cases take the shared `&Store`
+  port, as every shipped use-case does. There is no per-use-case capability trait and no separate
+  read-only port (see [REF] Contract Shapes, "Architect exception"). **Recommended: accept it** for
+  this feature, and record a `Store` capability split as a follow-up. If the user declines, DELIVER
+  first introduces narrow traits for the project lifecycle use-cases (about 0.5 day), and the rest
+  of the design is unchanged.
+
+### [REF] Changed Assumptions
+
+1. **The live-update address of a deleted project.** Original (US-PL-03 scenario 1 and AC 5; slice
+   02 AC 2): *"every request answers the uniform not-found page"* (including "its live updates"),
+   and *"a reconnect answers the uniform 404"*.
+
+   New: every address of a deleted project answers **byte-identically to the same address with a
+   never-existed project slug**, for every actor and verb. On every route whose unknown-project
+   answer is the uniform 404, that is the uniform 404, unchanged. The events route
+   (`/team/{t}/project/{p}/events`) answers an unknown project with its shipped **403 text/plain
+   "Not a member of team …"** (`events.rs:99-103`). A deleted project gets exactly that answer.
+
+   Rationale: D5 and INV-PL-2 define "hidden" as "exactly as an address that never existed", and
+   changing a shipped route's refusal is outside this feature. A 404 on the events route for
+   deleted projects only would itself be an oracle. Making the events route answer the uniform 404
+   for every refusal is a separate, small follow-up if wanted. DISTILL edits the two ACs and the
+   scenario wording.
+
+   **An already-open stream.** The events handler resolves the project once, at connect
+   (`events.rs:96`), and the stream is not closed by a delete. Mechanism: after the delete commits,
+   the guard makes sure no new outbox row about the project arises. An outbox row committed
+   **before** the delete may still reach an open stream. That is the D17 posture for queued mail: it
+   reports a change made while the project was live. US-PL-03 AC 5's "sends no further events"
+   therefore reads "sends no event about a change made after the delete". Closing open streams on
+   delete is not designed (there is no project-deleted event).
+2. **Board links on the Projects section.** Original (US-PL-01 AC 1; D8): *"lists the team's live
+   projects as "{project} · {KEY}" linking to each board, to anyone who can view the team"*.
+
+   New: the row reads "{project} · {KEY}" for anyone who can view the team, and it is a link to the
+   board **only when the viewer is on the team**. A workspace admin who is not on the team (Priya on
+   Ops) sees the same text, unlinked, plus the controls. Copy is unchanged.
+
+   Rationale: the board gate is team membership (team-membership D9), so the link would 404 for that
+   admin. fix-hide-unreachable-boards forbids offering a board that 404s. This is team-lifecycle
+   DDD-21's `on_team` rule. **Pending the user's answer to OQ-U1.** If the user picks (a), the
+   change is dropped and AC 1 stands. DISTILL edits AC 1 once it is answered.
+3. **INV-PL-4 and the tombstone GC (D12).** Original (INV-PL-4; US-PL-04 AC 2): *"after a restore,
+   the project's … issue numbers, issue counter and every row under it equal their state at the
+   delete"*.
+
+   New: every row equals its state at the delete, **except tombstoned comments that passed their
+   90-day GC window while the project was deleted**. D12 (locked) keeps the GC running unchanged, so
+   those tombstones are purged as usual. Live comments are never touched.
+
+   This reopens no decision. It states the consequence D12 already chose, which INV-PL-4's wording
+   did not carve out. DISTILL scopes the restore's "exact" assertion to live rows plus tombstones
+   inside the window. US-PL-04 AC 2, INV-PL-4, INV-PL-1 and **PL-KPI-2** ("0 rows removed or changed
+   under a deleted project") are edited to carry the same tombstone carve-out.
+5. **The rolling-deploy window is a bounded exception to INV-PL-2, -3, -4 and -7** (DoD 9 asked
+   DESIGN to state it). Until the last v0.14.x replica is replaced, an old replica:
+   - serves a project deleted through a new replica;
+   - writes into it;
+   - can rename it without a record.
+
+   Nothing is lost. The window is the rollout, and the CHANGELOG says not to delete or rename
+   projects during it. Listed here so the user sees it at sign-off.
+4. **Inventory.** The DISCUSS route inventory omits attachment upload and download
+   (`attachments.rs:52-59`). They are added to the differential outline, and the download gets the
+   DDD-32 fix. This is a correction to the inventory, not a story change.
+
+No other story's acceptance intent changes. Clarifications, with no AC edit:
+- D13's "marked as deleted" is the row's own `deleted_at` and `deleted_by` (and, after a team
+  delete, `detached_from_team_id`) in `projects.jsonl`.
+- INV-PL-3's race outcomes are exactly two: committed before the delete (kept, hidden, restorable)
+  or the route's not-found.
+
+Following the house precedent (lean layout), no separate `upstream-changes.md` is created. DISTILL
+applies the edits.
+
+### [REF] For Acceptance Designer
+
+- **Pinned seams:**
+  - the Authorization Matrix and the Statuses table;
+  - the D14 strings, byte-exact (`TeamNotice` and the CLI constants), plus the `ProjectNameError`
+    copy shown in the project's row;
+  - the confirm page DOM: heading, count line, nothing-erased line, **Delete project** button,
+    **Cancel** link to the members page, and no typed-name field (OQ-5);
+  - the members page Projects section: rows by name then key, controls only for `can_manage`,
+    per-row tab order (field, Rename, Delete project), and a visible label naming the project
+    (NFR-PL-1). **Whether a row links to its board for a viewer not on the team is pending OQ-U1.**
+    Do not pin the link rule, or write any Projects-section scenario that depends on it, until the
+    user answers.
+  - the team delete page's extra line and its live-only refusal.
+- **The INV-PL-2 outline is differential**, not "expect 404". For each inventory route, verb and
+  actor, compare the deleted project's response with a never-existed slug's response on the same
+  route. The inventory is DISCUSS [REF] Lifecycle inventory plus the two attachment routes: about
+  23 web and 7 API. Attachment download is also asserted to answer the uniform 404 for a deleted
+  project's real attachment id, because the differential alone cannot see DDD-32's leak.
+- **Lists:** the dashboard, nav Board link, new-issue project list, members page and instance
+  dashboard omit the deleted project and keep the others.
+- **Nothing erased (PL-KPI-2):** read-only counts of `issues`, `comments` (live and tombstoned),
+  `issue_attachments`, `issue_change_events`, `lanes` and `outbox` for the project, plus its
+  `next_issue_number`, before the delete, after the delete and after the restore. These are fixture
+  SQL on the base table.
+- **Records:** checked by a read-only query on `project_lifecycle_events` (kind, actor, names), on
+  both rename doors. There is none for a no-op or a refusal.
+- **CLI:** through the real, prebuilt `foundry` binary (memory: rebuild before the lane), with
+  `DATABASE_URL`. Exits 0, 2, 3 and 4, and stdout and stderr per D14.
+- **Races:** one HTTP-level delete-versus-create scenario and one restore-versus-team-delete
+  scenario, each run several times. The 100-run guarantees are store gold tests.
+- **Changed Assumptions 1-3** edit US-PL-03 scenario 1 and AC 5, slice 02 AC 2, US-PL-01 AC 1
+  (after OQ-U1), and US-PL-04 AC 2 and INV-PL-4.
+
+### [REF] For Software Crafter
+
+- **Start with the module.** Create `crates/foundry-store/src/project_lifecycle.rs` in slice 01 and
+  move `list_team_sibling_projects` into it unchanged. Every later "sees deleted" SQL goes there and
+  nowhere else.
+- **Slice 02 order:**
+  1. 0026 and probe;
+  2. `lock_live_project` and its gold tests;
+  3. the reader sweep, with check-arch rule 1 turned on last to prove the sweep complete;
+  4. the guard in every writer, with rule 2 and the table-driven gold test;
+  5. `soft_delete_project`;
+  6. the doors.
+- **The guard is the first statement of the writer's transaction.** On `false`, return the writer's
+  existing not-found outcome. Do not add a new error variant.
+  - Comment writers take `project_id` from the caller's `IssueLookupRow`.
+  - `rename_lane` and `insert_attachment` become transactional.
+  - Issue create takes no separate guard: its counter `UPDATE live_projects` is the guard.
+- **Attachment download:** treat `Ok(None)` as `resource_not_found_page()`, and look up the
+  attachment by (attachment id, resolved issue id) (DDD-32).
+- **Locks:** the delete is `FOR UPDATE`, the rename `FOR NO KEY UPDATE`, the guard `FOR KEY SHARE`,
+  and the restore takes team `KEY SHARE` and then project `FOR UPDATE`. The team delete keeps
+  `FOR UPDATE` on the team and detaches **every** remaining row of the team (no `deleted_at` filter;
+  the CHECK is the backstop). Never take a team lock after a project lock.
+- **Records** use `clock_timestamp()`. The delete's record `created_at` equals the marker's
+  `deleted_at`.
+- **Rename:** both doors call the private `apply_rename`. `rename_project` keeps its signature and
+  its `is_instance_admin` gate. `update_project_name` is deleted.
+- **CLI:** mirror `run_restore_comment`'s runtime and exit mapping, call `Services`, and write no
+  SQL in `admin_cli.rs`. List oldest deletion first (`deleted_at`, then `id`).
+- **View:** any migration that adds a `projects` column recreates `live_projects`. 0027 does.
+- Paradigm: OOP (`nw-software-crafter`). Mutation kill rate ≥ 80% on modified files, per feature.
+
+### [REF] Handoff
+
+- **DISTILL:** For Acceptance Designer above; OQ-D1, OQ-D2, OQ-D6; Changed Assumptions 1-4;
+  OQ-U1 must be answered by the user before US-PL-01 AC 1 is edited.
+- **DEVOPS:**
+  - Three forward-only migrations: 0025 (slice 01), 0026 (slice 02), 0027 (slice 04).
+  - Probe deltas per slice. `UPGRADE_WARNING_0025` and `_0026`.
+  - CHANGELOG notes:
+    - the rolling-deploy window (do not delete or rename projects during the rollout);
+    - the attachment-download fix (DDD-32);
+    - old-dump restore into a fresh database;
+    - OQ-D4's counts.
+  - Slice 02 is not tagged without slice 03 (DISCUSS release rule).
+  - No new external integration, so no contract tests.
+  - Paradigm OOP.
+- **ADRs:**
+  - `docs/product/architecture/adr-project-lifecycle-001-live-projects-view-is-the-read-seam.md`
+  - `adr-project-lifecycle-002-soft-delete-write-guard-and-restore.md`
+  - `adr-project-lifecycle-003-project-lifecycle-events-and-one-rename-core.md`
+  - `adr-project-lifecycle-004-team-delete-detaches-deleted-projects.md` (amends ADR-TEAM-LIFECYCLE-002)
+
+### [REF] Design Review
+
+Reviewer: nw-solution-architect-reviewer, 2026-10-12. Max two iterations. **Not approved within
+two iterations: escalated to the user.** Every finding was revised, but no third review ran.
+
+- **Iteration 1: rejected pending revisions** (0 critical, 4 high). Every finding was revised:
+  - **H1, the write-guard hole.** `rename_lane` and `insert_attachment` were autocommit. Both are
+    now transactional and guarded, and rule 2 covers every writer.
+  - **H2, the attachment download leak.** DDD-32 was added and the attachment routes joined the
+    inventory.
+  - **H3, D8 reopened.** It was escalated as OQ-U1.
+  - **H4, D12 versus INV-PL-4.** Changed Assumption 3; the "by construction" claims were corrected.
+  - **Mediums and lows.** Rollout renames; the counter lock upgrade (issue create's counter
+    `UPDATE` is its guard); rule 1's lexical gaps; contract shapes; the "never collides" and lock
+    order qualifications; the authorization rows.
+- **Iteration 2: rejected pending revisions** (0 critical, 5 high, 6 medium, 1 low). These were
+  revised after the review, and **no third review ran** (max-2 rule):
+  - **F1, transitive helpers.** Rule 2 now computes the transaction-taking writers in a first pass,
+    so `renumber_column` and the rest are covered.
+  - **F2, `undelete_comment`.** It is guarded: `restore-comment` inside a deleted project exits 4.
+  - **F3, the backup-verify `format!` count.** Rule 1 now flags an exact `"projects"` literal, with
+    one reviewed exception (`KNOWN_FOUNDRY_TABLES`, a restored sandbox). The grep fact is corrected.
+  - **F4.** DDD-25, the matrix and the pinned seams are now marked pending OQ-U1.
+  - **F5, Principle 12 (d)/(e).** Recorded as an architect exception, escalated as OQ-U2.
+  - **F6, PL-KPI-2.** Added to Changed Assumption 3.
+  - **F7.** The restore-equality test claims are scoped.
+  - **F8.** Rule 2 inherits rule 1's lexical rules.
+  - **F9.** The `insert_issue_attempt` exemption is conditional on its first statement, with a gold
+    test.
+  - **F10.** The rolling-deploy window is listed as Changed Assumption 5.
+  - **F11, open streams.** The mechanism is stated (D17 posture), and US-PL-03 AC 5 is reworded in
+    Changed Assumption 1.
+  - **F12.** Contract-shape rows were added for the use-cases and the export.
+- **Open for the user:** OQ-U1 (board links for an admin not on the team) and OQ-U2 (accept the
+  Principle 12 exception). A third review after the user's answers is recommended before DISTILL
+  starts.
