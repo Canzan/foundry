@@ -6117,13 +6117,15 @@ fn unscoped_natural_key_filters(sql: &str) -> Vec<(usize, &'static str)> {
         let scoped = SCOPE_COLUMNS
             .iter()
             .any(|column| compares_to_parameter(statement, column));
-        for key in NATURAL_KEYS.iter().filter(|_| !scoped) {
-            let mut from = 0;
-            while let Some(at) = find_sql_word(statement, key, from) {
-                from = at + key.len();
-                if is_compared(statement, at, from) {
-                    let offset = code[..statement_start + at].matches('\n').count();
-                    found.push((offset, *key));
+        if !scoped {
+            for key in NATURAL_KEYS {
+                let mut from = 0;
+                while let Some(at) = find_sql_word(statement, key, from) {
+                    from = at + key.len();
+                    if is_compared(statement, at, from) {
+                        let offset = code[..statement_start + at].matches('\n').count();
+                        found.push((offset, key));
+                    }
                 }
             }
         }

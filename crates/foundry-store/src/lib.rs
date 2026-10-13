@@ -1956,6 +1956,9 @@ impl Store {
     /// (watch-item R3 — refuse, never a silent top-drop). The service maps BOTH
     /// to the uniform NotFound. On either refusal NOTHING is written (the tx is
     /// dropped before any mutation).
+    ///
+    /// `project_key_prefix` only renders the issue key in the outbox payload;
+    /// it never addresses a row (it is unique only per workspace).
     pub async fn reposition_issue_with_outbox(
         &self,
         project_id: uuid::Uuid,

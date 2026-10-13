@@ -39,7 +39,7 @@ use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::Router;
-use foundry_store::AttachmentInsertError;
+use foundry_store::{AttachmentInsertError, IssueLookupRow};
 use sha2::{Digest, Sha256};
 use tower_sessions::Session;
 
@@ -98,29 +98,11 @@ pub async fn submit_upload(
     // foreign issue's existence (matching `download_attachment`).
     // The intra-workspace membership failure converged on the SAME uniform 404
     // in step 04-01, so a non-member reach is byte-identical to a foreign one.
-    let team = match state
-        .store
-        .find_team_by_slug(user.workspace_id, &team_slug)
-        .await
-    {
-        Ok(Some(t)) => t,
-        Ok(None) => return resource_not_found_page(),
-        Err(err) => return internal_error("find_team_by_slug", err),
-    };
-    match state.store.is_team_member(team.id, user.user_id).await {
-        Ok(true) => {}
-        Ok(false) => return resource_not_found_page(),
-        Err(err) => return internal_error("is_team_member", err),
-    }
-    let issue = match state
-        .store
-        .find_issue_by_team_project_number(team.id, &project_slug, issue_number)
-        .await
-    {
-        Ok(Some(i)) => i,
-        Ok(None) => return resource_not_found_page(),
-        Err(err) => return internal_error("find_issue_by_team_project_number", err),
-    };
+    let issue =
+        match resolve_member_issue(&state, &user, &team_slug, &project_slug, issue_number).await {
+            Ok(issue) => issue,
+            Err(refusal) => return refusal,
+        };
 
     // Pull the first file part. Returns 413 if the body exceeds the
     // per-route DefaultBodyLimit cap (axum surfaces this as a
@@ -207,35 +189,18 @@ pub async fn download_attachment(
     // `resource_not_found_page` (ADR-003 / NFR-MWT-SEC-02) — no team slug is
     // echoed, so a cross-tenant reach and a missing-id reach are byte-identical
     // (no enumeration oracle). This matches the board/issue/comment read paths.
-    let team = match state
-        .store
-        .find_team_by_slug(user.workspace_id, &team_slug)
-        .await
-    {
-        Ok(Some(t)) => t,
-        Ok(None) => return resource_not_found_page(),
-        Err(err) => return internal_error("find_team_by_slug", err),
-    };
-    match state.store.is_team_member(team.id, user.user_id).await {
-        Ok(true) => {}
-        // A non-member of a team in their own workspace gets the same uniform
-        // 404 as a foreign or missing team (converged in step 04-01).
-        Ok(false) => return resource_not_found_page(),
-        Err(err) => return internal_error("is_team_member", err),
-    }
+    // A non-member of a team in their own workspace gets the same uniform 404
+    // as a foreign or missing team (converged in step 04-01).
+    //
     // The attachment is served only through the address of its own issue: the
     // issue is resolved from (team, project, number), and an unknown project or
     // issue, or an attachment of any other issue, is the SAME uniform 404 a
     // never-existed id gets (ADR-003; fix-issue-attachment-scoping Defect 2).
-    let issue = match state
-        .store
-        .find_issue_by_team_project_number(team.id, &project_slug, issue_number)
-        .await
-    {
-        Ok(Some(issue)) => issue,
-        Ok(None) => return resource_not_found_page(),
-        Err(err) => return internal_error("find_issue_by_team_project_number", err),
-    };
+    let issue =
+        match resolve_member_issue(&state, &user, &team_slug, &project_slug, issue_number).await {
+            Ok(issue) => issue,
+            Err(refusal) => return refusal,
+        };
 
     match state
         .store
@@ -249,6 +214,43 @@ pub async fn download_attachment(
 }
 
 // ---------- helpers ----------------------------------------------------------
+
+/// Resolve the issue an attachment URL names: the team (in the caller's
+/// workspace, and only if the caller is a member), then the project and issue
+/// number under it. `Err` carries the refusal to send, always the single
+/// uniform not-found page, so an unknown team, project or issue and a team the
+/// caller is not on are indistinguishable and no slug is echoed.
+async fn resolve_member_issue(
+    state: &AppState,
+    user: &SessionUser,
+    team_slug: &str,
+    project_slug: &str,
+    issue_number: i32,
+) -> Result<IssueLookupRow, Response> {
+    let team = match state
+        .store
+        .find_team_by_slug(user.workspace_id, team_slug)
+        .await
+    {
+        Ok(Some(t)) => t,
+        Ok(None) => return Err(resource_not_found_page()),
+        Err(err) => return Err(internal_error("find_team_by_slug", err)),
+    };
+    match state.store.is_team_member(team.id, user.user_id).await {
+        Ok(true) => {}
+        Ok(false) => return Err(resource_not_found_page()),
+        Err(err) => return Err(internal_error("is_team_member", err)),
+    }
+    match state
+        .store
+        .find_issue_by_team_project_number(team.id, project_slug, issue_number)
+        .await
+    {
+        Ok(Some(issue)) => Ok(issue),
+        Ok(None) => Err(resource_not_found_page()),
+        Err(err) => Err(internal_error("find_issue_by_team_project_number", err)),
+    }
+}
 
 #[derive(Debug)]
 enum UploadError {

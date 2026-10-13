@@ -31,7 +31,7 @@ use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
 use foundry_core::render_comment_markdown;
 use foundry_services::{comments as comment_service, Principal, ServiceError};
-use foundry_store::{AttachmentSummary, CommentRow, IssueChangeRow};
+use foundry_store::{AttachmentSummary, CommentRow, IssueChangeRow, IssueLookupRow};
 use serde::Deserialize;
 use tower_sessions::Session;
 
@@ -69,33 +69,13 @@ pub async fn show_issue(
     // one does, and BOTH render the SINGLE uniform `resource_not_found_page`
     // (ADR-003): the requested slug/number is NOT echoed, so a foreign-id reach
     // and a missing-id reach are byte-identical — no enumeration oracle that
-    // could confirm the foreign issue exists (NFR-MWT-SEC-02). The membership
-    // gate below keeps its intra-workspace 403 (a member off their OWN
-    // workspace's team — a separate, non-cross-tenant concern, ADR-003 boundary).
-    let acting = user.acting_workspace();
-    let team = match state
-        .store
-        .find_team_by_slug(acting.workspace_id(), &team_slug)
-        .await
-    {
-        Ok(Some(t)) => t,
-        Ok(None) => return resource_not_found_page(),
-        Err(err) => return internal_error("find_team_by_slug", err),
-    };
-    match state.store.is_team_member(team.id, user.user_id).await {
-        Ok(true) => {}
-        Ok(false) => return resource_not_found_page(),
-        Err(err) => return internal_error("is_team_member", err),
-    }
-    let issue = match state
-        .store
-        .find_issue_by_team_project_number(team.id, &project_slug, issue_number)
-        .await
-    {
-        Ok(Some(i)) => i,
-        Ok(None) => return resource_not_found_page(),
-        Err(err) => return internal_error("find_issue_by_team_project_number", err),
-    };
+    // could confirm the foreign issue exists (NFR-MWT-SEC-02). A member off
+    // their OWN workspace's team gets the same uniform page.
+    let issue =
+        match resolve_member_issue(&state, &user, &team_slug, &project_slug, issue_number).await {
+            Ok(issue) => issue,
+            Err(refusal) => return refusal,
+        };
     let comments = match state.store.list_comments_for_issue(issue.issue_id).await {
         Ok(rows) => rows,
         Err(err) => return internal_error("list_comments_for_issue", err),
@@ -280,7 +260,7 @@ pub async fn show_edit_form(
     // form.
     let issue_id =
         match resolve_member_issue(&state, &user, &team_slug, &project_slug, issue_number).await {
-            Ok(id) => id,
+            Ok(issue) => issue.issue_id,
             Err(refusal) => return refusal,
         };
     // 404-vs-410-vs-403 dispatch per ADR-008. A comment on any other issue
@@ -451,7 +431,7 @@ pub async fn submit_delete_comment(
         }
     }
     let issue_id = match resolve_team_issue(&state, &team, &project_slug, issue_number).await {
-        Ok(id) => id,
+        Ok(issue) => issue.issue_id,
         Err(refusal) => return refusal,
     };
     // A comment on any other issue answers exactly as a comment id that
@@ -510,7 +490,7 @@ pub async fn show_single_comment(
     };
     let issue_id =
         match resolve_member_issue(&state, &user, &team_slug, &project_slug, issue_number).await {
-            Ok(id) => id,
+            Ok(issue) => issue.issue_id,
             Err(refusal) => return refusal,
         };
     // A comment on any other issue is refused exactly as an unresolvable
@@ -572,21 +552,21 @@ pub async fn show_single_comment(
 /// number under it. `Err` carries the refusal to send, always the single
 /// uniform not-found page, so an unknown team, project or issue and a team the
 /// caller is not on are indistinguishable and no slug is echoed. The caller
-/// then fetches the comment by (comment id, this issue id).
+/// then fetches any comment by (comment id, this issue's id).
 async fn resolve_member_issue(
     state: &AppState,
     user: &SessionUser,
     team_slug: &str,
     project_slug: &str,
     issue_number: i32,
-) -> Result<uuid::Uuid, Response> {
+) -> Result<IssueLookupRow, Response> {
     let team = resolve_team(state, user, team_slug).await?;
     require_team_member(state, user, &team).await?;
     resolve_team_issue(state, &team, project_slug, issue_number).await
 }
 
-/// The team the URL names, in the caller's workspace; unknown is the uniform
-/// not-found page.
+/// The team the URL names, in the caller's RESOLVED acting workspace
+/// (ADR-002); unknown is the uniform not-found page.
 async fn resolve_team(
     state: &AppState,
     user: &SessionUser,
@@ -594,7 +574,7 @@ async fn resolve_team(
 ) -> Result<foundry_store::TeamRow, Response> {
     match state
         .store
-        .find_team_by_slug(user.workspace_id, team_slug)
+        .find_team_by_slug(user.acting_workspace().workspace_id(), team_slug)
         .await
     {
         Ok(Some(t)) => Ok(t),
@@ -623,13 +603,13 @@ async fn resolve_team_issue(
     team: &foundry_store::TeamRow,
     project_slug: &str,
     issue_number: i32,
-) -> Result<uuid::Uuid, Response> {
+) -> Result<IssueLookupRow, Response> {
     match state
         .store
         .find_issue_by_team_project_number(team.id, project_slug, issue_number)
         .await
     {
-        Ok(Some(issue)) => Ok(issue.issue_id),
+        Ok(Some(issue)) => Ok(issue),
         Ok(None) => Err(resource_not_found_page()),
         Err(err) => Err(internal_error("find_issue_by_team_project_number", err)),
     }
