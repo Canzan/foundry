@@ -2567,6 +2567,49 @@ impl Store {
     }
 
     // ----- US-10 (slice 5) edit + soft-delete -----------------------------
+    //
+    // Scoping convention (fix-issue-attachment-scoping RC-3): a child row
+    // addressed through a parent's URL is fetched only by (child id, parent
+    // id). The handler resolves the parent from the URL first, then asks for
+    // the child under that resolved parent, so a child is never reachable
+    // through any other parent's address. See `find_comment_for_issue`.
+
+    /// Fetch one comment of ONE issue, including soft-deleted rows. Returns
+    /// `None` when the comment does not exist OR belongs to any other issue,
+    /// so the caller resolves the issue from the URL (team, project, number)
+    /// first and a comment is only ever served through its own issue's
+    /// address (fix-issue-attachment-scoping, RCA §4 sibling). `deleted`
+    /// carries the 410 Gone decision exactly as `find_comment_by_id` does.
+    pub async fn find_comment_for_issue(
+        &self,
+        comment_id: uuid::Uuid,
+        issue_id: uuid::Uuid,
+    ) -> Result<Option<CommentLookupRow>, StoreError> {
+        let row: Option<(
+            uuid::Uuid,
+            uuid::Uuid,
+            uuid::Uuid,
+            String,
+            Option<time::OffsetDateTime>,
+        )> = sqlx::query_as(
+            "SELECT c.id, c.issue_id, c.author_id, c.body_markdown, c.deleted_at
+               FROM comments c
+              WHERE c.id = $1 AND c.issue_id = $2",
+        )
+        .bind(comment_id)
+        .bind(issue_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(
+            |(id, issue_id, author_id, body_markdown, deleted_at)| CommentLookupRow {
+                id,
+                issue_id,
+                author_id,
+                body_markdown,
+                deleted: deleted_at.is_some(),
+            },
+        ))
+    }
 
     /// Look up a comment by id within a workspace, including soft-deleted
     /// rows. Returns `None` when no row exists (the handler maps this to

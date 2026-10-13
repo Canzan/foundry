@@ -275,31 +275,24 @@ pub async fn show_edit_form(
     let Some(user) = signed_in_user(&session).await else {
         return redirect_to("/sign-in");
     };
-    // Authorise via the team-membership chain (same as the issue-page
-    // GET). Non-members never see anyone else's edit form.
-    let team = match state
-        .store
-        .find_team_by_slug(user.workspace_id, &team_slug)
-        .await
-    {
-        Ok(Some(t)) => t,
-        Ok(None) => return team_not_found_page(&team_slug),
-        Err(err) => return internal_error("find_team_by_slug", err),
-    };
-    match state.store.is_team_member(team.id, user.user_id).await {
-        Ok(true) => {}
-        Ok(false) => return resource_not_found_page(),
-        Err(err) => return internal_error("is_team_member", err),
-    }
-    // 404-vs-410-vs-403 dispatch per ADR-008.
+    // Authorise via the team-membership chain and resolve the URL's issue
+    // (same as the issue-page GET). Non-members never see anyone else's edit
+    // form.
+    let issue_id =
+        match resolve_member_issue(&state, &user, &team_slug, &project_slug, issue_number).await {
+            Ok(id) => id,
+            Err(refusal) => return refusal,
+        };
+    // 404-vs-410-vs-403 dispatch per ADR-008. A comment on any other issue
+    // answers exactly as a comment id that never existed.
     let comment = match state
         .store
-        .find_comment_by_id(user.workspace_id, comment_id)
+        .find_comment_for_issue(comment_id, issue_id)
         .await
     {
         Ok(Some(c)) => c,
         Ok(None) => return not_found_fragment("Comment not found"),
-        Err(err) => return internal_error("find_comment_by_id", err),
+        Err(err) => return internal_error("find_comment_for_issue", err),
     };
     if comment.deleted {
         return gone_fragment();
@@ -512,28 +505,21 @@ pub async fn show_single_comment(
     let Some(user) = signed_in_user(&session).await else {
         return redirect_to("/sign-in");
     };
-    let team = match state
-        .store
-        .find_team_by_slug(user.workspace_id, &team_slug)
-        .await
-    {
-        Ok(Some(t)) => t,
-        Ok(None) => return team_not_found_page(&team_slug),
-        Err(err) => return internal_error("find_team_by_slug", err),
-    };
-    match state.store.is_team_member(team.id, user.user_id).await {
-        Ok(true) => {}
-        Ok(false) => return resource_not_found_page(),
-        Err(err) => return internal_error("is_team_member", err),
-    }
+    let issue_id =
+        match resolve_member_issue(&state, &user, &team_slug, &project_slug, issue_number).await {
+            Ok(id) => id,
+            Err(refusal) => return refusal,
+        };
+    // A comment on any other issue is refused exactly as an unresolvable
+    // address is: the single uniform not-found page.
     let comment = match state
         .store
-        .find_comment_by_id(user.workspace_id, comment_id)
+        .find_comment_for_issue(comment_id, issue_id)
         .await
     {
         Ok(Some(c)) => c,
-        Ok(None) => return not_found_fragment("Comment not found"),
-        Err(err) => return internal_error("find_comment_by_id", err),
+        Ok(None) => return resource_not_found_page(),
+        Err(err) => return internal_error("find_comment_for_issue", err),
     };
     if comment.deleted {
         return gone_fragment();
@@ -577,6 +563,44 @@ pub async fn show_single_comment(
 }
 
 // ----------------------------------------------------------------- internals
+
+/// Resolve the issue a comment URL names: the team (in the caller's
+/// workspace, and only if the caller is a member), then the project and issue
+/// number under it. `Err` carries the refusal to send, always the single
+/// uniform not-found page, so an unknown team, project or issue and a team the
+/// caller is not on are indistinguishable and no slug is echoed. The caller
+/// then fetches the comment by (comment id, this issue id).
+async fn resolve_member_issue(
+    state: &AppState,
+    user: &SessionUser,
+    team_slug: &str,
+    project_slug: &str,
+    issue_number: i32,
+) -> Result<uuid::Uuid, Response> {
+    let team = match state
+        .store
+        .find_team_by_slug(user.workspace_id, team_slug)
+        .await
+    {
+        Ok(Some(t)) => t,
+        Ok(None) => return Err(resource_not_found_page()),
+        Err(err) => return Err(internal_error("find_team_by_slug", err)),
+    };
+    match state.store.is_team_member(team.id, user.user_id).await {
+        Ok(true) => {}
+        Ok(false) => return Err(resource_not_found_page()),
+        Err(err) => return Err(internal_error("is_team_member", err)),
+    }
+    match state
+        .store
+        .find_issue_by_team_project_number(team.id, project_slug, issue_number)
+        .await
+    {
+        Ok(Some(issue)) => Ok(issue.issue_id),
+        Ok(None) => Err(resource_not_found_page()),
+        Err(err) => Err(internal_error("find_issue_by_team_project_number", err)),
+    }
+}
 
 async fn signed_in_user(session: &Session) -> Option<SessionUser> {
     session
