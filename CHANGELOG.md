@@ -7,6 +7,40 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 
 ## [Unreleased]
 
+## [v0.14.1] - 2026-10-13
+
+Fixes three ways a member could reach an issue, attachment or comment outside the address in the
+URL. No migration. `git log v0.14.0..v0.14.1` is the full list.
+
+### Security
+
+- **Issues are found through their own project, not their key prefix.** Moving an issue on the
+  board (web and API), saving an issue edit, and opening the edit form looked the issue up by
+  project key prefix and number alone. A key prefix is unique only within a workspace, so with
+  two workspaces both using `OPS`, a member of one could move, edit or read the other's `OPS-3`.
+  These lookups now use the project the URL resolved to.
+- **Attachments download only through their own issue.** A download used to serve any attachment
+  in the workspace given its id, through any issue URL the member could open. It now answers the
+  "not found" page unless the attachment belongs to the issue in the URL.
+- **Comments are reached only through their own issue.** Viewing a comment, its edit form,
+  saving an edit, deleting it and the API's comment update looked the comment up by id within
+  the workspace. A member of any team could read any comment in the workspace. Edit and delete
+  were still limited to the author (and admins for delete). They now answer "not found" unless
+  the comment belongs to the issue in the URL.
+- **Not exploited.** At release, dev and prod each have one workspace and no attachments or
+  comments.
+
+### Changed
+
+- **One "not found" page.** An unknown team, project or issue, a team you're not on, and an
+  attachment or comment from another issue all answer the same `404` page, which no longer
+  repeats the team name back. This covers the keyboard search and the new-issue dialog.
+  Editing or deleting a comment through an unknown address used to answer "Comment not found"
+  (edit) or a page naming the team (delete).
+- **`cargo xtask check-arch` has a new rule, `store-natural-key-scoped`.** A store query that
+  filters on `key_prefix`, `slug` or `number` must also filter on `workspace_id`, `team_id` or
+  `project_id`.
+
 ## [v0.14.0] - 2026-10-12
 
 Create, rename and delete teams from the product (team-lifecycle): a workspace admin creates
@@ -913,7 +947,8 @@ followed it.
 - A `comments_visible` SQL VIEW for defense-in-depth against missed
   soft-delete filters is deferred to v0.3 (ADR-017).
 
-[Unreleased]: https://github.com/Canzan/foundry/compare/v0.14.0...HEAD
+[Unreleased]: https://github.com/Canzan/foundry/compare/v0.14.1...HEAD
+[v0.14.1]: https://github.com/Canzan/foundry/compare/v0.14.0...v0.14.1
 [v0.14.0]: https://github.com/Canzan/foundry/compare/v0.13.0...v0.14.0
 [v0.13.0]: https://github.com/Canzan/foundry/compare/v0.12.0...v0.13.0
 [v0.12.0]: https://github.com/Canzan/foundry/compare/v0.11.0...v0.12.0
