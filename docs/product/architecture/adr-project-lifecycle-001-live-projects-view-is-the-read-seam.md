@@ -1,7 +1,7 @@
 # ADR-PROJECT-LIFECYCLE-001: A deleted project is hidden by one database view, `live_projects`, that every reader uses; only one store module may name the `projects` table, and check-arch enforces it
 
 - Status: Accepted (2026-10-12)
-- Feature: `project-lifecycle` (DISCUSS D-A, D5, D9, D13, OQ-4, INV-PL-2, NFR-PL-2; DESIGN DDD-1 to DDD-5, DDD-22)
+- Feature: `project-lifecycle` (DISCUSS D-A, D5, D9, D13, OQ-4, INV-PL-2, NFR-PL-2; DESIGN DDD-1 to DDD-5, DDD-22, DDD-32; DDD-5 and DDD-32 shipped in bugfix v0.14.1)
 
 ## Context
 
@@ -21,12 +21,18 @@ The shipped code reaches projects as follows (code read, 2026-10-12):
   and `events.rs`, and `foundry-services` `issues.rs`, `lanes.rs` and `lib.rs`),
   `find_issue_by_team_project_number` (5 call sites), `list_projects_for_workspace` (dashboard, nav)
   and `list_projects_for_instance` (instance dashboard).
-- There are 22 SQL sites in `crates/foundry-store/src` that name `projects`. They are the four
-  readers above, the issue joins at `lib.rs:1973, 2251, 2315, 2381`, the comment-write
-  sub-selects at `:2775, :2836`, the issue counter `UPDATE` at `:1824`, the lane internals at
-  `lanes.rs:302, 361, 664`, the rename context, siblings and write at `:4301, :4323, :4339`,
-  `TEAM_PROJECTS_SQL` (`teams.rs:589`), the export at `:1054`, an acceptance-only count at `:2415`,
-  and the two inserts.
+- There are 20 SQL sites in `crates/foundry-store/src` that name `projects` (re-checked
+  2026-10-13, after bugfix v0.14.1, which removed two issue joins). They are the four readers
+  above, the issue joins at `lib.rs:1980` (`reposition_issue_with_outbox`) and `:2259`
+  (`list_project_changes`), the comment-write sub-selects at `:2789, :2853`, the issue counter
+  `UPDATE` at `:1824`, the lane internals at `lanes.rs:302, 361, 664`, the instance list at
+  `:4301`, the rename context, siblings and write at `:4327, :4349, :4365`, `TEAM_PROJECTS_SQL`
+  (`teams.rs:589`), the export at `:1054`, an acceptance-only count at `:2422`, and the two inserts
+  (`:1649`, `:3661`).
+- Exact `"projects"` string literals, which name the table without SQL: `lib.rs:123`
+  (`TENANT_TABLES`), `lib.rs:1053` (the export's label), `verify_export.rs:124`
+  (`DIRECT_WORKSPACE_ID_TABLES`), `name_rule_legacy_seam.rs:30` (`NameRuleTable::table`) and
+  `foundry-app/src/admin_cli.rs:207` (`KNOWN_FOUNDRY_TABLES`).
 - No other crate's `src` has project SQL **except** `foundry doctor backup-verify`
   (`foundry-app/src/admin_cli.rs:201-207, 366-374`). It counts every row of each table in
   `KNOWN_FOUNDRY_TABLES`, `projects` included, with `format!`-built SQL, against a **restored
@@ -62,8 +68,8 @@ The store runs Postgres 16. Homelab scale is tens of projects.
    - the delete, the restore and the rename's locked read (ADR-PROJECT-LIFECYCLE-002 and -003);
    - the live-project write guard (ADR-PROJECT-LIFECYCLE-002);
    - `list_deleted_projects` (the CLI);
-   - the export's `projects` selection, a `const` that `export_workspace` uses (D13: the whole row,
-     so `deleted_at` and `deleted_by` mark it as deleted);
+   - the export's `projects` entry, label and SQL together, a `const` that `export_workspace` uses
+     (D13: the whole row, so `deleted_at` and `deleted_by` mark it as deleted);
    - acceptance-only counting helpers, which count every row.
 
    `INSERT INTO projects` stays where it is (`insert_project` and the bootstrap seed), because a
@@ -73,25 +79,28 @@ The store runs Postgres 16. Homelab scale is tens of projects.
    project that never existed. Each route therefore answers what it answers today for an unknown
    slug, which is the D5 oracle, provided the route treats `None` as not found.
 
-   **One route does not: attachment download.** `download_attachment`
-   (`foundry-app/src/attachments.rs:232-238`) calls `find_issue_by_team_project_number` as a
-   "defensive lookup" and checks only `Err`, ignoring `Ok(None)`. It then serves the attachment by
-   (attachment id, workspace) alone. Today, a valid attachment id under any slug of a team the
-   caller is on returns the bytes, and after this feature a deleted project's attachments would too.
-   The differential oracle cannot catch this, because the unknown-slug answer is the same leak.
+   **Attachment download was the one exception, and v0.14.1 fixed it.** Before v0.14.1,
+   `download_attachment` called `find_issue_by_team_project_number` as a "defensive lookup", checked
+   only `Err` and ignored `Ok(None)`. It then served the attachment by (attachment id, workspace)
+   alone, so a valid attachment id under any slug of a team the caller was on returned the bytes.
+   The differential oracle could not catch this, because the unknown-slug answer was the same leak.
 
-   Decided: the download maps `Ok(None)` to `resource_not_found_page()`, and the attachment is looked
-   up by (attachment id, resolved issue id), so it must belong to the issue the path names. This is a
-   scoped fix to a shipped route, required by INV-PL-2. Rule: every call site of the four resolvers
-   handles `Ok(None)` as not found. DESIGN checked every call site listed above; this is the one
-   exception.
-6. **The key-prefix-keyed issue lookups are re-keyed by the resolved project id.** These are
-   `reposition_issue_with_outbox`, `update_issue_details` and `issue_edit_view`. Each is rewritten
-   in this feature anyway, both for the view and for the write guard, and the guard needs the
-   project id. Today they select `WHERE p.key_prefix = $1 AND i.number = $2` with no workspace
-   predicate. `key_prefix` is unique per workspace only (`UNIQUE (workspace_id, key_prefix)`), so
-   two workspaces sharing a key make that lookup ambiguous. Keying by the id the services resolver
-   already holds removes the ambiguity. Single-workspace behaviour is unchanged.
+   Bugfix v0.14.1 (`ff62b40..7d679a0`, fix-issue-attachment-scoping) closed it outside this
+   feature: the download (`foundry-app/src/attachments.rs:172`) resolves the issue through
+   `resolve_member_issue`, then calls `find_attachment_for_issue(attachment_id, issue.issue_id)` and
+   maps `Ok(None)` to `resource_not_found_page()` (:207-211). This feature changes nothing in that
+   route. Rule: every call site of the four resolvers handles `Ok(None)` as not found. DESIGN
+   re-checked every call site after v0.14.1; there is no exception left.
+6. **The key-prefix-keyed issue lookups: shipped in v0.14.1, not part of this feature.** Before
+   v0.14.1, `reposition_issue_with_outbox`, `update_issue_details` and `issue_edit_view` selected
+   `WHERE p.key_prefix = $1 AND i.number = $2` with no workspace predicate. `key_prefix` is unique
+   per workspace only (`UNIQUE (workspace_id, key_prefix)`), so two workspaces sharing a key made
+   that lookup ambiguous. v0.14.1 re-keyed all three by `i.project_id = $1`, and its check-arch
+   rule `store-natural-key-scoped` keeps every natural-key filter scoped. In this feature, only
+   `reposition_issue_with_outbox`'s `projects` join (`lib.rs:1980`) moves to `live_projects`.
+   `update_issue_details` gains the guard (ADR-PROJECT-LIFECYCLE-002). `issue_edit_view` has no
+   `projects` SQL and does not change: its `project_id` comes from `resolve_member_project`, which
+   reads the view.
 7. **Enforcement (check-arch `project-lifecycle-live-reads`).** The rule scans every `.rs` under
    `crates/*/src` except `crates/foundry-acceptance` and
    `crates/foundry-store/src/project_lifecycle.rs`.
@@ -105,9 +114,21 @@ The store runs Postgres 16. Homelab scale is tens of projects.
      sub-select. `live_projects` and `project_lifecycle_events` never match.
    - **One exception:** `INSERT INTO projects` (a new row is live).
    - **Also flagged:** an exact `"projects"` string literal, a table name handed to `format!`-built
-     SQL. One **reviewed exception**: `KNOWN_FOUNDRY_TABLES` in `admin_cli.rs`. `backup-verify`
-     must count every row of a restored sandbox, deleted projects included; it is a backup check,
-     not a project door. The exception names that constant and nothing else.
+     SQL. **Reviewed exemptions**, named by file and enclosing item, not by line. Each is a
+     table-name label with no SQL:
+     - `foundry-store/src/lib.rs`, const `TENANT_TABLES`: the export and manifest table list;
+     - `foundry-store/src/verify_export.rs`, const `DIRECT_WORKSPACE_ID_TABLES`: the offline
+       archive verifier, which reads JSON, not the database;
+     - `foundry-store/src/name_rule_legacy_seam.rs`, fn `NameRuleTable::table`: the test-support
+       seam that switches the name-rule triggers by table name, fenced from the doors by check-arch
+       `name-rule-legacy-seam`;
+     - `foundry-app/src/admin_cli.rs`, const `KNOWN_FOUNDRY_TABLES`: `backup-verify` counts every
+       row of a restored sandbox, deleted projects included; it is a backup check, not a project
+       door.
+
+     The export's `("projects", "SELECT … FROM projects t …")` entry (`lib.rs:1053-1054`) is not
+     exempted: it moves into the module (decision 4). The list is settled before the rule turns on
+     (slice 02, after the reader sweep). Any other exact literal fails the build.
    - Violations are named by `file:line`.
    - Comments are not SQL and are not scanned.
 
@@ -116,7 +137,14 @@ The store runs Postgres 16. Homelab scale is tens of projects.
    - a comma join, a line break between `FROM` and the name, and `public.projects` are flagged;
    - `FROM live_projects`, `INSERT INTO projects` and a route string are not flagged;
    - the module itself is not flagged, and neither is an acceptance fixture;
+   - each of the four exempted items passes; the same `"projects"` literal in another const or fn
+     of the same file is flagged; the export label left in `lib.rs` is flagged;
    - a missing `crates/` directory fails the rule.
+
+   The rule runs beside the shipped `store-natural-key-scoped` (v0.14.1,
+   `xtask/src/check_arch.rs:6042-6114`). Any `live_projects` query that filters on `slug` or
+   `key_prefix` must also compare `team_id` or `workspace_id` with a bind parameter in the same
+   `OR`-branch and parenthesis level.
 
 ## Alternatives considered
 
@@ -137,7 +165,7 @@ The store runs Postgres 16. Homelab scale is tens of projects.
   - The bypass would be invisible in Rust code, and every test would have to run as a non-owner
     role.
 - **A per-reader `AND p.deleted_at IS NULL`, with an acceptance sweep over the route inventory.**
-  This means 19 edits and no default. A check-arch rule of the form "every SQL literal naming
+  This means about 13 edits and no default. A check-arch rule of the form "every SQL literal naming
   `projects` mentions `deleted_at`" is a weak proxy: a predicate can be present but OR'd away, or
   apply to the wrong alias. Decision 7's rule asks a simpler question, "does this literal name the
   table at all?", and that can be answered exactly. Rejected for the same INV-PL-2 reason.
@@ -164,12 +192,11 @@ The store runs Postgres 16. Homelab scale is tens of projects.
 - Positive: "live" has one definition, in the database, and every new reader gets it by writing the
   obvious `FROM live_projects`, or fails the build by writing `FROM projects`. Seeing deleted
   projects is a reviewed act: an edit to one named module.
-- Positive: no door changes except the attachment-download fix (decision 5). The D5 oracle ("exactly as an address that never existed") falls out
-  per route, because the resolvers already return `None` for an unknown slug.
-- Positive: the cross-workspace key-prefix ambiguity in three issue lookups is closed as a side
-  effect.
-- Negative: about 19 SQL strings change in one slice. This is mechanical, and the rule finds any
-  that are missed.
+- Positive: no door changes. The D5 oracle ("exactly as an address that never existed") falls out
+  per route, because the resolvers already return `None` for an unknown slug, and since v0.14.1
+  every call site treats `None` as not found.
+- Negative: 13 SQL strings move to the view and 5 into the module, in one slice. This is
+  mechanical, and the rule finds any that are missed.
 - Negative: a later migration that adds a `projects` column must recreate the view. The 0026
   self-check, `Store::probe` and a gold test turn a forgotten one into a refused boot or a red test,
   not a silent gap.
@@ -179,9 +206,6 @@ The store runs Postgres 16. Homelab scale is tens of projects.
   project, with no record, so the restore would bring back a different name (an INV-PL-4 and
   INV-PL-7 exception, limited to the window). Nothing is lost. The window is the rollout. The
   CHANGELOG says: do not delete or rename projects while this release rolls out.
-- Negative: a fix to a shipped route. Attachment download refuses a path that does not resolve
-  (decision 5). Before this feature, an attachment could be fetched through any project slug of a
-  team the caller is on.
 - Negative: psql `SELECT … FROM projects` still shows deleted rows. That is intended (D5: the
   database is one of the two ways to see them).
 - Earned Trust (store gold tests on `postgres:16`):
@@ -191,7 +215,8 @@ The store runs Postgres 16. Homelab scale is tens of projects.
   - `lock_live_project` (ADR-PROJECT-LIFECYCLE-002), the function every writer calls, blocks a
     concurrent `FOR UPDATE` and returns no row once a delete commits;
   - a deleted project's attachment id, requested through the deleted project's path, answers the
-    uniform 404 body. This is asserted directly, not only by differential equality;
+    uniform 404 body. This is asserted directly, not only by differential equality, so the
+    v0.14.1 download fix stays in force;
   - an `INSERT INTO projects` row appears in `live_projects`, and a row with `deleted_at` set does
     not;
   - the workspace delete cascade (the acceptance "workspace is deleted" step) still removes a

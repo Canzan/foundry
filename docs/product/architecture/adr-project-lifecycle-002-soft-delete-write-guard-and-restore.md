@@ -48,7 +48,9 @@ Postgres row locks at READ COMMITTED:
    writers' `KEY SHARE` (decision 2). This is ADR-TEAM-LIFECYCLE-002's trap (a), on the project row.
 2. **The live-project write guard.** `project_lifecycle::lock_live_project(tx, project_id) ->
    Result<bool, sqlx::Error>` is `SELECT 1 FROM projects WHERE id = $1 AND deleted_at IS NULL FOR
-   KEY SHARE`. Every project-scoped writer calls it as the **first statement of its transaction**.
+   KEY SHARE`. Every project-scoped writer calls it as the **first statement of its transaction**:
+   the lock precedes every write in the transaction. A writer keyed by issue may first read the
+   issue's `project_id`. That column is never written after insert, so the read cannot go stale.
    On `false`, the writer returns the "not found" outcome it already has:
    - `IssueInsertError::ProjectNotFound`;
    - `Ok(None)` for `update_issue_details`;
@@ -60,15 +62,26 @@ Postgres row locks at READ COMMITTED:
    The services already map each of these to `ServiceError::NotFound`, which is the uniform 404 in
    HTML and the API's not-found JSON.
    - **Two writers run without a transaction today**: `rename_lane` (`lanes.rs:543`, "no
-     transaction and no lock") and `insert_attachment` (`attachments.rs:55-68`, a pool insert).
+     transaction and no lock") and `insert_attachment` (`attachments.rs:55-83`, a pool insert).
      Both now open a transaction whose first statement is the guard. This is decided here, not
      deferred.
-   - The comment writers, which are keyed by comment id, gain a `project_id` parameter. Their
-     callers already hold it from `find_issue_by_team_project_number`.
-   - **`undelete_comment`** (`lib.rs:3259`, behind `foundry doctor restore-comment`) is guarded
-     too. Restoring a comment inside a deleted project would change a row under it (D6, PL-KPI-2),
-     so it answers "not restorable", exit 4, until the project is restored. That is the shipped
-     exit, and the stderr reason names the project as deleted.
+   - **The comment writers keep their signatures.** Since v0.14.1 they are keyed by (comment id,
+     issue id): `update_comment_with_outbox(workspace_id, issue_id, comment_id, …)`
+     (`lib.rs:2765`) and `soft_delete_comment_with_outbox(workspace_id, issue_id, comment_id,
+     actor)` (`:2836`). Before v0.14.1 they were keyed by comment id and workspace only. Inside the
+     transaction each runs `SELECT project_id FROM issues WHERE id = $issue_id`, then
+     `lock_live_project`, then its `UPDATE`. If the read finds no issue row, the writer returns `Ok(false)`.
+     `insert_comment_with_outbox` already takes `project_id` and guards it directly.
+     `insert_attachment` derives the project from its `issue_id` the same way. No argument list
+     changes, so no caller changes.
+   - **`undelete_comment`** (`lib.rs:3285`, behind `foundry doctor restore-comment`) is guarded
+     too. It is keyed by comment id alone and runs with no transaction today. It gains a
+     transaction: comment → issue → project (`issues.project_id` through the comment's
+     `issue_id`), then `lock_live_project`, then its `UPDATE`. Restoring a comment inside a
+     deleted project would change a row under it (D6, PL-KPI-2), so it answers "not restorable",
+     exit 4, until the project is restored. This is the exit the D10 table names; it is new in this feature. Its argument is unchanged;
+     its return becomes a typed outcome with a project-deleted case, so the stderr reason names
+     the project as deleted without SQL in `admin_cli.rs`. Its one caller is `admin_cli.rs:513`.
    - `renumber_column` and the other helpers that take a caller's transaction are covered through
      their callers (decision 7).
    - **Issue create is the one writer whose guard is a different statement.**
@@ -164,14 +177,23 @@ Postgres row locks at READ COMMITTED:
        in the crate with a transaction parameter whose body writes (directly or transitively). The
        set therefore includes `renumber_column`, `delete_issues_with_outbox`,
        `move_cards_to_destination` and `record_issue_change` without a hand-kept list.
-     - SQL assembled with `format!` in `crates/foundry-store/src` that interpolates a table name is
-       a violation in itself: the rule cannot see it.
+     - A `format!` or `concat!` template in `crates/foundry-store/src` that contains `INSERT
+       INTO`, `UPDATE` or `DELETE FROM` followed by an interpolation in the table position is a
+       violation in itself: the rule cannot see the table. The clause is DML-only. DDL
+       (`name_rule_legacy_seam.rs:38`, `ALTER TABLE {t} … TRIGGER`, a test-support switch) and
+       column-list interpolation (`lib.rs:1250, 2941`) are out of scope. No store `format!` builds
+       DML today.
+     - A call to a function that opens its own transaction is not in the helper set and is not a
+       write in the caller.
      - Exempt:
        - helpers that take a caller's transaction as a parameter. They ride a guarded caller, and
          their callers are in scope by the first pass;
        - `insert_issue_attempt`, **only while its first SQL statement is `UPDATE live_projects`**
-         (decision 2). The rule checks that this is the first SQL literal executed in the body. A
-         gold test where an `INSERT` precedes it is flagged;
+         (decision 2). It is a direct writer, not a helper: it opens its own transaction and takes
+         no transaction parameter. The rule checks that this is the first SQL literal executed in
+         the body. A gold test where an `INSERT` precedes it is flagged. Its caller
+         `insert_issue_with_outbox` (`lib.rs:1756`) holds no SQL and calls no helper, so it is
+         outside the rule; each of its two calls (:1773, :1785) runs one whole guarded attempt;
        - the allow-list, with reasons: `gc_tombstoned_comments` (D12) and `insert_project` (a
          brand-new project seeds its lanes).
      - Injected-violation gold tests:
@@ -179,7 +201,13 @@ Postgres row locks at READ COMMITTED:
        - an unguarded autocommit `INSERT INTO issue_attachments` is flagged;
        - an unguarded `INSERT INTO comments` inside a `.begin()` body is flagged;
        - a transaction-taking helper is not flagged;
-       - the allow-listed GC is not flagged.
+       - the allow-listed GC is not flagged;
+       - a `format!("UPDATE {t} …")` is flagged; the legacy seam's `format!("ALTER TABLE {t} …")`
+         is not;
+       - the caller case: a function that calls a self-transacting guarded writer twice (the
+         retry shape of `insert_issue_with_outbox`) is not flagged; the same caller with an inline
+         `INSERT INTO issues` is flagged; a caller of a transaction-taking writing helper with no
+         `lock_live_project(` is flagged.
      - The behavioural table-driven gold test (Earned Trust below) enumerates its writers from the
        same list the rule scans, so the two cannot drift.
    - check-arch `project-lifecycle-one-seam` (ADR-PROJECT-LIFECYCLE-003 decision 6) keeps
@@ -229,8 +257,8 @@ Postgres row locks at READ COMMITTED:
   project is deleted (D12, decision 4), because no product write can reach a deleted project.
 - Positive: every racing write gets a normal outcome. No new error type or mapping is needed: each
   writer reuses its shipped not-found outcome.
-- Negative: about eleven writers gain one guard statement, and the comment writers gain a
-  `project_id` parameter. This is mechanical. check-arch and a table-driven gold test keep it
+- Negative: about eleven writers gain one guard statement, and the writers keyed by issue gain one
+  read of `issues.project_id` before it. No argument list changes. This is mechanical. check-arch and a table-driven gold test keep it
   complete.
 - Negative: while a delete is in flight (milliseconds), every write on that project waits. This is
   negligible at homelab scale.
@@ -254,7 +282,7 @@ Postgres row locks at READ COMMITTED:
     `lanes` and `outbox` is identical before and after.
   - A restore then a re-read equals the pre-delete snapshot, scoped to live rows plus tombstones
     still inside their 90-day GC window (decision 4), and the next issue number is unchanged.
-  - `undelete_comment` on a comment in a deleted project changes nothing and reports not
-    restorable.
+  - `undelete_comment` on a comment in a deleted project changes nothing and returns its
+    project-deleted outcome (exit 4 at the CLI).
   - A restore of a live project, an unknown id, and a concurrent double restore each yield their
     outcome with nothing written.

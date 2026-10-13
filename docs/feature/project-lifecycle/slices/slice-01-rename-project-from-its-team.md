@@ -10,7 +10,7 @@ every URL and every issue id stay.
 
 ## IN
 
-- A **Projects** section on `/team/{slug}/members`: "{project} · {KEY}" rows linking to each board, for anyone who can view the team; "{team} has no projects yet." when empty (D8).
+- A **Projects** section on `/team/{slug}/members`: "{project} · {KEY}" rows for anyone who can view the team, each linking to its board only when the viewer is on the team (OQ-U1 = (b), DESIGN Changed Assumption 2); "{team} has no projects yet." when empty (D8).
 - Per row, for `Manage` (the team's lead or a workspace admin): a prefilled **Project name** field and **Rename** (D-B).
 - `POST /team/{team_slug}/project/{project_slug}/rename` (proposed, D15): the shipped `ProjectName` rule and copy, the project excluded from uniqueness; a byte-equal name writes nothing; "Renamed {old} to {new}." (D2, D3).
 - (OQ-3) One rename record per effective rename, on this door and on the shipped instance-admin door.

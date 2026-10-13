@@ -44,6 +44,7 @@ delete is irreversible for anyone without psql.
 
 - [ ] Lena deletes Auth v2 Spike (SPIKE: 3 issues, 2 comments, 1 attachment, 4 lanes) after reading the confirm page → "Deleted Auth v2 Spike."; the store still holds exactly those rows, unchanged.
 - [ ] After the delete, the board, SPIKE-2, the report, the CSV, the new-issue form and live updates answer the uniform 404 for Lena, Sam and Priya; the API answers its not-found for SPIKE's issues and comments.
+  - DESIGN note: the "live updates" part of this AC is superseded by Changed Assumption 1 in `feature-delta.md`. The events route answers a deleted project exactly as a never-existed one: its shipped 403 text/plain (`events.rs:99-103`), not the uniform 404. DISTILL edits this AC and US-PL-03 scenario 1.
 - [ ] Sam's dashboard and new-issue picker, and Priya's instance dashboard, no longer list it.
 - [ ] Sam's stale edit dialog save → the uniform 404, SPIKE-2 unchanged.
 - [ ] 100 delete-versus-issue-create races on real Postgres → 0 responses of 500, 0 lost issues.

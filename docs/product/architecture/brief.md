@@ -714,8 +714,8 @@ DELIVER finalize.
 |---|---|---|---|---|
 | Record table | `project_lifecycle_events`, CHECK `project_lifecycle_events_kind_shape`, no FK to projects or teams; `UPGRADE_WARNING_0025` | `migrations/0025_project_lifecycle_events.sql`, store `upgrade_warnings.rs` | 13, 14 | 01 |
 | Rename core | `rename_project_with_audit` → `ProjectRenameWrite`; services `apply_rename`, `rename_project`, `rename_team_project` | store `project_lifecycle.rs`; services `projects.rs` | 15, 16 | 01 |
-| Projects section | `list_team_projects`; `TeamMembersView.projects`; board-link rule pending the user's OQ-U1 (recommended: only when on the team); `TeamNotice` project strings | store, services `teams.rs`, app `teams.rs`, `team_members.html` | 25, 26 | 01 |
-| Live view | `deleted_at`, `deleted_by`, CHECK `projects_deleted_marker_shape`, view `live_projects`; reader sweep; key-prefix lookups re-keyed by id; `UPGRADE_WARNING_0026` | `migrations/0026_project_soft_delete.sql`, store `lib.rs`, `lanes.rs`, `teams.rs` | 2-5 | 02 |
+| Projects section | `list_team_projects`; `TeamMembersView.projects`; a row links to its board only when the viewer is on the team (OQ-U1 (b), decided 2026-10-12); `TeamNotice` project strings | store, services `teams.rs`, app `teams.rs`, `team_members.html` | 25, 26 | 01 |
+| Live view | `deleted_at`, `deleted_by`, CHECK `projects_deleted_marker_shape`, view `live_projects`; reader sweep; (key-prefix lookups were re-keyed by project id in v0.14.1); `UPGRADE_WARNING_0026` | `migrations/0026_project_soft_delete.sql`, store `lib.rs`, `lanes.rs`, `teams.rs` | 2-5 | 02 |
 | Write guard | `lock_live_project` in every project-scoped writer | store `project_lifecycle.rs` and the writers | 7, 8 | 02 |
 | Delete | `soft_delete_project` → `ProjectDeleteOutcome`; services `delete_preview`, `delete_project`; `project_delete.html`; routes | store, services, app | 6, 12, 23 | 02 |
 | Restore CLI | `list_deleted_projects`, `restore_deleted_project` → `ProjectRestoreOutcome`; services `list_deleted_projects`, `restore_project`; `run_list_deleted_projects`, `run_restore_project` | store, services, app `admin_cli.rs`, `main.rs` | 9, 10 | 03 |
