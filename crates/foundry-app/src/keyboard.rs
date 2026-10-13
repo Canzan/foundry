@@ -48,7 +48,7 @@
 //! signed-in user must belong to the project's team. Non-members get
 //! 403; unknown teams/projects get 404.
 
-use crate::bootstrap::{invalid_page, resource_not_found_page, SessionUser};
+use crate::bootstrap::{resource_not_found_page, SessionUser};
 use crate::session::SESSION_KEY_USER_ID;
 use crate::AppState;
 use askama::Template;
@@ -128,7 +128,7 @@ pub async fn show_new_issue_modal(
         .await
     {
         Ok(Some(t)) => t,
-        Ok(None) => return team_not_found_page(&team_slug),
+        Ok(None) => return resource_not_found_page(),
         Err(err) => return internal_error("find_team_by_slug", err),
     };
     match state.store.is_team_member(team.id, user.user_id).await {
@@ -142,7 +142,7 @@ pub async fn show_new_issue_modal(
         .await
     {
         Ok(Some(p)) => p,
-        Ok(None) => return project_not_found_page(&team_slug, &project_slug),
+        Ok(None) => return resource_not_found_page(),
         Err(err) => return internal_error("find_project_by_slug", err),
     };
     let (csrf, set_cookie) = crate::csrf::ensure_csrf_cookie(&state, &headers);
@@ -230,7 +230,7 @@ pub async fn search_issues(
         .await
     {
         Ok(Some(t)) => t,
-        Ok(None) => return team_not_found_page(&team_slug),
+        Ok(None) => return resource_not_found_page(),
         Err(err) => return internal_error("find_team_by_slug", err),
     };
     match state.store.is_team_member(team.id, user.user_id).await {
@@ -244,7 +244,7 @@ pub async fn search_issues(
         .await
     {
         Ok(Some(p)) => p,
-        Ok(None) => return project_not_found_page(&team_slug, &project_slug),
+        Ok(None) => return resource_not_found_page(),
         Err(err) => return internal_error("find_project_by_slug", err),
     };
     let key_prefix = match ProjectKey::try_new(&project.key_prefix) {
@@ -363,22 +363,6 @@ fn redirect_to(location: &str) -> Response {
         hdrs.insert(LOCATION, v);
     }
     (StatusCode::SEE_OTHER, hdrs, "").into_response()
-}
-
-fn team_not_found_page(team_slug: &str) -> Response {
-    invalid_page(
-        StatusCode::NOT_FOUND,
-        "Team not found",
-        &format!("No team with slug {team_slug:?} exists in this workspace."),
-    )
-}
-
-fn project_not_found_page(team_slug: &str, project_slug: &str) -> Response {
-    invalid_page(
-        StatusCode::NOT_FOUND,
-        "Project not found",
-        &format!("No project with slug {project_slug:?} exists in team {team_slug:?}."),
-    )
 }
 
 fn internal_error<E: std::fmt::Display>(label: &str, err: E) -> Response {

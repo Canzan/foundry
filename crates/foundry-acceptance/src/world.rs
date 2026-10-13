@@ -1135,9 +1135,12 @@ pub struct FoundryWorld {
     /// the Then can assert it is unchanged.
     pub mwt4_foreign_issue_state_before: Option<String>,
     /// Every reach of a colliding-prefix issue through the acting workspace's
-    /// own address (RCA T11): `(reach, status, body)`, so the Then can assert
-    /// each was refused as not found and echoed none of the other tenant's issue.
-    pub mwt4_colliding_reaches: Vec<(String, StatusCode, String)>,
+    /// own address (RCA T11): `(reach, status, body, reference)`, where
+    /// `reference` is the body of the same reach through an unknown project (an
+    /// unknown issue for the API), so the Then can assert each was refused as
+    /// not found, byte for byte as the unknown address, echoing none of the
+    /// other tenant's issue.
+    pub mwt4_colliding_reaches: Vec<(String, StatusCode, String, String)>,
 
     // ---- Feature "multi-workspace-provisioning" — Slice 5 (migration guarantee) ----
     /// Per-scenario schema name for the pre-feature single-workspace install, so

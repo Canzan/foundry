@@ -325,6 +325,16 @@ async fn web_state_change(
     number: i32,
 ) -> (StatusCode, String) {
     let (team_slug, project_slug) = project_route(world, ws, project);
+    web_state_post(world, &team_slug, &project_slug, number).await
+}
+
+/// The web state-change POST to an address given by its slugs.
+async fn web_state_post(
+    world: &FoundryWorld,
+    team_slug: &str,
+    project_slug: &str,
+    number: i32,
+) -> (StatusCode, String) {
     let email = web_email(world);
     let url = format!("/team/{team_slug}/project/{project_slug}/issues/{number}/state");
     let outcome = signed_in_post(
@@ -805,10 +815,57 @@ async fn no_issue_changed_state(world: &mut FoundryWorld, _ws: String) {
 // other tenant's same-prefix project.
 // --------------------------------------------------------------------------
 
-fn note_colliding_reach(world: &mut FoundryWorld, reach: &str, status: StatusCode, body: String) {
+/// A project slug no workspace owns: the same reach through it is the
+/// reference refusal a colliding-prefix reach must be indistinguishable from.
+const UNKNOWN_PROJECT_SLUG: &str = "no-such-project-t11";
+
+/// An issue number no project reaches: the API's not-found reference.
+const UNKNOWN_ISSUE_NUMBER: i32 = 999_999;
+
+fn note_colliding_reach(
+    world: &mut FoundryWorld,
+    reach: &str,
+    (status, body): (StatusCode, String),
+    reference: String,
+) {
     world
         .mwt4_colliding_reaches
-        .push((reach.to_string(), status, body));
+        .push((reach.to_string(), status, body, reference));
+}
+
+/// The web edit submit to an address given by its slugs.
+async fn web_edit_post(
+    world: &FoundryWorld,
+    team_slug: &str,
+    project_slug: &str,
+    number: i32,
+) -> (StatusCode, String) {
+    let email = web_email(world);
+    let outcome = signed_in_post(
+        world.harness.as_ref().expect("harness"),
+        world.http.as_ref().expect("http"),
+        &email,
+        WEB_PASSWORD,
+        &format!("/team/{team_slug}/project/{project_slug}/issues/{number}/edit"),
+        &[
+            ("title", "Edited through Acme"),
+            ("description", "written through Acme's address"),
+        ],
+    )
+    .await;
+    (outcome.status, outcome.body)
+}
+
+/// The API state PATCH; returns its status and body.
+async fn api_move(
+    world: &mut FoundryWorld,
+    team_slug: &str,
+    project_slug: &str,
+    number: i32,
+) -> (StatusCode, String) {
+    api_patch_state(world, team_slug, project_slug, number).await;
+    let status = world.mwt_last_status.expect("API move status");
+    (status, world.mwt_last_body.clone().unwrap_or_default())
 }
 
 #[when(
@@ -823,12 +880,11 @@ async fn web_edit_form_through_own_project(
     ensure_harness(world).await;
     let (team_slug, project_slug) = project_route(world, &ws, &project);
     let number = issue_number(&key);
-    let (status, body) = web_get(
-        world,
-        &format!("/team/{team_slug}/project/{project_slug}/issues/{number}/edit"),
-    )
-    .await;
-    note_colliding_reach(world, "web edit pre-fill", status, body);
+    let edit_form =
+        |project: &str| format!("/team/{team_slug}/project/{project}/issues/{number}/edit");
+    let reach = web_get(world, &edit_form(&project_slug)).await;
+    let (_, reference) = web_get(world, &edit_form(UNKNOWN_PROJECT_SLUG)).await;
+    note_colliding_reach(world, "web edit pre-fill", reach, reference);
 }
 
 #[when(
@@ -843,20 +899,9 @@ async fn web_edit_through_own_project(
     ensure_harness(world).await;
     let (team_slug, project_slug) = project_route(world, &ws, &project);
     let number = issue_number(&key);
-    let email = web_email(world);
-    let outcome = signed_in_post(
-        world.harness.as_ref().expect("harness"),
-        world.http.as_ref().expect("http"),
-        &email,
-        WEB_PASSWORD,
-        &format!("/team/{team_slug}/project/{project_slug}/issues/{number}/edit"),
-        &[
-            ("title", "Edited through Acme"),
-            ("description", "written through Acme's address"),
-        ],
-    )
-    .await;
-    note_colliding_reach(world, "web edit submit", outcome.status, outcome.body);
+    let reach = web_edit_post(world, &team_slug, &project_slug, number).await;
+    let (_, reference) = web_edit_post(world, &team_slug, UNKNOWN_PROJECT_SLUG, number).await;
+    note_colliding_reach(world, "web edit submit", reach, reference);
 }
 
 #[when(
@@ -869,8 +914,11 @@ async fn web_move_through_own_project(
     project: String,
 ) {
     ensure_harness(world).await;
-    let (status, body) = web_state_change(world, &ws, &project, issue_number(&key)).await;
-    note_colliding_reach(world, "web move", status, body);
+    let (team_slug, project_slug) = project_route(world, &ws, &project);
+    let number = issue_number(&key);
+    let reach = web_state_post(world, &team_slug, &project_slug, number).await;
+    let (_, reference) = web_state_post(world, &team_slug, UNKNOWN_PROJECT_SLUG, number).await;
+    note_colliding_reach(world, "web move", reach, reference);
 }
 
 #[when(
@@ -884,10 +932,9 @@ async fn api_move_through_own_project(
 ) {
     ensure_harness(world).await;
     let (team_slug, project_slug) = project_route(world, &ws, &project);
-    api_patch_state(world, &team_slug, &project_slug, issue_number(&key)).await;
-    let status = world.mwt_last_status.expect("API move status");
-    let body = world.mwt_last_body.clone().unwrap_or_default();
-    note_colliding_reach(world, "API move", status, body);
+    let reach = api_move(world, &team_slug, &project_slug, issue_number(&key)).await;
+    let (_, reference) = api_move(world, &team_slug, &project_slug, UNKNOWN_ISSUE_NUMBER).await;
+    note_colliding_reach(world, "API move", reach, reference);
 }
 
 #[then(
@@ -904,24 +951,28 @@ async fn colliding_reaches_refused(world: &mut FoundryWorld, key: String) {
     let leaks: Vec<String> = world
         .mwt4_colliding_reaches
         .iter()
-        .filter(|(_, status, body)| {
-            *status != StatusCode::NOT_FOUND || body.contains(&seeded_title)
+        .filter(|(_, status, body, reference)| {
+            *status != StatusCode::NOT_FOUND || body.contains(&seeded_title) || body != reference
         })
-        .map(|(reach, status, body)| {
-            format!(
-                "{reach} -> {status}{}",
-                if body.contains(&seeded_title) {
-                    format!(" echoing {seeded_title:?}")
-                } else {
-                    String::new()
-                }
-            )
+        .map(|(reach, status, body, reference)| {
+            let echo = if body.contains(&seeded_title) {
+                format!(" echoing {seeded_title:?}")
+            } else {
+                String::new()
+            };
+            let differs = if body != reference {
+                format!(" with body {body:?}, not the unknown-address refusal {reference:?}")
+            } else {
+                String::new()
+            };
+            format!("{reach} -> {status}{echo}{differs}")
         })
         .collect();
     assert!(
         leaks.is_empty(),
         "reaching {key} through the acting workspace's own project resolved another tenant's \
-         same-prefix issue instead of refusing it as not found: {leaks:?}"
+         same-prefix issue instead of refusing it as not found, byte for byte as an unknown \
+         address is: {leaks:?}"
     );
 }
 

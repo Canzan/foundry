@@ -186,7 +186,7 @@ async fn reposition_within_status_reindexes_contiguously_without_emit() {
 
     // Drop GEN-30 immediately after GEN-10 → new order [10, 30, 20].
     let outcome = store
-        .reposition_issue_with_outbox(project, "GEN", 30, "todo", Some(10), author)
+        .reposition_issue_with_outbox(project, 30, "todo", Some(10), author)
         .await
         .expect("reposition query succeeds");
     assert_eq!(outcome, RepositionOutcome::Repositioned);
@@ -220,7 +220,7 @@ async fn reposition_across_status_reindexes_both_columns_and_emits_once() {
 
     // Drop GEN-5 from backlog INTO todo, after GEN-10 → todo [10, 5, 20].
     let outcome = store
-        .reposition_issue_with_outbox(project, "GEN", 5, "todo", Some(10), author)
+        .reposition_issue_with_outbox(project, 5, "todo", Some(10), author)
         .await
         .expect("reposition query succeeds");
     assert_eq!(outcome, RepositionOutcome::Repositioned);
@@ -239,6 +239,15 @@ async fn reposition_across_status_reindexes_both_columns_and_emits_once() {
         issue_updated_count(&store).await,
         1,
         "a cross-status drop (state changed) must emit EXACTLY ONE IssueUpdated row"
+    );
+    let key: String =
+        sqlx::query_scalar("SELECT payload->>'key' FROM outbox WHERE event_type = 'IssueUpdated'")
+            .fetch_one(store.pool())
+            .await
+            .expect("read the IssueUpdated key");
+    assert_eq!(
+        key, "GEN-5",
+        "the payload key is rendered from the moved issue's own project prefix"
     );
 }
 
@@ -273,7 +282,7 @@ async fn reposition_with_a_colliding_prefix_moves_only_the_callers_issue() {
     );
 
     let outcome = store
-        .reposition_issue_with_outbox(acme, "GEN", 1, "todo", None, acme_author)
+        .reposition_issue_with_outbox(acme, 1, "todo", None, acme_author)
         .await
         .expect("reposition query succeeds");
     assert_eq!(outcome, RepositionOutcome::Repositioned);
@@ -285,7 +294,7 @@ async fn reposition_with_a_colliding_prefix_moves_only_the_callers_issue() {
     );
 
     let outcome = store
-        .reposition_issue_with_outbox(acme, "GEN", 2, "todo", None, acme_author)
+        .reposition_issue_with_outbox(acme, 2, "todo", None, acme_author)
         .await
         .expect("reposition query succeeds");
     assert_eq!(

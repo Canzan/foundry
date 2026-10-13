@@ -1957,12 +1957,12 @@ impl Store {
     /// to the uniform NotFound. On either refusal NOTHING is written (the tx is
     /// dropped before any mutation).
     ///
-    /// `project_key_prefix` only renders the issue key in the outbox payload;
-    /// it never addresses a row (it is unique only per workspace).
+    /// The outbox payload's issue key is rendered from the `key_prefix` of the
+    /// SAME `project_id` row the issue is resolved through, in the same query —
+    /// never from a caller-supplied prefix that could name another project.
     pub async fn reposition_issue_with_outbox(
         &self,
         project_id: uuid::Uuid,
-        project_key_prefix: &str,
         issue_number: i32,
         new_state: &str,
         after_number: Option<i32>,
@@ -1970,19 +1970,22 @@ impl Store {
     ) -> Result<RepositionOutcome, IssueInsertError> {
         let mut tx = self.pool.begin().await?;
 
-        // Resolve the moved issue + its workspace + CURRENT state + rank, keyed
-        // by the caller's RESOLVED project: `key_prefix` is unique only per
-        // workspace, `(project_id, number)` is unique outright.
-        let row: Option<(uuid::Uuid, uuid::Uuid, String, i32)> = sqlx::query_as(
-            "SELECT i.id, i.workspace_id, i.state, i.position
+        // Resolve the moved issue + its workspace + CURRENT state + rank, and
+        // its project's key prefix for the payload, keyed by the caller's
+        // RESOLVED project: `key_prefix` is unique only per workspace,
+        // `(project_id, number)` is unique outright.
+        let row: Option<(uuid::Uuid, uuid::Uuid, String, i32, String)> = sqlx::query_as(
+            "SELECT i.id, i.workspace_id, i.state, i.position, p.key_prefix
                FROM issues i
+               JOIN projects p ON p.id = i.project_id
               WHERE i.project_id = $1 AND i.number = $2",
         )
         .bind(project_id)
         .bind(issue_number)
         .fetch_optional(&mut *tx)
         .await?;
-        let Some((issue_id, workspace_id, old_state, old_position)) = row else {
+        let Some((issue_id, workspace_id, old_state, old_position, project_key_prefix)) = row
+        else {
             return Ok(RepositionOutcome::IssueNotFound);
         };
 
@@ -3271,6 +3274,14 @@ impl Store {
     /// restoration is an out-of-band moderation reversal, not a
     /// user-visible state change worth fanning out (the issue page's
     /// next render reflects the restored row naturally).
+    ///
+    /// **Id-only, operator-CLI-only.** The row is addressed by `comment_id`
+    /// alone — no issue, project or workspace predicate — because its one
+    /// caller is the `foundry` admin CLI (`admin_cli.rs`), run by an operator
+    /// with database authority. It must NEVER be exposed to a tenant request
+    /// (web or API) as it stands: a tenant door needs a `(comment id, issue
+    /// id)`-scoped variant, the issue resolved from the URL within the acting
+    /// workspace, exactly as the edit and soft-delete statements are scoped.
     pub async fn undelete_comment(&self, comment_id: uuid::Uuid) -> Result<u64, StoreError> {
         let outcome = sqlx::query(
             "UPDATE comments

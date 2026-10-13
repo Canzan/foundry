@@ -142,7 +142,7 @@ pub fn run(args: Vec<String>) -> ExitCode {
     let verdict = verdict(&args);
     match &verdict {
         Verdict::Passed => println!(
-            "check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, the lanes position constraint is still DEFERRABLE, no board-*.js registers a keydown listener, nothing outside migration 0017 UPDATEs users.provisioned_at (D9), both publish workflows stamp every image with its commit and the Dockerfile hands it to build.rs (AC-8), every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, no colour literal outside the three stylesheet token regions, the three stylesheet token regions declare the identical colour-token set, the workspace-name refusal copy lives only in foundry-core and no production door calls create_initial_workspace, the project-name refusal copy lives only in foundry-core and no door calls insert_project, no production door calls seed_row_predating_name_rule and no crate but its seam file disables a trigger or sets session_replication_role, the team-name refusal copy lives only in foundry-core, teams and team_lifecycle_events are written only by foundry-store and no door calls create_team_with_lead, rename_team_with_audit or delete_team_if_empty, every foundry-store query filtering on key_prefix or a slug also compares workspace_id, team_id or project_id to a bound parameter (store-natural-key-scoped), dependency direction)"
+            "check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, the lanes position constraint is still DEFERRABLE, no board-*.js registers a keydown listener, nothing outside migration 0017 UPDATEs users.provisioned_at (D9), both publish workflows stamp every image with its commit and the Dockerfile hands it to build.rs (AC-8), every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, no colour literal outside the three stylesheet token regions, the three stylesheet token regions declare the identical colour-token set, the workspace-name refusal copy lives only in foundry-core and no production door calls create_initial_workspace, the project-name refusal copy lives only in foundry-core and no door calls insert_project, no production door calls seed_row_predating_name_rule and no crate but its seam file disables a trigger or sets session_replication_role, the team-name refusal copy lives only in foundry-core, teams and team_lifecycle_events are written only by foundry-store and no door calls create_team_with_lead, rename_team_with_audit or delete_team_if_empty, every foundry-store query filtering on key_prefix, a slug or an issue number also compares workspace_id, team_id or project_id to a bound parameter in the same disjunct (store-natural-key-scoped), dependency direction)"
         ),
         Verdict::UnparseableArguments(message) => eprintln!("check-arch: {message}"),
         Verdict::Violations(violations) => {
@@ -6043,8 +6043,12 @@ mod team_lifecycle_one_seam_tests {
 // ---------------------------------------------------------------------------
 
 /// The natural keys that are unique only within an owner (`UNIQUE (workspace_id,
-/// key_prefix)`, `UNIQUE (team_id, slug)`, `UNIQUE (project_id, slug)`).
-const NATURAL_KEYS: [&str; 2] = ["key_prefix", "slug"];
+/// key_prefix)`, `UNIQUE (team_id, slug)`, `UNIQUE (project_id, slug)`,
+/// `UNIQUE (project_id, number)` on issues). `number` is included because every
+/// shipped `number` filter already compares `project_id` (or `team_id`, with the
+/// project slug) to a bound parameter; an issue number alone names an issue in
+/// every project at once.
+const NATURAL_KEYS: [&str; 3] = ["key_prefix", "slug", "number"];
 
 /// The owner ids that narrow a natural key to one tenant.
 const SCOPE_COLUMNS: [&str; 3] = ["workspace_id", "team_id", "project_id"];
@@ -6053,8 +6057,11 @@ const SCOPE_COLUMNS: [&str; 3] = ["workspace_id", "team_id", "project_id"];
 const NATURAL_KEY_STORE_SRC: &str = "crates/foundry-store/src";
 
 /// `store-natural-key-scoped` (RCA RC-2): every `foundry-store` SQL statement
-/// that filters on a natural key (`key_prefix`, `slug`) also compares a scope
-/// column (`workspace_id`, `team_id`, `project_id`) with a bind parameter.
+/// that filters on a natural key (`key_prefix`, `slug`, `number`) also compares
+/// a scope column (`workspace_id`, `team_id`, `project_id`) with a bind
+/// parameter, in the same `OR`-disjunct and not only inside a subquery. A key
+/// wrapped in a call or parentheses (`lower(slug)`, `(slug)`), cast
+/// (`slug::text`) or collated (`key_prefix COLLATE "C"`) is still filtered on.
 ///
 /// Each Rust string literal is judged on its own — multi-line raw strings
 /// included, `;`-separated statements one at a time. A `format!` or `concat!`
@@ -6106,26 +6113,34 @@ fn check_store_natural_key_scoped(root: &Path) -> Vec<String> {
     violations
 }
 
-/// The 0-based line offsets, within `sql`, of every natural-key filter in a
-/// statement that compares no scope column with a bind parameter, each with the
-/// key it filters on. SQL comments are stripped first.
+/// The 0-based line offsets, within `sql`, of every natural-key filter that no
+/// scope comparison narrows, each with the key it filters on. SQL comments are
+/// stripped first; each `;`-separated statement is judged on its own.
+///
+/// A filter is scoped only when a scope column is compared with a bind
+/// parameter in the same `OR`-disjunct of the same parenthesised group as the
+/// filter, or of an enclosing group that is not a subquery. So `A AND B OR C`
+/// does not let a scope in `C` narrow `A`, and a scope compared only inside an
+/// `EXISTS (SELECT …)` narrows the subquery's rows, not the outer ones.
 fn unscoped_natural_key_filters(sql: &str) -> Vec<(usize, &'static str)> {
     let code = strip_sql_comments(sql).to_ascii_lowercase();
     let mut found = Vec::new();
     let mut statement_start = 0;
     for statement in code.split(';') {
-        let scoped = SCOPE_COLUMNS
+        let groups = paren_groups(statement);
+        let scopes: Vec<usize> = SCOPE_COLUMNS
             .iter()
-            .any(|column| compares_to_parameter(statement, column));
-        if !scoped {
-            for key in NATURAL_KEYS {
-                let mut from = 0;
-                while let Some(at) = find_sql_word(statement, key, from) {
-                    from = at + key.len();
-                    if is_compared(statement, at, from) {
-                        let offset = code[..statement_start + at].matches('\n').count();
-                        found.push((offset, key));
-                    }
+            .flat_map(|column| parameter_comparisons(statement, column))
+            .collect();
+        for key in NATURAL_KEYS {
+            let mut from = 0;
+            while let Some(at) = find_sql_word(statement, key, from) {
+                from = at + key.len();
+                let unscoped = compared_operand(statement, &groups, at, from)
+                    .is_some_and(|operand| !is_scoped(statement, &groups, &scopes, operand));
+                if unscoped {
+                    let offset = code[..statement_start + at].matches('\n').count();
+                    found.push((offset, key));
                 }
             }
         }
@@ -6134,6 +6149,150 @@ fn unscoped_natural_key_filters(sql: &str) -> Vec<(usize, &'static str)> {
     found.sort_unstable();
     found.dedup();
     found
+}
+
+/// A parenthesised group of a statement as the byte offsets of its `(` and
+/// `)`; `None` is the statement itself.
+type SqlGroup = Option<(usize, usize)>;
+
+/// Every matched `(`…`)` pair in `statement`, skipping parentheses inside
+/// `'…'` literals and `"…"` identifiers. An unclosed `(` runs to the end.
+fn paren_groups(statement: &str) -> Vec<(usize, usize)> {
+    let mut open = Vec::new();
+    let mut pairs = Vec::new();
+    let mut quote: Option<u8> = None;
+    for (at, byte) in statement.bytes().enumerate() {
+        match (quote, byte) {
+            (Some(q), b) if b == q => quote = None,
+            (Some(_), _) => {}
+            (None, b'\'' | b'"') => quote = Some(byte),
+            (None, b'(') => open.push(at),
+            (None, b')') => {
+                if let Some(opened) = open.pop() {
+                    pairs.push((opened, at));
+                }
+            }
+            _ => {}
+        }
+    }
+    pairs.extend(open.into_iter().map(|opened| (opened, statement.len())));
+    pairs
+}
+
+/// The innermost group strictly enclosing byte `at`.
+fn enclosing_group(groups: &[(usize, usize)], at: usize) -> SqlGroup {
+    groups
+        .iter()
+        .copied()
+        .filter(|&(open, close)| open < at && at < close)
+        .max_by_key(|&(open, _)| open)
+}
+
+/// The byte range of the top-level `OR`-disjunct of `group` that holds `at`.
+fn disjunct_around(
+    statement: &str,
+    groups: &[(usize, usize)],
+    group: SqlGroup,
+    at: usize,
+) -> (usize, usize) {
+    let (mut low, mut high) = match group {
+        Some((open, close)) => (open + 1, close),
+        None => (0, statement.len()),
+    };
+    let body = &statement[..high];
+    let mut from = low;
+    while let Some(or) = find_sql_word(body, "or", from) {
+        from = or + "or".len();
+        if enclosing_group(groups, or) != group {
+            continue;
+        }
+        if or < at {
+            low = from;
+        } else {
+            high = or;
+            break;
+        }
+    }
+    (low, high)
+}
+
+/// True when a scope comparison at one of `scopes` sits in the disjunct holding
+/// the filter whose operand starts at `operand`, in its group or an enclosing
+/// group that is not a subquery.
+fn is_scoped(statement: &str, groups: &[(usize, usize)], scopes: &[usize], operand: usize) -> bool {
+    let mut group = enclosing_group(groups, operand);
+    let mut at = operand;
+    loop {
+        let (low, high) = disjunct_around(statement, groups, group, at);
+        let scoped = scopes
+            .iter()
+            .any(|&scope| low <= scope && scope < high && enclosing_group(groups, scope) == group);
+        if scoped {
+            return true;
+        }
+        let Some((open, _)) = group else {
+            return false;
+        };
+        if find_sql_word(statement[open + 1..].trim_start(), "select", 0) == Some(0) {
+            return false;
+        }
+        at = open;
+        group = enclosing_group(groups, open);
+    }
+}
+
+/// Where the natural key spanning `start..end` is compared: the start of the
+/// outermost operand holding it — the key itself, `(key)`, or a call such as
+/// `lower(key)` — or `None` when the key is only selected, assigned or listed.
+fn compared_operand(
+    statement: &str,
+    groups: &[(usize, usize)],
+    start: usize,
+    end: usize,
+) -> Option<usize> {
+    let (mut start, mut end) = (start, end);
+    loop {
+        if is_compared(statement, start, end) {
+            return Some(start);
+        }
+        let (open, close) = enclosing_group(groups, start)?;
+        start = call_start(statement, open);
+        end = (close + 1).min(statement.len());
+    }
+}
+
+/// The start of the call whose argument list opens at `open` (`lower(` →
+/// `lower`), or `open` itself for a bare parenthesis.
+fn call_start(statement: &str, open: usize) -> usize {
+    let name = statement[..open]
+        .trim_end_matches(|c: char| c.is_ascii_alphanumeric() || c == '_' || c == '.');
+    name.len()
+}
+
+/// `text` with any leading `::type` casts and `COLLATE "x"` clauses skipped.
+fn skip_operand_decorations(text: &str) -> &str {
+    let is_type_char =
+        |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '.' || c == '[' || c == ']';
+    let mut text = text.trim_start();
+    loop {
+        if let Some(cast) = text.strip_prefix("::") {
+            text = cast
+                .trim_start()
+                .trim_start_matches(is_type_char)
+                .trim_start();
+        } else if find_sql_word(text, "collate", 0) == Some(0) {
+            // A literal judged unescaped still carries `\"` around the name.
+            let collation = text["collate".len()..].trim_start();
+            let collation = collation.strip_prefix('\\').unwrap_or(collation);
+            text = match collation.strip_prefix('"') {
+                Some(quoted) => quoted.split_once('"').map_or("", |(_, rest)| rest),
+                None => collation.trim_start_matches(is_type_char),
+            }
+            .trim_start();
+        } else {
+            return text;
+        }
+    }
 }
 
 /// The statement text before the column word starting at `start`, with any
@@ -6168,29 +6327,31 @@ fn starts_with_parameter(text: &str) -> bool {
         .is_some_and(|rest| rest.starts_with(|c: char| c.is_ascii_digit()))
 }
 
-/// True when the column word spanning `start..end` is an operand of a
-/// comparison (`=`, `<>`, `!=`, `<`, `>`, `<=`, `>=` on either side; `IN`,
-/// `LIKE`, `ILIKE`) and not the target of a `SET` assignment.
+/// True when the operand spanning `start..end` is compared (`=`, `<>`, `!=`,
+/// `<`, `>`, `<=`, `>=`, `~` on either side; `IN`, `NOT …`, `LIKE`, `ILIKE`,
+/// `SIMILAR TO`, `BETWEEN`), looking past any `::type` cast or `COLLATE`
+/// clause, and is not the target of a `SET` assignment.
 fn is_compared(statement: &str, start: usize, end: usize) -> bool {
-    let after = statement[end..].trim_start();
+    let after = skip_operand_decorations(&statement[end..]);
     let before = before_column(statement, start);
     let assigned =
         after.starts_with('=') && (before.ends_with(',') || ends_with_sql_word(before, "set"));
     if assigned {
         return false;
     }
-    let operator_after = after.starts_with(['=', '<', '>', '!'])
-        || ["in", "like", "ilike"]
+    let operator_after = after.starts_with(['=', '<', '>', '!', '~'])
+        || ["in", "not", "like", "ilike", "similar", "between"]
             .iter()
             .any(|word| find_sql_word(after, word, 0) == Some(0));
-    let operator_before = before.ends_with(['=', '<', '>']);
+    let operator_before = before.ends_with(['=', '<', '>', '~']);
     operator_after || operator_before
 }
 
-/// True when `column` is compared with a bind parameter somewhere in the
-/// statement: `column = $n`, `$n = column`, `column = ANY($n)` or
-/// `column IN ($n, …)`. A `SET column = $n` assignment does not count.
-fn compares_to_parameter(statement: &str, column: &str) -> bool {
+/// Where `column` is compared with a bind parameter in the statement:
+/// `column = $n`, `$n = column`, `column = ANY($n)` or `column IN ($n, …)`. A
+/// `SET column = $n` assignment does not count.
+fn parameter_comparisons(statement: &str, column: &str) -> Vec<usize> {
+    let mut found = Vec::new();
     let mut from = 0;
     while let Some(at) = find_sql_word(statement, column, from) {
         from = at + column.len();
@@ -6213,10 +6374,10 @@ fn compares_to_parameter(statement: &str, column: &str) -> bool {
             .strip_suffix('=')
             .is_some_and(|rest| ends_with_parameter(rest.trim_end()));
         if starts_with_parameter(right) || left {
-            return true;
+            found.push(at);
         }
     }
-    false
+    found
 }
 
 #[cfg(test)]
@@ -6366,6 +6527,79 @@ mod store_natural_key_scoped_tests {
         );
     }
 
+    /// An `OR` beside the natural key defeats the scope: `A AND B OR C` is
+    /// `(A AND B) OR C`, so the scope on the far side of the `OR` narrows
+    /// nothing on this side.
+    #[test]
+    fn an_or_beside_the_natural_key_defeats_the_scope_and_is_flagged() {
+        let violations = violations_for(
+            "SELECT i.id FROM issues i JOIN projects p ON p.id = i.project_id \
+             WHERE p.key_prefix = $1 AND i.number = $2 OR i.workspace_id = $3",
+        );
+        assert!(
+            flagged_at(&violations, &format!("{STORE_LIB}:3")),
+            "{violations:?}"
+        );
+        let violations = violations_for(
+            "SELECT id FROM teams WHERE (workspace_id = $1 AND slug = $2) OR slug = $3",
+        );
+        assert!(
+            flagged_at(&violations, &format!("{STORE_LIB}:3")),
+            "{violations:?}"
+        );
+    }
+
+    /// A scope compared only inside a subquery narrows the subquery's rows,
+    /// not the rows the natural key selects.
+    #[test]
+    fn a_scope_only_inside_a_subquery_does_not_scope_the_outer_filter() {
+        let violations = violations_for(
+            "SELECT id FROM teams WHERE slug = $1 \
+             AND EXISTS (SELECT 1 FROM teams t WHERE t.workspace_id = $2)",
+        );
+        assert!(
+            flagged_at(&violations, &format!("{STORE_LIB}:3")),
+            "{violations:?}"
+        );
+    }
+
+    /// A natural key wrapped in a call or parentheses, cast, or given a
+    /// collation is still the operand being compared.
+    #[test]
+    fn a_wrapped_cast_or_collated_natural_key_is_still_a_filter() {
+        for sql in [
+            "SELECT id FROM teams WHERE lower(slug) = $1",
+            "SELECT id FROM teams WHERE (slug) = $1",
+            "SELECT id FROM teams WHERE slug::text = $1",
+            "SELECT id FROM projects WHERE key_prefix COLLATE \\\"C\\\" = $1",
+            "SELECT id FROM teams WHERE $1 = lower(t.slug)",
+            "SELECT id FROM teams WHERE coalesce(slug, '') = $1",
+        ] {
+            let violations = violations_for(sql);
+            assert!(
+                flagged_at(&violations, &format!("{STORE_LIB}:3")),
+                "{sql}: {violations:?}"
+            );
+        }
+    }
+
+    /// An issue number is unique only within its project.
+    #[test]
+    fn a_lookup_by_issue_number_alone_is_flagged() {
+        let violations = violations_for("SELECT id FROM issues WHERE number = $1");
+        assert!(
+            flagged_at(&violations, &format!("{STORE_LIB}:3")),
+            "{violations:?}"
+        );
+        assert!(
+            violations.iter().any(|v| v.contains("number")),
+            "{violations:?}"
+        );
+        let violations =
+            violations_for("SELECT id FROM issues WHERE project_id = $1 AND number = $2");
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+
     #[test]
     fn a_missing_crates_directory_fails_the_rule() {
         let tree = stage(&[("README.md", "nothing here\n")]);
@@ -6419,6 +6653,31 @@ mod store_natural_key_scoped_tests {
     }
 
     #[test]
+    fn a_wrapped_natural_key_scoped_in_its_own_conjunct_passes() {
+        for sql in [
+            "SELECT id FROM teams WHERE workspace_id = $1 AND lower(slug) = $2",
+            "SELECT id FROM teams WHERE workspace_id = $1 AND (slug = $2 OR slug = $3)",
+            "SELECT id FROM teams WHERE (workspace_id = $1 AND slug = $2) OR (team_id = $3 AND slug = $4)",
+            "SELECT id FROM issues WHERE project_id = (SELECT id FROM projects WHERE workspace_id = $1 AND key_prefix = $2)",
+        ] {
+            let violations = violations_for(sql);
+            assert!(violations.is_empty(), "{sql}: {violations:?}");
+        }
+    }
+
+    #[test]
+    fn listing_a_natural_key_as_a_column_is_not_filtering_on_it() {
+        for sql in [
+            "INSERT INTO teams (workspace_id, slug, name) VALUES ($1, $2, $3)",
+            "INSERT INTO teams (workspace_id, slug) VALUES ($1, $2) ON CONFLICT (workspace_id, slug) DO NOTHING",
+            "SELECT json_build_object('slug', p.slug) FROM projects p WHERE p.id = $1",
+        ] {
+            let violations = violations_for(sql);
+            assert!(violations.is_empty(), "{sql}: {violations:?}");
+        }
+    }
+
+    #[test]
     fn selecting_or_assigning_a_natural_key_is_not_filtering_on_it() {
         let violations = violations_for(
             "SELECT e.id, p.key_prefix, p.slug FROM issue_change_events e \
@@ -6466,6 +6725,12 @@ mod store_natural_key_scoped_tests {
         assert!(
             lanes.contains("WHEN slug = $2"),
             "ANTI-VACUITY: the store's lane move is expected to compare a slug in a CASE"
+        );
+        let store = std::fs::read_to_string(root.join("crates/foundry-store/src/lib.rs"))
+            .expect("store lib");
+        assert!(
+            store.contains("i.project_id = $1 AND i.number = $2"),
+            "ANTI-VACUITY: the store is expected to look issues up by a project-scoped number"
         );
         let violations = check_store_natural_key_scoped(&root);
         assert!(violations.is_empty(), "{violations:?}");

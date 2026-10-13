@@ -264,8 +264,8 @@ async fn api_patch_through_a_sibling_issue_path_is_not_found_and_changes_nothing
     );
     let answer = patch(&w, 2, w.comment_id).await;
     assert_eq!(
-        (answer.0, String::from_utf8_lossy(&answer.1)),
-        (reference.0, String::from_utf8_lossy(&reference.1)),
+        (answer.0, &answer.1),
+        (reference.0, &reference.1),
         "PATCH through sibling issue 2 must be the API's not-found JSON byte for byte"
     );
     assert_eq!(

@@ -247,7 +247,6 @@ pub async fn change_issue_state(
     match store
         .reposition_issue_with_outbox(
             project.id,
-            key_prefix.as_str(),
             number,
             &normalized,
             after_number,

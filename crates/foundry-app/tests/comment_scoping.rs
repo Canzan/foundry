@@ -422,8 +422,7 @@ fn assert_refused(answer: &(StatusCode, Vec<u8>), expected: &(StatusCode, Vec<u8
         "{what}: the comment author's email must not be shown"
     );
     assert_eq!(
-        String::from_utf8_lossy(&answer.1),
-        String::from_utf8_lossy(&expected.1),
+        answer.1, expected.1,
         "{what}: must be the expected refusal byte for byte"
     );
 }

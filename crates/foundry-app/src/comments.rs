@@ -186,16 +186,10 @@ pub async fn submit_comment(
         Ok(v) => v,
         Err(ServiceError::Validation { message, .. }) => return bad_request_fragment(&message),
         Err(ServiceError::Forbidden) => return resource_not_found_page(),
-        Err(ServiceError::NotFound) => {
-            return resolve_comment_not_found_page(
-                &state,
-                &principal,
-                &team_slug,
-                &project_slug,
-                issue_number,
-            )
-            .await
-        }
+        // The service scoped the team/issue lookup by the resolved acting
+        // workspace, so a foreign issue and a never-existed one are both
+        // NotFound and render the one uniform page (ADR-003 / NFR-MWT-SEC-02).
+        Err(ServiceError::NotFound) => return resource_not_found_page(),
         Err(_) => return internal_error("create_comment", "service error"),
     };
 
@@ -621,31 +615,6 @@ async fn signed_in_user(session: &Session) -> Option<SessionUser> {
         .await
         .ok()
         .flatten()
-}
-
-/// The shared `create_comment` service collapses team-not-found and
-/// issue-not-found into one `ServiceError::NotFound`. The browser renders
-/// DISTINCT 404 pages, so on NotFound we re-run the cheap lookups purely to
-/// pick the correct page wording (byte-identical to the pre-extraction handler).
-/// Cross-tenant / missing-resource refusal page for the comment write
-/// (ADR-003 / NFR-MWT-SEC-02). The shared `create_comment` service already
-/// scoped the team/issue lookup by the RESOLVED acting workspace, so a comment
-/// aimed at a FOREIGN issue resolves to `NotFound` exactly as a never-existed one
-/// does. BOTH must render the SINGLE uniform `resource_not_found_page()` — no
-/// echoed team/project slug, no team-vs-issue body-shape difference — so a
-/// foreign reach is byte-identical to a never-existed reach and leaks nothing
-/// about the foreign issue's existence. The intra-workspace non-member
-/// `Forbidden` converged on the SAME uniform 404 in step 04-01. The non-AUTHOR
-/// refusal is a DIFFERENT refusal (the actor is on the team and the comment is
-/// known to them) and legitimately keeps its 403 `forbidden_fragment`.
-async fn resolve_comment_not_found_page(
-    _state: &AppState,
-    _principal: &Principal,
-    _team_slug: &str,
-    _project_slug: &str,
-    _issue_number: i32,
-) -> Response {
-    resource_not_found_page()
 }
 
 fn redirect_to(location: &str) -> Response {
