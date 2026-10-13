@@ -1,0 +1,300 @@
+{
+  "roadmap": {
+    "project_id": "fix-issue-attachment-scoping",
+    "created_at": "2026-10-13T01:59:54Z",
+    "total_steps": 5,
+    "goal": "Every lookup of an issue-level resource is keyed by the resolved id of its authorised parent (RCA RC-1/RC-2/RC-3). Board move, issue edit and edit pre-fill find the issue by (resolved project_id, number), never by key_prefix across workspaces (Defect 1). An attachment download serves only an attachment of the issue in the URL (Defect 2). Viewing, editing and deleting a comment only reach a comment of the issue in the URL (sweep sibling). A check-arch rule keeps every foundry-store key_prefix or slug lookup scoped by workspace_id, team_id or project_id, and two-tenant fixtures use colliding natural keys.",
+    "sources": [
+      "docs/feature/fix-issue-attachment-scoping/rca.md",
+      "docs/feature/multi-workspace-tenancy/design/adr-002-isolation-enforcement-seam.md",
+      "crates/foundry-store/src/lib.rs",
+      "crates/foundry-store/src/attachments.rs",
+      "crates/foundry-services/src/issues.rs",
+      "crates/foundry-services/src/comments.rs",
+      "crates/foundry-app/src/attachments.rs",
+      "crates/foundry-app/src/comments.rs",
+      "crates/foundry-app/src/bootstrap.rs",
+      "crates/foundry-api/src/lib.rs",
+      "crates/foundry-store/tests/reposition_issue.rs",
+      "crates/foundry-store/tests/update_issue_details.rs",
+      "crates/foundry-services/tests/board_use_case.rs",
+      "crates/foundry-services/tests/write_use_cases.rs",
+      "crates/foundry-app/tests/password_less_account_doors.rs",
+      "crates/foundry-acceptance/tests/features/us-11-attachments.feature",
+      "crates/foundry-acceptance/src/steps/us_11_attachments.rs",
+      "crates/foundry-acceptance/tests/features/us-10-comment-edit-delete.feature",
+      "crates/foundry-acceptance/tests/features/us-mwt-slice-04-non-enumerability.feature",
+      "crates/foundry-acceptance/src/steps/feature_mwt_slice_04_non_enumerability.rs",
+      "crates/foundry-acceptance/src/steps/feature_a_programmatic.rs",
+      "crates/foundry-acceptance/src/world.rs",
+      "xtask/src/check_arch.rs"
+    ],
+    "scenario_ownership_invariant": "Each RCA section 6 regression test is owned by exactly one step: 01-01 owns T1-T3 (write_use_cases.rs) and T4 (update_issue_details.rs, reposition_issue.rs; the tenant-isolation test re-seeded with a colliding prefix); 01-02 owns T5-T8 (attachment_scoping.rs, new) and T10 (us-11); 01-03 owns T9 and the comment read rows (comment_scoping.rs, new); 01-04 owns the comment mutation rows (comment_scoping.rs), the admin-moderation controls and the API PATCH row (api_comment_scoping.rs, new); 01-05 owns the check-arch store-natural-key-scoped gold tests and T11 (mwt-slice-04). Every test except the positive controls and T11 is seen RED on the parent commit before GREEN; T4's compile-failure RED is backed by the SQL hand-pin. The chain 01-01 -> 01-05 is serial on purpose: the steps share foundry-store/src/lib.rs and foundry-app/src/comments.rs."
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "Bind every issue-level lookup to its resolved parent (RCA fix-issue-attachment-scoping: Defects 1 and 2, comment sibling, RC-2 guard)",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "Defect 1: issue move and edit keyed by project_id",
+          "description": "Board move, issue edit and edit pre-fill look the issue up by the caller's resolved project and number instead of key_prefix across workspaces (RCA section 4, Defect 1). Existing store and services callers are updated. Regression tests T1-T4 use two workspaces sharing a prefix.",
+          "criteria": [
+            "Workspaces A and B both use prefix OPS; only B has OPS-3. A's member gets not-found for OPS-3 from edit pre-fill, edit submit and move",
+            "After those refusals B's OPS-3 keeps its title, description, state and rank, with no new change event and no outbox event",
+            "With GEN-1 in both workspaces, moving, editing or pre-filling through A's project changes only A's issue; B's row stays byte-identical",
+            "Re-adding the key_prefix predicate to each lookup in turn reddens reposition_with_a_colliding_prefix_moves_only_the_callers_issue, update_issue_details_is_tenant_isolated, issue_edit_view_with_a_colliding_prefix_reads_only_the_callers_project",
+            "Single-workspace move, edit and API PATCH behave as before; card-ranking, status-move, issue-edit, default lanes, check-arch, clippy and smoke green"
+          ],
+          "estimate": "0.5 day",
+          "dependencies": [],
+          "files_to_modify": [
+            "crates/foundry-store/src/lib.rs",
+            "crates/foundry-services/src/issues.rs",
+            "crates/foundry-store/tests/reposition_issue.rs",
+            "crates/foundry-store/tests/update_issue_details.rs",
+            "crates/foundry-services/tests/board_use_case.rs",
+            "crates/foundry-services/tests/write_use_cases.rs"
+          ],
+          "test_file": "crates/foundry-services/tests/write_use_cases.rs",
+          "scenario_name": [
+            "crates/foundry-services/tests/write_use_cases.rs::edit_form_for_a_number_only_another_workspace_has_is_not_found (T1)",
+            "crates/foundry-services/tests/write_use_cases.rs::edit_submit_for_a_number_only_another_workspace_has_writes_nothing_there (T2)",
+            "crates/foundry-services/tests/write_use_cases.rs::move_for_a_number_only_another_workspace_has_moves_nothing_and_emits_nothing (T3)",
+            "crates/foundry-store/tests/update_issue_details.rs::update_issue_details_is_tenant_isolated (re-seeded with a colliding prefix, T4)",
+            "crates/foundry-store/tests/update_issue_details.rs::issue_edit_view_with_a_colliding_prefix_reads_only_the_callers_project (T4)",
+            "crates/foundry-store/tests/reposition_issue.rs::reposition_with_a_colliding_prefix_moves_only_the_callers_issue (T4)"
+          ],
+          "lane_commands": [
+            "lsof -nP -iTCP -sTCP:LISTEN | grep acceptanc (stop canzan-lift acceptance before DB suites)",
+            "RUST_TEST_THREADS=1 timeout 1800 cargo test -p foundry-services --test write_use_cases (RED first on the parent commit)",
+            "RUST_TEST_THREADS=1 timeout 2400 cargo test -p foundry-store --test update_issue_details --test reposition_issue",
+            "RUST_TEST_THREADS=1 timeout 3600 cargo test -p foundry-store",
+            "RUST_TEST_THREADS=1 timeout 1800 cargo test -p foundry-services",
+            "timeout 900 cargo fmt --all -- --check",
+            "timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "timeout 600 cargo xtask check-arch",
+            "RUST_TEST_THREADS=1 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; }",
+            "for t in us-card-ranking us-status-move us-issue-edit mwt-slice-04; do FOUNDRY_ACCEPTANCE_TAGS=$t CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance || break; done",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance",
+            "timeout 1800 cargo mutants --in-diff <step diff> --file crates/foundry-store/src/lib.rs --file crates/foundry-services/src/issues.rs (>= 80%)"
+          ],
+          "implementation_notes": "ORDER: T1-T3 RED on current code (they read or alter B's OPS-3). T4's RED is only a compile failure, so the SQL hand-pin criterion is its real proof. Recipe and call sites: RCA sections 4 and 5. HAZARD: cargo-mutants cannot mutate SQL (CF-3). COORDINATION: project-lifecycle step 02 rewrites these three queries to live_projects; land one first, never reintroduce key_prefix. OVERRIDES: TEST PARADIGM: example-based (project CLAUDE.md); RED first on current code. Lanes timeout-bounded; never set FOUNDRY_STAMP_*; RUST_TEST_THREADS=1 for DB suites; build with CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false; on SSLRequest 0x48 / PortNotExposed run 'lsof -nP -iTCP -sTCP:LISTEN | grep acceptanc' before blaming code. One local commit; never push."
+        },
+        {
+          "id": "01-02",
+          "name": "Defect 2: attachment download bound to the URL's issue",
+          "description": "The download refuses an unknown project or issue with the uniform 404 and serves only an attachment of the resolved issue (RCA section 4, Defect 2). The workspace-only attachment lookup is removed and its fixture strings move to a surviving name. Tests T5-T8 (new app test) and T10 (us-11).",
+          "criteria": [
+            "Rita, on team X only, requesting a team-Y attachment through X's existing issue 1 gets the uniform 404 page byte-exact and no file bytes",
+            "A nonexistent project or issue, or the attachment's sibling issue 2, gets the same byte-exact uniform 404 page",
+            "Through its own issue URL the attachment downloads with 200 and identical bytes (positive control)",
+            "Dropping the issue predicate from the attachment lookup turns T5 and T7 red; a us-11 scenario refuses Rita via her own Partners address",
+            "check-arch gold tests still plant violations under a surviving workspace-lookup name; us-11, mwt-slice-04, default lanes, clippy and smoke green"
+          ],
+          "estimate": "0.5 day",
+          "dependencies": [
+            "01-01"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/src/attachments.rs",
+            "crates/foundry-store/src/attachments.rs",
+            "crates/foundry-app/src/bootstrap.rs",
+            "xtask/src/check_arch.rs",
+            "crates/foundry-app/tests/attachment_scoping.rs",
+            "crates/foundry-acceptance/tests/features/us-11-attachments.feature",
+            "crates/foundry-acceptance/src/steps/us_11_attachments.rs",
+            "crates/foundry-acceptance/src/steps/feature_a_programmatic.rs"
+          ],
+          "test_file": "crates/foundry-app/tests/attachment_scoping.rs",
+          "scenario_name": [
+            "crates/foundry-app/tests/attachment_scoping.rs::another_teams_attachment_through_your_own_existing_issue_is_the_uniform_404 (T5: X's project has issue 1 with no attachments, so only the attachment/issue mismatch refuses it)",
+            "crates/foundry-app/tests/attachment_scoping.rs::an_attachment_through_a_project_that_does_not_exist_is_the_uniform_404 (T6: the missing-issue branch)",
+            "crates/foundry-app/tests/attachment_scoping.rs::an_attachment_through_the_wrong_issue_of_its_own_project_is_the_uniform_404 (T7)",
+            "crates/foundry-app/tests/attachment_scoping.rs::an_attachment_through_its_own_issue_downloads_byte_identical (T8, positive control)",
+            "Rita attempts to download screenshot.png from AUTH-1 through her own team Partners' address (T10, us-11-attachments.feature, @nfr-sec-06)"
+          ],
+          "lane_commands": [
+            "lsof -nP -iTCP -sTCP:LISTEN | grep acceptanc (stop canzan-lift acceptance before DB suites)",
+            "RUST_TEST_THREADS=1 timeout 1800 cargo test -p foundry-app --test attachment_scoping (RED first: T5-T7 answer 200 on the parent commit; T8 green)",
+            "RUST_TEST_THREADS=1 timeout 1800 cargo test -p foundry-app",
+            "RUST_TEST_THREADS=1 timeout 3600 cargo test -p foundry-store",
+            "timeout 900 cargo test -p xtask",
+            "timeout 600 cargo xtask check-arch",
+            "timeout 900 cargo fmt --all -- --check",
+            "timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "RUST_TEST_THREADS=1 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; }",
+            "for t in us-11 mwt-slice-04 feature-a; do FOUNDRY_ACCEPTANCE_TAGS=$t CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance || break; done",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance",
+            "timeout 1800 cargo mutants --in-diff <step diff> --file crates/foundry-app/src/attachments.rs --file crates/foundry-store/src/attachments.rs (>= 80%)"
+          ],
+          "implementation_notes": "ORDER: attachment_scoping.rs first (build_router + oneshot + testcontainers, as password_less_account_doors.rs). Seed X's project WITH issue 1 and no attachments, so T5 is refused by the attachment/issue mismatch, not the missing-issue branch T6 covers. Then T10: the us-11 download step gains a team parameter. Recipe: RCA section 4, Defect 2. Move every find_attachment_in_workspace fixture string (feature_a_programmatic.rs:1626, check_arch.rs gold fixtures) to a surviving *_in_workspace name; fix bootstrap.rs:401 and the stale handler comments. OVERRIDES: TEST PARADIGM: example-based (project CLAUDE.md); RED first on current code. Lanes timeout-bounded; never set FOUNDRY_STAMP_*; RUST_TEST_THREADS=1 for DB suites; CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false; on SSLRequest 0x48 / PortNotExposed check 'lsof -nP -iTCP -sTCP:LISTEN | grep acceptanc' first. One local commit; never push."
+        },
+        {
+          "id": "01-03",
+          "name": "Comment reads: single view and edit form bound",
+          "description": "The single-comment view and the edit form resolve team, project and issue, then fetch the comment by comment id plus the resolved issue id through a new store lookup (RCA section 4, sibling). Refusals use the slug-free uniform 404. Tests: T9 and the read rows of a new comment_scoping.rs.",
+          "criteria": [
+            "Rita, on team X only, opening a team-Y comment through X's existing issue 1 gets the uniform 404 page byte-exact, never Y's body or author email",
+            "Viewing a comment via an unknown team slug, project, issue or its sibling issue returns the same byte-exact page, never echoing the slug",
+            "The edit form via an unknown team slug returns the uniform page; via a sibling issue, the byte-exact fragment a nonexistent comment id gets",
+            "Dropping the issue predicate from the comment lookup turns the cross-team and sibling-issue rows red; own-URL view, edit form and cancel still render",
+            "us-10, us-b03, comment-edit-delete, mwt-slice-04, default lanes, check-arch, clippy and smoke green"
+          ],
+          "estimate": "0.5 day",
+          "dependencies": [
+            "01-02"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/src/comments.rs",
+            "crates/foundry-store/src/lib.rs",
+            "crates/foundry-app/tests/comment_scoping.rs"
+          ],
+          "test_file": "crates/foundry-app/tests/comment_scoping.rs",
+          "scenario_name": [
+            "crates/foundry-app/tests/comment_scoping.rs::another_teams_comment_through_your_own_existing_issue_is_the_uniform_404 (T9: X's project has issue 1 with no comments, so only the comment/issue mismatch refuses it)",
+            "crates/foundry-app/tests/comment_scoping.rs::a_comment_through_an_unknown_team_project_or_issue_is_the_slug_free_uniform_404",
+            "crates/foundry-app/tests/comment_scoping.rs::a_comment_through_its_sibling_issue_is_the_uniform_404",
+            "crates/foundry-app/tests/comment_scoping.rs::the_edit_form_through_an_unknown_team_or_a_sibling_issue_is_refused_byte_exact",
+            "crates/foundry-app/tests/comment_scoping.rs::a_comment_and_its_edit_form_through_its_own_issue_still_render (positive control)"
+          ],
+          "lane_commands": [
+            "lsof -nP -iTCP -sTCP:LISTEN | grep acceptanc (stop canzan-lift acceptance before DB suites)",
+            "RUST_TEST_THREADS=1 timeout 1800 cargo test -p foundry-app --test comment_scoping (RED first: refusal rows answer 200 or the slug-echo page on the parent commit)",
+            "RUST_TEST_THREADS=1 timeout 1800 cargo test -p foundry-app",
+            "RUST_TEST_THREADS=1 timeout 3600 cargo test -p foundry-store",
+            "timeout 600 cargo xtask check-arch",
+            "timeout 900 cargo fmt --all -- --check",
+            "timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "RUST_TEST_THREADS=1 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; }",
+            "for t in us-10 us-b03 comment-edit-delete mwt-slice-04; do FOUNDRY_ACCEPTANCE_TAGS=$t CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance || break; done",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance",
+            "timeout 1800 cargo mutants --in-diff <step diff> --file crates/foundry-app/src/comments.rs --file crates/foundry-store/src/lib.rs (>= 80%)"
+          ],
+          "implementation_notes": "ORDER: comment_scoping.rs read rows first, seeded like 01-02 (X's project has issue 1, no comments; Y has issues 1 and 2, comment c on Y-1). Assert bodies byte-exact. RESPONSE SHAPES: GET comment refuses only with resource_not_found_page; the edit form uses that page for unknown team, project or issue, and the nonexistent-comment fragment for a mismatched comment. HAZARD: htmx cancel calls the GET through the issue's own path. Document the RC-3 convention ('child fetched only by (child id, parent id)') on the store's comment section header (no separate module). Recipe: RCA section 4, sibling. OVERRIDES: TEST PARADIGM: example-based (project CLAUDE.md); RED first on current code. Lanes timeout-bounded; never set FOUNDRY_STAMP_*; RUST_TEST_THREADS=1 for DB suites; CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false; on SSLRequest 0x48 / PortNotExposed check 'lsof -nP -iTCP -sTCP:LISTEN | grep acceptanc' first. One local commit; never push."
+        },
+        {
+          "id": "01-04",
+          "name": "Comment mutations: edit, delete and API PATCH bound",
+          "description": "The comment edit service, the update and soft-delete statements, the web edit and delete handlers and the API PATCH bind the comment to the resolved issue (RCA section 4, sibling). The workspace-only comment lookup is removed. Tests: mutation rows, admin-moderation controls and an API PATCH test.",
+          "criteria": [
+            "An author editing or deleting their comment via a sibling issue's URL gets the byte-exact fragment a nonexistent comment id gets; the comment is unchanged",
+            "Editing or deleting via an unknown team slug returns the uniform 404 page byte-exact and never echoes the slug",
+            "A workspace admin not on the team deletes via the correct URL with 200; via a sibling issue's URL gets the fragment and the comment survives",
+            "API PATCH via a sibling issue's path returns the API's not-found JSON with the comment unchanged; find_comment_by_id has no caller and is removed",
+            "Dropping the issue predicate from the edit or delete statement reddens its row; us-10 admin-delete, comment-edit-delete, default lanes, clippy and smoke green"
+          ],
+          "estimate": "0.75 day",
+          "dependencies": [
+            "01-03"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/src/comments.rs",
+            "crates/foundry-services/src/comments.rs",
+            "crates/foundry-services/src/lib.rs",
+            "crates/foundry-store/src/lib.rs",
+            "crates/foundry-app/tests/comment_scoping.rs",
+            "crates/foundry-app/tests/api_comment_scoping.rs",
+            "crates/foundry-services/tests/write_use_cases.rs"
+          ],
+          "test_file": "crates/foundry-app/tests/comment_scoping.rs",
+          "scenario_name": [
+            "crates/foundry-app/tests/comment_scoping.rs::editing_or_deleting_your_comment_through_a_sibling_issue_is_refused_and_changes_nothing",
+            "crates/foundry-app/tests/comment_scoping.rs::editing_or_deleting_through_an_unknown_team_is_the_slug_free_uniform_404",
+            "crates/foundry-app/tests/comment_scoping.rs::an_admin_not_on_the_team_deletes_through_the_correct_url (positive control)",
+            "crates/foundry-app/tests/comment_scoping.rs::an_admin_deleting_through_a_sibling_issue_is_refused_and_the_comment_survives",
+            "crates/foundry-app/tests/api_comment_scoping.rs::api_patch_through_a_sibling_issue_path_is_not_found_and_changes_nothing",
+            "crates/foundry-services/tests/write_use_cases.rs::edit_comment_through_another_issue_is_not_found_and_changes_nothing",
+            "Workspace admin deletes any comment and remaining viewers see it disappear from the thread (us-10-comment-edit-delete.feature, guard)"
+          ],
+          "lane_commands": [
+            "lsof -nP -iTCP -sTCP:LISTEN | grep acceptanc (stop canzan-lift acceptance before DB suites)",
+            "RUST_TEST_THREADS=1 timeout 1800 cargo test -p foundry-app --test comment_scoping --test api_comment_scoping (RED first: wrong-issue edit and delete succeed on the parent commit)",
+            "RUST_TEST_THREADS=1 timeout 1800 cargo test -p foundry-services --test write_use_cases",
+            "RUST_TEST_THREADS=1 timeout 1800 cargo test -p foundry-app",
+            "RUST_TEST_THREADS=1 timeout 1800 cargo test -p foundry-api",
+            "RUST_TEST_THREADS=1 timeout 3600 cargo test -p foundry-store",
+            "timeout 600 cargo xtask check-arch",
+            "timeout 900 cargo fmt --all -- --check",
+            "timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "RUST_TEST_THREADS=1 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; }",
+            "for t in us-10 comment-edit-delete us-comment-delete-csrf comment-tombstone-gc us-w05c; do FOUNDRY_ACCEPTANCE_TAGS=$t CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance || break; done",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance",
+            "timeout 1800 cargo mutants --in-diff <step diff> --file crates/foundry-app/src/comments.rs --file crates/foundry-services/src/comments.rs --file crates/foundry-store/src/lib.rs (>= 80%)"
+          ],
+          "implementation_notes": "ORDER: mutation rows in comment_scoping.rs and api_comment_scoping.rs (PATCH /api/v1/... with a machine token through build_router) RED first: today a wrong-issue edit or delete succeeds. Bind the service, both statements and both web handlers to the resolved issue (RCA section 4, sibling). The API handler already forwards the path; change crates/foundry-api only if its test proves otherwise. RESPONSE SHAPES: unknown team = resource_not_found_page; comment not on the resolved issue = the nonexistent-comment fragment; API = its not-found JSON. Remove find_comment_by_id last. OVERRIDES: TEST PARADIGM: example-based (project CLAUDE.md); RED first on current code. Lanes timeout-bounded; never set FOUNDRY_STAMP_*; RUST_TEST_THREADS=1 for DB suites; CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false; on SSLRequest 0x48 / PortNotExposed check 'lsof -nP -iTCP -sTCP:LISTEN | grep acceptanc' first. One local commit; never push."
+        },
+        {
+          "id": "01-05",
+          "name": "Guard: check-arch natural-key scoping rule and colliding-prefix fixture",
+          "description": "A new check-arch rule: foundry-store SQL that filters on key_prefix or a slug must also filter on workspace_id, team_id or project_id (RCA RC-2). Injected-violation gold tests. Plus RCA T11, an mwt-slice-04 scenario with colliding prefixes, and a fix for that feature's doc drift.",
+          "criteria": [
+            "check-arch flags a planted store query filtering by key_prefix and number alone, and one filtering by slug alone, naming file and line",
+            "Scoped shapes (workspace_id, team_id or project_id with slug; CASE WHEN slug in a project_id-scoped statement) pass; SQL outside foundry-store is ignored",
+            "A violation inside a multi-line raw string literal is flagged; format!/concat! fragments are judged per literal and fail closed, each gold-tested",
+            "mwt-slice-04: Globex's project also uses prefix ACME; Marco editing or moving Globex-only ACME-n via Acme's URL is refused and Globex is unchanged",
+            "Shipped tree passes, rule named in the PASSED banner, missing crates/ fails closed; xtask, clippy, mwt-slice-04 and default lanes green"
+          ],
+          "estimate": "0.5 day",
+          "dependencies": [
+            "01-04"
+          ],
+          "files_to_modify": [
+            "xtask/src/check_arch.rs",
+            "crates/foundry-acceptance/tests/features/us-mwt-slice-04-non-enumerability.feature",
+            "crates/foundry-acceptance/src/steps/feature_mwt_slice_04_non_enumerability.rs",
+            "crates/foundry-acceptance/src/world.rs"
+          ],
+          "test_file": "xtask/src/check_arch.rs",
+          "scenario_name": [
+            "xtask/src/check_arch.rs::store_natural_key_scoped gold tests (new: key_prefix-only and slug-only violations, one counter-example per scope column, the CASE WHEN counter-example, a multi-line raw literal violation, a format!/concat! fragment, non-store SQL ignored, missing crates/ fails closed)",
+            "Marco editing or moving ACME-n through Acme's own address never touches Globex's ACME-n (T11, us-mwt-slice-04-non-enumerability.feature, colliding prefix)"
+          ],
+          "lane_commands": [
+            "timeout 900 cargo test -p xtask store_natural_key_scoped (RED first: gold tests fail before the rule exists)",
+            "timeout 900 cargo test -p xtask",
+            "timeout 600 cargo xtask check-arch",
+            "timeout 900 cargo fmt --all -- --check",
+            "timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "RUST_TEST_THREADS=1 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 1800 cargo build -p foundry-app --bin foundry && { timeout 300 target/debug/foundry --version || true; }",
+            "FOUNDRY_ACCEPTANCE_TAGS=mwt-slice-04 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --test acceptance",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo test -p foundry-acceptance --test acceptance",
+            "timeout 1800 cargo mutants --in-diff <step diff> --file xtask/src/check_arch.rs (>= 80%)"
+          ],
+          "implementation_notes": "ORDER: gold tests before the rule (RED). The rule judges each string literal on its own, multi-line raw strings included; format!/concat! fragments are judged per literal and fail closed. Reuse the shared scanners; do not fork them. Keep passing the RCA section 1 sweep's safe sites (rows 4-12), including the lanes.rs CASE WHEN. T11 is green on arrival because 01-01 fixed the defect: run it once against 01-01's parent and record the red in the commit message, with the RC-1 checklist note. Fix the find_attachment_for_requester doc drift in the mwt-slice-04 feature, steps and world.rs. OVERRIDES: TEST PARADIGM: example-based (project CLAUDE.md); RED first on current code. Lanes timeout-bounded; never set FOUNDRY_STAMP_*; RUST_TEST_THREADS=1 for DB suites; CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false; on SSLRequest 0x48 / PortNotExposed check 'lsof -nP -iTCP -sTCP:LISTEN | grep acceptanc' first. One local commit; never push."
+        }
+      ]
+    }
+  ],
+  "implementation_scope": {
+    "source_directories": [
+      "crates/foundry-store/src/",
+      "crates/foundry-services/src/",
+      "crates/foundry-app/src/",
+      "crates/foundry-api/src/",
+      "xtask/src/"
+    ],
+    "test_directories": [
+      "crates/foundry-store/tests/",
+      "crates/foundry-services/tests/",
+      "crates/foundry-app/tests/",
+      "crates/foundry-acceptance/tests/features/",
+      "crates/foundry-acceptance/src/steps/"
+    ],
+    "excluded_patterns": [
+      "target/**",
+      "crates/foundry-store/migrations/**"
+    ]
+  },
+  "validation": {
+    "status": "approved",
+    "reviewer": "nw-software-crafter-reviewer",
+    "approved_at": "2026-10-13T02:09:54Z"
+  }
+}
