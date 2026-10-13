@@ -86,6 +86,20 @@ Feature: A member attaches a file to an issue and other members download it byte
     When Rita attempts to download the attachment "screenshot.png" from "AUTH-1"
     Then the download is refused as if it never existed
 
+  @real-io @error @nfr-sec-06
+  Scenario: Rita attempts to download screenshot.png from AUTH-1 through her own team Partners' address
+    # fix-issue-attachment-scoping (RCA Defect 2): Rita passes the membership
+    # check for Partners and PRT-1 exists, so only binding the attachment to the
+    # issue in the URL can refuse her. Before the fix this served the bytes.
+    Given a member "rita@partners.acme.com" belongs to the team "Partners"
+    And a project "Partner Portal" with key prefix "PRT" exists in the "Partners" team
+    And the "Partner Portal" project already has issue PRT-1
+    And Mei has attached a 256-kilobyte image named "screenshot.png" to "AUTH-1"
+    And Rita is signed in
+    When Rita attempts to download the attachment "screenshot.png" from "AUTH-1" through the "Partners" team's issue PRT-1
+    Then the download is refused as if it never existed
+    And no file bytes were served
+
   @real-io @error
   Scenario: An unauthenticated request to upload an attachment is refused
     Given Mei is signed out

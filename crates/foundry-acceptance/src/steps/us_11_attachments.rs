@@ -354,6 +354,44 @@ async fn member_attempts_download(
     perform_download(world, &who, &filename, &prefix, number).await;
 }
 
+/// fix-issue-attachment-scoping T10: the attachment of one issue requested
+/// through ANOTHER issue's address (here the requester's own team's issue).
+/// The address names `team`, the project of `addr_prefix` and `addr_number`;
+/// the attachment id is the one on `prefix`-`number`.
+#[when(
+    regex = r#"^(\w+) attempts to download the attachment "([^"]+)" from "(\w+-\d+)" through the "([^"]+)" team's issue (\w+-\d+)$"#
+)]
+async fn member_attempts_download_through_other_issue(
+    world: &mut FoundryWorld,
+    who: String,
+    filename: String,
+    owner: String,
+    team_name: String,
+    via: String,
+) {
+    ensure_harness(world).await;
+    let (prefix, number) = split_issue_key(&owner);
+    let (via_prefix, via_number) = split_issue_key(&via);
+    let attachment_id = lookup_attachment_id(world, &filename, &prefix, number).await;
+    let address = IssueAddress {
+        team_slug: lookup_team_slug_by_name(world, &team_name).await,
+        project_slug: lookup_project_slug_by_prefix(world, &via_prefix).await,
+        number: via_number,
+    };
+    request_download(world, &who, &address, attachment_id).await;
+}
+
+/// `"AUTH-1"` -> `("AUTH", 1)`.
+fn split_issue_key(key: &str) -> (String, i32) {
+    let (prefix, number) = key
+        .rsplit_once('-')
+        .unwrap_or_else(|| panic!("issue key {key:?} is not PREFIX-N"));
+    let number = number
+        .parse()
+        .unwrap_or_else(|err| panic!("issue key {key:?} number: {err}"));
+    (prefix.to_string(), number)
+}
+
 // ----- When: delete the issue (cascade) -------------------------------
 
 #[when(regex = r#"^the operator deletes the issue "(\w+)-(\d+)"$"#)]
@@ -445,6 +483,28 @@ async fn download_refused_not_found(world: &mut FoundryWorld) {
         status,
         StatusCode::NOT_FOUND,
         "expected the uniform non-enumerable 404, got {status}",
+    );
+}
+
+/// The refusal carries none of the uploaded file: the response body matches
+/// no captured upload.
+#[then(regex = r"^no file bytes were served$")]
+async fn no_file_bytes_served(world: &mut FoundryWorld) {
+    let bytes = world
+        .us_11_last_download_bytes
+        .as_ref()
+        .expect("download bytes captured");
+    assert!(
+        !world.us_11_uploaded_sha.is_empty(),
+        "the scenario must have uploaded a file to compare against"
+    );
+    let download_sha = sha256_hex(bytes);
+    assert!(
+        world
+            .us_11_uploaded_sha
+            .values()
+            .all(|sha| sha != &download_sha),
+        "the refusal served the uploaded file's bytes"
     );
 }
 
@@ -844,6 +904,14 @@ async fn perform_upload(
     world.us_11_last_upload_body = Some(body);
 }
 
+/// The issue a download URL names: `/team/{team}/project/{project}/issues/{n}`.
+struct IssueAddress {
+    team_slug: String,
+    project_slug: String,
+    number: i32,
+}
+
+/// Download `filename` through the address of the issue it is attached to.
 async fn perform_download(
     world: &mut FoundryWorld,
     who: &str,
@@ -852,17 +920,31 @@ async fn perform_download(
     number: i32,
 ) {
     ensure_harness(world).await;
-    let (email, password) = identity_for(who);
-    let (cookie, _csrf) = sign_in_capture_cookies(world, &email, &password).await;
-    let project_slug = lookup_project_slug_by_prefix(world, prefix).await;
-    let team_slug = "backend";
-    let base = world.harness.as_ref().expect("harness").base_url();
-    let http = world.http.as_ref().expect("http");
+    let attachment_id = lookup_attachment_id(world, filename, prefix, number).await;
+    let address = IssueAddress {
+        team_slug: "backend".to_string(),
+        project_slug: lookup_project_slug_by_prefix(world, prefix).await,
+        number,
+    };
+    request_download(world, who, &address, attachment_id).await;
+}
 
-    // Resolve the attachment id by (issue_id, filename). The store
-    // doesn't expose a by-filename lookup so we query directly here.
-    let harness = world.harness.as_ref().expect("harness");
-    let pool = harness.app.state.store.pool();
+/// Resolve the attachment id by (issue, filename). The store doesn't expose a
+/// by-filename lookup so we query directly here.
+async fn lookup_attachment_id(
+    world: &FoundryWorld,
+    filename: &str,
+    prefix: &str,
+    number: i32,
+) -> uuid::Uuid {
+    let pool = world
+        .harness
+        .as_ref()
+        .expect("harness")
+        .app
+        .state
+        .store
+        .pool();
     let row: (uuid::Uuid,) = sqlx::query_as(
         "SELECT a.id FROM issue_attachments a
            JOIN issues i ON i.id = a.issue_id
@@ -876,8 +958,43 @@ async fn perform_download(
     .fetch_one(pool)
     .await
     .unwrap_or_else(|err| panic!("attachment {filename:?} on {prefix}-{number} lookup: {err}"));
-    let attachment_id = row.0;
+    row.0
+}
 
+async fn lookup_team_slug_by_name(world: &FoundryWorld, team_name: &str) -> String {
+    let pool = world
+        .harness
+        .as_ref()
+        .expect("harness")
+        .app
+        .state
+        .store
+        .pool();
+    let row: (String,) = sqlx::query_as("SELECT slug FROM teams WHERE name = $1")
+        .bind(team_name)
+        .fetch_one(pool)
+        .await
+        .unwrap_or_else(|err| panic!("team {team_name:?} not found: {err}"));
+    row.0
+}
+
+/// Sign in as `who` and GET `attachment_id` through `address`, recording the
+/// status, headers and bytes on the world.
+async fn request_download(
+    world: &mut FoundryWorld,
+    who: &str,
+    address: &IssueAddress,
+    attachment_id: uuid::Uuid,
+) {
+    let (email, password) = identity_for(who);
+    let (cookie, _csrf) = sign_in_capture_cookies(world, &email, &password).await;
+    let base = world.harness.as_ref().expect("harness").base_url();
+    let http = world.http.as_ref().expect("http");
+    let IssueAddress {
+        team_slug,
+        project_slug,
+        number,
+    } = address;
     let url = format!(
         "/team/{team_slug}/project/{project_slug}/issues/{number}/attachments/{attachment_id}",
     );

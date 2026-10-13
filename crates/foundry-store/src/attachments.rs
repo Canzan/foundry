@@ -8,9 +8,9 @@
 //! byte integrity without re-scanning.
 //!
 //! Authorisation is the handler's job — the store is unconditioned on
-//! requester identity. The `find_for_team_member` helper returns the
-//! row only when the caller's `workspace_id` matches, leaving the
-//! 401/403 split to the calling handler (mirrors comments / issues).
+//! requester identity. The handler resolves the issue through the
+//! caller's team and project; `find_attachment_for_issue` then returns
+//! the row only when it belongs to that resolved issue.
 
 use crate::{Store, StoreError};
 use sqlx::Row;
@@ -103,23 +103,24 @@ impl Store {
         }
     }
 
-    /// Fetch one attachment with full bytes. Returns `None` if the
-    /// attachment does not exist OR is in a different workspace than
-    /// `requester_workspace_id` — collapsing "missing" and "not yours"
-    /// into a single 404-ish outcome at the handler level.
-    pub async fn find_attachment_in_workspace(
+    /// Fetch one attachment of ONE issue, with full bytes. Returns `None`
+    /// when the attachment does not exist OR belongs to any other issue, so
+    /// the caller resolves the issue from the URL (team, project, number)
+    /// first and an attachment is only ever served through its own issue's
+    /// address (fix-issue-attachment-scoping, RCA Defect 2).
+    pub async fn find_attachment_for_issue(
         &self,
         attachment_id: uuid::Uuid,
-        requester_workspace_id: uuid::Uuid,
+        issue_id: uuid::Uuid,
     ) -> Result<Option<AttachmentRow>, StoreError> {
         let row = sqlx::query(
             "SELECT id, issue_id, workspace_id, filename, content_type,
                     size_bytes, sha256_hex, content
                FROM issue_attachments
-              WHERE id = $1 AND workspace_id = $2",
+              WHERE id = $1 AND issue_id = $2",
         )
         .bind(attachment_id)
-        .bind(requester_workspace_id)
+        .bind(issue_id)
         .fetch_optional(self.pool())
         .await?;
         Ok(row.map(|r| AttachmentRow {

@@ -397,9 +397,9 @@ pub(crate) fn invalid_page(status: StatusCode, heading: &str, message: &str) -> 
 /// carries NO requested identifier (no team/project slug, no issue number). A
 /// foreign-id reach and a never-existed reach are therefore byte-identical
 /// (same status, same body), so there is no status/body/shape oracle that could
-/// confirm a foreign resource exists (NFR-MWT-SEC-02 / DM2). Generalises the
-/// shipped `find_attachment_in_workspace → None → 404` idiom to the board/issue/
-/// write web paths.
+/// confirm a foreign resource exists (NFR-MWT-SEC-02 / DM2). Every resource
+/// lookup that resolves to `None` (board, issue, write and attachment web
+/// paths) answers with it.
 ///
 /// Distinct from [`invalid_page`], whose callers (intra-workspace authz,
 /// validation, the single-workspace guard) legitimately echo the requested

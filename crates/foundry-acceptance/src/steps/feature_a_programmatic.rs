@@ -1623,7 +1623,7 @@ fn stage_violation_tree(src: &std::path::Path, kind: &str) -> std::io::Result<te
                 "// planted by the us-mwt02 tenant-scoping gold test\n\
                  pub async fn evil(state: &AppState, params: &Params) {\n\
                  \x20   let ws = uuid::Uuid::parse_str(&params.workspace_id).unwrap();\n\
-                 \x20   let _ = state.store.find_attachment_in_workspace(id, ws).await;\n\
+                 \x20   let _ = state.store.list_users_in_workspace(ws).await;\n\
                  }\n",
             )?;
         }

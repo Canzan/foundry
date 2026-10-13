@@ -2969,7 +2969,7 @@ mod tests {
             "crates/foundry-app/src/projects.rs",
             "let acting = user.acting_workspace();\n\
              let team = state.store.find_team_by_slug(acting.workspace_id(), &team_slug).await;\n\
-             let att = state.store.find_attachment_in_workspace(id, user.workspace_id).await;\n",
+             let att = state.store.list_users_in_workspace(user.workspace_id).await;\n",
         )]);
         assert!(
             check_app_tenant_scoping(clean.path()).is_empty(),
@@ -2984,7 +2984,7 @@ mod tests {
         let planted = stage(&[(
             "crates/foundry-app/src/evil.rs",
             "let ws = uuid::Uuid::parse_str(&params.workspace_id).unwrap();\n\
-             let row = state.store.find_attachment_in_workspace(id, ws).await;\n",
+             let row = state.store.list_users_in_workspace(ws).await;\n",
         )]);
         let found = check_app_tenant_scoping(planted.path());
         assert!(
@@ -3834,7 +3834,7 @@ mod tests {
             (
                 "crates/foundry-app/src/evil.rs",
                 "let ws = uuid::Uuid::parse_str(&params.workspace_id).unwrap();\n\
-                 let row = state.store.find_attachment_in_workspace(id, ws).await;\n",
+                 let row = state.store.list_users_in_workspace(ws).await;\n",
             ),
             (
                 "crates/foundry-app/src/admin_tokens.rs",

@@ -95,7 +95,7 @@ pub async fn submit_upload(
     // render the SINGLE uniform `resource_not_found_page()` (no echoed team/
     // project slug, no team-vs-issue body-shape difference), so a foreign upload
     // is byte-identical to a never-existed upload and leaks nothing about the
-    // foreign issue's existence (matching `download_attachment`, fixed in 04-02).
+    // foreign issue's existence (matching `download_attachment`).
     // The intra-workspace membership failure converged on the SAME uniform 404
     // in step 04-01, so a non-member reach is byte-identical to a foreign one.
     let team = match state
@@ -218,37 +218,33 @@ pub async fn download_attachment(
     };
     match state.store.is_team_member(team.id, user.user_id).await {
         Ok(true) => {}
-        // Intra-workspace authz failure keeps its shipped 403 shape (ADR-003
-        // boundary clause): a member reaching their OWN workspace's team they do
-        // not belong to is NOT a cross-tenant concern. A cross-tenant reach never
-        // reaches this branch — the foreign team already 404'd above.
+        // A non-member of a team in their own workspace gets the same uniform
+        // 404 as a foreign or missing team (converged in step 04-01).
         Ok(false) => return resource_not_found_page(),
         Err(err) => return internal_error("is_team_member", err),
     }
-    // Defensive lookup — confirms the issue still exists in the targeted
-    // (team, project) so we don't serve an attachment through a path
-    // that no longer resolves. The store also workspace-scopes the
-    // attachment lookup; both layers must agree.
-    if let Err(err) = state
+    // The attachment is served only through the address of its own issue: the
+    // issue is resolved from (team, project, number), and an unknown project or
+    // issue, or an attachment of any other issue, is the SAME uniform 404 a
+    // never-existed id gets (ADR-003; fix-issue-attachment-scoping Defect 2).
+    let issue = match state
         .store
         .find_issue_by_team_project_number(team.id, &project_slug, issue_number)
         .await
     {
-        return internal_error("find_issue_by_team_project_number", err);
-    }
+        Ok(Some(issue)) => issue,
+        Ok(None) => return resource_not_found_page(),
+        Err(err) => return internal_error("find_issue_by_team_project_number", err),
+    };
 
     match state
         .store
-        .find_attachment_in_workspace(attachment_id, user.workspace_id)
+        .find_attachment_for_issue(attachment_id, issue.issue_id)
         .await
     {
         Ok(Some(row)) => attachment_download_response(&row),
-        // A foreign-workspace attachment id resolves to `None` exactly as a
-        // never-existed id does — BOTH collapse to the SAME uniform 404 (ADR-003).
-        // The previous body echoed the requested `attachment_id`, an enumeration
-        // oracle (NFR-MWT-SEC-02); the uniform page reveals nothing.
         Ok(None) => resource_not_found_page(),
-        Err(err) => internal_error("find_attachment_in_workspace", err),
+        Err(err) => internal_error("find_attachment_for_issue", err),
     }
 }
 
