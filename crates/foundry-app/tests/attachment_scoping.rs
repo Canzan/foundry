@@ -416,3 +416,57 @@ async fn an_attachment_through_its_own_issue_downloads_byte_identical() {
         "the downloaded bytes are the uploaded bytes"
     );
 }
+
+/// Positive control for uploading: Yuki uploads a file to Backend's issue 2
+/// through its address; the browser is sent back to the issue, whose page
+/// links the attachment, and that link downloads the uploaded bytes.
+#[tokio::test]
+async fn an_upload_through_the_issue_address_downloads_byte_identical_from_that_issue() {
+    let w = world().await;
+    let yuki = sign_in(&w.h.router, YUKI).await;
+    let uploaded: &[u8] = b"\x00\x01upload-through-issue-2\xff";
+    let boundary = "attachment-scoping-boundary";
+    let mut body = format!(
+        "--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; \
+         filename=\"notes.bin\"\r\nContent-Type: application/octet-stream\r\n\r\n"
+    )
+    .into_bytes();
+    body.extend_from_slice(uploaded);
+    body.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
+    let req = Request::builder()
+        .method("POST")
+        .uri("/team/backend/project/api/issues/2/attachments")
+        .header(header::COOKIE, format!("foundry_csrf={CSRF}; {yuki}"))
+        .header("x-csrf-token", CSRF)
+        .header(
+            header::CONTENT_TYPE,
+            format!("multipart/form-data; boundary={boundary}"),
+        )
+        .body(Body::from(body))
+        .expect("request");
+    let resp = w.h.router.clone().oneshot(req).await.expect("response");
+    assert_eq!(resp.status(), StatusCode::SEE_OTHER, "the upload redirects");
+    assert_eq!(
+        resp.headers()
+            .get(header::LOCATION)
+            .and_then(|v| v.to_str().ok()),
+        Some("/team/backend/project/api/issues/2"),
+        "back to the issue the file was uploaded to"
+    );
+
+    let (status, page) = get(&w.h.router, "/team/backend/project/api/issues/2", &yuki).await;
+    assert_eq!(status, StatusCode::OK, "the issue page renders");
+    let page = String::from_utf8(page).expect("utf-8 page");
+    let prefix = "/team/backend/project/api/issues/2/attachments/";
+    let at = page
+        .find(prefix)
+        .expect("the issue page links the uploaded attachment");
+    let link = &page[at..at + prefix.len() + 36];
+
+    let (status, bytes) = get(&w.h.router, link, &yuki).await;
+    assert_eq!(status, StatusCode::OK, "the uploaded attachment downloads");
+    assert_eq!(
+        bytes, uploaded,
+        "the downloaded bytes are the uploaded bytes"
+    );
+}

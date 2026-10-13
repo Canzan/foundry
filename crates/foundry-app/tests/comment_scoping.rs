@@ -794,3 +794,68 @@ async fn the_soft_delete_statement_deletes_no_comment_of_another_issue() {
         .expect("the soft-delete runs");
     assert!(deleted, "positive control: the comment's own issue matches");
 }
+
+/// Rita is a workspace member but not on Backend. Through Backend's real
+/// address — the team, project, issue and comment all exist and match — the
+/// issue page, the comment and its edit form are each the uniform 404.
+#[tokio::test]
+async fn a_workspace_member_off_the_team_gets_the_uniform_404_through_the_real_address() {
+    let w = world().await;
+    let rita = sign_in(&w.h.router, RITA).await;
+    let uniform = uniform_404(&w.h.router, &rita).await;
+
+    for (uri, what) in [
+        (
+            "/team/backend/project/api/issues/1".to_string(),
+            "the comment's issue page",
+        ),
+        (
+            comment_uri("backend", "api", 1, w.comment_id),
+            "the comment",
+        ),
+        (
+            edit_form_uri("backend", "api", 1, w.comment_id),
+            "the comment's edit form",
+        ),
+    ] {
+        let answer = get(&w.h.router, &uri, &rita).await;
+        assert_refused(&answer, &uniform, &format!("Rita opening {what}"));
+    }
+}
+
+/// Positive control for posting: Yuki comments on Backend's issue 2 through
+/// its address; the browser is sent back to the issue and the comment is
+/// stored on that issue.
+#[tokio::test]
+async fn posting_a_comment_through_the_issue_address_stores_it_on_that_issue() {
+    let w = world().await;
+    let yuki = sign_in(&w.h.router, YUKI).await;
+    let posted = "Posted through issue 2's own address";
+    let form =
+        serde_urlencoded::to_string([("_csrf", CSRF), ("body", posted)]).expect("encode form");
+    let req = Request::builder()
+        .method("POST")
+        .uri("/team/backend/project/api/issues/2/comments")
+        .header(header::COOKIE, format!("foundry_csrf={CSRF}; {yuki}"))
+        .header("x-csrf-token", CSRF)
+        .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+        .body(Body::from(form))
+        .expect("request");
+    let resp = w.h.router.clone().oneshot(req).await.expect("response");
+
+    assert_eq!(resp.status(), StatusCode::SEE_OTHER, "the post redirects");
+    assert_eq!(
+        resp.headers()
+            .get(header::LOCATION)
+            .and_then(|v| v.to_str().ok()),
+        Some("/team/backend/project/api/issues/2"),
+        "back to the issue the comment was posted on"
+    );
+    let stored: Vec<(uuid::Uuid, String)> =
+        sqlx::query_as("SELECT issue_id, body_markdown FROM comments WHERE body_markdown = $1")
+            .bind(posted)
+            .fetch_all(w.store.pool())
+            .await
+            .expect("the comment rows");
+    assert_eq!(stored, vec![(w.api_2, posted.to_string())]);
+}

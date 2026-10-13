@@ -6736,3 +6736,153 @@ mod store_natural_key_scoped_tests {
         assert!(violations.is_empty(), "{violations:?}");
     }
 }
+
+#[cfg(test)]
+mod store_natural_key_scoped_boundary_tests {
+    //! Boundary gold tests for the `store-natural-key-scoped` helpers: the
+    //! rule's verdicts on the SQL shapes each helper exists to read, and the
+    //! helpers' own byte-offset contracts where a verdict cannot see them.
+
+    use super::{
+        check_store_natural_key_scoped, disjunct_around, enclosing_group, ends_with_parameter,
+        is_scoped, paren_groups, unscoped_natural_key_filters,
+    };
+
+    const STORE_LIB: &str = "crates/foundry-store/src/lib.rs";
+
+    /// The rule's violations for a store whose single query is `sql`, opening
+    /// on line 3.
+    fn violations_for(sql: &str) -> Vec<String> {
+        let tree = tempfile::tempdir().expect("tempdir");
+        let path = tree.path().join(STORE_LIB);
+        std::fs::create_dir_all(path.parent().expect("parent")).expect("mkdir");
+        let source = format!(
+            "pub async fn lookup(&self) {{\n    sqlx::query(\n        \"{sql}\",\n    );\n}}\n"
+        );
+        std::fs::write(&path, source).expect("write fixture");
+        check_store_natural_key_scoped(tree.path())
+    }
+
+    fn assert_flagged(sql: &str) {
+        let violations = violations_for(sql);
+        assert!(
+            violations
+                .iter()
+                .any(|v| v.contains(&format!("{STORE_LIB}:3"))),
+            "{sql}: {violations:?}"
+        );
+    }
+
+    fn assert_passes(sql: &str) {
+        let violations = violations_for(sql);
+        assert!(violations.is_empty(), "{sql}: {violations:?}");
+    }
+
+    // ---- verdicts -----------------------------------------------------------
+
+    /// A key in a later statement is reported on its own line: the offset
+    /// counts every earlier statement and its `;`.
+    #[test]
+    fn a_filter_in_a_later_statement_is_reported_on_its_own_line() {
+        let sql = "update teams set name = $1 where id = $2 and workspace_id = $3\n\
+                   ;select id from teams where\nslug = $4";
+        assert_eq!(unscoped_natural_key_filters(sql), vec![(2, "slug")]);
+    }
+
+    /// The scope column on the left of `=`, compared with a parameter on the
+    /// right, scopes the filter; a bare `$` or a literal number does not.
+    #[test]
+    fn a_parameter_on_the_left_of_the_scope_comparison_scopes_the_filter() {
+        assert_passes("SELECT id FROM teams WHERE $1 = workspace_id AND slug = $2");
+        assert_passes("SELECT id FROM teams WHERE $12 = t.team_id AND slug = $2");
+        assert_flagged("SELECT id FROM teams WHERE 5 = workspace_id AND slug = $1");
+        assert_flagged("SELECT id FROM teams WHERE $ = workspace_id AND slug = $1");
+    }
+
+    /// `IN ($n, …)` scopes; an inequality with a parameter does not.
+    #[test]
+    fn an_in_list_of_parameters_scopes_and_an_inequality_does_not() {
+        assert_passes("SELECT id FROM teams WHERE workspace_id IN ($1, $2) AND slug = $3");
+        assert_passes("SELECT id FROM teams WHERE workspace_id in($1) AND slug = $2");
+        assert_flagged("SELECT id FROM teams WHERE workspace_id <> $1 AND slug = $2");
+        assert_flagged("SELECT id FROM teams WHERE workspace_id IN (1, 2) AND slug = $1");
+    }
+
+    /// A key filtered inside a subquery is judged by the subquery's own scope:
+    /// the outer query's scope narrows the outer rows only.
+    #[test]
+    fn an_outer_scope_does_not_scope_a_filter_inside_a_subquery() {
+        assert_flagged(
+            "SELECT id FROM issues WHERE workspace_id = $1 \
+             AND project_id IN (SELECT id FROM projects WHERE slug = $2)",
+        );
+        assert_passes(
+            "SELECT id FROM issues WHERE workspace_id = $1 \
+             AND (project_id = $3 OR slug = $2)",
+        );
+    }
+
+    /// A call named with `_` is still the call wrapping the key, and a cast to
+    /// a schema-qualified, underscored or array type is still a cast.
+    #[test]
+    fn underscored_calls_and_qualified_or_array_casts_still_wrap_the_key() {
+        for sql in [
+            "SELECT id FROM teams WHERE $1 = my_lower(slug)",
+            "SELECT id FROM teams WHERE slug::pg_catalog.text = $1",
+            "SELECT id FROM teams WHERE slug::my_text = $1",
+            "SELECT id FROM teams WHERE slug::text[] = $1",
+        ] {
+            assert_flagged(sql);
+        }
+    }
+
+    // ---- helper contracts ---------------------------------------------------
+
+    #[test]
+    fn parentheses_inside_literals_and_quoted_identifiers_open_no_group() {
+        assert_eq!(paren_groups("f('(x') y"), vec![(1, 6)]);
+        assert_eq!(paren_groups("f(\"(x\") y"), vec![(1, 6)]);
+        assert_eq!(paren_groups("f('x\"(') y"), vec![(1, 7)]);
+        assert_eq!(paren_groups("a (b (c) d"), vec![(5, 7), (2, 10)]);
+    }
+
+    #[test]
+    fn a_group_encloses_only_the_bytes_strictly_between_its_parentheses() {
+        let groups = [(0, 5), (1, 3)];
+        assert_eq!(enclosing_group(&groups, 0), None);
+        assert_eq!(enclosing_group(&groups, 2), Some((1, 3)));
+        assert_eq!(enclosing_group(&groups, 3), Some((0, 5)));
+        assert_eq!(enclosing_group(&groups, 5), None);
+    }
+
+    #[test]
+    fn a_disjunct_runs_from_after_the_previous_or_to_the_next_one() {
+        let grouped = "(a or b)";
+        let groups = paren_groups(grouped);
+        assert_eq!(disjunct_around(grouped, &groups, Some((0, 7)), 1), (1, 3));
+        assert_eq!(disjunct_around("aa or b", &[], None, 6), (5, 7));
+        assert_eq!(disjunct_around("a or b", &[], None, 2), (0, 2));
+        assert_eq!(disjunct_around("a or b or c", &[], None, 10), (9, 11));
+        assert_eq!(disjunct_around("a or b or c", &[], None, 5), (4, 7));
+    }
+
+    #[test]
+    fn a_scope_at_the_end_of_the_disjunct_is_outside_it() {
+        assert!(!is_scoped("a or b", &[], &[2], 0));
+        assert!(is_scoped("a or b", &[], &[1], 0));
+    }
+
+    #[test]
+    fn a_parameter_is_a_dollar_followed_by_digits_at_the_end() {
+        for (text, expected) in [
+            ("$1", true),
+            ("x = $12", true),
+            ("$", false),
+            ("5", false),
+            ("", false),
+            ("$1a", false),
+        ] {
+            assert_eq!(ends_with_parameter(text), expected, "{text:?}");
+        }
+    }
+}
