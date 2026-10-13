@@ -513,3 +513,188 @@ async fn delete_issue_dialog_returns_the_live_advisory_counts() {
         "the dialog must report the issue key + number and the LIVE advisory counts"
     );
 }
+
+// ----- fix-issue-attachment-scoping (Defect 1, step 01-01) -----------------
+//
+// `key_prefix` is unique only per workspace, so two workspaces may both use
+// `OPS`. The move, edit and edit pre-fill paths must look the issue up by the
+// caller's RESOLVED project, never by the prefix. Workspace A has OPS-1 only;
+// workspace B has OPS-1..OPS-3. A's member asking for OPS-3 must get the
+// uniform NotFound, and B's OPS-3 must be left exactly as it was.
+//
+// Test budget: 3 behaviours (pre-fill, edit, move each refuse the foreign
+// issue); budget = 2 × 3 = 6, 3 written.
+
+struct CollidingPrefixes {
+    store: Store,
+    a_member: Principal,
+    b_project_id: uuid::Uuid,
+}
+
+/// Seed workspaces A ("Acme Ops") and B ("Globex Ops"), each with team `ops`
+/// and project `ops` keyed `OPS`. A files OPS-1; B files OPS-1..OPS-3, all in
+/// the project's leftmost lane. The base harness's own workspace is unused.
+async fn colliding_prefixes(h: &Harness) -> CollidingPrefixes {
+    let mut seeded = Vec::new();
+    for (name, email, issues) in [
+        ("Acme Ops", "ana@acme-ops.test", 1),
+        ("Globex Ops", "bo@globex-ops.test", 3),
+    ] {
+        let workspace_id = uuid::Uuid::now_v7();
+        let user_id = uuid::Uuid::now_v7();
+        let project_id = uuid::Uuid::now_v7();
+        h.store
+            .create_initial_workspace(
+                workspace_id,
+                name,
+                user_id,
+                email,
+                email,
+                "Admin",
+                "x",
+                uuid::Uuid::now_v7(),
+                "Ops",
+                "ops",
+                project_id,
+                "Ops",
+                "ops",
+                "OPS",
+            )
+            .await
+            .expect("seed workspace with the OPS prefix");
+        let principal = Principal::Human {
+            user_id,
+            workspace_id,
+        };
+        for n in 1..=issues {
+            create_issue(
+                &h.store,
+                &principal,
+                "ops",
+                "ops",
+                &format!("{name} {n}"),
+                "body",
+            )
+            .await
+            .expect("seed OPS issue through the driving port");
+        }
+        seeded.push((principal, project_id));
+    }
+    let (_b_member, b_project_id) = seeded.pop().expect("workspace B");
+    let (a_member, _a_project_id) = seeded.pop().expect("workspace A");
+    CollidingPrefixes {
+        store: h.store.clone(),
+        a_member,
+        b_project_id,
+    }
+}
+
+/// Every column of B's OPS-3, as text — the byte-identical proof.
+async fn b_ops3_row(c: &CollidingPrefixes) -> String {
+    sqlx::query_scalar(
+        "SELECT to_jsonb(i)::text FROM issues i WHERE i.project_id = $1 AND i.number = 3",
+    )
+    .bind(c.b_project_id)
+    .fetch_one(c.store.pool())
+    .await
+    .expect("read B's OPS-3")
+}
+
+async fn count(c: &CollidingPrefixes, sql: &str) -> i64 {
+    sqlx::query_scalar(sql)
+        .fetch_one(c.store.pool())
+        .await
+        .expect("count rows")
+}
+
+/// T1 — the edit pre-fill never reads another workspace's issue.
+#[tokio::test]
+async fn edit_form_for_a_number_only_another_workspace_has_is_not_found() {
+    let h = seeded_harness().await;
+    let c = colliding_prefixes(&h).await;
+
+    let outcome =
+        foundry_services::issues::edit_issue_form(&c.store, &c.a_member, "ops", "ops", 3).await;
+
+    assert!(
+        matches!(outcome, Err(ServiceError::NotFound)),
+        "A's member must get NotFound for OPS-3, which only B has; got {:?}",
+        outcome.map(|v| v.title)
+    );
+}
+
+/// T2 — an edit submit for a number only B has writes nothing to B.
+#[tokio::test]
+async fn edit_submit_for_a_number_only_another_workspace_has_writes_nothing_there() {
+    let h = seeded_harness().await;
+    let c = colliding_prefixes(&h).await;
+    let before = b_ops3_row(&c).await;
+    let events_before = count(&c, "SELECT count(*) FROM issue_change_events").await;
+
+    let outcome = foundry_services::issues::edit_issue_details(
+        &c.store,
+        &c.a_member,
+        "ops",
+        "ops",
+        3,
+        "pwn",
+        "pwned",
+    )
+    .await;
+
+    assert!(
+        matches!(outcome, Err(ServiceError::NotFound)),
+        "A's member must get NotFound for OPS-3, which only B has; got {outcome:?}"
+    );
+    assert_eq!(
+        b_ops3_row(&c).await,
+        before,
+        "B's OPS-3 must be byte-identical after A's refused edit"
+    );
+    assert_eq!(
+        count(&c, "SELECT count(*) FROM issue_change_events").await,
+        events_before,
+        "a refused edit must record no change event"
+    );
+}
+
+/// T3 — a move for a number only B has moves nothing and emits nothing.
+#[tokio::test]
+async fn move_for_a_number_only_another_workspace_has_moves_nothing_and_emits_nothing() {
+    let h = seeded_harness().await;
+    let c = colliding_prefixes(&h).await;
+    let before = b_ops3_row(&c).await;
+    let events_before = count(&c, "SELECT count(*) FROM issue_change_events").await;
+    let outbox_before = count(&c, "SELECT count(*) FROM outbox").await;
+
+    let outcome = foundry_services::issues::change_issue_state(
+        &c.store,
+        &c.a_member,
+        "ops",
+        "ops",
+        3,
+        "done",
+        None,
+    )
+    .await;
+
+    assert!(
+        matches!(outcome, Err(ServiceError::NotFound)),
+        "A's member must get NotFound for OPS-3, which only B has; got {outcome:?}"
+    );
+    assert_eq!(
+        b_ops3_row(&c).await,
+        before,
+        "B's OPS-3 must keep its state and rank after A's refused move"
+    );
+    assert_eq!(
+        count(&c, "SELECT count(*) FROM issue_change_events").await,
+        events_before,
+        "a refused move must record no change event"
+    );
+    assert_eq!(
+        count(&c, "SELECT count(*) FROM outbox").await,
+        outbox_before,
+        "a refused move must emit no outbox event"
+    );
+}

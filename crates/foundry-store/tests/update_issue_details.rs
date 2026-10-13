@@ -4,14 +4,16 @@
 //!
 //! - `update_issue_details` persists BOTH the new title and the new
 //!   description_md (and bumps `updated_at`) for an issue addressed by
-//!   `key_prefix + number` — last-write-wins, no outbox row (ODD-3/ODD-4);
+//!   `project_id + number` — last-write-wins, no outbox row (ODD-3/ODD-4);
 //! - a scoped call NEVER updates a same-numbered issue that lives under a
-//!   DIFFERENT project/workspace (tenant isolation — the crux of ADR-002/003);
+//!   DIFFERENT project/workspace, even one sharing the `key_prefix` (tenant
+//!   isolation — the crux of ADR-002/003; fix-issue-attachment-scoping);
+//! - `issue_edit_view` reads only the caller's project under the same collision;
 //! - an absent issue resolves to `Ok(None)` (the service maps this to the
 //!   uniform non-enumerable NotFound).
 //!
-//! Runs against a real Postgres (testcontainers, @real-io): the JOIN scoping by
-//! `key_prefix`, the UPDATE, and the tenant boundary can't be faked. Each test
+//! Runs against a real Postgres (testcontainers, @real-io): the `project_id`
+//! scoping, the UPDATE, and the tenant boundary can't be faked. Each test
 //! runs the full production migration set on a fresh container.
 
 use foundry_store::{run_migrations, Store};
@@ -72,8 +74,8 @@ async fn seed_project(
               VALUES ($1, $2, $3, $4, 'x')",
     )
     .bind(user_id)
-    .bind(format!("author@{key_prefix}.test"))
-    .bind(format!("author@{key_prefix}.test"))
+    .bind(format!("author@{}.test", workspace_name.to_lowercase()))
+    .bind(format!("author@{}.test", workspace_name.to_lowercase()))
     .bind("Author")
     .execute(store.pool())
     .await
@@ -156,18 +158,32 @@ async fn read_issue(store: &Store, project_id: uuid::Uuid, number: i32) -> (Stri
         .expect("read issue")
 }
 
+/// Every column of the issue `number` under `project_id`, as text.
+async fn issue_row(store: &Store, project_id: uuid::Uuid, number: i32) -> String {
+    sqlx::query_scalar(
+        "SELECT to_jsonb(i)::text FROM issues i WHERE i.project_id = $1 AND i.number = $2",
+    )
+    .bind(project_id)
+    .bind(number)
+    .fetch_one(store.pool())
+    .await
+    .expect("read issue row")
+}
+
 /// A scoped `update_issue_details` persists BOTH fields for the addressed issue
-/// and touches NO same-numbered issue under a foreign project key — the
-/// write-side proof of ADR-002 last-write-wins + the key-scoped isolation the
-/// store JOIN provides (mirrors `reposition_issue_with_outbox`).
+/// and touches NO same-numbered issue in another workspace, even when that
+/// workspace keys its project with the SAME prefix; a number only that
+/// workspace has resolves to `None` — the write-side proof of
+/// ADR-002 last-write-wins + the `project_id` scoping (mirrors
+/// `reposition_issue_with_outbox`).
 #[tokio::test]
-async fn update_issue_details_persists_both_fields_and_is_tenant_isolated() {
+async fn update_issue_details_is_tenant_isolated() {
     let (base, _guard) = fresh_postgres().await;
     let store = migrated_store(&base).await;
 
-    // Acme "GEN-1" is the target. Globex has its OWN "FGN-1" (a foreign
-    // workspace + a distinct key_prefix) numbered identically — the isolation
-    // trap: a call scoped to "GEN" must never reach across to "FGN".
+    // Acme "GEN-1" is the target. Globex ALSO keys its project "GEN" (prefixes
+    // are unique only per workspace) and has its own GEN-1 — the isolation
+    // trap: a call through Acme's project must never reach across to Globex.
     let (acme_project, acme_author) = seed_project(&store, "Acme", "GEN").await;
     seed_issue(
         &store,
@@ -178,7 +194,7 @@ async fn update_issue_details_persists_both_fields_and_is_tenant_isolated() {
         "old body",
     )
     .await;
-    let (globex_project, globex_author) = seed_project(&store, "Globex", "FGN").await;
+    let (globex_project, globex_author) = seed_project(&store, "Globex", "GEN").await;
     seed_issue(
         &store,
         globex_project,
@@ -188,6 +204,19 @@ async fn update_issue_details_persists_both_fields_and_is_tenant_isolated() {
         "globex body",
     )
     .await;
+    seed_issue(
+        &store,
+        globex_project,
+        globex_author,
+        2,
+        "Globex only",
+        "globex only body",
+    )
+    .await;
+    let globex_before = (
+        issue_row(&store, globex_project, 1).await,
+        issue_row(&store, globex_project, 2).await,
+    );
 
     let before_updated_at: time::OffsetDateTime =
         sqlx::query_scalar("SELECT updated_at FROM issues WHERE project_id = $1 AND number = 1")
@@ -197,7 +226,7 @@ async fn update_issue_details_persists_both_fields_and_is_tenant_isolated() {
             .expect("read updated_at");
 
     let outcome = store
-        .update_issue_details("GEN", 1, "New title", "new body", acme_author)
+        .update_issue_details(acme_project, 1, "New title", "new body", acme_author)
         .await
         .expect("update succeeds");
     assert_eq!(
@@ -223,14 +252,22 @@ async fn update_issue_details_persists_both_fields_and_is_tenant_isolated() {
         "updated_at must be bumped by the edit"
     );
 
-    // The foreign FGN-1 (different workspace + key_prefix) must be byte-for-byte
-    // untouched by a call scoped to "GEN": the JOIN's `key_prefix = 'GEN'` clause
-    // never selects it.
-    let globex_after = read_issue(&store, globex_project, 1).await;
+    // GEN-2 exists only in Globex: a call through Acme's project must not find it.
+    let outcome = store
+        .update_issue_details(acme_project, 2, "pwn", "pwned", acme_author)
+        .await
+        .expect("update query succeeds");
+    assert_eq!(outcome, None, "Globex's GEN-2 is not Acme's to edit");
+
+    // Globex's issues (different workspace, SAME key_prefix) must be
+    // byte-for-byte untouched by calls through Acme's project.
     assert_eq!(
-        globex_after,
-        ("Globex title".to_string(), "globex body".to_string()),
-        "a foreign-key issue must be untouched by a GEN-scoped call (isolation)"
+        (
+            issue_row(&store, globex_project, 1).await,
+            issue_row(&store, globex_project, 2).await,
+        ),
+        globex_before,
+        "a foreign workspace's same-prefix issue must be untouched (isolation)"
     );
 }
 
@@ -241,14 +278,64 @@ async fn update_issue_details_reports_none_for_absent_issue() {
     let (base, _guard) = fresh_postgres().await;
     let store = migrated_store(&base).await;
 
-    let (_project, author) = seed_project(&store, "Acme", "GEN").await;
+    let (project, author) = seed_project(&store, "Acme", "GEN").await;
 
     let outcome = store
-        .update_issue_details("GEN", 999, "Whatever", "body", author)
+        .update_issue_details(project, 999, "Whatever", "body", author)
         .await
         .expect("update query succeeds");
     assert_eq!(
         outcome, None,
         "an absent issue reports None, writes nothing"
+    );
+}
+
+/// The edit pre-fill reads only the caller's project: with GEN-1 in both Acme
+/// and Globex (colliding prefix), a read through Acme's `project_id` returns
+/// Acme's title, and a number only Globex has resolves to `Ok(None)`.
+#[tokio::test]
+async fn issue_edit_view_with_a_colliding_prefix_reads_only_the_callers_project() {
+    let (base, _guard) = fresh_postgres().await;
+    let store = migrated_store(&base).await;
+
+    let (acme_project, acme_author) = seed_project(&store, "Acme", "GEN").await;
+    seed_issue(&store, acme_project, acme_author, 1, "Acme title", "acme").await;
+    let (globex_project, globex_author) = seed_project(&store, "Globex", "GEN").await;
+    seed_issue(
+        &store,
+        globex_project,
+        globex_author,
+        1,
+        "Globex title",
+        "globex",
+    )
+    .await;
+    seed_issue(
+        &store,
+        globex_project,
+        globex_author,
+        2,
+        "Globex only",
+        "globex",
+    )
+    .await;
+
+    let view = store
+        .issue_edit_view(acme_project, 1)
+        .await
+        .expect("read succeeds")
+        .expect("Acme's GEN-1 exists");
+    assert_eq!(
+        (view.title.as_str(), view.description_md.as_str()),
+        ("Acme title", "acme"),
+        "the pre-fill must read Acme's GEN-1, never Globex's"
+    );
+    assert!(
+        store
+            .issue_edit_view(acme_project, 2)
+            .await
+            .expect("read succeeds")
+            .is_none(),
+        "a number only Globex has must resolve to None through Acme's project"
     );
 }

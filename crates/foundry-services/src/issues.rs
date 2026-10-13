@@ -246,6 +246,7 @@ pub async fn change_issue_state(
 
     match store
         .reposition_issue_with_outbox(
+            project.id,
             key_prefix.as_str(),
             number,
             &normalized,
@@ -291,7 +292,7 @@ pub async fn edit_issue_details(
     title: &str,
     description_md: &str,
 ) -> Result<BoardIssue, ServiceError> {
-    let (_team, _project, key_prefix) =
+    let (_team, project, key_prefix) =
         resolve_member_project(store, principal, team_slug, project_slug).await?;
 
     let raw_title = title.trim();
@@ -311,7 +312,7 @@ pub async fn edit_issue_details(
 
     match store
         .update_issue_details(
-            key_prefix.as_str(),
+            project.id,
             number,
             raw_title,
             description_md,
@@ -356,7 +357,7 @@ pub async fn edit_issue_form(
         resolve_member_project(store, principal, team_slug, project_slug).await?;
 
     let row = store
-        .issue_edit_view(key_prefix.as_str(), number)
+        .issue_edit_view(project.id, number)
         .await
         .map_err(|_| ServiceError::Internal)?
         .ok_or(ServiceError::NotFound)?;

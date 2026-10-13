@@ -11,9 +11,13 @@
 //!   other viewers' cards to the column end, so the emit is gated on the state
 //!   actually changing.
 //!
+//! - **Tenant isolation** (fix-issue-attachment-scoping): the moved issue is
+//!   resolved by the caller's `project_id`, so a same-numbered issue in another
+//!   workspace that shares the `key_prefix` is never touched.
+//!
 //! Runs against a real Postgres (testcontainers, @real-io): the reindex SQL, the
-//! ordered read, and the outbox row can't be faked. Two behaviours (the two emit
-//! branches); budget = 2 × 2 = 4, 2 written.
+//! ordered read, and the outbox row can't be faked. Three behaviours (the two
+//! emit branches + isolation); budget = 2 × 3 = 6, 3 written.
 
 use foundry_store::{run_migrations, RepositionOutcome, Store};
 use sqlx::postgres::PgPoolOptions;
@@ -72,8 +76,8 @@ async fn seed_project(
               VALUES ($1, $2, $3, 'Author', 'x')",
     )
     .bind(user_id)
-    .bind(format!("author@{key_prefix}.test"))
-    .bind(format!("author@{key_prefix}.test"))
+    .bind(format!("author@{}.test", workspace_name.to_lowercase()))
+    .bind(format!("author@{}.test", workspace_name.to_lowercase()))
     .execute(store.pool())
     .await
     .expect("insert user");
@@ -182,7 +186,7 @@ async fn reposition_within_status_reindexes_contiguously_without_emit() {
 
     // Drop GEN-30 immediately after GEN-10 → new order [10, 30, 20].
     let outcome = store
-        .reposition_issue_with_outbox("GEN", 30, "todo", Some(10), author)
+        .reposition_issue_with_outbox(project, "GEN", 30, "todo", Some(10), author)
         .await
         .expect("reposition query succeeds");
     assert_eq!(outcome, RepositionOutcome::Repositioned);
@@ -216,7 +220,7 @@ async fn reposition_across_status_reindexes_both_columns_and_emits_once() {
 
     // Drop GEN-5 from backlog INTO todo, after GEN-10 → todo [10, 5, 20].
     let outcome = store
-        .reposition_issue_with_outbox("GEN", 5, "todo", Some(10), author)
+        .reposition_issue_with_outbox(project, "GEN", 5, "todo", Some(10), author)
         .await
         .expect("reposition query succeeds");
     assert_eq!(outcome, RepositionOutcome::Repositioned);
@@ -235,5 +239,67 @@ async fn reposition_across_status_reindexes_both_columns_and_emits_once() {
         issue_updated_count(&store).await,
         1,
         "a cross-status drop (state changed) must emit EXACTLY ONE IssueUpdated row"
+    );
+}
+
+/// Every column of the issue `number` under `project_id`, as text.
+async fn issue_row(store: &Store, project_id: uuid::Uuid, number: i32) -> String {
+    sqlx::query_scalar(
+        "SELECT to_jsonb(i)::text FROM issues i WHERE i.project_id = $1 AND i.number = $2",
+    )
+    .bind(project_id)
+    .bind(number)
+    .fetch_one(store.pool())
+    .await
+    .expect("read issue row")
+}
+
+/// Tenant isolation — Acme and Globex BOTH key their project `GEN` and both
+/// have GEN-1; only Globex has GEN-2. A move through Acme's `project_id` moves
+/// Acme's GEN-1 only, and a move of GEN-2 through it is `IssueNotFound`; both
+/// Globex rows stay byte-identical.
+#[tokio::test]
+async fn reposition_with_a_colliding_prefix_moves_only_the_callers_issue() {
+    let (base, _guard) = fresh_postgres().await;
+    let store = migrated_store(&base).await;
+    let (acme, acme_author) = seed_project(&store, "Acme", "GEN").await;
+    let (globex, globex_author) = seed_project(&store, "Globex", "GEN").await;
+    seed_issue_at(&store, acme, acme_author, 1, "backlog", 0).await;
+    seed_issue_at(&store, globex, globex_author, 1, "backlog", 0).await;
+    seed_issue_at(&store, globex, globex_author, 2, "backlog", 1).await;
+    let globex_before = (
+        issue_row(&store, globex, 1).await,
+        issue_row(&store, globex, 2).await,
+    );
+
+    let outcome = store
+        .reposition_issue_with_outbox(acme, "GEN", 1, "todo", None, acme_author)
+        .await
+        .expect("reposition query succeeds");
+    assert_eq!(outcome, RepositionOutcome::Repositioned);
+
+    assert_eq!(
+        column_order(&store, acme, "todo").await,
+        vec![(1, 0)],
+        "Acme's GEN-1 must be the one moved"
+    );
+
+    let outcome = store
+        .reposition_issue_with_outbox(acme, "GEN", 2, "todo", None, acme_author)
+        .await
+        .expect("reposition query succeeds");
+    assert_eq!(
+        outcome,
+        RepositionOutcome::IssueNotFound,
+        "GEN-2 exists only in Globex, so a move through Acme's project must not find it"
+    );
+
+    assert_eq!(
+        (
+            issue_row(&store, globex, 1).await,
+            issue_row(&store, globex, 2).await
+        ),
+        globex_before,
+        "Globex's issues must be byte-identical after moves through Acme's project"
     );
 }

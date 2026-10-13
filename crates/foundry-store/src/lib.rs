@@ -1950,7 +1950,7 @@ impl Store {
     /// `position = 0` (the pre-first-move state).
     ///
     /// Non-enumerable refusals (ADR-003 lineage): a moved issue that does not
-    /// resolve by `key_prefix + number` → [`RepositionOutcome::IssueNotFound`];
+    /// resolve by `(project_id, number)` → [`RepositionOutcome::IssueNotFound`];
     /// an `after` neighbour that does not resolve WITHIN the target
     /// `(project, new_state)` column → [`RepositionOutcome::NeighbourNotFound`]
     /// (watch-item R3 — refuse, never a silent top-drop). The service maps BOTH
@@ -1958,6 +1958,7 @@ impl Store {
     /// dropped before any mutation).
     pub async fn reposition_issue_with_outbox(
         &self,
+        project_id: uuid::Uuid,
         project_key_prefix: &str,
         issue_number: i32,
         new_state: &str,
@@ -1966,18 +1967,19 @@ impl Store {
     ) -> Result<RepositionOutcome, IssueInsertError> {
         let mut tx = self.pool.begin().await?;
 
-        // Resolve the moved issue + its project context + CURRENT state + rank.
-        let row: Option<(uuid::Uuid, uuid::Uuid, uuid::Uuid, String, i32)> = sqlx::query_as(
-            "SELECT i.id, i.project_id, i.workspace_id, i.state, i.position
+        // Resolve the moved issue + its workspace + CURRENT state + rank, keyed
+        // by the caller's RESOLVED project: `key_prefix` is unique only per
+        // workspace, `(project_id, number)` is unique outright.
+        let row: Option<(uuid::Uuid, uuid::Uuid, String, i32)> = sqlx::query_as(
+            "SELECT i.id, i.workspace_id, i.state, i.position
                FROM issues i
-               JOIN projects p ON p.id = i.project_id
-              WHERE p.key_prefix = $1 AND i.number = $2",
+              WHERE i.project_id = $1 AND i.number = $2",
         )
-        .bind(project_key_prefix)
+        .bind(project_id)
         .bind(issue_number)
         .fetch_optional(&mut *tx)
         .await?;
-        let Some((issue_id, project_id, workspace_id, old_state, old_position)) = row else {
+        let Some((issue_id, workspace_id, old_state, old_position)) = row else {
             return Ok(RepositionOutcome::IssueNotFound);
         };
 
@@ -2288,9 +2290,10 @@ impl Store {
     /// to other board viewers is a named deferred increment, so we do not
     /// surprise the SSE consumer with an event kind it cannot render yet.
     ///
-    /// Looks the issue up by `key_prefix + number`; returns `Ok(None)` when
-    /// absent so a FOREIGN or never-existed issue resolves identically — the
-    /// service maps `None` to the uniform non-enumerable NotFound (ADR-003).
+    /// Looks the issue up by the caller's resolved `project_id + number`;
+    /// returns `Ok(None)` when absent so a FOREIGN or never-existed issue
+    /// resolves identically — the service maps `None` to the uniform
+    /// non-enumerable NotFound (ADR-003).
     /// Last-write-wins: no `updated_at` optimistic guard (ODD-3).
     ///
     /// Runs in ONE transaction (issue-change-history ADR-001 / watch-item R4):
@@ -2301,7 +2304,7 @@ impl Store {
     /// attributes the change (previously ignored — the edit path was silent).
     pub async fn update_issue_details(
         &self,
-        project_key_prefix: &str,
+        project_id: uuid::Uuid,
         issue_number: i32,
         title: &str,
         description_md: &str,
@@ -2309,17 +2312,16 @@ impl Store {
     ) -> Result<Option<()>, IssueInsertError> {
         let mut tx = self.pool.begin().await?;
 
-        let row: Option<(uuid::Uuid, uuid::Uuid, uuid::Uuid, String, String)> = sqlx::query_as(
-            "SELECT i.id, i.project_id, i.workspace_id, i.title, i.description_md
+        let row: Option<(uuid::Uuid, uuid::Uuid, String, String)> = sqlx::query_as(
+            "SELECT i.id, i.workspace_id, i.title, i.description_md
                FROM issues i
-               JOIN projects p ON p.id = i.project_id
-              WHERE p.key_prefix = $1 AND i.number = $2",
+              WHERE i.project_id = $1 AND i.number = $2",
         )
-        .bind(project_key_prefix)
+        .bind(project_id)
         .bind(issue_number)
         .fetch_optional(&mut *tx)
         .await?;
-        let Some((issue_id, project_id, workspace_id, old_title, old_description)) = row else {
+        let Some((issue_id, workspace_id, old_title, old_description)) = row else {
             return Ok(None);
         };
 
@@ -2364,7 +2366,7 @@ impl Store {
     }
 
     /// Read an issue's current `title` + `description_md` for the edit-dialog
-    /// pre-fill (issue-edit-dialog). Looks up by `key_prefix + number` and
+    /// pre-fill (issue-edit-dialog). Looks up by `project_id + number` and
     /// returns `Ok(None)` when absent — the service gates the call behind
     /// `resolve_member_project` and maps `None` to the uniform non-enumerable
     /// NotFound (ADR-003). Distinct from `find_issue_by_team_project_number`
@@ -2372,16 +2374,15 @@ impl Store {
     /// pre-fill needs, R3).
     pub async fn issue_edit_view(
         &self,
-        project_key_prefix: &str,
+        project_id: uuid::Uuid,
         issue_number: i32,
     ) -> Result<Option<IssueEditRow>, StoreError> {
         let row: Option<(String, String, String)> = sqlx::query_as(
             "SELECT i.title, i.description_md, i.state
                FROM issues i
-               JOIN projects p ON p.id = i.project_id
-              WHERE p.key_prefix = $1 AND i.number = $2",
+              WHERE i.project_id = $1 AND i.number = $2",
         )
-        .bind(project_key_prefix)
+        .bind(project_id)
         .bind(issue_number)
         .fetch_optional(&self.pool)
         .await?;
