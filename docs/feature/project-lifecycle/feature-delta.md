@@ -1425,6 +1425,8 @@ C4Component
 
 ### [REF] Open Questions for the user (DESIGN)
 
+**Answered by the user, 2026-10-12.** OQ-U1: (b), a project row links to its board only when the viewer is on the team; DDD-25 is locked on (b). OQ-U2: accepted; the use-cases take the shared `&Store`, and a `Store` capability split is a follow-up. The two shipped-code leaks DDD-5 (key-prefix issue lookups without a workspace filter) and DDD-32 (attachment download through any project slug of the team) ship FIRST as a separate bugfix, not inside this feature; DELIVER builds on the fixed code and keeps only what the view and guard still need.
+
 - **OQ-U1: Board links on the Projects section for a workspace admin who is not on the team (D8).**
   D8 says each project row links to its board "for anyone who can view the team". The board gate is
   team membership (team-membership D9), so for Priya on Ops, who is a workspace admin but not an Ops
