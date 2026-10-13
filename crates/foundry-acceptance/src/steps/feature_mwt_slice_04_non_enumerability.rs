@@ -20,11 +20,21 @@
 //! Plus the oracle-hunt no-403 / no-echo invariants gathered across surfaces.
 //!
 //! All of these funnel through the SHIPPED `find_team_by_slug(workspace_id, ..)`
-//! -> `find_project_by_slug(workspace_id, ..)` scoping chain (and
-//! `find_attachment_for_requester` for the download surface), which returns
+//! -> `find_project_by_slug(workspace_id, ..)` scoping chain, which returns
 //! `None`/`NotFound` IDENTICALLY for a foreign-workspace id and a never-existed
-//! id (ADR-003 option (b)). The web handler renders the SAME 404 page; the API
-//! handler returns the SAME `status_for` 404 JSON envelope.
+//! id (ADR-003 option (b)). The download surface goes one step further: it
+//! resolves the issue from the URL (team, project, number) inside the acting
+//! workspace and reads the attachment with `find_attachment_for_issue`
+//! (`WHERE id AND issue_id`), so an attachment is only served through its own
+//! issue's address. The web handler renders the SAME 404 page; the API handler
+//! returns the SAME `status_for` 404 JSON envelope.
+//!
+//! Colliding prefixes (fix-issue-attachment-scoping RCA T11, RC-1): a key
+//! prefix is unique only within a workspace, so Globex may also own a project
+//! prefixed `ACME`. Marco reaching a Globex-only `ACME-n` through Acme's own
+//! project address — edit pre-fill, edit submit, web move, API move — must be
+//! refused as not found and leave Globex's issue as seeded: the store keys the
+//! issue by the project id the request resolved, never by the prefix.
 //!
 //! Timing (ADR-003): the foreign-id and missing-id paths run the SAME
 //! `WHERE id AND workspace_id` query, sharing a timing profile BY CONSTRUCTION.
@@ -786,6 +796,168 @@ async fn no_issue_changed_state(world: &mut FoundryWorld, _ws: String) {
     assert_eq!(
         before, after,
         "a cross-tenant state change mutated the foreign issue (before={before:?}, after={after:?})"
+    );
+}
+
+// --------------------------------------------------------------------------
+// When / Then — colliding key prefix (RCA T11). Each reach goes through the
+// ACTING workspace's own project address; the issue number exists only in the
+// other tenant's same-prefix project.
+// --------------------------------------------------------------------------
+
+fn note_colliding_reach(world: &mut FoundryWorld, reach: &str, status: StatusCode, body: String) {
+    world
+        .mwt4_colliding_reaches
+        .push((reach.to_string(), status, body));
+}
+
+#[when(
+    regex = r#"^the member opens the edit form of issue (\w+-\d+) through the "([^"]+)" project "([^"]+)" on the web$"#
+)]
+async fn web_edit_form_through_own_project(
+    world: &mut FoundryWorld,
+    key: String,
+    ws: String,
+    project: String,
+) {
+    ensure_harness(world).await;
+    let (team_slug, project_slug) = project_route(world, &ws, &project);
+    let number = issue_number(&key);
+    let (status, body) = web_get(
+        world,
+        &format!("/team/{team_slug}/project/{project_slug}/issues/{number}/edit"),
+    )
+    .await;
+    note_colliding_reach(world, "web edit pre-fill", status, body);
+}
+
+#[when(
+    regex = r#"^the member edits issue (\w+-\d+) through the "([^"]+)" project "([^"]+)" on the web$"#
+)]
+async fn web_edit_through_own_project(
+    world: &mut FoundryWorld,
+    key: String,
+    ws: String,
+    project: String,
+) {
+    ensure_harness(world).await;
+    let (team_slug, project_slug) = project_route(world, &ws, &project);
+    let number = issue_number(&key);
+    let email = web_email(world);
+    let outcome = signed_in_post(
+        world.harness.as_ref().expect("harness"),
+        world.http.as_ref().expect("http"),
+        &email,
+        WEB_PASSWORD,
+        &format!("/team/{team_slug}/project/{project_slug}/issues/{number}/edit"),
+        &[
+            ("title", "Edited through Acme"),
+            ("description", "written through Acme's address"),
+        ],
+    )
+    .await;
+    note_colliding_reach(world, "web edit submit", outcome.status, outcome.body);
+}
+
+#[when(
+    regex = r#"^the member moves issue (\w+-\d+) through the "([^"]+)" project "([^"]+)" on the web$"#
+)]
+async fn web_move_through_own_project(
+    world: &mut FoundryWorld,
+    key: String,
+    ws: String,
+    project: String,
+) {
+    ensure_harness(world).await;
+    let (status, body) = web_state_change(world, &ws, &project, issue_number(&key)).await;
+    note_colliding_reach(world, "web move", status, body);
+}
+
+#[when(
+    regex = r#"^the Acme-bound credential moves issue (\w+-\d+) through the "([^"]+)" project "([^"]+)" over the API$"#
+)]
+async fn api_move_through_own_project(
+    world: &mut FoundryWorld,
+    key: String,
+    ws: String,
+    project: String,
+) {
+    ensure_harness(world).await;
+    let (team_slug, project_slug) = project_route(world, &ws, &project);
+    api_patch_state(world, &team_slug, &project_slug, issue_number(&key)).await;
+    let status = world.mwt_last_status.expect("API move status");
+    let body = world.mwt_last_body.clone().unwrap_or_default();
+    note_colliding_reach(world, "API move", status, body);
+}
+
+#[then(
+    regex = r#"^every reach of (\w+-\d+) through the acting workspace's address is refused as not found$"#
+)]
+async fn colliding_reaches_refused(world: &mut FoundryWorld, key: String) {
+    assert_eq!(
+        world.mwt4_colliding_reaches.len(),
+        4,
+        "expected the edit pre-fill, edit submit, web move and API move reaches: {:?}",
+        world.mwt4_colliding_reaches
+    );
+    let seeded_title = format!("Seeded issue {key}");
+    let leaks: Vec<String> = world
+        .mwt4_colliding_reaches
+        .iter()
+        .filter(|(_, status, body)| {
+            *status != StatusCode::NOT_FOUND || body.contains(&seeded_title)
+        })
+        .map(|(reach, status, body)| {
+            format!(
+                "{reach} -> {status}{}",
+                if body.contains(&seeded_title) {
+                    format!(" echoing {seeded_title:?}")
+                } else {
+                    String::new()
+                }
+            )
+        })
+        .collect();
+    assert!(
+        leaks.is_empty(),
+        "reaching {key} through the acting workspace's own project resolved another tenant's \
+         same-prefix issue instead of refusing it as not found: {leaks:?}"
+    );
+}
+
+#[then(regex = r#"^the "([^"]+)" project "([^"]+)" issue (\w+-\d+) is still as seeded$"#)]
+async fn colliding_issue_unchanged(
+    world: &mut FoundryWorld,
+    ws: String,
+    project: String,
+    key: String,
+) {
+    let workspace_id = *world
+        .mwt_workspace_ids
+        .get(&ws)
+        .unwrap_or_else(|| panic!("workspace {ws:?} not seeded"));
+    let (title, description, state, change_events): (String, Option<String>, String, i64) =
+        sqlx::query_as(
+            "SELECT i.title, i.description_md, i.state,
+                    (SELECT COUNT(*) FROM issue_change_events e WHERE e.issue_id = i.id)
+               FROM issues i JOIN projects p ON p.id = i.project_id
+              WHERE p.workspace_id = $1 AND p.name = $2 AND i.number = $3",
+        )
+        .bind(workspace_id)
+        .bind(&project)
+        .bind(issue_number(&key))
+        .fetch_one(&pool(world))
+        .await
+        .unwrap_or_else(|e| panic!("read {key:?} in {ws:?}/{project:?}: {e}"));
+    assert_eq!(
+        (
+            title.as_str(),
+            description.as_deref().unwrap_or(""),
+            state.as_str(),
+            change_events
+        ),
+        (format!("Seeded issue {key}").as_str(), "", "backlog", 0),
+        "{ws}'s {key} was changed through another workspace's address"
     );
 }
 

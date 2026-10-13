@@ -1121,8 +1121,9 @@ pub struct FoundryWorld {
     /// the Then can assert NONE is a 403 and ALL are 404.
     pub mwt4_refusal_statuses: Vec<StatusCode>,
     /// label -> attachment_id seeded into a NAMED real workspace's issue (the
-    /// foreign attachment-download target — the `find_attachment_for_requester`
-    /// idiom).
+    /// foreign attachment-download target). The download resolves the issue
+    /// from the URL inside the acting workspace, then reads the attachment with
+    /// `find_attachment_for_issue` (`WHERE id AND issue_id`).
     pub mwt4_attachment_id_by_label: HashMap<String, uuid::Uuid>,
     /// Snapshot count of comments in a workspace BEFORE a cross-tenant comment
     /// write, so the Then can assert the foreign workspace gained none.
@@ -1133,6 +1134,10 @@ pub struct FoundryWorld {
     /// Snapshot of a Globex issue's state BEFORE a cross-tenant state-change, so
     /// the Then can assert it is unchanged.
     pub mwt4_foreign_issue_state_before: Option<String>,
+    /// Every reach of a colliding-prefix issue through the acting workspace's
+    /// own address (RCA T11): `(reach, status, body)`, so the Then can assert
+    /// each was refused as not found and echoed none of the other tenant's issue.
+    pub mwt4_colliding_reaches: Vec<(String, StatusCode, String)>,
 
     // ---- Feature "multi-workspace-provisioning" — Slice 5 (migration guarantee) ----
     /// Per-scenario schema name for the pre-feature single-workspace install, so

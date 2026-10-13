@@ -103,6 +103,7 @@ fn source_violations(root: &Path) -> Vec<String> {
     violations.extend(check_team_membership_one_seam(root));
     violations.extend(check_team_name_one_source(root));
     violations.extend(check_team_lifecycle_one_seam(root));
+    violations.extend(check_store_natural_key_scoped(root));
     violations
 }
 
@@ -141,7 +142,7 @@ pub fn run(args: Vec<String>) -> ExitCode {
     let verdict = verdict(&args);
     match &verdict {
         Verdict::Passed => println!(
-            "check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, the lanes position constraint is still DEFERRABLE, no board-*.js registers a keydown listener, nothing outside migration 0017 UPDATEs users.provisioned_at (D9), both publish workflows stamp every image with its commit and the Dockerfile hands it to build.rs (AC-8), every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, no colour literal outside the three stylesheet token regions, the three stylesheet token regions declare the identical colour-token set, the workspace-name refusal copy lives only in foundry-core and no production door calls create_initial_workspace, the project-name refusal copy lives only in foundry-core and no door calls insert_project, no production door calls seed_row_predating_name_rule and no crate but its seam file disables a trigger or sets session_replication_role, the team-name refusal copy lives only in foundry-core, teams and team_lifecycle_events are written only by foundry-store and no door calls create_team_with_lead, rename_team_with_audit or delete_team_if_empty, dependency direction)"
+            "check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, the lanes position constraint is still DEFERRABLE, no board-*.js registers a keydown listener, nothing outside migration 0017 UPDATEs users.provisioned_at (D9), both publish workflows stamp every image with its commit and the Dockerfile hands it to build.rs (AC-8), every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, no colour literal outside the three stylesheet token regions, the three stylesheet token regions declare the identical colour-token set, the workspace-name refusal copy lives only in foundry-core and no production door calls create_initial_workspace, the project-name refusal copy lives only in foundry-core and no door calls insert_project, no production door calls seed_row_predating_name_rule and no crate but its seam file disables a trigger or sets session_replication_role, the team-name refusal copy lives only in foundry-core, teams and team_lifecycle_events are written only by foundry-store and no door calls create_team_with_lead, rename_team_with_audit or delete_team_if_empty, every foundry-store query filtering on key_prefix or a slug also compares workspace_id, team_id or project_id to a bound parameter (store-natural-key-scoped), dependency direction)"
         ),
         Verdict::UnparseableArguments(message) => eprintln!("check-arch: {message}"),
         Verdict::Violations(violations) => {
@@ -3788,7 +3789,7 @@ mod tests {
     /// emits is prefixed with its own name, so a marker absent from the
     /// aggregate's output means that rule is no longer wired into the guard —
     /// the silent-disarm failure this whole block exists for.
-    const LAYER_1_RULE_MARKERS: [&str; 14] = [
+    const LAYER_1_RULE_MARKERS: [&str; 15] = [
         "api≠HTML:",
         "api≠ad-hoc-authz:",
         "api≠mint:",
@@ -3803,6 +3804,7 @@ mod tests {
         "asset-reference:",
         "token-seam S1:",
         "token-seam S2:",
+        "store-natural-key-scoped:",
     ];
 
     /// A tree that breaks every LAYER 1 rule at once. Each fixture body is the
@@ -3859,6 +3861,10 @@ mod tests {
             (
                 "crates/foundry-store/src/reset.rs",
                 "let _ = sqlx::query(\"UPDATE users SET provisioned_at = NULL WHERE id = $1\");\n",
+            ),
+            (
+                "crates/foundry-store/src/natural_key.rs",
+                "let _ = sqlx::query(\"SELECT id FROM projects WHERE key_prefix = $1\");\n",
             ),
         ])
     }
@@ -3921,7 +3927,10 @@ mod tests {
         // on a missing js directory, so the clean tree carries a clean one.
         // And `check_publish_workflows_stamp_the_image` fails closed on missing
         // publish workflows or Dockerfile, so it carries stamping ones.
+        // `check_store_natural_key_scoped` fails closed on a missing
+        // foundry-store src, so it carries a store with no query.
         let clean = stage(&[
+            ("crates/foundry-store/src/lib.rs", "pub struct Store;\n"),
             (
                 "crates/foundry-store/migrations/0015_project_lanes.sql",
                 "CREATE TABLE lanes (\n  UNIQUE (project_id, position) DEFERRABLE INITIALLY IMMEDIATE\n);\n",
@@ -6025,6 +6034,438 @@ mod team_lifecycle_one_seam_tests {
             "ANTI-VACUITY: the services use-case is expected to call the store's create"
         );
         let violations = check_team_lifecycle_one_seam(&root);
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// store-natural-key-scoped (fix-issue-attachment-scoping RC-2)
+// ---------------------------------------------------------------------------
+
+/// The natural keys that are unique only within an owner (`UNIQUE (workspace_id,
+/// key_prefix)`, `UNIQUE (team_id, slug)`, `UNIQUE (project_id, slug)`).
+const NATURAL_KEYS: [&str; 2] = ["key_prefix", "slug"];
+
+/// The owner ids that narrow a natural key to one tenant.
+const SCOPE_COLUMNS: [&str; 3] = ["workspace_id", "team_id", "project_id"];
+
+/// The one crate whose SQL the rule judges: every production query lives there.
+const NATURAL_KEY_STORE_SRC: &str = "crates/foundry-store/src";
+
+/// `store-natural-key-scoped` (RCA RC-2): every `foundry-store` SQL statement
+/// that filters on a natural key (`key_prefix`, `slug`) also compares a scope
+/// column (`workspace_id`, `team_id`, `project_id`) with a bind parameter.
+///
+/// Each Rust string literal is judged on its own — multi-line raw strings
+/// included, `;`-separated statements one at a time. A `format!` or `concat!`
+/// fragment is therefore judged as written: a scope the other fragments might
+/// add is invisible, so the fragment fails closed. Joining on `project_id`
+/// (`ON p.id = i.project_id`) is not a scope: nothing the caller resolved
+/// narrows the rows. A missing `crates/` or store `src`, an unreadable
+/// directory or file fails the rule.
+fn check_store_natural_key_scoped(root: &Path) -> Vec<String> {
+    const WHY: &str = "natural keys are unique only within a workspace, team or project, RCA RC-2";
+    let crates_dir = root.join("crates");
+    if !crates_dir.is_dir() {
+        return vec![format!(
+            "store-natural-key-scoped: cannot list {} — no store query could be checked \
+             for a natural-key filter without a scope column ({WHY}).",
+            crates_dir.display()
+        )];
+    }
+    let (sources, unreadable) = files_under(&root.join(NATURAL_KEY_STORE_SRC), "rs", &|_| false);
+    let mut violations: Vec<String> = unreadable
+        .iter()
+        .map(|dir| {
+            format!(
+                "store-natural-key-scoped: cannot list {} — it could not be checked for a \
+                 natural-key filter without a scope column ({WHY}).",
+                rel(root, dir)
+            )
+        })
+        .collect();
+    for file in &sources {
+        let Ok(contents) = std::fs::read_to_string(file) else {
+            violations.push(format!(
+                "store-natural-key-scoped: cannot read {} ({WHY}).",
+                rel(root, file)
+            ));
+            continue;
+        };
+        for (first_line, sql) in rust_string_literals(&contents) {
+            for (offset, key) in unscoped_natural_key_filters(&sql) {
+                violations.push(format!(
+                    "store-natural-key-scoped: {}:{} filters on {key} without comparing \
+                     workspace_id, team_id or project_id to a bound parameter — {WHY}.",
+                    rel(root, file),
+                    first_line + offset
+                ));
+            }
+        }
+    }
+    violations
+}
+
+/// The 0-based line offsets, within `sql`, of every natural-key filter in a
+/// statement that compares no scope column with a bind parameter, each with the
+/// key it filters on. SQL comments are stripped first.
+fn unscoped_natural_key_filters(sql: &str) -> Vec<(usize, &'static str)> {
+    let code = strip_sql_comments(sql).to_ascii_lowercase();
+    let mut found = Vec::new();
+    let mut statement_start = 0;
+    for statement in code.split(';') {
+        let scoped = SCOPE_COLUMNS
+            .iter()
+            .any(|column| compares_to_parameter(statement, column));
+        for key in NATURAL_KEYS.iter().filter(|_| !scoped) {
+            let mut from = 0;
+            while let Some(at) = find_sql_word(statement, key, from) {
+                from = at + key.len();
+                if is_compared(statement, at, from) {
+                    let offset = code[..statement_start + at].matches('\n').count();
+                    found.push((offset, *key));
+                }
+            }
+        }
+        statement_start += statement.len() + 1;
+    }
+    found.sort_unstable();
+    found.dedup();
+    found
+}
+
+/// The statement text before the column word starting at `start`, with any
+/// `alias.` qualifier and trailing whitespace removed.
+fn before_column(statement: &str, start: usize) -> &str {
+    let text = &statement[..start];
+    let text = match text.strip_suffix('.') {
+        Some(qualified) => {
+            qualified.trim_end_matches(|c: char| c.is_ascii_alphanumeric() || c == '_')
+        }
+        None => text,
+    };
+    text.trim_end()
+}
+
+/// True when `text` ends with the whole SQL word `word` (both lower-case).
+fn ends_with_sql_word(text: &str, word: &str) -> bool {
+    text.len()
+        .checked_sub(word.len())
+        .is_some_and(|at| find_sql_word(text, word, at).is_some())
+}
+
+/// True when `text` ends with a bind parameter (`$1`, `$12`).
+fn ends_with_parameter(text: &str) -> bool {
+    let unnumbered = text.trim_end_matches(|c: char| c.is_ascii_digit());
+    unnumbered.len() < text.len() && unnumbered.ends_with('$')
+}
+
+/// True when `text` starts with a bind parameter (`$1`, `$12`).
+fn starts_with_parameter(text: &str) -> bool {
+    text.strip_prefix('$')
+        .is_some_and(|rest| rest.starts_with(|c: char| c.is_ascii_digit()))
+}
+
+/// True when the column word spanning `start..end` is an operand of a
+/// comparison (`=`, `<>`, `!=`, `<`, `>`, `<=`, `>=` on either side; `IN`,
+/// `LIKE`, `ILIKE`) and not the target of a `SET` assignment.
+fn is_compared(statement: &str, start: usize, end: usize) -> bool {
+    let after = statement[end..].trim_start();
+    let before = before_column(statement, start);
+    let assigned =
+        after.starts_with('=') && (before.ends_with(',') || ends_with_sql_word(before, "set"));
+    if assigned {
+        return false;
+    }
+    let operator_after = after.starts_with(['=', '<', '>', '!'])
+        || ["in", "like", "ilike"]
+            .iter()
+            .any(|word| find_sql_word(after, word, 0) == Some(0));
+    let operator_before = before.ends_with(['=', '<', '>']);
+    operator_after || operator_before
+}
+
+/// True when `column` is compared with a bind parameter somewhere in the
+/// statement: `column = $n`, `$n = column`, `column = ANY($n)` or
+/// `column IN ($n, …)`. A `SET column = $n` assignment does not count.
+fn compares_to_parameter(statement: &str, column: &str) -> bool {
+    let mut from = 0;
+    while let Some(at) = find_sql_word(statement, column, from) {
+        from = at + column.len();
+        if !is_compared(statement, at, from) {
+            continue;
+        }
+        let after = statement[from..].trim_start();
+        let right = match after.strip_prefix('=') {
+            Some(rest) => {
+                let rest = rest.trim_start();
+                rest.strip_prefix("any(").unwrap_or(rest).trim_start()
+            }
+            None if find_sql_word(after, "in", 0) == Some(0) => after["in".len()..]
+                .trim_start()
+                .trim_start_matches('(')
+                .trim_start(),
+            None => "",
+        };
+        let left = before_column(statement, at)
+            .strip_suffix('=')
+            .is_some_and(|rest| ends_with_parameter(rest.trim_end()));
+        if starts_with_parameter(right) || left {
+            return true;
+        }
+    }
+    false
+}
+
+#[cfg(test)]
+mod store_natural_key_scoped_tests {
+    //! Injected-violation gold tests for `store-natural-key-scoped` (RCA RC-2):
+    //! a staged tree, the rule run against it, the violations named by
+    //! `file:line`.
+
+    use super::check_store_natural_key_scoped;
+
+    const STORE_LIB: &str = "crates/foundry-store/src/lib.rs";
+
+    fn stage(files: &[(&str, &str)]) -> tempfile::TempDir {
+        let dir = tempfile::tempdir().expect("tempdir");
+        for (rel_path, body) in files {
+            let path = dir.path().join(rel_path);
+            std::fs::create_dir_all(path.parent().expect("parent")).expect("mkdir");
+            std::fs::write(&path, body).expect("write fixture");
+        }
+        dir
+    }
+
+    /// A store method whose single query is `sql`, opening on line 3.
+    fn store_query(sql: &str) -> String {
+        format!("pub async fn lookup(&self) {{\n    sqlx::query(\n        \"{sql}\",\n    );\n}}\n")
+    }
+
+    fn violations_for(sql: &str) -> Vec<String> {
+        let tree = stage(&[(STORE_LIB, &store_query(sql))]);
+        check_store_natural_key_scoped(tree.path())
+    }
+
+    fn flagged_at(violations: &[String], location: &str) -> bool {
+        violations.iter().any(|v| v.contains(location))
+    }
+
+    // ---- violations ---------------------------------------------------------
+
+    /// The pre-01-01 issue lookup: the join compares `project_id`, but no
+    /// owner id bound by the caller narrows the prefix to one workspace.
+    #[test]
+    fn a_lookup_by_key_prefix_and_number_alone_is_flagged_at_file_and_line() {
+        let violations = violations_for(
+            "SELECT i.id FROM issues i JOIN projects p ON p.id = i.project_id \
+             WHERE p.key_prefix = $1 AND i.number = $2",
+        );
+        assert!(
+            flagged_at(&violations, &format!("{STORE_LIB}:3")),
+            "{violations:?}"
+        );
+        assert!(
+            violations
+                .iter()
+                .all(|v| v.starts_with("store-natural-key-scoped:")),
+            "{violations:?}"
+        );
+        assert!(
+            violations.iter().any(|v| v.contains("key_prefix")),
+            "{violations:?}"
+        );
+    }
+
+    #[test]
+    fn a_lookup_by_slug_alone_is_flagged_at_file_and_line() {
+        let violations = violations_for("SELECT id, name FROM teams WHERE slug = $1");
+        assert!(
+            flagged_at(&violations, &format!("{STORE_LIB}:3")),
+            "{violations:?}"
+        );
+        assert!(
+            violations.iter().any(|v| v.contains("slug")),
+            "{violations:?}"
+        );
+    }
+
+    #[test]
+    fn a_reversed_comparison_on_a_slug_is_still_a_filter() {
+        let violations = violations_for("SELECT id FROM projects WHERE $1 = p.slug");
+        assert!(
+            flagged_at(&violations, &format!("{STORE_LIB}:3")),
+            "{violations:?}"
+        );
+    }
+
+    /// A scope column ASSIGNED is not a scope column filtered on.
+    #[test]
+    fn assigning_a_scope_column_does_not_scope_the_slug_filter() {
+        let violations = violations_for("UPDATE projects SET workspace_id = $1 WHERE slug = $2");
+        assert!(
+            flagged_at(&violations, &format!("{STORE_LIB}:3")),
+            "{violations:?}"
+        );
+    }
+
+    #[test]
+    fn a_case_when_slug_in_an_unscoped_statement_is_flagged() {
+        let violations = violations_for(
+            "UPDATE lanes SET position = CASE WHEN slug = $2 THEN $4 ELSE position END",
+        );
+        assert!(
+            flagged_at(&violations, &format!("{STORE_LIB}:3")),
+            "{violations:?}"
+        );
+    }
+
+    /// The literal opens on line 3; the predicate sits on line 6, and that is
+    /// the line reported.
+    #[test]
+    fn a_violation_inside_a_multi_line_raw_string_is_flagged_on_its_own_line() {
+        let source = "pub async fn lookup(&self) {\n    sqlx::query(\n        r#\"\n            \
+                      SELECT id, name\n              FROM projects\n             WHERE slug = $1\n        \
+                      \"#,\n    );\n}\n";
+        let tree = stage(&[(STORE_LIB, source)]);
+        let violations = check_store_natural_key_scoped(tree.path());
+        assert!(
+            flagged_at(&violations, &format!("{STORE_LIB}:6")),
+            "{violations:?}"
+        );
+    }
+
+    /// The scope a `format!` argument might splice in is invisible to a source
+    /// scan, so the literal is judged as written: it fails closed.
+    #[test]
+    fn a_format_fragment_is_judged_on_its_own_literal_and_fails_closed() {
+        let source = "pub async fn lookup(&self, scope: &str) {\n    let sql = format!(\n        \
+                      \"SELECT id FROM projects WHERE slug = $1 {scope}\"\n    );\n}\n";
+        let tree = stage(&[(STORE_LIB, source)]);
+        let violations = check_store_natural_key_scoped(tree.path());
+        assert!(
+            flagged_at(&violations, &format!("{STORE_LIB}:3")),
+            "{violations:?}"
+        );
+    }
+
+    /// `concat!` joins its literals at compile time, but each literal is judged
+    /// on its own: the scope in the second literal does not rescue the first.
+    #[test]
+    fn a_concat_fragment_is_judged_on_its_own_literal_and_fails_closed() {
+        let source =
+            "const SQL: &str = concat!(\n    \"SELECT id FROM projects WHERE slug = $2\",\n    \
+                      \" AND team_id = $1\",\n);\n";
+        let tree = stage(&[(STORE_LIB, source)]);
+        let violations = check_store_natural_key_scoped(tree.path());
+        assert!(
+            flagged_at(&violations, &format!("{STORE_LIB}:2")),
+            "{violations:?}"
+        );
+    }
+
+    #[test]
+    fn a_missing_crates_directory_fails_the_rule() {
+        let tree = stage(&[("README.md", "nothing here\n")]);
+        let violations = check_store_natural_key_scoped(tree.path());
+        assert!(
+            !violations.is_empty(),
+            "a missing crates directory must FAIL the guard, never pass it vacuously"
+        );
+    }
+
+    // ---- counter-examples ---------------------------------------------------
+
+    #[test]
+    fn a_slug_scoped_by_workspace_id_passes() {
+        let violations =
+            violations_for("SELECT id, name FROM teams WHERE t.workspace_id = $1 AND t.slug = $2");
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+
+    #[test]
+    fn a_slug_scoped_by_team_id_passes() {
+        let violations = violations_for(
+            "SELECT id, name, key_prefix FROM projects WHERE team_id = $1 AND slug = $2",
+        );
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+
+    #[test]
+    fn a_slug_scoped_by_project_id_passes() {
+        let violations =
+            violations_for("SELECT id FROM lanes WHERE project_id = $1 AND slug = $2 FOR UPDATE");
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+
+    #[test]
+    fn a_key_prefix_scoped_by_workspace_id_passes() {
+        let violations =
+            violations_for("SELECT 1 FROM projects WHERE workspace_id = $1 AND key_prefix = $2");
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+
+    /// The shipped lane move (lanes.rs): the slug is compared inside a CASE,
+    /// in a statement scoped by `project_id`.
+    #[test]
+    fn a_case_when_slug_in_a_project_id_scoped_statement_passes() {
+        let violations = violations_for(
+            "UPDATE lanes SET position = CASE WHEN slug = $2 THEN $4 ELSE position END \
+             WHERE project_id = $1",
+        );
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+
+    #[test]
+    fn selecting_or_assigning_a_natural_key_is_not_filtering_on_it() {
+        let violations = violations_for(
+            "SELECT e.id, p.key_prefix, p.slug FROM issue_change_events e \
+             JOIN projects p ON p.id = e.project_id ORDER BY e.id",
+        );
+        assert!(violations.is_empty(), "{violations:?}");
+        let violations = violations_for("UPDATE projects SET slug = $2 WHERE id = $1");
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+
+    #[test]
+    fn sql_outside_foundry_store_src_is_not_this_rules_business() {
+        let unscoped = store_query("SELECT id FROM projects WHERE key_prefix = $1");
+        let tree = stage(&[
+            ("crates/foundry-store/src/lib.rs", "pub struct Store;\n"),
+            ("crates/foundry-app/src/admin_cli.rs", unscoped.as_str()),
+            ("crates/foundry-store/tests/seed.rs", unscoped.as_str()),
+            (
+                "crates/foundry-acceptance/src/steps/seed.rs",
+                unscoped.as_str(),
+            ),
+        ]);
+        let violations = check_store_natural_key_scoped(tree.path());
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+
+    #[test]
+    fn a_commented_out_unscoped_query_is_not_flagged() {
+        let source = "// sqlx::query(\"SELECT id FROM projects WHERE slug = $1\");\n\
+                      pub fn q() -> &'static str {\n    \"SELECT id FROM projects -- WHERE slug = $1\n     \
+                      WHERE id = $1\"\n}\n";
+        let tree = stage(&[(STORE_LIB, source)]);
+        let violations = check_store_natural_key_scoped(tree.path());
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+
+    #[test]
+    fn the_shipped_tree_passes() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("workspace root")
+            .to_path_buf();
+        let lanes = std::fs::read_to_string(root.join("crates/foundry-store/src/lanes.rs"))
+            .expect("store lanes");
+        assert!(
+            lanes.contains("WHEN slug = $2"),
+            "ANTI-VACUITY: the store's lane move is expected to compare a slug in a CASE"
+        );
+        let violations = check_store_natural_key_scoped(&root);
         assert!(violations.is_empty(), "{violations:?}");
     }
 }

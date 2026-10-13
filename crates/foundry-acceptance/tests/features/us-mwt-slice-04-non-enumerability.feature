@@ -37,8 +37,9 @@
 # Refusal-status contract (ADR-003 / OD-MWT-D6, RESOLVED in slices 2-3 and
 # carried here): every CROSS-tenant resource reach is the SAME 404 (web page /
 # API JSON envelope) as a never-existed id — generalising the shipped
-# `find_*_in_workspace → None` idiom (and `find_attachment_for_requester` for
-# the attachment surface). Cross-tenant access NEVER 403s (a 403-vs-404
+# `find_*_in_workspace → None` idiom; the attachment download resolves the issue
+# from the URL inside the acting workspace and reads the attachment with
+# `find_attachment_for_issue` (`WHERE id AND issue_id`). Cross-tenant access NEVER 403s (a 403-vs-404
 # difference is an existence oracle). Intra-workspace authz failures keep their
 # shipped shape (ADR-003 boundary clause) and are OUT of this matrix.
 #
@@ -184,10 +185,11 @@ Feature: Another tenant's existence and resources are invisible from my workspac
     And no attachment was created in "Globex"
 
   # ----------------------------------------------------------------------------
-  # 7. Web attachment DOWNLOAD read — downloading a real Globex attachment (the
-  #    canonical `find_attachment_for_requester` idiom) is refused identically to
-  #    a never-existed attachment id; nothing reveals the Globex attachment is
-  #    real.
+  # 7. Web attachment DOWNLOAD read — downloading a real Globex attachment is
+  #    refused identically to a never-existed attachment id; nothing reveals the
+  #    Globex attachment is real. (The download resolves the issue from the URL
+  #    inside the acting workspace, then `find_attachment_for_issue` reads the
+  #    attachment by `WHERE id AND issue_id`.)
   # ----------------------------------------------------------------------------
   @error
   Scenario: A foreign web attachment-download and a never-existed download are indistinguishable
@@ -270,3 +272,25 @@ Feature: Another tenant's existence and resources are invisible from my workspac
     When the member probes the "Globex" issue GLOBEX-1 in project "Core" across the web and the API
     Then no cross-tenant refusal in this scenario is a 403
     And every cross-tenant refusal in this scenario is a non-enumerable 404
+
+  # ----------------------------------------------------------------------------
+  # 13. COLLIDING KEY PREFIX (fix-issue-attachment-scoping RCA T11, RC-1). A key
+  #     prefix is unique only within a workspace, so Globex may also own a
+  #     project prefixed ACME. ACME-3 exists only in Globex's project. Marco
+  #     reaching ACME-3 through Acme's OWN project address — edit pre-fill, edit
+  #     submit, web move, API move — is refused as not found, and Globex's ACME-3
+  #     is left exactly as seeded. Before the store keyed these lookups by the
+  #     resolved project id, each reach landed on Globex's issue.
+  # ----------------------------------------------------------------------------
+  @error
+  Scenario: Marco editing or moving ACME-n through Acme's own address never touches Globex's ACME-n
+    Given "Globex" has a member "lucia@globex.com" in team "Platform" with project "Mirror" prefix "ACME"
+    And the "Globex" project "Mirror" has issues ACME-3 and ACME-4
+    And "marco@acme.com" is signed in on the web acting on workspace "Acme"
+    And a machine credential is bound to "marco@acme.com" in workspace "Acme"
+    When the member opens the edit form of issue ACME-3 through the "Acme" project "Auth" on the web
+    And the member edits issue ACME-3 through the "Acme" project "Auth" on the web
+    And the member moves issue ACME-3 through the "Acme" project "Auth" on the web
+    And the Acme-bound credential moves issue ACME-3 through the "Acme" project "Auth" over the API
+    Then every reach of ACME-3 through the acting workspace's address is refused as not found
+    And the "Globex" project "Mirror" issue ACME-3 is still as seeded
