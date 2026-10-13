@@ -1786,3 +1786,307 @@ review ran on 2026-10-13. Approval status: **approved** (iteration-3 re-check, 2
   after it: two ADR-002 sentences (the `Ok(false)` read, exit 4 is new), two stale line citations,
   the DISCUSS OQ "pending" line, a DISTILL pointer on US-PL-01 AC 1, and the natural-key rule
   worded as stricter than the shipped check. DISTILL may start.
+
+## Wave: DEVOPS
+
+Platform architect: Apex (nw-platform-architect) | Date: 2026-10-13 | Density: lean, Tier-1
+[REF] only, `ask-intelligent` | Documentation only: no code, no pipeline file, no manifest
+changes. Decisions 1-9 are **carried forward, not re-asked**. Per-wave review skipped: no new
+deploy target, CI framework, observability rewrite or security change.
+
+### [REF] Prior Wave Consultation
+
+| Source | Read | What it settled for DEVOPS |
+|---|---|---|
+| This file, DISCUSS (D-A..D17, OQ-1..6, INV-PL-1..9, NFR-PL-1..6, PL-KPI-1..7, DoD 1-10, slice release rule) | ✓ | KPIs drive *Monitoring contracts*; DoD 7-9 set the gates, dogfoods and upgrade duty |
+| This file, DESIGN (DDD-1..32, Data Model and Migration Plan, Quality Attributes, Changed Assumptions 1-5, Handoff → DEVOPS, Design Review approved) | ✓ | Migrations 0025-0027, DDD-28 probe, DDD-29 warnings and window, DDD-22 rules, Test Seams |
+| `slices/slice-01..04-*.md` | ✓ | Per-slice dogfood on dev; slice 02 "Release rule" |
+| `adr-project-lifecycle-001..004` | ✓ | 001/004 "Negative: rolling deploy" and rollback floor; 003 `UPGRADE_WARNING_0025`; 004 decision 5 (0027 is `ALTER`-only) |
+| `brief.md` (Projects: one live view, soft delete and restore) | ✓ | Deployment topology unchanged; `brief.md` not edited |
+| `docs/product/kpi-contracts.yaml` (`team-lifecycle:` :444, house shape) | ✓ | `project-lifecycle:` appended by this wave (DISCUSS deferred it to DISTILL; DEVOPS runs first) |
+| `docs/product/jobs.yaml` (`job-project-lifecycle` :916) | ✓ | The job id used in the SSOT entry |
+| `docs/product/outcomes/registry.yaml` | ✓ | No row yet; DISTILL adds them (OQ-D2). Not edited here |
+| `docs/feature/team-lifecycle/feature-delta.md` (DESIGN Handoff → DEVOPS, DISTILL review, DELIVER mutation) | ✓ | Precedent: probe line per table, `UPGRADE_WARNING_0023`, SQL hand tables, waiver W2 (`Store::migrate` smoke-only). It ran no DEVOPS wave |
+| `docs/evolution/2026-10-13-fix-issue-attachment-scoping.md`, `CHANGELOG.md` v0.14.0/v0.14.1 | ✓ | Shipped in v0.14.1 (excluded from these notes); one workspace per environment at release; check-arch mutation 118/119 |
+| `docs/feature/card-drag-drop-feedback/feature-delta.md` DEVOPS | ✓ | Section shape |
+| `discuss/`, `design/`, `devops/` sub-directories | ⊘ | Lean layout; everything is in this file |
+| Platform sources (below) | ✓ | Re-read 2026-10-13 |
+
+Platform facts re-verified against the tree:
+- `crates/foundry-store/migrations/` ends at `0024_team_name_rule.sql`: **0025, 0026 and 0027 are free.**
+- `.github/workflows/ci.yml:22-26` (push and PR to `main`), `:71` (`FOUNDRY_XTASK_INCLUDE_DOCKER: "1"`), `:96-97` (`cargo run -q -p xtask -- ci`).
+- `.github/workflows/release.yml:30-33` (`main` → `:main`, `:sha-*`; `v*.*.*` → `:X.Y.Z`, `:X.Y`, `:latest`).
+- `xtask/src/main.rs:79-102` (Docker auto-detect, stderr note on skip), `:217-228` (acceptance step only when Docker is included, `FOUNDRY_ACCEPTANCE_TAGS=all`).
+- `deploy/k8s/foundry-deployment.yaml:24-31` (3 replicas, `RollingUpdate`, `maxSurge: 1`, `maxUnavailable: 0`), `:72-91` (liveness `/healthz`, readiness `/readyz`).
+- Live instances: `canzan-infrastructure/argocd/apps/foundry/values.yaml:3-8` (**`replicas: 1`**, same `RollingUpdate` 1/0), `:11` (`terminationGracePeriodSeconds: 25`); release tags roll out via Image Updater (homelab `infrastructure/modules/foundry/main.tf:6-9`).
+- `crates/foundry-store/src/lib.rs:195-219` (`Store::migrate`: advisory lock, then `upgrade_warnings` logged once at `warn`); `:225-357` (`Store::probe`, every check scoped to `current_schema()`; the 0023 line is `:337-354`); `:3865-3915` (`run_migrator_timed`: walks the binary's own migrations, refuses a checksum mismatch at `:3898`, **ignores applied versions it does not know**).
+- `crates/foundry-store/src/upgrade_warnings.rs:26-43` (`UPGRADE_WARNING_0023`; warn only when this boot applied 23 on top of earlier versions).
+
+**Contradiction check: none with DESIGN.** Two prior-wave statements are refined (see
+*[REF] Changed Assumptions*).
+
+### [REF] Decisions 1-9 (carried forward)
+
+| # | Decision | Value | Carried forward from |
+|---|---|---|---|
+| 1 | Deployment target | **On-premise homelab Kubernetes.** dev `foundry.unintelligent-design.us`, prod `foundry.jeffbailey.us` | card-drag-drop-feedback DEVOPS; `foundry-devops` plan |
+| 2 | Orchestration | **Kubernetes, plain YAML** in `deploy/k8s/` (no Helm/Kustomize, ADR-102); the live instances are delivered by Argo CD from `canzan-infrastructure` | `deploy/k8s/`; `canzan-infrastructure/argocd/apps/foundry` |
+| 3 | CI/CD | **GitHub Actions** `ci.yml` runs one command, `cargo xtask ci`; **Forgejo** mirror runs split jobs | `ci.yml:22-26,71,96-97`; `.forgejo/workflows/ci.yml` |
+| 4 | Existing infrastructure | **Yes.** This feature changes none of it | DESIGN Driven Ports ("no new external integration") |
+| 5 | Observability | **Prometheus + Grafana, Loki logs**, unchanged; no new signal | card-drag-drop-feedback DEVOPS |
+| 6 | Deployment strategy | **Rolling** (`RollingUpdate`, `maxSurge: 1`, `maxUnavailable: 0`). Rollback is revert + the next tag | `foundry-deployment.yaml:24-31`; live `values.yaml:3-8` |
+| 7 | Continuous learning | **No** flags, A/B or canary analysis | `foundry-devops` plan (ADR-104) |
+| 8 | Branching | **Trunk-based on `main`**; commits stay local until the user says push; tags only on the user's go | `ci.yml:22-26`; `release.yml:30-33`; user rule |
+| 9 | Mutation testing | **Per-feature, ≥80%** on modified files (`CLAUDE.md`, not rewritten) | Project `CLAUDE.md` `## Mutation Testing Strategy` |
+
+### [REF] Environment matrix
+
+| Environment | Where | What of this feature runs there | Preconditions |
+|---|---|---|---|
+| `store-gold` | `cargo test -p foundry-store --release --test project_lifecycle --test team_delete --test project_lifecycle_migrations --test probe_schema_scoping` (file names per DESIGN Test Seams; `project_lifecycle_migrations` follows the `team_lifecycle_migrations.rs` idiom, DISTILL pins it) | View parity, guard, both 100-run races, negative controls, restore equality, shape CHECKs, migrations additive over seeded rows, probe refusals, upgrade warnings | Docker (testcontainers `postgres:16`). P1, P5 |
+| `use-case` | `cargo test -p foundry-services --release --test rename_project_use_case --test project_lifecycle_use_cases` (second name proposed; DISTILL pins) | Both rename gates on one core, delete preview, restore outcomes, team delete preview | Docker |
+| `check-arch` | `cargo xtask check-arch` and `cargo test -p xtask` | Rules 1-3 (DDD-22) and their injected-violation gold tests; `store-natural-key-scoped` | none |
+| `default` lane | `FOUNDRY_ACCEPTANCE_TAGS=project-lifecycle` (per slice `pl-01`..`pl-04`, proposed after team-lifecycle's `tl-0N`; DISTILL pins) `cargo test -p foundry-acceptance --release --test acceptance` | Authz matrix, differential inventory outline, before/after counts, CLI exits through the prebuilt `foundry`, HTTP races. Plus the neighbour lanes of DoD 1 | Docker; **P2 warm binary** for every CLI scenario; P3, P5 |
+| `browser-lane` | — | **Not needed.** NFR-PL-3 (scripting disabled) holds by construction: plain forms over HTTP, as team-lifecycle recorded | — |
+| `ci-github` | `ci.yml`, `cargo xtask ci` with Docker forced on | Everything above, plus `FOUNDRY_ACCEPTANCE_TAGS=all`. **The authoritative gate** | Push (user's go only) |
+| `ci-forgejo` | `.forgejo/workflows/ci.yml` split jobs | Lint, build, tests; not a KPI gate (carried-forward caveat) | Mirror |
+| `dev` | `foundry.unintelligent-design.us` | Slice dogfoods (DoD 8); read-only counts; the rollout itself | A **release tag** (Image Updater rolls it out in about 10-20 min) |
+| `prod` | `foundry.jeffbailey.us` | Nothing measured beyond read-only counts and the operator report | Promoted by the user: `scripts/gitops-promote.sh --yes foundry` in the homelab repo on the mac mini |
+
+### [REF] CI/CD pipeline outline
+
+Unchanged. `cargo xtask ci` is the gate and CI runs exactly that. Stages that bear on this
+feature: **check-arch** (rules 1-3 from slices 01/02), **`cargo test --workspace`** (store gold
+tests, use-case tests, xtask gold tests), **acceptance `all`** (only when Docker is included,
+`main.rs:217-228`).
+
+| When | Command | Runs this feature? |
+|---|---|---|
+| DELIVER edit loop | `FOUNDRY_ACCEPTANCE_TAGS=pl-0N cargo test -p foundry-acceptance --release --test acceptance`; the store and use-case tests above | That slice |
+| Pre-commit | `cargo xtask smoke` and `cargo xtask check-arch` (DoD 7) | Rules 1-3, unit and store tests |
+| Pre-push | `FOUNDRY_XTASK_INCLUDE_DOCKER=1 cargo xtask ci`, in the background, bounded by `timeout` | Everything |
+| Push to `main` (user's go) | GitHub `ci.yml`; `release.yml` publishes `:main`/`:sha-*` | Authoritative verdict; **no deploy** |
+| Tag `v*.*.*` (user's go) | `release.yml` (GHCR) and Forgejo `build-and-publish.yml` (zot); Image Updater rolls dev | n/a |
+| Promote prod (user) | `scripts/gitops-promote.sh --yes foundry` | n/a |
+
+No pipeline file changes.
+
+### [REF] Release gates
+
+| Gate | Rule | Checked how |
+|---|---|---|
+| R1 **02 travels with 03** (DISCUSS release rule) | No tag whose tree holds `0026_project_soft_delete.sql` unless it also holds `foundry doctor restore-project` and `pl-03` is green. Slices 02 and 03 are also **pushed together**, so even an untagged `main` never offers a delete without a restore | `git ls-tree <tag> crates/foundry-store/migrations/` plus the `main.rs` dispatch before the user tags |
+| R2 Slice order | 0027 (slice 04) ships with or after 0026; slice 01 may ship alone | Migration numbers are sequential |
+| R3 Migration notes | Every migration in the tag has a CHANGELOG migration note (below) | Review of `[Unreleased]` before the tag |
+| R4 OQ-D4 count | The projects-per-workspace count on dev and prod is taken **before the tag carrying 0026** and written into its CHANGELOG note | See *Pre-requisites* P7 |
+| R5 Full gate | `FOUNDRY_XTASK_INCLUDE_DOCKER=1 cargo xtask ci` green in one run, with the acceptance step **run**, not skipped | The step appears in the run log |
+| R6 Frozen once deployed | After a tag carrying 0025, 0026 or 0027 reaches dev, that file never changes: a changed checksum refuses boot (`lib.rs:3898`) | Review; until a tag is cut the files are still editable |
+
+Packaging (one release for all four slices, or slice 01 first and 02+03(+04) later) is the
+user's call; both satisfy R1-R6.
+
+### [REF] Deployment strategy
+
+**Rollback first.** All three migrations are forward-only; there are no down files and no
+hand-reverted schema. Rollback is a code revert plus the next tag (or re-promoting the previous
+tag in Argo CD). It works because `run_migrator_timed` ignores applied versions it does not know
+(`lib.rs:3865-3915`), and an older binary's `Store::probe` checks only the objects it knows, so
+an older image boots and goes Ready on the newer schema.
+
+| Migration | Forward (new binary) | Revert the code onto a migrated DB | Boot refusal |
+|---|---|---|---|
+| 0025 `project_lifecycle_events` (slice 01) | Additive table; old replicas never write it | Table stays, unused. Renames by the older binary write no record (a gap in the record, nothing lost). Roll-forward finds 0025 already applied | Probe requires the table's columns (slice 01). Missing → `/readyz` 503 → the surge pod never goes Ready, `maxUnavailable: 0` keeps the old pod serving: **the rollout stalls, it does not serve 500s** |
+| 0026 soft-delete marker + `live_projects` (slice 02) | Two nullable columns, a CHECK, the view | Deleted projects are **visible again** on the older binary (nothing lost). Its writes into them land and stay hidden after roll-forward, because the marker is kept. Restore waits for roll-forward | Probe requires `deleted_at`, `deleted_by` and the view (slice 02). The migration self-checks view parity; a failed self-check fails the migration and the boot |
+| 0027 detach (slice 04) | `team_id DROP NOT NULL`, `detached_from_team_id`, CHECK, view recreated | A pre-04 binary refuses more team deletes (it counts deleted projects: stricter, never lossy). Detached projects stay unreachable (its listings join `teams`); only a hand-typed id on the instance rename POST reaches a NULL `team_id` and answers 500 (ADR-PROJECT-LIFECYCLE-004) | Probe requires `detached_from_team_id` (slice 04) |
+
+**The rolling-deploy window (DESIGN Changed Assumption 4): no deploy-side mitigation.** The live
+instances run **one replica** with `maxSurge: 1`, `maxUnavailable: 0` (`values.yaml:3-8`). The
+mixed-version window is from the moment the surge pod's migrations commit until the old pod has
+drained (readiness every 5 s, `terminationGracePeriodSeconds: 25`): well under a minute. One
+operator (the user) triggers prod and is the only one who deletes or renames projects in practice.
+"The old replica" is whatever ran before the tag carrying 0026, which may be v0.14.1 or a slice-01
+release. Rejected:
+- **`Recreate` or a maintenance window:** downtime, and a change in another repo, for a window the
+  operator can simply avoid.
+- **Expand/contract** (ship 0026 and the reader sweep in one release, the delete door in the next):
+  one extra release cycle, against an exception that loses nothing.
+- **A feature flag on the delete door:** Decision 7, and a second code path.
+
+The CHANGELOG note is the mitigation: *do not delete or rename projects while this release rolls
+out, and check the footer version on both hosts before you do*.
+
+**Verify each rollout** (dev after the tag, prod after promotion): `/sign-in` footer reads the new
+`vX.Y.Z` on that host; `/readyz` 200; the pod log shows each expected `UPGRADE_WARNING_*` once;
+read-only `SELECT version FROM _sqlx_migrations ORDER BY version DESC LIMIT 3` shows the expected
+versions; then the slice dogfoods (DoD 8).
+
+### [REF] Migrations, probe and upgrade warnings
+
+| Slice | Migration | Probe delta (scoped to `current_schema()`, like `lib.rs:337-354`) | Upgrade warning |
+|---|---|---|---|
+| 01 | 0025 | `project_lifecycle_events`: its 11 columns | **`UPGRADE_WARNING_0025`**: new FKs to `workspaces` and `users`, so a pre-0025 dump cannot be `pg_restore --clean`ed over the database |
+| 02 | 0026 | `projects.deleted_at`, `projects.deleted_by`, and the `live_projects` view exists | **`UPGRADE_WARNING_0026`**: the view depends on `projects` and `deleted_by` references `users`, so a pre-0026 dump cannot be `--clean`ed over it |
+| 03 | none | none (the `restored` kind is in 0025's CHECK) | none |
+| 04 | 0027 | `projects.detached_from_team_id` | **None.** 0027 adds no foreign key and no new dependent object; the view it recreates already existed. A dump taken after 0026 still `--clean`-restores (it drops and recreates the view itself), and the next boot re-applies 0027 |
+
+`upgrade_warnings` (`upgrade_warnings.rs:36-43`) generalises from one version to a list, one entry
+per warned version that this boot applied on top of earlier ones. A boot that upgrades v0.14.1
+straight to a release with 0025 and 0026 logs both, in version order. A fresh install logs none.
+The pin is the migrations test, as for 0023.
+
+### [REF] CHANGELOG notes (for the release or releases carrying this feature)
+
+Each line goes under `[Unreleased]` in the slice that makes it true. Exclude the key-prefix lookups
+(DDD-5), the attachment download (DDD-32) and the comment scoping: released in v0.14.1.
+
+- **Added (01):** rename a project from its team's members page (lead or workspace admin); the slug,
+  key and every link stay; each effective rename, on either door, writes one `project_lifecycle_events` row.
+- **Added (02+03):** delete a project through a confirm page (soft delete: nothing erased);
+  `foundry doctor list-deleted-projects` and `foundry doctor restore-project <uuid>` (exit 0/2/3/4).
+- **Changed (02):** a deleted project's every web and API address answers like one that never
+  existed (the events route keeps its shipped 403 for unknown projects); `restore-comment` on a
+  comment inside a deleted project exits 4 with the reason; a deleted project's name, slug and key
+  stay taken.
+- **Changed (04):** a team whose projects are all deleted can be deleted; its deleted projects are
+  kept, detached, and cannot be restored.
+- **Migration notes:** 0025, 0026, 0027, each with what it adds, "additive" and its self-check, as
+  the v0.14.0 0023 note does.
+- **Upgrading:** do not delete or rename projects while the release rolls out (old pod still serving).
+- **Backups:** a whole-instance dump taken before 0025 (or before 0026) no longer restores with
+  `pg_restore --clean` over the upgraded database. Restore it into a fresh, empty database and boot
+  foundry against it, which applies the newer migrations. Dumps taken after the upgrade restore normally.
+- **OQ-D4:** "At release, dev had N projects in M workspaces and prod N' in M'" (from R4).
+- **Rollback:** an older release runs on the new schema; deleted projects become visible again until
+  you upgrade back; nothing is lost.
+
+### [REF] Monitoring contracts
+
+No runtime telemetry (homelab; DISCUSS "not analytics"). Each KPI is measured by an acceptance
+oracle, a store gold test, a read-only query or the operator's report. "Alert" means the gate goes
+red. SSOT: `docs/product/kpi-contracts.yaml` `project-lifecycle:`.
+
+| KPI | Target | Pre-release instrument | Post-deploy instrument | Owed until deploy |
+|---|---|---|---|---|
+| PL-KPI-1 north star | 0 rename requests to an instance admin; 0 hand-written `UPDATE`/`DELETE` on `projects` | `pl-01`/`pl-02` happy-path scenarios (the door works for a lead and an admin) | Operator report at each dogfood and at 30 days; read-only `SELECT kind, count(*) FROM project_lifecycle_events GROUP BY kind` per environment | Yes: all of it |
+| PL-KPI-2 nothing erased | 0 rows removed or changed (tombstone carve-out, Changed Assumption 3); counts equal after restore | Store: delete checksum snapshot, restore equality, both races; acceptance before/after counts | Read-only counts around the slice-02, -03 and -04 dogfoods on dev | Dogfood counts |
+| PL-KPI-3 answers nowhere | 100% of the inventory (about 23 web + 7 API) differential-equal | Acceptance differential outline + direct attachment assertion; check-arch rule 1 gold tests | Slice-02 dogfood: board, issue link and an API call on dev | Dogfood |
+| PL-KPI-4 refusals learn nothing | 100% byte-identical 404s, 0 rows written | Acceptance authz outline with row counts | — | No |
+| PL-KPI-5 links kept | 100% same status after rename and after delete→restore | Acceptance rename and restore scenarios | Slice-01 and -03 dogfoods: an old bookmark | Dogfood |
+| PL-KPI-6 restore demand | Counted; > 2 in 30 days is evidence for a web restore | `pl-03` CLI scenarios (door works) | Read-only `count(*) … WHERE kind = 'restored'` on prod at 30 days, plus the operator report | Yes |
+| PL-KPI-7 retired teams deletable | 0 TL-KPI-5 refusals caused only by deleted projects | Store `team_delete.rs` (detach, mixed team, 100-run race); `pl-04` scenarios | Slice-04 dogfood on dev; operator report | Dogfood, report |
+
+Deploy-time signal (existing, no change): `migration_apply_duration_seconds{migration_id}`
+(`lib.rs:52`) records 0025-0027 as they apply. The one new error log is DDD-30's detach backstop
+(23514 `projects_team_or_detached`); it means a broken invariant and is found in Loki, with no alert added.
+
+### [REF] Mutation testing strategy
+
+**Per-feature, ≥80% kill rate on modified files** (`CLAUDE.md`). Per slice, after its refactor:
+
+1. **cargo-mutants (25.3.1) on modified Rust:** `git diff <slice-base> > "$SCRATCH/slice.diff"`, then
+   `timeout 4h cargo mutants -j 1 --in-diff "$SCRATCH/slice.diff"` (or `--file <path>` for one
+   file). Use `-j 1`: the store tests start testcontainers, and parallel jobs collide on ports.
+   Expected scope: store `project_lifecycle.rs`, `lib.rs`, `lanes.rs`, `attachments.rs`, `teams.rs`,
+   `upgrade_warnings.rs`; services `projects.rs`, `teams.rs`; app `teams.rs`, `admin_cli.rs`,
+   `views.rs`. Rebuild and warm the binary first when the acceptance lane is the oracle (P2).
+2. **check-arch:** `cargo mutants -j 1 --file xtask/src/check_arch.rs --in-diff …` against the rule 1
+   and rule 2 gold tests (and rule 3's). Precedent: fix-issue-attachment-scoping scored 118/119 on
+   its check-arch rule (the survivor was equivalent).
+3. **SQL hand table** (cargo-mutants cannot see SQL; team-lifecycle's precedent). Each seeded fault
+   must turn a named store or acceptance test red: the view without `deleted_at IS NULL`; one writer
+   without `lock_live_project`; delete with `FOR NO KEY UPDATE`; restore without the team
+   `KEY SHARE`; the detach with a `deleted_at` filter; a dropped lifecycle record; siblings
+   without deleted rows; the counter `UPDATE projects` instead of `live_projects`; 0026 without its
+   parity self-check. Gate: every non-equivalent fault killed.
+4. **Waiver precedent:** `Store::migrate` stays smoke-only (team-lifecycle W2); `upgrade_warnings`
+   itself is in scope.
+
+A survivor is a test gap fixed in the slice, not argued away. A timeout or a connect failure is not
+a kill (P5).
+
+### [REF] Observability stack
+
+Carried forward and unchanged. Logs: foundry → Loki (the homelab ServiceMonitor and
+kube-prometheus-stack scrape `:9090`). Traces: none. Refusals and race outcomes log nothing
+(DDD-30). No dashboard, alert or metric is added.
+
+### [REF] Branching strategy
+
+Trunk-based on `main`. DELIVER commits locally; nothing is pushed until the user says push, and no
+tag is cut until the user says so. Pre-commit `cargo xtask smoke` + `check-arch`; pre-push
+`FOUNDRY_XTASK_INCLUDE_DOCKER=1 cargo xtask ci`. Slices 02 and 03 are pushed together (R1).
+
+### [REF] Coexistence matrix
+
+| Must keep working | Held by |
+|---|---|
+| team-lifecycle delete refusal while a **live** project exists (409 at commit, live-only after slice 04) | `team-lifecycle-02-delete-team.feature` (OUT-25 amended at slice 04); store `team_delete.rs` delete-versus-create race stays green |
+| v0.14.1 scoping: issues by `project_id`, attachments by issue, comments by issue; `store-natural-key-scoped` | `comment_attachment_issue_scoping.rs` (store), `attachment_scoping.rs`, `comment_scoping.rs`, `api_comment_scoping.rs`, `keyboard_scoping.rs` (app); check-arch, which every new `live_projects` query must pass |
+| Instance-admin project rename (now through the shared core, plus a record) | `instance-admin-project-rename.feature`; `rename_project_use_case.rs`; deleted id → uniform 404 |
+| `foundry doctor restore-comment` exits 0/2/3/4 | `comment-tombstone-gc.feature`; the new deleted-project reason is exit 4 |
+| Backup export and verify | `us-per-workspace-backup.feature`, `us-03-backup-restore.feature`, `backup_verify_fail_closed.rs`; export carries the marker (DDD-31); `KNOWN_FOUNDRY_TABLES` skips tables a dump lacks |
+| SSE events route answers its shipped 403 text/plain for an unknown project | `events.rs:99-102,156-163`; `us-09-realtime-sse.feature`; the differential outline (Changed Assumption 1) |
+| Project create and the name rule, case-insensitive across deleted siblings | `us-07-project-create.feature`, `project-name-rule.feature` |
+| Probe scoping to `current_schema()` | `probe_schema_scoping.rs` |
+
+### [REF] Pre-requisites
+
+- **P1 Docker included, never auto-detected.** Without `FOUNDRY_XTASK_INCLUDE_DOCKER=1`, `cargo xtask ci` skips the whole acceptance step with a stderr note and exits green (`main.rs:79-102,217-228`).
+- **P2 Warm binary.** CLI scenarios (`list-deleted-projects`, `restore-project`, `restore-comment`) run the prebuilt `foundry` from `assert_cmd::cargo_bin`, which the lane never rebuilds. Build it in the lane's profile: `CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false cargo build --release -p foundry-app --bin foundry`, then run `target/release/foundry` 2-3 times until `/usr/bin/time -p` shows `real 0.00` (macOS syspolicyd). Run the lane alone.
+- **P3 Bound every run** with `timeout`, and check for another foundry session (lanes, Docker, git) before you start.
+- **P4 Migrations stay editable only until a tag carrying them reaches dev** (R6). Local databases with an earlier draft applied need a fresh testcontainer, which every lane already uses.
+- **P5 Port collisions.** `SSLRequest 0x48`, `PortNotExposed` or `PoolTimedOut` in untouched tests usually mean canzan-lift acceptance holds 55xxx ports: `lsof -nP -iTCP -sTCP:LISTEN | grep acceptanc` before blaming Docker.
+- **P6 Scratch data on dev** for the dogfoods: a scratch project and a scratch team, made with the shipped doors.
+- **P7 Read-only counts (OQ-D4, and the PL-KPI-7 baseline),** each **on the user's approval**, before the tag carrying 0026:
+  `kubectl -n databases exec -i pg-1 -c postgres -- psql -d foundry -At` with
+  `BEGIN READ ONLY; SELECT w.name, count(p.id), count(DISTINCT p.team_id) FROM workspaces w LEFT JOIN projects p ON p.workspace_id = w.id GROUP BY w.name ORDER BY w.name; COMMIT;`
+  For prod, run it over `ssh` to the mac mini with `/opt/homebrew/bin` on `PATH`. For dev, use the dev cluster's context, and confirm the database pod name there first. Print counts only; never print a Secret or Terraform state. Re-count shared key prefixes only if a second workspace now exists (DESIGN OQ-D4).
+
+### [REF] Changed Assumptions
+
+1. **Replica count in the rolling-deploy window.** DESIGN Quality Attributes and ADR-PROJECT-LIFECYCLE-001 say:
+   > Until the last v0.14.x replica is replaced …
+
+   implying the multi-replica `deploy/k8s/` topology (3 replicas). **New:** the live dev and prod
+   instances run `replicas: 1`, surge 1, unavailable 0 (`canzan-infrastructure/argocd/apps/foundry/values.yaml:3-8`),
+   so the window is one surge pod's overlap, well under a minute. The "old replica" is the build
+   before the tag carrying 0026, which may be a slice-01 release rather than v0.14.x. The exception
+   itself is unchanged, and so is the CHANGELOG line. This is why no deploy-side mitigation is
+   added.
+2. **Rollback floor.** DESIGN: "v0.14.0 runs on the new schema". **New:** that holds for every
+   earlier release, because `run_migrator_timed` ignores unknown applied versions (`lib.rs:3865-3915`).
+   The practical floor is the tag that ran before (v0.14.1 today).
+
+Neither change touches architecture, so `upstream-changes.md` is not written.
+
+### [REF] Wave Decisions
+
+**Key decisions:**
+- [DEVOPS-1] Decisions 1-9 carried forward unchanged; nothing re-asked.
+- [DEVOPS-2] Migrations 0025/0026/0027 confirmed free; forward-only. The probe refuses readiness without each slice's objects, so a bad rollout stalls rather than serving errors.
+- [DEVOPS-3] `UPGRADE_WARNING_0025` and `_0026`; **none for 0027**.
+- [DEVOPS-4] No deploy-side mitigation for the rolling window (one replica, one operator); the CHANGELOG note is the mitigation.
+- [DEVOPS-5] Release gates R1-R6. R1: slice 02 is neither tagged nor pushed without 03.
+- [DEVOPS-6] KPIs are verified by acceptance oracles, store gold tests, read-only queries and the operator's report, with no runtime telemetry. The dev/prod halves are owed until deploy.
+- [DEVOPS-7] Mutation: cargo-mutants `-j 1 --in-diff` on modified Rust, check-arch gold tests, and an SQL hand table; ≥80%.
+
+**Infrastructure summary:** self-hosted k8s, rolling 1/0 (live `replicas: 1`); GitHub Actions
+`cargo xtask ci` (Forgejo mirror); dev rolls release tags, prod promoted by the user; Prometheus +
+Grafana + Loki unchanged.
+
+**Constraints established:** pre-push is `FOUNDRY_XTASK_INCLUDE_DOCKER=1 cargo xtask ci` with the
+acceptance step actually run. A tagged migration file is frozen. CLI lanes need a rebuilt, warm
+binary. Read-only production queries are run only with the user's approval.
+
+**Upstream changes:** none to DESIGN; two statements refined (Changed Assumptions).
+
+### [REF] Triggered suggestions (`ask-intelligent`)
+
+| Trigger | Fired | Suggested expansion |
+|---|---|---|
+| KPIs with no automated post-deploy instrument (PL-KPI-1, -6, -7) | ✓ | `kpi-instrumentation-recipes`: the read-only queries as a saved script |
+| Known lane failure modes (P1, P2, P5) | ✓ | `runbook-drafts`: triage for a red store or CLI lane |
+| Rollout of three schema migrations | ✓ | `runbook-drafts`: an upgrade/rollback checklist per release |
+| Cost, DR, new pipeline YAML, deep observability | ✗ | No infrastructure change |
+
+Not rendered (lean).
