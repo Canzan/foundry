@@ -2579,7 +2579,8 @@ impl Store {
     /// so the caller resolves the issue from the URL (team, project, number)
     /// first and a comment is only ever served through its own issue's
     /// address (fix-issue-attachment-scoping, RCA §4 sibling). `deleted`
-    /// carries the 410 Gone decision exactly as `find_comment_by_id` does.
+    /// carries the 410 Gone decision (ADR-008): the caller answers 404 on
+    /// `None`, 410 on `deleted`, and otherwise proceeds to its authz check.
     pub async fn find_comment_for_issue(
         &self,
         comment_id: uuid::Uuid,
@@ -2598,47 +2599,6 @@ impl Store {
         )
         .bind(comment_id)
         .bind(issue_id)
-        .fetch_optional(&self.pool)
-        .await?;
-        Ok(row.map(
-            |(id, issue_id, author_id, body_markdown, deleted_at)| CommentLookupRow {
-                id,
-                issue_id,
-                author_id,
-                body_markdown,
-                deleted: deleted_at.is_some(),
-            },
-        ))
-    }
-
-    /// Look up a comment by id within a workspace, including soft-deleted
-    /// rows. Returns `None` when no row exists (the handler maps this to
-    /// 404), or `Some(CommentLookupRow)` carrying `deleted: bool` so the
-    /// caller can distinguish tombstoned (`deleted == true` → 410 Gone)
-    /// from live (`deleted == false` → proceed with authz check).
-    ///
-    /// Per ADR-008 the 404-vs-410 dispatch lives in the handler; this
-    /// method just surfaces the bits required for the decision. Scoped
-    /// by `workspace_id` so a comment id from another workspace presents
-    /// as 404, not as a cross-workspace leak.
-    pub async fn find_comment_by_id(
-        &self,
-        workspace_id: uuid::Uuid,
-        comment_id: uuid::Uuid,
-    ) -> Result<Option<CommentLookupRow>, StoreError> {
-        let row: Option<(
-            uuid::Uuid,
-            uuid::Uuid,
-            uuid::Uuid,
-            String,
-            Option<time::OffsetDateTime>,
-        )> = sqlx::query_as(
-            "SELECT c.id, c.issue_id, c.author_id, c.body_markdown, c.deleted_at
-               FROM comments c
-              WHERE c.id = $1 AND c.workspace_id = $2",
-        )
-        .bind(comment_id)
-        .bind(workspace_id)
         .fetch_optional(&self.pool)
         .await?;
         Ok(row.map(
@@ -2789,14 +2749,17 @@ impl Store {
     /// fans the event out to every LISTEN-ing replica — no per-handler
     /// publisher hook needed.
     ///
-    /// Returns `Ok(false)` when no live row matches (the handler should
-    /// re-fetch via `find_comment_by_id` to distinguish 404 vs 410). The
-    /// edit path never touches tombstoned rows; the handler's pre-check
-    /// short-circuits to 410 before this method is called.
+    /// The row is addressed by (comment id, issue id): a comment is never
+    /// edited through another issue's address (RC-3 convention above).
+    ///
+    /// Returns `Ok(false)` when no live row of that issue matches. The
+    /// caller resolves 404 vs 410 beforehand with `find_comment_for_issue`;
+    /// the edit path never touches tombstoned rows.
     #[allow(clippy::too_many_arguments)]
     pub async fn update_comment_with_outbox(
         &self,
         workspace_id: uuid::Uuid,
+        issue_id: uuid::Uuid,
         comment_id: uuid::Uuid,
         new_markdown: &str,
         new_html: &str,
@@ -2812,7 +2775,8 @@ impl Store {
         let updated: Option<(uuid::Uuid, uuid::Uuid, i32, String)> = sqlx::query_as(
             "UPDATE comments
                 SET body_markdown = $3, body_html = $4, updated_at = now()
-              WHERE id = $1 AND workspace_id = $2 AND deleted_at IS NULL
+              WHERE id = $1 AND workspace_id = $2 AND issue_id = $5
+                AND deleted_at IS NULL
               RETURNING issue_id,
                         (SELECT project_id FROM issues WHERE id = comments.issue_id),
                         (SELECT number FROM issues WHERE id = comments.issue_id),
@@ -2824,6 +2788,7 @@ impl Store {
         .bind(workspace_id)
         .bind(new_markdown)
         .bind(new_html)
+        .bind(issue_id)
         .fetch_optional(&mut *tx)
         .await?;
 
@@ -2856,15 +2821,16 @@ impl Store {
     /// actor`. The outbox payload sets `deleted: true` per ADR-008 so
     /// receivers can detect tombstones without parsing `event_type`.
     ///
-    /// Returns `Ok(false)` when no live row matches — the handler should
-    /// re-fetch to disambiguate (a re-DELETE on an already-tombstoned
-    /// row is a 410, not a 200). The handler's pre-check short-circuits
-    /// to 410 before calling this method on tombstoned rows, so the
-    /// returned `false` mostly catches the race-condition / cross-
-    /// workspace cases.
+    /// The row is addressed by (comment id, issue id): a comment is never
+    /// deleted through another issue's address (RC-3 convention above).
+    ///
+    /// Returns `Ok(false)` when no live row of that issue matches. The
+    /// handler's pre-check (`find_comment_for_issue`) short-circuits to 410
+    /// on tombstoned rows, so `false` mostly catches a concurrent delete.
     pub async fn soft_delete_comment_with_outbox(
         &self,
         workspace_id: uuid::Uuid,
+        issue_id: uuid::Uuid,
         comment_id: uuid::Uuid,
         actor_user_id: uuid::Uuid,
     ) -> Result<bool, StoreError> {
@@ -2873,7 +2839,8 @@ impl Store {
         let updated: Option<(uuid::Uuid, uuid::Uuid, i32, String)> = sqlx::query_as(
             "UPDATE comments
                 SET deleted_at = now(), deleted_by = $3
-              WHERE id = $1 AND workspace_id = $2 AND deleted_at IS NULL
+              WHERE id = $1 AND workspace_id = $2 AND issue_id = $4
+                AND deleted_at IS NULL
               RETURNING issue_id,
                         (SELECT project_id FROM issues WHERE id = comments.issue_id),
                         (SELECT number FROM issues WHERE id = comments.issue_id),
@@ -2884,6 +2851,7 @@ impl Store {
         .bind(comment_id)
         .bind(workspace_id)
         .bind(actor_user_id)
+        .bind(issue_id)
         .fetch_optional(&mut *tx)
         .await?;
 
@@ -4216,7 +4184,7 @@ pub struct CommentRow {
     pub edited: bool,
 }
 
-/// Slice-5 lookup projection for `find_comment_by_id`. Carries the
+/// Slice-5 lookup projection for `find_comment_for_issue`. Carries the
 /// `deleted` flag (derived from `deleted_at IS NOT NULL`) so the handler
 /// can dispatch 404-vs-410-vs-403 per ADR-008. `body_markdown` is the
 /// raw source the edit-form GET handler returns in the textarea (Q5 = A

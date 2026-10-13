@@ -20,7 +20,7 @@
 //! render the author without a JOIN at fan-out time (wave-decisions.md).
 
 use crate::attachments::humanize_size;
-use crate::bootstrap::{html_escape, invalid_page, resource_not_found_page, SessionUser};
+use crate::bootstrap::{html_escape, resource_not_found_page, SessionUser};
 use crate::session::SESSION_KEY_USER_ID;
 use crate::views;
 use crate::AppState;
@@ -348,9 +348,19 @@ pub async fn submit_edit_comment(
         return redirect_to("/sign-in");
     };
 
+    // An address that does not resolve an issue the caller may see (unknown
+    // team, project or issue, or a team they are not on) is the uniform page,
+    // as the edit form answers. The service re-resolves the same chain.
+    if let Err(refusal) =
+        resolve_member_issue(&state, &user, &team_slug, &project_slug, issue_number).await
+    {
+        return refusal;
+    }
+
     // Delegate to the shared seam: membership authz -> validate -> author-only
     // authz -> render markdown in core -> update+outbox. The SAME path the API
-    // uses (NFR-WEB-API-CON-02).
+    // uses (NFR-WEB-API-CON-02). A comment not on the resolved issue is
+    // NotFound, answered exactly as a comment id that never existed.
     let principal = Principal::Human {
         user_id: user.user_id,
         workspace_id: user.workspace_id,
@@ -370,11 +380,9 @@ pub async fn submit_edit_comment(
         Err(ServiceError::Validation { message, .. }) => return bad_request_fragment(&message),
         Err(ServiceError::NotFound) => return not_found_fragment("Comment not found"),
         Err(ServiceError::Gone) => return gone_fragment(),
+        // Membership was established above, so Forbidden is the non-author.
         Err(ServiceError::Forbidden) => {
-            // The service collapses "not a team member" and "not the author"
-            // into Forbidden; the browser renders DISTINCT fragments. Re-check
-            // membership to pick the byte-identical one.
-            return forbidden_edit_page(&state, &principal, &team_slug).await;
+            return forbidden_fragment("You may only edit your own comments.")
         }
         Err(_) => return internal_error("edit_comment", "service error"),
     };
@@ -418,26 +426,17 @@ pub async fn submit_delete_comment(
     )>,
     session: Session,
 ) -> Response {
-    let _ = (project_slug, issue_number);
     let Some(user) = signed_in_user(&session).await else {
         return redirect_to("/sign-in");
     };
-    let team = match state
-        .store
-        .find_team_by_slug(user.workspace_id, &team_slug)
-        .await
-    {
-        Ok(Some(t)) => t,
-        Ok(None) => return team_not_found_page(&team_slug),
-        Err(err) => return internal_error("find_team_by_slug", err),
+    let team = match resolve_team(&state, &user, &team_slug).await {
+        Ok(t) => t,
+        Err(refusal) => return refusal,
     };
     // ADR-007 admin-delete contract: workspace admins can moderate
-    // comments in teams they don't belong to. Resolve the actor's
-    // admin status up-front so we can gate the team-membership check
-    // accordingly. (Author-delete still needs team membership in
-    // theory, but if the actor authored the comment they were a team
-    // member when they posted it; the team-membership check is
-    // defense-in-depth for the non-admin non-author path.)
+    // comments in teams they don't belong to, so team membership is
+    // required only of a non-admin. Either way the comment is reached only
+    // through the issue the URL names.
     let is_admin = match state
         .store
         .is_workspace_admin(user.workspace_id, user.user_id)
@@ -447,20 +446,24 @@ pub async fn submit_delete_comment(
         Err(err) => return internal_error("is_workspace_admin", err),
     };
     if !is_admin {
-        match state.store.is_team_member(team.id, user.user_id).await {
-            Ok(true) => {}
-            Ok(false) => return resource_not_found_page(),
-            Err(err) => return internal_error("is_team_member", err),
+        if let Err(refusal) = require_team_member(&state, &user, &team).await {
+            return refusal;
         }
     }
+    let issue_id = match resolve_team_issue(&state, &team, &project_slug, issue_number).await {
+        Ok(id) => id,
+        Err(refusal) => return refusal,
+    };
+    // A comment on any other issue answers exactly as a comment id that
+    // never existed.
     let comment = match state
         .store
-        .find_comment_by_id(user.workspace_id, comment_id)
+        .find_comment_for_issue(comment_id, issue_id)
         .await
     {
         Ok(Some(c)) => c,
         Ok(None) => return not_found_fragment("Comment not found"),
-        Err(err) => return internal_error("find_comment_by_id", err),
+        Err(err) => return internal_error("find_comment_for_issue", err),
     };
     if comment.deleted {
         return gone_fragment();
@@ -472,7 +475,7 @@ pub async fn submit_delete_comment(
     }
     match state
         .store
-        .soft_delete_comment_with_outbox(user.workspace_id, comment_id, user.user_id)
+        .soft_delete_comment_with_outbox(user.workspace_id, issue_id, comment_id, user.user_id)
         .await
     {
         Ok(true) => {}
@@ -577,20 +580,50 @@ async fn resolve_member_issue(
     project_slug: &str,
     issue_number: i32,
 ) -> Result<uuid::Uuid, Response> {
-    let team = match state
+    let team = resolve_team(state, user, team_slug).await?;
+    require_team_member(state, user, &team).await?;
+    resolve_team_issue(state, &team, project_slug, issue_number).await
+}
+
+/// The team the URL names, in the caller's workspace; unknown is the uniform
+/// not-found page.
+async fn resolve_team(
+    state: &AppState,
+    user: &SessionUser,
+    team_slug: &str,
+) -> Result<foundry_store::TeamRow, Response> {
+    match state
         .store
         .find_team_by_slug(user.workspace_id, team_slug)
         .await
     {
-        Ok(Some(t)) => t,
-        Ok(None) => return Err(resource_not_found_page()),
-        Err(err) => return Err(internal_error("find_team_by_slug", err)),
-    };
-    match state.store.is_team_member(team.id, user.user_id).await {
-        Ok(true) => {}
-        Ok(false) => return Err(resource_not_found_page()),
-        Err(err) => return Err(internal_error("is_team_member", err)),
+        Ok(Some(t)) => Ok(t),
+        Ok(None) => Err(resource_not_found_page()),
+        Err(err) => Err(internal_error("find_team_by_slug", err)),
     }
+}
+
+/// A caller not on the team gets the uniform not-found page.
+async fn require_team_member(
+    state: &AppState,
+    user: &SessionUser,
+    team: &foundry_store::TeamRow,
+) -> Result<(), Response> {
+    match state.store.is_team_member(team.id, user.user_id).await {
+        Ok(true) => Ok(()),
+        Ok(false) => Err(resource_not_found_page()),
+        Err(err) => Err(internal_error("is_team_member", err)),
+    }
+}
+
+/// The issue (project slug, number) under the team; unknown is the uniform
+/// not-found page.
+async fn resolve_team_issue(
+    state: &AppState,
+    team: &foundry_store::TeamRow,
+    project_slug: &str,
+    issue_number: i32,
+) -> Result<uuid::Uuid, Response> {
     match state
         .store
         .find_issue_by_team_project_number(team.id, project_slug, issue_number)
@@ -635,45 +668,12 @@ async fn resolve_comment_not_found_page(
     resource_not_found_page()
 }
 
-/// The shared `edit_comment` service collapses "not a team member" and "not the
-/// author" into `ServiceError::Forbidden`. The browser renders a full-page 403
-/// for non-members but a small fragment for non-authors. Re-check membership to
-/// pick the byte-identical response.
-async fn forbidden_edit_page(state: &AppState, principal: &Principal, team_slug: &str) -> Response {
-    let team = match state
-        .store
-        .find_team_by_slug(principal.workspace_id(), team_slug)
-        .await
-    {
-        Ok(Some(t)) => t,
-        Ok(None) => return team_not_found_page(team_slug),
-        Err(err) => return internal_error("find_team_by_slug", err),
-    };
-    match state
-        .store
-        .is_team_member(team.id, principal.user_id())
-        .await
-    {
-        Ok(false) => resource_not_found_page(),
-        Ok(true) => forbidden_fragment("You may only edit your own comments."),
-        Err(err) => internal_error("is_team_member", err),
-    }
-}
-
 fn redirect_to(location: &str) -> Response {
     let mut hdrs = HeaderMap::new();
     if let Ok(v) = HeaderValue::from_str(location) {
         hdrs.insert(LOCATION, v);
     }
     (StatusCode::SEE_OTHER, hdrs, "").into_response()
-}
-
-fn team_not_found_page(team_slug: &str) -> Response {
-    invalid_page(
-        StatusCode::NOT_FOUND,
-        "Team not found",
-        &format!("No team with slug {team_slug:?} exists in this workspace."),
-    )
 }
 
 fn internal_error<E: std::fmt::Display>(label: &str, err: E) -> Response {

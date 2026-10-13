@@ -10,8 +10,8 @@
 //! so an API write and a browser write accept/reject identically and store
 //! identical bytes.
 //!
-//! Test budget: 4 distinct behaviours named in the step criteria
-//! (budget = 2 × 4 = 8; 4 written):
+//! Test budget: 5 distinct behaviours named in the step criteria
+//! (budget = 2 × 5 = 10; 5 written):
 //!   1. create_issue happy path — a member files an issue, gets the next
 //!      sequential key + backlog state, persisted with the SAME validation
 //!      the browser enforces (trimmed, non-empty, ≤256).
@@ -25,6 +25,8 @@
 //!      `invalid_state`. Added at DELIVER Phase 5: mutation testing showed
 //!      `validate_project_lane` → `Ok("xyzzy")`/`Ok("")` survived when
 //!      covered only by the acceptance lane (the @real-io trap).
+//!   5. edit_comment through a sibling issue → NotFound, body unchanged
+//!      (fix-issue-attachment-scoping 01-04).
 
 use foundry_services::comments::edit_comment;
 use foundry_services::issues::create_issue;
@@ -269,6 +271,60 @@ async fn edit_comment_by_non_author_is_forbidden() {
         matches!(err, ServiceError::Forbidden),
         "non-author edit must be Forbidden, got {err:?}"
     );
+}
+
+/// Behaviour 5 — edit_comment is bound to the issue its address names
+/// (fix-issue-attachment-scoping 01-04). The author editing their comment
+/// through a sibling issue of the same project is refused NotFound, exactly as
+/// a comment id that never existed is, and the stored body is unchanged.
+#[tokio::test]
+async fn edit_comment_through_another_issue_is_not_found_and_changes_nothing() {
+    let h = seeded_harness().await;
+    let admin = Principal::Human {
+        user_id: h.admin_id,
+        workspace_id: h.workspace_id,
+    };
+    let own = create_issue(&h.store, &admin, "backend", "auth-v2", "Own issue", "")
+        .await
+        .expect("seed the comment's issue")
+        .number;
+    let sibling = create_issue(&h.store, &admin, "backend", "auth-v2", "Sibling", "")
+        .await
+        .expect("seed a sibling issue")
+        .number;
+    let comment = foundry_services::comments::create_comment(
+        &h.store,
+        &admin,
+        "backend",
+        "auth-v2",
+        own,
+        "original body",
+    )
+    .await
+    .expect("seed comment authored by admin");
+
+    let err = edit_comment(
+        &h.store,
+        &admin,
+        "backend",
+        "auth-v2",
+        sibling,
+        comment.id,
+        "edited through the sibling",
+    )
+    .await
+    .expect_err("a comment is not editable through another issue's address");
+    assert!(
+        matches!(err, ServiceError::NotFound),
+        "editing through a sibling issue must be NotFound, got {err:?}"
+    );
+
+    let body: String = sqlx::query_scalar("SELECT body_markdown FROM comments WHERE id = $1")
+        .bind(comment.id)
+        .fetch_one(h.store.pool())
+        .await
+        .expect("the comment row");
+    assert_eq!(body, "original body", "the stored body must be unchanged");
 }
 
 /// Behaviour 4 — change_issue_state validates against the PROJECT'S OWN lane

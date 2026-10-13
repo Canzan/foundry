@@ -1,6 +1,6 @@
-//! fix-issue-attachment-scoping step 01-03 (RCA §4, comment sibling): a comment
-//! is shown, and its edit form is served, only through the address of the
-//! issue it belongs to.
+//! fix-issue-attachment-scoping steps 01-03 and 01-04 (RCA §4, comment
+//! sibling): a comment is shown, its edit form is served, and it is edited or
+//! deleted only through the address of the issue it belongs to.
 //!
 //! The URL names a team, a project, an issue and a comment id. The handler
 //! resolves the issue from the first three and fetches the comment by its id
@@ -9,7 +9,10 @@
 //! are all refused: the single-comment view with the uniform not-found page,
 //! byte for byte and with no slug echoed; the edit form with the uniform page
 //! for an unresolvable address and with the fragment a nonexistent comment id
-//! gets for a comment that is not on the resolved issue.
+//! gets for a comment that is not on the resolved issue. Edit (PATCH) and
+//! delete (DELETE) answer the same way as the edit form, change nothing when
+//! refused, and the update and soft-delete statements themselves carry the
+//! issue predicate.
 //!
 //! Driven through the real router (driving port) over a real Postgres. No
 //! doubles: the notifier has no providers and nothing here sends mail.
@@ -34,7 +37,10 @@ const PASSWORD: &str = "comment-scoping-password";
 const RITA: &str = "rita@example.com";
 /// Yuki is on team Backend only, and wrote the comment.
 const YUKI: &str = "yuki@example.com";
+/// Ada is a workspace admin on no team: she may moderate (delete) any comment.
+const ADA: &str = "ada@example.com";
 const COMMENT_BODY: &str = "Backend-only note: rotate the zebra-42 signing key";
+const HIJACKED_BODY: &str = "edited through the wrong address";
 
 struct Harness {
     router: Router,
@@ -46,9 +52,14 @@ struct Harness {
 ///   comments.
 /// - Backend (`backend`), Yuki's team: project `api` with issues 1 and 2;
 ///   Yuki's comment is on issue 1.
+///
+/// Ada is a workspace admin on neither team.
 struct World {
     h: Harness,
+    store: Arc<Store>,
     comment_id: uuid::Uuid,
+    api_1: uuid::Uuid,
+    api_2: uuid::Uuid,
 }
 
 async fn harness() -> (Harness, Arc<Store>) {
@@ -117,7 +128,7 @@ async fn exec(store: &Store, sql: &str, binds: &[uuid::Uuid], what: &str) {
     q.execute(store.pool()).await.expect(what);
 }
 
-async fn seed_member(store: &Store, workspace_id: uuid::Uuid, team_id: uuid::Uuid, email: &str) {
+async fn seed_user(store: &Store, workspace_id: uuid::Uuid, email: &str, role: &str) -> uuid::Uuid {
     let user_id = uuid::Uuid::now_v7();
     let hash = foundry_auth::hash_password(&SecretString::new(PASSWORD.into()))
         .await
@@ -132,13 +143,20 @@ async fn seed_member(store: &Store, workspace_id: uuid::Uuid, team_id: uuid::Uui
     .execute(store.pool())
     .await
     .expect("seed user");
-    exec(
-        store,
-        "INSERT INTO workspace_memberships (workspace_id, user_id, role) VALUES ($1, $2, 'member')",
-        &[workspace_id, user_id],
-        "seed workspace membership",
+    sqlx::query(
+        "INSERT INTO workspace_memberships (workspace_id, user_id, role) VALUES ($1, $2, $3)",
     )
-    .await;
+    .bind(workspace_id)
+    .bind(user_id)
+    .bind(role)
+    .execute(store.pool())
+    .await
+    .expect("seed workspace membership");
+    user_id
+}
+
+async fn seed_member(store: &Store, workspace_id: uuid::Uuid, team_id: uuid::Uuid, email: &str) {
+    let user_id = seed_user(store, workspace_id, email, "member").await;
     exec(
         store,
         "INSERT INTO team_memberships (team_id, user_id, role) VALUES ($1, $2, 'member')",
@@ -239,9 +257,10 @@ async fn world() -> World {
     let api = seed_team_project(&store, workspace_id, backend, ("backend", "api", "AUTH")).await;
     seed_member(&store, workspace_id, partners, RITA).await;
     seed_member(&store, workspace_id, backend, YUKI).await;
+    seed_user(&store, workspace_id, ADA, "admin").await;
     seed_issue(&store, workspace_id, portal, 1).await;
     let auth_1 = seed_issue(&store, workspace_id, api, 1).await;
-    seed_issue(&store, workspace_id, api, 2).await;
+    let auth_2 = seed_issue(&store, workspace_id, api, 2).await;
 
     let comment_id = uuid::Uuid::now_v7();
     sqlx::query(
@@ -258,7 +277,13 @@ async fn world() -> World {
     .execute(store.pool())
     .await
     .expect("seed comment");
-    World { h, comment_id }
+    World {
+        h,
+        store,
+        comment_id,
+        api_1: auth_1,
+        api_2: auth_2,
+    }
 }
 
 /// Sign in through the password form; returns the session cookies.
@@ -296,6 +321,67 @@ async fn get(router: &Router, uri: &str, session: &str) -> (StatusCode, Vec<u8>)
         .await
         .expect("body");
     (status, bytes.to_vec())
+}
+
+/// A state-changing request (PATCH with a form body, or DELETE) carrying the
+/// double-submit CSRF cookie and header.
+async fn write(
+    router: &Router,
+    method: &str,
+    uri: &str,
+    session: &str,
+    form: Option<&str>,
+) -> (StatusCode, Vec<u8>) {
+    let mut req = Request::builder()
+        .method(method)
+        .uri(uri)
+        .header(header::COOKIE, format!("foundry_csrf={CSRF}; {session}"))
+        .header("x-csrf-token", CSRF);
+    let body = match form {
+        Some(body_markdown) => {
+            req = req.header(header::CONTENT_TYPE, "application/x-www-form-urlencoded");
+            Body::from(
+                serde_urlencoded::to_string([("body_markdown", body_markdown)])
+                    .expect("encode form"),
+            )
+        }
+        None => Body::empty(),
+    };
+    let resp = router
+        .clone()
+        .oneshot(req.body(body).expect("request"))
+        .await
+        .expect("response");
+    let status = resp.status();
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .expect("body");
+    (status, bytes.to_vec())
+}
+
+async fn edit(router: &Router, uri: &str, session: &str) -> (StatusCode, Vec<u8>) {
+    write(router, "PATCH", uri, session, Some(HIJACKED_BODY)).await
+}
+
+async fn delete(router: &Router, uri: &str, session: &str) -> (StatusCode, Vec<u8>) {
+    write(router, "DELETE", uri, session, None).await
+}
+
+/// The stored comment: its markdown and whether it is tombstoned.
+async fn stored_comment(store: &Store, comment_id: uuid::Uuid) -> (String, bool) {
+    sqlx::query_as("SELECT body_markdown, deleted_at IS NOT NULL FROM comments WHERE id = $1")
+        .bind(comment_id)
+        .fetch_one(store.pool())
+        .await
+        .expect("the comment row")
+}
+
+async fn assert_comment_unchanged(w: &World, what: &str) {
+    assert_eq!(
+        stored_comment(&w.store, w.comment_id).await,
+        (COMMENT_BODY.to_string(), false),
+        "{what}: the comment must be unchanged and not deleted"
+    );
 }
 
 fn comment_uri(team: &str, project: &str, issue: i32, comment_id: uuid::Uuid) -> String {
@@ -510,4 +596,202 @@ async fn a_comment_and_its_edit_form_through_its_own_issue_still_render() {
     let (status, cancelled) = get(&w.h.router, &own, &yuki).await;
     assert_eq!(status, StatusCode::OK, "cancel re-renders the card");
     assert_eq!(cancelled, card, "cancel renders the same card");
+}
+
+/// Yuki wrote the comment and is on its team, but edits and deletes it
+/// through issue 2, its sibling. Each answers exactly as a comment id that
+/// never existed does on a resolvable issue, and the comment is untouched.
+#[tokio::test]
+async fn editing_or_deleting_your_comment_through_a_sibling_issue_is_refused_and_changes_nothing() {
+    let w = world().await;
+    let yuki = sign_in(&w.h.router, YUKI).await;
+    let nonexistent = comment_uri("backend", "api", 1, uuid::Uuid::now_v7());
+    let sibling = comment_uri("backend", "api", 2, w.comment_id);
+
+    let reference_edit = edit(&w.h.router, &nonexistent, &yuki).await;
+    assert_eq!(
+        reference_edit.0,
+        StatusCode::NOT_FOUND,
+        "the reference edit is a 404"
+    );
+    let answer = edit(&w.h.router, &sibling, &yuki).await;
+    assert_refused(&answer, &reference_edit, "editing through sibling issue 2");
+    assert_comment_unchanged(&w, "editing through sibling issue 2").await;
+
+    let reference_delete = delete(&w.h.router, &nonexistent, &yuki).await;
+    assert_eq!(
+        reference_delete.0,
+        StatusCode::NOT_FOUND,
+        "the reference delete is a 404"
+    );
+    let answer = delete(&w.h.router, &sibling, &yuki).await;
+    assert_refused(
+        &answer,
+        &reference_delete,
+        "deleting through sibling issue 2",
+    );
+    assert_comment_unchanged(&w, "deleting through sibling issue 2").await;
+}
+
+/// Edit and delete through an address that does not resolve an issue are the
+/// uniform not-found page, with no slug echoed and nothing changed.
+#[tokio::test]
+async fn editing_or_deleting_through_an_unknown_team_is_the_slug_free_uniform_404() {
+    let w = world().await;
+    let yuki = sign_in(&w.h.router, YUKI).await;
+    let uniform = uniform_404(&w.h.router, &yuki).await;
+
+    for (uri, what) in [
+        (
+            comment_uri("ghost-team", "api", 1, w.comment_id),
+            "a team that does not exist",
+        ),
+        (
+            comment_uri("backend", "ghost-project", 1, w.comment_id),
+            "a project that does not exist",
+        ),
+        (
+            comment_uri("backend", "api", 99, w.comment_id),
+            "an issue that does not exist",
+        ),
+    ] {
+        for (answer, verb) in [
+            (edit(&w.h.router, &uri, &yuki).await, "edit"),
+            (delete(&w.h.router, &uri, &yuki).await, "delete"),
+        ] {
+            let what = format!("{verb} through {what}");
+            assert!(
+                !contains(&answer.1, "ghost-"),
+                "{what}: the requested slug must not be echoed"
+            );
+            assert_refused(&answer, &uniform, &what);
+            assert_comment_unchanged(&w, &what).await;
+        }
+    }
+}
+
+/// Positive control for admin moderation: Ada, a workspace admin on no team,
+/// deletes Yuki's comment through the comment's own issue.
+#[tokio::test]
+async fn an_admin_not_on_the_team_deletes_through_the_correct_url() {
+    let w = world().await;
+    let ada = sign_in(&w.h.router, ADA).await;
+
+    let (status, _) = delete(
+        &w.h.router,
+        &comment_uri("backend", "api", 1, w.comment_id),
+        &ada,
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "the admin deletes through the comment's own issue"
+    );
+    assert_eq!(
+        stored_comment(&w.store, w.comment_id).await,
+        (COMMENT_BODY.to_string(), true),
+        "the comment is tombstoned"
+    );
+}
+
+/// Ada's moderation right does not let her reach the comment through its
+/// sibling issue: the answer is a nonexistent comment's and the comment
+/// survives.
+#[tokio::test]
+async fn an_admin_deleting_through_a_sibling_issue_is_refused_and_the_comment_survives() {
+    let w = world().await;
+    let ada = sign_in(&w.h.router, ADA).await;
+
+    let reference = delete(
+        &w.h.router,
+        &comment_uri("backend", "api", 1, uuid::Uuid::now_v7()),
+        &ada,
+    )
+    .await;
+    assert_eq!(reference.0, StatusCode::NOT_FOUND, "the reference is a 404");
+    let answer = delete(
+        &w.h.router,
+        &comment_uri("backend", "api", 2, w.comment_id),
+        &ada,
+    )
+    .await;
+    assert_refused(
+        &answer,
+        &reference,
+        "the admin deleting through sibling issue 2",
+    );
+    assert_comment_unchanged(&w, "the admin deleting through sibling issue 2").await;
+}
+
+/// The update statement itself carries the issue predicate: asked to edit the
+/// comment under its sibling issue, it touches no row.
+#[tokio::test]
+async fn the_update_statement_changes_no_comment_of_another_issue() {
+    let w = world().await;
+    let (workspace_id, author_id): (uuid::Uuid, uuid::Uuid) =
+        sqlx::query_as("SELECT workspace_id, author_id FROM comments WHERE id = $1")
+            .bind(w.comment_id)
+            .fetch_one(w.store.pool())
+            .await
+            .expect("the comment row");
+
+    let updated = w
+        .store
+        .update_comment_with_outbox(
+            workspace_id,
+            w.api_2,
+            w.comment_id,
+            HIJACKED_BODY,
+            HIJACKED_BODY,
+            author_id,
+            YUKI,
+        )
+        .await
+        .expect("the update runs");
+    assert!(!updated, "no comment of issue 2 matches");
+    assert_comment_unchanged(&w, "the update under sibling issue 2").await;
+
+    let updated = w
+        .store
+        .update_comment_with_outbox(
+            workspace_id,
+            w.api_1,
+            w.comment_id,
+            HIJACKED_BODY,
+            HIJACKED_BODY,
+            author_id,
+            YUKI,
+        )
+        .await
+        .expect("the update runs");
+    assert!(updated, "positive control: the comment's own issue matches");
+}
+
+/// The soft-delete statement itself carries the issue predicate: asked to
+/// delete the comment under its sibling issue, it tombstones no row.
+#[tokio::test]
+async fn the_soft_delete_statement_deletes_no_comment_of_another_issue() {
+    let w = world().await;
+    let (workspace_id, author_id): (uuid::Uuid, uuid::Uuid) =
+        sqlx::query_as("SELECT workspace_id, author_id FROM comments WHERE id = $1")
+            .bind(w.comment_id)
+            .fetch_one(w.store.pool())
+            .await
+            .expect("the comment row");
+
+    let deleted = w
+        .store
+        .soft_delete_comment_with_outbox(workspace_id, w.api_2, w.comment_id, author_id)
+        .await
+        .expect("the soft-delete runs");
+    assert!(!deleted, "no comment of issue 2 matches");
+    assert_comment_unchanged(&w, "the soft-delete under sibling issue 2").await;
+
+    let deleted = w
+        .store
+        .soft_delete_comment_with_outbox(workspace_id, w.api_1, w.comment_id, author_id)
+        .await
+        .expect("the soft-delete runs");
+    assert!(deleted, "positive control: the comment's own issue matches");
 }

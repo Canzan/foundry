@@ -98,18 +98,20 @@ pub async fn create_comment(
 
 /// US-W05c edit-comment use-case. Author-only authz is decided HERE (ADR-006):
 /// a non-author (even a team member) is refused Forbidden. Tombstoned rows are
-/// Gone, missing rows are NotFound. Persists via `Store::update_comment_with_outbox`.
+/// Gone; missing rows, and rows of any issue other than the one the address
+/// names, are NotFound (fix-issue-attachment-scoping RC-3). Persists via
+/// `Store::update_comment_with_outbox`, keyed by (comment id, issue id).
 #[allow(clippy::too_many_arguments)]
 pub async fn edit_comment(
     store: &Store,
     principal: &Principal,
     team_slug: &str,
-    _project_slug: &str,
-    _issue_number: i32,
+    project_slug: &str,
+    issue_number: i32,
     comment_id: uuid::Uuid,
     new_body: &str,
 ) -> Result<CommentView, ServiceError> {
-    let _team = resolve_member_team(store, principal, team_slug).await?;
+    let team = resolve_member_team(store, principal, team_slug).await?;
 
     let trimmed = new_body.trim();
     if trimmed.is_empty() {
@@ -125,8 +127,13 @@ pub async fn edit_comment(
         });
     }
 
+    let issue = store
+        .find_issue_by_team_project_number(team.id, project_slug, issue_number)
+        .await
+        .map_err(|_| ServiceError::Internal)?
+        .ok_or(ServiceError::NotFound)?;
     let comment = store
-        .find_comment_by_id(principal.workspace_id(), comment_id)
+        .find_comment_for_issue(comment_id, issue.issue_id)
         .await
         .map_err(|_| ServiceError::Internal)?
         .ok_or(ServiceError::NotFound)?;
@@ -147,7 +154,8 @@ pub async fn edit_comment(
     let html = render_comment_markdown(new_body);
     match store
         .update_comment_with_outbox(
-            principal.workspace_id(),
+            issue.workspace_id,
+            issue.issue_id,
             comment_id,
             new_body,
             html.as_str(),
