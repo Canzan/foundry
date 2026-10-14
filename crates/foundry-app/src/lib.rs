@@ -793,11 +793,12 @@ pub fn build_router(state: AppState) -> Router {
             "/team/{team_slug}/project/{project_slug}/rename",
             post(teams::submit_project_rename),
         )
-        // project-lifecycle 02-06 (DDD-12/23): a project's delete confirm page,
-        // `Manage` read per request, else the uniform 404. Read-only.
+        // project-lifecycle 02-06/02-07 (DDD-12/23/27): a project's delete
+        // confirm page (read-only) and the delete, `Manage` read per request,
+        // else the uniform 404; the delete answers the 200 members page.
         .route(
             "/team/{team_slug}/project/{project_slug}/delete",
-            get(teams::show_project_delete),
+            get(teams::show_project_delete).post(teams::submit_project_delete),
         )
         // team-lifecycle 02-02 (DDD-18, ADR-TEAM-LIFECYCLE-004): the delete
         // page and the delete, both `Administer` only, else the uniform 404.

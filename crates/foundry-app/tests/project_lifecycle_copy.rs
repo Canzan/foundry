@@ -39,12 +39,33 @@ fn the_projects_section_and_rename_copy_is_byte_exact() {
 ///   can restore {project} with every issue, comment and attachment."
 /// - `TeamNotice::ProjectDeleted` → "Deleted {project}."
 #[test]
-#[ignore = "pending: project-lifecycle 02-03 — TeamNotice bytes: confirm page and Deleted"]
 fn the_confirm_page_and_delete_copy_is_byte_exact() {
-    panic!(
-        "Not yet implemented -- RED scaffold (project-lifecycle 02-03: TeamNotice::ProjectDeleteHeading, \
-         ProjectDeleteCount, ProjectDeleteNothingErased, ProjectDeleted)"
+    let heading = TeamNotice::ProjectDeleteHeading {
+        project: "Auth v2 Spike".into(),
+    };
+    assert_eq!(heading.to_string(), "Delete Auth v2 Spike?");
+    let count = TeamNotice::ProjectDeleteCount {
+        project: "Reading List".into(),
+        key: "READ".into(),
+        issues: 0,
+    };
+    assert_eq!(
+        count.to_string(),
+        "Reading List (READ) has 0 issue(s). After it is deleted, nobody can open its board, \
+         its issues or its report, and links to READ issues stop working."
     );
+    let nothing_erased = TeamNotice::ProjectDeleteNothingErased {
+        project: "Auth v2 Spike".into(),
+    };
+    assert_eq!(
+        nothing_erased.to_string(),
+        "Nothing is erased. The instance operator can restore Auth v2 Spike with every issue, \
+         comment and attachment."
+    );
+    let deleted = TeamNotice::ProjectDeleted {
+        project: "Auth v2 Spike".into(),
+    };
+    assert_eq!(deleted.to_string(), "Deleted Auth v2 Spike.");
 }
 
 /// 03-01: the operator's CLI constants.

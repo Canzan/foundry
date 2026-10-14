@@ -163,6 +163,8 @@ pub enum TeamNotice {
     /// project-lifecycle D14/DDD-26: "Nothing is erased. The instance operator
     /// can restore {project} with every issue, comment and attachment."
     ProjectDeleteNothingErased { project: String },
+    /// project-lifecycle D14/DDD-26: "Deleted {project}."
+    ProjectDeleted { project: String },
 }
 
 impl fmt::Display for TeamNotice {
@@ -224,7 +226,9 @@ impl fmt::Display for TeamNotice {
                     "{tokens} machine token(s) scoped to {team} will stop working."
                 )
             }
-            Self::Deleted { team } => write!(f, "Deleted {team}."),
+            Self::Deleted { team } | Self::ProjectDeleted { project: team } => {
+                write!(f, "Deleted {team}.")
+            }
             Self::Renamed { old, new } | Self::ProjectRenamed { old, new } => {
                 write!(f, "Renamed {old} to {new}.")
             }
@@ -701,6 +705,53 @@ pub async fn show_project_delete(
         .to_string(),
     };
     render(page.render(), StatusCode::OK, set_cookie)
+}
+
+// ------------------------------------- POST /team/{slug}/project/{p}/delete
+
+/// Gate order (DDD-18/23): session (none → 404) → the use-case (team facts by
+/// session workspace + slug, `Manage` read now (INV-PL-8), the live project by
+/// (team, slug), the locked soft delete, else the uniform 404) → the 200
+/// members page with "Deleted {project}." (DDD-27: no post-redirect-get, so a
+/// reload re-POSTs and meets the 404). Refusals and races log nothing (DDD-30).
+pub async fn submit_project_delete(
+    State(state): State<AppState>,
+    session: Session,
+    headers: HeaderMap,
+    Path((team_slug, project_slug)): Path<(String, String)>,
+) -> Response {
+    let Some(user) = signed_in_user(&session).await else {
+        return resource_not_found_page();
+    };
+    let services = Services::new(state.store.clone());
+    let principal = principal_of(&user);
+    let deletion = match services
+        .delete_project(&principal, &team_slug, &project_slug)
+        .await
+    {
+        Ok(deletion) => deletion,
+        Err(ProjectLifecycleError::NotFound) => return resource_not_found_page(),
+        Err(ProjectLifecycleError::Store(err)) => return refusal(TeamError::Store(err)),
+    };
+    let notice = TeamNotice::ProjectDeleted {
+        project: deletion.name,
+    };
+    match services.team_members(&principal, &team_slug).await {
+        Ok(view) => {
+            let fields = PageFields::default();
+            members_page_rendered(
+                &state,
+                &headers,
+                &user,
+                view,
+                Some(notice),
+                fields,
+                StatusCode::OK,
+            )
+            .await
+        }
+        Err(err) => refusal(err),
+    }
 }
 
 // ----------------------------------------------------- GET /team/{slug}/delete

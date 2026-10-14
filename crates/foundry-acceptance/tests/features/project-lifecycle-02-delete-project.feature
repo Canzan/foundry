@@ -69,7 +69,7 @@ Feature: A team's lead or a workspace admin deletes a project, told first what h
     And the delete page works as a plain page form
     And no project, issue or record changed
 
-  @us-pl-02 @driving_port @kpi @pending @contract-shape:bounded-change
+  @us-pl-02 @driving_port @kpi @contract-shape:bounded-change
   Scenario: A team's lead deletes a project after reading what happens
     Given Auth v2 Spike has 3 issues, 2 comments and 1 attachment
     And Lena opened the delete page of the project Auth v2 Spike earlier
@@ -79,7 +79,7 @@ Feature: A team's lead or a workspace admin deletes a project, told first what h
       | Identity Platform · AUTH |
     And Auth v2 Spike is deleted by Lena Park, one delete record names Lena Park, and nothing else changed
 
-  @us-pl-02 @kpi @pending @contract-shape:bounded-change
+  @us-pl-02 @kpi @contract-shape:bounded-change
   Scenario: Deleting a project erases none of its work
     Given Auth v2 Spike has 3 issues, 2 comments and 1 attachment
     And one more comment on SPIKE-2 was deleted and awaits cleanup
@@ -95,7 +95,7 @@ Feature: A team's lead or a workspace admin deletes a project, told first what h
     And the delete page says "Reading List (READ) has 0 issue(s). After it is deleted, nobody can open its board, its issues or its report, and links to READ issues stop working."
     And no project, issue or record changed
 
-  @us-pl-02 @pending @contract-shape:bounded-change
+  @us-pl-02 @contract-shape:bounded-change
   Scenario: A workspace admin deletes a project with no issues on a team she is not on
     Given Priya opened the delete page of the project Reading List earlier
     When Priya confirms the project delete from the page she opened earlier
@@ -112,7 +112,7 @@ Feature: A team's lead or a workspace admin deletes a project, told first what h
       | Auth v2 Spike · SPIKE    |
       | Identity Platform · AUTH |
 
-  @us-pl-02 @edge @pending @contract-shape:unbounded-preservation
+  @us-pl-02 @edge @contract-shape:unbounded-preservation
   Scenario: A delete confirmed a second time finds nothing, and deletes once
     Given Lena opened the delete page of the project Auth v2 Spike earlier
     And Lena has deleted the project Auth v2 Spike
@@ -139,7 +139,7 @@ Feature: A team's lead or a workspace admin deletes a project, told first what h
       | Ines                 | Auth v2 Spike     |
       | Hugo                 | Auth v2 Spike     |
 
-  @us-pl-02 @error @kpi @pending @contract-shape:unbounded-preservation
+  @us-pl-02 @error @kpi @contract-shape:unbounded-preservation
   Scenario Outline: Only the team's lead or a workspace admin may delete a project
     When <who> submits a delete of the project <project>
     Then the answer is the page that never existed
@@ -155,7 +155,7 @@ Feature: A team's lead or a workspace admin deletes a project, told first what h
       | Ines                 | Auth v2 Spike     |
       | Hugo                 | Auth v2 Spike     |
 
-  @us-pl-02 @error @kpi @pending @contract-shape:unbounded-preservation
+  @us-pl-02 @error @kpi @contract-shape:unbounded-preservation
   Scenario Outline: Another workspace's project and a project that does not exist look the same from Canzan Labs
     When Priya <request>
     Then the answer is the page that never existed
@@ -169,7 +169,7 @@ Feature: A team's lead or a workspace admin deletes a project, told first what h
       | asks for the delete page of a project that does not exist   |
       | submits a delete of a project that does not exist           |
 
-  @us-pl-02 @error @pending @contract-shape:unbounded-preservation
+  @us-pl-02 @error @contract-shape:unbounded-preservation
   Scenario: A lead who has since been made a member cannot delete from a page she opened as a lead
     Given Lena opened the delete page of the project Auth v2 Spike earlier
     And Priya has made Sam a lead of Backend
@@ -179,7 +179,7 @@ Feature: A team's lead or a workspace admin deletes a project, told first what h
     And no project, issue or record changed
     And Sam still finds the delete page of Auth v2 Spike
 
-  @us-pl-02 @error @pending @contract-shape:unbounded-preservation
+  @us-pl-02 @error @contract-shape:unbounded-preservation
   Scenario: A delete sent without the page's token is turned away, and nothing changes
     When Lena submits a delete of the project Auth v2 Spike without the page's token
     Then the answer is turned away as a forged form
