@@ -1374,7 +1374,6 @@ async fn name_slug_key(pool: &PgPool, project: Id) -> (String, String, String) {
 }
 
 #[tokio::test]
-#[ignore = "pending: project-lifecycle 01-01 — rename_project_with_audit"]
 async fn a_rename_writes_the_name_only_and_one_record_with_the_old_name() {
     let l = lab().await;
     require_records(&l.pool).await;
@@ -1417,7 +1416,6 @@ async fn a_rename_writes_the_name_only_and_one_record_with_the_old_name() {
 }
 
 #[tokio::test]
-#[ignore = "pending: project-lifecycle 01-01 — rename_project_with_audit (no-op and case-only)"]
 async fn a_byte_equal_rename_writes_nothing_and_a_case_only_change_is_a_rename() {
     let l = lab().await;
     require_records(&l.pool).await;
@@ -1451,7 +1449,6 @@ async fn a_byte_equal_rename_writes_nothing_and_a_case_only_change_is_a_rename()
 }
 
 #[tokio::test]
-#[ignore = "pending: project-lifecycle 01-01 — rename_project_with_audit (unknown id)"]
 async fn a_rename_of_an_unknown_project_is_not_found_and_writes_nothing() {
     let l = lab().await;
     require_records(&l.pool).await;
@@ -1468,7 +1465,6 @@ async fn a_rename_of_an_unknown_project_is_not_found_and_writes_nothing() {
 
 /// INV-PL-7: the record commits with the rename or not at all.
 #[tokio::test]
-#[ignore = "pending: project-lifecycle 01-01 — rename_project_with_audit (atomic with its record)"]
 async fn a_rename_whose_record_cannot_be_written_renames_nothing() {
     let l = lab().await;
     require_records(&l.pool).await;
@@ -1489,7 +1485,6 @@ async fn a_rename_whose_record_cannot_be_written_renames_nothing() {
 /// DDD-15: concurrent renames of one project are serialised, so the records
 /// chain (each old name is the previous new name), 100 runs.
 #[tokio::test]
-#[ignore = "pending: project-lifecycle 01-01 — rename_project_with_audit (FOR NO KEY UPDATE chains records)"]
 async fn concurrent_renames_of_one_project_record_chained_old_names_in_100_runs() {
     let l = lab().await;
     require_records(&l.pool).await;
@@ -1527,7 +1522,6 @@ async fn concurrent_renames_of_one_project_record_chained_old_names_in_100_runs(
 }
 
 #[tokio::test]
-#[ignore = "pending: project-lifecycle 01-01 — list_team_projects"]
 async fn the_team_project_list_is_by_name_then_key() {
     let l = lab().await;
     project(
@@ -2181,7 +2175,6 @@ async fn a_deleted_projects_slug_and_key_stay_taken() {
 /// table. `TENANT_TABLES` still lists exactly ten tables without it, and a
 /// workspace export after a recorded rename carries no record.
 #[tokio::test]
-#[ignore = "pending: project-lifecycle 01-01 — project_lifecycle_events stays out of TENANT_TABLES and the export (DDD-14)"]
 async fn project_lifecycle_events_is_not_a_tenant_table() {
     let l = lab().await;
     require_records(&l.pool).await;

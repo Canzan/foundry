@@ -5,16 +5,16 @@
 //! SCAFFOLD: true — RED scaffold written by DISTILL (2026-10-13). The row and
 //! outcome types are real (the store gold tests in `tests/project_lifecycle.rs`,
 //! `tests/team_delete.rs` and the use-case tests in `foundry-services` match on
-//! them); every method panics until its DELIVER step. Nothing in production
-//! calls these methods yet, so no shipped behaviour changes, and no migration
-//! (0025, 0026, 0027) is written. Signatures are DISTILL's working choice
-//! within what DESIGN pinned (names, arguments where the ADRs give them, and
-//! outcomes): if DELIVER changes one, it changes the gold tests with it.
+//! them); every method not yet shipped panics until its DELIVER step.
+//! Shipped (01-02): `list_team_sibling_projects` (moved in unchanged),
+//! `list_team_projects` and `rename_project_with_audit`. Signatures are
+//! DISTILL's working choice within what DESIGN pinned (names, arguments where
+//! the ADRs give them, and outcomes): if DELIVER changes one, it changes the
+//! gold tests with it.
 //!
-//! DELIVER also moves `list_team_sibling_projects`, the export's `projects`
-//! entry and `TEAM_PROJECTS_SQL` into this module (DDD-4, DDD-31, DDD-20), and
-//! folds [`TeamDeletedProjects`] into `TeamDeleteFacts` (ADR-PROJECT-LIFECYCLE-004
-//! decision 2).
+//! DELIVER also moves the export's `projects` entry and `TEAM_PROJECTS_SQL`
+//! into this module (DDD-31, DDD-20), and folds [`TeamDeletedProjects`] into
+//! `TeamDeleteFacts` (ADR-PROJECT-LIFECYCLE-004 decision 2).
 
 use crate::{Store, StoreError};
 
@@ -105,28 +105,93 @@ pub(crate) async fn lock_live_project(
 }
 
 impl Store {
+    /// The D4 uniqueness comparison set: `(name, slug)` of every OTHER project
+    /// in the same team (self excluded in SQL). Comparison happens app-side —
+    /// slug derivation is domain code (`foundry_core::slugify`), not SQL.
+    pub async fn list_team_sibling_projects(
+        &self,
+        team_id: uuid::Uuid,
+        exclude_project_id: uuid::Uuid,
+    ) -> Result<Vec<(String, String)>, StoreError> {
+        Ok(
+            sqlx::query_as("SELECT name, slug FROM projects WHERE team_id = $1 AND id <> $2")
+                .bind(team_id)
+                .bind(exclude_project_id)
+                .fetch_all(&self.pool)
+                .await?,
+        )
+    }
+
     /// The team's live projects, by name then key (DDD-25). Reads `projects`
     /// until 0026, then `live_projects`.
     pub async fn list_team_projects(
         &self,
-        _team_id: uuid::Uuid,
+        team_id: uuid::Uuid,
     ) -> Result<Vec<TeamProjectRow>, StoreError> {
-        panic!("Not yet implemented -- RED scaffold (project-lifecycle 01-01: list_team_projects)")
+        let rows: Vec<(String, String, String)> = sqlx::query_as(
+            "SELECT name, slug, key_prefix FROM projects WHERE team_id = $1
+              ORDER BY name, key_prefix",
+        )
+        .bind(team_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|(name, slug, key)| TeamProjectRow { name, slug, key })
+            .collect())
     }
 
-    /// ADR-PROJECT-LIFECYCLE-003 decision 2, in one transaction: the live row
-    /// `FOR NO KEY UPDATE`; a byte-equal name writes nothing; else `UPDATE …
-    /// SET name` (never slug or key) and the `renamed` record
-    /// (`clock_timestamp()`).
+    /// ADR-PROJECT-LIFECYCLE-003 decision 2, in one transaction: the row
+    /// `FOR NO KEY UPDATE` (so concurrent renames serialise and their records
+    /// chain); a byte-equal name writes nothing; else `UPDATE … SET name`
+    /// (never slug or key) and the `renamed` record (`clock_timestamp()`).
+    /// Until 0026 there is no deleted marker to exclude; 02-02 adds it.
     pub async fn rename_project_with_audit(
         &self,
-        _project_id: uuid::Uuid,
-        _actor_id: uuid::Uuid,
-        _new_name: &str,
+        project_id: uuid::Uuid,
+        actor_id: uuid::Uuid,
+        new_name: &str,
     ) -> Result<ProjectRenameWrite, StoreError> {
-        panic!(
-            "Not yet implemented -- RED scaffold (project-lifecycle 01-01: rename_project_with_audit)"
+        let mut tx = self.pool.begin().await?;
+        let locked: Option<(uuid::Uuid, uuid::Uuid, String, String, String)> = sqlx::query_as(
+            "SELECT workspace_id, team_id, slug, key_prefix, name
+               FROM projects WHERE id = $1 FOR NO KEY UPDATE",
         )
+        .bind(project_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some((workspace_id, team_id, slug, key_prefix, old_name)) = locked else {
+            tx.rollback().await?;
+            return Ok(ProjectRenameWrite::NotFound);
+        };
+        if old_name == new_name {
+            tx.rollback().await?;
+            return Ok(ProjectRenameWrite::Unchanged);
+        }
+        sqlx::query("UPDATE projects SET name = $2 WHERE id = $1")
+            .bind(project_id)
+            .bind(new_name)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query(
+            "INSERT INTO project_lifecycle_events
+                    (id, workspace_id, project_id, team_id, project_slug, key_prefix, kind,
+                     actor_id, name, new_name, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, 'renamed', $7, $8, $9, clock_timestamp())",
+        )
+        .bind(uuid::Uuid::now_v7())
+        .bind(workspace_id)
+        .bind(project_id)
+        .bind(team_id)
+        .bind(&slug)
+        .bind(&key_prefix)
+        .bind(actor_id)
+        .bind(&old_name)
+        .bind(new_name)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(ProjectRenameWrite::Renamed { old_name })
     }
 
     /// ADR-PROJECT-LIFECYCLE-002 decision 1, in one transaction: the live row

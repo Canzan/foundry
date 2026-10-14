@@ -103,6 +103,7 @@ fn source_violations(root: &Path) -> Vec<String> {
     violations.extend(check_team_membership_one_seam(root));
     violations.extend(check_team_name_one_source(root));
     violations.extend(check_team_lifecycle_one_seam(root));
+    violations.extend(check_project_lifecycle_one_seam(root));
     violations.extend(check_store_natural_key_scoped(root));
     violations
 }
@@ -142,7 +143,7 @@ pub fn run(args: Vec<String>) -> ExitCode {
     let verdict = verdict(&args);
     match &verdict {
         Verdict::Passed => println!(
-            "check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, the lanes position constraint is still DEFERRABLE, no board-*.js registers a keydown listener, nothing outside migration 0017 UPDATEs users.provisioned_at (D9), both publish workflows stamp every image with its commit and the Dockerfile hands it to build.rs (AC-8), every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, no colour literal outside the three stylesheet token regions, the three stylesheet token regions declare the identical colour-token set, the workspace-name refusal copy lives only in foundry-core and no production door calls create_initial_workspace, the project-name refusal copy lives only in foundry-core and no door calls insert_project, no production door calls seed_row_predating_name_rule and no crate but its seam file disables a trigger or sets session_replication_role, the team-name refusal copy lives only in foundry-core, teams and team_lifecycle_events are written only by foundry-store and no door calls create_team_with_lead, rename_team_with_audit or delete_team_if_empty, every foundry-store query filtering on key_prefix, a slug or an issue number also compares workspace_id, team_id or project_id to a bound parameter in the same disjunct (store-natural-key-scoped), dependency direction)"
+            "check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, the lanes position constraint is still DEFERRABLE, no board-*.js registers a keydown listener, nothing outside migration 0017 UPDATEs users.provisioned_at (D9), both publish workflows stamp every image with its commit and the Dockerfile hands it to build.rs (AC-8), every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, no colour literal outside the three stylesheet token regions, the three stylesheet token regions declare the identical colour-token set, the workspace-name refusal copy lives only in foundry-core and no production door calls create_initial_workspace, the project-name refusal copy lives only in foundry-core and no door calls insert_project, no production door calls seed_row_predating_name_rule and no crate but its seam file disables a trigger or sets session_replication_role, the team-name refusal copy lives only in foundry-core, teams and team_lifecycle_events are written only by foundry-store and no door calls create_team_with_lead, rename_team_with_audit or delete_team_if_empty, projects, live_projects and project_lifecycle_events are written only by foundry-store and no door calls rename_project_with_audit (project-lifecycle-one-seam), every foundry-store query filtering on key_prefix, a slug or an issue number also compares workspace_id, team_id or project_id to a bound parameter in the same disjunct (store-natural-key-scoped), dependency direction)"
         ),
         Verdict::UnparseableArguments(message) => eprintln!("check-arch: {message}"),
         Verdict::Violations(violations) => {
@@ -6961,21 +6962,38 @@ fn check_project_lifecycle_write_guard(root: &Path) -> Vec<String> {
     )
 }
 
-/// `project-lifecycle-one-seam` (the `OneSeamRule` idiom of
-/// `team-lifecycle-one-seam`; DELIVER supplies the `OneSeamRule` data):
-/// (i) no SQL write on `projects`, `live_projects` or `project_lifecycle_events`
-/// in any `.rs` under `crates/*/src` except `foundry-store` (and the acceptance
-/// harness); (ii) `rename_project_with_audit` (01), `soft_delete_project` (02)
-/// and `restore_deleted_project` (03) have no call site under
+/// The store's project-lifecycle writes, which no door may call: each goes
+/// through its `foundry-services` use-case. 01-02 adds
+/// `rename_project_with_audit`; 02-03 adds `soft_delete_project`; 03-01 adds
+/// `restore_deleted_project`.
+const PROJECT_LIFECYCLE_SEAMS: [&str; 1] = ["rename_project_with_audit"];
+
+const PROJECT_LIFECYCLE_ONE_SEAM: OneSeamRule = OneSeamRule {
+    id: "project-lifecycle-one-seam",
+    tables: &["projects", "live_projects", "project_lifecycle_events"],
+    sql_allowed_in: &TEAM_MEMBERSHIP_SQL_ALLOWED_IN,
+    sql_why: "every project write goes through the store, its lock and the transaction that \
+              writes its lifecycle record (project-lifecycle DDD-22)",
+    seams: &PROJECT_LIFECYCLE_SEAMS,
+    seams_forbidden_in: &TEAM_WRITE_SEAMS_FORBIDDEN_IN,
+    seam_why: "project lifecycle writes go through the foundry-services use-case and its \
+               policy (project-lifecycle DDD-10, DDD-22)",
+    reference: "project-lifecycle DDD-22",
+};
+
+/// `project-lifecycle-one-seam` (project-lifecycle DDD-22 rule 3).
+///
+/// (i) no SQL `INSERT INTO` / `UPDATE` / `DELETE FROM` on `projects`,
+/// `live_projects` or `project_lifecycle_events` in any `.rs` under
+/// `crates/*/src` except `foundry-store` (and the acceptance harness, whose
+/// fixtures seed rows).
+///
+/// (ii) no [`PROJECT_LIFECYCLE_SEAMS`] method has a call site under
 /// `crates/{foundry-app,foundry-api}/src`.
-// SCAFFOLD: true — RED scaffold written by DISTILL (2026-10-13)
-#[cfg_attr(not(test), allow(dead_code))]
+///
+/// A missing `crates/`, an unreadable directory or file fails the rule.
 fn check_project_lifecycle_one_seam(root: &Path) -> Vec<String> {
-    let _ = root;
-    panic!(
-        "Not yet implemented -- RED scaffold (project-lifecycle 01-01: rule \
-         project-lifecycle-one-seam)"
-    )
+    scan_one_seam(root, &PROJECT_LIFECYCLE_ONE_SEAM)
 }
 
 #[cfg(test)]
@@ -7766,7 +7784,6 @@ pub async fn soft_delete_project(&self) {
 "##;
 
     #[test]
-    #[ignore = "pending: project-lifecycle 01-01 — check-arch rule project-lifecycle-one-seam (i)"]
     fn one_seam_a_project_write_outside_the_store_is_flagged() {
         let tree = stage(&[
             (MODULE, STORE_LIFECYCLE),
@@ -7814,7 +7831,6 @@ pub async fn soft_delete_project(&self) {
     }
 
     #[test]
-    #[ignore = "pending: project-lifecycle 01-01 — check-arch rule project-lifecycle-one-seam (ii) rename_project_with_audit"]
     fn one_seam_the_audited_rename_called_from_a_door_is_flagged() {
         let tree = stage(&[
             (MODULE, STORE_LIFECYCLE),
@@ -7883,7 +7899,6 @@ pub async fn soft_delete_project(&self) {
     }
 
     #[test]
-    #[ignore = "pending: project-lifecycle 01-01 — check-arch rule project-lifecycle-one-seam"]
     fn one_seam_a_missing_crates_directory_fails_the_rule() {
         let tree = stage(&[("README.md", "nothing here\n")]);
         assert!(
@@ -7893,7 +7908,6 @@ pub async fn soft_delete_project(&self) {
     }
 
     #[test]
-    #[ignore = "pending: project-lifecycle 01-01 — check-arch rule project-lifecycle-one-seam"]
     fn one_seam_the_shipped_tree_passes() {
         let root = shipped_root();
         let violations = check_project_lifecycle_one_seam(&root);

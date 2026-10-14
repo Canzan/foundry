@@ -4365,23 +4365,6 @@ impl Store {
         )
     }
 
-    /// The D4 uniqueness comparison set: `(name, slug)` of every OTHER project
-    /// in the same team (self excluded in SQL). Comparison happens app-side —
-    /// slug derivation is domain code (`foundry_core::slugify`), not SQL.
-    pub async fn list_team_sibling_projects(
-        &self,
-        team_id: uuid::Uuid,
-        exclude_project_id: uuid::Uuid,
-    ) -> Result<Vec<(String, String)>, StoreError> {
-        Ok(
-            sqlx::query_as("SELECT name, slug FROM projects WHERE team_id = $1 AND id <> $2")
-                .bind(team_id)
-                .bind(exclude_project_id)
-                .fetch_all(&self.pool)
-                .await?,
-        )
-    }
-
     /// `UPDATE projects SET name = $2 WHERE id = $1` — name ONLY (D1: slug,
     /// key_prefix, next_issue_number untouched). Returns rows_affected so the
     /// caller maps a vanished project (0) to the non-enumerable NotFound.
