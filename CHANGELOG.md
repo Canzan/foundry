@@ -7,6 +7,25 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 
 ## [Unreleased]
 
+## [v0.14.2] - 2026-10-14
+
+Updates two dependencies with security advisories. No migration. `git log v0.14.1..v0.14.2` is
+the full list.
+
+### Security
+
+- **ammonia 4.1.4 -> 4.1.7** for RUSTSEC-2021-0157 (quotes in CSS `url("")` not escaped in
+  `style` attributes) and RUSTSEC-2021-0158 (XSS through SVG `animateMotion`,
+  `animateTransform` and `animateColor`). Foundry was not exposed: ammonia only sanitises
+  comment markdown, raw HTML in a comment is escaped before parsing, and the allowlist has no
+  `style` attribute and no SVG elements.
+- **rustls 0.23.45 -> 0.23.46** for RUSTSEC-2026-0346 (`Debug` output of client session values
+  showed TLS secrets), RUSTSEC-2026-0347 (buffered data sent to the outer server after an ECH
+  rejection) and RUSTSEC-2026-0348 (Brotli certificate decompression could allocate 1 GiB).
+  rustls is in the shipped binary (Keycloak and other HTTPS calls, SMTP, Postgres TLS) as well
+  as test tooling, but Foundry was not exposed: it has no custom session store, does not turn on
+  ECH, and builds rustls without the `brotli` feature.
+
 ## [v0.14.1] - 2026-10-13
 
 Fixes three ways a member could reach an issue, attachment or comment outside the address in the
