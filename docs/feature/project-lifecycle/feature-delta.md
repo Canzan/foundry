@@ -1892,7 +1892,7 @@ No pipeline file changes.
 
 | Gate | Rule | Checked how |
 |---|---|---|
-| R1 **02 travels with 03** (DISCUSS release rule) | No tag whose tree holds `0026_project_soft_delete.sql` unless it also holds `foundry doctor restore-project` and `pl-03` is green. Slices 02 and 03 are also **pushed together**, so even an untagged `main` never offers a delete without a restore | `git ls-tree <tag> crates/foundry-store/migrations/` plus the `main.rs` dispatch before the user tags |
+| R1 **02 travels with 03** (DISCUSS release rule; widened at DELIVER planning, 2026-10-14) | No tag whose tree holds `0026_project_soft_delete.sql` unless it also holds `foundry doctor restore-project` and `pl-03` is green. **Widened:** the whole feature is one release: nothing is pushed or tagged before roadmap step 04-03, slice 01 included (slice 01's Delete link would 404 alone, and the team delete page names deleted projects until 04-02) | `git ls-tree <tag> crates/foundry-store/migrations/` plus the `main.rs` dispatch before the user tags |
 | R2 Slice order | 0027 (slice 04) ships with or after 0026; slice 01 may ship alone | Migration numbers are sequential |
 | R3 Migration notes | Every migration in the tag has a CHANGELOG migration note (below) | Review of `[Unreleased]` before the tag |
 | R4 OQ-D4 count | The projects-per-workspace count on dev and prod is taken **before the tag carrying 0026** and written into its CHANGELOG note | See *Pre-requisites* P7 |
@@ -2336,6 +2336,30 @@ The per-file table (tests, GREEN now, RED and why) is in `distill/red-classifica
 
 ### [REF] Recommended un-pend order (handoff to DELIVER)
 
+**Superseded at DELIVER planning (2026-10-14) by `docs/feature/project-lifecycle/deliver/roadmap.json`** (17 steps, approved after two reviews). The step list below this note is DISTILL's original; the roadmap's order, step ids and `pending_id_remap` govern. Roadmap order:
+
+1. **01-01** Migration 0025: the lifecycle record table and its probe
+2. **01-02** Audited rename write, team project list and one-seam rule
+3. **01-03** Shared rename core, instance door records, Projects section
+4. **01-04** Rename door: POST rename from the members page
+5. **02-01** Migration 0026: deleted marker, live view and probe
+6. **02-02** Write guard in every project writer and write-guard rule
+7. **02-03** Reader sweep onto live_projects
+8. **02-04** Live-reads architecture rule, turned on last
+9. **02-05** Soft delete write and the delete use-cases
+10. **02-06** Project delete confirm page from the members page
+11. **02-07** Project delete POST: delete, notice and refusal matrix
+12. **02-08** A deleted project answers nowhere and accepts no write
+13. **03-01** Operator lists and restores deleted projects from the CLI
+14. **03-02** Names held until restore; restore-comment names the deleted project
+15. **04-01** Migration 0027: detach columns, check and live view parity
+16. **04-02** Detaching team delete, deleted-project facts, team-gone restore
+17. **04-03** Retire a team whose projects are all deleted (team door)
+
+Release: one release, nothing pushed or tagged before 04-03 (DEVOPS R1, widened).
+
+**Superseded by `docs/feature/project-lifecycle/deliver/roadmap.json`** (DELIVER roadmap, 17 steps; its `pending_id_remap` lists every renumbered `pending: project-lifecycle NN-NN` id). Kept below as the DISTILL record.
+
 Step ids are shared by the scenarios, the gold tests' `#[ignore]` reasons and the scaffolds' panic messages. **Sizing review (final review, R6, record only):** roadmap steps 01-02 (16 scenarios), 02-03 (23), 03-01 (12) and 04-01 (8) are flagged for sizing; DELIVER's roadmap may split them. **Every `pl-0N` lane run DELIVER reports must show a non-zero scenario count** (an all-`@pending` slice selects 0 scenarios and exits green; platform review L7).
 
 1. **01-01** (slice 01, store): migration 0025, its probe line, `UPGRADE_WARNING_0025`; `project_lifecycle.rs` with `list_team_sibling_projects` moved in, `rename_project_with_audit`, `list_team_projects`; check-arch rule 3 (i)/(ii) registered → the 01-01 store, migration and check-arch tests.
@@ -2414,7 +2438,7 @@ Where each landed: U1 → DISCUSS D5, US-PL-03 pitch and AC 2, Driving Port 4, P
 | Default acceptance lane (`CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 5400 env -u FOUNDRY_ACCEPTANCE_TAGS cargo test -p foundry-acceptance --release --test acceptance`, `foundry` rebuilt and warmed first) | 89 features, 1 080 scenarios, 7 258 steps: **1 079 passed, 1 failed** — the failure is `us-b04-signin-layout` "The anti-forgery contract is preserved…", whose Given hit the known sqlx `'\0'` connect flake (`insert admin user: Protocol("unknown message type: '\0'")`) in an untouched feature; **rerun alone (`FOUNDRY_ACCEPTANCE_TAGS=us-b04`): 4 of 4 passed**. The 50 project-lifecycle scenarios are `@pending` and excluded. |
 | `FOUNDRY_ACCEPTANCE_TAGS=project-lifecycle` | 0 scenarios (all pending); with `@pending` lifted: 166 rows, 166 RED, 0 BROKEN, 0 undefined or ambiguous steps |
 | `cargo test -p foundry-store --test project_lifecycle --test project_lifecycle_migrations --test team_delete` | 8 / 0 / 21 passed, 26 / 12 / 7 ignored; `--ignored`: 45 RED at their gates or scaffolds, 0 BROKEN |
-| `cargo test -p foundry-services --test project_lifecycle_use_cases` | 12 ignored; `--ignored`: 12 RED, 0 BROKEN |
+| `cargo test -p foundry-services --test project_lifecycle_use_cases` | 13 ignored; `--ignored`: 13 RED, 0 BROKEN |
 | `cargo test -p xtask` | 126 passed, 24 ignored; `project_lifecycle -- --include-ignored`: 24 RED on the scaffold panics, 0 BROKEN |
 | `cargo build --workspace --tests` | clean |
 | `cargo clippy -p foundry-acceptance -p foundry-store -p foundry-services -p xtask --all-targets -- -D warnings` | clean |

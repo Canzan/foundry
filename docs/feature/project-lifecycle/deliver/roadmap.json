@@ -1,0 +1,1089 @@
+{
+  "roadmap": {
+    "project_id": "project-lifecycle",
+    "created_at": "2026-10-13T00:00:00Z",
+    "total_steps": 17,
+    "goal": "A team's lead or a workspace admin renames a project from the team's members page (name only; address, key and every link kept) and deletes it through a confirm page as a soft delete that erases nothing; a deleted project answers every web and API door exactly as one that never existed and nothing can be written into it (live_projects view as the one read seam, lock_live_project as the first statement of every project-scoped writer's transaction); the instance operator lists and restores deleted projects exactly from the foundry doctor CLI; a team whose projects are all deleted can be deleted, its deleted projects kept detached; every effective rename, delete and restore writes one project_lifecycle_events record (migrations 0025, 0026, 0027, each with a probe line), and three check-arch rules (one-seam, write-guard, live-reads) keep it that way. The whole feature ships as ONE release.",
+    "sources": [
+      "docs/feature/project-lifecycle/feature-delta.md",
+      "docs/feature/project-lifecycle/distill/red-classification.md",
+      "docs/product/architecture/brief.md",
+      "docs/product/architecture/adr-project-lifecycle-001-live-projects-view-is-the-read-seam.md",
+      "docs/product/architecture/adr-project-lifecycle-002-soft-delete-write-guard-and-restore.md",
+      "docs/product/architecture/adr-project-lifecycle-003-project-lifecycle-events-and-one-rename-core.md",
+      "docs/product/architecture/adr-project-lifecycle-004-team-delete-detaches-deleted-projects.md",
+      "docs/feature/team-lifecycle/deliver/roadmap.json",
+      "docs/feature/fix-issue-attachment-scoping/deliver/roadmap.json",
+      "crates/foundry-acceptance/tests/features/project-lifecycle-01-rename-project.feature",
+      "crates/foundry-acceptance/tests/features/project-lifecycle-02-delete-project.feature",
+      "crates/foundry-acceptance/tests/features/project-lifecycle-02-deleted-project-answers-nowhere.feature",
+      "crates/foundry-acceptance/tests/features/project-lifecycle-03-restore-project.feature",
+      "crates/foundry-acceptance/tests/features/project-lifecycle-04-retire-team.feature",
+      "crates/foundry-acceptance/src/steps/feature_project_lifecycle.rs",
+      "crates/foundry-acceptance/src/support/project_lifecycle.rs",
+      "crates/foundry-store/src/project_lifecycle.rs",
+      "crates/foundry-store/src/upgrade_warnings.rs",
+      "crates/foundry-store/src/lib.rs",
+      "crates/foundry-store/src/lanes.rs",
+      "crates/foundry-store/src/teams.rs",
+      "crates/foundry-services/src/projects.rs",
+      "crates/foundry-app/src/teams.rs",
+      "crates/foundry-app/src/admin_cli.rs",
+      "crates/foundry-store/tests/project_lifecycle.rs",
+      "crates/foundry-store/tests/project_lifecycle_migrations.rs",
+      "crates/foundry-store/tests/probe_schema_scoping.rs",
+      "crates/foundry-store/tests/team_delete.rs",
+      "crates/foundry-store/tests/name_rule_in_database.rs",
+      "crates/foundry-services/tests/project_lifecycle_use_cases.rs",
+      "crates/foundry-app/tests/project_lifecycle_copy.rs",
+      "xtask/src/check_arch.rs"
+    ],
+    "scenario_ownership_invariant": "All 59 DISTILL acceptance scenarios (298 outline rows) and all 94 pending gold tests are owned by exactly one step, scenarios numbered as in the DISTILL scenario list. Acceptance: 01-03 owns 4, 10, 11, 12 (8 rows); 01-04 owns 1-3, 5-9, 13-16 (12 scenarios, 21 rows); 02-06 owns 17, 20, 22, 24 (9 rows); 02-07 owns 18, 19, 21, 23, 25-28 (8 scenarios, 16 rows); 02-08 owns 29-39 (11 scenarios, 222 rows); 03-01 owns 40-47 (10 rows); 03-02 owns 48-51 (4 rows; 48-50 are guards); 04-03 owns 52-59 (8 rows); 01-01, 01-02, 02-01..02-05, 04-01 and 04-02 are store-proven and un-pend no scenario. Gold tests: 01-01 = 6; 01-02 = 10; 01-03 = 6; 01-04 = 1; 02-01 = 11; 02-02 = 12; 02-03 = 2; 02-04 = 8; 02-05 = 13; 02-07 = 1; 03-01 = 7; 03-02 = 1; 04-01 = 6; 04-02 = 9; 04-03 = 1; total 94 (no new test added: the F-03 assertion already exists, see 04-02). The 9 tests GREEN at DISTILL (8 substrate facts and negative controls in project_lifecycle.rs, 1 in team_delete.rs) and the shipped team-lifecycle negative controls stay green (the controls keep LOSING the project). DISTILL scaffold markers ('RED scaffold written by DISTILL (2026-10-13)') removed: check_arch rule 3 at 01-02, upgrade_warnings.rs at 02-01, rule 2 at 02-02, rule 1 at 02-04, services projects.rs section at 03-01, store project_lifecycle.rs module at 04-02 (its last panic). Burn-down: grep -cE '^[[:space:]]*@.*@pending' crates/foundry-acceptance/tests/features/project-lifecycle-0*.feature = 59 now; 55 after 01-03, 43 after 01-04, 39 after 02-06, 31 after 02-07, 20 after 02-08, 12 after 03-01, 8 after 03-02, 0 after 04-03. Ignored gold tests: 94 now; after 01-01..04-03 in order: 88, 78, 72, 71, 60, 48, 46, 38, 25, 25, 24, 24, 17, 16, 10, 1, 0. DELIVER un-pends a scenario and un-ignores a test only in the step that owns it.",
+    "pending_id_remap": {
+      "rule": "The crafter changes a moved test's '#[ignore = \"pending: project-lifecycle NN-NN ...' reason (and a stub's or scaffold's panic id) to the new step id in the owning step before removing the #[ignore] or the panic. Ids not listed here are unchanged: 01-01 (6 tests), 02-01 (11 tests), 03-01 (7 tests), 04-01 (6 tests).",
+      "gold_tests": [
+        "01-01 -> 01-02: crates/foundry-store/tests/project_lifecycle.rs::a_rename_writes_the_name_only_and_one_record_with_the_old_name",
+        "01-01 -> 01-02: crates/foundry-store/tests/project_lifecycle.rs::a_byte_equal_rename_writes_nothing_and_a_case_only_change_is_a_rename",
+        "01-01 -> 01-02: crates/foundry-store/tests/project_lifecycle.rs::a_rename_of_an_unknown_project_is_not_found_and_writes_nothing",
+        "01-01 -> 01-02: crates/foundry-store/tests/project_lifecycle.rs::a_rename_whose_record_cannot_be_written_renames_nothing",
+        "01-01 -> 01-02: crates/foundry-store/tests/project_lifecycle.rs::concurrent_renames_of_one_project_record_chained_old_names_in_100_runs",
+        "01-01 -> 01-02: crates/foundry-store/tests/project_lifecycle.rs::the_team_project_list_is_by_name_then_key",
+        "01-01 -> 01-02: xtask/src/check_arch.rs::one_seam_a_project_write_outside_the_store_is_flagged",
+        "01-01 -> 01-02: xtask/src/check_arch.rs::one_seam_the_audited_rename_called_from_a_door_is_flagged",
+        "01-01 -> 01-02: xtask/src/check_arch.rs::one_seam_a_missing_crates_directory_fails_the_rule",
+        "01-01 -> 01-02: xtask/src/check_arch.rs::one_seam_the_shipped_tree_passes",
+        "01-02 -> 01-03: crates/foundry-services/tests/project_lifecycle_use_cases.rs::a_teams_lead_renames_a_project_name_only_with_one_record",
+        "01-02 -> 01-03: crates/foundry-services/tests/project_lifecycle_use_cases.rs::a_workspace_admin_renames_a_project_of_a_team_they_are_not_on",
+        "01-02 -> 01-03: crates/foundry-services/tests/project_lifecycle_use_cases.rs::anyone_without_manage_or_any_unknown_address_is_not_found_and_nothing_changes",
+        "01-02 -> 01-03: crates/foundry-services/tests/project_lifecycle_use_cases.rs::a_name_that_breaks_the_rule_is_refused_with_its_reason_and_nothing_changes",
+        "01-02 -> 01-03: crates/foundry-services/tests/project_lifecycle_use_cases.rs::submitting_the_same_name_is_a_no_op_and_a_case_change_is_a_rename",
+        "01-02 -> 01-03: crates/foundry-services/tests/project_lifecycle_use_cases.rs::the_instance_admin_door_records_its_rename_too",
+        "01-02 -> 01-04: crates/foundry-app/tests/project_lifecycle_copy.rs::the_projects_section_and_rename_copy_is_byte_exact",
+        "02-01 -> 02-02: crates/foundry-store/tests/project_lifecycle.rs::every_guarded_writer_waits_on_a_held_delete_then_answers_its_not_found_and_writes_nothing",
+        "02-01 -> 02-02: crates/foundry-store/tests/project_lifecycle.rs::a_write_waiting_on_a_delete_that_rolls_back_goes_through",
+        "02-01 -> 02-02: xtask/src/check_arch.rs::write_guard_a_clean_store_passes",
+        "02-01 -> 02-02: xtask/src/check_arch.rs::write_guard_an_unguarded_direct_writer_of_each_table_is_flagged",
+        "02-01 -> 02-02: xtask/src/check_arch.rs::write_guard_a_guard_that_does_not_hold_across_the_write_is_flagged",
+        "02-01 -> 02-02: xtask/src/check_arch.rs::write_guard_a_caller_of_a_writing_helper_without_the_guard_is_flagged_transitively",
+        "02-01 -> 02-02: xtask/src/check_arch.rs::write_guard_insert_issue_attempt_with_a_write_before_its_counter_update_is_flagged",
+        "02-01 -> 02-02: xtask/src/check_arch.rs::write_guard_the_retrying_caller_with_an_inline_issue_insert_is_flagged",
+        "02-01 -> 02-02: xtask/src/check_arch.rs::write_guard_the_allow_list_is_by_name_only",
+        "02-01 -> 02-02: xtask/src/check_arch.rs::write_guard_a_dml_template_with_an_interpolated_table_is_flagged_even_when_guarded",
+        "02-01 -> 02-02: xtask/src/check_arch.rs::write_guard_a_missing_crates_or_store_src_fails_the_rule",
+        "02-01 -> 02-02: xtask/src/check_arch.rs::write_guard_the_shipped_tree_passes",
+        "02-02 -> 02-03: crates/foundry-store/tests/project_lifecycle.rs::every_project_reader_treats_a_deleted_project_as_one_that_never_existed",
+        "02-02 -> 02-03: crates/foundry-store/tests/project_lifecycle.rs::the_team_project_list_omits_a_deleted_project",
+        "02-02 -> 02-04: xtask/src/check_arch.rs::live_reads_a_clean_tree_with_the_four_exemptions_passes",
+        "02-02 -> 02-04: xtask/src/check_arch.rs::live_reads_every_form_of_the_projects_table_in_sql_is_flagged",
+        "02-02 -> 02-04: xtask/src/check_arch.rs::live_reads_a_line_break_before_the_table_name_is_flagged_on_the_names_line",
+        "02-02 -> 02-04: xtask/src/check_arch.rs::live_reads_the_rule_scans_every_crates_src_not_only_the_store",
+        "02-02 -> 02-04: xtask/src/check_arch.rs::live_reads_the_view_the_record_table_and_comments_never_match",
+        "02-02 -> 02-04: xtask/src/check_arch.rs::live_reads_an_exact_projects_literal_outside_the_four_exempt_items_is_flagged",
+        "02-02 -> 02-04: xtask/src/check_arch.rs::live_reads_a_missing_crates_directory_fails_the_rule",
+        "02-02 -> 02-04: xtask/src/check_arch.rs::live_reads_the_shipped_tree_passes",
+        "02-03 -> 02-05: crates/foundry-store/tests/project_lifecycle.rs::a_delete_writes_only_the_marker_and_one_record_and_erases_nothing",
+        "02-03 -> 02-05: crates/foundry-store/tests/project_lifecycle.rs::the_production_delete_waits_while_a_writer_holds_the_guard",
+        "02-03 -> 02-05: crates/foundry-store/tests/project_lifecycle.rs::a_notification_queued_before_the_delete_stays_pending_and_none_arises_after_it",
+        "02-03 -> 02-05: crates/foundry-store/tests/project_lifecycle.rs::a_second_delete_a_foreign_one_and_an_unknown_one_are_not_found_and_write_nothing",
+        "02-03 -> 02-05: crates/foundry-store/tests/project_lifecycle.rs::a_delete_whose_record_cannot_be_written_deletes_nothing",
+        "02-03 -> 02-05: crates/foundry-store/tests/project_lifecycle.rs::the_delete_versus_issue_create_race_never_errors_or_loses_an_issue_in_100_runs",
+        "02-03 -> 02-05: crates/foundry-store/tests/project_lifecycle.rs::a_rename_and_a_delete_of_one_project_are_totally_ordered_in_100_runs",
+        "02-03 -> 02-05: crates/foundry-store/tests/project_lifecycle.rs::a_deleted_projects_slug_and_key_stay_taken",
+        "02-03 -> 02-05: crates/foundry-services/tests/project_lifecycle_use_cases.rs::a_deleted_projects_name_and_key_stay_taken_and_its_id_is_not_found",
+        "02-03 -> 02-05: crates/foundry-services/tests/project_lifecycle_use_cases.rs::the_confirm_preview_counts_the_issues_and_writes_nothing",
+        "02-03 -> 02-05: crates/foundry-services/tests/project_lifecycle_use_cases.rs::a_teams_lead_deletes_a_project_and_a_second_delete_is_not_found",
+        "02-03 -> 02-05: crates/foundry-services/tests/project_lifecycle_use_cases.rs::anyone_without_manage_gets_not_found_on_the_confirm_and_the_delete_and_nothing_changes",
+        "02-03 -> 02-05: xtask/src/check_arch.rs::one_seam_the_soft_delete_called_from_a_door_is_flagged",
+        "02-03 -> 02-07: crates/foundry-app/tests/project_lifecycle_copy.rs::the_confirm_page_and_delete_copy_is_byte_exact",
+        "03-01 -> 03-02: crates/foundry-app/tests/project_lifecycle_copy.rs::the_operator_cli_copy_is_byte_exact",
+        "04-01 -> 04-02: crates/foundry-store/tests/team_delete.rs::a_team_whose_projects_are_all_deleted_is_deleted_and_every_row_survives_detached",
+        "04-01 -> 04-02: crates/foundry-store/tests/team_delete.rs::a_team_with_a_live_and_a_deleted_project_is_refused_naming_the_live_one_only",
+        "04-01 -> 04-02: crates/foundry-store/tests/team_delete.rs::the_team_delete_facts_list_deleted_projects_and_the_workspace_name",
+        "04-01 -> 04-02: crates/foundry-store/tests/team_delete.rs::the_restore_versus_team_delete_race_never_loses_a_project_in_100_runs",
+        "04-01 -> 04-02: crates/foundry-store/tests/team_delete.rs::restoring_a_project_whose_team_was_deleted_is_team_gone_and_changes_nothing",
+        "04-01 -> 04-02: crates/foundry-store/tests/team_delete.rs::a_workspace_delete_cascades_live_deleted_and_detached_projects",
+        "04-01 -> 04-02: crates/foundry-store/tests/team_delete.rs::the_detach_backstop_logs_one_error_naming_the_team",
+        "04-01 -> 04-02: crates/foundry-services/tests/project_lifecycle_use_cases.rs::the_team_delete_preview_refuses_on_live_projects_only_and_names_only_them",
+        "04-01 -> 04-02: crates/foundry-services/tests/project_lifecycle_use_cases.rs::the_team_delete_preview_changes_zero_rows_with_deleted_projects",
+        "04-01 -> 04-03: crates/foundry-app/tests/project_lifecycle_copy.rs::the_team_delete_line_and_team_gone_refusal_are_byte_exact"
+      ],
+      "scaffold_panic_ids": [
+        "store project_lifecycle.rs list_team_projects, rename_project_with_audit: 01-01 -> 01-02",
+        "store project_lifecycle.rs soft_delete_project: 02-03 -> 02-05",
+        "store project_lifecycle.rs team_delete_facts deleted_projects: 04-01 -> 04-02",
+        "services projects.rs rename_team_project: 01-02 -> 01-03",
+        "services projects.rs delete_preview, delete_project: 02-03 -> 02-05",
+        "xtask check_arch.rs rule project-lifecycle-one-seam scaffold: 01-01 -> 01-02",
+        "xtask check_arch.rs rule project-lifecycle-write-guard scaffold: 02-01 -> 02-02",
+        "xtask check_arch.rs rule project-lifecycle-live-reads scaffold: 02-02 -> 02-04",
+        "team_delete.rs the_detach_backstop_logs_one_error_naming_the_team stub: 04-01 -> 04-02",
+        "unchanged: store lock_live_project (02-01), list_deleted_projects and restore_deleted_project (03-01); services list_deleted_projects and restore_project (03-01)"
+      ],
+      "acceptance_scenarios": [
+        "DISTILL 01-02 (scenarios 1-16) -> 01-03 (4, 10, 11, 12) + 01-04 (1-3, 5-9, 13-16)",
+        "DISTILL 02-03 (scenarios 17-39) -> 02-06 (17, 20, 22, 24) + 02-07 (18, 19, 21, 23, 25-28) + 02-08 (29-39)",
+        "DISTILL 03-01 (scenarios 40-51) -> 03-01 (40-47) + 03-02 (48-51)",
+        "DISTILL 04-01 (scenarios 52-59) -> 04-03 (52-59)"
+      ]
+    },
+    "release_gate_r1": "ONE RELEASE (orchestrator decision, 2026-10-13, extends DEVOPS R1): the whole feature is one push unit. Nothing is pushed or tagged at any step before 04-03, slice 01 included: slice 01 does not ship alone, because its members-page Delete project link (DDD-25) would answer the uniform 404 until slice 02. Steps 02-01 through 04-03 are the no-push unit R1 names (a tree holding 0026_project_soft_delete.sql must also hold foundry doctor restore-project with pl-03 green); because nothing is pushed until 04-03, the interim team-delete page and 409 that still name deleted projects (02-03..04-01, the team-delete SQL kept on the base table so the FK cascade can never erase a deleted project) never reach a user, and no interim copy is needed. Commits are local; the push happens only on the user's explicit go, after 04-03. Before a tag: git ls-tree -r <tag> crates/foundry-store/migrations/ | grep 0026_project_soft_delete non-empty implies git show <tag>:crates/foundry-app/src/main.rs | grep restore-project non-empty, and pl-01..pl-04 reported non-zero scenario counts, all green. Also R2 (0027 with or after 0026: same release), R3 (a CHANGELOG migration note per migration), R4 (OQ-D4 count before the tag carrying 0026, the user's), R5 (FOUNDRY_XTASK_INCLUDE_DOCKER=1 cargo xtask ci with the acceptance step run), R6 (a migration file is frozen once a tag carrying it reaches dev; editable until then)."
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "Rename a project from the team page, on record (US-PL-01, slice 01, DDD-13..18, 25-28, migration 0025)",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "Migration 0025: the lifecycle record table and its probe",
+          "description": "Migration 0025 (project_lifecycle_events: 11 columns, shape CHECK, no FK to projects or teams), its current_schema-scoped probe line, UPGRADE_WARNING_0025 in the list form, and the proof that the table stays out of the tenant tables and the export. Un-ignores 6 gold tests; no acceptance scenario.",
+          "criteria": [
+            "Applying the record migration over a schema holding rows changes no existing row",
+            "An incoherent record is refused by the database, and a record has no link that would remove it with its project or team",
+            "foundry refuses readiness on a schema lacking the record table, judged in its own schema, so a sibling schema's table never satisfies it",
+            "The upgrade warning names the migration, the table and the supported restore",
+            "The record table is never part of a workspace export or its tenant table list"
+          ],
+          "estimate": "0.5 day",
+          "dependencies": [],
+          "files_to_modify": [
+            "crates/foundry-store/migrations/0025_project_lifecycle_events.sql",
+            "crates/foundry-store/src/lib.rs",
+            "crates/foundry-store/src/upgrade_warnings.rs",
+            "CHANGELOG.md",
+            "crates/foundry-store/tests/project_lifecycle_migrations.rs",
+            "crates/foundry-store/tests/probe_schema_scoping.rs",
+            "crates/foundry-store/tests/project_lifecycle.rs"
+          ],
+          "test_file": "crates/foundry-store/tests/project_lifecycle_migrations.rs",
+          "scenario_name": [
+            "crates/foundry-store/tests/project_lifecycle_migrations.rs::migration_0025_is_additive_over_a_schema_holding_rows",
+            "crates/foundry-store/tests/project_lifecycle_migrations.rs::the_record_shape_check_refuses_every_incoherent_record_and_has_no_link_to_projects_or_teams",
+            "crates/foundry-store/tests/project_lifecycle_migrations.rs::the_probe_refuses_a_schema_without_the_project_lifecycle_record",
+            "crates/foundry-store/tests/project_lifecycle_migrations.rs::the_0025_warning_names_the_migration_the_table_and_the_supported_restore",
+            "crates/foundry-store/tests/probe_schema_scoping.rs::probe_project_lifecycle_events_check_is_scoped_to_current_schema",
+            "crates/foundry-store/tests/project_lifecycle.rs::project_lifecycle_events_is_not_a_tenant_table"
+          ],
+          "lane_commands": [
+            "docker info; lsof -nP -iTCP -sTCP:LISTEN | grep acceptanc (stop canzan-lift acceptance before DB suites); check for a concurrent foundry session",
+            "RUST_TEST_THREADS=1 timeout 2400 cargo test -p foundry-store --test project_lifecycle_migrations (expect 4 passed, 9 ignored)",
+            "RUST_TEST_THREADS=1 timeout 1200 cargo test -p foundry-store --test probe_schema_scoping (expect 3 passed, 2 ignored; the shipped tests still pass for their own reason)",
+            "RUST_TEST_THREADS=1 timeout 2400 cargo test -p foundry-store --test project_lifecycle (expect 9 passed: 8 GREEN substrate facts + 1; 28 ignored)",
+            "RUST_TEST_THREADS=1 timeout 3600 cargo test -p foundry-store",
+            "timeout 900 cargo fmt --all -- --check",
+            "timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "timeout 600 cargo xtask check-arch",
+            "RUST_TEST_THREADS=1 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke (boots through the extended probe)",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo build --release -p foundry-app --bin foundry && for i in 1 2 3; do timeout 300 target/release/foundry --version || true; done",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 5400 cargo test -p foundry-acceptance --release --test acceptance (default lane: every scenario schema now carries 0025 and passes the probe)",
+            "timeout 14400 cargo mutants -j 1 --in-diff <step diff> --file crates/foundry-store/src/lib.rs --file crates/foundry-store/src/upgrade_warnings.rs (>= 80%)"
+          ],
+          "implementation_notes": "SPLIT FROM DISTILL 01-01 (review F-08): the schema half; the store module and rule 3 are 01-02. ORDER: the two migration tests, the probe and its scoping test, the warning text, then the not-a-tenant test. MIGRATION 0025 (ADR-PROJECT-LIFECYCLE-003, DDD-13/14): one table project_lifecycle_events, 11 columns, kind renamed | deleted | restored (restored is in the CHECK from day one, so slice 03 needs no migration), actor_id NULL only for restored (shape CHECK), NO FK to projects or teams (the record outlives both), FKs to workspaces ON DELETE CASCADE and to users, two indexes; additive. Not in TENANT_TABLES (stays ten) and not in admin_cli KNOWN_FOUNDRY_TABLES. PROBE (DDD-28): its 11 columns, scoped to current_schema() (lib.rs:337-354 idiom). KNOWN ISSUE (team-membership/team-lifecycle lesson): probe_schema_scoping.rs builds HEALTHY sibling and current schemas by hand; each must gain project_lifecycle_events with the probed columns or the shipped pass branches break for the wrong reason; confirm every test there fails and passes for its own reason. WARNING: UPGRADE_WARNING_0025 per DEVOPS (new FKs to workspaces and users: a pre-0025 dump cannot be pg_restore --clean'ed over the database; restore into a fresh database). Generalise upgrade_warnings to the list form here; 02-01's tests pin the two-entry list. CHANGELOG [Unreleased]: the 0025 migration note and the Backups line (R3). R6: 0025 stays editable until pushed. ONE RELEASE: nothing is pushed until 04-03 (release_gate_r1). MUTATION: cargo-mutants cannot see SQL; hand-pin once in a scratch copy and record: drop the shape CHECK (the shape test reddens), drop a probed column from the probe (the probe test reddens). OVERRIDES: TEST PARADIGM: example-based (project CLAUDE.md: OOP; proptest only where an invariant is genuinely quantifiable); DISTILL tests and scenarios are the acceptance designer's: un-ignore and un-pend in this step's order, never re-author; a driver failure (crates/foundry-acceptance/src/support/project_lifecycle.rs) goes back to the test owner. LANES: bound every run with timeout (a hung rerun loop once ran 26h: kill the parent shell and leftover containers); RUST_TEST_THREADS=1 for DB suites and smoke; Docker up; check concurrent sessions and the lsof line before blaming code for SSLRequest 0x48 / PortNotExposed; rebuild and warm the release binary right before every acceptance lane; every pl-0N lane run reported shows a non-zero scenario count; us-04 / sqlx '\\0' flake: rerun alone; never set FOUNDRY_STAMP_*. COMMIT: one local commit (git commit only); never push, never open a PR."
+        },
+        {
+          "id": "01-02",
+          "name": "Audited rename write, team project list and one-seam rule",
+          "description": "The project_lifecycle store module: list_team_sibling_projects moved in, rename_project_with_audit (row FOR NO KEY UPDATE, name only, one renamed record), list_team_projects by name then key; check-arch project-lifecycle-one-seam (i) and (ii) registered. Un-ignores 10 gold tests (re-mapped 01-01 -> 01-02).",
+          "criteria": [
+            "A rename changes only the project's name and writes one record holding its old and new name; the address and key never change",
+            "A byte-equal name writes nothing, a case-only change is a rename, an unknown project is not found, and a rename whose record fails renames nothing",
+            "One hundred concurrent renames of one project leave records whose old names form an unbroken chain",
+            "A team's projects are listed by name, then key",
+            "A project write outside the store, or the audited rename called from a web or API door, fails the architecture check; today's tree passes it"
+          ],
+          "estimate": "0.75 day",
+          "dependencies": [
+            "01-01"
+          ],
+          "files_to_modify": [
+            "crates/foundry-store/src/project_lifecycle.rs",
+            "crates/foundry-store/src/lib.rs",
+            "xtask/src/check_arch.rs",
+            "crates/foundry-store/tests/project_lifecycle.rs"
+          ],
+          "test_file": "crates/foundry-store/tests/project_lifecycle.rs",
+          "scenario_name": [
+            "crates/foundry-store/tests/project_lifecycle.rs::a_rename_writes_the_name_only_and_one_record_with_the_old_name",
+            "crates/foundry-store/tests/project_lifecycle.rs::a_byte_equal_rename_writes_nothing_and_a_case_only_change_is_a_rename",
+            "crates/foundry-store/tests/project_lifecycle.rs::a_rename_of_an_unknown_project_is_not_found_and_writes_nothing",
+            "crates/foundry-store/tests/project_lifecycle.rs::a_rename_whose_record_cannot_be_written_renames_nothing",
+            "crates/foundry-store/tests/project_lifecycle.rs::concurrent_renames_of_one_project_record_chained_old_names_in_100_runs",
+            "crates/foundry-store/tests/project_lifecycle.rs::the_team_project_list_is_by_name_then_key",
+            "xtask/src/check_arch.rs::one_seam_a_project_write_outside_the_store_is_flagged",
+            "xtask/src/check_arch.rs::one_seam_the_audited_rename_called_from_a_door_is_flagged",
+            "xtask/src/check_arch.rs::one_seam_a_missing_crates_directory_fails_the_rule",
+            "xtask/src/check_arch.rs::one_seam_the_shipped_tree_passes"
+          ],
+          "lane_commands": [
+            "docker info; lsof -nP -iTCP -sTCP:LISTEN | grep acceptanc; check for a concurrent foundry session",
+            "RUST_TEST_THREADS=1 timeout 3600 cargo test -p foundry-store --test project_lifecycle (expect 15 passed, 22 ignored)",
+            "timeout 900 cargo test -p xtask (expect 130 passed, 20 ignored)",
+            "RUST_TEST_THREADS=1 timeout 3600 cargo test -p foundry-store",
+            "RUST_TEST_THREADS=1 timeout 1800 cargo test -p foundry-services --test rename_project_use_case --test create_project_use_case",
+            "timeout 900 cargo fmt --all -- --check",
+            "timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "timeout 600 cargo xtask check-arch (project-lifecycle-one-seam named in the PASSED banner)",
+            "RUST_TEST_THREADS=1 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo build --release -p foundry-app --bin foundry && for i in 1 2 3; do timeout 300 target/release/foundry --version || true; done",
+            "for t in iapr pnr us-07; do FOUNDRY_ACCEPTANCE_TAGS=$t CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --release --test acceptance || break; done",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 5400 cargo test -p foundry-acceptance --release --test acceptance (default lane)",
+            "timeout 14400 cargo mutants -j 1 --in-diff <step diff> --file crates/foundry-store/src/project_lifecycle.rs --file crates/foundry-store/src/lib.rs --file xtask/src/check_arch.rs (>= 80%)"
+          ],
+          "implementation_notes": "SPLIT FROM DISTILL 01-01 (review F-08): the store module and rule 3. Re-map the 10 ignore reasons 01-01 -> 01-02 first. ORDER: list_team_sibling_projects moved in unchanged, list_team_projects, rename_project_with_audit (the 100-run chain test last), then the rule-3 gold tests, then register the rule. STORE (DDD-15, ADR-003 section 2.1): rename_project_with_audit is ONE transaction: SELECT the row WHERE id = $1 FOR NO KEY UPDATE (unknown -> NotFound) -> byte-equal name -> Unchanged, nothing written -> UPDATE projects SET name only (never slug or key_prefix) -> INSERT the renamed record (old name, new name, actor, created_at = clock_timestamp()) -> commit. PRE-0026 SELECT (review F-02): this step's locking SELECT has no deleted_at predicate because the column does not exist yet; 02-02 amends it to WHERE id = $1 AND deleted_at IS NULL FOR NO KEY UPDATE (ADR-003 section 2.1). list_team_projects returns (name, slug, key) by name then key and reads projects until 02-03 moves it onto live_projects. update_project_name stays until 01-03 re-points rename_project (no dead code under -D warnings). NATURAL KEYS: every new query filtering slug or key_prefix binds team_id or workspace_id in the same OR-branch and parenthesis level (stricter than the shipped store-natural-key-scoped rule, which must also pass). CHECK-ARCH (DDD-22 rule 3): implement check_project_lifecycle_one_seam on the shared OneSeamRule and scanners (team-lifecycle idiom; do not fork them): (i) SQL writes on projects, live_projects or project_lifecycle_events only under crates/foundry-store/src (acceptance harness exempt); (ii) rename_project_with_audit( has no call site under crates/{foundry-app,foundry-api}/src (02-05 and 03-01 add theirs). Register it in check() and the PASSED banner; a missing crates/ fails closed. SCAFFOLDS: remove the list_team_projects and rename_project_with_audit panics and the rule-3 SCAFFOLD marker; the module keeps its marker until 04-02. MUTATION: hand-pin in a scratch copy and record: drop FOR NO KEY UPDATE (the 100-run chain test reddens), drop the record INSERT, also write the slug; each reddens a named test. OVERRIDES: TEST PARADIGM: example-based (project CLAUDE.md); DISTILL tests are the acceptance designer's: un-ignore, never re-author. LANES: bound every run with timeout; RUST_TEST_THREADS=1 for DB suites and smoke; check concurrent sessions and the lsof line first; rebuild and warm the release binary right before every acceptance lane; us-04 / sqlx '\\0' flake: rerun alone; never set FOUNDRY_STAMP_*. COMMIT: one local commit; never push (one release, release_gate_r1), never open a PR."
+        },
+        {
+          "id": "01-03",
+          "name": "Shared rename core, instance door records, Projects section",
+          "description": "Services: private apply_rename behind rename_team_project (can_manage) and the re-pointed instance-admin rename_project; update_project_name removed and its one test caller re-pointed. TeamMembersView gains projects; the members page renders the Projects section. Un-ignores 6 use-case tests (re-mapped 01-02 -> 01-03); un-pends scenarios 4, 10, 11, 12 (8 rows).",
+          "criteria": [
+            "A team's lead or a workspace admin renames name-only with one record; anyone without Manage, or any unknown address, gets not-found and nothing changes",
+            "Both rename doors share one rule and copy: a rule refusal returns its reason, a byte-equal name is a no-op, a case-only change is a rename",
+            "A rename from the instance dashboard now writes one record naming the instance admin, and its shipped outcomes are otherwise unchanged",
+            "Backend's Projects section lists live projects by name then key; rows link to boards only for viewers on the team; only Manage sees Project name, Rename, Delete project",
+            "A team without projects reads 'Labs has no projects yet.', and every row's controls are plain page forms"
+          ],
+          "estimate": "1 day",
+          "dependencies": [
+            "01-02"
+          ],
+          "files_to_modify": [
+            "crates/foundry-services/src/projects.rs",
+            "crates/foundry-services/src/teams.rs",
+            "crates/foundry-services/src/lib.rs",
+            "crates/foundry-store/src/lib.rs",
+            "crates/foundry-app/src/teams.rs",
+            "crates/foundry-app/src/views.rs",
+            "crates/foundry-app/templates/team_members.html",
+            "crates/foundry-store/tests/name_rule_in_database.rs",
+            "crates/foundry-services/tests/project_lifecycle_use_cases.rs",
+            "crates/foundry-acceptance/tests/features/project-lifecycle-01-rename-project.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/project-lifecycle-01-rename-project.feature",
+          "scenario_name": [
+            "A rename made from the instance dashboard is on record too (scenario 4)",
+            "The Projects section names each project by name then key, and each field says which project it is for (scenario 10)",
+            "Everyone on the team sees its projects, and only its lead or a workspace admin gets the controls (scenario 11, 5 rows)",
+            "A team with no projects says so (scenario 12)",
+            "crates/foundry-services/tests/project_lifecycle_use_cases.rs::a_teams_lead_renames_a_project_name_only_with_one_record",
+            "crates/foundry-services/tests/project_lifecycle_use_cases.rs::a_workspace_admin_renames_a_project_of_a_team_they_are_not_on",
+            "crates/foundry-services/tests/project_lifecycle_use_cases.rs::anyone_without_manage_or_any_unknown_address_is_not_found_and_nothing_changes",
+            "crates/foundry-services/tests/project_lifecycle_use_cases.rs::a_name_that_breaks_the_rule_is_refused_with_its_reason_and_nothing_changes",
+            "crates/foundry-services/tests/project_lifecycle_use_cases.rs::submitting_the_same_name_is_a_no_op_and_a_case_change_is_a_rename",
+            "crates/foundry-services/tests/project_lifecycle_use_cases.rs::the_instance_admin_door_records_its_rename_too"
+          ],
+          "lane_commands": [
+            "docker info; lsof -nP -iTCP -sTCP:LISTEN | grep acceptanc; check for a concurrent foundry session",
+            "RUST_TEST_THREADS=1 timeout 1800 cargo test -p foundry-services --test project_lifecycle_use_cases (expect 6 passed, 7 ignored)",
+            "RUST_TEST_THREADS=1 timeout 2400 cargo test -p foundry-store --test name_rule_in_database (the re-pointed legacy-rename test green; every other assertion unchanged)",
+            "RUST_TEST_THREADS=1 timeout 1800 cargo test -p foundry-services (rename_project_use_case.rs unchanged and green)",
+            "RUST_TEST_THREADS=1 timeout 3600 cargo test -p foundry-store",
+            "RUST_TEST_THREADS=1 timeout 1800 cargo test -p foundry-app",
+            "timeout 900 cargo fmt --all -- --check",
+            "timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "timeout 600 cargo xtask check-arch",
+            "RUST_TEST_THREADS=1 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo build --release -p foundry-app --bin foundry && for i in 1 2 3; do timeout 300 target/release/foundry --version || true; done",
+            "FOUNDRY_ACCEPTANCE_TAGS=pl-01 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --release --test acceptance (expect 4 scenarios / 8 rows passed, 12 still @pending; report the count, never 0)",
+            "for t in iapr pnr tm-01 tm-02 fix-hub us-07; do FOUNDRY_ACCEPTANCE_TAGS=$t CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --release --test acceptance || break; done",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 5400 cargo test -p foundry-acceptance --release --test acceptance (default lane)",
+            "timeout 14400 cargo mutants -j 1 --in-diff <step diff> --file crates/foundry-services/src/projects.rs --file crates/foundry-services/src/teams.rs --file crates/foundry-app/src/teams.rs --file crates/foundry-app/src/views.rs (>= 80%)"
+          ],
+          "implementation_notes": "SPLIT FROM DISTILL 01-02 (sizing: 16 scenarios): the services core and the read-only Projects section; the rename door is 01-04. Re-map the 6 use-case ignore reasons 01-02 -> 01-03 first. ORDER: the six use-case tests (gate, rule and copy, no-op and case-only, the instance door's record), then scenario 4, then 12, 10, 11. SERVICES (DDD-16/17/18): a private apply_rename: live project context -> siblings INCLUDING deleted projects (the module's list_team_sibling_projects) -> the shipped classify_rename, unchanged -> rename_project_with_audit. Two thin gates: rename_team_project(store, &Principal, team_slug, project_slug, raw): session workspace -> team_access_facts by (workspace, team slug) -> TeamAccess::can_manage (no new arm) -> the project by (team, slug) -> apply_rename; every refusal before the verb is ProjectLifecycleError::NotFound (authority read once per request, INV-PL-8). rename_project keeps its signature and is_instance_admin gate and now calls apply_rename, so the instance door writes a record (scenario 4). UPDATE_PROJECT_NAME (review F-01): its callers are services projects.rs:113 (re-pointed above) AND the test crates/foundry-store/tests/name_rule_in_database.rs:852 (a_legacy_row_renamed_to_another_bad_name_is_refused_and_to_a_fit_name_is_accepted). Re-point that test line to store.rename_project_with_audit(legacy.tab_project, legacy.priya, \"Homelab Ops\") asserting matches!(.., ProjectRenameWrite::Renamed { .. }) (same meaning: the legacy project renames to a fit name; the old assertion was 'one row updated'). The new record row lands in project_lifecycle_events, which no other assertion in that file reads (its name snapshots read workspaces and projects), so nothing else is disturbed; confirm by running the whole file. This is a DISTILL-era test edit: if the dispatched crafter may not edit tests, the acceptance designer makes it before GREEN. Only then delete update_project_name (store lib.rs:4367): no caller remains in src or tests. Services delegation in lib.rs. TeamMembersView gains projects: Vec<TeamProjectRow{name, slug, key}> from list_team_projects. APP (DDD-25/26, DIST-6, U3a): the Projects section on team_members.html: an h2 'Projects', one list item per live project by name then key whose text starts '{project} · {KEY}', a link to its board ONLY when the viewer is on the team (OQ-U1 = (b)); for can_manage each row also holds a plain POST form to /team/{t}/project/{p}/rename with the hidden _csrf field, a 'name' field prefilled and labelled 'Project name' plus the project's name, a Rename button, then a 'Delete project' href to /team/{t}/project/{p}/delete, in that keyboard order; no inline handler, no javascript: link. TeamNotice::NoProjectsYet '{team} has no projects yet.' (add a variant only when it renders: -D warnings). The rename route lands in 01-04 and the delete route in 02-06; ONE RELEASE means none of this reaches users before 04-03 (release_gate_r1). Remove the rename_team_project scaffold panic; the services section keeps its SCAFFOLD marker until 03-01. MUTATION: the gate order, the on_team link condition and the can_manage controls condition each killed by a named test or scenario. OVERRIDES: TEST PARADIGM: example-based (project CLAUDE.md); DISTILL tests and scenarios are the acceptance designer's: un-pend and un-ignore, never re-author; a driver failure goes back to the test owner. LANES: bound every run with timeout; RUST_TEST_THREADS=1 for DB suites and smoke; rebuild and warm the release binary right before every acceptance lane (a cold binary stalls in syspolicyd); every pl-0N lane run reported shows a non-zero scenario count; check the lsof line and concurrent sessions first; us-04 / sqlx '\\0' flake: rerun alone; never set FOUNDRY_STAMP_*. COMMIT: one local commit; never push, never open a PR."
+        },
+        {
+          "id": "01-04",
+          "name": "Rename door: POST rename from the members page",
+          "description": "POST /team/{t}/project/{p}/rename on the shared CSRF layer: session, then rename_team_project. 200 members page with 'Renamed {old} to {new}.', 422 with the reason in that project's row and the text kept, uniform 404 for every refusal. Un-pends scenarios 1-3, 5-9, 13-16 (21 rows) and the rename copy byte test.",
+          "criteria": [
+            "Lena renames Identity Platform to 'Identity & Access': she sees the Renamed notice, the address and AUTH-7 keep working, and every project page answers as before",
+            "Priya renames on a team she is not on; a case-only change and a 256-character name are renames; a byte-equal name returns the page without notice or record",
+            "A duplicate or rule-breaking name answers 422 with its reason in that project's row, the typed text kept, and no project, issue or record changed",
+            "Signed out, Marco, Sam, Lena on Ops, Ines, Hugo, a foreign or unknown project and a demoted lead's stale page get the uniform 404; tokenless gets the 403",
+            "The rename notice and the no-projects line are pinned byte for byte at their one home"
+          ],
+          "estimate": "1 day",
+          "dependencies": [
+            "01-03"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/src/teams.rs",
+            "crates/foundry-app/src/lib.rs",
+            "crates/foundry-app/src/views.rs",
+            "crates/foundry-app/templates/team_members.html",
+            "crates/foundry-app/tests/project_lifecycle_copy.rs",
+            "crates/foundry-acceptance/tests/features/project-lifecycle-01-rename-project.feature",
+            "CHANGELOG.md"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/project-lifecycle-01-rename-project.feature",
+          "scenario_name": [
+            "A team's lead renames a project and every link to it keeps working (scenario 1)",
+            "After a rename every page of the project answers as it did before (scenario 2)",
+            "A workspace admin renames a project of a team she is not on (scenario 3)",
+            "A change of letter case is a real rename, and a project never collides with itself (scenario 5)",
+            "A name of exactly 256 characters is accepted (scenario 6)",
+            "Submitting the same name changes nothing and records nothing (scenario 7)",
+            "A name already used in the team is refused, and the text is kept (scenario 8)",
+            "A name that breaks the project-name rule is refused with its reason, and the text is kept (scenario 9, 4 rows)",
+            "Only the team's lead or a workspace admin can rename a project (scenario 13, 6 rows)",
+            "A rename aimed at another workspace's project or at a project that does not exist is refused the same way (scenario 14, 2 rows)",
+            "A lead who has since been made a member cannot rename from a page she opened as a lead (scenario 15)",
+            "A rename sent without the page's token is turned away, and nothing changes (scenario 16)",
+            "crates/foundry-app/tests/project_lifecycle_copy.rs::the_projects_section_and_rename_copy_is_byte_exact (re-mapped 01-02 -> 01-04)"
+          ],
+          "lane_commands": [
+            "docker info; lsof -nP -iTCP -sTCP:LISTEN | grep acceptanc; check for a concurrent foundry session",
+            "timeout 900 cargo test -p foundry-app --test project_lifecycle_copy (expect 1 passed, 3 ignored)",
+            "RUST_TEST_THREADS=1 timeout 1800 cargo test -p foundry-app",
+            "timeout 900 cargo fmt --all -- --check",
+            "timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "timeout 600 cargo xtask check-arch",
+            "RUST_TEST_THREADS=1 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo build --release -p foundry-app --bin foundry && for i in 1 2 3; do timeout 300 target/release/foundry --version || true; done",
+            "FOUNDRY_ACCEPTANCE_TAGS=pl-01 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --release --test acceptance (expect 16 scenarios / 29 rows passed)",
+            "for t in tm-01 tm-02 iapr pnr us-dash us-nav; do FOUNDRY_ACCEPTANCE_TAGS=$t CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --release --test acceptance || break; done",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 5400 cargo test -p foundry-acceptance --release --test acceptance (default lane)",
+            "timeout 60 grep -cE '^[[:space:]]*@.*@pending' crates/foundry-acceptance/tests/features/project-lifecycle-01-rename-project.feature (expect 0)",
+            "timeout 14400 cargo mutants -j 1 --in-diff <step diff> --file crates/foundry-app/src/teams.rs --file crates/foundry-app/src/views.rs (>= 80%)"
+          ],
+          "implementation_notes": "SPLIT FROM DISTILL 01-02 (the rename door). 12 scenarios stay together: they are one handler's outcomes, and a refusal-only step would land no production code (every refusal is green as soon as the route maps the use-case's NotFound). ORDER: scenario 1 alone, then 3, 5, 6, 7, then 8, 9, then 13, 14, 15, 16, then 2 (the 15-page sweep), then the copy stub. ROUTE (DDD-23): POST /team/{team_slug}/project/{project_slug}/rename, field 'name', on the shared CSRF layer (a tokenless POST gets csrf_middleware's 403 before any handler, OQ-D1). Gate order (DDD-18): session (none -> uniform 404) -> projects::rename_team_project; authority per request, so a demoted lead's stale page is refused (INV-PL-8). STATUSES (DDD-24/27, no post-redirect-get): Renamed -> 200 members page with TeamNotice::ProjectRenamed 'Renamed {old} to {new}.' and the row's new name; NoOp -> 200 members page, no notice, no record; any ProjectNameError -> 422 members page with its Display copy in THAT project's row and the typed text kept in that row's field; NotFound -> bootstrap::resource_not_found_page() byte for byte (never 405, 400 or a slug echo). Refusals and races log nothing (DDD-30). COPY TEST (DDD-26): change the ignore reason of the_projects_section_and_rename_copy_is_byte_exact from 01-02 to 01-04, replace its panic stub with byte assertions on TeamNotice::ProjectRenamed and NoProjectsYet (team-lifecycle TeamNotice byte-test idiom; expose what the integration test needs), then remove the #[ignore]. CHANGELOG [Unreleased]: 'Added (01)' and the Upgrading line. NO PUSH POINT (orchestrator decision, review F-03/F-07): slice 01 does not ship alone; nothing is pushed until 04-03 (release_gate_r1). OVERRIDES: TEST PARADIGM: example-based (project CLAUDE.md); DISTILL tests and scenarios are the acceptance designer's: un-pend, never re-author; a driver failure goes back to the test owner. LANES: bound every run with timeout; RUST_TEST_THREADS=1 for DB suites and smoke; rebuild and warm the release binary right before every acceptance lane; every pl-0N lane run reported shows a non-zero scenario count; check the lsof line and concurrent sessions first; us-04 / sqlx '\\0' flake: rerun alone; never set FOUNDRY_STAMP_*. COMMIT: one local commit; never push, never open a PR."
+        }
+      ]
+    },
+    {
+      "id": "02",
+      "name": "Delete a project through a confirm page; a deleted project answers nowhere (US-PL-02, US-PL-03, slice 02, DDD-2..12, 22-24, 31, migration 0026)",
+      "steps": [
+        {
+          "id": "02-01",
+          "name": "Migration 0026: deleted marker, live view and probe",
+          "description": "Migration 0026 (deleted_at, deleted_by, marker CHECK, live_projects with a parity self-check), probe lines, UPGRADE_WARNING_0026; lock_live_project typed on a transaction; undelete_comment guarded, with a typed project-deleted outcome and its interim CLI arm. Un-ignores 11 gold tests. First commit of the R1 no-push unit.",
+          "criteria": [
+            "Applying the soft-delete migration leaves every existing project live and changes no existing row",
+            "A live view whose columns drift from the project table fails the migration naming the view; a deleted marker with only one of its two parts is refused",
+            "foundry refuses readiness without the deleted marker or the live view, judged in its own schema; a boot through 0025 and 0026 warns once each, a fresh install never",
+            "Restoring a comment inside a deleted project changes nothing and reports that its project is deleted",
+            "A workspace export carries a deleted project together with its deleted marker"
+          ],
+          "estimate": "1 day",
+          "dependencies": [
+            "01-04"
+          ],
+          "files_to_modify": [
+            "crates/foundry-store/migrations/0026_project_soft_delete.sql",
+            "crates/foundry-store/src/project_lifecycle.rs",
+            "crates/foundry-store/src/lib.rs",
+            "crates/foundry-store/src/upgrade_warnings.rs",
+            "crates/foundry-app/src/admin_cli.rs",
+            "CHANGELOG.md",
+            "crates/foundry-store/tests/project_lifecycle.rs",
+            "crates/foundry-store/tests/project_lifecycle_migrations.rs",
+            "crates/foundry-store/tests/probe_schema_scoping.rs"
+          ],
+          "test_file": "crates/foundry-store/tests/project_lifecycle_migrations.rs",
+          "scenario_name": [
+            "crates/foundry-store/tests/project_lifecycle_migrations.rs::migration_0026_is_additive_and_every_existing_project_is_live",
+            "crates/foundry-store/tests/project_lifecycle_migrations.rs::migration_0026_refuses_a_live_view_whose_columns_differ_from_projects",
+            "crates/foundry-store/tests/project_lifecycle_migrations.rs::the_probe_refuses_a_schema_without_the_deleted_marker_or_the_live_view",
+            "crates/foundry-store/tests/project_lifecycle_migrations.rs::the_0026_warning_names_the_migration_the_view_and_the_supported_restore",
+            "crates/foundry-store/tests/project_lifecycle_migrations.rs::a_report_warns_once_per_warned_version_this_boot_upgraded_through",
+            "crates/foundry-store/tests/project_lifecycle_migrations.rs::only_the_boot_that_upgrades_through_0025_and_0026_warns_and_a_fresh_install_does_not",
+            "crates/foundry-store/tests/probe_schema_scoping.rs::probe_deleted_marker_and_live_view_check_is_scoped_to_current_schema",
+            "crates/foundry-store/tests/project_lifecycle.rs::live_projects_has_exactly_the_columns_of_projects_in_order",
+            "crates/foundry-store/tests/project_lifecycle.rs::the_deleted_marker_is_both_columns_or_neither",
+            "crates/foundry-store/tests/project_lifecycle.rs::restoring_a_comment_inside_a_deleted_project_changes_nothing_and_says_why",
+            "crates/foundry-store/tests/project_lifecycle.rs::the_workspace_export_keeps_a_deleted_project_marked_deleted"
+          ],
+          "lane_commands": [
+            "docker info; lsof -nP -iTCP -sTCP:LISTEN | grep acceptanc; check for a concurrent foundry session",
+            "RUST_TEST_THREADS=1 timeout 2400 cargo test -p foundry-store --test project_lifecycle_migrations (expect 10 passed, 3 ignored)",
+            "RUST_TEST_THREADS=1 timeout 1200 cargo test -p foundry-store --test probe_schema_scoping (expect 4 passed, 1 ignored)",
+            "RUST_TEST_THREADS=1 timeout 3600 cargo test -p foundry-store --test project_lifecycle (expect 19 passed, 18 ignored)",
+            "RUST_TEST_THREADS=1 timeout 2400 cargo test -p foundry-store --test export_workspace_gold",
+            "RUST_TEST_THREADS=1 timeout 3600 cargo test -p foundry-store",
+            "RUST_TEST_THREADS=1 timeout 1800 cargo test -p foundry-app (admin_cli compiles with the new undelete arm)",
+            "timeout 900 cargo fmt --all -- --check",
+            "timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "timeout 600 cargo xtask check-arch",
+            "RUST_TEST_THREADS=1 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo build --release -p foundry-app --bin foundry && for i in 1 2 3; do timeout 300 target/release/foundry --version || true; done",
+            "for t in pl-01 comment-tombstone-gc us-10 per-workspace-backup; do FOUNDRY_ACCEPTANCE_TAGS=$t CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --release --test acceptance || break; done (pl-01 still 16 scenarios)",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 5400 cargo test -p foundry-acceptance --release --test acceptance (default lane)",
+            "timeout 14400 cargo mutants -j 1 --in-diff <step diff> --file crates/foundry-store/src/project_lifecycle.rs --file crates/foundry-store/src/lib.rs --file crates/foundry-store/src/upgrade_warnings.rs --file crates/foundry-app/src/admin_cli.rs (>= 80%)"
+          ],
+          "implementation_notes": "SPLIT FROM DISTILL 02-01 (review F-04): the schema, the guard primitive and the one writer whose return type changes; the guard in every other writer and rule 2 are 02-02. ONE RELEASE: nothing pushed until 04-03; this is the first commit of the R1 unit (release_gate_r1). ORDER: (1) 0026 with the parity self-check test first, then the marker-shape test; (2) probe lines and probe_schema_scoping's 0026 test; (3) the 0026 warning and the two-entry list tests; (4) lock_live_project; (5) undelete_comment guarded with its typed outcome; (6) the export-marker test. MIGRATION 0026 (DDD-2, DDD-29): projects.deleted_at timestamptz NULL, deleted_by uuid NULL REFERENCES users, CHECK projects_deleted_marker_shape (both or neither), CREATE VIEW live_projects AS SELECT * FROM projects WHERE deleted_at IS NULL, and a self-check that the view's column list equals the table's, failing the migration (StoreError::MigrationFailed naming live_projects). STANDING RULE: any later migration adding a projects column recreates live_projects in the same file (0027 does). PROBE (DDD-28): deleted_at, deleted_by and the view, scoped to current_schema(); extend probe_schema_scoping.rs's HEALTHY schemas with the marker columns and the view (KNOWN ISSUE lesson). WARNING: UPGRADE_WARNING_0026 (the view depends on projects and deleted_by references users, so a pre-0026 dump cannot be --clean'ed over it); a boot upgrading through 0025 and 0026 logs both in version order; a fresh install none. GUARD PRIMITIVE (DDD-7, DIST-10): pub(crate) lock_live_project(&mut sqlx::Transaction<'_, Postgres>, project_id) -> Result<bool, sqlx::Error> takes FOR KEY SHARE on the live row through live_projects and writes nothing. Its own proof is the 02-02 writer tests (every_guarded_writer_waits... and a_write_waiting_on_a_delete_that_rolls_back...) plus restoring_a_comment_inside_a_deleted_project... here. UNDELETE (why here, not 02-02): undelete_comment(comment_id) keeps its argument but its return type changes, so its one caller must change in the same commit to compile: inside a new transaction, comment -> issue -> project read, lock_live_project, then the UPDATE; it returns a typed outcome with a project-deleted case (the store test matches Debug text containing ProjectDeleted). INTERIM CLI ARM: admin_cli.rs:513 maps the new arm to exit 4 'status: not restorable' now; 03-02 pins the DIST-1 wording and bytes. Remove the upgrade_warnings.rs SCAFFOLD marker and the lock_live_project panic. CHANGELOG [Unreleased]: the 0026 migration note and the Backups line for pre-0026 dumps (R3). R4 (the user's, before the tag carrying 0026): the OQ-D4 projects-per-workspace count. MUTATION: hand-pin and record: 0026 without its parity self-check (the drift test reddens), the view without deleted_at IS NULL (the marker and reader tests redden, here and in 02-03), lock_live_project without FOR KEY SHARE (undelete test reddens). OVERRIDES: TEST PARADIGM: example-based (project CLAUDE.md); DISTILL tests are the acceptance designer's: un-ignore, never re-author. LANES: bound every run with timeout; RUST_TEST_THREADS=1 for DB suites and smoke; rebuild and warm the release binary before every acceptance lane; check the lsof line and concurrent sessions first; us-04 / sqlx '\\0' flake: rerun alone; never set FOUNDRY_STAMP_*. COMMIT: one local commit; never push, never open a PR."
+        },
+        {
+          "id": "02-02",
+          "name": "Write guard in every project writer and write-guard rule",
+          "description": "lock_live_project first in every project-scoped writer's transaction (rename_lane and insert_attachment become transactional; the counter UPDATE live_projects guards issue create); the rename writer's lock gains deleted_at IS NULL (ADR-003 section 2.1); check-arch rule 2 registered. Un-ignores 12 gold tests (re-mapped 02-01 -> 02-02).",
+          "criteria": [
+            "Every project-scoped write waiting on a held delete answers its existing not-found and writes nothing",
+            "A write waiting on a delete that rolls back goes through unchanged",
+            "The rename's locking read skips deleted projects; its race proof lands in 02-05",
+            "Each injected violation (unguarded writer, guard not held across the write, unguarded helper caller, counter-order breach, table-interpolated DML) fails the architecture check; today's tree passes",
+            "The allow-list matches by name only, and a missing crates or store source directory fails the check"
+          ],
+          "estimate": "1 day",
+          "dependencies": [
+            "02-01"
+          ],
+          "files_to_modify": [
+            "crates/foundry-store/src/lib.rs",
+            "crates/foundry-store/src/lanes.rs",
+            "crates/foundry-store/src/attachments.rs",
+            "crates/foundry-store/src/issue_delete.rs",
+            "crates/foundry-store/src/project_lifecycle.rs",
+            "xtask/src/check_arch.rs",
+            "crates/foundry-store/tests/project_lifecycle.rs"
+          ],
+          "test_file": "crates/foundry-store/tests/project_lifecycle.rs",
+          "scenario_name": [
+            "crates/foundry-store/tests/project_lifecycle.rs::every_guarded_writer_waits_on_a_held_delete_then_answers_its_not_found_and_writes_nothing",
+            "crates/foundry-store/tests/project_lifecycle.rs::a_write_waiting_on_a_delete_that_rolls_back_goes_through",
+            "xtask/src/check_arch.rs::write_guard_a_clean_store_passes",
+            "xtask/src/check_arch.rs::write_guard_an_unguarded_direct_writer_of_each_table_is_flagged",
+            "xtask/src/check_arch.rs::write_guard_a_guard_that_does_not_hold_across_the_write_is_flagged",
+            "xtask/src/check_arch.rs::write_guard_a_caller_of_a_writing_helper_without_the_guard_is_flagged_transitively",
+            "xtask/src/check_arch.rs::write_guard_insert_issue_attempt_with_a_write_before_its_counter_update_is_flagged",
+            "xtask/src/check_arch.rs::write_guard_the_retrying_caller_with_an_inline_issue_insert_is_flagged",
+            "xtask/src/check_arch.rs::write_guard_the_allow_list_is_by_name_only",
+            "xtask/src/check_arch.rs::write_guard_a_dml_template_with_an_interpolated_table_is_flagged_even_when_guarded",
+            "xtask/src/check_arch.rs::write_guard_a_missing_crates_or_store_src_fails_the_rule",
+            "xtask/src/check_arch.rs::write_guard_the_shipped_tree_passes"
+          ],
+          "lane_commands": [
+            "docker info; lsof -nP -iTCP -sTCP:LISTEN | grep acceptanc; check for a concurrent foundry session",
+            "RUST_TEST_THREADS=1 timeout 3600 cargo test -p foundry-store --test project_lifecycle (expect 21 passed, 16 ignored)",
+            "RUST_TEST_THREADS=1 timeout 2400 cargo test -p foundry-store --test comment_attachment_issue_scoping --test insert_issue_with_outbox --test issue_delete --test delete_lane_with_fate --test reposition_issue --test update_issue_details (guarded writers keep their outcomes)",
+            "timeout 900 cargo test -p xtask (expect 140 passed, 10 ignored)",
+            "RUST_TEST_THREADS=1 timeout 3600 cargo test -p foundry-store",
+            "RUST_TEST_THREADS=1 timeout 1800 cargo test -p foundry-services",
+            "RUST_TEST_THREADS=1 timeout 1800 cargo test -p foundry-app (comment_scoping.rs and attachment_scoping.rs unchanged and green)",
+            "timeout 900 cargo fmt --all -- --check",
+            "timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "timeout 600 cargo xtask check-arch (project-lifecycle-write-guard named in the PASSED banner)",
+            "RUST_TEST_THREADS=1 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo build --release -p foundry-app --bin foundry && for i in 1 2 3; do timeout 300 target/release/foundry --version || true; done",
+            "for t in pl-01 us-08 us-10 comment-edit-delete comment-tombstone-gc us-11 blm blr blo icd us-card-ranking us-status-move us-issue-edit us-change-history us-w05c; do FOUNDRY_ACCEPTANCE_TAGS=$t CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --release --test acceptance || break; done (pl-01 still 16 scenarios)",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 5400 cargo test -p foundry-acceptance --release --test acceptance (default lane)",
+            "timeout 14400 cargo mutants -j 1 --in-diff <step diff> --file crates/foundry-store/src/lib.rs --file crates/foundry-store/src/lanes.rs --file crates/foundry-store/src/attachments.rs --file crates/foundry-store/src/issue_delete.rs --file crates/foundry-store/src/project_lifecycle.rs --file xtask/src/check_arch.rs (>= 80%)"
+          ],
+          "implementation_notes": "SPLIT FROM DISTILL 02-01 (review F-04). Re-map the 12 ignore reasons 02-01 -> 02-02 first. R1 no-push unit. WHY GUARD BEFORE SWEEP (review F-11; DISTILL's order kept over DESIGN's list): lock_live_project reads only live_projects, which 0026 (02-01) already provides; an issue-keyed writer's pre-read is the immutable issues.project_id, not a projects reader. The guard therefore depends on no reader being swept, and the sweep (02-03) gains nothing from coming first. ORDER: the table test every_guarded_writer_waits... drives the writers one by one; then the rolled-back-delete test; then the rename amendment; then rule 2's gold tests and registration. GUARD (DDD-7, ADR-002, DIST-10): lock_live_project runs FIRST in the writer's transaction, before any write: never on a pooled connection, never ahead of an autocommit write. A writer keyed by issue may first read issues.project_id inside the same transaction. On false (or no row) return the writer's EXISTING not-found outcome: no new error variant, no signature change (callers in comment_scoping.rs and comment_attachment_issue_scoping.rs untouched). Writers that take project_id (reposition_issue_with_outbox, update_issue_details, insert_comment_with_outbox, lane writers) guard it directly; update_comment_with_outbox and soft_delete_comment_with_outbox read project_id from the issue then guard. rename_lane and insert_attachment become transactional. Issue create: insert_issue_attempt's FIRST statement becomes the counter UPDATE live_projects ... RETURNING (its guard, FOR NO KEY UPDATE; no separate KEY SHARE, so it never upgrades its own lock behind a queued delete). LOCKS (DDD-8): team -> project -> children on every path; never a team lock after a project lock. RENAME AMENDMENT (review F-02, ADR-003 section 2.1): rename_project_with_audit's locking SELECT becomes WHERE id = $1 AND deleted_at IS NULL FOR NO KEY UPDATE (no row: unknown, deleted, or deleted while it waited -> NotFound). Do NOT add the rename to DISTILL's WRITERS table; the 02-05 test a_rename_and_a_delete_of_one_project_are_totally_ordered_in_100_runs proves it. RULE 2 (DDD-22): implement check_project_lifecycle_write_guard as DESIGN states (direct writers plus transaction-taking helpers computed in a first pass; the format!/concat! DML clause; insert_issue_attempt exempt only while its first literal is UPDATE live_projects; allow-list gc_tombstoned_comments and insert_project by name only); register it; a missing crates/ or store src fails closed. Remove the rule-2 SCAFFOLD marker. MUTATION: hand-pin and record: one writer without lock_live_project, the guard on a pooled connection, the counter UPDATE projects instead of live_projects (each reddens every_guarded_writer_waits... or a rule-2 gold test), and the rename SELECT without deleted_at IS NULL (reddens a_rename_and_a_delete_of_one_project_are_totally_ordered_in_100_runs once 02-05 lands: record the pin there). OVERRIDES: TEST PARADIGM: example-based (project CLAUDE.md); DISTILL tests are the acceptance designer's. LANES: bound every run with timeout; RUST_TEST_THREADS=1 for DB suites and smoke; rebuild and warm the release binary before every acceptance lane; check the lsof line and concurrent sessions first; us-04 / sqlx '\\0' flake: rerun alone; never set FOUNDRY_STAMP_*. COMMIT: one local commit; never push, never open a PR."
+        },
+        {
+          "id": "02-03",
+          "name": "Reader sweep onto live_projects",
+          "description": "Every reader in the Reader Inventory moves onto live_projects or into the project_lifecycle module (siblings, the team-delete project SQL kept on the base table, the export const, count_projects_by_name). Un-ignores 2 gold tests (re-mapped 02-02 -> 02-03); the live-reads rule follows in 02-04.",
+          "criteria": [
+            "Every project reader answers a deleted project exactly as one that never existed",
+            "The team project list omits a deleted project",
+            "Siblings, the workspace export and the team delete keep reading every project row, so a deleted project still holds its name and key and still blocks its team's delete",
+            "Every shipped door answers a live project exactly as it did before the sweep"
+          ],
+          "estimate": "0.75 day",
+          "dependencies": [
+            "02-02"
+          ],
+          "files_to_modify": [
+            "crates/foundry-store/src/lib.rs",
+            "crates/foundry-store/src/lanes.rs",
+            "crates/foundry-store/src/teams.rs",
+            "crates/foundry-store/src/project_lifecycle.rs",
+            "crates/foundry-store/tests/project_lifecycle.rs"
+          ],
+          "test_file": "crates/foundry-store/tests/project_lifecycle.rs",
+          "scenario_name": [
+            "crates/foundry-store/tests/project_lifecycle.rs::every_project_reader_treats_a_deleted_project_as_one_that_never_existed",
+            "crates/foundry-store/tests/project_lifecycle.rs::the_team_project_list_omits_a_deleted_project"
+          ],
+          "lane_commands": [
+            "docker info; lsof -nP -iTCP -sTCP:LISTEN | grep acceptanc; check for a concurrent foundry session",
+            "RUST_TEST_THREADS=1 timeout 3600 cargo test -p foundry-store --test project_lifecycle (expect 23 passed, 14 ignored)",
+            "RUST_TEST_THREADS=1 timeout 2400 cargo test -p foundry-store --test team_delete --test list_projects_for_workspace --test export_workspace_gold --test reposition_issue (the team delete still refuses on every project row)",
+            "RUST_TEST_THREADS=1 timeout 3600 cargo test -p foundry-store",
+            "RUST_TEST_THREADS=1 timeout 1800 cargo test -p foundry-services",
+            "RUST_TEST_THREADS=1 timeout 1800 cargo test -p foundry-app",
+            "timeout 900 cargo fmt --all -- --check",
+            "timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "timeout 600 cargo xtask check-arch (store-natural-key-scoped passes every rewritten query)",
+            "RUST_TEST_THREADS=1 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo build --release -p foundry-app --bin foundry && for i in 1 2 3; do timeout 300 target/release/foundry --version || true; done",
+            "for t in pl-01 us-dash us-nav fix-hub iapr us-09 us-08 us-11 us-10 blm mwt-slice-04 us-w05a us-w05c per-workspace-backup tl-02 us-07 pnr; do FOUNDRY_ACCEPTANCE_TAGS=$t CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --release --test acceptance || break; done",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 5400 cargo test -p foundry-acceptance --release --test acceptance (default lane)",
+            "timeout 14400 cargo mutants -j 1 --in-diff <step diff> --file crates/foundry-store/src/lib.rs --file crates/foundry-store/src/lanes.rs --file crates/foundry-store/src/teams.rs --file crates/foundry-store/src/project_lifecycle.rs (>= 80%)"
+          ],
+          "implementation_notes": "SPLIT FROM DISTILL 02-02 (review F-09): the sweep; rule 1 is 02-04, still turned on last. Re-map the 2 ignore reasons 02-02 -> 02-03 first. R1 no-push unit. ORDER: site by site from the Reader Inventory (DDD-4), each door's lane still green, then the two store tests. ONTO live_projects: list_projects_for_workspace, find_project_by_slug, find_issue_by_team_project_number, list_projects_for_instance, project_rename_context (a deleted id -> NotFound -> 404, D16), reposition_issue_with_outbox's join (inside its guarded transaction), list_project_changes' join, the two comment sub-selects, lanes.rs 302, 361, 664, and list_team_projects. INTO project_lifecycle.rs (rule-1 exempt, sees every row): list_team_sibling_projects (already there), the export's ('projects', SELECT ... FROM projects t ...) entry as one const, label and SQL together (DDD-31, lib.rs:1053-1054), count_projects_by_name, and the team-delete project SQL (TEAM_PROJECTS_SQL, teams.rs:589). CRITICAL: the team-delete SQL MUST keep reading the base table (every row, deleted included) until 04-02: until 0027 can detach, a team delete that ignored deleted projects would let the FK cascade erase them. Move it, do not change it. Its interim refusal names deleted projects too; ONE RELEASE means that interim page never reaches a user (release_gate_r1), and 04-02 owns the gold tests that the preview and refusal name no deleted project. insert_project and the bootstrap seed stay (INSERT INTO projects is rule 1's one exception). NATURAL KEYS: every rewritten query filtering slug or key_prefix binds team_id or workspace_id in the same OR-branch and parenthesis level (as find_project_by_slug's team_id = $1 AND slug = $2); store-natural-key-scoped must still pass. MUTATION: hand-pin one reader left on projects (every_project_reader... reddens). OVERRIDES: TEST PARADIGM: example-based (project CLAUDE.md); DISTILL tests are the acceptance designer's. LANES: bound every run with timeout; RUST_TEST_THREADS=1 for DB suites and smoke; rebuild and warm the release binary before every acceptance lane; check the lsof line and concurrent sessions first; us-04 / sqlx '\\0' flake: rerun alone; never set FOUNDRY_STAMP_*. COMMIT: one local commit; never push, never open a PR."
+        },
+        {
+          "id": "02-04",
+          "name": "Live-reads architecture rule, turned on last",
+          "description": "check-arch project-lifecycle-live-reads: SQL naming the projects table outside the module, in any lexical form, and any exact projects literal outside the four named exemptions fail the build; registered after the sweep, so today's tree passing proves the sweep complete. Un-ignores 8 gold tests (re-mapped 02-02 -> 02-04).",
+          "criteria": [
+            "The projects table named in SQL outside the module fails the check in every form: bare, quoted, schema-qualified, comma join, after a line break, sub-select",
+            "The live view, the record table, comments, route strings and a project insert never fail the check, and every crate's source is scanned, not only the store",
+            "An exact projects literal fails the check except in the four named exempt items; the export label left in the store's lib fails it",
+            "Today's tree passes the rule beside the natural-key scoping rule; a missing crates directory fails closed"
+          ],
+          "estimate": "0.5 day",
+          "dependencies": [
+            "02-03"
+          ],
+          "files_to_modify": [
+            "xtask/src/check_arch.rs"
+          ],
+          "test_file": "xtask/src/check_arch.rs",
+          "scenario_name": [
+            "xtask/src/check_arch.rs::live_reads_a_clean_tree_with_the_four_exemptions_passes",
+            "xtask/src/check_arch.rs::live_reads_every_form_of_the_projects_table_in_sql_is_flagged",
+            "xtask/src/check_arch.rs::live_reads_a_line_break_before_the_table_name_is_flagged_on_the_names_line",
+            "xtask/src/check_arch.rs::live_reads_the_rule_scans_every_crates_src_not_only_the_store",
+            "xtask/src/check_arch.rs::live_reads_the_view_the_record_table_and_comments_never_match",
+            "xtask/src/check_arch.rs::live_reads_an_exact_projects_literal_outside_the_four_exempt_items_is_flagged",
+            "xtask/src/check_arch.rs::live_reads_a_missing_crates_directory_fails_the_rule",
+            "xtask/src/check_arch.rs::live_reads_the_shipped_tree_passes (turned on last)"
+          ],
+          "lane_commands": [
+            "timeout 900 cargo test -p xtask live_reads (RED first: the scaffold panics)",
+            "timeout 900 cargo test -p xtask (expect 148 passed, 2 ignored)",
+            "timeout 600 cargo xtask check-arch (project-lifecycle-live-reads named in the PASSED banner; the shipped tree passes)",
+            "timeout 900 cargo fmt --all -- --check",
+            "timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "timeout 14400 cargo mutants -j 1 --in-diff <step diff> --file xtask/src/check_arch.rs (>= 80%)"
+          ],
+          "implementation_notes": "SPLIT FROM DISTILL 02-02 (review F-09). Re-map the 8 ignore reasons 02-02 -> 02-04 first. R1 no-push unit. ORDER: the injected-violation gold tests, then the shipped-tree test and the registration LAST: the shipped tree passing is what proves the 02-03 sweep complete (DESIGN). If the shipped tree fails, the fix is in the store reader the rule names (back to 02-03's rules), never an exemption. RULE 1 (DDD-22): check_project_lifecycle_live_reads scans every .rs under crates/*/src except crates/foundry-acceptance and crates/foundry-store/src/project_lifecycle.rs; any SQL literal (normal or raw, multi-line) naming projects (bare, quoted, public.-qualified, comma join, after a line break, in a sub-select) is flagged; INSERT INTO projects excepted; live_projects and project_lifecycle_events never match; comments unscanned; route strings carry no SQL keyword. An exact 'projects' literal is flagged except in the four named items (lib.rs TENANT_TABLES, verify_export.rs DIRECT_WORKSPACE_ID_TABLES, name_rule_legacy_seam.rs NameRuleTable::table, admin_cli.rs KNOWN_FOUNDRY_TABLES), named by file and enclosing item, not by line. Reuse the shared scanners; do not fork them. Register it in check() and the PASSED banner; a missing crates/ fails closed. Remove the rule-1 SCAFFOLD marker. MUTATION: every clause boundary (each lexical form, each exemption by item, store vs other crates) killed by a gold test. OVERRIDES: TEST PARADIGM: example-based (project CLAUDE.md); DISTILL tests are the acceptance designer's. LANES: bound every run with timeout. COMMIT: one local commit; never push, never open a PR."
+        },
+        {
+          "id": "02-05",
+          "name": "Soft delete write and the delete use-cases",
+          "description": "soft_delete_project (live row FOR UPDATE scoped to workspace and team, marker, deleted record, commit), services delete_preview and delete_project behind can_manage, and one-seam (ii) for the soft delete. Two 100-run races; the delete-versus-issue-create one is slice 02's learning gate. Un-ignores 13 gold tests (re-mapped 02-03 -> 02-05).",
+          "criteria": [
+            "A delete writes only the deleted marker and one record whose time equals the marker; issues, comments, attachments, lanes, history and queued notifications stay unchanged",
+            "A second, foreign or unknown delete is not found; a delete whose record fails deletes nothing; the production delete waits while a writer holds the guard",
+            "Over 100 delete-versus-issue-create races: no error, no lost issue; rename and delete are totally ordered; a queued notification stays pending and none arises after",
+            "The preview counts issues and writes nothing; anyone without Manage gets not-found on preview and delete; a deleted project's name and key stay taken",
+            "The soft-delete store write called from a web or API door fails the architecture check"
+          ],
+          "estimate": "1 day",
+          "dependencies": [
+            "02-04"
+          ],
+          "files_to_modify": [
+            "crates/foundry-store/src/project_lifecycle.rs",
+            "crates/foundry-services/src/projects.rs",
+            "crates/foundry-services/src/lib.rs",
+            "xtask/src/check_arch.rs",
+            "crates/foundry-store/tests/project_lifecycle.rs",
+            "crates/foundry-services/tests/project_lifecycle_use_cases.rs"
+          ],
+          "test_file": "crates/foundry-store/tests/project_lifecycle.rs",
+          "scenario_name": [
+            "crates/foundry-store/tests/project_lifecycle.rs::a_delete_writes_only_the_marker_and_one_record_and_erases_nothing",
+            "crates/foundry-store/tests/project_lifecycle.rs::the_production_delete_waits_while_a_writer_holds_the_guard",
+            "crates/foundry-store/tests/project_lifecycle.rs::a_notification_queued_before_the_delete_stays_pending_and_none_arises_after_it",
+            "crates/foundry-store/tests/project_lifecycle.rs::a_second_delete_a_foreign_one_and_an_unknown_one_are_not_found_and_write_nothing",
+            "crates/foundry-store/tests/project_lifecycle.rs::a_delete_whose_record_cannot_be_written_deletes_nothing",
+            "crates/foundry-store/tests/project_lifecycle.rs::the_delete_versus_issue_create_race_never_errors_or_loses_an_issue_in_100_runs",
+            "crates/foundry-store/tests/project_lifecycle.rs::a_rename_and_a_delete_of_one_project_are_totally_ordered_in_100_runs",
+            "crates/foundry-store/tests/project_lifecycle.rs::a_deleted_projects_slug_and_key_stay_taken",
+            "crates/foundry-services/tests/project_lifecycle_use_cases.rs::a_deleted_projects_name_and_key_stay_taken_and_its_id_is_not_found",
+            "crates/foundry-services/tests/project_lifecycle_use_cases.rs::the_confirm_preview_counts_the_issues_and_writes_nothing",
+            "crates/foundry-services/tests/project_lifecycle_use_cases.rs::a_teams_lead_deletes_a_project_and_a_second_delete_is_not_found",
+            "crates/foundry-services/tests/project_lifecycle_use_cases.rs::anyone_without_manage_gets_not_found_on_the_confirm_and_the_delete_and_nothing_changes",
+            "xtask/src/check_arch.rs::one_seam_the_soft_delete_called_from_a_door_is_flagged"
+          ],
+          "lane_commands": [
+            "docker info; lsof -nP -iTCP -sTCP:LISTEN | grep acceptanc; check for a concurrent foundry session",
+            "RUST_TEST_THREADS=1 timeout 2400 cargo test -p foundry-store --test project_lifecycle -- --skip in_100_runs (fast loop while iterating: the six single-shot tests)",
+            "RUST_TEST_THREADS=1 timeout 3600 cargo test -p foundry-store --test project_lifecycle the_delete_versus_issue_create_race_never_errors_or_loses_an_issue_in_100_runs",
+            "RUST_TEST_THREADS=1 timeout 3600 cargo test -p foundry-store --test project_lifecycle a_rename_and_a_delete_of_one_project_are_totally_ordered_in_100_runs",
+            "RUST_TEST_THREADS=1 timeout 5400 cargo test -p foundry-store --test project_lifecycle (expect 31 passed, 6 ignored)",
+            "RUST_TEST_THREADS=1 timeout 1800 cargo test -p foundry-services --test project_lifecycle_use_cases (expect 10 passed, 3 ignored)",
+            "timeout 900 cargo test -p xtask (expect 149 passed, 1 ignored)",
+            "RUST_TEST_THREADS=1 timeout 3600 cargo test -p foundry-store",
+            "RUST_TEST_THREADS=1 timeout 1800 cargo test -p foundry-services",
+            "timeout 900 cargo fmt --all -- --check",
+            "timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "timeout 600 cargo xtask check-arch",
+            "RUST_TEST_THREADS=1 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo build --release -p foundry-app --bin foundry && for i in 1 2 3; do timeout 300 target/release/foundry --version || true; done",
+            "for t in pl-01 iapr us-07; do FOUNDRY_ACCEPTANCE_TAGS=$t CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --release --test acceptance || break; done",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 5400 cargo test -p foundry-acceptance --release --test acceptance (default lane)",
+            "timeout 14400 cargo mutants -j 1 --in-diff <step diff> --file crates/foundry-store/src/project_lifecycle.rs --file crates/foundry-services/src/projects.rs --file xtask/src/check_arch.rs (>= 80%)"
+          ],
+          "implementation_notes": "SPLIT FROM DISTILL 02-03 (sizing: 23 scenarios): the store write and use-cases, store-proven; the doors are 02-06 and 02-07, the door-level proof 02-08. Re-map the 13 ignore reasons 02-03 -> 02-05 first. R1 no-push unit. ORDER: a_delete_writes_only_the_marker... first, then refusals, atomicity, the held-guard wait, D17, slug and key held, the two 100-run races, then the four use-case tests, then rule 3 (ii). ITERATION BUDGET (review F-09): this step carries TWO 100-run races (delete-versus-issue-create and rename-versus-delete); iterate with the single-shot tests (--skip in_100_runs), run each race alone with its own timeout, and the whole file once at the end (allow 5400s); plan for at least one rerun of each race after any change to the delete or the guard. STORE (DDD-6, ADR-002): soft_delete_project(workspace_id, team_id, project_id, actor_id) is ONE transaction: the live row FOR UPDATE scoped to workspace and team (none, already deleted or foreign -> NotFound) -> UPDATE projects SET deleted_at, deleted_by -> INSERT the deleted record -> commit -> Deleted{name, key_prefix}. Take clock_timestamp() once and use it for both deleted_at and the record's created_at (they must be equal). FOR UPDATE, NOT FOR NO KEY UPDATE: only FOR UPDATE conflicts with the writers' KEY SHARE guard (the_production_delete_waits... kills the weaker lock). Nothing else is written: no child row, no outbox row (D17). SERVICES (DDD-12/16/18): delete_preview(store, &Principal, team_slug, project_slug) reads the live project and count_issues_in_project with no lock and writes nothing (read-only; the zero-rows test is its only enforcement, accepted Principle 12 residual); delete_project behind the same gate as rename_team_project; every refusal ProjectLifecycleError::NotFound; Services delegation. RULE 3 (ii) gains soft_delete_project( with its gold test. Remove the soft_delete_project, delete_preview and delete_project scaffold panics. LEARNING GATE (slice 02 hypothesis): if the 100-run delete-versus-issue-create race EVER loses an issue or answers an error, STOP; 02-06..02-08 do not start until the mechanism is fixed. MUTATION: hand-pin and record: FOR UPDATE -> FOR NO KEY UPDATE (held-guard test reddens), drop the record INSERT, a second clock read for the record time, and (from 02-02, review F-02) the rename SELECT without deleted_at IS NULL (the rename-versus-delete race reddens). OVERRIDES: TEST PARADIGM: example-based (project CLAUDE.md); DISTILL tests are the acceptance designer's. LANES: bound every run with timeout; RUST_TEST_THREADS=1 for DB suites and smoke; rebuild and warm the release binary before every acceptance lane; check the lsof line and concurrent sessions first; us-04 / sqlx '\\0' flake: rerun alone; never set FOUNDRY_STAMP_*. COMMIT: one local commit; never push, never open a PR."
+        },
+        {
+          "id": "02-06",
+          "name": "Project delete confirm page from the members page",
+          "description": "GET /team/{t}/project/{p}/delete: the full-page confirm (heading, issue-count line, nothing-erased line, a Delete project form, a Cancel link back to the members page), read-only, behind the same gate. Un-pends scenarios 17, 20, 22, 24 (9 rows).",
+          "criteria": [
+            "Lena's delete page asks 'Delete Auth v2 Spike?', states the issue count and that nothing is erased, offers Delete project and Cancel, and asks for no typed name",
+            "A project with no issues says 0 issue(s); the delete page works as a plain page form; opening it changes no project, issue or record",
+            "Cancel returns to the team's members page with both projects still listed and nothing changed",
+            "Signed out, Marco, Sam, Lena on Ops, Ines and Hugo asking for the delete page get the uniform 404 while Priya still finds it"
+          ],
+          "estimate": "0.5 day",
+          "dependencies": [
+            "02-05"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/src/teams.rs",
+            "crates/foundry-app/src/lib.rs",
+            "crates/foundry-app/src/views.rs",
+            "crates/foundry-app/templates/project_delete.html",
+            "crates/foundry-acceptance/tests/features/project-lifecycle-02-delete-project.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/project-lifecycle-02-delete-project.feature",
+          "scenario_name": [
+            "The delete page says what happens before anything does (scenario 17)",
+            "The delete page of a project with no issues says so (scenario 20)",
+            "Cancel goes back to the team, and nothing changes (scenario 22)",
+            "Only the team's lead or a workspace admin may open a project's delete page (scenario 24, 6 rows)"
+          ],
+          "lane_commands": [
+            "docker info; lsof -nP -iTCP -sTCP:LISTEN | grep acceptanc; check for a concurrent foundry session",
+            "RUST_TEST_THREADS=1 timeout 1800 cargo test -p foundry-app",
+            "timeout 900 cargo fmt --all -- --check",
+            "timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "timeout 600 cargo xtask check-arch",
+            "RUST_TEST_THREADS=1 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo build --release -p foundry-app --bin foundry && for i in 1 2 3; do timeout 300 target/release/foundry --version || true; done",
+            "FOUNDRY_ACCEPTANCE_TAGS=pl-02 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --release --test acceptance (expect 4 scenarios / 9 rows passed; report the count, never 0)",
+            "for t in pl-01 tm-01 tl-02; do FOUNDRY_ACCEPTANCE_TAGS=$t CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --release --test acceptance || break; done",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 5400 cargo test -p foundry-acceptance --release --test acceptance (default lane)",
+            "timeout 14400 cargo mutants -j 1 --in-diff <step diff> --file crates/foundry-app/src/teams.rs --file crates/foundry-app/src/views.rs (>= 80%)"
+          ],
+          "implementation_notes": "SPLIT FROM DISTILL 02-03: the GET verb alone (read-only, independently green). R1 no-push unit. ORDER: 17 first (driving port), then 20, 22, 24. ROUTE (DDD-12/23): GET /team/{team_slug}/project/{project_slug}/delete -> show_project_delete: session (none -> uniform 404) -> projects::delete_preview (the gate is inside) -> 200 full page project_delete.html extending base.html: TeamNotice::ProjectDeleteHeading 'Delete {project}?', ProjectDeleteCount '{project} ({KEY}) has {n} issue(s). After it is deleted, nobody can open its board, its issues or its report, and links to {KEY} issues stop working.', ProjectDeleteNothingErased 'Nothing is erased. The instance operator can restore {project} with every issue, comment and attachment.', a plain POST form to the same address with the hidden _csrf field and a Delete project button, and a Cancel href to /team/{t}/members; no typed-name field, no inline handler, no javascript: link (D7, U3a, DIST-6). Every refusal (not Manage, unknown, foreign, deleted, signed out) -> resource_not_found_page() byte for byte. The count is advisory (no lock; the POST decides). Add only the variants this page renders (-D warnings); the Deleted notice lands in 02-07. OVERRIDES: TEST PARADIGM: example-based (project CLAUDE.md); DISTILL scenarios are the acceptance designer's: un-pend, never re-author; a driver failure goes back to the test owner. LANES: bound every run with timeout; rebuild and warm the release binary right before every acceptance lane; every pl-0N lane run reported shows a non-zero scenario count; check the lsof line and concurrent sessions first; us-04 / sqlx '\\0' flake: rerun alone; never set FOUNDRY_STAMP_*. COMMIT: one local commit; never push, never open a PR."
+        },
+        {
+          "id": "02-07",
+          "name": "Project delete POST: delete, notice and refusal matrix",
+          "description": "POST /team/{t}/project/{p}/delete: delete_project, then the 200 members page with 'Deleted {project}.'; every refusal, double submit, foreign or unknown project and demoted lead gets the uniform 404 with zero writes; tokenless gets the CSRF 403. Un-pends scenarios 18, 19, 21, 23, 25-28 (16 rows) and the delete copy byte test.",
+          "criteria": [
+            "Lena confirms the delete: she sees 'Deleted Auth v2 Spike.', the Projects section lists only Identity Platform, and one delete record names her",
+            "A deleted project still holds its issues, comments (one awaiting cleanup), attachment, lanes, history and queued notifications; its next issue is still SPIKE-4",
+            "Priya deletes on a team she is not on; a second confirm from an old page gets the uniform 404 and the project is deleted once",
+            "Everyone without Manage, a foreign or unknown project and a demoted lead's stale page get the uniform 404 with zero writes; tokenless gets the 403",
+            "The confirm page and delete notice copy are pinned byte for byte at their one home"
+          ],
+          "estimate": "0.5 day",
+          "dependencies": [
+            "02-06"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/src/teams.rs",
+            "crates/foundry-app/src/lib.rs",
+            "crates/foundry-app/src/views.rs",
+            "crates/foundry-app/tests/project_lifecycle_copy.rs",
+            "crates/foundry-acceptance/tests/features/project-lifecycle-02-delete-project.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/project-lifecycle-02-delete-project.feature",
+          "scenario_name": [
+            "A team's lead deletes a project after reading what happens (scenario 18)",
+            "Deleting a project erases none of its work (scenario 19)",
+            "A workspace admin deletes a project with no issues on a team she is not on (scenario 21)",
+            "A delete confirmed a second time finds nothing, and deletes once (scenario 23)",
+            "Only the team's lead or a workspace admin may delete a project (scenario 25, 6 rows)",
+            "Another workspace's project and a project that does not exist look the same from Canzan Labs (scenario 26, 4 rows)",
+            "A lead who has since been made a member cannot delete from a page she opened as a lead (scenario 27)",
+            "A delete sent without the page's token is turned away, and nothing changes (scenario 28)",
+            "crates/foundry-app/tests/project_lifecycle_copy.rs::the_confirm_page_and_delete_copy_is_byte_exact (re-mapped 02-03 -> 02-07)"
+          ],
+          "lane_commands": [
+            "docker info; lsof -nP -iTCP -sTCP:LISTEN | grep acceptanc; check for a concurrent foundry session",
+            "timeout 900 cargo test -p foundry-app --test project_lifecycle_copy (expect 2 passed, 2 ignored)",
+            "RUST_TEST_THREADS=1 timeout 1800 cargo test -p foundry-app",
+            "timeout 900 cargo fmt --all -- --check",
+            "timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "timeout 600 cargo xtask check-arch",
+            "RUST_TEST_THREADS=1 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo build --release -p foundry-app --bin foundry && for i in 1 2 3; do timeout 300 target/release/foundry --version || true; done",
+            "FOUNDRY_ACCEPTANCE_TAGS=pl-02 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --release --test acceptance (expect 12 scenarios / 25 rows passed)",
+            "for t in pl-01 tm-01 tm-02 tl-02; do FOUNDRY_ACCEPTANCE_TAGS=$t CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --release --test acceptance || break; done",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 5400 cargo test -p foundry-acceptance --release --test acceptance (default lane)",
+            "timeout 60 grep -cE '^[[:space:]]*@.*@pending' crates/foundry-acceptance/tests/features/project-lifecycle-02-delete-project.feature (expect 0)",
+            "timeout 14400 cargo mutants -j 1 --in-diff <step diff> --file crates/foundry-app/src/teams.rs --file crates/foundry-app/src/views.rs (>= 80%)"
+          ],
+          "implementation_notes": "SPLIT FROM DISTILL 02-03: the POST verb. R1 no-push unit. ORDER: 18 first (driving port), then 19, 21, 23, then 25, 26, 27, 28, then the copy stub. ROUTE (DDD-23/27): POST /team/{team_slug}/project/{project_slug}/delete -> submit_project_delete: session (none -> uniform 404) -> projects::delete_project -> 200 members page with TeamNotice::ProjectDeleted 'Deleted {project}.' (no post-redirect-get: a reload re-POSTs and meets the 404). Every refusal and a double submit -> resource_not_found_page() byte for byte with zero rows written; tokenless -> the CSRF layer's 403 before any handler. Authority per request (a demoted lead's stale page is refused, INV-PL-8). Refusals and races log nothing (DDD-30). COPY TEST: change the ignore reason of the_confirm_page_and_delete_copy_is_byte_exact from 02-03 to 02-07, replace its panic stub with byte assertions on ProjectDeleteHeading, ProjectDeleteCount, ProjectDeleteNothingErased and ProjectDeleted, then remove the #[ignore]. OVERRIDES: TEST PARADIGM: example-based (project CLAUDE.md); DISTILL scenarios are the acceptance designer's. LANES: bound every run with timeout; rebuild and warm the release binary right before every acceptance lane; every pl-0N lane run reported shows a non-zero scenario count; check the lsof line and concurrent sessions first; us-04 / sqlx '\\0' flake: rerun alone; never set FOUNDRY_STAMP_*. COMMIT: one local commit; never push, never open a PR."
+        },
+        {
+          "id": "02-08",
+          "name": "A deleted project answers nowhere and accepts no write",
+          "description": "Un-pend and evidence: the 87- and 120-row web differentials with live controls, script rows, exempt machine-token routes, attachment download, lists, instance rename, stale pages, live views and the filing race. The fix-site rule applies to any red row. Un-pends scenarios 29-39 (222 rows).",
+          "criteria": [
+            "Every web address of a deleted project answers every actor exactly as a never-existed project, while the same door on a live project answers otherwise",
+            "Every project-reading API door answers a deleted project as never existed and writes nothing; machine-token routes answer alike under any address",
+            "A deleted project's attachment downloads for nobody, and the project is gone from the dashboard, the Board link, the members page and the instance dashboard",
+            "A change sent from a page opened before the delete, or through the instance rename, is refused and nothing changes",
+            "An open live view hears nothing made after the delete, and five filings racing deletes each get a normal answer, never a failure"
+          ],
+          "estimate": "1 day",
+          "dependencies": [
+            "02-07"
+          ],
+          "files_to_modify": [
+            "crates/foundry-acceptance/tests/features/project-lifecycle-02-deleted-project-answers-nowhere.feature",
+            "crates/foundry-store/src/lib.rs",
+            "crates/foundry-app/src/events.rs",
+            "crates/foundry-app/src/issues.rs",
+            "crates/foundry-api/src/lib.rs"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/project-lifecycle-02-deleted-project-answers-nowhere.feature",
+          "scenario_name": [
+            "Every web address of a deleted project answers as one that never existed, for everyone (scenario 29, 87 rows)",
+            "For someone who cannot reach Backend, a deleted project's address answers as one that never existed (scenario 30, 120 rows)",
+            "A deleted project cannot be reached by a script either, and nothing is written (scenario 31, 6 rows)",
+            "Listing machine tokens under a deleted project's address answers as under any address, because the list names no project (scenario 32)",
+            "Revoking a machine token under a deleted project's address revokes it, as under any address, because the token names no project (scenario 33)",
+            "A deleted project's real attachment cannot be downloaded by anyone (scenario 34)",
+            "A deleted project disappears from every list, and the others stay (scenario 35)",
+            "The instance dashboard's rename does not find a deleted project (scenario 36)",
+            "A change sent from a page opened before the delete is refused, and nothing changes (scenario 37)",
+            "An open live view of a deleted project hears of no change made after the delete (scenario 38, 2 rows)",
+            "Filing an issue during a delete gets a normal answer, never a failure (scenario 39)"
+          ],
+          "lane_commands": [
+            "docker info; lsof -nP -iTCP -sTCP:LISTEN | grep acceptanc; check for a concurrent foundry session",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo build --release -p foundry-app --bin foundry && for i in 1 2 3; do timeout 300 target/release/foundry --version || true; done",
+            "FOUNDRY_ACCEPTANCE_TAGS=pl-02 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 5400 cargo test -p foundry-acceptance --release --test acceptance (expect 23 scenarios / 247 rows passed; report the count)",
+            "for t in pl-01 mwt-slice-04 us-11 us-09 machine-token-admin us-w05a us-w05c us-dash us-nav fix-hub iapr us-08 us-new-issue; do FOUNDRY_ACCEPTANCE_TAGS=$t CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --release --test acceptance || break; done",
+            "RUST_TEST_THREADS=1 timeout 3600 cargo test -p foundry-store (only if a reader was fixed)",
+            "RUST_TEST_THREADS=1 timeout 1800 cargo test -p foundry-app -p foundry-api (only if a mapping was fixed)",
+            "timeout 900 cargo fmt --all -- --check",
+            "timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "timeout 600 cargo xtask check-arch",
+            "RUST_TEST_THREADS=1 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 5400 cargo test -p foundry-acceptance --release --test acceptance (default lane)",
+            "timeout 60 grep -cE '^[[:space:]]*@.*@pending' crates/foundry-acceptance/tests/features/project-lifecycle-02-delete-project.feature crates/foundry-acceptance/tests/features/project-lifecycle-02-deleted-project-answers-nowhere.feature (expect 0 and 0)"
+          ],
+          "implementation_notes": "MERGED VERIFICATION STEP (review F-06): un-pend and evidence; the fix-site rule applies. US-PL-03 (INV-PL-2, INV-PL-3, D17) is proven through the doors here; its mechanisms were driven RED -> GREEN at store level in 02-01..02-05, and that is this step's RED evidence: the guard by every_guarded_writer_waits_on_a_held_delete... and a_write_waiting_on_a_delete_that_rolls_back... (02-02), the read seam by every_project_reader_treats_a_deleted_project_as_one_that_never_existed (02-03) and the live-reads rule's shipped-tree test (02-04), the delete and its race by the_delete_versus_issue_create_race_never_errors_or_loses_an_issue_in_100_runs and a_notification_queued_before_the_delete_stays_pending... (02-05); DISTILL's red-classification records all 222 rows RED before. R1 no-push unit. ORDER: 34 (one row), 31 (6 API rows), 32, 33, then 35, 36, 37, 38, then the 87-row outline, the 120-row outline, then 39 (the race last). EXPECTATION: every row passes at once. FIX-SITE RULE: a red row is a door the sweep or the guard missed; fix the reader in crates/foundry-store/src/lib.rs, or the door's not-found mapping in crates/foundry-app/src/events.rs, crates/foundry-app/src/issues.rs or crates/foundry-api/src/lib.rs, never the oracle; those files change ONLY for such a fix, and each fix gets its RED recorded in the commit message. If every row is green on arrival, the commit is the un-pend plus the evidence (row counts per outline). DIFFERENTIAL RULE (Changed Assumption 1, DIST-7): a deleted project answers byte-identically to the same address with a never-existed slug; on the live-updates route that is its shipped 403 text/plain; each row's live control on Identity Platform must answer otherwise. U1: the two machine-token routes read no project and are exempt; 32 and 33 pin 'alike everywhere'. A stale write meets the guard or the live resolver and answers that route's not-found, never 500; an open live view receives nothing about a change made after the delete (an event committed before it may arrive, D17); the filing race is 5 runs judged per run (the 100-run proof is 02-05's). PL-KPI-3 evidence for the evolution doc: 30 web doors and 6 project-reading API doors differential-equal. OVERRIDES: TEST PARADIGM: example-based (project CLAUDE.md); DISTILL scenarios are the acceptance designer's: un-pend, never re-author; a driver failure goes back to the test owner. LANES: bound every run with timeout (the 207 differential rows are slow: 5400s); rebuild and warm the release binary right before every acceptance lane; every pl-0N lane run reported shows a non-zero scenario count; check the lsof line and concurrent sessions first; us-04 / sqlx '\\0' flake: rerun alone; never set FOUNDRY_STAMP_*. COMMIT: one local commit; never push, never open a PR."
+        }
+      ]
+    },
+    {
+      "id": "03",
+      "name": "The operator lists and restores deleted projects (US-PL-04, slice 03, DDD-9, 10, 17; no migration)",
+      "steps": [
+        {
+          "id": "03-01",
+          "name": "Operator lists and restores deleted projects from the CLI",
+          "description": "list_deleted_projects and restore_deleted_project (unlocked read, team FOR KEY SHARE, project FOR UPDATE, clear the marker, restored record), services list and restore, foundry doctor list-deleted-projects and restore-project through Services with D14 constants and exits 0/2/3/4, one-seam (ii) for the restore. Un-ignores 7 gold tests; un-pends scenarios 40-47.",
+          "criteria": [
+            "The operator lists each deleted project with id, workspace, team, name, key, issue count, deleted-at in RFC 3339 UTC and deleted-by, oldest deletion first; none reads 'status: none'",
+            "A restore puts back exactly what the project held, every page answers as before the delete, the next issue is SPIKE-4, and one restore record names the operator",
+            "A live or unknown id exits 4, a bad uuid exits 2, unreachable records exit 3, and a second restore exits 4; each changes nothing",
+            "A restore takes the team lock before the project lock; two concurrent restores restore once and record once",
+            "The restore store write called from the operator CLI fails the architecture check"
+          ],
+          "estimate": "1 day",
+          "dependencies": [
+            "02-08"
+          ],
+          "files_to_modify": [
+            "crates/foundry-store/src/project_lifecycle.rs",
+            "crates/foundry-store/src/lib.rs",
+            "crates/foundry-services/src/projects.rs",
+            "crates/foundry-services/src/lib.rs",
+            "crates/foundry-app/src/admin_cli.rs",
+            "crates/foundry-app/src/main.rs",
+            "xtask/src/check_arch.rs",
+            "crates/foundry-store/tests/project_lifecycle.rs",
+            "crates/foundry-services/tests/project_lifecycle_use_cases.rs",
+            "crates/foundry-acceptance/tests/features/project-lifecycle-03-restore-project.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/project-lifecycle-03-restore-project.feature",
+          "scenario_name": [
+            "The operator finds a deleted project on the list (scenario 40)",
+            "The operator restores a deleted project with everything under it (scenario 41)",
+            "A restored project holds exactly what it held when it was deleted (scenario 42)",
+            "The operator is told when there is nothing to restore (scenario 43)",
+            "Every deleted project is listed, the oldest deletion first (scenario 44)",
+            "A restore that cannot be done is refused with its reason, and nothing changes (scenario 45, 3 rows)",
+            "Restoring the same project twice restores it once (scenario 46)",
+            "A restore attempted while foundry's records cannot be reached changes nothing (scenario 47)",
+            "crates/foundry-store/tests/project_lifecycle.rs::a_restore_puts_back_exactly_what_was_there_except_tombstones_the_gc_purged_meanwhile",
+            "crates/foundry-store/tests/project_lifecycle.rs::a_restore_takes_the_team_lock_before_the_project_lock",
+            "crates/foundry-store/tests/project_lifecycle.rs::restoring_a_live_project_or_an_unknown_id_says_so_and_writes_nothing",
+            "crates/foundry-store/tests/project_lifecycle.rs::two_restores_at_once_restore_once_and_record_once",
+            "crates/foundry-store/tests/project_lifecycle.rs::the_deleted_list_is_oldest_deletion_first_with_who_and_how_many_issues",
+            "crates/foundry-services/tests/project_lifecycle_use_cases.rs::the_operator_lists_and_restores_a_deleted_project_and_refusals_change_nothing",
+            "xtask/src/check_arch.rs::one_seam_the_restore_called_from_the_operator_cli_is_flagged"
+          ],
+          "lane_commands": [
+            "docker info; lsof -nP -iTCP -sTCP:LISTEN | grep acceptanc; check for a concurrent foundry session",
+            "RUST_TEST_THREADS=1 timeout 5400 cargo test -p foundry-store --test project_lifecycle (expect 36 passed, 1 ignored)",
+            "RUST_TEST_THREADS=1 timeout 1800 cargo test -p foundry-services --test project_lifecycle_use_cases (expect 11 passed, 2 ignored)",
+            "timeout 900 cargo test -p xtask (expect 150 passed, 0 ignored)",
+            "RUST_TEST_THREADS=1 timeout 3600 cargo test -p foundry-store",
+            "RUST_TEST_THREADS=1 timeout 1800 cargo test -p foundry-services",
+            "RUST_TEST_THREADS=1 timeout 1800 cargo test -p foundry-app (admin_cli unit tests; backup_verify_fail_closed.rs green)",
+            "timeout 900 cargo fmt --all -- --check",
+            "timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "timeout 600 cargo xtask check-arch",
+            "RUST_TEST_THREADS=1 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo build --release -p foundry-app --bin foundry && for i in 1 2 3; do timeout 300 target/release/foundry --version || true; done (MANDATORY right before pl-03: the CLI scenarios run target/release/foundry)",
+            "FOUNDRY_ACCEPTANCE_TAGS=pl-03 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --release --test acceptance (expect 8 scenarios / 10 rows passed; report the count, never 0)",
+            "for t in pl-01 pl-02 comment-tombstone-gc; do FOUNDRY_ACCEPTANCE_TAGS=$t CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 5400 cargo test -p foundry-acceptance --release --test acceptance || break; done",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 5400 cargo test -p foundry-acceptance --release --test acceptance (default lane)",
+            "timeout 14400 cargo mutants -j 1 --in-diff <step diff> --file crates/foundry-store/src/project_lifecycle.rs --file crates/foundry-services/src/projects.rs --file crates/foundry-app/src/admin_cli.rs --file xtask/src/check_arch.rs (>= 80%)"
+          ],
+          "implementation_notes": "SPLIT FROM DISTILL 03-01 (sizing: 12 scenarios): the list and restore verbs; the names-held guards and restore-comment's reason are 03-02. R1 no-push unit. ORDER: the deleted-list test, then the restore tests (exact, refusals, lock order, double restore), the use-case test, rule 3 (ii); then rebuild and warm the binary, un-pend 40 and 41 first (driving ports), then 42-47. STORE (DDD-9, ADR-004): list_deleted_projects() reads the base table in the module: every deleted project, oldest deletion first (deleted_at, then id), with workspace name, team slug, name, key, issue count, deleted_at and deleted_by's email. restore_deleted_project(project_id): unlocked read (unknown -> NotFound; live -> NotDeleted) -> the team FOR KEY SHARE (gone -> TeamGone{team_slug}) -> the project FOR UPDATE, still deleted and same team -> clear deleted_at and deleted_by -> INSERT the restored record (actor NULL = the operator; clock_timestamp()) -> commit. Team lock BEFORE project lock (DDD-8). Clearing the marker is the whole restore (Changed Assumption 3: tombstones the D12 GC purged meanwhile stay purged). SERVICES (DDD-10): projects::list_deleted_projects and restore_project; Services delegation. CLI (D10, D14): run_list_deleted_projects and run_restore_project in admin_cli.rs mirror run_restore_comment's runtime and exit mapping, call Services, and hold no SQL; main.rs dispatches foundry doctor list-deleted-projects and restore-project <uuid>. Constants (one home): the list block lines (deleted-at in RFC 3339 with a UTC offset equal to the marker to the second, DIST-5), 'status: none', 'project-id: {uuid}' then 'status: restored', the exit-4 'is not deleted' and 'not in database' lines, exit 2 and exit 3 asserted by prefix (DIST-4); their bytes are pinned in 03-02. The DIST-2 team-gone constant also lands here because the match on ProjectRestoreOutcome is exhaustive, but it is unreachable until 0027 and 04-03 is the SOLE owner of its bytes (review F-10). RULE 3 (ii) gains restore_deleted_project(: the CLI in foundry-app goes through Services, never the store method. Remove the 03-01 scaffold panics; the services section's SCAFFOLD marker goes with them. MUTATION: hand-pin the restore without the team KEY SHARE (the lock-order test reddens) and the list order (oldest-first test reddens). OVERRIDES: TEST PARADIGM: example-based (project CLAUDE.md); DISTILL tests and scenarios are the acceptance designer's. LANES: bound every run with timeout; RUST_TEST_THREADS=1 for DB suites and smoke; the CLI scenarios need the rebuilt, warm release binary immediately before the lane or they time out; every pl-0N lane run reported shows a non-zero scenario count; check the lsof line and concurrent sessions first; us-04 / sqlx '\\0' flake: rerun alone; never set FOUNDRY_STAMP_*. COMMIT: one local commit; never push, never open a PR."
+        },
+        {
+          "id": "03-02",
+          "name": "Names held until restore; restore-comment names the deleted project",
+          "description": "Guards: a deleted project's name blocks a new project and a rename, and its key blocks a new project, until restored. restore-comment on a comment inside a deleted project exits 4 with the DIST-1 line. CLI copy byte test (list, restore, exit-4, restore-comment). Un-pends scenarios 48-51 (4 rows).",
+          "criteria": [
+            "Creating a project named like a deleted one is refused with the uniqueness reason and the text kept; reusing its key is told the key is in use",
+            "Renaming a project to a deleted project's name is refused in that project's row with the text kept, and nothing changes",
+            "Bringing back a deleted comment inside a deleted project exits 4 naming the project's id, and nothing changes",
+            "The CLI lines for listing, restoring, the two exit-4 reasons and restore-comment are pinned byte for byte at their one home"
+          ],
+          "estimate": "0.5 day",
+          "dependencies": [
+            "03-01"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/src/admin_cli.rs",
+            "crates/foundry-app/tests/project_lifecycle_copy.rs",
+            "crates/foundry-acceptance/tests/features/project-lifecycle-03-restore-project.feature",
+            "CHANGELOG.md"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/project-lifecycle-03-restore-project.feature",
+          "scenario_name": [
+            "A deleted project's name stays taken for a new project until it is restored (scenario 48, guard)",
+            "A deleted project's key stays taken in the workspace until it is restored (scenario 49, guard)",
+            "A deleted project's name stays taken for a rename until it is restored (scenario 50, guard)",
+            "A deleted comment inside a deleted project cannot be brought back on its own (scenario 51)",
+            "crates/foundry-app/tests/project_lifecycle_copy.rs::the_operator_cli_copy_is_byte_exact (re-mapped 03-01 -> 03-02)"
+          ],
+          "lane_commands": [
+            "docker info; lsof -nP -iTCP -sTCP:LISTEN | grep acceptanc; check for a concurrent foundry session",
+            "timeout 900 cargo test -p foundry-app --test project_lifecycle_copy (expect 3 passed, 1 ignored)",
+            "RUST_TEST_THREADS=1 timeout 1800 cargo test -p foundry-app",
+            "timeout 900 cargo fmt --all -- --check",
+            "timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "timeout 600 cargo xtask check-arch",
+            "RUST_TEST_THREADS=1 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo build --release -p foundry-app --bin foundry && for i in 1 2 3; do timeout 300 target/release/foundry --version || true; done",
+            "FOUNDRY_ACCEPTANCE_TAGS=pl-03 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --release --test acceptance (expect 12 scenarios / 14 rows passed)",
+            "for t in pl-01 pl-02 us-07 pnr comment-tombstone-gc; do FOUNDRY_ACCEPTANCE_TAGS=$t CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 5400 cargo test -p foundry-acceptance --release --test acceptance || break; done (pl-01 16, pl-02 23)",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 5400 cargo test -p foundry-acceptance --release --test acceptance (default lane)",
+            "timeout 60 grep -cE '^[[:space:]]*@.*@pending' crates/foundry-acceptance/tests/features/project-lifecycle-03-restore-project.feature (expect 0)",
+            "timeout 14400 cargo mutants -j 1 --in-diff <step diff> --file crates/foundry-app/src/admin_cli.rs (>= 80%)"
+          ],
+          "implementation_notes": "SPLIT FROM DISTILL 03-01. R1 no-push unit (nothing pushed until 04-03). GUARDS, NOT RED EVIDENCE (review F-15): scenarios 48, 49 and 50 hold already, because siblings and the unique indexes include deleted rows (01-03 and 02-03 kept them on the base table; DISTILL Upstream notes: 'a guard rather than a true RED'). Un-pend them and record them as guards; their purpose is to catch a later move of list_team_sibling_projects or the key check onto live_projects. If one is red, that move happened: put the query back in the module. Scenario 51 is this step's RED. ORDER: 48, 49, 50, then 51, then the copy stub. 51 (DIST-1, U4): run_restore_comment maps undelete_comment's project-deleted outcome (02-01's interim arm) to exit 4, stderr 'comment-id: {uuid}' then 'foundry doctor restore-comment: comment {uuid} is in deleted project {project uuid} — status: not restorable', as a constant beside 03-01's; nothing changes; no SQL in admin_cli.rs. COPY TEST: change the ignore reason of the_operator_cli_copy_is_byte_exact from 03-01 to 03-02, replace its panic stub with byte assertions on 03-01's list, restore and two exit-4 constants and the DIST-1 line; the DIST-2 team-gone constant is NOT asserted here (04-03 is its sole owner, review F-10); then remove the #[ignore]. CHANGELOG [Unreleased]: 'Added (02+03)' and 'Changed (02)'. OVERRIDES: TEST PARADIGM: example-based (project CLAUDE.md); DISTILL scenarios are the acceptance designer's. LANES: bound every run with timeout; the CLI scenarios need the rebuilt, warm release binary right before the lane; every pl-0N lane run reported shows a non-zero scenario count; check the lsof line and concurrent sessions first; us-04 / sqlx '\\0' flake: rerun alone; never set FOUNDRY_STAMP_*. COMMIT: one local commit; never push, never open a PR."
+        }
+      ]
+    },
+    {
+      "id": "04",
+      "name": "Retire a team whose projects are all deleted, keeping them (US-PL-05, slice 04, DDD-19..21, 30, migration 0027)",
+      "steps": [
+        {
+          "id": "04-01",
+          "name": "Migration 0027: detach columns, check and live view parity",
+          "description": "Migration 0027 (team_id nullable, detached_from_team_id, CHECK projects_team_or_detached, live_projects recreated with its parity self-check), its probe line, and the previous release booting on the migrated schema. Un-ignores 6 gold tests; no acceptance scenario.",
+          "criteria": [
+            "Applying the detach migration changes no row, installs its check and keeps the team foreign key cascading",
+            "The live view still has exactly the project table's columns after the migration",
+            "foundry refuses readiness without the detach column, judged in its own schema",
+            "Detaching a live project is refused by the database",
+            "The previous release boots on the migrated schema and applies nothing"
+          ],
+          "estimate": "0.5 day",
+          "dependencies": [
+            "03-02"
+          ],
+          "files_to_modify": [
+            "crates/foundry-store/migrations/0027_project_detach.sql",
+            "crates/foundry-store/src/lib.rs",
+            "CHANGELOG.md",
+            "crates/foundry-store/tests/project_lifecycle_migrations.rs",
+            "crates/foundry-store/tests/probe_schema_scoping.rs",
+            "crates/foundry-store/tests/project_lifecycle.rs",
+            "crates/foundry-store/tests/team_delete.rs"
+          ],
+          "test_file": "crates/foundry-store/tests/project_lifecycle_migrations.rs",
+          "scenario_name": [
+            "crates/foundry-store/tests/project_lifecycle_migrations.rs::migration_0027_is_additive_installs_its_check_and_keeps_the_team_fk_cascading",
+            "crates/foundry-store/tests/project_lifecycle_migrations.rs::the_probe_refuses_a_schema_without_the_detach_column",
+            "crates/foundry-store/tests/project_lifecycle_migrations.rs::the_previous_release_boots_on_the_migrated_schema_and_applies_nothing",
+            "crates/foundry-store/tests/probe_schema_scoping.rs::probe_detach_column_check_is_scoped_to_current_schema",
+            "crates/foundry-store/tests/project_lifecycle.rs::live_projects_still_has_exactly_the_columns_of_projects_after_the_detach",
+            "crates/foundry-store/tests/team_delete.rs::detaching_a_live_project_is_refused_by_the_check"
+          ],
+          "lane_commands": [
+            "docker info; lsof -nP -iTCP -sTCP:LISTEN | grep acceptanc; check for a concurrent foundry session",
+            "RUST_TEST_THREADS=1 timeout 2400 cargo test -p foundry-store --test project_lifecycle_migrations (expect 13 passed, 0 ignored)",
+            "RUST_TEST_THREADS=1 timeout 1200 cargo test -p foundry-store --test probe_schema_scoping (expect 5 passed, 0 ignored)",
+            "RUST_TEST_THREADS=1 timeout 5400 cargo test -p foundry-store --test project_lifecycle (expect 37 passed, 0 ignored)",
+            "RUST_TEST_THREADS=1 timeout 3600 cargo test -p foundry-store --test team_delete (expect 22 passed, 7 ignored; team-lifecycle's negative controls still LOSE the project)",
+            "RUST_TEST_THREADS=1 timeout 3600 cargo test -p foundry-store",
+            "RUST_TEST_THREADS=1 timeout 1800 cargo test -p foundry-services",
+            "timeout 900 cargo fmt --all -- --check",
+            "timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "timeout 600 cargo xtask check-arch",
+            "RUST_TEST_THREADS=1 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo build --release -p foundry-app --bin foundry && for i in 1 2 3; do timeout 300 target/release/foundry --version || true; done",
+            "for t in tl-02 pl-01 pl-02 pl-03 iapr; do FOUNDRY_ACCEPTANCE_TAGS=$t CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 5400 cargo test -p foundry-acceptance --release --test acceptance || break; done",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 5400 cargo test -p foundry-acceptance --release --test acceptance (default lane)",
+            "timeout 14400 cargo mutants -j 1 --in-diff <step diff> --file crates/foundry-store/src/lib.rs (>= 80%)"
+          ],
+          "implementation_notes": "SPLIT FROM DISTILL 04-01 (review F-05): the schema half; the detaching delete and its consumers are 04-02. Ids unchanged (04-01). R1 no-push unit. ORDER: 0027 and its additive/CHECK/cascade test, the CHECK refusal test in team_delete.rs, live_projects parity after 0027, the probe line and probe_schema_scoping's 0027 test, then the previous-release boot. MIGRATION 0027 (DDD-19, ADR-004): projects.team_id DROP NOT NULL; detached_from_team_id uuid NULL (no FK); CHECK projects_team_or_detached (live => has a team; detached => deleted and names its team); projects_team_id_fkey stays ON DELETE CASCADE; CREATE OR REPLACE VIEW live_projects in the same file (the standing rule for a new projects column) with the parity self-check again. No upgrade warning (DEVOPS). PROBE: detached_from_team_id, current_schema-scoped; extend probe_schema_scoping's HEALTHY schemas (KNOWN ISSUE lesson). No production code reads detached rows yet: delete_team_if_empty is unchanged until 04-02, and with the team-delete SQL still on the base table nothing can be detached in this commit. CHANGELOG [Unreleased]: the 0027 migration note (R3). R2: 0027 ships in the same release as 0026. MUTATION: hand-pin and record: 0027 without recreating the view (the parity test reddens), the CHECK without its detached arm (the CHECK refusal test reddens). OVERRIDES: TEST PARADIGM: example-based (project CLAUDE.md); DISTILL tests are the acceptance designer's. LANES: bound every run with timeout; RUST_TEST_THREADS=1 for DB suites and smoke; rebuild and warm the release binary before every acceptance lane; check the lsof line and concurrent sessions first; us-04 / sqlx '\\0' flake: rerun alone; never set FOUNDRY_STAMP_*. COMMIT: one local commit; never push, never open a PR."
+        },
+        {
+          "id": "04-02",
+          "name": "Detaching team delete, deleted-project facts, team-gone restore",
+          "description": "delete_team_if_empty detaches every remaining project row before the team delete; team_delete_facts gains deleted projects and workspace name; teams::delete_preview refuses on live projects only; a detached project lists with its team's slug and restores as TeamGone. Un-ignores 9 gold tests (re-mapped 04-01 -> 04-02).",
+          "criteria": [
+            "A team whose projects are all deleted is deleted and every one of its project rows survives, detached",
+            "A team with a live and a deleted project is refused, and both the refusal and the delete preview name only the live project",
+            "The team delete facts list its deleted projects and the workspace name, and the preview changes no row",
+            "Over 100 restore-versus-team-delete races no project is lost; restoring a detached project answers team-gone and changes nothing",
+            "A workspace delete removes live, deleted and detached projects; a detach that breaks the invariant logs one error naming the team"
+          ],
+          "estimate": "1 day",
+          "dependencies": [
+            "04-01"
+          ],
+          "files_to_modify": [
+            "crates/foundry-store/src/project_lifecycle.rs",
+            "crates/foundry-store/src/teams.rs",
+            "crates/foundry-store/src/lib.rs",
+            "crates/foundry-services/src/teams.rs",
+            "crates/foundry-app/src/teams.rs",
+            "crates/foundry-store/tests/team_delete.rs",
+            "crates/foundry-services/tests/project_lifecycle_use_cases.rs"
+          ],
+          "test_file": "crates/foundry-store/tests/team_delete.rs",
+          "scenario_name": [
+            "crates/foundry-store/tests/team_delete.rs::a_team_whose_projects_are_all_deleted_is_deleted_and_every_row_survives_detached",
+            "crates/foundry-store/tests/team_delete.rs::a_team_with_a_live_and_a_deleted_project_is_refused_naming_the_live_one_only (F-03: the refusal names no deleted project)",
+            "crates/foundry-store/tests/team_delete.rs::the_team_delete_facts_list_deleted_projects_and_the_workspace_name",
+            "crates/foundry-store/tests/team_delete.rs::the_restore_versus_team_delete_race_never_loses_a_project_in_100_runs",
+            "crates/foundry-store/tests/team_delete.rs::restoring_a_project_whose_team_was_deleted_is_team_gone_and_changes_nothing",
+            "crates/foundry-store/tests/team_delete.rs::a_workspace_delete_cascades_live_deleted_and_detached_projects",
+            "crates/foundry-store/tests/team_delete.rs::the_detach_backstop_logs_one_error_naming_the_team",
+            "crates/foundry-services/tests/project_lifecycle_use_cases.rs::the_team_delete_preview_refuses_on_live_projects_only_and_names_only_them (F-03: the preview names no deleted project)",
+            "crates/foundry-services/tests/project_lifecycle_use_cases.rs::the_team_delete_preview_changes_zero_rows_with_deleted_projects"
+          ],
+          "lane_commands": [
+            "docker info; lsof -nP -iTCP -sTCP:LISTEN | grep acceptanc; check for a concurrent foundry session",
+            "RUST_TEST_THREADS=1 timeout 2400 cargo test -p foundry-store --test team_delete -- --skip in_100_runs (fast loop while iterating)",
+            "RUST_TEST_THREADS=1 timeout 3600 cargo test -p foundry-store --test team_delete the_restore_versus_team_delete_race_never_loses_a_project_in_100_runs",
+            "RUST_TEST_THREADS=1 timeout 3600 cargo test -p foundry-store --test team_delete (expect 29 passed, 0 ignored; team-lifecycle's negative controls still LOSE the project)",
+            "RUST_TEST_THREADS=1 timeout 1800 cargo test -p foundry-services --test project_lifecycle_use_cases --test team_lifecycle_use_cases (expect 13 passed, 0 ignored in the first)",
+            "RUST_TEST_THREADS=1 timeout 3600 cargo test -p foundry-store",
+            "RUST_TEST_THREADS=1 timeout 1800 cargo test -p foundry-services",
+            "RUST_TEST_THREADS=1 timeout 1800 cargo test -p foundry-app",
+            "timeout 900 cargo fmt --all -- --check",
+            "timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "timeout 600 cargo xtask check-arch",
+            "RUST_TEST_THREADS=1 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo build --release -p foundry-app --bin foundry && for i in 1 2 3; do timeout 300 target/release/foundry --version || true; done",
+            "for t in tl-02 pl-01 pl-02 pl-03 iapr us-dash; do FOUNDRY_ACCEPTANCE_TAGS=$t CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 5400 cargo test -p foundry-acceptance --release --test acceptance || break; done",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 5400 cargo test -p foundry-acceptance --release --test acceptance (default lane)",
+            "timeout 60 grep -rn 'RED scaffold written by DISTILL (2026-10-13)' crates/ xtask/ (expect no output)",
+            "timeout 14400 cargo mutants -j 1 --in-diff <step diff> --file crates/foundry-store/src/project_lifecycle.rs --file crates/foundry-store/src/teams.rs --file crates/foundry-services/src/teams.rs (>= 80%)"
+          ],
+          "implementation_notes": "SPLIT FROM DISTILL 04-01 (review F-05). Re-map the 9 ignore reasons 04-01 -> 04-02 first (and the backstop stub's panic id). R1 no-push unit. F-03 (orchestrator, one release): this step is where the team-delete facts stop naming deleted projects as blockers. The gold tests that the team-delete refusal and preview name NO deleted project already exist and are owned here: crates/foundry-store/tests/team_delete.rs::a_team_with_a_live_and_a_deleted_project_is_refused_naming_the_live_one_only and crates/foundry-services/tests/project_lifecycle_use_cases.rs::the_team_delete_preview_refuses_on_live_projects_only_and_names_only_them; no new test is needed. The interim behaviour (02-03..04-01: deleted projects named and blocking) never shipped (release_gate_r1). ORDER: the detach, the mixed team, the facts, TeamGone, the workspace cascade, the backstop log, the 100-run race last; then the two preview use-case tests. STORE (DDD-20/21, amends ADR-TEAM-LIFECYCLE-002): delete_team_if_empty keeps EXACTLY this order: team FOR UPDATE -> live projects in a fresh statement (any -> HasProjects naming live projects only, by name then key) -> detach EVERY remaining row with team_id = $team (no deleted_at filter: the CHECK is the backstop; a live row slipping through is a loud 23514, never a silent loss) -> DELETE FROM teams -> the team record (shape unchanged) -> commit. The team-delete SQL moved in 02-03 now reads live projects for the refusal and base rows for the detach. Never a team lock after a project lock (DDD-8). A 23514 on projects_team_or_detached logs ONE error naming the team id, no names (DDD-30); replace the panic stub at team_delete.rs:1548 with the real assertion. team_delete_facts gains deleted_projects and workspace_name, folding DISTILL's team_deleted_projects scaffold into it (ADR-004 decision 2). Detached rows have a NULL team_id: list_deleted_projects keeps listing them with the deleted team's slug from its team_lifecycle_events delete record (DIST-3); restore_deleted_project on one answers TeamGone{team_slug}. SERVICES: teams::delete_preview refuses on live projects only and its confirm carries the deleted list; read-only (the zero-rows test). crates/foundry-app/src/teams.rs changes only as far as the amended preview type requires to compile; the new line renders in 04-03. Team-lifecycle's negative controls must keep LOSING the project. Remove the last module panic and the module's SCAFFOLD marker: the DISTILL scaffold grep is empty after this step. ITERATION BUDGET: one 100-run race; run it alone with its own timeout. MUTATION: hand-pin and record: the detach with a deleted_at filter (the mixed-team test reddens), the restore without the team KEY SHARE (the 100-run race reddens), the live-project check reading every row (the preview tests redden). OVERRIDES: TEST PARADIGM: example-based (project CLAUDE.md); DISTILL tests are the acceptance designer's. LANES: bound every run with timeout; RUST_TEST_THREADS=1 for DB suites and smoke; rebuild and warm the release binary before every acceptance lane; check the lsof line and concurrent sessions first; us-04 / sqlx '\\0' flake: rerun alone; never set FOUNDRY_STAMP_*. COMMIT: one local commit; never push, never open a PR."
+        },
+        {
+          "id": "04-03",
+          "name": "Retire a team whose projects are all deleted (team door)",
+          "description": "The amended team delete door: the D14 'also has {k} deleted project(s)' confirm line, refusals naming live projects only, a detached project kept on the operator's list with its key taken, restore's team-gone refusal. Un-pends scenarios 52-59 and the last copy byte test; the release-ready end of the push unit.",
+          "criteria": [
+            "The team delete page names the deleted project it will keep with the D14 line and works as a plain page form",
+            "Deleting a team whose only project is deleted succeeds; the project's work is kept, detached, and one team delete record is written",
+            "A team with a live project is refused naming only the live one, on the page and on a submitted delete (409)",
+            "The detached project stays on the operator's list, cannot be restored (team-gone line, exit 4), and its key stays taken",
+            "Five restore-versus-team-delete races never lose a project; the also-has line and the team-gone line are pinned byte for byte"
+          ],
+          "estimate": "0.5 day",
+          "dependencies": [
+            "04-02"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/src/teams.rs",
+            "crates/foundry-app/src/views.rs",
+            "crates/foundry-app/templates/team_delete.html",
+            "crates/foundry-app/tests/project_lifecycle_copy.rs",
+            "crates/foundry-acceptance/tests/features/project-lifecycle-04-retire-team.feature",
+            "CHANGELOG.md"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/project-lifecycle-04-retire-team.feature",
+          "scenario_name": [
+            "The team delete page names the deleted project it will keep (scenario 52)",
+            "A team whose only project is deleted can be deleted, and the project's work is kept (scenario 53)",
+            "Only live projects keep a team from being deleted, and only they are named (scenario 54)",
+            "A delete sent for a team that still has a live project is refused, naming only the live one (scenario 55)",
+            "A deleted project whose team is gone cannot be restored, and is not lost (scenario 56)",
+            "A project kept from a deleted team is still on the operator's list (scenario 57)",
+            "A deleted project's key stays taken after its team is deleted (scenario 58)",
+            "A restore racing a team delete never loses a project (scenario 59)",
+            "crates/foundry-app/tests/project_lifecycle_copy.rs::the_team_delete_line_and_team_gone_refusal_are_byte_exact (re-mapped 04-01 -> 04-03)"
+          ],
+          "lane_commands": [
+            "docker info; lsof -nP -iTCP -sTCP:LISTEN | grep acceptanc; check for a concurrent foundry session",
+            "timeout 900 cargo test -p foundry-app --test project_lifecycle_copy (expect 4 passed, 0 ignored)",
+            "RUST_TEST_THREADS=1 timeout 1800 cargo test -p foundry-app",
+            "timeout 900 cargo fmt --all -- --check",
+            "timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+            "timeout 600 cargo xtask check-arch",
+            "RUST_TEST_THREADS=1 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 3600 cargo xtask smoke",
+            "CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo build --release -p foundry-app --bin foundry && for i in 1 2 3; do timeout 300 target/release/foundry --version || true; done",
+            "FOUNDRY_ACCEPTANCE_TAGS=pl-04 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --release --test acceptance (expect 8 scenarios / 8 rows passed)",
+            "FOUNDRY_ACCEPTANCE_TAGS=project-lifecycle CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 7200 cargo test -p foundry-acceptance --release --test acceptance (expect 59 scenarios / 298 rows passed)",
+            "for t in tl-01 tl-02 tl-04 tm-01 tm-05 iapr us-07 pnr us-dash; do FOUNDRY_ACCEPTANCE_TAGS=$t CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 2400 cargo test -p foundry-acceptance --release --test acceptance || break; done",
+            "env -u FOUNDRY_ACCEPTANCE_TAGS CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 5400 cargo test -p foundry-acceptance --release --test acceptance (default lane)",
+            "timeout 60 grep -cE '^[[:space:]]*@.*@pending' crates/foundry-acceptance/tests/features/project-lifecycle-0*.feature (expect 0 for each of the five files)",
+            "timeout 60 grep -cF '#[ignore = \"pending: project-lifecycle' crates/foundry-store/tests/project_lifecycle.rs crates/foundry-store/tests/project_lifecycle_migrations.rs crates/foundry-store/tests/probe_schema_scoping.rs crates/foundry-store/tests/team_delete.rs crates/foundry-services/tests/project_lifecycle_use_cases.rs crates/foundry-app/tests/project_lifecycle_copy.rs xtask/src/check_arch.rs (expect 0 for each)",
+            "timeout 60 git ls-tree -r HEAD crates/foundry-store/migrations/ | grep 0026_project_soft_delete && timeout 60 grep -n restore-project crates/foundry-app/src/main.rs (R1 checklist: both non-empty)",
+            "timeout 14400 cargo mutants -j 1 --in-diff <step diff> --file crates/foundry-app/src/teams.rs --file crates/foundry-app/src/views.rs (>= 80%)",
+            "FOUNDRY_XTASK_INCLUDE_DOCKER=1 CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false RUST_TEST_THREADS=1 timeout 7200 cargo xtask ci (R5; without FOUNDRY_XTASK_INCLUDE_DOCKER=1 the Docker and browser lanes are silently skipped)"
+          ],
+          "implementation_notes": "SPLIT FROM DISTILL 04-01: the team door. R1: the last commit of the one-release push unit; after it, and only on the user's explicit go, the feature may be pushed and tagged (release_gate_r1). ORDER: 52, 53 first (driving ports), then 54, 55, 56, 57, 58, then 59 (5-run race judged per run; the 100-run proof is 04-02's), then the copy stub. APP (DDD-21, D14): the team delete confirm page (team_delete.html, plain page form) gains TeamNotice::TeamAlsoHasDeletedProjects '{team} also has {k} deleted project(s): {list}. They are kept, but can't be restored after {team} is deleted, and their keys stay taken in {workspace}.' (list items '{project} ({KEY})') when no live project remains and k > 0; with live projects the 200 refusal page and the POST's 409 name live projects only. RED NOTE: scenarios 53-55 and 57-59 may be green as soon as 04-02 lands; 52 is this step's RED; run all eight and report the count. COPY TEST (review F-10: this step is the SOLE owner of the DIST-2 team-gone bytes): change the ignore reason of the_team_delete_line_and_team_gone_refusal_are_byte_exact from 04-01 to 04-03, replace its panic stub with byte assertions on the new variant and 03-01's team-gone constant, then remove the #[ignore]. CHANGELOG [Unreleased]: 'Changed (04)'; the OQ-D4 and Rollback lines are the user's at release (R4). FINAL BURN-DOWN (lane_commands): zero @pending in the five feature files, zero pending ignores, zero DISTILL scaffold markers; mutation report per feature >= 80% on every modified Rust file plus the SQL hand tables from 01-01, 01-02, 02-01, 02-02, 02-03, 02-05, 03-01, 04-01, 04-02 (cargo-mutants cannot see SQL). R5 before any tag: FOUNDRY_XTASK_INCLUDE_DOCKER=1 cargo xtask ci with the acceptance step run, not skipped. OVERRIDES: TEST PARADIGM: example-based (project CLAUDE.md); DISTILL scenarios are the acceptance designer's. LANES: bound every run with timeout; rebuild and warm the release binary right before every acceptance lane (CLI scenarios 56, 57, 59 run it); every pl-0N lane run reported shows a non-zero scenario count; check the lsof line and concurrent sessions first; us-04 / sqlx '\\0' flake: rerun alone; GitHub CI has been red since June, so a red remote run is not evidence; never set FOUNDRY_STAMP_*. COMMIT: one local commit; never push, never open a PR."
+        }
+      ]
+    }
+  ],
+  "implementation_scope": {
+    "source_directories": [
+      "crates/foundry-store/src/",
+      "crates/foundry-store/migrations/",
+      "crates/foundry-services/src/",
+      "crates/foundry-app/src/",
+      "crates/foundry-app/templates/",
+      "crates/foundry-api/src/",
+      "xtask/src/"
+    ],
+    "test_directories": [
+      "crates/foundry-store/tests/",
+      "crates/foundry-services/tests/",
+      "crates/foundry-app/tests/",
+      "crates/foundry-acceptance/tests/features/",
+      "crates/foundry-acceptance/src/steps/",
+      "crates/foundry-acceptance/src/support/"
+    ],
+    "excluded_patterns": [
+      "target/**",
+      "crates/foundry-app/static/**"
+    ]
+  },
+  "validation": {
+    "status": "approved",
+    "reviewer": "pending: roadmap re-review (iteration 2); self-check by nw-solution-architect below",
+    "quality_gate_self_check": {
+      "no_ac_referencing_private_methods": "pass: no criterion names a function, method or underscore identifier; store-step criteria are outcomes (review F-13); lane and gate lists live only in lane_commands",
+      "decomposition_ratio": "pass: 17 steps / 26 distinct production files (3 migrations, 7 store, 3 services, 7 app src, 3 templates, 1 api, 1 xtask, CHANGELOG) = 0.65 <= 2.5",
+      "identical_ac_structure": "pass: no 3 or more steps share an AC structure",
+      "files_to_modify_present": "pass: 17 of 17 steps; 02-08 lists its conditional fix sites beside the feature file",
+      "step_id_format": "pass: every step id matches NN-NN and every phase id NN",
+      "test_linkage": "pass: 17 of 17 steps have test_file and scenario_name; 59 scenarios / 298 rows and 94 gold tests each owned once",
+      "schema_constraints": "pass: <= 5 criteria per step, each <= 30 words; names <= 10 words; descriptions <= 50 words",
+      "release_gate_r1_recorded": "pass: roadmap.release_gate_r1 (one release, no push until 04-03) and the 02-01 / 04-03 notes"
+    },
+    "approved_by": "nw-software-crafter-reviewer, iteration 2 (2026-10-14); N-1 and N-2 applied by the orchestrator"
+  }
+}
