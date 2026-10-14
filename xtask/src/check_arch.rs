@@ -106,6 +106,7 @@ fn source_violations(root: &Path) -> Vec<String> {
     violations.extend(check_team_lifecycle_one_seam(root));
     violations.extend(check_project_lifecycle_one_seam(root));
     violations.extend(check_project_lifecycle_write_guard(root));
+    violations.extend(check_project_lifecycle_live_reads(root));
     violations.extend(check_store_natural_key_scoped(root));
     violations
 }
@@ -145,7 +146,7 @@ pub fn run(args: Vec<String>) -> ExitCode {
     let verdict = verdict(&args);
     match &verdict {
         Verdict::Passed => println!(
-            "check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, the lanes position constraint is still DEFERRABLE, no board-*.js registers a keydown listener, nothing outside migration 0017 UPDATEs users.provisioned_at (D9), both publish workflows stamp every image with its commit and the Dockerfile hands it to build.rs (AC-8), every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, no colour literal outside the three stylesheet token regions, the three stylesheet token regions declare the identical colour-token set, the workspace-name refusal copy lives only in foundry-core and no production door calls create_initial_workspace, the project-name refusal copy lives only in foundry-core and no door calls insert_project, no production door calls seed_row_predating_name_rule and no crate but its seam file disables a trigger or sets session_replication_role, the team-name refusal copy lives only in foundry-core, teams and team_lifecycle_events are written only by foundry-store and no door calls create_team_with_lead, rename_team_with_audit or delete_team_if_empty, projects, live_projects and project_lifecycle_events are written only by foundry-store and no door calls rename_project_with_audit (project-lifecycle-one-seam), every foundry-store writer of issues, comments, attachments, lanes or change events holds lock_live_project on its transaction before its first write (project-lifecycle-write-guard), every foundry-store query filtering on key_prefix, a slug or an issue number also compares workspace_id, team_id or project_id to a bound parameter in the same disjunct (store-natural-key-scoped), dependency direction)"
+            "check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, the lanes position constraint is still DEFERRABLE, no board-*.js registers a keydown listener, nothing outside migration 0017 UPDATEs users.provisioned_at (D9), both publish workflows stamp every image with its commit and the Dockerfile hands it to build.rs (AC-8), every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, no colour literal outside the three stylesheet token regions, the three stylesheet token regions declare the identical colour-token set, the workspace-name refusal copy lives only in foundry-core and no production door calls create_initial_workspace, the project-name refusal copy lives only in foundry-core and no door calls insert_project, no production door calls seed_row_predating_name_rule and no crate but its seam file disables a trigger or sets session_replication_role, the team-name refusal copy lives only in foundry-core, teams and team_lifecycle_events are written only by foundry-store and no door calls create_team_with_lead, rename_team_with_audit or delete_team_if_empty, projects, live_projects and project_lifecycle_events are written only by foundry-store and no door calls rename_project_with_audit (project-lifecycle-one-seam), every foundry-store writer of issues, comments, attachments, lanes or change events holds lock_live_project on its transaction before its first write (project-lifecycle-write-guard), no crate but foundry-store's project_lifecycle module names the projects base table in SQL or as an exact literal outside the four reviewed exempt items (project-lifecycle-live-reads), every foundry-store query filtering on key_prefix, a slug or an issue number also compares workspace_id, team_id or project_id to a bound parameter in the same disjunct (store-natural-key-scoped), dependency direction)"
         ),
         Verdict::UnparseableArguments(message) => eprintln!("check-arch: {message}"),
         Verdict::Violations(violations) => {
@@ -5347,28 +5348,49 @@ fn sql_write_violations_in(
 /// the verb may sit on an earlier line than the table.
 fn sql_writes_of(sql: &str, table: &str) -> Vec<usize> {
     let code = strip_sql_comments(sql).to_ascii_lowercase();
+    let mut offsets = Vec::new();
+    let mut from = 0;
+    while let Some(at) = find_sql_word(&code, table, from) {
+        from = at + table.len();
+        if let Some(write) = sql_write_targeting(&code, at) {
+            offsets.push(code[..write.statement_at].matches('\n').count());
+        }
+    }
+    offsets
+}
+
+/// An SQL write statement, as seen from the table word it targets.
+struct SqlWrite {
+    verb: &'static str,
+    statement_at: usize,
+}
+
+/// The `INSERT INTO` / `UPDATE` / `DELETE FROM` whose target is the table word
+/// starting at `at` in `code` (lowercased, comments stripped), if any.
+fn sql_write_targeting(code: &str, at: usize) -> Option<SqlWrite> {
     // The word ending just before `end`, and where it starts.
     let word_before = |end: usize| {
         let text = code[..end].trim_end();
         let start = text.rfind(char::is_whitespace).map_or(0, |i| i + 1);
         (&text[start..], start)
     };
-    let mut offsets = Vec::new();
-    let mut from = 0;
-    while let Some(at) = find_sql_word(&code, table, from) {
-        from = at + table.len();
-        let (last, last_at) = word_before(at);
-        let (verb, verb_at) = word_before(last_at);
-        let statement_at = match (last, verb) {
-            ("update", _) => Some(last_at),
-            ("into", "insert") | ("from", "delete") => Some(verb_at),
-            _ => None,
-        };
-        if let Some(statement_at) = statement_at {
-            offsets.push(code[..statement_at].matches('\n').count());
-        }
+    let (last, last_at) = word_before(at);
+    let (verb, verb_at) = word_before(last_at);
+    match (last, verb) {
+        ("update", _) => Some(SqlWrite {
+            verb: "update",
+            statement_at: last_at,
+        }),
+        ("into", "insert") => Some(SqlWrite {
+            verb: "insert",
+            statement_at: verb_at,
+        }),
+        ("from", "delete") => Some(SqlWrite {
+            verb: "delete",
+            statement_at: verb_at,
+        }),
+        _ => None,
     }
-    offsets
 }
 
 /// The seam-clause violations in one file: each call of a guarded store write,
@@ -6997,14 +7019,201 @@ mod store_natural_key_scoped_boundary_tests {
 /// `project-lifecycle-live-reads: ` and names `file:line`, the line on which the
 /// offending `projects` (or the exact literal) stands. A missing `crates/` fails
 /// the rule.
-// SCAFFOLD: true — RED scaffold written by DISTILL (2026-10-13)
-#[cfg_attr(not(test), allow(dead_code))]
 fn check_project_lifecycle_live_reads(root: &Path) -> Vec<String> {
-    let _ = root;
-    panic!(
-        "Not yet implemented -- RED scaffold (project-lifecycle 02-02: rule \
-         project-lifecycle-live-reads)"
-    )
+    let crates_dir = root.join("crates");
+    let Ok(entries) = std::fs::read_dir(&crates_dir) else {
+        return vec![format!(
+            "{LIVE_READS_ID}: cannot list {} — no crate could be checked for a read of the \
+             projects base table ({LIVE_READS_REFERENCE}).",
+            crates_dir.display()
+        )];
+    };
+    let mut crate_dirs: Vec<PathBuf> = entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.join("src").is_dir())
+        .filter(|path| !path.ends_with(LIVE_READS_SKIPPED_CRATE))
+        .collect();
+    crate_dirs.sort();
+
+    let mut violations = Vec::new();
+    for crate_dir in crate_dirs {
+        let (sources, unreadable) = files_under(&crate_dir.join("src"), "rs", &|_| false);
+        violations.extend(unreadable.iter().map(|dir| {
+            format!(
+                "{LIVE_READS_ID}: cannot list {} ({LIVE_READS_REFERENCE}).",
+                rel(root, dir)
+            )
+        }));
+        for file in sources {
+            let file_rel = rel(root, &file);
+            if file_rel == LIVE_READS_MODULE {
+                continue;
+            }
+            match std::fs::read_to_string(&file) {
+                Ok(contents) => violations.extend(live_reads_violations_in(&file_rel, &contents)),
+                Err(_) => violations.push(format!(
+                    "{LIVE_READS_ID}: cannot read {file_rel} ({LIVE_READS_REFERENCE})."
+                )),
+            }
+        }
+    }
+    violations
+}
+
+const LIVE_READS_ID: &str = "project-lifecycle-live-reads";
+const LIVE_READS_MODULE: &str = "crates/foundry-store/src/project_lifecycle.rs";
+const LIVE_READS_SKIPPED_CRATE: &str = "foundry-acceptance";
+const LIVE_READS_TABLE: &str = "projects";
+const LIVE_READS_REFERENCE: &str = "ADR-PROJECT-LIFECYCLE-001: outside \
+     crates/foundry-store/src/project_lifecycle.rs, read projects through the live_projects view";
+
+/// The four reviewed items that may hold an exact `"projects"` literal, each
+/// named by file and by its enclosing item path (never by line).
+const LIVE_READS_EXEMPT_ITEMS: [(&str, &[(&str, &str)]); 4] = [
+    (
+        "crates/foundry-store/src/lib.rs",
+        &[("const", "TENANT_TABLES")],
+    ),
+    (
+        "crates/foundry-store/src/verify_export.rs",
+        &[("const", "DIRECT_WORKSPACE_ID_TABLES")],
+    ),
+    (
+        "crates/foundry-store/src/name_rule_legacy_seam.rs",
+        &[("impl", "NameRuleTable"), ("fn", "table")],
+    ),
+    (
+        "crates/foundry-app/src/admin_cli.rs",
+        &[("const", "KNOWN_FOUNDRY_TABLES")],
+    ),
+];
+
+/// The rule-1 violations in one file (`file_rel` is root-relative): every SQL
+/// literal naming the projects table other than as an `INSERT INTO` target,
+/// and every exact `"projects"` literal outside the file's exempt items.
+fn live_reads_violations_in(file_rel: &str, contents: &str) -> Vec<String> {
+    let source = RustSource::scan(contents);
+    let exempt_spans: Vec<(usize, usize)> = LIVE_READS_EXEMPT_ITEMS
+        .iter()
+        .filter(|(file, _)| *file == file_rel)
+        .flat_map(|(_, path)| item_spans(&source.code, path))
+        .collect();
+    let mut violations = Vec::new();
+    for literal in &source.literals {
+        if literal.text == LIVE_READS_TABLE {
+            if !exempt_spans
+                .iter()
+                .any(|&(start, end)| start <= literal.start && literal.end <= end)
+            {
+                violations.push(format!(
+                    "{LIVE_READS_ID}: {file_rel}:{} holds the exact literal \"projects\" outside \
+                     the four reviewed exempt items ({LIVE_READS_REFERENCE}).",
+                    literal.line
+                ));
+            }
+            continue;
+        }
+        violations.extend(projects_reads_in(&literal.text).into_iter().map(|offset| {
+            format!(
+                "{LIVE_READS_ID}: {file_rel}:{} names the projects base table in SQL \
+                 ({LIVE_READS_REFERENCE}).",
+                literal.line + offset
+            )
+        }));
+    }
+    violations
+}
+
+/// The 0-based line offsets, within one literal, of every mention of the
+/// `projects` table in SQL, in any lexical form, that is not an
+/// `INSERT INTO projects` target. A literal holding no SQL verb yields none.
+fn projects_reads_in(text: &str) -> Vec<usize> {
+    let code = strip_sql_comments(&unqualified_sql(text));
+    if !holds_sql_statement(&code) {
+        return Vec::new();
+    }
+    let mut offsets = Vec::new();
+    let mut from = 0;
+    while let Some(at) = find_sql_word(&code, LIVE_READS_TABLE, from) {
+        from = at + LIVE_READS_TABLE.len();
+        if sql_write_targeting(&code, at).is_none_or(|write| write.verb != "insert") {
+            offsets.push(code[..at].matches('\n').count());
+        }
+    }
+    offsets
+}
+
+/// True when lowercased `code` holds the shape of an SQL statement: `SELECT`,
+/// `INSERT INTO`, `UPDATE … SET`, `DELETE FROM` or `TRUNCATE`. Stricter than
+/// [`is_sql`] on purpose: rule 1 reads every crate, whose user-facing copy says
+/// "a team with projects" or "soft delete:", and a bare `WITH` or `DELETE` in
+/// prose is not a query (a CTE always holds one of the shapes above).
+fn holds_sql_statement(code: &str) -> bool {
+    let followed_by = |verb: &str, next: &str| {
+        let mut from = 0;
+        while let Some(at) = find_sql_word(code, verb, from) {
+            from = at + verb.len();
+            if code[from..].split_whitespace().next() == Some(next) {
+                return true;
+            }
+        }
+        false
+    };
+    find_sql_word(code, "select", 0).is_some()
+        || find_sql_word(code, "truncate", 0).is_some()
+        || followed_by("insert", "into")
+        || followed_by("delete", "from")
+        || find_sql_word(code, "update", 0)
+            .is_some_and(|at| find_sql_word(code, "set", at).is_some())
+}
+
+/// The `[start, end)` spans in `code` (a [`RustSource::code`]) of the item at
+/// `path`, each step a `(keyword, name)` nested inside the previous step's
+/// span: a `const` / `static` runs to the `;` ending its value, a `fn` /
+/// `impl` to its closing brace.
+fn item_spans(code: &str, path: &[(&str, &str)]) -> Vec<(usize, usize)> {
+    path.iter()
+        .fold(vec![(0, code.len())], |spans, &(keyword, name)| {
+            spans
+                .into_iter()
+                .flat_map(|(start, end)| items_within(code, start, end, keyword, name))
+                .collect()
+        })
+}
+
+/// The spans of every `keyword name` item declared within `code[start..end]`.
+fn items_within(
+    code: &str,
+    start: usize,
+    end: usize,
+    keyword: &str,
+    name: &str,
+) -> Vec<(usize, usize)> {
+    let mut spans = Vec::new();
+    let mut from = start;
+    while let Some(at) = find_sql_word(code, name, from).filter(|&at| at < end) {
+        from = at + name.len();
+        if code[..at].split_whitespace().next_back() != Some(keyword) {
+            continue;
+        }
+        let item_end = if matches!(keyword, "const" | "static") {
+            code[from..end].find('=').and_then(|eq| {
+                code[from + eq..end]
+                    .find(';')
+                    .map(|semi| from + eq + semi + 1)
+            })
+        } else {
+            code[from..end]
+                .find('{')
+                .and_then(|open| matching_brace(code.as_bytes(), from + open))
+                .map(|close| close + 1)
+        };
+        if let Some(item_end) = item_end.filter(|&e| e <= end) {
+            spans.push((at, item_end));
+        }
+    }
+    spans
 }
 
 /// `project-lifecycle-write-guard` (ADR-PROJECT-LIFECYCLE-002 decision 7).
@@ -7599,7 +7808,6 @@ const T: &str = "projects";
     }
 
     #[test]
-    #[ignore = "pending: project-lifecycle 02-02 — check-arch rule project-lifecycle-live-reads"]
     fn live_reads_a_clean_tree_with_the_four_exemptions_passes() {
         let tree = stage(&clean_tree_files());
         let violations = check_project_lifecycle_live_reads(tree.path());
@@ -7607,7 +7815,6 @@ const T: &str = "projects";
     }
 
     #[test]
-    #[ignore = "pending: project-lifecycle 02-02 — check-arch rule project-lifecycle-live-reads"]
     fn live_reads_every_form_of_the_projects_table_in_sql_is_flagged() {
         for (form, sql) in [
             ("after FROM", "SELECT id FROM projects WHERE team_id = $1"),
@@ -7648,7 +7855,6 @@ const T: &str = "projects";
     }
 
     #[test]
-    #[ignore = "pending: project-lifecycle 02-02 — check-arch rule project-lifecycle-live-reads"]
     fn live_reads_a_line_break_before_the_table_name_is_flagged_on_the_names_line() {
         let tree = stage(&[
             (
@@ -7666,7 +7872,6 @@ const T: &str = "projects";
     }
 
     #[test]
-    #[ignore = "pending: project-lifecycle 02-02 — check-arch rule project-lifecycle-live-reads"]
     fn live_reads_the_rule_scans_every_crates_src_not_only_the_store() {
         let mut files = clean_tree_files();
         files.push((
@@ -7691,7 +7896,6 @@ const T: &str = "projects";
     }
 
     #[test]
-    #[ignore = "pending: project-lifecycle 02-02 — check-arch rule project-lifecycle-live-reads"]
     fn live_reads_the_view_the_record_table_and_comments_never_match() {
         let tree = stage(&[
             (
@@ -7712,7 +7916,6 @@ const T: &str = "projects";
     }
 
     #[test]
-    #[ignore = "pending: project-lifecycle 02-02 — check-arch rule project-lifecycle-live-reads"]
     fn live_reads_an_exact_projects_literal_outside_the_four_exempt_items_is_flagged() {
         let tree = stage(&[
             (
@@ -7793,7 +7996,6 @@ fn count_rows() {
     }
 
     #[test]
-    #[ignore = "pending: project-lifecycle 02-02 — check-arch rule project-lifecycle-live-reads"]
     fn live_reads_a_missing_crates_directory_fails_the_rule() {
         let tree = stage(&[("README.md", "nothing here\n")]);
         let violations = check_project_lifecycle_live_reads(tree.path());
@@ -7804,7 +8006,6 @@ fn count_rows() {
     }
 
     #[test]
-    #[ignore = "pending: project-lifecycle 02-02 — check-arch rule project-lifecycle-live-reads (turned on last, after the reader sweep)"]
     fn live_reads_the_shipped_tree_passes() {
         let root = shipped_root();
         let violations = check_project_lifecycle_live_reads(&root);

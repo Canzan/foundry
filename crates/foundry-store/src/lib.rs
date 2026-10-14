@@ -384,18 +384,10 @@ impl Store {
         // project-lifecycle DDD-28: every project reader goes through
         // `live_projects` and every delete writes the marker; against a
         // pre-0026 schema refuse readiness. Scoped as above.
-        let (marker_cols, live_view): (i64, bool) = sqlx::query_as(
-            "SELECT (SELECT count(*)::bigint
-                       FROM information_schema.columns
-                      WHERE table_schema = current_schema()
-                        AND table_name = 'projects'
-                        AND column_name IN ('deleted_at', 'deleted_by')),
-                    EXISTS (SELECT 1 FROM information_schema.views
-                             WHERE table_schema = current_schema()
-                               AND table_name = 'live_projects')",
-        )
-        .fetch_one(&self.pool)
-        .await?;
+        let (marker_cols, live_view): (i64, bool) =
+            sqlx::query_as(project_lifecycle::SOFT_DELETE_PROBE_SQL)
+                .fetch_one(&self.pool)
+                .await?;
         if marker_cols < 2 || !live_view {
             return Err(ProbeError::Failed(format!(
                 "projects missing migration-0026 soft delete: deleted_at/deleted_by \

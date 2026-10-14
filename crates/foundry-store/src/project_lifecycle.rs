@@ -34,6 +34,18 @@ pub(crate) const EXPORT_PROJECTS: (&str, &str) = (
 pub(crate) const TEAM_PROJECTS_SQL: &str =
     "SELECT name, key_prefix FROM projects WHERE team_id = $1 ORDER BY name, key_prefix";
 
+/// The readiness probe's migration-0026 check (DDD-28): the soft-delete
+/// marker columns on `projects` and the `live_projects` view, scoped to the
+/// current schema. Lives here because it names the base table.
+pub(crate) const SOFT_DELETE_PROBE_SQL: &str = "SELECT (SELECT count(*)::bigint
+                       FROM information_schema.columns
+                      WHERE table_schema = current_schema()
+                        AND table_name = 'projects'
+                        AND column_name IN ('deleted_at', 'deleted_by')),
+                    EXISTS (SELECT 1 FROM information_schema.views
+                             WHERE table_schema = current_schema()
+                               AND table_name = 'live_projects')";
+
 /// The outcome of [`Store::rename_project_with_audit`] (DDD-15,
 /// ADR-PROJECT-LIFECYCLE-003 decision 2).
 #[derive(Debug, Clone, PartialEq, Eq)]
