@@ -31,6 +31,12 @@
 //!                                  {new}."; a byte-equal name → 200, no notice;
 //!                                  a name refusal → 422 members page with the
 //!                                  create door's words and the text kept.
+//!   POST /team/{slug}/project/{project}/rename — needs Manage (project-lifecycle
+//!                                  DDD-23/24): Renamed → 200 members page with
+//!                                  "Renamed {old} to {new}."; a byte-equal name →
+//!                                  200, no notice; a name refusal → 422 members
+//!                                  page with the reason and the text kept in that
+//!                                  project's row.
 //!   GET  /team/{slug}/delete     — needs Administer (team-lifecycle DDD-10): the
 //!                                  confirm page; it writes nothing.
 //!   POST /team/{slug}/delete     — needs Administer (DDD-18): Deleted → 200 teams
@@ -56,11 +62,13 @@ use axum::http::header::HeaderMap;
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
 use foundry_core::TeamRole;
+use foundry_services::projects::{RenameProjectError, TeamProjectRename};
 use foundry_services::teams::{
     AddMemberResult, CreateTeamError, RemoveMemberResult, RenameTeamError, RoleChangeResult,
     TeamDeletePreview, TeamDeletion, TeamError, TeamMembersView, TeamRenaming, TeamsIndex,
 };
 use foundry_services::{Principal, Services};
+use foundry_store::TeamProjectRow;
 use serde::Deserialize;
 use std::fmt;
 use tower_sessions::Session;
@@ -127,6 +135,8 @@ pub enum TeamNotice {
     Deleted { team: String },
     /// team-lifecycle D12: "Renamed {old} to {new}."
     Renamed { old: String, new: String },
+    /// project-lifecycle D14/DDD-26: "Renamed {old} to {new}." for a project.
+    ProjectRenamed { old: String, new: String },
     /// team-lifecycle D9/DDD-10: "{team} still has {n} project(s): {list}. A
     /// team with projects can't be deleted." — the list is "Name (KEY)" by name
     /// then key, joined by ", ".
@@ -198,7 +208,9 @@ impl fmt::Display for TeamNotice {
                 )
             }
             Self::Deleted { team } => write!(f, "Deleted {team}."),
-            Self::Renamed { old, new } => write!(f, "Renamed {old} to {new}."),
+            Self::Renamed { old, new } | Self::ProjectRenamed { old, new } => {
+                write!(f, "Renamed {old} to {new}.")
+            }
             Self::NoProjectsYet { team } => write!(f, "{team} has no projects yet."),
             Self::HasProjects { team, projects } => {
                 let mut ordered: Vec<&(String, String)> = projects.iter().collect();
@@ -236,6 +248,14 @@ pub struct CreateTeamFormData {
 
 #[derive(Debug, Deserialize)]
 pub struct RenameTeamFormData {
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(rename = "_csrf", default)]
+    _csrf: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RenameProjectFormData {
     #[serde(default)]
     pub name: Option<String>,
     #[serde(rename = "_csrf", default)]
@@ -521,17 +541,78 @@ pub async fn submit_rename(
         Err(RenameTeamError::InvalidName(reason)) => {
             match services.team_members(&principal, &team_slug).await {
                 Ok(view) => {
-                    let rename = RenameField {
-                        typed,
-                        error: Some(reason.to_string()),
+                    let fields = PageFields {
+                        team_rename: Some(RenameField {
+                            typed,
+                            error: Some(reason.to_string()),
+                        }),
+                        project_rename: None,
                     };
                     let status = StatusCode::UNPROCESSABLE_ENTITY;
-                    members_page_rendered(&state, &headers, &user, view, None, rename, status).await
+                    members_page_rendered(&state, &headers, &user, view, None, fields, status).await
                 }
                 Err(err) => refusal(err),
             }
         }
         Err(RenameTeamError::Store(err)) => refusal(TeamError::Store(err)),
+    }
+}
+
+// ------------------------------------- POST /team/{slug}/project/{p}/rename
+
+/// Gate order (DDD-18): session (none → 404) → the use-case (team facts by
+/// session workspace + slug, `Manage` read now (INV-PL-8), the project by
+/// (team, slug), else the uniform 404) → the name rule → the write (DDD-24).
+/// Renamed → 200 members page with "Renamed {old} to {new}."; a byte-equal
+/// name → 200 members page with no notice; a name refusal → 422 with its words
+/// and the typed text in that project's row. Refusals log nothing (DDD-30).
+pub async fn submit_project_rename(
+    State(state): State<AppState>,
+    session: Session,
+    headers: HeaderMap,
+    Path((team_slug, project_slug)): Path<(String, String)>,
+    Form(form): Form<RenameProjectFormData>,
+) -> Response {
+    let Some(user) = signed_in_user(&session).await else {
+        return resource_not_found_page();
+    };
+    let services = Services::new(state.store.clone());
+    let principal = principal_of(&user);
+    let typed = form.name.unwrap_or_default();
+    let outcome = services
+        .rename_team_project(&principal, &team_slug, &project_slug, &typed)
+        .await;
+    let (notice, fields, status) = match outcome {
+        Ok(TeamProjectRename::Renamed { old_name, name }) => {
+            let notice = TeamNotice::ProjectRenamed {
+                old: old_name,
+                new: name,
+            };
+            (Some(notice), PageFields::default(), StatusCode::OK)
+        }
+        Ok(TeamProjectRename::NoOp { .. }) => (None, PageFields::default(), StatusCode::OK),
+        Err(RenameProjectError::InvalidName(reason)) => {
+            let refused = ProjectRenameRefusal {
+                project_slug,
+                typed,
+                error: reason.to_string(),
+            };
+            let fields = PageFields {
+                team_rename: None,
+                project_rename: Some(refused),
+            };
+            (None, fields, StatusCode::UNPROCESSABLE_ENTITY)
+        }
+        Err(RenameProjectError::Forbidden | RenameProjectError::NotFound) => {
+            return resource_not_found_page();
+        }
+        Err(RenameProjectError::Store(err)) => return refusal(TeamError::Store(err)),
+    };
+    match services.team_members(&principal, &team_slug).await {
+        Ok(view) => {
+            members_page_rendered(&state, &headers, &user, view, notice, fields, status).await
+        }
+        Err(err) => refusal(err),
     }
 }
 
@@ -776,6 +857,38 @@ impl RenameField {
     }
 }
 
+/// A refused project rename (DDD-24): the row it belongs to, the text typed and
+/// the rule's own words, shown in THAT row only.
+struct ProjectRenameRefusal {
+    project_slug: String,
+    typed: String,
+    error: String,
+}
+
+/// What a refused write puts back in the page's fields; the default is every
+/// field showing its current name.
+#[derive(Default)]
+struct PageFields {
+    team_rename: Option<RenameField>,
+    project_rename: Option<ProjectRenameRefusal>,
+}
+
+impl PageFields {
+    fn project_line(&self, p: TeamProjectRow) -> TeamProjectLine {
+        let refused = self
+            .project_rename
+            .as_ref()
+            .filter(|r| r.project_slug == p.slug);
+        TeamProjectLine {
+            typed: refused.map_or_else(|| p.name.clone(), |r| r.typed.clone()),
+            error: refused.map(|r| r.error.clone()),
+            name: p.name,
+            slug: p.slug,
+            key: p.key,
+        }
+    }
+}
+
 async fn members_page_with_status(
     state: &AppState,
     headers: &HeaderMap,
@@ -784,8 +897,16 @@ async fn members_page_with_status(
     notice: Option<TeamNotice>,
     status: StatusCode,
 ) -> Response {
-    let rename = RenameField::showing(&view.team_name);
-    members_page_rendered(state, headers, user, view, notice, rename, status).await
+    members_page_rendered(
+        state,
+        headers,
+        user,
+        view,
+        notice,
+        PageFields::default(),
+        status,
+    )
+    .await
 }
 
 async fn members_page_rendered(
@@ -794,7 +915,7 @@ async fn members_page_rendered(
     user: &SessionUser,
     view: TeamMembersView,
     notice: Option<TeamNotice>,
-    rename: RenameField,
+    fields: PageFields,
     status: StatusCode,
 ) -> Response {
     let can_manage = view.access.can_manage();
@@ -813,6 +934,14 @@ async fn members_page_rendered(
         .to_string()
     });
     let (csrf, set_cookie) = ensure_csrf_cookie(state, headers);
+    let projects = view
+        .projects
+        .into_iter()
+        .map(|p| fields.project_line(p))
+        .collect();
+    let rename = fields
+        .team_rename
+        .unwrap_or_else(|| RenameField::showing(&view.team_name));
     let page = TeamMembersPage {
         nav: nav_for(state, user, csrf.clone()).await,
         csrf,
@@ -844,15 +973,7 @@ async fn members_page_rendered(
             .collect(),
         notice: notice.map(|n| n.to_string()),
         nobody_to_add,
-        projects: view
-            .projects
-            .into_iter()
-            .map(|p| TeamProjectLine {
-                name: p.name,
-                slug: p.slug,
-                key: p.key,
-            })
-            .collect(),
+        projects,
         no_projects,
     };
     render(page.render(), status, set_cookie)

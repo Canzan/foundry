@@ -852,12 +852,16 @@ pub struct TeamMembersPage {
 }
 
 /// A Projects-section row: "{project} · {KEY}" (DDD-25), linked to its board
-/// only when the viewer is on the team (OQ-U1 = (b)).
+/// only when the viewer is on the team (OQ-U1 = (b)). `typed` fills the row's
+/// Project name field: the current name, or — on a refused rename of THIS row
+/// (DDD-24) — the text typed, with the rule's words in `error`.
 #[derive(Debug, Clone)]
 pub struct TeamProjectLine {
     pub name: String,
     pub slug: String,
     pub key: String,
+    pub typed: String,
+    pub error: Option<String>,
 }
 
 /// team-lifecycle `GET /team/{slug}/delete` (DDD-10, D12): the question, what

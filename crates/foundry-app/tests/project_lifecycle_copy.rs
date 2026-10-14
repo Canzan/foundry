@@ -9,16 +9,25 @@
 //! The acceptance scenarios already read every string through the page text or
 //! the binary's output; these tests pin the bytes at their single home.
 
-/// 01-02: the members page Projects section and the rename notice.
+use foundry_app::teams::TeamNotice;
+
+/// 01-04: the members page Projects section and the rename notice.
 /// - `TeamNotice::ProjectRenamed` → "Renamed {old} to {new}."
 /// - `TeamNotice::NoProjectsYet` → "{team} has no projects yet."
 #[test]
-#[ignore = "pending: project-lifecycle 01-02 — TeamNotice bytes: Renamed, no projects yet"]
 fn the_projects_section_and_rename_copy_is_byte_exact() {
-    panic!(
-        "Not yet implemented -- RED scaffold (project-lifecycle 01-02: TeamNotice::ProjectRenamed, \
-         TeamNotice::NoProjectsYet)"
+    let renamed = TeamNotice::ProjectRenamed {
+        old: "Identity Platform".into(),
+        new: "Identity & Access".into(),
+    };
+    assert_eq!(
+        renamed.to_string(),
+        "Renamed Identity Platform to Identity & Access."
     );
+    let none = TeamNotice::NoProjectsYet {
+        team: "Labs".into(),
+    };
+    assert_eq!(none.to_string(), "Labs has no projects yet.");
 }
 
 /// 02-03: the confirm page and the delete notice.

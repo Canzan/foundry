@@ -7,6 +7,18 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 
 ## [Unreleased]
 
+### Added
+
+- **Rename a project from its team's members page.** A team's lead or a workspace admin renames
+  a project from the Projects section; the slug, the key and every link stay. Each effective
+  rename, from the members page or the instance dashboard, writes one
+  `project_lifecycle_events` row.
+
+### Upgrading
+
+- **Do not delete or rename projects while this release rolls out**, while the old pod is still
+  serving.
+
 ### Migration notes
 
 - **`0025_project_lifecycle_events`** adds one table, `project_lifecycle_events`: an

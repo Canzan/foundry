@@ -25,7 +25,8 @@
       {% if can_manage %}
       <form method="post" action="/team/{{ team_slug }}/project/{{ p.slug }}/rename">
         <input type="hidden" name="_csrf" value="{{ csrf }}">
-        <label>Project name <input type="text" name="name" value="{{ p.name }}" aria-label="Project name {{ p.name }}"></label>
+        {% if let Some(error) = p.error %}<p class="error">{{ error }}</p>{% endif %}
+        <label>Project name <input type="text" name="name" value="{{ p.typed }}" aria-label="Project name {{ p.name }}"></label>
         <button type="submit">Rename</button>
       </form>
       <a href="/team/{{ team_slug }}/project/{{ p.slug }}/delete">Delete project</a>

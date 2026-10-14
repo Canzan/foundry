@@ -70,7 +70,7 @@ Feature: A team's lead or a workspace admin renames a project from the team's pa
 
   # ------------------------------------------------------------ renames that go through
 
-  @us-pl-01 @driving_port @kpi @pending @contract-shape:bounded-change
+  @us-pl-01 @driving_port @kpi @contract-shape:bounded-change
   Scenario: A team's lead renames a project and every link to it keeps working
     Given Identity Platform has 7 issues
     When Lena renames the project Identity Platform to "Identity & Access" on Backend's members page
@@ -81,7 +81,7 @@ Feature: A team's lead or a workspace admin renames a project from the team's pa
     And Identity Platform is now called "Identity & Access" at the address "auth", one rename record names Lena Park, and nothing else changed
     And Identity & Access's board and its issue AUTH-7 still open for Lena at their old addresses
 
-  @us-pl-01 @kpi @pending @contract-shape:bounded-change
+  @us-pl-01 @kpi @contract-shape:bounded-change
   Scenario: After a rename every page of the project answers as it did before
     Given Identity Platform has 1 issue, 1 comment and 1 attachment
     And Lena has noted how every page of Identity Platform answers her
@@ -89,7 +89,7 @@ Feature: A team's lead or a workspace admin renames a project from the team's pa
     Then Identity Platform is now called "Identity & Access" at the address "auth", one rename record names Lena Park, and nothing else changed
     And every page of Identity Platform answers Lena as it did before the rename
 
-  @us-pl-01 @kpi @pending @contract-shape:bounded-change
+  @us-pl-01 @kpi @contract-shape:bounded-change
   Scenario: A workspace admin renames a project of a team she is not on
     When Priya renames the project Homelab Ops to "Homelab Operations" on Ops's members page
     Then she sees "Renamed Homelab Ops to Homelab Operations."
@@ -100,19 +100,19 @@ Feature: A team's lead or a workspace admin renames a project from the team's pa
     When Ines renames the project Reading List to "Reading Queue" from the instance dashboard
     Then Reading List is now called "Reading Queue" at the address "reading-list", one rename record names Ines Duarte, and nothing else changed
 
-  @us-pl-01 @edge @pending @contract-shape:bounded-change
+  @us-pl-01 @edge @contract-shape:bounded-change
   Scenario: A change of letter case is a real rename, and a project never collides with itself
     When Lena renames the project Identity Platform to "identity platform" on Backend's members page
     Then she sees "Renamed Identity Platform to identity platform."
     And Identity Platform is now called "identity platform" at the address "auth", one rename record names Lena Park, and nothing else changed
 
-  @us-pl-01 @edge @pending @contract-shape:bounded-change
+  @us-pl-01 @edge @contract-shape:bounded-change
   Scenario: A name of exactly 256 characters is accepted
     When Lena renames the project Identity Platform to "[256×a]" on Backend's members page
     Then she sees the project renamed from "Identity Platform" to "[256×a]"
     And Identity Platform is now called "[256×a]" at the address "auth", one rename record names Lena Park, and nothing else changed
 
-  @us-pl-01 @edge @pending @contract-shape:unbounded-preservation
+  @us-pl-01 @edge @contract-shape:unbounded-preservation
   Scenario: Submitting the same name changes nothing and records nothing
     When Lena submits Identity Platform's project rename unchanged on Backend's members page
     Then she gets Backend's members page back with no notice
@@ -120,13 +120,13 @@ Feature: A team's lead or a workspace admin renames a project from the team's pa
 
   # ------------------------------------------------------------ the rule and its copy
 
-  @us-pl-01 @error @pending @contract-shape:unbounded-preservation
+  @us-pl-01 @error @contract-shape:unbounded-preservation
   Scenario: A name already used in the team is refused, and the text is kept
     When Priya renames the project Reading List to "homelab ops" on Ops's members page
     Then she is refused with "Project name must be unique within the team" in Reading List's row, and her text "homelab ops" is kept
     And no project, issue or record changed
 
-  @us-pl-01 @error @pending @contract-shape:unbounded-preservation
+  @us-pl-01 @error @contract-shape:unbounded-preservation
   Scenario Outline: A name that breaks the project-name rule is refused with its reason, and the text is kept
     When Lena renames the project Identity Platform to "<name>" on Backend's members page
     Then she is refused with "<reason>" in Identity Platform's row, and her text "<name>" is kept
@@ -172,7 +172,7 @@ Feature: A team's lead or a workspace admin renames a project from the team's pa
 
   # ------------------------------------------------------------ refusals
 
-  @us-pl-01 @error @kpi @pending @contract-shape:unbounded-preservation
+  @us-pl-01 @error @kpi @contract-shape:unbounded-preservation
   Scenario Outline: Only the team's lead or a workspace admin can rename a project
     When <who> submits a rename of the project <project> to "Renamed by mistake"
     Then the answer is the page that never existed
@@ -188,7 +188,7 @@ Feature: A team's lead or a workspace admin renames a project from the team's pa
       | Ines                 | Identity Platform |
       | Hugo                 | Identity Platform |
 
-  @us-pl-01 @error @kpi @pending @contract-shape:unbounded-preservation
+  @us-pl-01 @error @kpi @contract-shape:unbounded-preservation
   Scenario Outline: A rename aimed at another workspace's project or at a project that does not exist is refused the same way
     When Priya submits a rename of <target> to "Renamed by mistake"
     Then the answer is the page that never existed
@@ -200,7 +200,7 @@ Feature: A team's lead or a workspace admin renames a project from the team's pa
       | the project Ledger            |
       | a project that does not exist |
 
-  @us-pl-01 @error @pending @contract-shape:unbounded-preservation
+  @us-pl-01 @error @contract-shape:unbounded-preservation
   Scenario: A lead who has since been made a member cannot rename from a page she opened as a lead
     Given Lena opened Backend's members page earlier
     And Priya has made Sam a lead of Backend
@@ -210,7 +210,7 @@ Feature: A team's lead or a workspace admin renames a project from the team's pa
     And no project, issue or record changed
     And Sam still finds the rename form of Identity Platform
 
-  @us-pl-01 @error @pending @contract-shape:unbounded-preservation
+  @us-pl-01 @error @contract-shape:unbounded-preservation
   Scenario: A rename sent without the page's token is turned away, and nothing changes
     When Lena submits a rename of the project Identity Platform to "Identity & Access" without the page's token
     Then the answer is turned away as a forged form
