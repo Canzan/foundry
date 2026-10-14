@@ -1,5 +1,27 @@
 {
-  "schema_version": "5.0",
+  "schema_version": "3.0",
   "feature_id": "project-lifecycle",
-  "events": []
+  "events": [
+    {
+      "sid": "01-01",
+      "p": "RED",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-10-14T03:16:25Z"
+    },
+    {
+      "sid": "01-01",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-10-14T03:18:17Z"
+    },
+    {
+      "sid": "01-01",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-10-14T04:05:41Z"
+    }
+  ]
 }

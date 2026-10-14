@@ -7,6 +7,41 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 
 ## [Unreleased]
 
+### Migration notes
+
+- **`0025_project_lifecycle_events`** adds one table, `project_lifecycle_events`: an
+  append-only record of each project rename, delete and restore, with `id`, `workspace_id`
+  (`ON DELETE CASCADE` with its workspace), `project_id`, `team_id`, `project_slug`,
+  `key_prefix`, `kind` (`renamed`, `deleted` or `restored`), `actor_id` (references `users`,
+  no `ON DELETE` action; empty only for a restore, which the operator runs), `name`,
+  `new_name` and `created_at`. It also adds the CHECK `project_lifecycle_events_kind_shape`
+  (a rename has an actor and names a different new name; a delete has an actor and names none;
+  a restore has no actor and names none) and two indexes, on `(workspace_id, created_at)` and
+  `(project_id, created_at)`. `project_id` and `team_id` have no foreign key, so a record
+  outlives its project and its team.
+  - **Additive.** The table is new and empty; no existing row is read or written. The
+    migration checks its own result and refuses to apply if the columns, the CHECK or the
+    absence of a link to `projects` and `teams` differ.
+  - **Not in the per-workspace export.** The table is not one of the ten `TENANT_TABLES`, so
+    `export-workspace` and `verify-export` are unchanged. The rows are in every whole-instance
+    `pg_dump`.
+  - **Readiness:** `Store::probe` now requires `project_lifecycle_events`, so a binary from
+    this release refuses `/readyz` against a schema without it.
+  - **Rollback is safe.** An older release boots against the migrated database and never
+    reads the table. To remove it by hand:
+
+    ```sql
+    DROP TABLE IF EXISTS project_lifecycle_events;
+    ```
+
+### Backups
+
+- **A whole-instance dump taken before 0025 no longer restores over the upgraded database.**
+  `project_lifecycle_events` references `workspaces` and `users`, so `pg_restore --clean` of an
+  older dump cannot drop those tables and fails. Restore such a dump into a fresh, empty
+  database and boot foundry against it, which applies the newer migrations (or run
+  `DROP TABLE project_lifecycle_events;` first). Dumps taken after the upgrade restore normally.
+
 ## [v0.14.1] - 2026-10-13
 
 Fixes three ways a member could reach an issue, attachment or comment outside the address in the

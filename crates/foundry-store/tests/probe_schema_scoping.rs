@@ -111,6 +111,11 @@ async fn probe_column_check_is_scoped_to_current_schema() {
             "CREATE TABLE sibling.team_lifecycle_events (id uuid PRIMARY KEY, \
          workspace_id uuid, team_id uuid, team_slug text, kind text, actor_id uuid, \
          name text, new_name text)",
+            // ...and migration 0025's project_lifecycle_events (project-lifecycle DDD-28).
+            "CREATE TABLE sibling.project_lifecycle_events (id uuid PRIMARY KEY, \
+         workspace_id uuid, project_id uuid, team_id uuid, project_slug text, \
+         key_prefix text, kind text, actor_id uuid, name text, new_name text, \
+         created_at timestamptz)",
         ],
     )
     .await;
@@ -171,6 +176,11 @@ async fn probe_refuses_a_schema_without_the_provisioned_marker() {
             "CREATE TABLE current.team_lifecycle_events (id uuid PRIMARY KEY, \
              workspace_id uuid, team_id uuid, team_slug text, kind text, actor_id uuid, \
              name text, new_name text)"
+                .to_string(),
+            "CREATE TABLE current.project_lifecycle_events (id uuid PRIMARY KEY, \
+             workspace_id uuid, project_id uuid, team_id uuid, project_slug text, \
+             key_prefix text, kind text, actor_id uuid, name text, new_name text, \
+             created_at timestamptz)"
                 .to_string(),
         ])
         .collect();
@@ -274,7 +284,6 @@ async fn probe_message(base: &str, schema: &str) -> Result<(), String> {
 }
 
 #[tokio::test]
-#[ignore = "pending: project-lifecycle 01-01 — the probe's project_lifecycle_events line is scoped to current_schema"]
 async fn probe_project_lifecycle_events_check_is_scoped_to_current_schema() {
     assert!(
         migration_exists("0025_project_lifecycle_events.sql"),

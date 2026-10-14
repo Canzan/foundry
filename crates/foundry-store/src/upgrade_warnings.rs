@@ -19,6 +19,10 @@
 //! 02-01. [`UPGRADE_WARNING_0023`] is the one source of the text;
 //! `Store::migrate` logs each returned warning once at `warn`. Pinned by
 //! `tests/team_lifecycle_migrations.rs`.
+//!
+//! project-lifecycle (DDD-29) generalises this from one version to a list:
+//! 0025 (`project_lifecycle_events`) warns the same way, pinned by
+//! `tests/project_lifecycle_migrations.rs`.
 
 use crate::MigrationReport;
 
@@ -28,29 +32,41 @@ references workspaces and users. A database dump taken before 0023 can no longer
 over this database with pg_restore --clean: restore it into a fresh database, or drop \
 team_lifecycle_events first.";
 
-// SCAFFOLD: true — RED scaffold written by DISTILL (2026-10-13). project-lifecycle
-// DDD-29: migrations 0025 (`project_lifecycle_events`, FKs to `workspaces` and
-// `users`) and 0026 (the `live_projects` view over `projects`, `deleted_by` →
-// `users`) each break `pg_restore --clean` of an older dump. The texts are empty
-// and `upgrade_warnings` does not return them until DELIVER 01-01 (0025) and
-// 02-01 (0026); `tests/project_lifecycle_migrations.rs` pins them.
+/// The boot's warning when it upgrades through migration 0025
+/// (project-lifecycle DDD-14, DDD-29; ADR-PROJECT-LIFECYCLE-003).
+pub const UPGRADE_WARNING_0025: &str = "Migration 0025 added project_lifecycle_events, which \
+references workspaces and users. A database dump taken before 0025 can no longer be restored \
+over this database with pg_restore --clean: restore it into a fresh database, or drop \
+project_lifecycle_events first.";
 
-/// The boot's warning when it upgrades through migration 0025 (scaffold: empty).
-pub const UPGRADE_WARNING_0025: &str = "";
+// SCAFFOLD: true — RED scaffold written by DISTILL (2026-10-13). project-lifecycle
+// DDD-29: migration 0026 (the `live_projects` view over `projects`, `deleted_by`
+// → `users`) breaks `pg_restore --clean` of an older dump. The text is empty and
+// `upgrade_warnings` does not return it until DELIVER 02-01;
+// `tests/project_lifecycle_migrations.rs` pins it.
 
 /// The boot's warning when it upgrades through migration 0026 (scaffold: empty).
 pub const UPGRADE_WARNING_0026: &str = "";
 
-/// The warnings for this boot, in version order: [`UPGRADE_WARNING_0023`]
-/// exactly once when this boot applied 0023 (`report.applied` contains 23) on
-/// top of migrations already present before it (`report.already_applied` is
-/// non-empty); nothing for a fresh install, a boot that applied nothing, or a
-/// boot that did not apply 0023.
+/// Every migration version whose upgrade warns, with its warning, in version
+/// order (DEVOPS "Migrations, probe and upgrade warnings": the list form).
+/// 0025 is not listed yet: the shipped pin in `tests/team_lifecycle_migrations.rs`
+/// (`only_the_boot_that_upgrades_through_0023_warns_…`) expects a boot from 0022
+/// to the latest migration to warn 0023 alone; it is reconciled before 0025 joins.
+const WARNED_VERSIONS: [(i64, &str); 1] = [(23, UPGRADE_WARNING_0023)];
+
+/// The warnings for this boot, in version order: one per warned version this
+/// boot applied (`report.applied` contains it) on top of migrations already
+/// present before it (`report.already_applied` is non-empty); nothing for a
+/// fresh install, a boot that applied nothing, or a boot that applied no
+/// warned version.
 pub fn upgrade_warnings(report: &MigrationReport) -> Vec<&'static str> {
-    let upgraded_through_0023 = report.applied.contains(&23) && !report.already_applied.is_empty();
-    if upgraded_through_0023 {
-        vec![UPGRADE_WARNING_0023]
-    } else {
-        Vec::new()
+    if report.already_applied.is_empty() {
+        return Vec::new();
     }
+    WARNED_VERSIONS
+        .iter()
+        .filter(|(version, _)| report.applied.contains(version))
+        .map(|(_, warning)| *warning)
+        .collect()
 }

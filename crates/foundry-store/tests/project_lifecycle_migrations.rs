@@ -172,7 +172,6 @@ async fn has(pool: &PgPool, sql: &str) -> bool {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-#[ignore = "pending: project-lifecycle 01-01 — migration 0025 is additive"]
 async fn migration_0025_is_additive_over_a_schema_holding_rows() {
     require_0025();
     let (pool, _c) = fresh().await;
@@ -192,7 +191,6 @@ async fn migration_0025_is_additive_over_a_schema_holding_rows() {
 
 /// ADR-PROJECT-LIFECYCLE-003 decision 1: `project_lifecycle_events_kind_shape`.
 #[tokio::test]
-#[ignore = "pending: project-lifecycle 01-01 — migration 0025, the record shape CHECK"]
 async fn the_record_shape_check_refuses_every_incoherent_record_and_has_no_link_to_projects_or_teams(
 ) {
     require_0025();
@@ -274,7 +272,6 @@ async fn the_record_shape_check_refuses_every_incoherent_record_and_has_no_link_
 }
 
 #[tokio::test]
-#[ignore = "pending: project-lifecycle 01-01 — the probe requires project_lifecycle_events"]
 async fn the_probe_refuses_a_schema_without_the_project_lifecycle_record() {
     require_0025();
     let (pool, _c) = fresh().await;
@@ -469,7 +466,6 @@ async fn exec(pool: &PgPool, sql: &str) {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "pending: project-lifecycle 01-01 — UPGRADE_WARNING_0025 text"]
 fn the_0025_warning_names_the_migration_the_table_and_the_supported_restore() {
     for phrase in [
         "0025",

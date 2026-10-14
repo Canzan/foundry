@@ -360,6 +360,27 @@ impl Store {
                 lifecycle_cols.0
             )));
         }
+        // project-lifecycle DDD-28: a project rename (and, from slice 02, a
+        // delete and a restore) writes `project_lifecycle_events` in its
+        // transaction; against a pre-0025 schema refuse readiness rather than
+        // turn the first rename into a 500. Scoped as above.
+        let project_records: (i64,) = sqlx::query_as(
+            "SELECT count(*)::bigint
+               FROM information_schema.columns
+              WHERE table_schema = current_schema()
+                AND table_name = 'project_lifecycle_events'
+                AND column_name IN ('id', 'workspace_id', 'project_id', 'team_id',
+                                    'project_slug', 'key_prefix', 'kind', 'actor_id',
+                                    'name', 'new_name', 'created_at')",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        if project_records.0 < 11 {
+            return Err(ProbeError::Failed(format!(
+                "project_lifecycle_events missing migration-0025 columns (found {} of 11)",
+                project_records.0
+            )));
+        }
         Ok(ProbeReport {
             select_one_ok: true,
             round_trip_ms: started.elapsed().as_millis(),
