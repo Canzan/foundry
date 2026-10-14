@@ -300,6 +300,19 @@ impl Services {
         teams::remove_member(&self.store, principal, team_slug, raw_user_id).await
     }
 
+    /// project-lifecycle `POST /team/{t}/project/{p}/rename` — delegates to
+    /// [`projects::rename_team_project`].
+    pub async fn rename_team_project(
+        &self,
+        principal: &Principal,
+        team_slug: &str,
+        project_slug: &str,
+        raw_name: &str,
+    ) -> Result<projects::TeamProjectRename, projects::RenameProjectError> {
+        projects::rename_team_project(&self.store, principal, team_slug, project_slug, raw_name)
+            .await
+    }
+
     /// multi-workspace-provisioning (US-MWT07, ADR-002/003) — provision a NEW
     /// isolated workspace + its first admin, gated by the INSTANCE super-admin
     /// authority. Delegates to [`provisioning::provision_workspace`].

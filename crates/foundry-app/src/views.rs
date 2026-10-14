@@ -845,6 +845,19 @@ pub struct TeamMembersPage {
     pub notice: Option<String>,
     /// The D15 copy shown instead of the Add form when nobody is left to add.
     pub nobody_to_add: Option<String>,
+    /// project-lifecycle DDD-25: the team's live projects, by name then key.
+    pub projects: Vec<TeamProjectLine>,
+    /// "{team} has no projects yet." when the team has none (DDD-25).
+    pub no_projects: Option<String>,
+}
+
+/// A Projects-section row: "{project} · {KEY}" (DDD-25), linked to its board
+/// only when the viewer is on the team (OQ-U1 = (b)).
+#[derive(Debug, Clone)]
+pub struct TeamProjectLine {
+    pub name: String,
+    pub slug: String,
+    pub key: String,
 }
 
 /// team-lifecycle `GET /team/{slug}/delete` (DDD-10, D12): the question, what

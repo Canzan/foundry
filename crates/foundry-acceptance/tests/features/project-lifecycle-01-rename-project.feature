@@ -95,7 +95,7 @@ Feature: A team's lead or a workspace admin renames a project from the team's pa
     Then she sees "Renamed Homelab Ops to Homelab Operations."
     And Homelab Ops is now called "Homelab Operations" at the address "homelab-ops", one rename record names Priya Raman, and nothing else changed
 
-  @us-pl-01 @kpi @pending @contract-shape:bounded-change
+  @us-pl-01 @kpi @contract-shape:bounded-change
   Scenario: A rename made from the instance dashboard is on record too
     When Ines renames the project Reading List to "Reading Queue" from the instance dashboard
     Then Reading List is now called "Reading Queue" at the address "reading-list", one rename record names Ines Duarte, and nothing else changed
@@ -141,7 +141,7 @@ Feature: A team's lead or a workspace admin renames a project from the team's pa
 
   # ------------------------------------------------------------ who sees what
 
-  @us-pl-01 @edge @pending @contract-shape:unbounded-preservation
+  @us-pl-01 @edge @contract-shape:unbounded-preservation
   Scenario: The Projects section names each project by name then key, and each field says which project it is for
     When Lena opens Backend's members page
     Then Backend's Projects section lists, in this order:
@@ -151,7 +151,7 @@ Feature: A team's lead or a workspace admin renames a project from the team's pa
     And within each project row the keyboard reaches the name field, then Rename, then Delete project
     And every project row's rename and delete controls work as plain page forms
 
-  @us-pl-01 @edge @pending @contract-shape:unbounded-preservation
+  @us-pl-01 @edge @contract-shape:unbounded-preservation
   Scenario Outline: Everyone on the team sees its projects, and only its lead or a workspace admin gets the controls
     When <who> opens <team>'s members page
     Then each project row <link>
@@ -165,7 +165,7 @@ Feature: A team's lead or a workspace admin renames a project from the team's pa
       | Priya | Ops     | is not a link       | offers Project name, Rename and Delete project   |
       | Tomás | Ops     | links to its board  | offers Project name, Rename and Delete project   |
 
-  @us-pl-01 @edge @pending @contract-shape:unbounded-preservation
+  @us-pl-01 @edge @contract-shape:unbounded-preservation
   Scenario: A team with no projects says so
     When Tomás opens Labs's members page
     Then he sees "Labs has no projects yet."

@@ -20,7 +20,7 @@ use foundry_store::teams::{
     TeamAccessFacts, TeamCreateOutcome, TeamDeleteFacts, TeamDeleteOutcome, TeamMemberRow,
     TeamPerson, TeamRenameWrite, TeamScope, TeamSummary,
 };
-use foundry_store::{Store, StoreError};
+use foundry_store::{Store, StoreError, TeamProjectRow};
 
 /// Why a team use-case did not run.
 #[derive(Debug)]
@@ -74,6 +74,8 @@ pub struct TeamMembersView {
     pub on_team: bool,
     pub members: Vec<TeamMemberRow>,
     pub candidates: Vec<TeamPerson>,
+    /// The team's live projects, by name then key (project-lifecycle DDD-25).
+    pub projects: Vec<TeamProjectRow>,
 }
 
 /// What an Add did (D13): one row written, or none because they were already on.
@@ -359,6 +361,7 @@ async fn members_view(
     } else {
         Vec::new()
     };
+    let projects = store.list_team_projects(facts.team_id).await?;
     Ok(TeamMembersView {
         team_slug: facts.team_slug,
         team_name: facts.team_name,
@@ -366,6 +369,7 @@ async fn members_view(
         on_team: facts.role.is_some(),
         members,
         candidates,
+        projects,
     })
 }
 

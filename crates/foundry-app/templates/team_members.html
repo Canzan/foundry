@@ -14,6 +14,26 @@
   </form>
   {% endif %}
   {% if can_delete %}<p class="team-members__actions"><a href="/team/{{ team_slug }}/delete">Delete team</a></p>{% endif %}
+  <h2>Projects</h2>
+  {% if let Some(none) = no_projects %}
+  <p class="team-members__empty">{{ none }}</p>
+  {% else %}
+  <ul class="team-members__projects">
+    {% for p in projects %}
+    <li>
+      {% if on_team %}<a href="/team/{{ team_slug }}/project/{{ p.slug }}">{{ p.name }} · {{ p.key }}</a>{% else %}<span>{{ p.name }} · {{ p.key }}</span>{% endif %}
+      {% if can_manage %}
+      <form method="post" action="/team/{{ team_slug }}/project/{{ p.slug }}/rename">
+        <input type="hidden" name="_csrf" value="{{ csrf }}">
+        <label>Project name <input type="text" name="name" value="{{ p.name }}" aria-label="Project name {{ p.name }}"></label>
+        <button type="submit">Rename</button>
+      </form>
+      <a href="/team/{{ team_slug }}/project/{{ p.slug }}/delete">Delete project</a>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
   <h2>Members</h2>
   <ul class="team-members__list">
     {% for m in members %}

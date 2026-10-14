@@ -4364,20 +4364,4 @@ impl Store {
             }),
         )
     }
-
-    /// `UPDATE projects SET name = $2 WHERE id = $1` — name ONLY (D1: slug,
-    /// key_prefix, next_issue_number untouched). Returns rows_affected so the
-    /// caller maps a vanished project (0) to the non-enumerable NotFound.
-    pub async fn update_project_name(
-        &self,
-        project_id: uuid::Uuid,
-        name: &str,
-    ) -> Result<u64, StoreError> {
-        let result = sqlx::query("UPDATE projects SET name = $2 WHERE id = $1")
-            .bind(project_id)
-            .bind(name)
-            .execute(&self.pool)
-            .await?;
-        Ok(result.rows_affected())
-    }
 }

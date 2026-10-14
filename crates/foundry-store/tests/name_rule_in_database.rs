@@ -847,13 +847,13 @@ async fn a_legacy_row_renamed_to_another_bad_name_is_refused_and_to_a_fit_name_i
         matches!(renamed, WorkspaceRenameWrite::Renamed { .. }),
         "{renamed:?}"
     );
-    assert_eq!(
+    assert!(matches!(
         store
-            .update_project_name(legacy.tab_project, "Homelab Ops")
+            .rename_project_with_audit(legacy.tab_project, legacy.priya, "Homelab Ops")
             .await
             .expect("a legacy project renames to a fit name"),
-        1
-    );
+        foundry_store::ProjectRenameWrite::Renamed { .. }
+    ));
 }
 
 /// DDD-4: `SET search_path FROM CURRENT` keeps the rule bound when the caller's

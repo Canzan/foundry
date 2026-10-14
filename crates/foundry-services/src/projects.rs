@@ -8,7 +8,8 @@
 //! project-name-rule D5/D8/DDD-8): `is_instance_admin` (defence-in-depth, the
 //! `provision_workspace` idiom) → context fetch → sibling read → trim → no-op →
 //! the one project-name rule (`foundry_core::ProjectName`: empty → control →
-//! length → unique within the team) → update. Check-then-write; the TOCTOU
+//! length → unique within the team) → the audited write (shared with the team
+//! door, project-lifecycle DDD-16). Check-then-write; the TOCTOU
 //! window is accepted and bounded (data-models.md §4).
 //!
 //! Self-exclusion is this caller's job: the sibling read excludes the project's
@@ -17,8 +18,9 @@
 
 use foundry_core::{
     mint_project_slug, MintedSlug, ProjectKey, ProjectKeyError, ProjectName, ProjectNameError,
+    TeamAccess,
 };
-use foundry_store::{ProjectInsertError, Store};
+use foundry_store::{ProjectInsertError, ProjectRenameWrite, Store};
 
 /// The rename request as the driving adapter hands it over.
 pub struct RenameProjectRequest<'a> {
@@ -85,7 +87,8 @@ fn classify_rename(
 
 /// Rename a project's DISPLAY NAME only (D1: `slug`, `key_prefix`, and every
 /// issue key are untouched — a rename must never move a URL,
-/// ADR-PROJECT-RENAME-001).
+/// ADR-PROJECT-RENAME-001). The instance-admin door: `is_instance_admin`, the
+/// project by id, then the shared core, which writes the record (DDD-16).
 pub async fn rename_project(
     store: &Store,
     request: RenameProjectRequest<'_>,
@@ -102,22 +105,57 @@ pub async fn rename_project(
         .await
         .map_err(RenameProjectError::Store)?
         .ok_or(RenameProjectError::NotFound)?;
-    let siblings = store
-        .list_team_sibling_projects(context.team_id, request.project_id)
-        .await
-        .map_err(RenameProjectError::Store)?;
-    match classify_rename(request.new_name, &context.current_name, &siblings)? {
-        RenameDecision::NoOp { name } => Ok(RenameOutcome::NoOp { name }),
-        RenameDecision::Write { name } => {
-            let rows_affected = store
-                .update_project_name(request.project_id, &name)
-                .await
-                .map_err(RenameProjectError::Store)?;
-            if rows_affected == 0 {
-                // Lost a race with a delete — the same non-enumerable refusal.
-                return Err(RenameProjectError::NotFound);
+    let target = RenameTarget {
+        project_id: request.project_id,
+        team_id: context.team_id,
+        current_name: context.current_name,
+    };
+    let renamed = target
+        .apply_rename(store, request.acting_user_id, request.new_name)
+        .await?;
+    Ok(match renamed {
+        TeamProjectRename::Renamed { name, .. } => RenameOutcome::Renamed { name },
+        TeamProjectRename::NoOp { name } => RenameOutcome::NoOp { name },
+    })
+}
+
+/// The live project a rename door resolved, before the shared core runs.
+struct RenameTarget {
+    project_id: uuid::Uuid,
+    team_id: uuid::Uuid,
+    current_name: String,
+}
+
+impl RenameTarget {
+    /// The shared rename core both doors call (DDD-16): the team's other
+    /// projects (deleted ones included, so a deleted name stays taken), the one
+    /// rule ([`classify_rename`]), then the store's audited write, which reads
+    /// the old name under its lock and writes the `renamed` record.
+    async fn apply_rename(
+        self,
+        store: &Store,
+        actor_id: uuid::Uuid,
+        raw_new_name: &str,
+    ) -> Result<TeamProjectRename, RenameProjectError> {
+        let siblings = store
+            .list_team_sibling_projects(self.team_id, self.project_id)
+            .await
+            .map_err(RenameProjectError::Store)?;
+        let name = match classify_rename(raw_new_name, &self.current_name, &siblings)? {
+            RenameDecision::NoOp { name } => return Ok(TeamProjectRename::NoOp { name }),
+            RenameDecision::Write { name } => name,
+        };
+        match store
+            .rename_project_with_audit(self.project_id, actor_id, &name)
+            .await
+            .map_err(RenameProjectError::Store)?
+        {
+            ProjectRenameWrite::Renamed { old_name } => {
+                Ok(TeamProjectRename::Renamed { old_name, name })
             }
-            Ok(RenameOutcome::Renamed { name })
+            ProjectRenameWrite::Unchanged => Ok(TeamProjectRename::NoOp { name }),
+            // Lost a race with a delete — the same non-enumerable refusal.
+            ProjectRenameWrite::NotFound => Err(RenameProjectError::NotFound),
         }
     }
 }
@@ -572,9 +610,9 @@ mod classify_rename_properties {
 //
 // SCAFFOLD: true — RED scaffold written by DISTILL (2026-10-13). The types are
 // real (`tests/project_lifecycle_use_cases.rs` matches on them); every function
-// panics until its DELIVER step. Nothing in production calls them yet. The
-// shared private `apply_rename` core (DDD-16) and re-pointing `rename_project`
-// at it are DELIVER 01-02's; the signatures here are DISTILL's working choice.
+// still panicking does so until its DELIVER step. Shipped (01-03):
+// `rename_team_project` on the shared `RenameTarget::apply_rename` core, which
+// `rename_project` now calls too (DDD-16).
 // ===========================================================================
 
 /// What a rename from the team page did (DDD-16). The old name is the one the
@@ -618,17 +656,37 @@ pub struct ProjectDeletion {
 }
 
 /// `POST /team/{t}/project/{p}/rename`: session → team facts by (session
-/// workspace, team slug) → `can_manage` → the live project by (team, slug) →
-/// the shared rename core. Refusals before the verb are `NotFound`; name
-/// refusals are `InvalidName`.
+/// workspace, team slug) → `can_manage` → the project by (team, slug) → the
+/// shared rename core. The authority is read once (INV-PL-8); every refusal
+/// before the verb is `NotFound`; name refusals are `InvalidName`.
 pub async fn rename_team_project(
-    _store: &Store,
-    _principal: &crate::Principal,
-    _team_slug: &str,
-    _project_slug: &str,
-    _raw_name: &str,
+    store: &Store,
+    principal: &crate::Principal,
+    team_slug: &str,
+    project_slug: &str,
+    raw_name: &str,
 ) -> Result<TeamProjectRename, RenameProjectError> {
-    panic!("Not yet implemented -- RED scaffold (project-lifecycle 01-02: projects::rename_team_project)")
+    let facts = store
+        .team_access_facts(principal.workspace_id(), team_slug, principal.user_id())
+        .await
+        .map_err(RenameProjectError::Store)?
+        .ok_or(RenameProjectError::NotFound)?;
+    if !TeamAccess::of(facts.is_workspace_admin, facts.role).can_manage() {
+        return Err(RenameProjectError::NotFound);
+    }
+    let project = store
+        .find_project_by_slug(facts.team_id, project_slug)
+        .await
+        .map_err(RenameProjectError::Store)?
+        .ok_or(RenameProjectError::NotFound)?;
+    let target = RenameTarget {
+        project_id: project.id,
+        team_id: facts.team_id,
+        current_name: project.name,
+    };
+    target
+        .apply_rename(store, principal.user_id(), raw_name)
+        .await
 }
 
 /// `GET /team/{t}/project/{p}/delete`: `can_manage`, then the live project and

@@ -47,7 +47,7 @@ use crate::csrf::{ensure_csrf_cookie, response_with_optional_cookie};
 use crate::session::SESSION_KEY_USER_ID;
 use crate::views::{
     CreateTeamForm, DefaultTeamForm, DefaultTeamOption, TeamCandidateOption, TeamDeletePage,
-    TeamIndexRow, TeamMemberLine, TeamMembersPage, TeamsIndexPage,
+    TeamIndexRow, TeamMemberLine, TeamMembersPage, TeamProjectLine, TeamsIndexPage,
 };
 use crate::AppState;
 use askama::Template;
@@ -134,6 +134,8 @@ pub enum TeamNotice {
         team: String,
         projects: Vec<(String, String)>,
     },
+    /// project-lifecycle DDD-25: "{team} has no projects yet."
+    NoProjectsYet { team: String },
 }
 
 impl fmt::Display for TeamNotice {
@@ -197,6 +199,7 @@ impl fmt::Display for TeamNotice {
             }
             Self::Deleted { team } => write!(f, "Deleted {team}."),
             Self::Renamed { old, new } => write!(f, "Renamed {old} to {new}."),
+            Self::NoProjectsYet { team } => write!(f, "{team} has no projects yet."),
             Self::HasProjects { team, projects } => {
                 let mut ordered: Vec<&(String, String)> = projects.iter().collect();
                 ordered.sort();
@@ -803,6 +806,12 @@ async fn members_page_rendered(
         }
         .to_string()
     });
+    let no_projects = view.projects.is_empty().then(|| {
+        TeamNotice::NoProjectsYet {
+            team: view.team_name.clone(),
+        }
+        .to_string()
+    });
     let (csrf, set_cookie) = ensure_csrf_cookie(state, headers);
     let page = TeamMembersPage {
         nav: nav_for(state, user, csrf.clone()).await,
@@ -835,6 +844,16 @@ async fn members_page_rendered(
             .collect(),
         notice: notice.map(|n| n.to_string()),
         nobody_to_add,
+        projects: view
+            .projects
+            .into_iter()
+            .map(|p| TeamProjectLine {
+                name: p.name,
+                slug: p.slug,
+                key: p.key,
+            })
+            .collect(),
+        no_projects,
     };
     render(page.render(), status, set_cookie)
 }

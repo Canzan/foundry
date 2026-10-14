@@ -325,7 +325,6 @@ fn said(r: &Result<TeamProjectRename, RenameProjectError>) -> String {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-#[ignore = "pending: project-lifecycle 01-02 — projects::rename_team_project"]
 async fn a_teams_lead_renames_a_project_name_only_with_one_record() {
     let l = labs().await;
     require_records(&l.pool).await;
@@ -364,7 +363,6 @@ async fn a_teams_lead_renames_a_project_name_only_with_one_record() {
 }
 
 #[tokio::test]
-#[ignore = "pending: project-lifecycle 01-02 — projects::rename_team_project (an admin not on the team)"]
 async fn a_workspace_admin_renames_a_project_of_a_team_they_are_not_on() {
     let l = labs().await;
     require_records(&l.pool).await;
@@ -387,7 +385,6 @@ async fn a_workspace_admin_renames_a_project_of_a_team_they_are_not_on() {
 /// D-B, D4, DDD-18: everyone without `Manage` on the project's team, and every
 /// unknown or foreign address, is `NotFound` with zero writes.
 #[tokio::test]
-#[ignore = "pending: project-lifecycle 01-02 — projects::rename_team_project (the gate)"]
 async fn anyone_without_manage_or_any_unknown_address_is_not_found_and_nothing_changes() {
     let l = labs().await;
     let before = everything(&l.pool).await;
@@ -432,7 +429,6 @@ async fn anyone_without_manage_or_any_unknown_address_is_not_found_and_nothing_c
 }
 
 #[tokio::test]
-#[ignore = "pending: project-lifecycle 01-02 — the shared core's name rule and copy"]
 async fn a_name_that_breaks_the_rule_is_refused_with_its_reason_and_nothing_changes() {
     let l = labs().await;
     let before = everything(&l.pool).await;
@@ -451,7 +447,6 @@ async fn a_name_that_breaks_the_rule_is_refused_with_its_reason_and_nothing_chan
 }
 
 #[tokio::test]
-#[ignore = "pending: project-lifecycle 01-02 — the shared core (no-op and case-only)"]
 async fn submitting_the_same_name_is_a_no_op_and_a_case_change_is_a_rename() {
     let l = labs().await;
     require_records(&l.pool).await;
@@ -488,7 +483,6 @@ async fn submitting_the_same_name_is_a_no_op_and_a_case_change_is_a_rename() {
 /// D16, OQ-3: the instance-admin door now runs the same core and writes the
 /// same record (DDD-16).
 #[tokio::test]
-#[ignore = "pending: project-lifecycle 01-02 — rename_project re-pointed at the shared core (records)"]
 async fn the_instance_admin_door_records_its_rename_too() {
     let l = labs().await;
     require_records(&l.pool).await;
