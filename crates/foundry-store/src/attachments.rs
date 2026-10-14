@@ -50,7 +50,9 @@ pub enum AttachmentInsertError {
 
 impl Store {
     /// Insert a single attachment row. Caller has already verified the
-    /// uploader is a member of the issue's team.
+    /// uploader is a member of the issue's team. One transaction: the issue's
+    /// project, then the live-project guard (project-lifecycle DDD-7), then the
+    /// insert; an unknown issue or a deleted project is `IssueNotFound`.
     #[allow(clippy::too_many_arguments)]
     pub async fn insert_attachment(
         &self,
@@ -64,6 +66,15 @@ impl Store {
         content: &[u8],
     ) -> Result<AttachmentRow, AttachmentInsertError> {
         let size_bytes = content.len() as i64;
+        let mut tx = self.pool().begin().await?;
+        let Some(project_id) =
+            crate::project_lifecycle::issue_project(&mut tx, workspace_id, issue_id).await?
+        else {
+            return Err(AttachmentInsertError::IssueNotFound);
+        };
+        if !crate::project_lifecycle::lock_live_project(&mut tx, project_id).await? {
+            return Err(AttachmentInsertError::IssueNotFound);
+        }
         let result = sqlx::query(
             "INSERT INTO issue_attachments
                   (id, issue_id, workspace_id, uploader_id, filename,
@@ -79,19 +90,22 @@ impl Store {
         .bind(size_bytes)
         .bind(sha256_hex)
         .bind(content)
-        .execute(self.pool())
+        .execute(&mut *tx)
         .await;
         match result {
-            Ok(_) => Ok(AttachmentRow {
-                id,
-                issue_id,
-                workspace_id,
-                filename: filename.to_string(),
-                content_type: content_type.to_string(),
-                size_bytes,
-                sha256_hex: sha256_hex.to_string(),
-                content: content.to_vec(),
-            }),
+            Ok(_) => {
+                tx.commit().await?;
+                Ok(AttachmentRow {
+                    id,
+                    issue_id,
+                    workspace_id,
+                    filename: filename.to_string(),
+                    content_type: content_type.to_string(),
+                    size_bytes,
+                    sha256_hex: sha256_hex.to_string(),
+                    content: content.to_vec(),
+                })
+            }
             Err(sqlx::Error::Database(db_err)) => {
                 // FK violation on issue_id surfaces as 23503.
                 if db_err.code().as_deref() == Some("23503") {

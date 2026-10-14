@@ -112,6 +112,21 @@ pub(crate) async fn lock_live_project(
     Ok(live.is_some())
 }
 
+/// An issue-keyed writer's pre-read, inside its transaction and before its
+/// guard: the issue's project (`issues.project_id` never changes), scoped to
+/// the acting workspace. `None` for an unknown or foreign issue. Writes nothing.
+pub(crate) async fn issue_project(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    workspace_id: uuid::Uuid,
+    issue_id: uuid::Uuid,
+) -> Result<Option<uuid::Uuid>, sqlx::Error> {
+    sqlx::query_scalar("SELECT project_id FROM issues WHERE id = $1 AND workspace_id = $2")
+        .bind(issue_id)
+        .bind(workspace_id)
+        .fetch_optional(&mut **tx)
+        .await
+}
+
 impl Store {
     /// The D4 uniqueness comparison set: `(name, slug)` of every OTHER project
     /// in the same team (self excluded in SQL). Comparison happens app-side —
@@ -153,7 +168,9 @@ impl Store {
     /// `FOR NO KEY UPDATE` (so concurrent renames serialise and their records
     /// chain); a byte-equal name writes nothing; else `UPDATE … SET name`
     /// (never slug or key) and the `renamed` record (`clock_timestamp()`).
-    /// Until 0026 there is no deleted marker to exclude; 02-02 adds it.
+    /// The locking read skips a deleted project (ADR-PROJECT-LIFECYCLE-003
+    /// section 2.1): unknown, deleted, or deleted while the rename waited on
+    /// the delete's row lock all find no row and answer `NotFound`.
     pub async fn rename_project_with_audit(
         &self,
         project_id: uuid::Uuid,
@@ -163,7 +180,7 @@ impl Store {
         let mut tx = self.pool.begin().await?;
         let locked: Option<(uuid::Uuid, uuid::Uuid, String, String, String)> = sqlx::query_as(
             "SELECT workspace_id, team_id, slug, key_prefix, name
-               FROM projects WHERE id = $1 FOR NO KEY UPDATE",
+               FROM projects WHERE id = $1 AND deleted_at IS NULL FOR NO KEY UPDATE",
         )
         .bind(project_id)
         .fetch_optional(&mut *tx)

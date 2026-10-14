@@ -1168,7 +1168,6 @@ async fn run_writer(store: Store, w: Writer, t: Arc<Target>) -> (bool, String) {
 /// project, waits; once the delete commits it returns its shipped not-found
 /// outcome (never an error), and nothing under the project changed.
 #[tokio::test]
-#[ignore = "pending: project-lifecycle 02-01 — lock_live_project in every project-scoped writer"]
 async fn every_guarded_writer_waits_on_a_held_delete_then_answers_its_not_found_and_writes_nothing()
 {
     let l = lab().await;
@@ -1208,7 +1207,6 @@ async fn every_guarded_writer_waits_on_a_held_delete_then_answers_its_not_found_
 /// only refuses a COMMITTED delete). Issue create and comment add stand for the
 /// family.
 #[tokio::test]
-#[ignore = "pending: project-lifecycle 02-01 — lock_live_project after a rolled-back delete"]
 async fn a_write_waiting_on_a_delete_that_rolls_back_goes_through() {
     let l = lab().await;
     require_soft_delete(&l.pool).await;

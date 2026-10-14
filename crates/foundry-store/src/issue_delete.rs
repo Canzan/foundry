@@ -102,7 +102,9 @@ impl crate::Store {
     /// owners).
     ///
     /// `Ok(0)` means the issue was not there — the handler maps that to the
-    /// uniform non-enumerable 404, and NO outbox row is written (DDD-10).
+    /// uniform non-enumerable 404, and NO outbox row is written (DDD-10). A
+    /// deleted project's issue is not there either: the live-project guard
+    /// runs first in the transaction (project-lifecycle DDD-7).
     pub async fn delete_issue_with_outbox(
         &self,
         ctx: &IssueDeleteContext,
@@ -110,6 +112,9 @@ impl crate::Store {
         number: i32,
     ) -> Result<u64, StoreError> {
         let mut tx = self.pool().begin().await?;
+        if !crate::project_lifecycle::lock_live_project(&mut tx, ctx.project_id).await? {
+            return Ok(0);
+        }
         let deleted = delete_issues_with_outbox(&mut tx, ctx, &[(issue_id, number)]).await?;
         tx.commit().await?;
         Ok(deleted)

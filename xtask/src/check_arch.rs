@@ -38,6 +38,7 @@
 //! passes `--root <copy>` pointing at a throwaway tree with a planted
 //! violation, proving the guard bites (Principle 12c self-application).
 
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
@@ -104,6 +105,7 @@ fn source_violations(root: &Path) -> Vec<String> {
     violations.extend(check_team_name_one_source(root));
     violations.extend(check_team_lifecycle_one_seam(root));
     violations.extend(check_project_lifecycle_one_seam(root));
+    violations.extend(check_project_lifecycle_write_guard(root));
     violations.extend(check_store_natural_key_scoped(root));
     violations
 }
@@ -143,7 +145,7 @@ pub fn run(args: Vec<String>) -> ExitCode {
     let verdict = verdict(&args);
     match &verdict {
         Verdict::Passed => println!(
-            "check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, the lanes position constraint is still DEFERRABLE, no board-*.js registers a keydown listener, nothing outside migration 0017 UPDATEs users.provisioned_at (D9), both publish workflows stamp every image with its commit and the Dockerfile hands it to build.rs (AC-8), every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, no colour literal outside the three stylesheet token regions, the three stylesheet token regions declare the identical colour-token set, the workspace-name refusal copy lives only in foundry-core and no production door calls create_initial_workspace, the project-name refusal copy lives only in foundry-core and no door calls insert_project, no production door calls seed_row_predating_name_rule and no crate but its seam file disables a trigger or sets session_replication_role, the team-name refusal copy lives only in foundry-core, teams and team_lifecycle_events are written only by foundry-store and no door calls create_team_with_lead, rename_team_with_audit or delete_team_if_empty, projects, live_projects and project_lifecycle_events are written only by foundry-store and no door calls rename_project_with_audit (project-lifecycle-one-seam), every foundry-store query filtering on key_prefix, a slug or an issue number also compares workspace_id, team_id or project_id to a bound parameter in the same disjunct (store-natural-key-scoped), dependency direction)"
+            "check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, the lanes position constraint is still DEFERRABLE, no board-*.js registers a keydown listener, nothing outside migration 0017 UPDATEs users.provisioned_at (D9), both publish workflows stamp every image with its commit and the Dockerfile hands it to build.rs (AC-8), every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, no colour literal outside the three stylesheet token regions, the three stylesheet token regions declare the identical colour-token set, the workspace-name refusal copy lives only in foundry-core and no production door calls create_initial_workspace, the project-name refusal copy lives only in foundry-core and no door calls insert_project, no production door calls seed_row_predating_name_rule and no crate but its seam file disables a trigger or sets session_replication_role, the team-name refusal copy lives only in foundry-core, teams and team_lifecycle_events are written only by foundry-store and no door calls create_team_with_lead, rename_team_with_audit or delete_team_if_empty, projects, live_projects and project_lifecycle_events are written only by foundry-store and no door calls rename_project_with_audit (project-lifecycle-one-seam), every foundry-store writer of issues, comments, attachments, lanes or change events holds lock_live_project on its transaction before its first write (project-lifecycle-write-guard), every foundry-store query filtering on key_prefix, a slug or an issue number also compares workspace_id, team_id or project_id to a bound parameter in the same disjunct (store-natural-key-scoped), dependency direction)"
         ),
         Verdict::UnparseableArguments(message) => eprintln!("check-arch: {message}"),
         Verdict::Violations(violations) => {
@@ -1218,92 +1220,157 @@ fn files_under(
 /// rather than read, so a commented-out query never yields a literal; char
 /// literals are consumed so `'"'` does not open a string.
 fn rust_string_literals(source: &str) -> Vec<(usize, String)> {
-    let chars: Vec<char> = source.chars().collect();
-    let is_ident = |c: char| c.is_alphanumeric() || c == '_';
-    let mut literals = Vec::new();
-    let mut line = 1;
-    let mut i = 0;
-    while i < chars.len() {
-        let next = chars.get(i + 1).copied();
-        match chars[i] {
-            '\n' => {
-                line += 1;
-                i += 1;
-            }
-            '/' if next == Some('/') => {
-                while i < chars.len() && chars[i] != '\n' {
-                    i += 1;
+    RustSource::scan(source)
+        .literals
+        .into_iter()
+        .map(|literal| (literal.line, literal.text))
+        .collect()
+}
+
+/// One string literal of a [`RustSource`]: the 1-based line it opens on, its
+/// text, and its `[start, end)` span in [`RustSource::code`].
+struct RustLiteral {
+    line: usize,
+    start: usize,
+    end: usize,
+    text: String,
+}
+
+/// A Rust source split into its string literals and its CODE: the source with
+/// every comment and every literal's contents blanked to spaces (newlines
+/// kept, non-ASCII code blanked too), so one byte of `code` is one char of the
+/// source and a brace, a call or a `;` found in `code` is never inside a
+/// string or a comment.
+struct RustSource {
+    code: String,
+    literals: Vec<RustLiteral>,
+}
+
+impl RustSource {
+    fn scan(source: &str) -> Self {
+        let chars: Vec<char> = source.chars().collect();
+        let mut code: Vec<char> = chars
+            .iter()
+            .map(|&c| if c == '\n' || c.is_ascii() { c } else { ' ' })
+            .collect();
+        let blank = |code: &mut Vec<char>, from: usize, to: usize| {
+            for c in code.iter_mut().take(to.min(chars.len())).skip(from) {
+                if *c != '\n' {
+                    *c = ' ';
                 }
             }
-            '/' if next == Some('*') => {
-                let mut depth = 0usize;
-                while i < chars.len() {
-                    match (chars[i], chars.get(i + 1).copied()) {
-                        ('/', Some('*')) => {
-                            depth += 1;
-                            i += 2;
-                        }
-                        ('*', Some('/')) => {
-                            depth -= 1;
-                            i += 2;
-                            if depth == 0 {
-                                break;
+        };
+        let is_ident = |c: char| c.is_alphanumeric() || c == '_';
+        let mut literals = Vec::new();
+        let mut line = 1;
+        let mut i = 0;
+        while i < chars.len() {
+            let next = chars.get(i + 1).copied();
+            match chars[i] {
+                '\n' => {
+                    line += 1;
+                    i += 1;
+                }
+                '/' if next == Some('/') => {
+                    let from = i;
+                    while i < chars.len() && chars[i] != '\n' {
+                        i += 1;
+                    }
+                    blank(&mut code, from, i);
+                }
+                '/' if next == Some('*') => {
+                    let from = i;
+                    let mut depth = 0usize;
+                    while i < chars.len() {
+                        match (chars[i], chars.get(i + 1).copied()) {
+                            ('/', Some('*')) => {
+                                depth += 1;
+                                i += 2;
+                            }
+                            ('*', Some('/')) => {
+                                depth -= 1;
+                                i += 2;
+                                if depth == 0 {
+                                    break;
+                                }
+                            }
+                            (c, _) => {
+                                line += usize::from(c == '\n');
+                                i += 1;
                             }
                         }
-                        (c, _) => {
+                    }
+                    blank(&mut code, from, i);
+                }
+                '"' => {
+                    let opened_on = line;
+                    let start = i;
+                    let mut text = String::new();
+                    i += 1;
+                    while i < chars.len() && chars[i] != '"' {
+                        let take = if chars[i] == '\\' { 2 } else { 1 };
+                        for &c in chars.iter().skip(i).take(take) {
                             line += usize::from(c == '\n');
-                            i += 1;
+                            text.push(c);
                         }
+                        i += take;
                     }
+                    i += 1;
+                    blank(&mut code, start + 1, i.saturating_sub(1));
+                    literals.push(RustLiteral {
+                        line: opened_on,
+                        start,
+                        end: i.min(chars.len()),
+                        text,
+                    });
                 }
-            }
-            '"' => {
-                let opened_on = line;
-                let mut text = String::new();
-                i += 1;
-                while i < chars.len() && chars[i] != '"' {
-                    let take = if chars[i] == '\\' { 2 } else { 1 };
-                    for &c in chars.iter().skip(i).take(take) {
-                        line += usize::from(c == '\n');
-                        text.push(c);
+                'r' if i == 0 || !is_ident(chars[i - 1]) || chars[i - 1] == 'b' => {
+                    let hashes = chars[i + 1..].iter().take_while(|&&c| c == '#').count();
+                    if chars.get(i + 1 + hashes) != Some(&'"') {
+                        i += 1;
+                        continue;
                     }
-                    i += take;
+                    let opened_on = line;
+                    let start = i;
+                    let closing: Vec<char> = std::iter::once('"')
+                        .chain(std::iter::repeat_n('#', hashes))
+                        .collect();
+                    let mut text = String::new();
+                    i += hashes + 2;
+                    let body = i;
+                    while i < chars.len() && !chars[i..].starts_with(&closing) {
+                        line += usize::from(chars[i] == '\n');
+                        text.push(chars[i]);
+                        i += 1;
+                    }
+                    blank(&mut code, body, i);
+                    i += closing.len();
+                    literals.push(RustLiteral {
+                        line: opened_on,
+                        start,
+                        end: i.min(chars.len()),
+                        text,
+                    });
                 }
-                i += 1;
-                literals.push((opened_on, text));
-            }
-            'r' if i == 0 || !is_ident(chars[i - 1]) || chars[i - 1] == 'b' => {
-                let hashes = chars[i + 1..].iter().take_while(|&&c| c == '#').count();
-                if chars.get(i + 1 + hashes) != Some(&'"') {
+                '\'' if next == Some('\\') => {
+                    i += 3;
+                    while i < chars.len() && chars[i] != '\'' {
+                        i += 1;
+                    }
                     i += 1;
-                    continue;
                 }
-                let opened_on = line;
-                let closing: Vec<char> = std::iter::once('"')
-                    .chain(std::iter::repeat_n('#', hashes))
-                    .collect();
-                let mut text = String::new();
-                i += hashes + 2;
-                while i < chars.len() && !chars[i..].starts_with(&closing) {
-                    line += usize::from(chars[i] == '\n');
-                    text.push(chars[i]);
-                    i += 1;
+                '\'' if chars.get(i + 2) == Some(&'\'') => {
+                    blank(&mut code, i + 1, i + 2);
+                    i += 3;
                 }
-                i += closing.len();
-                literals.push((opened_on, text));
+                _ => i += 1,
             }
-            '\'' if next == Some('\\') => {
-                i += 3;
-                while i < chars.len() && chars[i] != '\'' {
-                    i += 1;
-                }
-                i += 1;
-            }
-            '\'' if chars.get(i + 2) == Some(&'\'') => i += 3,
-            _ => i += 1,
+        }
+        RustSource {
+            code: code.into_iter().collect(),
+            literals,
         }
     }
-    literals
 }
 
 /// The 0-based line offsets, within `sql`, of every assignment to
@@ -2315,19 +2382,23 @@ fn css_regions(stripped: &str) -> (Vec<CssRegion>, bool) {
     (regions, depth == 0)
 }
 
-/// The offset of the `}` closing the `{` at `open`, or `None` if it never does.
+/// The offset of the bracket closing the `{`, `(` or `[` at `open`, or `None`
+/// if it never does.
 fn matching_brace(bytes: &[u8], open: usize) -> Option<usize> {
+    let (opener, closer) = match bytes.get(open) {
+        Some(b'(') => (b'(', b')'),
+        Some(b'[') => (b'[', b']'),
+        _ => (b'{', b'}'),
+    };
     let mut depth: i32 = 0;
-    for (offset, byte) in bytes[open..].iter().enumerate() {
-        match byte {
-            b'{' => depth += 1,
-            b'}' => {
-                depth -= 1;
-                if depth == 0 {
-                    return Some(open + offset);
-                }
+    for (offset, &byte) in bytes[open..].iter().enumerate() {
+        if byte == opener {
+            depth += 1;
+        } else if byte == closer {
+            depth -= 1;
+            if depth == 0 {
+                return Some(open + offset);
             }
-            _ => {}
         }
     }
     None
@@ -4605,6 +4676,15 @@ fn project_insert_call_violations_in(root: &Path, file: &Path, contents: &str) -
 /// name, a `fn name` definition and any occurrence on a `//` comment line are
 /// not calls. A call split across lines is reported at the line naming it.
 fn call_sites(contents: &str, name: &str) -> Vec<usize> {
+    call_offsets(contents, name)
+        .into_iter()
+        .map(|at| contents[..at].matches('\n').count() + 1)
+        .collect()
+}
+
+/// The byte offset of every CALL of `name` in a Rust source, by the rules of
+/// [`call_sites`].
+fn call_offsets(contents: &str, name: &str) -> Vec<usize> {
     let is_ident = |c: char| c.is_alphanumeric() || c == '_';
     contents
         .match_indices(name)
@@ -4619,7 +4699,7 @@ fn call_sites(contents: &str, name: &str) -> Vec<usize> {
                 && !before.trim_end().ends_with("fn")
                 && !contents[line_start..].trim_start().starts_with("//")
         })
-        .map(|(at, _)| contents[..at].matches('\n').count() + 1)
+        .map(|(at, _)| at)
         .collect()
 }
 
@@ -6891,11 +6971,10 @@ mod store_natural_key_scoped_boundary_tests {
 // ---------------------------------------------------------------------------
 // project-lifecycle DDD-22 — `project-lifecycle-live-reads` (rule 1),
 // `project-lifecycle-write-guard` (rule 2), `project-lifecycle-one-seam`
-// (rule 3). DISTILL 2026-10-13: the gold tests below are written and `#[ignore]`d
-// against these scaffolds; none of the three is registered in `check()` yet.
-// DELIVER turns rule 3 on in 01-01, rule 1 LAST in 02-02 (after the reader
-// sweep proves it complete) and rule 2 in 02-01 (with the guard in every
-// writer), and registers each in `check()` as it goes.
+// (rule 3). DISTILL 2026-10-13 wrote the gold tests below against scaffolds.
+// DELIVER turned rule 3 on in 01-01 and rule 2 in 02-02 (with the guard in
+// every writer); rule 1 turns on LAST, after the reader sweep proves it
+// complete. Each is registered in `source_violations()` as it turns on.
 // ---------------------------------------------------------------------------
 
 /// `project-lifecycle-live-reads` (ADR-PROJECT-LIFECYCLE-001 decision 7).
@@ -6952,14 +7031,407 @@ fn check_project_lifecycle_live_reads(root: &Path) -> Vec<String> {
 /// `project-lifecycle-write-guard: `, names the file, and names the function as
 /// `` `fn name` ``; a `format!`/`concat!` violation names `file:line` of the
 /// template. A missing `crates/` or store `src` fails the rule.
-// SCAFFOLD: true — RED scaffold written by DISTILL (2026-10-13)
-#[cfg_attr(not(test), allow(dead_code))]
 fn check_project_lifecycle_write_guard(root: &Path) -> Vec<String> {
-    let _ = root;
-    panic!(
-        "Not yet implemented -- RED scaffold (project-lifecycle 02-01: rule \
-         project-lifecycle-write-guard)"
-    )
+    let crates_dir = root.join("crates");
+    if std::fs::read_dir(&crates_dir).is_err() {
+        return vec![format!(
+            "{WRITE_GUARD_ID}: cannot list {} — no store writer could be checked for the \
+             live-project guard ({WRITE_GUARD_REFERENCE}).",
+            crates_dir.display()
+        )];
+    }
+    let store_src = root.join(WRITE_GUARD_STORE_SRC);
+    if !store_src.is_dir() {
+        return vec![format!(
+            "{WRITE_GUARD_ID}: cannot list {WRITE_GUARD_STORE_SRC} — no store writer could be \
+             checked for the live-project guard ({WRITE_GUARD_REFERENCE})."
+        )];
+    }
+    let (sources, unreadable) = files_under(&store_src, "rs", &|_| false);
+    let mut violations: Vec<String> = unreadable
+        .iter()
+        .map(|dir| {
+            format!(
+                "{WRITE_GUARD_ID}: cannot list {} ({WRITE_GUARD_REFERENCE}).",
+                rel(root, dir)
+            )
+        })
+        .collect();
+    let mut functions = Vec::new();
+    for file in &sources {
+        let Ok(contents) = std::fs::read_to_string(file) else {
+            violations.push(format!(
+                "{WRITE_GUARD_ID}: cannot read {} ({WRITE_GUARD_REFERENCE}).",
+                rel(root, file)
+            ));
+            continue;
+        };
+        let source = RustSource::scan(&contents);
+        violations.extend(interpolated_dml_tables(&source).into_iter().map(|line| {
+            format!(
+                "{WRITE_GUARD_ID}: {}:{line} builds an INSERT INTO / UPDATE / DELETE FROM with \
+                 an interpolated table — the guard rule cannot see which table it writes; name \
+                 the table in the literal ({WRITE_GUARD_REFERENCE}).",
+                rel(root, file)
+            )
+        }));
+        functions.extend(StoreFn::all_in(&rel(root, file), &source));
+    }
+    let helpers = writing_helpers(&functions);
+    violations.extend(
+        functions
+            .iter()
+            .filter(|function| function.must_hold_the_guard(&helpers))
+            .filter(|function| !function.holds_the_guard_across_its_writes(&helpers))
+            .map(|function| {
+                format!(
+                    "{WRITE_GUARD_ID}: {}:{} fn `{}` writes a project's issues, comments, \
+                     attachments, lanes or change events without lock_live_project( on the \
+                     transaction that performs the write, before its first write — a write \
+                     queued behind a project delete would land under the deleted project \
+                     ({WRITE_GUARD_REFERENCE}).",
+                    function.file, function.line, function.name
+                )
+            }),
+    );
+    violations
+}
+
+/// The tables a project's writers write under it; each such write holds the
+/// live-project guard (DDD-7).
+const GUARDED_CHILD_TABLES: [&str; 5] = [
+    "issues",
+    "comments",
+    "issue_attachments",
+    "lanes",
+    "issue_change_events",
+];
+
+/// Writers allow-listed BY NAME (DDD-22): the tombstone GC (D12) and the
+/// writers that create the project they write under, in the same transaction,
+/// so no delete can be queued on it — `insert_project`, and the two bootstrap
+/// doors that seed the first workspace's project through
+/// `seed_initial_workspace` (a helper DESIGN's list did not name).
+const WRITE_GUARD_ALLOW_LIST: [&str; 4] = [
+    "gc_tombstoned_comments",
+    "insert_project",
+    "create_initial_workspace",
+    "claim_bootstrap_and_create_workspace",
+];
+
+/// Issue create's attempt, whose counter `UPDATE live_projects` is its guard.
+const ISSUE_CREATE_ATTEMPT: &str = "insert_issue_attempt";
+
+const WRITE_GUARD_CALL: &str = "lock_live_project";
+const WRITE_GUARD_ID: &str = "project-lifecycle-write-guard";
+const WRITE_GUARD_STORE_SRC: &str = "crates/foundry-store/src";
+const WRITE_GUARD_REFERENCE: &str =
+    "project-lifecycle DDD-7, DDD-22, ADR-PROJECT-LIFECYCLE-002 decision 2, DIST-10";
+
+/// One `fn` of a store source, as rule 2 reads it: where it stands, whether it
+/// takes a transaction or connection, and the offsets (in its file's
+/// [`RustSource::code`]) of its direct writes, its valid guards and its body.
+struct StoreFn {
+    file: String,
+    name: String,
+    line: usize,
+    takes_connection: bool,
+    body: String,
+    body_start: usize,
+    direct_writes: Vec<usize>,
+    autocommit_write: bool,
+    guards: Vec<usize>,
+    first_sql_is_counter: bool,
+}
+
+impl StoreFn {
+    /// Every `fn` with a body in `source`; a literal belongs to the innermost.
+    fn all_in(file: &str, source: &RustSource) -> Vec<StoreFn> {
+        let spans = fn_spans(&source.code);
+        spans
+            .iter()
+            .map(|span| StoreFn::read(file, source, &spans, span))
+            .collect()
+    }
+
+    fn read(file: &str, source: &RustSource, spans: &[FnSpan], span: &FnSpan) -> StoreFn {
+        let own = source.literals.iter().filter(|literal| {
+            innermost(spans, literal.start).is_some_and(|inner| inner.at == span.at)
+        });
+        let mut direct_writes = Vec::new();
+        let mut autocommit_write = false;
+        let mut first_sql_is_counter = None;
+        for literal in own {
+            let sql = unqualified_sql(&literal.text);
+            if first_sql_is_counter.is_none() && is_sql(&sql) {
+                first_sql_is_counter = Some(is_counter_update(&sql));
+            }
+            if GUARDED_CHILD_TABLES
+                .iter()
+                .any(|table| !sql_writes_of(&sql, table).is_empty())
+            {
+                direct_writes.push(literal.start);
+                autocommit_write |= runs_on_the_pool(&source.code, literal.end);
+            }
+        }
+        let params = &source.code[span.params.0..=span.params.1];
+        let body = &source.code[span.body.0..=span.body.1];
+        StoreFn {
+            file: file.to_string(),
+            name: span.name.clone(),
+            line: span.line,
+            takes_connection: params.contains("Transaction") || params.contains("Connection"),
+            body: body.to_string(),
+            body_start: span.body.0,
+            direct_writes,
+            autocommit_write,
+            guards: call_offsets(body, WRITE_GUARD_CALL)
+                .into_iter()
+                .filter(|&at| holds_the_transaction(body, at))
+                .map(|at| span.body.0 + at)
+                .collect(),
+            first_sql_is_counter: first_sql_is_counter.unwrap_or(false),
+        }
+    }
+
+    fn is_helper(&self, helpers: &BTreeSet<String>) -> bool {
+        self.takes_connection && helpers.contains(&self.name)
+    }
+
+    /// Every writer that is not exempt.
+    fn must_hold_the_guard(&self, helpers: &BTreeSet<String>) -> bool {
+        !self.is_exempt(helpers) && !self.writes(helpers).is_empty()
+    }
+
+    /// A transaction-taking helper (its callers are in scope), the allow-list,
+    /// and issue create's attempt while its first SQL is the counter
+    /// `UPDATE live_projects`.
+    fn is_exempt(&self, helpers: &BTreeSet<String>) -> bool {
+        let counter_guarded = self.name == ISSUE_CREATE_ATTEMPT && self.first_sql_is_counter;
+        self.is_helper(helpers)
+            || WRITE_GUARD_ALLOW_LIST.contains(&self.name.as_str())
+            || counter_guarded
+    }
+
+    /// The offsets of every write: a direct write, or a call of a writing helper.
+    fn writes(&self, helpers: &BTreeSet<String>) -> Vec<usize> {
+        let mut writes = self.direct_writes.clone();
+        for helper in helpers {
+            writes.extend(
+                call_offsets(&self.body, helper)
+                    .into_iter()
+                    .map(|at| self.body_start + at),
+            );
+        }
+        writes
+    }
+
+    /// A guard on the transaction precedes the first write, and no write runs
+    /// in autocommit on the pool.
+    fn holds_the_guard_across_its_writes(&self, helpers: &BTreeSet<String>) -> bool {
+        let first_write = self.writes(helpers).into_iter().min();
+        let first_guard = self.guards.iter().copied().min();
+        !self.autocommit_write
+            && matches!((first_guard, first_write), (Some(guard), Some(write)) if guard < write)
+    }
+}
+
+/// The transaction-taking writing helpers, by name: a `fn` with a transaction
+/// or connection parameter whose body writes, directly or through another
+/// such helper (a fixpoint over every store `fn`).
+fn writing_helpers(functions: &[StoreFn]) -> BTreeSet<String> {
+    let mut helpers = BTreeSet::new();
+    loop {
+        let found: BTreeSet<String> = functions
+            .iter()
+            .filter(|function| function.takes_connection)
+            .filter(|function| !function.writes(&helpers).is_empty())
+            .map(|function| function.name.clone())
+            .collect();
+        if found == helpers {
+            return helpers;
+        }
+        helpers = found;
+    }
+}
+
+/// One `fn` item of a [`RustSource::code`]: its name, the line and offset of
+/// `fn`, and the `[open, close]` offsets of its parameter list and body.
+struct FnSpan {
+    name: String,
+    at: usize,
+    line: usize,
+    params: (usize, usize),
+    body: (usize, usize),
+}
+
+/// Every `fn` with a body; a bodiless trait method or a `fn(…)` pointer type
+/// is skipped.
+fn fn_spans(code: &str) -> Vec<FnSpan> {
+    let bytes = code.as_bytes();
+    let is_ident = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
+    let mut spans = Vec::new();
+    let mut from = 0;
+    while let Some(at) = find_sql_word(code, "fn", from) {
+        from = at + 2;
+        let name_at = from + (code[from..].len() - code[from..].trim_start().len());
+        let name_len = bytes[name_at..]
+            .iter()
+            .take_while(|&&b| is_ident(b))
+            .count();
+        if name_len == 0 {
+            continue;
+        }
+        let mut cursor = name_at + name_len;
+        while bytes.get(cursor).is_some_and(u8::is_ascii_whitespace) {
+            cursor += 1;
+        }
+        if bytes.get(cursor) == Some(&b'<') {
+            let mut depth = 0i32;
+            while let Some(&b) = bytes.get(cursor) {
+                cursor += 1;
+                depth += i32::from(b == b'<') - i32::from(b == b'>');
+                if depth == 0 {
+                    break;
+                }
+            }
+        }
+        let Some(open) = code[cursor..].find('(').map(|i| cursor + i) else {
+            continue;
+        };
+        let Some(close) = matching_brace(bytes, open) else {
+            continue;
+        };
+        let Some(body_open) = code[close..]
+            .find(['{', ';'])
+            .map(|i| close + i)
+            .filter(|&i| bytes[i] == b'{')
+        else {
+            continue;
+        };
+        let Some(body_close) = matching_brace(bytes, body_open) else {
+            continue;
+        };
+        spans.push(FnSpan {
+            name: code[name_at..name_at + name_len].to_string(),
+            at,
+            line: code[..at].matches('\n').count() + 1,
+            params: (open, close),
+            body: (body_open, body_close),
+        });
+    }
+    spans
+}
+
+/// The innermost `fn` whose body holds `offset`.
+fn innermost(spans: &[FnSpan], offset: usize) -> Option<&FnSpan> {
+    spans
+        .iter()
+        .filter(|span| span.body.0 < offset && offset < span.body.1)
+        .min_by_key(|span| span.body.1 - span.body.0)
+}
+
+/// An SQL literal with its quoting and schema dropped, so `"lanes"`,
+/// `public.lanes` and `\"lanes\"` read as `lanes` (rule 1's lexical forms).
+fn unqualified_sql(text: &str) -> String {
+    text.to_ascii_lowercase()
+        .replace(['"', '\\'], " ")
+        .replace("public.", "")
+}
+
+fn is_sql(sql: &str) -> bool {
+    ["select", "insert", "update", "delete", "with"]
+        .iter()
+        .any(|verb| find_sql_word(sql, verb, 0).is_some())
+}
+
+/// Issue create's guard: the statement opens `UPDATE live_projects`.
+fn is_counter_update(sql: &str) -> bool {
+    let code = strip_sql_comments(sql);
+    let words: Vec<&str> = code.split_whitespace().take(2).collect();
+    words == ["update", "live_projects"]
+}
+
+/// The statement a literal ends in runs on the pool (autocommit), not on the
+/// writer's transaction.
+fn runs_on_the_pool(code: &str, literal_end: usize) -> bool {
+    let rest = &code[literal_end.min(code.len())..];
+    rest[..rest.find(';').unwrap_or(rest.len())].contains("pool")
+}
+
+/// The guard call at `at` takes the writer's transaction, never a connection or
+/// transaction of its own from the pool.
+fn holds_the_transaction(body: &str, at: usize) -> bool {
+    let Some(open) = body[at..].find('(').map(|i| at + i) else {
+        return false;
+    };
+    matching_brace(body.as_bytes(), open).is_some_and(|close| !body[open..close].contains("pool"))
+}
+
+/// The 1-based lines of every `format!` / `concat!` template that builds an
+/// `INSERT INTO`, `UPDATE` or `DELETE FROM` with an interpolation where the
+/// table stands. DDL and an interpolated column list are out of scope.
+fn interpolated_dml_tables(source: &RustSource) -> Vec<usize> {
+    let code = source.code.as_str();
+    let mut lines = Vec::new();
+    for (mac, joins_arguments) in [("format!", false), ("concat!", true)] {
+        for at in call_offsets(code, mac) {
+            let Some(open) = code[at..].find('(').map(|i| at + i) else {
+                continue;
+            };
+            let Some(close) = matching_brace(code.as_bytes(), open) else {
+                continue;
+            };
+            let parts: Vec<&RustLiteral> = source
+                .literals
+                .iter()
+                .filter(|literal| open < literal.start && literal.end <= close)
+                .collect();
+            let template = if joins_arguments {
+                macro_template(code, open, close, &parts)
+            } else {
+                parts.first().map(|l| l.text.clone()).unwrap_or_default()
+            };
+            if dml_table_is_interpolated(&template) {
+                lines.push(code[..at].matches('\n').count() + 1);
+            }
+        }
+    }
+    lines.sort_unstable();
+    lines
+}
+
+/// A `concat!` call as one template: its literals in order, `{}` for every
+/// argument between them that is not a literal.
+fn macro_template(code: &str, open: usize, close: usize, parts: &[&RustLiteral]) -> String {
+    let is_argument = |gap: &str| gap.chars().any(|c| !c.is_whitespace() && c != ',');
+    let mut template = String::new();
+    let mut cursor = open + 1;
+    for part in parts {
+        if is_argument(&code[cursor..part.start]) {
+            template.push_str("{}");
+        }
+        template.push_str(&part.text);
+        cursor = part.end;
+    }
+    if is_argument(&code[cursor..close]) {
+        template.push_str("{}");
+    }
+    template
+}
+
+fn dml_table_is_interpolated(template: &str) -> bool {
+    let sql = unqualified_sql(template);
+    let words: Vec<&str> = sql.split_whitespace().collect();
+    words.iter().enumerate().any(|(i, word)| {
+        let target = match *word {
+            "update" => words.get(i + 1),
+            "insert" if words.get(i + 1) == Some(&"into") => words.get(i + 2),
+            "delete" if words.get(i + 1) == Some(&"from") => words.get(i + 2),
+            _ => None,
+        };
+        target.is_some_and(|table| table.starts_with('{') && !table.starts_with("{{"))
+    })
 }
 
 /// The store's project-lifecycle writes, which no door may call: each goes
@@ -7502,7 +7974,6 @@ pub async fn the_comment_says(&self) -> Result<(), StoreError> {
     }
 
     #[test]
-    #[ignore = "pending: project-lifecycle 02-01 — check-arch rule project-lifecycle-write-guard"]
     fn write_guard_a_clean_store_passes() {
         let tree = guard_tree(&[
             (
@@ -7519,7 +7990,6 @@ pub async fn the_comment_says(&self) -> Result<(), StoreError> {
     }
 
     #[test]
-    #[ignore = "pending: project-lifecycle 02-01 — check-arch rule project-lifecycle-write-guard"]
     fn write_guard_an_unguarded_direct_writer_of_each_table_is_flagged() {
         const FILE: &str = "crates/foundry-store/src/attachments.rs";
         for (form, body) in [
@@ -7563,7 +8033,6 @@ pub async fn the_comment_says(&self) -> Result<(), StoreError> {
     /// taken on a pooled connection with the write in autocommit, or a write
     /// before the lock in the same transaction, is flagged.
     #[test]
-    #[ignore = "pending: project-lifecycle 02-01 — check-arch rule project-lifecycle-write-guard"]
     fn write_guard_a_guard_that_does_not_hold_across_the_write_is_flagged() {
         const FILE: &str = "crates/foundry-store/src/lanes.rs";
         for (form, body) in [
@@ -7602,7 +8071,6 @@ pub async fn the_comment_says(&self) -> Result<(), StoreError> {
     }
 
     #[test]
-    #[ignore = "pending: project-lifecycle 02-01 — check-arch rule project-lifecycle-write-guard"]
     fn write_guard_a_caller_of_a_writing_helper_without_the_guard_is_flagged_transitively() {
         const FILE: &str = "crates/foundry-store/src/lanes.rs";
         let tree = guard_tree(&[(
@@ -7641,7 +8109,6 @@ pub async fn log_change(&self, issue_id: Uuid) -> Result<(), StoreError> {
     }
 
     #[test]
-    #[ignore = "pending: project-lifecycle 02-01 — check-arch rule project-lifecycle-write-guard"]
     fn write_guard_insert_issue_attempt_with_a_write_before_its_counter_update_is_flagged() {
         let bad_first_insert = CLEAN_STORE.replace(
             "    let row = sqlx::query(\"UPDATE live_projects",
@@ -7674,7 +8141,6 @@ pub async fn log_change(&self, issue_id: Uuid) -> Result<(), StoreError> {
     }
 
     #[test]
-    #[ignore = "pending: project-lifecycle 02-01 — check-arch rule project-lifecycle-write-guard"]
     fn write_guard_the_retrying_caller_with_an_inline_issue_insert_is_flagged() {
         let store = CLEAN_STORE.replace(
             "    match self.insert_issue_attempt(project_id).await? {",
@@ -7695,7 +8161,6 @@ pub async fn log_change(&self, issue_id: Uuid) -> Result<(), StoreError> {
     }
 
     #[test]
-    #[ignore = "pending: project-lifecycle 02-01 — check-arch rule project-lifecycle-write-guard"]
     fn write_guard_the_allow_list_is_by_name_only() {
         const FILE: &str = "crates/foundry-store/src/gc.rs";
         let tree = guard_tree(&[(
@@ -7715,7 +8180,6 @@ pub async fn log_change(&self, issue_id: Uuid) -> Result<(), StoreError> {
     }
 
     #[test]
-    #[ignore = "pending: project-lifecycle 02-01 — check-arch rule project-lifecycle-write-guard"]
     fn write_guard_a_dml_template_with_an_interpolated_table_is_flagged_even_when_guarded() {
         const FILE: &str = "crates/foundry-store/src/generic.rs";
         let tree = guard_tree(&[(
@@ -7743,7 +8207,6 @@ pub async fn log_change(&self, issue_id: Uuid) -> Result<(), StoreError> {
     }
 
     #[test]
-    #[ignore = "pending: project-lifecycle 02-01 — check-arch rule project-lifecycle-write-guard"]
     fn write_guard_a_missing_crates_or_store_src_fails_the_rule() {
         let none = stage(&[("README.md", "nothing here\n")]);
         assert!(
@@ -7758,7 +8221,6 @@ pub async fn log_change(&self, issue_id: Uuid) -> Result<(), StoreError> {
     }
 
     #[test]
-    #[ignore = "pending: project-lifecycle 02-01 — check-arch rule project-lifecycle-write-guard (with the guard in every writer)"]
     fn write_guard_the_shipped_tree_passes() {
         let root = shipped_root();
         let violations = check_project_lifecycle_write_guard(&root);

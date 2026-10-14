@@ -1864,13 +1864,19 @@ impl Store {
 
         // Allocate the next per-project number. Row-level lock prevents
         // duplicate numbers under concurrent inserts on the same project.
+        // Through `live_projects`, this FIRST statement is also the write
+        // guard (project-lifecycle DDD-7, ADR-PROJECT-LIFECYCLE-002): its
+        // `FOR NO KEY UPDATE` row lock queues behind a held delete and, once
+        // that delete commits, finds no live row — ProjectNotFound, nothing
+        // written. No separate `lock_live_project`, so this transaction never
+        // upgrades its own lock behind a queued delete.
         // The returned value is the number we hand to the NEW issue —
         // the column's invariant is "the next number to give out", so
         // before the update we have N (and assign N to this issue), and
         // after the update the column holds N+1. We model that by
         // capturing `next_issue_number` BEFORE incrementing:
         let row: Option<(i32,)> = sqlx::query_as(
-            "UPDATE projects
+            "UPDATE live_projects
                 SET next_issue_number = next_issue_number + 1
               WHERE id = $1
               RETURNING next_issue_number - 1",
@@ -2018,6 +2024,9 @@ impl Store {
         actor_id: uuid::Uuid,
     ) -> Result<RepositionOutcome, IssueInsertError> {
         let mut tx = self.pool.begin().await?;
+        if !project_lifecycle::lock_live_project(&mut tx, project_id).await? {
+            return Ok(RepositionOutcome::IssueNotFound);
+        }
 
         // Resolve the moved issue + its workspace + CURRENT state + rank, and
         // its project's key prefix for the payload, keyed by the caller's
@@ -2366,6 +2375,9 @@ impl Store {
         actor_id: uuid::Uuid,
     ) -> Result<Option<()>, IssueInsertError> {
         let mut tx = self.pool.begin().await?;
+        if !project_lifecycle::lock_live_project(&mut tx, project_id).await? {
+            return Ok(None);
+        }
 
         let row: Option<(uuid::Uuid, uuid::Uuid, String, String)> = sqlx::query_as(
             "SELECT i.id, i.workspace_id, i.title, i.description_md
@@ -2534,6 +2546,9 @@ impl Store {
         body_html: &str,
     ) -> Result<(), CommentInsertError> {
         let mut tx = self.pool.begin().await?;
+        if !project_lifecycle::lock_live_project(&mut tx, project_id).await? {
+            return Err(CommentInsertError::IssueNotFound);
+        }
 
         sqlx::query(
             "INSERT INTO comments
@@ -2822,6 +2837,16 @@ impl Store {
         author_email: &str,
     ) -> Result<bool, StoreError> {
         let mut tx = self.pool.begin().await?;
+        let Some(project_id) =
+            project_lifecycle::issue_project(&mut tx, workspace_id, issue_id).await?
+        else {
+            tx.rollback().await?;
+            return Ok(false);
+        };
+        if !project_lifecycle::lock_live_project(&mut tx, project_id).await? {
+            tx.rollback().await?;
+            return Ok(false);
+        }
 
         // Update only LIVE rows. The handler is responsible for the
         // 404-vs-410 distinction before getting here; this WHERE clause
@@ -2890,6 +2915,16 @@ impl Store {
         actor_user_id: uuid::Uuid,
     ) -> Result<bool, StoreError> {
         let mut tx = self.pool.begin().await?;
+        let Some(project_id) =
+            project_lifecycle::issue_project(&mut tx, workspace_id, issue_id).await?
+        else {
+            tx.rollback().await?;
+            return Ok(false);
+        };
+        if !project_lifecycle::lock_live_project(&mut tx, project_id).await? {
+            tx.rollback().await?;
+            return Ok(false);
+        }
 
         let updated: Option<(uuid::Uuid, uuid::Uuid, i32, String)> = sqlx::query_as(
             "UPDATE comments

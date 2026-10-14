@@ -189,6 +189,13 @@ impl Store {
     ) -> Result<LaneDeleteOutcome, StoreError> {
         let mut tx = self.pool().begin().await?;
 
+        // 0. The live-project guard, before any lane lock (project-lifecycle
+        //    DDD-7, DDD-8: project before children). A deleted project's lane
+        //    is absent too.
+        if !crate::project_lifecycle::lock_live_project(&mut tx, project_id).await? {
+            return Ok(LaneDeleteOutcome::LaneNotFound);
+        }
+
         // 1. Lock the dying lane. Absent (incl. the double-submit race) →
         //    the uniform non-enumerable 404.
         let lane: Option<(uuid::Uuid,)> =
@@ -538,8 +545,10 @@ impl Store {
     /// against a real Postgres: `slug`, `position` and every `issues.state`
     /// are unchanged by it.
     ///
-    /// No transaction and no lock (DD7): last-write-wins on a display label is
-    /// acceptable, and no invariant depends on the ordering of two renames.
+    /// No lane lock (DD7): last-write-wins on a display label is acceptable,
+    /// and no invariant depends on the ordering of two renames. One
+    /// transaction all the same, for the live-project guard (project-lifecycle
+    /// DDD-7): a deleted project's lane is not found.
     pub async fn rename_lane(
         &self,
         project_id: uuid::Uuid,
@@ -551,14 +560,19 @@ impl Store {
         // so touching it would rewrite every issue in the lane; `position`
         // belongs to the insert path. Verified against a real Postgres — after
         // this statement, slug, position and every issues.state are unchanged.
+        let mut tx = self.pool().begin().await?;
+        if !crate::project_lifecycle::lock_live_project(&mut tx, project_id).await? {
+            return Ok(false);
+        }
         let affected =
             sqlx::query("UPDATE lanes SET label = $3 WHERE project_id = $1 AND slug = $2")
                 .bind(project_id)
                 .bind(lane_slug)
                 .bind(new_label)
-                .execute(self.pool())
+                .execute(&mut *tx)
                 .await?
                 .rows_affected();
+        tx.commit().await?;
         Ok(affected == 1)
     }
 
@@ -597,6 +611,13 @@ impl Store {
         new_label: &str,
     ) -> Result<LaneInsertOutcome, StoreError> {
         let mut tx = self.pool().begin().await?;
+
+        // 0. The live-project guard, before the lane locks (project-lifecycle
+        //    DDD-7, DDD-8: project before children). A deleted project's
+        //    anchor is not found.
+        if !crate::project_lifecycle::lock_live_project(&mut tx, project_id).await? {
+            return Ok(LaneInsertOutcome::AnchorNotFound);
+        }
 
         // 1. Serialize on THIS project's lane rows. Without this, two
         //    concurrent inserts at one anchor hand the loser a raw
@@ -706,6 +727,13 @@ impl Store {
         before_slug: Option<&str>,
     ) -> Result<LaneMoveOutcome, StoreError> {
         let mut tx = self.pool().begin().await?;
+
+        // 0. The live-project guard, before the lane locks (project-lifecycle
+        //    DDD-7, DDD-8: project before children). A deleted project's
+        //    mover is not found.
+        if !crate::project_lifecycle::lock_live_project(&mut tx, project_id).await? {
+            return Ok(LaneMoveOutcome::MoverNotFound);
+        }
 
         // 1. Serialize on THIS project's lane rows — the same idiom
         //    `insert_lane_at` and `delete_lane_with_fate` use.
