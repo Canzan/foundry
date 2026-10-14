@@ -885,6 +885,24 @@ pub struct TeamDeletePage {
     pub refusal: Option<String>,
 }
 
+/// project-lifecycle `GET /team/{t}/project/{p}/delete` (DDD-12, D7, D14): the
+/// question, the issue-count line, the nothing-erased line, the Delete project
+/// form and Cancel back to the members page. No typed name (OQ-5).
+#[derive(Debug, Clone, Template)]
+#[template(path = "project_delete.html")]
+pub struct ProjectDeletePage {
+    pub nav: crate::nav::NavContext,
+    pub csrf: String,
+    pub team_slug: String,
+    pub project_slug: String,
+    /// "Delete {project}?"
+    pub heading: String,
+    /// "{project} ({KEY}) has {n} issue(s). After it is deleted, ..."
+    pub count_line: String,
+    /// "Nothing is erased. The instance operator can restore {project} ..."
+    pub nothing_erased_line: String,
+}
+
 /// A members-page row: "{name} · {email} · {Lead|Member}" (D8).
 #[derive(Debug, Clone)]
 pub struct TeamMemberLine {

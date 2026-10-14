@@ -37,6 +37,8 @@
 //!                                  200, no notice; a name refusal → 422 members
 //!                                  page with the reason and the text kept in that
 //!                                  project's row.
+//!   GET  /team/{slug}/project/{project}/delete — needs Manage (project-lifecycle
+//!                                  DDD-12/23): the confirm page; it writes nothing.
 //!   GET  /team/{slug}/delete     — needs Administer (team-lifecycle DDD-10): the
 //!                                  confirm page; it writes nothing.
 //!   POST /team/{slug}/delete     — needs Administer (DDD-18): Deleted → 200 teams
@@ -52,8 +54,8 @@ use crate::bootstrap::{resource_not_found_page, SessionUser};
 use crate::csrf::{ensure_csrf_cookie, response_with_optional_cookie};
 use crate::session::SESSION_KEY_USER_ID;
 use crate::views::{
-    CreateTeamForm, DefaultTeamForm, DefaultTeamOption, TeamCandidateOption, TeamDeletePage,
-    TeamIndexRow, TeamMemberLine, TeamMembersPage, TeamProjectLine, TeamsIndexPage,
+    CreateTeamForm, DefaultTeamForm, DefaultTeamOption, ProjectDeletePage, TeamCandidateOption,
+    TeamDeletePage, TeamIndexRow, TeamMemberLine, TeamMembersPage, TeamProjectLine, TeamsIndexPage,
 };
 use crate::AppState;
 use askama::Template;
@@ -62,7 +64,9 @@ use axum::http::header::HeaderMap;
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
 use foundry_core::TeamRole;
-use foundry_services::projects::{RenameProjectError, TeamProjectRename};
+use foundry_services::projects::{
+    ProjectDeletePreview, ProjectLifecycleError, RenameProjectError, TeamProjectRename,
+};
 use foundry_services::teams::{
     AddMemberResult, CreateTeamError, RemoveMemberResult, RenameTeamError, RoleChangeResult,
     TeamDeletePreview, TeamDeletion, TeamError, TeamMembersView, TeamRenaming, TeamsIndex,
@@ -146,6 +150,19 @@ pub enum TeamNotice {
     },
     /// project-lifecycle DDD-25: "{team} has no projects yet."
     NoProjectsYet { team: String },
+    /// project-lifecycle D14/DDD-26: the delete page's question, "Delete {project}?"
+    ProjectDeleteHeading { project: String },
+    /// project-lifecycle D14/DDD-26: "{project} ({KEY}) has {n} issue(s). After
+    /// it is deleted, nobody can open its board, its issues or its report, and
+    /// links to {KEY} issues stop working."
+    ProjectDeleteCount {
+        project: String,
+        key: String,
+        issues: i64,
+    },
+    /// project-lifecycle D14/DDD-26: "Nothing is erased. The instance operator
+    /// can restore {project} with every issue, comment and attachment."
+    ProjectDeleteNothingErased { project: String },
 }
 
 impl fmt::Display for TeamNotice {
@@ -212,6 +229,21 @@ impl fmt::Display for TeamNotice {
                 write!(f, "Renamed {old} to {new}.")
             }
             Self::NoProjectsYet { team } => write!(f, "{team} has no projects yet."),
+            Self::ProjectDeleteHeading { project } => write!(f, "Delete {project}?"),
+            Self::ProjectDeleteCount {
+                project,
+                key,
+                issues,
+            } => write!(
+                f,
+                "{project} ({key}) has {issues} issue(s). After it is deleted, nobody can open \
+                 its board, its issues or its report, and links to {key} issues stop working."
+            ),
+            Self::ProjectDeleteNothingErased { project } => write!(
+                f,
+                "Nothing is erased. The instance operator can restore {project} with every \
+                 issue, comment and attachment."
+            ),
             Self::HasProjects { team, projects } => {
                 let mut ordered: Vec<&(String, String)> = projects.iter().collect();
                 ordered.sort();
@@ -614,6 +646,61 @@ pub async fn submit_project_rename(
         }
         Err(err) => refusal(err),
     }
+}
+
+// ------------------------------------- GET /team/{slug}/project/{p}/delete
+
+/// Gate order (DDD-18): session (none → 404) → the use-case (team facts by
+/// session workspace + slug, `can_manage`, the live project by (team, slug),
+/// else the uniform 404) → the confirm page (DDD-12). Read-only; the issue
+/// count is advisory (the POST decides).
+pub async fn show_project_delete(
+    State(state): State<AppState>,
+    session: Session,
+    headers: HeaderMap,
+    Path((team_slug, project_slug)): Path<(String, String)>,
+) -> Response {
+    let Some(user) = signed_in_user(&session).await else {
+        return resource_not_found_page();
+    };
+    let services = Services::new(state.store.clone());
+    let preview = match services
+        .project_delete_preview(&principal_of(&user), &team_slug, &project_slug)
+        .await
+    {
+        Ok(preview) => preview,
+        Err(ProjectLifecycleError::NotFound) => return resource_not_found_page(),
+        Err(ProjectLifecycleError::Store(err)) => return refusal(TeamError::Store(err)),
+    };
+    let ProjectDeletePreview {
+        team_slug,
+        project_name,
+        key_prefix,
+        issue_count,
+        ..
+    } = preview;
+    let (csrf, set_cookie) = ensure_csrf_cookie(&state, &headers);
+    let page = ProjectDeletePage {
+        nav: nav_for(&state, &user, csrf.clone()).await,
+        csrf,
+        team_slug,
+        project_slug,
+        heading: TeamNotice::ProjectDeleteHeading {
+            project: project_name.clone(),
+        }
+        .to_string(),
+        count_line: TeamNotice::ProjectDeleteCount {
+            project: project_name.clone(),
+            key: key_prefix,
+            issues: issue_count,
+        }
+        .to_string(),
+        nothing_erased_line: TeamNotice::ProjectDeleteNothingErased {
+            project: project_name,
+        }
+        .to_string(),
+    };
+    render(page.render(), StatusCode::OK, set_cookie)
 }
 
 // ----------------------------------------------------- GET /team/{slug}/delete

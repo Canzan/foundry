@@ -58,7 +58,7 @@ Feature: A team's lead or a workspace admin deletes a project, told first what h
 
   # ------------------------------------------------------------ deletes that go through
 
-  @us-pl-02 @driving_port @pending @contract-shape:unbounded-preservation
+  @us-pl-02 @driving_port @contract-shape:unbounded-preservation
   Scenario: The delete page says what happens before anything does
     Given Auth v2 Spike has 3 issues, 2 comments and 1 attachment
     When Lena follows Delete project on Auth v2 Spike's row of Backend's members page
@@ -88,7 +88,7 @@ Feature: A team's lead or a workspace admin deletes a project, told first what h
     And Auth v2 Spike's next issue is still SPIKE-4
     And Auth v2 Spike is deleted by Lena Park, one delete record names Lena Park, and nothing else changed
 
-  @us-pl-02 @edge @pending @contract-shape:unbounded-preservation
+  @us-pl-02 @edge @contract-shape:unbounded-preservation
   Scenario: The delete page of a project with no issues says so
     When Priya follows Delete project on Reading List's row of Ops's members page
     Then the delete page asks "Delete Reading List?"
@@ -102,7 +102,7 @@ Feature: A team's lead or a workspace admin deletes a project, told first what h
     Then she sees "Deleted Reading List."
     And Reading List is deleted by Priya Raman, one delete record names Priya Raman, and nothing else changed
 
-  @us-pl-02 @edge @pending @contract-shape:unbounded-preservation
+  @us-pl-02 @edge @contract-shape:unbounded-preservation
   Scenario: Cancel goes back to the team, and nothing changes
     Given Lena opened the delete page of the project Auth v2 Spike earlier
     When Lena cancels the delete page she opened earlier
@@ -123,7 +123,7 @@ Feature: A team's lead or a workspace admin deletes a project, told first what h
 
   # ------------------------------------------------------------ refusals
 
-  @us-pl-02 @error @kpi @pending @contract-shape:unbounded-preservation
+  @us-pl-02 @error @kpi @contract-shape:unbounded-preservation
   Scenario Outline: Only the team's lead or a workspace admin may open a project's delete page
     When <who> asks for the delete page of the project <project>
     Then the answer is the page that never existed
