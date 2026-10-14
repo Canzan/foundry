@@ -58,6 +58,7 @@
 //! foundry doctor backup-verify /backups/foundry-2026-05-22.dump
 //! ```
 
+use foundry_store::CommentRestoreOutcome;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::str::FromStr;
@@ -506,60 +507,24 @@ pub fn run_restore_comment(comment_id: &str) -> i32 {
                 }
             };
 
-            // (5) Run the UPDATE. Returns rows_affected (0 or 1). On a
-            // sqlx error mid-UPDATE we surface it as exit 3 (the live DB
-            // was reachable to connect but the query itself failed —
-            // grouping with "DB-side failure").
+            // (5) Restore through the store's guarded transaction. Every
+            // case but `Restored` is exit 4 per D6 = A, each with its own
+            // diagnostic; a sqlx error is exit 3 (the live DB was reachable
+            // to connect but the transaction failed — "DB-side failure").
             match store.undelete_comment(uuid).await {
-                Ok(1) => {
+                Ok(CommentRestoreOutcome::Restored) => {
                     println!("comment-id: {uuid}");
                     println!("status: restored");
                     0
                 }
-                Ok(0) => {
-                    // Diagnostic distinguishes "not found" vs "not
-                    // tombstoned" via a SELECT round-trip; exit code is
-                    // still 4 in both cases per D6 = A. The SELECT is
-                    // best-effort — if it fails we still report exit 4
-                    // (the primary UPDATE result is the contract).
-                    let pool = store.pool();
-                    let exists: Result<(bool,), _> =
-                        sqlx::query_as("SELECT EXISTS (SELECT 1 FROM comments WHERE id = $1)")
-                            .bind(uuid)
-                            .fetch_one(pool)
-                            .await;
-                    eprintln!("comment-id: {uuid}");
-                    match exists {
-                        Ok((true,)) => {
-                            eprintln!(
-                                "foundry doctor restore-comment: comment {uuid} is \
-                             not currently tombstoned — status: not restorable"
-                            );
-                        }
-                        Ok((false,)) => {
-                            eprintln!(
-                                "foundry doctor restore-comment: comment {uuid} not \
-                             in database — status: not restorable"
-                            );
-                        }
-                        Err(_) => {
-                            eprintln!(
-                                "foundry doctor restore-comment: UPDATE matched 0 \
-                             rows — status: not restorable"
-                            );
-                        }
-                    }
-                    4
+                Ok(CommentRestoreOutcome::NotTombstoned) => {
+                    comment_not_restorable(uuid, "is not currently tombstoned")
                 }
-                Ok(other) => {
-                    // Should be unreachable (UPDATE ... WHERE id = $1 can
-                    // only affect 0 or 1 rows because `id` is the PK), but
-                    // we degrade safely rather than panic on a corrupted DB.
-                    eprintln!(
-                        "foundry doctor restore-comment: unexpected rows_affected = \
-                     {other} for comment {uuid}; status: not restorable"
-                    );
-                    4
+                Ok(CommentRestoreOutcome::NotFound) => {
+                    comment_not_restorable(uuid, "not in database")
+                }
+                Ok(CommentRestoreOutcome::ProjectDeleted { project_id }) => {
+                    comment_not_restorable(uuid, &format!("is in deleted project {project_id}"))
                 }
                 Err(err) => {
                     eprintln!(
@@ -579,6 +544,16 @@ pub fn run_restore_comment(comment_id: &str) -> i32 {
         );
         3
     })
+}
+
+/// `restore-comment`'s exit 4 (D6 = A): the comment id, then why it is not
+/// restorable.
+fn comment_not_restorable(comment_id: uuid::Uuid, why: &str) -> i32 {
+    eprintln!("comment-id: {comment_id}");
+    eprintln!(
+        "foundry doctor restore-comment: comment {comment_id} {why} — status: not restorable"
+    );
+    4
 }
 
 /// multi-workspace-provisioning (US-MWT07, ADR-002/003) — entry point invoked

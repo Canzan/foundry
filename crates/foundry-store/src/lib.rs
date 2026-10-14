@@ -381,6 +381,27 @@ impl Store {
                 project_records.0
             )));
         }
+        // project-lifecycle DDD-28: every project reader goes through
+        // `live_projects` and every delete writes the marker; against a
+        // pre-0026 schema refuse readiness. Scoped as above.
+        let (marker_cols, live_view): (i64, bool) = sqlx::query_as(
+            "SELECT (SELECT count(*)::bigint
+                       FROM information_schema.columns
+                      WHERE table_schema = current_schema()
+                        AND table_name = 'projects'
+                        AND column_name IN ('deleted_at', 'deleted_by')),
+                    EXISTS (SELECT 1 FROM information_schema.views
+                             WHERE table_schema = current_schema()
+                               AND table_name = 'live_projects')",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        if marker_cols < 2 || !live_view {
+            return Err(ProbeError::Failed(format!(
+                "projects missing migration-0026 soft delete: deleted_at/deleted_by \
+                 found {marker_cols} of 2, live_projects view present {live_view}"
+            )));
+        }
         Ok(ProbeReport {
             select_one_ok: true,
             round_trip_ms: started.elapsed().as_millis(),
@@ -3291,17 +3312,20 @@ impl Store {
     }
 
     /// Restore a soft-deleted comment by clearing `deleted_at` +
-    /// `deleted_by`. Returns the number of rows affected:
-    ///   - `1` — the comment existed AND was tombstoned (now restored).
-    ///   - `0` — the comment doesn't exist OR is already live.
+    /// `deleted_by`, unless its project is deleted (project-lifecycle DDD-7,
+    /// ADR-PROJECT-LIFECYCLE-002 decision 2).
     ///
-    /// Idempotent: re-invoking on an already-restored row is a no-op
-    /// zero-return, not an error. Per ADR-016 / D6 = A the CLI dispatch
-    /// maps `0` to exit code 4 ("not restorable") and `1` to exit code
-    /// 0 ("restored"). NO outbox event is emitted — operator-driven
-    /// restoration is an out-of-band moderation reversal, not a
-    /// user-visible state change worth fanning out (the issue page's
-    /// next render reflects the restored row naturally).
+    /// One transaction: the comment's project (comment → issue →
+    /// `issues.project_id`), then [`project_lifecycle::lock_live_project`],
+    /// then the `UPDATE`. The [`CommentRestoreOutcome`] tells every case apart,
+    /// so the CLI (`restore-comment`) maps it without SQL: `Restored` → exit 0,
+    /// every other case → exit 4 ("not restorable") per ADR-016 / D6 = A.
+    ///
+    /// Idempotent: re-invoking on an already-restored row is `NotTombstoned`,
+    /// not an error. NO outbox event is emitted — operator-driven restoration
+    /// is an out-of-band moderation reversal, not a user-visible state change
+    /// worth fanning out (the issue page's next render reflects the restored
+    /// row naturally).
     ///
     /// **Id-only, operator-CLI-only.** The row is addressed by `comment_id`
     /// alone — no issue, project or workspace predicate — because its one
@@ -3310,16 +3334,40 @@ impl Store {
     /// (web or API) as it stands: a tenant door needs a `(comment id, issue
     /// id)`-scoped variant, the issue resolved from the URL within the acting
     /// workspace, exactly as the edit and soft-delete statements are scoped.
-    pub async fn undelete_comment(&self, comment_id: uuid::Uuid) -> Result<u64, StoreError> {
+    pub async fn undelete_comment(
+        &self,
+        comment_id: uuid::Uuid,
+    ) -> Result<CommentRestoreOutcome, StoreError> {
+        let mut tx = self.pool.begin().await?;
+        let project: Option<(uuid::Uuid,)> = sqlx::query_as(
+            "SELECT i.project_id FROM comments c JOIN issues i ON i.id = c.issue_id
+              WHERE c.id = $1",
+        )
+        .bind(comment_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some((project_id,)) = project else {
+            tx.rollback().await?;
+            return Ok(CommentRestoreOutcome::NotFound);
+        };
+        if !project_lifecycle::lock_live_project(&mut tx, project_id).await? {
+            tx.rollback().await?;
+            return Ok(CommentRestoreOutcome::ProjectDeleted { project_id });
+        }
         let outcome = sqlx::query(
             "UPDATE comments
                 SET deleted_at = NULL, deleted_by = NULL
               WHERE id = $1 AND deleted_at IS NOT NULL",
         )
         .bind(comment_id)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?;
-        Ok(outcome.rows_affected())
+        tx.commit().await?;
+        Ok(if outcome.rows_affected() == 0 {
+            CommentRestoreOutcome::NotTombstoned
+        } else {
+            CommentRestoreOutcome::Restored
+        })
     }
 
     // ----- US-W05b machine-token registry / denylist ---------------------
@@ -4027,6 +4075,20 @@ async fn scoped_migration_lock_id(pool: &PgPool) -> Result<i64, sqlx::Error> {
         hash = hash.wrapping_mul(0x100_0000_01b3);
     }
     Ok(hash as i64)
+}
+
+/// The outcome of [`Store::undelete_comment`] (`foundry doctor
+/// restore-comment`; project-lifecycle DDD-7, U4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommentRestoreOutcome {
+    /// The tombstone is cleared.
+    Restored,
+    /// The comment exists and is live; nothing was written.
+    NotTombstoned,
+    /// No comment with that id; nothing was written.
+    NotFound,
+    /// The comment's project is deleted; nothing was written.
+    ProjectDeleted { project_id: uuid::Uuid },
 }
 
 /// Report returned by [`run_migrations_from_dir`] so US-04 acceptance

@@ -838,7 +838,6 @@ async fn columns_of(pool: &PgPool, relation: &str) -> Vec<(String, String)> {
 }
 
 #[tokio::test]
-#[ignore = "pending: project-lifecycle 02-01 — migration 0026, live_projects view parity"]
 async fn live_projects_has_exactly_the_columns_of_projects_in_order() {
     let (pool, _c) = fresh().await;
     run_migrations(&pool).await.expect("apply every migration");
@@ -871,7 +870,6 @@ async fn live_projects_still_has_exactly_the_columns_of_projects_after_the_detac
 }
 
 #[tokio::test]
-#[ignore = "pending: project-lifecycle 02-01 — migration 0026, projects_deleted_marker_shape"]
 async fn the_deleted_marker_is_both_columns_or_neither() {
     let l = lab().await;
     require_soft_delete(&l.pool).await;
@@ -1232,7 +1230,6 @@ async fn a_write_waiting_on_a_delete_that_rolls_back_goes_through() {
 /// `restore-comment` inside a deleted project changes nothing and names the
 /// reason (ADR-PROJECT-LIFECYCLE-002 decision 2; exit 4 at the CLI).
 #[tokio::test]
-#[ignore = "pending: project-lifecycle 02-01 — undelete_comment's typed project-deleted outcome"]
 async fn restoring_a_comment_inside_a_deleted_project_changes_nothing_and_says_why() {
     let l = lab().await;
     require_soft_delete(&l.pool).await;
@@ -1326,7 +1323,6 @@ async fn the_team_project_list_omits_a_deleted_project() {
 /// D13, DDD-31: the per-workspace export still carries a deleted project,
 /// marked by its own `deleted_at` / `deleted_by`.
 #[tokio::test]
-#[ignore = "pending: project-lifecycle 02-01 — migration 0026 (the export carries the marker)"]
 async fn the_workspace_export_keeps_a_deleted_project_marked_deleted() {
     let l = lab().await;
     require_soft_delete(&l.pool).await;

@@ -21,8 +21,8 @@
 //! `tests/team_lifecycle_migrations.rs`.
 //!
 //! project-lifecycle (DDD-29) generalises this from one version to a list:
-//! 0025 (`project_lifecycle_events`) warns the same way, pinned by
-//! `tests/project_lifecycle_migrations.rs`.
+//! 0025 (`project_lifecycle_events`) and 0026 (`live_projects`, `deleted_by`)
+//! warn the same way, pinned by `tests/project_lifecycle_migrations.rs`.
 
 use crate::MigrationReport;
 
@@ -39,21 +39,21 @@ references workspaces and users. A database dump taken before 0025 can no longer
 over this database with pg_restore --clean: restore it into a fresh database, or drop \
 project_lifecycle_events first.";
 
-// SCAFFOLD: true — RED scaffold written by DISTILL (2026-10-13). project-lifecycle
-// DDD-29: migration 0026 (the `live_projects` view over `projects`, `deleted_by`
-// → `users`) breaks `pg_restore --clean` of an older dump. The text is empty and
-// `upgrade_warnings` does not return it until DELIVER 02-01;
-// `tests/project_lifecycle_migrations.rs` pins it.
-
-/// The boot's warning when it upgrades through migration 0026 (scaffold: empty).
-pub const UPGRADE_WARNING_0026: &str = "";
+/// The boot's warning when it upgrades through migration 0026
+/// (project-lifecycle DDD-29): the `live_projects` view depends on `projects`
+/// and `projects.deleted_by` references `users`.
+pub const UPGRADE_WARNING_0026: &str = "Migration 0026 added the live_projects view over \
+projects and projects.deleted_by, which references users. A database dump taken before 0026 can \
+no longer be restored over this database with pg_restore --clean: restore it into a fresh \
+database, or drop live_projects and projects.deleted_by first.";
 
 /// Every migration version whose upgrade warns, with its warning, in version
 /// order (DEVOPS "Migrations, probe and upgrade warnings": the list form).
-/// 0025 is not listed yet: the shipped pin in `tests/team_lifecycle_migrations.rs`
-/// (`only_the_boot_that_upgrades_through_0023_warns_…`) expects a boot from 0022
-/// to the latest migration to warn 0023 alone; it is reconciled before 0025 joins.
-const WARNED_VERSIONS: [(i64, &str); 1] = [(23, UPGRADE_WARNING_0023)];
+const WARNED_VERSIONS: [(i64, &str); 3] = [
+    (23, UPGRADE_WARNING_0023),
+    (25, UPGRADE_WARNING_0025),
+    (26, UPGRADE_WARNING_0026),
+];
 
 /// The warnings for this boot, in version order: one per warned version this
 /// boot applied (`report.applied` contains it) on top of migrations already

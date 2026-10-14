@@ -46,6 +46,32 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
     DROP TABLE IF EXISTS project_lifecycle_events;
     ```
 
+- **`0026_project_soft_delete`** adds the deleted marker to `projects`: `deleted_at`
+  (timestamptz) and `deleted_by` (references `users`, no `ON DELETE` action), both empty for a
+  live project, with the CHECK `projects_deleted_marker_shape` (both set or both empty). It also
+  creates the view `live_projects` (`SELECT * FROM projects WHERE deleted_at IS NULL`), which
+  has exactly the columns of `projects` in their order.
+  - **Additive.** Both columns are new and empty, so every existing project stays live; no
+    existing row is read or written. The migration checks its own result and refuses to apply
+    if the marker or its CHECK is missing, or if the columns of `live_projects` differ from
+    those of `projects`, naming `live_projects`. A later migration that adds a column to
+    `projects` recreates the view in the same file.
+  - **In the per-workspace export.** A deleted project is still exported, with its
+    `deleted_at` and `deleted_by`.
+  - **Readiness:** `Store::probe` now requires `projects.deleted_at`, `projects.deleted_by` and
+    `live_projects`, so a binary from this release refuses `/readyz` against a schema without
+    them.
+  - **`foundry doctor restore-comment`** on a comment inside a deleted project changes nothing
+    and exits 4 (`status: not restorable`), naming the project.
+  - **Rollback is safe.** An older release boots against the migrated database and never reads
+    the marker or the view. To remove them by hand, while no project is deleted:
+
+    ```sql
+    DROP VIEW IF EXISTS live_projects;
+    ALTER TABLE projects DROP CONSTRAINT IF EXISTS projects_deleted_marker_shape,
+        DROP COLUMN IF EXISTS deleted_by, DROP COLUMN IF EXISTS deleted_at;
+    ```
+
 ### Backups
 
 - **A whole-instance dump taken before 0025 no longer restores over the upgraded database.**
@@ -53,6 +79,13 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
   older dump cannot drop those tables and fails. Restore such a dump into a fresh, empty
   database and boot foundry against it, which applies the newer migrations (or run
   `DROP TABLE project_lifecycle_events;` first). Dumps taken after the upgrade restore normally.
+- **A whole-instance dump taken before 0026 no longer restores over the upgraded database.**
+  The view `live_projects` depends on `projects`, and `projects.deleted_by` references `users`,
+  so `pg_restore --clean` of an older dump cannot drop those tables and fails. Restore such a
+  dump into a fresh, empty database and boot foundry against it, which applies the newer
+  migrations (or drop `live_projects` and `projects.deleted_by` first). Dumps taken after the
+  upgrade restore normally. A boot that upgrades through 0025 and 0026 logs one warning for
+  each, in that order; a fresh install logs none.
 
 ## [v0.14.1] - 2026-10-13
 

@@ -29,7 +29,7 @@
 
 use foundry_store::{
     run_boot_migrations_from_dir, run_migrations, run_migrations_from_dir, upgrade_warnings,
-    MigrationReport, Store, UPGRADE_WARNING_0023,
+    MigrationReport, Store, UPGRADE_WARNING_0023, UPGRADE_WARNING_0025, UPGRADE_WARNING_0026,
 };
 use sqlx::postgres::{PgDatabaseError, PgPoolOptions};
 use sqlx::PgPool;
@@ -523,8 +523,12 @@ async fn only_the_boot_that_upgrades_through_0023_warns_and_a_fresh_install_does
     assert!(upgrade.applied.contains(&23), "{upgrade:?}");
     assert_eq!(
         upgrade_warnings(&upgrade),
-        vec![UPGRADE_WARNING_0023],
-        "the boot that upgrades through 0023 warns exactly once"
+        vec![
+            UPGRADE_WARNING_0023,
+            UPGRADE_WARNING_0025,
+            UPGRADE_WARNING_0026
+        ],
+        "the boot that upgrades through 0023 warns 0023 exactly once, then 0025 and 0026 in version order"
     );
     let again = run_boot_migrations_from_dir(&pool, &production_migrations_dir())
         .await

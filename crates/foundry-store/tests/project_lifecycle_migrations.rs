@@ -303,7 +303,6 @@ async fn the_probe_refuses_a_schema_without_the_project_lifecycle_record() {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-#[ignore = "pending: project-lifecycle 02-01 — migration 0026 is additive; every project stays live"]
 async fn migration_0026_is_additive_and_every_existing_project_is_live() {
     require_0026();
     let (pool, _c) = fresh().await;
@@ -338,7 +337,6 @@ async fn migration_0026_is_additive_and_every_existing_project_is_live() {
 /// forgets to recreate `live_projects` is a refused boot, never a silent drift.
 /// Kills the hand-table fault "0026 without its parity self-check".
 #[tokio::test]
-#[ignore = "pending: project-lifecycle 02-01 — migration 0026's view-parity self-check refuses a drifted view"]
 async fn migration_0026_refuses_a_live_view_whose_columns_differ_from_projects() {
     require_0026();
     let (pool, _c) = fresh().await;
@@ -372,7 +370,6 @@ fn regex_lite_view(sql: &str) -> Option<String> {
 }
 
 #[tokio::test]
-#[ignore = "pending: project-lifecycle 02-01 — the probe requires deleted_at, deleted_by and live_projects"]
 async fn the_probe_refuses_a_schema_without_the_deleted_marker_or_the_live_view() {
     require_0026();
     let (pool, _c) = fresh().await;
@@ -481,7 +478,6 @@ fn the_0025_warning_names_the_migration_the_table_and_the_supported_restore() {
 }
 
 #[test]
-#[ignore = "pending: project-lifecycle 02-01 — UPGRADE_WARNING_0026 text"]
 fn the_0026_warning_names_the_migration_the_view_and_the_supported_restore() {
     for phrase in [
         "0026",
@@ -500,7 +496,6 @@ fn the_0026_warning_names_the_migration_the_view_and_the_supported_restore() {
 /// warning per warned version this boot applied on top of earlier ones, in
 /// version order; none for a fresh install; none for 0027.
 #[test]
-#[ignore = "pending: project-lifecycle 02-01 — upgrade_warnings returns 0025 and 0026"]
 fn a_report_warns_once_per_warned_version_this_boot_upgraded_through() {
     let report = |applied: Vec<i64>, already_applied: Vec<i64>| MigrationReport {
         applied,
@@ -548,7 +543,6 @@ fn a_report_warns_once_per_warned_version_this_boot_upgraded_through() {
 /// from 0024 through the latest warns 0025 and 0026 exactly once; the next boot
 /// warns nothing.
 #[tokio::test]
-#[ignore = "pending: project-lifecycle 02-01 — the boot logs 0025 and 0026 once"]
 async fn only_the_boot_that_upgrades_through_0025_and_0026_warns_and_a_fresh_install_does_not() {
     require_0025();
     require_0026();

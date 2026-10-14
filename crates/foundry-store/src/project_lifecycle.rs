@@ -93,15 +93,23 @@ pub struct TeamDeletedProjects {
     pub deleted_projects: Vec<(String, String)>,
 }
 
-/// The live-project write guard (DDD-7, ADR-PROJECT-LIFECYCLE-002 decision 2):
-/// `SELECT 1 FROM projects WHERE id = $1 AND deleted_at IS NULL FOR KEY SHARE`,
-/// the first statement of every project-scoped writer's transaction.
-#[allow(dead_code)]
+/// The live-project write guard (DDD-7, ADR-PROJECT-LIFECYCLE-002 decision 2;
+/// DIST-10): `FOR KEY SHARE` on the project's row through `live_projects`,
+/// taken inside the transaction that then performs the write, before its first
+/// write. `true` while the project is live, and the row stays locked until the
+/// transaction ends, so a delete (`FOR UPDATE`) waits for the write and a write
+/// queued behind a delete sees no live row; `false` for an unknown or deleted
+/// project. Writes nothing.
 pub(crate) async fn lock_live_project(
-    _tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    _project_id: uuid::Uuid,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    project_id: uuid::Uuid,
 ) -> Result<bool, sqlx::Error> {
-    panic!("Not yet implemented -- RED scaffold (project-lifecycle 02-01: lock_live_project)")
+    let live: Option<(i32,)> =
+        sqlx::query_as("SELECT 1 FROM live_projects WHERE id = $1 FOR KEY SHARE")
+            .bind(project_id)
+            .fetch_optional(&mut **tx)
+            .await?;
+    Ok(live.is_some())
 }
 
 impl Store {
