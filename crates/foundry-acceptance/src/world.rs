@@ -374,6 +374,9 @@ pub struct FoundryWorld {
     // ---- team-lifecycle (US-TL-01..05) ----
     pub tl: crate::support::team_lifecycle::TlState,
 
+    // ---- project-lifecycle (US-PL-01..05) ----
+    pub pl: crate::support::project_lifecycle::PlState,
+
     // ---- US-05+ in-process harness ----
     pub harness: Option<InProcHarness>,
     pub http: Option<reqwest::Client>,

@@ -545,11 +545,15 @@ features:
     job: job-project-lifecycle
     source: docs/feature/project-lifecycle/feature-delta.md   # "## Wave: DISCUSS / [REF] Outcome KPIs"
     devops: docs/feature/project-lifecycle/feature-delta.md   # "## Wave: DEVOPS / [REF] Monitoring contracts"
+    distill: docs/feature/project-lifecycle/feature-delta.md  # "## Wave: DISTILL"
     runtime_telemetry: none   # homelab: acceptance oracles, store gold tests, read-only queries, operator report
-    lane: "default lane: FOUNDRY_ACCEPTANCE_TAGS=project-lifecycle (per slice pl-01 .. pl-04; tag names proposed by DEVOPS, pinned by DISTILL); store: cargo test -p foundry-store --test project_lifecycle --test team_delete --test project_lifecycle_migrations --test probe_schema_scoping; use-case: cargo test -p foundry-services --test rename_project_use_case --test project_lifecycle_use_cases; check-arch gold tests: cargo test -p xtask. CLI scenarios need a rebuilt, warm release foundry binary"
-    # DEVOPS (2026-10-13). Nothing built, deployed or pushed. DISTILL links each
-    # acceptance instrument to its scenarios; DELIVER records `measured:`.
-    status: planned
+    lane: "default lane: FOUNDRY_ACCEPTANCE_TAGS=project-lifecycle (per slice pl-01 .. pl-04, pinned by DISTILL) cargo test -p foundry-acceptance --release --test acceptance; store: cargo test -p foundry-store --release --test project_lifecycle --test project_lifecycle_migrations --test team_delete --test probe_schema_scoping; app: cargo test -p foundry-app --test project_lifecycle_copy; use-case: cargo test -p foundry-services --release --test project_lifecycle_use_cases --test rename_project_use_case; check-arch gold tests: cargo test -p xtask project_lifecycle. CLI scenarios need a rebuilt, warm release foundry binary (CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false cargo build --release -p foundry-app --bin foundry, then run it 2-3 times; DEVOPS P2)"
+    # DEVOPS (2026-10-13). Nothing built, deployed or pushed. DISTILL (2026-10-13)
+    # linked each acceptance instrument to its scenarios and gold tests below, every
+    # one @pending / #[ignore = "pending: project-lifecycle NN-NN …"] and classified
+    # RED in docs/feature/project-lifecycle/distill/red-classification.md. DELIVER
+    # records `measured:`.
+    status: distilled
     kpis:
       - id: PL-KPI-1
         name: Team leads and workspace admins rename and retire their team's projects in the product
@@ -557,7 +561,8 @@ features:
         target: "0 project renames requested of an instance admin and 0 hand-written UPDATE/DELETE on projects from the release onward"
         baseline: "every project rename was the instance dashboard or psql; every removal was psql"
         instruments:
-          - {kind: acceptance, ref: "pl-01 and pl-02 happy paths: a lead and a workspace admin rename and delete from the members page", oracle: "D14 notice; the delta writes the name only (rename) or the marker and one record (delete)"}
+          - {kind: acceptance, ref: "project-lifecycle-01 @kpi: 'A team's lead renames a project and every link to it keeps working', 'A workspace admin renames a project of a team she is not on', 'A rename made from the instance dashboard is on record too'", oracle: "D14 notice; fail-closed delta: the name only, one rename record naming the actor, on both doors"}
+          - {kind: acceptance, ref: "project-lifecycle-02 @kpi: 'A team's lead deletes a project after reading what happens'", oracle: "confirm page copy; 'Deleted {project}.'; delta: the deleted marker and one delete record, nothing else"}
           - {kind: dogfood, ref: "read-only on dev and prod: SELECT kind, count(*) FROM project_lifecycle_events GROUP BY kind"}
           - {kind: dogfood, ref: "operator report at each dogfood and 30 days after release"}
         gate: soft
@@ -573,7 +578,8 @@ features:
         instruments:
           - {kind: acceptance, ref: "crates/foundry-store/tests/project_lifecycle.rs: delete checksum snapshot, restore equals the pre-delete snapshot, the 100-run delete-versus-issue-create race", oracle: "0 lost issues, 0 unmapped errors; snapshot equality scoped per Changed Assumption 3"}
           - {kind: acceptance, ref: "crates/foundry-store/tests/team_delete.rs: the 100-run restore-versus-team-delete race", oracle: "0 lost projects, 0 lost issues"}
-          - {kind: acceptance, ref: "pl-02 / pl-03 before-and-after counts (issues, comments live and tombstoned, attachments, change events, lanes, outbox, next_issue_number)", oracle: "equal counts"}
+          - {kind: acceptance, ref: "project-lifecycle-02 @kpi 'Deleting a project erases none of its work'; project-lifecycle-03 @kpi 'A restored project holds exactly what it held when it was deleted'", oracle: "count and checksum per project of issues, comments (live and awaiting cleanup), attachments, history, lanes and queued notifications, plus next_issue_number: equal after the delete, and after the restore equal to the holdings noted just before the delete"}
+          - {kind: acceptance, ref: "every write scenario of project-lifecycle-01..04: the fail-closed universe includes every project's holdings", oracle: "no undeclared change under any project"}
           - {kind: dogfood, ref: "read-only counts around the slice-02, -03 and -04 dogfoods on dev"}
         gate: hard
         status: owed
@@ -582,10 +588,12 @@ features:
       - id: PL-KPI-3
         name: Deleted projects answer nowhere
         type: guardrail
-        target: "100% of the web (about 23) and API (7) address inventory answers byte-identically to a never-existed slug, for every actor and verb"
+        target: "100% of the inventory (30 web doors: 27 shipped + rename, delete page, delete; 8 API route-verbs, of which the 2 machine-token routes read no project and are exempt by user decision U1, 2026-10-13) answers a deleted project byte-identically to a never-existed slug (the live updates: their shipped 403), for every actor and verb (Lena, Sam, Priya, and the four who cannot reach Backend: a signed-out visitor, Marco, Ines, Hugo)"
         baseline: "not applicable"
         instruments:
-          - {kind: acceptance, ref: "pl-02 differential inventory outline plus the direct attachment-download assertion", oracle: "deleted response == never-existed response, byte for byte; the events route keeps its shipped 403"}
+          - {kind: acceptance, ref: "project-lifecycle-02b @kpi outline 'Every web address of a deleted project answers as one that never existed, for everyone': 30 doors (27 shipped + rename, delete page, delete) x Lena, Priya and 27 x Sam = 87 rows", oracle: "deleted == never-existed (status, content type, body); never-existed is the uniform 404, or the live updates' shipped 403 text/plain; nothing under the deleted project changed; the same door on the live Identity Platform answers otherwise"}
+          - {kind: acceptance, ref: "project-lifecycle-02b @kpi outline 'A deleted project cannot be reached by a script either, and nothing is written': 6 API route-verbs; plus the 2 machine-token rows of the edge outline (they read no project and answer alike everywhere)", oracle: "as above, the API's JSON 404"}
+          - {kind: acceptance, ref: "project-lifecycle-02b @kpi 'A deleted project's real attachment cannot be downloaded by anyone' and 'A deleted project disappears from every list, and the others stay'", oracle: "uniform 404 for Lena, Sam, Priya; dashboard, Board link, members page and instance dashboard omit it"}
           - {kind: fault, ref: "check-arch project-lifecycle-live-reads gold tests; SQL hand table: the view without deleted_at IS NULL"}
           - {kind: dogfood, ref: "slice-02 dogfood on dev: board, an issue link and an API call answer not-found"}
         gate: hard
@@ -598,7 +606,7 @@ features:
         target: "100% of the (actor x verb x project) matrix answers byte-identical 404s with 0 rows written"
         baseline: "not applicable (no routes)"
         instruments:
-          - {kind: acceptance, ref: "pl-01 and pl-02 authz outlines: signed out, Marco, a member, a lead of another team, the lead, a workspace admin, an instance admin with no workspace-admin row, Hugo (Globex), unknown and foreign slugs, a deleted project", oracle: "byte-identical 404; row counts unchanged"}
+          - {kind: acceptance, ref: "project-lifecycle-01 @kpi 'Only the team's lead or a workspace admin can rename a project' (6 rows) and 'A rename aimed at another workspace's project …'; project-lifecycle-02 @kpi 'Only the team's lead or a workspace admin may open a project's delete page' (6), '… may delete a project' (6), 'Another workspace's project and a project that does not exist look the same …'; the stale-form scenarios (INV-PL-8); the deleted-project rows of the 02b outline", oracle: "byte-identical 404; fail-closed universe unchanged; a control proves the hidden project or door exists"}
         gate: hard
         status: owed
         measurement: owed
@@ -609,7 +617,7 @@ features:
         target: "100% of addresses under the slug answer the same status after a rename and after a delete-then-restore; issue keys identical"
         baseline: "not applicable"
         instruments:
-          - {kind: acceptance, ref: "pl-01 rename scenarios and pl-03 restore scenarios", oracle: "same status per address; slug and key unchanged in the delta; next issue is SPIKE-4"}
+          - {kind: acceptance, ref: "project-lifecycle-01 'A team's lead renames a project and every link to it keeps working' (board and AUTH-7 at their old addresses); project-lifecycle-03 'The operator restores a deleted project with everything under it' (SPIKE-2 at its old address, next issue SPIKE-4)", oracle: "200 at the old addresses; address and key unchanged in the delta"}
           - {kind: dogfood, ref: "slice-01 and slice-03 dogfoods on dev: reopen a bookmark taken before"}
         gate: hard
         status: owed
@@ -621,7 +629,7 @@ features:
         target: "counted only; above 2 in the first 30 days is evidence for a web restore for workspace admins (OQ-6)"
         baseline: "0"
         instruments:
-          - {kind: acceptance, ref: "pl-03 CLI scenarios through the real foundry binary (exits 0/2/3/4)", oracle: "D14 stdout/stderr bytes and exit codes"}
+          - {kind: acceptance, ref: "project-lifecycle-03 CLI scenarios through the real foundry binary: list (blocks, oldest first, status: none), restore (0), not deleted / unknown (4), not-a-uuid (2), database unreachable (3), restore twice (4), restore-comment inside a deleted project (4)", oracle: "D14 stdout/stderr lines and exit codes"}
           - {kind: dogfood, ref: "read-only on prod at 30 days: SELECT count(*) FROM project_lifecycle_events WHERE kind = 'restored' AND created_at >= <release date>"}
           - {kind: dogfood, ref: "operator report"}
         gate: soft
@@ -635,7 +643,7 @@ features:
         baseline: "every team that ever held a project is undeletable; per-workspace counts of teams with projects taken read-only before the tag carrying 0026 (DEVOPS P7)"
         instruments:
           - {kind: acceptance, ref: "crates/foundry-store/tests/team_delete.rs: detach, mixed team refused naming live only, negative control", oracle: "every deleted project's rows survive, detached"}
-          - {kind: acceptance, ref: "pl-04 scenarios (team delete page line, live-only refusal, orphan restore exit 4)", oracle: "D14 copy; counts unchanged"}
+          - {kind: acceptance, ref: "project-lifecycle-04 @kpi 'A team whose only project is deleted can be deleted …', 'Only live projects keep a team from being deleted …', 'A delete sent for a team that still has a live project is refused …', 'A restore racing a team delete never loses a project' (5 runs); plus the orphan restore (exit 4) and the detached project on the operator's list", oracle: "D14 'also has' line; delta: the team and its rows gone, one team record, the project detached with its holdings unchanged"}
           - {kind: dogfood, ref: "slice-04 dogfood on dev; operator report (TL-KPI-5)"}
         gate: hard
         status: owed

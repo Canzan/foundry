@@ -12,6 +12,7 @@ pub mod issue_delete;
 pub mod lanes;
 #[cfg(feature = "test-support")]
 pub mod name_rule_legacy_seam;
+pub mod project_lifecycle;
 pub mod teams;
 pub mod upgrade_warnings;
 pub mod verify_export;
@@ -20,12 +21,18 @@ pub use attachments::{AttachmentInsertError, AttachmentRow, AttachmentSummary};
 pub use lanes::{InsertedIssue, LaneDeleteFate, LaneDeleteOutcome, LaneRow};
 #[cfg(feature = "test-support")]
 pub use name_rule_legacy_seam::{seed_row_predating_name_rule, NameRuleTable};
+pub use project_lifecycle::{
+    DeletedProjectRow, ProjectDeleteOutcome, ProjectRenameWrite, ProjectRestoreOutcome,
+    TeamDeletedProjects, TeamProjectRow,
+};
 pub use teams::{
     AddTeamMemberOutcome, RemoveTeamMemberOutcome, RemoveWorkspaceMemberOutcome,
     SetDefaultTeamOutcome, SetTeamRoleOutcome, TeamCreateOutcome, TeamDeleteFacts,
     TeamDeleteOutcome, TeamRenameWrite,
 };
-pub use upgrade_warnings::{upgrade_warnings, UPGRADE_WARNING_0023};
+pub use upgrade_warnings::{
+    upgrade_warnings, UPGRADE_WARNING_0023, UPGRADE_WARNING_0025, UPGRADE_WARNING_0026,
+};
 pub use verify_export::{verify_workspace_export, ArchiveContents, ArchivedTable, VerifyReport};
 
 use sqlx::postgres::PgPoolOptions;

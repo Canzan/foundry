@@ -564,3 +564,113 @@ mod classify_rename_properties {
         );
     }
 }
+
+// ===========================================================================
+// project-lifecycle: the team's rename door, delete, and the operator's
+// restore (DESIGN DDD-10, DDD-12, DDD-16, DDD-18; ADR-PROJECT-LIFECYCLE-002
+// decision 5, ADR-PROJECT-LIFECYCLE-003 decision 3)
+//
+// SCAFFOLD: true — RED scaffold written by DISTILL (2026-10-13). The types are
+// real (`tests/project_lifecycle_use_cases.rs` matches on them); every function
+// panics until its DELIVER step. Nothing in production calls them yet. The
+// shared private `apply_rename` core (DDD-16) and re-pointing `rename_project`
+// at it are DELIVER 01-02's; the signatures here are DISTILL's working choice.
+// ===========================================================================
+
+/// What a rename from the team page did (DDD-16). The old name is the one the
+/// store read under its lock, for "Renamed {old} to {new}." (D14).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TeamProjectRename {
+    Renamed {
+        old_name: String,
+        name: String,
+    },
+    /// Byte-equal: nothing written, no notice, no record (D3).
+    NoOp {
+        name: String,
+    },
+}
+
+/// Why a project lifecycle use-case did not run: everything before the verb
+/// is the uniform 404 (DDD-18).
+#[derive(Debug)]
+pub enum ProjectLifecycleError {
+    NotFound,
+    Store(foundry_store::StoreError),
+}
+
+/// The delete confirm page (D7, DDD-12): read with no lock, so the count is
+/// advisory.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProjectDeletePreview {
+    pub team_slug: String,
+    pub team_name: String,
+    pub project_name: String,
+    pub key_prefix: String,
+    pub issue_count: i64,
+}
+
+/// What a delete did: the project's name for "Deleted {project}." (D14).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProjectDeletion {
+    pub name: String,
+    pub key_prefix: String,
+}
+
+/// `POST /team/{t}/project/{p}/rename`: session → team facts by (session
+/// workspace, team slug) → `can_manage` → the live project by (team, slug) →
+/// the shared rename core. Refusals before the verb are `NotFound`; name
+/// refusals are `InvalidName`.
+pub async fn rename_team_project(
+    _store: &Store,
+    _principal: &crate::Principal,
+    _team_slug: &str,
+    _project_slug: &str,
+    _raw_name: &str,
+) -> Result<TeamProjectRename, RenameProjectError> {
+    panic!("Not yet implemented -- RED scaffold (project-lifecycle 01-02: projects::rename_team_project)")
+}
+
+/// `GET /team/{t}/project/{p}/delete`: `can_manage`, then the live project and
+/// its issue count. Read-only: no write method on its path (Principle 12).
+pub async fn delete_preview(
+    _store: &Store,
+    _principal: &crate::Principal,
+    _team_slug: &str,
+    _project_slug: &str,
+) -> Result<ProjectDeletePreview, ProjectLifecycleError> {
+    panic!(
+        "Not yet implemented -- RED scaffold (project-lifecycle 02-03: projects::delete_preview)"
+    )
+}
+
+/// `POST /team/{t}/project/{p}/delete`: `can_manage`, read once; the store's
+/// locked transaction decides (`Store::soft_delete_project`).
+pub async fn delete_project(
+    _store: &Store,
+    _principal: &crate::Principal,
+    _team_slug: &str,
+    _project_slug: &str,
+) -> Result<ProjectDeletion, ProjectLifecycleError> {
+    panic!(
+        "Not yet implemented -- RED scaffold (project-lifecycle 02-03: projects::delete_project)"
+    )
+}
+
+/// `foundry doctor list-deleted-projects` (D10): the operator's shell is the
+/// authority; no user is checked.
+pub async fn list_deleted_projects(
+    _store: &Store,
+) -> Result<Vec<foundry_store::DeletedProjectRow>, foundry_store::StoreError> {
+    panic!("Not yet implemented -- RED scaffold (project-lifecycle 03-01: projects::list_deleted_projects)")
+}
+
+/// `foundry doctor restore-project <uuid>` (D10, D11).
+pub async fn restore_project(
+    _store: &Store,
+    _project_id: uuid::Uuid,
+) -> Result<foundry_store::ProjectRestoreOutcome, foundry_store::StoreError> {
+    panic!(
+        "Not yet implemented -- RED scaffold (project-lifecycle 03-01: projects::restore_project)"
+    )
+}

@@ -317,11 +317,14 @@ pub async fn universe(world: &FoundryWorld) -> Universe {
     }
 }
 
-/// Capture the before-image a `When` is judged against (both `tm`'s and ours).
+/// Capture the before-image a `When` is judged against (`tm`'s, ours, and
+/// project-lifecycle's project and record universe, so a project-lifecycle
+/// `Then` can judge a write made through one of this feature's doors).
 pub async fn capture_before(world: &mut FoundryWorld) {
     tm::capture_before(world).await;
     let u = universe(world).await;
     world.tl.before = Some(u);
+    crate::support::project_lifecycle::capture_projects_before(world).await;
 }
 
 fn before(world: &FoundryWorld) -> Universe {
@@ -338,6 +341,16 @@ pub async fn assert_state_delta(world: &FoundryWorld, changes: &[Change]) {
     let before = before(world);
     let after = universe(world).await;
     let mut expected = before.clone();
+    apply_changes(world, &mut expected, changes);
+    assert_eq!(
+        after, expected,
+        "state delta: the universe must equal the before-image plus exactly {changes:?}"
+    );
+}
+
+/// Apply declared changes to an image of the universe (shared with the
+/// project-lifecycle driver, which judges a team delete through this one).
+pub fn apply_changes(world: &FoundryWorld, expected: &mut Universe, changes: &[Change]) {
     for change in changes {
         match change {
             Change::Created {
@@ -389,42 +402,43 @@ pub async fn assert_state_delta(world: &FoundryWorld, changes: &[Change]) {
             }
         }
     }
-    assert_eq!(
-        after, expected,
-        "state delta: the universe must equal the before-image plus exactly {changes:?}"
-    );
+}
+
+/// The before-image the last `When` captured.
+pub fn captured_before(world: &FoundryWorld) -> Universe {
+    before(world)
 }
 
 // ===========================================================================
 // Reading pages
 // ===========================================================================
 
-fn has_form(answer: &Answer, action: &str) -> bool {
+pub fn has_form(answer: &Answer, action: &str) -> bool {
     tm::forms(&answer.body).iter().any(|f| f.action == action)
 }
 
-fn has_link(answer: &Answer, text: &str) -> bool {
+pub fn has_link(answer: &Answer, text: &str) -> bool {
     let doc = parse(&answer.body);
     select_all(&doc, "a[href]")
         .into_iter()
         .any(|a| text_of(&a).split_whitespace().collect::<Vec<_>>().join(" ") == text)
 }
 
-fn has_control(answer: &Answer, text: &str) -> bool {
+pub fn has_control(answer: &Answer, text: &str) -> bool {
     let doc = parse(&answer.body);
     select_all(&doc, "a, button")
         .into_iter()
         .any(|a| text_of(&a).split_whitespace().collect::<Vec<_>>().join(" ") == text)
 }
 
-fn heading(answer: &Answer) -> Option<String> {
+pub fn heading(answer: &Answer) -> Option<String> {
     let doc = parse(&answer.body);
     select_all(&doc, "h1")
         .first()
         .map(|h| text_of(h).split_whitespace().collect::<Vec<_>>().join(" "))
 }
 
-fn field_values(answer: &Answer, field: &str) -> Vec<String> {
+pub fn field_values(answer: &Answer, field: &str) -> Vec<String> {
     tm::forms(&answer.body)
         .into_iter()
         .flat_map(|f| f.fields.into_iter())
@@ -433,7 +447,7 @@ fn field_values(answer: &Answer, field: &str) -> Vec<String> {
         .collect()
 }
 
-fn require_status(answer: &Answer, status: StatusCode, what: &str) {
+pub fn require_status(answer: &Answer, status: StatusCode, what: &str) {
     assert_eq!(answer.status, status, "{what}; {}", tm::describe(answer));
 }
 

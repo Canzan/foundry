@@ -27,7 +27,7 @@ delete is irreversible for anyone without psql.
 - **Delete project** per row on the members page, for `Manage` (D-B, D8).
 - `GET /team/{t}/project/{p}/delete`: "Delete {project}?", the issue count, the two consequence lines, **Delete project** and **Cancel** (D7, D14).
 - `POST /team/{t}/project/{p}/delete`: marks the project deleted (who, when), "Deleted {project}." on the members page (D-A).
-- Every web route under `/team/{t}/project/{p}/…` and every API route under `/api/v1/teams/{t}/projects/{p}/…` answers the uniform not-found for a deleted project; the dashboard, nav, new-issue picker, Projects list and instance dashboard omit it (D5, INV-PL-2).
+- Every web route under `/team/{t}/project/{p}/…` (attachment upload and download included) and every API route under `/api/v1/teams/{t}/projects/{p}/…` answers a deleted project exactly as the same route with a never-existed slug: the uniform not-found (the live updates: their shipped 403 text/plain); the dashboard, nav, Projects list and instance dashboard omit it (D5, INV-PL-2; DISTILL: there is no new-issue project picker, see Upstream notes).
 - Races with issue, comment, attachment and lane writes: never a 500 (INV-PL-3).
 - (OQ-3) One delete record.
 
@@ -43,9 +43,8 @@ delete is irreversible for anyone without psql.
 ## Acceptance Criteria
 
 - [ ] Lena deletes Auth v2 Spike (SPIKE: 3 issues, 2 comments, 1 attachment, 4 lanes) after reading the confirm page → "Deleted Auth v2 Spike."; the store still holds exactly those rows, unchanged.
-- [ ] After the delete, the board, SPIKE-2, the report, the CSV, the new-issue form and live updates answer the uniform 404 for Lena, Sam and Priya; the API answers its not-found for SPIKE's issues and comments.
-  - DESIGN note: the "live updates" part of this AC is superseded by Changed Assumption 1 in `feature-delta.md`. The events route answers a deleted project exactly as a never-existed one: its shipped 403 text/plain (`events.rs:99-103`), not the uniform 404. DISTILL edits this AC and US-PL-03 scenario 1.
-- [ ] Sam's dashboard and new-issue picker, and Priya's instance dashboard, no longer list it.
+- [ ] After the delete, every address of the project (the board, SPIKE-2, the report, the CSV, the new-issue form, comments, attachments, lanes and the live updates) answers Lena, Sam and Priya exactly as the same address of a never-existed project: the uniform 404, and for the live updates their shipped 403 text/plain (Changed Assumption 1; edited at DISTILL 2026-10-13); the API answers its not-found for SPIKE's issues, history, comments and tokens.
+- [ ] Sam's dashboard and Board link, Backend's Projects section, and the instance dashboard no longer list it (DISTILL: the new-issue dialog is per project and has no project picker; its address is in the inventory above).
 - [ ] Sam's stale edit dialog save → the uniform 404, SPIKE-2 unchanged.
 - [ ] 100 delete-versus-issue-create races on real Postgres → 0 responses of 500, 0 lost issues.
 - [ ] Sam, Marco, Hugo, Lena on an Ops project and a signed-out caller get byte-identical 404s on both verbs, zero writes.

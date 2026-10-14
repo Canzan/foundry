@@ -53,7 +53,7 @@ OQ-1.
 | Project rename today: `POST /admin/instance/projects/{project_id}/rename`, instance admin only, `ProjectName` rule, byte-equal is a no-op, `UPDATE projects SET name` with **no lock and no record**. | `lib.rs:4298-4360`, `foundry-services/src/projects.rs:89-127` |
 | Project delete: **none** in production code (`DELETE FROM projects` appears in acceptance fixtures only). | grep |
 | Team delete: `delete_team_if_empty` locks the team `FOR UPDATE`, lists `SELECT name, key_prefix FROM projects WHERE team_id = $1`, refuses on any row, else deletes and records. | `foundry-store/src/teams.rs:589, 740-785` |
-| Project addresses. Web: `/team/{t}/project/{p}` (board), `/report` (+ `?format=csv`), `/issues` (create), `/issues/new`, `/search`, `/events` (SSE), `/issues/{n}`, `/issues/{n}/state`, `/edit`, `/delete`, `/comments`, `/comments/{id}` (+ `/edit`), `/lanes/{l}/delete`, `/edit`, `/insert/{side}`, `/move`. API: `/api/v1/teams/{t}/projects/{p}/issues`, `/issues/{n}`, `/history`, `/comments`, `/comments/{id}`, `/tokens`, `/tokens/{jti}`. | `foundry-app/src/lib.rs:564-710`, `foundry-api/src/lib.rs:312-338` |
+| Project addresses. Web: `/team/{t}/project/{p}` (board), `/report` (+ `?format=csv`), `/issues` (create), `/issues/new`, `/search`, `/events` (SSE), `/issues/{n}`, `/issues/{n}/state`, `/edit`, `/delete`, `/comments`, `/comments/{id}` (+ `/edit`), `/issues/{n}/attachments` (upload) and `/attachments/{id}` (download) (added by DESIGN Changed Assumption 5), `/lanes/{l}/delete`, `/edit`, `/insert/{side}`, `/move`. API: `/api/v1/teams/{t}/projects/{p}/issues`, `/issues/{n}`, `/history`, `/comments`, `/comments/{id}`, `/tokens`, `/tokens/{jti}`. | `foundry-app/src/lib.rs:564-710`, `foundry-api/src/lib.rs:312-338` |
 | Project readers in the store that a deleted marker must reach: `list_projects_for_workspace` (dashboard, nav), `find_project_by_slug`, `find_issue_by_team_project_number`, the issue joins at `lib.rs:1973, 2251, 2315, 2381`, `lanes.rs:302, 361, 664`, `list_projects_for_instance`, `project_rename_context`, `TEAM_PROJECTS_SQL`, `export_workspace`. About 15 sites. | grep `FROM projects` / `JOIN projects` in `src` |
 | The team members page has no project list today. It shows **New project** to anyone on the team, **Rename** to `Manage`, **Delete team** to `Administer`. | `templates/team_members.html` |
 | `TeamAccess::of(is_admin, role)`: admin → `Administer`, lead → `Manage`, member → `View`. `can_manage` is true for admin and lead. | `foundry-core/src/team_membership.rs:52-76` |
@@ -81,7 +81,7 @@ issue if I change my mind.*
 Job stories:
 
 1. When "Identity Platform" has become the team's access-management work, I want to rename it myself, and every bookmark and every issue key (AUTH-7) should keep working.
-2. When "Auth v2 Spike" was created by mistake or its work is over, I want to delete it so it stops cluttering the dashboard, the new-issue picker and the team page, and be told before I commit what disappears.
+2. When "Auth v2 Spike" was created by mistake or its work is over, I want to delete it so it stops cluttering the dashboard, the nav and the team page, and be told before I commit what disappears.
 3. When I deleted a project and realise a week later that one of its issues still mattered, I want it back exactly as it was.
 4. When every project of a team is retired, I want to be able to retire the team too (team-lifecycle TL-KPI-5).
 
@@ -93,7 +93,7 @@ works on now, and nobody has to ask an instance admin to tidy it.
 
 Four forces:
 
-- **Push**: only an instance super-admin can rename a project, from an instance-wide dashboard a lead never sees. No delete exists, so mistaken and finished projects stay on every dashboard, every new-issue picker and every team forever, and a team holding one can never be deleted (TL-KPI-5).
+- **Push**: only an instance super-admin can rename a project, from an instance-wide dashboard a lead never sees. No delete exists, so mistaken and finished projects stay on every dashboard, in the nav and on every team forever, and a team holding one can never be deleted (TL-KPI-5).
 - **Pull**: a **Rename** field and a **Delete project** link next to each project on the team's page, the way the team's own rename and delete already work.
 - **Anxiety**: that a delete takes issues, comments and attachments with it for good; that a rename breaks URLs or changes issue keys; that someone without the right can delete a project; that a deleted project still answers on some forgotten URL or through the API.
 - **Habit**: asking an instance admin, or psql. The product path must be safer (nothing erased, a restore exists, slugs and keys stay put), not just closer.
@@ -124,13 +124,13 @@ and is kept whole on purpose (see Story Map).
 | D2 | **Rename changes the name only.** `projects.slug` and `key_prefix` never change, so every URL, bookmark and issue key (AUTH-7) keeps working. There is no "change project URL" and no "change key" here. (OQ-2 asks the user to confirm.) | ADR-PROJECT-RENAME-001; team-lifecycle D4; instance-admin-project-rename D1 |
 | D3 | **One project-name rule on both rename doors.** The team's new door runs the shipped `ProjectName` rule (OUT-19) with the shipped copy, the project itself excluded from uniqueness, exactly as the instance-admin door does. A byte-equal name writes nothing. A case-only change is a rename. | project-name-rule D2, D11; team-lifecycle D15 |
 | D4 | **Every refused request on a new or changed route is the uniform 404**, on both verbs, byte-identical to `resource_not_found_page`: signed out, an unknown team or project slug, another workspace's team, a deleted project, and a caller without the right. A stated reason (a name refusal) is shown only to an authorized actor. | team-lifecycle D5 |
-| D5 | **"Hidden" means hidden from everyone, including the person who deleted it and every admin.** After a delete, every web and API address under the project answers exactly as an address that never existed (D4, API: its shipped not-found answer). Every list drops it: the dashboard, the nav, the new-issue project picker, the team page, the instance-admin dashboard, and the team delete's project list (subject to OQ-1). The only ways to see it are the operator CLI (D10) and the database. | D-A; no new oracle |
-| D6 | **"Nothing is erased" is exact.** A delete writes the project's deleted marker (who, when) and the record (OQ-3), and changes no other row: issue, comment (live or tombstoned), attachment, change event, lane, outbox row or the issue counter. | D-A |
+| D5 | **"Hidden" means hidden from everyone, including the person who deleted it and every admin.** After a delete, every web and API address under the project answers exactly as an address that never existed (D4, API: its shipped not-found answer). Exempt (user decision U1, 2026-10-13): the two machine-token API routes `…/tokens` and `…/tokens/{jti}`, which read no project and answer alike under every project address (accepted pre-existing behaviour; DESIGN Changed Assumption 6). Every list drops it: the dashboard, the nav, the team page, the instance-admin dashboard, and the team delete's project list (subject to OQ-1). The only ways to see it are the operator CLI (D10) and the database. | D-A; no new oracle |
+| D6 | **"Nothing is erased" is exact.** A delete writes the project's deleted marker (who, when) and the record (OQ-3), and changes no other row: issue, comment (live or tombstoned), attachment, change event, lane, outbox row or the issue counter. (Later, D12's GC still purges comments awaiting cleanup on their usual schedule; Changed Assumption 3.) | D-A |
 | D7 | **Delete is a GET confirm page plus a POST, and works with scripting disabled.** The confirm page states the consequence before anything happens: the issue count, that the board, the issues and their keys stop working for everyone, and that nothing is erased and the instance operator can restore it. No typed-name confirmation (OQ-5). | ADR-ISSUE-DELETE-002; team-lifecycle D8 |
-| D8 | **The controls live on the team's members page**, in a new **Projects** section. Anyone who can view the team sees each live project as "{name} · {KEY}", linking to its board. A `Manage` caller also sees a prefilled **Project name** field with **Rename**, and a **Delete project** link, per project. The board gains no new control. DESIGN may move them; the copy stays. | PO: the team page is already where the team is managed; a destructive control on the board header was rejected for lanes (board-lane-overflow-menu) |
+| D8 | **The controls live on the team's members page**, in a new **Projects** section. Anyone who can view the team sees each live project as "{name} · {KEY}", linking to its board only when the viewer is on the team (a workspace admin not on it sees the same text, unlinked; OQ-U1 (b), Changed Assumption 2, edited at DISTILL). A `Manage` caller also sees a prefilled **Project name** field with **Rename**, and a **Delete project** link, per project. The board gains no new control. DESIGN may move them; the copy stays. | PO: the team page is already where the team is managed; a destructive control on the board header was rejected for lanes (board-lane-overflow-menu) |
 | D9 | **Tenancy comes from the session.** A project is resolved by (acting workspace, team slug, project slug), live projects only. No workspace or project id is parsed from a web request. | team-lifecycle D11 |
 | D10 | **Restore is an operator door, not a web page.** `foundry doctor list-deleted-projects` prints every deleted project; `foundry doctor restore-project <uuid>` restores one against `DATABASE_URL`, with `restore-comment`'s exit codes (0 restored, 2 invalid uuid, 3 database, 4 not restorable). A web restore for workspace admins is a follow-up (OQ-6). | D-A ("precedent: restore-comment") |
-| D11 | **A restore puts back exactly what was there.** The same name, slug, key, issue numbers, issue counter, lanes, comments and attachments. Every address answers as it did before the delete. | D-A |
+| D11 | **A restore puts back exactly what was there.** The same name, slug, key, issue numbers, issue counter, lanes, comments and attachments. Every address answers as it did before the delete. Except comments awaiting cleanup whose 90-day window passed while it was deleted (D12, Changed Assumption 3). | D-A |
 | D12 | **The comment tombstone GC is unchanged.** Comments a user deleted (tombstones) inside a deleted project are purged on their usual 90-day schedule; the project delete neither speeds it up nor pauses it. Live comments are never touched. | PO: the project delete erases nothing *new*; pausing GC would add a special case for no user value |
 | D13 | **The per-workspace export includes deleted projects**, marked as deleted. An export is the operator's copy of the data, and D-A says nothing is erased. | PO |
 | D14 | **Copy is locked** (DESIGN may change routes, not strings). See [REF] Copy. | PO, for testable ACs |
@@ -140,7 +140,7 @@ and is kept whole on purpose (see Story Map).
 
 ### [REF] Copy (D14)
 
-- Members page, section heading **Projects**. Each row: "{project} · {KEY}" linking to the board. Empty: "{team} has no projects yet." Per row for `Manage`: field **Project name** (prefilled), button **Rename**, link **Delete project**.
+- Members page, section heading **Projects**. Each row: "{project} · {KEY}", linking to the board only for a viewer on the team (OQ-U1 (b), Changed Assumption 2). Empty: "{team} has no projects yet." Per row for `Manage`: field **Project name** (prefilled), button **Rename**, link **Delete project**.
 - Renamed: "Renamed {old} to {new}." (members page notice).
 - Name refusals: the shipped `ProjectNameError` `Display`: "Project name must not be empty" · "Project name must not contain control characters" · "Project name must be at most 256 characters" · "Project name must be unique within the team". Shown in that project row, with the typed text kept.
 - Confirm page: heading "Delete {project}?". Then "{project} ({KEY}) has {n} issue(s). After it is deleted, nobody can open its board, its issues or its report, and links to {KEY} issues stop working." Then "Nothing is erased. The instance operator can restore {project} with every issue, comment and attachment." Buttons **Delete project** and **Cancel** (back to the members page).
@@ -149,6 +149,7 @@ and is kept whole on purpose (see Story Map).
 - CLI `list-deleted-projects`, one `key: value` block per project, blank line between blocks, oldest deletion first:
   `project-id: {uuid}` · `workspace: {workspace}` · `team: {team_slug}` · `name: {project}` · `key: {KEY}` · `issues: {n}` · `deleted-at: {RFC 3339 UTC}` · `deleted-by: {email}`. None: `status: none`. Exit 0.
 - CLI `restore-project`: stdout `project-id: {uuid}` and `status: restored`, exit 0. Exit 4 with stderr `foundry doctor restore-project: project {uuid} is not deleted — status: not restorable`, or `… not in database — status: not restorable`, or (OQ-1 (b)) `… its team {team_slug} was deleted — status: not restorable`. Exit 2 and 3 as `restore-comment`.
+- CLI `restore-comment` on a deleted comment inside a deleted project (**added to D14 by user decision U4, 2026-10-13**, worded at DISTILL as DIST-1): stderr `comment-id: {uuid}` then `foundry doctor restore-comment: comment {uuid} is in deleted project {project uuid} — status: not restorable`, exit 4, nothing changes. CLI `restore-project` on a project whose team was deleted (DIST-2): `foundry doctor restore-project: project {uuid}: its team {team_slug} was deleted — status: not restorable`.
 - Pluralization follows the shipped "1 member(s)" style.
 
 ### [REF] Open Questions (each has a recommended answer; the stories assume it)
@@ -182,7 +183,7 @@ the OQs each story depends on.
 ### [REF] Journey (lightweight: happy path plus main refusals)
 
 Emotional arc, **from clutter to tidy, without fear**: cluttered (a dead spike
-on every dashboard and picker; asking an instance admin for a rename) → in
+on every dashboard and in the nav; asking an instance admin for a rename) → in
 control (the team page lists the team's projects with Rename and Delete) →
 wary (a destructive control) → reassured (the confirm page says nothing is
 erased and how it comes back) → tidy (the project is gone everywhere) →
@@ -221,7 +222,7 @@ Main refusals and edge paths:
 
 | Artifact | Source of truth | Consumers | Risk |
 |---|---|---|---|
-| `${project}` (name) | `projects.name` | members page row, board heading, nav, dashboard, new-issue picker, confirm page, notices, instance dashboard, CLI | MEDIUM: rename must reach every consumer by reading |
+| `${project}` (name) | `projects.name` | members page row, board heading, nav, dashboard, confirm page, notices, instance dashboard, CLI | MEDIUM: rename must reach every consumer by reading |
 | `${project_slug}` | `projects.slug`, minted once | every `/team/{t}/project/{p}/…` and `/api/v1/…/projects/{p}/…` address, bookmarks | HIGH: rename and restore must not touch it (D2, D11) |
 | `${KEY}` and issue ids | `projects.key_prefix`, `issues.number` | issue keys everywhere (AUTH-7), confirm page, CLI | HIGH: never changes (D2); held while deleted (OQ-4) |
 | Deleted marker (who, when) | the project row (DESIGN names the columns) | every project reader (D5), CLI list, restore | **HIGH: one missed reader is a leak (INV-PL-2)** |
@@ -320,7 +321,7 @@ cannot fix its name.
 
 ##### Acceptance Criteria
 
-- [ ] The members page shows a Projects section listing the team's live projects as "{project} · {KEY}" linking to each board, to anyone who can view the team; "{team} has no projects yet." when there are none (scenario 1; D8). (Edit pending DISTILL: link only when the viewer is on the team; see Changed Assumption 2.)
+- [ ] The members page shows a Projects section listing the team's live projects as "{project} · {KEY}", by name then key, to anyone who can view the team; each row links to its board **only when the viewer is on the team** (a workspace admin who is not on it sees the same text, unlinked); "{team} has no projects yet." when there are none (scenario 1; D8; edited at DISTILL per Changed Assumption 2, OQ-U1 = (b)).
 - [ ] A `Manage` caller sees a prefilled Project name field, Rename and Delete project per project; a `View` caller sees neither (scenario 5; D-B, D8).
 - [ ] Rename writes the name only, never the slug or key; every shipped address under the slug answers as before; the D14 notice is shown (scenarios 1, 2; D2).
 - [ ] The shipped project-name rule and copy apply, the project itself excluded from uniqueness, the input kept, nothing written (scenario 3; D3).
@@ -350,13 +351,13 @@ PL-KPI-1, PL-KPI-4, PL-KPI-5.
 
 ##### Elevator Pitch
 
-Before: "Auth v2 Spike" (SPIKE), created by mistake in Backend, sits on every dashboard and in every new-issue picker forever, and no one but psql can remove it. In psql a delete would cascade over its 3 issues, 2 comments and 1 attachment with no way back.
+Before: "Auth v2 Spike" (SPIKE), created by mistake in Backend, sits on every dashboard and in the nav forever, and no one but psql can remove it. In psql a delete would cascade over its 3 issues, 2 comments and 1 attachment with no way back.
 After: on `/team/backend/members`, Lena clicks **Delete project** on Auth v2 Spike → `/team/backend/project/auth-v2-spike/delete` shows "Delete Auth v2 Spike? Auth v2 Spike (SPIKE) has 3 issue(s). … Nothing is erased. The instance operator can restore Auth v2 Spike with every issue, comment and attachment." Clicking **Delete project** lands on `/team/backend/members` with "Deleted Auth v2 Spike.", and the project is gone from the list.
 Decision enabled: Lena can retire dead projects without fear, because the delete is reversible and says so.
 
 ##### Problem
 
-Mistaken and finished projects accumulate on every dashboard, picker and team
+Mistaken and finished projects accumulate on every dashboard, the nav and every team
 page. There is no product delete, and the only removal (psql) destroys every
 issue, comment and attachment under the project.
 
@@ -429,7 +430,7 @@ PL-KPI-1, PL-KPI-2, PL-KPI-5.
 ##### Elevator Pitch
 
 Before: there is no delete, so the question never arose. With a delete, any address that forgets the project is deleted keeps serving it: an old board bookmark, an issue link in an email, `/api/v1/teams/backend/projects/auth-v2-spike/issues` from a script, an open live-update stream.
-After: after Lena deletes Auth v2 Spike, `/team/backend/project/auth-v2-spike`, `/team/backend/project/auth-v2-spike/issues/2`, `…/report?format=csv` and `/api/v1/teams/backend/projects/auth-v2-spike/issues` all answer 404 with the same "not found" page as `/team/backend/project/no-such-project`, for Lena, Sam and Priya alike (the API answers its own not-found body). Sam's dashboard lists "Identity & Access" only, and the new-issue dialog's project picker no longer offers "Auth v2 Spike".
+After: after Lena deletes Auth v2 Spike, `/team/backend/project/auth-v2-spike`, `/team/backend/project/auth-v2-spike/issues/2`, `…/report?format=csv` and `/api/v1/teams/backend/projects/auth-v2-spike/issues` all answer 404 with the same "not found" page as `/team/backend/project/no-such-project`, for Lena, Sam and Priya alike (the API answers its own not-found body; the two machine-token routes, which name no project, are exempt by user decision U1). Sam's dashboard lists "Identity & Access" only, and Sam's Board link no longer opens "Auth v2 Spike".
 Decision enabled: Lena chooses to delete instead of leaving a dead project around (or asking Priya to run psql), because a delete removes it from every view Sam and scripts use.
 
 ##### Problem
@@ -445,7 +446,7 @@ is "deleted" but still answers, and someone keeps filing issues into it.
 
 1. **Bookmarks**: Sam opens their bookmark `/team/backend/project/auth-v2-spike/issues/2` (SPIKE-2) the day after the delete → the uniform 404.
 2. **API**: a script with a machine token scoped to Backend GETs `/api/v1/teams/backend/projects/auth-v2-spike/issues` → the API's not-found answer, the same as for `/api/v1/teams/backend/projects/no-such-project/issues`.
-3. **Lists**: Sam's dashboard and the new-issue dialog's project picker list Identity & Access only. Priya's `/admin/instance/workspaces` no longer lists Auth v2 Spike under Canzan Labs, and a rename POST to its id answers the uniform 404.
+3. **Lists**: Sam's dashboard and Board link show Identity & Access only. Priya's `/admin/instance/workspaces` no longer lists Auth v2 Spike under Canzan Labs, and a rename POST to its id answers the uniform 404.
 4. **Stale tab**: Sam had SPIKE-2's edit dialog open before the delete. Sam clicks Save → the uniform 404, and SPIKE-2 is unchanged.
 5. **Race**: Sam files a new issue on Auth v2 Spike at the same moment Lena deletes it → either the issue is filed and then hidden with the project (and comes back with a restore), or Sam's create answers the uniform 404. Never a 500, never a lost issue.
 6. **Notifications already queued**: Sam commented on SPIKE-2 a second before the delete. The email about that comment, already queued, is still delivered (it reports a change made while the project was live); its link answers 404 until a restore. No new notification about SPIKE can arise after the delete, because every write is refused.
@@ -456,7 +457,7 @@ is "deleted" but still answers, and someone keeps filing issues into it.
 
 - Given Lena has deleted Auth v2 Spike (SPIKE)
 - When Lena, Sam and Priya each open its board, SPIKE-2's page, its report, its CSV export, its new-issue form and its live updates
-- Then every request answers the uniform not-found page, byte-identical to an address that never existed
+- Then every request answers exactly as the same address of a project that never existed, byte for byte: the uniform not-found page, and for its live updates their shipped refusal (edited at DISTILL per Changed Assumption 1)
 
 ###### Scenario: A deleted project is not reachable through the API
 
@@ -467,7 +468,7 @@ is "deleted" but still answers, and someone keeps filing issues into it.
 ###### Scenario: A deleted project disappears from every list
 
 - Given Lena has deleted Auth v2 Spike
-- When Sam opens their dashboard and the new-issue dialog, and Priya opens the instance dashboard
+- When Sam opens their dashboard and follows its Board link, and Priya opens the instance dashboard
 - Then none of them lists Auth v2 Spike, and Identity & Access is still listed
 
 ###### Scenario: A change sent from a page opened before the delete is refused
@@ -484,12 +485,12 @@ is "deleted" but still answers, and someone keeps filing issues into it.
 
 ##### Acceptance Criteria
 
-- [ ] Every web route under `/team/{t}/project/{p}/…` (the inventory in [REF] Lifecycle inventory) answers the uniform 404 for a deleted project, on every verb, for every actor including its deleter and workspace admins (scenario 1; D5, INV-PL-2).
-- [ ] Every `/api/v1/teams/{t}/projects/{p}/…` route answers the API's shipped not-found answer for a deleted project, with zero writes (scenario 2; INV-PL-2).
-- [ ] The dashboard, the nav, the new-issue project picker, the team's Projects list and the instance dashboard omit deleted projects; the instance rename of a deleted project answers the uniform 404 (scenario 3; D5, D16).
+- [ ] Every web route under `/team/{t}/project/{p}/…` (the inventory in [REF] Lifecycle inventory, attachment upload and download included) answers a deleted project byte-identically to the same route with a never-existed slug, on every verb, for every actor including its deleter and workspace admins: the uniform 404, and on the live-updates route its shipped 403 text/plain (scenario 1; D5, INV-PL-2; edited at DISTILL per Changed Assumptions 1 and 5).
+- [ ] Every `/api/v1/teams/{t}/projects/{p}/…` route that reads the project answers the API's shipped not-found answer for a deleted project, with zero writes; the two machine-token routes (`…/tokens`, `…/tokens/{jti}`) are exempt by user decision U1 (2026-10-13): they read no project and answer alike under every project address (scenario 2; INV-PL-2).
+- [ ] The dashboard, the nav, the team's Projects list and the instance dashboard omit deleted projects; the instance rename of a deleted project answers the uniform 404 (scenario 3; D5, D16). (DISTILL: no new-issue project picker exists; the new-issue dialog is per project and its address is in the inventory.)
 - [ ] A write racing or following the delete gets its normal outcome or the uniform 404, never a 500; nothing it wrote before the delete committed is lost (scenarios 4, 5; INV-PL-3). Over 100 repeated delete-versus-issue-create races on real Postgres: 0 responses of 500, 0 lost issues.
-- [ ] An open live-update stream on a deleted project sends no further events, and a reconnect answers the uniform 404 (scenario 1).
-- [ ] Notifications queued before the delete are delivered as usual; none is produced after it (example 6; D17).
+- [ ] An open live-update stream on a deleted project sends no event about a change made after the delete (an event about a change committed before it may still arrive, the D17 posture), and a reconnect answers exactly as for a never-existed project, the shipped 403 (scenario 1; edited at DISTILL per Changed Assumption 1).
+- [ ] Notifications queued before the delete stay queued and unchanged, so the notifier delivers them as usual; none is produced after it (example 6; D17; asserted by the store gold test `a_notification_queued_before_the_delete_stays_pending_and_none_arises_after_it`).
 
 ##### Outcome KPIs
 
@@ -497,7 +498,7 @@ PL-KPI-3, PL-KPI-5.
 
 ##### Technical Notes
 
-- About 15 store readers and 21 web plus 7 API routes reach a project (inventory). INV-PL-2 is a requirement; the mechanism (one live-project resolution seam, a view, a check-arch rule as team-lifecycle's `team-lifecycle-one-seam`) is DESIGN's.
+- About 15 store readers reach a project. The doors (route × verb, reconciled at DISTILL): **27 shipped web doors** on 19 route paths (the report's spreadsheet counted apart; attachment upload and download included), plus this feature's **3 new web doors** (rename, delete page, delete); **6 API doors** on 5 routes that read the project, plus the **2 machine-token API doors** that read none (exempt, U1). INV-PL-2 is a requirement; the mechanism (one live-project resolution seam, a view, a check-arch rule as team-lifecycle's `team-lifecycle-one-seam`) is DESIGN's.
 - Whether an issue create may land in a just-deleted project (and be restored with it) or must be refused under a lock is DESIGN's call within INV-PL-3.
 
 ##### Size
@@ -560,7 +561,7 @@ deleted project and bring it back whole, without hand-written SQL.
 ##### Acceptance Criteria
 
 - [ ] `list-deleted-projects` prints the D14 block per deleted project, oldest deletion first, or `status: none`; exit 0 (scenarios 1, 2; D10).
-- [ ] `restore-project` clears the deleted marker; afterwards every address answers as before the delete, with the same name, slug, key, issue numbers, issue counter, lanes, comments and attachments (scenario 1; D11, INV-PL-4).
+- [ ] `restore-project` clears the deleted marker; afterwards every address answers as before the delete, with the same name, slug, key, issue numbers, issue counter, lanes, comments and attachments, except comments awaiting cleanup whose 90-day window passed while the project was deleted (D12) (scenario 1; D11, INV-PL-4; carve-out added at DISTILL per Changed Assumption 3).
 - [ ] Not deleted or unknown → exit 4 with the reason on stderr; invalid uuid → exit 2; database unreachable → exit 3; nothing changes (scenario 3).
 - [ ] While deleted, the project's name, derived slug and key stay taken, with the shipped copy on create and rename (scenario 4; OQ-4, INV-PL-5).
 - [ ] (OQ-3) Each restore is on record as done by the operator, with the project and when. A refused restore leaves no record.
@@ -660,13 +661,13 @@ PL-KPI-2, PL-KPI-7.
 Invariant and concurrency requirements for DESIGN. They name the risks and do
 not choose mechanisms.
 
-- **INV-PL-1 (nothing erased):** a project delete changes only the project's deleted marker and writes the record. No row of `issues`, `comments`, `issue_attachments`, `issue_change_events`, `lanes` or `outbox` under it is removed or changed, and `next_issue_number` is unchanged (D6).
-- **INV-PL-2 (no door left open):** every read or write that reaches a project through a web or API address treats a deleted project exactly as one that never existed, and every list omits it. The only readers that see deleted projects are the operator CLI, the per-workspace export (D13), the uniqueness checks (OQ-4) and the team delete (OQ-1). A new project reader added later must not see deleted projects by default.
-- **INV-PL-3 (no 500 from a vanishing project):** a write racing a delete (issue create, edit, state, delete; comment; attachment; lane edit, insert, move, delete; project rename) gets its normal outcome or the uniform 404, never a 500. Anything that committed before the delete is kept and comes back with a restore.
-- **INV-PL-4 (exact restore):** after a restore, the project's name, slug, key, issue numbers, issue counter and every row under it equal their state at the delete, and every address answers as before.
+- **INV-PL-1 (nothing erased):** a project delete changes only the project's deleted marker and writes the record. No row of `issues`, `comments`, `issue_attachments`, `issue_change_events`, `lanes` or `outbox` under it is removed or changed, and `next_issue_number` is unchanged (D6). The one later removal is D12's: a comment awaiting cleanup is purged on its usual 90-day schedule even while its project is deleted (Changed Assumption 3; carve-out added at DISTILL).
+- **INV-PL-2 (no door left open):** every read or write that reaches a project through a web or API address treats a deleted project exactly as one that never existed, and every list omits it. The only readers that see deleted projects are the operator CLI, the per-workspace export (D13), the uniqueness checks (OQ-4) and the team delete (OQ-1). A new project reader added later must not see deleted projects by default. (Bounded rolling-deploy exception: Changed Assumption 4.)
+- **INV-PL-3 (no 500 from a vanishing project):** a write racing a delete (issue create, edit, state, delete; comment; attachment; lane edit, insert, move, delete; project rename) gets its normal outcome or the uniform 404, never a 500. Anything that committed before the delete is kept and comes back with a restore. (Bounded rolling-deploy exception: Changed Assumption 4.)
+- **INV-PL-4 (exact restore):** after a restore, the project's name, slug, key, issue numbers, issue counter and every row under it equal their state at the delete, except comments awaiting cleanup whose 90-day window passed while it was deleted (D12, Changed Assumption 3; carve-out added at DISTILL), and every address answers as before.
 - **INV-PL-5 (names held, OQ-4):** while a project is deleted, its case-insensitive name and derived slug stay taken in its team and its key in its workspace, so a restore can never collide.
 - **INV-PL-6 (team delete, OQ-1 (b)):** a team delete commits only if the team has no live project at commit time. Its deleted projects survive with every row. A restore racing a team delete either restores first (the delete is refused, naming it) or finds the team gone (exit 4). A project delete racing a team delete in either order leaves no live project destroyed. This amends INV-TL-1 to "no **live** project row, and no row of any project, is ever removed by a team delete".
-- **INV-PL-7 (audit atomicity, OQ-3):** a rename, delete or restore record commits or rolls back with its change, and a byte-equal rename writes none.
+- **INV-PL-7 (audit atomicity, OQ-3):** a rename, delete or restore record commits or rolls back with its change, and a byte-equal rename writes none. (Bounded rolling-deploy exception: Changed Assumption 4.)
 - **INV-PL-8 (authority at request time):** per request, against current rows. A stale form from a demoted lead, or from a lead removed from the team, gets the uniform 404.
 - **INV-PL-9 (rename):** a rename never changes a slug or key. Concurrent renames may leave two case-insensitively equal names only if DESIGN accepts that residual, as ADR-PROJECT-RENAME-002 did; if so, record it.
 - No new oracle: every refusal to an unauthorized caller, and every address of a deleted project, is byte-identical to the uniform 404 (D4, D5).
@@ -688,8 +689,8 @@ ever loses work.
 | # | Who | Does What | By How Much | Baseline | Measured By | Type |
 |---|-----|-----------|-------------|----------|-------------|------|
 | PL-KPI-1 | Team leads and workspace admins | Rename and retire their team's projects in the product | 0 project renames requested of an instance admin and 0 hand-written `UPDATE`/`DELETE` on `projects` from the release onward | Every project rename was the instance dashboard or psql; every removal was psql | Operator report at each dogfood | North star (leading) |
-| PL-KPI-2 | Project deletes | Erase nothing | 0 rows removed or changed under a deleted project; 100% of rows back after a restore (counts before delete = counts after restore) | Not applicable (no delete) | Acceptance before/after store counts; read-only counts around each dogfood | Guardrail |
-| PL-KPI-3 | Deleted projects | Answer nowhere | 100% of the web and API address inventory answers the byte-identical not-found for a deleted project, for every actor | Not applicable | Acceptance outline over the inventory | Guardrail |
+| PL-KPI-2 | Project deletes | Erase nothing | 0 rows removed or changed under a deleted project, except comments awaiting cleanup that pass their 90-day window meanwhile (Changed Assumption 3); 100% of rows back after a restore (counts before delete = counts after restore, same carve-out) | Not applicable (no delete) | Acceptance before/after store counts; read-only counts around each dogfood | Guardrail |
+| PL-KPI-3 | Deleted projects | Answer nowhere | 100% of the web and API address inventory (30 web doors, 6 project-reading API doors) answers a deleted project byte-identically to a never-existed one (the uniform 404; the live updates their shipped 403, Changed Assumption 1), for every actor; the 2 machine-token API doors are exempt (U1) | Not applicable | Acceptance outline over the inventory | Guardrail |
 | PL-KPI-4 | Callers without the right | Learn nothing and change nothing | 100% of the (actor × verb × project) matrix answers byte-identical 404s with 0 rows written | Not applicable (no routes) | Acceptance authz outline | Guardrail |
 | PL-KPI-5 | Renamed and restored projects | Keep every link | 100% of addresses under the slug answer the same status after a rename and after a delete-then-restore; issue keys identical | Not applicable | Acceptance scenarios | Guardrail |
 | PL-KPI-6 | Restore requests | Are met by the operator door | Counted only. Above 2 in the first 30 days is evidence for a web restore for workspace admins (OQ-6) | 0 | Operator report | Leading (demand signal) |
@@ -729,6 +730,7 @@ store queries and the operator's report, not analytics.
 - **Restore into a team** for a project whose team was deleted (OQ-1 (b)'s gap), when move is designed.
 - **A web restore for workspace admins** if PL-KPI-6 shows demand (OQ-6).
 - **A purge** of long-deleted projects, if storage ever matters (inline attachments are the heavy part).
+- **Scope machine-token routes by project** (user decision U1, 2026-10-13): `GET /api/v1/teams/{t}/projects/{p}/tokens` and `DELETE …/tokens/{jti}` read no project today, so they answer alike under any project address, deleted or never-existed included. Resolving the project there is its own small change.
 
 ### [REF] WS Strategy
 
@@ -744,8 +746,8 @@ environment-switched seam.
 1. `GET /team/{team_slug}/members` (delta): the Projects section; Rename and Delete project for `Manage`.
 2. `POST /team/{team_slug}/project/{project_slug}/rename` (new): US-PL-01.
 3. `GET` and `POST /team/{team_slug}/project/{project_slug}/delete` (new): US-PL-02.
-4. Every shipped `/team/{t}/project/{p}/…` route and every `/api/v1/teams/{t}/projects/{p}/…` route (delta): the uniform 404 for a deleted project (US-PL-03).
-5. `GET /`, the nav, the new-issue project picker, `GET /admin/instance/workspaces`, `POST /admin/instance/projects/{project_id}/rename` (delta): omit or refuse deleted projects; the instance rename writes the record (OQ-3).
+4. Every shipped `/team/{t}/project/{p}/…` route and every `/api/v1/teams/{t}/projects/{p}/…` route (delta): a deleted project answers as a never-existed one, the uniform 404 (the live updates: their shipped 403, Changed Assumption 1; the two machine-token routes exempt, U1) (US-PL-03).
+5. `GET /`, the nav, `GET /admin/instance/workspaces`, `POST /admin/instance/projects/{project_id}/rename` (delta): omit or refuse deleted projects; the instance rename writes the record (OQ-3).
 6. `POST /team/{team_slug}/projects` (delta): a deleted project's name and key stay taken (OQ-4).
 7. `foundry doctor list-deleted-projects`, `foundry doctor restore-project <uuid>` (new): US-PL-04.
 8. `GET` and `POST /team/{team_slug}/delete` (delta, OQ-1): only live projects block; deleted ones are kept (US-PL-05).
@@ -770,13 +772,11 @@ Routes are proposals (D15). The copy is locked (D14).
 | 5. AC from UAT | PASS | PASS | PASS | PASS | PASS | Each AC cites its scenarios or decisions |
 | 6. Right-sized | PASS | PASS | PASS | PASS | PASS | 0.5-1.5 days each, 4-5 scenarios |
 | 7. Technical notes | PASS | PASS | PASS | PASS | PASS | Per story, plus INV-PL-1 to INV-PL-9 and NFR-PL-1 to NFR-PL-6 |
-| 8. Dependencies tracked | PASS, conditional (OQ-2, OQ-3) | PASS, conditional (OQ-3, OQ-5) | PASS | PASS, conditional (OQ-3, OQ-4, OQ-6) | PASS, conditional (OQ-1) | Every OQ has a recommended answer, and the stories are written to it |
+| 8. Dependencies tracked | PASS | PASS | PASS | PASS | PASS | Every OQ answered by the user 2026-10-12 (the recommendations), and the stories are written to them |
 | 9. Outcome KPIs | PASS | PASS | PASS | PASS | PASS | PL-KPI-1 to PL-KPI-7 with targets, baselines and methods |
 | job_id + Elevator Pitch | PASS | PASS | PASS | PASS | PASS | `job-project-lifecycle`. Every After line names a real route or CLI command and the exact text seen. |
 
-DoR status: **PASSED on the recommended answers.** Item 8 is conditional on
-the user's answers to OQ-1 to OQ-6 (a sequencing rule, not a block: each slice
-starts DESIGN once its OQs are answered); US-PL-03 depends on none. Peer
+DoR status: **PASSED.** OQ-1 to OQ-6 were answered 2026-10-12 (status updated at DISTILL). Peer
 review: see [REF] Peer Review.
 
 ### [REF] Wave Decisions
@@ -879,6 +879,8 @@ Grep facts:
   decision 2).
 - `find_project_by_slug` has 7 production call sites and `find_issue_by_team_project_number` has 5.
   Every one of the about 23 web and 7 API project routes resolves through one of them, or through
+  (DISTILL correction: 27 shipped web doors on 19 paths; of the API, 6 doors on 5 routes resolve the
+  project and the 2 machine-token doors read none — see Changed Assumption 6)
   the services resolvers built on them. The 23 are the about 21 in the router plus attachment
   upload and download (`attachments.rs:52-59`), which DISCUSS's inventory missed.
 - Before v0.14.1, `download_attachment` ignored `Ok(None)` from its defensive issue lookup and
@@ -1100,8 +1102,11 @@ accepted by the user (OQ-U2, 2026-10-12).**
      exact literal fails the build.
 2. **`project-lifecycle-write-guard`** (slice 02, ADR-PROJECT-LIFECYCLE-002 decision 7). In
    `crates/foundry-store/src`, every function body that writes `issues`, `comments`,
-   `issue_attachments`, `lanes` or `issue_change_events` must call `lock_live_project(`, **with or
-   without `.begin()`**.
+   `issue_attachments`, `lanes` or `issue_change_events` must call `lock_live_project(` **inside the
+   transaction that performs the write, before its first write**, with the guard typed
+   `&mut sqlx::Transaction<'_, Postgres>`. (DIST-10, 2026-10-13: was "with or without `.begin()`";
+   a guard on a pooled connection or before an autocommit write releases the row lock before the
+   write lands, which DDD-7 already forbids.)
    - "Writes" means SQL `INSERT INTO`, `UPDATE` or `DELETE FROM` on those tables, with rule 1's
      lexical rules (case, quotes, `public.`, line breaks). A function with such a literal is a
      **direct writer**.
@@ -1512,7 +1517,9 @@ C4Component
   build. Update them when their code changes.
 - **OQ-D6 (DISTILL):** acceptance steps that assert "nothing erased" read the base table `projects`
   (fixtures may; the rule exempts `foundry-acceptance`). Steps that assert "hidden" go through the
-  product doors, never SQL.
+  product doors, never SQL. **Widened at DISTILL (user decision U2, 2026-10-13, an explicit
+  exception):** read-only base-table SQL is also used for the scenario universe, the stored deleted
+  marker (to check the printed `deleted-at`) and the restore race's row-kept check.
 
 ### [REF] Open Questions for the user (DESIGN)
 
@@ -1599,6 +1606,16 @@ C4Component
    (`attachments.rs:52-59`). They are added to the differential outline. The download's scoping fix
    (DDD-32) already shipped in v0.14.1, so this feature changes nothing in that route. This is a
    correction to the inventory, not a story change.
+
+6. **The machine-token API routes (added at DISTILL, user decision U1, 2026-10-13).** Original
+   (US-PL-03 AC 2, D5, PL-KPI-3): every `/api/v1/teams/{t}/projects/{p}/…` route answers the API's
+   not-found for a deleted project. New: `GET …/tokens` and `DELETE …/tokens/{jti}` are **exempt**.
+   They read no project (`foundry-api/src/lib.rs`: their handlers ignore the project segment), so
+   under a deleted project's address they answer exactly as under a never-existed or a live one:
+   INV-PL-2's "no oracle" holds by construction, but not "the API's not-found". Accepted as
+   pre-existing behaviour, no behaviour change; the follow-up "scope machine-token routes by
+   project" is recorded in DISCUSS [REF] Follow-ups. Scenarios: the listing and revoke scenarios of
+   `project-lifecycle-02-deleted-project-answers-nowhere.feature`.
 
 No other story's acceptance intent changes. Clarifications, with no AC edit:
 - D13's "marked as deleted" is the row's own `deleted_at` and `deleted_by` (and, after a team
@@ -1843,7 +1860,7 @@ Platform facts re-verified against the tree:
 
 | Environment | Where | What of this feature runs there | Preconditions |
 |---|---|---|---|
-| `store-gold` | `cargo test -p foundry-store --release --test project_lifecycle --test team_delete --test project_lifecycle_migrations --test probe_schema_scoping` (file names per DESIGN Test Seams; `project_lifecycle_migrations` follows the `team_lifecycle_migrations.rs` idiom, DISTILL pins it) | View parity, guard, both 100-run races, negative controls, restore equality, shape CHECKs, migrations additive over seeded rows, probe refusals, upgrade warnings | Docker (testcontainers `postgres:16`). P1, P5 |
+| `store-gold` | `cargo test -p foundry-store --release --test project_lifecycle --test team_delete --test project_lifecycle_migrations --test probe_schema_scoping` (names pinned at DISTILL: `project_lifecycle.rs`, `project_lifecycle_migrations.rs` (the `team_lifecycle_migrations.rs` idiom), `team_delete.rs`, and three sibling-schema probe tests in `probe_schema_scoping.rs`) | View parity, guard, both 100-run races, negative controls, restore equality, shape CHECKs, migrations additive over seeded rows, probe refusals, upgrade warnings | Docker (testcontainers `postgres:16`). P1, P5 |
 | `use-case` | `cargo test -p foundry-services --release --test rename_project_use_case --test project_lifecycle_use_cases` (second name proposed; DISTILL pins) | Both rename gates on one core, delete preview, restore outcomes, team delete preview | Docker |
 | `check-arch` | `cargo xtask check-arch` and `cargo test -p xtask` | Rules 1-3 (DDD-22) and their injected-violation gold tests; `store-natural-key-scoped` | none |
 | `default` lane | `FOUNDRY_ACCEPTANCE_TAGS=project-lifecycle` (per slice `pl-01`..`pl-04`, proposed after team-lifecycle's `tl-0N`; DISTILL pins) `cargo test -p foundry-acceptance --release --test acceptance` | Authz matrix, differential inventory outline, before/after counts, CLI exits through the prebuilt `foundry`, HTTP races. Plus the neighbour lanes of DoD 1 | Docker; **P2 warm binary** for every CLI scenario; P3, P5 |
@@ -1884,6 +1901,13 @@ No pipeline file changes.
 
 Packaging (one release for all four slices, or slice 01 first and 02+03(+04) later) is the
 user's call; both satisfy R1-R6.
+
+**Release checklist line for R1 (added at DISTILL, platform review iteration 2):** before tagging,
+`git ls-tree -r <tag> crates/foundry-store/migrations/ | grep 0026_project_soft_delete` non-empty
+implies `git show <tag>:crates/foundry-app/src/main.rs | grep restore-project` non-empty, and the
+`pl-03` lane reported a non-zero scenario count, all green. **DEVOPS findings 2, 3 and 5 of the
+iteration-1 review** (production-path lock test, 0026 parity self-check test, lane strings) were
+acknowledged and closed at DISTILL on 2026-10-13 (gold tests added; lane strings aligned).
 
 ### [REF] Deployment strategy
 
@@ -1969,7 +1993,7 @@ red. SSOT: `docs/product/kpi-contracts.yaml` `project-lifecycle:`.
 |---|---|---|---|---|
 | PL-KPI-1 north star | 0 rename requests to an instance admin; 0 hand-written `UPDATE`/`DELETE` on `projects` | `pl-01`/`pl-02` happy-path scenarios (the door works for a lead and an admin) | Operator report at each dogfood and at 30 days; read-only `SELECT kind, count(*) FROM project_lifecycle_events GROUP BY kind` per environment | Yes: all of it |
 | PL-KPI-2 nothing erased | 0 rows removed or changed (tombstone carve-out, Changed Assumption 3); counts equal after restore | Store: delete checksum snapshot, restore equality, both races; acceptance before/after counts | Read-only counts around the slice-02, -03 and -04 dogfoods on dev | Dogfood counts |
-| PL-KPI-3 answers nowhere | 100% of the inventory (about 23 web + 7 API) differential-equal | Acceptance differential outline + direct attachment assertion; check-arch rule 1 gold tests | Slice-02 dogfood: board, issue link and an API call on dev | Dogfood |
+| PL-KPI-3 answers nowhere | 100% of the inventory (30 web doors + 6 project-reading API doors, reconciled at DISTILL; the 2 machine-token doors exempt, U1) differential-equal | Acceptance differential outline + direct attachment assertion; check-arch rule 1 gold tests | Slice-02 dogfood: board, issue link and an API call on dev | Dogfood |
 | PL-KPI-4 refusals learn nothing | 100% byte-identical 404s, 0 rows written | Acceptance authz outline with row counts | — | No |
 | PL-KPI-5 links kept | 100% same status after rename and after delete→restore | Acceptance rename and restore scenarios | Slice-01 and -03 dogfoods: an old bookmark | Dogfood |
 | PL-KPI-6 restore demand | Counted; > 2 in 30 days is evidence for a web restore | `pl-03` CLI scenarios (door works) | Read-only `count(*) … WHERE kind = 'restored'` on prod at 30 days, plus the operator report | Yes |
@@ -2027,7 +2051,7 @@ tag is cut until the user says so. Pre-commit `cargo xtask smoke` + `check-arch`
 | Backup export and verify | `us-per-workspace-backup.feature`, `us-03-backup-restore.feature`, `backup_verify_fail_closed.rs`; export carries the marker (DDD-31); `KNOWN_FOUNDRY_TABLES` skips tables a dump lacks |
 | SSE events route answers its shipped 403 text/plain for an unknown project | `events.rs:99-102,156-163`; `us-09-realtime-sse.feature`; the differential outline (Changed Assumption 1) |
 | Project create and the name rule, case-insensitive across deleted siblings | `us-07-project-create.feature`, `project-name-rule.feature` |
-| Probe scoping to `current_schema()` | `probe_schema_scoping.rs` |
+| Probe scoping to `current_schema()` | `probe_schema_scoping.rs`, including the three pending sibling-schema tests for the new probe lines (0025, 0026, 0027; DISTILL) |
 
 ### [REF] Pre-requisites
 
@@ -2090,3 +2114,331 @@ binary. Read-only production queries are run only with the user's approval.
 | Cost, DR, new pipeline YAML, deep observability | ✗ | No infrastructure change |
 
 Not rendered (lean).
+
+## Wave: DISTILL
+
+Acceptance designer: Quinn (nw-acceptance-designer) | Date: 2026-10-13 | Language: Rust (`[lang-mode] rust`, cucumber-rs 0.21; store and use-case gold tests on testcontainers `postgres:16`; check-arch gold tests in `xtask`) | Rigor: `adr-025-scaffolded-red` (every scenario `@pending`, every new gold test `#[ignore = "pending: project-lifecycle NN-NN …"]`, each classified RED by lifting it and running it; DELIVER only un-pends) | Density: lean, Tier-1 [REF] only | Policy: inherit (`docs/architecture/atdd-infrastructure-policy.md`; one Driving row appended for the project lifecycle surface and the operator's CLI) | State-delta port: the driver's typed universe (`support/project_lifecycle.rs::assert_state_delta`, over team-lifecycle's and team-membership's), the repo's Rust reading of Mandate 8 | `[policy-mode] inherit` `[port-mode] inherited`. Skills: nw-distill, nw-test-design-mandates, nw-bdd-methodology, nw-at-completeness-check loaded; nw-acceptance-designer's own SKILL.md does not exist (skipped).
+
+### [REF] Prior Wave Consultation and reconciliation
+
+| Artifact | Status |
+|---|---|
+| This file: DISCUSS (D-A, D-B, D-C, D1-D17, OQ-1 to OQ-6 answered, INV-PL-1 to -9, NFR-PL-1 to -6, US-PL-01 to -05, PL-KPI-1 to -7, DoD), DESIGN (DDD-1 to -32, Reader Inventory, Authorization Matrix, Statuses, Contract Shapes, check-arch Rules 1-3 with gold-test descriptions and the four named exemptions, Test Seams, OQ-D1 to -D6, OQ-U1 (b), OQ-U2, Changed Assumptions 1-5, For Acceptance Designer, Design Review approved) and DEVOPS (environment matrix, release gates R1-R6, monitoring contracts, P1-P7, proposed `pl-01..04` tags and test file names) | + read in full |
+| `slices/slice-01..04` | + read; slice 02 AC 2 and the lists AC, slice 03's dogfood AC edited (below) |
+| `docs/product/architecture/brief.md` ("Projects: one live view, soft delete and restore"), ADR-PROJECT-LIFECYCLE-001/002/003/004 | + read (003's record table columns are the universe's record shape) |
+| `docs/product/kpi-contracts.yaml` (`project-lifecycle:`), `docs/product/outcomes/registry.yaml` (OUT-1 to OUT-26), `docs/product/jobs.yaml` (`job-project-lifecycle`), `docs/product/journeys/journey-project-lifecycle.yaml`, `docs/architecture/atdd-infrastructure-policy.md` | + read; kpi entry refined with scenario links (status `distilled`); OUT-27..31 added, OUT-1, OUT-2, OUT-25 amended; one policy row |
+| House precedent: the team-lifecycle DISTILL (commit a878fa3; `distill/red-classification.md`; this file's DISTILL section shape), `feature_team_lifecycle.rs`, `support/team_lifecycle.rs`, `support/team_membership.rs`, `world.rs`, `tests/acceptance.rs`; the v0.14.1 scoping scenarios (us-mwt-slice-04 scenario 13, us-11) for the uniform-404 comparison; `us_10_tombstone_gc.rs` for the CLI door | + read and followed |
+| Code read for the doors: router `foundry-app/src/lib.rs` (every project route and verb), `attachments.rs` (upload, download), `events.rs` (the 403), `foundry-api/src/lib.rs` (7 routes, bodies), `projects.rs` (create refusals: 422 name, **409 key**), `issues.rs`, `lanes.rs`, `comments.rs` (forms), `csrf.rs` (`x-csrf-token`), `nav.rs` (Board link), `admin_cli.rs` (`run_restore_comment` copy), templates `team_members.html`, `team_delete.html`, `dashboard_root.html`, `instance_project_row.html` | + read |
+| `docs/feature/project-lifecycle/{discuss,design,devops}/wave-decisions.md` | - not present (lean layout; reconciled inside this file) |
+
+**Reconciliation passed — 0 unresolved contradictions** (iteration 2: the one AC conflict found at DISTILL — US-PL-03 AC 2 versus the machine-token routes — is resolved by user decision U1 and DESIGN Changed Assumption 6). Every DISCUSS decision was checked against DESIGN and DEVOPS. DESIGN raised its own changes as Changed Assumptions 1-5 and the user answered OQ-U1 (b) and OQ-U2; DEVOPS refined two statements (one replica; rollback floor) without touching a decision. DISTILL applies the DESIGN edits as written (below) and found no other contradiction. Two DISCUSS wording points, neither a decision conflict: the "new-issue project picker" does not exist (see Upstream notes), and the shipped project create answers a duplicate key with a **409**, not a 422 (the scenarios assert it as "she is told").
+
+### [REF] DESIGN corrections applied (edited in place)
+
+| # | Where | Correction |
+|---|---|---|
+| 1 | US-PL-03 scenario 1, AC 1 and AC 5; PL-KPI-3; DISCUSS Driving Port 4; slice 02 scope line and AC 2 (its DESIGN note removed) | Changed Assumption 1: a deleted project answers **byte-identically to the same address with a never-existed slug**; on the live-updates route that is its shipped 403 text/plain, not the uniform 404. An open stream sends no event about a change made after the delete (an event committed before it may still arrive, D17); a reconnect answers the 403. |
+| 2 | US-PL-01 AC 1; D8; [REF] Copy (members page row) | Changed Assumption 2 / OQ-U1 = (b): a Projects row links to its board **only when the viewer is on the team**; rows by name then key. |
+| 3 | INV-PL-1, INV-PL-4, US-PL-04 AC 2, PL-KPI-2, D6, D11, slice 03 dogfood AC | Changed Assumption 3: the tombstone carve-out (comments awaiting cleanup whose 90-day window passes while the project is deleted are purged by D12's GC). |
+| 4 | INV-PL-2, INV-PL-3, INV-PL-7 | Changed Assumption 4: each carries "(Bounded rolling-deploy exception: Changed Assumption 4.)" — a deploy fact with no acceptance scenario (not reproducible in the in-process lane). |
+| 5 | DISCUSS [REF] Lifecycle inventory | Changed Assumption 5: attachment upload and download added to the project addresses (and to the differential outline). |
+| 7 | US-PL-03 AC 2, pitch, D5, DISCUSS Driving Port 4, PL-KPI-3; DESIGN Changed Assumption 6 (new); DISCUSS Follow-ups | **User decision U1 (2026-10-13)**: the two machine-token API routes are exempt (they read no project; accepted pre-existing behaviour); follow-up "scope machine-token routes by project". |
+| 8 | DISCUSS [REF] Copy (D14) | **User decision U4**: DIST-1's restore-comment line (and DIST-2's team-gone line) recorded as additions to D14. |
+| 9 | DISCUSS Technical Notes (US-PL-03), PL-KPI-3, DESIGN grep facts, DEVOPS monitoring row, `kpi-contracts.yaml` | Route counts reconciled: 27 shipped web doors on 19 paths + 3 new; 6 API doors on 5 routes that read the project + 2 machine-token doors that read none. |
+| 10 | DESIGN check-arch rule 2; ADR-PROJECT-LIFECYCLE-002 decisions 2 and 7 | DIST-10: the guard inside the transaction that performs the write, before its first write; `lock_live_project` typed `&mut sqlx::Transaction<'_, Postgres>`. |
+| 11 | DESIGN OQ-D6 | **User decision U2**: widened to the universe, the stored marker and the race's row check. |
+| 12 | DEVOPS release gates, environment matrix, Coexistence | R1 checklist line; pinned store test names; the three probe-scoping tests. |
+| 6 | US-PL-03 AC 3, scenario 3, example 3 and Elevator Pitch; US-PL-02 pitch and problem; the JTBD story and forces; D5; the journey arc; Shared Artifacts; DISCUSS Driving Port 5; slice 02 lists AC | **DISTILL**: no new-issue project picker exists (the new-issue dialog is per project, `…/issues/new`, which is in the inventory); the lists are the dashboard, the Board link, the members page and the instance dashboard. |
+
+Also edited after the end-of-DISTILL DISCUSS review: DoR item 8's stale "conditional" labels (the OQs were answered 2026-10-12).
+
+### [REF] Scenario list
+
+Five feature files under `crates/foundry-acceptance/tests/features/`, one per slice and two for slice 02: `project-lifecycle-01-rename-project.feature` (`@pl-01`), `-02-delete-project` (`@pl-02`), `-02-deleted-project-answers-nowhere` (`@pl-02`), `-03-restore-project` (`@pl-03`), `-04-retire-team` (`@pl-04`). Every feature carries `@project-lifecycle @pl-0N @real-io`; every scenario carries `@pending`, a story tag and a `@contract-shape:` tag; every scenario has exactly one `When` (iteration 2). Each file's Background is built from team-membership's steps plus one new step, "these projects are live:", which seeds each project at its **stored** address. Each file's header records user decision U2 (read-only base-table SQL for the universe, "nothing erased", the stored marker and the race's row check; hidden-ness only through doors). **59 scenarios, 298 rows** with outline rows expanded (iteration 1: 50 / 166).
+
+| File | Scenarios | Rows | `@error` | `@edge` | error + edge |
+|---|---|---|---|---|---|
+| 01 rename | 16 | 29 | 6 (15 rows) | 6 (10 rows) | 12 of 16 |
+| 02 delete | 12 | 25 | 5 (18 rows) | 3 (3 rows) | 8 of 12 |
+| 02b answers nowhere | 11 | 222 | 4 (4 rows) | 3 (4 rows) | 7 of 11 |
+| 03 restore | 12 | 14 | 6 (8 rows) | 3 (3 rows) | 9 of 12 |
+| 04 retire team | 8 | 8 | 4 (4 rows) | 2 (2 rows) | 6 of 8 |
+| **All** | **59** | **298** | **25 (42%)** | **17** | **42 of 59 (71%)** |
+
+The INV-PL-2 outlines (87 + 120 + 6 rows) are refusals in substance but are tagged `@kpi`, not `@error`.
+
+| # | File | Scenario | Tags (besides `@pending`) | Rows |
+|---|---|---|---|---|
+| 1 | 01 | A team's lead renames a project and every link to it keeps working | @us-pl-01 @driving_port @kpi @contract-shape:bounded-change | 1 |
+| 2 | 01 | After a rename every page of the project answers as it did before | @us-pl-01 @kpi @contract-shape:bounded-change | 1 |
+| 3 | 01 | A workspace admin renames a project of a team she is not on | @us-pl-01 @kpi @contract-shape:bounded-change | 1 |
+| 4 | 01 | A rename made from the instance dashboard is on record too | @us-pl-01 @kpi @contract-shape:bounded-change | 1 |
+| 5 | 01 | A change of letter case is a real rename, and a project never collides with itself | @us-pl-01 @edge @contract-shape:bounded-change | 1 |
+| 6 | 01 | A name of exactly 256 characters is accepted | @us-pl-01 @edge @contract-shape:bounded-change | 1 |
+| 7 | 01 | Submitting the same name changes nothing and records nothing | @us-pl-01 @edge @contract-shape:unbounded-preservation | 1 |
+| 8 | 01 | A name already used in the team is refused, and the text is kept | @us-pl-01 @error @contract-shape:unbounded-preservation | 1 |
+| 9 | 01 | A name that breaks the project-name rule is refused with its reason, and the text is kept | @us-pl-01 @error @contract-shape:unbounded-preservation | 4 |
+| 10 | 01 | The Projects section names each project by name then key, and each field says which project it is for | @us-pl-01 @edge @contract-shape:unbounded-preservation | 1 |
+| 11 | 01 | Everyone on the team sees its projects, and only its lead or a workspace admin gets the controls | @us-pl-01 @edge @contract-shape:unbounded-preservation | 5 |
+| 12 | 01 | A team with no projects says so | @us-pl-01 @edge @contract-shape:unbounded-preservation | 1 |
+| 13 | 01 | Only the team's lead or a workspace admin can rename a project | @us-pl-01 @error @kpi @contract-shape:unbounded-preservation | 6 |
+| 14 | 01 | A rename aimed at another workspace's project or at a project that does not exist is refused the same way | @us-pl-01 @error @kpi @contract-shape:unbounded-preservation | 2 |
+| 15 | 01 | A lead who has since been made a member cannot rename from a page she opened as a lead | @us-pl-01 @error @contract-shape:unbounded-preservation | 1 |
+| 16 | 01 | A rename sent without the page's token is turned away, and nothing changes | @us-pl-01 @error @contract-shape:unbounded-preservation | 1 |
+| 17 | 02 | The delete page says what happens before anything does | @us-pl-02 @driving_port @contract-shape:unbounded-preservation | 1 |
+| 18 | 02 | A team's lead deletes a project after reading what happens | @us-pl-02 @driving_port @kpi @contract-shape:bounded-change | 1 |
+| 19 | 02 | Deleting a project erases none of its work | @us-pl-02 @kpi @contract-shape:bounded-change | 1 |
+| 20 | 02 | The delete page of a project with no issues says so | @us-pl-02 @edge @contract-shape:unbounded-preservation | 1 |
+| 21 | 02 | A workspace admin deletes a project with no issues on a team she is not on | @us-pl-02 @contract-shape:bounded-change | 1 |
+| 22 | 02 | Cancel goes back to the team, and nothing changes | @us-pl-02 @edge @contract-shape:unbounded-preservation | 1 |
+| 23 | 02 | A delete confirmed a second time finds nothing, and deletes once | @us-pl-02 @edge @contract-shape:unbounded-preservation | 1 |
+| 24 | 02 | Only the team's lead or a workspace admin may open a project's delete page | @us-pl-02 @error @kpi @contract-shape:unbounded-preservation | 6 |
+| 25 | 02 | Only the team's lead or a workspace admin may delete a project | @us-pl-02 @error @kpi @contract-shape:unbounded-preservation | 6 |
+| 26 | 02 | Another workspace's project and a project that does not exist look the same from Canzan Labs | @us-pl-02 @error @kpi @contract-shape:unbounded-preservation | 4 |
+| 27 | 02 | A lead who has since been made a member cannot delete from a page she opened as a lead | @us-pl-02 @error @contract-shape:unbounded-preservation | 1 |
+| 28 | 02 | A delete sent without the page's token is turned away, and nothing changes | @us-pl-02 @error @contract-shape:unbounded-preservation | 1 |
+| 29 | 02b | Every web address of a deleted project answers as one that never existed, for everyone | @us-pl-03 @kpi @contract-shape:unbounded-preservation | 87 |
+| 30 | 02b | For someone who cannot reach Backend, a deleted project's address answers as one that never existed | @us-pl-03 @kpi @contract-shape:unbounded-preservation | 120 |
+| 31 | 02b | A deleted project cannot be reached by a script either, and nothing is written | @us-pl-03 @kpi @contract-shape:unbounded-preservation | 6 |
+| 32 | 02b | Listing machine tokens under a deleted project's address answers as under any address, because the list names no project | @us-pl-03 @edge @contract-shape:unbounded-preservation | 1 |
+| 33 | 02b | Revoking a machine token under a deleted project's address revokes it, as under any address, because the token names no project | @us-pl-03 @edge @contract-shape:bounded-change | 1 |
+| 34 | 02b | A deleted project's real attachment cannot be downloaded by anyone | @us-pl-03 @error @kpi @contract-shape:unbounded-preservation | 1 |
+| 35 | 02b | A deleted project disappears from every list, and the others stay | @us-pl-03 @kpi @contract-shape:unbounded-preservation | 1 |
+| 36 | 02b | The instance dashboard's rename does not find a deleted project | @us-pl-03 @error @contract-shape:unbounded-preservation | 1 |
+| 37 | 02b | A change sent from a page opened before the delete is refused, and nothing changes | @us-pl-03 @error @contract-shape:unbounded-preservation | 1 |
+| 38 | 02b | An open live view of a deleted project hears of no change made after the delete | @us-pl-03 @edge @contract-shape:unbounded-preservation | 2 |
+| 39 | 02b | Filing an issue during a delete gets a normal answer, never a failure | @us-pl-03 @error @kpi @concurrency @contract-shape:bounded-change | 1 |
+| 40 | 03 | The operator finds a deleted project on the list | @us-pl-04 @driving_port @kpi @contract-shape:unbounded-preservation | 1 |
+| 41 | 03 | The operator restores a deleted project with everything under it | @us-pl-04 @driving_port @kpi @contract-shape:bounded-change | 1 |
+| 42 | 03 | A restored project holds exactly what it held when it was deleted | @us-pl-04 @kpi @contract-shape:bounded-change | 1 |
+| 43 | 03 | The operator is told when there is nothing to restore | @us-pl-04 @edge @contract-shape:unbounded-preservation | 1 |
+| 44 | 03 | Every deleted project is listed, the oldest deletion first | @us-pl-04 @edge @contract-shape:unbounded-preservation | 1 |
+| 45 | 03 | A restore that cannot be done is refused with its reason, and nothing changes | @us-pl-04 @error @contract-shape:unbounded-preservation | 3 |
+| 46 | 03 | Restoring the same project twice restores it once | @us-pl-04 @edge @contract-shape:unbounded-preservation | 1 |
+| 47 | 03 | A restore attempted while foundry's records cannot be reached changes nothing | @us-pl-04 @error @contract-shape:unbounded-preservation | 1 |
+| 48 | 03 | A deleted project's name stays taken for a new project until it is restored | @us-pl-04 @error @contract-shape:unbounded-preservation | 1 |
+| 49 | 03 | A deleted project's key stays taken in the workspace until it is restored | @us-pl-04 @error @contract-shape:unbounded-preservation | 1 |
+| 50 | 03 | A deleted project's name stays taken for a rename until it is restored | @us-pl-04 @error @contract-shape:unbounded-preservation | 1 |
+| 51 | 03 | A deleted comment inside a deleted project cannot be brought back on its own | @us-pl-04 @error @contract-shape:unbounded-preservation | 1 |
+| 52 | 04 | The team delete page names the deleted project it will keep | @us-pl-05 @driving_port @contract-shape:unbounded-preservation | 1 |
+| 53 | 04 | A team whose only project is deleted can be deleted, and the project's work is kept | @us-pl-05 @driving_port @kpi @contract-shape:bounded-change | 1 |
+| 54 | 04 | Only live projects keep a team from being deleted, and only they are named | @us-pl-05 @error @kpi @contract-shape:unbounded-preservation | 1 |
+| 55 | 04 | A delete sent for a team that still has a live project is refused, naming only the live one | @us-pl-05 @error @kpi @contract-shape:unbounded-preservation | 1 |
+| 56 | 04 | A deleted project whose team is gone cannot be restored, and is not lost | @us-pl-05 @error @contract-shape:unbounded-preservation | 1 |
+| 57 | 04 | A project kept from a deleted team is still on the operator's list | @us-pl-05 @edge @contract-shape:unbounded-preservation | 1 |
+| 58 | 04 | A deleted project's key stays taken after its team is deleted | @us-pl-05 @edge @contract-shape:unbounded-preservation | 1 |
+| 59 | 04 | A restore racing a team delete never loses a project | @us-pl-05 @error @kpi @concurrency @contract-shape:bounded-change | 1 |
+
+**Coverage, AC by AC (corrected at iteration 2).** US-PL-01: AC 1 → 10, 11, 12 (rows, order, links per viewer); AC 2 → 11; AC 3 → 1, 2 (board, AUTH-7 and **every page of the project** answer as before the rename), 3; AC 4 → 6, 8, 9; AC 5 → 5, 7; AC 6 → 13, 14, 15, 16; AC 7 (records, both doors) → 1, 3, 4, 5, 6 (the record's fields in the delta), none for 7-9, 13-16; AC 8 (scripting disabled) → 10 ("every project row's rename and delete controls work as plain page forms"). US-PL-02: AC 1 → 17 (+ "the delete page works as a plain page form"), 20; AC 2 → 18, 21; AC 3 → 19; AC 4 → 22; AC 5 → 23-28; AC 6 → 18, 19, 21 (one record each), none for 22-28; AC 7 → 17. US-PL-03: AC 1 → 29 (87 rows), 30 (120 rows), 34; AC 2 → 31 (6 rows), the two machine-token routes exempt (U1) and pinned by 32, 33; AC 3 → 35, 36; AC 4 → 37, 39; AC 5 → 38; **AC 6 (D17)** → store gold test `a_notification_queued_before_the_delete_stays_pending_and_none_arises_after_it` (`crates/foundry-store/tests/project_lifecycle.rs`; the outbox is not observable through a door), plus every differential row's whole-universe check (no outbox row appears for a refused write). US-PL-04: AC 1 → 40, 43, 44; AC 2 → 41 (+ every page as before the delete), 42; AC 3 → 45, 46, 47; AC 4 → 48, 49, 50; AC 5 → 41, 42 (the restore record in the delta). US-PL-05: AC 1 → 54, 55; AC 2 → 52 (+ "the delete page works as a plain page form"), 53; AC 3 → 56; AC 4 → 59 (5 runs; the 100-run proof is the store's); AC 5 → 53 (the team record in the delta). Every Acceptance Criterion now maps to an acceptance assertion or a named gold test.
+
+Pinned by these scenarios:
+
+- **The Statuses table (OQ-D1)**: 200 members page with "Renamed {old} to {new}." / no notice for a byte-equal name / "Deleted {project}."; **422** for every name refusal, the copy in that project's row and the typed text kept; the 200 confirm page; the team delete's 200 refusal page and **409** naming live projects only; the **uniform 404, byte-identical to a page that never existed**, for every refusal on both verbs; the CSRF layer's **403** for a tokenless POST (with a control that the same request with the token goes through).
+- **The D14 copy, byte for byte**, including U4's recorded addition (DIST-1, DIST-2).
+- **The Authorization Matrix (PL-KPI-4)** on the new doors (signed out, Marco, Sam, Lena on an Ops project, Ines, Hugo; unknown and foreign projects; a demoted lead), and **the deleted column for every actor**: 87 rows for Lena, Sam and Priya plus 120 for the four who cannot reach Backend (signed out, Marco, Ines, Hugo), whose live control must answer them exactly as a never-existed project (no oracle).
+- **Scripting disabled (NFR-PL-3, U3a)**: every Projects-section control, the confirm page and the team delete page are plain HTML POST forms to a `/team/…` address with the hidden `_csrf` field and a submit button, plain `href` links, and no inline handler or `javascript:` link.
+- **The members page DOM (DDD-25, NFR-PL-1)**, **the confirm page DOM (D7, OQ-5)**, **lists**, **nothing erased / exact restore**, **records**, **races** — as at iteration 1.
+- **PL-KPI-5 after a rename and after a restore**: a sweep of the 15 read-only pages of the project (board, report, spreadsheet, new-issue form, search, issue page, edit and delete forms, comment and its edit form, attachment download, live updates, the three lane dialogs) is noted before and must answer the same after.
+
+### [REF] WS strategy
+
+Architecture of Reference (project-level), not a per-feature A-D choice: driving ports real (the in-process axum router with the shipped session and CSRF layers through `InProcHarness::spawn_with_oidc`, and the real prebuilt `foundry` binary for the operator), driven-internal real (Postgres 16, per-scenario schema), driven-external faked over a real socket (the Keycloak OIDC double; not exercised). **No walking skeleton** (DISCUSS WS Strategy: brownfield; every surface ships). Each slice's `@driving_port` scenarios (1; 17, 18; 40, 41; 52, 53) is its end-to-end proof through the real door. Every scenario is `@pending` at hand-off; the suite stays green.
+
+### [REF] Adapter coverage
+
+| Adapter | `@real-io` scenario | Covered by (iteration-2 numbering) |
+|---|---|---|
+| `foundry_store::Store` on Postgres 16 (the only driven port) | YES | every scenario (per-scenario schema); store gold tests on their own containers |
+| Migration 0025 (`project_lifecycle_events`) and its probe line | YES | 1, 3-7, 18, 19, 21, 41, 42 (records in the delta); `project_lifecycle_migrations.rs`, `probe_schema_scoping.rs` |
+| Migration 0026 (`deleted_at`, `deleted_by`, `live_projects`) and its probe lines | YES | 17-59; `project_lifecycle_migrations.rs` (incl. the parity self-check), `project_lifecycle.rs`, `probe_schema_scoping.rs` |
+| Migration 0027 (detach) and its probe line | YES | 53, 56, 57, 59; `project_lifecycle_migrations.rs` (incl. the previous-release boot), `team_delete.rs`, `probe_schema_scoping.rs` |
+| The operator's CLI (`foundry doctor`, the real binary) | YES | 40-51, 56, 57, 59 |
+| Machine tokens and the API (shipped) | YES | 31, 32, 33 |
+| The live-updates stream (shipped) | YES | 29, 30 (live-updates rows), 38 |
+| Keycloak OIDC provider (driven external) | not exercised | DESIGN: no change to Keycloak; no contract test |
+
+### [REF] Driving adapter coverage
+
+| Door (DESIGN Driving Ports) | Scenarios (iteration-2 numbering) |
+|---|---|
+| `GET /team/{t}/members` (Projects section) | 1, 2, 10-13, 17-22, 35, 41, 52, 53, and every write "from the page" |
+| `POST /team/{t}/project/{p}/rename` | 1-9, 13-16, 29-30 (rows), 50 |
+| `GET` / `POST /team/{t}/project/{p}/delete` | 17-28, 29-30 (rows), and every "has deleted the project" Given |
+| Every shipped `/team/{t}/project/{p}/…` and `/api/v1/teams/{t}/projects/{p}/…` route | 2, 29-34, 37-39, 41 |
+| `GET /`, the Board link, `GET /admin/instance/workspaces`, `POST /admin/instance/projects/{id}/rename` | 4, 35, 36 |
+| `POST /team/{t}/projects` (OQ-4) | 48, 49, 58 |
+| `foundry doctor list-deleted-projects`, `restore-project`, `restore-comment` | 40-51, 56, 57, 59 |
+| `GET` / `POST /team/{t}/delete` (amended) | 52-56, 59 |
+
+### [REF] Scaffolds (Mandate 7)
+
+Marker `SCAFFOLD: true — RED scaffold written by DISTILL (2026-10-13)`; every scaffolded function panics `Not yet implemented -- RED scaffold (project-lifecycle NN-NN: …)`; no production caller; **no migration written**.
+
+| File | What | DELIVER |
+|---|---|---|
+| `crates/foundry-store/src/project_lifecycle.rs` (new; `pub mod` + re-exports in `lib.rs`) | Real types: `ProjectRenameWrite {Renamed{old_name}, Unchanged, NotFound}`, `TeamProjectRow {name, slug, key}`, `ProjectDeleteOutcome {Deleted{name, key_prefix}, NotFound}`, `DeletedProjectRow {project_id, workspace_name, team_slug, name, key_prefix, issue_count, deleted_at, deleted_by_email}`, `ProjectRestoreOutcome {Restored, NotDeleted, NotFound, TeamGone{team_slug}}`, `TeamDeletedProjects {workspace_name, deleted_projects}`. Panicking `Store` methods: `list_team_projects(team_id)`, `rename_project_with_audit(project_id, actor_id, new_name)` (01-01), `soft_delete_project(workspace_id, team_id, project_id, actor_id)` (02-03), `list_deleted_projects()`, `restore_deleted_project(project_id)` (03-01), `team_deleted_projects(team_id)` (04-01); `pub(crate) lock_live_project(&mut sqlx::Transaction<'_, Postgres>, project_id) -> Result<bool, sqlx::Error>` (02-01; typed on a transaction by DIST-10) | per DESIGN Component Decomposition |
+| `crates/foundry-store/src/upgrade_warnings.rs` | `UPGRADE_WARNING_0025`, `UPGRADE_WARNING_0026` as empty strings (re-exported; `upgrade_warnings()` unchanged) | 01-01, 02-01: the warning text and the list form (DEVOPS) |
+| `crates/foundry-services/src/projects.rs` (a new section) | `TeamProjectRename {Renamed{old_name, name}, NoOp{name}}`, `ProjectLifecycleError {NotFound, Store}`, `ProjectDeletePreview`, `ProjectDeletion`; panicking `rename_team_project(store, &Principal, team_slug, project_slug, raw)` (01-02), `delete_preview`, `delete_project` (02-03), `list_deleted_projects`, `restore_project` (03-01) | per DDD-16, DDD-10 |
+| `xtask/src/check_arch.rs` | panicking `check_project_lifecycle_live_reads`, `check_project_lifecycle_write_guard`, `check_project_lifecycle_one_seam` (`fn(&Path) -> Vec<String>`, the shipped idiom), not registered in `check()` | register each as its step lands (rule 3 in 01-01, rule 2 in 02-01, rule 1 last in 02-02) |
+
+No app scaffold and no route: the acceptance steps reach the product only over HTTP and through the binary, so no handler, template or route is referenced before it exists. Signatures are DISTILL's working choice where DESIGN pinned only names and outcomes; DELIVER may change them with the gold tests.
+
+### [REF] Test placement
+
+- Acceptance: the five `.feature` files above; steps in `crates/foundry-acceptance/src/steps/feature_project_lifecycle.rs` (94 step definitions, each one call into the driver), registered in `src/lib.rs` and force-linked in `tests/acceptance.rs` (the tag selection is generic: `FOUNDRY_ACCEPTANCE_TAGS=project-lifecycle` or `pl-01`..`pl-04` runs the slice, `@pending` is excluded everywhere); the driver in `src/support/project_lifecycle.rs`; one World field `pl: PlState`. Team-lifecycle's driver gained `apply_changes` and `captured_before` (its delta, unchanged in behaviour, made reusable), six of its page readers became `pub`, and its `capture_before` now also snapshots this feature's universe. **Reused unchanged**: the four Background steps, "she sees", "she is told", "the answer is the page that never existed", "the answer is turned away as a forged form", "… opens X's members page", "… opened X's members page earlier", "… has made X a lead/member of Y", "she follows Cancel", "she is back on X's members page", "she gets X's members page back with no notice", the team delete page's "asks", "says" and "offers", "… follows Delete team on …", "… has deleted X" (team), "… submits a delete of X" (team), "… follows New project … and creates …", "she is refused with …, and her text … is kept", "no team, project or membership changed".
+- Store: `crates/foundry-store/tests/project_lifecycle.rs` (DESIGN's name), `project_lifecycle_migrations.rs` (the `team_lifecycle_migrations.rs` idiom; DEVOPS proposed it, DISTILL pins it), `probe_schema_scoping.rs` (three sibling-schema tests, iteration 2), `team_delete.rs` (extended; the shipped tests untouched). App: `crates/foundry-app/tests/project_lifecycle_copy.rs` (byte-test stubs for the new copy, iteration 2). Use-case: `crates/foundry-services/tests/project_lifecycle_use_cases.rs` (pinned); `rename_project_use_case.rs` unchanged. check-arch: module `project_lifecycle_check_arch_tests` in `xtask/src/check_arch.rs`.
+- Unit tests (`TeamNotice` bytes, CLI constants' bytes, `classify_rename` is unchanged) are DELIVER's.
+
+### [REF] Pre-requisites
+
+- DESIGN's driving ports and the DOM pinned above (DDD-23, DDD-25, DDD-26, DDD-27). DISTILL pinned: the Projects section as an h2 plus one list item per project; the per-row rename form's field `name`; the row-scoped placement of a name refusal; the confirm page's form and Cancel link; `deleted-at` printed in RFC 3339 UTC equal to the marker.
+- Shipped: sessions and CSRF (`x-csrf-token` for PATCH, DELETE and multipart), `resource_not_found_page`, the events route's 403, the API's JSON 404, machine tokens (`foundry_auth::test_keys`), the instance dashboard rename row, `foundry doctor restore-comment`.
+- Environment (DEVOPS): Docker for every lane (P1); **a rebuilt, warm release binary before every CLI scenario** (P2): `CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false cargo build --release -p foundry-app --bin foundry`, then run it 2-3 times; the lane in `--release` so `cargo_bin("foundry")` finds `target/release/foundry`; every run bounded with `timeout` (P3); port collisions checked (P5).
+
+### [REF] RED classification
+
+`docs/feature/project-lifecycle/distill/red-classification.md`. Acceptance (iteration 2, final): **298 rows, 298 MISSING_FUNCTIONALITY, 0 GREEN_ALREADY, 0 BROKEN**, 0 parsing errors, 0 undefined or ambiguous steps; scratch self-checks without the delete proved the 87 + 120 differential rows, the 6 script rows, the token revoke pair and the page sweep mechanically sound. Store, use-case, app and check-arch: **103 new tests: 9 GREEN now (Postgres substrate facts and two negative controls), 94 RED (MISSING_FUNCTIONALITY), 0 BROKEN**.
+
+### [REF] Store, use-case, app and check-arch gold tests
+
+The per-file table (tests, GREEN now, RED and why) is in `distill/red-classification.md`. Summary: `project_lifecycle.rs` 37 (8 GREEN, 29 RED), `project_lifecycle_migrations.rs` 13 (13 RED), `probe_schema_scoping.rs` +3 (RED), `team_delete.rs` +9 (1 GREEN, 8 RED), `project_lifecycle_use_cases.rs` 13 (RED), `project_lifecycle_copy.rs` 4 (RED stubs), check-arch 24 (RED) — **103 tests, 9 GREEN, 94 RED, 0 BROKEN**. Iteration 2 added: the production delete waits on a held guard; 0026's parity self-check refuses a drifted view (asserting `StoreError::MigrationFailed` naming `live_projects`); three sibling-schema probe tests; the previous release boots on the migrated schema and applies nothing; a queued notification stays pending and none arises after the delete (D17); a restore takes the team lock before the project lock (DDD-8); the detach backstop's single error log (DDD-30, stub); `project_lifecycle_events` is not a tenant table (DDD-14); `teams::delete_preview` changes zero rows; the copy byte-test stubs; rule 2's guard-across-the-write case (DIST-10).
+
+### [REF] Mandate compliance and completeness
+
+- **CM-A (Mandate 1)**: acceptance enters only through HTTP doors, the API with a bearer, and the operator's binary. **Explicit exception (user decision U2, 2026-10-13; house precedent OQ-D6):** read-only fixture SQL on the base tables seeds preconditions and reads the scenario universe, "nothing erased", the stored deleted marker (to check the printed `deleted-at`) and the restore race's row-kept check; whether a project is hidden is asserted only through pages, the API and the operator CLI. Store tests through public `Store` methods, migrations and SQL; use-case tests through `foundry_services::projects::*` and `teams::*`. No step imports an app, service or store type.
+- **CM-B (Mandate 2, Pillar 1)**: the Gherkin speaks of teams, projects, members pages, delete pages, the operator, scripts, machine tokens (the product's label) and foundry's records. Routes, statuses, SQL and selectors live in the driver. The CLI's output lines are the operator's own interface (D14), quoted like page copy. "without the page's token" is kept (team-membership's shared phrase; PO L4 optional, not applied).
+- **CM-C (Mandate 3)**: no walking skeleton (brownfield, DISCUSS WS Strategy); 6 `@driving_port` slice scenarios + 53 focused scenarios. **Dimension 8 Check B (walking-skeleton integrity): not applicable** — there is no walking skeleton by the user's brownfield decision; each slice's `@driving_port` scenario drives its real door end to end instead.
+- **CM-E (Mandate 8)**: every **When that writes or refuses a write** captures the universe first (team-membership's + team-lifecycle's + every project row, every project's holdings, every project record): the rename, delete, cancel, confirm, team-delete, instance-rename, stale-save, single-write and operator Whens. Their `Then`s are fail-closed state deltas (`assert_state_delta(world, &[Change…])`), the empty delta for a refusal. Each INV-PL-2 row (a reading When) instead captures the whole universe around its two compared requests and asserts it unchanged ("neither request changed anything"); its live control runs after that image. The revoke pair declares its one change (the spare token revoked) and asserts nothing else moved; the universe ignores `machine_tokens.revoked_at` (it keys tokens by id, workspace and scope), so the revocation is asserted through the product's token list only (recorded in the 02b header). The two races are judged per run by their invariants (delete answered; the filed issue kept and hidden, or the filing refused; project row and issue kept), because each run's outcome is one of two legal ones; the store races are the exhaustive proof. The record fields (workspace, kind, project address, key, old name, new name, actor or the operator) are asserted inside the delta by `then_renamed` / `then_deleted` / `then_restored` (`crates/foundry-acceptance/src/support/project_lifecycle.rs`, `pub async fn then_renamed` ≈ line 2302, `then_deleted` ≈ 2343, `then_restored` ≈ 2374); the record's `created_at` ("when") is asserted at store level (the delete record's `created_at` equals `deleted_at`). The team delete record of slice 04 is asserted field by field through `tl::Record` in `then_team_deleted_project_kept` (≈ line 2402); its shape is pinned by team-lifecycle's `crates/foundry-store/tests/team_delete.rs::the_delete_record_outlives_the_team_with_its_id_name_and_slug`.
+- **Dimension 7 note (U2)**: the base-table reads above are the only SQL in the acceptance layer; recorded in each feature file's header.
+- **CM-F/CM-H (Mandates 9, 11)**: layer 3, example-only; sad paths enumerated; no PBT. The 5-run races are repeated examples; the 100-run races are store examples. Finite Cartesian sets are Scenario Outlines (the 87- and 120-row differentials, the authz matrices, the rule copy, the viewer matrix, the CLI refusals, the single writes).
+- **CM-G (Mandate 10)**: no Tier B (closed sets of doors and actors; concurrency proven at store level).
+- **Pillar 3**: production composition root and the production binary; only the identity provider is faked.
+- **Mandate 12 (Rust reading)**: (1) the typed vocabulary lives in `support/project_lifecycle.rs` (`RecordKind`, `ProjectRecord`, `ProjectFacts`, `Holdings`, `Projects`, `Change`, `PlProject`, `Door` (30), `ApiDoor` (8), `Answered`, `Differential`, `RevokePair`, `CliRun`, `DeleteRace`, `RestoreRace`, `PlState`); (2) the driver's services take these types; (3) every step body is one statement, a call into the driver, with no control flow; the named clauses ("on X's members page", the live control's project, "nothing under X") are passed in and asserted; (4) **step-reuse ratio (informational): 324 step lines over 94 new step definitions = 3.4×**.
+- **Completeness (15 items): 15 of 15, COMPLETE** (re-scored at iteration 2). C1a (no projects; no deleted project; 0 issues; empty name) · C1b (256 vs 257) · C2a (state machine in the driver's module docs) · C2b (restore of a live project, any door of a deleted one, double delete, double restore, restore of a detached one, a team delete with a live project) · C3 (0, 1, 2 deleted projects listed; 0 and 2 projects in a section; 0, 1, 3, 7 and 12 issues) · C4a (double delete, double restore, byte-equal rename, a second revoke) · C4b (restore without a delete) · C5a (actor × door × project: 7 actors on the differential, 6 on the new doors; viewer × link/controls) · C5b (managing grants no board link; a member sees the list without controls) · C6a (not-a-uuid, control characters, blank, over-long, unknown and foreign addresses) · C6b (200, 422, 409, 404, 403, exits 0/2/3/4) · C6c (byte equality on the differentials; races never fail) · C7a (records unreachable for the operator, exit 3) · C7b (stale pages, an open live view across the delete, a demoted lead; a rolled-back delete at store level) · C7c (two HTTP races × 5; store races × 100). Remaining thin spot: NFR-PL-4's web error page on a database failure is store-atomicity only.
+
+### [REF] Outcomes registry
+
+`nwave-ai outcomes check` before this wave: rename from the team page **AMBIGUOUS: OUT-26 (Tier-2 0.44 only)** (team rename, a sibling, recorded as `related`); delete, hidden, restore **NO COLLISIONS**. Appended by hand in the OUT-24..26 shape (the `register` command re-flows every entry, as team-lifecycle recorded): **OUT-27** (operation: project rename from the team page, address and key stable, recorded), **OUT-28** (operation: soft delete through a confirm page, nothing erased), **OUT-29** (invariant: a deleted project answers nowhere and nothing can be written into it), **OUT-30** (operation: the operator lists and restores exactly; names held), **OUT-31** (invariant: every effective rename, delete and restore is recorded with its change, nothing else). **Amended** (`amended_by`): OUT-1 (one rename core, records, a deleted id 404s), OUT-2 (the instance list omits deleted projects), OUT-25 (only live projects refuse a team delete; deleted ones are detached). `kpi-contracts.yaml` `project-lifecycle:` gains `distill:`, the pinned lane and test names, and per-KPI scenario links (status `distilled`).
+
+### [REF] DISTILL decisions
+
+| ID | Decision | Why |
+|---|---|---|
+| DIST-1 | **`restore-comment` on a deleted comment inside a deleted project**: exit 4, stderr `comment-id: {uuid}` then `foundry doctor restore-comment: comment {uuid} is in deleted project {project uuid} — status: not restorable`; nothing changes (scenario 43). | DESIGN left the wording to DISTILL. It follows `restore-comment`'s shipped voice ("comment {uuid} not in database — status: not restorable") and D14's restore lines, and names the project's id so the operator's next command is `restore-project {project uuid}`. The operator already has shell access, so naming the project is no oracle. |
+| DIST-2 | **`restore-project` on a detached project**: `foundry doctor restore-project: project {uuid}: its team {team_slug} was deleted — status: not restorable` (scenario 47). | D14 gives "… its team {team_slug} was deleted — status: not restorable"; the ellipsis stands for the shared prefix, joined with ": " so the sentence reads. |
+| DIST-3 | **A detached project stays on `list-deleted-projects`**, its `team:` line naming the deleted team's address (scenario 48). | D14 did not cover a detached row. It is still a deleted project the operator must be able to find (D-A: nothing erased); DDD-9's `TeamGone{team_slug}` already carries the slug (from the team's delete record). |
+| DIST-4 | `restore-project`'s exit 2 and 3 lines are asserted by prefix: `foundry doctor restore-project: invalid UUID "not-a-uuid"` and `foundry doctor restore-project: could not connect to DATABASE_URL`. | D14: "Exit 2 and 3 as restore-comment"; the prefix also keeps today's "unknown subcommand" exit 2 from passing for the wrong reason. |
+| DIST-5 | `deleted-at` is printed in RFC 3339 with a UTC offset and equals the project's marker to the second. | D14 said "RFC 3339 UTC" without a precision. |
+| DIST-6 | The DOM of the Projects section, the per-row refusal placement and the confirm page form (see Pre-requisites). | DESIGN pinned the copy and the controls, not the markup the driver reads. |
+| DIST-7 | The INV-PL-2 outline is differential **with a live control per row**: the same door on Identity Platform must answer otherwise, so no row can pass because its request was malformed or its route unwired. The machine-token routes, which read no project, get their own outline asserting they answer alike everywhere. | DESIGN asked for a differential; without the control a malformed request would make both sides 404 and pass. |
+| DIST-8 | Test names pinned: `project_lifecycle_migrations.rs` (store), `project_lifecycle_use_cases.rs` (services), tags `project-lifecycle` and `pl-01`..`pl-04`, two feature files for slice 02. | DEVOPS proposed; DISTILL pins. |
+| DIST-9 | Hugo is "Hugo Brandt (hugo.brandt@globex.example)" (DISCUSS's persona), seeded through team-membership's Globex step; Tomás leads Ops and is Labs's only member, so Labs's member line reads "1 member(s)". | Persona choices, as team-lifecycle recorded its own. |
+
+### [REF] Recommended un-pend order (handoff to DELIVER)
+
+Step ids are shared by the scenarios, the gold tests' `#[ignore]` reasons and the scaffolds' panic messages. **Sizing review (final review, R6, record only):** roadmap steps 01-02 (16 scenarios), 02-03 (23), 03-01 (12) and 04-01 (8) are flagged for sizing; DELIVER's roadmap may split them. **Every `pl-0N` lane run DELIVER reports must show a non-zero scenario count** (an all-`@pending` slice selects 0 scenarios and exits green; platform review L7).
+
+1. **01-01** (slice 01, store): migration 0025, its probe line, `UPGRADE_WARNING_0025`; `project_lifecycle.rs` with `list_team_sibling_projects` moved in, `rename_project_with_audit`, `list_team_projects`; check-arch rule 3 (i)/(ii) registered → the 01-01 store, migration and check-arch tests.
+2. **01-02** (slice 01, services and web): `apply_rename` and `rename_team_project`, the instance door re-pointed (records), the Projects section, the route, `TeamNotice` copy → the 01-02 use-case tests; then acceptance 1-16 (scenario 1 first).
+3. **02-01** (slice 02): migration 0026, its probe lines, `UPGRADE_WARNING_0026`, `lock_live_project`, the guard in every writer (`rename_lane`, `insert_attachment`, `undelete_comment` become transactional; `undelete_comment`'s `ProjectDeleted` outcome), check-arch rule 2 → the 02-01 store tests (the 13-writer table first).
+4. **02-02** (slice 02): the reader sweep onto `live_projects`, the export const; check-arch rule 1 turned on **last** → the 02-02 store tests.
+5. **02-03** (slice 02; **steps 5 and 6 are one push unit — no push between them**, release gate R1): `soft_delete_project`, `delete_preview`, `delete_project`, the confirm page and the routes, rule 3 (ii) for `soft_delete_project` → the 02-03 store and use-case tests (the 100-run race is the slice's learning hypothesis: stop if it ever loses an issue or answers 500); then acceptance 17-39 (17 and 18 first, then the 87- and 120-row outlines: expect every row to pass at once, or the reader sweep missed a door).
+6. **03-01** (slice 03): `list_deleted_projects`, `restore_deleted_project`, the CLI subcommands and constants, `restore-comment`'s exit-4 reason, rule 3 (ii) for the restore → the 03-01 tests; then acceptance 40-51 (rebuild and warm the binary first). **Release rule R1: slices 02 and 03 are pushed and tagged together.**
+7. **04-01** (slice 04): migration 0027 and its probe line, `delete_team_if_empty` detaches, `team_delete_facts` / `team_deleted_projects`, the "also has" line → the 04-01 tests; then acceptance 52-59.
+
+Burn-down: `grep -cE '^\s*@.*@pending' crates/foundry-acceptance/tests/features/project-lifecycle-0*.feature` = 16 + 12 + 11 + 12 + 8 = 59 now, 0 at the end; `grep -c 'pending: project-lifecycle' crates/foundry-store/tests/{project_lifecycle,project_lifecycle_migrations,team_delete}.rs crates/foundry-services/tests/project_lifecycle_use_cases.rs xtask/src/check_arch.rs` (iteration 2) `grep -c '#\[ignore = "pending: project-lifecycle'` over the store, services, app and xtask files = 29 + 13 + 3 + 8 + 13 + 4 + 24 = 94 now, 0 at the end; `grep -rn "RED scaffold written by DISTILL (2026-10-13)" crates/ xtask/` lists the four scaffold sites, 0 at the end.
+
+### [REF] Upstream notes (no user decision needed)
+
+- **The machine-token API routes read no project — resolved by user decision U1 (2026-10-13): exempt, DESIGN Changed Assumption 6, follow-up recorded.** `GET /api/v1/teams/{t}/projects/{p}/tokens` and `DELETE …/tokens/{jti}` answer 200 / 204 under any project address, a never-existed one included (re-verified at DISTILL). INV-PL-2 holds for them by construction (a deleted project's address answers exactly as a never-existed one's), so scenario 28 pins "alike everywhere" instead of "the API's not-found". DESIGN's "7 API routes" inventory counted them as project-scoped; making them resolve the project is a separate, small change if ever wanted.
+- **OQ-D1 re-verified**: of the 27 shipped web doors, every never-existed answer is the uniform 404 except the live updates' 403 text/plain (Changed Assumption 1). No `team_not_found_page` copy remains.
+- **There is no new-issue project picker** (DISCUSS D5, US-PL-03 example 3, slice 02): the dialog is per project. The lists checked are the dashboard, the Board link, the members page and the instance dashboard (edited above).
+- **A duplicate project key on create is a 409** (`projects.rs::duplicate_key_response`), not a 422; scenarios 42 and 49 use "is told".
+- **Store and services signatures** were not pinned by DESIGN beyond names and outcomes; DISTILL's choices are listed under Scaffolds. `undelete_comment`'s new outcome is asserted through its `Debug` text containing `ProjectDeleted`; DELIVER picks that variant name or edits the test. The team delete page's facts come from a separate `team_deleted_projects` scaffold rather than new fields on the shipped `TeamDeleteFacts`; DELIVER folds them together as ADR-004 says.
+- **One use-case test is a guard rather than a true RED**: a deleted project's name and key staying taken already holds in shipped code, because siblings read the base table; it stays meaningful after 0026, when the view could hide them.
+- **The rolling-deploy window** (Changed Assumption 4) has no acceptance scenario: a mixed-version deploy is not reproducible in the in-process lane (DEVOPS: the CHANGELOG note is the mitigation).
+- **DESIGN text not amended by DISTILL** (the DESIGN reviewer asked; recorded here, DESIGN owns it): the Reader Inventory's "new-issue project list" consumer of `list_projects_for_workspace` does not exist (only the dashboard and `nav.rs`), and "every API project route resolves through `find_project_by_slug`" excludes the two machine-token routes. ADR-004 decision 2 says `team_delete_facts` gains the deleted list; the scaffold adds `team_deleted_projects` instead, folded by DELIVER 04-01.
+- **D17 has no acceptance scenario of its own** (DISTILL review, medium): "queued notifications are delivered" is held by the unchanged outbox rows in every project's holdings and by DDD-11 (outbox and notifier unchanged); "none arise after the delete" by the differential rows' whole-universe check (no outbox row appears for any refused write). Observing a delivery needs the notifier's delivery stamp, which the universe deliberately ignores.
+
+### [REF] DISTILL decisions (added after the end-of-DISTILL review)
+
+| ID | Decision | Why |
+|---|---|---|
+| DIST-10 | **Check-arch rule 2 requires the guard to hold across the write**: `lock_live_project(` on the transaction that then performs the writes, before the first write. A guard on a pooled connection with an autocommit write, or a write before the guard, is flagged (gold test added); the clean gold tree no longer contains the autocommit-guarded shape. `lock_live_project` is typed `&mut sqlx::Transaction<'_, Postgres>`. DESIGN's "with or without `.begin()`" is read through DDD-7 ("the guard is the first statement of the writer's transaction"; `rename_lane`, `insert_attachment`, `undelete_comment` become transactional). | DESIGN reviewer blocker: the shape the gold tree accepted releases the row lock before the write lands, so INV-PL-3 would not hold while the gate stayed green. No decision is reopened; the rule is made to say what DDD-7 already says. |
+| DIST-11 | `@contract-shape:` tags use the nWave scenario vocabulary (`bounded-change`: the scenario declares exactly what changes; `unbounded-preservation`: the scenario asserts the whole observable universe unchanged, a closed-world refusal or read), as team-lifecycle did. They classify scenarios, not components: DESIGN's Contract Shapes rows (bounded-change use-cases whose refusals leave "every table byte-identical") are exactly what the `unbounded-preservation` refusal scenarios assert. | DESIGN reviewer (high) asked to trace the tag; it is the scenario-level shape the acceptance-designer mandate requires on every scenario, not a component contract needing a plan-returning pure function. |
+
+### [REF] End-of-DISTILL review (four reviewers in parallel, iteration 1)
+
+| Reviewer | Wave | Verdict | Findings and resolution |
+|---|---|---|---|
+| nw-product-owner-reviewer | DISCUSS | needs_revision (0 blockers, 2 high, 3 medium, 3 low) | All applied as edits: the leftover "new-issue picker" text (JTBD story, forces, D5, journey, Shared Artifacts, US-PL-02/03 pitches, example 3 and scenario 3, Driving Port 5); D8 and the Copy row now say "linked only when the viewer is on the team"; PL-KPI-3 and Driving Port 4 carry the events-route qualifier; INV-PL-2/3/7 carry the Changed Assumption 4 qualifier; D6 and D11 the tombstone carve-out; DoR item 8's stale "conditional"; the API door count stated as 5 routes / 6 route-verbs. Kept: "API" in a DISCUSS scenario title (the PO's own wording). |
+| nw-solution-architect-reviewer | DESIGN | needs_revision (2 blockers, 1 high, 5 medium, 6 low) | Blocker "no `@pending`": a false reading — the reviewer read the files during the classification run, which lifts `@pending` and restores it byte for byte (50 of 50 present; `cmp` clean). Blocker "rule 2 accepts an autocommit guard": fixed (DIST-10). High "unbounded-preservation untraceable": answered (DIST-11). Mediums: DESIGN text staleness recorded in Upstream notes (DESIGN owns the edit); the rule-2 ordering clause added (DIST-10); workspace-delete cascade of live and deleted projects, `TeamNotice`/CLI byte tests, `TENANT_TABLES` membership, lock-order and backstop-log tests, `teams::delete_preview` zero-rows: left to DELIVER with the DESIGN Test Seams as their spec (not scaffolded here). |
+| nw-platform-architect-reviewer | DEVOPS | rejected (1 blocker, 2 high, 2 medium, 2 low) | Blocker "no `@pending`": the same false reading (see above). Highs: both fixed with new pending gold tests — the production `soft_delete_project` waits on a held guard (kills "delete with FOR NO KEY UPDATE"), and 0026's view-parity self-check refuses a drifted view (kills "0026 without its parity self-check"). Mediums: PL-KPI-3's denominators restated in `kpi-contracts.yaml` (30 web doors, 8 API route-verbs of which 2 read no project); the KPI lane string aligned. Lows: steps 5 and 6 marked one push unit; the CI release binary note left to DEVOPS. |
+| nw-acceptance-designer-reviewer | DISTILL | needs_revision (3 blockers, 3 high, 3 medium, 1 low) | Blocker "no `@pending`": the same false reading. Blocker "differential rows lack a whole-universe delta": fixed ("neither request changed anything" asserts the whole universe across the two compared requests). Blocker "Pillar 1 terms": "the store still holds" → "Auth v2 Spike still holds", "byte-identical" → "exactly the same", "through the API" → "a script", "server error" → "failure"; "the database cannot be reached" is kept (the operator's own domain, DEVOPS P-notes). Highs: controls added to the attachment, instance-rename, stale-edit, second-delete and both demoted-lead scenarios; full deltas added to "erases none" and "holds exactly"; the races are judged per run (CM-E above); the token-route rows are an upstream note for the user (below). Mediums: the members-page team clause and the live control's project are now asserted; `red-classification.md` exists; D17 recorded as a documented gap. |
+
+
+### [REF] End-of-DISTILL review, iteration 2
+
+| Reviewer | Verdict | Finding → resolution |
+|---|---|---|
+| nw-product-owner-reviewer | rejected | **B1** scripting off untested → U3a: "every project row's rename and delete controls work as plain page forms" (scenario 10), "the delete page works as a plain page form" (17, 52): plain POST forms to `/team/…`, hidden `_csrf`, a submit button, plain links, no inline handler. **B2** token routes → U1 (exempt; Changed Assumption 6; follow-up). **B3** missing actors → new 120-row outline (scenario 30): a signed-out visitor, Marco, Ines, Hugo × 30 doors; deleted == never-existed, and the live project answers them exactly the same (no oracle); self-checked. **B4** D17 → U3b: store gold test `a_notification_queued_before_the_delete_stays_pending_and_none_arises_after_it`. **M1** → scenario 2 (every page as before the rename) and scenario 41 (every page as before the delete, after the restore): a 15-page sweep. **M2** route counts reconciled (DISCUSS Technical Notes, PL-KPI-3, DESIGN, DEVOPS, KPI SSOT). **L2** record fields: asserted in the delta, lines cited under CM-E; "when" at store level. **L3** team delete record: `tl::Record` in the delta + `team_delete.rs::the_delete_record_outlives_the_team_with_its_id_name_and_slug`. **L4** not applied (shared team-membership phrase). Reconciliation line updated. |
+| nw-solution-architect-reviewer | conditionally approved | **HIGH** ADR-002 decisions 2 and 7 and DESIGN rule 2 amended (DIST-10 addendum, `Transaction` signature). **M** Changed Assumption 6 added (U1). **M** coverage paragraph corrected AC by AC, AC 6 named to its gold test. **M** gold tests added: lock order (DDD-8), backstop log stub (DDD-30), `TENANT_TABLES` (DDD-14), `teams::delete_preview` zero rows, copy byte-test stubs. **Lows**: Scaffolds table signature fixed; OQ-D6 widened (U2); the `team_deleted_projects` fold stays for 04-01. NFR-PL-4 "no new copy" resolved by U4. |
+| nw-platform-architect-reviewer | rejected (one high) | **HIGH** three sibling-schema probe tests in `probe_schema_scoping.rs` (0025, 0026, 0027); env matrix and Coexistence rows updated. **M2** previous-release boot test in `project_lifecycle_migrations.rs`. **M3** the 0026 parity test asserts `StoreError::MigrationFailed` and a message naming `live_projects`. **M5** R1 checklist line added to DEVOPS release gates; iteration-1 findings 2, 3, 5 acknowledged there with date. **L7** non-zero `pl-0N` scenario count required in the DELIVER handoff. |
+| nw-acceptance-designer-reviewer | needs_revision | **B1** scenario 28 split: listing (32, "neither request changed anything") and revoking (33: the first revoke revokes the spare token and changes nothing else; the second, already revoked, answers the same and changes nothing). **B2** "database" removed from scenario 47's title and step ("foundry's records"). **H1** one When per scenario: 14 and 26 became outlines; 17/18, 20/21, 40/41, 48/49/50, 52/53 split; 22 uses a Given plus "cancels the delete page she opened earlier". **H2** scenario 35 has a When ("Sam looks at his dashboard"); the Board-link Given removed. **H3** the live-view writes became a 2-row outline; Cancel is its own When. **H4** → U2 recorded. **H5** race seeding moved to Givens ("Backend has 5 fresh projects, Race 1 to Race 5"; "5 fresh teams each hold one project with one issue, which Priya has deleted"); the Whens only race. **M1** `red-classification.md` regenerated with the final titles. **M3** Dimension 8 Check B recorded not applicable. **M4** the CM-E claim narrowed. **M5** "nothing under X changed" asserts its project. |
+
+### [REF] End-of-DISTILL review, iteration 3 (final)
+
+| Reviewer | Verdict | Resolution |
+|---|---|---|
+| nw-solution-architect-reviewer | approved | — |
+| nw-platform-architect-reviewer | approved | — |
+| nw-product-owner-reviewer | approved (residual R1 fixed) | US-PL-03 AC 6 amended by the orchestrator to "stay queued and unchanged, so the notifier delivers them as usual", matching the D17 store gold test. |
+| nw-acceptance-designer-reviewer | conditionally approved → **R1 fixed** | **R1** scenario 2 ("After a rename every page of the project answers as it did before") now asserts its declared delta ("Identity Platform is now called "Identity & Access" at the address "auth", one rename record names Lena Park, and nothing else changed"). **R2** the attachment-download (34) and lists (35) scenarios end with "no project, issue or record changed" (the download When now captures the universe). **R3** "work(s) without scripts" → "work(s) as plain page form(s)" (same assertions). **R4** the universe ignores `machine_tokens.revoked_at`; the revocation is asserted through the token list (02b header, CM-E). **R5** the 02b header now says "neither request changed anything". **R6** sizing flags recorded in the handoff. **R7** the Dimension 8 Check B note and the narrowed CM-E wording are in [REF] Mandate compliance and completeness. Changed scenarios 2, 10, 17, 34, 35, 52 re-classified RED alone (below). |
+
+
+### [REF] User decisions (2026-10-13)
+
+Recorded verbatim as decided by the user (through the orchestrator):
+
+- **U1.** Machine-token routes (`…/tokens`, `…/tokens/{jti}`): EXEMPT. Amend US-PL-03 AC 2, D5, the US-PL-03 pitch/Driving Port 4 and PL-KPI-3 to exempt the two token routes as accepted pre-existing behaviour (they read no project, answer alike for every address); add DESIGN Changed Assumption 6 (DISTILL) with the rationale; record a follow-up "scope machine-token routes by project". No behaviour change.
+- **U2.** Base-table read-only SQL for "nothing erased"/universe/marker checks: APPROVED as an explicit exception (house precedent, OQ-D6). Record it in each feature file's header comment and in feature-delta CM-A/CM-E and the Dim 7 note; widen OQ-D6 to also name "the stored marker, to check the printed deleted-at" and the restore race's row-kept check. Hidden-ness stays asserted only through HTTP/API/CLI.
+- **U3.** Untested ACs: ADD ASSERTIONS. (a) Scripting off (US-PL-01 AC8, US-PL-02 AC7, NFR-PL-3, DoD 6): assert every new page/form (Projects section rename + delete controls, confirm page, team delete page line) is a plain HTML POST form whose submit works without script — no script-dependent control, correct method/action, hidden CSRF field present. (b) Queued notifications (US-PL-03 AC 6, D17): assert an outbox row queued before the delete is unchanged and still eligible for delivery by the notifier after the delete, and no outbox row about the project arises after the delete (store/use-case gold test if not reachable through a door; say which).
+- **U4.** DIST-1 restore-comment wording ACCEPTED: add it to D14 as a recorded addition (resolves SA low "NFR-PL-4 no new copy").
+
+Where each landed: U1 → DISCUSS D5, US-PL-03 pitch and AC 2, Driving Port 4, PL-KPI-3, Follow-ups; DESIGN Changed Assumption 6; scenarios 32, 33. U2 → every feature header; CM-A, CM-E, Dimension 7 note; OQ-D6. U3a → scenarios 10, 17, 52. U3b → the store gold test named above (02-03); not reachable through a door, because nothing in the product shows the outbox (delivery is the COMMIT-time NOTIFY of migration 0003, and nothing stamps `notified_at`), so "still eligible" is asserted as "byte-unchanged and still pending (`notified_at IS NULL`)". U4 → DISCUSS [REF] Copy.
+
+### [REF] Lanes and gates at hand-off (`@pending` restored, 2026-10-13)
+
+| Lane / gate | Result |
+|---|---|
+| Default acceptance lane (`CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false timeout 5400 env -u FOUNDRY_ACCEPTANCE_TAGS cargo test -p foundry-acceptance --release --test acceptance`, `foundry` rebuilt and warmed first) | 89 features, 1 080 scenarios, 7 258 steps: **1 079 passed, 1 failed** — the failure is `us-b04-signin-layout` "The anti-forgery contract is preserved…", whose Given hit the known sqlx `'\0'` connect flake (`insert admin user: Protocol("unknown message type: '\0'")`) in an untouched feature; **rerun alone (`FOUNDRY_ACCEPTANCE_TAGS=us-b04`): 4 of 4 passed**. The 50 project-lifecycle scenarios are `@pending` and excluded. |
+| `FOUNDRY_ACCEPTANCE_TAGS=project-lifecycle` | 0 scenarios (all pending); with `@pending` lifted: 166 rows, 166 RED, 0 BROKEN, 0 undefined or ambiguous steps |
+| `cargo test -p foundry-store --test project_lifecycle --test project_lifecycle_migrations --test team_delete` | 8 / 0 / 21 passed, 26 / 12 / 7 ignored; `--ignored`: 45 RED at their gates or scaffolds, 0 BROKEN |
+| `cargo test -p foundry-services --test project_lifecycle_use_cases` | 12 ignored; `--ignored`: 12 RED, 0 BROKEN |
+| `cargo test -p xtask` | 126 passed, 24 ignored; `project_lifecycle -- --include-ignored`: 24 RED on the scaffold panics, 0 BROKEN |
+| `cargo build --workspace --tests` | clean |
+| `cargo clippy -p foundry-acceptance -p foundry-store -p foundry-services -p xtask --all-targets -- -D warnings` | clean |
+| `cargo fmt --all -- --check` | clean |
+| `cargo xtask check-arch` | PASSED (the three project-lifecycle rules are scaffolded, not registered: DELIVER registers them in 01-01, 02-01, 02-02) |
+
+Only the containers these runs started were created; none was left behind. Nothing committed or pushed.
+
+### [REF] Lanes and gates at hand-off, iteration 2 (`@pending` restored, 2026-10-13)
+
+| Lane / gate | Result |
+|---|---|
+| `FOUNDRY_ACCEPTANCE_TAGS=project-lifecycle` (release, binary rebuilt and warmed) | 0 scenarios (all pending); with `@pending` lifted: **298 rows, 298 RED, 0 BROKEN**, 0 undefined or ambiguous steps; restored byte for byte (59 tags) |
+| Scratch self-checks (not committed) | 120 outsider rows, the token revoke pair, the page sweep: all pass without the delete |
+| New step phrases versus the rest of the suite | 94 regexes checked against every step line of the other 89 feature files: 0 matches (no ambiguity introduced) |
+| Default acceptance lane | not re-run: iteration 2 touched no shared harness code (only `support/project_lifecycle.rs`, `steps/feature_project_lifecycle.rs` and the five pending feature files); iteration 1's run stands (1 079 / 1 080, the one failure the known sqlx flake, green alone) |
+| `cargo test -p foundry-store --test project_lifecycle --test project_lifecycle_migrations --test probe_schema_scoping --test team_delete` | 8 / 0 / 2 / 21 passed; 29 / 13 / 3 / 8 ignored |
+| `cargo test -p foundry-services --test project_lifecycle_use_cases` | 13 ignored |
+| `cargo test -p foundry-app --test project_lifecycle_copy` | 4 ignored |
+| `cargo test -p xtask` | 126 passed, 24 ignored |
+| `--ignored` / `--include-ignored` on every new gold test | RED at its schema gate, scaffold panic or stub; 0 BROKEN |
+| `cargo build --workspace --tests` | clean |
+| `cargo clippy -p foundry-acceptance -p foundry-store -p foundry-services -p foundry-app -p xtask --all-targets -- -D warnings` | clean |
+| `cargo fmt --all -- --check` | clean |
+| `cargo xtask check-arch` | PASSED |
+
+Only the containers these runs started were created; none was left behind. Nothing committed or pushed.

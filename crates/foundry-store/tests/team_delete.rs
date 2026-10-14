@@ -1086,3 +1086,469 @@ async fn a_default_set_refused_for_another_reason_is_an_error_not_team_gone() {
         );
     }
 }
+
+// ===========================================================================
+// project-lifecycle slice 04 (OQ-1 (b), INV-PL-6; DESIGN DDD-19 to DDD-21;
+// ADR-PROJECT-LIFECYCLE-004, amending ADR-TEAM-LIFECYCLE-002). DISTILL
+// 2026-10-13: only LIVE projects block a team delete; deleted ones survive it,
+// detached. Pending until DELIVER 04-01 (0027, the amended
+// `delete_team_if_empty`, `team_deleted_projects`) and 03-01 (the restore the
+// race needs), each behind its readable RED gate. The negative control runs
+// GREEN today on scratch tables shaped like the design.
+// ===========================================================================
+
+/// RED gate: 0026's deleted marker and 0027's detach column exist.
+async fn require_detach_schema(pool: &PgPool) {
+    let (ok,): (bool,) = sqlx::query_as(
+        "SELECT count(*) = 2 FROM information_schema.columns
+          WHERE table_schema = current_schema() AND table_name = 'projects'
+            AND column_name IN ('deleted_at', 'detached_from_team_id')",
+    )
+    .fetch_one(pool)
+    .await
+    .expect("look the columns up");
+    assert!(
+        ok,
+        "RED gate: migrations 0026 and 0027 have not added projects.deleted_at and \
+         projects.detached_from_team_id yet (project-lifecycle DDD-2, DDD-19)"
+    );
+}
+
+async fn pl_project(
+    pool: &PgPool,
+    ws: uuid::Uuid,
+    team_id: uuid::Uuid,
+    name: &str,
+    key: &str,
+) -> uuid::Uuid {
+    let id = uuid::Uuid::now_v7();
+    sqlx::query(project_sql())
+        .bind(id)
+        .bind(team_id)
+        .bind(ws)
+        .bind(name)
+        .bind(name.to_ascii_lowercase().replace(' ', "-"))
+        .bind(key)
+        .execute(pool)
+        .await
+        .expect("insert project");
+    id
+}
+
+/// A project marked deleted by hand (a precondition: the team delete is under test).
+async fn deleted_project(
+    pool: &PgPool,
+    ws: uuid::Uuid,
+    team_id: uuid::Uuid,
+    name: &str,
+    key: &str,
+    by: uuid::Uuid,
+) -> uuid::Uuid {
+    let id = pl_project(pool, ws, team_id, name, key).await;
+    sqlx::query("UPDATE projects SET deleted_at = now(), deleted_by = $2 WHERE id = $1")
+        .bind(id)
+        .bind(by)
+        .execute(pool)
+        .await
+        .expect("mark the project deleted");
+    id
+}
+
+/// One project's row and everything under it, as checksums.
+async fn project_rows(pool: &PgPool, project_id: uuid::Uuid) -> Vec<String> {
+    let rows: Vec<(String,)> = sqlx::query_as(
+        "SELECT 'i:' || md5(t::text) FROM issues t WHERE t.project_id = $1
+         UNION ALL SELECT 'l:' || md5(t::text) FROM lanes t WHERE t.project_id = $1
+         UNION ALL SELECT 'p:' || md5(row(p.id, p.name, p.slug, p.key_prefix, p.next_issue_number,
+                                          p.deleted_at, p.deleted_by)::text)
+                     FROM projects p WHERE p.id = $1
+         ORDER BY 1",
+    )
+    .bind(project_id)
+    .fetch_all(pool)
+    .await
+    .expect("project rows");
+    rows.into_iter().map(|(r,)| r).collect()
+}
+
+async fn seed_issue(
+    pool: &PgPool,
+    ws: uuid::Uuid,
+    project_id: uuid::Uuid,
+    number: i32,
+    author: uuid::Uuid,
+) {
+    sqlx::query(
+        "INSERT INTO issues (id, project_id, workspace_id, number, title, state, position, author_id)
+              VALUES ($1, $2, $3, $4, 'kept', 'backlog', $4, $5)",
+    )
+    .bind(uuid::Uuid::now_v7())
+    .bind(project_id)
+    .bind(ws)
+    .bind(number)
+    .bind(author)
+    .execute(pool)
+    .await
+    .expect("seed issue");
+}
+
+/// DDD-19: a live project can never be detached (the backstop that turns a
+/// missed live row into a loud 23514, never a cascade).
+#[tokio::test]
+#[ignore = "pending: project-lifecycle 04-01 — migration 0027, projects_team_or_detached"]
+async fn detaching_a_live_project_is_refused_by_the_check() {
+    let l = labs().await;
+    require_detach_schema(&l.pool).await;
+    let err = sqlx::query(
+        "UPDATE projects SET team_id = NULL, detached_from_team_id = $1 WHERE team_id = $1",
+    )
+    .bind(l.backend)
+    .execute(&l.pool)
+    .await
+    .expect_err("a live project cannot lose its team");
+    let pg = err
+        .as_database_error()
+        .expect("db error")
+        .downcast_ref::<PgDatabaseError>();
+    assert_eq!(pg.code(), "23514", "{pg:?}");
+    assert_eq!(pg.constraint(), Some("projects_team_or_detached"), "{pg:?}");
+}
+
+/// US-PL-05 scenario 1, INV-PL-6: a team whose only project is deleted is
+/// deleted; the project and its 12 issues survive, detached, naming the team.
+#[tokio::test]
+#[ignore = "pending: project-lifecycle 04-01 — delete_team_if_empty detaches deleted projects"]
+async fn a_team_whose_projects_are_all_deleted_is_deleted_and_every_row_survives_detached() {
+    let l = labs().await;
+    require_detach_schema(&l.pool).await;
+    let labs_team = team(&l.pool, l.ws, "Labs", "labs").await;
+    let proto = deleted_project(
+        &l.pool,
+        l.ws,
+        labs_team,
+        "Prototype Graveyard",
+        "PROTO",
+        l.priya,
+    )
+    .await;
+    for n in 1..=12 {
+        seed_issue(&l.pool, l.ws, proto, n, l.priya).await;
+    }
+    let before = project_rows(&l.pool, proto).await;
+    let out = l
+        .store
+        .delete_team_if_empty(l.ws, labs_team, l.priya)
+        .await
+        .expect("the delete");
+    assert!(
+        matches!(out, TeamDeleteOutcome::Deleted { .. }),
+        "only deleted projects: {out:?}"
+    );
+    assert!(!team_exists(&l.pool, labs_team).await);
+    assert_eq!(
+        project_rows(&l.pool, proto).await,
+        before,
+        "every row of PROTO survives"
+    );
+    let (team_id, detached): (Option<uuid::Uuid>, Option<uuid::Uuid>) =
+        sqlx::query_as("SELECT team_id, detached_from_team_id FROM projects WHERE id = $1")
+            .bind(proto)
+            .fetch_one(&l.pool)
+            .await
+            .expect("the detached row");
+    assert_eq!(
+        (team_id, detached),
+        (None, Some(labs_team)),
+        "detached, naming its team"
+    );
+}
+
+/// US-PL-05 scenario 2: a live project still blocks, and the refusal names the
+/// live ones only; nothing changes.
+#[tokio::test]
+#[ignore = "pending: project-lifecycle 04-01 — the team delete counts live projects only"]
+async fn a_team_with_a_live_and_a_deleted_project_is_refused_naming_the_live_one_only() {
+    let l = labs().await;
+    require_detach_schema(&l.pool).await;
+    let ops = team(&l.pool, l.ws, "Ops", "ops").await;
+    pl_project(&l.pool, l.ws, ops, "Homelab Operations", "OPS").await;
+    deleted_project(&l.pool, l.ws, ops, "Reading List", "READ", l.priya).await;
+    let before = snapshot(&l.pool).await;
+    let out = l
+        .store
+        .delete_team_if_empty(l.ws, ops, l.priya)
+        .await
+        .expect("delete");
+    assert_eq!(
+        out,
+        TeamDeleteOutcome::HasProjects {
+            projects: vec![("Homelab Operations".into(), "OPS".into())]
+        }
+    );
+    assert_eq!(snapshot(&l.pool).await, before);
+}
+
+/// DDD-21: the confirm page's "also has {k} deleted project(s)" facts, read-only.
+#[tokio::test]
+#[ignore = "pending: project-lifecycle 04-01 — team_delete_facts gains deleted_projects and workspace_name"]
+async fn the_team_delete_facts_list_deleted_projects_and_the_workspace_name() {
+    let l = labs().await;
+    require_detach_schema(&l.pool).await;
+    let labs_team = team(&l.pool, l.ws, "Labs", "labs").await;
+    deleted_project(
+        &l.pool,
+        l.ws,
+        labs_team,
+        "Prototype Graveyard",
+        "PROTO",
+        l.priya,
+    )
+    .await;
+    let before = snapshot(&l.pool).await;
+    let facts = l
+        .store
+        .team_deleted_projects(labs_team)
+        .await
+        .expect("facts");
+    assert_eq!(facts.workspace_name, "Canzan Labs");
+    assert_eq!(
+        facts.deleted_projects,
+        vec![("Prototype Graveyard".to_string(), "PROTO".to_string())]
+    );
+    let live = l.store.team_delete_facts(labs_team).await.expect("facts");
+    assert!(
+        live.projects.is_empty(),
+        "the live list omits the deleted project: {live:?}"
+    );
+    assert_eq!(snapshot(&l.pool).await, before, "read-only");
+}
+
+/// INV-PL-6, US-PL-05 scenario 4: restore versus team delete, 100 runs. Either
+/// the restore won (the delete is refused naming the project) or the delete
+/// won (the restore is `TeamGone`). Never a lost project or issue, never an
+/// error outside {Restored, TeamGone, HasProjects}.
+#[tokio::test]
+#[ignore = "pending: project-lifecycle 04-01 — restore (03-01) versus the detaching team delete"]
+async fn the_restore_versus_team_delete_race_never_loses_a_project_in_100_runs() {
+    use foundry_store::ProjectRestoreOutcome;
+    let l = labs().await;
+    require_detach_schema(&l.pool).await;
+    for run in 1..=RACE_RUNS {
+        let labs_team = team(
+            &l.pool,
+            l.ws,
+            &format!("Labs {run}"),
+            &format!("labs-{run}"),
+        )
+        .await;
+        let proto = deleted_project(
+            &l.pool,
+            l.ws,
+            labs_team,
+            &format!("Proto {run}"),
+            &format!("PR{}", (b'A' + (run % 26) as u8) as char),
+            l.priya,
+        )
+        .await;
+        seed_issue(&l.pool, l.ws, proto, 1, l.priya).await;
+        let barrier = Arc::new(Barrier::new(2));
+        let (s1, s2, g1, g2) = (l.store.clone(), l.store.clone(), barrier.clone(), barrier);
+        let (ws, priya) = (l.ws, l.priya);
+        let restore = tokio::spawn(async move {
+            g1.wait().await;
+            s1.restore_deleted_project(proto).await
+        });
+        let delete = tokio::spawn(async move {
+            g2.wait().await;
+            s2.delete_team_if_empty(ws, labs_team, priya).await
+        });
+        let restored = restore
+            .await
+            .expect("restore task")
+            .expect("the restore never errors");
+        let deleted = delete
+            .await
+            .expect("delete task")
+            .expect("the delete never errors");
+        match (&restored, &deleted) {
+            (ProjectRestoreOutcome::Restored, TeamDeleteOutcome::HasProjects { projects }) => {
+                assert_eq!(
+                    projects.len(),
+                    1,
+                    "run {run}: the refusal names the restored project"
+                );
+            }
+            (ProjectRestoreOutcome::TeamGone { team_slug }, TeamDeleteOutcome::Deleted { .. }) => {
+                assert_eq!(team_slug, &format!("labs-{run}"), "run {run}");
+            }
+            other => panic!("run {run}: an outcome outside the two orders: {other:?}"),
+        }
+        assert_eq!(
+            count(
+                &l.pool,
+                "SELECT count(*) FROM projects WHERE id = $1",
+                proto
+            )
+            .await,
+            1,
+            "run {run}: project kept"
+        );
+        assert_eq!(
+            count(
+                &l.pool,
+                "SELECT count(*) FROM issues WHERE project_id = $1",
+                proto
+            )
+            .await,
+            1,
+            "run {run}: issue kept"
+        );
+        // Free the key for the next run's PROTO when this run restored it.
+        sqlx::query("DELETE FROM projects WHERE id = $1")
+            .bind(proto)
+            .execute(&l.pool)
+            .await
+            .expect("reset");
+    }
+}
+
+/// US-PL-05 scenario 3: a detached project cannot be restored, and is not lost.
+#[tokio::test]
+#[ignore = "pending: project-lifecycle 04-01 — restore of a detached project is TeamGone"]
+async fn restoring_a_project_whose_team_was_deleted_is_team_gone_and_changes_nothing() {
+    use foundry_store::ProjectRestoreOutcome;
+    let l = labs().await;
+    require_detach_schema(&l.pool).await;
+    let labs_team = team(&l.pool, l.ws, "Labs", "labs").await;
+    let proto = deleted_project(
+        &l.pool,
+        l.ws,
+        labs_team,
+        "Prototype Graveyard",
+        "PROTO",
+        l.priya,
+    )
+    .await;
+    l.store
+        .delete_team_if_empty(l.ws, labs_team, l.priya)
+        .await
+        .expect("team delete");
+    let before = project_rows(&l.pool, proto).await;
+    assert_eq!(
+        l.store
+            .restore_deleted_project(proto)
+            .await
+            .expect("restore"),
+        ProjectRestoreOutcome::TeamGone {
+            team_slug: "labs".into()
+        }
+    );
+    assert_eq!(project_rows(&l.pool, proto).await, before);
+}
+
+/// ADR-PROJECT-LIFECYCLE-004 Earned Trust: a workspace delete still cascades
+/// live, deleted and detached projects alike (the FK stays ON DELETE CASCADE).
+#[tokio::test]
+#[ignore = "pending: project-lifecycle 04-01 — workspace delete cascades detached projects"]
+async fn a_workspace_delete_cascades_live_deleted_and_detached_projects() {
+    let l = labs().await;
+    require_detach_schema(&l.pool).await;
+    let labs_team = team(&l.pool, l.ws, "Labs", "labs").await;
+    deleted_project(
+        &l.pool,
+        l.ws,
+        labs_team,
+        "Prototype Graveyard",
+        "PROTO",
+        l.priya,
+    )
+    .await;
+    l.store
+        .delete_team_if_empty(l.ws, labs_team, l.priya)
+        .await
+        .expect("detach");
+    deleted_project(&l.pool, l.ws, l.backend, "Auth v2 Spike", "SPIKE", l.priya).await;
+    sqlx::query("DELETE FROM workspaces WHERE id = $1")
+        .bind(l.ws)
+        .execute(&l.pool)
+        .await
+        .expect("the workspace delete cascades");
+    assert_eq!(
+        count(
+            &l.pool,
+            "SELECT count(*) FROM projects WHERE workspace_id = $1",
+            l.ws
+        )
+        .await,
+        0
+    );
+}
+
+/// NEGATIVE CONTROL (ADR-PROJECT-LIFECYCLE-002/004), GREEN today on scratch
+/// tables: a restore that takes no team `KEY SHARE`, against a detach limited
+/// to deleted rows, loses the project to the team's cascade. Hence the team
+/// lock in the restore and the unfiltered detach behind the CHECK.
+#[tokio::test]
+async fn negative_control_a_restore_without_the_team_lock_against_a_filtered_detach_loses_the_project(
+) {
+    let c = container().await;
+    let pool = connect(&c).await;
+    sqlx::raw_sql(
+        "CREATE TABLE s_team (id int PRIMARY KEY);
+         CREATE TABLE s_project (id int PRIMARY KEY, team_id int REFERENCES s_team(id) ON DELETE CASCADE,
+                                 detached int, deleted_at timestamptz);
+         INSERT INTO s_team VALUES (1);
+         INSERT INTO s_project VALUES (1, 1, NULL, now());",
+    )
+    .execute(&pool)
+    .await
+    .expect("scratch schema");
+    let mut delete = pool.begin().await.expect("begin team delete");
+    sqlx::query("SELECT 1 FROM s_team WHERE id = 1 FOR UPDATE")
+        .execute(&mut *delete)
+        .await
+        .expect("team lock");
+    let (live,): (i64,) =
+        sqlx::query_as("SELECT count(*) FROM s_project WHERE team_id = 1 AND deleted_at IS NULL")
+            .fetch_one(&mut *delete)
+            .await
+            .expect("live check");
+    assert_eq!(live, 0, "no live project: the delete proceeds");
+    sqlx::query("UPDATE s_project SET deleted_at = NULL WHERE id = 1")
+        .execute(&pool)
+        .await
+        .expect("the unlocked restore commits meanwhile");
+    sqlx::query("UPDATE s_project SET team_id = NULL, detached = 1 WHERE team_id = 1 AND deleted_at IS NOT NULL")
+        .execute(&mut *delete)
+        .await
+        .expect("the filtered detach skips the now-live row");
+    sqlx::query("DELETE FROM s_team WHERE id = 1")
+        .execute(&mut *delete)
+        .await
+        .expect("the team delete");
+    delete.commit().await.expect("commit");
+    let (left,): (i64,) = sqlx::query_as("SELECT count(*) FROM s_project")
+        .fetch_one(&pool)
+        .await
+        .expect("count");
+    assert_eq!(
+        left, 0,
+        "the control LOSES the restored project to the cascade"
+    );
+}
+
+/// DDD-30: the detach backstop. If a live project row ever reaches the detach
+/// (a broken invariant), the CHECK `projects_team_or_detached` refuses it with
+/// 23514, and the store logs exactly ONE `error` event naming the team id and
+/// no names (no team, project or person name). DELIVER 04-01 asserts this with
+/// a captured `tracing` subscriber around a forced 23514 (a live row inserted
+/// with the team lock held, the `team_delete.rs` barrier idiom), and that every
+/// other refusal or race outcome logs nothing.
+#[test]
+#[ignore = "pending: project-lifecycle 04-01 — the detach backstop logs one error naming the team (DDD-30)"]
+fn the_detach_backstop_logs_one_error_naming_the_team() {
+    panic!(
+        "Not yet implemented -- RED scaffold (project-lifecycle 04-01: the detach backstop's \
+         single error log, DDD-30)"
+    );
+}

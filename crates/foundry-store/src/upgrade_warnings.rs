@@ -28,6 +28,19 @@ references workspaces and users. A database dump taken before 0023 can no longer
 over this database with pg_restore --clean: restore it into a fresh database, or drop \
 team_lifecycle_events first.";
 
+// SCAFFOLD: true — RED scaffold written by DISTILL (2026-10-13). project-lifecycle
+// DDD-29: migrations 0025 (`project_lifecycle_events`, FKs to `workspaces` and
+// `users`) and 0026 (the `live_projects` view over `projects`, `deleted_by` →
+// `users`) each break `pg_restore --clean` of an older dump. The texts are empty
+// and `upgrade_warnings` does not return them until DELIVER 01-01 (0025) and
+// 02-01 (0026); `tests/project_lifecycle_migrations.rs` pins them.
+
+/// The boot's warning when it upgrades through migration 0025 (scaffold: empty).
+pub const UPGRADE_WARNING_0025: &str = "";
+
+/// The boot's warning when it upgrades through migration 0026 (scaffold: empty).
+pub const UPGRADE_WARNING_0026: &str = "";
+
 /// The warnings for this boot, in version order: [`UPGRADE_WARNING_0023`]
 /// exactly once when this boot applied 0023 (`report.applied` contains 23) on
 /// top of migrations already present before it (`report.already_applied` is

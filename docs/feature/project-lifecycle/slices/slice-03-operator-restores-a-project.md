@@ -30,7 +30,7 @@ the project's name, slug and key stay taken, so a restore never collides.
 - [ ] No deleted project → `status: none`, exit 0.
 - [ ] A live project's id or an unknown id → exit 4 with the reason; "not-a-uuid" → exit 2; nothing changes.
 - [ ] While SPIKE is deleted, creating "auth v2 spike" in Backend or any project keyed SPIKE in Canzan Labs is refused with the shipped copy.
-- [ ] Dogfood on dev: restore the slice-02 scratch project; its board and an old issue link open again; read-only counts equal the pre-delete counts.
+- [ ] Dogfood on dev: restore the slice-02 scratch project; its board and an old issue link open again; read-only counts equal the pre-delete counts (except comments awaiting cleanup whose 90-day window passed meanwhile, DESIGN Changed Assumption 3; added at DISTILL).
 
 ## Dependencies
 

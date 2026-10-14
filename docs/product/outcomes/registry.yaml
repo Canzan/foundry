@@ -3,6 +3,12 @@ outcomes:
 - id: OUT-1
   kind: operation
   feature: instance-admin-project-rename
+  amended_by: 'project-lifecycle (2026-10-13 DISTILL; DESIGN DDD-15, DDD-16, D16, OQ-3,
+    ADR-PROJECT-LIFECYCLE-003): the instance door and the team door (OUT-27) share one
+    rename core (a private apply_rename over Store::rename_project_with_audit: live row
+    FOR NO KEY UPDATE, byte-equal no-op, name only, one project_lifecycle_events renamed
+    record in the same transaction); its context read uses live_projects, so a deleted
+    project''s id answers the uniform 404; siblings include deleted projects (OQ-4)'
   title: Rename a project's display name from the instance dashboard
   input_shape: 'RenameProjectRequest { acting_user_id: Uuid, project_id: Uuid, new_name:
     &str } via POST /admin/instance/projects/{project_id}/rename (session + double-submit
@@ -30,6 +36,8 @@ outcomes:
 - id: OUT-2
   kind: operation
   feature: instance-admin-project-rename
+  amended_by: 'project-lifecycle (2026-10-13 DISTILL; DESIGN DDD-4, D5): the list reads
+    live_projects, so a deleted project is omitted and its rename answers the uniform 404'
   title: List every project in the instance grouped by workspace
   input_shape: GET /admin/instance/workspaces (instance-admin session); Store::list_projects_for_instance()
     -> Vec<InstanceProjectRow { workspace_id, project_id, name, key_prefix, team_name
@@ -770,6 +778,15 @@ outcomes:
   superseded_by: null
 - id: OUT-25
   kind: invariant
+  amended_by: 'project-lifecycle (2026-10-13 DISTILL; DESIGN DDD-19..21, OQ-1 (b),
+    INV-PL-6, ADR-PROJECT-LIFECYCLE-004 amending ADR-TEAM-LIFECYCLE-002): only LIVE projects
+    refuse a team delete (the 200 page and the 409 name live projects only); with deleted
+    projects and no live one the confirm page adds "{team} also has {k} deleted
+    project(s): {list}. They are kept, but can''t be restored after {team} is deleted, and
+    their keys stay taken in {workspace}." and the delete detaches every remaining project
+    row of the team (team_id NULL, detached_from_team_id set) before DELETE FROM teams, so
+    the cascade reaches no project; INV-TL-1 reads "no live project row, and no row of any
+    project, is ever removed by a team delete". The record shape is unchanged'
   summary: A team delete never destroys a project, under any concurrency; a team with a
     project is refused with every project named, and a team without one is deleted with
     exactly its memberships, its scoped tokens and its place as the default, recorded
@@ -843,4 +860,177 @@ outcomes:
   - OUT-17
   - OUT-21
   - OUT-24
+  superseded_by: null
+- id: OUT-27
+  kind: operation
+  summary: A team's lead, or a workspace admin, renames a project from the team's members
+    page; its address, its key and every link stay, and each effective rename is recorded
+  feature: project-lifecycle
+  inputs:
+  - shape: 'POST /team/{team_slug}/project/{project_slug}/rename (name) from the prefilled
+      Project name field of the project''s row in the members page''s Projects section;
+      session + double-submit _csrf'
+  output:
+    shape: 'TeamAccess::can_manage on the project''s team (its lead or a workspace admin);
+      a member, an outsider, a lead of another team, an instance admin who is not a
+      workspace admin, another workspace''s admin, a signed-out visitor, an unknown,
+      foreign or deleted project and a lead demoted since the page was opened all get the
+      byte-identical uniform 404, zero writes. The shipped project-name rule and
+      ProjectNameError copy (OUT-19), the project itself excluded and deleted siblings
+      included: 422 members page, the copy in that project''s row, the input kept. A
+      byte-equal name: 200, no notice, no record; a case-only change is a rename.
+      Otherwise 200 members page "Renamed {old} to {new}.": projects.name only (slug and
+      key_prefix never change, every address and issue key answers as before) and one
+      project_lifecycle_events renamed record, both doors through one core (OUT-1). The
+      Projects section lists the team''s live projects as "{project} · {KEY}" by name then
+      key, linked to the board only when the viewer is on the team, with the controls only
+      for can_manage'
+  keywords:
+  - project
+  - rename
+  - team-page
+  - slug-stable
+  - audit
+  - uniform-404
+  artifact: crates/foundry-acceptance/tests/features/project-lifecycle-01-rename-project.feature
+  related:
+  - OUT-1
+  - OUT-19
+  - OUT-26
+  - OUT-31
+  superseded_by: null
+- id: OUT-28
+  kind: operation
+  summary: A team's lead, or a workspace admin, deletes a project through a confirm page;
+    the delete is soft, so nothing under the project is erased
+  feature: project-lifecycle
+  inputs:
+  - shape: 'GET /team/{team_slug}/project/{project_slug}/delete (the confirm page, reached
+      by the row''s Delete project link) and POST to the same address; session +
+      double-submit _csrf'
+  output:
+    shape: 'can_manage only; everyone else, an unknown, foreign or already-deleted project
+      and a signed-out caller get the byte-identical uniform 404 on both verbs, zero writes.
+      GET: 200 full page "Delete {project}?", "{project} ({KEY}) has {n} issue(s). After it
+      is deleted, nobody can open its board, its issues or its report, and links to {KEY}
+      issues stop working.", "Nothing is erased. The instance operator can restore {project}
+      with every issue, comment and attachment.", a Delete project button, a Cancel link to
+      the members page, no typed-name field; the count is advisory. POST
+      (Store::soft_delete_project: live row FOR UPDATE, then the deleted marker
+      deleted_at/deleted_by, then one deleted record, one transaction): 200 members page
+      "Deleted {project}."; no issue, comment (live or awaiting cleanup), attachment,
+      history entry, lane, queued notification or issue counter changes'
+  keywords:
+  - project
+  - delete
+  - soft-delete
+  - confirm
+  - nothing-erased
+  - audit
+  artifact: crates/foundry-acceptance/tests/features/project-lifecycle-02-delete-project.feature
+  related:
+  - OUT-11
+  - OUT-25
+  - OUT-29
+  - OUT-30
+  - OUT-31
+  superseded_by: null
+- id: OUT-29
+  kind: invariant
+  summary: A deleted project answers nowhere, for anyone, on any door, and nothing can be
+    written into it
+  feature: project-lifecycle
+  inputs:
+  - shape: 'every web route under /team/{team_slug}/project/{project_slug}/... (board,
+      report and its spreadsheet, issues, issue pages and forms, comments, attachments
+      upload and download, lanes, live updates, rename, delete) on every verb, every
+      /api/v1/teams/{team_slug}/projects/{project_slug}/... route with a machine token, the
+      lists (dashboard, nav Board link, members page, instance dashboard, instance rename),
+      and any project-scoped write racing the delete'
+  output:
+    shape: 'For every door, verb and actor (its deleter and workspace admins included) the
+      answer is byte-identical to the same door of a project slug that never existed: the
+      uniform 404, the live updates'' shipped 403 text/plain, the API''s JSON 404. Every
+      list omits the project. Reads go through the live_projects view (one database
+      definition of live; check-arch project-lifecycle-live-reads keeps every other module
+      off the base table) and every project-scoped writer takes lock_live_project first
+      (check-arch project-lifecycle-write-guard), so a write racing the delete commits
+      before it (kept, hidden, restorable) or answers its route''s not-found, never a 500,
+      and no notification about the project arises after the delete. Only the operator CLI,
+      the export, uniqueness checks and the team delete see deleted projects'
+  keywords:
+  - project
+  - deleted
+  - hidden
+  - uniform-404
+  - differential
+  - write-guard
+  - concurrency
+  artifact: crates/foundry-acceptance/tests/features/project-lifecycle-02-deleted-project-answers-nowhere.feature
+  related:
+  - OUT-2
+  - OUT-28
+  - OUT-30
+  superseded_by: null
+- id: OUT-30
+  kind: operation
+  summary: The instance operator lists deleted projects and restores one exactly as it was;
+    while deleted, its name, address and key stay taken
+  feature: project-lifecycle
+  inputs:
+  - shape: 'foundry doctor list-deleted-projects; foundry doctor restore-project <uuid>;
+      DATABASE_URL (operator shell)'
+  output:
+    shape: 'list: one block per deleted project, oldest deletion first, blank line between
+      (project-id, workspace, team, name, key, issues, deleted-at RFC 3339 UTC,
+      deleted-by), or "status: none"; exit 0 (3 when the database cannot be reached).
+      restore (Store::restore_deleted_project: team FOR KEY SHARE, project FOR UPDATE,
+      clear the marker, one restored record with no actor): stdout "project-id: {uuid}"
+      and "status: restored", exit 0; afterwards every address answers as before with the
+      same name, slug, key, issue numbers, counter and every row (except comments awaiting
+      cleanup whose 90-day window passed meanwhile). Not deleted, unknown, or its team
+      deleted: exit 4 with the reason on stderr; malformed id: exit 2; unreachable
+      database: exit 3; nothing changes. restore-comment on a comment inside a deleted
+      project exits 4 naming the project. Create and both rename doors refuse a deleted
+      project''s name (in its team) and key (in its workspace)'
+  keywords:
+  - project
+  - restore
+  - operator
+  - cli
+  - soft-delete
+  - names-held
+  artifact: crates/foundry-acceptance/tests/features/project-lifecycle-03-restore-project.feature
+  related:
+  - OUT-19
+  - OUT-28
+  - OUT-31
+  superseded_by: null
+- id: OUT-31
+  kind: invariant
+  summary: Every effective project rename, delete and restore is recorded with its change,
+    and nothing else is
+  feature: project-lifecycle
+  inputs:
+  - shape: 'Store::rename_project_with_audit (both rename doors), Store::soft_delete_project,
+      Store::restore_deleted_project'
+  output:
+    shape: 'One project_lifecycle_events row (workspace, project id, team id, project slug,
+      key, kind renamed|deleted|restored, actor or NULL for the operator, name, new name,
+      clock_timestamp()) commits or rolls back with its change; a byte-equal rename, a
+      refusal, a cancel and a refused restore write none; the shape CHECK refuses an
+      incoherent record; the table has no foreign key to projects or teams, so the record
+      outlives both, and stays out of the per-workspace export'
+  keywords:
+  - project
+  - audit
+  - record
+  - atomicity
+  artifact: crates/foundry-store/tests/project_lifecycle.rs
+  related:
+  - OUT-17
+  - OUT-25
+  - OUT-27
+  - OUT-28
+  - OUT-30
   superseded_by: null

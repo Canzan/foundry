@@ -46,8 +46,9 @@ Postgres row locks at READ COMMITTED:
 
    It must be `FOR UPDATE`, not `FOR NO KEY UPDATE`, because only `FOR UPDATE` conflicts with the
    writers' `KEY SHARE` (decision 2). This is ADR-TEAM-LIFECYCLE-002's trap (a), on the project row.
-2. **The live-project write guard.** `project_lifecycle::lock_live_project(tx, project_id) ->
-   Result<bool, sqlx::Error>` is `SELECT 1 FROM projects WHERE id = $1 AND deleted_at IS NULL FOR
+2. **The live-project write guard.** `project_lifecycle::lock_live_project(tx: &mut
+   sqlx::Transaction<'_, Postgres>, project_id) -> Result<bool, sqlx::Error>` (typed on a
+   transaction at DISTILL, DIST-10, 2026-10-13) is `SELECT 1 FROM projects WHERE id = $1 AND deleted_at IS NULL FOR
    KEY SHARE`. Every project-scoped writer calls it as the **first statement of its transaction**:
    the lock precedes every write in the transaction. A writer keyed by issue may first read the
    issue's `project_id`. That column is never written after insert, so the read cannot go stale.
@@ -169,7 +170,9 @@ Postgres row locks at READ COMMITTED:
 7. **Enforcement.**
    - check-arch `project-lifecycle-write-guard`. In `crates/foundry-store/src`, every function
      whose body writes `issues`, `comments`, `issue_attachments`, `lanes` or `issue_change_events`
-     must call `lock_live_project(`, **whether or not it opens a transaction**.
+     must call `lock_live_project(` **inside the transaction that performs the write, before its
+     first write**. (DIST-10, 2026-10-13: was "whether or not it opens a transaction"; a guard on
+     a pooled connection or before an autocommit write releases the lock before the write lands.)
      - "Writes" means SQL `INSERT INTO`, `UPDATE` or `DELETE FROM` on one of those tables. The
        table names follow rule 1's lexical rules: any case, quoted or `public.`-qualified, line
        breaks allowed, inside string literals. It also means a call to any **transaction-taking

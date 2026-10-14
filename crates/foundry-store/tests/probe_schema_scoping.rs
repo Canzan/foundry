@@ -193,3 +193,175 @@ async fn probe_refuses_a_schema_without_the_provisioned_marker() {
         .await
         .expect("probe must PASS when the active schema has users.provisioned_at");
 }
+
+// ---------------------------------------------------------------------------
+// project-lifecycle (DDD-28): one sibling-schema test per new probe line.
+// Authored RED in DISTILL 2026-10-13; each is gated on its migration file and
+// asserts that a SIBLING schema holding the new object does not satisfy the
+// probe for the ACTIVE schema that lacks it, and that the healthy schema passes.
+// DELIVER: the new probe lines also make the two tests above need the new
+// objects in their healthy schemas (as 0018, 0022 and 0023 did).
+// ---------------------------------------------------------------------------
+
+fn migration_exists(file: &str) -> bool {
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("migrations")
+        .join(file)
+        .exists()
+}
+
+/// Every object the probe asked for up to 0024, for schema `s`.
+fn through_0024(s: &str) -> Vec<String> {
+    [
+        "CREATE TABLE {s}.comments (id uuid PRIMARY KEY, updated_at timestamptz, \
+         deleted_at timestamptz, deleted_by uuid)",
+        "CREATE TABLE {s}.machine_tokens (jti uuid PRIMARY KEY, user_id uuid, \
+         workspace_id uuid, scope_team_id uuid, expires_at timestamptz, \
+         revoked_at timestamptz, last_used_at timestamptz, label text, created_by uuid)",
+        "CREATE TABLE {s}.users (id uuid PRIMARY KEY, password_hash text, \
+         provisioned_at timestamptz)",
+        "CREATE TABLE {s}.workspace_rename_events (id uuid PRIMARY KEY, \
+         workspace_id uuid, actor_id uuid, old_name text, new_name text, \
+         created_at timestamptz)",
+        "CREATE TABLE {s}.workspaces (id uuid PRIMARY KEY, default_team_id uuid)",
+        "CREATE TABLE {s}.team_lifecycle_events (id uuid PRIMARY KEY, \
+         workspace_id uuid, team_id uuid, team_slug text, kind text, actor_id uuid, \
+         name text, new_name text)",
+    ]
+    .iter()
+    .map(|t| t.replace("{s}", s))
+    .collect()
+}
+
+/// 0025's `project_lifecycle_events` (ADR-PROJECT-LIFECYCLE-003: 11 columns).
+fn records_0025(s: &str) -> String {
+    format!(
+        "CREATE TABLE {s}.project_lifecycle_events (id uuid PRIMARY KEY, \
+         workspace_id uuid, project_id uuid, team_id uuid, project_slug text, \
+         key_prefix text, kind text, actor_id uuid, name text, new_name text, \
+         created_at timestamptz)"
+    )
+}
+
+/// 0026's marker columns and `live_projects` view (and 0027's detach column
+/// when `detach`), over a minimal `projects` table.
+fn projects_0026(s: &str, marker: bool, detach: bool) -> Vec<String> {
+    let mut cols = String::from(
+        "id uuid PRIMARY KEY, team_id uuid, workspace_id uuid, name text, slug text, \
+         key_prefix text, next_issue_number integer",
+    );
+    if marker {
+        cols.push_str(", deleted_at timestamptz, deleted_by uuid");
+    }
+    if detach {
+        cols.push_str(", detached_from_team_id uuid");
+    }
+    let mut out = vec![format!("CREATE TABLE {s}.projects ({cols})")];
+    if marker {
+        out.push(format!(
+            "CREATE VIEW {s}.live_projects AS SELECT * FROM {s}.projects WHERE deleted_at IS NULL"
+        ));
+    }
+    out
+}
+
+async fn probe_message(base: &str, schema: &str) -> Result<(), String> {
+    Store::from_pool(pool_on_schema(base, schema).await)
+        .probe()
+        .await
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+#[tokio::test]
+#[ignore = "pending: project-lifecycle 01-01 — the probe's project_lifecycle_events line is scoped to current_schema"]
+async fn probe_project_lifecycle_events_check_is_scoped_to_current_schema() {
+    assert!(
+        migration_exists("0025_project_lifecycle_events.sql"),
+        "RED gate: migration 0025 does not exist yet (project-lifecycle DDD-13, DDD-28)"
+    );
+    let (base, _pg) = postgres().await;
+    let mut stmts: Vec<String> = vec![
+        "CREATE SCHEMA active".into(),
+        "CREATE SCHEMA sibling".into(),
+    ];
+    stmts.extend(through_0024("active"));
+    stmts.extend(through_0024("sibling"));
+    stmts.push(records_0025("sibling"));
+    let refs: Vec<&str> = stmts.iter().map(String::as_str).collect();
+    setup(&base, &refs).await;
+    let msg = probe_message(&base, "active")
+        .await
+        .expect_err("probe must FAIL when the ACTIVE schema lacks project_lifecycle_events");
+    assert!(
+        msg.contains("0025"),
+        "expected a missing-0025 probe error, got: {msg}"
+    );
+    probe_message(&base, "sibling")
+        .await
+        .expect("probe must PASS when the active schema has project_lifecycle_events");
+}
+
+#[tokio::test]
+#[ignore = "pending: project-lifecycle 02-01 — the probe's deleted-marker and live_projects line is scoped to current_schema"]
+async fn probe_deleted_marker_and_live_view_check_is_scoped_to_current_schema() {
+    assert!(
+        migration_exists("0026_project_soft_delete.sql"),
+        "RED gate: migration 0026 does not exist yet (project-lifecycle DDD-2, DDD-3, DDD-28)"
+    );
+    let (base, _pg) = postgres().await;
+    let mut stmts: Vec<String> = vec![
+        "CREATE SCHEMA active".into(),
+        "CREATE SCHEMA sibling".into(),
+    ];
+    for s in ["active", "sibling"] {
+        stmts.extend(through_0024(s));
+        stmts.push(records_0025(s));
+    }
+    stmts.extend(projects_0026("active", false, false));
+    stmts.extend(projects_0026("sibling", true, false));
+    let refs: Vec<&str> = stmts.iter().map(String::as_str).collect();
+    setup(&base, &refs).await;
+    let msg = probe_message(&base, "active").await.expect_err(
+        "probe must FAIL when the ACTIVE schema lacks deleted_at, deleted_by and live_projects",
+    );
+    assert!(
+        msg.contains("0026"),
+        "expected a missing-0026 probe error, got: {msg}"
+    );
+    probe_message(&base, "sibling")
+        .await
+        .expect("probe must PASS when the active schema has the marker and the view");
+}
+
+#[tokio::test]
+#[ignore = "pending: project-lifecycle 04-01 — the probe's detached_from_team_id line is scoped to current_schema"]
+async fn probe_detach_column_check_is_scoped_to_current_schema() {
+    assert!(
+        migration_exists("0027_project_detach.sql"),
+        "RED gate: migration 0027 does not exist yet (project-lifecycle DDD-19, DDD-28)"
+    );
+    let (base, _pg) = postgres().await;
+    let mut stmts: Vec<String> = vec![
+        "CREATE SCHEMA active".into(),
+        "CREATE SCHEMA sibling".into(),
+    ];
+    for s in ["active", "sibling"] {
+        stmts.extend(through_0024(s));
+        stmts.push(records_0025(s));
+    }
+    stmts.extend(projects_0026("active", true, false));
+    stmts.extend(projects_0026("sibling", true, true));
+    let refs: Vec<&str> = stmts.iter().map(String::as_str).collect();
+    setup(&base, &refs).await;
+    let msg = probe_message(&base, "active")
+        .await
+        .expect_err("probe must FAIL when the ACTIVE schema lacks detached_from_team_id");
+    assert!(
+        msg.contains("0027"),
+        "expected a missing-0027 probe error, got: {msg}"
+    );
+    probe_message(&base, "sibling")
+        .await
+        .expect("probe must PASS when the active schema has the detach column");
+}

@@ -6886,3 +6886,1022 @@ mod store_natural_key_scoped_boundary_tests {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// project-lifecycle DDD-22 — `project-lifecycle-live-reads` (rule 1),
+// `project-lifecycle-write-guard` (rule 2), `project-lifecycle-one-seam`
+// (rule 3). DISTILL 2026-10-13: the gold tests below are written and `#[ignore]`d
+// against these scaffolds; none of the three is registered in `check()` yet.
+// DELIVER turns rule 3 on in 01-01, rule 1 LAST in 02-02 (after the reader
+// sweep proves it complete) and rule 2 in 02-01 (with the guard in every
+// writer), and registers each in `check()` as it goes.
+// ---------------------------------------------------------------------------
+
+/// `project-lifecycle-live-reads` (ADR-PROJECT-LIFECYCLE-001 decision 7).
+///
+/// Scans every `.rs` under `crates/*/src` except `crates/foundry-acceptance`
+/// and `crates/foundry-store/src/project_lifecycle.rs`. In every Rust string
+/// literal (normal or raw, multi-line) that holds an SQL keyword, the table name
+/// `projects` is a violation in any form — bare, quoted, `public.`-qualified,
+/// after `FROM` / `JOIN` / `UPDATE`, in a comma join, after a line break, in a
+/// sub-select — except `INSERT INTO projects`. `live_projects` and
+/// `project_lifecycle_events` never match; comments are not scanned. An exact
+/// `"projects"` literal outside the module is a violation too, except in the
+/// four reviewed items named by file and enclosing item: `foundry-store`
+/// `lib.rs` const `TENANT_TABLES`, `verify_export.rs` const
+/// `DIRECT_WORKSPACE_ID_TABLES`, `name_rule_legacy_seam.rs` fn
+/// `NameRuleTable::table`, `foundry-app` `admin_cli.rs` const
+/// `KNOWN_FOUNDRY_TABLES`.
+///
+/// Contract the gold tests pin: every violation starts
+/// `project-lifecycle-live-reads: ` and names `file:line`, the line on which the
+/// offending `projects` (or the exact literal) stands. A missing `crates/` fails
+/// the rule.
+// SCAFFOLD: true — RED scaffold written by DISTILL (2026-10-13)
+#[cfg_attr(not(test), allow(dead_code))]
+fn check_project_lifecycle_live_reads(root: &Path) -> Vec<String> {
+    let _ = root;
+    panic!(
+        "Not yet implemented -- RED scaffold (project-lifecycle 02-02: rule \
+         project-lifecycle-live-reads)"
+    )
+}
+
+/// `project-lifecycle-write-guard` (ADR-PROJECT-LIFECYCLE-002 decision 7).
+///
+/// In `crates/foundry-store/src`, every function body that writes `issues`,
+/// `comments`, `issue_attachments`, `lanes` or `issue_change_events` must call
+/// `lock_live_project(` on the transaction that then performs the writes, before
+/// the first write (DDD-7: "the guard is the first statement of the writer's
+/// transaction"; DISTILL DIST-10 tightened DESIGN's "with or without
+/// `.begin()`", since a guard on a pooled connection or an autocommit write
+/// releases the row lock before the write lands). "Writes" is an SQL
+/// `INSERT INTO` / `UPDATE` / `DELETE FROM` on those tables (rule 1's lexical
+/// rules), or a call to a transaction-taking writing helper (a function with a
+/// transaction or connection parameter whose body writes, directly or through
+/// another such helper; computed in a first pass). The helpers themselves are
+/// exempt; a call to a self-transacting function is not a write in the caller.
+/// `insert_issue_attempt` is exempt only while its first SQL literal is
+/// `UPDATE live_projects`. A `format!` / `concat!` DML template with an
+/// interpolation in the table position is a violation (DDL and column-list
+/// interpolation are out of scope). Allow-list: `gc_tombstoned_comments`,
+/// `insert_project`.
+///
+/// Contract the gold tests pin: every violation starts
+/// `project-lifecycle-write-guard: `, names the file, and names the function as
+/// `` `fn name` ``; a `format!`/`concat!` violation names `file:line` of the
+/// template. A missing `crates/` or store `src` fails the rule.
+// SCAFFOLD: true — RED scaffold written by DISTILL (2026-10-13)
+#[cfg_attr(not(test), allow(dead_code))]
+fn check_project_lifecycle_write_guard(root: &Path) -> Vec<String> {
+    let _ = root;
+    panic!(
+        "Not yet implemented -- RED scaffold (project-lifecycle 02-01: rule \
+         project-lifecycle-write-guard)"
+    )
+}
+
+/// `project-lifecycle-one-seam` (the `OneSeamRule` idiom of
+/// `team-lifecycle-one-seam`; DELIVER supplies the `OneSeamRule` data):
+/// (i) no SQL write on `projects`, `live_projects` or `project_lifecycle_events`
+/// in any `.rs` under `crates/*/src` except `foundry-store` (and the acceptance
+/// harness); (ii) `rename_project_with_audit` (01), `soft_delete_project` (02)
+/// and `restore_deleted_project` (03) have no call site under
+/// `crates/{foundry-app,foundry-api}/src`.
+// SCAFFOLD: true — RED scaffold written by DISTILL (2026-10-13)
+#[cfg_attr(not(test), allow(dead_code))]
+fn check_project_lifecycle_one_seam(root: &Path) -> Vec<String> {
+    let _ = root;
+    panic!(
+        "Not yet implemented -- RED scaffold (project-lifecycle 01-01: rule \
+         project-lifecycle-one-seam)"
+    )
+}
+
+#[cfg(test)]
+mod project_lifecycle_check_arch_tests {
+    //! Injected-violation gold tests for the three project-lifecycle rules
+    //! (DESIGN [REF] check-arch Rules, DDD-22), the `team_lifecycle_one_seam_tests`
+    //! idiom: a staged tree, the rule run against it, the violations named.
+
+    use super::{
+        check_project_lifecycle_live_reads, check_project_lifecycle_one_seam,
+        check_project_lifecycle_write_guard,
+    };
+
+    const STORE_LIB: &str = "crates/foundry-store/src/lib.rs";
+    const MODULE: &str = "crates/foundry-store/src/project_lifecycle.rs";
+    const VERIFY_EXPORT: &str = "crates/foundry-store/src/verify_export.rs";
+    const LEGACY_SEAM: &str = "crates/foundry-store/src/name_rule_legacy_seam.rs";
+    const ADMIN_CLI: &str = "crates/foundry-app/src/admin_cli.rs";
+
+    fn stage(files: &[(&str, &str)]) -> tempfile::TempDir {
+        let dir = tempfile::tempdir().expect("tempdir");
+        for (rel_path, body) in files {
+            let path = dir.path().join(rel_path);
+            std::fs::create_dir_all(path.parent().expect("parent")).expect("mkdir");
+            std::fs::write(&path, body).expect("write fixture");
+        }
+        dir
+    }
+
+    fn flagged_at(violations: &[String], location: &str) -> bool {
+        violations.iter().any(|v| v.contains(location))
+    }
+
+    fn shipped_root() -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("workspace root")
+            .to_path_buf()
+    }
+
+    // =======================================================================
+    // Rule 1: project-lifecycle-live-reads
+    // =======================================================================
+
+    /// The module: the one place that may name `projects` (deleted rows too).
+    const MODULE_BODY: &str = r##"pub(crate) async fn lock_live_project(tx: &mut Tx, project_id: Uuid) -> bool {
+    sqlx::query("SELECT 1 FROM projects WHERE id = $1 AND deleted_at IS NULL FOR KEY SHARE");
+    true
+}
+pub async fn soft_delete_project(&self) {
+    sqlx::query("UPDATE projects SET deleted_at = clock_timestamp(), deleted_by = $3 WHERE id = $1 AND team_id = $2");
+}
+pub const EXPORT_PROJECTS: (&str, &str) = (
+    "projects",
+    "SELECT to_jsonb(t.*) FROM projects t WHERE t.workspace_id = $1",
+);
+"##;
+
+    /// Three of the four reviewed exact-literal exemptions, each in its own file
+    /// and item (`TENANT_TABLES` sits in [`CLEAN_STORE_LIB`]).
+    const VERIFY_EXPORT_BODY: &str = r##"const DIRECT_WORKSPACE_ID_TABLES: &[&str] = &["teams", "projects"];
+"##;
+    const LEGACY_SEAM_BODY: &str = r##"impl NameRuleTable {
+    pub fn table(self) -> &'static str {
+        match self {
+            Self::Workspaces => "workspaces",
+            Self::Projects => "projects",
+        }
+    }
+}
+"##;
+    const ADMIN_CLI_BODY: &str = r##"const KNOWN_FOUNDRY_TABLES: &[&str] = &[
+    "workspaces",
+    "projects",
+];
+"##;
+
+    /// A clean store lib: live reads, records, the one allowed insert, and
+    /// comments that quote old SQL.
+    const CLEAN_STORE_LIB: &str = r##"// sqlx::query("SELECT id FROM projects WHERE team_id = $1")
+/// Reads FROM projects once did; now the view.
+pub async fn list_projects_for_workspace(&self) {
+    sqlx::query("SELECT p.id FROM live_projects p WHERE p.workspace_id = $1");
+    sqlx::query("SELECT kind FROM project_lifecycle_events WHERE workspace_id = $1");
+    sqlx::query("INSERT INTO projects (id, team_id, workspace_id, name, slug, key_prefix) VALUES ($1, $2, $3, $4, $5, $6)");
+    sqlx::query("UPDATE live_projects SET next_issue_number = next_issue_number + 1 WHERE id = $1");
+    sqlx::query("SELECT id FROM projects_archive WHERE workspace_id = $1");
+    /* sqlx::query("UPDATE projects SET name = $1") */
+}
+pub const TENANT_TABLES: [&str; 3] = [
+    "workspaces",
+    "projects",
+    "issues",
+];
+const CONSTRAINT: &str = "projects_team_id_fkey";
+"##;
+
+    fn clean_tree_files() -> Vec<(&'static str, &'static str)> {
+        vec![
+            (STORE_LIB, CLEAN_STORE_LIB),
+            (MODULE, MODULE_BODY),
+            (VERIFY_EXPORT, VERIFY_EXPORT_BODY),
+            (LEGACY_SEAM, LEGACY_SEAM_BODY),
+            (ADMIN_CLI, ADMIN_CLI_BODY),
+            (
+                "crates/foundry-app/src/lib.rs",
+                r##"fn routes() {
+    let _ = Router::new().route("/team/{team_slug}/projects/new", get(new_project));
+}
+const ROUTE: &str = "/team/{t}/projects";
+const LABEL: &str = "Your projects";
+"##,
+            ),
+            (
+                "crates/foundry-acceptance/src/support/project_lifecycle.rs",
+                r##"sqlx::query("SELECT count(*) FROM projects WHERE deleted_at IS NOT NULL");
+const T: &str = "projects";
+"##,
+            ),
+            (
+                "crates/foundry-store/tests/project_lifecycle.rs",
+                r##"sqlx::query("UPDATE projects SET deleted_at = now() WHERE id = $1");
+"##,
+            ),
+        ]
+    }
+
+    /// A store method whose single query is `sql`, opening on line 3.
+    fn store_query(sql: &str) -> String {
+        format!("pub async fn lookup(&self) {{\n    sqlx::query(\n        \"{sql}\",\n    );\n}}\n")
+    }
+
+    #[test]
+    #[ignore = "pending: project-lifecycle 02-02 — check-arch rule project-lifecycle-live-reads"]
+    fn live_reads_a_clean_tree_with_the_four_exemptions_passes() {
+        let tree = stage(&clean_tree_files());
+        let violations = check_project_lifecycle_live_reads(tree.path());
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+
+    #[test]
+    #[ignore = "pending: project-lifecycle 02-02 — check-arch rule project-lifecycle-live-reads"]
+    fn live_reads_every_form_of_the_projects_table_in_sql_is_flagged() {
+        for (form, sql) in [
+            ("after FROM", "SELECT id FROM projects WHERE team_id = $1"),
+            (
+                "after JOIN",
+                "SELECT i.id FROM issues i JOIN projects p ON p.id = i.project_id WHERE i.project_id = $1",
+            ),
+            ("after UPDATE", "UPDATE projects SET name = $1 WHERE id = $2"),
+            ("a delete", "DELETE FROM projects WHERE id = $1"),
+            (
+                "a comma join",
+                "SELECT i.id FROM issues i, projects p WHERE p.id = i.project_id AND i.project_id = $1",
+            ),
+            ("public.-qualified", "SELECT id FROM public.projects WHERE team_id = $1"),
+            ("quoted", r#"SELECT id FROM \"projects\" WHERE team_id = $1"#),
+            (
+                "quoted and public.-qualified",
+                r#"SELECT id FROM public.\"projects\" WHERE team_id = $1"#,
+            ),
+            ("any letter case", "select id From PROJECTS where team_id = $1"),
+            (
+                "a sub-select",
+                "SELECT id FROM issues WHERE project_id IN (SELECT id FROM projects WHERE team_id = $1)",
+            ),
+        ] {
+            let tree = stage(&[(STORE_LIB, &store_query(sql)), (MODULE, MODULE_BODY)]);
+            let violations = check_project_lifecycle_live_reads(tree.path());
+            assert_eq!(violations.len(), 1, "{form}: {violations:?}");
+            assert!(
+                flagged_at(&violations, &format!("{STORE_LIB}:3")),
+                "{form}: {violations:?}"
+            );
+            assert!(
+                violations[0].starts_with("project-lifecycle-live-reads: "),
+                "{form}: {violations:?}"
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "pending: project-lifecycle 02-02 — check-arch rule project-lifecycle-live-reads"]
+    fn live_reads_a_line_break_before_the_table_name_is_flagged_on_the_names_line() {
+        let tree = stage(&[
+            (
+                STORE_LIB,
+                "pub async fn lookup(&self) {\n    sqlx::query(\n        r\"SELECT p.id\n            FROM\n            projects p\n           WHERE p.team_id = $1\",\n    );\n}\n",
+            ),
+            (MODULE, MODULE_BODY),
+        ]);
+        let violations = check_project_lifecycle_live_reads(tree.path());
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert!(
+            flagged_at(&violations, &format!("{STORE_LIB}:5")),
+            "{violations:?}"
+        );
+    }
+
+    #[test]
+    #[ignore = "pending: project-lifecycle 02-02 — check-arch rule project-lifecycle-live-reads"]
+    fn live_reads_the_rule_scans_every_crates_src_not_only_the_store() {
+        let mut files = clean_tree_files();
+        files.push((
+            "crates/foundry-app/src/backup.rs",
+            "fn a() {}\nconst COUNT: &str = \"SELECT count(*) FROM projects\";\n",
+        ));
+        files.push((
+            "crates/foundry-api/src/lib.rs",
+            "fn a() {}\nfn b() {}\nlet _ = sqlx::query(\"SELECT id FROM projects WHERE team_id = $1\");\n",
+        ));
+        let tree = stage(&files);
+        let violations = check_project_lifecycle_live_reads(tree.path());
+        assert_eq!(violations.len(), 2, "{violations:?}");
+        assert!(
+            flagged_at(&violations, "crates/foundry-app/src/backup.rs:2"),
+            "{violations:?}"
+        );
+        assert!(
+            flagged_at(&violations, "crates/foundry-api/src/lib.rs:3"),
+            "{violations:?}"
+        );
+    }
+
+    #[test]
+    #[ignore = "pending: project-lifecycle 02-02 — check-arch rule project-lifecycle-live-reads"]
+    fn live_reads_the_view_the_record_table_and_comments_never_match() {
+        let tree = stage(&[
+            (
+                STORE_LIB,
+                r##"pub async fn a(&self) {
+    sqlx::query("SELECT id FROM live_projects WHERE team_id = $1 AND slug = $2");
+    sqlx::query("UPDATE live_projects SET next_issue_number = next_issue_number + 1 WHERE id = $1");
+    sqlx::query("INSERT INTO project_lifecycle_events (id, kind) VALUES ($1, 'renamed')");
+    sqlx::query("SELECT i.id FROM issues i JOIN public.live_projects p ON p.id = i.project_id WHERE i.project_id = $1");
+    // sqlx::query("DELETE FROM projects WHERE id = $1")
+}
+"##,
+            ),
+            (MODULE, MODULE_BODY),
+        ]);
+        let violations = check_project_lifecycle_live_reads(tree.path());
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+
+    #[test]
+    #[ignore = "pending: project-lifecycle 02-02 — check-arch rule project-lifecycle-live-reads"]
+    fn live_reads_an_exact_projects_literal_outside_the_four_exempt_items_is_flagged() {
+        let tree = stage(&[
+            (
+                STORE_LIB,
+                r##"pub const TENANT_TABLES: [&str; 3] = [
+    "workspaces",
+    "projects",
+    "issues",
+];
+const OTHER_TABLES: &[&str] = &["projects"];
+pub async fn export_workspace(&self) {
+    let tables = [
+        (
+            "projects",
+            "SELECT to_jsonb(t.*) FROM projects t WHERE t.workspace_id = $1",
+        ),
+    ];
+}
+"##,
+            ),
+            (MODULE, MODULE_BODY),
+            (
+                VERIFY_EXPORT,
+                "const DIRECT_WORKSPACE_ID_TABLES: &[&str] = &[\"teams\", \"projects\"];\nconst MORE: &[&str] = &[\"projects\"];\n",
+            ),
+            (
+                LEGACY_SEAM,
+                r##"impl NameRuleTable {
+    pub fn table(self) -> &'static str {
+        match self {
+            Self::Workspaces => "workspaces",
+            Self::Projects => "projects",
+        }
+    }
+    pub fn label(self) -> &'static str {
+        "projects"
+    }
+}
+"##,
+            ),
+            (
+                ADMIN_CLI,
+                r##"const KNOWN_FOUNDRY_TABLES: &[&str] = &[
+    "workspaces",
+    "projects",
+];
+fn count_rows() {
+    let table = "projects";
+}
+"##,
+            ),
+            (
+                "crates/foundry-services/src/lib.rs",
+                "pub const TENANT_TABLES: &[&str] = &[\"projects\"];\n",
+            ),
+        ]);
+        let violations = check_project_lifecycle_live_reads(tree.path());
+        for location in [
+            format!("{STORE_LIB}:6"),
+            format!("{STORE_LIB}:10"),
+            format!("{STORE_LIB}:11"),
+            format!("{VERIFY_EXPORT}:2"),
+            format!("{LEGACY_SEAM}:9"),
+            format!("{ADMIN_CLI}:6"),
+            "crates/foundry-services/src/lib.rs:1".to_string(),
+        ] {
+            assert!(
+                flagged_at(&violations, &location),
+                "expected {location} flagged: {violations:?}"
+            );
+        }
+        assert_eq!(
+            violations.len(),
+            7,
+            "the four exemptions (lib.rs:3, verify_export.rs:1, NameRuleTable::table, \
+             KNOWN_FOUNDRY_TABLES) are not flagged: {violations:?}"
+        );
+    }
+
+    #[test]
+    #[ignore = "pending: project-lifecycle 02-02 — check-arch rule project-lifecycle-live-reads"]
+    fn live_reads_a_missing_crates_directory_fails_the_rule() {
+        let tree = stage(&[("README.md", "nothing here\n")]);
+        let violations = check_project_lifecycle_live_reads(tree.path());
+        assert!(
+            !violations.is_empty(),
+            "a missing crates directory must FAIL the guard, never pass it vacuously"
+        );
+    }
+
+    #[test]
+    #[ignore = "pending: project-lifecycle 02-02 — check-arch rule project-lifecycle-live-reads (turned on last, after the reader sweep)"]
+    fn live_reads_the_shipped_tree_passes() {
+        let root = shipped_root();
+        let violations = check_project_lifecycle_live_reads(&root);
+        let module = std::fs::read_to_string(root.join(MODULE)).expect("the module exists");
+        assert!(
+            module.contains("projects"),
+            "ANTI-VACUITY: the module is expected to name projects"
+        );
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+
+    // =======================================================================
+    // Rule 2: project-lifecycle-write-guard
+    // =======================================================================
+
+    /// The guard itself, in the module (reads `projects`, writes nothing guarded).
+    const GUARD_MODULE: &str = r##"pub(crate) async fn lock_live_project(tx: &mut Transaction<'_, Postgres>, project_id: Uuid) -> Result<bool, StoreError> {
+    let row = sqlx::query("SELECT 1 FROM projects WHERE id = $1 AND deleted_at IS NULL FOR KEY SHARE").fetch_optional(&mut **tx).await?;
+    Ok(row.is_some())
+}
+"##;
+
+    /// The shipped shapes, guarded: a direct writer, the transaction-taking
+    /// helpers (exempt themselves), their guarded callers, the self-transacting
+    /// issue create and its retrying caller, the allow-list, a read-only helper.
+    const CLEAN_STORE: &str = r##"pub async fn insert_comment_with_outbox(&self, project_id: Uuid) -> Result<(), StoreError> {
+    let mut tx = self.pool.begin().await?;
+    if !lock_live_project(&mut tx, project_id).await? {
+        return Err(StoreError::NotFound);
+    }
+    sqlx::query("INSERT INTO comments (id, issue_id, body) VALUES ($1, $2, $3)").execute(&mut *tx).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+pub async fn insert_attachment(&self, issue_id: Uuid) -> Result<(), StoreError> {
+    let mut tx = self.pool.begin().await?;
+    let (project_id,): (Uuid,) = sqlx::query_as("SELECT project_id FROM issues WHERE id = $1").fetch_one(&mut *tx).await?;
+    if !lock_live_project(&mut tx, project_id).await? {
+        return Err(StoreError::NotFound);
+    }
+    sqlx::query("INSERT INTO issue_attachments (id, issue_id) VALUES ($1, $2)").execute(&mut *tx).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+async fn renumber_column(tx: &mut Transaction<'_, Postgres>, project_id: Uuid) -> Result<(), StoreError> {
+    sqlx::query("UPDATE issues SET position = position + 1 WHERE project_id = $1").execute(&mut **tx).await?;
+    Ok(())
+}
+
+async fn move_cards_to_destination(tx: &mut Transaction<'_, Postgres>, project_id: Uuid) -> Result<(), StoreError> {
+    renumber_column(tx, project_id).await
+}
+
+async fn record_issue_change(conn: &mut PgConnection, issue_id: Uuid) -> Result<(), StoreError> {
+    sqlx::query("INSERT INTO issue_change_events (id, issue_id) VALUES ($1, $2)").execute(&mut *conn).await?;
+    Ok(())
+}
+
+async fn read_positions(tx: &mut Transaction<'_, Postgres>, project_id: Uuid) -> Result<(), StoreError> {
+    sqlx::query("SELECT position FROM issues WHERE project_id = $1").fetch_all(&mut **tx).await?;
+    Ok(())
+}
+
+pub async fn reposition_issue_with_outbox(&self, project_id: Uuid) -> Result<(), StoreError> {
+    let mut tx = self.pool.begin().await?;
+    if !lock_live_project(&mut tx, project_id).await? {
+        return Err(StoreError::NotFound);
+    }
+    renumber_column(&mut tx, project_id).await?;
+    record_issue_change(&mut tx, project_id).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+pub async fn delete_lane(&self, project_id: Uuid) -> Result<(), StoreError> {
+    let mut tx = self.pool.begin().await?;
+    if !lock_live_project(&mut tx, project_id).await? {
+        return Err(StoreError::NotFound);
+    }
+    move_cards_to_destination(&mut tx, project_id).await?;
+    sqlx::query("DELETE FROM lanes WHERE id = $1").execute(&mut *tx).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+pub async fn board_positions(&self, project_id: Uuid) -> Result<(), StoreError> {
+    let mut tx = self.pool.begin().await?;
+    read_positions(&mut tx, project_id).await?;
+    Ok(())
+}
+
+async fn insert_issue_attempt(&self, project_id: Uuid) -> Result<Option<Uuid>, StoreError> {
+    let mut tx = self.pool.begin().await?;
+    let row = sqlx::query("UPDATE live_projects SET next_issue_number = next_issue_number + 1 WHERE id = $1 RETURNING next_issue_number - 1").fetch_optional(&mut *tx).await?;
+    let Some(row) = row else { return Ok(None) };
+    sqlx::query("INSERT INTO issues (id, project_id, number) VALUES ($1, $2, $3)").execute(&mut *tx).await?;
+    tx.commit().await?;
+    Ok(Some(row))
+}
+
+pub async fn insert_issue_with_outbox(&self, project_id: Uuid) -> Result<Uuid, StoreError> {
+    match self.insert_issue_attempt(project_id).await? {
+        Some(issue) => Ok(issue),
+        None => self.insert_issue_attempt(project_id).await?.ok_or(StoreError::NotFound),
+    }
+}
+
+pub async fn gc_tombstoned_comments(&self) -> Result<u64, StoreError> {
+    sqlx::query("DELETE FROM comments WHERE deleted_at < now() - interval '90 days'").execute(&self.pool).await?;
+    Ok(0)
+}
+
+pub async fn insert_project(&self, project_id: Uuid) -> Result<(), StoreError> {
+    let mut tx = self.pool.begin().await?;
+    sqlx::query("INSERT INTO projects (id) VALUES ($1)").execute(&mut *tx).await?;
+    sqlx::query("INSERT INTO lanes (id, project_id) VALUES ($1, $2)").execute(&mut *tx).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+pub async fn update_issue_field(&self, project_id: Uuid, column: &str) -> Result<(), StoreError> {
+    let mut tx = self.pool.begin().await?;
+    if !lock_live_project(&mut tx, project_id).await? {
+        return Err(StoreError::NotFound);
+    }
+    let sql = format!("UPDATE issues SET {column} = $1 WHERE id = $2");
+    sqlx::query(&sql).execute(&mut *tx).await?;
+    Ok(())
+}
+
+pub async fn find_user(&self) -> Result<(), StoreError> {
+    let sql = format!("SELECT {USER_ROW_COLUMNS} FROM users WHERE id = $1");
+    sqlx::query(&sql).fetch_one(&self.pool).await?;
+    Ok(())
+}
+
+pub async fn the_comment_says(&self) -> Result<(), StoreError> {
+    // sqlx::query("DELETE FROM comments WHERE id = $1")
+    sqlx::query("SELECT body FROM comments WHERE id = $1").fetch_one(&self.pool).await?;
+    Ok(())
+}
+"##;
+
+    const LEGACY_SEAM_DDL: &str = r##"pub async fn seed_row_predating_name_rule(conn: &mut PgConnection, table: NameRuleTable) {
+    let t = table.table();
+    let sql = format!("ALTER TABLE {t} DISABLE TRIGGER USER");
+    sqlx::query(&sql).execute(&mut *conn).await;
+}
+"##;
+
+    fn guard_tree(extra: &[(&'static str, &'static str)]) -> tempfile::TempDir {
+        let mut files = vec![
+            (STORE_LIB, CLEAN_STORE),
+            (MODULE, GUARD_MODULE),
+            (LEGACY_SEAM, LEGACY_SEAM_DDL),
+        ];
+        files.extend_from_slice(extra);
+        stage(&files)
+    }
+
+    fn names_writer(violations: &[String], file: &str, function: &str) -> bool {
+        violations
+            .iter()
+            .any(|v| v.contains(file) && v.contains(&format!("`{function}`")))
+    }
+
+    #[test]
+    #[ignore = "pending: project-lifecycle 02-01 — check-arch rule project-lifecycle-write-guard"]
+    fn write_guard_a_clean_store_passes() {
+        let tree = guard_tree(&[
+            (
+                "crates/foundry-store/tests/issue_delete.rs",
+                "sqlx::query(\"DELETE FROM issues WHERE id = $1\");\n",
+            ),
+            (
+                "crates/foundry-app/src/admin_cli.rs",
+                "fn a() { sqlx::query(\"UPDATE comments SET deleted_at = NULL\"); }\n",
+            ),
+        ]);
+        let violations = check_project_lifecycle_write_guard(tree.path());
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+
+    #[test]
+    #[ignore = "pending: project-lifecycle 02-01 — check-arch rule project-lifecycle-write-guard"]
+    fn write_guard_an_unguarded_direct_writer_of_each_table_is_flagged() {
+        const FILE: &str = "crates/foundry-store/src/attachments.rs";
+        for (form, body) in [
+            (
+                "an autocommit INSERT INTO issue_attachments",
+                "pub async fn writer(&self) {\n    sqlx::query(\"INSERT INTO issue_attachments (id, issue_id) VALUES ($1, $2)\").execute(&self.pool).await;\n}\n",
+            ),
+            (
+                "UPDATE issues",
+                "pub async fn writer(&self) {\n    let mut tx = self.pool.begin().await?;\n    sqlx::query(\"UPDATE issues SET title = $1 WHERE id = $2\").execute(&mut *tx).await;\n}\n",
+            ),
+            (
+                "DELETE FROM comments",
+                "pub async fn writer(&self) {\n    sqlx::query(\"DELETE FROM comments WHERE id = $1\").execute(&self.pool).await;\n}\n",
+            ),
+            (
+                "public.lanes, lower case",
+                "pub async fn writer(&self) {\n    sqlx::query(\"insert into public.lanes (id) values ($1)\").execute(&self.pool).await;\n}\n",
+            ),
+            (
+                "quoted issue_change_events",
+                "pub async fn writer(&self) {\n    sqlx::query(\"UPDATE \\\"issue_change_events\\\" SET kind = $1\").execute(&self.pool).await;\n}\n",
+            ),
+            (
+                "a line break inside DELETE FROM lanes",
+                "pub async fn writer(&self) {\n    sqlx::query(r\"DELETE\n        FROM\n        lanes WHERE id = $1\").execute(&self.pool).await;\n}\n",
+            ),
+        ] {
+            let tree = guard_tree(&[(FILE, body)]);
+            let violations = check_project_lifecycle_write_guard(tree.path());
+            assert_eq!(violations.len(), 1, "{form}: {violations:?}");
+            assert!(names_writer(&violations, FILE, "writer"), "{form}: {violations:?}");
+            assert!(
+                violations[0].starts_with("project-lifecycle-write-guard: "),
+                "{form}: {violations:?}"
+            );
+        }
+    }
+
+    /// DIST-10: the guard must hold across the write (DDD-7, INV-PL-3). A lock
+    /// taken on a pooled connection with the write in autocommit, or a write
+    /// before the lock in the same transaction, is flagged.
+    #[test]
+    #[ignore = "pending: project-lifecycle 02-01 — check-arch rule project-lifecycle-write-guard"]
+    fn write_guard_a_guard_that_does_not_hold_across_the_write_is_flagged() {
+        const FILE: &str = "crates/foundry-store/src/lanes.rs";
+        for (form, body) in [
+            (
+                "a guard on a pooled connection, the write in autocommit",
+                r##"pub async fn writer(&self, project_id: Uuid) -> Result<(), StoreError> {
+    if !lock_live_project(&mut self.pool.acquire().await?, project_id).await? {
+        return Err(StoreError::NotFound);
+    }
+    sqlx::query("UPDATE lanes SET name = $1 WHERE id = $2").execute(&self.pool).await?;
+    Ok(())
+}
+"##,
+            ),
+            (
+                "a write before the guard in the same transaction",
+                r##"pub async fn writer(&self, project_id: Uuid) -> Result<(), StoreError> {
+    let mut tx = self.pool.begin().await?;
+    sqlx::query("UPDATE lanes SET name = $1 WHERE id = $2").execute(&mut *tx).await?;
+    if !lock_live_project(&mut tx, project_id).await? {
+        return Err(StoreError::NotFound);
+    }
+    tx.commit().await?;
+    Ok(())
+}
+"##,
+            ),
+        ] {
+            let tree = guard_tree(&[(FILE, body)]);
+            let violations = check_project_lifecycle_write_guard(tree.path());
+            assert!(
+                names_writer(&violations, FILE, "writer"),
+                "{form}: {violations:?}"
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "pending: project-lifecycle 02-01 — check-arch rule project-lifecycle-write-guard"]
+    fn write_guard_a_caller_of_a_writing_helper_without_the_guard_is_flagged_transitively() {
+        const FILE: &str = "crates/foundry-store/src/lanes.rs";
+        let tree = guard_tree(&[(
+            FILE,
+            r##"pub async fn reorder(&self, project_id: Uuid) -> Result<(), StoreError> {
+    let mut tx = self.pool.begin().await?;
+    renumber_column(&mut tx, project_id).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+pub async fn collapse_lane(&self, project_id: Uuid) -> Result<(), StoreError> {
+    let mut tx = self.pool.begin().await?;
+    move_cards_to_destination(&mut tx, project_id).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+pub async fn log_change(&self, issue_id: Uuid) -> Result<(), StoreError> {
+    let mut conn = self.pool.acquire().await?;
+    record_issue_change(&mut conn, issue_id).await
+}
+"##,
+        )]);
+        let violations = check_project_lifecycle_write_guard(tree.path());
+        assert_eq!(violations.len(), 3, "{violations:?}");
+        assert!(names_writer(&violations, FILE, "reorder"), "{violations:?}");
+        assert!(
+            names_writer(&violations, FILE, "collapse_lane"),
+            "a helper that writes only through another helper is in the set: {violations:?}"
+        );
+        assert!(
+            names_writer(&violations, FILE, "log_change"),
+            "a connection parameter makes a helper too: {violations:?}"
+        );
+    }
+
+    #[test]
+    #[ignore = "pending: project-lifecycle 02-01 — check-arch rule project-lifecycle-write-guard"]
+    fn write_guard_insert_issue_attempt_with_a_write_before_its_counter_update_is_flagged() {
+        let bad_first_insert = CLEAN_STORE.replace(
+            "    let row = sqlx::query(\"UPDATE live_projects",
+            "    sqlx::query(\"INSERT INTO issue_change_events (id) VALUES ($1)\").execute(&mut *tx).await?;\n    let row = sqlx::query(\"UPDATE live_projects",
+        );
+        let base_projects = CLEAN_STORE.replace(
+            "sqlx::query(\"UPDATE live_projects SET next_issue_number",
+            "sqlx::query(\"UPDATE projects SET next_issue_number",
+        );
+        for (form, store) in [
+            ("an INSERT before UPDATE live_projects", bad_first_insert),
+            ("the counter on the base table", base_projects),
+        ] {
+            assert_ne!(store, CLEAN_STORE, "{form}: the fixture edit applied");
+            let tree = stage(&[
+                (STORE_LIB, store.as_str()),
+                (MODULE, GUARD_MODULE),
+                (LEGACY_SEAM, LEGACY_SEAM_DDL),
+            ]);
+            let violations = check_project_lifecycle_write_guard(tree.path());
+            assert!(
+                names_writer(&violations, STORE_LIB, "insert_issue_attempt"),
+                "{form}: {violations:?}"
+            );
+            assert!(
+                !names_writer(&violations, STORE_LIB, "insert_issue_with_outbox"),
+                "{form}: the caller holds no SQL and calls a self-transacting fn: {violations:?}"
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "pending: project-lifecycle 02-01 — check-arch rule project-lifecycle-write-guard"]
+    fn write_guard_the_retrying_caller_with_an_inline_issue_insert_is_flagged() {
+        let store = CLEAN_STORE.replace(
+            "    match self.insert_issue_attempt(project_id).await? {",
+            "    sqlx::query(\"INSERT INTO issues (id, project_id, number) VALUES ($1, $2, 0)\").execute(&self.pool).await?;\n    match self.insert_issue_attempt(project_id).await? {",
+        );
+        assert_ne!(store, CLEAN_STORE, "the fixture edit applied");
+        let tree = stage(&[
+            (STORE_LIB, store.as_str()),
+            (MODULE, GUARD_MODULE),
+            (LEGACY_SEAM, LEGACY_SEAM_DDL),
+        ]);
+        let violations = check_project_lifecycle_write_guard(tree.path());
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert!(
+            names_writer(&violations, STORE_LIB, "insert_issue_with_outbox"),
+            "{violations:?}"
+        );
+    }
+
+    #[test]
+    #[ignore = "pending: project-lifecycle 02-01 — check-arch rule project-lifecycle-write-guard"]
+    fn write_guard_the_allow_list_is_by_name_only() {
+        const FILE: &str = "crates/foundry-store/src/gc.rs";
+        let tree = guard_tree(&[(
+            FILE,
+            "pub async fn purge_old_comments(&self) {\n    sqlx::query(\"DELETE FROM comments WHERE deleted_at < now() - interval '90 days'\").execute(&self.pool).await;\n}\n",
+        )]);
+        let violations = check_project_lifecycle_write_guard(tree.path());
+        assert_eq!(
+            violations.len(),
+            1,
+            "gc_tombstoned_comments and insert_project pass; the same body under another name does not: {violations:?}"
+        );
+        assert!(
+            names_writer(&violations, FILE, "purge_old_comments"),
+            "{violations:?}"
+        );
+    }
+
+    #[test]
+    #[ignore = "pending: project-lifecycle 02-01 — check-arch rule project-lifecycle-write-guard"]
+    fn write_guard_a_dml_template_with_an_interpolated_table_is_flagged_even_when_guarded() {
+        const FILE: &str = "crates/foundry-store/src/generic.rs";
+        let tree = guard_tree(&[(
+            FILE,
+            r##"pub async fn touch(&self, project_id: Uuid, t: &str) -> Result<(), StoreError> {
+    let mut tx = self.pool.begin().await?;
+    if !lock_live_project(&mut tx, project_id).await? {
+        return Err(StoreError::NotFound);
+    }
+    let a = format!("UPDATE {t} SET position = $1 WHERE id = $2");
+    let b = format!("INSERT INTO {} (id) VALUES ($1)", t);
+    let c = concat!("DELETE FROM ", TABLE, " WHERE id = $1");
+    Ok(())
+}
+"##,
+        )]);
+        let violations = check_project_lifecycle_write_guard(tree.path());
+        assert_eq!(violations.len(), 3, "{violations:?}");
+        for line in [6, 7, 8] {
+            assert!(
+                flagged_at(&violations, &format!("{FILE}:{line}")),
+                "line {line}: {violations:?}"
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "pending: project-lifecycle 02-01 — check-arch rule project-lifecycle-write-guard"]
+    fn write_guard_a_missing_crates_or_store_src_fails_the_rule() {
+        let none = stage(&[("README.md", "nothing here\n")]);
+        assert!(
+            !check_project_lifecycle_write_guard(none.path()).is_empty(),
+            "a missing crates directory must FAIL the guard"
+        );
+        let no_store = stage(&[("crates/foundry-app/src/lib.rs", "fn a() {}\n")]);
+        assert!(
+            !check_project_lifecycle_write_guard(no_store.path()).is_empty(),
+            "a missing foundry-store/src must FAIL the guard, never pass it vacuously"
+        );
+    }
+
+    #[test]
+    #[ignore = "pending: project-lifecycle 02-01 — check-arch rule project-lifecycle-write-guard (with the guard in every writer)"]
+    fn write_guard_the_shipped_tree_passes() {
+        let root = shipped_root();
+        let violations = check_project_lifecycle_write_guard(&root);
+        let module = std::fs::read_to_string(root.join(MODULE)).expect("the module exists");
+        assert!(
+            module.contains("fn lock_live_project("),
+            "ANTI-VACUITY: the module is expected to define the guard"
+        );
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+
+    // =======================================================================
+    // Rule 3: project-lifecycle-one-seam
+    // =======================================================================
+
+    const STORE_LIFECYCLE: &str = r##"pub async fn rename_project_with_audit(&self) {
+    sqlx::query("UPDATE live_projects SET name = $1 WHERE id = $2");
+    sqlx::query("INSERT INTO project_lifecycle_events (id, kind) VALUES ($1, 'renamed')");
+}
+pub async fn soft_delete_project(&self) {
+    sqlx::query("UPDATE projects SET deleted_at = clock_timestamp() WHERE id = $1");
+}
+"##;
+
+    #[test]
+    #[ignore = "pending: project-lifecycle 01-01 — check-arch rule project-lifecycle-one-seam (i)"]
+    fn one_seam_a_project_write_outside_the_store_is_flagged() {
+        let tree = stage(&[
+            (MODULE, STORE_LIFECYCLE),
+            (
+                "crates/foundry-acceptance/src/support/project_lifecycle.rs",
+                "sqlx::query(\"UPDATE projects SET deleted_at = now() WHERE id = $1\");\n",
+            ),
+            (
+                "crates/foundry-app/src/teams.rs",
+                "fn a() {}\nsqlx::query(\"UPDATE projects SET name = $1 WHERE id = $2\");\n",
+            ),
+            (
+                "crates/foundry-services/src/projects.rs",
+                "sqlx::query(\"INSERT INTO project_lifecycle_events (id) VALUES ($1)\");\n",
+            ),
+            (
+                "crates/foundry-api/src/lib.rs",
+                "fn a() {}\nfn b() {}\nsqlx::query(\"update live_projects set name = $1\");\n",
+            ),
+            (
+                "crates/foundry-app/src/lib.rs",
+                "const READ: &str = \"SELECT id FROM live_projects WHERE team_id = $1\";\n",
+            ),
+        ]);
+        let violations = check_project_lifecycle_one_seam(tree.path());
+        assert_eq!(violations.len(), 3, "{violations:?}");
+        assert!(
+            flagged_at(&violations, "crates/foundry-app/src/teams.rs:2"),
+            "{violations:?}"
+        );
+        assert!(
+            flagged_at(&violations, "crates/foundry-services/src/projects.rs:1"),
+            "{violations:?}"
+        );
+        assert!(
+            flagged_at(&violations, "crates/foundry-api/src/lib.rs:3"),
+            "{violations:?}"
+        );
+        assert!(
+            violations
+                .iter()
+                .all(|v| v.starts_with("project-lifecycle-one-seam: ")),
+            "{violations:?}"
+        );
+    }
+
+    #[test]
+    #[ignore = "pending: project-lifecycle 01-01 — check-arch rule project-lifecycle-one-seam (ii) rename_project_with_audit"]
+    fn one_seam_the_audited_rename_called_from_a_door_is_flagged() {
+        let tree = stage(&[
+            (MODULE, STORE_LIFECYCLE),
+            (
+                "crates/foundry-app/src/admin.rs",
+                "fn a() {}\nlet _ = state.store.rename_project_with_audit(id, actor, name).await;\n",
+            ),
+            (
+                "crates/foundry-services/src/projects.rs",
+                "let w = store.rename_project_with_audit(id, actor, name).await?;\n",
+            ),
+        ]);
+        let violations = check_project_lifecycle_one_seam(tree.path());
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert!(
+            flagged_at(&violations, "crates/foundry-app/src/admin.rs:2")
+                && violations[0].contains("`rename_project_with_audit`"),
+            "{violations:?}"
+        );
+    }
+
+    #[test]
+    #[ignore = "pending: project-lifecycle 02-03 — check-arch rule project-lifecycle-one-seam (ii) soft_delete_project"]
+    fn one_seam_the_soft_delete_called_from_a_door_is_flagged() {
+        let tree = stage(&[
+            (MODULE, STORE_LIFECYCLE),
+            (
+                "crates/foundry-api/src/lib.rs",
+                "\nlet _ = store\n    .soft_delete_project\n    (ws, team, id, actor);\n",
+            ),
+            (
+                "crates/foundry-services/src/projects.rs",
+                "let o = store.soft_delete_project(ws, team, id, actor).await?;\n",
+            ),
+        ]);
+        let violations = check_project_lifecycle_one_seam(tree.path());
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert!(
+            flagged_at(&violations, "crates/foundry-api/src/lib.rs:3")
+                && violations[0].contains("`soft_delete_project`"),
+            "{violations:?}"
+        );
+    }
+
+    #[test]
+    #[ignore = "pending: project-lifecycle 03-01 — check-arch rule project-lifecycle-one-seam (ii) restore_deleted_project"]
+    fn one_seam_the_restore_called_from_the_operator_cli_is_flagged() {
+        let tree = stage(&[
+            (MODULE, STORE_LIFECYCLE),
+            (
+                ADMIN_CLI,
+                "fn run_restore_project() {\n    let _ = store.restore_deleted_project(id).await;\n}\n",
+            ),
+            (
+                "crates/foundry-services/src/projects.rs",
+                "let o = store.restore_deleted_project(id).await?;\n",
+            ),
+        ]);
+        let violations = check_project_lifecycle_one_seam(tree.path());
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert!(
+            flagged_at(&violations, &format!("{ADMIN_CLI}:2"))
+                && violations[0].contains("`restore_deleted_project`"),
+            "the CLI goes through services (DDD-10): {violations:?}"
+        );
+    }
+
+    #[test]
+    #[ignore = "pending: project-lifecycle 01-01 — check-arch rule project-lifecycle-one-seam"]
+    fn one_seam_a_missing_crates_directory_fails_the_rule() {
+        let tree = stage(&[("README.md", "nothing here\n")]);
+        assert!(
+            !check_project_lifecycle_one_seam(tree.path()).is_empty(),
+            "a missing crates directory must FAIL the guard, never pass it vacuously"
+        );
+    }
+
+    #[test]
+    #[ignore = "pending: project-lifecycle 01-01 — check-arch rule project-lifecycle-one-seam"]
+    fn one_seam_the_shipped_tree_passes() {
+        let root = shipped_root();
+        let violations = check_project_lifecycle_one_seam(&root);
+        let module = std::fs::read_to_string(root.join(MODULE)).expect("the module exists");
+        assert!(
+            module.contains("fn rename_project_with_audit("),
+            "ANTI-VACUITY: the module is expected to hold the audited rename"
+        );
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+}
