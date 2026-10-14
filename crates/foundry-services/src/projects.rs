@@ -20,7 +20,7 @@ use foundry_core::{
     mint_project_slug, MintedSlug, ProjectKey, ProjectKeyError, ProjectName, ProjectNameError,
     TeamAccess,
 };
-use foundry_store::{ProjectInsertError, ProjectRenameWrite, Store};
+use foundry_store::{ProjectDeleteOutcome, ProjectInsertError, ProjectRenameWrite, Store};
 
 /// The rename request as the driving adapter hands it over.
 pub struct RenameProjectRequest<'a> {
@@ -612,7 +612,8 @@ mod classify_rename_properties {
 // real (`tests/project_lifecycle_use_cases.rs` matches on them); every function
 // still panicking does so until its DELIVER step. Shipped (01-03):
 // `rename_team_project` on the shared `RenameTarget::apply_rename` core, which
-// `rename_project` now calls too (DDD-16).
+// `rename_project` now calls too (DDD-16). Shipped (02-05): `delete_preview` and
+// `delete_project` on the shared `DeleteTarget::resolve` gate.
 // ===========================================================================
 
 /// What a rename from the team page did (DDD-16). The old name is the one the
@@ -689,30 +690,87 @@ pub async fn rename_team_project(
         .await
 }
 
+/// The live project a delete door resolved behind `can_manage` (DDD-18): the
+/// authority read once, then the project by (team, slug). Every refusal on the
+/// way is `NotFound`, the uniform 404, and nothing is written.
+struct DeleteTarget {
+    facts: foundry_store::teams::TeamAccessFacts,
+    project: foundry_store::ProjectRow,
+}
+
+impl DeleteTarget {
+    async fn resolve(
+        store: &Store,
+        principal: &crate::Principal,
+        team_slug: &str,
+        project_slug: &str,
+    ) -> Result<Self, ProjectLifecycleError> {
+        let facts = store
+            .team_access_facts(principal.workspace_id(), team_slug, principal.user_id())
+            .await
+            .map_err(ProjectLifecycleError::Store)?
+            .ok_or(ProjectLifecycleError::NotFound)?;
+        if !TeamAccess::of(facts.is_workspace_admin, facts.role).can_manage() {
+            return Err(ProjectLifecycleError::NotFound);
+        }
+        let project = store
+            .find_project_by_slug(facts.team_id, project_slug)
+            .await
+            .map_err(ProjectLifecycleError::Store)?
+            .ok_or(ProjectLifecycleError::NotFound)?;
+        Ok(Self { facts, project })
+    }
+}
+
 /// `GET /team/{t}/project/{p}/delete`: `can_manage`, then the live project and
 /// its issue count. Read-only: no write method on its path (Principle 12).
 pub async fn delete_preview(
-    _store: &Store,
-    _principal: &crate::Principal,
-    _team_slug: &str,
-    _project_slug: &str,
+    store: &Store,
+    principal: &crate::Principal,
+    team_slug: &str,
+    project_slug: &str,
 ) -> Result<ProjectDeletePreview, ProjectLifecycleError> {
-    panic!(
-        "Not yet implemented -- RED scaffold (project-lifecycle 02-03: projects::delete_preview)"
-    )
+    let DeleteTarget { facts, project } =
+        DeleteTarget::resolve(store, principal, team_slug, project_slug).await?;
+    let issue_count = store
+        .count_issues_in_project(project.id)
+        .await
+        .map_err(ProjectLifecycleError::Store)?;
+    Ok(ProjectDeletePreview {
+        team_slug: facts.team_slug,
+        team_name: facts.team_name,
+        project_name: project.name,
+        key_prefix: project.key_prefix,
+        issue_count,
+    })
 }
 
 /// `POST /team/{t}/project/{p}/delete`: `can_manage`, read once; the store's
 /// locked transaction decides (`Store::soft_delete_project`).
 pub async fn delete_project(
-    _store: &Store,
-    _principal: &crate::Principal,
-    _team_slug: &str,
-    _project_slug: &str,
+    store: &Store,
+    principal: &crate::Principal,
+    team_slug: &str,
+    project_slug: &str,
 ) -> Result<ProjectDeletion, ProjectLifecycleError> {
-    panic!(
-        "Not yet implemented -- RED scaffold (project-lifecycle 02-03: projects::delete_project)"
-    )
+    let DeleteTarget { facts, project } =
+        DeleteTarget::resolve(store, principal, team_slug, project_slug).await?;
+    match store
+        .soft_delete_project(
+            principal.workspace_id(),
+            facts.team_id,
+            project.id,
+            principal.user_id(),
+        )
+        .await
+        .map_err(ProjectLifecycleError::Store)?
+    {
+        ProjectDeleteOutcome::Deleted { name, key_prefix } => {
+            Ok(ProjectDeletion { name, key_prefix })
+        }
+        // Lost a race with another delete — the same non-enumerable refusal.
+        ProjectDeleteOutcome::NotFound => Err(ProjectLifecycleError::NotFound),
+    }
 }
 
 /// `foundry doctor list-deleted-projects` (D10): the operator's shell is the

@@ -514,7 +514,6 @@ async fn the_instance_admin_door_records_its_rename_too() {
 /// doors and on create, and its key on create; a deleted project's id is not
 /// found on the instance door.
 #[tokio::test]
-#[ignore = "pending: project-lifecycle 02-03 — siblings include deleted projects; the instance door skips them"]
 async fn a_deleted_projects_name_and_key_stay_taken_and_its_id_is_not_found() {
     let l = labs().await;
     require_soft_delete(&l.pool).await;
@@ -595,7 +594,6 @@ async fn a_deleted_projects_name_and_key_stay_taken_and_its_id_is_not_found() {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-#[ignore = "pending: project-lifecycle 02-03 — projects::delete_preview"]
 async fn the_confirm_preview_counts_the_issues_and_writes_nothing() {
     let l = labs().await;
     let before = everything(&l.pool).await;
@@ -625,7 +623,6 @@ async fn the_confirm_preview_counts_the_issues_and_writes_nothing() {
 }
 
 #[tokio::test]
-#[ignore = "pending: project-lifecycle 02-03 — projects::delete_project"]
 async fn a_teams_lead_deletes_a_project_and_a_second_delete_is_not_found() {
     let l = labs().await;
     require_records(&l.pool).await;
@@ -653,7 +650,6 @@ async fn a_teams_lead_deletes_a_project_and_a_second_delete_is_not_found() {
 }
 
 #[tokio::test]
-#[ignore = "pending: project-lifecycle 02-03 — projects::delete_preview / delete_project (the gate)"]
 async fn anyone_without_manage_gets_not_found_on_the_confirm_and_the_delete_and_nothing_changes() {
     let l = labs().await;
     let before = everything(&l.pool).await;

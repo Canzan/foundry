@@ -1544,7 +1544,6 @@ async fn the_team_project_list_is_by_name_then_key() {
 /// INV-PL-1, D6, PL-KPI-2: a delete writes the marker and one record and
 /// nothing else; the record's time equals the marker's.
 #[tokio::test]
-#[ignore = "pending: project-lifecycle 02-03 — soft_delete_project"]
 async fn a_delete_writes_only_the_marker_and_one_record_and_erases_nothing() {
     let l = lab().await;
     require_records(&l.pool).await;
@@ -1613,7 +1612,6 @@ async fn a_delete_writes_only_the_marker_and_one_record_and_erases_nothing() {
 /// which the HTTP and 100-run races may let survive (a write that lands first
 /// is a legal outcome there).
 #[tokio::test]
-#[ignore = "pending: project-lifecycle 02-03 — soft_delete_project waits on a held guard (FOR UPDATE, DDD-6)"]
 async fn the_production_delete_waits_while_a_writer_holds_the_guard() {
     let l = lab().await;
     require_records(&l.pool).await;
@@ -1665,7 +1663,6 @@ async fn the_production_delete_waits_while_a_writer_holds_the_guard() {
 /// (`notified_at IS NULL`); and "none after": a refused write through a guarded
 /// writer adds no outbox row about the project.
 #[tokio::test]
-#[ignore = "pending: project-lifecycle 02-03 — queued notifications kept; none after the delete (D17)"]
 async fn a_notification_queued_before_the_delete_stays_pending_and_none_arises_after_it() {
     let l = lab().await;
     require_records(&l.pool).await;
@@ -1732,7 +1729,6 @@ async fn a_notification_queued_before_the_delete_stays_pending_and_none_arises_a
 }
 
 #[tokio::test]
-#[ignore = "pending: project-lifecycle 02-03 — soft_delete_project (refusals)"]
 async fn a_second_delete_a_foreign_one_and_an_unknown_one_are_not_found_and_write_nothing() {
     let l = lab().await;
     require_records(&l.pool).await;
@@ -1761,7 +1757,6 @@ async fn a_second_delete_a_foreign_one_and_an_unknown_one_are_not_found_and_writ
 }
 
 #[tokio::test]
-#[ignore = "pending: project-lifecycle 02-03 — soft_delete_project (atomic with its record)"]
 async fn a_delete_whose_record_cannot_be_written_deletes_nothing() {
     let l = lab().await;
     require_records(&l.pool).await;
@@ -1785,7 +1780,6 @@ async fn a_delete_whose_record_cannot_be_written_deletes_nothing() {
 /// create answered `ProjectNotFound`. Never an unmapped error, never a lost
 /// issue.
 #[tokio::test]
-#[ignore = "pending: project-lifecycle 02-03 — soft_delete_project versus the guarded issue create"]
 async fn the_delete_versus_issue_create_race_never_errors_or_loses_an_issue_in_100_runs() {
     let l = lab().await;
     require_records(&l.pool).await;
@@ -1836,7 +1830,6 @@ async fn the_delete_versus_issue_create_race_never_errors_or_loses_an_issue_in_1
 /// Either the rename committed first (the delete record carries the new name)
 /// or the delete did (the rename is NotFound, the uniform 404).
 #[tokio::test]
-#[ignore = "pending: project-lifecycle 02-03 — rename versus delete, both orders"]
 async fn a_rename_and_a_delete_of_one_project_are_totally_ordered_in_100_runs() {
     let l = lab().await;
     require_records(&l.pool).await;
@@ -2126,7 +2119,6 @@ async fn the_deleted_list_is_oldest_deletion_first_with_who_and_how_many_issues(
 /// OQ-4, INV-PL-5: while deleted, the project's slug (in its team) and key (in
 /// its workspace) stay taken at the database, so a restore never collides.
 #[tokio::test]
-#[ignore = "pending: project-lifecycle 02-03 — a deleted project's slug and key stay taken"]
 async fn a_deleted_projects_slug_and_key_stay_taken() {
     let l = lab().await;
     require_soft_delete(&l.pool).await;

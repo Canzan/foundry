@@ -10,6 +10,7 @@
 //! `list_team_projects` and `rename_project_with_audit`. Moved in (02-03):
 //! the export's `projects` entry, `TEAM_PROJECTS_SQL` and
 //! `count_projects_by_name`, each unchanged and still reading every row.
+//! Shipped (02-05): `soft_delete_project`.
 //! Signatures are DISTILL's working choice within what DESIGN pinned (names,
 //! arguments where the ADRs give them, and outcomes): if DELIVER changes one,
 //! it changes the gold tests with it.
@@ -265,16 +266,60 @@ impl Store {
     }
 
     /// ADR-PROJECT-LIFECYCLE-002 decision 1, in one transaction: the live row
-    /// scoped to workspace and team `FOR UPDATE`; set the marker; the `deleted`
-    /// record with `created_at` equal to `deleted_at`.
+    /// scoped to workspace and team `FOR UPDATE` (the only row lock that
+    /// conflicts with a writer's `FOR KEY SHARE` guard, so the delete waits for
+    /// an in-flight write and a write queued behind it finds no live row); set
+    /// the marker; the `deleted` record, its `created_at` the marker's
+    /// `deleted_at` (one clock read). Nothing else is written: no child row, no
+    /// outbox row (D17). Unknown, foreign or already deleted: `NotFound`.
     pub async fn soft_delete_project(
         &self,
-        _workspace_id: uuid::Uuid,
-        _team_id: uuid::Uuid,
-        _project_id: uuid::Uuid,
-        _actor_id: uuid::Uuid,
+        workspace_id: uuid::Uuid,
+        team_id: uuid::Uuid,
+        project_id: uuid::Uuid,
+        actor_id: uuid::Uuid,
     ) -> Result<ProjectDeleteOutcome, StoreError> {
-        panic!("Not yet implemented -- RED scaffold (project-lifecycle 02-03: soft_delete_project)")
+        let mut tx = self.pool.begin().await?;
+        let locked: Option<(String, String, String)> = sqlx::query_as(
+            "SELECT slug, key_prefix, name FROM live_projects
+              WHERE id = $1 AND workspace_id = $2 AND team_id = $3 FOR UPDATE",
+        )
+        .bind(project_id)
+        .bind(workspace_id)
+        .bind(team_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some((slug, key_prefix, name)) = locked else {
+            tx.rollback().await?;
+            return Ok(ProjectDeleteOutcome::NotFound);
+        };
+        let deleted_at: time::OffsetDateTime = sqlx::query_scalar(
+            "UPDATE projects SET deleted_at = clock_timestamp(), deleted_by = $2
+              WHERE id = $1 RETURNING deleted_at",
+        )
+        .bind(project_id)
+        .bind(actor_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        sqlx::query(
+            "INSERT INTO project_lifecycle_events
+                    (id, workspace_id, project_id, team_id, project_slug, key_prefix, kind,
+                     actor_id, name, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, 'deleted', $7, $8, $9)",
+        )
+        .bind(uuid::Uuid::now_v7())
+        .bind(workspace_id)
+        .bind(project_id)
+        .bind(team_id)
+        .bind(&slug)
+        .bind(&key_prefix)
+        .bind(actor_id)
+        .bind(&name)
+        .bind(deleted_at)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(ProjectDeleteOutcome::Deleted { name, key_prefix })
     }
 
     /// Every deleted project, instance-wide, oldest deletion first (`deleted_at`

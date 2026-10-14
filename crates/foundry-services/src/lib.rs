@@ -313,6 +313,28 @@ impl Services {
             .await
     }
 
+    /// project-lifecycle `GET /team/{t}/project/{p}/delete` — delegates to
+    /// [`projects::delete_preview`].
+    pub async fn project_delete_preview(
+        &self,
+        principal: &Principal,
+        team_slug: &str,
+        project_slug: &str,
+    ) -> Result<projects::ProjectDeletePreview, projects::ProjectLifecycleError> {
+        projects::delete_preview(&self.store, principal, team_slug, project_slug).await
+    }
+
+    /// project-lifecycle `POST /team/{t}/project/{p}/delete` — delegates to
+    /// [`projects::delete_project`].
+    pub async fn delete_project(
+        &self,
+        principal: &Principal,
+        team_slug: &str,
+        project_slug: &str,
+    ) -> Result<projects::ProjectDeletion, projects::ProjectLifecycleError> {
+        projects::delete_project(&self.store, principal, team_slug, project_slug).await
+    }
+
     /// multi-workspace-provisioning (US-MWT07, ADR-002/003) — provision a NEW
     /// isolated workspace + its first admin, gated by the INSTANCE super-admin
     /// authority. Delegates to [`provisioning::provision_workspace`].
