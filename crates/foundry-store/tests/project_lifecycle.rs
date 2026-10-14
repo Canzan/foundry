@@ -1250,7 +1250,6 @@ async fn restoring_a_comment_inside_a_deleted_project_changes_nothing_and_says_w
 // ===========================================================================
 
 #[tokio::test]
-#[ignore = "pending: project-lifecycle 02-02 — every project reader on live_projects"]
 async fn every_project_reader_treats_a_deleted_project_as_one_that_never_existed() {
     let l = lab().await;
     require_soft_delete(&l.pool).await;
@@ -1302,7 +1301,6 @@ async fn every_project_reader_treats_a_deleted_project_as_one_that_never_existed
 }
 
 #[tokio::test]
-#[ignore = "pending: project-lifecycle 02-02 — list_team_projects reads live_projects"]
 async fn the_team_project_list_omits_a_deleted_project() {
     let l = lab().await;
     require_soft_delete(&l.pool).await;

@@ -7,16 +7,32 @@
 //! `tests/team_delete.rs` and the use-case tests in `foundry-services` match on
 //! them); every method not yet shipped panics until its DELIVER step.
 //! Shipped (01-02): `list_team_sibling_projects` (moved in unchanged),
-//! `list_team_projects` and `rename_project_with_audit`. Signatures are
-//! DISTILL's working choice within what DESIGN pinned (names, arguments where
-//! the ADRs give them, and outcomes): if DELIVER changes one, it changes the
-//! gold tests with it.
+//! `list_team_projects` and `rename_project_with_audit`. Moved in (02-03):
+//! the export's `projects` entry, `TEAM_PROJECTS_SQL` and
+//! `count_projects_by_name`, each unchanged and still reading every row.
+//! Signatures are DISTILL's working choice within what DESIGN pinned (names,
+//! arguments where the ADRs give them, and outcomes): if DELIVER changes one,
+//! it changes the gold tests with it.
 //!
-//! DELIVER also moves the export's `projects` entry and `TEAM_PROJECTS_SQL`
-//! into this module (DDD-31, DDD-20), and folds [`TeamDeletedProjects`] into
-//! `TeamDeleteFacts` (ADR-PROJECT-LIFECYCLE-004 decision 2).
+//! DELIVER folds [`TeamDeletedProjects`] into `TeamDeleteFacts`
+//! (ADR-PROJECT-LIFECYCLE-004 decision 2).
 
 use crate::{Store, StoreError};
+
+/// The per-workspace export's `projects` entry, label and SQL together
+/// (DDD-31, D13): every row of the workspace, a deleted one included and marked
+/// by its own `deleted_at` / `deleted_by`.
+pub(crate) const EXPORT_PROJECTS: (&str, &str) = (
+    "projects",
+    "SELECT to_jsonb(t.*)::text FROM projects t WHERE t.workspace_id = $1 ORDER BY 1",
+);
+
+/// A team's projects as `(name, key)`, by name then key: the team delete
+/// confirm page's list and the delete's refusal (DDD-8, DDD-10). Reads EVERY
+/// row, a deleted project included, until 04-02 detaches them: a team delete
+/// that ignored a deleted project would let the FK cascade erase it.
+pub(crate) const TEAM_PROJECTS_SQL: &str =
+    "SELECT name, key_prefix FROM projects WHERE team_id = $1 ORDER BY name, key_prefix";
 
 /// The outcome of [`Store::rename_project_with_audit`] (DDD-15,
 /// ADR-PROJECT-LIFECYCLE-003 decision 2).
@@ -145,14 +161,31 @@ impl Store {
         )
     }
 
-    /// The team's live projects, by name then key (DDD-25). Reads `projects`
-    /// until 0026, then `live_projects`.
+    /// Count projects in this workspace with the given name across all
+    /// teams, a deleted one included (every row). Used only by the acceptance
+    /// suite (assertions about "no second project is created"); the create
+    /// handler relies on the unique INSERT for uniqueness, not a pre-check.
+    pub async fn count_projects_by_name(
+        &self,
+        workspace_id: uuid::Uuid,
+        name: &str,
+    ) -> Result<i64, StoreError> {
+        let row: (i64,) =
+            sqlx::query_as("SELECT count(*) FROM projects WHERE workspace_id = $1 AND name = $2")
+                .bind(workspace_id)
+                .bind(name)
+                .fetch_one(&self.pool)
+                .await?;
+        Ok(row.0)
+    }
+
+    /// The team's live projects, by name then key (DDD-25).
     pub async fn list_team_projects(
         &self,
         team_id: uuid::Uuid,
     ) -> Result<Vec<TeamProjectRow>, StoreError> {
         let rows: Vec<(String, String, String)> = sqlx::query_as(
-            "SELECT name, slug, key_prefix FROM projects WHERE team_id = $1
+            "SELECT name, slug, key_prefix FROM live_projects WHERE team_id = $1
               ORDER BY name, key_prefix",
         )
         .bind(team_id)

@@ -948,6 +948,15 @@ enum Resolver {
 /// `find_project_by_slug` → `list_issues_by_project` chain a returning user's
 /// board hits. Returns the (issue titles, project names) the member is permitted
 /// to see, sorted so the comparison reflects VISIBLE-SET equality, not row order.
+///
+/// Pre-upgrade (`Resolver::SoleMembership`, schema 0001..0008) the project lookup
+/// is raw SQL against the base `projects` table, team-scoped in the same
+/// predicate: the shipped `find_project_by_slug` reads the `live_projects` view
+/// that project-lifecycle's 0026 created, which a 0008 schema cannot carry — the
+/// same reason the title read below is raw SQL. Post-upgrade (`Resolver::Shipped`)
+/// the lookup drives the SHIPPED `find_project_by_slug` seam. The comparison
+/// (NFR-MWT-REL-02: the set of issue titles and project names visible before vs
+/// after the upgrade) is unchanged.
 async fn member_board_view(pool: &PgPool, resolver: Resolver) -> (Vec<String>, Vec<String>) {
     let store = Store::from_pool(pool.clone());
 
@@ -1002,11 +1011,26 @@ async fn member_board_view(pool: &PgPool, resolver: Resolver) -> (Vec<String>, V
     {
         return (Vec::new(), Vec::new());
     }
-    let Some(project) = store
-        .find_project_by_slug(team.id, "apollo")
+    // Project lookup, team-scoped. Pre-upgrade the schema predates the
+    // `live_projects` view (0026) the shipped `find_project_by_slug` reads, so we
+    // read the base `projects` table directly — team scope kept in the same
+    // predicate. Post-upgrade we drive the SHIPPED seam.
+    let project = match resolver {
+        Resolver::Shipped => store
+            .find_project_by_slug(team.id, "apollo")
+            .await
+            .expect("find project by slug scoped to the team")
+            .map(|project| (project.id, project.name)),
+        Resolver::SoleMembership => sqlx::query_as::<_, (uuid::Uuid, String)>(
+            "SELECT id, name FROM projects WHERE team_id = $1 AND slug = $2",
+        )
+        .bind(team.id)
+        .bind("apollo")
+        .fetch_optional(pool)
         .await
-        .expect("find project by slug scoped to the team")
-    else {
+        .expect("find project by slug scoped to the team pre-upgrade"),
+    };
+    let Some((project_id, project_name)) = project else {
         return (Vec::new(), Vec::new());
     };
 
@@ -1018,16 +1042,19 @@ async fn member_board_view(pool: &PgPool, resolver: Resolver) -> (Vec<String>, V
     // (re-sorted below), not the board's rank order — so a raw title read keeps
     // the proof correct and decoupled from issue-column migrations that postdate
     // multi-workspace. The isolation/gating chain above (team → membership →
-    // project) is unchanged; only the final title projection is de-coupled.
+    // project) is unchanged; only the final title projection is de-coupled — and,
+    // pre-upgrade, the project lookup, for the same reason (the `live_projects`
+    // view postdates 0008). What is compared before vs after — the visible set of
+    // issue titles and project names (NFR-MWT-REL-02) — is unchanged.
     let mut issue_titles: Vec<String> =
         sqlx::query_scalar::<_, String>("SELECT title FROM issues WHERE project_id = $1")
-            .bind(project.id)
+            .bind(project_id)
             .fetch_all(pool)
             .await
             .expect("scoped issue read");
     issue_titles.sort();
 
-    let project_names = vec![project.name];
+    let project_names = vec![project_name];
 
     (issue_titles, project_names)
 }

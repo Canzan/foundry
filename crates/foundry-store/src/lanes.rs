@@ -306,7 +306,7 @@ impl Store {
         actor_id: uuid::Uuid,
     ) -> Result<u64, StoreError> {
         let (workspace_id, key_prefix): (uuid::Uuid, String) =
-            sqlx::query_as("SELECT workspace_id, key_prefix FROM projects WHERE id = $1")
+            sqlx::query_as("SELECT workspace_id, key_prefix FROM live_projects WHERE id = $1")
                 .bind(project_id)
                 .fetch_one(&mut **tx)
                 .await?;
@@ -357,7 +357,7 @@ impl Store {
 
 /// Everything `issue_delete::delete_issues_with_outbox` needs to compose its
 /// `IssueDeleted` payloads, read inside the fate's OWN transaction — the same
-/// `SELECT workspace_id, key_prefix FROM projects` (and the same
+/// `SELECT workspace_id, key_prefix FROM live_projects` (and the same
 /// `{key_prefix}-{number}` key composition) `move_cards_to_destination` uses,
 /// so both fate arms name a card identically.
 async fn issue_delete_context(
@@ -365,7 +365,7 @@ async fn issue_delete_context(
     project_id: uuid::Uuid,
 ) -> Result<IssueDeleteContext, StoreError> {
     let (workspace_id, key_prefix): (uuid::Uuid, String) =
-        sqlx::query_as("SELECT workspace_id, key_prefix FROM projects WHERE id = $1")
+        sqlx::query_as("SELECT workspace_id, key_prefix FROM live_projects WHERE id = $1")
             .bind(project_id)
             .fetch_one(&mut **tx)
             .await?;
@@ -682,7 +682,7 @@ impl Store {
         //    events are written anywhere in this transaction: inserting a lane
         //    is a lane-set operation only (AC-3.3).
         let workspace_id: (uuid::Uuid,) =
-            sqlx::query_as("SELECT workspace_id FROM projects WHERE id = $1")
+            sqlx::query_as("SELECT workspace_id FROM live_projects WHERE id = $1")
                 .bind(project_id)
                 .fetch_one(&mut *tx)
                 .await?;

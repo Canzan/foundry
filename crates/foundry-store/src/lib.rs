@@ -995,7 +995,7 @@ impl Store {
     ) -> Result<Vec<(String, String, String, String)>, StoreError> {
         let rows: Vec<(String, String, String, String)> = sqlx::query_as(
             "SELECT t.slug, p.slug, p.name, p.key_prefix \
-             FROM projects p \
+             FROM live_projects p \
              JOIN teams t ON p.team_id = t.id \
              JOIN team_memberships tm ON tm.team_id = t.id AND tm.user_id = $2 \
              WHERE p.workspace_id = $1 \
@@ -1098,10 +1098,7 @@ impl Store {
                 "SELECT to_jsonb(t.*)::text FROM team_memberships t WHERE t.team_id IN \
                  (SELECT id FROM teams WHERE workspace_id = $1) ORDER BY 1",
             ),
-            (
-                "projects",
-                "SELECT to_jsonb(t.*)::text FROM projects t WHERE t.workspace_id = $1 ORDER BY 1",
-            ),
+            project_lifecycle::EXPORT_PROJECTS,
             (
                 "issues",
                 "SELECT to_jsonb(t.*)::text FROM issues t WHERE t.workspace_id = $1 ORDER BY 1",
@@ -1764,7 +1761,7 @@ impl Store {
         slug: &str,
     ) -> Result<Option<ProjectRow>, StoreError> {
         let row: Option<(uuid::Uuid, String, String)> = sqlx::query_as(
-            "SELECT id, name, key_prefix FROM projects WHERE team_id = $1 AND slug = $2",
+            "SELECT id, name, key_prefix FROM live_projects WHERE team_id = $1 AND slug = $2",
         )
         .bind(team_id)
         .bind(slug)
@@ -2035,7 +2032,7 @@ impl Store {
         let row: Option<(uuid::Uuid, uuid::Uuid, String, i32, String)> = sqlx::query_as(
             "SELECT i.id, i.workspace_id, i.state, i.position, p.key_prefix
                FROM issues i
-               JOIN projects p ON p.id = i.project_id
+               JOIN live_projects p ON p.id = i.project_id
               WHERE i.project_id = $1 AND i.number = $2",
         )
         .bind(project_id)
@@ -2314,7 +2311,7 @@ impl Store {
             "SELECT p.key_prefix, i.number, COALESCE(u.display_name, '<deleted>'), COALESCE(u.email_display, '<deleted>'), e.field, e.old_value, e.new_value, e.created_at
                    FROM issue_change_events e
                    JOIN issues   i ON i.id = e.issue_id
-                   JOIN projects p ON p.id = i.project_id
+                   JOIN live_projects p ON p.id = i.project_id
                    LEFT JOIN users u ON u.id = e.actor_id
                   WHERE e.project_id = $1
                   ORDER BY e.created_at DESC, e.id DESC",
@@ -2470,24 +2467,6 @@ impl Store {
         Ok(row.0)
     }
 
-    /// Count projects in this workspace with the given name across all
-    /// teams. Used only by the acceptance suite (assertions about
-    /// "no second project is created"); the create handler relies on
-    /// the unique INSERT for uniqueness, not a pre-check.
-    pub async fn count_projects_by_name(
-        &self,
-        workspace_id: uuid::Uuid,
-        name: &str,
-    ) -> Result<i64, StoreError> {
-        let row: (i64,) =
-            sqlx::query_as("SELECT count(*) FROM projects WHERE workspace_id = $1 AND name = $2")
-                .bind(workspace_id)
-                .bind(name)
-                .fetch_one(&self.pool)
-                .await?;
-        Ok(row.0)
-    }
-
     // ----- US-10 comments ------------------------------------------------
 
     /// Resolve `(project, issue)` from a `(team_id, project_slug,
@@ -2502,7 +2481,7 @@ impl Store {
     ) -> Result<Option<IssueLookupRow>, StoreError> {
         let row: Option<(uuid::Uuid, String, uuid::Uuid, uuid::Uuid)> = sqlx::query_as(
             "SELECT p.id, p.key_prefix, i.id, i.workspace_id
-               FROM projects p
+               FROM live_projects p
                JOIN issues   i ON i.project_id = p.id
               WHERE p.team_id = $1 AND p.slug = $2 AND i.number = $3",
         )
@@ -2860,7 +2839,7 @@ impl Store {
               RETURNING issue_id,
                         (SELECT project_id FROM issues WHERE id = comments.issue_id),
                         (SELECT number FROM issues WHERE id = comments.issue_id),
-                        (SELECT key_prefix FROM projects
+                        (SELECT key_prefix FROM live_projects
                           WHERE id = (SELECT project_id FROM issues
                                        WHERE id = comments.issue_id))",
         )
@@ -2934,7 +2913,7 @@ impl Store {
               RETURNING issue_id,
                         (SELECT project_id FROM issues WHERE id = comments.issue_id),
                         (SELECT number FROM issues WHERE id = comments.issue_id),
-                        (SELECT key_prefix FROM projects
+                        (SELECT key_prefix FROM live_projects
                           WHERE id = (SELECT project_id FROM issues
                                        WHERE id = comments.issue_id))",
         )
@@ -4423,7 +4402,7 @@ impl Store {
     pub async fn list_projects_for_instance(&self) -> Result<Vec<InstanceProjectRow>, StoreError> {
         let rows: Vec<(uuid::Uuid, uuid::Uuid, String, String, String)> = sqlx::query_as(
             "SELECT p.workspace_id, p.id, p.name, p.key_prefix, t.name \
-             FROM projects p JOIN teams t ON p.team_id = t.id \
+             FROM live_projects p JOIN teams t ON p.team_id = t.id \
              ORDER BY p.name",
         )
         .fetch_all(&self.pool)
@@ -4449,7 +4428,7 @@ impl Store {
         project_id: uuid::Uuid,
     ) -> Result<Option<ProjectRenameContext>, StoreError> {
         let row: Option<(uuid::Uuid, String, String)> =
-            sqlx::query_as("SELECT team_id, name, slug FROM projects WHERE id = $1")
+            sqlx::query_as("SELECT team_id, name, slug FROM live_projects WHERE id = $1")
                 .bind(project_id)
                 .fetch_optional(&self.pool)
                 .await?;

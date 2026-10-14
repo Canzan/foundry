@@ -17,6 +17,7 @@
 //! foreign key (DDD-12, DDD-14), and the crate-private placement helper
 //! `place_on_default_team` (DDD-13), run in a savepoint by the newcomer paths.
 
+use crate::project_lifecycle::TEAM_PROJECTS_SQL;
 use crate::{Store, StoreError};
 use foundry_core::TeamRole;
 
@@ -582,11 +583,6 @@ pub enum TeamRenameWrite {
     /// No such team in the workspace (or it was deleted first); nothing written.
     NotFound,
 }
-
-/// A team's projects as `(name, key)`, by name then key: the confirm page's list
-/// and the delete's refusal (DDD-8, DDD-10).
-const TEAM_PROJECTS_SQL: &str =
-    "SELECT name, key_prefix FROM projects WHERE team_id = $1 ORDER BY name, key_prefix";
 
 /// The 0024 team name rule refusing a write: SQLSTATE 23514 from
 /// `foundry_enforce_name_rule()` (team-lifecycle DDD-6).
