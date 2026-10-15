@@ -1195,7 +1195,6 @@ async fn seed_issue(
 /// DDD-19: a live project can never be detached (the backstop that turns a
 /// missed live row into a loud 23514, never a cascade).
 #[tokio::test]
-#[ignore = "pending: project-lifecycle 04-01 — migration 0027, projects_team_or_detached"]
 async fn detaching_a_live_project_is_refused_by_the_check() {
     let l = labs().await;
     require_detach_schema(&l.pool).await;

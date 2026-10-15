@@ -402,7 +402,6 @@ async fn the_probe_refuses_a_schema_without_the_deleted_marker_or_the_live_view(
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-#[ignore = "pending: project-lifecycle 04-01 — migration 0027 is additive; the FK still cascades"]
 async fn migration_0027_is_additive_installs_its_check_and_keeps_the_team_fk_cascading() {
     require_0027();
     let (pool, _c) = fresh().await;
@@ -437,7 +436,6 @@ async fn migration_0027_is_additive_installs_its_check_and_keeps_the_team_fk_cas
 }
 
 #[tokio::test]
-#[ignore = "pending: project-lifecycle 04-01 — the probe requires detached_from_team_id"]
 async fn the_probe_refuses_a_schema_without_the_detach_column() {
     require_0027();
     let (pool, _c) = fresh().await;
@@ -585,7 +583,6 @@ async fn only_the_boot_that_upgrades_through_0025_and_0026_warns_and_a_fresh_ins
 /// to 0024 (the name_rule_in_database.rs `previous_release_boot` idiom): it
 /// applies nothing, errors on nothing, and the probe's verdict is unchanged.
 #[tokio::test]
-#[ignore = "pending: project-lifecycle 04-01 — the previous release boots on the 0027 schema"]
 async fn the_previous_release_boots_on_the_migrated_schema_and_applies_nothing() {
     require_0025();
     require_0026();

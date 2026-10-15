@@ -394,6 +394,17 @@ impl Store {
                  found {marker_cols} of 2, live_projects view present {live_view}"
             )));
         }
+        // project-lifecycle DDD-28: a team delete detaches its deleted
+        // projects (DDD-19); against a pre-0027 schema refuse readiness.
+        // Scoped as above.
+        let (detach_cols,): (i64,) = sqlx::query_as(project_lifecycle::DETACH_PROBE_SQL)
+            .fetch_one(&self.pool)
+            .await?;
+        if detach_cols < 1 {
+            return Err(ProbeError::Failed(
+                "projects missing migration-0027 detach: detached_from_team_id".to_string(),
+            ));
+        }
         Ok(ProbeReport {
             select_one_ok: true,
             round_trip_ms: started.elapsed().as_millis(),

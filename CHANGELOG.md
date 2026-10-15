@@ -96,6 +96,34 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
         DROP COLUMN IF EXISTS deleted_by, DROP COLUMN IF EXISTS deleted_at;
     ```
 
+- **`0027_project_detach`** lets a deleted project outlive its team: `projects.team_id` may now
+  be empty, and the new `projects.detached_from_team_id` (uuid, no foreign key) names the team
+  a detached project belonged to. The CHECK `projects_team_or_detached` keeps them exclusive:
+  a project has its team and names none, or it is deleted, has no team and names the team it
+  was detached from, so a live project can never lose its team. `projects_team_id_fkey` is
+  still `ON DELETE CASCADE`. It also recreates `live_projects` so the view keeps exactly the
+  columns of `projects`. It ships in the same release as 0026.
+  - **Additive.** The column is new and empty, and every existing project has its team, so
+    the CHECK holds for every row; no existing row is read or written. The migration checks
+    its own result and refuses to apply if the column or its CHECK is missing, if the team
+    foreign key no longer cascades, or if the columns of `live_projects` differ from those of
+    `projects`, naming `live_projects`.
+  - **In the per-workspace export.** A detached project is still exported, with its
+    `detached_from_team_id`.
+  - **Readiness:** `Store::probe` now requires `projects.detached_from_team_id`, so a binary
+    from this release refuses `/readyz` against a schema without it.
+  - **Rollback is safe.** An older release boots against the migrated database; it counts
+    deleted projects when deleting a team, so it refuses more team deletes, never fewer. To
+    remove the detach by hand, while no project is detached:
+
+    ```sql
+    ALTER TABLE projects DROP CONSTRAINT IF EXISTS projects_team_or_detached;
+    ALTER TABLE projects ALTER COLUMN team_id SET NOT NULL;
+    DROP VIEW IF EXISTS live_projects;
+    ALTER TABLE projects DROP COLUMN IF EXISTS detached_from_team_id;
+    CREATE VIEW live_projects AS SELECT * FROM projects WHERE deleted_at IS NULL;
+    ```
+
 ### Backups
 
 - **A whole-instance dump taken before 0025 no longer restores over the upgraded database.**

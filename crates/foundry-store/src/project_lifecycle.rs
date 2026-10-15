@@ -48,6 +48,15 @@ pub(crate) const SOFT_DELETE_PROBE_SQL: &str = "SELECT (SELECT count(*)::bigint
                              WHERE table_schema = current_schema()
                                AND table_name = 'live_projects')";
 
+/// The readiness probe's migration-0027 check (DDD-28): the detach column
+/// `projects.detached_from_team_id`, scoped to the current schema. Lives here
+/// because it names the base table.
+pub(crate) const DETACH_PROBE_SQL: &str = "SELECT count(*)::bigint
+                       FROM information_schema.columns
+                      WHERE table_schema = current_schema()
+                        AND table_name = 'projects'
+                        AND column_name = 'detached_from_team_id'";
+
 /// The outcome of [`Store::rename_project_with_audit`] (DDD-15,
 /// ADR-PROJECT-LIFECYCLE-003 decision 2).
 #[derive(Debug, Clone, PartialEq, Eq)]

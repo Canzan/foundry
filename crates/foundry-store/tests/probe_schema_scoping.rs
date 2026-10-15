@@ -116,10 +116,10 @@ async fn probe_column_check_is_scoped_to_current_schema() {
          workspace_id uuid, project_id uuid, team_id uuid, project_slug text, \
          key_prefix text, kind text, actor_id uuid, name text, new_name text, \
          created_at timestamptz)",
-            // ...and migration 0026's deleted marker and live_projects view
-            // (project-lifecycle DDD-28).
+            // ...and migration 0026's deleted marker and live_projects view, and
+            // 0027's detach column (project-lifecycle DDD-28).
             "CREATE TABLE sibling.projects (id uuid PRIMARY KEY, deleted_at timestamptz, \
-         deleted_by uuid)",
+         deleted_by uuid, detached_from_team_id uuid)",
             "CREATE VIEW sibling.live_projects AS SELECT * FROM sibling.projects \
          WHERE deleted_at IS NULL",
         ],
@@ -189,7 +189,7 @@ async fn probe_refuses_a_schema_without_the_provisioned_marker() {
              created_at timestamptz)"
                 .to_string(),
             "CREATE TABLE current.projects (id uuid PRIMARY KEY, deleted_at timestamptz, \
-             deleted_by uuid)"
+             deleted_by uuid, detached_from_team_id uuid)"
                 .to_string(),
             "CREATE VIEW current.live_projects AS SELECT * FROM current.projects \
              WHERE deleted_at IS NULL"
@@ -309,7 +309,7 @@ async fn probe_project_lifecycle_events_check_is_scoped_to_current_schema() {
     stmts.extend(through_0024("active"));
     stmts.extend(through_0024("sibling"));
     stmts.push(records_0025("sibling"));
-    stmts.extend(projects_0026("sibling", true, false));
+    stmts.extend(projects_0026("sibling", true, true));
     let refs: Vec<&str> = stmts.iter().map(String::as_str).collect();
     setup(&base, &refs).await;
     let msg = probe_message(&base, "active")
@@ -340,7 +340,7 @@ async fn probe_deleted_marker_and_live_view_check_is_scoped_to_current_schema() 
         stmts.push(records_0025(s));
     }
     stmts.extend(projects_0026("active", false, false));
-    stmts.extend(projects_0026("sibling", true, false));
+    stmts.extend(projects_0026("sibling", true, true));
     let refs: Vec<&str> = stmts.iter().map(String::as_str).collect();
     setup(&base, &refs).await;
     let msg = probe_message(&base, "active").await.expect_err(
@@ -356,7 +356,6 @@ async fn probe_deleted_marker_and_live_view_check_is_scoped_to_current_schema() 
 }
 
 #[tokio::test]
-#[ignore = "pending: project-lifecycle 04-01 — the probe's detached_from_team_id line is scoped to current_schema"]
 async fn probe_detach_column_check_is_scoped_to_current_schema() {
     assert!(
         migration_exists("0027_project_detach.sql"),

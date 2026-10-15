@@ -855,7 +855,6 @@ async fn live_projects_has_exactly_the_columns_of_projects_in_order() {
 }
 
 #[tokio::test]
-#[ignore = "pending: project-lifecycle 04-01 — migration 0027 recreates live_projects (parity again)"]
 async fn live_projects_still_has_exactly_the_columns_of_projects_after_the_detach() {
     let (pool, _c) = fresh().await;
     run_migrations(&pool).await.expect("apply every migration");
