@@ -7261,7 +7261,8 @@ fn items_within(
 /// another such helper; computed in a first pass). The helpers themselves are
 /// exempt; a call to a self-transacting function is not a write in the caller.
 /// `insert_issue_attempt` is exempt only while its first SQL literal is
-/// `UPDATE live_projects`. A `format!` / `concat!` DML template with an
+/// `UPDATE live_projects`. A `format!` / `concat!` whose literal pieces, joined,
+/// write a guarded table is a write at the macro. A DML template with an
 /// interpolation in the table position is a violation (DDL and column-list
 /// interpolation are out of scope). Allow-list: [`WRITE_GUARD_ALLOW_LIST`],
 /// by file and item path.
@@ -7429,10 +7430,13 @@ struct StoreFn {
 
 impl StoreFn {
     /// Every `fn` with a body in `source`; a literal belongs to the innermost.
+    /// A `concat!` / `format!` whose joined pieces write a guarded table (no
+    /// one piece doing so) is a direct write at the macro.
     /// A word naming one of `writing_items` (a `const` / `static` whose literal
     /// writes a guarded table) is a direct write where it stands.
     fn all_in(file: &str, source: &RustSource, writing_items: &BTreeSet<String>) -> Vec<StoreFn> {
         let spans = fn_spans(&source.code);
+        let templates = macro_calls(source);
         let allowed: Vec<(usize, usize)> = WRITE_GUARD_ALLOW_LIST
             .iter()
             .filter(|(allowed_file, _)| *allowed_file == file)
@@ -7441,7 +7445,8 @@ impl StoreFn {
         spans
             .iter()
             .map(|span| {
-                let mut function = StoreFn::read(file, source, &spans, span, writing_items);
+                let mut function =
+                    StoreFn::read(file, source, &spans, span, &templates, writing_items);
                 function.allow_listed = allowed
                     .iter()
                     .any(|&(start, end)| start <= span.body.0 && span.body.1 < end);
@@ -7455,6 +7460,7 @@ impl StoreFn {
         source: &RustSource,
         spans: &[FnSpan],
         span: &FnSpan,
+        templates: &[MacroCall],
         writing_items: &BTreeSet<String>,
     ) -> StoreFn {
         let own = source.literals.iter().filter(|literal| {
@@ -7471,6 +7477,17 @@ impl StoreFn {
             if writes_a_guarded_table(&literal.text) {
                 direct_writes.push(literal.start);
                 autocommit_write |= runs_on_the_pool(&source.code, literal.end);
+            }
+        }
+        for call in templates {
+            let own_call = innermost(spans, call.at).is_some_and(|inner| inner.at == span.at);
+            let piece_writes = call
+                .parts
+                .iter()
+                .any(|part| writes_a_guarded_table(&part.text));
+            if own_call && !piece_writes && writes_a_guarded_table(&call.joined) {
+                direct_writes.push(call.at);
+                autocommit_write |= runs_on_the_pool(&source.code, call.close);
             }
         }
         let params = &source.code[span.params.0..=span.params.1];
@@ -7915,9 +7932,12 @@ fn interpolated_dml_tables(source: &RustSource) -> Vec<usize> {
     lines
 }
 
-/// One `format!` / `concat!` call: the 1-based line naming it, its literal
-/// pieces in order, and those pieces joined by [`macro_template`].
+/// One `format!` / `concat!` call: its offset and closing paren in
+/// [`RustSource::code`], the 1-based line naming it, its literal pieces in
+/// order, and those pieces joined by [`macro_template`].
 struct MacroCall<'a> {
+    at: usize,
+    close: usize,
     line: usize,
     joins_arguments: bool,
     parts: Vec<&'a RustLiteral>,
@@ -7942,6 +7962,8 @@ fn macro_calls(source: &RustSource) -> Vec<MacroCall<'_>> {
                 .filter(|literal| open < literal.start && literal.end <= close)
                 .collect();
             calls.push(MacroCall {
+                at,
+                close,
                 line: code[..at].matches('\n').count() + 1,
                 joins_arguments,
                 joined: macro_template(code, open, close, &parts),
@@ -9375,8 +9397,9 @@ pub async fn unguarded(&self) -> Result<(), StoreError> {
     }
 
     /// X-8: a guarded writer whose write runs on the pool (autocommit) after
-    /// the guard is flagged — an inline literal, a writing `const`, and two of
-    /// each (a toggled flag would clear itself on the second).
+    /// the guard is flagged — an inline literal, a writing `const`, a DML split
+    /// across `concat!` pieces, and two of each (a toggled flag would clear
+    /// itself on the second).
     #[test]
     fn write_guard_a_pooled_write_after_the_guard_is_flagged() {
         const FILE: &str = "crates/foundry-store/src/lanes.rs";
@@ -9396,6 +9419,14 @@ pub async fn unguarded(&self) -> Result<(), StoreError> {
             (
                 "two writing consts",
                 "    sqlx::query(RENAME_LANE).execute(&self.pool).await?;\n    sqlx::query(DROP_LANE).execute(&self.pool).await?;\n",
+            ),
+            (
+                "a DML split across concat! pieces",
+                "    sqlx::query(concat!(\"UPDATE \", \"lanes \", \"SET name = $1\")).execute(&self.pool).await?;\n",
+            ),
+            (
+                "two DMLs split across concat! pieces",
+                "    sqlx::query(concat!(\"UPDATE \", \"lanes \", \"SET name = $1\")).execute(&self.pool).await?;\n    sqlx::query(concat!(\"DELETE FROM \", \"lanes WHERE id = $1\")).execute(&self.pool).await?;\n",
             ),
         ] {
             let body = format!(
@@ -9655,5 +9686,51 @@ pub async fn bump(&self, project_id: Uuid) -> Result<(), StoreError> {
             flagged_at(&violations, &format!("{FILE}:9")),
             "{violations:?}"
         );
+    }
+
+    /// A `concat!` that splits its DML across pieces writes the table its
+    /// joined pieces name: an unguarded one is flagged, whatever the split.
+    #[test]
+    fn write_guard_an_unguarded_dml_split_across_concat_pieces_is_flagged() {
+        const FILE: &str = "crates/foundry-store/src/lanes.rs";
+        let tree = guard_tree(&[(
+            FILE,
+            r##"pub async fn writer(&self) {
+    sqlx::query(concat!("UPDATE ", "lanes ", "SET name = $1")).execute(&self.pool).await;
+}
+pub async fn writer2(&self) {
+    sqlx::query(concat!("DELETE FROM ", "lanes WHERE id = $1")).execute(&self.pool).await;
+}
+"##,
+        )]);
+        let violations = check_project_lifecycle_write_guard(tree.path());
+        assert_eq!(violations.len(), 2, "{violations:?}");
+        assert!(names_writer(&violations, FILE, "writer"), "{violations:?}");
+        assert!(names_writer(&violations, FILE, "writer2"), "{violations:?}");
+    }
+
+    /// The same split DML behind the guard on its transaction passes, and a
+    /// `concat!` whose joined pieces are not DML is no write.
+    #[test]
+    fn write_guard_a_guarded_or_non_dml_concat_passes() {
+        const FILE: &str = "crates/foundry-store/src/lanes.rs";
+        let tree = guard_tree(&[(
+            FILE,
+            r##"pub async fn writer(&self, project_id: Uuid) -> Result<(), StoreError> {
+    let mut tx = self.pool.begin().await?;
+    if !lock_live_project(&mut tx, project_id).await? {
+        return Err(StoreError::NotFound);
+    }
+    sqlx::query(concat!("UPDATE ", "lanes ", "SET name = $1")).execute(&mut *tx).await?;
+    tx.commit().await?;
+    Ok(())
+}
+pub async fn reader(&self) {
+    sqlx::query(concat!("SELECT name ", "FROM ", "lanes WHERE id = $1")).fetch_one(&self.pool).await;
+}
+"##,
+        )]);
+        let violations = check_project_lifecycle_write_guard(tree.path());
+        assert!(violations.is_empty(), "{violations:?}");
     }
 }

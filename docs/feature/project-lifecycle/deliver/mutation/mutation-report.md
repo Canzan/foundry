@@ -507,3 +507,33 @@ out of scope for this run.
   - Store `team_delete` (30), `probe_schema_scoping` (5) and
     `project_lifecycle_migrations` (15): all green with `RUST_TEST_THREADS=1`.
   - `cargo test -p foundry-app`: green.
+
+## Write-guard concat! fix
+
+This closes the open `concat!`-split false negative above.
+
+- **Fix.** `StoreFn::read` now treats a `concat!` / `format!` in a fn body as a
+  write when its joined literal pieces (the shared
+  `macro_calls` / `macro_template`) write a guarded table and no single piece
+  already does. The write sits at the macro's offset for the ordering and
+  dominance checks, and the pool test runs from the macro's closing paren. The
+  allow-list and the `insert_issue_attempt` exemption are unchanged.
+- **Gold tests.**
+  - `write_guard_an_unguarded_dml_split_across_concat_pieces_is_flagged`
+    flags both writers.
+  - `write_guard_a_guarded_or_non_dml_concat_passes` passes.
+  - `write_guard_a_pooled_write_after_the_guard_is_flagged` gains a guarded
+    `concat!` write on the pool, and two of them.
+- **Hand-pin.** With the fix disabled, the new gold test fails with 0
+  violations where it expects 2. Restored, and `cmp` confirms the file
+  matches.
+- **Mutation.** `cargo mutants --in-diff` scoped to `check_arch.rs` made 11
+  mutants: **8 caught, 0 missed, 3 unviable (100%)**. The first run missed 2:
+  `|=` → `&=` / `^=` on the macro write's autocommit flag. That was a real
+  gap: no test had a guarded `concat!` write running on the pool. The two
+  pooled `concat!` forms above close it.
+- **Verification.**
+  - `cargo test -p xtask`: 178 passed.
+  - `cargo xtask check-arch`: PASSED. No shipped writer is newly flagged.
+  - `cargo fmt --all -- --check` and `cargo clippy -p xtask --all-targets
+    -- -D warnings`: clean.
