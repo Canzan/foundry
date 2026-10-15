@@ -78,11 +78,53 @@ fn the_confirm_page_and_delete_copy_is_byte_exact() {
 /// - DIST-1: `foundry doctor restore-comment: comment {uuid} is in deleted project {project uuid}
 ///   — status: not restorable`.
 #[test]
-#[ignore = "pending: project-lifecycle 03-01 — CLI constant bytes: list, restore, exit-4 reasons, restore-comment"]
 fn the_operator_cli_copy_is_byte_exact() {
-    panic!(
-        "Not yet implemented -- RED scaffold (project-lifecycle 03-01: list-deleted-projects, \
-         restore-project and restore-comment constants)"
+    use foundry_app::admin_cli::restore_project_copy::{
+        block, comment_in_deleted_project, not_restorable, restored, NONE, NOT_DELETED,
+        NOT_IN_DATABASE,
+    };
+    let project_id = uuid::Uuid::parse_str("0b9d6f43-7c1e-4f0a-9a52-3d8e2c41b7aa").unwrap();
+    let comment_id = uuid::Uuid::parse_str("5f2a8c17-e4b3-4d69-8b01-6c7d9e3f2a54").unwrap();
+    let row = foundry_store::DeletedProjectRow {
+        project_id,
+        workspace_name: "Acme".into(),
+        team_slug: "backend".into(),
+        name: "Auth v2 Spike".into(),
+        key_prefix: "SPIKE".into(),
+        issue_count: 3,
+        deleted_at: time::macros::datetime!(2026-10-13 14:05:09.123456 UTC),
+        deleted_by_email: "lena@acme.example".into(),
+    };
+    assert_eq!(
+        block(&row),
+        "project-id: 0b9d6f43-7c1e-4f0a-9a52-3d8e2c41b7aa\n\
+         workspace: Acme\n\
+         team: backend\n\
+         name: Auth v2 Spike\n\
+         key: SPIKE\n\
+         issues: 3\n\
+         deleted-at: 2026-10-13T14:05:09Z\n\
+         deleted-by: lena@acme.example"
+    );
+    assert_eq!(NONE, "status: none");
+    assert_eq!(
+        restored(project_id),
+        "project-id: 0b9d6f43-7c1e-4f0a-9a52-3d8e2c41b7aa\nstatus: restored"
+    );
+    assert_eq!(
+        not_restorable(project_id, NOT_DELETED),
+        "foundry doctor restore-project: project 0b9d6f43-7c1e-4f0a-9a52-3d8e2c41b7aa \
+         is not deleted — status: not restorable"
+    );
+    assert_eq!(
+        not_restorable(project_id, NOT_IN_DATABASE),
+        "foundry doctor restore-project: project 0b9d6f43-7c1e-4f0a-9a52-3d8e2c41b7aa \
+         not in database — status: not restorable"
+    );
+    assert_eq!(
+        comment_in_deleted_project(comment_id, project_id),
+        "foundry doctor restore-comment: comment 5f2a8c17-e4b3-4d69-8b01-6c7d9e3f2a54 \
+         is in deleted project 0b9d6f43-7c1e-4f0a-9a52-3d8e2c41b7aa — status: not restorable"
     );
 }
 

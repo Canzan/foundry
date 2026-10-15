@@ -13,6 +13,30 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
   a project from the Projects section; the slug, the key and every link stay. Each effective
   rename, from the members page or the instance dashboard, writes one
   `project_lifecycle_events` row.
+- **Delete a project from its team's members page.** A team's lead or a workspace admin follows
+  **Delete** in the Projects section, sees how many issues the project has and that nothing is
+  erased, and confirms. The project is hidden, not erased: its issues, comments, attachments,
+  change events, lanes and issue counter are kept. Each delete writes one
+  `project_lifecycle_events` row.
+- **The operator lists and restores deleted projects.** `foundry doctor list-deleted-projects`
+  prints one block per deleted project, oldest deletion first (`project-id`, `workspace`, `team`,
+  `name`, `key`, `issues`, `deleted-at`, `deleted-by`), or `status: none`.
+  `foundry doctor restore-project <uuid>` brings one back exactly as it was and prints
+  `status: restored`. Both run against `DATABASE_URL` with `restore-comment`'s exits: 0 done,
+  2 malformed id, 3 database unreachable or failed, 4 not restorable (the project is not deleted
+  or is not in the database), with the reason on stderr. A refused restore changes nothing.
+
+### Changed
+
+- **A deleted project answers like one that never existed.** Its board, issues, report and every
+  other web and API address answer the same "not found" as a project that was never created
+  (the events route keeps its shipped 403 for unknown projects), and no write to it is accepted.
+- **`foundry doctor restore-comment`** on a deleted comment inside a deleted project changes
+  nothing and exits 4: `foundry doctor restore-comment: comment {uuid} is in deleted project
+  {project uuid} — status: not restorable`. Restore the project first.
+- **A deleted project's name, address and key stay taken until it is restored.** Creating a
+  project with its name in the same team, renaming another project to its name, or reusing its key
+  in the workspace is refused as if it were live, so a restore never collides.
 
 ### Upgrading
 

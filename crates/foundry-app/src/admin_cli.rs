@@ -445,6 +445,7 @@ fn parse_schema_name(toc: &str) -> Option<String> {
 /// but the EXIT CODE collapses both into 4 — operationally identical
 /// ("the UPDATE matched zero rows").
 pub fn run_restore_comment(comment_id: &str) -> i32 {
+    use restore_project_copy::{comment_in_deleted_project, comment_line};
     // (1) Parse the UUID. Exit 2 on malformed input.
     let uuid = match uuid::Uuid::from_str(comment_id) {
         Ok(u) => u,
@@ -518,13 +519,13 @@ pub fn run_restore_comment(comment_id: &str) -> i32 {
                     0
                 }
                 Ok(CommentRestoreOutcome::NotTombstoned) => {
-                    comment_not_restorable(uuid, "is not currently tombstoned")
+                    comment_not_restorable(uuid, &comment_line(uuid, "is not currently tombstoned"))
                 }
                 Ok(CommentRestoreOutcome::NotFound) => {
-                    comment_not_restorable(uuid, "not in database")
+                    comment_not_restorable(uuid, &comment_line(uuid, "not in database"))
                 }
                 Ok(CommentRestoreOutcome::ProjectDeleted { project_id }) => {
-                    comment_not_restorable(uuid, &format!("is in deleted project {project_id}"))
+                    comment_not_restorable(uuid, &comment_in_deleted_project(uuid, project_id))
                 }
                 Err(err) => {
                     eprintln!(
@@ -546,27 +547,42 @@ pub fn run_restore_comment(comment_id: &str) -> i32 {
     })
 }
 
-/// `restore-comment`'s exit 4 (D6 = A): the comment id, then why it is not
-/// restorable.
-fn comment_not_restorable(comment_id: uuid::Uuid, why: &str) -> i32 {
+/// `restore-comment`'s exit 4 (D6 = A): the comment id, then the line saying
+/// why it is not restorable.
+fn comment_not_restorable(comment_id: uuid::Uuid, line: &str) -> i32 {
     eprintln!("comment-id: {comment_id}");
-    eprintln!(
-        "foundry doctor restore-comment: comment {comment_id} {why} — status: not restorable"
-    );
+    eprintln!("{line}");
     4
 }
 
 /// project-lifecycle D14: the operator doors' copy, in one home. Their bytes
-/// are pinned by `project-lifecycle-03-restore-project.feature`.
-mod restore_project_copy {
+/// are pinned by `project-lifecycle-03-restore-project.feature` and
+/// `tests/project_lifecycle_copy.rs`.
+pub mod restore_project_copy {
     pub(super) const LIST: &str = "foundry doctor list-deleted-projects";
     pub(super) const RESTORE: &str = "foundry doctor restore-project";
-    pub(super) const NONE: &str = "status: none";
-    pub(super) const RESTORED: &str = "status: restored";
-    pub(super) const NOT_RESTORABLE: &str = "status: not restorable";
+    const RESTORE_COMMENT: &str = "foundry doctor restore-comment";
+    pub const NONE: &str = "status: none";
+    const RESTORED: &str = "status: restored";
+    const NOT_RESTORABLE: &str = "status: not restorable";
+
+    /// `restore-project`'s stdout on exit 0 (D14).
+    pub fn restored(project_id: uuid::Uuid) -> String {
+        format!("project-id: {project_id}\n{RESTORED}")
+    }
+
+    /// `restore-comment`'s exit-4 line: comment `comment_id` `why`.
+    pub(super) fn comment_line(comment_id: uuid::Uuid, why: &str) -> String {
+        format!("{RESTORE_COMMENT}: comment {comment_id} {why} — {NOT_RESTORABLE}")
+    }
+
+    /// DIST-1 (U4): `restore-comment` on a comment inside a deleted project.
+    pub fn comment_in_deleted_project(comment_id: uuid::Uuid, project_id: uuid::Uuid) -> String {
+        comment_line(comment_id, &format!("is in deleted project {project_id}"))
+    }
 
     /// One `list-deleted-projects` block (D14), lines in order.
-    pub(super) fn block(row: &foundry_store::DeletedProjectRow) -> String {
+    pub fn block(row: &foundry_store::DeletedProjectRow) -> String {
         let deleted_at = row
             .deleted_at
             .to_offset(time::UtcOffset::UTC)
@@ -588,12 +604,12 @@ mod restore_project_copy {
     }
 
     /// `restore-project`'s exit-4 reason (D14, DIST-2).
-    pub(super) fn not_restorable(project_id: uuid::Uuid, why: &str) -> String {
+    pub fn not_restorable(project_id: uuid::Uuid, why: &str) -> String {
         format!("{RESTORE}: project {project_id}{why} — {NOT_RESTORABLE}")
     }
 
-    pub(super) const NOT_DELETED: &str = " is not deleted";
-    pub(super) const NOT_IN_DATABASE: &str = " not in database";
+    pub const NOT_DELETED: &str = " is not deleted";
+    pub const NOT_IN_DATABASE: &str = " not in database";
 
     /// DIST-2: unreachable until migration 0027 detaches a deleted project
     /// from its gone team; 04-03 owns these bytes.
@@ -686,7 +702,7 @@ pub fn run_list_deleted_projects() -> i32 {
 pub fn run_restore_project(project_id: &str) -> i32 {
     use foundry_store::ProjectRestoreOutcome;
     use restore_project_copy::{
-        not_restorable, team_gone, NOT_DELETED, NOT_IN_DATABASE, RESTORE, RESTORED,
+        not_restorable, restored, team_gone, NOT_DELETED, NOT_IN_DATABASE, RESTORE,
     };
     let uuid = match uuid::Uuid::from_str(project_id) {
         Ok(u) => u,
@@ -698,8 +714,7 @@ pub fn run_restore_project(project_id: &str) -> i32 {
     run_with_services(RESTORE, move |services| async move {
         let why = match services.restore_project(uuid).await {
             Ok(ProjectRestoreOutcome::Restored) => {
-                println!("project-id: {uuid}");
-                println!("{RESTORED}");
+                println!("{}", restored(uuid));
                 return 0;
             }
             Ok(ProjectRestoreOutcome::NotDeleted) => NOT_DELETED.to_string(),

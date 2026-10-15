@@ -158,28 +158,28 @@ Feature: The instance operator restores a deleted project exactly as it was
     Then the command exits 3, saying "foundry doctor restore-project: could not connect to DATABASE_URL"
     And no project, issue or record changed
 
-  @us-pl-04 @error @pending @contract-shape:unbounded-preservation
+  @us-pl-04 @error @contract-shape:unbounded-preservation
   Scenario: A deleted project's name stays taken for a new project until it is restored
     Given Lena has deleted the project Auth v2 Spike
     When Lena follows New project on Backend's members page and creates "auth v2 spike" with key SPOKE
     Then she is refused with "Project name must be unique within the team", and her text "auth v2 spike" is kept
     And no project, issue or record changed
 
-  @us-pl-04 @error @pending @contract-shape:unbounded-preservation
+  @us-pl-04 @error @contract-shape:unbounded-preservation
   Scenario: A deleted project's key stays taken in the workspace until it is restored
     Given Lena has deleted the project Auth v2 Spike
     When Lena follows New project on Backend's members page and creates "Spike Two" with key SPIKE
     Then she is told "Project key is already in use in this workspace"
     And no project, issue or record changed
 
-  @us-pl-04 @error @pending @contract-shape:unbounded-preservation
+  @us-pl-04 @error @contract-shape:unbounded-preservation
   Scenario: A deleted project's name stays taken for a rename until it is restored
     Given Lena has deleted the project Auth v2 Spike
     When Lena renames the project Identity Platform to "Auth v2 Spike" on Backend's members page
     Then she is refused with "Project name must be unique within the team" in Identity Platform's row, and her text "Auth v2 Spike" is kept
     And no project, issue or record changed
 
-  @us-pl-04 @error @pending @contract-shape:unbounded-preservation
+  @us-pl-04 @error @contract-shape:unbounded-preservation
   Scenario: A deleted comment inside a deleted project cannot be brought back on its own
     Given Auth v2 Spike has 3 issues, 2 comments and 1 attachment
     And one more comment on SPIKE-2 was deleted and awaits cleanup
