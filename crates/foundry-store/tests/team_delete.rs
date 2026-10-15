@@ -1764,6 +1764,63 @@ fn the_detach_backstop_logs_one_error_naming_the_team() {
     });
 }
 
+/// Phase 5 mutation gap S-2: only `projects_team_or_detached` is the
+/// backstop. A detach refused with 23514 by ANOTHER projects CHECK — here the
+/// deleted-marker shape `projects_deleted_marker_shape`, re-checked on the
+/// detach's UPDATE of a legacy row that broke it before the CHECK was
+/// re-added `NOT VALID` — is returned as an error, the team is kept, and no
+/// "detach backstop" line is logged.
+#[test]
+fn a_detach_refused_by_another_projects_check_is_not_logged_as_the_backstop() {
+    let captured = Captured::default();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("a runtime");
+    tracing::subscriber::with_default(captured.clone(), || {
+        runtime.block_on(async {
+            let l = labs().await;
+            require_detach_schema(&l.pool).await;
+            let labs_team = team(&l.pool, l.ws, "Labs", "labs").await;
+            let proto = pl_project(&l.pool, l.ws, labs_team, "Prototype Graveyard", "PROTO").await;
+            sqlx::raw_sql(&format!(
+                "ALTER TABLE projects DROP CONSTRAINT projects_deleted_marker_shape;
+                 UPDATE projects SET deleted_at = now(), deleted_by = NULL WHERE id = '{proto}';
+                 ALTER TABLE projects ADD CONSTRAINT projects_deleted_marker_shape
+                     CHECK ((deleted_at IS NULL) = (deleted_by IS NULL)) NOT VALID;"
+            ))
+            .execute(&l.pool)
+            .await
+            .expect("a legacy deleted row with no deleted_by, under a NOT VALID check");
+            captured.clear();
+            let refused = l
+                .store
+                .delete_team_if_empty(l.ws, labs_team, l.priya)
+                .await
+                .expect_err("the marker-shape CHECK refuses the detach");
+            let pg = match &refused {
+                foundry_store::StoreError::Sqlx(err) => err
+                    .as_database_error()
+                    .expect("a database error")
+                    .downcast_ref::<PgDatabaseError>(),
+                other => panic!("expected the database's refusal, got {other:?}"),
+            };
+            assert_eq!(pg.code(), "23514", "{pg:?}");
+            assert_eq!(
+                pg.constraint(),
+                Some("projects_deleted_marker_shape"),
+                "{pg:?}"
+            );
+            assert!(team_exists(&l.pool, labs_team).await, "the team is kept");
+            let lines = captured.lines();
+            assert!(
+                !lines.iter().any(|line| line.contains("detach backstop")),
+                "another CHECK is not the backstop: {lines:?}"
+            );
+        });
+    });
+}
+
 /// A `tracing` subscriber that keeps every `warn` and `error` event as one line,
 /// `LEVEL target: field=value ...` (DDD-30's log assertions).
 #[derive(Clone, Default)]

@@ -8030,7 +8030,7 @@ mod project_lifecycle_check_arch_tests {
 
     use super::{
         check_project_lifecycle_live_reads, check_project_lifecycle_one_seam,
-        check_project_lifecycle_write_guard,
+        check_project_lifecycle_write_guard, rust_string_literals, RustSource,
     };
 
     const STORE_LIB: &str = "crates/foundry-store/src/lib.rs";
@@ -9230,5 +9230,430 @@ pub async fn soft_delete_project(&self) {
             "ANTI-VACUITY: the module is expected to hold the audited rename"
         );
         assert!(violations.is_empty(), "{violations:?}");
+    }
+
+    // =======================================================================
+    // Phase 5 mutation gaps (mutation-report.md X-1..X-20): the Rust scanner
+    // the three rules share, and the write-guard edges the gold tests above
+    // leave open. The `*_shipped_tree_passes` tests only show the real tree
+    // is not flagged; these pin what the scanner reads and what the rules
+    // flag on inputs built to tell a correct reading from a near miss.
+    // =======================================================================
+
+    fn literals(source: &str) -> Vec<(usize, String)> {
+        rust_string_literals(source)
+    }
+
+    fn at(line: usize, text: &str) -> (usize, String) {
+        (line, text.to_string())
+    }
+
+    /// X-1: a nested, multi-line block comment yields no literal (not even a
+    /// quoted word after its inner `*/`), the code after it is still scanned on
+    /// the right line, and a division opens no comment.
+    #[test]
+    fn scanner_a_nested_block_comment_hides_its_text_and_a_division_opens_none() {
+        let source = "let a = 1 / 2; let b = \"A\";\n\
+                      /* SELECT x\n \
+                      /* nested */ FROM \"projects\" */ let c = \"B\";\n\
+                      // \"C\"\n\
+                      let d = \"D\";\n";
+        assert_eq!(literals(source), vec![at(1, "A"), at(3, "B"), at(5, "D")]);
+    }
+
+    /// X-2: a source ending in a `//` comment with no trailing newline.
+    #[test]
+    fn scanner_a_line_comment_at_the_end_of_the_source_ends_the_scan() {
+        assert_eq!(
+            literals("let q = \"SELECT 1\"; // no newline after this comment"),
+            vec![at(1, "SELECT 1")]
+        );
+    }
+
+    /// X-3: a raw string after a space, after `(`, with a `b` prefix, or at the
+    /// very start of the source is one literal with its exact text (a `"` and
+    /// a `\` inside included), and its body is blanked in the code.
+    #[test]
+    fn scanner_raw_strings_are_one_literal_each_with_the_exact_text() {
+        let source = r##"let a = r#"SELECT "projects".id FROM t WHERE a ~ '\d'"#;
+let b = f(r#"x"y"#);
+let c = br#"q"\"#;
+"##;
+        assert_eq!(
+            literals(source),
+            vec![
+                at(1, r#"SELECT "projects".id FROM t WHERE a ~ '\d'"#),
+                at(2, r#"x"y"#),
+                at(3, r#"q"\"#),
+            ]
+        );
+        let code = RustSource::scan(source).code;
+        assert_eq!(code.len(), source.len(), "one code byte per source char");
+        for hidden in ["SELECT", "projects", "x\"y", "q\""] {
+            assert!(!code.contains(hidden), "{hidden} is blanked: {code:?}");
+        }
+        assert!(code.starts_with("let a = r#\""), "{code:?}");
+        assert_eq!(literals("r\"SELECT 1\""), vec![at(1, "SELECT 1")]);
+    }
+
+    /// X-4: the lines a multi-line raw string spans are counted, so the next
+    /// literal is reported on its own line.
+    #[test]
+    fn scanner_a_literal_after_a_multi_line_raw_string_is_on_its_own_line() {
+        assert_eq!(
+            literals("let a = r\"one\ntwo\nthree\";\nlet b = \"B\";\n"),
+            vec![at(1, "one\ntwo\nthree"), at(4, "B")]
+        );
+    }
+
+    /// X-5: char literals — a quote, an escaped quote, a `\u{…}` escape
+    /// followed by another char literal, and a brace — open no string; a brace
+    /// char is blanked in the code and nothing around it is.
+    #[test]
+    fn scanner_char_literals_open_no_string_and_a_brace_char_is_blanked() {
+        let source = r##"let q = '"'; let e = '\"'; let u = ['\u{7b}','"']; let b = '{'; let s = "SELECT 1";"##;
+        assert_eq!(literals(source), vec![at(1, "SELECT 1")]);
+        assert_eq!(RustSource::scan("f('{')").code, "f(' ')");
+    }
+
+    /// X-6: the code is the source with every comment, every literal's
+    /// contents and every non-ASCII char blanked, one byte per source char.
+    #[test]
+    fn scanner_the_code_blanks_comments_literal_contents_and_non_ascii() {
+        assert_eq!(
+            RustSource::scan("let naïve = \"é\"; // café").code,
+            format!("let na ve = \" \";{}", " ".repeat(8))
+        );
+    }
+
+    /// X-5, X-6 through rule 2: a `'{'` inside a writer and a `}` or `fn`
+    /// inside its SQL do not break its span — its guard and its write are both
+    /// found, and the next fn is read on its own.
+    #[test]
+    fn write_guard_a_brace_char_or_brace_in_sql_keeps_the_writers_span() {
+        const FILE: &str = "crates/foundry-store/src/lanes.rs";
+        let tree = guard_tree(&[(
+            FILE,
+            r##"pub async fn opener(&self, project_id: Uuid) -> Result<(), StoreError> {
+    let mut tx = self.pool.begin().await?;
+    let brace = '{';
+    if !lock_live_project(&mut tx, project_id).await? {
+        return Err(StoreError::NotFound);
+    }
+    sqlx::query("UPDATE lanes SET name = 'fn }' WHERE id = $2").execute(&mut *tx).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+pub async fn unguarded(&self) -> Result<(), StoreError> {
+    sqlx::query("DELETE FROM lanes WHERE id = $1").execute(&self.pool).await?;
+    Ok(())
+}
+"##,
+        )]);
+        let violations = check_project_lifecycle_write_guard(tree.path());
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert!(
+            names_writer(&violations, FILE, "unguarded"),
+            "{violations:?}"
+        );
+    }
+
+    /// X-7: `projects` after `USING` is SQL because the literal is a DELETE
+    /// statement, not because it follows FROM or JOIN.
+    #[test]
+    fn live_reads_a_delete_using_projects_is_flagged() {
+        let sql =
+            "DELETE FROM issues USING projects p WHERE p.id = issues.project_id AND p.team_id = $1";
+        let tree = stage(&[(STORE_LIB, &store_query(sql)), (MODULE, MODULE_BODY)]);
+        let violations = check_project_lifecycle_live_reads(tree.path());
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert!(
+            flagged_at(&violations, &format!("{STORE_LIB}:3")),
+            "{violations:?}"
+        );
+    }
+
+    /// X-8: a guarded writer whose write runs on the pool (autocommit) after
+    /// the guard is flagged — an inline literal, a writing `const`, and two of
+    /// each (a toggled flag would clear itself on the second).
+    #[test]
+    fn write_guard_a_pooled_write_after_the_guard_is_flagged() {
+        const FILE: &str = "crates/foundry-store/src/lanes.rs";
+        for (form, writes) in [
+            (
+                "an inline literal",
+                "    sqlx::query(\"UPDATE lanes SET name = $1 WHERE id = $2\").execute(&self.pool).await?;\n",
+            ),
+            (
+                "two inline literals",
+                "    sqlx::query(\"UPDATE lanes SET name = $1 WHERE id = $2\").execute(&self.pool).await?;\n    sqlx::query(\"DELETE FROM lanes WHERE id = $1\").execute(&self.pool).await?;\n",
+            ),
+            (
+                "a writing const",
+                "    sqlx::query(RENAME_LANE).execute(&self.pool).await?;\n",
+            ),
+            (
+                "two writing consts",
+                "    sqlx::query(RENAME_LANE).execute(&self.pool).await?;\n    sqlx::query(DROP_LANE).execute(&self.pool).await?;\n",
+            ),
+        ] {
+            let body = format!(
+                "const RENAME_LANE: &str = \"UPDATE lanes SET name = $1 WHERE id = $2\";\nconst DROP_LANE: &str = \"DELETE FROM lanes WHERE id = $1\";\n\npub async fn writer(&self, project_id: Uuid) -> Result<(), StoreError> {{\n    let mut tx = self.pool.begin().await?;\n    if !lock_live_project(&mut tx, project_id).await? {{\n        return Err(StoreError::NotFound);\n    }}\n{writes}    tx.commit().await?;\n    Ok(())\n}}\n"
+            );
+            let tree = stage(&[(STORE_LIB, CLEAN_STORE), (MODULE, GUARD_MODULE), (FILE, &body)]);
+            let violations = check_project_lifecycle_write_guard(tree.path());
+            assert_eq!(violations.len(), 1, "{form}: {violations:?}");
+            assert!(names_writer(&violations, FILE, "writer"), "{form}: {violations:?}");
+        }
+    }
+
+    /// X-9: a writer on the pool that shares its name with a transaction-taking
+    /// helper elsewhere (another impl) is not that helper: it holds the guard.
+    #[test]
+    fn write_guard_a_pool_writer_named_like_a_helper_must_hold_the_guard() {
+        const FILE: &str = "crates/foundry-store/src/positions.rs";
+        let tree = guard_tree(&[(
+            FILE,
+            r##"impl Board {
+pub async fn renumber_column(&self, project_id: Uuid) -> Result<(), StoreError> {
+    sqlx::query("UPDATE issues SET position = position + 1 WHERE project_id = $1").execute(&self.pool).await?;
+    Ok(())
+}
+}
+"##,
+        )]);
+        let violations = check_project_lifecycle_write_guard(tree.path());
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert!(
+            names_writer(&violations, FILE, "renumber_column"),
+            "{violations:?}"
+        );
+    }
+
+    /// Run rule 2 on `tree` on a worker thread: a scan that loops forever is
+    /// a failure, not a hang.
+    fn write_guard_within_ten_seconds(tree: &tempfile::TempDir) -> Vec<String> {
+        let root = tree.path().to_path_buf();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = sender.send(check_project_lifecycle_write_guard(&root));
+        });
+        receiver
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .expect("the write-guard rule finishes within 10 s")
+    }
+
+    /// X-10: a guard binding used before its test (a log line) still gates the
+    /// write once tested; X-11: a bound guard tested by a plain `if` whose
+    /// `else` returns gates a write after the if/else.
+    #[test]
+    fn write_guard_a_binding_used_before_its_test_or_tested_by_if_else_gates_the_write() {
+        const FILE: &str = "crates/foundry-store/src/lanes.rs";
+        let tree = guard_tree(&[(
+            FILE,
+            r##"pub async fn logged(&self, project_id: Uuid) -> Result<(), StoreError> {
+    let mut tx = self.pool.begin().await?;
+    let live = lock_live_project(&mut tx, project_id).await?;
+    tracing::debug!(live);
+    if !live {
+        return Err(StoreError::NotFound);
+    }
+    sqlx::query("UPDATE lanes SET name = $1 WHERE id = $2").execute(&mut *tx).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+pub async fn branched(&self, project_id: Uuid) -> Result<(), StoreError> {
+    let mut tx = self.pool.begin().await?;
+    let live = lock_live_project(&mut tx, project_id).await?;
+    if live {
+        tracing::debug!("live");
+    } else {
+        return Err(StoreError::NotFound);
+    }
+    sqlx::query("DELETE FROM lanes WHERE id = $1").execute(&mut *tx).await?;
+    tx.commit().await?;
+    Ok(())
+}
+"##,
+        )]);
+        let violations = write_guard_within_ten_seconds(&tree);
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+
+    /// X-11 (control): the same plain `if` whose `else` does not return gates
+    /// nothing after the if/else.
+    #[test]
+    fn write_guard_a_bound_guard_whose_else_does_not_return_is_flagged() {
+        const FILE: &str = "crates/foundry-store/src/lanes.rs";
+        let tree = guard_tree(&[(
+            FILE,
+            r##"pub async fn branched(&self, project_id: Uuid) -> Result<(), StoreError> {
+    let mut tx = self.pool.begin().await?;
+    let live = lock_live_project(&mut tx, project_id).await?;
+    if live {
+        tracing::debug!("live");
+    } else {
+        tracing::warn!("gone");
+    }
+    sqlx::query("DELETE FROM lanes WHERE id = $1").execute(&mut *tx).await?;
+    tx.commit().await?;
+    Ok(())
+}
+"##,
+        )]);
+        let violations = check_project_lifecycle_write_guard(tree.path());
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert!(
+            names_writer(&violations, FILE, "branched"),
+            "{violations:?}"
+        );
+    }
+
+    /// X-12: a guard nested in another call's arguments is not a binding of the
+    /// guard, so testing the outer result gates nothing; X-13: a guard taking a
+    /// connection of its own from the pool is not a guard on the writer's
+    /// transaction (DELIVER pin 02-02).
+    #[test]
+    fn write_guard_a_wrapped_guard_or_a_guard_on_a_pooled_transaction_is_flagged() {
+        const FILE: &str = "crates/foundry-store/src/lanes.rs";
+        for (form, gate) in [
+            (
+                "a guard wrapped in another call",
+                "    let ok = wrap(lock_live_project(&mut tx, project_id).await?);\n    if !ok {\n        return Err(StoreError::NotFound);\n    }\n",
+            ),
+            (
+                "a guard on a transaction begun from the pool",
+                "    if !lock_live_project(&mut self.pool.begin().await?, project_id).await? {\n        return Err(StoreError::NotFound);\n    }\n",
+            ),
+        ] {
+            let body = format!(
+                "pub async fn writer(&self, project_id: Uuid) -> Result<(), StoreError> {{\n    let mut tx = self.pool.begin().await?;\n{gate}    sqlx::query(\"UPDATE lanes SET name = $1 WHERE id = $2\").execute(&mut *tx).await?;\n    tx.commit().await?;\n    Ok(())\n}}\n"
+            );
+            let tree = stage(&[(STORE_LIB, CLEAN_STORE), (MODULE, GUARD_MODULE), (FILE, &body)]);
+            let violations = check_project_lifecycle_write_guard(tree.path());
+            assert_eq!(violations.len(), 1, "{form}: {violations:?}");
+            assert!(names_writer(&violations, FILE, "writer"), "{form}: {violations:?}");
+        }
+    }
+
+    /// X-14: generic fns are read past their generics: a generic writer must
+    /// hold the guard, and a generic helper whose generics hold a `Fn(…)` is
+    /// still read by its real parameter list (it takes the transaction, so it
+    /// is an exempt helper and its guarded caller passes).
+    #[test]
+    fn write_guard_generic_fns_are_read_by_their_real_parameters() {
+        const FILE: &str = "crates/foundry-store/src/positions.rs";
+        let tree = guard_tree(&[(
+            FILE,
+            r##"pub async fn write<'a, T: Into<Uuid>>(&self, id: T) -> Result<(), StoreError> {
+    sqlx::query("UPDATE lanes SET name = $1 WHERE id = $2").execute(&self.pool).await?;
+    Ok(())
+}
+
+async fn bump_positions<F: FnOnce(Uuid)>(tx: &mut Transaction<'_, Postgres>, project_id: Uuid, then: F) -> Result<(), StoreError> {
+    sqlx::query("UPDATE issues SET position = position + 1 WHERE project_id = $1").execute(&mut **tx).await?;
+    then(project_id);
+    Ok(())
+}
+
+pub async fn bump(&self, project_id: Uuid) -> Result<(), StoreError> {
+    let mut tx = self.pool.begin().await?;
+    if !lock_live_project(&mut tx, project_id).await? {
+        return Err(StoreError::NotFound);
+    }
+    bump_positions(&mut tx, project_id, |_| {}).await?;
+    tx.commit().await?;
+    Ok(())
+}
+"##,
+        )]);
+        let violations = check_project_lifecycle_write_guard(tree.path());
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert!(names_writer(&violations, FILE, "write"), "{violations:?}");
+    }
+
+    /// X-15: the violation names the writer's own 1-based line.
+    #[test]
+    fn write_guard_the_violation_names_the_writers_line() {
+        const FILE: &str = "crates/foundry-store/src/lanes.rs";
+        let tree = guard_tree(&[(
+            FILE,
+            "// Lanes.\n\npub async fn writer(&self) {\n    sqlx::query(\"DELETE FROM lanes WHERE id = $1\").execute(&self.pool).await;\n}\n",
+        )]);
+        let violations = check_project_lifecycle_write_guard(tree.path());
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert!(
+            violations[0].contains(&format!("{FILE}:3 fn `writer`")),
+            "{violations:?}"
+        );
+    }
+
+    /// X-16: a write in a fn nested near the end of a long guarded fn belongs
+    /// to the nested fn, which holds no guard.
+    #[test]
+    fn write_guard_a_write_in_a_nested_fn_belongs_to_the_nested_fn() {
+        const FILE: &str = "crates/foundry-store/src/lanes.rs";
+        let body = format!(
+            "pub async fn outer(&self, project_id: Uuid) -> Result<(), StoreError> {{\n    let mut tx = self.pool.begin().await?;\n    if !lock_live_project(&mut tx, project_id).await? {{\n        return Err(StoreError::NotFound);\n    }}\n{}    async fn nested(pool: &PgPool) {{\n        sqlx::query(\"DELETE FROM lanes WHERE id = $1\").execute(pool).await;\n    }}\n    tx.commit().await?;\n    Ok(())\n}}\n",
+            "    let _step = 1;\n".repeat(60)
+        );
+        let tree = stage(&[
+            (STORE_LIB, CLEAN_STORE),
+            (MODULE, GUARD_MODULE),
+            (FILE, &body),
+        ]);
+        let violations = check_project_lifecycle_write_guard(tree.path());
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert!(names_writer(&violations, FILE, "nested"), "{violations:?}");
+    }
+
+    /// X-17: issue create's attempt stays exempt when a non-SQL literal (a
+    /// constraint name) stands before its counter `UPDATE live_projects`.
+    #[test]
+    fn write_guard_insert_issue_attempt_with_a_constraint_name_before_its_counter_passes() {
+        let store = CLEAN_STORE.replace(
+            "    let row = sqlx::query(\"UPDATE live_projects",
+            "    let _retry_on = \"issues_project_id_number_key\";\n    let row = sqlx::query(\"UPDATE live_projects",
+        );
+        assert_ne!(store, CLEAN_STORE, "the fixture edit applied");
+        let tree = stage(&[
+            (STORE_LIB, store.as_str()),
+            (MODULE, GUARD_MODULE),
+            (LEGACY_SEAM, LEGACY_SEAM_DDL),
+        ]);
+        let violations = check_project_lifecycle_write_guard(tree.path());
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+
+    /// X-18: an inline-capture `format!` (no arguments) with the table
+    /// interpolated is flagged; X-19: a `concat!` of literals only names its
+    /// table and is not; X-20: DDL with `ON DELETE CASCADE, {…}` and an
+    /// `INSERT` not followed by `INTO` are not DML targets.
+    #[test]
+    fn write_guard_only_an_interpolated_dml_table_is_a_template_violation() {
+        const FILE: &str = "crates/foundry-store/src/generic.rs";
+        let tree = guard_tree(&[(
+            FILE,
+            r##"pub async fn templates(&self, project_id: Uuid, table: &str, rest: &str) -> Result<(), StoreError> {
+    let mut tx = self.pool.begin().await?;
+    if !lock_live_project(&mut tx, project_id).await? {
+        return Err(StoreError::NotFound);
+    }
+    let named = concat!("UPDATE ", "lanes ", "SET name = $1 WHERE id = $2");
+    let fk = format!("ALTER TABLE lanes ADD CONSTRAINT lanes_project_fk FOREIGN KEY (project_id) REFERENCES live_projects ON DELETE CASCADE, {rest}");
+    let rule = format!("CREATE RULE keep AS ON INSERT TO {table} DO INSTEAD NOTHING");
+    let interpolated = format!("UPDATE {table} SET name = $1");
+    Ok(())
+}
+"##,
+        )]);
+        let violations = check_project_lifecycle_write_guard(tree.path());
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert!(
+            flagged_at(&violations, &format!("{FILE}:9")),
+            "{violations:?}"
+        );
     }
 }

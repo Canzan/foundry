@@ -471,6 +471,34 @@ async fn the_probe_refuses_a_schema_without_the_deleted_marker_or_the_live_view(
     assert!(err.to_string().contains("live_projects"), "{err}");
 }
 
+/// Phase 5 mutation gap S-1: the marker is counted, not only the view. A
+/// schema at head that keeps `live_projects` but has lost `projects.deleted_by`
+/// is refused, naming the one marker column found.
+#[tokio::test]
+async fn the_probe_refuses_a_schema_keeping_the_live_view_but_missing_deleted_by() {
+    require_0027();
+    let (pool, _c) = fresh().await;
+    run_migrations(&pool).await.expect("stand at head");
+    let store = Store::from_pool(pool.clone());
+    store.probe().await.expect("ready at head");
+    exec(
+        &pool,
+        "DROP VIEW live_projects;
+         ALTER TABLE projects DROP COLUMN deleted_by;
+         CREATE VIEW live_projects AS SELECT * FROM projects WHERE deleted_at IS NULL;",
+    )
+    .await;
+    let err = store
+        .probe()
+        .await
+        .expect_err("a schema missing deleted_by is not ready, view or no view");
+    let said = err.to_string();
+    assert!(
+        said.contains("deleted_at/deleted_by found 1 of 2, live_projects view present true"),
+        "names the one marker column found and the view present: {said}"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // 0027 and its probe line (04-01)
 // ---------------------------------------------------------------------------

@@ -343,3 +343,167 @@ so they are treated as detected in the alternative rate above.
   `FOR KEY SHARE`, 03-01 tiebreak, 03-01 re-check and 04-03 k == 0.
 - **Store, services and app real gaps for the acceptance designer:** S-1, S-2
   and A-1, all small. No test or production code was changed by this run.
+
+## Re-run after closing gaps
+
+Run on 2026-10-15, after the tests for X-1..X-20, S-1, S-2 and A-1 were
+added. No production code, rule or allow-list was changed: the commit adds
+tests in `xtask/src/check_arch.rs` (`project_lifecycle_check_arch_tests` only),
+`crates/foundry-store/tests/project_lifecycle_migrations.rs`,
+`crates/foundry-store/tests/team_delete.rs` and
+`crates/foundry-app/tests/project_lifecycle_copy.rs`.
+
+### Method
+
+- **check_arch.rs.** The original diff no longer applies, because cargo-mutants
+  checks diff text against the file and the test module's `use` line changed.
+  The diff was regenerated against the working tree
+  (`git diff 5c98860 -- xtask/src/check_arch.rs`). Non-test line numbers did
+  not move, so `--list` gives the same 503 mutants as the first run. The new
+  test lines are in `#[cfg(test)]`, which cargo-mutants skips. The command
+  was `timeout 14400 cargo mutants -j 1 --gitignore true --timeout 20 -f
+  xtask/src/check_arch.rs -p xtask --in-diff <diff>`. It used copy mode and
+  ran all 176 xtask tests (baseline 1.8 s). Wall clock was 34 min 48 s. Before
+  that, a run limited to the 108 earlier survivors (`-F`, exact names) gave
+  the same 30 survivors.
+- **Which test killed each X mutant.** This comes from the failing-test names
+  in cargo-mutants' per-mutant logs. Every newly caught mutant failed at least
+  one of the new tests.
+- **S-1, S-2 and A-1.** Each mutant was applied by hand from a scratchpad
+  backup and its new test was run. The file was then restored and checked with
+  `cmp` (all `RESTORED-CMP-OK`). Each one was then run again with cargo-mutants
+  in copy mode, selected with `-F` exact names:
+  - store: `-p foundry-store --timeout 600`, `RUST_TEST_THREADS=1`,
+    `-- --test team_delete --test project_lifecycle_migrations`;
+  - app: `-p foundry-app -- --test project_lifecycle_copy`.
+
+  Every kill is an assertion failure. No log has a connection or container
+  error.
+
+### check_arch.rs
+
+| File | Generated | Caught | Missed | Timeout | Unviable | Kill rate | Gate |
+|---|---:|---:|---:|---:|---:|---:|---|
+| xtask/src/check_arch.rs (first run) | 503 | 345 | 108 | 39 | 11 | 76.2% | WARN |
+| xtask/src/check_arch.rs (re-run) | 503 | 423 | 30 | 39 | 11 | **93.4%** | **PASS** |
+
+- **Timeouts.** The set is the same 39 mutants as before. Counting them as
+  detected gives 462 / 492 = 93.9%.
+- **The 30 survivors.** All are equivalent (25) or unreachable (5), listed
+  below. Leaving them out of the denominator gives 423 / 423 = 100%.
+- **Two mutants the first run called equivalent are now killed.**
+  - 1328:26 `i == 0` -> `!=` panics on a source that opens with `r"…"`.
+  - 1320:44 `start + 1` -> `start * 1` blanks a string's opening `"` in
+    `code`.
+
+  Both are killed by the new scanner tests, which pin the exact `code` text.
+
+### Gap status
+
+| Gap | Status | Test (in `project_lifecycle_check_arch_tests` unless a file is named) | Mutants killed |
+|---|---|---|---|
+| X-1 | closed | `scanner_a_nested_block_comment_hides_its_text_and_a_division_opens_none` | 13 of 13 |
+| X-2 | closed | `scanner_a_line_comment_at_the_end_of_the_source_ends_the_scan` | 1 of 1 |
+| X-3 | closed | `scanner_raw_strings_are_one_literal_each_with_the_exact_text` | 16 of 16 (and 1328:26) |
+| X-4 | closed | `scanner_a_literal_after_a_multi_line_raw_string_is_on_its_own_line` | 2 of 2 |
+| X-5 | closed | `scanner_char_literals_open_no_string_and_a_brace_char_is_blanked`, `write_guard_a_brace_char_or_brace_in_sql_keeps_the_writers_span` | 15 of 15 |
+| X-6 | closed | `scanner_the_code_blanks_comments_literal_contents_and_non_ascii` | 1 of 1 (and 1320:44). 1255:28 keeps a non-ASCII identifier char in `code`, which breaks "one code byte per source char"; the `}`/`fn`-in-SQL case is in the X-5 rule test |
+| X-7 | closed | `live_reads_a_delete_using_projects_is_flagged` | 1 of 1 |
+| X-8 | closed | `write_guard_a_pooled_write_after_the_guard_is_flagged` (inline, const, two of each) | 8 of 8 |
+| X-9 | closed | `write_guard_a_pool_writer_named_like_a_helper_must_hold_the_guard` | 1 of 1 |
+| X-10 | closed | `write_guard_a_binding_used_before_its_test_or_tested_by_if_else_gates_the_write` | 1 of 1. The mutant loops forever, so the test runs the rule on a worker thread with a 10 s `recv_timeout`. The hang therefore counts as a kill, not a timeout |
+| X-11 | **reclassified (a) equivalent** | tests added anyway: the same `if live {…} else { return … }` test, and `write_guard_a_bound_guard_whose_else_does_not_return_is_flagged` | 0 of 3, see below |
+| X-12 | closed | `write_guard_a_wrapped_guard_or_a_guard_on_a_pooled_transaction_is_flagged` | 2 of 2 |
+| X-13 | closed | same test (a guard on `self.pool.begin()`, the write on `tx`) | 1 of 1 |
+| X-14 | closed (6), 1 reclassified (a) | `write_guard_generic_fns_are_read_by_their_real_parameters` | 6 of 7 |
+| X-15 | closed | `write_guard_the_violation_names_the_writers_line` | 1 of 1 |
+| X-16 | closed | `write_guard_a_write_in_a_nested_fn_belongs_to_the_nested_fn` | 1 of 1 |
+| X-17 | closed | `write_guard_insert_issue_attempt_with_a_constraint_name_before_its_counter_passes` | 1 of 1 |
+| X-18 | **reclassified (a) equivalent** | covered by `write_guard_only_an_interpolated_dml_table_is_a_template_violation` and the existing interpolated-table test | 0 of 1, see below |
+| X-19 | closed | `write_guard_only_an_interpolated_dml_table_is_a_template_violation` | 3 of 3 |
+| X-20 | closed | same test (`ON DELETE CASCADE, {rest}`, `ON INSERT TO {table}`) | 2 of 2 |
+| S-1 | closed | `project_lifecycle_migrations.rs::the_probe_refuses_a_schema_keeping_the_live_view_but_missing_deleted_by`. The test drops and recreates `live_projects` around `DROP COLUMN deleted_by`, then asserts "deleted_at/deleted_by found 1 of 2, live_projects view present true" | lib.rs:391:24 `>`: caught (the probe answered ready) |
+| S-2 | closed (reachable) | `team_delete.rs::a_detach_refused_by_another_projects_check_is_not_logged_as_the_backstop`. A legacy deleted row with no `deleted_by` sits under `projects_deleted_marker_shape`, re-added `NOT VALID`. The detach's UPDATE re-checks it, so the delete fails with 23514 on that CHECK, the team is kept, and no "detach backstop" line is captured | project_lifecycle.rs:220:5 `-> true` and 222:13 `&&`->`\|\|`: both caught |
+| A-1 | closed | `foundry-app/tests/project_lifecycle_copy.rs::the_operator_doors_refuse_an_empty_database_url_as_missing`. This runs the real `foundry` binary for `restore-project <uuid>` and `list-deleted-projects` with `DATABASE_URL=""`. It expects exit 3 and the exact stderr line | admin_cli.rs:633:18 guard -> `true`: caught (the mutant said "could not connect to DATABASE_URL: … relative URL without a base") |
+
+**Reclassified equivalent (5).** cargo-mutants edits the source text, not the
+syntax tree, so a changed operator is parsed again with normal precedence.
+
+- 7642:37 `+`->`-` gives `then_close - 1 + i`. 7642:37 `+`->`*` and 7642:41
+  `+`->`*` give `then_close * 1 + i` and `then_close + 1 * i`, which both read
+  `then_close + i`.
+  - The else block's open offset lands one or two bytes before its `{`.
+    That is still inside ` else `, so after `then_close`.
+  - `matching_brace` on a byte that is not a bracket defaults to `{`/`}` and
+    scans forward to the same close.
+  - The extra bytes hold no write and no `return`.
+
+  For contrast, the precedence-preserving mutant `(then_close + 1) * i` was
+  applied by hand. Three write-guard tests panic on it (restored, `cmp` OK).
+- 7817:23 `depth +=` -> `depth -=`: the depth changes sign at every step, so
+  it reaches 0 on the same byte.
+- 7942:40 `open < literal.start` -> `<=`: `code[open]` is the macro's `(`, and
+  a literal starts at `"`, `r` or `b`, so the two are never equal.
+
+**Still classified as before (25).**
+
+- Equivalent (20): 1264:54; 1328:24 guard -> `true`; 1328:52 `-`->`+`;
+  1363:25 guard -> `true`; 7195:9; 7225:74; 7234:50; 7447:78; 7570:67;
+  7591:17, :41, :58; 7626:79; 7801:50; 7811:20 x2; 7823:66; 7854:36, :55;
+  7855:40 `/`.
+- Unreachable (5): 1285:29, 1311:29, 1342:29, 1358:29 `<=`; 2391:9.
+
+### Rule bug found while writing X-19 (reported, not fixed)
+
+Rule 2 (`project-lifecycle-write-guard`) does not see a guarded-table write
+whose SQL is split across `concat!` pieces. It reads each literal on its own
+(`StoreFn::read` calls `writes_a_guarded_table` per literal). Rule 1 reads
+`concat!`/`format!` pieces joined (review F-07), but rule 2 joins them only to
+look for an interpolated table. The following store file gives
+`check_project_lifecycle_write_guard(...) == []`, and both fns should be
+flagged:
+
+```rust
+pub async fn writer(&self) {
+    sqlx::query(concat!("UPDATE ", "lanes ", "SET name = $1")).execute(&self.pool).await;
+}
+pub async fn writer2(&self) {
+    sqlx::query(concat!("DELETE FROM ", "lanes WHERE id = $1")).execute(&self.pool).await;
+}
+```
+
+No shipped writer uses this shape, and `write_guard_the_shipped_tree_passes`
+holds. X-19's test therefore keeps its `concat!` inside a guarded fn: it
+covers only the interpolated-template check. Fixing the gap means a rule change
+(treat a `MacroCall`'s joined template as a write where it stands), which is
+out of scope for this run.
+
+### Store and app, updated
+
+| File | Caught | Missed | Kill rate |
+|---|---:|---:|---:|
+| crates/foundry-store/src/project_lifecycle.rs | 21 | 0 | 100% (was 90.5%) |
+| crates/foundry-store/src/lib.rs | 47 | 0 | 100% (was 97.9%) |
+| crates/foundry-app/src/admin_cli.rs | 32 | 0 | 100% (was 96.9%) |
+| **All files** | **562** | **30** | **94.9%** (was 81.1%) |
+
+### Updated verdict
+
+- **Every file now passes the 80% gate on the raw figure.**
+  - check_arch.rs is 93.4% (WARN before).
+  - Store `project_lifecycle.rs`, store `lib.rs` and `admin_cli.rs` are at
+    100%.
+  - Every other file is unchanged at 100% or has no viable mutant.
+- **No real gap is left.** The 30 survivors are all in check_arch.rs: 25
+  equivalent and 5 unreachable (the reclassified X-11 x3, X-14's 7817:23 and
+  X-18's 7942:40 included).
+- **One rule false negative is open for the rule's owner:** `concat!`-split
+  writes, above.
+- **Verification.**
+  - `cargo test -p xtask`: 176 passed.
+  - `cargo xtask check-arch`: PASSED.
+  - `cargo fmt --all -- --check` and `cargo clippy --workspace --all-targets
+    -- -D warnings`: clean.
+  - Store `team_delete` (30), `probe_schema_scoping` (5) and
+    `project_lifecycle_migrations` (15): all green with `RUST_TEST_THREADS=1`.
+  - `cargo test -p foundry-app`: green.

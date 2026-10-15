@@ -154,3 +154,41 @@ fn the_team_delete_line_and_team_gone_refusal_are_byte_exact() {
          its team labs was deleted — status: not restorable"
     );
 }
+
+/// Phase 5 mutation gap A-1: the operator's two project doors, run through the
+/// real `foundry` binary with `DATABASE_URL` set to the empty string, exit 3
+/// with the "required" message — never a connect attempt to "".
+#[test]
+fn the_operator_doors_refuse_an_empty_database_url_as_missing() {
+    for (args, door) in [
+        (
+            vec![
+                "doctor",
+                "restore-project",
+                "0b9d6f43-7c1e-4f0a-9a52-3d8e2c41b7aa",
+            ],
+            "foundry doctor restore-project",
+        ),
+        (
+            vec!["doctor", "list-deleted-projects"],
+            "foundry doctor list-deleted-projects",
+        ),
+    ] {
+        let out = std::process::Command::new(env!("CARGO_BIN_EXE_foundry"))
+            .args(&args)
+            .env("DATABASE_URL", "")
+            .output()
+            .expect("run the foundry binary");
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert_eq!(out.status.code(), Some(3), "{door}: {stderr}");
+        assert_eq!(
+            stderr,
+            format!(
+                "{door}: DATABASE_URL is required to reach the live database. \
+                 Set it to the same value the foundry server uses.\n"
+            ),
+            "{door}"
+        );
+        assert!(out.stdout.is_empty(), "{door}: nothing on stdout");
+    }
+}
