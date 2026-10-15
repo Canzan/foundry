@@ -6993,10 +6993,8 @@ mod store_natural_key_scoped_boundary_tests {
 // ---------------------------------------------------------------------------
 // project-lifecycle DDD-22 — `project-lifecycle-live-reads` (rule 1),
 // `project-lifecycle-write-guard` (rule 2), `project-lifecycle-one-seam`
-// (rule 3). DISTILL 2026-10-13 wrote the gold tests below against scaffolds.
-// DELIVER turned rule 3 on in 01-01 and rule 2 in 02-02 (with the guard in
-// every writer); rule 1 turns on LAST, after the reader sweep proves it
-// complete. Each is registered in `source_violations()` as it turns on.
+// (rule 3). All three are registered in `source_violations()`; the gold tests
+// below pin each against a staged tree and against the shipped tree.
 // ---------------------------------------------------------------------------
 
 /// `project-lifecycle-live-reads` (ADR-PROJECT-LIFECYCLE-001 decision 7).
@@ -7233,8 +7231,7 @@ fn items_within(
 /// `insert_issue_attempt` is exempt only while its first SQL literal is
 /// `UPDATE live_projects`. A `format!` / `concat!` DML template with an
 /// interpolation in the table position is a violation (DDL and column-list
-/// interpolation are out of scope). Allow-list: `gc_tombstoned_comments`,
-/// `insert_project`.
+/// interpolation are out of scope). Allow-list: [`WRITE_GUARD_ALLOW_LIST`].
 ///
 /// Contract the gold tests pin: every violation starts
 /// `project-lifecycle-write-guard: `, names the file, and names the function as
@@ -7644,9 +7641,8 @@ fn dml_table_is_interpolated(template: &str) -> bool {
 }
 
 /// The store's project-lifecycle writes, which no door may call: each goes
-/// through its `foundry-services` use-case. 01-02 added
-/// `rename_project_with_audit`; 02-05 added `soft_delete_project`; 03-01 adds
-/// `restore_deleted_project`.
+/// through its `foundry-services` use-case: the audited rename, the soft
+/// delete and the operator's restore.
 const PROJECT_LIFECYCLE_SEAMS: [&str; 3] = [
     "rename_project_with_audit",
     "soft_delete_project",

@@ -437,13 +437,13 @@ fn parse_schema_name(toc: &str) -> Option<String> {
 ///   0 = restored        — UPDATE matched 1 row; `deleted_at` now NULL.
 ///   2 = invalid UUID    — argument did not parse as a UUID.
 ///   3 = DB connect fail — DATABASE_URL unreachable or auth failure.
-///   4 = not restorable  — UPDATE matched 0 rows (comment not found OR
-///                          comment exists but `deleted_at IS NULL`).
+///   4 = not restorable  — comment not found, comment exists but
+///                          `deleted_at IS NULL`, or its project is deleted
+///                          (project-lifecycle DIST-1).
 ///
-/// Stdout / stderr distinguish "not found" vs "not tombstoned"
-/// diagnostically (so the operator log shows WHICH branch happened),
-/// but the EXIT CODE collapses both into 4 — operationally identical
-/// ("the UPDATE matched zero rows").
+/// Stderr distinguishes the three diagnostically (so the operator log
+/// shows WHICH branch happened), but the EXIT CODE collapses them into 4
+/// — operationally identical ("nothing was restored").
 pub fn run_restore_comment(comment_id: &str) -> i32 {
     use restore_project_copy::{comment_in_deleted_project, comment_line};
     // (1) Parse the UUID. Exit 2 on malformed input.
@@ -611,8 +611,8 @@ pub mod restore_project_copy {
     pub const NOT_DELETED: &str = " is not deleted";
     pub const NOT_IN_DATABASE: &str = " not in database";
 
-    /// DIST-2: unreachable until migration 0027 detaches a deleted project
-    /// from its gone team; 04-03 owns these bytes.
+    /// DIST-2: the reason for a detached project, whose team was deleted
+    /// (migration 0027 keeps the project and names the gone team).
     pub fn team_gone(team_slug: &str) -> String {
         format!(": its team {team_slug} was deleted")
     }

@@ -1,6 +1,8 @@
 //! `foundry_services::projects` — project mutations: the instance-admin rename
-//! (`instance-admin-project-rename`, ADR-PROJECT-RENAME-002) and the team
-//! member's create (`project-name-rule` DDD-5/6/7, below the rename).
+//! (`instance-admin-project-rename`, ADR-PROJECT-RENAME-002), the team
+//! member's create (`project-name-rule` DDD-5/6/7, below the rename), and the
+//! project lifecycle's team-page rename and delete and the operator's list and
+//! restore (`project-lifecycle`, at the end).
 //!
 //! Rename — contract signatures DESIGN fixed in
 //! `docs/feature/instance-admin-project-rename/design/component-boundaries.md`.
@@ -608,11 +610,10 @@ mod classify_rename_properties {
 // restore (DESIGN DDD-10, DDD-12, DDD-16, DDD-18; ADR-PROJECT-LIFECYCLE-002
 // decision 5, ADR-PROJECT-LIFECYCLE-003 decision 3)
 //
-// Shipped (01-03):
-// `rename_team_project` on the shared `RenameTarget::apply_rename` core, which
-// `rename_project` now calls too (DDD-16). Shipped (02-05): `delete_preview` and
-// `delete_project` on the shared `DeleteTarget::resolve` gate. Shipped (03-01):
-// `list_deleted_projects` and `restore_project`, the operator's doors.
+// `rename_team_project` runs on the shared `RenameTarget::apply_rename` core,
+// which `rename_project` calls too (DDD-16). It, `delete_preview` and
+// `delete_project` resolve their project through the one `ManagedProject`
+// gate. `list_deleted_projects` and `restore_project` are the operator's doors.
 // ===========================================================================
 
 /// What a rename from the team page did (DDD-16). The old name is the one the
@@ -666,19 +667,11 @@ pub async fn rename_team_project(
     project_slug: &str,
     raw_name: &str,
 ) -> Result<TeamProjectRename, RenameProjectError> {
-    let facts = store
-        .team_access_facts(principal.workspace_id(), team_slug, principal.user_id())
-        .await
-        .map_err(RenameProjectError::Store)?
-        .ok_or(RenameProjectError::NotFound)?;
-    if !TeamAccess::of(facts.is_workspace_admin, facts.role).can_manage() {
-        return Err(RenameProjectError::NotFound);
-    }
-    let project = store
-        .find_project_by_slug(facts.team_id, project_slug)
-        .await
-        .map_err(RenameProjectError::Store)?
-        .ok_or(RenameProjectError::NotFound)?;
+    let ManagedProject { facts, project } =
+        ManagedProject::resolve(store, principal, team_slug, project_slug)
+            .await
+            .map_err(RenameProjectError::Store)?
+            .ok_or(RenameProjectError::NotFound)?;
     let target = RenameTarget {
         project_id: project.id,
         team_id: facts.team_id,
@@ -689,35 +682,49 @@ pub async fn rename_team_project(
         .await
 }
 
-/// The live project a delete door resolved behind `can_manage` (DDD-18): the
-/// authority read once, then the project by (team, slug). Every refusal on the
-/// way is `NotFound`, the uniform 404, and nothing is written.
-struct DeleteTarget {
+/// The live project a team-page door resolved behind `can_manage` (DDD-18):
+/// the authority read once, then the project by (team, slug). `None` is every
+/// refusal on the way (no team, no `Manage`, no live project), which each door
+/// answers with its uniform 404; nothing is written.
+struct ManagedProject {
     facts: foundry_store::teams::TeamAccessFacts,
     project: foundry_store::ProjectRow,
 }
 
-impl DeleteTarget {
+impl ManagedProject {
     async fn resolve(
         store: &Store,
         principal: &crate::Principal,
         team_slug: &str,
         project_slug: &str,
-    ) -> Result<Self, ProjectLifecycleError> {
-        let facts = store
+    ) -> Result<Option<Self>, foundry_store::StoreError> {
+        let Some(facts) = store
             .team_access_facts(principal.workspace_id(), team_slug, principal.user_id())
-            .await
-            .map_err(ProjectLifecycleError::Store)?
-            .ok_or(ProjectLifecycleError::NotFound)?;
+            .await?
+        else {
+            return Ok(None);
+        };
         if !TeamAccess::of(facts.is_workspace_admin, facts.role).can_manage() {
-            return Err(ProjectLifecycleError::NotFound);
+            return Ok(None);
         }
         let project = store
             .find_project_by_slug(facts.team_id, project_slug)
+            .await?;
+        Ok(project.map(|project| Self { facts, project }))
+    }
+
+    /// [`Self::resolve`] for the delete doors: a refusal is
+    /// [`ProjectLifecycleError::NotFound`].
+    async fn for_delete(
+        store: &Store,
+        principal: &crate::Principal,
+        team_slug: &str,
+        project_slug: &str,
+    ) -> Result<Self, ProjectLifecycleError> {
+        Self::resolve(store, principal, team_slug, project_slug)
             .await
             .map_err(ProjectLifecycleError::Store)?
-            .ok_or(ProjectLifecycleError::NotFound)?;
-        Ok(Self { facts, project })
+            .ok_or(ProjectLifecycleError::NotFound)
     }
 }
 
@@ -729,8 +736,8 @@ pub async fn delete_preview(
     team_slug: &str,
     project_slug: &str,
 ) -> Result<ProjectDeletePreview, ProjectLifecycleError> {
-    let DeleteTarget { facts, project } =
-        DeleteTarget::resolve(store, principal, team_slug, project_slug).await?;
+    let ManagedProject { facts, project } =
+        ManagedProject::for_delete(store, principal, team_slug, project_slug).await?;
     let issue_count = store
         .count_issues_in_project(project.id)
         .await
@@ -752,8 +759,8 @@ pub async fn delete_project(
     team_slug: &str,
     project_slug: &str,
 ) -> Result<ProjectDeletion, ProjectLifecycleError> {
-    let DeleteTarget { facts, project } =
-        DeleteTarget::resolve(store, principal, team_slug, project_slug).await?;
+    let ManagedProject { facts, project } =
+        ManagedProject::for_delete(store, principal, team_slug, project_slug).await?;
     match store
         .soft_delete_project(
             principal.workspace_id(),

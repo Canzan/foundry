@@ -2,17 +2,17 @@
 //! base table once `live_projects` exists (DESIGN DDD-1, DDD-3;
 //! ADR-PROJECT-LIFECYCLE-001 to -004).
 //!
+//! It holds every read and write of the base table: the team's sibling and
+//! live-project reads, the export's `projects` entry, the readiness probe's
+//! 0026 and 0027 checks, the audited rename, the soft delete, the operator's
+//! list and restore, the live-project write guard every child writer takes
+//! ([`lock_live_project`]), and the team delete's detach and
+//! `team_deleted_projects`, whose fields `team_delete_facts` folds into
+//! `TeamDeleteFacts` (DDD-20, DDD-21; ADR-PROJECT-LIFECYCLE-004 decision 2).
+//!
 //! The store gold tests in `tests/project_lifecycle.rs`, `tests/team_delete.rs`
 //! and the use-case tests in `foundry-services` match on the row and outcome
 //! types below.
-//! Shipped (01-02): `list_team_sibling_projects` (moved in unchanged),
-//! `list_team_projects` and `rename_project_with_audit`. Moved in (02-03):
-//! the export's `projects` entry, `TEAM_PROJECTS_SQL` and
-//! `count_projects_by_name`. Shipped (02-05): `soft_delete_project`. Shipped
-//! (03-01): `list_deleted_projects` and `restore_deleted_project`. Shipped
-//! (04-02): the team delete's detach and `team_deleted_projects`, whose fields
-//! `team_delete_facts` folds into `TeamDeleteFacts` (DDD-20, DDD-21;
-//! ADR-PROJECT-LIFECYCLE-004 decision 2).
 
 use crate::{Store, StoreError};
 
@@ -439,11 +439,7 @@ impl Store {
             Some((_, _, false)) => return Ok(ProjectRestoreOutcome::NotDeleted),
             Some((Some(team_id), _, true)) => team_id,
             Some((None, detached_from, true)) => {
-                return Ok(ProjectRestoreOutcome::TeamGone {
-                    team_slug: self
-                        .deleted_team_slug(detached_from.unwrap_or_default())
-                        .await?,
-                })
+                return self.team_gone(detached_from.unwrap_or_default()).await
             }
         };
         let mut tx = self.pool.begin().await?;
@@ -454,9 +450,7 @@ impl Store {
                 .await?;
         if team.is_none() {
             tx.rollback().await?;
-            return Ok(ProjectRestoreOutcome::TeamGone {
-                team_slug: self.deleted_team_slug(team_id).await?,
-            });
+            return self.team_gone(team_id).await;
         }
         let locked: Option<(uuid::Uuid, Option<uuid::Uuid>, String, String, String)> =
             sqlx::query_as(
@@ -472,9 +466,7 @@ impl Store {
         };
         if locked_team_id != Some(team_id) {
             tx.rollback().await?;
-            return Ok(ProjectRestoreOutcome::TeamGone {
-                team_slug: self.deleted_team_slug(team_id).await?,
-            });
+            return self.team_gone(team_id).await;
         }
         sqlx::query("UPDATE projects SET deleted_at = NULL, deleted_by = NULL WHERE id = $1")
             .bind(project_id)
@@ -497,6 +489,14 @@ impl Store {
         .await?;
         tx.commit().await?;
         Ok(ProjectRestoreOutcome::Restored)
+    }
+
+    /// A restore refused because the project's team is gone, naming the team
+    /// by the slug its `deleted` record carries (DIST-2).
+    async fn team_gone(&self, team_id: uuid::Uuid) -> Result<ProjectRestoreOutcome, StoreError> {
+        Ok(ProjectRestoreOutcome::TeamGone {
+            team_slug: self.deleted_team_slug(team_id).await?,
+        })
     }
 
     /// The slug a gone team's `deleted` record carries (DIST-2); empty when

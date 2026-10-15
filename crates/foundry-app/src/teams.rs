@@ -39,6 +39,9 @@
 //!                                  project's row.
 //!   GET  /team/{slug}/project/{project}/delete — needs Manage (project-lifecycle
 //!                                  DDD-12/23): the confirm page; it writes nothing.
+//!   POST /team/{slug}/project/{project}/delete — needs Manage (project-lifecycle
+//!                                  DDD-23/27): Deleted → 200 members page with
+//!                                  "Deleted {project}." (no redirect).
 //!   GET  /team/{slug}/delete     — needs Administer (team-lifecycle DDD-10): the
 //!                                  confirm page; it writes nothing.
 //!   POST /team/{slug}/delete     — needs Administer (DDD-18): Deleted → 200 teams
@@ -696,8 +699,7 @@ pub async fn show_project_delete(
         .await
     {
         Ok(preview) => preview,
-        Err(ProjectLifecycleError::NotFound) => return resource_not_found_page(),
-        Err(ProjectLifecycleError::Store(err)) => return refusal(TeamError::Store(err)),
+        Err(err) => return project_refusal(err),
     };
     let ProjectDeletePreview {
         team_slug,
@@ -753,26 +755,13 @@ pub async fn submit_project_delete(
         .await
     {
         Ok(deletion) => deletion,
-        Err(ProjectLifecycleError::NotFound) => return resource_not_found_page(),
-        Err(ProjectLifecycleError::Store(err)) => return refusal(TeamError::Store(err)),
+        Err(err) => return project_refusal(err),
     };
     let notice = TeamNotice::ProjectDeleted {
         project: deletion.name,
     };
     match services.team_members(&principal, &team_slug).await {
-        Ok(view) => {
-            let fields = PageFields::default();
-            members_page_rendered(
-                &state,
-                &headers,
-                &user,
-                view,
-                Some(notice),
-                fields,
-                StatusCode::OK,
-            )
-            .await
-        }
+        Ok(view) => members_page(&state, &headers, &user, view, Some(notice)).await,
         Err(err) => refusal(err),
     }
 }
@@ -1169,6 +1158,14 @@ fn refusal(err: TeamError) -> Response {
             (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response()
         }
     }
+}
+
+/// A project lifecycle refusal, answered as [`refusal`] answers a team one.
+fn project_refusal(err: ProjectLifecycleError) -> Response {
+    refusal(match err {
+        ProjectLifecycleError::NotFound => TeamError::NotFound,
+        ProjectLifecycleError::Store(err) => TeamError::Store(err),
+    })
 }
 
 fn render(

@@ -360,10 +360,10 @@ impl Store {
                 lifecycle_cols.0
             )));
         }
-        // project-lifecycle DDD-28: a project rename (and, from slice 02, a
-        // delete and a restore) writes `project_lifecycle_events` in its
-        // transaction; against a pre-0025 schema refuse readiness rather than
-        // turn the first rename into a 500. Scoped as above.
+        // project-lifecycle DDD-28: a project rename, delete and restore each
+        // write `project_lifecycle_events` in their transaction; against a
+        // pre-0025 schema refuse readiness rather than turn the first rename
+        // into a 500. Scoped as above.
         let project_records: (i64,) = sqlx::query_as(
             "SELECT count(*)::bigint
                FROM information_schema.columns
