@@ -51,7 +51,7 @@ Feature: A team whose projects are all deleted can be deleted, and its deleted p
       | Ops     | Reading List        | READ  | reading-list        |
       | Labs    | Prototype Graveyard | PROTO | prototype-graveyard |
 
-  @us-pl-05 @driving_port @pending @contract-shape:unbounded-preservation
+  @us-pl-05 @driving_port @contract-shape:unbounded-preservation
   Scenario: The team delete page names the deleted project it will keep
     Given Prototype Graveyard has 12 issues
     And Priya has deleted the project Prototype Graveyard
@@ -63,7 +63,7 @@ Feature: A team whose projects are all deleted can be deleted, and its deleted p
     And the delete page works as a plain page form
     And no project, issue or record changed
 
-  @us-pl-05 @driving_port @kpi @pending @contract-shape:bounded-change
+  @us-pl-05 @driving_port @kpi @contract-shape:bounded-change
   Scenario: A team whose only project is deleted can be deleted, and the project's work is kept
     Given Prototype Graveyard has 12 issues
     And Priya has deleted the project Prototype Graveyard
@@ -72,7 +72,7 @@ Feature: A team whose projects are all deleted can be deleted, and its deleted p
     Then she sees "Deleted Labs."
     And Labs is gone with everyone's place on it, one delete record names Priya Raman, Prototype Graveyard is kept apart from any team with its 12 issues unchanged, and nothing else changed
 
-  @us-pl-05 @error @kpi @pending @contract-shape:unbounded-preservation
+  @us-pl-05 @error @kpi @contract-shape:unbounded-preservation
   Scenario: Only live projects keep a team from being deleted, and only they are named
     Given Priya has deleted the project Reading List
     When Priya follows Delete team on Ops's members page
@@ -80,14 +80,14 @@ Feature: A team whose projects are all deleted can be deleted, and its deleted p
     And the delete page offers no Delete team
     And no project, issue or record changed
 
-  @us-pl-05 @error @kpi @pending @contract-shape:unbounded-preservation
+  @us-pl-05 @error @kpi @contract-shape:unbounded-preservation
   Scenario: A delete sent for a team that still has a live project is refused, naming only the live one
     Given Priya has deleted the project Reading List
     When Priya submits a delete of Ops
     Then she is told "Ops still has 1 project(s): Homelab Ops (OPS). A team with projects can't be deleted."
     And no project, issue or record changed
 
-  @us-pl-05 @error @pending @contract-shape:unbounded-preservation
+  @us-pl-05 @error @contract-shape:unbounded-preservation
   Scenario: A deleted project whose team is gone cannot be restored, and is not lost
     Given Prototype Graveyard has 12 issues
     And Priya has deleted the project Prototype Graveyard
@@ -96,7 +96,7 @@ Feature: A team whose projects are all deleted can be deleted, and its deleted p
     Then the command exits 4, saying "foundry doctor restore-project: project {Prototype Graveyard's id}: its team labs was deleted — status: not restorable"
     And no project, issue or record changed
 
-  @us-pl-05 @edge @pending @contract-shape:unbounded-preservation
+  @us-pl-05 @edge @contract-shape:unbounded-preservation
   Scenario: A project kept from a deleted team is still on the operator's list
     Given Prototype Graveyard has 12 issues
     And Priya has deleted the project Prototype Graveyard
@@ -113,7 +113,7 @@ Feature: A team whose projects are all deleted can be deleted, and its deleted p
       | deleted-by | priya.raman@canzan.dev     |
     And no project, issue or record changed
 
-  @us-pl-05 @edge @pending @contract-shape:unbounded-preservation
+  @us-pl-05 @edge @contract-shape:unbounded-preservation
   Scenario: A deleted project's key stays taken after its team is deleted
     Given Priya has deleted the project Prototype Graveyard
     And Priya has deleted Labs
@@ -121,7 +121,7 @@ Feature: A team whose projects are all deleted can be deleted, and its deleted p
     Then he is told "Project key is already in use in this workspace"
     And no team, project or membership changed
 
-  @us-pl-05 @error @kpi @concurrency @pending @contract-shape:bounded-change
+  @us-pl-05 @error @kpi @concurrency @contract-shape:bounded-change
   Scenario: A restore racing a team delete never loses a project
     Given 5 fresh teams each hold one project with one issue, which Priya has deleted
     When the operator restores each of those projects at the same moment as Priya deletes its team

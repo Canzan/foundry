@@ -165,6 +165,26 @@ pub enum TeamNotice {
     ProjectDeleteNothingErased { project: String },
     /// project-lifecycle D14/DDD-26: "Deleted {project}."
     ProjectDeleted { project: String },
+    /// project-lifecycle D14/DDD-21: "{team} also has {k} deleted project(s):
+    /// {list}. They are kept, but can't be restored after {team} is deleted,
+    /// and their keys stay taken in {workspace}." — the list as in
+    /// [`TeamNotice::HasProjects`].
+    TeamAlsoHasDeletedProjects {
+        team: String,
+        workspace: String,
+        projects: Vec<(String, String)>,
+    },
+}
+
+/// "Name (KEY)" per project, by name then key, joined by ", " (DDD-10).
+fn project_list(projects: &[(String, String)]) -> String {
+    let mut ordered: Vec<&(String, String)> = projects.iter().collect();
+    ordered.sort();
+    ordered
+        .iter()
+        .map(|(name, key)| format!("{name} ({key})"))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 impl fmt::Display for TeamNotice {
@@ -248,20 +268,23 @@ impl fmt::Display for TeamNotice {
                 "Nothing is erased. The instance operator can restore {project} with every \
                  issue, comment and attachment."
             ),
-            Self::HasProjects { team, projects } => {
-                let mut ordered: Vec<&(String, String)> = projects.iter().collect();
-                ordered.sort();
-                let list = ordered
-                    .iter()
-                    .map(|(name, key)| format!("{name} ({key})"))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                write!(
-                    f,
-                    "{team} still has {} project(s): {list}. A team with projects can't be deleted.",
-                    projects.len()
-                )
-            }
+            Self::HasProjects { team, projects } => write!(
+                f,
+                "{team} still has {} project(s): {}. A team with projects can't be deleted.",
+                projects.len(),
+                project_list(projects)
+            ),
+            Self::TeamAlsoHasDeletedProjects {
+                team,
+                workspace,
+                projects,
+            } => write!(
+                f,
+                "{team} also has {} deleted project(s): {}. They are kept, but can't be \
+                 restored after {team} is deleted, and their keys stay taken in {workspace}.",
+                projects.len(),
+                project_list(projects)
+            ),
         }
     }
 }
@@ -800,8 +823,18 @@ pub async fn show_delete(
                 }),
                 token_line: (facts.scoped_token_count > 0).then(|| {
                     TeamNotice::DeleteTokens {
-                        team: team_name,
+                        team: team_name.clone(),
                         tokens: facts.scoped_token_count,
+                    }
+                    .to_string()
+                }),
+                deleted_projects_line: (facts.projects.is_empty()
+                    && !facts.deleted_projects.is_empty())
+                .then(|| {
+                    TeamNotice::TeamAlsoHasDeletedProjects {
+                        team: team_name,
+                        workspace: facts.workspace_name,
+                        projects: facts.deleted_projects,
                     }
                     .to_string()
                 }),
@@ -889,6 +922,7 @@ async fn projects_refusal(
         member_line: String::new(),
         default_line: None,
         token_line: None,
+        deleted_projects_line: None,
         refusal: Some(
             TeamNotice::HasProjects {
                 team: team_name,

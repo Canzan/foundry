@@ -880,6 +880,9 @@ pub struct TeamDeletePage {
     pub default_line: Option<String>,
     /// "{k} machine token(s) scoped to {team} will stop working." when k > 0.
     pub token_line: Option<String>,
+    /// "{team} also has {k} deleted project(s): ..." when no live project
+    /// remains and k > 0 (DDD-21, D14).
+    pub deleted_projects_line: Option<String>,
     /// "{team} still has {n} project(s): {list}. ..." when the team has
     /// projects: the page then offers no Delete team (DDD-10).
     pub refusal: Option<String>,

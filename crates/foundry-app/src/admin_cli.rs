@@ -613,7 +613,7 @@ pub mod restore_project_copy {
 
     /// DIST-2: unreachable until migration 0027 detaches a deleted project
     /// from its gone team; 04-03 owns these bytes.
-    pub(super) fn team_gone(team_slug: &str) -> String {
+    pub fn team_gone(team_slug: &str) -> String {
         format!(": its team {team_slug} was deleted")
     }
 }

@@ -37,6 +37,17 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 - **A deleted project's name, address and key stay taken until it is restored.** Creating a
   project with its name in the same team, renaming another project to its name, or reusing its key
   in the workspace is refused as if it were live, so a restore never collides.
+- **Only live projects keep a team from being deleted.** A team whose projects are all deleted
+  can be deleted; its delete page adds "{team} also has {k} deleted project(s): {list}. They are
+  kept, but can't be restored after {team} is deleted, and their keys stay taken in
+  {workspace}." The deleted projects are kept, detached from the gone team, with every issue,
+  comment and attachment. A team with a live project is still refused, on the page and on a
+  submitted delete (409), and the refusal names only the live projects.
+- **A deleted project whose team was deleted cannot be restored.** It stays on
+  `foundry doctor list-deleted-projects` (its `team` line names the deleted team's address);
+  `foundry doctor restore-project` on it changes nothing and exits 4: `foundry doctor
+  restore-project: project {uuid}: its team {team_slug} was deleted — status: not restorable`.
+  Its key stays taken in the workspace.
 
 ### Upgrading
 

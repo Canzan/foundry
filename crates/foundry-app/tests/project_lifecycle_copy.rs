@@ -128,17 +128,29 @@ fn the_operator_cli_copy_is_byte_exact() {
     );
 }
 
-/// 04-01: the team delete page's extra line and the detached-project refusal.
+/// 04-03: the team delete page's extra line and the detached-project refusal.
 /// - `TeamNotice::TeamAlsoHasDeletedProjects` → "{team} also has {k} deleted project(s):
 ///   {list}. They are kept, but can't be restored after {team} is deleted, and their keys
 ///   stay taken in {workspace}." with `{list}` reading "Prototype Graveyard (PROTO)".
 /// - DIST-2: `foundry doctor restore-project: project {uuid}: its team {team_slug} was
 ///   deleted — status: not restorable`.
 #[test]
-#[ignore = "pending: project-lifecycle 04-01 — TeamNotice and CLI bytes: also-has line, team-gone refusal"]
 fn the_team_delete_line_and_team_gone_refusal_are_byte_exact() {
-    panic!(
-        "Not yet implemented -- RED scaffold (project-lifecycle 04-01: TeamNotice::\
-         TeamAlsoHasDeletedProjects, the restore-project team-gone constant)"
+    use foundry_app::admin_cli::restore_project_copy::{not_restorable, team_gone};
+    let also_has = TeamNotice::TeamAlsoHasDeletedProjects {
+        team: "Labs".into(),
+        workspace: "Canzan Labs".into(),
+        projects: vec![("Prototype Graveyard".into(), "PROTO".into())],
+    };
+    assert_eq!(
+        also_has.to_string(),
+        "Labs also has 1 deleted project(s): Prototype Graveyard (PROTO). They are kept, \
+         but can't be restored after Labs is deleted, and their keys stay taken in Canzan Labs."
+    );
+    let project_id = uuid::Uuid::parse_str("0b9d6f43-7c1e-4f0a-9a52-3d8e2c41b7aa").unwrap();
+    assert_eq!(
+        not_restorable(project_id, &team_gone("labs")),
+        "foundry doctor restore-project: project 0b9d6f43-7c1e-4f0a-9a52-3d8e2c41b7aa: \
+         its team labs was deleted — status: not restorable"
     );
 }
