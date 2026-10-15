@@ -17,10 +17,12 @@
 -- columns are a prefix of the new list and `CREATE OR REPLACE` appends it. The
 -- self-check below refuses the migration while the two column lists differ.
 --
--- Purely additive: one NULL column (every existing project names no team it
--- was detached from), one dropped NOT NULL, one CHECK every existing row
--- satisfies (each has its team), and the view recreated with the same rows; no
--- existing row is read or written. Re-runnable body (IF NOT EXISTS, the CHECK
+-- Additive: one NULL column (every existing project names no team it was
+-- detached from), one dropped NOT NULL, one CHECK every existing row satisfies
+-- (each has its team), and the view recreated with the same rows. ADD
+-- CONSTRAINT ... CHECK validates every existing projects row: it scans the
+-- whole table and holds an ACCESS EXCLUSIVE lock on projects for that scan
+-- (rows are read, never modified). Re-runnable body (IF NOT EXISTS, the CHECK
 -- dropped before it is added, CREATE OR REPLACE). Undo (documented in
 -- CHANGELOG.md), only while no project is detached:
 --   ALTER TABLE projects DROP CONSTRAINT IF EXISTS projects_team_or_detached;

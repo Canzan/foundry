@@ -7001,11 +7001,17 @@ mod store_natural_key_scoped_boundary_tests {
 ///
 /// Scans every `.rs` under `crates/*/src` except `crates/foundry-acceptance`
 /// and `crates/foundry-store/src/project_lifecycle.rs`. In every Rust string
-/// literal (normal or raw, multi-line) that holds an SQL keyword, the table name
-/// `projects` is a violation in any form — bare, quoted, `public.`-qualified,
+/// literal (normal or raw, multi-line) that holds an SQL statement, the table
+/// name `projects` is a violation in any form — bare, quoted, `public.`-qualified,
 /// after `FROM` / `JOIN` / `UPDATE`, in a comma join, after a line break, in a
-/// sub-select — except `INSERT INTO projects`. `live_projects` and
-/// `project_lifecycle_events` never match; comments are not scanned. An exact
+/// sub-select — except `INSERT INTO projects`. A literal holding no statement
+/// verb is still SQL where `projects` stands right after `FROM` or `JOIN` (a
+/// fragment such as `" FROM projects p"`), while English copy ("a team with
+/// projects") stays clear. The literal pieces of every `concat!` / `format!`
+/// call are also read joined as one template (rule 2's [`macro_template`]), a
+/// violation found only in the join named at the macro's line.
+/// `live_projects` and `project_lifecycle_events` never match; comments are not
+/// scanned. An exact
 /// `"projects"` literal outside the module is a violation too, except in the
 /// four reviewed items named by file and enclosing item: `foundry-store`
 /// `lib.rs` const `TENANT_TABLES`, `verify_export.rs` const
@@ -7112,34 +7118,60 @@ fn live_reads_violations_in(file_rel: &str, contents: &str) -> Vec<String> {
             }
             continue;
         }
-        violations.extend(projects_reads_in(&literal.text).into_iter().map(|offset| {
-            format!(
-                "{LIVE_READS_ID}: {file_rel}:{} names the projects base table in SQL \
-                 ({LIVE_READS_REFERENCE}).",
-                literal.line + offset
-            )
-        }));
+        violations.extend(
+            projects_reads_in(&literal.text)
+                .into_iter()
+                .map(|offset| live_reads_violation(file_rel, literal.line + offset)),
+        );
+    }
+    for call in macro_calls(&source) {
+        let flagged_piece = call
+            .parts
+            .iter()
+            .any(|part| part.text == LIVE_READS_TABLE || !projects_reads_in(&part.text).is_empty());
+        if !flagged_piece {
+            violations.extend(
+                projects_reads_in(&call.joined)
+                    .into_iter()
+                    .map(|_| live_reads_violation(file_rel, call.line)),
+            );
+        }
     }
     violations
 }
 
+fn live_reads_violation(file_rel: &str, line: usize) -> String {
+    format!(
+        "{LIVE_READS_ID}: {file_rel}:{line} names the projects base table in SQL \
+         ({LIVE_READS_REFERENCE})."
+    )
+}
+
 /// The 0-based line offsets, within one literal, of every mention of the
 /// `projects` table in SQL, in any lexical form, that is not an
-/// `INSERT INTO projects` target. A literal holding no SQL verb yields none.
+/// `INSERT INTO projects` target. In a literal holding no SQL statement only a
+/// `projects` standing right after `FROM` / `JOIN` is SQL.
 fn projects_reads_in(text: &str) -> Vec<usize> {
     let code = strip_sql_comments(&unqualified_sql(text));
-    if !holds_sql_statement(&code) {
-        return Vec::new();
-    }
+    let statement = holds_sql_statement(&code);
     let mut offsets = Vec::new();
     let mut from = 0;
     while let Some(at) = find_sql_word(&code, LIVE_READS_TABLE, from) {
         from = at + LIVE_READS_TABLE.len();
-        if sql_write_targeting(&code, at).is_none_or(|write| write.verb != "insert") {
+        let in_sql = statement || follows_from_or_join(&code, at);
+        if in_sql && sql_write_targeting(&code, at).is_none_or(|write| write.verb != "insert") {
             offsets.push(code[..at].matches('\n').count());
         }
     }
     offsets
+}
+
+/// The word just before `at` in lowercased `code` is `from` or `join`.
+fn follows_from_or_join(code: &str, at: usize) -> bool {
+    matches!(
+        code[..at].split_whitespace().next_back(),
+        Some("from" | "join")
+    )
 }
 
 /// True when lowercased `code` holds the shape of an SQL statement: `SELECT`,
@@ -7231,7 +7263,18 @@ fn items_within(
 /// `insert_issue_attempt` is exempt only while its first SQL literal is
 /// `UPDATE live_projects`. A `format!` / `concat!` DML template with an
 /// interpolation in the table position is a violation (DDL and column-list
-/// interpolation are out of scope). Allow-list: [`WRITE_GUARD_ALLOW_LIST`].
+/// interpolation are out of scope). Allow-list: [`WRITE_GUARD_ALLOW_LIST`],
+/// by file and item path.
+///
+/// The guard's `bool` gates the write: the call is the condition of an
+/// `if !…` / `match` whose false path returns early (or of a plain `if` whose
+/// block holds the write), or it is bound by `let` and that binding is tested
+/// the same way before the first write. A bare `lock_live_project(…).await?;`
+/// or an untested binding guards nothing. The gate stands in the block of the
+/// first write or in a block enclosing it, never in a branch that does not
+/// dominate it. A `const` / `static` whose literal writes a guarded table is a
+/// write in every `fn` naming it; such a literal outside any `fn` and any named
+/// `const` / `static` is a violation at its `file:line`.
 ///
 /// Contract the gold tests pin: every violation starts
 /// `project-lifecycle-write-guard: `, names the file, and names the function as
@@ -7263,7 +7306,7 @@ fn check_project_lifecycle_write_guard(root: &Path) -> Vec<String> {
             )
         })
         .collect();
-    let mut functions = Vec::new();
+    let mut scanned = Vec::new();
     for file in &sources {
         let Ok(contents) = std::fs::read_to_string(file) else {
             violations.push(format!(
@@ -7281,8 +7324,25 @@ fn check_project_lifecycle_write_guard(root: &Path) -> Vec<String> {
                 rel(root, file)
             )
         }));
-        functions.extend(StoreFn::all_in(&rel(root, file), &source));
+        scanned.push((rel(root, file), source));
     }
+    let mut writing_items = BTreeSet::new();
+    for (file, source) in &scanned {
+        let (named, loose) = item_writes(source);
+        writing_items.extend(named);
+        violations.extend(loose.into_iter().map(|line| {
+            format!(
+                "{WRITE_GUARD_ID}: {file}:{line} writes a project's issues, comments, \
+                 attachments, lanes or change events from a literal outside any fn and any \
+                 named const or static — the guard rule cannot see which writer runs it \
+                 ({WRITE_GUARD_REFERENCE})."
+            )
+        }));
+    }
+    let functions: Vec<StoreFn> = scanned
+        .iter()
+        .flat_map(|(file, source)| StoreFn::all_in(file, source, &writing_items))
+        .collect();
     let helpers = writing_helpers(&functions);
     violations.extend(
         functions
@@ -7313,16 +7373,32 @@ const GUARDED_CHILD_TABLES: [&str; 5] = [
     "issue_change_events",
 ];
 
-/// Writers allow-listed BY NAME (DDD-22): the tombstone GC (D12) and the
-/// writers that create the project they write under, in the same transaction,
-/// so no delete can be queued on it — `insert_project`, and the two bootstrap
-/// doors that seed the first workspace's project through
-/// `seed_initial_workspace` (a helper DESIGN's list did not name).
-const WRITE_GUARD_ALLOW_LIST: [&str; 4] = [
-    "gc_tombstoned_comments",
-    "insert_project",
-    "create_initial_workspace",
-    "claim_bootstrap_and_create_workspace",
+/// Writers allow-listed (DDD-22), each named by file and enclosing item path
+/// (never by bare name): the tombstone GC (D12) and the writers that create the
+/// project they write under, in the same transaction, so no delete can be
+/// queued on it — `insert_project`, and the two bootstrap doors that seed the
+/// first workspace's project through `seed_initial_workspace` (a helper
+/// DESIGN's list did not name).
+const WRITE_GUARD_ALLOW_LIST: [(&str, &[(&str, &str)]); 4] = [
+    (
+        "crates/foundry-store/src/lib.rs",
+        &[("impl", "Store"), ("fn", "gc_tombstoned_comments")],
+    ),
+    (
+        "crates/foundry-store/src/lib.rs",
+        &[("impl", "Store"), ("fn", "insert_project")],
+    ),
+    (
+        "crates/foundry-store/src/lib.rs",
+        &[("impl", "Store"), ("fn", "create_initial_workspace")],
+    ),
+    (
+        "crates/foundry-store/src/lib.rs",
+        &[
+            ("impl", "Store"),
+            ("fn", "claim_bootstrap_and_create_workspace"),
+        ],
+    ),
 ];
 
 /// Issue create's attempt, whose counter `UPDATE live_projects` is its guard.
@@ -7346,21 +7422,41 @@ struct StoreFn {
     body_start: usize,
     direct_writes: Vec<usize>,
     autocommit_write: bool,
-    guards: Vec<usize>,
+    guards: Vec<Guard>,
     first_sql_is_counter: bool,
+    allow_listed: bool,
 }
 
 impl StoreFn {
     /// Every `fn` with a body in `source`; a literal belongs to the innermost.
-    fn all_in(file: &str, source: &RustSource) -> Vec<StoreFn> {
+    /// A word naming one of `writing_items` (a `const` / `static` whose literal
+    /// writes a guarded table) is a direct write where it stands.
+    fn all_in(file: &str, source: &RustSource, writing_items: &BTreeSet<String>) -> Vec<StoreFn> {
         let spans = fn_spans(&source.code);
+        let allowed: Vec<(usize, usize)> = WRITE_GUARD_ALLOW_LIST
+            .iter()
+            .filter(|(allowed_file, _)| *allowed_file == file)
+            .flat_map(|(_, path)| item_spans(&source.code, path))
+            .collect();
         spans
             .iter()
-            .map(|span| StoreFn::read(file, source, &spans, span))
+            .map(|span| {
+                let mut function = StoreFn::read(file, source, &spans, span, writing_items);
+                function.allow_listed = allowed
+                    .iter()
+                    .any(|&(start, end)| start <= span.body.0 && span.body.1 < end);
+                function
+            })
             .collect()
     }
 
-    fn read(file: &str, source: &RustSource, spans: &[FnSpan], span: &FnSpan) -> StoreFn {
+    fn read(
+        file: &str,
+        source: &RustSource,
+        spans: &[FnSpan],
+        span: &FnSpan,
+        writing_items: &BTreeSet<String>,
+    ) -> StoreFn {
         let own = source.literals.iter().filter(|literal| {
             innermost(spans, literal.start).is_some_and(|inner| inner.at == span.at)
         });
@@ -7372,16 +7468,23 @@ impl StoreFn {
             if first_sql_is_counter.is_none() && is_sql(&sql) {
                 first_sql_is_counter = Some(is_counter_update(&sql));
             }
-            if GUARDED_CHILD_TABLES
-                .iter()
-                .any(|table| !sql_writes_of(&sql, table).is_empty())
-            {
+            if writes_a_guarded_table(&literal.text) {
                 direct_writes.push(literal.start);
                 autocommit_write |= runs_on_the_pool(&source.code, literal.end);
             }
         }
         let params = &source.code[span.params.0..=span.params.1];
         let body = &source.code[span.body.0..=span.body.1];
+        for item in writing_items {
+            let mut from = 0;
+            while let Some(at) = find_sql_word(body, item, from) {
+                from = at + item.len();
+                if innermost(spans, span.body.0 + at).is_some_and(|inner| inner.at == span.at) {
+                    direct_writes.push(span.body.0 + at);
+                    autocommit_write |= runs_on_the_pool(&source.code, span.body.0 + from);
+                }
+            }
+        }
         StoreFn {
             file: file.to_string(),
             name: span.name.clone(),
@@ -7394,9 +7497,11 @@ impl StoreFn {
             guards: call_offsets(body, WRITE_GUARD_CALL)
                 .into_iter()
                 .filter(|&at| holds_the_transaction(body, at))
-                .map(|at| span.body.0 + at)
+                .filter_map(|at| Guard::gating(body, at))
+                .map(|guard| guard.shifted(span.body.0))
                 .collect(),
             first_sql_is_counter: first_sql_is_counter.unwrap_or(false),
+            allow_listed: false,
         }
     }
 
@@ -7414,9 +7519,7 @@ impl StoreFn {
     /// `UPDATE live_projects`.
     fn is_exempt(&self, helpers: &BTreeSet<String>) -> bool {
         let counter_guarded = self.name == ISSUE_CREATE_ATTEMPT && self.first_sql_is_counter;
-        self.is_helper(helpers)
-            || WRITE_GUARD_ALLOW_LIST.contains(&self.name.as_str())
-            || counter_guarded
+        self.is_helper(helpers) || self.allow_listed || counter_guarded
     }
 
     /// The offsets of every write: a direct write, or a call of a writing helper.
@@ -7432,14 +7535,229 @@ impl StoreFn {
         writes
     }
 
-    /// A guard on the transaction precedes the first write, and no write runs
-    /// in autocommit on the pool.
+    /// A guard on the transaction gates the first write — it precedes it, in
+    /// its block or one enclosing it — and no write runs in autocommit on the
+    /// pool.
     fn holds_the_guard_across_its_writes(&self, helpers: &BTreeSet<String>) -> bool {
         let first_write = self.writes(helpers).into_iter().min();
-        let first_guard = self.guards.iter().copied().min();
         !self.autocommit_write
-            && matches!((first_guard, first_write), (Some(guard), Some(write)) if guard < write)
+            && first_write.is_some_and(|write| self.guards.iter().any(|guard| guard.gates(write)))
     }
+}
+
+/// One guard whose `bool` gates what follows: `at`, the offset of the test of
+/// the result (the `if` / `match` taking the call or its binding), and `scope`,
+/// the `[open, close]` braces of the block the guard protects — the block the
+/// test stands in when its false path returns early, else the block run only
+/// on `true`.
+struct Guard {
+    at: usize,
+    scope: (usize, usize),
+}
+
+impl Guard {
+    /// The gate the guard call at `at` in `body` feeds: the call is the
+    /// condition of an `if` / `match`, or bound by `let` and the binding is then
+    /// tested. A bare call statement, or an untested binding, gates nothing.
+    fn gating(body: &str, at: usize) -> Option<Guard> {
+        let open = body[at..].find('(').map(|i| at + i)?;
+        let close = matching_brace(body.as_bytes(), open)?;
+        let (head, head_at) = statement_head(body, at);
+        if let Some(test) = GuardTest::read(&head, head_at) {
+            return test.gate(body, close);
+        }
+        let name = let_bound_name(&head)?;
+        let statement_end = body[close..].find(';').map(|i| close + i)?;
+        let mut from = statement_end;
+        while let Some(use_at) = find_sql_word(body, &name, from) {
+            from = use_at + name.len();
+            let (head, head_at) = statement_head(body, use_at);
+            if let Some(test) = GuardTest::read(&head, head_at) {
+                return test.gate(body, from);
+            }
+        }
+        None
+    }
+
+    fn shifted(self, by: usize) -> Guard {
+        Guard {
+            at: self.at + by,
+            scope: (self.scope.0 + by, self.scope.1 + by),
+        }
+    }
+
+    /// The write at `write` runs after this guard, inside the block it protects.
+    fn gates(&self, write: usize) -> bool {
+        self.at < write && self.scope.0 < write && write < self.scope.1
+    }
+}
+
+/// The `if` / `if !` / `match` that takes a guard's result as its condition.
+struct GuardTest {
+    at: usize,
+    keyword: &'static str,
+    negated: bool,
+}
+
+impl GuardTest {
+    /// The test whose condition opens with the text after `head` (the
+    /// statement text before the call or binding, starting at `head_at`).
+    fn read(head: &str, head_at: usize) -> Option<GuardTest> {
+        let words: String = head.split_whitespace().collect::<Vec<_>>().join(" ");
+        let (keyword, negated) = match words.as_str() {
+            "if" => ("if", false),
+            "if !" | "if!" => ("if", true),
+            "match" => ("match", false),
+            _ => return None,
+        };
+        let at = head_at + head.find(keyword)?;
+        Some(GuardTest {
+            at,
+            keyword,
+            negated,
+        })
+    }
+
+    /// The guard this test makes, its condition ending at `condition_end`: the
+    /// test's own block when the false path returns early, else the block run
+    /// only on `true` (a plain `if`).
+    fn gate(&self, body: &str, condition_end: usize) -> Option<Guard> {
+        let bytes = body.as_bytes();
+        let then_open = body[condition_end..].find('{').map(|i| condition_end + i)?;
+        let then_close = matching_brace(bytes, then_open)?;
+        let returns = |(open, close): (usize, usize)| {
+            find_sql_word(&body[open..=close], "return", 0).is_some()
+        };
+        let enclosing = enclosing_block(body, self.at)?;
+        if self.keyword == "match" {
+            return returns((then_open, then_close)).then_some(Guard {
+                at: self.at,
+                scope: enclosing,
+            });
+        }
+        let after = &body[then_close + 1..];
+        let else_block = if after.trim_start().starts_with("else") {
+            after
+                .find('{')
+                .map(|i| then_close + 1 + i)
+                .and_then(|open| matching_brace(bytes, open).map(|close| (open, close)))
+        } else {
+            None
+        };
+        let then_block = (then_open, then_close);
+        let (on_true, on_false) = if self.negated {
+            (else_block, Some(then_block))
+        } else {
+            (Some(then_block), else_block)
+        };
+        if on_false.is_some_and(returns) {
+            return Some(Guard {
+                at: self.at,
+                scope: enclosing,
+            });
+        }
+        on_true.map(|scope| Guard { at: self.at, scope })
+    }
+}
+
+/// The statement text before `at` (from the last `;`, `{` or `}`), with the
+/// path qualifying a call at `at` dropped, and the offset it starts at.
+fn statement_head(body: &str, at: usize) -> (String, usize) {
+    let start = body[..at].rfind([';', '{', '}']).map_or(0, |i| i + 1);
+    let mut head = body[start..at].trim_end();
+    while let Some(path) = head.strip_suffix("::") {
+        let ident = path.trim_end_matches(|c: char| c.is_ascii_alphanumeric() || c == '_');
+        head = ident.trim_end();
+    }
+    (head.to_string(), start)
+}
+
+/// The name a `let [mut] name [: Type] =` head binds; `_` binds nothing.
+fn let_bound_name(head: &str) -> Option<String> {
+    let rest = head.trim().strip_prefix("let ")?.trim_start();
+    let rest = rest.strip_prefix("mut ").unwrap_or(rest).trim_start();
+    let name: String = rest
+        .chars()
+        .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+        .collect();
+    (head.trim_end().ends_with('=') && !name.is_empty() && name != "_").then_some(name)
+}
+
+/// The `[open, close]` braces of the innermost block of `body` holding `at`.
+fn enclosing_block(body: &str, at: usize) -> Option<(usize, usize)> {
+    let mut opens = Vec::new();
+    for (offset, byte) in body.bytes().enumerate().take(at) {
+        match byte {
+            b'{' => opens.push(offset),
+            b'}' => {
+                opens.pop();
+            }
+            _ => {}
+        }
+    }
+    let open = *opens.last()?;
+    matching_brace(body.as_bytes(), open).map(|close| (open, close))
+}
+
+/// The literal writes (`INSERT INTO` / `UPDATE` / `DELETE FROM`) one of
+/// [`GUARDED_CHILD_TABLES`].
+fn writes_a_guarded_table(text: &str) -> bool {
+    let sql = unqualified_sql(text);
+    GUARDED_CHILD_TABLES
+        .iter()
+        .any(|table| !sql_writes_of(&sql, table).is_empty())
+}
+
+/// The literals of `source` outside every `fn` body that write a guarded
+/// table: the names of the `const` / `static` items holding them, and the
+/// 1-based lines of those held by no named item.
+fn item_writes(source: &RustSource) -> (Vec<String>, Vec<usize>) {
+    let code = source.code.as_str();
+    let spans = fn_spans(code);
+    let items = named_items(code);
+    let mut names = Vec::new();
+    let mut loose = Vec::new();
+    for literal in &source.literals {
+        if innermost(&spans, literal.start).is_some() || !writes_a_guarded_table(&literal.text) {
+            continue;
+        }
+        match items
+            .iter()
+            .find(|(_, start, end)| *start <= literal.start && literal.end <= *end)
+        {
+            Some((name, _, _)) => names.push(name.clone()),
+            None => loose.push(literal.line),
+        }
+    }
+    (names, loose)
+}
+
+/// Every `const` / `static` item of `code`: its name and its `[start, end)`
+/// span, by [`items_within`].
+fn named_items(code: &str) -> Vec<(String, usize, usize)> {
+    let mut items = Vec::new();
+    for keyword in ["const", "static"] {
+        let mut from = 0;
+        while let Some(at) = find_sql_word(code, keyword, from) {
+            from = at + keyword.len();
+            let rest = code[from..].trim_start();
+            let rest = rest.strip_prefix("mut ").unwrap_or(rest).trim_start();
+            let name: String = rest
+                .chars()
+                .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+                .collect();
+            if name.is_empty() || name == "fn" {
+                continue;
+            }
+            items.extend(
+                items_within(code, at, code.len(), keyword, &name)
+                    .into_iter()
+                    .take(1)
+                    .map(|(start, end)| (name.clone(), start, end)),
+            );
+        }
+    }
+    items
 }
 
 /// The transaction-taking writing helpers, by name: a `fn` with a transaction
@@ -7578,8 +7896,38 @@ fn holds_the_transaction(body: &str, at: usize) -> bool {
 /// `INSERT INTO`, `UPDATE` or `DELETE FROM` with an interpolation where the
 /// table stands. DDL and an interpolated column list are out of scope.
 fn interpolated_dml_tables(source: &RustSource) -> Vec<usize> {
+    let mut lines: Vec<usize> = macro_calls(source)
+        .into_iter()
+        .filter(|call| {
+            let template = if call.joins_arguments {
+                call.joined.clone()
+            } else {
+                call.parts
+                    .first()
+                    .map(|l| l.text.clone())
+                    .unwrap_or_default()
+            };
+            dml_table_is_interpolated(&template)
+        })
+        .map(|call| call.line)
+        .collect();
+    lines.sort_unstable();
+    lines
+}
+
+/// One `format!` / `concat!` call: the 1-based line naming it, its literal
+/// pieces in order, and those pieces joined by [`macro_template`].
+struct MacroCall<'a> {
+    line: usize,
+    joins_arguments: bool,
+    parts: Vec<&'a RustLiteral>,
+    joined: String,
+}
+
+/// Every `format!` then every `concat!` call in `source`.
+fn macro_calls(source: &RustSource) -> Vec<MacroCall<'_>> {
     let code = source.code.as_str();
-    let mut lines = Vec::new();
+    let mut calls = Vec::new();
     for (mac, joins_arguments) in [("format!", false), ("concat!", true)] {
         for at in call_offsets(code, mac) {
             let Some(open) = code[at..].find('(').map(|i| at + i) else {
@@ -7593,21 +7941,18 @@ fn interpolated_dml_tables(source: &RustSource) -> Vec<usize> {
                 .iter()
                 .filter(|literal| open < literal.start && literal.end <= close)
                 .collect();
-            let template = if joins_arguments {
-                macro_template(code, open, close, &parts)
-            } else {
-                parts.first().map(|l| l.text.clone()).unwrap_or_default()
-            };
-            if dml_table_is_interpolated(&template) {
-                lines.push(code[..at].matches('\n').count() + 1);
-            }
+            calls.push(MacroCall {
+                line: code[..at].matches('\n').count() + 1,
+                joins_arguments,
+                joined: macro_template(code, open, close, &parts),
+                parts,
+            });
         }
     }
-    lines.sort_unstable();
-    lines
+    calls
 }
 
-/// A `concat!` call as one template: its literals in order, `{}` for every
+/// A `concat!` / `format!` call as one template: its literals in order, `{}` for every
 /// argument between them that is not a literal.
 fn macro_template(code: &str, open: usize, close: usize, parts: &[&RustLiteral]) -> String {
     let is_argument = |gap: &str| gap.chars().any(|c| !c.is_whitespace() && c != ',');
@@ -7995,6 +8340,94 @@ fn count_rows() {
         );
     }
 
+    /// Review F-07: a verbless fragment is still SQL where `projects` stands
+    /// right after `FROM` / `JOIN` — the shape a query split across literals
+    /// leaves in its tail piece.
+    #[test]
+    fn live_reads_a_verbless_from_or_join_fragment_is_flagged() {
+        for (form, sql) in [
+            ("FROM, no verb", " FROM projects p"),
+            ("JOIN, no verb", " JOIN projects p ON p.id = i.project_id"),
+            ("public.-qualified FROM, no verb", " from public.projects"),
+        ] {
+            let tree = stage(&[(STORE_LIB, &store_query(sql)), (MODULE, MODULE_BODY)]);
+            let violations = check_project_lifecycle_live_reads(tree.path());
+            assert_eq!(violations.len(), 1, "{form}: {violations:?}");
+            assert!(
+                flagged_at(&violations, &format!("{STORE_LIB}:3")),
+                "{form}: {violations:?}"
+            );
+        }
+    }
+
+    /// Review F-07: the literal pieces of a `concat!` / `format!` are read
+    /// joined, as rule 2 reads a DML template; a read found only in the join is
+    /// named at the macro's line.
+    #[test]
+    fn live_reads_concat_and_format_pieces_are_read_joined() {
+        for (form, call) in [
+            (
+                "concat!, the table in a FROM piece",
+                r#"concat!("SELECT name ", "FROM projects")"#,
+            ),
+            (
+                "concat!, the verb and the table in different pieces",
+                r#"concat!("UPDATE ", "projects SET name = $1 WHERE id = $2")"#,
+            ),
+            (
+                "format!, the SET in an argument piece",
+                r#"format!("UPDATE projects{}", " SET name = $1 WHERE id = $2")"#,
+            ),
+        ] {
+            let body = format!("fn a() {{}}\nfn lookup() {{ let q = {call}; }}\n");
+            let tree = stage(&[(STORE_LIB, &body), (MODULE, MODULE_BODY)]);
+            let violations = check_project_lifecycle_live_reads(tree.path());
+            assert_eq!(violations.len(), 1, "{form}: {violations:?}");
+            assert!(
+                flagged_at(&violations, &format!("{STORE_LIB}:2")),
+                "{form}: {violations:?}"
+            );
+        }
+    }
+
+    /// Review F-07: the shipped user-facing copy naming projects in English
+    /// (teams.rs, upgrade_warnings.rs) stays clear under the fragment and
+    /// macro-join clauses.
+    #[test]
+    fn live_reads_english_copy_naming_projects_stays_clear() {
+        let mut files = clean_tree_files();
+        files.push((
+            "crates/foundry-app/src/teams.rs",
+            r##"fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    match self {
+        Self::NoProjectsYet { team } => write!(f, "{team} has no projects yet."),
+        Self::HasProjects { team, projects } => write!(
+            f,
+            "{team} still has {} project(s): {}. A team with projects can't be deleted.",
+            projects.len(),
+            project_list(projects)
+        ),
+    }
+}
+fn notice(team: &str, n: usize) -> String {
+    format!("{team} still has {n} project(s): {}. A team with projects can't be deleted.", "x")
+}
+const EMPTY: &str = "Bakcend has 2 member(s) and no projects. They lose access to Bakcend. This can't be undone.";
+"##,
+        ));
+        files.push((
+            "crates/foundry-store/src/upgrade_warnings.rs",
+            r##"pub const UPGRADE_WARNING_0026: &str = "Migration 0026 added the live_projects view over \
+projects and projects.deleted_by, which references users. A database dump taken before 0026 can \
+no longer be restored over this database with pg_restore --clean: restore it into a fresh \
+database, or drop live_projects and projects.deleted_by first.";
+"##,
+        ));
+        let tree = stage(&files);
+        let violations = check_project_lifecycle_live_reads(tree.path());
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+
     #[test]
     fn live_reads_a_missing_crates_directory_fails_the_rule() {
         let tree = stage(&[("README.md", "nothing here\n")]);
@@ -8030,8 +8463,10 @@ fn count_rows() {
 
     /// The shipped shapes, guarded: a direct writer, the transaction-taking
     /// helpers (exempt themselves), their guarded callers, the self-transacting
-    /// issue create and its retrying caller, the allow-list, a read-only helper.
-    const CLEAN_STORE: &str = r##"pub async fn insert_comment_with_outbox(&self, project_id: Uuid) -> Result<(), StoreError> {
+    /// issue create and its retrying caller, the allow-list, a read-only helper —
+    /// inside `impl Store`, where the allow-list's item paths name them.
+    const CLEAN_STORE: &str = r##"impl Store {
+pub async fn insert_comment_with_outbox(&self, project_id: Uuid) -> Result<(), StoreError> {
     let mut tx = self.pool.begin().await?;
     if !lock_live_project(&mut tx, project_id).await? {
         return Err(StoreError::NotFound);
@@ -8148,6 +8583,7 @@ pub async fn the_comment_says(&self) -> Result<(), StoreError> {
     // sqlx::query("DELETE FROM comments WHERE id = $1")
     sqlx::query("SELECT body FROM comments WHERE id = $1").fetch_one(&self.pool).await?;
     Ok(())
+}
 }
 "##;
 
@@ -8405,6 +8841,222 @@ pub async fn log_change(&self, issue_id: Uuid) -> Result<(), StoreError> {
                 "line {line}: {violations:?}"
             );
         }
+    }
+
+    /// Review F-04: the guard's `bool` must gate the write. A bare call
+    /// statement, a binding never tested (or tested only after the write), and
+    /// an `if !` that does not return each guard nothing.
+    #[test]
+    fn write_guard_a_guard_whose_bool_is_ignored_is_flagged() {
+        const FILE: &str = "crates/foundry-store/src/lanes.rs";
+        for (form, gate) in [
+            (
+                "a bare call statement",
+                "    crate::project_lifecycle::lock_live_project(&mut tx, project_id).await?;\n    WRITE\n",
+            ),
+            (
+                "bound to _",
+                "    let _ = lock_live_project(&mut tx, project_id).await?;\n    WRITE\n",
+            ),
+            (
+                "a binding never tested",
+                "    let live = lock_live_project(&mut tx, project_id).await?;\n    WRITE\n",
+            ),
+            (
+                "a binding tested only after the write",
+                "    let live = lock_live_project(&mut tx, project_id).await?;\n    WRITE\n    if !live {\n        return Err(StoreError::NotFound);\n    }\n",
+            ),
+            (
+                "an if ! that does not return",
+                "    if !lock_live_project(&mut tx, project_id).await? {\n        tracing::warn!(\"gone\");\n    }\n    WRITE\n",
+            ),
+        ] {
+            let body = format!(
+                "pub async fn writer(&self, project_id: Uuid) -> Result<(), StoreError> {{\n    let mut tx = self.pool.begin().await?;\n{}    tx.commit().await?;\n    Ok(())\n}}\n",
+                gate.replace(
+                    "WRITE",
+                    "sqlx::query(\"UPDATE lanes SET name = $1 WHERE id = $2\").execute(&mut *tx).await?;"
+                )
+            );
+            let tree = stage(&[(STORE_LIB, CLEAN_STORE), (MODULE, GUARD_MODULE), (FILE, &body)]);
+            let violations = check_project_lifecycle_write_guard(tree.path());
+            assert_eq!(violations.len(), 1, "{form}: {violations:?}");
+            assert!(names_writer(&violations, FILE, "writer"), "{form}: {violations:?}");
+        }
+    }
+
+    /// The gating forms the rule accepts: the call (qualified or not) as an
+    /// `if !` / `match` condition whose false path returns, a binding tested so
+    /// before the write, a plain `if` whose block holds the write, and a plain
+    /// `if` whose `else` returns.
+    #[test]
+    fn write_guard_every_gating_form_of_the_guard_passes() {
+        const FILE: &str = "crates/foundry-store/src/lanes.rs";
+        let tree = guard_tree(&[(
+            FILE,
+            r##"pub async fn bound(&self, project_id: Uuid) -> Result<bool, StoreError> {
+    let mut tx = self.pool.begin().await?;
+    let live = crate::project_lifecycle::lock_live_project(&mut tx, project_id).await?;
+    if !live {
+        return Ok(false);
+    }
+    sqlx::query("UPDATE lanes SET name = $1 WHERE id = $2").execute(&mut *tx).await?;
+    Ok(true)
+}
+
+pub async fn matched(&self, project_id: Uuid) -> Result<(), StoreError> {
+    let mut tx = self.pool.begin().await?;
+    match project_lifecycle::lock_live_project(&mut tx, project_id).await? {
+        true => {}
+        false => return Err(StoreError::NotFound),
+    }
+    sqlx::query("DELETE FROM lanes WHERE id = $1").execute(&mut *tx).await?;
+    Ok(())
+}
+
+pub async fn inside(&self, project_id: Uuid) -> Result<(), StoreError> {
+    let mut tx = self.pool.begin().await?;
+    if lock_live_project(&mut tx, project_id).await? {
+        sqlx::query("INSERT INTO lanes (id) VALUES ($1)").execute(&mut *tx).await?;
+        tx.commit().await?;
+    }
+    Ok(())
+}
+
+pub async fn otherwise(&self, project_id: Uuid) -> Result<(), StoreError> {
+    let mut tx = self.pool.begin().await?;
+    if lock_live_project(&mut tx, project_id).await? {
+        tracing::debug!("live");
+    } else {
+        return Err(StoreError::NotFound);
+    }
+    sqlx::query("UPDATE issues SET title = $1 WHERE id = $2").execute(&mut *tx).await?;
+    Ok(())
+}
+"##,
+        )]);
+        let violations = check_project_lifecycle_write_guard(tree.path());
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+
+    /// Review F-06: a guard inside a branch that does not dominate the first
+    /// write protects only that branch.
+    #[test]
+    fn write_guard_a_guard_in_a_branch_that_does_not_dominate_the_write_is_flagged() {
+        const FILE: &str = "crates/foundry-store/src/lanes.rs";
+        for (form, gate) in [
+            (
+                "an if ! guard inside an if",
+                "    if strict {\n        if !lock_live_project(&mut tx, project_id).await? {\n            return Err(StoreError::NotFound);\n        }\n    }\n",
+            ),
+            (
+                "an if ! guard inside a match arm",
+                "    match mode {\n        Mode::Strict => {\n            if !lock_live_project(&mut tx, project_id).await? {\n                return Err(StoreError::NotFound);\n            }\n        }\n        _ => {}\n    }\n",
+            ),
+            (
+                "a plain if guard whose block ends before the write",
+                "    if lock_live_project(&mut tx, project_id).await? {\n        tracing::debug!(\"live\");\n    }\n",
+            ),
+        ] {
+            let body = format!(
+                "pub async fn writer(&self, project_id: Uuid, strict: bool) -> Result<(), StoreError> {{\n    let mut tx = self.pool.begin().await?;\n{gate}    sqlx::query(\"UPDATE lanes SET name = $1 WHERE id = $2\").execute(&mut *tx).await?;\n    tx.commit().await?;\n    Ok(())\n}}\n"
+            );
+            let tree = stage(&[(STORE_LIB, CLEAN_STORE), (MODULE, GUARD_MODULE), (FILE, &body)]);
+            let violations = check_project_lifecycle_write_guard(tree.path());
+            assert_eq!(violations.len(), 1, "{form}: {violations:?}");
+            assert!(names_writer(&violations, FILE, "writer"), "{form}: {violations:?}");
+        }
+    }
+
+    /// Review F-05: a `const` / `static` literal writing a guarded table is a
+    /// write in every `fn` naming it; such a literal held by no fn and no named
+    /// item is flagged where it stands.
+    #[test]
+    fn write_guard_a_const_dml_on_a_guarded_table_is_a_write_in_every_fn_naming_it() {
+        const FILE: &str = "crates/foundry-store/src/positions.rs";
+        let tree = guard_tree(&[(
+            FILE,
+            r##"const BUMP_POSITIONS: &str = "UPDATE issues SET position = position + 1 WHERE project_id = $1";
+static PURGE_LANE: &str = "DELETE FROM lanes WHERE id = $1";
+const READ_POSITIONS: &str = "SELECT position FROM issues WHERE project_id = $1";
+
+pub async fn bump_unguarded(&self, project_id: Uuid) -> Result<(), StoreError> {
+    let mut tx = self.pool.begin().await?;
+    sqlx::query(BUMP_POSITIONS).bind(project_id).execute(&mut *tx).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+pub async fn bump_guarded(&self, project_id: Uuid) -> Result<(), StoreError> {
+    let mut tx = self.pool.begin().await?;
+    if !lock_live_project(&mut tx, project_id).await? {
+        return Err(StoreError::NotFound);
+    }
+    sqlx::query(BUMP_POSITIONS).bind(project_id).execute(&mut *tx).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+pub async fn purge(&self, lane_id: Uuid) -> Result<(), StoreError> {
+    let mut tx = self.pool.begin().await?;
+    sqlx::query(PURGE_LANE).bind(lane_id).execute(&mut *tx).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+pub async fn read(&self, project_id: Uuid) -> Result<(), StoreError> {
+    sqlx::query(READ_POSITIONS).bind(project_id).fetch_all(&self.pool).await?;
+    Ok(())
+}
+
+macro_rules! renumber_sql {
+    () => {
+        "UPDATE issues SET number = number + 1 WHERE project_id = $1"
+    };
+}
+"##,
+        )]);
+        let violations = check_project_lifecycle_write_guard(tree.path());
+        assert_eq!(violations.len(), 3, "{violations:?}");
+        assert!(
+            names_writer(&violations, FILE, "bump_unguarded"),
+            "{violations:?}"
+        );
+        assert!(names_writer(&violations, FILE, "purge"), "{violations:?}");
+        assert!(
+            flagged_at(&violations, &format!("{FILE}:36")),
+            "a guarded-table write held by no fn and no named item: {violations:?}"
+        );
+    }
+
+    /// Review F-21: the allow-list names each writer by file and item path; the
+    /// same name in another file, or in another impl, is not exempt.
+    #[test]
+    fn write_guard_the_allow_list_is_by_file_and_item_path() {
+        const FILE: &str = "crates/foundry-store/src/gc.rs";
+        let store = format!(
+            "{CLEAN_STORE}impl Seeder {{\npub async fn insert_project(&self) {{\n    sqlx::query(\"INSERT INTO lanes (id) VALUES ($1)\").execute(&self.pool).await;\n}}\n}}\n"
+        );
+        let tree = stage(&[
+            (STORE_LIB, store.as_str()),
+            (MODULE, GUARD_MODULE),
+            (
+                FILE,
+                "impl Store {\npub async fn gc_tombstoned_comments(&self) {\n    sqlx::query(\"DELETE FROM comments WHERE deleted_at < now() - interval '90 days'\").execute(&self.pool).await;\n}\n}\n",
+            ),
+        ]);
+        let violations = check_project_lifecycle_write_guard(tree.path());
+        assert_eq!(violations.len(), 2, "{violations:?}");
+        assert!(
+            names_writer(&violations, FILE, "gc_tombstoned_comments"),
+            "{violations:?}"
+        );
+        assert!(
+            violations
+                .iter()
+                .any(|v| v.contains(STORE_LIB) && v.contains("`insert_project`")),
+            "{violations:?}"
+        );
     }
 
     #[test]

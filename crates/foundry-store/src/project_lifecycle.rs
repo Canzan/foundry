@@ -256,24 +256,6 @@ impl Store {
         )
     }
 
-    /// Count projects in this workspace with the given name across all
-    /// teams, a deleted one included (every row). Used only by the acceptance
-    /// suite (assertions about "no second project is created"); the create
-    /// handler relies on the unique INSERT for uniqueness, not a pre-check.
-    pub async fn count_projects_by_name(
-        &self,
-        workspace_id: uuid::Uuid,
-        name: &str,
-    ) -> Result<i64, StoreError> {
-        let row: (i64,) =
-            sqlx::query_as("SELECT count(*) FROM projects WHERE workspace_id = $1 AND name = $2")
-                .bind(workspace_id)
-                .bind(name)
-                .fetch_one(&self.pool)
-                .await?;
-        Ok(row.0)
-    }
-
     /// The team's live projects, by name then key (DDD-25).
     pub async fn list_team_projects(
         &self,

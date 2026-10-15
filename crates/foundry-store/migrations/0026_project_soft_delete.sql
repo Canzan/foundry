@@ -16,9 +16,11 @@
 -- The view is simple, so it is auto-updatable and takes row locks through to
 -- `projects` (the write guard's `FOR KEY SHARE`, DDD-7).
 --
--- Purely additive: two NULL columns (every existing project stays live), one
--- CHECK every existing row satisfies, and one view; no existing row is read or
--- written. Re-runnable body (IF NOT EXISTS, the CHECK dropped before it is
+-- Additive: two NULL columns (every existing project stays live), one CHECK
+-- every existing row satisfies, and one view. ADD CONSTRAINT ... CHECK
+-- validates every existing projects row: it scans the whole table and holds an
+-- ACCESS EXCLUSIVE lock on projects for that scan (rows are read, never
+-- modified). Re-runnable body (IF NOT EXISTS, the CHECK dropped before it is
 -- added, CREATE OR REPLACE). Undo (documented in CHANGELOG.md), only while no
 -- project is deleted:
 --   DROP VIEW IF EXISTS live_projects;
