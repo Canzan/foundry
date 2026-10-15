@@ -2466,3 +2466,25 @@ Only the containers these runs started were created; none was left behind. Nothi
 | `cargo xtask check-arch` | PASSED |
 
 Only the containers these runs started were created; none was left behind. Nothing committed or pushed.
+
+## Wave: DELIVER
+
+Orchestrated DELIVER | Dates: 2026-10-13 to 2026-10-15 | Roadmap:
+`deliver/roadmap.json` (17 steps) | DES log: `deliver/execution-log.json` |
+Evolution doc: `docs/evolution/2026-10-15-project-lifecycle.md`.
+
+### [REF] DELIVER — closing notes
+
+| Phase | Status |
+|---|---|
+| Roadmap (`592429e`) | Approved after two reviews |
+| Steps 01-01..04-03 (`9635d61` → `b0eb8e7`) | 17/17 DONE; DES integrity: all 17 steps have complete traces |
+| Refactor (`beb5127`) | Done (L1-L4) |
+| Adversarial review (`48013c5`, `882baf6`, `4cc3000`) | Fixed or dispositioned (`deliver/upstream-issues.md` UI-3) |
+| Mutation (`f5b3213`, `a6f7971`, `263646b`) | Every file ≥ 80%; overall 94.9%; `check_arch.rs` 93.4%; `concat!` fix 8/8 |
+| Lanes on the final code | Default 1379/1379; `project-lifecycle` 299 rows; smoke green on rerun; check-arch PASSED |
+| Finalize | Evolution doc written; feature dir preserved |
+| Release | **Not done.** One release (R1 widened), on the user's go; R4 (OQ-D4 counts, CHANGELOG lines) and R5 (Docker-inclusive `cargo xtask ci`) owed first |
+
+Deviations from DESIGN/DISTILL are in `deliver/upstream-issues.md` (UI-1..UI-3).
+Lessons, follow-ups and open items are in the evolution doc.
