@@ -75,7 +75,7 @@ Feature: A deleted project answers nowhere, for anyone, on any door
 
   # ------------------------------------------------------------ every door, every actor
 
-  @us-pl-03 @kpi @pending @contract-shape:unbounded-preservation
+  @us-pl-03 @kpi @contract-shape:unbounded-preservation
   Scenario Outline: Every web address of a deleted project answers as one that never existed, for everyone
     Given Auth v2 Spike has 3 issues, 2 comments and 1 attachment
     And Identity Platform has 1 issue, 1 comment and 1 attachment
@@ -182,7 +182,7 @@ Feature: A deleted project answers nowhere, for anyone, on any door
       | Priya | the project's delete page        | the uniform not-found page        |
       | Priya | deleting the project             | the uniform not-found page        |
 
-  @us-pl-03 @kpi @pending @contract-shape:unbounded-preservation
+  @us-pl-03 @kpi @contract-shape:unbounded-preservation
   Scenario Outline: For someone who cannot reach Backend, a deleted project's address answers as one that never existed
     Given Auth v2 Spike has 3 issues, 2 comments and 1 attachment
     And Identity Platform has 1 issue, 1 comment and 1 attachment
@@ -325,7 +325,7 @@ Feature: A deleted project answers nowhere, for anyone, on any door
       | Hugo                 | the project's delete page        |
       | Hugo                 | deleting the project             |
 
-  @us-pl-03 @kpi @pending @contract-shape:unbounded-preservation
+  @us-pl-03 @kpi @contract-shape:unbounded-preservation
   Scenario Outline: A deleted project cannot be reached by a script either, and nothing is written
     Given Auth v2 Spike has 3 issues, 2 comments and 1 attachment
     And Identity Platform has 1 issue, 1 comment and 1 attachment
@@ -346,7 +346,7 @@ Feature: A deleted project answers nowhere, for anyone, on any door
       | commenting on an issue           |
       | editing a comment                |
 
-  @us-pl-03 @edge @pending @contract-shape:unbounded-preservation
+  @us-pl-03 @edge @contract-shape:unbounded-preservation
   Scenario: Listing machine tokens under a deleted project's address answers as under any address, because the list names no project
     Given Auth v2 Spike has 3 issues, 2 comments and 1 attachment
     And Identity Platform has 1 issue, 1 comment and 1 attachment
@@ -358,7 +358,7 @@ Feature: A deleted project answers nowhere, for anyone, on any door
     And neither request changed anything
     And the same door in Identity Platform, which is live, answers the same way
 
-  @us-pl-03 @edge @pending @contract-shape:bounded-change
+  @us-pl-03 @edge @contract-shape:bounded-change
   Scenario: Revoking a machine token under a deleted project's address revokes it, as under any address, because the token names no project
     Given a script holds a machine token of Priya's for Backend, and Priya has a spare machine token
     And Lena has deleted the project Auth v2 Spike
@@ -366,7 +366,7 @@ Feature: A deleted project answers nowhere, for anyone, on any door
     Then the first answer revoked the spare machine token, and nothing else changed
     And the second answer is the same as the first, and changed nothing
 
-  @us-pl-03 @error @kpi @pending @contract-shape:unbounded-preservation
+  @us-pl-03 @error @kpi @contract-shape:unbounded-preservation
   Scenario: A deleted project's real attachment cannot be downloaded by anyone
     Given Auth v2 Spike has 3 issues, 2 comments and 1 attachment
     And Identity Platform has 1 issue, 1 comment and 1 attachment
@@ -378,7 +378,7 @@ Feature: A deleted project answers nowhere, for anyone, on any door
 
   # ------------------------------------------------------------ lists
 
-  @us-pl-03 @kpi @pending @contract-shape:unbounded-preservation
+  @us-pl-03 @kpi @contract-shape:unbounded-preservation
   Scenario: A deleted project disappears from every list, and the others stay
     Given Lena has deleted the project Auth v2 Spike
     When Sam looks at his dashboard
@@ -388,7 +388,7 @@ Feature: A deleted project answers nowhere, for anyone, on any door
     And Ines's instance dashboard lists "Identity Platform" and "Homelab Ops" and not "Auth v2 Spike"
     And no project, issue or record changed
 
-  @us-pl-03 @error @pending @contract-shape:unbounded-preservation
+  @us-pl-03 @error @contract-shape:unbounded-preservation
   Scenario: The instance dashboard's rename does not find a deleted project
     Given Ines opened the instance dashboard earlier
     And Lena has deleted the project Auth v2 Spike
@@ -399,7 +399,7 @@ Feature: A deleted project answers nowhere, for anyone, on any door
 
   # ------------------------------------------------------------ stale pages, open views, races
 
-  @us-pl-03 @error @pending @contract-shape:unbounded-preservation
+  @us-pl-03 @error @contract-shape:unbounded-preservation
   Scenario: A change sent from a page opened before the delete is refused, and nothing changes
     Given Auth v2 Spike has 3 issues, 2 comments and 1 attachment
     And Identity Platform has 1 issue
@@ -410,7 +410,7 @@ Feature: A deleted project answers nowhere, for anyone, on any door
     And no project, issue or record changed
     And Sam can still save the title "Revived" on AUTH-1
 
-  @us-pl-03 @edge @pending @contract-shape:unbounded-preservation
+  @us-pl-03 @edge @contract-shape:unbounded-preservation
   Scenario Outline: An open live view of a deleted project hears of no change made after the delete
     Given Auth v2 Spike has 3 issues, 2 comments and 1 attachment
     And Sam is watching Auth v2 Spike's live updates, and has heard of an issue Lena filed
@@ -425,7 +425,7 @@ Feature: A deleted project answers nowhere, for anyone, on any door
       | file an issue on Auth v2 Spike |
       | comment on SPIKE-2            |
 
-  @us-pl-03 @error @kpi @concurrency @pending @contract-shape:bounded-change
+  @us-pl-03 @error @kpi @concurrency @contract-shape:bounded-change
   Scenario: Filing an issue during a delete gets a normal answer, never a failure
     Given Backend has 5 fresh projects, Race 1 to Race 5
     When Lena deletes each fresh project at the same moment as Sam files an issue on it
