@@ -828,6 +828,21 @@ fn dispatch_subcommand() -> Option<i32> {
                     let code = foundry_app::admin_cli::run_restore_comment(uuid);
                     Some(code)
                 }
+                // project-lifecycle D10 — the operator's doors to deleted
+                // projects. Read DATABASE_URL to reach the LIVE DB.
+                "list-deleted-projects" => {
+                    Some(foundry_app::admin_cli::run_list_deleted_projects())
+                }
+                "restore-project" => {
+                    let Some(uuid) = args.get(3) else {
+                        eprintln!(
+                            "foundry doctor restore-project: missing <project-uuid> argument. \
+                             Usage: foundry doctor restore-project <project-uuid>"
+                        );
+                        return Some(2);
+                    };
+                    Some(foundry_app::admin_cli::run_restore_project(uuid))
+                }
                 // multi-workspace-provisioning (US-MWT07, ADR-002 / D2) — the
                 // CLI-FIRST provisioning surface. Reads DATABASE_URL +
                 // SESSION_SECRET to reach the LIVE DB and sign the invite link.
@@ -995,6 +1010,7 @@ fn dispatch_subcommand() -> Option<i32> {
                     eprintln!(
                         "foundry doctor: subcommand required. \
                          Available: backup-verify <file>, restore-comment <comment-uuid>, \
+                         list-deleted-projects, restore-project <project-uuid>, \
                          provision-workspace --name <name> --admin-email <addr> --as <addr>, \
                          grant-super-admin --email <addr>, \
                          list-workspaces, list-users, \
@@ -1009,6 +1025,7 @@ fn dispatch_subcommand() -> Option<i32> {
                     eprintln!(
                         "foundry doctor: unknown subcommand {other:?}. \
                          Available: backup-verify <file>, restore-comment <comment-uuid>, \
+                         list-deleted-projects, restore-project <project-uuid>, \
                          provision-workspace --name <name> --admin-email <addr> --as <addr>, \
                          grant-super-admin --email <addr>, \
                          list-workspaces, list-users, \

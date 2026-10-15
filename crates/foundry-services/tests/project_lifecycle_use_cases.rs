@@ -711,7 +711,6 @@ async fn anyone_without_manage_gets_not_found_on_the_confirm_and_the_delete_and_
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-#[ignore = "pending: project-lifecycle 03-01 — projects::list_deleted_projects / restore_project"]
 async fn the_operator_lists_and_restores_a_deleted_project_and_refusals_change_nothing() {
     let l = labs().await;
     require_records(&l.pool).await;

@@ -10,7 +10,8 @@
 //! `list_team_projects` and `rename_project_with_audit`. Moved in (02-03):
 //! the export's `projects` entry, `TEAM_PROJECTS_SQL` and
 //! `count_projects_by_name`, each unchanged and still reading every row.
-//! Shipped (02-05): `soft_delete_project`.
+//! Shipped (02-05): `soft_delete_project`. Shipped (03-01):
+//! `list_deleted_projects` and `restore_deleted_project`.
 //! Signatures are DISTILL's working choice within what DESIGN pinned (names,
 //! arguments where the ADRs give them, and outcomes): if DELIVER changes one,
 //! it changes the gold tests with it.
@@ -96,6 +97,47 @@ pub struct DeletedProjectRow {
     pub deleted_at: time::OffsetDateTime,
     /// `users.email_lower` of `deleted_by`.
     pub deleted_by_email: String,
+}
+
+/// `list-deleted-projects`'s read (D10, D14): every deleted project with its
+/// workspace's name, its team's slug, its issue count and the deleting user's
+/// email, oldest deletion first, `id` breaking ties.
+const DELETED_PROJECTS_SQL: &str = "SELECT p.id, w.name, t.slug, p.name, p.key_prefix,
+        (SELECT count(*) FROM issues i WHERE i.project_id = p.id),
+        p.deleted_at, u.email_lower
+   FROM projects p
+   JOIN workspaces w ON w.id = p.workspace_id
+   JOIN teams t ON t.id = p.team_id
+   JOIN users u ON u.id = p.deleted_by
+  WHERE p.deleted_at IS NOT NULL
+  ORDER BY p.deleted_at, p.id";
+
+type DeletedProjectTuple = (
+    uuid::Uuid,
+    String,
+    String,
+    String,
+    String,
+    i64,
+    time::OffsetDateTime,
+    String,
+);
+
+impl From<DeletedProjectTuple> for DeletedProjectRow {
+    fn from(
+        (project_id, workspace_name, team_slug, name, key_prefix, issue_count, deleted_at, email): DeletedProjectTuple,
+    ) -> Self {
+        Self {
+            project_id,
+            workspace_name,
+            team_slug,
+            name,
+            key_prefix,
+            issue_count,
+            deleted_at,
+            deleted_by_email: email,
+        }
+    }
 }
 
 /// The outcome of [`Store::restore_deleted_project`] (DDD-9,
@@ -323,23 +365,101 @@ impl Store {
     }
 
     /// Every deleted project, instance-wide, oldest deletion first (`deleted_at`
-    /// then `id`).
+    /// then `id`), with its workspace's name, its team's slug, its issue count
+    /// and the deleting user's email (D10, D14). Read with no lock; writes
+    /// nothing.
     pub async fn list_deleted_projects(&self) -> Result<Vec<DeletedProjectRow>, StoreError> {
-        panic!(
-            "Not yet implemented -- RED scaffold (project-lifecycle 03-01: list_deleted_projects)"
-        )
+        let rows: Vec<DeletedProjectTuple> = sqlx::query_as(DELETED_PROJECTS_SQL)
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(rows.into_iter().map(DeletedProjectRow::from).collect())
     }
 
-    /// ADR-PROJECT-LIFECYCLE-002 decision 4: unlocked read; team `FOR KEY
-    /// SHARE`; project `FOR UPDATE` (still deleted, same team); clear the
-    /// marker; the `restored` record.
+    /// ADR-PROJECT-LIFECYCLE-002 decision 4, DDD-8, DDD-9: an unlocked read
+    /// (unknown: `NotFound`; live: `NotDeleted`); then, in one transaction, the
+    /// team `FOR KEY SHARE` (gone: `TeamGone`) BEFORE the project `FOR UPDATE`,
+    /// which re-checks the project is still deleted and in the same team (a
+    /// concurrent restore that won answers `NotDeleted`); clear the marker; the
+    /// `restored` record (actor NULL: the operator; `clock_timestamp()`).
+    /// Clearing the marker is the whole restore (Changed Assumption 3).
     pub async fn restore_deleted_project(
         &self,
-        _project_id: uuid::Uuid,
+        project_id: uuid::Uuid,
     ) -> Result<ProjectRestoreOutcome, StoreError> {
-        panic!(
-            "Not yet implemented -- RED scaffold (project-lifecycle 03-01: restore_deleted_project)"
+        let seen: Option<(uuid::Uuid, bool)> =
+            sqlx::query_as("SELECT team_id, deleted_at IS NOT NULL FROM projects WHERE id = $1")
+                .bind(project_id)
+                .fetch_optional(&self.pool)
+                .await?;
+        let team_id = match seen {
+            None => return Ok(ProjectRestoreOutcome::NotFound),
+            Some((_, false)) => return Ok(ProjectRestoreOutcome::NotDeleted),
+            Some((team_id, true)) => team_id,
+        };
+        let mut tx = self.pool.begin().await?;
+        let team: Option<(i32,)> =
+            sqlx::query_as("SELECT 1 FROM teams WHERE id = $1 FOR KEY SHARE")
+                .bind(team_id)
+                .fetch_optional(&mut *tx)
+                .await?;
+        if team.is_none() {
+            tx.rollback().await?;
+            return Ok(ProjectRestoreOutcome::TeamGone {
+                team_slug: self.deleted_team_slug(team_id).await?,
+            });
+        }
+        let locked: Option<(uuid::Uuid, uuid::Uuid, String, String, String)> = sqlx::query_as(
+            "SELECT workspace_id, team_id, slug, key_prefix, name
+               FROM projects WHERE id = $1 AND deleted_at IS NOT NULL FOR UPDATE",
         )
+        .bind(project_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some((workspace_id, locked_team_id, slug, key_prefix, name)) = locked else {
+            tx.rollback().await?;
+            return Ok(ProjectRestoreOutcome::NotDeleted);
+        };
+        if locked_team_id != team_id {
+            tx.rollback().await?;
+            return Ok(ProjectRestoreOutcome::TeamGone {
+                team_slug: self.deleted_team_slug(team_id).await?,
+            });
+        }
+        sqlx::query("UPDATE projects SET deleted_at = NULL, deleted_by = NULL WHERE id = $1")
+            .bind(project_id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query(
+            "INSERT INTO project_lifecycle_events
+                    (id, workspace_id, project_id, team_id, project_slug, key_prefix, kind,
+                     actor_id, name, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, 'restored', NULL, $7, clock_timestamp())",
+        )
+        .bind(uuid::Uuid::now_v7())
+        .bind(workspace_id)
+        .bind(project_id)
+        .bind(team_id)
+        .bind(&slug)
+        .bind(&key_prefix)
+        .bind(&name)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(ProjectRestoreOutcome::Restored)
+    }
+
+    /// The slug a gone team's `deleted` record carries (DIST-2); empty when
+    /// no record names it.
+    async fn deleted_team_slug(&self, team_id: uuid::Uuid) -> Result<String, StoreError> {
+        let slug: Option<String> = sqlx::query_scalar(
+            "SELECT team_slug FROM team_lifecycle_events
+              WHERE team_id = $1 AND kind = 'deleted'
+              ORDER BY created_at DESC LIMIT 1",
+        )
+        .bind(team_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(slug.unwrap_or_default())
     }
 
     /// The team delete page's deleted-projects line (DDD-21), read with no lock.

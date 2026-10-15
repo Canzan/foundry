@@ -61,7 +61,7 @@ Feature: The instance operator restores a deleted project exactly as it was
       | Backend | Auth v2 Spike     | SPIKE | auth-v2-spike |
       | Ops     | Reading List      | READ  | reading-list  |
 
-  @us-pl-04 @driving_port @kpi @pending @contract-shape:unbounded-preservation
+  @us-pl-04 @driving_port @kpi @contract-shape:unbounded-preservation
   Scenario: The operator finds a deleted project on the list
     Given Auth v2 Spike has 3 issues, 2 comments and 1 attachment
     And Lena has deleted the project Auth v2 Spike
@@ -77,7 +77,7 @@ Feature: The instance operator restores a deleted project exactly as it was
       | deleted-by | lena.park@canzan.dev   |
     And no project, issue or record changed
 
-  @us-pl-04 @driving_port @kpi @pending @contract-shape:bounded-change
+  @us-pl-04 @driving_port @kpi @contract-shape:bounded-change
   Scenario: The operator restores a deleted project with everything under it
     Given Auth v2 Spike has 3 issues, 2 comments and 1 attachment
     And Sam has noted how every page of Auth v2 Spike answers him
@@ -90,7 +90,7 @@ Feature: The instance operator restores a deleted project exactly as it was
     And every page of Auth v2 Spike answers Sam as it did before the delete
     And the next issue Lena files on Auth v2 Spike is SPIKE-4
 
-  @us-pl-04 @kpi @pending @contract-shape:bounded-change
+  @us-pl-04 @kpi @contract-shape:bounded-change
   Scenario: A restored project holds exactly what it held when it was deleted
     Given Auth v2 Spike has 3 issues, 2 comments and 1 attachment
     And one more comment on SPIKE-2 was deleted and awaits cleanup
@@ -99,13 +99,13 @@ Feature: The instance operator restores a deleted project exactly as it was
     Then Auth v2 Spike is restored, one restore record names the operator, and nothing else changed
     And Auth v2 Spike holds exactly what it held just before it was deleted, under the same name, address, key and next issue number
 
-  @us-pl-04 @edge @pending @contract-shape:unbounded-preservation
+  @us-pl-04 @edge @contract-shape:unbounded-preservation
   Scenario: The operator is told when there is nothing to restore
     When the operator lists the deleted projects
     Then the operator reads "status: none", and the command succeeded
     And no project, issue or record changed
 
-  @us-pl-04 @edge @pending @contract-shape:unbounded-preservation
+  @us-pl-04 @edge @contract-shape:unbounded-preservation
   Scenario: Every deleted project is listed, the oldest deletion first
     Given Auth v2 Spike has 3 issues, 2 comments and 1 attachment
     And Priya has deleted the project Reading List
@@ -131,7 +131,7 @@ Feature: The instance operator restores a deleted project exactly as it was
       | deleted-by | lena.park@canzan.dev   |
     And no project, issue or record changed
 
-  @us-pl-04 @error @pending @contract-shape:unbounded-preservation
+  @us-pl-04 @error @contract-shape:unbounded-preservation
   Scenario Outline: A restore that cannot be done is refused with its reason, and nothing changes
     When the operator restores <target>
     Then the command exits <code>, saying "<message>"
@@ -143,7 +143,7 @@ Feature: The instance operator restores a deleted project exactly as it was
       | {an id no project has}   | 4    | foundry doctor restore-project: project {an id no project has} not in database — status: not restorable      |
       | not-a-uuid               | 2    | foundry doctor restore-project: invalid UUID "not-a-uuid"                                                    |
 
-  @us-pl-04 @edge @pending @contract-shape:unbounded-preservation
+  @us-pl-04 @edge @contract-shape:unbounded-preservation
   Scenario: Restoring the same project twice restores it once
     Given Lena has deleted the project Auth v2 Spike
     And the operator has restored {Auth v2 Spike's id}
@@ -151,7 +151,7 @@ Feature: The instance operator restores a deleted project exactly as it was
     Then the command exits 4, saying "foundry doctor restore-project: project {Auth v2 Spike's id} is not deleted — status: not restorable"
     And no project, issue or record changed
 
-  @us-pl-04 @error @pending @contract-shape:unbounded-preservation
+  @us-pl-04 @error @contract-shape:unbounded-preservation
   Scenario: A restore attempted while foundry's records cannot be reached changes nothing
     Given Lena has deleted the project Auth v2 Spike
     When the operator restores {Auth v2 Spike's id} while foundry's records cannot be reached

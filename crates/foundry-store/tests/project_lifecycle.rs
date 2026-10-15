@@ -1879,7 +1879,6 @@ async fn a_rename_and_a_delete_of_one_project_are_totally_ordered_in_100_runs() 
 // ===========================================================================
 
 #[tokio::test]
-#[ignore = "pending: project-lifecycle 03-01 — restore_deleted_project (exact, Changed Assumption 3)"]
 async fn a_restore_puts_back_exactly_what_was_there_except_tombstones_the_gc_purged_meanwhile() {
     let l = lab().await;
     require_records(&l.pool).await;
@@ -1942,7 +1941,6 @@ async fn a_restore_puts_back_exactly_what_was_there_except_tombstones_the_gc_pur
 /// row `FOR UPDATE`, the restore waits, and the project row is still free (a
 /// third session takes it `FOR UPDATE NOWAIT`), so it was not locked first.
 #[tokio::test]
-#[ignore = "pending: project-lifecycle 03-01 — restore lock order: team before project (DDD-8, DDD-9)"]
 async fn a_restore_takes_the_team_lock_before_the_project_lock() {
     let l = lab().await;
     require_records(&l.pool).await;
@@ -1985,7 +1983,6 @@ async fn a_restore_takes_the_team_lock_before_the_project_lock() {
 }
 
 #[tokio::test]
-#[ignore = "pending: project-lifecycle 03-01 — restore_deleted_project (refusals)"]
 async fn restoring_a_live_project_or_an_unknown_id_says_so_and_writes_nothing() {
     let l = lab().await;
     require_records(&l.pool).await;
@@ -2009,7 +2006,6 @@ async fn restoring_a_live_project_or_an_unknown_id_says_so_and_writes_nothing() 
 }
 
 #[tokio::test]
-#[ignore = "pending: project-lifecycle 03-01 — restore_deleted_project (concurrent double restore)"]
 async fn two_restores_at_once_restore_once_and_record_once() {
     let l = lab().await;
     require_records(&l.pool).await;
@@ -2048,7 +2044,6 @@ async fn two_restores_at_once_restore_once_and_record_once() {
 }
 
 #[tokio::test]
-#[ignore = "pending: project-lifecycle 03-01 — list_deleted_projects"]
 async fn the_deleted_list_is_oldest_deletion_first_with_who_and_how_many_issues() {
     let l = lab().await;
     require_records(&l.pool).await;

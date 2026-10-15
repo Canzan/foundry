@@ -3322,11 +3322,30 @@ pub async fn then_next_filed_is(world: &mut FoundryWorld, who: &str, name: &str,
     let answer = file_issue(world, &actor, &p, "Filed after the restore").await;
     require_written(&answer, "the issue filed after the restore");
     let n: i64 = key.rsplit_once('-').expect("a key").1.parse().expect("n");
+    // The issue page names an issue by its key alone (`<h1>{key}</h1>`); the
+    // title is shown on the board's card. So: the key's own page answers with
+    // that key, and the board's card for that key carries the title just filed.
     let page = tm::open(world, &actor, &format!("{}/issues/{n}", project_path(&p))).await;
     assert!(
-        page.status == StatusCode::OK && tm::says(&page, "Filed after the restore"),
-        "the next issue filed on {name} is {key}; {}",
+        page.status == StatusCode::OK && tm::says(&page, key),
+        "{key} opens at its own address; {}",
         tm::describe(&page)
+    );
+    let board = tm::open(world, &actor, &project_path(&p)).await;
+    tl::require_status(&board, StatusCode::OK, "the board opens");
+    let doc = parse(&board.body);
+    let titles: Vec<String> = select_all(
+        &doc,
+        &format!("article.issue-card[data-issue-key=\"{key}\"] .title"),
+    )
+    .iter()
+    .map(|t| squash(&text_of(t)))
+    .collect();
+    assert_eq!(
+        titles,
+        vec!["Filed after the restore".to_string()],
+        "the next issue filed on {name} is {key}; {}",
+        tm::describe(&board)
     );
 }
 

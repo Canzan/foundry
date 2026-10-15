@@ -556,6 +556,165 @@ fn comment_not_restorable(comment_id: uuid::Uuid, why: &str) -> i32 {
     4
 }
 
+/// project-lifecycle D14: the operator doors' copy, in one home. Their bytes
+/// are pinned by `project-lifecycle-03-restore-project.feature`.
+mod restore_project_copy {
+    pub(super) const LIST: &str = "foundry doctor list-deleted-projects";
+    pub(super) const RESTORE: &str = "foundry doctor restore-project";
+    pub(super) const NONE: &str = "status: none";
+    pub(super) const RESTORED: &str = "status: restored";
+    pub(super) const NOT_RESTORABLE: &str = "status: not restorable";
+
+    /// One `list-deleted-projects` block (D14), lines in order.
+    pub(super) fn block(row: &foundry_store::DeletedProjectRow) -> String {
+        let deleted_at = row
+            .deleted_at
+            .to_offset(time::UtcOffset::UTC)
+            .replace_nanosecond(0)
+            .unwrap_or(row.deleted_at)
+            .format(&time::format_description::well_known::Rfc3339)
+            .unwrap_or_default();
+        format!(
+            "project-id: {}\nworkspace: {}\nteam: {}\nname: {}\nkey: {}\nissues: {}\n\
+             deleted-at: {deleted_at}\ndeleted-by: {}",
+            row.project_id,
+            row.workspace_name,
+            row.team_slug,
+            row.name,
+            row.key_prefix,
+            row.issue_count,
+            row.deleted_by_email,
+        )
+    }
+
+    /// `restore-project`'s exit-4 reason (D14, DIST-2).
+    pub(super) fn not_restorable(project_id: uuid::Uuid, why: &str) -> String {
+        format!("{RESTORE}: project {project_id}{why} — {NOT_RESTORABLE}")
+    }
+
+    pub(super) const NOT_DELETED: &str = " is not deleted";
+    pub(super) const NOT_IN_DATABASE: &str = " not in database";
+
+    /// DIST-2: unreachable until migration 0027 detaches a deleted project
+    /// from its gone team; 04-03 owns these bytes.
+    pub(super) fn team_gone(team_slug: &str) -> String {
+        format!(": its team {team_slug} was deleted")
+    }
+}
+
+/// Run an operator door against the LIVE database through [`Services`]
+/// (DDD-10), on `run_restore_comment`'s scaffold: `DATABASE_URL` required,
+/// a thread-isolated tokio runtime, exit 3 when the database cannot be
+/// reached. `body` returns the exit code.
+///
+/// [`Services`]: foundry_services::Services
+fn run_with_services<F, Fut>(command: &'static str, body: F) -> i32
+where
+    F: FnOnce(foundry_services::Services) -> Fut + Send + 'static,
+    Fut: std::future::Future<Output = i32>,
+{
+    let database_url = match std::env::var("DATABASE_URL") {
+        Ok(v) if !v.is_empty() => v,
+        _ => {
+            eprintln!(
+                "{command}: DATABASE_URL is required to reach the live database. \
+                 Set it to the same value the foundry server uses."
+            );
+            return 3;
+        }
+    };
+    std::thread::spawn(move || {
+        let runtime = match tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        {
+            Ok(rt) => rt,
+            Err(err) => {
+                eprintln!("{command}: could not build tokio runtime: {err}");
+                return 3;
+            }
+        };
+        runtime.block_on(async move {
+            match foundry_store::Store::connect(&database_url).await {
+                Ok(store) => {
+                    body(foundry_services::Services::new(std::sync::Arc::new(store))).await
+                }
+                Err(err) => {
+                    eprintln!("{command}: could not connect to DATABASE_URL: {err}");
+                    3
+                }
+            }
+        })
+    })
+    .join()
+    .unwrap_or_else(|_| {
+        eprintln!("{command}: worker thread panicked; see stderr above");
+        3
+    })
+}
+
+/// project-lifecycle D10 — `foundry doctor list-deleted-projects`: one D14
+/// block per deleted project, oldest deletion first, a blank line between
+/// blocks; `status: none` when there is none. Exit 0; 3 when the database
+/// cannot be reached or read.
+pub fn run_list_deleted_projects() -> i32 {
+    use restore_project_copy::{block, LIST, NONE};
+    run_with_services(LIST, |services| async move {
+        match services.list_deleted_projects().await {
+            Ok(rows) if rows.is_empty() => {
+                println!("{NONE}");
+                0
+            }
+            Ok(rows) => {
+                let blocks: Vec<String> = rows.iter().map(block).collect();
+                println!("{}", blocks.join("\n\n"));
+                0
+            }
+            Err(err) => {
+                eprintln!("{LIST}: reading the deleted projects failed: {err}");
+                3
+            }
+        }
+    })
+}
+
+/// project-lifecycle D10, D11 — `foundry doctor restore-project <uuid>`,
+/// with `restore-comment`'s exits: 0 restored (stdout `project-id: {uuid}`
+/// then `status: restored`); 2 invalid uuid; 3 database unreachable or
+/// failed; 4 not restorable (not deleted, unknown, or its team is gone), with
+/// the reason on stderr. A refusal changes nothing.
+pub fn run_restore_project(project_id: &str) -> i32 {
+    use foundry_store::ProjectRestoreOutcome;
+    use restore_project_copy::{
+        not_restorable, team_gone, NOT_DELETED, NOT_IN_DATABASE, RESTORE, RESTORED,
+    };
+    let uuid = match uuid::Uuid::from_str(project_id) {
+        Ok(u) => u,
+        Err(err) => {
+            eprintln!("{RESTORE}: invalid UUID {project_id:?}: {err}");
+            return 2;
+        }
+    };
+    run_with_services(RESTORE, move |services| async move {
+        let why = match services.restore_project(uuid).await {
+            Ok(ProjectRestoreOutcome::Restored) => {
+                println!("project-id: {uuid}");
+                println!("{RESTORED}");
+                return 0;
+            }
+            Ok(ProjectRestoreOutcome::NotDeleted) => NOT_DELETED.to_string(),
+            Ok(ProjectRestoreOutcome::NotFound) => NOT_IN_DATABASE.to_string(),
+            Ok(ProjectRestoreOutcome::TeamGone { team_slug }) => team_gone(&team_slug),
+            Err(err) => {
+                eprintln!("{RESTORE}: the restore against the live DB failed: {err}");
+                return 3;
+            }
+        };
+        eprintln!("{}", not_restorable(uuid, &why));
+        4
+    })
+}
+
 /// multi-workspace-provisioning (US-MWT07, ADR-002/003) — entry point invoked
 /// from `main.rs` when the CLI sees
 /// `foundry doctor provision-workspace --name <name> --admin-email <addr>

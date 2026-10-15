@@ -335,6 +335,23 @@ impl Services {
         projects::delete_project(&self.store, principal, team_slug, project_slug).await
     }
 
+    /// project-lifecycle `foundry doctor list-deleted-projects` — delegates to
+    /// [`projects::list_deleted_projects`].
+    pub async fn list_deleted_projects(
+        &self,
+    ) -> Result<Vec<foundry_store::DeletedProjectRow>, foundry_store::StoreError> {
+        projects::list_deleted_projects(&self.store).await
+    }
+
+    /// project-lifecycle `foundry doctor restore-project <uuid>` — delegates to
+    /// [`projects::restore_project`].
+    pub async fn restore_project(
+        &self,
+        project_id: uuid::Uuid,
+    ) -> Result<foundry_store::ProjectRestoreOutcome, foundry_store::StoreError> {
+        projects::restore_project(&self.store, project_id).await
+    }
+
     /// multi-workspace-provisioning (US-MWT07, ADR-002/003) — provision a NEW
     /// isolated workspace + its first admin, gated by the INSTANCE super-admin
     /// authority. Delegates to [`provisioning::provision_workspace`].

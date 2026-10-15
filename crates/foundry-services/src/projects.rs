@@ -608,12 +608,11 @@ mod classify_rename_properties {
 // restore (DESIGN DDD-10, DDD-12, DDD-16, DDD-18; ADR-PROJECT-LIFECYCLE-002
 // decision 5, ADR-PROJECT-LIFECYCLE-003 decision 3)
 //
-// SCAFFOLD: true — RED scaffold written by DISTILL (2026-10-13). The types are
-// real (`tests/project_lifecycle_use_cases.rs` matches on them); every function
-// still panicking does so until its DELIVER step. Shipped (01-03):
+// Shipped (01-03):
 // `rename_team_project` on the shared `RenameTarget::apply_rename` core, which
 // `rename_project` now calls too (DDD-16). Shipped (02-05): `delete_preview` and
-// `delete_project` on the shared `DeleteTarget::resolve` gate.
+// `delete_project` on the shared `DeleteTarget::resolve` gate. Shipped (03-01):
+// `list_deleted_projects` and `restore_project`, the operator's doors.
 // ===========================================================================
 
 /// What a rename from the team page did (DDD-16). The old name is the one the
@@ -774,19 +773,18 @@ pub async fn delete_project(
 }
 
 /// `foundry doctor list-deleted-projects` (D10): the operator's shell is the
-/// authority; no user is checked.
+/// authority; no user is checked. Oldest deletion first.
 pub async fn list_deleted_projects(
-    _store: &Store,
+    store: &Store,
 ) -> Result<Vec<foundry_store::DeletedProjectRow>, foundry_store::StoreError> {
-    panic!("Not yet implemented -- RED scaffold (project-lifecycle 03-01: projects::list_deleted_projects)")
+    store.list_deleted_projects().await
 }
 
-/// `foundry doctor restore-project <uuid>` (D10, D11).
+/// `foundry doctor restore-project <uuid>` (D10, D11): the store's locked
+/// transaction decides (`Store::restore_deleted_project`).
 pub async fn restore_project(
-    _store: &Store,
-    _project_id: uuid::Uuid,
+    store: &Store,
+    project_id: uuid::Uuid,
 ) -> Result<foundry_store::ProjectRestoreOutcome, foundry_store::StoreError> {
-    panic!(
-        "Not yet implemented -- RED scaffold (project-lifecycle 03-01: projects::restore_project)"
-    )
+    store.restore_deleted_project(project_id).await
 }
